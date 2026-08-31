@@ -20,7 +20,10 @@ use crate::sector::Mask;
 
 use super::nominate::{empty_obstruction_nominations_for_test, nominate_support_for_test};
 use super::residual::pair_selected_sources_for_test;
-use super::{OrdinarySourceIncidenceIndex, SourceDiscoveryError, SourceDiscoveryLimits};
+use super::{
+    OrdinarySourceIncidenceIndex, ProbeRowEvaluationCache, SourceDiscoveryError,
+    SourceDiscoveryLimits,
+};
 
 const PRIME: u64 = 1_000_000_007;
 
@@ -475,6 +478,420 @@ fn checked_obstruction_nomination_excludes_every_materialized_request() {
                 && source.provenance().offset() == request.offset()
         }));
     }
+}
+
+#[test]
+fn obstruction_block_union_is_deterministic_and_retains_primary_as_exact_subset() {
+    let family = canonical_three_loop_family().unwrap();
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let context = generator.context().clone();
+    let completed = complete_ordinary(&generator);
+    let sources = zero_offset_sources(&generator, &completed);
+    let limits = SourceDiscoveryLimits::default();
+    let incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    let chart = OneSidedChartFrame::try_new(
+        &generator,
+        &completed,
+        Mask::try_new([false, true, true, true, true, false]).unwrap(),
+        1,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let plan = chart.plan();
+    let sampled = plan
+        .try_modular_sample(
+            &context,
+            PRIME,
+            &[37],
+            &[1, 2, 3, 4, 5, 6],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    let forbidden = (1..plan.columns().len()).collect::<Vec<_>>();
+    let query = sampled
+        .query_target_with_obstruction_rotation(0, &forbidden, 2, ModularKernelLimits::default())
+        .unwrap();
+    let ModularTargetQuery::NoHitWithObstruction(obstruction) = query else {
+        panic!("canonical all-other-column K6 query must have a checked obstruction")
+    };
+
+    let primary = incidence
+        .try_nominate_obstruction(&obstruction, limits)
+        .unwrap();
+    let first = incidence
+        .try_nominate_obstruction_block(&obstruction, &primary, limits)
+        .unwrap();
+    let repeated = incidence
+        .try_nominate_obstruction_block(&obstruction, &primary, limits)
+        .unwrap();
+    assert_eq!(first, repeated);
+    assert_eq!(first.primary().requests(), first.union().primary_requests());
+    assert!(
+        first.primary().requests().iter().all(|request| first
+            .union()
+            .requests()
+            .binary_search(request)
+            .is_ok())
+    );
+    assert_eq!(
+        first.union().direction_count(),
+        obstruction.proposal_block().directions().len()
+    );
+    assert!(first.union().direction_count() <= 4);
+
+    // Reconstruct each member's exact raw support independently and compare
+    // it to the corresponding dense coordinate of the canonical union.
+    for (direction_ordinal, direction) in
+        obstruction.proposal_block().directions().iter().enumerate()
+    {
+        let direct = direction
+            .entries()
+            .iter()
+            .map(|entry| {
+                let physical = obstruction.logical_physical_columns()[entry.logical_column()];
+                (
+                    plan.columns()[physical].clone(),
+                    entry.coefficient().clone(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let from_union = first
+            .union()
+            .support()
+            .iter()
+            .filter_map(|entry| {
+                let coefficient = &entry.coefficients()[direction_ordinal];
+                (!sampled.field().is_zero(coefficient))
+                    .then(|| (entry.shift().clone(), coefficient.clone()))
+            })
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(from_union, direct);
+    }
+
+    let raw_block_entries = obstruction
+        .proposal_block()
+        .directions()
+        .iter()
+        .map(|direction| direction.entries().len())
+        .sum::<usize>();
+    let upper = first.union().nomination_upper_bound();
+    assert_eq!(upper.raw_block_entries(), raw_block_entries);
+    let exact_union_visits = upper.raw_request_visits();
+    let mut exact = limits;
+    exact.max_union_block_entries = raw_block_entries;
+    exact.max_union_support_entries = raw_block_entries;
+    exact.max_union_support_coordinate_cells = raw_block_entries * incidence.arity();
+    exact.max_union_support_coefficient_cells = raw_block_entries * first.union().direction_count();
+    exact.max_union_incidence_visits = exact_union_visits;
+    exact.max_union_raw_requests = exact_union_visits;
+    exact.max_union_unique_requests = first.union().unique_before_existing_exclusion();
+    exact.max_union_request_coordinate_cells = exact_union_visits * incidence.arity();
+    exact.max_union_subset_comparisons = upper.subset_comparisons();
+    exact.max_union_canonicalization_logical_work_reservation =
+        upper.canonicalization_logical_work_reservation();
+    assert_eq!(
+        incidence
+            .try_nominate_obstruction_block(&obstruction, &primary, exact)
+            .unwrap(),
+        first
+    );
+
+    let mut below_block = exact;
+    below_block.max_union_block_entries = raw_block_entries - 1;
+    assert_eq!(
+        incidence
+            .try_nominate_obstruction_block(&obstruction, &primary, below_block)
+            .unwrap_err(),
+        SourceDiscoveryError::ResourceLimit {
+            resource: "source-discovery obstruction-block raw entries",
+            requested: raw_block_entries,
+            limit: raw_block_entries - 1,
+        }
+    );
+    let mut below_pairing = exact;
+    below_pairing.max_union_incidence_visits = exact_union_visits - 1;
+    assert_eq!(
+        incidence
+            .try_nominate_obstruction_block(&obstruction, &primary, below_pairing)
+            .unwrap_err(),
+        SourceDiscoveryError::ResourceLimit {
+            resource: "source-discovery obstruction-block union incidence visits",
+            requested: exact_union_visits,
+            limit: exact_union_visits - 1,
+        }
+    );
+    let mut no_subset_work = exact;
+    no_subset_work.max_union_subset_comparisons = upper.subset_comparisons() - 1;
+    assert_eq!(
+        incidence
+            .try_nominate_obstruction_block(&obstruction, &primary, no_subset_work)
+            .unwrap_err(),
+        SourceDiscoveryError::ResourceLimit {
+            resource: "source-discovery obstruction-block primary-subset comparisons",
+            requested: upper.subset_comparisons(),
+            limit: upper.subset_comparisons() - 1,
+        }
+    );
+    let mut below_sort_work = exact;
+    below_sort_work.max_union_canonicalization_logical_work_reservation =
+        upper.canonicalization_logical_work_reservation() - 1;
+    assert_eq!(
+        incidence
+            .try_nominate_obstruction_block(&obstruction, &primary, below_sort_work)
+            .unwrap_err(),
+        SourceDiscoveryError::ResourceLimit {
+            resource: "source-discovery obstruction-block canonicalization logical-work reservation",
+            requested: upper.canonicalization_logical_work_reservation(),
+            limit: upper.canonicalization_logical_work_reservation() - 1,
+        }
+    );
+}
+
+#[test]
+fn probe_row_cache_retains_complete_zero_values_and_rejects_foreign_scope() {
+    let family = canonical_three_loop_family().unwrap();
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let sources = zero_offset_sources(&generator, &completed);
+    let limits = SourceDiscoveryLimits::default();
+    let incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    let chart = OneSidedChartFrame::try_new(
+        &generator,
+        &completed,
+        Mask::try_new([false, true, true, true, true, false]).unwrap(),
+        1,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let plan = chart.plan();
+    let sampled = plan
+        .try_modular_sample(
+            generator.context(),
+            PRIME,
+            &[37],
+            &[1, 2, 3, 4, 5, 6],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+
+    let mut direct = Vec::new();
+    let (source, request, expected) = (0..plan.row_count())
+        .find_map(|row| {
+            let source = plan.source_for_row(row).unwrap();
+            sampled
+                .try_evaluate_translated_source(generator.context(), source, &mut direct)
+                .unwrap();
+            direct
+                .iter()
+                .any(|value| sampled.field().is_zero(value))
+                .then(|| {
+                    (
+                        source,
+                        TranslatedSourceRequest::new(
+                            source.provenance().source_ordinal(),
+                            source.provenance().offset().clone(),
+                        ),
+                        direct.clone(),
+                    )
+                })
+        })
+        .expect("the K6 sample must contain an explicit modular-zero row value");
+    assert!(expected.iter().any(|value| sampled.field().is_zero(value)));
+
+    let mut cache = ProbeRowEvaluationCache::try_new(&incidence, &completed, limits).unwrap();
+    let cold = cache
+        .try_evaluate(
+            &incidence,
+            generator.context(),
+            &request,
+            source,
+            &sampled,
+            0,
+            limits,
+        )
+        .unwrap();
+    assert_eq!(cold.as_ref(), expected.as_slice());
+    assert_eq!(cache.telemetry().rows(), 1);
+    assert_eq!(cache.telemetry().value_cells(), expected.len());
+    assert_eq!(cache.telemetry().physical_evaluations(), 1);
+    assert_eq!(cache.telemetry().cache_hits(), 0);
+
+    // A fresh sampled owner for the same exact modulus/point is a valid hit;
+    // pointer identity is deliberately not used as a computation-cache key.
+    let repeated_sample = plan
+        .try_modular_sample(
+            generator.context(),
+            PRIME,
+            &[37],
+            &[1, 2, 3, 4, 5, 6],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    let warm = cache
+        .try_evaluate(
+            &incidence,
+            generator.context(),
+            &request,
+            source,
+            &repeated_sample,
+            0,
+            limits,
+        )
+        .unwrap();
+    assert_eq!(warm, cold);
+    assert_eq!(cache.telemetry().physical_evaluations(), 1);
+    assert_eq!(cache.telemetry().cache_hits(), 1);
+    assert!(cache.telemetry().lookup_comparisons() > 0);
+
+    let foreign_incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    assert!(matches!(
+        cache.try_evaluate(
+            &foreign_incidence,
+            generator.context(),
+            &request,
+            source,
+            &sampled,
+            0,
+            limits,
+        ),
+        Err(SourceDiscoveryError::ScopeMismatch {
+            detail: "row cache belongs to a different incidence owner"
+        })
+    ));
+    let foreign_point = plan
+        .try_modular_sample(
+            generator.context(),
+            PRIME,
+            &[37],
+            &[2, 2, 3, 4, 5, 6],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    assert!(matches!(
+        cache.try_evaluate(
+            &incidence,
+            generator.context(),
+            &request,
+            source,
+            &foreign_point,
+            0,
+            limits,
+        ),
+        Err(SourceDiscoveryError::ScopeMismatch {
+            detail: "row cache modulus or complete evaluation point changed within one probe"
+        })
+    ));
+    assert_eq!(cache.telemetry().rows(), 1);
+    assert_eq!(cache.telemetry().physical_evaluations(), 1);
+
+    let mut no_rows = limits;
+    no_rows.max_row_cache_rows = 0;
+    let mut bounded = ProbeRowEvaluationCache::try_new(&incidence, &completed, no_rows).unwrap();
+    assert_eq!(
+        bounded
+            .try_evaluate(
+                &incidence,
+                generator.context(),
+                &request,
+                source,
+                &sampled,
+                0,
+                no_rows,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::ResourceLimit {
+            resource: "source-discovery probe row-cache rows",
+            requested: 1,
+            limit: 0,
+        }
+    );
+    assert_eq!(bounded.telemetry().rows(), 0);
+    assert_eq!(bounded.telemetry().physical_evaluations(), 0);
+
+    let mut ordered_rows = (0..plan.row_count())
+        .map(|row| {
+            let source = plan.source_for_row(row).unwrap();
+            (
+                TranslatedSourceRequest::new(
+                    source.provenance().source_ordinal(),
+                    source.provenance().offset().clone(),
+                ),
+                row,
+            )
+        })
+        .collect::<Vec<_>>();
+    ordered_rows.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    ordered_rows.dedup_by(|left, right| left.0 == right.0);
+    let (low_request, low_row) = ordered_rows.first().cloned().unwrap();
+    let (high_request, high_row) = ordered_rows.last().cloned().unwrap();
+    assert!(low_request < high_request);
+    let low_source = plan.source_for_row(low_row).unwrap();
+    let high_source = plan.source_for_row(high_row).unwrap();
+
+    let mut exact_moves = limits;
+    exact_moves.max_row_cache_insertion_moves = 1;
+    let mut descending =
+        ProbeRowEvaluationCache::try_new(&incidence, &completed, exact_moves).unwrap();
+    descending
+        .try_evaluate(
+            &incidence,
+            generator.context(),
+            &high_request,
+            high_source,
+            &sampled,
+            0,
+            exact_moves,
+        )
+        .unwrap();
+    descending
+        .try_evaluate(
+            &incidence,
+            generator.context(),
+            &low_request,
+            low_source,
+            &sampled,
+            1,
+            exact_moves,
+        )
+        .unwrap();
+    assert_eq!(descending.telemetry().insertion_moves(), 1);
+
+    let mut below_moves = exact_moves;
+    below_moves.max_row_cache_insertion_moves = 0;
+    let mut bounded_moves =
+        ProbeRowEvaluationCache::try_new(&incidence, &completed, below_moves).unwrap();
+    bounded_moves
+        .try_evaluate(
+            &incidence,
+            generator.context(),
+            &high_request,
+            high_source,
+            &sampled,
+            0,
+            below_moves,
+        )
+        .unwrap();
+    assert_eq!(
+        bounded_moves
+            .try_evaluate(
+                &incidence,
+                generator.context(),
+                &low_request,
+                low_source,
+                &sampled,
+                1,
+                below_moves,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::ResourceLimit {
+            resource: "source-discovery probe row-cache insertion moves",
+            requested: 1,
+            limit: 0,
+        }
+    );
+    assert_eq!(bounded_moves.telemetry().rows(), 1);
+    assert_eq!(bounded_moves.telemetry().physical_evaluations(), 1);
+    assert_eq!(bounded_moves.telemetry().insertion_moves(), 0);
 }
 
 #[test]

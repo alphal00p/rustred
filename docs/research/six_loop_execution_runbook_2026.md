@@ -662,15 +662,223 @@ old all-residual merge, but it also falsifies scalar one-obstruction ranking as
 a sufficient closure strategy: repeated rescans dominate while many admitted
 rows are rank-dependent.
 
-The immediate discovery experiment is therefore a compact independent
-obstruction block with batch-aware rank gain and evaluated-row reuse, followed
-by Baikov/syzygy or generating-function proposals aimed at exact uncovered
-directions. In parallel, exact hits exercise the implemented executable-owner
-compiler, must close a cover before solved-sector publication, and enter the
-next rank only as a complete transactional wave. The generic route index now
-removes noncanonical factorization and solved-sector ownership as a wave
-blocker; the first rank-three wave still waits on complete covers for all of
-its required canonical sectors.
+That compact independent-obstruction experiment is now implemented as a
+strictly proposal-only lane. One Symbolica sparse RREF produces the checked
+primary `q0` obstruction and as many as three deterministic, epoch-rotated
+target-normalized `q0 + z_i` directions. Every direction independently replays
+`Aq = 0`; direction zero shares the primary obstruction allocation rather than
+reconstructing it. Union incidence can nominate new rows, but only the old
+complete q0 residual census can establish negative evidence. A probe-local
+complete-row cache reuses exact finite-field evaluations, and the selector
+keeps one q0-cutting row before greedily maximizing marginal signature rank,
+with one deterministic breadth slot. A fresh modular query and exact replay
+remain mandatory before any rule can cross the authority boundary.
+
+The first path/star width-one versus width-four measurement is deliberately
+bounded to one epoch and 32 selected requests:
+
+| sector | width | logical cache rows / terms | physical rows / hits | requests | exact lifts |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| path `[0,0,1,0,1,1]` | 1 | 7,598 / 77,068 | 3,799 / 3,799 | 90 -> 122 | 0 |
+| path `[0,0,1,0,1,1]` | 4 | 7,757 / 78,679 | 3,958 / 3,799 | 90 -> 122 | 0 |
+| star `[0,0,1,1,0,1]` | 1 | 7,714 / 78,224 | 3,857 / 3,857 | 90 -> 122 | 0 |
+| star `[0,0,1,1,0,1]` | 4 | 7,864 / 79,742 | 4,007 / 3,857 | 90 -> 122 | 0 |
+
+Both widths reproduce the same authoritative q0 census and select 32 rows.
+Width four broadens the proposal signature at modest incremental evaluation
+cost, but it produces no modular hit or exact-lift attempt in this experiment.
+The independent exact closure baselines therefore remain path `9/4/10` and
+star `22/12/4`; there is still no K6 cover or artifact. Exact hits, when found,
+must exercise the executable-owner compiler, close every required cover, and
+enter the next rank only as a complete transactional wave. The generic route
+index removes noncanonical factorization and solved-sector ownership as a wave
+blocker, but the first rank-three wave still waits on complete covers for all
+of its required canonical sectors.
+
+### Deferred fixed-slice symbolic-neighborhood fallback
+
+The one-epoch width-four gate above is now satisfied: it was measured and
+produced no hit, exact lift, or cover improvement. This fallback is therefore
+authorized as the next bounded research lane. That authorization is not a
+claim that K6 closes, not a master classifier, and not evidence that the same
+method will scale to K21. A frozen multi-epoch width-four run remains a useful
+baseline before interpreting any fallback win. The fallback adapts the
+operator-level row reshuffling and small symbolic-neighborhood solves of
+[Smith and Zeng, arXiv:2507.11140](https://arxiv.org/abs/2507.11140) to
+RustRed's stronger exact-authority boundary.
+
+There is a useful limitation to prove before implementing it. At unit mass let
+
+```text
+B = Q(D),                 K = B(eta_1, ..., eta_d),
+r_a(eta) = sum_gamma c_(a,gamma)(eta) E_gamma.
+```
+
+For affine coefficients, write every `c_(a,gamma)` in the monomial basis
+`(1, eta_1, ..., eta_d)`. Smith--Zeng row reshuffling flattens these components
+and row-reduces them over `B`; every rebuilt operator row is therefore in
+
+```text
+span_B {r_a}  subseteq  span_K {r_a}.
+```
+
+RustRed's exact target solve already eliminates the same rows over `K`.
+Consequently, reshuffling an unchanged physical source frame cannot turn a
+genuine same-frame `forbidden-rank == augmented-rank` obstruction into a
+relation. It may still be valuable as a fill-reducing preconditioner or a way
+to choose a compact set of original rows under a hard exact-solve budget. New
+discovery power must instead come from at least one of: exact specialization
+to a lower-dimensional uncovered slice, additional translated sources in a
+neighborhood of that slice, or genuinely new source generators. The first two
+are the only scope of this experiment. This also avoids importing the
+Singular/FiniteFlow implementation assumptions of the paper into the pure
+Rust plus Symbolica production path.
+
+The gated algorithm is:
+
+1. Freeze the exact family/context/ordering, the 32-owner predecessor
+   snapshot, and the current path/star uncovered partitions. Canonically sort
+   their 14 boxes by decreasing free dimension and then by endpoints.
+2. Split every bounded varying axis into exact singleton assignments, subject
+   to the task cap; retain only axes with an infinite box endpoint as symbolic
+   `eta` variables. `SectorChart` maps the slice corner to a target pivot. A
+   fixed `RuleCell` assignment is target power minus pivot, not the raw chart
+   coordinate.
+3. For a slice of free dimension `d`, enumerate sector-oriented displacements
+   `u in N^d` with `|u|_1 <= r`, for `r = 0, 1, 2`. Use inverse incidence to
+   nominate only exact `TranslatedSourceRequest`s touching those supports,
+   and cache the corresponding translations of the nine complete ordinary
+   K6 sources. Exact coefficient specialization, zero-sector removal, and
+   symmetry routing must retain the original rows and one replay disposition
+   for every source term.
+4. Optionally flatten the projected affine rows by `(integral shift,
+   eta-monomial)` and use modular Symbolica sparse elimination only to rank a
+   compact subset of original request ordinals. This optimization is allowed
+   only when free-index denominators are absent and numerator degree in the
+   free indices is at most one; otherwise the task goes directly to the exact
+   solver. Modular rows, pivots, and dependency patterns are proposals only.
+5. Solve from the retained **original projected rows** over `Q(D, eta)` using
+   the existing exact target reducer. Accept a candidate only after exact
+   source-combination replay, exact projection replay, pivot and denominator
+   guard retention, concrete anchor replay, and uniform strict descent all
+   agree. A compact-selector miss may retry once with a larger canonical row
+   subset within the same hard cap.
+6. Admit precisely the slice box. Univariate integer guard roots split and
+   resubmit the box; an unsupported multivariate integer guard locus remains
+   typed incomplete. Recompute the exact `BoxCover` complement after every
+   admitted cell and run at most two closure rounds. Path and star may publish
+   only as one all-closed transactional wave. `NeighborhoodExhausted`, an
+   unstable modular pattern, or any budget stop grants no owner or terminal.
+
+One previously anticipated seam is now complete: residual projection consumes
+`SelectedTranslatedSourceBatch` directly and verifies the request/source
+bijection, completed ordinary-row chronology, family/context scope, and exact
+translated provenance before pairing. The remaining authority seam is the
+production exact owner compiler, which currently proves maximal orthants: its
+outer-extension witness rejects tightened domains and its cover is a
+`LeadingIdeal`. A slice-aware outer-extension witness and arbitrary-box owner
+variant must prove that fixed axes are never widened, that every unbounded
+axis is a genuine symbolic ray with uniform descent, and that a finite `i64`
+carrier endpoint is never mistaken for mathematical infinity.
+
+Every accepted slice must preserve all of the following invariants:
+
+- pointer-bound physical-plan authority and the exact immutable predecessor
+  snapshot, with common family, context, sector, and ordering;
+- a bijection between selected requests, translated-source provenance, and
+  the sealed completed ordinary-row chronology;
+- canonical singleton fixed restrictions and exact residual-projection
+  replay;
+- no modular or operator-level output crossing the proposal boundary;
+- full replay to the original ordinary translated sources, with no forbidden
+  or unowned physical column surviving;
+- strict descent on the entire application slice, with every proper-subsector
+  dependency supplied by the frozen predecessor snapshot;
+- every source, specialization, pivot, and residual divisor retained as an
+  explicit guard; and
+- exact arbitrary-box subtraction, explicit unresolved leftovers, and
+  canonical output independent of the supported worker count.
+
+The registered K6 envelope is deliberately small:
+
+| Resource | Hard experiment cap |
+| --- | ---: |
+| initial path/star boxes | 14 |
+| slice tasks after finite-axis and guard splitting | 32 |
+| closure rounds | 2 |
+| neighborhood radius | 2 |
+| support points per slice | `binomial(d + 2, 2) <= 21` |
+| raw inverse-incidence visits per slice | 2,048 |
+| unique requests per slice / per sector | 512 / 2,048 |
+| translated source terms per sector | 20,000 |
+| flattened columns / nonzeros per task | 32,768 / 100,000 |
+| aggregate flattened nonzeros per sector | 500,000 |
+| modular sampling | 3 primes times 2 screened `D` values |
+| rejected singular samples | 16 |
+| original rows / physical columns per exact attempt | 96 / 4,096 |
+| exact input nonzeros per attempt | 25,000 |
+| target attempts / guard branches per sector | 64 / 64 |
+| coarse workers / whole-run RSS / whole-run wall | 4 / 4 GiB / 45 min |
+
+At the current worst free dimension `d = 5`, radius two contains only 21
+one-sided offsets and at most `21 * 9 = 189` ordinary translated rows before
+incidence filtering. Run three arms on the same request universe: the current
+`q0`/width-four baseline, a direct control containing all incident original
+translations, and a generating-function descendant selector whose every row
+expands into that direct control. Repeat the latter two after exact fixed-slice
+specialization. The descendant rank may never exceed the rank of its expanded
+ordinary-row control; such a result is a provenance failure. Count only an
+exact `BoxCover` set difference as progress. Minimum viability is one guard-total
+positive-dimensional slice owner that strictly shrinks an original box. The
+lane earns further investment only if two rounds remove or lower all four
+current free-dimension-five components and reshuffling either halves exact
+row/fill/time cost or enables an exact owner under the common row cap that the
+direct selector misses. Full success remains zero positive-dimensional
+complement with all replay and guard checks passing. No exact delta, only
+finite-point rules, unsupported guards, unstable proposals, or a cap hit is a
+bounded inconclusive result. Canonical accepted content must be reproduced
+with one and four workers.
+
+Treat ordering as a measured portfolio, because the SpideR report observes
+strong ordering sensitivity in its forward-solved sparse system but does not
+publish an ordering prescription
+([arXiv:2604.25916, Section IV](https://arxiv.org/html/2604.25916v1#S4)).
+At K6, quotient all `6!` complete K4 edge-priority permutations by the `S4`
+graph action and modularly screen the resulting at most 30 integral-order
+policies under identical requests, samples, caps, and predecessor data. Give
+each policy a stable identity and freeze its well-founded descent order for
+the whole campaign; retain the baseline and at most four finalists for exact
+lifting. Different integral policies may legitimately choose different
+leaders and nonminimal terminals, but every one must independently prove
+strict descent, exact replay, and guard-total coverage.
+
+Within each persisted integral policy, vary deterministic coefficient-variable,
+equation, pivot, mother, request, predicted-fill, and symmetry-interleaving
+orders only as cost/search heuristics. Compare admissible leaders, selected
+rows, sparse fill, exact-lift cost, guard complexity, terminal count, and exact
+cover delta. Canonical accepted content must be byte-identical across insertion
+orders and worker counts within a policy. At K21 an exhaustive edge-order
+quotient is still impossible; promotion requires a small graph-canonical
+portfolio selected from orbit features, obstruction scores, guard complexity,
+and sparse min-fill evidence at K6, K10, and K15.
+
+The K21 scaling verdict is skeptical. For an `L`-loop vacuum family,
+`K = L(L + 1)/2` and the complete ordinary source count is `L^2`. Thus K21
+has 36 sources. A full 21-dimensional one-sided neighborhood contains 253,
+2,024, and 12,650 offsets at radii two, three, and four, hence 9,108, 72,864,
+and 455,400 ordinary rows before filtering. Affine flattening can add a factor
+of 22 in operator atoms, while fixed-slice products, sparse fill, exact
+coefficient swell, guard fragmentation, and lost reuse between slices remain
+unbounded. Recent complementary proposals likewise increase neighborhood or
+operator levels empirically rather than proving a topology-independent bound:
+[Seedless Reduction, arXiv:2602.22111](https://arxiv.org/abs/2602.22111),
+[symbolic reduction via generating functions, arXiv:2605.09541](https://arxiv.org/abs/2605.09541),
+[the SpideR application report, arXiv:2604.25916](https://arxiv.org/abs/2604.25916),
+and [Untangling the IBP Equations, arXiv:2512.05923](https://arxiv.org/abs/2512.05923).
+A K6 win would therefore qualify this primarily as an exceptional-face repair
+lane. It would still require favorable bounded K10 and K15 kill-gate data
+before influencing any K21 architecture.
+
 Only after K6 closure and genuine three-loop Vakint parity, followed by
 favorable bounded K10/K15 evidence, may the architecture be promoted toward a
 future production K21 campaign. The bounded structural studies remain

@@ -80,7 +80,26 @@ impl<'frame> ModularPhysicalFrame<'frame> {
         forbidden_columns: &[usize],
         limits: ModularKernelLimits,
     ) -> Result<ModularTargetQuery<'frame>, ModularKernelError> {
-        super::rank::query_target(self, target_column, forbidden_columns, limits)
+        self.query_target_with_obstruction_rotation(target_column, forbidden_columns, 0, limits)
+    }
+
+    /// Query with a deterministic rotation of the proposal-only auxiliary
+    /// nullspace directions. The primary target-normalized obstruction is
+    /// invariant under this rotation and retains all sampled-dual authority.
+    pub(crate) fn query_target_with_obstruction_rotation(
+        &self,
+        target_column: usize,
+        forbidden_columns: &[usize],
+        obstruction_rotation: usize,
+        limits: ModularKernelLimits,
+    ) -> Result<ModularTargetQuery<'frame>, ModularKernelError> {
+        super::rank::query_target(
+            self,
+            target_column,
+            forbidden_columns,
+            obstruction_rotation,
+            limits,
+        )
     }
 }
 
@@ -116,6 +135,69 @@ pub(crate) struct ModularRankDiagnostics {
 pub(crate) struct ModularObstructionEntry {
     pub(super) logical_column: usize,
     pub(super) coefficient: FiniteFieldElement<u64>,
+}
+
+/// One canonical target-normalized RREF right-nullspace member retained only
+/// for proposal breadth. The target has coefficient one. For an auxiliary
+/// member the designated non-target free column also has coefficient one;
+/// every other free logical column has coefficient zero. Thus auxiliaries are
+/// exposed as `q0 + z_i`, never as misleading target-zero obstructions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ModularObstructionDirection {
+    designated_free_logical_column: usize,
+    entries: Arc<[ModularObstructionEntry]>,
+}
+
+impl ModularObstructionDirection {
+    pub(crate) const fn designated_free_logical_column(&self) -> usize {
+        self.designated_free_logical_column
+    }
+
+    pub(crate) fn entries(&self) -> &[ModularObstructionEntry] {
+        &self.entries
+    }
+
+    pub(super) fn from_checked_parts(
+        designated_free_logical_column: usize,
+        entries: Arc<[ModularObstructionEntry]>,
+    ) -> Self {
+        Self {
+            designated_free_logical_column,
+            entries,
+        }
+    }
+}
+
+/// Non-authoritative bounded nullspace sidecar for discovery scheduling.
+///
+/// Direction zero is byte-for-byte the primary target-normalized
+/// obstruction. Remaining directions are deterministic `q0 + z_i` members
+/// for rotated free forbidden columns. This type has no conversion into an exact circuit,
+/// residual-census seal, owner, terminal, or artifact.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ModularObstructionBlock {
+    rotation: usize,
+    directions: Box<[ModularObstructionDirection]>,
+}
+
+impl ModularObstructionBlock {
+    pub(crate) const fn rotation(&self) -> usize {
+        self.rotation
+    }
+
+    pub(crate) fn directions(&self) -> &[ModularObstructionDirection] {
+        &self.directions
+    }
+
+    pub(super) fn from_checked_parts(
+        rotation: usize,
+        directions: Vec<ModularObstructionDirection>,
+    ) -> Self {
+        Self {
+            rotation,
+            directions: directions.into_boxed_slice(),
+        }
+    }
 }
 
 /// Opaque in-memory identity of one checked target query.
@@ -167,7 +249,8 @@ pub(crate) struct ModularRightObstruction<'frame> {
     sample: Arc<ModularSampleFingerprint>,
     diagnostics: ModularRankDiagnostics,
     logical_physical_columns: Box<[usize]>,
-    entries: Box<[ModularObstructionEntry]>,
+    entries: Arc<[ModularObstructionEntry]>,
+    block: ModularObstructionBlock,
 }
 
 impl<'frame> ModularRightObstruction<'frame> {
@@ -208,12 +291,17 @@ impl<'frame> ModularRightObstruction<'frame> {
         &self.entries
     }
 
+    pub(crate) const fn proposal_block(&self) -> &ModularObstructionBlock {
+        &self.block
+    }
+
     pub(super) fn from_checked_parts(
         plan: &'frame PhysicalFramePlan,
         sample: Arc<ModularSampleFingerprint>,
         diagnostics: ModularRankDiagnostics,
         logical_physical_columns: Vec<usize>,
-        entries: Vec<ModularObstructionEntry>,
+        entries: Arc<[ModularObstructionEntry]>,
+        block: ModularObstructionBlock,
     ) -> Self {
         Self {
             identity: ModularRightObstructionIdentity::fresh(),
@@ -221,7 +309,8 @@ impl<'frame> ModularRightObstruction<'frame> {
             sample,
             diagnostics,
             logical_physical_columns: logical_physical_columns.into_boxed_slice(),
-            entries: entries.into_boxed_slice(),
+            entries,
+            block,
         }
     }
 }
@@ -233,6 +322,7 @@ impl PartialEq for ModularRightObstruction<'_> {
             && self.diagnostics == other.diagnostics
             && self.logical_physical_columns == other.logical_physical_columns
             && self.entries == other.entries
+            && self.block == other.block
     }
 }
 

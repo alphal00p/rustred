@@ -289,8 +289,18 @@ three independent primes. Every one-epoch task builds 90 rows, 253 columns,
 and 918 structural entries; none has an immediate target-unit hit, and the
 right obstruction nominates 3,586--3,822 additional nonzero translations.
 Those are diagnostic proposal counts, not installed rules or evidence of
-closure. They motivate the next certificate-/syzygy-guided batching and
-immutable solved-sector feedback work instead of a blind larger seed box.
+closure. The current bounded follow-up derives `q0` plus as many as three
+target-normalized `q0 + z_i` directions from the same checked Symbolica RREF,
+replays every direction, evaluates their union support through a probe-local
+complete-row cache, and selects at most 32 rows by marginal signature rank plus
+one deterministic breadth slot. On both first path/star sectors, width one and
+width four preserve the same authoritative q0 census and grow the frame from
+90 to 122 requests. Width four incurs only the additional auxiliary-support
+evaluations, but this one-epoch experiment still produces no modular hit or
+exact-lift attempt. The path/star closure baselines remain `9/4/10` and
+`22/12/4`; RustRed still has no K6 artifact. These results motivate the next
+fixed-slice/syzygy-guided discovery experiment and immutable solved-sector
+feedback work instead of a blind larger seed box.
 
 Positive finite-field supports can now be lifted over Symbolica's exact
 rational-function field. The lift recovers the original translated-source

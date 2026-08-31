@@ -88,6 +88,15 @@ impl<'context, 'partition, 'frame> TargetEvidenceScheduler<'context, 'partition,
             retained_obstruction_entries,
             probe_plan.limits().max_retained_modular_obstruction_entries,
         )?;
+        let mut modular_limits = modular_limits;
+        // Evidence retains only the checked primary target-normalized
+        // obstruction. Auxiliary nullspace directions are proposal breadth
+        // owned by source discovery, so constructing or retaining them here
+        // would make the primary-only sidecar preflight below dishonest.
+        // Preserve a caller's zero cap: evidence must not turn a forbidden
+        // primary obstruction into an admitted query.
+        modular_limits.max_obstruction_block_directions =
+            modular_limits.max_obstruction_block_directions.min(1);
         Ok(Self {
             probe_plan,
             partition,
@@ -726,7 +735,10 @@ pub(super) fn retained_diagnostic_forbidden_entries(
 
 /// Worst-case retained sidecar cells when every probe is a modular no-hit.
 /// Each obstruction owns `|F| + 1` logical-to-physical column ordinals and at
-/// most `|F| + 1` nonzero `(logical column, coefficient)` entries.
+/// most `|F| + 1` nonzero `(logical column, coefficient)` entries. The
+/// evidence scheduler caps obstruction construction at the primary direction;
+/// its direction-zero sidecar shares the primary sparse-entry owner and no
+/// proposal-only auxiliary direction is retained here.
 pub(super) fn retained_modular_obstruction_entries(
     probe_count: usize,
     forbidden_column_count: usize,

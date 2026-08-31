@@ -140,7 +140,7 @@ semantic owners, 4 guard-total owners, and 10 still-unbounded complement boxes;
 the star yields 22, 12, and 4 respectively. Both remain exactly `NonFinite`,
 with no missing terminal or guard-incomplete branch. These figures are pinned
 as the starting point for the next search algorithm, not reported as closure.
-The active bounded experiment is a native-target-zero dual-obstruction
+The active bounded lane is a native-target-zero obstruction-guided
 source-discovery oracle which nominates translated rows capable of cutting the
 current modular no-hit; every nomination remains discovery-only until the existing
 exact replay, semantic, descent, and owner-cover gates pass. Its first two
@@ -173,7 +173,21 @@ boundary is regression-pinned: obstruction nominations are sealed to the
 exact ordinary-source incidence index and checked query, every complete row is
 evaluated before sparse projection, and every augmentation creates a new
 immutable plan, partition, and modular sample from raw identities. Candidate
-batch exhaustion remains telemetry only. `SampledDeclaredModuleDual` now seals
+batch exhaustion remains telemetry only. The same checked Symbolica RREF now
+also supplies a bounded proposal block consisting of the primary `q0` and at
+most three deterministic target-normalized `q0 + z_i` directions, each with
+independent finite-field replay. Complete translated-row evaluations are
+reused by a scope-bound probe-local cache; marginal signature-rank selection
+retains a q0 cutter and one epoch-rotated breadth slot. Union materialization,
+logical canonicalization, row-cache storage, lookup, insertion movement,
+physical evaluation, and selection are all preflighted under per-call and
+aggregate budgets. None of these proposal values can mint the residual seal,
+sampled-dual evidence, a rule, or an owner. The first one-epoch width-one /
+width-four K6 path-and-star comparison preserves the same authoritative q0
+censuses and grows each 90-request frame to 122 requests, but makes zero exact
+lift attempts and leaves the exact closure baselines at path `9/4/10` and star
+`22/12/4`. This is measured discovery evidence, not a K6 closure claim.
+`SampledDeclaredModuleDual` now seals
 one complete guard-free fixed-sample empty census after independently replaying
 the inverse-incidence and exact translated-term/support counts. It is joined to
 the fresh plan, sample, exhaustive partition, stratum, ordering, immutable

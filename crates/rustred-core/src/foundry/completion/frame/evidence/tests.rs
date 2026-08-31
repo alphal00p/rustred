@@ -743,6 +743,67 @@ fn scheduler_preflights_every_retained_forbidden_and_obstruction_copy() {
 }
 
 #[test]
+fn evidence_retains_only_the_primary_obstruction_and_preserves_primary_caps() {
+    let (context, plan) = tadpole_frame("evidence-primary-obstruction-only", true, 0);
+    let target = column(&plan, &[1]);
+    let partition = target_partition(&plan, target);
+    let run = |modular_limits| {
+        let probe_plan = EvidenceProbePlan::try_new(
+            &context,
+            &plan,
+            [EvidenceProbeSpec::new(
+                EvidenceProbeRole::Discovery,
+                P0,
+                &[37],
+                &[P0 - 1],
+            )],
+            TargetEvidenceLimits::default(),
+        )
+        .unwrap();
+        TargetEvidenceScheduler::try_new(
+            probe_plan,
+            &partition,
+            modular_limits,
+            ExactCircuitLimits::default(),
+        )
+        .unwrap()
+        .run()
+        .unwrap()
+    };
+
+    let mut width_one = ModularKernelLimits::default();
+    width_one.max_obstruction_block_directions = 1;
+    let primary_only = run(width_one);
+    let caller_allowed_auxiliaries = run(ModularKernelLimits::default());
+    assert_eq!(primary_only, caller_allowed_auxiliaries);
+    let EvidenceProbeOutcome::ModularNoHit { obstruction, .. } =
+        &caller_allowed_auxiliaries.outcomes()[0]
+    else {
+        panic!("the vanishing tadpole probe must remain a modular no-hit");
+    };
+    assert_eq!(obstruction.proposal_block().directions().len(), 1);
+    assert_eq!(
+        obstruction.proposal_block().directions()[0].entries(),
+        obstruction.entries(),
+    );
+
+    let mut no_primary = ModularKernelLimits::default();
+    no_primary.max_obstruction_block_directions = 0;
+    let rejected = run(no_primary);
+    assert!(matches!(
+        &rejected.outcomes()[0],
+        EvidenceProbeOutcome::RejectedQuery {
+            error: ModularKernelError::ResourceLimit {
+                resource: "modular obstruction-block directions",
+                requested: 1,
+                limit: 0,
+            },
+            ..
+        }
+    ));
+}
+
+#[test]
 fn aggregate_scheduler_trace_limits_fail_closed() {
     let (context, plan) = tadpole_frame("evidence-trace-limit", true, 0);
     let target = column(&plan, &[1]);

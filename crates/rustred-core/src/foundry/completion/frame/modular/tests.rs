@@ -10,8 +10,10 @@ use crate::foundry::artifact::canonical_three_loop_family;
 use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use crate::sector::Mask;
 
-use super::obstruction::verify_obstruction_for_test;
-use super::rank::{rank_projection_for_test, right_obstruction_for_test};
+use super::obstruction::{verify_block_direction_for_test, verify_obstruction_for_test};
+use super::rank::{
+    rank_projection_for_test, right_obstruction_block_for_test, right_obstruction_for_test,
+};
 use super::sample::evaluate_coefficient_for_test;
 use super::{
     ModularKernelError, ModularKernelLimits, ModularObstructionEntry, ModularPhysicalFrame,
@@ -476,6 +478,165 @@ fn target_first_no_hit_returns_a_checked_deterministic_obstruction() {
         ]
     );
     verify_obstruction_for_test(&first.3, 2, &first.4, limits).unwrap();
+}
+
+#[test]
+fn obstruction_block_is_target_normalized_replayed_and_rotation_deterministic() {
+    let field = Zp64::new(PRIME);
+    // Physical c0 is target. The only equation c0+c1=0 leaves forbidden
+    // c2,c3,c4 free. In logical order [c1,c2,c3,c4,c0], q0 is (-1,0,0,0,1)
+    // and every auxiliary is q0 plus one rotated free unit.
+    let matrix = SparseMatrix::from_csr(
+        1,
+        5,
+        vec![field.one(), field.one()],
+        vec![0, 2],
+        vec![0, 1],
+        field.clone(),
+    );
+    let limits = ModularKernelLimits::default();
+    let (columns, projected, primary, block) =
+        right_obstruction_block_for_test(&matrix, 0, &[4, 2, 1, 3], 1, limits).unwrap();
+    assert_eq!(columns, vec![1, 2, 3, 4, 0]);
+    assert_eq!(block.rotation(), 1);
+    assert_eq!(block.directions().len(), 4);
+    assert_eq!(block.directions()[0].entries(), primary.as_ref());
+    assert_eq!(
+        block
+            .directions()
+            .iter()
+            .map(|direction| direction.designated_free_logical_column())
+            .collect::<Vec<_>>(),
+        vec![4, 2, 3, 1]
+    );
+    let pivots = [Some(0), None, None, None, None];
+    for direction in block.directions() {
+        let target = direction
+            .entries()
+            .binary_search_by_key(&4, |entry| entry.logical_column())
+            .unwrap();
+        assert!(field.is_one(direction.entries()[target].coefficient()));
+        verify_block_direction_for_test(
+            &projected,
+            &pivots,
+            4,
+            direction.designated_free_logical_column(),
+            direction.entries(),
+            limits,
+        )
+        .unwrap();
+    }
+
+    let mut width_one = limits;
+    width_one.max_obstruction_block_directions = 1;
+    width_one.max_obstruction_block_entries = 5;
+    width_one.max_obstruction_block_construction_operations = 20;
+    width_one.max_obstruction_block_replay_operations = 2;
+    let (_, _, width_one_primary, width_one_block) =
+        right_obstruction_block_for_test(&matrix, 0, &[1, 2, 3, 4], usize::MAX, width_one).unwrap();
+    assert_eq!(width_one_block.directions().len(), 1);
+    assert_eq!(width_one_block.directions()[0].entries(), primary.as_ref());
+    assert_eq!(width_one_primary.as_ref(), primary.as_ref());
+}
+
+#[test]
+fn obstruction_block_rejects_corruption_and_preflights_owned_work() {
+    let field = Zp64::new(PRIME);
+    let matrix = SparseMatrix::from_csr(
+        1,
+        5,
+        vec![field.one(), field.one()],
+        vec![0, 2],
+        vec![0, 1],
+        field.clone(),
+    );
+    let limits = ModularKernelLimits::default();
+    let (_, projected, _, block) =
+        right_obstruction_block_for_test(&matrix, 0, &[1, 2, 3, 4], 0, limits).unwrap();
+    let direction = &block.directions()[1];
+    let pivots = [Some(0), None, None, None, None];
+    let mut missing_target = direction.entries().to_vec();
+    let target = missing_target
+        .binary_search_by_key(&4, |entry| entry.logical_column())
+        .unwrap();
+    missing_target.remove(target);
+    assert_eq!(
+        verify_block_direction_for_test(
+            &projected,
+            &pivots,
+            4,
+            direction.designated_free_logical_column(),
+            &missing_target,
+            limits,
+        )
+        .unwrap_err(),
+        ModularKernelError::Invariant {
+            detail: "modular obstruction-block direction lost its target-normalized free identity",
+        }
+    );
+    let mut wrong_residual = direction.entries().to_vec();
+    wrong_residual[0] = ModularObstructionEntry::new(0, field.one());
+    assert_eq!(
+        verify_block_direction_for_test(
+            &projected,
+            &pivots,
+            4,
+            direction.designated_free_logical_column(),
+            &wrong_residual,
+            limits,
+        )
+        .unwrap_err(),
+        ModularKernelError::Invariant {
+            detail: "modular obstruction-block direction failed exact finite-field residual replay",
+        }
+    );
+
+    let mut no_direction = limits;
+    no_direction.max_obstruction_block_directions = 0;
+    assert_eq!(
+        right_obstruction_block_for_test(&matrix, 0, &[1, 2, 3, 4], 0, no_direction).unwrap_err(),
+        ModularKernelError::ResourceLimit {
+            resource: "modular obstruction-block directions",
+            requested: 1,
+            limit: 0,
+        }
+    );
+    let mut entry_cap = limits;
+    entry_cap.max_obstruction_block_entries = 19;
+    assert_eq!(
+        right_obstruction_block_for_test(&matrix, 0, &[1, 2, 3, 4], 0, entry_cap).unwrap_err(),
+        ModularKernelError::ResourceLimit {
+            resource: "modular obstruction-block nonzero entries",
+            requested: 20,
+            limit: 19,
+        }
+    );
+    let mut construction_exact = limits;
+    construction_exact.max_obstruction_block_construction_operations = 50;
+    assert!(
+        right_obstruction_block_for_test(&matrix, 0, &[1, 2, 3, 4], 0, construction_exact).is_ok()
+    );
+    let mut construction_cap = construction_exact;
+    construction_cap.max_obstruction_block_construction_operations = 49;
+    assert_eq!(
+        right_obstruction_block_for_test(&matrix, 0, &[1, 2, 3, 4], 0, construction_cap)
+            .unwrap_err(),
+        ModularKernelError::ResourceLimit {
+            resource: "modular obstruction-block construction operations",
+            requested: 50,
+            limit: 49,
+        }
+    );
+    let mut replay_cap = limits;
+    replay_cap.max_obstruction_block_replay_operations = 7;
+    assert_eq!(
+        right_obstruction_block_for_test(&matrix, 0, &[1, 2, 3, 4], 0, replay_cap).unwrap_err(),
+        ModularKernelError::ResourceLimit {
+            resource: "modular obstruction-block replay operations",
+            requested: 8,
+            limit: 7,
+        }
+    );
 }
 
 #[test]

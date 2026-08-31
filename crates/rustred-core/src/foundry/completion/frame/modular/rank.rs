@@ -38,6 +38,7 @@ pub(super) fn query_target<'frame>(
     frame: &ModularPhysicalFrame<'frame>,
     target_column: usize,
     forbidden_columns: &[usize],
+    obstruction_rotation: usize,
     limits: ModularKernelLimits,
 ) -> Result<ModularTargetQuery<'frame>, ModularKernelError> {
     let physical_columns = frame.matrix().ncols() as usize;
@@ -129,6 +130,7 @@ pub(super) fn query_target<'frame>(
             &augmented_projected,
             augmented_reducer,
             augmented_input_nonzeros,
+            obstruction_rotation,
             limits,
         )?;
         Ok(ModularTargetQuery::NoHitWithObstruction(obstruction))
@@ -546,5 +548,76 @@ pub(super) fn right_obstruction_for_test(
         logical_physical_columns,
         reduction.projected,
         entries,
+    ))
+}
+
+#[cfg(test)]
+pub(super) fn right_obstruction_block_for_test(
+    matrix: &SparseMatrix<Zp64>,
+    target_column: usize,
+    forbidden_columns: &[usize],
+    rotation: usize,
+    limits: ModularKernelLimits,
+) -> Result<
+    (
+        Vec<usize>,
+        SparseMatrix<Zp64>,
+        std::sync::Arc<[super::ModularObstructionEntry]>,
+        super::ModularObstructionBlock,
+    ),
+    ModularKernelError,
+> {
+    let physical_columns = matrix.ncols() as usize;
+    if target_column >= physical_columns {
+        return Err(ModularKernelError::TargetColumnOutOfRange {
+            target: target_column,
+            columns: physical_columns,
+        });
+    }
+    let mut forbidden = try_vec(PROJECTED_COLUMNS, forbidden_columns.len())?;
+    forbidden.extend_from_slice(forbidden_columns);
+    forbidden.sort_unstable();
+    if forbidden.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(ModularKernelError::DuplicateForbiddenColumn {
+            column: forbidden
+                .windows(2)
+                .find(|pair| pair[0] == pair[1])
+                .expect("duplicate window was found")[0],
+        });
+    }
+    if let Some(&column) = forbidden.iter().find(|&&column| column >= physical_columns) {
+        return Err(ModularKernelError::ForbiddenColumnOutOfRange {
+            column,
+            columns: physical_columns,
+        });
+    }
+    if forbidden.binary_search(&target_column).is_ok() {
+        return Err(ModularKernelError::TargetIsForbidden {
+            target: target_column,
+        });
+    }
+    let forbidden_summary = rank_projection(matrix, &forbidden, limits)?;
+    let reduction = reduce_nonempty_projection(matrix, &forbidden, Some(target_column), limits)?;
+    if forbidden_summary.rank != reduction.summary.rank {
+        return Err(ModularKernelError::Invariant {
+            detail: "test obstruction-block request is a modular target hit",
+        });
+    }
+    let input_nonzeros = reduction.summary.input_nonzeros;
+    let (primary, block) = super::obstruction::checked_obstruction_data_for_test(
+        &reduction.projected,
+        reduction.reducer,
+        input_nonzeros,
+        rotation,
+        limits,
+    )?;
+    let mut logical_physical_columns = try_vec(PROJECTED_COLUMNS, forbidden.len() + 1)?;
+    logical_physical_columns.extend_from_slice(&forbidden);
+    logical_physical_columns.push(target_column);
+    Ok((
+        logical_physical_columns,
+        reduction.projected,
+        primary,
+        block,
     ))
 }

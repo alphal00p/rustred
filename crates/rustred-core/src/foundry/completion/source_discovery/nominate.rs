@@ -241,7 +241,7 @@ pub(super) fn empty_obstruction_nominations_for_test(
     ))
 }
 
-fn existing_requests(
+pub(super) fn existing_requests(
     incidence: &OrdinarySourceIncidenceIndex<'_>,
     plan: &PhysicalFramePlan,
     limits: SourceDiscoveryLimits,
@@ -287,7 +287,7 @@ fn existing_requests(
     Ok(existing)
 }
 
-fn validate_plan_scope(
+pub(super) fn validate_plan_scope(
     incidence: &OrdinarySourceIncidenceIndex<'_>,
     plan: &PhysicalFramePlan,
 ) -> Result<(), SourceDiscoveryError> {

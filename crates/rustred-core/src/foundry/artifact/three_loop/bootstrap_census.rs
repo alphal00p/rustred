@@ -86,6 +86,27 @@ struct BootstrapProbeTelemetry {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ObstructionBlockWidthTelemetry {
+    representative: [i64; 6],
+    configured_width: usize,
+    disposition: ProbeLocalIterationDisposition,
+    final_requests: usize,
+    residual_candidate_work: usize,
+    residual_source_term_work: usize,
+    block_candidate_work: usize,
+    block_source_term_work: usize,
+    block_signature_work: usize,
+    block_selection_work: usize,
+    cache_logical_rows: usize,
+    cache_logical_terms: usize,
+    cache_rows: usize,
+    cache_value_cells: usize,
+    cache_physical_evaluations: usize,
+    cache_hits: usize,
+    exact_lift_attempts: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ExpectedBootstrapSector {
     representative: [i64; 6],
     active_propagators: usize,
@@ -105,8 +126,8 @@ const EXPECTED_BOOTSTRAP_SECTORS: [ExpectedBootstrapSector; 6] = [
         forbidden_columns: 239,
         nominated_requests: 3_799,
         nonzero_residual_requests: 3_763,
-        added_requests: 3_763,
-        final_requests: 3_853,
+        added_requests: 32,
+        final_requests: 122,
     },
     ExpectedBootstrapSector {
         representative: [0, 0, 1, 1, 0, 1],
@@ -115,8 +136,8 @@ const EXPECTED_BOOTSTRAP_SECTORS: [ExpectedBootstrapSector; 6] = [
         forbidden_columns: 233,
         nominated_requests: 3_857,
         nonzero_residual_requests: 3_822,
-        added_requests: 3_822,
-        final_requests: 3_912,
+        added_requests: 32,
+        final_requests: 122,
     },
     ExpectedBootstrapSector {
         representative: [0, 0, 1, 1, 1, 1],
@@ -125,8 +146,8 @@ const EXPECTED_BOOTSTRAP_SECTORS: [ExpectedBootstrapSector; 6] = [
         forbidden_columns: 243,
         nominated_requests: 3_797,
         nonzero_residual_requests: 3_765,
-        added_requests: 3_765,
-        final_requests: 3_855,
+        added_requests: 32,
+        final_requests: 122,
     },
     ExpectedBootstrapSector {
         representative: [0, 1, 1, 1, 1, 0],
@@ -135,8 +156,8 @@ const EXPECTED_BOOTSTRAP_SECTORS: [ExpectedBootstrapSector; 6] = [
         forbidden_columns: 252,
         nominated_requests: 3_764,
         nonzero_residual_requests: 3_727,
-        added_requests: 3_727,
-        final_requests: 3_817,
+        added_requests: 32,
+        final_requests: 122,
     },
     ExpectedBootstrapSector {
         representative: [0, 1, 1, 1, 1, 1],
@@ -145,8 +166,8 @@ const EXPECTED_BOOTSTRAP_SECTORS: [ExpectedBootstrapSector; 6] = [
         forbidden_columns: 252,
         nominated_requests: 3_764,
         nonzero_residual_requests: 3_726,
-        added_requests: 3_726,
-        final_requests: 3_816,
+        added_requests: 32,
+        final_requests: 122,
     },
     ExpectedBootstrapSector {
         representative: [1, 1, 1, 1, 1, 1],
@@ -155,8 +176,8 @@ const EXPECTED_BOOTSTRAP_SECTORS: [ExpectedBootstrapSector; 6] = [
         forbidden_columns: 252,
         nominated_requests: 3_764,
         nonzero_residual_requests: 3_586,
-        added_requests: 3_586,
-        final_requests: 3_676,
+        added_requests: 32,
+        final_requests: 122,
     },
 ];
 
@@ -369,7 +390,7 @@ fn run_k6_probe_local_bootstrap_census()
         );
         assert_eq!(
             report.census().merge_request_work(),
-            PROBE_MODULI.len() * (90 + expected.nonzero_residual_requests)
+            PROBE_MODULI.len() * (90 + expected.added_requests)
         );
         assert_eq!(
             report.census().retained_iteration_records(),
@@ -416,6 +437,69 @@ fn run_k6_probe_local_bootstrap_census()
     Ok(census)
 }
 
+fn run_obstruction_block_width_probe(
+    generator: &ParametricIbpGenerator<'_>,
+    completed: &CompletedIbpSourceRows,
+    owners: ImmutableOwnerSnapshot,
+    representative: [i64; 6],
+    configured_width: usize,
+) -> Result<ObstructionBlockWidthTelemetry, Box<dyn std::error::Error>> {
+    let mut limits = census_limits();
+    limits.campaign.modular.max_obstruction_block_directions = configured_width;
+    let target = IntegralShift::try_new([0; 6])?;
+    let sector = Mask::try_from_indices(&representative)?;
+    let stratum = bootstrap_stratum(generator, completed, sector, &target, limits)?;
+    let probe = CampaignModularProbe::try_new(
+        PROBE_MODULI[0],
+        BASE_PARAMETERS,
+        CHART_COORDINATES,
+        limits.campaign,
+    )?;
+    let report = ProbeLocalObstructionScheduler::try_new(
+        generator,
+        completed,
+        target,
+        MaximalStratumAnchor::try_new(stratum, limits.campaign.stratum)?,
+        owners,
+        OrderingPolicy::default(),
+        [probe],
+        limits,
+    )?
+    .run()?;
+    let [probe] = report.probes() else {
+        return Err("width comparison must retain exactly one probe".into());
+    };
+    let [iteration] = probe.iterations() else {
+        return Err("width comparison must execute exactly one epoch".into());
+    };
+    let ProbeLocalOutcome::BudgetStop { stop, .. } = probe.outcome() else {
+        return Err("width comparison must end only at its one-epoch bound".into());
+    };
+    if stop.stage() != ProbeLocalStage::EpochAdmission {
+        return Err("width comparison stopped before its one-epoch boundary".into());
+    }
+    let census = report.census();
+    Ok(ObstructionBlockWidthTelemetry {
+        representative,
+        configured_width,
+        disposition: iteration.disposition(),
+        final_requests: probe.outcome().final_requests().map_or(0, <[_]>::len),
+        residual_candidate_work: census.residual_candidate_work(),
+        residual_source_term_work: census.residual_source_term_work(),
+        block_candidate_work: census.obstruction_block_candidate_work(),
+        block_source_term_work: census.obstruction_block_source_term_work(),
+        block_signature_work: census.obstruction_block_signature_work(),
+        block_selection_work: census.obstruction_block_selection_work(),
+        cache_logical_rows: census.row_cache_logical_rows(),
+        cache_logical_terms: census.row_cache_logical_terms(),
+        cache_rows: census.row_cache_rows(),
+        cache_value_cells: census.row_cache_value_cells(),
+        cache_physical_evaluations: census.row_cache_physical_evaluations(),
+        cache_hits: census.row_cache_hits(),
+        exact_lift_attempts: census.exact_lift_attempts(),
+    })
+}
+
 #[test]
 fn k6_probe_local_bootstrap_census() {
     let census = run_k6_probe_local_bootstrap_census().unwrap();
@@ -458,6 +542,101 @@ fn k6_probe_local_bootstrap_census() {
                 final_requests: expected.final_requests,
             }
         );
+    }
+}
+
+#[test]
+fn k6_path_and_star_width_one_vs_four_cache_census_is_non_authoritative() {
+    const PATH: [i64; 6] = [0, 0, 1, 0, 1, 1];
+    const STAR: [i64; 6] = [0, 0, 1, 1, 0, 1];
+    // These are the separately authenticated root-aware degree-one closure
+    // baselines: (exact replay, guard-total replay, uncovered boxes). The
+    // proposal-only width experiment below cannot change or replace them.
+    const FRONTIERS: [([i64; 6], usize, (usize, usize, usize)); 2] =
+        [(PATH, 3_763, (9, 4, 10)), (STAR, 3_822, (22, 12, 4))];
+
+    let family = canonical_family().unwrap();
+    let generator =
+        ParametricIbpGenerator::try_new_with_config(&family, ParametricIbpConfig::default())
+            .unwrap();
+    let completed = complete_ordinary(&generator);
+    let limits = census_limits();
+    let owners = ImmutableOwnerSnapshot::try_from_terminal_authority(
+        derive_k6_terminal_authority().unwrap(),
+        limits.campaign.stratum,
+    )
+    .unwrap();
+
+    for (representative, expected_primary_nonzero, closure_baseline) in FRONTIERS {
+        let width_one = run_obstruction_block_width_probe(
+            &generator,
+            &completed,
+            owners.clone(),
+            representative,
+            1,
+        )
+        .unwrap();
+        let width_four = run_obstruction_block_width_probe(
+            &generator,
+            &completed,
+            owners.clone(),
+            representative,
+            4,
+        )
+        .unwrap();
+        eprintln!(
+            "K6 {:?} closure baseline {:?}; obstruction block width 1: {:#?}; width 4: {:#?}",
+            representative, closure_baseline, width_one, width_four,
+        );
+
+        assert_eq!(width_one.configured_width, 1);
+        assert_eq!(width_four.configured_width, 4);
+        assert_eq!(width_one.disposition, width_four.disposition);
+        assert!(matches!(
+            width_one.disposition,
+            ProbeLocalIterationDisposition::NoHitAugmented {
+                nonzero_residual_requests,
+                added_requests: 32,
+                ..
+            } if nonzero_residual_requests == expected_primary_nonzero
+        ));
+        assert_eq!(width_one.final_requests, 122);
+        assert_eq!(width_four.final_requests, 122);
+        assert_eq!(
+            width_one.residual_candidate_work,
+            width_four.residual_candidate_work,
+        );
+        assert_eq!(
+            width_one.residual_source_term_work,
+            width_four.residual_source_term_work,
+        );
+
+        for telemetry in [width_one, width_four] {
+            assert_eq!(
+                telemetry.cache_logical_rows,
+                telemetry.residual_candidate_work + telemetry.block_candidate_work,
+            );
+            assert_eq!(
+                telemetry.cache_logical_terms,
+                telemetry.residual_source_term_work + telemetry.block_source_term_work,
+            );
+            assert_eq!(
+                telemetry.cache_physical_evaluations + telemetry.cache_hits,
+                telemetry.cache_logical_rows,
+            );
+            assert_eq!(telemetry.cache_rows, telemetry.cache_physical_evaluations);
+            assert!(telemetry.cache_hits > 0);
+            assert!(telemetry.cache_value_cells > 0);
+            assert_eq!(telemetry.exact_lift_attempts, 0);
+        }
+        assert_eq!(
+            width_one.cache_physical_evaluations,
+            width_one.residual_candidate_work,
+        );
+        assert_eq!(width_one.cache_hits, width_one.block_candidate_work);
+        assert!(width_four.block_candidate_work >= width_one.block_candidate_work);
+        assert!(width_four.block_signature_work > width_one.block_signature_work);
+        assert!(width_four.block_selection_work >= width_one.block_selection_work);
     }
 }
 

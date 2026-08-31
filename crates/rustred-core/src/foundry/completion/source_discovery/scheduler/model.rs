@@ -23,6 +23,9 @@ pub(crate) enum ProbeLocalStage {
     ModularQuery,
     ObstructionNomination,
     ResidualEvaluation,
+    ObstructionBlockNomination,
+    ObstructionBlockEvaluation,
+    ObstructionBlockSelection,
     RequestMerge,
     SampledDualAdmission,
     ExactLift,
@@ -496,6 +499,22 @@ pub(crate) struct ProbeLocalRunCensus {
     residual_candidate_work: usize,
     residual_source_term_work: usize,
     prospective_classification_reservation: usize,
+    obstruction_block_nomination_raw_entry_reservation: usize,
+    obstruction_block_nomination_raw_request_reservation: usize,
+    obstruction_block_nomination_coordinate_cell_reservation: usize,
+    obstruction_block_nomination_coefficient_cell_reservation: usize,
+    obstruction_block_nomination_canonicalization_work_reservation: usize,
+    obstruction_block_nomination_subset_comparison_reservation: usize,
+    obstruction_block_candidate_work: usize,
+    obstruction_block_source_term_work: usize,
+    obstruction_block_signature_work: usize,
+    obstruction_block_selection_work: usize,
+    row_cache_rows: usize,
+    row_cache_value_cells: usize,
+    row_cache_lookup_comparisons: usize,
+    row_cache_physical_evaluations: usize,
+    row_cache_hits: usize,
+    row_cache_insertion_moves: usize,
     merge_request_work: usize,
     retained_iteration_records: usize,
     exact_lift_attempts: usize,
@@ -538,6 +557,82 @@ impl ProbeLocalRunCensus {
         self.merge_request_work
     }
 
+    pub(crate) const fn obstruction_block_candidate_work(self) -> usize {
+        self.obstruction_block_candidate_work
+    }
+
+    pub(crate) const fn obstruction_block_nomination_raw_entry_reservation(self) -> usize {
+        self.obstruction_block_nomination_raw_entry_reservation
+    }
+
+    pub(crate) const fn obstruction_block_nomination_raw_request_reservation(self) -> usize {
+        self.obstruction_block_nomination_raw_request_reservation
+    }
+
+    pub(crate) const fn obstruction_block_nomination_coordinate_cell_reservation(self) -> usize {
+        self.obstruction_block_nomination_coordinate_cell_reservation
+    }
+
+    pub(crate) const fn obstruction_block_nomination_coefficient_cell_reservation(self) -> usize {
+        self.obstruction_block_nomination_coefficient_cell_reservation
+    }
+
+    pub(crate) const fn obstruction_block_nomination_canonicalization_work_reservation(
+        self,
+    ) -> usize {
+        self.obstruction_block_nomination_canonicalization_work_reservation
+    }
+
+    pub(crate) const fn obstruction_block_nomination_subset_comparison_reservation(self) -> usize {
+        self.obstruction_block_nomination_subset_comparison_reservation
+    }
+
+    pub(crate) const fn obstruction_block_source_term_work(self) -> usize {
+        self.obstruction_block_source_term_work
+    }
+
+    pub(crate) const fn obstruction_block_signature_work(self) -> usize {
+        self.obstruction_block_signature_work
+    }
+
+    pub(crate) const fn obstruction_block_selection_work(self) -> usize {
+        self.obstruction_block_selection_work
+    }
+
+    pub(crate) const fn row_cache_logical_rows(self) -> usize {
+        self.residual_candidate_work
+            .saturating_add(self.obstruction_block_candidate_work)
+    }
+
+    pub(crate) const fn row_cache_logical_terms(self) -> usize {
+        self.residual_source_term_work
+            .saturating_add(self.obstruction_block_source_term_work)
+    }
+
+    pub(crate) const fn row_cache_rows(self) -> usize {
+        self.row_cache_rows
+    }
+
+    pub(crate) const fn row_cache_value_cells(self) -> usize {
+        self.row_cache_value_cells
+    }
+
+    pub(crate) const fn row_cache_lookup_comparisons(self) -> usize {
+        self.row_cache_lookup_comparisons
+    }
+
+    pub(crate) const fn row_cache_physical_evaluations(self) -> usize {
+        self.row_cache_physical_evaluations
+    }
+
+    pub(crate) const fn row_cache_hits(self) -> usize {
+        self.row_cache_hits
+    }
+
+    pub(crate) const fn row_cache_insertion_moves(self) -> usize {
+        self.row_cache_insertion_moves
+    }
+
     pub(crate) const fn exact_lift_attempts(self) -> usize {
         self.exact_lift_attempts
     }
@@ -550,6 +645,22 @@ impl ProbeLocalRunCensus {
         residual_candidate_work: usize,
         residual_source_term_work: usize,
         prospective_classification_reservation: usize,
+        obstruction_block_nomination_raw_entry_reservation: usize,
+        obstruction_block_nomination_raw_request_reservation: usize,
+        obstruction_block_nomination_coordinate_cell_reservation: usize,
+        obstruction_block_nomination_coefficient_cell_reservation: usize,
+        obstruction_block_nomination_canonicalization_work_reservation: usize,
+        obstruction_block_nomination_subset_comparison_reservation: usize,
+        obstruction_block_candidate_work: usize,
+        obstruction_block_source_term_work: usize,
+        obstruction_block_signature_work: usize,
+        obstruction_block_selection_work: usize,
+        row_cache_rows: usize,
+        row_cache_value_cells: usize,
+        row_cache_lookup_comparisons: usize,
+        row_cache_physical_evaluations: usize,
+        row_cache_hits: usize,
+        row_cache_insertion_moves: usize,
         merge_request_work: usize,
         retained_iteration_records: usize,
         exact_lift_attempts: usize,
@@ -562,6 +673,22 @@ impl ProbeLocalRunCensus {
             residual_candidate_work,
             residual_source_term_work,
             prospective_classification_reservation,
+            obstruction_block_nomination_raw_entry_reservation,
+            obstruction_block_nomination_raw_request_reservation,
+            obstruction_block_nomination_coordinate_cell_reservation,
+            obstruction_block_nomination_coefficient_cell_reservation,
+            obstruction_block_nomination_canonicalization_work_reservation,
+            obstruction_block_nomination_subset_comparison_reservation,
+            obstruction_block_candidate_work,
+            obstruction_block_source_term_work,
+            obstruction_block_signature_work,
+            obstruction_block_selection_work,
+            row_cache_rows,
+            row_cache_value_cells,
+            row_cache_lookup_comparisons,
+            row_cache_physical_evaluations,
+            row_cache_hits,
+            row_cache_insertion_moves,
             merge_request_work,
             retained_iteration_records,
             exact_lift_attempts,

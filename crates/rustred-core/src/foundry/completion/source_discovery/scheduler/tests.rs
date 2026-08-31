@@ -365,6 +365,49 @@ fn exhaustive_residual_census_can_feed_a_bounded_frontier_ranked_proposal_batch(
 }
 
 #[test]
+fn width_one_block_preserves_q0_frontier_order_and_reuses_primary_rows() {
+    let family = one_loop_one_external("probe-local-width-one-cache-parity");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let mut limits = ProbeLocalSchedulerLimits::default();
+    limits.max_residual_proposals_per_iteration = 1;
+    limits.campaign.modular.max_obstruction_block_directions = 1;
+    let (target, stratum, owners) = external_inputs(&family, &generator, &completed, limits);
+    let report = ProbeLocalObstructionScheduler::try_new(
+        &generator,
+        &completed,
+        target,
+        maximal_anchor(stratum),
+        owners,
+        OrderingPolicy::default(),
+        [probe([37, 1], [0, 0], limits)],
+        limits,
+    )
+    .unwrap()
+    .run()
+    .unwrap();
+
+    assert!(matches!(
+        report.probes()[0].iterations(),
+        [first, second, ..]
+            if matches!(
+                first.disposition(),
+                ProbeLocalIterationDisposition::NoHitAugmented {
+                    nonzero_residual_requests: 2,
+                    added_requests: 1,
+                    ..
+                }
+            )
+                && second.request_count() == first.request_count() + 1
+    ));
+    let census = report.census();
+    assert!(census.row_cache_hits() > 0);
+    assert!(census.row_cache_physical_evaluations() < census.row_cache_logical_rows());
+    assert!(census.row_cache_rows() <= census.row_cache_physical_evaluations());
+    assert!(census.row_cache_value_cells() > 0);
+}
+
+#[test]
 fn zero_residual_proposal_cap_is_rejected_at_task_admission() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
@@ -483,6 +526,395 @@ fn aggregate_residual_work_caps_are_explicit_inconclusive_stops() {
                     }
         ));
     }
+}
+
+#[test]
+fn every_union_nomination_reservation_cap_stops_before_union_materialization() {
+    let family = one_loop_one_external("probe-local-union-nomination-preflight");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+
+    for (resource, configured_cap) in [
+        (
+            "probe-local aggregate obstruction-block nomination raw-entry reservation",
+            0usize,
+        ),
+        (
+            "probe-local aggregate obstruction-block nomination raw-request reservation",
+            1usize,
+        ),
+        (
+            "probe-local aggregate obstruction-block nomination coordinate-cell reservation",
+            2usize,
+        ),
+        (
+            "probe-local aggregate obstruction-block nomination coefficient-cell reservation",
+            3usize,
+        ),
+        (
+            "probe-local aggregate obstruction-block nomination canonicalization-work reservation",
+            4usize,
+        ),
+        (
+            "probe-local aggregate obstruction-block nomination subset-comparison reservation",
+            5usize,
+        ),
+    ] {
+        let mut limits = ProbeLocalSchedulerLimits::default();
+        match configured_cap {
+            0 => {
+                limits.max_aggregate_obstruction_block_nomination_raw_entry_reservation = 0;
+            }
+            1 => {
+                limits.max_aggregate_obstruction_block_nomination_raw_request_reservation = 0;
+            }
+            2 => {
+                limits.max_aggregate_obstruction_block_nomination_coordinate_cell_reservation = 0;
+            }
+            3 => {
+                limits.max_aggregate_obstruction_block_nomination_coefficient_cell_reservation = 0;
+            }
+            4 => {
+                limits
+                    .max_aggregate_obstruction_block_nomination_canonicalization_work_reservation =
+                    0;
+            }
+            5 => {
+                limits.max_aggregate_obstruction_block_nomination_subset_comparison_reservation = 0;
+            }
+            _ => unreachable!(),
+        }
+        let (target, stratum, owners) = external_inputs(&family, &generator, &completed, limits);
+        let report = ProbeLocalObstructionScheduler::try_new(
+            &generator,
+            &completed,
+            target,
+            maximal_anchor(stratum),
+            owners,
+            OrderingPolicy::default(),
+            [probe([37, 1], [0, 0], limits)],
+            limits,
+        )
+        .unwrap()
+        .run()
+        .unwrap();
+
+        let ProbeLocalOutcome::BudgetStop { stop, .. } = report.probes()[0].outcome() else {
+            panic!(
+                "union nomination preflight must stop inconclusively: {:#?}",
+                report.probes()[0].outcome(),
+            )
+        };
+        assert_eq!(stop.stage(), ProbeLocalStage::ObstructionBlockNomination);
+        assert_eq!(stop.cause().scope(), ProbeLocalBudgetScope::Aggregate);
+        assert_eq!(stop.cause().resource(), resource);
+        let census = report.census();
+        assert_eq!(
+            census.obstruction_block_nomination_raw_entry_reservation(),
+            0
+        );
+        assert_eq!(
+            census.obstruction_block_nomination_raw_request_reservation(),
+            0
+        );
+        assert_eq!(
+            census.obstruction_block_nomination_coordinate_cell_reservation(),
+            0
+        );
+        assert_eq!(
+            census.obstruction_block_nomination_coefficient_cell_reservation(),
+            0
+        );
+        assert_eq!(
+            census.obstruction_block_nomination_canonicalization_work_reservation(),
+            0
+        );
+        assert_eq!(
+            census.obstruction_block_nomination_subset_comparison_reservation(),
+            0
+        );
+        assert_eq!(census.obstruction_block_candidate_work(), 0);
+        assert_eq!(census.obstruction_block_source_term_work(), 0);
+        assert_eq!(census.obstruction_block_signature_work(), 0);
+        assert!(census.row_cache_physical_evaluations() > 0);
+    }
+}
+
+#[test]
+fn union_nomination_reservation_is_atomic_across_repeated_epochs() {
+    let family = one_loop_one_external("probe-local-union-nomination-atomicity");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+
+    let mut one_epoch_limits = ProbeLocalSchedulerLimits::default();
+    one_epoch_limits.max_residual_proposals_per_iteration = 1;
+    one_epoch_limits.max_iterations_per_probe = 1;
+    let (target, stratum, owners) =
+        external_inputs(&family, &generator, &completed, one_epoch_limits);
+    let baseline = ProbeLocalObstructionScheduler::try_new(
+        &generator,
+        &completed,
+        target.clone(),
+        maximal_anchor(stratum.clone()),
+        owners.clone(),
+        OrderingPolicy::default(),
+        [probe([37, 1], [0, 0], one_epoch_limits)],
+        one_epoch_limits,
+    )
+    .unwrap()
+    .run()
+    .unwrap();
+    assert!(matches!(
+        baseline.probes()[0].iterations(),
+        [first]
+            if matches!(
+                first.disposition(),
+                ProbeLocalIterationDisposition::NoHitAugmented { added_requests: 1, .. }
+            )
+    ));
+    let first = baseline.census();
+    assert!(first.obstruction_block_nomination_raw_entry_reservation() > 0);
+
+    let mut exact_limits = one_epoch_limits;
+    exact_limits.max_aggregate_obstruction_block_nomination_raw_entry_reservation =
+        first.obstruction_block_nomination_raw_entry_reservation();
+    exact_limits.max_aggregate_obstruction_block_nomination_raw_request_reservation =
+        first.obstruction_block_nomination_raw_request_reservation();
+    exact_limits.max_aggregate_obstruction_block_nomination_coordinate_cell_reservation =
+        first.obstruction_block_nomination_coordinate_cell_reservation();
+    exact_limits.max_aggregate_obstruction_block_nomination_coefficient_cell_reservation =
+        first.obstruction_block_nomination_coefficient_cell_reservation();
+    exact_limits.max_aggregate_obstruction_block_nomination_canonicalization_work_reservation =
+        first.obstruction_block_nomination_canonicalization_work_reservation();
+    exact_limits.max_aggregate_obstruction_block_nomination_subset_comparison_reservation =
+        first.obstruction_block_nomination_subset_comparison_reservation();
+
+    let exact = ProbeLocalObstructionScheduler::try_new(
+        &generator,
+        &completed,
+        target.clone(),
+        maximal_anchor(stratum.clone()),
+        owners.clone(),
+        OrderingPolicy::default(),
+        [probe([37, 1], [0, 0], exact_limits)],
+        exact_limits,
+    )
+    .unwrap()
+    .run()
+    .unwrap();
+    assert_eq!(
+        exact.census(),
+        first,
+        "the exact first-epoch envelope must pass"
+    );
+
+    let mut repeated_limits = exact_limits;
+    repeated_limits.max_iterations_per_probe = 4;
+    let repeated = ProbeLocalObstructionScheduler::try_new(
+        &generator,
+        &completed,
+        target,
+        maximal_anchor(stratum),
+        owners,
+        OrderingPolicy::default(),
+        [probe([37, 1], [0, 0], repeated_limits)],
+        repeated_limits,
+    )
+    .unwrap()
+    .run()
+    .unwrap();
+    assert!(matches!(
+        repeated.probes()[0].iterations(),
+        [first_record, second_record]
+            if matches!(
+                first_record.disposition(),
+                ProbeLocalIterationDisposition::NoHitAugmented { added_requests: 1, .. }
+            ) && second_record.disposition()
+                == ProbeLocalIterationDisposition::NoHitStopped {
+                    stage: ProbeLocalStage::ObstructionBlockNomination,
+                }
+    ));
+    let ProbeLocalOutcome::BudgetStop { stop, .. } = repeated.probes()[0].outcome() else {
+        panic!("the second union reservation must stop before materialization")
+    };
+    assert_eq!(stop.stage(), ProbeLocalStage::ObstructionBlockNomination);
+    assert_eq!(stop.cause().scope(), ProbeLocalBudgetScope::Aggregate);
+    let repeated_census = repeated.census();
+    assert_eq!(
+        repeated_census.obstruction_block_nomination_raw_entry_reservation(),
+        first.obstruction_block_nomination_raw_entry_reservation()
+    );
+    assert_eq!(
+        repeated_census.obstruction_block_nomination_raw_request_reservation(),
+        first.obstruction_block_nomination_raw_request_reservation()
+    );
+    assert_eq!(
+        repeated_census.obstruction_block_nomination_coordinate_cell_reservation(),
+        first.obstruction_block_nomination_coordinate_cell_reservation()
+    );
+    assert_eq!(
+        repeated_census.obstruction_block_nomination_coefficient_cell_reservation(),
+        first.obstruction_block_nomination_coefficient_cell_reservation()
+    );
+    assert_eq!(
+        repeated_census.obstruction_block_nomination_canonicalization_work_reservation(),
+        first.obstruction_block_nomination_canonicalization_work_reservation()
+    );
+    assert_eq!(
+        repeated_census.obstruction_block_nomination_subset_comparison_reservation(),
+        first.obstruction_block_nomination_subset_comparison_reservation()
+    );
+    assert_eq!(
+        repeated_census.obstruction_block_candidate_work(),
+        first.obstruction_block_candidate_work()
+    );
+    assert_eq!(
+        repeated_census.obstruction_block_source_term_work(),
+        first.obstruction_block_source_term_work()
+    );
+    assert_eq!(
+        repeated_census.obstruction_block_signature_work(),
+        first.obstruction_block_signature_work()
+    );
+    assert_eq!(
+        repeated_census.obstruction_block_selection_work(),
+        first.obstruction_block_selection_work()
+    );
+}
+
+#[test]
+fn aggregate_logical_cache_cap_stops_before_primary_row_evaluation() {
+    let family = one_loop_one_external("probe-local-aggregate-cache-preflight");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let mut limits = ProbeLocalSchedulerLimits::default();
+    limits.max_aggregate_row_cache_logical_rows = 0;
+    let (target, stratum, owners) = external_inputs(&family, &generator, &completed, limits);
+    let report = ProbeLocalObstructionScheduler::try_new(
+        &generator,
+        &completed,
+        target,
+        maximal_anchor(stratum),
+        owners,
+        OrderingPolicy::default(),
+        [probe([37, 1], [0, 0], limits)],
+        limits,
+    )
+    .unwrap()
+    .run()
+    .unwrap();
+
+    let ProbeLocalOutcome::BudgetStop { context, stop } = report.probes()[0].outcome() else {
+        panic!(
+            "logical cache preflight must stop inconclusively: {:#?}",
+            report.probes()[0].outcome(),
+        )
+    };
+    assert_eq!(stop.stage(), ProbeLocalStage::ResidualEvaluation);
+    assert_eq!(stop.cause().scope(), ProbeLocalBudgetScope::Aggregate);
+    assert_eq!(
+        stop.cause().resource(),
+        "probe-local aggregate row-cache logical rows"
+    );
+    assert!(context.epoch().is_some());
+    assert_eq!(report.census().row_cache_physical_evaluations(), 0);
+    assert_eq!(report.census().row_cache_rows(), 0);
+}
+
+#[test]
+fn every_aggregate_actual_cache_cap_preflights_before_cache_mutation() {
+    let family = one_loop_one_external("probe-local-aggregate-actual-cache-preflight");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+
+    for (resource, configured_cap) in [
+        ("probe-local aggregate row-cache rows", 0usize),
+        ("probe-local aggregate row-cache value cells", 1usize),
+        ("probe-local aggregate row-cache lookup comparisons", 2usize),
+        (
+            "probe-local aggregate row-cache physical evaluations",
+            3usize,
+        ),
+        ("probe-local aggregate row-cache hits", 4usize),
+        ("probe-local aggregate row-cache insertion moves", 5usize),
+    ] {
+        let mut limits = ProbeLocalSchedulerLimits::default();
+        match configured_cap {
+            0 => limits.max_aggregate_row_cache_rows = 0,
+            1 => limits.max_aggregate_row_cache_value_cells = 0,
+            2 => limits.max_aggregate_row_cache_lookup_comparisons = 0,
+            3 => limits.max_aggregate_row_cache_physical_evaluations = 0,
+            4 => limits.max_aggregate_row_cache_hits = 0,
+            5 => limits.max_aggregate_row_cache_insertion_moves = 0,
+            _ => unreachable!(),
+        }
+        let (target, stratum, owners) = external_inputs(&family, &generator, &completed, limits);
+        let report = ProbeLocalObstructionScheduler::try_new(
+            &generator,
+            &completed,
+            target,
+            maximal_anchor(stratum),
+            owners,
+            OrderingPolicy::default(),
+            [probe([37, 1], [0, 0], limits)],
+            limits,
+        )
+        .unwrap()
+        .run()
+        .unwrap();
+
+        let ProbeLocalOutcome::BudgetStop { stop, .. } = report.probes()[0].outcome() else {
+            panic!(
+                "actual cache preflight must stop inconclusively: {:#?}",
+                report.probes()[0].outcome(),
+            )
+        };
+        assert_eq!(stop.stage(), ProbeLocalStage::ResidualEvaluation);
+        assert_eq!(stop.cause().scope(), ProbeLocalBudgetScope::Aggregate);
+        assert_eq!(stop.cause().resource(), resource);
+        assert!(report.census().residual_candidate_work() > 0);
+        assert_eq!(report.census().row_cache_rows(), 0);
+        assert_eq!(report.census().row_cache_value_cells(), 0);
+        assert_eq!(report.census().row_cache_lookup_comparisons(), 0);
+        assert_eq!(report.census().row_cache_physical_evaluations(), 0);
+        assert_eq!(report.census().row_cache_hits(), 0);
+        assert_eq!(report.census().row_cache_insertion_moves(), 0);
+    }
+}
+
+#[test]
+fn fallible_cache_batch_retains_exact_performed_work_in_terminal_census() {
+    let family = one_loop_one_external("probe-local-fallible-cache-accounting");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let mut limits = ProbeLocalSchedulerLimits::default();
+    limits.source_discovery.max_row_cache_physical_evaluations = 1;
+    let (target, stratum, owners) = external_inputs(&family, &generator, &completed, limits);
+    let report = ProbeLocalObstructionScheduler::try_new(
+        &generator,
+        &completed,
+        target,
+        maximal_anchor(stratum),
+        owners,
+        OrderingPolicy::default(),
+        [probe([37, 1], [0, 0], limits)],
+        limits,
+    )
+    .unwrap()
+    .run()
+    .unwrap();
+
+    assert!(matches!(
+        report.probes()[0].outcome(),
+        ProbeLocalOutcome::BudgetStop { stop, .. }
+            if stop.stage() == ProbeLocalStage::ResidualEvaluation
+    ));
+    let census = report.census();
+    assert_eq!(census.row_cache_rows(), 1);
+    assert!(census.row_cache_value_cells() > 0);
+    assert_eq!(census.row_cache_physical_evaluations(), 1);
+    assert!(census.row_cache_lookup_comparisons() > 0);
+    assert_eq!(census.row_cache_hits(), 0);
 }
 
 #[test]

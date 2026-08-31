@@ -12,6 +12,7 @@ mod incidence;
 mod limits;
 mod model;
 mod nominate;
+mod obstruction_block;
 mod owner_bundle;
 mod promotion;
 mod residual;
@@ -45,6 +46,14 @@ pub(crate) use incidence::OrdinarySourceIncidenceIndex;
 pub(crate) use limits::SourceDiscoveryLimits;
 pub(crate) use model::{
     IncidentTranslationNominations, NonzeroIncidentTranslationResiduals, ResidualProposalScore,
+};
+#[allow(unused_imports)] // Consumed by the proposal-only width-four research lane.
+pub(crate) use obstruction_block::{
+    ObstructionBlockNominationPlan, ObstructionBlockNominationUpperBound,
+    ObstructionBlockNominations, ObstructionBlockProposalBatch, ObstructionBlockProposalCandidate,
+    ObstructionBlockProposalScore, ObstructionBlockProposalTelemetry, ProbeRowEvaluationCache,
+    ProbeRowEvaluationCacheTelemetry, UnionObstructionSupportEntry, UnionSupportNominations,
+    try_select_obstruction_block_proposals,
 };
 #[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
 pub(crate) use owner_bundle::{

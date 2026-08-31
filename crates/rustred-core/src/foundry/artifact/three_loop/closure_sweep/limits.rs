@@ -77,6 +77,10 @@ pub(super) fn modular_limits() -> ModularKernelLimits {
         max_reducer_dense_cells: MAX_FRAME_ROWS * MAX_FRAME_COLUMNS,
         max_reducer_total_fill_entries: 1_000_000,
         max_reducer_fill_multiple: 20,
+        max_obstruction_block_directions: 4,
+        max_obstruction_block_entries: 4 * MAX_FRAME_COLUMNS,
+        max_obstruction_block_construction_operations: 10 * MAX_FRAME_COLUMNS,
+        max_obstruction_block_replay_operations: 4 * MAX_FRAME_ENTRIES,
     }
 }
 

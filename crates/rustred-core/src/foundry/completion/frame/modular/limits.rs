@@ -20,6 +20,16 @@ pub(crate) struct ModularKernelLimits {
     pub(crate) max_reducer_dense_cells: usize,
     pub(crate) max_reducer_total_fill_entries: usize,
     pub(crate) max_reducer_fill_multiple: usize,
+    /// Proposal-only right-kernel directions retained by one no-hit query.
+    /// Direction zero is always the primary target-normalized obstruction.
+    pub(crate) max_obstruction_block_directions: usize,
+    /// Aggregate nonzero coefficients retained by the proposal-only block.
+    pub(crate) max_obstruction_block_entries: usize,
+    /// RREF coordinates inspected while extracting and then independently
+    /// verifying all retained directions.
+    pub(crate) max_obstruction_block_construction_operations: usize,
+    /// Projected sparse entries replayed against all retained directions.
+    pub(crate) max_obstruction_block_replay_operations: usize,
 }
 
 impl Default for ModularKernelLimits {
@@ -37,6 +47,10 @@ impl Default for ModularKernelLimits {
             max_reducer_dense_cells: 64_000_000,
             max_reducer_total_fill_entries: 128_000_000,
             max_reducer_fill_multiple: 20,
+            max_obstruction_block_directions: 4,
+            max_obstruction_block_entries: 4_000_000,
+            max_obstruction_block_construction_operations: 10_000_000,
+            max_obstruction_block_replay_operations: 64_000_000,
         }
     }
 }

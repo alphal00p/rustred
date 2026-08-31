@@ -13,7 +13,8 @@ use crate::sector::OrderingPolicy;
 
 use super::super::super::{
     AccumulatedSourceRequests, CampaignModularProbe, CampaignRequestMerge, GrowingTaskEpochState,
-    OrdinarySourceIncidenceIndex, SampledDeclaredModuleDual, SourceDiscoveryError,
+    OrdinarySourceIncidenceIndex, ProbeRowEvaluationCache, SampledDeclaredModuleDual,
+    SourceDiscoveryError, try_select_obstruction_block_proposals,
 };
 use super::super::{
     ProbeLocalBudgetCause, ProbeLocalBudgetScope, ProbeLocalBudgetStop,
@@ -29,7 +30,6 @@ use outcome::{
     campaign_stop_or_rejection, finish_probe, sampled_dual_stop_or_rejection,
     source_stop_or_rejection,
 };
-use proposal::try_rank_residual_proposals;
 
 const ITERATIONS_PER_PROBE: &str = "probe-local iterations per probe";
 const REQUESTS_PER_PROBE: &str = "probe-local requests per probe";
@@ -59,6 +59,10 @@ pub(super) fn run_single_probe(
     limits: ProbeLocalSchedulerLimits,
     budget: &mut RunBudget,
 ) -> Result<ProbeLocalProbeReport, ProbeLocalSchedulerError> {
+    let mut row_cache =
+        ProbeRowEvaluationCache::try_new(incidence, completed, limits.source_discovery)
+            .map_err(ProbeLocalSchedulerError::SourceModule)?;
+    let mut admitted_cache_telemetry = row_cache.telemetry();
     // Recompute this structural bootstrap for every probe. Even though its raw
     // identities are deterministic, no request accumulator crosses this
     // boundary.
@@ -256,7 +260,12 @@ pub(super) fn run_single_probe(
                 },
             ));
         }
-        let query = match epoch.try_query(generator.context(), &probe, limits.campaign) {
+        let query = match epoch.try_query_with_obstruction_rotation(
+            generator.context(),
+            &probe,
+            epoch_ordinal,
+            limits.campaign,
+        ) {
             Ok(query) => query,
             Err(error) => {
                 let outcome = campaign_stop_or_rejection(
@@ -468,15 +477,79 @@ pub(super) fn run_single_probe(
                         },
                     ));
                 }
-                let residuals = match incidence.try_retain_nonzero_residuals_for_partition(
+                if let Err(cause) = budget.try_preflight_row_cache_batch(
+                    row_cache.telemetry(),
+                    nominations.requests().len(),
+                    residual_source_term_work,
+                    limits,
+                ) {
+                    records.push(outcome::iteration_record(
+                        &epoch,
+                        &query,
+                        ProbeLocalIterationDisposition::NoHitStopped {
+                            stage: ProbeLocalStage::ResidualEvaluation,
+                        },
+                    ));
+                    drop(query);
+                    let stop = ProbeLocalBudgetStop::new(
+                        probe_ordinal,
+                        epoch_ordinal,
+                        ProbeLocalStage::ResidualEvaluation,
+                        cause,
+                    );
+                    return Ok(finish_probe(
+                        probe_ordinal,
+                        probe,
+                        records,
+                        ProbeLocalOutcome::BudgetStop {
+                            context: ProbeLocalStopContext::Epoch(epoch),
+                            stop,
+                        },
+                    ));
+                }
+                let residual_result = incidence.try_retain_nonzero_residuals_for_partition_cached(
                     generator,
                     completed,
                     &nominations,
                     query.sampled(),
                     obstruction,
                     query.partition(),
+                    &mut row_cache,
                     limits.source_discovery,
-                ) {
+                );
+                let current_cache_telemetry = row_cache.telemetry();
+                let cache_admission = budget.try_admit_row_cache_delta(
+                    admitted_cache_telemetry,
+                    current_cache_telemetry,
+                    limits,
+                );
+                admitted_cache_telemetry = current_cache_telemetry;
+                if let Err(cause) = cache_admission {
+                    records.push(outcome::iteration_record(
+                        &epoch,
+                        &query,
+                        ProbeLocalIterationDisposition::NoHitStopped {
+                            stage: ProbeLocalStage::ResidualEvaluation,
+                        },
+                    ));
+                    drop(query);
+                    let stop = ProbeLocalBudgetStop::new(
+                        probe_ordinal,
+                        epoch_ordinal,
+                        ProbeLocalStage::ResidualEvaluation,
+                        cause,
+                    );
+                    return Ok(finish_probe(
+                        probe_ordinal,
+                        probe,
+                        records,
+                        ProbeLocalOutcome::BudgetStop {
+                            context: ProbeLocalStopContext::Epoch(epoch),
+                            stop,
+                        },
+                    ));
+                }
+                let residuals = match residual_result {
                     Ok(residuals) => residuals,
                     Err(error) => {
                         records.push(outcome::iteration_record(
@@ -531,42 +604,109 @@ pub(super) fn run_single_probe(
                 }
 
                 let nonzero_residual_requests = residuals.requests().len();
-                // The residual census above is deliberately exhaustive: only
-                // its empty result can authorize a sampled dual.  Frame growth
-                // is a separate, non-authoritative proposal policy.  Admit a
-                // deterministic frontier-ranked prefix so one obstruction
-                // cannot inflate the next exact frame by thousands of
-                // translations.
-                // Requests not selected here are not forbidden or forgotten;
-                // a fresh obstruction may nominate them again in a later
-                // epoch, while already admitted requests are excluded by the
-                // incidence boundary.
-                let proposals = match try_rank_residual_proposals(
-                    &residuals,
-                    limits.max_residual_proposals_per_iteration,
+                // The authoritative primary census is known nonempty before
+                // this proposal-only block sidecar is consulted. Therefore
+                // no block-wide zero, failure, or resource stop can admit a
+                // sampled dual or other negative evidence.
+                let block_nomination_plan = match incidence.try_plan_obstruction_block_nomination(
+                    obstruction,
+                    &nominations,
+                    limits.source_discovery,
                 ) {
-                    Ok(proposals) => proposals,
-                    Err(ProbeLocalSchedulerError::AllocationFailure {
-                        resource,
-                        requested,
-                    }) => {
+                    Ok(plan) => plan,
+                    Err(error) => {
                         records.push(outcome::iteration_record(
                             &epoch,
                             &query,
                             ProbeLocalIterationDisposition::NoHitStopped {
-                                stage: ProbeLocalStage::RequestMerge,
+                                stage: ProbeLocalStage::ObstructionBlockNomination,
+                            },
+                        ));
+                        drop(query);
+                        let outcome = source_stop_or_rejection(
+                            probe_ordinal,
+                            epoch_ordinal,
+                            ProbeLocalStage::ObstructionBlockNomination,
+                            ProbeLocalStopContext::Epoch(epoch),
+                            error,
+                        );
+                        return Ok(finish_probe(probe_ordinal, probe, records, outcome));
+                    }
+                };
+                if let Err(cause) = budget.try_admit_obstruction_block_nomination(
+                    block_nomination_plan.upper_bound(),
+                    limits,
+                ) {
+                    records.push(outcome::iteration_record(
+                        &epoch,
+                        &query,
+                        ProbeLocalIterationDisposition::NoHitStopped {
+                            stage: ProbeLocalStage::ObstructionBlockNomination,
+                        },
+                    ));
+                    drop(query);
+                    let stop = ProbeLocalBudgetStop::new(
+                        probe_ordinal,
+                        epoch_ordinal,
+                        ProbeLocalStage::ObstructionBlockNomination,
+                        cause,
+                    );
+                    return Ok(finish_probe(
+                        probe_ordinal,
+                        probe,
+                        records,
+                        ProbeLocalOutcome::BudgetStop {
+                            context: ProbeLocalStopContext::Epoch(epoch),
+                            stop,
+                        },
+                    ));
+                }
+                let block_nominations = match incidence.try_nominate_obstruction_block_from_plan(
+                    &block_nomination_plan,
+                    obstruction,
+                    &nominations,
+                    limits.source_discovery,
+                ) {
+                    Ok(block_nominations) => block_nominations,
+                    Err(error) => {
+                        records.push(outcome::iteration_record(
+                            &epoch,
+                            &query,
+                            ProbeLocalIterationDisposition::NoHitStopped {
+                                stage: ProbeLocalStage::ObstructionBlockNomination,
+                            },
+                        ));
+                        drop(query);
+                        let outcome = source_stop_or_rejection(
+                            probe_ordinal,
+                            epoch_ordinal,
+                            ProbeLocalStage::ObstructionBlockNomination,
+                            ProbeLocalStopContext::Epoch(epoch),
+                            error,
+                        );
+                        return Ok(finish_probe(probe_ordinal, probe, records, outcome));
+                    }
+                };
+                let block_source_term_work = match translated_source_term_work(
+                    incidence,
+                    block_nominations.union().requests(),
+                    AGGREGATE_RESIDUAL_SOURCE_TERM_WORK,
+                ) {
+                    Ok(work) => work,
+                    Err(RequestSourceTermWorkError::Budget(cause)) => {
+                        records.push(outcome::iteration_record(
+                            &epoch,
+                            &query,
+                            ProbeLocalIterationDisposition::NoHitStopped {
+                                stage: ProbeLocalStage::ObstructionBlockEvaluation,
                             },
                         ));
                         drop(query);
                         let stop = ProbeLocalBudgetStop::new(
                             probe_ordinal,
                             epoch_ordinal,
-                            ProbeLocalStage::RequestMerge,
-                            ProbeLocalBudgetCause::AllocationFailure {
-                                scope: ProbeLocalBudgetScope::Probe,
-                                resource,
-                                requested,
-                            },
+                            ProbeLocalStage::ObstructionBlockEvaluation,
+                            cause,
                         );
                         return Ok(finish_probe(
                             probe_ordinal,
@@ -578,7 +718,191 @@ pub(super) fn run_single_probe(
                             },
                         ));
                     }
-                    Err(error) => return Err(error),
+                    Err(RequestSourceTermWorkError::InvalidSourceOrdinal) => {
+                        return Err(ProbeLocalSchedulerError::Invariant {
+                            detail: "block nomination names a source outside its sealed incidence module",
+                        });
+                    }
+                };
+                if let Err(cause) = budget.try_admit_obstruction_block_work(
+                    block_nominations.union().requests().len(),
+                    block_source_term_work,
+                    block_nominations.union().direction_count(),
+                    limits.max_residual_proposals_per_iteration,
+                    limits,
+                ) {
+                    records.push(outcome::iteration_record(
+                        &epoch,
+                        &query,
+                        ProbeLocalIterationDisposition::NoHitStopped {
+                            stage: ProbeLocalStage::ObstructionBlockEvaluation,
+                        },
+                    ));
+                    drop(query);
+                    let stop = ProbeLocalBudgetStop::new(
+                        probe_ordinal,
+                        epoch_ordinal,
+                        ProbeLocalStage::ObstructionBlockEvaluation,
+                        cause,
+                    );
+                    return Ok(finish_probe(
+                        probe_ordinal,
+                        probe,
+                        records,
+                        ProbeLocalOutcome::BudgetStop {
+                            context: ProbeLocalStopContext::Epoch(epoch),
+                            stop,
+                        },
+                    ));
+                }
+                if let Err(cause) = budget.try_preflight_row_cache_batch(
+                    row_cache.telemetry(),
+                    block_nominations.union().requests().len(),
+                    block_source_term_work,
+                    limits,
+                ) {
+                    records.push(outcome::iteration_record(
+                        &epoch,
+                        &query,
+                        ProbeLocalIterationDisposition::NoHitStopped {
+                            stage: ProbeLocalStage::ObstructionBlockEvaluation,
+                        },
+                    ));
+                    drop(query);
+                    let stop = ProbeLocalBudgetStop::new(
+                        probe_ordinal,
+                        epoch_ordinal,
+                        ProbeLocalStage::ObstructionBlockEvaluation,
+                        cause,
+                    );
+                    return Ok(finish_probe(
+                        probe_ordinal,
+                        probe,
+                        records,
+                        ProbeLocalOutcome::BudgetStop {
+                            context: ProbeLocalStopContext::Epoch(epoch),
+                            stop,
+                        },
+                    ));
+                }
+                let block_proposal_result = incidence.try_evaluate_obstruction_block_proposals(
+                    generator,
+                    completed,
+                    &block_nominations,
+                    query.sampled(),
+                    obstruction,
+                    query.partition(),
+                    &mut row_cache,
+                    limits.source_discovery,
+                );
+                let current_cache_telemetry = row_cache.telemetry();
+                let cache_admission = budget.try_admit_row_cache_delta(
+                    admitted_cache_telemetry,
+                    current_cache_telemetry,
+                    limits,
+                );
+                admitted_cache_telemetry = current_cache_telemetry;
+                if let Err(cause) = cache_admission {
+                    records.push(outcome::iteration_record(
+                        &epoch,
+                        &query,
+                        ProbeLocalIterationDisposition::NoHitStopped {
+                            stage: ProbeLocalStage::ObstructionBlockEvaluation,
+                        },
+                    ));
+                    drop(query);
+                    let stop = ProbeLocalBudgetStop::new(
+                        probe_ordinal,
+                        epoch_ordinal,
+                        ProbeLocalStage::ObstructionBlockEvaluation,
+                        cause,
+                    );
+                    return Ok(finish_probe(
+                        probe_ordinal,
+                        probe,
+                        records,
+                        ProbeLocalOutcome::BudgetStop {
+                            context: ProbeLocalStopContext::Epoch(epoch),
+                            stop,
+                        },
+                    ));
+                }
+                let block_proposals = match block_proposal_result {
+                    Ok(proposals) => proposals,
+                    Err(error) => {
+                        records.push(outcome::iteration_record(
+                            &epoch,
+                            &query,
+                            ProbeLocalIterationDisposition::NoHitStopped {
+                                stage: ProbeLocalStage::ObstructionBlockEvaluation,
+                            },
+                        ));
+                        drop(query);
+                        let outcome = source_stop_or_rejection(
+                            probe_ordinal,
+                            epoch_ordinal,
+                            ProbeLocalStage::ObstructionBlockEvaluation,
+                            ProbeLocalStopContext::Epoch(epoch),
+                            error,
+                        );
+                        return Ok(finish_probe(probe_ordinal, probe, records, outcome));
+                    }
+                };
+                if let Err(error) = block_proposals
+                    .try_verify_primary_residuals(&residuals, limits.source_discovery)
+                {
+                    records.push(outcome::iteration_record(
+                        &epoch,
+                        &query,
+                        ProbeLocalIterationDisposition::NoHitStopped {
+                            stage: ProbeLocalStage::ObstructionBlockSelection,
+                        },
+                    ));
+                    drop(query);
+                    let outcome = source_stop_or_rejection(
+                        probe_ordinal,
+                        epoch_ordinal,
+                        ProbeLocalStage::ObstructionBlockSelection,
+                        ProbeLocalStopContext::Epoch(epoch),
+                        error,
+                    );
+                    return Ok(finish_probe(probe_ordinal, probe, records, outcome));
+                }
+                // The residual census above is deliberately exhaustive: only
+                // its empty result can authorize a sampled dual.  Frame growth
+                // is a separate, non-authoritative proposal policy.  Admit a
+                // deterministic frontier-ranked prefix so one obstruction
+                // cannot inflate the next exact frame by thousands of
+                // translations.
+                // Requests not selected here are not forbidden or forgotten;
+                // a fresh obstruction may nominate them again in a later
+                // epoch, while already admitted requests are excluded by the
+                // incidence boundary.
+                let proposals = match try_select_obstruction_block_proposals(
+                    &block_proposals,
+                    limits.max_residual_proposals_per_iteration,
+                    epoch_ordinal,
+                    limits.source_discovery,
+                ) {
+                    Ok(proposals) => proposals,
+                    Err(error) => {
+                        records.push(outcome::iteration_record(
+                            &epoch,
+                            &query,
+                            ProbeLocalIterationDisposition::NoHitStopped {
+                                stage: ProbeLocalStage::ObstructionBlockSelection,
+                            },
+                        ));
+                        drop(query);
+                        let outcome = source_stop_or_rejection(
+                            probe_ordinal,
+                            epoch_ordinal,
+                            ProbeLocalStage::ObstructionBlockSelection,
+                            ProbeLocalStopContext::Epoch(epoch),
+                            error,
+                        );
+                        return Ok(finish_probe(probe_ordinal, probe, records, outcome));
+                    }
                 };
                 let proposed_residual_requests = proposals.len();
                 if let Err(cause) = budget.try_admit_merge_work(

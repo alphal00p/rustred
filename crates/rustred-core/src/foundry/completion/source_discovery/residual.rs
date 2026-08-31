@@ -12,8 +12,8 @@ use super::model::{IncidentNominationOrigin, ResidualCensusProvenance};
 use super::nominate::{check_limit, checked_add, try_vec};
 use super::{
     IncidentTranslationNominations, NonzeroIncidentTranslationResiduals,
-    OrdinarySourceIncidenceIndex, ResidualProposalScore, SourceDiscoveryError,
-    SourceDiscoveryLimits,
+    OrdinarySourceIncidenceIndex, ProbeRowEvaluationCache, ResidualProposalScore,
+    SourceDiscoveryError, SourceDiscoveryLimits,
 };
 
 const RESIDUAL_CANDIDATES: &str = "source-discovery residual candidates";
@@ -68,6 +68,7 @@ impl OrdinarySourceIncidenceIndex<'_> {
             frame,
             obstruction,
             None,
+            None,
             limits,
         )
     }
@@ -93,6 +94,36 @@ impl OrdinarySourceIncidenceIndex<'_> {
             frame,
             obstruction,
             Some(partition),
+            None,
+            limits,
+        )
+    }
+
+    /// Cache-enabled form of the authoritative primary q0 residual census.
+    /// Exact source translation and private census provenance are unchanged;
+    /// only complete finite-field row values may be reused within one bound
+    /// probe. An empty result therefore has exactly the same sampled-dual
+    /// meaning as the uncached path.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn try_retain_nonzero_residuals_for_partition_cached(
+        &self,
+        generator: &ParametricIbpGenerator<'_>,
+        completed: &CompletedIbpSourceRows,
+        nominations: &IncidentTranslationNominations,
+        frame: &ModularPhysicalFrame<'_>,
+        obstruction: &ModularRightObstruction<'_>,
+        partition: &TargetColumnPartition<'_>,
+        cache: &mut ProbeRowEvaluationCache,
+        limits: SourceDiscoveryLimits,
+    ) -> Result<NonzeroIncidentTranslationResiduals, SourceDiscoveryError> {
+        self.try_retain_nonzero_residuals_with_partition(
+            generator,
+            completed,
+            nominations,
+            frame,
+            obstruction,
+            Some(partition),
+            Some(cache),
             limits,
         )
     }
@@ -106,6 +137,7 @@ impl OrdinarySourceIncidenceIndex<'_> {
         frame: &ModularPhysicalFrame<'_>,
         obstruction: &ModularRightObstruction<'_>,
         proposal_partition: Option<&TargetColumnPartition<'_>>,
+        cache: Option<&mut ProbeRowEvaluationCache>,
         limits: SourceDiscoveryLimits,
     ) -> Result<NonzeroIncidentTranslationResiduals, SourceDiscoveryError> {
         validate_join(self, generator, completed, nominations, frame, obstruction)?;
@@ -147,6 +179,7 @@ impl OrdinarySourceIncidenceIndex<'_> {
             frame,
             obstruction,
             proposal_partition,
+            cache,
             &support,
             census,
             translated,
@@ -193,6 +226,7 @@ pub(super) fn pair_selected_sources_for_test(
         frame,
         obstruction,
         None,
+        None,
         &support,
         census,
         selected,
@@ -210,6 +244,7 @@ fn pair_translated_sources(
     frame: &ModularPhysicalFrame<'_>,
     obstruction: &ModularRightObstruction<'_>,
     proposal_partition: Option<&TargetColumnPartition<'_>>,
+    mut cache: Option<&mut ProbeRowEvaluationCache>,
     support: &[RawObstructionEntry<'_>],
     census: ResidualCensusProvenance,
     translated: SelectedTranslatedSourceBatch,
@@ -276,14 +311,29 @@ fn pair_translated_sources(
         .zip(translated.sources())
         .enumerate()
     {
-        frame
-            .try_evaluate_translated_source(generator.context(), source, &mut evaluated)
-            .map_err(|error| SourceDiscoveryError::CandidateEvaluation {
+        let cached = match cache.as_deref_mut() {
+            Some(cache) => Some(cache.try_evaluate(
+                incidence,
+                generator.context(),
+                request,
+                source,
+                frame,
                 candidate_ordinal,
-                source_ordinal: request.source_ordinal(),
-                error,
-            })?;
-        if evaluated.len() != source.terms().len() {
+                limits,
+            )?),
+            None => {
+                frame
+                    .try_evaluate_translated_source(generator.context(), source, &mut evaluated)
+                    .map_err(|error| SourceDiscoveryError::CandidateEvaluation {
+                        candidate_ordinal,
+                        source_ordinal: request.source_ordinal(),
+                        error,
+                    })?;
+                None
+            }
+        };
+        let evaluated_coefficients = cached.as_deref().unwrap_or(&evaluated);
+        if evaluated_coefficients.len() != source.terms().len() {
             return Err(SourceDiscoveryError::Invariant {
                 detail: "complete modular source evaluation changed exact term cardinality",
             });
@@ -291,7 +341,7 @@ fn pair_translated_sources(
 
         let mut residual = field.zero();
         let mut obstruction_support_terms = 0usize;
-        for (term_shift, coefficient) in source.terms().keys().zip(&evaluated) {
+        for (term_shift, coefficient) in source.terms().keys().zip(evaluated_coefficients) {
             let Ok(position) =
                 support.binary_search_by(|entry| entry.shift.values().cmp(term_shift.values()))
             else {

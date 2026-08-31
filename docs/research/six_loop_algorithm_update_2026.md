@@ -522,6 +522,28 @@ useful remainders. Once every guard-specific complement is finite, the remaining
 irrelevant to closure and may be discarded. Before then, mother-only normal forming can silently
 stall even though a finite cover exists.
 
+There is also a sharp finite-frame limitation. If the presently instantiated ordinary-source
+matrix is `A`, its target obstruction is `q`, and a proposed descendant expands entirely inside
+that frame as `d = lambda^T A`, then `A q = 0` implies `d q = 0`. Neither differentiation nor an
+integrability combination can repair the same-frame rank equality by itself. A successful
+descendant must therefore either import at least one translated ordinary row outside the frame, or
+be admitted only after an exact boundary/slice specialization changes the domain. This makes the
+paper's construction a potentially powerful *scheduler and preconditioner* for RustRed's infinite
+translated-source module, not a new fixed-dimension identity class.
+
+The physical K6 falsifier consequently has three arms over one frozen radius-two request universe:
+
+1. the current `q0`/width-four obstruction selector;
+2. all incident original translations as the direct completeness control; and
+3. generating-function descendants and two-parent leader cancellations, each carrying an exact
+   expansion into the rows of arm 2.
+
+At every nonsingular modular sample, `rank(arm 3) <= rank(arm 2)` is mandatory. If both produce the
+same exact owner but arm 3 materially reduces rows, fill, or exact-lift time, the paper supplied a
+useful organization. If only the specialized variants produce an owner, specialization supplied
+the extra domain-local power. A rank or rule claim outside the expanded direct control is a
+provenance bug, not a breakthrough.
+
 The smallest mandatory semantic falsifier uses six commuting shifts:
 
 ```text
@@ -546,6 +568,41 @@ report alternative-parent multiplicity, retained descendants, proof DAG/flattene
 guard factors, exact replay cost, and free-dimension reduction. If the critical halo recreates the
 full translated shell or the full Ore pair set, the candidate is correct but not the required
 scaling breakthrough.
+
+#### Ordering portfolio, not ordering authority
+
+The Sparse Integral Reducer report describes a modified LiteRed-style symbolic-rule workflow and
+finite-field/rational-reconstruction back substitution over a dependency graph of order `10^8`
+integrals. It also states that the size of the forward-solved system depends strongly on the
+chosen integral ordering, but it publishes neither the ordering formula nor a closure theorem:
+[*Nonlocal-in-time tail effects in gravitational scattering*, Section IV](https://arxiv.org/html/2604.25916v1#S4),
+arXiv:`2604.25916`.
+
+RustRed must keep three notions separate. Symbolica coefficient-variable order and equation/pivot
+insertion order can change arithmetic and sparse fill but not the exact row space. Integral/shift
+column order can instead change leaders, the forbidden/right-hand-side split, the triangular route,
+and the resulting nonminimal terminal basis. The artifact's sector-monotone, well-founded integral
+order is therefore still a correctness witness, but an ordering-policy experiment may select a
+different witness only by assigning it a stable identity and freezing it for the complete campaign,
+admission, and application path.
+
+For K6, enumerate the `6!` complete edge-priority permutations and quotient them by the K4 `S4`
+automorphism action, leaving at most 30 inequivalent policies. Screen all policies modularly on the
+same path/star translated rows, samples, predecessor snapshot, and aggregate budgets. Retain the
+baseline and at most four finalists for exact lifting and full closure sweeps. Separately benchmark
+coefficient-variable, equation, pivot, mother, derivative, request, predicted-fill, and
+symmetry-orbit orders under each fixed integral policy. Record admissible leaders, cutters, modular
+and exact fill, selected-row count, exact-lift cost, guard complexity, terminal count, and exact
+`BoxCover` delta. A policy matters only if it shrinks the exact unbounded complement or creates an
+additional guard-total descending cell—not merely because modular RREF is faster.
+
+Canonical accepted content must be byte-identical across insertion orders and supported worker
+counts *within one persisted integral-order policy*. Different integral-order policies may produce
+different valid artifacts and terminal sets; each must independently pass exact replay, guard,
+owner, and strict-descent authority. At K21 the symmetry quotient of all edge orders is still
+astronomical, so any surviving strategy must become a small graph-canonical portfolio based on
+edge-orbit features, obstruction scores, guard complexity, and sparse min-fill estimates, with K10
+and K15 kill gates before promotion.
 
 ### Finite spanning closure versus terminal independence
 

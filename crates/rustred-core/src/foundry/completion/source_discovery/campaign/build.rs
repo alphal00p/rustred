@@ -390,6 +390,19 @@ impl FreshTaskEpoch {
         probe: &CampaignModularProbe,
         limits: CampaignLimits,
     ) -> Result<FreshTaskQuery<'epoch>, CampaignError> {
+        self.try_query_with_obstruction_rotation(context, probe, 0, limits)
+    }
+
+    /// As [`Self::try_query`], with a deterministic proposal-only rotation of
+    /// auxiliary right-kernel directions. The primary q0 obstruction and all
+    /// sampled-dual authority are independent of this scheduling input.
+    pub(crate) fn try_query_with_obstruction_rotation<'epoch>(
+        &'epoch self,
+        context: &IndexedCoefficientContext,
+        probe: &CampaignModularProbe,
+        obstruction_rotation: usize,
+        limits: CampaignLimits,
+    ) -> Result<FreshTaskQuery<'epoch>, CampaignError> {
         validate_probe_in_fixed_stratum(self.fixed_stratum(), probe)?;
         let partition = self.try_partition(limits.stratum)?;
         let sampled = self
@@ -403,9 +416,10 @@ impl FreshTaskEpoch {
             )
             .map_err(modular_error)?;
         let query = sampled
-            .query_target(
+            .query_target_with_obstruction_rotation(
                 partition.target_column(),
                 partition.forbidden_columns(),
+                obstruction_rotation,
                 limits.modular,
             )
             .map_err(modular_error)?;
