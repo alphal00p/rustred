@@ -19,13 +19,13 @@ use super::{ExactCircuitOuterExtensionWitness, ExactCircuitOwnerCoverError};
 #[derive(Debug)]
 pub(crate) struct ExactCircuitOwnerInput<'partition, 'frame> {
     pub(super) partition: &'partition TargetColumnPartition<'frame>,
-    pub(super) outer_extension: ExactCircuitOuterExtensionWitness,
+    pub(super) outer_extension: ExactCircuitOuterExtensionWitness<'frame>,
 }
 
 impl<'partition, 'frame> ExactCircuitOwnerInput<'partition, 'frame> {
     pub(crate) const fn new(
         partition: &'partition TargetColumnPartition<'frame>,
-        outer_extension: ExactCircuitOuterExtensionWitness,
+        outer_extension: ExactCircuitOuterExtensionWitness<'frame>,
     ) -> Self {
         Self {
             partition,

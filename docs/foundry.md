@@ -334,6 +334,34 @@ payload under an explicit byte limit; counts alone can never rebind terminal
 authority. Promotion must still rejoin the sealed snapshot and verify its
 retained witnesses rather than trusting the identity string in isolation.
 
+Physical storage is construction-neutral. `PhysicalFramePlan` contains the
+sealed exact translated rows, their provenance, the sorted union of raw
+integral shifts, and the matching CSR only. Rectangular one-sided degree and
+offset metadata lives in `OneSidedChartFrame`; sparse signed selections live
+in `SelectedSourceFrame`. Both shells enter the same checked assembler, so a
+selected row may introduce arbitrary new physical columns without being
+completed to `offsets x all sources` or losing gates and denominators. Source
+identity is exactly its ordinary-row provenance plus signed offset;
+translation radius is scheduling metadata. Every selected augmentation is a
+new immutable plan, and target/forbidden ordinals, partitions, modular samples,
+and proof witnesses from the previous plan are foreign. Semantic DAGs inherit
+an unforgeable per-plan identity, and outer-extension witnesses rejoin both
+that token and the originating plan pointer, not scope strings and a target
+ordinal alone.
+
+The first dual-obstruction discovery layer is structural and deliberately has
+no rule authority. It accepts only a zero-offset batch whose sealed layout is
+the complete ordinary `L * (L + E)` span, enumerates every checked
+`alpha = u - s` incidence from a target-unit seed or a verified modular right
+obstruction, canonicalizes requests, and removes already materialized rows.
+External-contraction-only batches are rejected before the census. The K6
+control has nine sources, 90 term incidences, 31 distinct relative shifts, and
+90 unique target-unit bootstrap requests. Candidate coefficients are evaluated
+through the Symbolica-backed scalar evaluator bound to one admitted modular
+frame, so its point cannot be paired with another finite-field domain. Full
+residual pairing and the fresh-plan fixed-point loop remain discovery work;
+neither a nomination nor exhaustion can become a terminal.
+
 The corresponding modular hit is bound by pointer identity to its physical
 frame and by an immutable prime/sample fingerprint. Exact lifting projects the
 selected chronological source rows onto `[forbidden, target, identity]`, uses

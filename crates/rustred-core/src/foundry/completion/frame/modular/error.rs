@@ -3,6 +3,7 @@ use std::fmt;
 /// Typed failures at the bounded modular-discovery boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ModularKernelError {
+    WrongFrameContext,
     UnsupportedEvenModulus {
         modulus: u64,
     },
@@ -73,6 +74,10 @@ pub(crate) enum ModularKernelError {
 impl fmt::Display for ModularKernelError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::WrongFrameContext => write!(
+                formatter,
+                "modular sample context does not belong to the physical frame"
+            ),
             Self::UnsupportedEvenModulus { modulus } => write!(
                 formatter,
                 "modular physical-frame sampling requires an odd prime, got even modulus {modulus}"

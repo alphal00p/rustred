@@ -4,7 +4,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::family::IntegralKey;
-use crate::foundry::completion::frame::PhysicalFramePlan;
+use crate::foundry::completion::frame::OneSidedChartFrame;
 use crate::foundry::completion::frame::admission::{
     ExactCircuitOuterExtensionWitness, ExactCircuitOwnerCover, ExactCircuitOwnerCoverError,
     ExactCircuitOwnerInput, ExactCircuitSemanticDag, ExactOwnerCoverStatus,
@@ -84,7 +84,7 @@ pub(super) fn sweep_sector(
     let mut frames = Vec::new();
     frames.try_reserve_exact(degrees.len())?;
     for &degree in degrees {
-        frames.push(Box::new(PhysicalFramePlan::try_new(
+        frames.push(Box::new(OneSidedChartFrame::try_new(
             &generator,
             &completed,
             sector.clone(),
@@ -99,9 +99,9 @@ pub(super) fn sweep_sector(
         .first()
         .ok_or(SweepConfigurationError::EmptyDegreeSchedule)?;
     let empty_owners = ImmutableOwnerSnapshot::try_empty(
-        first.family_fingerprint(),
-        first.context_fingerprint(),
-        first.sector().arity(),
+        first.plan().family_fingerprint(),
+        first.plan().context_fingerprint(),
+        first.plan().sector().arity(),
         registry_limits,
     )?;
 
@@ -113,12 +113,13 @@ pub(super) fn sweep_sector(
     degree_reports.try_reserve_exact(frames.len())?;
 
     for frame in &frames {
-        let shifts = frame
+        let plan = frame.plan();
+        let shifts = plan
             .columns()
             .iter()
             .map(|shift| shift.values())
             .collect::<Vec<_>>();
-        let sampled = frame.try_modular_sample(
+        let sampled = plan.try_modular_sample(
             &context,
             PRIME,
             &BASE_PARAMETERS,
@@ -128,9 +129,9 @@ pub(super) fn sweep_sector(
         let mut report = DegreeSweepTelemetry {
             degree: frame.degree(),
             frame_offsets: frame.offsets().len(),
-            frame_rows: frame.row_count(),
-            frame_columns: frame.columns().len(),
-            frame_entries: frame.entry_count(),
+            frame_rows: plan.row_count(),
+            frame_columns: plan.columns().len(),
+            frame_entries: plan.entry_count(),
             partitioned_targets: 0,
             inactive_activation_targets: 0,
             modular_hits: 0,
@@ -141,20 +142,20 @@ pub(super) fn sweep_sector(
             admitted_owners: 0,
         };
 
-        for target_column in 0..frame.columns().len() {
+        for target_column in 0..plan.columns().len() {
             let domain = SectorMonotoneDomain::try_maximal_for_rule(
                 sector.clone(),
-                frame.columns()[target_column].values(),
+                plan.columns()[target_column].values(),
                 &shifts,
             )?;
             let stratum = DecoratedStratum::try_guard_blind(
-                frame.family_fingerprint(),
-                frame.context_fingerprint(),
+                plan.family_fingerprint(),
+                plan.context_fingerprint(),
                 domain,
                 registry_limits,
             )?;
             let partition = match TargetColumnPartition::try_new(
-                frame,
+                plan,
                 target_column,
                 stratum,
                 empty_owners.clone(),
@@ -261,16 +262,16 @@ fn validate_degree_schedule(degrees: &[usize]) -> Result<(), SweepConfigurationE
     Ok(())
 }
 
-fn validate_frame_scope(frames: &[Box<PhysicalFramePlan>]) -> Result<(), SweepConfigurationError> {
+fn validate_frame_scope(frames: &[Box<OneSidedChartFrame>]) -> Result<(), SweepConfigurationError> {
     let Some(first) = frames.first() else {
         return Err(SweepConfigurationError::EmptyDegreeSchedule);
     };
     for frame in frames.iter().skip(1) {
-        let detail = if frame.family_fingerprint() != first.family_fingerprint() {
+        let detail = if frame.plan().family_fingerprint() != first.plan().family_fingerprint() {
             Some("family fingerprint differs")
-        } else if frame.context_fingerprint() != first.context_fingerprint() {
+        } else if frame.plan().context_fingerprint() != first.plan().context_fingerprint() {
             Some("coefficient context differs")
-        } else if frame.sector() != first.sector() {
+        } else if frame.plan().sector() != first.plan().sector() {
             Some("sector differs")
         } else {
             None

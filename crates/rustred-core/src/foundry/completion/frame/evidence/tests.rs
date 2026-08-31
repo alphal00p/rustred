@@ -7,7 +7,9 @@ use crate::foundry::completion::frame::exact::{
 use crate::foundry::completion::frame::modular::{
     ModularKernelError, ModularKernelLimits, ModularTargetQuery,
 };
-use crate::foundry::completion::frame::{PhysicalFrameLimits, PhysicalFramePlan};
+use crate::foundry::completion::frame::{
+    OneSidedChartFrame, PhysicalFrameLimits, PhysicalFramePlan,
+};
 use crate::foundry::completion::stratum::{
     DecoratedStratum, ImmutableOwnerSnapshot, StratumRegistryError, StratumRegistryLimits,
     TargetColumnPartition,
@@ -76,14 +78,15 @@ fn tadpole_frame_in_sector(
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();
     let context = generator.context().clone();
     let completed = complete_ordinary(&generator);
-    let plan = PhysicalFramePlan::try_new(
+    let plan = OneSidedChartFrame::try_new(
         &generator,
         &completed,
         Mask::try_new([active]).unwrap(),
         degree,
         PhysicalFrameLimits::default(),
     )
-    .unwrap();
+    .unwrap()
+    .into_plan();
     (context, plan)
 }
 
@@ -110,14 +113,15 @@ fn guarded_tadpole_frame() -> (IndexedCoefficientContext, PhysicalFramePlan) {
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();
     let context = generator.context().clone();
     let completed = complete_ordinary(&generator);
-    let plan = PhysicalFramePlan::try_new(
+    let plan = OneSidedChartFrame::try_new(
         &generator,
         &completed,
         Mask::try_new([true]).unwrap(),
         0,
         PhysicalFrameLimits::default(),
     )
-    .unwrap();
+    .unwrap()
+    .into_plan();
     (context, plan)
 }
 
@@ -126,14 +130,15 @@ fn s4a_degree_one() -> (IndexedCoefficientContext, PhysicalFramePlan) {
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();
     let context = generator.context().clone();
     let completed = complete_ordinary(&generator);
-    let plan = PhysicalFramePlan::try_new(
+    let plan = OneSidedChartFrame::try_new(
         &generator,
         &completed,
         Mask::try_new([false, true, true, true, true, false]).unwrap(),
         1,
         PhysicalFrameLimits::default(),
     )
-    .unwrap();
+    .unwrap()
+    .into_plan();
     (context, plan)
 }
 

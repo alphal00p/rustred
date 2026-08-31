@@ -185,6 +185,7 @@ impl ParametricIbpGenerator<'_> {
         Ok(TranslatedSourceBatch {
             family_fingerprint: self.source_scope.family_fingerprint.clone(),
             context_fingerprint: self.source_scope.context_fingerprint.clone(),
+            source_layout: completed.layout,
             source_row_count: source_rows,
             offsets: canonical_offsets,
             sources: translated,

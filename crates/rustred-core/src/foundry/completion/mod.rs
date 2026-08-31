@@ -25,6 +25,7 @@ pub(crate) mod guard;
 mod limits;
 mod model;
 mod region;
+pub(crate) mod source_discovery;
 pub(crate) mod stratum;
 
 pub(crate) use chart::SectorChart;

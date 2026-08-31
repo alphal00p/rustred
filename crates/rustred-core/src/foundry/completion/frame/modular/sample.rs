@@ -1,9 +1,10 @@
-use symbolica::domains::finite_field::{ToFiniteField, Zp64};
+use symbolica::domains::finite_field::{FiniteFieldCore, FiniteFieldElement, ToFiniteField, Zp64};
 use symbolica::domains::{Field, Ring, RingOps};
 use symbolica::prelude::Integer;
 use symbolica::tensors::sparse::SparseMatrix;
 
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial};
+use crate::identity::TranslatedSource;
 
 use super::super::PhysicalFramePlan;
 use super::{
@@ -15,10 +16,149 @@ const SOURCE_CONDITIONS: &str = "modular source conditions";
 const STRUCTURAL_ENTRIES: &str = "modular structural entries";
 const RETAINED_ENTRIES: &str = "modular retained nonzero entries";
 const CSR_ROW_OFFSETS: &str = "modular CSR row offsets";
+const EVALUATED_SOURCE_TERMS: &str = "modular evaluated exact-source terms";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ScalarEvaluationError {
     DenominatorZero,
+}
+
+/// Row-independent failure while evaluating one complete exact translated
+/// source at an already constructed finite-field point.
+///
+/// Condition ordinals and term ordinals are the exact sealed source order.
+/// In particular, a caller can map them into its own row/column registry
+/// without this primitive learning anything about a physical frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ModularSourceEvaluationError {
+    FrameContextMismatch,
+    PointArityOverflow,
+    WrongPointArity { expected: usize, actual: usize },
+    ConditionContextMismatch { condition_ordinal: usize },
+    ConditionZero { condition_ordinal: usize },
+    TermContextMismatch { term_ordinal: usize },
+    TermDenominatorZero { term_ordinal: usize },
+    AllocationFailure { requested: usize },
+}
+
+/// A condition-admitted view of one exact translated source at one modular
+/// point. Keeping condition admission separate lets physical-frame sampling
+/// preserve its historical gate/CSR/term error chronology while sharing the
+/// complete scalar evaluator with source-discovery callers.
+struct ConditionAdmittedSource<'source, 'context, 'point, 'field> {
+    context: &'context IndexedCoefficientContext,
+    source: &'source TranslatedSource,
+    point: &'point [FiniteFieldElement<u64>],
+    field: &'field Zp64,
+}
+
+impl<'source, 'context, 'point, 'field> ConditionAdmittedSource<'source, 'context, 'point, 'field> {
+    fn try_new(
+        context: &'context IndexedCoefficientContext,
+        source: &'source TranslatedSource,
+        point: &'point [FiniteFieldElement<u64>],
+        field: &'field Zp64,
+    ) -> Result<Self, ModularSourceEvaluationError> {
+        let expected_point_arity = context
+            .base()
+            .parameter_names()
+            .len()
+            .checked_add(context.index_count())
+            .ok_or(ModularSourceEvaluationError::PointArityOverflow)?;
+        if point.len() != expected_point_arity {
+            return Err(ModularSourceEvaluationError::WrongPointArity {
+                expected: expected_point_arity,
+                actual: point.len(),
+            });
+        }
+        for (condition_ordinal, nonzero) in source.nonzero_conditions().iter().enumerate() {
+            context
+                .validate_polynomial_context(nonzero.polynomial())
+                .map_err(|_| ModularSourceEvaluationError::ConditionContextMismatch {
+                    condition_ordinal,
+                })?;
+            if field.is_zero(&evaluate_polynomial(nonzero.polynomial(), point, field)) {
+                return Err(ModularSourceEvaluationError::ConditionZero { condition_ordinal });
+            }
+        }
+        Ok(Self {
+            context,
+            source,
+            point,
+            field,
+        })
+    }
+
+    /// Evaluate every coefficient in exact term order, retaining modular
+    /// zeros. The caller-owned buffer is reusable and is empty after any
+    /// failure, so a partial source image can never escape this boundary.
+    fn evaluate_all_into(
+        self,
+        output: &mut Vec<FiniteFieldElement<u64>>,
+    ) -> Result<(), ModularSourceEvaluationError> {
+        output.clear();
+        output
+            .try_reserve_exact(self.source.terms().len())
+            .map_err(|_| ModularSourceEvaluationError::AllocationFailure {
+                requested: self.source.terms().len(),
+            })?;
+        for (term_ordinal, coefficient) in self.source.terms().values().enumerate() {
+            if self.context.bind_sealed(coefficient).is_err() {
+                output.clear();
+                return Err(ModularSourceEvaluationError::TermContextMismatch { term_ordinal });
+            }
+            let value = match evaluate_coefficient(coefficient, self.point, self.field) {
+                Ok(value) => value,
+                Err(ScalarEvaluationError::DenominatorZero) => {
+                    output.clear();
+                    return Err(ModularSourceEvaluationError::TermDenominatorZero { term_ordinal });
+                }
+            };
+            output.push(value);
+        }
+        Ok(())
+    }
+}
+
+fn evaluate_translated_source_at_point(
+    context: &IndexedCoefficientContext,
+    source: &TranslatedSource,
+    point: &[FiniteFieldElement<u64>],
+    field: &Zp64,
+    output: &mut Vec<FiniteFieldElement<u64>>,
+) -> Result<(), ModularSourceEvaluationError> {
+    output.clear();
+    ConditionAdmittedSource::try_new(context, source, point, field)?.evaluate_all_into(output)
+}
+
+impl ModularPhysicalFrame<'_> {
+    /// Evaluate one complete exact translated source at this admitted sample.
+    ///
+    /// The finite-field domain and point cannot be supplied independently:
+    /// both come from this sealed sample owner. Every source condition is
+    /// checked before any coefficient, then every coefficient is evaluated in
+    /// exact term order, including modular zeros and terms a downstream
+    /// projection may not use. `output` is reusable and is empty after every
+    /// failure. A caller supplying a source outside this plan must first
+    /// authenticate that source's sealed batch against the plan scope; this
+    /// scalar boundary additionally reports ordinal-local payload mismatches.
+    pub(crate) fn try_evaluate_translated_source(
+        &self,
+        context: &IndexedCoefficientContext,
+        source: &TranslatedSource,
+        output: &mut Vec<FiniteFieldElement<u64>>,
+    ) -> Result<(), ModularSourceEvaluationError> {
+        output.clear();
+        if context.fingerprint() != self.plan().context_fingerprint() {
+            return Err(ModularSourceEvaluationError::FrameContextMismatch);
+        }
+        debug_assert_eq!(
+            self.field().get_prime(),
+            self.sample_fingerprint().modulus(),
+            "admitted modular sample split its field from its point fingerprint"
+        );
+        evaluate_translated_source_at_point(context, source, self.point(), self.field(), output)
+    }
 }
 
 impl PhysicalFramePlan {
@@ -35,6 +175,9 @@ impl PhysicalFramePlan {
         chart_coordinates: &[u64],
         limits: ModularKernelLimits,
     ) -> Result<ModularPhysicalFrame<'frame>, ModularKernelError> {
+        if context.fingerprint() != self.context_fingerprint() {
+            return Err(ModularKernelError::WrongFrameContext);
+        }
         validate_prime(modulus)?;
         let expected_base = context.base().parameter_names().len();
         if base_parameters.len() != expected_base {
@@ -120,6 +263,7 @@ impl PhysicalFramePlan {
         let mut values = try_vec(RETAINED_ENTRIES, self.entry_count())?;
         let mut column_indices = try_vec(RETAINED_ENTRIES, self.entry_count())?;
         let mut row_offsets = try_vec(CSR_ROW_OFFSETS, self.row_offsets().len())?;
+        let mut evaluated_source = Vec::new();
         row_offsets.push(0usize);
 
         for row in 0..self.row_count() {
@@ -128,14 +272,8 @@ impl PhysicalFramePlan {
                 .ok_or(ModularKernelError::Invariant {
                     detail: "sample row is absent from its exact frame",
                 })?;
-            for (condition, nonzero) in source.nonzero_conditions().iter().enumerate() {
-                context
-                    .validate_polynomial_context(nonzero.polynomial())
-                    .map_err(|_| ModularKernelError::WrongIndexedContext { row })?;
-                if field.is_zero(&evaluate_polynomial(nonzero.polynomial(), &point, &field)) {
-                    return Err(ModularKernelError::SourceConditionZero { row, condition });
-                }
-            }
+            let admitted = ConditionAdmittedSource::try_new(context, source, &point, &field)
+                .map_err(|error| map_source_evaluation_error(error, row, None))?;
 
             let structural_columns =
                 self.column_indices_for_row(row)
@@ -147,30 +285,24 @@ impl PhysicalFramePlan {
                     detail: "sample row terms disagree with structural CSR",
                 });
             }
-            for ((_, coefficient), &physical_column) in
-                source.terms().iter().zip(structural_columns)
-            {
-                context
-                    .bind_sealed(coefficient)
-                    .map_err(|_| ModularKernelError::WrongIndexedContext { row })?;
+            admitted
+                .evaluate_all_into(&mut evaluated_source)
+                .map_err(|error| {
+                    map_source_evaluation_error(error, row, Some(structural_columns))
+                })?;
+            if evaluated_source.len() != structural_columns.len() {
+                return Err(ModularKernelError::Invariant {
+                    detail: "evaluated source terms disagree with structural CSR",
+                });
+            }
+            for (value, &physical_column) in evaluated_source.iter().zip(structural_columns) {
                 let physical_column = usize::try_from(physical_column).map_err(|_| {
                     ModularKernelError::Invariant {
                         detail: "physical CSR column does not fit usize",
                     }
                 })?;
-                let value =
-                    evaluate_coefficient(coefficient, &point, &field).map_err(
-                        |error| match error {
-                            ScalarEvaluationError::DenominatorZero => {
-                                ModularKernelError::CoefficientDenominatorZero {
-                                    row,
-                                    physical_column,
-                                }
-                            }
-                        },
-                    )?;
-                if !field.is_zero(&value) {
-                    values.push(value);
+                if !field.is_zero(value) {
+                    values.push(value.clone());
                     column_indices.push(checked_u32(
                         "modular retained physical column",
                         physical_column,
@@ -205,6 +337,50 @@ impl PhysicalFramePlan {
             sample: std::sync::Arc::new(sample),
             matrix,
         })
+    }
+}
+
+fn map_source_evaluation_error(
+    error: ModularSourceEvaluationError,
+    row: usize,
+    structural_columns: Option<&[u32]>,
+) -> ModularKernelError {
+    match error {
+        ModularSourceEvaluationError::FrameContextMismatch => ModularKernelError::WrongFrameContext,
+        ModularSourceEvaluationError::ConditionContextMismatch { .. }
+        | ModularSourceEvaluationError::TermContextMismatch { .. } => {
+            ModularKernelError::WrongIndexedContext { row }
+        }
+        ModularSourceEvaluationError::ConditionZero { condition_ordinal } => {
+            ModularKernelError::SourceConditionZero {
+                row,
+                condition: condition_ordinal,
+            }
+        }
+        ModularSourceEvaluationError::TermDenominatorZero { term_ordinal } => {
+            let Some(physical_column) = structural_columns
+                .and_then(|columns| columns.get(term_ordinal))
+                .and_then(|&column| usize::try_from(column).ok())
+            else {
+                return ModularKernelError::Invariant {
+                    detail: "source-evaluation term is absent from structural CSR",
+                };
+            };
+            ModularKernelError::CoefficientDenominatorZero {
+                row,
+                physical_column,
+            }
+        }
+        ModularSourceEvaluationError::AllocationFailure { requested } => {
+            ModularKernelError::AllocationFailure {
+                resource: EVALUATED_SOURCE_TERMS,
+                requested,
+            }
+        }
+        ModularSourceEvaluationError::PointArityOverflow
+        | ModularSourceEvaluationError::WrongPointArity { .. } => ModularKernelError::Invariant {
+            detail: "exact-source evaluator received the wrong modular point arity",
+        },
     }
 }
 

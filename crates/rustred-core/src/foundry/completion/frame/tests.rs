@@ -1,11 +1,17 @@
+use std::cmp::Ordering;
+use std::collections::BTreeSet;
+
 use crate::algebra::CoefficientContext;
 use crate::family::{AffineDenominator, IntegralFamily};
 use crate::foundry::artifact::canonical_three_loop_family;
-use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
+use crate::identity::{
+    CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator, TranslatedSourceLimits,
+    TranslatedSourceRequest,
+};
 use crate::sector::Mask;
 
-use super::build::checked_u32_for_test;
-use super::{PhysicalFrameError, PhysicalFrameLimits, PhysicalFramePlan};
+use super::assemble::checked_u32_for_test;
+use super::{OneSidedChartFrame, PhysicalFrameError, PhysicalFrameLimits, SelectedSourceFrame};
 
 fn complete_ordinary(generator: &ParametricIbpGenerator<'_>) -> CompletedIbpSourceRows {
     let prepared = generator.prepare_ordinary_ibp().unwrap();
@@ -47,6 +53,31 @@ fn one_loop_family_with_one_external(name: &str) -> IntegralFamily {
         ],
         vec![vec![context.parameter("s").unwrap()]],
         vec![context.zero(), context.zero()],
+    )
+    .unwrap()
+}
+
+fn guarded_tadpole(name: &str) -> IntegralFamily {
+    let context = CoefficientContext::new(["d", "x"]);
+    let reciprocal = context
+        .try_div(
+            &context.one(),
+            &context.parameter("x").unwrap(),
+            Default::default(),
+        )
+        .unwrap();
+    IntegralFamily::new(
+        name,
+        vec!["k".to_owned()],
+        Vec::new(),
+        context.clone(),
+        context.parameter("d").unwrap(),
+        vec![AffineDenominator::new(
+            context.integer(-1),
+            vec![context.one()],
+        )],
+        Vec::new(),
+        vec![reciprocal],
     )
     .unwrap()
 }
@@ -94,7 +125,7 @@ fn k6_frames_regenerate_every_audited_degree_one_through_three_count() {
     for (active, degrees) in cases {
         let sector = Mask::try_new(active).unwrap();
         for (degree, expected_rows, expected_columns, expected_entries) in degrees {
-            let plan = PhysicalFramePlan::try_new(
+            let frame = OneSidedChartFrame::try_new(
                 &generator,
                 &completed,
                 sector.clone(),
@@ -102,6 +133,7 @@ fn k6_frames_regenerate_every_audited_degree_one_through_three_count() {
                 PhysicalFrameLimits::default(),
             )
             .unwrap();
+            let plan = frame.plan();
             let expected_offsets = match degree {
                 1 => 7,
                 2 => 28,
@@ -109,10 +141,10 @@ fn k6_frames_regenerate_every_audited_degree_one_through_three_count() {
                 _ => unreachable!(),
             };
             assert_eq!(plan.sector(), &sector);
-            assert_eq!(plan.degree(), degree);
-            assert_eq!(plan.offsets().len(), expected_offsets);
+            assert_eq!(frame.degree(), degree);
+            assert_eq!(frame.offsets().len(), expected_offsets);
             assert!(
-                plan.offsets().windows(2).all(|pair| {
+                frame.offsets().windows(2).all(|pair| {
                     chart_frame_order(&sector, &pair[0], &pair[1]) == Ordering::Less
                 })
             );
@@ -126,16 +158,10 @@ fn k6_frames_regenerate_every_audited_degree_one_through_three_count() {
             );
             assert_eq!(plan.source_instances().len(), expected_rows);
             assert!(plan.columns().windows(2).all(|pair| pair[0] < pair[1]));
-            for (offset_ordinal, offset) in plan.offsets().iter().enumerate() {
-                let total_degree = offset
-                    .values()
-                    .iter()
-                    .map(|value| usize::try_from(value.unsigned_abs()).unwrap())
-                    .sum::<usize>();
+            for (offset_ordinal, offset) in frame.offsets().iter().enumerate() {
                 for source_ordinal in 0..9 {
                     let row = offset_ordinal * 9 + source_ordinal;
                     let instance = &plan.source_instances()[row];
-                    assert_eq!(instance.total_translation_degree(), total_degree);
                     assert_eq!(instance.provenance().offset(), offset);
                     assert_eq!(instance.provenance().source_ordinal(), source_ordinal);
                 }
@@ -173,7 +199,7 @@ fn s4a_rows_are_degree_chart_lex_source_chronology_and_byte_deterministic() {
     let completed = complete_ordinary(&generator);
     let sector = Mask::try_new([false, true, true, true, true, false]).unwrap();
     let build = || {
-        PhysicalFramePlan::try_new(
+        OneSidedChartFrame::try_new(
             &generator,
             &completed,
             sector.clone(),
@@ -205,14 +231,11 @@ fn s4a_rows_are_degree_chart_lex_source_chronology_and_byte_deterministic() {
             .map(|offset| offset.as_slice())
             .collect::<Vec<_>>()
     );
+    let first_plan = first.plan();
     for (offset_ordinal, expected_offset) in expected_offsets.iter().enumerate() {
         for source_ordinal in 0..9 {
             let row = offset_ordinal * 9 + source_ordinal;
-            let instance = &first.source_instances()[row];
-            assert_eq!(
-                instance.total_translation_degree(),
-                usize::from(offset_ordinal != 0)
-            );
+            let instance = &first_plan.source_instances()[row];
             assert_eq!(instance.provenance().source_ordinal(), source_ordinal);
             assert_eq!(instance.provenance().offset().values(), expected_offset);
         }
@@ -231,7 +254,7 @@ fn frame_owned_limits_admit_exact_boundaries_and_reject_one_below() {
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();
     let completed = complete_ordinary(&generator);
     let sector = Mask::try_new([true]).unwrap();
-    let baseline = PhysicalFramePlan::try_new(
+    let baseline = OneSidedChartFrame::try_new(
         &generator,
         &completed,
         sector.clone(),
@@ -245,12 +268,12 @@ fn frame_owned_limits_admit_exact_boundaries_and_reject_one_below() {
     exact.max_degree = 1;
     exact.max_offsets = baseline.offsets().len();
     exact.max_offset_coordinate_cells = baseline.offsets().len();
-    exact.max_source_instances = baseline.row_count();
-    exact.max_physical_columns = baseline.columns().len();
-    exact.max_physical_column_coordinate_cells = baseline.columns().len();
-    exact.max_physical_entries = baseline.entry_count();
-    exact.max_csr_row_offsets = baseline.row_offsets().len();
-    PhysicalFramePlan::try_new(&generator, &completed, sector.clone(), 1, exact).unwrap();
+    exact.max_source_instances = baseline.plan().row_count();
+    exact.max_physical_columns = baseline.plan().columns().len();
+    exact.max_physical_column_coordinate_cells = baseline.plan().columns().len();
+    exact.max_physical_entries = baseline.plan().entry_count();
+    exact.max_csr_row_offsets = baseline.plan().row_offsets().len();
+    OneSidedChartFrame::try_new(&generator, &completed, sector.clone(), 1, exact).unwrap();
 
     let checks = [
         ("physical-frame arity", LimitField::Arity, 1),
@@ -268,27 +291,27 @@ fn frame_owned_limits_admit_exact_boundaries_and_reject_one_below() {
         (
             "physical-frame source instances",
             LimitField::Sources,
-            baseline.row_count(),
+            baseline.plan().row_count(),
         ),
         (
             "physical-frame physical columns",
             LimitField::Columns,
-            baseline.columns().len(),
+            baseline.plan().columns().len(),
         ),
         (
             "physical-frame physical-column coordinate cells",
             LimitField::ColumnCoordinates,
-            baseline.columns().len(),
+            baseline.plan().columns().len(),
         ),
         (
             "physical-frame physical entries",
             LimitField::Entries,
-            baseline.entry_count(),
+            baseline.plan().entry_count(),
         ),
         (
             "physical-frame CSR row offsets",
             LimitField::RowOffsets,
-            baseline.row_offsets().len(),
+            baseline.plan().row_offsets().len(),
         ),
     ];
     for (resource, field, requested) in checks {
@@ -296,7 +319,7 @@ fn frame_owned_limits_admit_exact_boundaries_and_reject_one_below() {
         let mut one_below = exact;
         field.set(&mut one_below, requested - 1);
         assert_eq!(
-            PhysicalFramePlan::try_new(&generator, &completed, sector.clone(), 1, one_below,),
+            OneSidedChartFrame::try_new(&generator, &completed, sector.clone(), 1, one_below,),
             Err(PhysicalFrameError::ResourceLimit {
                 resource,
                 requested,
@@ -312,7 +335,7 @@ fn frame_rejects_wrong_sector_arity_and_checked_u32_overflow() {
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();
     let completed = complete_ordinary(&generator);
     assert_eq!(
-        PhysicalFramePlan::try_new(
+        OneSidedChartFrame::try_new(
             &generator,
             &completed,
             Mask::try_new([true, false]).unwrap(),
@@ -348,7 +371,7 @@ fn frame_rejects_an_external_only_source_barrier() {
     let completed = prepared.complete(rows).unwrap();
 
     assert_eq!(
-        PhysicalFramePlan::try_new(
+        OneSidedChartFrame::try_new(
             &generator,
             &completed,
             Mask::try_new([true, true]).unwrap(),
@@ -359,6 +382,246 @@ fn frame_rejects_an_external_only_source_barrier() {
             actual: "external-contraction IBP source",
         })
     );
+}
+
+#[test]
+fn selected_full_chart_is_exactly_the_rectangular_physical_plan() {
+    let family = one_loop_family_with_one_external("physical-frame-selected-cross-path");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let sector = Mask::try_new([true, false]).unwrap();
+    let chart = OneSidedChartFrame::try_new(
+        &generator,
+        &completed,
+        sector.clone(),
+        1,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let source_count = chart.plan().row_count() / chart.offsets().len();
+    assert_eq!(source_count, 2);
+
+    let requests = chart
+        .offsets()
+        .iter()
+        .rev()
+        .flat_map(|offset| {
+            (0..source_count)
+                .rev()
+                .map(move |source| TranslatedSourceRequest::new(source, offset.clone()))
+        })
+        .collect::<Vec<_>>();
+    let selected = generator
+        .translate_selected_completed_source_rows(
+            &completed,
+            requests,
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    let selected =
+        SelectedSourceFrame::try_new(selected, sector, PhysicalFrameLimits::default()).unwrap();
+
+    assert_eq!(selected.completed_source_row_count(), source_count);
+    let selected_plan = selected.into_plan();
+    assert_eq!(&selected_plan, chart.plan());
+}
+
+#[test]
+fn selected_sparse_plan_keeps_signed_identity_and_only_exact_source_columns() {
+    let family = one_loop_family_with_one_external("physical-frame-selected-sparse");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let requests = [
+        TranslatedSourceRequest::new(0, IntegralShift::try_new([-1, 0]).unwrap()),
+        TranslatedSourceRequest::new(0, IntegralShift::try_new([1, 0]).unwrap()),
+    ];
+    let translated = generator
+        .translate_selected_completed_source_rows(
+            &completed,
+            requests,
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    assert_eq!(translated.completed_source_row_count(), 2);
+    assert_eq!(translated.len(), 2);
+    let exact_columns = translated
+        .sources()
+        .iter()
+        .flat_map(|source| source.terms().keys())
+        .map(|shift| shift.values().to_vec())
+        .collect::<BTreeSet<_>>();
+
+    let selected = SelectedSourceFrame::try_new(
+        translated,
+        Mask::try_new([true, false]).unwrap(),
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let plan = selected.plan();
+    assert_eq!(plan.row_count(), 2);
+    // Two offsets over a two-row completed source span would have four rows;
+    // the selected builder owns only the two explicitly translated pairs.
+    assert_ne!(plan.row_count(), 2 * selected.completed_source_row_count());
+    assert_eq!(
+        plan.columns()
+            .iter()
+            .map(|shift| shift.values().to_vec())
+            .collect::<BTreeSet<_>>(),
+        exact_columns
+    );
+    assert!(
+        plan.columns()
+            .iter()
+            .all(|shift| shift.values() != [i64::MAX, i64::MIN])
+    );
+
+    let negative = &plan.source_instances()[0];
+    let positive = &plan.source_instances()[1];
+    assert_eq!(negative.provenance().offset().values(), [-1, 0]);
+    assert_eq!(positive.provenance().offset().values(), [1, 0]);
+    assert_ne!(negative, positive);
+    assert_eq!(
+        negative.stable_string(),
+        format!(
+            "physical-frame-source-v2:{}",
+            negative.provenance().stable_string()
+        )
+    );
+    assert_eq!(
+        positive.stable_string(),
+        format!(
+            "physical-frame-source-v2:{}",
+            positive.provenance().stable_string()
+        )
+    );
+}
+
+#[test]
+fn selected_plan_preserves_exact_terms_guards_and_provenance_chronology() {
+    let family = guarded_tadpole("physical-frame-selected-guards");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let requests = [
+        TranslatedSourceRequest::new(0, IntegralShift::try_new([1]).unwrap()),
+        TranslatedSourceRequest::new(0, IntegralShift::try_new([-1]).unwrap()),
+    ];
+    let expected = generator
+        .translate_selected_completed_source_rows(
+            &completed,
+            requests.clone(),
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    assert!(
+        expected
+            .sources()
+            .iter()
+            .all(|source| !source.nonzero_conditions().is_empty())
+    );
+    let actual = generator
+        .translate_selected_completed_source_rows(
+            &completed,
+            requests,
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    let selected = SelectedSourceFrame::try_new(
+        actual,
+        Mask::try_new([true]).unwrap(),
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+
+    for row in 0..selected.plan().row_count() {
+        let actual = selected.plan().source_for_row(row).unwrap();
+        let expected = expected
+            .sources()
+            .iter()
+            .find(|source| source.provenance() == actual.provenance())
+            .unwrap();
+        assert_eq!(actual.terms(), expected.terms());
+        assert_eq!(actual.nonzero_conditions(), expected.nonzero_conditions());
+    }
+}
+
+#[test]
+fn selected_physical_caps_admit_exact_boundaries_and_reject_one_below() {
+    let family = guarded_tadpole("physical-frame-selected-limits");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let requests = || {
+        [
+            TranslatedSourceRequest::new(0, IntegralShift::try_new([-1]).unwrap()),
+            TranslatedSourceRequest::new(0, IntegralShift::try_new([1]).unwrap()),
+        ]
+    };
+    let translate = || {
+        generator
+            .translate_selected_completed_source_rows(
+                &completed,
+                requests(),
+                TranslatedSourceLimits::default(),
+            )
+            .unwrap()
+    };
+    let sector = Mask::try_new([true]).unwrap();
+    let baseline =
+        SelectedSourceFrame::try_new(translate(), sector.clone(), PhysicalFrameLimits::default())
+            .unwrap();
+
+    let mut exact = PhysicalFrameLimits::default();
+    exact.max_arity = 1;
+    // Chart-only caps do not reinterpret an already selected source owner.
+    exact.max_degree = 0;
+    exact.max_offsets = 0;
+    exact.max_offset_coordinate_cells = 0;
+    exact.max_source_instances = baseline.plan().row_count();
+    exact.max_physical_columns = baseline.plan().columns().len();
+    exact.max_physical_column_coordinate_cells = baseline.plan().columns().len();
+    exact.max_physical_entries = baseline.plan().entry_count();
+    exact.max_csr_row_offsets = baseline.plan().row_offsets().len();
+    SelectedSourceFrame::try_new(translate(), sector.clone(), exact).unwrap();
+
+    for (resource, field, requested) in [
+        ("physical-frame arity", LimitField::Arity, 1),
+        (
+            "physical-frame source instances",
+            LimitField::Sources,
+            baseline.plan().row_count(),
+        ),
+        (
+            "physical-frame physical columns",
+            LimitField::Columns,
+            baseline.plan().columns().len(),
+        ),
+        (
+            "physical-frame physical-column coordinate cells",
+            LimitField::ColumnCoordinates,
+            baseline.plan().columns().len(),
+        ),
+        (
+            "physical-frame physical entries",
+            LimitField::Entries,
+            baseline.plan().entry_count(),
+        ),
+        (
+            "physical-frame CSR row offsets",
+            LimitField::RowOffsets,
+            baseline.plan().row_offsets().len(),
+        ),
+    ] {
+        assert!(requested > 0);
+        let mut one_below = exact;
+        field.set(&mut one_below, requested - 1);
+        assert_eq!(
+            SelectedSourceFrame::try_new(translate(), sector.clone(), one_below),
+            Err(PhysicalFrameError::ResourceLimit {
+                resource,
+                requested,
+                limit: requested - 1,
+            })
+        );
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -390,7 +653,8 @@ impl LimitField {
     }
 }
 
-fn stable_structure_bytes(plan: &PhysicalFramePlan) -> Vec<u8> {
+fn stable_structure_bytes(frame: &OneSidedChartFrame) -> Vec<u8> {
+    let plan = frame.plan();
     let mut bytes = Vec::new();
     push_usize(&mut bytes, plan.sector().arity());
     bytes.extend(
@@ -399,8 +663,8 @@ fn stable_structure_bytes(plan: &PhysicalFramePlan) -> Vec<u8> {
             .iter()
             .map(|&active| u8::from(active)),
     );
-    push_usize(&mut bytes, plan.degree());
-    push_shifts(&mut bytes, plan.offsets());
+    push_usize(&mut bytes, frame.degree());
+    push_shifts(&mut bytes, frame.offsets());
     push_shifts(&mut bytes, plan.columns());
     push_u32s(&mut bytes, plan.row_offsets());
     push_u32s(&mut bytes, plan.column_indices());
@@ -464,4 +728,3 @@ fn chart_frame_order(
             .unwrap_or(Ordering::Equal)
     })
 }
-use std::cmp::Ordering;

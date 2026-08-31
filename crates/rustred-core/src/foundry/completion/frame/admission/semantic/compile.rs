@@ -85,6 +85,7 @@ impl ExactCircuitSemanticDag {
                 .map_err(ExactCircuitSemanticError::GuardDag)?
         };
         Ok(Self {
+            plan_identity: partition.frame().identity_owner(),
             context_fingerprint: context.fingerprint_owner(),
             candidates: candidates.into_boxed_slice(),
             guards,

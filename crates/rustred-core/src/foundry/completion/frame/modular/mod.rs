@@ -18,6 +18,7 @@ pub(crate) use model::{
     ModularHit, ModularObstructionEntry, ModularPhysicalFrame, ModularRankDiagnostics,
     ModularRightObstruction, ModularSampleFingerprint, ModularTargetQuery,
 };
+pub(crate) use sample::ModularSourceEvaluationError;
 
 #[cfg(test)]
 mod tests;

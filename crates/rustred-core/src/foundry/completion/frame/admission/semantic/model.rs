@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::algebra::IndexedCoefficientContext;
 use crate::foundry::completion::frame::exact::ExactTargetCircuit;
+use crate::foundry::completion::frame::{PhysicalFramePlan, PhysicalFramePlanIdentity};
 use crate::foundry::completion::guard::CoefficientIdealGuardAtom;
 use crate::foundry::completion::guard::decision::{
     CoefficientIdealGuardDag, GuardDecisionEvaluationLimits, GuardDecisionOutcome,
@@ -55,12 +56,17 @@ pub(crate) enum ExactCircuitSemanticSelection<'a> {
 /// One target-partition-bound semantic decision graph over exact circuits.
 #[derive(Debug)]
 pub(crate) struct ExactCircuitSemanticDag {
+    pub(super) plan_identity: PhysicalFramePlanIdentity,
     pub(super) context_fingerprint: Arc<String>,
     pub(super) candidates: Box<[ExactCircuitSemanticCandidate]>,
     pub(super) guards: CoefficientIdealGuardDag,
 }
 
 impl ExactCircuitSemanticDag {
+    pub(crate) fn is_bound_to(&self, plan: &PhysicalFramePlan) -> bool {
+        self.plan_identity.belongs_to(plan)
+    }
+
     pub(crate) fn context_fingerprint(&self) -> &str {
         self.context_fingerprint.as_str()
     }
@@ -108,8 +114,9 @@ impl ExactCircuitSemanticDag {
     /// additional sound restrictions on already replayed exact circuits.
     pub(crate) fn try_from_test_candidates(
         context: &IndexedCoefficientContext,
+        baseline: &Self,
         incoming: Vec<(Arc<ExactTargetCircuit>, Vec<CoefficientIdealGuardAtom>)>,
-    ) -> Result<Self, crate::foundry::completion::guard::decision::GuardDecisionDagError> {
+    ) -> Result<Self, ExactCircuitSemanticError> {
         use crate::foundry::completion::guard::decision::{
             GuardDecisionCandidate, GuardDecisionCandidateId,
         };
@@ -134,8 +141,13 @@ impl ExactCircuitSemanticDag {
                 )
             })
             .collect::<Vec<_>>();
-        let guards = CoefficientIdealGuardDag::try_compile(context, &borrowed, Default::default())?;
+        if baseline.context_fingerprint() != context.fingerprint() {
+            return Err(ExactCircuitSemanticError::WrongContext);
+        }
+        let guards = CoefficientIdealGuardDag::try_compile(context, &borrowed, Default::default())
+            .map_err(ExactCircuitSemanticError::GuardDag)?;
         Ok(Self {
+            plan_identity: baseline.plan_identity.clone(),
             context_fingerprint: context.fingerprint_owner(),
             candidates: candidates.into_boxed_slice(),
             guards,

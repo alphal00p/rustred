@@ -5,7 +5,7 @@ use crate::sector::{
     InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain, SectorMonotoneDomain,
 };
 
-use super::super::frame::{PhysicalFrameLimits, PhysicalFramePlan};
+use super::super::frame::{OneSidedChartFrame, PhysicalFrameLimits, PhysicalFramePlan};
 use super::{
     DecoratedStratum, ForbiddenColumnReason, GuardBranch, GuardBranchIdentity,
     GuardPredicateAuthority, ImmutableOwnerKind, ImmutableOwnerSnapshot, StratumRegistryError,
@@ -24,14 +24,15 @@ fn one_loop_frame(degree: usize) -> (crate::foundry::artifact::ClosedArtifact, P
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let completed = complete_ordinary(&generator);
-    let frame = PhysicalFramePlan::try_new(
+    let frame = OneSidedChartFrame::try_new(
         &generator,
         &completed,
         Mask::try_new([true]).unwrap(),
         degree,
         PhysicalFrameLimits::default(),
     )
-    .unwrap();
+    .unwrap()
+    .into_plan();
     (artifact, frame)
 }
 

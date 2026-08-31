@@ -17,6 +17,32 @@ The terminal set need not be minimal. Modular ranks, modular duals, bounded sear
 stability are discovery evidence only. **No modular negative result may create or promote a
 terminal.**
 
+### Implemented prerequisites (2026-08-31)
+
+The following generic boundaries are now implemented, regression-pinned, and independently
+audited:
+
+- selected translation of only canonical `(ordinary source, signed offset)` requests;
+- checked target-last modular right obstructions with `q_target = 1` and exact finite-field
+  `A q = 0` replay;
+- one construction-neutral sealed physical-plan core shared by rectangular chart and sparse
+  selected-source shells;
+- provenance-only source-instance identity, with translation radius retained solely as scheduling
+  metadata;
+- strict physical-plan binding at modular, exact-lift, and partition joins, plus a sealed plan
+  identity and pointer rejoin across semantic and outer-extension owner-cover authority;
+- complete-ordinary versus external-only source-layout provenance sealed through translated
+  batches and required by the incidence index;
+- a complete-source modular evaluator whose point and finite-field domain are obtainable only from
+  one admitted `ModularPhysicalFrame`; and
+- bounded inverse-incidence nomination using checked `alpha = u - s`, canonical deduplication, and
+  existing-row exclusion.
+
+The canonical K6 zero-offset index contains nine sources, 90 term incidences, and 31 distinct
+relative shifts. Its target-unit bootstrap produces 90 unique requests. This is a structural
+census, not a modular hit or closure result. The executable residual pairing, stable accumulation,
+fresh-plan/partition rebuild, and fixed-task campaign loop described below remain the next slice.
+
 ## Measured K6 control
 
 The sealed K6 source set has nine ordinary rows with term counts

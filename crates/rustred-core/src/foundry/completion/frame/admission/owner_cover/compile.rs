@@ -196,7 +196,9 @@ fn prepare_owner(
             detail: "semantic DAG contains no exact candidates",
         });
     }
-    if outer.family_fingerprint.as_str() != partition.frame().family_fingerprint()
+    if !std::ptr::eq(outer.plan, partition.frame())
+        || !outer.semantic.is_bound_to(partition.frame())
+        || outer.family_fingerprint.as_str() != partition.frame().family_fingerprint()
         || outer.context_fingerprint.as_str() != partition.frame().context_fingerprint()
         || outer.sector != *partition.frame().sector()
         || outer.ordering != partition.ordering()
@@ -206,7 +208,7 @@ fn prepare_owner(
     {
         return Err(ExactCircuitOwnerCoverError::OwnerJoin {
             owner: input_ordinal,
-            detail: "outer-extension witness differs from its target partition",
+            detail: "outer-extension witness differs from its exact physical plan or target partition",
         });
     }
     let arity = partition.frame().sector().arity();

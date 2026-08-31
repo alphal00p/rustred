@@ -1,24 +1,25 @@
+//! Rectangular one-sided chart construction over the common physical plan.
+
 use crate::identity::{CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator};
 use crate::sector::Mask;
 
-use super::{PhysicalFrameError, PhysicalFrameLimits, PhysicalFramePlan, SourceInstanceId};
+use super::assemble::{
+    OrderedTranslatedSources, SOURCE_INSTANCES, assemble_physical_plan, check_limit, checked_add,
+    checked_mul, try_vec,
+};
+use super::{OneSidedChartFrame, PhysicalFrameError, PhysicalFrameLimits};
 
 const OFFSETS: &str = "physical-frame chart offsets";
 const OFFSET_COORDINATE_CELLS: &str = "physical-frame offset coordinate cells";
-const SOURCE_INSTANCES: &str = "physical-frame source instances";
-const PHYSICAL_COLUMNS: &str = "physical-frame physical columns";
-const PHYSICAL_COLUMN_COORDINATE_CELLS: &str = "physical-frame physical-column coordinate cells";
-const PHYSICAL_ENTRIES: &str = "physical-frame physical entries";
-const CSR_ROW_OFFSETS: &str = "physical-frame CSR row offsets";
 
-impl PhysicalFramePlan {
+impl OneSidedChartFrame {
     /// Construct the raw physical translated-source pattern for the
-    /// one-sided chart frame `M_degree(sector)`.
+    /// rectangular one-sided chart frame `M_degree(sector)`.
     ///
     /// Rows are ordered by total chart degree, then chart-lexicographically,
-    /// then by the completed ordinary-source chronology. Columns are sorted
-    /// raw [`IntegralShift`] keys. No symmetry or provenance column enters the
-    /// physical pattern.
+    /// then by the completed ordinary-source chronology. The returned shell
+    /// retains only chart scheduling metadata; its nested plan is the same
+    /// construction-neutral type accepted by modular and exact proof layers.
     pub(crate) fn try_new(
         generator: &ParametricIbpGenerator<'_>,
         completed: &CompletedIbpSourceRows,
@@ -75,72 +76,11 @@ impl PhysicalFramePlan {
             });
         }
         check_limit(SOURCE_INSTANCES, expected_rows, limits.max_source_instances)?;
-        let row_offset_count = checked_add(CSR_ROW_OFFSETS, expected_rows, 1)?;
-        check_limit(
-            CSR_ROW_OFFSETS,
-            row_offset_count,
-            limits.max_csr_row_offsets,
-        )?;
 
-        let physical_entry_count = count_nonzero_entries(&translated_sources)?;
-        check_limit(
-            PHYSICAL_ENTRIES,
-            physical_entry_count,
-            limits.max_physical_entries,
-        )?;
-        checked_u32(
-            "physical-frame CSR terminal row offset",
-            physical_entry_count,
-        )?;
-
-        let mut column_keys = try_vec(PHYSICAL_ENTRIES, physical_entry_count)?;
-        for source in translated_sources.sources() {
-            column_keys.extend(source.terms().keys());
-        }
-        if column_keys.len() != physical_entry_count {
-            return Err(PhysicalFrameError::Invariant {
-                detail: "physical-column collection changed the preflighted entry count",
-            });
-        }
-        column_keys.sort_unstable_by(|left, right| left.values().cmp(right.values()));
-        column_keys.dedup_by(|left, right| left.values() == right.values());
-
-        let physical_column_count = column_keys.len();
-        check_limit(
-            PHYSICAL_COLUMNS,
-            physical_column_count,
-            limits.max_physical_columns,
-        )?;
-        checked_u32(
-            "physical-frame physical-column count",
-            physical_column_count,
-        )?;
-        let physical_column_coordinate_cells = checked_mul(
-            PHYSICAL_COLUMN_COORDINATE_CELLS,
-            physical_column_count,
-            arity,
-        )?;
-        check_limit(
-            PHYSICAL_COLUMN_COORDINATE_CELLS,
-            physical_column_coordinate_cells,
-            limits.max_physical_column_coordinate_cells,
-        )?;
-
-        let mut columns = try_vec(PHYSICAL_COLUMNS, physical_column_count)?;
-        for key in &column_keys {
-            columns.push(
-                IntegralShift::try_new_with_component_limit(key.values().iter().copied(), arity)
-                    .map_err(PhysicalFrameError::IntegralShift)?,
-            );
-        }
-        drop(column_keys);
-
-        let mut row_offsets = try_vec(CSR_ROW_OFFSETS, row_offset_count)?;
-        let mut column_indices = try_vec(PHYSICAL_ENTRIES, physical_entry_count)?;
-        let mut source_instances = try_vec(SOURCE_INSTANCES, expected_rows)?;
-        let mut translated_source_indices = try_vec(SOURCE_INSTANCES, expected_rows)?;
-        row_offsets.push(0);
-
+        // The translation owner is offset-lexicographic. Build only a compact
+        // permutation into total-degree/chart-lex/source chronology; no exact
+        // relation is copied or regenerated.
+        let mut physical_source_indices = try_vec(SOURCE_INSTANCES, expected_rows)?;
         for offset in &offsets {
             let canonical_offset_ordinal = translated_sources
                 .offsets()
@@ -148,7 +88,6 @@ impl PhysicalFramePlan {
                 .map_err(|_| PhysicalFrameError::Invariant {
                     detail: "ordered chart offset is absent from the translated-source batch",
                 })?;
-            let total_translation_degree = total_translation_degree(offset)?;
             for source_ordinal in 0..source_row_count {
                 let canonical_source_index = checked_add(
                     SOURCE_INSTANCES,
@@ -165,66 +104,26 @@ impl PhysicalFramePlan {
                     || source.provenance().offset() != offset
                 {
                     return Err(PhysicalFrameError::Invariant {
-                        detail: "translated-source provenance disagrees with frame row order",
+                        detail: "translated-source provenance disagrees with chart row order",
                     });
                 }
-                source_instances.push(SourceInstanceId::new(
-                    total_translation_degree,
-                    source.provenance().clone(),
-                ));
-                translated_source_indices.push(checked_u32(
-                    "physical-frame translated-source row index",
-                    canonical_source_index,
-                )?);
-
-                let physical_row = source_instances.len() - 1;
-                let mut previous_column = None;
-                for (shift, coefficient) in source.terms() {
-                    if coefficient.is_zero() {
-                        return Err(PhysicalFrameError::ZeroSourceTerm { row: physical_row });
-                    }
-                    let column = columns
-                        .binary_search_by(|candidate| candidate.values().cmp(shift.values()))
-                        .map_err(|_| PhysicalFrameError::Invariant {
-                            detail: "source term is absent from the physical-column registry",
-                        })?;
-                    let column = checked_u32("physical-frame CSR column index", column)?;
-                    if previous_column.is_some_and(|previous| previous >= column) {
-                        return Err(PhysicalFrameError::Invariant {
-                            detail: "one physical CSR row is not strictly column-sorted",
-                        });
-                    }
-                    column_indices.push(column);
-                    previous_column = Some(column);
-                }
-                row_offsets.push(checked_u32(
-                    "physical-frame CSR row offset",
-                    column_indices.len(),
-                )?);
+                physical_source_indices.push(canonical_source_index);
             }
         }
 
-        if source_instances.len() != expected_rows
-            || translated_source_indices.len() != expected_rows
-            || row_offsets.len() != row_offset_count
-            || column_indices.len() != physical_entry_count
-        {
-            return Err(PhysicalFrameError::Invariant {
-                detail: "assembled physical CSR dimensions differ from their preflight",
-            });
-        }
-
-        Ok(Self::from_parts(
+        let (family_fingerprint, context_fingerprint, sources) =
+            translated_sources.into_foundry_parts();
+        let plan = assemble_physical_plan(
             sector,
-            degree,
-            offsets,
-            columns,
-            row_offsets,
-            column_indices,
-            source_instances,
-            translated_source_indices,
-            translated_sources,
-        ))
+            OrderedTranslatedSources::new(
+                family_fingerprint,
+                context_fingerprint,
+                sources,
+                physical_source_indices,
+            ),
+            limits,
+        )?;
+        Ok(Self::from_parts(plan, degree, offsets))
     }
 }
 
@@ -329,87 +228,4 @@ fn push_chart_offset(
             .map_err(PhysicalFrameError::IntegralShift)?,
     );
     Ok(())
-}
-
-fn count_nonzero_entries(
-    translated_sources: &crate::identity::TranslatedSourceBatch,
-) -> Result<usize, PhysicalFrameError> {
-    let mut entries = 0usize;
-    for (row, source) in translated_sources.sources().iter().enumerate() {
-        for coefficient in source.terms().values() {
-            if coefficient.is_zero() {
-                return Err(PhysicalFrameError::ZeroSourceTerm { row });
-            }
-            entries = checked_add(PHYSICAL_ENTRIES, entries, 1)?;
-        }
-    }
-    Ok(entries)
-}
-
-fn total_translation_degree(offset: &IntegralShift) -> Result<usize, PhysicalFrameError> {
-    offset.values().iter().try_fold(0usize, |total, value| {
-        let magnitude = usize::try_from(value.unsigned_abs()).map_err(|_| {
-            PhysicalFrameError::ResourceCountOverflow {
-                resource: "physical-frame total translation degree",
-            }
-        })?;
-        checked_add("physical-frame total translation degree", total, magnitude)
-    })
-}
-
-fn check_limit(
-    resource: &'static str,
-    requested: usize,
-    limit: usize,
-) -> Result<(), PhysicalFrameError> {
-    if requested > limit {
-        Err(PhysicalFrameError::ResourceLimit {
-            resource,
-            requested,
-            limit,
-        })
-    } else {
-        Ok(())
-    }
-}
-
-fn checked_add(
-    resource: &'static str,
-    left: usize,
-    right: usize,
-) -> Result<usize, PhysicalFrameError> {
-    left.checked_add(right)
-        .ok_or(PhysicalFrameError::ResourceCountOverflow { resource })
-}
-
-fn checked_mul(
-    resource: &'static str,
-    left: usize,
-    right: usize,
-) -> Result<usize, PhysicalFrameError> {
-    left.checked_mul(right)
-        .ok_or(PhysicalFrameError::ResourceCountOverflow { resource })
-}
-
-fn checked_u32(resource: &'static str, value: usize) -> Result<u32, PhysicalFrameError> {
-    u32::try_from(value).map_err(|_| PhysicalFrameError::U32NotRepresentable { resource, value })
-}
-
-fn try_vec<T>(resource: &'static str, capacity: usize) -> Result<Vec<T>, PhysicalFrameError> {
-    let mut values = Vec::new();
-    values
-        .try_reserve_exact(capacity)
-        .map_err(|_| PhysicalFrameError::AllocationFailure {
-            resource,
-            requested: capacity,
-        })?;
-    Ok(values)
-}
-
-#[cfg(test)]
-pub(super) fn checked_u32_for_test(
-    resource: &'static str,
-    value: usize,
-) -> Result<u32, PhysicalFrameError> {
-    checked_u32(resource, value)
 }

@@ -8,6 +8,7 @@ use crate::algebra::IndexedCoefficient;
 use super::super::super::condition::ParametricNonZeroCondition;
 use super::super::super::relation::{IndexShift, ParametricRelation};
 use super::super::super::row::RowId;
+use super::super::scope::IbpSourceLayout;
 
 /// One exact displacement in a family's ordered integral-index lattice.
 ///
@@ -158,6 +159,7 @@ impl TranslatedSource {
 pub struct TranslatedSourceBatch {
     pub(super) family_fingerprint: Arc<String>,
     pub(super) context_fingerprint: Arc<String>,
+    pub(super) source_layout: IbpSourceLayout,
     pub(super) source_row_count: usize,
     pub(super) offsets: Vec<IntegralShift>,
     pub(super) sources: Vec<TranslatedSource>,
@@ -170,6 +172,17 @@ impl TranslatedSourceBatch {
 
     pub fn context_fingerprint(&self) -> &str {
         self.context_fingerprint.as_str()
+    }
+
+    /// Whether this batch was translated from the complete ordinary
+    /// `L * (L + E)` source barrier rather than the deliberately smaller
+    /// external-contraction-only layout.
+    pub const fn is_complete_ordinary(&self) -> bool {
+        matches!(self.source_layout, IbpSourceLayout::CompleteOrdinary)
+    }
+
+    pub const fn source_layout_name(&self) -> &'static str {
+        self.source_layout.name()
     }
 
     pub fn source_row_count(&self) -> usize {
@@ -210,6 +223,7 @@ impl TranslatedSourceBatch {
 pub struct SelectedTranslatedSourceBatch {
     pub(super) family_fingerprint: Arc<String>,
     pub(super) context_fingerprint: Arc<String>,
+    pub(super) source_layout: IbpSourceLayout,
     pub(super) completed_source_row_count: usize,
     pub(super) requests: Vec<TranslatedSourceRequest>,
     pub(super) sources: Vec<TranslatedSource>,
@@ -222,6 +236,17 @@ impl SelectedTranslatedSourceBatch {
 
     pub fn context_fingerprint(&self) -> &str {
         self.context_fingerprint.as_str()
+    }
+
+    /// Whether the selected rows were drawn from the complete ordinary
+    /// source chronology. Selection does not upgrade an external-only
+    /// source barrier into a complete one.
+    pub const fn is_complete_ordinary(&self) -> bool {
+        matches!(self.source_layout, IbpSourceLayout::CompleteOrdinary)
+    }
+
+    pub const fn source_layout_name(&self) -> &'static str {
+        self.source_layout.name()
     }
 
     pub const fn completed_source_row_count(&self) -> usize {
@@ -242,5 +267,24 @@ impl SelectedTranslatedSourceBatch {
 
     pub fn is_empty(&self) -> bool {
         self.sources.is_empty()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn into_foundry_parts(
+        self,
+    ) -> (
+        Arc<String>,
+        Arc<String>,
+        usize,
+        Vec<TranslatedSourceRequest>,
+        Vec<TranslatedSource>,
+    ) {
+        (
+            self.family_fingerprint,
+            self.context_fingerprint,
+            self.completed_source_row_count,
+            self.requests,
+            self.sources,
+        )
     }
 }

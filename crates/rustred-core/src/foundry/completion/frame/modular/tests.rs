@@ -15,9 +15,11 @@ use super::rank::{rank_projection_for_test, right_obstruction_for_test};
 use super::sample::evaluate_coefficient_for_test;
 use super::{
     ModularKernelError, ModularKernelLimits, ModularObstructionEntry, ModularPhysicalFrame,
-    ModularTargetQuery,
+    ModularSourceEvaluationError, ModularTargetQuery,
 };
-use crate::foundry::completion::frame::{PhysicalFrameLimits, PhysicalFramePlan};
+use crate::foundry::completion::frame::{
+    OneSidedChartFrame, PhysicalFrameLimits, PhysicalFramePlan,
+};
 
 const PRIME: u64 = 1_000_000_007;
 
@@ -34,14 +36,15 @@ fn s4a_degree_one() -> (IndexedCoefficientContext, PhysicalFramePlan) {
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();
     let context = generator.context().clone();
     let completed = complete_ordinary(&generator);
-    let plan = PhysicalFramePlan::try_new(
+    let plan = OneSidedChartFrame::try_new(
         &generator,
         &completed,
         Mask::try_new([false, true, true, true, true, false]).unwrap(),
         1,
         PhysicalFrameLimits::default(),
     )
-    .unwrap();
+    .unwrap()
+    .into_plan();
     (context, plan)
 }
 
@@ -118,6 +121,215 @@ fn repeated_samples_and_target_queries_are_deterministic() {
         .query_target(target, &[], ModularKernelLimits::default())
         .unwrap();
     assert_eq!(first_query, second_query);
+}
+
+#[test]
+fn exact_source_evaluator_matches_sampled_rows_and_retains_modular_zeros() {
+    let (context, plan) = s4a_degree_one();
+    let sampled = sampled_s4a(&context, &plan);
+    let mut evaluated = Vec::new();
+    let mut zero_specializations = 0usize;
+
+    for row in 0..plan.row_count() {
+        let source = plan.source_for_row(row).unwrap();
+        sampled
+            .try_evaluate_translated_source(&context, source, &mut evaluated)
+            .unwrap();
+        assert_eq!(evaluated.len(), source.terms().len());
+
+        let structural = plan.column_indices_for_row(row).unwrap();
+        assert_eq!(structural.len(), evaluated.len());
+        let mut expected_columns = Vec::new();
+        let mut expected_values = Vec::new();
+        for (&column, value) in structural.iter().zip(&evaluated) {
+            if sampled.field().is_zero(value) {
+                zero_specializations += 1;
+            } else {
+                expected_columns.push(column);
+                expected_values.push(value.clone());
+            }
+        }
+
+        let bounds = &sampled.matrix().row_ptrs()[row..=row + 1];
+        assert_eq!(
+            &sampled.matrix().col_idcs()[bounds[0]..bounds[1]],
+            expected_columns.as_slice()
+        );
+        assert_eq!(
+            &sampled.matrix().values()[bounds[0]..bounds[1]],
+            expected_values.as_slice()
+        );
+    }
+
+    assert!(
+        zero_specializations > 0,
+        "the retained exact source images must expose at least one value which the sampled CSR drops"
+    );
+}
+
+#[test]
+fn source_evaluation_is_bound_to_an_admitted_sample_and_fails_transactionally() {
+    let (family, base) = guarded_tadpole();
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let plan = OneSidedChartFrame::try_new(
+        &generator,
+        &completed,
+        Mask::try_new([true]).unwrap(),
+        0,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap()
+    .into_plan();
+    let source = plan.source_for_row(0).unwrap();
+    assert!(!source.nonzero_conditions().is_empty());
+
+    let sampled = plan
+        .try_modular_sample(
+            generator.context(),
+            PRIME,
+            &[4, 1],
+            &[0],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    let mut output = vec![sampled.field().one()];
+    sampled
+        .try_evaluate_translated_source(generator.context(), source, &mut output)
+        .unwrap();
+    assert_eq!(output.len(), source.terms().len());
+
+    let foreign = IndexedCoefficientContext::try_new(&base, "foreign-source-evaluator", 1).unwrap();
+    assert_eq!(
+        sampled.try_evaluate_translated_source(&foreign, source, &mut output),
+        Err(ModularSourceEvaluationError::FrameContextMismatch)
+    );
+    assert!(output.is_empty());
+}
+
+#[test]
+fn source_evaluator_api_cannot_accept_an_independent_field_or_point() {
+    let (context, plan) = s4a_degree_one();
+    let sampled = sampled_s4a(&context, &plan);
+    let source = plan.source_for_row(0).unwrap();
+
+    // Keeping the method item and invoking it with only the admitted owner,
+    // exact context/source, and output makes a future raw field/point argument
+    // an API-shape compile failure in this regression.
+    let evaluator = ModularPhysicalFrame::try_evaluate_translated_source;
+
+    let foreign_field = Zp64::new(1_000_000_009);
+    let foreign_point = vec![foreign_field.one(); sampled.point().len()];
+    assert_ne!(
+        foreign_field.get_prime(),
+        sampled.sample_fingerprint().modulus()
+    );
+    assert_eq!(foreign_point.len(), sampled.point().len());
+    assert_eq!(
+        sampled.field().get_prime(),
+        sampled.sample_fingerprint().modulus()
+    );
+
+    let mut output = Vec::new();
+    evaluator(&sampled, &context, source, &mut output).unwrap();
+    assert_eq!(output.len(), source.terms().len());
+}
+
+#[test]
+fn source_evaluator_reports_exact_foreign_payload_ordinals() {
+    let (family, base) = guarded_tadpole();
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let plan = OneSidedChartFrame::try_new(
+        &generator,
+        &completed,
+        Mask::try_new([true]).unwrap(),
+        0,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let sampled = plan
+        .plan()
+        .try_modular_sample(
+            generator.context(),
+            PRIME,
+            &[4, 1],
+            &[0],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+
+    let reciprocal = base
+        .try_div(
+            &base.one(),
+            &base.parameter("x").unwrap(),
+            Default::default(),
+        )
+        .unwrap();
+    let foreign_guarded_family = IntegralFamily::new(
+        "foreign-guarded-source-condition-tadpole",
+        vec!["k".into()],
+        Vec::new(),
+        base.clone(),
+        base.parameter("d").unwrap(),
+        vec![AffineDenominator::new(base.integer(-1), vec![base.one()])],
+        Vec::new(),
+        vec![reciprocal],
+    )
+    .unwrap();
+    let foreign_guarded_generator =
+        ParametricIbpGenerator::try_new(&foreign_guarded_family).unwrap();
+    let foreign_guarded_completed = complete_ordinary(&foreign_guarded_generator);
+    let foreign_guarded_plan = OneSidedChartFrame::try_new(
+        &foreign_guarded_generator,
+        &foreign_guarded_completed,
+        Mask::try_new([true]).unwrap(),
+        0,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let guarded_source = foreign_guarded_plan.plan().source_for_row(0).unwrap();
+    assert!(!guarded_source.nonzero_conditions().is_empty());
+    let mut output = vec![sampled.field().one()];
+    assert_eq!(
+        sampled.try_evaluate_translated_source(generator.context(), guarded_source, &mut output,),
+        Err(ModularSourceEvaluationError::ConditionContextMismatch {
+            condition_ordinal: 0,
+        })
+    );
+    assert!(output.is_empty());
+
+    let foreign_family = IntegralFamily::new(
+        "foreign-unguarded-source-term-tadpole",
+        vec!["k".into()],
+        Vec::new(),
+        base.clone(),
+        base.parameter("d").unwrap(),
+        vec![AffineDenominator::new(base.integer(-1), vec![base.one()])],
+        Vec::new(),
+        vec![base.zero()],
+    )
+    .unwrap();
+    let foreign_generator = ParametricIbpGenerator::try_new(&foreign_family).unwrap();
+    let foreign_completed = complete_ordinary(&foreign_generator);
+    let foreign_plan = OneSidedChartFrame::try_new(
+        &foreign_generator,
+        &foreign_completed,
+        Mask::try_new([true]).unwrap(),
+        0,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let source = foreign_plan.plan().source_for_row(0).unwrap();
+    assert!(source.nonzero_conditions().is_empty());
+    assert!(!source.terms().is_empty());
+
+    output.push(sampled.field().one());
+    assert_eq!(
+        sampled.try_evaluate_translated_source(generator.context(), source, &mut output),
+        Err(ModularSourceEvaluationError::TermContextMismatch { term_ordinal: 0 })
+    );
+    assert!(output.is_empty());
 }
 
 #[test]
@@ -457,6 +669,23 @@ fn malformed_moduli_and_sample_arities_are_rejected_before_native_evaluation() {
 }
 
 #[test]
+fn foreign_same_arity_context_is_rejected_at_the_plan_boundary() {
+    let (context, plan) = s4a_degree_one();
+    let foreign = IndexedCoefficientContext::try_new(
+        context.base(),
+        "foreign-modular-frame-context",
+        context.index_count(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        plan.try_modular_sample(&foreign, 10, &[], &[], ModularKernelLimits::default(),)
+            .unwrap_err(),
+        ModularKernelError::WrongFrameContext
+    );
+}
+
+#[test]
 fn rational_coefficient_denominator_zero_is_rejected_before_division() {
     let base = CoefficientContext::new(["d"]);
     let context = IndexedCoefficientContext::try_new(&base, "modular-denominator-zero", 1).unwrap();
@@ -475,14 +704,29 @@ fn vanishing_exact_source_condition_rejects_the_whole_sample() {
     let (family, base) = guarded_tadpole();
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();
     let completed = complete_ordinary(&generator);
-    let plan = PhysicalFramePlan::try_new(
+    let plan = OneSidedChartFrame::try_new(
         &generator,
         &completed,
         Mask::try_new([true]).unwrap(),
         0,
         PhysicalFrameLimits::default(),
     )
-    .unwrap();
+    .unwrap()
+    .into_plan();
+    let field = Zp64::new(PRIME);
+    let point = [
+        Integer::from(4).to_finite_field(&field),
+        Integer::from(0).to_finite_field(&field),
+        Integer::from(1).to_finite_field(&field),
+    ];
+    assert!(
+        plan.source_for_row(0)
+            .unwrap()
+            .terms()
+            .values()
+            .any(|coefficient| evaluate_coefficient_for_test(coefficient, &point, &field)),
+        "the condition-zero regression must also exercise a later zero denominator"
+    );
     let error = plan
         .try_modular_sample(
             generator.context(),

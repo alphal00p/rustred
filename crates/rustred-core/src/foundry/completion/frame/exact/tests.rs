@@ -6,7 +6,9 @@ use crate::foundry::artifact::canonical_three_loop_family;
 use crate::foundry::completion::frame::modular::{
     ModularKernelLimits, ModularPhysicalFrame, ModularTargetQuery,
 };
-use crate::foundry::completion::frame::{PhysicalFrameLimits, PhysicalFramePlan};
+use crate::foundry::completion::frame::{
+    OneSidedChartFrame, PhysicalFrameLimits, PhysicalFramePlan,
+};
 use crate::foundry::completion::stratum::{
     DecoratedStratum, ImmutableOwnerSnapshot, StratumRegistryError, StratumRegistryLimits,
     TargetColumnPartition,
@@ -64,14 +66,15 @@ fn tadpole_frame(
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();
     let context = generator.context().clone();
     let completed = complete_ordinary(&generator);
-    let plan = PhysicalFramePlan::try_new(
+    let plan = OneSidedChartFrame::try_new(
         &generator,
         &completed,
         Mask::try_new([true]).unwrap(),
         degree,
         PhysicalFrameLimits::default(),
     )
-    .unwrap();
+    .unwrap()
+    .into_plan();
     (context, plan)
 }
 
@@ -464,14 +467,15 @@ fn s4a_degree_one() -> (IndexedCoefficientContext, PhysicalFramePlan) {
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();
     let context = generator.context().clone();
     let completed = complete_ordinary(&generator);
-    let plan = PhysicalFramePlan::try_new(
+    let plan = OneSidedChartFrame::try_new(
         &generator,
         &completed,
         Mask::try_new([false, true, true, true, true, false]).unwrap(),
         1,
         PhysicalFrameLimits::default(),
     )
-    .unwrap();
+    .unwrap()
+    .into_plan();
     (context, plan)
 }
 

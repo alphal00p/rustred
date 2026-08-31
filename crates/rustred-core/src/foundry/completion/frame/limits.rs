@@ -1,9 +1,11 @@
 use crate::identity::TranslatedSourceLimits;
 
-/// Structural resource limits for one physical translated-source frame.
+/// Resource limits shared by physical-frame construction shells.
 ///
-/// The embedded translation policy bounds the exact Symbolica work and its
-/// retained conditions. The remaining limits bound frame-owned Rust metadata.
+/// The one-sided chart shell uses the embedded translation and chart policy
+/// before common assembly. A selected shell consumes a batch whose exact
+/// Symbolica work was already bounded at translation time, ignores the three
+/// chart-only caps, and applies every common frame-owned Rust metadata cap.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PhysicalFrameLimits {
     pub(crate) translated_sources: TranslatedSourceLimits,

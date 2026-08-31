@@ -6,7 +6,9 @@ use crate::foundry::completion::frame::exact::{
     ExactCircuitLift, ExactCircuitLimits, ExactTargetCircuit, try_lift_exact_circuit,
 };
 use crate::foundry::completion::frame::modular::{ModularKernelLimits, ModularTargetQuery};
-use crate::foundry::completion::frame::{PhysicalFrameLimits, PhysicalFramePlan};
+use crate::foundry::completion::frame::{
+    OneSidedChartFrame, PhysicalFrameLimits, PhysicalFramePlan,
+};
 use crate::foundry::completion::guard::{CoefficientIdealGuardAtom, CoefficientIdealGuardLimits};
 use crate::foundry::completion::stratum::{
     DecoratedStratum, GuardBranch, GuardBranchIdentity, ImmutableOwnerSnapshot,
@@ -48,14 +50,15 @@ fn tadpole_frame_at_degree(degree: usize) -> (IndexedCoefficientContext, Physica
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();
     let context = generator.context().clone();
     let completed = complete_ordinary(&generator);
-    let frame = PhysicalFramePlan::try_new(
+    let frame = OneSidedChartFrame::try_new(
         &generator,
         &completed,
         Mask::try_new([true]).unwrap(),
         degree,
         PhysicalFrameLimits::default(),
     )
-    .unwrap();
+    .unwrap()
+    .into_plan();
     (context, frame)
 }
 
@@ -68,14 +71,15 @@ fn k6_s4a_frame() -> (IndexedCoefficientContext, PhysicalFramePlan) {
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();
     let context = generator.context().clone();
     let completed = complete_ordinary(&generator);
-    let frame = PhysicalFramePlan::try_new(
+    let frame = OneSidedChartFrame::try_new(
         &generator,
         &completed,
         Mask::try_new([false, true, true, true, true, false]).unwrap(),
         1,
         PhysicalFrameLimits::default(),
     )
-    .unwrap();
+    .unwrap()
+    .into_plan();
     (context, frame)
 }
 
@@ -271,7 +275,9 @@ fn semantic_with_extra_roots(
         atoms.push(atom);
         candidates.push((circuit.clone(), atoms));
     }
-    Arc::new(ExactCircuitSemanticDag::try_from_test_candidates(context, candidates).unwrap())
+    Arc::new(
+        ExactCircuitSemanticDag::try_from_test_candidates(context, &baseline, candidates).unwrap(),
+    )
 }
 
 fn semantic(
@@ -288,6 +294,46 @@ fn semantic(
         )
         .unwrap(),
     )
+}
+
+#[test]
+fn outer_extension_cannot_be_rebound_to_an_equal_independent_physical_plan() {
+    let (context, first_frame) = tadpole_frame();
+    let (_, second_frame) = tadpole_frame();
+    assert_eq!(first_frame, second_frame);
+    assert!(!std::ptr::eq(&first_frame, &second_frame));
+
+    let first_partition = partition(&first_frame);
+    let second_partition = partition(&second_frame);
+    assert_eq!(
+        first_partition.target_column(),
+        second_partition.target_column()
+    );
+    let circuit = Arc::new(exact_circuit(&context, &first_frame, &first_partition));
+    let semantic = semantic(&context, &first_partition, circuit.clone());
+    assert!(matches!(
+        ExactCircuitOuterExtensionWitness::try_prove(&second_partition, semantic.clone()),
+        Err(ExactCircuitOuterExtensionError::WrongPhysicalPlan)
+    ));
+    let test_semantic = semantic_with_extra_roots(&context, &first_partition, circuit, &[0, 1]);
+    assert!(matches!(
+        ExactCircuitOuterExtensionWitness::try_prove(&second_partition, test_semantic),
+        Err(ExactCircuitOuterExtensionError::WrongPhysicalPlan)
+    ));
+    let outer = ExactCircuitOuterExtensionWitness::try_prove(&first_partition, semantic).unwrap();
+
+    assert!(matches!(
+        ExactCircuitOwnerCover::try_compile(
+            &context,
+            [ExactCircuitOwnerInput::new(&second_partition, outer)],
+            Vec::<IntegralKey>::new(),
+            Default::default(),
+        ),
+        Err(ExactCircuitOwnerCoverError::OwnerJoin {
+            owner: 0,
+            detail: "outer-extension witness differs from its exact physical plan or target partition",
+        })
+    ));
 }
 
 #[test]
@@ -638,14 +684,15 @@ fn mixed_immutable_owner_snapshots_are_rejected() {
     let generator = ParametricIbpGenerator::try_new(family).unwrap();
     let context = generator.context().clone();
     let completed = complete_ordinary(&generator);
-    let frame = PhysicalFramePlan::try_new(
+    let frame = OneSidedChartFrame::try_new(
         &generator,
         &completed,
         Mask::try_new([true]).unwrap(),
         0,
         PhysicalFrameLimits::default(),
     )
-    .unwrap();
+    .unwrap()
+    .into_plan();
     let target = target_with_shift(&frame, &[1]);
     let shifts = frame
         .columns()

@@ -3,6 +3,7 @@
 use std::fmt;
 use std::sync::Arc;
 
+use crate::foundry::completion::frame::PhysicalFramePlan;
 use crate::foundry::completion::frame::admission::semantic::ExactCircuitSemanticDag;
 use crate::foundry::completion::stratum::{
     DecoratedStratumId, ImmutableOwnerSnapshotId, TargetColumnPartition,
@@ -21,7 +22,12 @@ use crate::sector::{Error as SectorError, Mask, OrderingPolicy, SectorMonotoneDo
 /// This witness alone grants no ownership: semantic guard totality is proved
 /// separately by the owner-cover compiler.
 #[derive(Debug)]
-pub(crate) struct ExactCircuitOuterExtensionWitness {
+pub(crate) struct ExactCircuitOuterExtensionWitness<'frame> {
+    /// The exact physical plan against which the partition, semantic DAG,
+    /// and target-column ordinal were proved.  This in-memory proof witness
+    /// is deliberately pointer-bound: equal ordinals in independently built
+    /// selected plans need not denote the same integral shift.
+    pub(super) plan: &'frame PhysicalFramePlan,
     pub(super) family_fingerprint: Arc<String>,
     pub(super) context_fingerprint: Arc<String>,
     pub(super) sector: Mask,
@@ -33,11 +39,14 @@ pub(crate) struct ExactCircuitOuterExtensionWitness {
     pub(super) semantic: Arc<ExactCircuitSemanticDag>,
 }
 
-impl ExactCircuitOuterExtensionWitness {
+impl<'frame> ExactCircuitOuterExtensionWitness<'frame> {
     pub(crate) fn try_prove(
-        partition: &TargetColumnPartition<'_>,
+        partition: &TargetColumnPartition<'frame>,
         semantic: Arc<ExactCircuitSemanticDag>,
     ) -> Result<Self, ExactCircuitOuterExtensionError> {
+        if !semantic.is_bound_to(partition.frame()) {
+            return Err(ExactCircuitOuterExtensionError::WrongPhysicalPlan);
+        }
         if semantic.context_fingerprint() != partition.frame().context_fingerprint() {
             return Err(ExactCircuitOuterExtensionError::WrongContext);
         }
@@ -138,6 +147,7 @@ impl ExactCircuitOuterExtensionWitness {
         }
 
         Ok(Self {
+            plan: partition.frame(),
             family_fingerprint: Arc::new(partition.frame().family_fingerprint().to_owned()),
             context_fingerprint: Arc::new(partition.frame().context_fingerprint().to_owned()),
             sector: partition.frame().sector().clone(),
@@ -153,6 +163,7 @@ impl ExactCircuitOuterExtensionWitness {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ExactCircuitOuterExtensionError {
+    WrongPhysicalPlan,
     WrongContext,
     PreexistingStratumPredicates {
         count: usize,
@@ -181,6 +192,8 @@ pub(crate) enum ExactCircuitOuterExtensionError {
 impl fmt::Display for ExactCircuitOuterExtensionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::WrongPhysicalPlan => formatter
+                .write_str("outer-extension proof uses a semantic DAG from another physical plan"),
             Self::WrongContext => {
                 formatter.write_str("outer-extension proof uses another coefficient context")
             }

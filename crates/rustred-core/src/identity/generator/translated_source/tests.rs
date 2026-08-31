@@ -11,7 +11,9 @@ use crate::identity::{
 
 use super::super::model::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use super::construction::{add_condition_source_entries, retained_condition_source_entry_bound};
-use super::{IntegralShift, TranslatedSourceError, TranslatedSourceLimits};
+use super::{
+    IntegralShift, TranslatedSourceError, TranslatedSourceLimits, TranslatedSourceRequest,
+};
 
 fn equal_mass_sunset(name: &str) -> (CoefficientContext, IntegralFamily) {
     let base = CoefficientContext::new(["d", "s"]);
@@ -66,12 +68,89 @@ fn guarded_tadpole(name: &str) -> IntegralFamily {
     .unwrap()
 }
 
+fn one_loop_one_external(name: &str) -> IntegralFamily {
+    let base = CoefficientContext::new(["d", "s"]);
+    IntegralFamily::new(
+        name,
+        vec!["k".into()],
+        vec!["p".into()],
+        base.clone(),
+        base.parameter("d").unwrap(),
+        vec![
+            AffineDenominator::new(base.integer(-1), vec![base.one(), base.zero()]),
+            AffineDenominator::new(base.zero(), vec![base.zero(), base.one()]),
+        ],
+        vec![vec![base.parameter("s").unwrap()]],
+        vec![base.zero(), base.zero()],
+    )
+    .unwrap()
+}
+
 fn complete_ordinary(generator: &ParametricIbpGenerator<'_>) -> CompletedIbpSourceRows {
     let batch = generator.prepare_ordinary_ibp().unwrap();
     let rows = (0..batch.len())
         .map(|ordinal| batch.generate(ordinal))
         .collect();
     batch.complete(rows).unwrap()
+}
+
+fn complete_external(generator: &ParametricIbpGenerator<'_>) -> CompletedIbpSourceRows {
+    let batch = generator.prepare_external_ibp_sources().unwrap();
+    let rows = (0..batch.len())
+        .map(|ordinal| batch.generate(ordinal))
+        .collect();
+    batch.complete(rows).unwrap()
+}
+
+#[test]
+fn rectangular_and_selected_batches_preserve_their_sealed_source_layout() {
+    let family = one_loop_one_external("translated-source-layout-seal");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let zero = || IntegralShift::try_new([0, 0]).unwrap();
+
+    let ordinary = complete_ordinary(&generator);
+    let ordinary_rectangular = generator
+        .translate_completed_source_rows(&ordinary, [zero()], TranslatedSourceLimits::default())
+        .unwrap();
+    let ordinary_selected = generator
+        .translate_selected_completed_source_rows(
+            &ordinary,
+            [TranslatedSourceRequest::new(0, zero())],
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    assert!(ordinary_rectangular.is_complete_ordinary());
+    assert!(ordinary_selected.is_complete_ordinary());
+    assert_eq!(
+        ordinary_rectangular.source_layout_name(),
+        "ordinary IBP source"
+    );
+    assert_eq!(
+        ordinary_selected.source_layout_name(),
+        "ordinary IBP source"
+    );
+
+    let external = complete_external(&generator);
+    let external_rectangular = generator
+        .translate_completed_source_rows(&external, [zero()], TranslatedSourceLimits::default())
+        .unwrap();
+    let external_selected = generator
+        .translate_selected_completed_source_rows(
+            &external,
+            [TranslatedSourceRequest::new(0, zero())],
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    assert!(!external_rectangular.is_complete_ordinary());
+    assert!(!external_selected.is_complete_ordinary());
+    assert_eq!(
+        external_rectangular.source_layout_name(),
+        "external-contraction IBP source"
+    );
+    assert_eq!(
+        external_selected.source_layout_name(),
+        "external-contraction IBP source"
+    );
 }
 
 fn exact_translation_replays(

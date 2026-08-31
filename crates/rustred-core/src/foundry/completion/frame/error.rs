@@ -13,6 +13,16 @@ pub(crate) enum PhysicalFrameError {
         expected: usize,
         actual: usize,
     },
+    WrongSourceOffsetArity {
+        row: usize,
+        expected: usize,
+        actual: usize,
+    },
+    WrongSourceTermArity {
+        row: usize,
+        expected: usize,
+        actual: usize,
+    },
     DegreeNotRepresentable {
         degree: usize,
     },
@@ -52,6 +62,22 @@ impl fmt::Display for PhysicalFrameError {
             Self::WrongSectorArity { expected, actual } => write!(
                 formatter,
                 "physical-frame sector has arity {actual}, expected {expected}"
+            ),
+            Self::WrongSourceOffsetArity {
+                row,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "physical-frame source row {row} has provenance-offset arity {actual}, expected {expected}"
+            ),
+            Self::WrongSourceTermArity {
+                row,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "physical-frame source row {row} has term-shift arity {actual}, expected {expected}"
             ),
             Self::DegreeNotRepresentable { degree } => write!(
                 formatter,

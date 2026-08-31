@@ -133,10 +133,27 @@ API translates only canonical requested `(ordinary source, signed offset)`
 pairs, and every modular no-hit retains a plan/sample-bound sparse right
 obstruction with logical target coefficient one and exact finite-field
 `A q = 0` replay. Multi-probe obstruction payloads have their own aggregate
-budget. The next implementation slice extracts one construction-neutral sealed
-physical-plan core so selected rows can reuse the existing pointer-bound
-partition, exact-lift, and replay machinery without pretending to be a
-rectangular degree shell. On the Vakint side, the shared multimethod harness
+budget. The construction-neutral seam and the first structural oracle layer
+are now also implemented and independently audited. `PhysicalFramePlan` owns
+only sealed exact rows, raw integral columns, CSR, scope, sector, and
+provenance; `OneSidedChartFrame` retains rectangular degree metadata, while
+`SelectedSourceFrame` accepts only explicitly requested signed translations
+without Cartesian completion. Both paths use one validated assembler. Every
+semantic DAG inherits an unforgeable identity from its exact plan, and an
+outer-extension witness rejoins both that identity and the plan pointer before
+it can contribute owner authority. Complete-ordinary versus external-only source-layout provenance is
+sealed through both translated-batch forms and is checked before any
+completeness census. A reusable Symbolica-backed coefficient evaluator is
+sealed behind an admitted modular frame, so its finite-field point and domain
+cannot be mismatched. Finally, the bounded inverse-incidence index now
+enumerates canonical `alpha = u - s` requests from either the target-unit
+bootstrap or a checked obstruction, with the canonical K6 census pinned at
+nine sources, 90 term incidences, 31 distinct relative shifts, and 90 unique
+bootstrap requests. These values remain nomination-only. The next slice must
+evaluate every nominated complete row against the current obstruction, retain
+all nonzero-residual requests, rebuild a fresh selected plan and exhaustive
+target partition, and iterate to a modular hit or honest budget/exhaustion
+telemetry before exact lift and replay. On the Vakint side, the shared multimethod harness
 now exercises 21 applicable historical tests comprising 27 concrete inputs
 through two loops,
 including nine inputs with the unchanged FORM tensor prepass. Eleven genuine
