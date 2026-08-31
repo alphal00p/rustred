@@ -3,7 +3,6 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::family::IntegralKey;
 use crate::foundry::completion::frame::admission::{
     ExactCircuitOuterExtensionWitness, ExactCircuitOwnerCover, ExactCircuitOwnerCoverError,
     ExactCircuitOwnerInput, ExactCircuitSemanticDag, ExactOwnerCoverStatus,
@@ -19,7 +18,7 @@ use crate::foundry::completion::stratum::{
 use crate::identity::{ParametricIbpConfig, ParametricIbpGenerator};
 use crate::sector::{Error as SectorError, Mask, OrderingPolicy, SectorMonotoneDomain};
 
-use super::super::canonical_family;
+use super::super::{canonical_family, derive_k6_terminal_authority};
 use super::limits::{
     MAX_DEGREE, exact_limits, frame_limits, modular_limits, owner_cover_limits, registry_limits,
     semantic_limits,
@@ -65,6 +64,27 @@ pub(super) fn sweep_sector(
     sector: Mask,
     degrees: &[usize],
 ) -> Result<SectorSweepTelemetry, Box<dyn std::error::Error>> {
+    sweep_sector_with_root_authority(sector, degrees, false)
+}
+
+/// Run the same bounded diagnostic against the exact installed K6 root
+/// authority. This is the relevant lower-sector view for bottom-up closure:
+/// symmetry-routed zero/factorization owners may discharge proper-subsector
+/// columns, and same-sector scalar product corners are declared explicitly as
+/// finite terminals. The result remains discovery telemetry until executable
+/// promotion proves a complete cover.
+pub(super) fn sweep_sector_against_k6_terminals(
+    sector: Mask,
+    degrees: &[usize],
+) -> Result<SectorSweepTelemetry, Box<dyn std::error::Error>> {
+    sweep_sector_with_root_authority(sector, degrees, true)
+}
+
+fn sweep_sector_with_root_authority(
+    sector: Mask,
+    degrees: &[usize],
+    installed_k6_root: bool,
+) -> Result<SectorSweepTelemetry, Box<dyn std::error::Error>> {
     validate_degree_schedule(degrees)?;
     let family = canonical_family()?;
     let generator =
@@ -97,12 +117,29 @@ pub(super) fn sweep_sector(
     let first = frames
         .first()
         .ok_or(SweepConfigurationError::EmptyDegreeSchedule)?;
-    let empty_owners = ImmutableOwnerSnapshot::try_empty(
-        first.plan().family_fingerprint(),
-        first.plan().context_fingerprint(),
-        first.plan().sector().arity(),
-        registry_limits,
-    )?;
+    let (owners, finite_terminals) = if installed_k6_root {
+        let authority = derive_k6_terminal_authority()?;
+        let finite_terminals = authority
+            .parent_terminals()
+            .iter()
+            .filter(|key| Mask::try_from_indices(key.powers()).is_ok_and(|mask| mask == sector))
+            .cloned()
+            .collect();
+        (
+            ImmutableOwnerSnapshot::try_from_terminal_authority(authority, registry_limits)?,
+            finite_terminals,
+        )
+    } else {
+        (
+            ImmutableOwnerSnapshot::try_empty(
+                first.plan().family_fingerprint(),
+                first.plan().context_fingerprint(),
+                first.plan().sector().arity(),
+                registry_limits,
+            )?,
+            Vec::new(),
+        )
+    };
 
     // Only replayed hits are retained. No-hit and inactive target partitions
     // fall out of scope immediately and cannot masquerade as negative proof.
@@ -157,7 +194,7 @@ pub(super) fn sweep_sector(
                 plan,
                 target_column,
                 stratum,
-                empty_owners.clone(),
+                owners.clone(),
                 OrderingPolicy::default(),
                 registry_limits,
             ) {
@@ -228,7 +265,7 @@ pub(super) fn sweep_sector(
     let compiled = ExactCircuitOwnerCover::try_compile(
         &context,
         owner_inputs,
-        Vec::<IntegralKey>::new(),
+        finite_terminals,
         owner_cover_limits(),
     );
     let cover = cover_telemetry(compiled, sector.arity(), semantic_owner_inputs)?;

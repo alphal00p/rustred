@@ -335,8 +335,17 @@ decreasing, or foreign-predecessor publication. Their bounded append-only
 raw-to-owner route table now covers every authenticated symmetry image of root
 and solved owners, retains the exact canonicalizer authority, preserves
 factorization-before-master precedence, and performs allocation-free bucketed
-lookup. The next K6 production boundary is the first complete bottom-up
-three-line wave. RustRed still has no closed K6 artifact.
+lookup. A generic one-shot coordinator now stages a complete same-rank
+frontier against one exact predecessor, accepts only pointer-paired executable
+owners and retained-authority terminals, resolves equivalent worker results by
+an exact canonical minimum, and enforces aggregate rather than per-sector
+resource limits. It publishes no layer unless every sector is exactly closed.
+On the K6 rank-three path/star frontier, the exact
+root-aware degree-one diagnostic currently gives `9/4/10` and `22/12/4`
+(replayed owners / guard-total owners / nonfinite complement boxes), so the
+atomic wave correctly stops without publication. The next K6 production
+boundary is still the first complete bottom-up three-line wave. RustRed has no
+closed K6 artifact.
 
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,

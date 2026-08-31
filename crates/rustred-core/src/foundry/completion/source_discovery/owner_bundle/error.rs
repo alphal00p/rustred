@@ -7,6 +7,7 @@ use crate::foundry::completion::frame::admission::{
 };
 
 use super::super::{CampaignError, ExactRuleCellPromotionError};
+use crate::foundry::completion::stratum::StratumRegistryError;
 
 /// Hard failure while pairing exact semantic authority with executable cells.
 /// Normal guard-stratum obligations are represented by
@@ -35,6 +36,7 @@ pub(crate) enum ExactExecutableOwnerError {
     },
     Cover(ExactCircuitOwnerCoverError),
     CellSelection(RuleCellError),
+    ContentOrder(StratumRegistryError),
     AuthorityMismatch {
         candidate: usize,
         detail: &'static str,
@@ -95,6 +97,7 @@ impl fmt::Display for ExactExecutableOwnerError {
                     "paired executable-cell selection failed: {error}"
                 )
             }
+            Self::ContentOrder(error) => error.fmt(formatter),
             Self::AuthorityMismatch { candidate, detail } => write!(
                 formatter,
                 "exact candidate {candidate} lost its retained authority: {detail}"
@@ -136,6 +139,7 @@ impl std::error::Error for ExactExecutableOwnerError {
             Self::OuterExtension { error, .. } => Some(error),
             Self::Cover(error) => Some(error),
             Self::CellSelection(error) => Some(error),
+            Self::ContentOrder(error) => Some(error),
             _ => None,
         }
     }
@@ -162,5 +166,11 @@ impl From<ExactCircuitOwnerCoverError> for ExactExecutableOwnerError {
 impl From<RuleCellError> for ExactExecutableOwnerError {
     fn from(value: RuleCellError) -> Self {
         Self::CellSelection(value)
+    }
+}
+
+impl From<StratumRegistryError> for ExactExecutableOwnerError {
+    fn from(value: StratumRegistryError) -> Self {
+        Self::ContentOrder(value)
     }
 }

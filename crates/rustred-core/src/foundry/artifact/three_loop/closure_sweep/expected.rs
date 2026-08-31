@@ -166,6 +166,56 @@ pub(super) const EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP: [ExpectedSectorSweepTeleme
     },
 ];
 
+/// Degree-one semantic replay for the two nonzero rank-three representatives
+/// after proper-subsector classification is joined to the exact installed K6
+/// terminal authority. These are stronger discovery inputs than the empty-
+/// snapshot baseline, but their nonfinite complements remain explicit.
+pub(super) const EXPECTED_RANK_THREE_ROOT_AUTHORITY_DEGREE_ONE_SWEEP:
+    [ExpectedSectorSweepTelemetry; 2] = [
+    ExpectedSectorSweepTelemetry {
+        representative: [0, 0, 1, 0, 1, 1],
+        frame_columns: 159,
+        partitioned_targets: 85,
+        inactive_activation_targets: 74,
+        modular_hits: 9,
+        modular_no_hits: 76,
+        exact_replayed: 9,
+        exact_support_did_not_lift: 0,
+        semantic_owner_inputs: 9,
+        cover: ExpectedSweepCoverTelemetry::Compiled {
+            guard_total_owners: 4,
+            status: ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite),
+            uncovered_boxes: 10,
+            uncovered_free_dimension_histogram: [0, 0, 0, 1, 8, 1, 0],
+            maximum_uncovered_free_dimension: 5,
+            maximum_uncovered_varying_dimension: 5,
+            missing_terminal_points: 0,
+            guard_incomplete_owners: 0,
+        },
+    },
+    ExpectedSectorSweepTelemetry {
+        representative: [0, 0, 1, 1, 0, 1],
+        frame_columns: 163,
+        partitioned_targets: 91,
+        inactive_activation_targets: 72,
+        modular_hits: 22,
+        modular_no_hits: 69,
+        exact_replayed: 22,
+        exact_support_did_not_lift: 0,
+        semantic_owner_inputs: 22,
+        cover: ExpectedSweepCoverTelemetry::Compiled {
+            guard_total_owners: 12,
+            status: ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite),
+            uncovered_boxes: 4,
+            uncovered_free_dimension_histogram: [0, 0, 0, 0, 1, 3, 0],
+            maximum_uncovered_free_dimension: 5,
+            maximum_uncovered_varying_dimension: 5,
+            missing_terminal_points: 0,
+            guard_incomplete_owners: 0,
+        },
+    },
+];
+
 const EXPECTED_CANONICAL_S4A_MIXED_DEGREES: [DegreeSweepTelemetry; 2] = [
     DegreeSweepTelemetry {
         degree: 1,

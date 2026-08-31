@@ -4,6 +4,7 @@ use crate::family::IntegralKey;
 use crate::foundry::artifact::{
     ClosedArtifact, derive_one_loop_unit_mass_tadpole, derive_two_loop_unit_mass_sunset,
 };
+use crate::foundry::completion::CompletionGeometryError;
 use crate::foundry::completion::frame::admission::{
     ExactCircuitOwnerCoverError, ExactOwnerCoverObstructionKind, ExactOwnerCoverStatus,
 };
@@ -22,7 +23,9 @@ use crate::sector::{
 
 use super::super::{
     CampaignModularProbe, CanonicalReplayBatch, CanonicalReplayDisposition, CanonicalReplayLimits,
-    OrdinarySourceIncidenceIndex, SourceDiscoveryLimits, try_canonicalize_replayed_probes,
+    OrdinarySourceIncidenceIndex, SourceDiscoveryLimits, StagedSectorClosureCoordinator,
+    StagedSectorClosureError, StagedSectorClosureLimits, StagedSectorClosureOutcome,
+    try_canonicalize_replayed_probes,
 };
 use super::{
     ClosedExactExecutableOwnerCover, ClosedSectorLayer, ExactExecutableOwnerCover,
@@ -188,6 +191,42 @@ fn compiled_tadpole_owner(
     owner
 }
 
+fn compiled_tadpole_owner_with_predecessor(
+    artifact: &ClosedArtifact,
+    generator: &ParametricIbpGenerator<'_>,
+    completed: &CompletedIbpSourceRows,
+    target_power: i64,
+    probe_coordinates: [u64; 2],
+    predecessor: ImmutableOwnerSnapshot,
+) -> Arc<super::ExactSemanticExecutableOwner> {
+    let campaign = ProbeLocalSchedulerLimits::default().campaign;
+    let probes = probe_coordinates.map(|coordinate| {
+        CampaignModularProbe::try_new(PRIME, [37], [coordinate], campaign).unwrap()
+    });
+    let batch = canonical_tadpole_batch_from_probes_and_owners(
+        artifact,
+        generator,
+        completed,
+        target_power,
+        probes,
+        predecessor,
+    );
+    let ExactExecutableOwnerProposal::Compiled {
+        owner,
+        obstructions,
+    } = try_compile_canonical_executable_owner(
+        generator.context(),
+        batch,
+        ExactExecutableOwnerLimits::default(),
+    )
+    .unwrap()
+    else {
+        panic!("the canonical tadpole candidate must be globally executable")
+    };
+    assert!(obstructions.is_empty());
+    owner
+}
+
 fn published_tadpole_layer(
     artifact: &ClosedArtifact,
     generator: &ParametricIbpGenerator<'_>,
@@ -318,6 +357,26 @@ fn canonical_batch_compiles_to_a_pointer_paired_closed_executable_owner() {
 }
 
 #[test]
+fn executable_owner_exact_content_key_has_a_hard_prepublication_byte_limit() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let batch = canonical_tadpole_batch(&artifact, &generator, &completed, 1, [2, 3]);
+    let mut limits = ExactExecutableOwnerLimits::default();
+    limits.max_owner_content_order_bytes = 0;
+    assert!(matches!(
+        try_compile_canonical_executable_owner(generator.context(), batch, limits),
+        Err(ExactExecutableOwnerError::ContentOrder(
+            StratumRegistryError::ResourceLimit {
+                resource: "exact executable owner canonical order bytes",
+                limit: 0,
+                ..
+            }
+        ))
+    ));
+}
+
+#[test]
 fn failed_whole_cover_recompute_leaves_the_published_pairing_untouched() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
@@ -419,6 +478,64 @@ fn failed_whole_cover_recompute_leaves_the_published_pairing_untouched() {
         }
         _ => panic!("failed recomputation must not replace the baseline selection"),
     }
+}
+
+#[test]
+fn cover_insert_rejects_structural_duplicates_from_an_independent_authority() {
+    let installed = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
+    let independently_installed = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
+    let generator = ParametricIbpGenerator::try_new(installed.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let retained = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        Arc::clone(&installed),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let foreign = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        independently_installed,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(retained, foreign);
+    assert!(!retained.same_authority_as(&foreign));
+
+    let owner = compiled_tadpole_owner_with_predecessor(
+        &installed,
+        &generator,
+        &completed,
+        1,
+        [2, 3],
+        retained,
+    );
+    let foreign_duplicate = compiled_tadpole_owner_with_predecessor(
+        &installed,
+        &generator,
+        &completed,
+        1,
+        [2, 3],
+        foreign,
+    );
+    assert!(super::compare_exact_owner_group_content(&owner, &foreign_duplicate).is_eq());
+    let mut cover = ExactExecutableOwnerCover::try_compile(
+        generator.context(),
+        vec![owner.clone()],
+        vec![IntegralKey::try_new([1]).unwrap()],
+        ExactExecutableOwnerLimits::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        cover.try_insert(
+            generator.context(),
+            foreign_duplicate,
+            ExactExecutableOwnerLimits::default(),
+        ),
+        Err(ExactExecutableOwnerError::AuthorityMismatch {
+            candidate: 0,
+            detail: "inserted owner uses a structurally equal but independently installed predecessor authority",
+        })
+    ));
+    assert_eq!(cover.owners().len(), 1);
+    assert!(Arc::ptr_eq(&cover.owners()[0], &owner));
 }
 
 #[test]
@@ -1227,4 +1344,409 @@ fn closed_layer_batch_rejections_leave_the_predecessor_unchanged() {
             .try_verify(StratumRegistryLimits::default())
             .unwrap()
     );
+}
+
+#[test]
+fn staged_coordinator_seals_and_publishes_only_a_complete_consumed_wave() {
+    let artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        Arc::clone(&artifact),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let sector = Mask::try_new([true]).unwrap();
+    let owner = compiled_tadpole_owner_with_predecessor(
+        &artifact,
+        &generator,
+        &completed,
+        1,
+        [2, 3],
+        predecessor.clone(),
+    );
+    let duplicate = compiled_tadpole_owner_with_predecessor(
+        &artifact,
+        &generator,
+        &completed,
+        1,
+        [2, 3],
+        predecessor.clone(),
+    );
+    let mut coordinator = StagedSectorClosureCoordinator::try_new(
+        generator.context(),
+        predecessor.clone(),
+        [(sector.clone(), OrderingPolicy::default())],
+        StagedSectorClosureLimits::default(),
+    )
+    .unwrap();
+    assert!(coordinator.try_insert_owner(owner).unwrap());
+    assert!(!coordinator.try_insert_owner(duplicate).unwrap());
+    assert!(
+        coordinator
+            .try_insert_terminal(
+                &sector,
+                OrderingPolicy::default(),
+                IntegralKey::try_new([1]).unwrap(),
+            )
+            .unwrap()
+    );
+
+    let StagedSectorClosureOutcome::Closed(wave) = coordinator.try_finish().unwrap() else {
+        panic!("the exact tadpole recurrence plus its explicit corner must close")
+    };
+    assert!(wave.predecessor().same_authority_as(&predecessor));
+    assert_eq!(wave.layers().len(), 1);
+    assert_eq!(wave.layers()[0].sector(), &sector);
+    assert!(
+        wave.layers()[0]
+            .predecessor_snapshot()
+            .same_authority_as(&predecessor)
+    );
+    assert_eq!(
+        wave.successor().owner_count(),
+        predecessor.owner_count() + 1
+    );
+    assert_eq!(wave.successor().closed_layer_count(), 1);
+    assert!(wave.successor().solved_owner_matches_layer(0));
+    assert!(
+        !wave
+            .successor()
+            .authenticates_explicit_terminal(&IntegralKey::try_new([2]).unwrap())
+            .unwrap(),
+        "a solved rewrite sector must never mint terminal authority"
+    );
+    assert!(
+        wave.successor()
+            .try_verify(StratumRegistryLimits::default())
+            .unwrap()
+    );
+    assert_eq!(predecessor.owner_count(), 2);
+    assert_eq!(predecessor.closed_layer_count(), 0);
+}
+
+#[test]
+fn staged_proof_equivalent_owner_selection_is_arrival_order_independent() {
+    let artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        Arc::clone(&artifact),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let sector = Mask::try_new([true]).unwrap();
+    let first = compiled_tadpole_owner_with_predecessor(
+        &artifact,
+        &generator,
+        &completed,
+        1,
+        [2, 3],
+        predecessor.clone(),
+    );
+    let second = compiled_tadpole_owner_with_predecessor(
+        &artifact,
+        &generator,
+        &completed,
+        1,
+        [17, 19],
+        predecessor.clone(),
+    );
+    assert!(super::compare_exact_owner_proof_content(&first, &second).is_eq());
+    assert_ne!(
+        first.executable_candidates()[0]
+            .cell()
+            .rule()
+            .concrete_replay()
+            .anchor(),
+        second.executable_candidates()[0]
+            .cell()
+            .rule()
+            .concrete_replay()
+            .anchor(),
+        "the regression needs distinct executable replay witnesses",
+    );
+    let full_order = super::compare_exact_owner_group_content(&first, &second);
+    assert!(!full_order.is_eq());
+    let expected_key = if full_order.is_lt() {
+        first.content_order_key().to_vec()
+    } else {
+        second.content_order_key().to_vec()
+    };
+
+    let publish = |earlier: Arc<super::ExactSemanticExecutableOwner>,
+                   later: Arc<super::ExactSemanticExecutableOwner>| {
+        let mut coordinator = StagedSectorClosureCoordinator::try_new(
+            generator.context(),
+            predecessor.clone(),
+            [(sector.clone(), OrderingPolicy::default())],
+            StagedSectorClosureLimits::default(),
+        )
+        .unwrap();
+        assert!(coordinator.try_insert_owner(earlier).unwrap());
+        let _ = coordinator.try_insert_owner(later).unwrap();
+        assert_eq!(coordinator.owner_count(), 1);
+        assert!(
+            coordinator
+                .try_insert_terminal(
+                    &sector,
+                    OrderingPolicy::default(),
+                    IntegralKey::try_new([1]).unwrap(),
+                )
+                .unwrap()
+        );
+        let StagedSectorClosureOutcome::Closed(wave) = coordinator.try_finish().unwrap() else {
+            panic!("the canonical retained representative must still close")
+        };
+        wave
+    };
+
+    let forward = publish(first.clone(), second.clone());
+    let reversed = publish(second, first);
+    let forward_owner = &forward.layers()[0]
+        .executable_cover()
+        .executable_cover()
+        .owners()[0];
+    let reversed_owner = &reversed.layers()[0]
+        .executable_cover()
+        .executable_cover()
+        .owners()[0];
+    assert_eq!(forward_owner.content_order_key(), expected_key);
+    assert_eq!(reversed_owner.content_order_key(), expected_key);
+    assert_eq!(
+        forward.layers()[0].content_id(),
+        reversed.layers()[0].content_id()
+    );
+    assert_eq!(forward.successor().id(), reversed.successor().id());
+}
+
+#[test]
+fn staged_owner_terminal_and_pairing_envelopes_reject_transactionally() {
+    let artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        Arc::clone(&artifact),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let sector = Mask::try_new([true]).unwrap();
+    let first = compiled_tadpole_owner_with_predecessor(
+        &artifact,
+        &generator,
+        &completed,
+        1,
+        [2, 3],
+        predecessor.clone(),
+    );
+    let proof_equivalent = compiled_tadpole_owner_with_predecessor(
+        &artifact,
+        &generator,
+        &completed,
+        1,
+        [17, 19],
+        predecessor.clone(),
+    );
+    let second_proof = compiled_tadpole_owner_with_predecessor(
+        &artifact,
+        &generator,
+        &completed,
+        2,
+        [3, 4],
+        predecessor.clone(),
+    );
+
+    let mut limits = StagedSectorClosureLimits::default();
+    limits.max_staged_owner_content_order_bytes = first.content_order_key().len() - 1;
+    let mut bytes_limited = StagedSectorClosureCoordinator::try_new(
+        generator.context(),
+        predecessor.clone(),
+        [(sector.clone(), OrderingPolicy::default())],
+        limits,
+    )
+    .unwrap();
+    assert!(matches!(
+        bytes_limited.try_insert_owner(first.clone()),
+        Err(StagedSectorClosureError::ResourceLimit {
+            resource: "staged sector-closure owner canonical content bytes",
+            ..
+        })
+    ));
+    assert_eq!(bytes_limited.owner_count(), 0);
+    assert_eq!(bytes_limited.owner_content_order_bytes(), 0);
+
+    let mut limits = StagedSectorClosureLimits::default();
+    limits.max_owner_order_comparisons = 0;
+    let mut comparison_limited = StagedSectorClosureCoordinator::try_new(
+        generator.context(),
+        predecessor.clone(),
+        [(sector.clone(), OrderingPolicy::default())],
+        limits,
+    )
+    .unwrap();
+    assert!(comparison_limited.try_insert_owner(first.clone()).unwrap());
+    let retained_bytes = comparison_limited.owner_content_order_bytes();
+    assert!(matches!(
+        comparison_limited.try_insert_owner(proof_equivalent),
+        Err(StagedSectorClosureError::ResourceLimit {
+            resource: "staged sector-closure owner order comparisons",
+            requested: 1,
+            limit: 0,
+        })
+    ));
+    assert_eq!(comparison_limited.owner_count(), 1);
+    assert_eq!(
+        comparison_limited.owner_content_order_bytes(),
+        retained_bytes
+    );
+    assert_eq!(comparison_limited.owner_order_comparisons(), 0);
+
+    let mut limits = StagedSectorClosureLimits::default();
+    limits.max_staged_terminal_coordinate_cells = 0;
+    let mut terminal_limited = StagedSectorClosureCoordinator::try_new(
+        generator.context(),
+        predecessor.clone(),
+        [(sector.clone(), OrderingPolicy::default())],
+        limits,
+    )
+    .unwrap();
+    assert!(matches!(
+        terminal_limited.try_insert_terminal(
+            &sector,
+            OrderingPolicy::default(),
+            IntegralKey::try_new([1]).unwrap(),
+        ),
+        Err(StagedSectorClosureError::ResourceLimit {
+            resource: "staged sector-closure terminal coordinate cells",
+            requested: 1,
+            limit: 0,
+        })
+    ));
+    assert_eq!(terminal_limited.terminal_count(), 0);
+    assert_eq!(terminal_limited.terminal_coordinate_cells(), 0);
+
+    let mut limits = StagedSectorClosureLimits::default();
+    limits.max_compiled_pairing_probes = 3;
+    let mut pairing_limited = StagedSectorClosureCoordinator::try_new(
+        generator.context(),
+        predecessor.clone(),
+        [(sector.clone(), OrderingPolicy::default())],
+        limits,
+    )
+    .unwrap();
+    assert!(pairing_limited.try_insert_owner(first).unwrap());
+    assert!(pairing_limited.try_insert_owner(second_proof).unwrap());
+    assert!(
+        pairing_limited
+            .try_insert_terminal(
+                &sector,
+                OrderingPolicy::default(),
+                IntegralKey::try_new([1]).unwrap(),
+            )
+            .unwrap()
+    );
+    assert!(matches!(
+        pairing_limited.try_finish(),
+        Err(StagedSectorClosureError::ResourceLimit {
+            resource: "staged sector-closure compiled pairing probes",
+            requested: 4,
+            limit: 3,
+        })
+    ));
+    assert_eq!(predecessor.closed_layer_count(), 0);
+}
+
+#[test]
+fn staged_compiled_work_envelope_accepts_its_exact_census_boundary() {
+    let artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        Arc::clone(&artifact),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let sector = Mask::try_new([true]).unwrap();
+    let terminal = IntegralKey::try_new([1]).unwrap();
+    let owner = compiled_tadpole_owner_with_predecessor(
+        &artifact,
+        &generator,
+        &completed,
+        1,
+        [2, 3],
+        predecessor.clone(),
+    );
+    let baseline = ExactExecutableOwnerCover::try_compile(
+        generator.context(),
+        vec![owner.clone()],
+        vec![terminal.clone()],
+        ExactExecutableOwnerLimits::default(),
+    )
+    .unwrap();
+    let proof = baseline.proof_cover();
+    assert_eq!(proof.status(), ExactOwnerCoverStatus::Closed);
+    assert!(proof.finite_complement_point_count() > 0);
+    assert!(proof.compiled_uncovered_box_count() > 0);
+    assert!(proof.compiled_uncovered_box_coordinate_cells() > 0);
+
+    let mut limits = StagedSectorClosureLimits::default();
+    limits.max_compiled_pairing_probes = 1;
+    limits.max_compiled_finite_complement_points = proof.finite_complement_point_count();
+    limits.max_compiled_finite_complement_coordinate_cells =
+        proof.finite_complement_point_count() * sector.arity();
+    limits.max_compiled_point_owner_probes = proof.point_owner_probe_count();
+    limits.max_compiled_uncovered_boxes = proof.compiled_uncovered_box_count();
+    limits.max_compiled_uncovered_box_coordinate_cells =
+        proof.compiled_uncovered_box_coordinate_cells();
+    limits.max_compiled_split_operations = proof.compiled_split_operation_count();
+
+    let mut insufficient = limits;
+    insufficient.max_compiled_finite_complement_points = proof.finite_complement_point_count() - 1;
+    let mut rejected = StagedSectorClosureCoordinator::try_new(
+        generator.context(),
+        predecessor.clone(),
+        [(sector.clone(), OrderingPolicy::default())],
+        insufficient,
+    )
+    .unwrap();
+    assert!(rejected.try_insert_owner(owner.clone()).unwrap());
+    assert!(
+        rejected
+            .try_insert_terminal(&sector, OrderingPolicy::default(), terminal.clone(),)
+            .unwrap()
+    );
+    let rejection = rejected.try_finish().unwrap_err();
+    assert!(
+        matches!(
+            rejection,
+            StagedSectorClosureError::Executable(ExactExecutableOwnerError::Cover(
+                ExactCircuitOwnerCoverError::Geometry(CompletionGeometryError::ResourceLimit {
+                    resource: "finite uncovered lattice points",
+                    requested: 1,
+                    limit: 0,
+                })
+            ))
+        ),
+        "unexpected compiled-work rejection: {rejection:?}",
+    );
+    assert_eq!(predecessor.closed_layer_count(), 0);
+
+    let mut coordinator = StagedSectorClosureCoordinator::try_new(
+        generator.context(),
+        predecessor.clone(),
+        [(sector.clone(), OrderingPolicy::default())],
+        limits,
+    )
+    .unwrap();
+    assert!(coordinator.try_insert_owner(owner).unwrap());
+    assert!(
+        coordinator
+            .try_insert_terminal(&sector, OrderingPolicy::default(), terminal)
+            .unwrap()
+    );
+    let StagedSectorClosureOutcome::Closed(wave) = coordinator.try_finish().unwrap() else {
+        panic!("the exact aggregate census boundary must admit its closed cover")
+    };
+    assert_eq!(wave.layers().len(), 1);
+    assert_eq!(wave.successor().closed_layer_count(), 1);
 }

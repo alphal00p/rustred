@@ -9,6 +9,7 @@ use super::super::ExactRuleCellPromotionLimits;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ExactExecutableOwnerLimits {
     pub(crate) max_candidates_per_owner: usize,
+    pub(crate) max_owner_content_order_bytes: usize,
     pub(crate) max_promotion_attempts: usize,
     pub(crate) max_retry_supports: usize,
     pub(crate) max_retry_anchor_coordinate_cells: usize,
@@ -23,6 +24,7 @@ impl Default for ExactExecutableOwnerLimits {
     fn default() -> Self {
         Self {
             max_candidates_per_owner: 4_096,
+            max_owner_content_order_bytes: 67_108_864,
             max_promotion_attempts: 65_536,
             max_retry_supports: 4_096,
             max_retry_anchor_coordinate_cells: 4_194_304,

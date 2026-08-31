@@ -97,12 +97,16 @@ impl ExactCircuitOwnerCover {
             limits,
         )?;
         let uncovered = certified.uncovered_partition()?;
+        let (mut compiled_uncovered_boxes, mut compiled_uncovered_box_coordinate_cells) =
+            partition_storage(&uncovered, arity)?;
+        let mut compiled_split_operations = uncovered.split_operations();
         let mut probes = 0usize;
         validate_terminal_disjointness(context, &owners, &terminals, limits, &mut probes)?;
 
         let mut finite_point_owners = try_vec(0, FINITE_POINTS)?;
         let mut missing_terminals = try_vec(0, FINITE_POINTS)?;
         let mut guard_incomplete_owners = try_vec(0, OWNER_INPUTS)?;
+        let mut finite_complement_points = 0usize;
 
         let status = if uncovered.is_finite() {
             let LatticeCardinality::Finite(point_count) =
@@ -117,6 +121,7 @@ impl ExactCircuitOwnerCover {
                 point_count,
                 limits.max_finite_complement_points,
             )?;
+            finite_complement_points = point_count;
             let coordinate_cells = checked_mul(FINITE_POINT_COORDINATE_CELLS, point_count, arity)?;
             check_limit(
                 FINITE_POINT_COORDINATE_CELLS,
@@ -151,7 +156,49 @@ impl ExactCircuitOwnerCover {
                 )
             }
         } else {
-            let structural = leading_ideal(arity, owners.iter(), limits)?.uncovered_partition()?;
+            let mut structural_limits = limits;
+            structural_limits.geometry.max_uncovered_boxes = structural_limits
+                .geometry
+                .max_uncovered_boxes
+                .checked_sub(compiled_uncovered_boxes)
+                .ok_or(ExactCircuitOwnerCoverError::ResourceCountOverflow {
+                    resource: "compiled uncovered lattice boxes",
+                })?;
+            structural_limits
+                .geometry
+                .max_uncovered_box_coordinate_cells = structural_limits
+                .geometry
+                .max_uncovered_box_coordinate_cells
+                .checked_sub(compiled_uncovered_box_coordinate_cells)
+                .ok_or(ExactCircuitOwnerCoverError::ResourceCountOverflow {
+                    resource: "compiled uncovered lattice-box coordinate cells",
+                })?;
+            structural_limits.geometry.max_split_operations = structural_limits
+                .geometry
+                .max_split_operations
+                .checked_sub(compiled_split_operations)
+                .ok_or(ExactCircuitOwnerCoverError::ResourceCountOverflow {
+                    resource: "compiled leading-ideal split operations",
+                })?;
+            let structural =
+                leading_ideal(arity, owners.iter(), structural_limits)?.uncovered_partition()?;
+            let (structural_boxes, structural_coordinate_cells) =
+                partition_storage(&structural, arity)?;
+            compiled_uncovered_boxes = checked_add(
+                "compiled uncovered lattice boxes",
+                compiled_uncovered_boxes,
+                structural_boxes,
+            )?;
+            compiled_uncovered_box_coordinate_cells = checked_add(
+                "compiled uncovered lattice-box coordinate cells",
+                compiled_uncovered_box_coordinate_cells,
+                structural_coordinate_cells,
+            )?;
+            compiled_split_operations = checked_add(
+                "compiled leading-ideal split operations",
+                compiled_split_operations,
+                structural.split_operations(),
+            )?;
             if structural.is_finite() {
                 guard_incomplete_owners = effective_partial_owners(&owners, &uncovered)?;
                 ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::GuardIncomplete)
@@ -172,9 +219,31 @@ impl ExactCircuitOwnerCover {
             uncovered,
             missing_terminals: missing_terminals.into_boxed_slice(),
             guard_incomplete_owners: guard_incomplete_owners.into_boxed_slice(),
+            finite_complement_points,
+            point_owner_probes: probes,
+            compiled_uncovered_boxes,
+            compiled_uncovered_box_coordinate_cells,
+            compiled_split_operations,
             status,
         })
     }
+}
+
+fn partition_storage(
+    partition: &crate::foundry::completion::UncoveredPartition,
+    arity: usize,
+) -> Result<(usize, usize), ExactCircuitOwnerCoverError> {
+    let boxes = partition.boxes().len();
+    let coordinate_cells = checked_mul(
+        "compiled uncovered lattice-box coordinate cells",
+        checked_mul(
+            "compiled uncovered lattice-box coordinate cells",
+            boxes,
+            arity,
+        )?,
+        2,
+    )?;
+    Ok((boxes, coordinate_cells))
 }
 
 fn prepare_owner(

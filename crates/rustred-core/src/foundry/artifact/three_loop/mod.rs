@@ -18,6 +18,8 @@ mod family;
 mod manifest;
 #[cfg(test)]
 mod momentum_rank;
+#[cfg(test)]
+mod rank_three_wave;
 mod symmetry;
 #[cfg(test)]
 mod terminal_authority;

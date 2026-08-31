@@ -133,7 +133,14 @@ duplicates. Its one
 guard-total owner reduces the maximal uncovered dimension from six to five,
 but the cover remains `NonFinite` with three unbounded five-dimensional boxes
 and no terminals. Blind prolongation therefore helps without closing the
-sector. The active bounded experiment is a native-target-zero dual-obstruction
+sector. A second degree-one sweep now uses the exact installed K6 root
+authority rather than an empty owner snapshot and declares only its retained
+scalar product terminals. The rank-three path sector then yields 9 replayed
+semantic owners, 4 guard-total owners, and 10 still-unbounded complement boxes;
+the star yields 22, 12, and 4 respectively. Both remain exactly `NonFinite`,
+with no missing terminal or guard-incomplete branch. These figures are pinned
+as the starting point for the next search algorithm, not reported as closure.
+The active bounded experiment is a native-target-zero dual-obstruction
 source-discovery oracle which nominates translated rows capable of cutting the
 current modular no-hit; every nomination remains discovery-only until the existing
 exact replay, semantic, descent, and owner-cover gates pass. Its first two
@@ -219,8 +226,17 @@ routes for zero, factorization, master, and solved-sector owners. Snapshot V4
 commits the complete route records and derived sector buckets; cold replay
 reauthenticates every group element, while lookup preserves root-owner
 precedence without allocation, CAS work, or content rehashing. This closes the
-noncanonical product-sector dependency gap. The remaining dependency boundary
-is the first complete bottom-up K6 rank-three wave.
+noncanonical product-sector dependency gap. A topology-neutral one-shot wave
+coordinator now admits only canonical-replay-produced pointer-paired executable
+owners, resolves proof-equivalent worker arrivals by an exact published-content
+canonical minimum, authenticates raw terminal keys against retained root
+authority, and charges one aggregate resource envelope across the whole wave.
+It reports every exact incomplete-cover class without publishing and seals all
+members only before one atomic same-rank snapshot extension. The K6 frontier
+fixture proves that the rank-three zero orbit is already owned and stages the
+path (orbit 12) and star (orbit 4) against the same 32-owner root snapshot; it
+honestly stops both as nonfinite and publishes neither. The remaining
+dependency boundary is still the first complete bottom-up K6 rank-three wave.
 
 On the Vakint side, the shared multimethod harness now exercises 21 applicable
 historical tests comprising 27 concrete inputs through two loops, including

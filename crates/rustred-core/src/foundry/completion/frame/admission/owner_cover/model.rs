@@ -170,6 +170,11 @@ pub(crate) struct ExactCircuitOwnerCover {
     pub(super) uncovered: UncoveredPartition,
     pub(super) missing_terminals: Box<[LatticePoint]>,
     pub(super) guard_incomplete_owners: Box<[ExactCircuitOwnerId]>,
+    pub(super) finite_complement_points: usize,
+    pub(super) point_owner_probes: usize,
+    pub(super) compiled_uncovered_boxes: usize,
+    pub(super) compiled_uncovered_box_coordinate_cells: usize,
+    pub(super) compiled_split_operations: usize,
     pub(super) status: ExactOwnerCoverStatus,
 }
 
@@ -221,6 +226,30 @@ impl ExactCircuitOwnerCover {
 
     pub(crate) fn guard_incomplete_owners(&self) -> &[ExactCircuitOwnerId] {
         &self.guard_incomplete_owners
+    }
+
+    /// Exact finite-complement cardinality visited by this compilation. Zero
+    /// denotes an unbounded complement, not a sampled estimate.
+    pub(crate) const fn finite_complement_point_count(&self) -> usize {
+        self.finite_complement_points
+    }
+
+    /// Exact number of semantic owner selections attempted for explicit
+    /// terminal disjointness and finite-complement ownership.
+    pub(crate) const fn point_owner_probe_count(&self) -> usize {
+        self.point_owner_probes
+    }
+
+    pub(crate) const fn compiled_uncovered_box_count(&self) -> usize {
+        self.compiled_uncovered_boxes
+    }
+
+    pub(crate) const fn compiled_uncovered_box_coordinate_cells(&self) -> usize {
+        self.compiled_uncovered_box_coordinate_cells
+    }
+
+    pub(crate) const fn compiled_split_operation_count(&self) -> usize {
+        self.compiled_split_operations
     }
 
     /// Select the first exact applicable owner at one target key. Explicit

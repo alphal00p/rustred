@@ -16,6 +16,7 @@ mod owner_bundle;
 mod promotion;
 mod residual;
 pub(crate) mod scheduler;
+mod sector_closure;
 
 // The probe-local scheduler consumes this sealed campaign boundary. A few
 // evidence and telemetry types remain reexported for sibling admission tests,
@@ -51,6 +52,7 @@ pub(crate) use owner_bundle::{
     ExactExecutableCandidateObstruction, ExactExecutableOwnerCover, ExactExecutableOwnerError,
     ExactExecutableOwnerLimits, ExactExecutableOwnerObstruction, ExactExecutableOwnerProposal,
     ExactExecutableOwnerSelection, ExactSemanticExecutableOwner, UnpublishedCanonicalOwnerProposal,
+    compare_exact_owner_group_content, compare_exact_owner_proof_content,
     try_compile_canonical_executable_owner,
 };
 #[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
@@ -58,6 +60,12 @@ pub(crate) use promotion::{
     AdmittedExactRuleCandidate, ExactRuleCellGuardObstruction, ExactRuleCellPromotionDisposition,
     ExactRuleCellPromotionError, ExactRuleCellPromotionLimits, try_promote_replayed_rule_cell,
     try_promote_replayed_rule_cell_on_partition,
+};
+#[allow(unused_imports)] // Used by the staged K6 rank-three publication wave.
+pub(crate) use sector_closure::{
+    ClosedSectorClosureWave, StagedSectorClosureCoordinator, StagedSectorClosureError,
+    StagedSectorClosureLimits, StagedSectorClosureOutcome, StagedSectorClosureStop,
+    StagedSectorClosureStopEvidence,
 };
 #[cfg(test)]
 mod tests;

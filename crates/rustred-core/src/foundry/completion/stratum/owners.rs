@@ -732,6 +732,57 @@ impl ImmutableOwnerSnapshot {
         None
     }
 
+    /// Authenticate one explicitly staged finite terminal against retained
+    /// root terminalizing authority, without applying the proper-subsector
+    /// restriction used by physical-column classification.
+    ///
+    /// This accepts only exact point coverage inherited from a sealed zero,
+    /// factorization, or master owner. A solved rewrite sector is deliberately
+    /// not terminal authority. Genuinely new same-sector masters need their own
+    /// sealed terminal/evaluation-manifest boundary; a raw key cannot create
+    /// that authority here.
+    pub(crate) fn authenticates_explicit_terminal(
+        &self,
+        terminal: &IntegralKey,
+    ) -> Result<bool, crate::sector::Error> {
+        let sector = Mask::try_from_indices(terminal.powers())?;
+        if sector.arity() != self.arity {
+            return Ok(false);
+        }
+        let point = SectorInteriorDomain::try_new(
+            sector.clone(),
+            terminal
+                .powers()
+                .iter()
+                .map(|&power| crate::sector::InteriorBounds::new(power, power)),
+        )?;
+        let Some(bucket) = self
+            .route_buckets
+            .binary_search_by(|bucket| bucket.sector().cmp(&sector))
+            .ok()
+            .and_then(|ordinal| self.route_buckets.get(ordinal))
+        else {
+            return Ok(false);
+        };
+        let Some(route_ordinals) = bucket.route_ordinals(&self.route_index) else {
+            return Ok(false);
+        };
+        Ok(route_ordinals.iter().any(|&route_ordinal| {
+            let Some(route) = self.routes.get(route_ordinal) else {
+                return false;
+            };
+            let Some(owner) = self.owners.get(route.owner_ordinal()) else {
+                return false;
+            };
+            matches!(
+                owner,
+                ImmutableOwner::ZeroSector { .. }
+                    | ImmutableOwner::Factorization { .. }
+                    | ImmutableOwner::Master { .. }
+            ) && route.covers(owner, OrderingPolicy::default(), &point)
+        }))
+    }
+
     pub(crate) fn verifies_witness(
         &self,
         parent_sector: &Mask,

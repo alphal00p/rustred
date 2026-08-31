@@ -1,40 +1,70 @@
 use crate::foundry::completion::stratum::StratumRegistryError;
 
-const RESOURCE: &str = "closed-sector layer canonical content bytes";
+const LAYER_RESOURCE: &str = "closed-sector layer canonical content bytes";
 
-/// Streaming, allocation-light canonical encoder with a hard byte envelope.
+enum CanonicalOutput {
+    Digest(blake3::Hasher),
+    Exact(Vec<u8>),
+}
+
+/// Self-delimiting canonical encoder with a hard byte envelope.
 ///
-/// Length prefixes and fixed-width big-endian integers make the stream
-/// unambiguous. Only the final BLAKE3 digest and processed-byte count are
-/// retained; the potentially large canonical payload is never materialized.
+/// Published layer identity streams directly into BLAKE3. The owner-ordering
+/// constructor instead retains the exact bounded byte stream so lexicographic
+/// comparison is a genuine structural total order rather than a digest order.
 pub(super) struct BoundedContentHasher {
-    hasher: blake3::Hasher,
+    output: CanonicalOutput,
     bytes: usize,
     limit: usize,
+    resource: &'static str,
 }
 
 impl BoundedContentHasher {
     pub(super) fn new(limit: usize) -> Self {
         Self {
-            hasher: blake3::Hasher::new(),
+            output: CanonicalOutput::Digest(blake3::Hasher::new()),
             bytes: 0,
             limit,
+            resource: LAYER_RESOURCE,
+        }
+    }
+
+    pub(super) fn exact(limit: usize, resource: &'static str) -> Self {
+        Self {
+            output: CanonicalOutput::Exact(Vec::new()),
+            bytes: 0,
+            limit,
+            resource,
         }
     }
 
     pub(super) fn raw(&mut self, value: &[u8]) -> Result<(), StratumRegistryError> {
-        let requested = self
-            .bytes
-            .checked_add(value.len())
-            .ok_or(StratumRegistryError::ResourceCountOverflow { resource: RESOURCE })?;
+        let requested = self.bytes.checked_add(value.len()).ok_or(
+            StratumRegistryError::ResourceCountOverflow {
+                resource: self.resource,
+            },
+        )?;
         if requested > self.limit {
             return Err(StratumRegistryError::ResourceLimit {
-                resource: RESOURCE,
+                resource: self.resource,
                 requested,
                 limit: self.limit,
             });
         }
-        self.hasher.update(value);
+        match &mut self.output {
+            CanonicalOutput::Digest(hasher) => {
+                hasher.update(value);
+            }
+            CanonicalOutput::Exact(bytes) => {
+                bytes.try_reserve_exact(value.len()).map_err(|_| {
+                    StratumRegistryError::AllocationFailure {
+                        resource: self.resource,
+                        requested,
+                    }
+                })?;
+                bytes.extend_from_slice(value);
+            }
+        }
         self.bytes = requested;
         Ok(())
     }
@@ -60,8 +90,10 @@ impl BoundedContentHasher {
     }
 
     pub(super) fn usize(&mut self, value: usize) -> Result<(), StratumRegistryError> {
-        let value = u64::try_from(value)
-            .map_err(|_| StratumRegistryError::ResourceCountOverflow { resource: RESOURCE })?;
+        let value =
+            u64::try_from(value).map_err(|_| StratumRegistryError::ResourceCountOverflow {
+                resource: self.resource,
+            })?;
         self.u64(value)
     }
 
@@ -83,10 +115,20 @@ impl BoundedContentHasher {
     }
 
     pub(super) fn finish(self) -> String {
+        let CanonicalOutput::Digest(hasher) = self.output else {
+            unreachable!("digest output is fixed by the canonical encoder constructor")
+        };
         format!(
             "rustred.closed-sector-layer-content.v1:{}:{}",
-            self.hasher.finalize().to_hex(),
+            hasher.finalize().to_hex(),
             self.bytes
         )
+    }
+
+    pub(super) fn finish_exact(self) -> Box<[u8]> {
+        let CanonicalOutput::Exact(bytes) = self.output else {
+            unreachable!("exact output is fixed by the canonical encoder constructor")
+        };
+        bytes.into_boxed_slice()
     }
 }

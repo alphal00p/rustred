@@ -118,6 +118,7 @@ pub(crate) struct ExactSemanticExecutableOwner {
     pub(super) epoch: Arc<FreshTaskEpoch>,
     pub(super) semantic: Arc<ExactCircuitSemanticDag>,
     pub(super) executable: Box<[AdmittedExactRuleCandidate]>,
+    pub(super) content_order_key: Box<[u8]>,
 }
 
 impl ExactSemanticExecutableOwner {
@@ -131,6 +132,12 @@ impl ExactSemanticExecutableOwner {
 
     pub(crate) fn executable_candidates(&self) -> &[AdmittedExactRuleCandidate] {
         &self.executable
+    }
+
+    /// Exact canonical structural bytes for every per-owner field committed
+    /// by published layer identity. Pointer authority is checked separately.
+    pub(crate) fn content_order_key(&self) -> &[u8] {
+        &self.content_order_key
     }
 }
 

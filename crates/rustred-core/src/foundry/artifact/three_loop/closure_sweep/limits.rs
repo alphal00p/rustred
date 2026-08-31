@@ -18,6 +18,9 @@ const MAX_FRAME_ROWS: usize = 252;
 const MAX_FRAME_ENTRIES: usize = 4_096;
 const MAX_OWNER_INPUTS: usize = 1_024;
 const MAX_UNCOVERED_BOXES: usize = 262_144;
+const K6_ROOT_OWNER_REGIONS: usize = 32;
+const K6_GROUP_ORDER: usize = 24;
+const K6_ROOT_ROUTE_UPPER: usize = K6_ROOT_OWNER_REGIONS * (K6_GROUP_ORDER + 1);
 
 pub(super) fn frame_limits() -> PhysicalFrameLimits {
     PhysicalFrameLimits {
@@ -47,16 +50,16 @@ pub(super) fn registry_limits() -> StratumRegistryLimits {
         max_guard_branches: 0,
         max_guard_identity_bytes: 0,
         max_stratum_identity_bytes: 65_536,
-        max_owner_regions: 0,
-        max_owner_coordinate_cells: 0,
-        max_owner_routes: 0,
-        max_owner_route_coordinate_cells: 0,
-        max_owner_identity_bytes: 65_536,
+        max_owner_regions: K6_ROOT_OWNER_REGIONS,
+        max_owner_coordinate_cells: K6_ROOT_OWNER_REGIONS * 6,
+        max_owner_routes: K6_ROOT_ROUTE_UPPER,
+        max_owner_route_coordinate_cells: K6_ROOT_ROUTE_UPPER * 6 * 3,
+        max_owner_identity_bytes: 1_048_576,
         max_physical_columns: MAX_FRAME_COLUMNS,
         max_column_coordinate_cells: MAX_FRAME_COLUMNS * 6,
         max_target_sector_cells: 262_144,
-        max_owner_probes: 0,
-        max_retained_owner_witnesses: 0,
+        max_owner_probes: 4_194_304,
+        max_retained_owner_witnesses: MAX_FRAME_COLUMNS,
     }
 }
 
@@ -90,7 +93,7 @@ pub(super) fn exact_limits() -> ExactCircuitLimits {
         max_replay_source_terms: MAX_FRAME_ENTRIES,
         max_replay_exact_operations: 10_000_000,
         max_circuit_terms: MAX_FRAME_COLUMNS,
-        max_dependency_owner_witnesses: 0,
+        max_dependency_owner_witnesses: MAX_FRAME_COLUMNS,
         max_guards: 4_096,
         max_guard_origins: 32_768,
         max_condition_source_entries: 32_768,
@@ -108,7 +111,7 @@ pub(super) fn semantic_limits(max_candidates: usize) -> ExactCircuitSemanticLimi
         max_guard_origins: 32_768 * max_candidates,
         max_condition_sources: 32_768 * max_candidates,
         max_condition_source_coordinate_cells: 196_608 * max_candidates,
-        max_dependency_owners: 0,
+        max_dependency_owners: MAX_FRAME_COLUMNS * max_candidates,
         max_guard_coefficient_equations: 32_768 * max_candidates,
         max_guard_base_monomial_exponents: 196_608 * max_candidates,
         max_guard_generators: 32_768 * max_candidates,
@@ -140,8 +143,8 @@ pub(super) fn owner_cover_limits() -> ExactCircuitOwnerCoverLimits {
     ExactCircuitOwnerCoverLimits {
         max_owner_inputs: MAX_OWNER_INPUTS,
         max_owner_coordinate_cells: MAX_OWNER_INPUTS * 6,
-        max_explicit_terminals: 0,
-        max_terminal_coordinate_cells: 0,
+        max_explicit_terminals: 1,
+        max_terminal_coordinate_cells: 6,
         max_finite_complement_points: 65_536,
         max_finite_complement_coordinate_cells: 65_536 * 6,
         max_point_owner_probes: 4_194_304,

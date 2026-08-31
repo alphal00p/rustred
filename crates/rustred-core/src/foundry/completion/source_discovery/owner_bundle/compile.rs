@@ -13,6 +13,7 @@ use super::super::{
     AdmittedExactRuleCandidate, CanonicalRebasedCandidate, CanonicalReplayBatch,
     ExactRuleCellPromotionDisposition, FreshTaskEpoch, try_promote_replayed_rule_cell_on_partition,
 };
+use super::layer::try_build_owner_content_order_key;
 use super::{
     ExactExecutableCandidateObstruction, ExactExecutableOwnerCover, ExactExecutableOwnerError,
     ExactExecutableOwnerLimits, ExactExecutableOwnerObstruction, ExactExecutableOwnerProposal,
@@ -100,12 +101,19 @@ pub(crate) fn try_compile_canonical_executable_owner(
     )?);
     validate_candidate_pairing(&semantic, &executable)?;
     drop(partition);
+    let content_order_key = try_build_owner_content_order_key(
+        &epoch,
+        &semantic,
+        &executable,
+        limits.max_owner_content_order_bytes,
+    )?;
 
     Ok(ExactExecutableOwnerProposal::Compiled {
         owner: Arc::new(ExactSemanticExecutableOwner {
             epoch,
             semantic,
             executable: executable.into_boxed_slice(),
+            content_order_key,
         }),
         obstructions: obstructions.into_boxed_slice(),
     })
@@ -160,18 +168,43 @@ impl ExactExecutableOwnerCover {
         if context.fingerprint() != self.cover.context_fingerprint() {
             return Err(ExactExecutableOwnerError::WrongContext);
         }
-        if self
+        let retained_predecessor = self
+            .owners
+            .first()
+            .ok_or(ExactExecutableOwnerError::EmptyOwners)?
+            .epoch()
+            .predecessor_snapshot();
+        if !owner
+            .epoch()
+            .predecessor_snapshot()
+            .same_authority_as(retained_predecessor)
+        {
+            return Err(ExactExecutableOwnerError::AuthorityMismatch {
+                candidate: 0,
+                detail: "inserted owner uses a structurally equal but independently installed predecessor authority",
+            });
+        }
+        let proof_equivalent = self
             .owners
             .iter()
-            .any(|existing| exact_owner_group_content_equal(existing, &owner))
-        {
+            .position(|existing| compare_exact_owner_proof_content(existing, &owner).is_eq());
+        if proof_equivalent.is_some_and(|ordinal| {
+            !compare_exact_owner_group_content(&owner, &self.owners[ordinal]).is_lt()
+        }) {
             return Ok(false);
         }
-        let requested = checked_add(OWNER_GROUPS, self.owners.len(), 1)?;
+        let requested = if proof_equivalent.is_some() {
+            self.owners.len()
+        } else {
+            checked_add(OWNER_GROUPS, self.owners.len(), 1)?
+        };
         check_limit(OWNER_GROUPS, requested, limits.max_owners)?;
         let mut owners = try_vec(OWNER_GROUPS, requested)?;
         owners.extend(self.owners.iter().cloned());
-        owners.push(owner);
+        match proof_equivalent {
+            Some(ordinal) => owners[ordinal] = owner,
+            None => owners.push(owner),
+        }
         let mut terminals = try_vec(
             "semantic executable explicit terminals",
             self.terminals.len(),
@@ -234,25 +267,69 @@ impl ExactExecutableOwnerCover {
     }
 }
 
-fn exact_owner_group_content_equal(
+pub(crate) fn compare_exact_owner_group_content(
     left: &ExactSemanticExecutableOwner,
     right: &ExactSemanticExecutableOwner,
-) -> bool {
-    left.epoch().plan().family_fingerprint() == right.epoch().plan().family_fingerprint()
-        && left.epoch().plan().context_fingerprint() == right.epoch().plan().context_fingerprint()
-        && left.epoch().plan().sector() == right.epoch().plan().sector()
-        && left.epoch().fixed_ordering() == right.epoch().fixed_ordering()
-        && left.epoch().fixed_snapshot_id() == right.epoch().fixed_snapshot_id()
-        && left.epoch().target_shift() == right.epoch().target_shift()
-        && left.semantic().candidates().len() == right.semantic().candidates().len()
-        && left
-            .semantic()
-            .candidates()
-            .iter()
-            .zip(right.semantic().candidates())
-            .all(|(left, right)| {
-                compare_exact_circuit_content(left.circuit(), right.circuit()) == Ordering::Equal
-            })
+) -> Ordering {
+    left.content_order_key().cmp(right.content_order_key())
+}
+
+/// Compare only the exact proof-cover identity of two executable groups.
+/// Distinct full content within one equal class is resolved by canonical-min
+/// replacement; retaining both would be rejected by the proof compiler.
+pub(crate) fn compare_exact_owner_proof_content(
+    left: &ExactSemanticExecutableOwner,
+    right: &ExactSemanticExecutableOwner,
+) -> Ordering {
+    left.epoch()
+        .plan()
+        .family_fingerprint()
+        .cmp(right.epoch().plan().family_fingerprint())
+        .then_with(|| {
+            left.epoch()
+                .plan()
+                .context_fingerprint()
+                .cmp(right.epoch().plan().context_fingerprint())
+        })
+        .then_with(|| {
+            left.epoch()
+                .plan()
+                .sector()
+                .cmp(right.epoch().plan().sector())
+        })
+        .then_with(|| {
+            left.epoch()
+                .fixed_ordering()
+                .cmp(&right.epoch().fixed_ordering())
+        })
+        .then_with(|| {
+            left.epoch()
+                .fixed_snapshot_id()
+                .as_str()
+                .cmp(right.epoch().fixed_snapshot_id().as_str())
+        })
+        .then_with(|| {
+            left.epoch()
+                .target_shift()
+                .cmp(right.epoch().target_shift())
+        })
+        .then_with(|| {
+            for (left, right) in left
+                .semantic()
+                .candidates()
+                .iter()
+                .zip(right.semantic().candidates())
+            {
+                let ordering = compare_exact_circuit_content(left.circuit(), right.circuit());
+                if !ordering.is_eq() {
+                    return ordering;
+                }
+            }
+            left.semantic()
+                .candidates()
+                .len()
+                .cmp(&right.semantic().candidates().len())
+        })
 }
 
 fn try_promote_candidate(

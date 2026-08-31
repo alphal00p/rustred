@@ -12,4 +12,5 @@
 mod content;
 mod model;
 
+pub(super) use content::try_build_owner_content_order_key;
 pub(crate) use model::{ClosedSectorLayer, ClosedSectorLayerContentId};

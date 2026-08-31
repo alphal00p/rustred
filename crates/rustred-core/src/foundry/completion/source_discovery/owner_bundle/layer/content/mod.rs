@@ -10,7 +10,9 @@ mod encoder;
 mod exact;
 mod semantic;
 
+use crate::foundry::completion::frame::admission::ExactCircuitSemanticDag;
 use crate::foundry::completion::frame::admission::ExactOwnerCoverStatus;
+use crate::foundry::completion::source_discovery::{AdmittedExactRuleCandidate, FreshTaskEpoch};
 use crate::foundry::completion::stratum::{StratumRegistryError, StratumRegistryLimits};
 
 use super::super::ClosedExactExecutableOwnerCover;
@@ -22,6 +24,24 @@ use exact::{append_exact_circuit, append_physical_plan};
 use semantic::{append_guard_refinement, append_semantic_dag};
 
 const DOMAIN: &[u8] = b"rustred.closed-sector-layer-content.v1\0";
+const OWNER_ORDER_DOMAIN: &[u8] = b"rustred.exact-executable-owner-order.v1\0";
+const OWNER_ORDER_RESOURCE: &str = "exact executable owner canonical order bytes";
+
+/// Build the exact, self-delimiting structural byte order retained by every
+/// executable owner. This encodes the same complete per-owner block used by
+/// published layer identity: physical plan, semantic DAG, admitted RuleCell
+/// (including concrete replay anchor), exact circuit, and guard refinement.
+pub(in crate::foundry::completion::source_discovery::owner_bundle) fn try_build_owner_content_order_key(
+    epoch: &FreshTaskEpoch,
+    semantic: &ExactCircuitSemanticDag,
+    executable: &[AdmittedExactRuleCandidate],
+    limit: usize,
+) -> Result<Box<[u8]>, StratumRegistryError> {
+    let mut output = BoundedContentHasher::exact(limit, OWNER_ORDER_RESOURCE);
+    output.raw(OWNER_ORDER_DOMAIN)?;
+    append_owner_content(&mut output, epoch, semantic, executable, None, None)?;
+    Ok(output.finish_exact())
+}
 
 pub(super) fn try_build_content_id(
     sealed: &ClosedExactExecutableOwnerCover,
@@ -79,30 +99,18 @@ fn try_build_content_id_with_overrides(
 
     output.count(cover.owners().len())?;
     for (owner_ordinal, owner) in cover.owners().iter().enumerate() {
-        append_physical_plan(&mut output, owner.epoch().plan())?;
-        append_semantic_dag(&mut output, owner.semantic())?;
-        output.count(owner.executable_candidates().len())?;
-        for (candidate_ordinal, candidate) in owner.executable_candidates().iter().enumerate() {
-            let is_first = owner_ordinal == 0 && candidate_ordinal == 0;
-            append_exact_circuit(
-                &mut output,
-                if is_first {
-                    first_circuit_override.unwrap_or_else(|| candidate.circuit())
-                } else {
-                    candidate.circuit()
-                },
-            )?;
-            if is_first && first_cell_guard_override.is_some() {
-                append_rule_cell_with_first_guard_override(
-                    &mut output,
-                    candidate.cell(),
-                    first_cell_guard_override,
-                )?;
-            } else {
-                append_rule_cell(&mut output, candidate.cell())?;
-            }
-            append_guard_refinement(&mut output, candidate.guard_refinement())?;
-        }
+        append_owner_content(
+            &mut output,
+            owner.epoch(),
+            owner.semantic(),
+            owner.executable_candidates(),
+            (owner_ordinal == 0)
+                .then_some(first_circuit_override)
+                .flatten(),
+            (owner_ordinal == 0)
+                .then_some(first_cell_guard_override)
+                .flatten(),
+        )?;
     }
 
     // Both proof and executable terminal tables are committed. They are
@@ -165,4 +173,39 @@ fn try_build_content_id_with_overrides(
     Ok(ClosedSectorLayerContentId::from_bounded_digest(
         output.finish(),
     ))
+}
+
+fn append_owner_content(
+    output: &mut BoundedContentHasher,
+    epoch: &FreshTaskEpoch,
+    semantic: &ExactCircuitSemanticDag,
+    executable: &[AdmittedExactRuleCandidate],
+    first_circuit_override: Option<&crate::foundry::completion::frame::exact::ExactTargetCircuit>,
+    first_cell_guard_override: Option<&crate::algebra::IndexedPolynomial>,
+) -> Result<(), StratumRegistryError> {
+    append_physical_plan(output, epoch.plan())?;
+    append_semantic_dag(output, semantic)?;
+    output.count(executable.len())?;
+    for (candidate_ordinal, candidate) in executable.iter().enumerate() {
+        let is_first = candidate_ordinal == 0;
+        append_exact_circuit(
+            output,
+            if is_first {
+                first_circuit_override.unwrap_or_else(|| candidate.circuit())
+            } else {
+                candidate.circuit()
+            },
+        )?;
+        if is_first && first_cell_guard_override.is_some() {
+            append_rule_cell_with_first_guard_override(
+                output,
+                candidate.cell(),
+                first_cell_guard_override,
+            )?;
+        } else {
+            append_rule_cell(output, candidate.cell())?;
+        }
+        append_guard_refinement(output, candidate.guard_refinement())?;
+    }
+    Ok(())
 }

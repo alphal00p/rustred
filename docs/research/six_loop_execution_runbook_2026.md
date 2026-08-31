@@ -631,10 +631,16 @@ waves and reject non-increasing or foreign-predecessor updates. Immutable
 snapshots now retain a bounded authenticated symmetry-route index for root
 terminal owners and solved layers, including noncanonical product-sector
 images, with exact cold reconstruction and owner-precedence replay. RustRed
-still has no published K6 artifact: the next bottom-up blocker is constructing
-complete closed executable covers for every required rank-three sector and
-publishing that frontier as one transactional wave. Each first K6 sector/prime
-probe has rank 90 on both forbidden and
+still has no published K6 artifact. A generic consuming wave coordinator now
+stages all same-rank sectors on one exact predecessor, authenticates explicit
+terminal keys against retained root authority, and publishes only an all-
+closed frontier. The K6 rank-three fixture proves the zero orbit is already
+owned, stages path (orbit 12) and star (orbit 4) together on the 32-owner root,
+and transactionally stops without layers. The exact root-aware degree-one
+sweep yields path `9/4/10` and star `22/12/4` (replayed / guard-total /
+nonfinite boxes); neither has missing terminals, but both remain `NonFinite`.
+The next bottom-up blocker is constructing complete executable covers for
+those two sectors. Each first K6 sector/prime probe has rank 90 on both forbidden and
 augmented blocks and nominates roughly 3,586--3,822 broad residual requests,
 depending on the sector.
 

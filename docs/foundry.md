@@ -668,9 +668,20 @@ table from their strongly retained exact family action. A separate sector
 index preserves owner precedence while routing noncanonical zero,
 factorization, master, and solved-layer images; snapshot schema V4 commits the
 routes and derived index, and cold replay rejoins every nonidentity route to
-the retained `Canonicalizer`. The remaining K6 bottom-up blocker is not owner
-routing: RustRed must still produce complete closed executable covers for the
-required rank-three sectors and publish them as one transactional wave. The
+the retained `Canonicalizer`. A topology-neutral consuming coordinator now
+stages every member of one same-rank frontier against that exact snapshot,
+binary-searches exact proof keys, selects the full published-content canonical
+minimum among equivalent worker arrivals, rejects terminals without retained
+root authority, and charges aggregate storage and proof-work budgets across the
+wave. It publishes only after every proof cover is `Closed`. Its K6 fixture
+stages the path and star sectors together and leaves
+the shared 32-owner root unchanged when either is incomplete. With root
+zero/factorization/master routes enabled, the pinned degree-one semantic sweep
+finds path `9/4/10` and star `22/12/4` (replayed / guard-total / nonfinite
+boxes), with no missing terminals; both covers remain `NonFinite`. The
+remaining K6 bottom-up blocker is therefore discovery rather than routing or
+wave transactionality: RustRed must still produce complete closed executable
+covers for both rank-three sectors and publish them as one wave. The
 fixed-point scheduler must repeat sector solving, exceptional refinement, and
 dependency substitution without allowing arrival order or worker count to
 change the semantic artifact.

@@ -13,14 +13,38 @@ mod sweep;
 use crate::sector::Mask;
 
 use self::expected::{
-    EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP, assert_expected_mixed_s4a_sweep, assert_expected_sweep,
+    EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP, EXPECTED_RANK_THREE_ROOT_AUTHORITY_DEGREE_ONE_SWEEP,
+    assert_expected_mixed_s4a_sweep, assert_expected_sweep,
 };
-use self::sweep::{assert_structural_accounting, is_closed, sweep_sector};
+use self::sweep::{
+    assert_structural_accounting, is_closed, sweep_sector, sweep_sector_against_k6_terminals,
+};
 use super::manifest::FULL_RANK_ORBITS;
 
 const DEGREE_ONE: &[usize] = &[1];
 const DEGREE_ONE_AND_TWO: &[usize] = &[1, 2];
 const CANONICAL_S4A: [i64; 6] = [0, 1, 1, 1, 1, 0];
+
+#[test]
+fn first_rank_three_frontier_uses_exact_root_owners_without_claiming_closure() {
+    for expected in EXPECTED_RANK_THREE_ROOT_AUTHORITY_DEGREE_ONE_SWEEP {
+        let report = sweep_sector_against_k6_terminals(
+            Mask::try_from_indices(&expected.representative).unwrap(),
+            DEGREE_ONE,
+        )
+        .unwrap();
+        eprintln!(
+            "K6 rank-three root-authority sweep for {:?}: {report:#?}",
+            expected.representative
+        );
+        assert_structural_accounting(&report);
+        assert_expected_sweep(&report, &expected);
+        assert!(
+            !is_closed(&report),
+            "bounded semantic replay must not masquerade as executable all-rank closure"
+        );
+    }
+}
 
 #[test]
 fn canonical_s4a_degree_one_reports_an_exact_owner_cover_obstruction() {
