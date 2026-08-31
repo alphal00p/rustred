@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use crate::foundry::completion::frame::modular::{
     ModularPhysicalFrame, ModularRightObstruction, ModularTargetQuery,
 };
 use crate::foundry::completion::frame::{PhysicalFramePlan, SelectedSourceFrame};
 use crate::foundry::completion::stratum::{
-    DecoratedStratum, ImmutableOwnerSnapshot, ImmutableOwnerSnapshotId, TargetColumnPartition,
+    DecoratedStratum, ImmutableOwnerSnapshot, ImmutableOwnerSnapshotId, MaximalStratumAnchor,
+    MaximalStratumSequence, TargetColumnPartition,
 };
 use crate::identity::{IntegralShift, TranslatedSourceRequest};
 use crate::sector::OrderingPolicy;
@@ -15,7 +18,7 @@ use crate::sector::OrderingPolicy;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AccumulatedSourceRequests {
     arity: usize,
-    requests: Box<[TranslatedSourceRequest]>,
+    requests: Arc<[TranslatedSourceRequest]>,
 }
 
 impl AccumulatedSourceRequests {
@@ -39,7 +42,7 @@ impl AccumulatedSourceRequests {
         debug_assert!(requests.windows(2).all(|pair| pair[0] < pair[1]));
         Self {
             arity,
-            requests: requests.into_boxed_slice(),
+            requests: Arc::from(requests),
         }
     }
 }
@@ -135,6 +138,72 @@ pub(crate) enum CampaignRequestMerge {
         telemetry: CampaignRequestMergeTelemetry,
     },
     CandidateBatchExhausted(CandidateBatchExhaustionTelemetry),
+}
+
+/// Stateful materialization boundary for one growing target task.
+///
+/// The target, maximal-stratum proof sequence, immutable owners, and ordering
+/// are captured once. Epoch ordinals are derived internally, and every later
+/// request set must be a strict canonical superset of the preceding one.
+#[derive(Debug)]
+pub(crate) struct GrowingTaskEpochState {
+    target_shift: IntegralShift,
+    strata: MaximalStratumSequence,
+    owners: ImmutableOwnerSnapshot,
+    ordering: OrderingPolicy,
+    previous_requests: Option<AccumulatedSourceRequests>,
+    next_epoch_ordinal: usize,
+}
+
+impl GrowingTaskEpochState {
+    pub(crate) fn new(
+        target_shift: IntegralShift,
+        stratum: MaximalStratumAnchor,
+        owners: ImmutableOwnerSnapshot,
+        ordering: OrderingPolicy,
+    ) -> Self {
+        Self {
+            target_shift,
+            strata: stratum.into_sequence(),
+            owners,
+            ordering,
+            previous_requests: None,
+            next_epoch_ordinal: 0,
+        }
+    }
+
+    pub(super) const fn target_shift(&self) -> &IntegralShift {
+        &self.target_shift
+    }
+
+    pub(super) const fn strata_mut(&mut self) -> &mut MaximalStratumSequence {
+        &mut self.strata
+    }
+
+    pub(super) const fn owners(&self) -> &ImmutableOwnerSnapshot {
+        &self.owners
+    }
+
+    pub(super) const fn ordering(&self) -> OrderingPolicy {
+        self.ordering
+    }
+
+    pub(super) const fn previous_requests(&self) -> Option<&AccumulatedSourceRequests> {
+        self.previous_requests.as_ref()
+    }
+
+    pub(crate) const fn next_epoch_ordinal(&self) -> usize {
+        self.next_epoch_ordinal
+    }
+
+    pub(super) fn commit(
+        &mut self,
+        requests: AccumulatedSourceRequests,
+        next_epoch_ordinal: usize,
+    ) {
+        self.previous_requests = Some(requests);
+        self.next_epoch_ordinal = next_epoch_ordinal;
+    }
 }
 
 /// Original integer inputs for one deterministic modular probe.
@@ -248,9 +317,10 @@ impl FreshTaskBuildTelemetry {
 
 /// One immutable materialization of a fixed target task.
 ///
-/// Rebuilding this value always creates a fresh [`PhysicalFramePlan`]. The
-/// stratum, ordering, and owner snapshot are cloned proof inputs; they are not
-/// inferred from the newly materialized column envelope.
+/// Rebuilding this value always creates a fresh [`PhysicalFramePlan`]. A
+/// growing scheduler also materializes the maximal decorated stratum for that
+/// exact plan; a one-shot caller may deliberately retain a fixed tightened
+/// stratum. Ordering and the immutable owner snapshot remain fixed inputs.
 #[derive(Debug)]
 pub(crate) struct FreshTaskEpoch {
     requests: AccumulatedSourceRequests,
@@ -424,4 +494,3 @@ impl<'epoch> FreshTaskQuery<'epoch> {
         }
     }
 }
-use std::sync::Arc;

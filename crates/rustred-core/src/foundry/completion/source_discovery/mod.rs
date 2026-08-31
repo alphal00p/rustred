@@ -22,7 +22,7 @@ pub(crate) use campaign::{
     AccumulatedSourceRequests, CampaignBudgetExhaustion, CampaignError, CampaignLimits,
     CampaignModularProbe, CampaignRequestMerge, CampaignRequestMergeTelemetry,
     CampaignResourceStage, CandidateBatchExhaustionTelemetry, FreshTaskBuildTelemetry,
-    FreshTaskEpoch, FreshTaskQuery, FreshTaskQueryTelemetry,
+    FreshTaskEpoch, FreshTaskQuery, FreshTaskQueryTelemetry, GrowingTaskEpochState,
 };
 #[allow(unused_imports)]
 pub(crate) use dual::{

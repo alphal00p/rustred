@@ -33,6 +33,8 @@ pub(crate) enum StratumRegistryError {
     UncoveredPhysicalShift {
         column: usize,
     },
+    InitialMaximalDomainMismatch,
+    NonMonotoneMaximalDomain,
     ResourceCountOverflow {
         resource: &'static str,
     },
@@ -97,6 +99,12 @@ impl fmt::Display for StratumRegistryError {
             Self::UncoveredPhysicalShift { column } => write!(
                 formatter,
                 "decorated stratum does not keep physical column {column} representable"
+            ),
+            Self::InitialMaximalDomainMismatch => formatter.write_str(
+                "the initial decorated-stratum anchor is not the maximal domain of the first fresh frame",
+            ),
+            Self::NonMonotoneMaximalDomain => formatter.write_str(
+                "a later fresh frame would widen beyond its immediately preceding maximal stratum",
             ),
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} overflowed usize")

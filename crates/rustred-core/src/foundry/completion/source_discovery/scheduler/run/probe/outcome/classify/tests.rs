@@ -87,6 +87,36 @@ fn sampled_dual_partition_stratum_resource_is_resumable() {
 }
 
 #[test]
+fn growing_epoch_nested_stratum_resource_is_resumable() {
+    const RESOURCE: &str = "growing maximal-stratum bounds";
+    let error = CampaignError::Stratum(StratumRegistryError::Sector(
+        sector::Error::AllocationFailure {
+            resource: RESOURCE,
+            requested: 89,
+        },
+    ));
+
+    assert_eq!(
+        campaign_budget_cause(&error),
+        Some(ProbeLocalBudgetCause::AllocationFailure {
+            scope: ProbeLocalBudgetScope::Probe,
+            resource: RESOURCE,
+            requested: 89,
+        })
+    );
+    assert!(matches!(
+        campaign_stop_or_rejection(
+            1,
+            2,
+            ProbeLocalStage::EpochBuild,
+            ProbeLocalStopContext::BeforeBootstrap,
+            error,
+        ),
+        ProbeLocalOutcome::BudgetStop { .. }
+    ));
+}
+
+#[test]
 fn nested_source_candidate_allocation_is_resumable() {
     let error = SourceDiscoveryError::CandidateEvaluation {
         candidate_ordinal: 1,

@@ -4,12 +4,12 @@ mod outcome;
 
 use crate::foundry::completion::frame::exact::{ExactCircuitLift, try_lift_exact_circuit};
 use crate::foundry::completion::frame::modular::ModularTargetQuery;
-use crate::foundry::completion::stratum::{DecoratedStratum, ImmutableOwnerSnapshot};
+use crate::foundry::completion::stratum::{ImmutableOwnerSnapshot, MaximalStratumAnchor};
 use crate::identity::{CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator};
 use crate::sector::OrderingPolicy;
 
 use super::super::super::{
-    AccumulatedSourceRequests, CampaignModularProbe, CampaignRequestMerge, FreshTaskEpoch,
+    AccumulatedSourceRequests, CampaignModularProbe, CampaignRequestMerge, GrowingTaskEpochState,
     OrdinarySourceIncidenceIndex, SampledDeclaredModuleDual, SourceDiscoveryError,
 };
 use super::super::{
@@ -49,7 +49,7 @@ pub(super) fn run_single_probe(
     completed: &CompletedIbpSourceRows,
     incidence: &OrdinarySourceIncidenceIndex<'_>,
     target_shift: &IntegralShift,
-    stratum: &DecoratedStratum,
+    stratum: &MaximalStratumAnchor,
     owners: &ImmutableOwnerSnapshot,
     ordering: OrderingPolicy,
     limits: ProbeLocalSchedulerLimits,
@@ -106,10 +106,16 @@ pub(super) fn run_single_probe(
             },
         ));
     }
+    let mut epochs = GrowingTaskEpochState::new(
+        target_shift.clone(),
+        stratum.clone(),
+        owners.clone(),
+        ordering,
+    );
 
     let mut records = Vec::new();
-    let mut epoch_ordinal = 0usize;
     loop {
+        let epoch_ordinal = epochs.next_epoch_ordinal();
         let requested_iteration = match epoch_ordinal.checked_add(1) {
             Some(value) => value,
             None => {
@@ -209,17 +215,7 @@ pub(super) fn run_single_probe(
             ));
         }
 
-        let epoch = match FreshTaskEpoch::try_new(
-            epoch_ordinal,
-            generator,
-            completed,
-            requests.clone(),
-            target_shift.clone(),
-            stratum.clone(),
-            owners.clone(),
-            ordering,
-            limits.campaign,
-        ) {
+        let epoch = match epochs.try_next(generator, completed, requests.clone(), limits.campaign) {
             Ok(epoch) => epoch,
             Err(error) => {
                 let outcome = campaign_stop_or_rejection(
@@ -505,29 +501,6 @@ pub(super) fn run_single_probe(
                                 },
                             ));
                         }
-                        epoch_ordinal = match epoch_ordinal.checked_add(1) {
-                            Some(next) => next,
-                            None => {
-                                let stop = ProbeLocalBudgetStop::new(
-                                    probe_ordinal,
-                                    epoch_ordinal,
-                                    ProbeLocalStage::RequestMerge,
-                                    ProbeLocalBudgetCause::CountOverflow {
-                                        scope: ProbeLocalBudgetScope::Probe,
-                                        resource: EPOCH_ORDINAL,
-                                    },
-                                );
-                                return Ok(finish_probe(
-                                    probe_ordinal,
-                                    probe,
-                                    records,
-                                    ProbeLocalOutcome::BudgetStop {
-                                        context: ProbeLocalStopContext::Requests(augmented),
-                                        stop,
-                                    },
-                                ));
-                            }
-                        };
                         requests = augmented;
                     }
                     Ok(CampaignRequestMerge::CandidateBatchExhausted(exhaustion)) => {

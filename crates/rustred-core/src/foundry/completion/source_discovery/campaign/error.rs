@@ -84,6 +84,10 @@ pub(crate) enum CampaignError {
         detail: &'static str,
     },
     SourceChronologyMismatch,
+    NonMonotoneGrowingRequests {
+        previous: usize,
+        current: usize,
+    },
     TargetColumnAbsent,
     FixedStratumDoesNotCoverColumn {
         column: usize,
@@ -161,6 +165,10 @@ impl fmt::Display for CampaignError {
             Self::SourceChronologyMismatch => write!(
                 formatter,
                 "selected translation changed the accumulated ordinary-source chronology"
+            ),
+            Self::NonMonotoneGrowingRequests { previous, current } => write!(
+                formatter,
+                "growing campaign request chronology changed from {previous} requests to a non-strict-superset set of {current} requests"
             ),
             Self::TargetColumnAbsent => write!(
                 formatter,

@@ -40,6 +40,7 @@ pub(super) fn campaign_budget_cause(error: &CampaignError) -> Option<ProbeLocalB
         | CampaignError::WrongSourceLayout { .. }
         | CampaignError::FixedTaskScopeMismatch { .. }
         | CampaignError::SourceChronologyMismatch
+        | CampaignError::NonMonotoneGrowingRequests { .. }
         | CampaignError::TargetColumnAbsent
         | CampaignError::FixedStratumDoesNotCoverColumn { .. }
         | CampaignError::SampleCoordinateNotRepresentable { .. }
@@ -299,6 +300,8 @@ fn stratum_budget_cause(error: &StratumRegistryError) -> Option<ProbeLocalBudget
         | StratumRegistryError::WrongOwnerArity { .. }
         | StratumRegistryError::TargetColumnOutOfRange { .. }
         | StratumRegistryError::UncoveredPhysicalShift { .. }
+        | StratumRegistryError::InitialMaximalDomainMismatch
+        | StratumRegistryError::NonMonotoneMaximalDomain
         | StratumRegistryError::Invariant { .. } => None,
     }
 }

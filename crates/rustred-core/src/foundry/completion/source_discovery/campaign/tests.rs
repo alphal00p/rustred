@@ -3,7 +3,8 @@ use crate::family::{AffineDenominator, IntegralFamily};
 use crate::foundry::artifact::derive_one_loop_unit_mass_tadpole;
 use crate::foundry::completion::frame::modular::ModularTargetQuery;
 use crate::foundry::completion::stratum::{
-    DecoratedStratum, ImmutableOwnerSnapshot, StratumRegistryLimits,
+    DecoratedStratum, GuardBranch, GuardBranchIdentity, ImmutableOwnerSnapshot,
+    MaximalStratumAnchor, StratumRegistryError, StratumRegistryLimits,
 };
 use crate::identity::{
     CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator, TranslatedSourceLimits,
@@ -13,7 +14,7 @@ use crate::sector::{InteriorBounds, Mask, OrderingPolicy, SectorMonotoneDomain};
 
 use super::{
     AccumulatedSourceRequests, CampaignError, CampaignLimits, CampaignModularProbe,
-    CampaignRequestMerge, CampaignResourceStage, FreshTaskEpoch,
+    CampaignRequestMerge, CampaignResourceStage, FreshTaskEpoch, GrowingTaskEpochState,
 };
 use crate::foundry::completion::source_discovery::{
     OrdinarySourceIncidenceIndex, SourceDiscoveryLimits,
@@ -86,6 +87,10 @@ fn fixed_tadpole_inputs(
     )
     .unwrap();
     (stratum, owners)
+}
+
+fn maximal_anchor(stratum: DecoratedStratum) -> MaximalStratumAnchor {
+    MaximalStratumAnchor::try_new(stratum, StratumRegistryLimits::default()).unwrap()
 }
 
 #[test]
@@ -317,6 +322,196 @@ fn augmented_epochs_rebuild_all_plan_local_ordinals_and_can_hit() {
     assert_eq!(first_evidence.telemetry().forbidden_columns(), 1);
     assert_eq!(first_evidence.telemetry().forbidden_rank(), 1);
     assert_eq!(first_evidence.telemetry().augmented_rank(), 2);
+}
+
+#[test]
+fn growing_epochs_refresh_the_maximal_stratum_and_preserve_its_exact_guards() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let limits = CampaignLimits::default();
+    let registry = StratumRegistryLimits::default();
+    let first_requests = AccumulatedSourceRequests::try_new(1, [request(0, 0)], limits).unwrap();
+    let CampaignRequestMerge::Augmented {
+        requests: second_requests,
+        ..
+    } = first_requests
+        .try_merge_candidates([request(0, 1)], limits)
+        .unwrap()
+    else {
+        panic!("the second translated row must augment the frame")
+    };
+    let (guard_blind, owners) = fixed_tadpole_inputs(&artifact, 0, &[vec![0], vec![1]]);
+    let guard = GuardBranchIdentity::try_new("growing-epoch-guard", GuardBranch::NonZero, registry)
+        .unwrap();
+    let guarded = DecoratedStratum::try_new(
+        guard_blind.family_fingerprint(),
+        guard_blind.context_fingerprint(),
+        guard_blind.domain().clone(),
+        [guard.clone()],
+        registry,
+    )
+    .unwrap();
+    let anchor = maximal_anchor(guarded.clone());
+    let target = IntegralShift::try_new([0]).unwrap();
+    let mut epochs = GrowingTaskEpochState::new(
+        target.clone(),
+        anchor.clone(),
+        owners.clone(),
+        OrderingPolicy::default(),
+    );
+
+    let first = epochs
+        .try_next(&generator, &completed, first_requests, limits)
+        .unwrap();
+    let second = epochs
+        .try_next(&generator, &completed, second_requests.clone(), limits)
+        .unwrap();
+    let mut repeated_epochs =
+        GrowingTaskEpochState::new(target, anchor, owners, OrderingPolicy::default());
+    let repeated_first = repeated_epochs
+        .try_next(
+            &generator,
+            &completed,
+            AccumulatedSourceRequests::try_new(1, [request(0, 0)], limits).unwrap(),
+            limits,
+        )
+        .unwrap();
+    let repeated = repeated_epochs
+        .try_next(&generator, &completed, second_requests.clone(), limits)
+        .unwrap();
+    assert_eq!(
+        repeated_epochs
+            .try_next(&generator, &completed, second_requests, limits)
+            .unwrap_err(),
+        CampaignError::NonMonotoneGrowingRequests {
+            previous: 2,
+            current: 2,
+        }
+    );
+
+    assert_eq!(first.fixed_stratum(), &guarded);
+    assert_eq!(first.fixed_stratum().guards(), &[guard.clone()]);
+    assert_eq!(second.fixed_stratum().guards(), &[guard]);
+    assert_eq!(first.fixed_stratum().domain().bounds()[0].lower(), 1);
+    assert_eq!(
+        first.fixed_stratum().domain().bounds()[0].upper(),
+        i64::MAX - 1
+    );
+    assert_eq!(second.fixed_stratum().domain().bounds()[0].lower(), 1);
+    assert_eq!(
+        second.fixed_stratum().domain().bounds()[0].upper(),
+        i64::MAX - 2
+    );
+    assert_ne!(first.fixed_stratum().id(), second.fixed_stratum().id());
+    assert_eq!(second.fixed_stratum(), repeated.fixed_stratum());
+    assert_eq!(second.plan(), repeated.plan());
+    assert!(!second.plan().identity_owner().belongs_to(repeated.plan()));
+    assert_eq!(first.fixed_stratum(), repeated_first.fixed_stratum());
+    assert_eq!(first.fixed_snapshot_id(), second.fixed_snapshot_id());
+    assert_eq!(first.fixed_ordering(), second.fixed_ordering());
+
+    // A -> B is a valid tightening. Reusing A as a later C would widen
+    // strictly inside the original anchor and must fail against B, not merely
+    // pass because C remains contained in A.
+    let mut strata = maximal_anchor(first.fixed_stratum().clone()).into_sequence();
+    strata
+        .try_materialize(first.plan(), first.target_column(), limits.stratum)
+        .unwrap();
+    strata
+        .try_materialize(second.plan(), second.target_column(), limits.stratum)
+        .unwrap();
+    assert_eq!(
+        strata
+            .try_materialize(first.plan(), first.target_column(), limits.stratum)
+            .unwrap_err(),
+        StratumRegistryError::NonMonotoneMaximalDomain
+    );
+
+    let probe = CampaignModularProbe::try_new(PRIME, [37], [2], limits).unwrap();
+    let query = second
+        .try_query(generator.context(), &probe, limits)
+        .unwrap();
+    assert_eq!(query.partition().stratum(), second.fixed_stratum());
+    assert_eq!(query.partition().snapshot_id(), second.fixed_snapshot_id());
+    assert_eq!(query.partition().ordering(), second.fixed_ordering());
+    drop(query);
+
+    let boundary_coordinate = u64::try_from(i64::MAX - 2).unwrap();
+    let boundary_probe =
+        CampaignModularProbe::try_new(PRIME, [37], [boundary_coordinate], limits).unwrap();
+    assert_eq!(
+        second
+            .try_query(generator.context(), &boundary_probe, limits)
+            .unwrap_err(),
+        CampaignError::SampleOutsideFixedStratum {
+            position: 0,
+            index: i64::MAX - 1,
+            lower: 1,
+            upper: i64::MAX - 2,
+        }
+    );
+}
+
+#[test]
+fn growing_state_cannot_skip_initial_authentication_with_a_too_wide_anchor() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let limits = CampaignLimits::default();
+    let requests = AccumulatedSourceRequests::try_new(1, [request(0, 0)], limits).unwrap();
+    let (too_wide, owners) = fixed_tadpole_inputs(&artifact, 0, &[vec![0]]);
+    let mut epochs = GrowingTaskEpochState::new(
+        IntegralShift::try_new([0]).unwrap(),
+        maximal_anchor(too_wide),
+        owners,
+        OrderingPolicy::default(),
+    );
+
+    assert_eq!(
+        epochs
+            .try_next(&generator, &completed, requests, limits)
+            .unwrap_err(),
+        CampaignError::Stratum(StratumRegistryError::InitialMaximalDomainMismatch)
+    );
+    assert_eq!(epochs.next_epoch_ordinal(), 0);
+}
+
+#[test]
+fn growing_epoch_anchor_cannot_skip_initial_authentication_after_a_failed_attempt() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let limits = CampaignLimits::default();
+    let requests = AccumulatedSourceRequests::try_new(1, [request(0, 0)], limits).unwrap();
+    let target = IntegralShift::try_new([0]).unwrap();
+    let (narrow, owners) = fixed_tadpole_inputs(&artifact, 0, &[vec![0], vec![1], vec![2]]);
+    let mut epochs = GrowingTaskEpochState::new(
+        target,
+        maximal_anchor(narrow),
+        owners,
+        OrderingPolicy::default(),
+    );
+
+    assert_eq!(
+        epochs
+            .try_next(&generator, &completed, requests.clone(), limits,)
+            .unwrap_err(),
+        CampaignError::Stratum(StratumRegistryError::InitialMaximalDomainMismatch)
+    );
+    let CampaignRequestMerge::Augmented {
+        requests: authenticating,
+        ..
+    } = requests
+        .try_merge_candidates([request(0, 1)], limits)
+        .unwrap()
+    else {
+        panic!("the authenticating request set must grow")
+    };
+    let first = epochs
+        .try_next(&generator, &completed, authenticating, limits)
+        .unwrap();
+    assert_eq!(first.telemetry().epoch_ordinal(), 0);
 }
 
 #[test]
@@ -585,14 +780,28 @@ fn campaign_rejects_a_foreign_fixed_task_scope_before_physical_assembly() {
             0,
             &generator,
             &completed,
-            requests,
+            requests.clone(),
             IntegralShift::try_new([0]).unwrap(),
-            foreign,
-            owners,
+            foreign.clone(),
+            owners.clone(),
             OrderingPolicy::default(),
             limits,
         )
         .unwrap_err(),
+        CampaignError::FixedTaskScopeMismatch {
+            detail: "selected sources and decorated stratum belong to different families",
+        }
+    );
+    let mut growing = GrowingTaskEpochState::new(
+        IntegralShift::try_new([0]).unwrap(),
+        maximal_anchor(foreign),
+        owners,
+        OrderingPolicy::default(),
+    );
+    assert_eq!(
+        growing
+            .try_next(&generator, &completed, requests, limits)
+            .unwrap_err(),
         CampaignError::FixedTaskScopeMismatch {
             detail: "selected sources and decorated stratum belong to different families",
         }
@@ -645,6 +854,27 @@ fn nested_stage_limits_are_lifted_to_typed_campaign_budget_results() {
     assert_eq!(
         error.budget_exhaustion().unwrap().stage(),
         CampaignResourceStage::PhysicalFrame
+    );
+
+    let mut growing_stratum_limit = defaults;
+    growing_stratum_limit.stratum.max_physical_columns = 2;
+    let mut growing = GrowingTaskEpochState::new(
+        IntegralShift::try_new([1]).unwrap(),
+        maximal_anchor(stratum.clone()),
+        owners.clone(),
+        OrderingPolicy::default(),
+    );
+    let error = growing
+        .try_next(
+            &generator,
+            &completed,
+            requests.clone(),
+            growing_stratum_limit,
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.budget_exhaustion().unwrap().stage(),
+        CampaignResourceStage::StratumPartition
     );
 
     let epoch = FreshTaskEpoch::try_new(

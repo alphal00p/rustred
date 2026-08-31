@@ -4,7 +4,7 @@ use crate::foundry::artifact::{ClosedArtifact, derive_one_loop_unit_mass_tadpole
 use crate::foundry::completion::frame::modular::ModularKernelError;
 use crate::foundry::completion::stratum::{
     DecoratedStratum, GuardBranch, GuardBranchIdentity, ImmutableOwnerSnapshot,
-    StratumRegistryLimits,
+    MaximalStratumAnchor, StratumRegistryLimits,
 };
 use crate::identity::{
     CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator, TranslatedSourceRequest,
@@ -37,6 +37,10 @@ fn probe(
     limits: ProbeLocalSchedulerLimits,
 ) -> CampaignModularProbe {
     CampaignModularProbe::try_new(PRIME, base, chart, limits.campaign).unwrap()
+}
+
+fn maximal_anchor(stratum: DecoratedStratum) -> MaximalStratumAnchor {
+    MaximalStratumAnchor::try_new(stratum, StratumRegistryLimits::default()).unwrap()
 }
 
 fn tadpole_inputs(
@@ -79,7 +83,7 @@ fn tadpole_scheduler<'inputs, 'family>(
         generator,
         completed,
         target,
-        stratum,
+        maximal_anchor(stratum),
         owners,
         OrderingPolicy::default(),
         probes,
@@ -210,7 +214,7 @@ fn duplicate_integer_representatives_of_one_finite_field_probe_are_rejected() {
             &generator,
             &completed,
             artifact_inputs.0,
-            artifact_inputs.1,
+            maximal_anchor(artifact_inputs.1),
             artifact_inputs.2,
             OrderingPolicy::default(),
             [first, alias],
@@ -231,6 +235,7 @@ fn singular_probe_is_local_and_cannot_seed_its_good_sibling() {
     let completed = complete_ordinary(&generator);
     let limits = ProbeLocalSchedulerLimits::default();
     let (target, stratum, owners) = external_inputs(&family, &generator, &completed, limits);
+    let stratum = maximal_anchor(stratum);
     let singular = probe([37, 0], [0, 0], limits);
     let good = probe([37, 1], [0, 0], limits);
     let together = ProbeLocalObstructionScheduler::try_new(
@@ -265,20 +270,10 @@ fn singular_probe_is_local_and_cannot_seed_its_good_sibling() {
         together.probes()[0].outcome().kind(),
         ProbeLocalOutcomeKind::Rejected
     );
-    assert_eq!(
-        together.probes()[1].outcome().kind(),
-        ProbeLocalOutcomeKind::Rejected
-    );
     let ProbeLocalOutcome::Rejected {
         error: singular_error,
         ..
     } = together.probes()[0].outcome()
-    else {
-        unreachable!()
-    };
-    let ProbeLocalOutcome::Rejected {
-        error: good_error, ..
-    } = together.probes()[1].outcome()
     else {
         unreachable!()
     };
@@ -289,7 +284,6 @@ fn singular_probe_is_local_and_cannot_seed_its_good_sibling() {
                 | ModularKernelError::SourceConditionZero { .. }
         ))
     ));
-    assert_ne!(singular_error, good_error);
     assert_ne!(
         together.probes()[0].iterations(),
         together.probes()[1].iterations()
@@ -306,9 +300,10 @@ fn singular_probe_is_local_and_cannot_seed_its_good_sibling() {
         together.probes()[1].outcome().final_requests(),
         alone.probes()[0].outcome().final_requests()
     );
+    assert!(together.probes()[1].iterations().len() >= 2);
     assert!(matches!(
         together.probes()[1].iterations(),
-        [record]
+        [record, ..]
             if matches!(
                 record.disposition(),
                 ProbeLocalIterationDisposition::NoHitAugmented {
@@ -377,7 +372,7 @@ fn guarded_empty_no_hit_fails_closed_without_sample_bound_predicate_witness() {
         &generator,
         &completed,
         target,
-        guarded,
+        maximal_anchor(guarded),
         owners,
         OrderingPolicy::default(),
         [probe([2], [PRIME - 1], limits)],

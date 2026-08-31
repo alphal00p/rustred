@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 
 use symbolica::prelude::Integer;
 
-use crate::foundry::completion::stratum::{DecoratedStratum, ImmutableOwnerSnapshot};
+use crate::foundry::completion::stratum::{ImmutableOwnerSnapshot, MaximalStratumAnchor};
 use crate::identity::{CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator};
 
 use super::super::super::CampaignModularProbe;
@@ -21,7 +21,7 @@ pub(super) fn validate_fixed_task(
     generator: &ParametricIbpGenerator<'_>,
     completed: &CompletedIbpSourceRows,
     target_shift: &IntegralShift,
-    stratum: &DecoratedStratum,
+    stratum: &MaximalStratumAnchor,
     owners: &ImmutableOwnerSnapshot,
     limits: ProbeLocalSchedulerLimits,
 ) -> Result<(), ProbeLocalSchedulerError> {
@@ -37,7 +37,7 @@ pub(super) fn validate_fixed_task(
             actual: target_shift.len(),
         });
     }
-    if stratum.domain().arity() != arity || owners.arity() != arity {
+    if stratum.arity() != arity || owners.arity() != arity {
         return Err(ProbeLocalSchedulerError::WrongTaskScope {
             detail: "target, decorated stratum, and immutable owners have different arities",
         });
@@ -50,11 +50,11 @@ pub(super) fn validate_fixed_task(
             detail: "generator, decorated stratum, and immutable owners have different identities",
         });
     }
-    match stratum.try_verify(limits.campaign.stratum) {
+    match stratum.initial().try_verify(limits.campaign.stratum) {
         Ok(true) => {}
         Ok(false) => {
             return Err(ProbeLocalSchedulerError::Invariant {
-                detail: "decorated stratum failed cold verification",
+                detail: "maximal decorated-stratum anchor failed cold verification",
             });
         }
         Err(error) => return Err(ProbeLocalSchedulerError::Stratum(error)),
@@ -73,7 +73,7 @@ pub(super) fn validate_fixed_task(
 
 pub(super) fn admit_probes(
     generator: &ParametricIbpGenerator<'_>,
-    stratum: &DecoratedStratum,
+    stratum: &MaximalStratumAnchor,
     probes: impl IntoIterator<Item = CampaignModularProbe>,
     limits: ProbeLocalSchedulerLimits,
 ) -> Result<Vec<CampaignModularProbe>, ProbeLocalSchedulerError> {
@@ -123,7 +123,7 @@ pub(super) fn admit_probes(
         return Err(ProbeLocalSchedulerError::EmptyProbeSchedule);
     }
     check_limit(OUTCOMES, retained.len(), limits.max_retained_outcomes)?;
-    reject_duplicate_probes(&retained, stratum.domain().sector().active_bits())?;
+    reject_duplicate_probes(&retained, stratum.initial().domain().sector().active_bits())?;
     Ok(retained)
 }
 

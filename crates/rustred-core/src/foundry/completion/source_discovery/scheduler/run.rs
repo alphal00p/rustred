@@ -4,7 +4,7 @@ mod admission;
 mod budget;
 mod probe;
 
-use crate::foundry::completion::stratum::{DecoratedStratum, ImmutableOwnerSnapshot};
+use crate::foundry::completion::stratum::{ImmutableOwnerSnapshot, MaximalStratumAnchor};
 use crate::identity::{CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator};
 use crate::sector::OrderingPolicy;
 
@@ -25,7 +25,7 @@ pub(crate) struct ProbeLocalObstructionScheduler<'inputs, 'family> {
     generator: &'inputs ParametricIbpGenerator<'family>,
     completed: &'inputs CompletedIbpSourceRows,
     target_shift: IntegralShift,
-    stratum: DecoratedStratum,
+    stratum: MaximalStratumAnchor,
     owners: ImmutableOwnerSnapshot,
     ordering: OrderingPolicy,
     probes: Box<[CampaignModularProbe]>,
@@ -38,7 +38,7 @@ impl<'inputs, 'family> ProbeLocalObstructionScheduler<'inputs, 'family> {
         generator: &'inputs ParametricIbpGenerator<'family>,
         completed: &'inputs CompletedIbpSourceRows,
         target_shift: IntegralShift,
-        stratum: DecoratedStratum,
+        stratum: MaximalStratumAnchor,
         owners: ImmutableOwnerSnapshot,
         ordering: OrderingPolicy,
         probes: impl IntoIterator<Item = CampaignModularProbe>,

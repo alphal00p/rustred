@@ -11,7 +11,9 @@ use crate::foundry::completion::source_discovery::scheduler::{
 use crate::foundry::completion::source_discovery::{
     CampaignModularProbe, OrdinarySourceIncidenceIndex,
 };
-use crate::foundry::completion::stratum::{DecoratedStratum, ImmutableOwnerSnapshot};
+use crate::foundry::completion::stratum::{
+    DecoratedStratum, ImmutableOwnerSnapshot, MaximalStratumAnchor,
+};
 use crate::identity::{
     CompletedIbpSourceRows, IntegralShift, ParametricIbpConfig, ParametricIbpGenerator,
 };
@@ -322,7 +324,7 @@ fn run_k6_probe_local_bootstrap_census()
             &generator,
             &completed,
             target.clone(),
-            stratum,
+            MaximalStratumAnchor::try_new(stratum, limits.campaign.stratum)?,
             owners.clone(),
             OrderingPolicy::default(),
             probes(limits)?,

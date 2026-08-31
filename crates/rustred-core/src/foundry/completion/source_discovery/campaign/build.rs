@@ -2,7 +2,9 @@ use std::cmp::Ordering;
 
 use crate::algebra::IndexedCoefficientContext;
 use crate::foundry::completion::frame::SelectedSourceFrame;
-use crate::foundry::completion::stratum::{DecoratedStratum, TargetColumnPartition};
+use crate::foundry::completion::stratum::{
+    DecoratedStratum, MaximalStratumSequence, TargetColumnPartition,
+};
 use crate::identity::{
     CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator, TranslatedSourceRequest,
 };
@@ -12,7 +14,7 @@ use super::{
     AccumulatedSourceRequests, CampaignBudgetExhaustion, CampaignError, CampaignLimits,
     CampaignModularProbe, CampaignRequestMerge, CampaignRequestMergeTelemetry,
     CampaignResourceStage, CandidateBatchExhaustionTelemetry, FreshTaskBuildTelemetry,
-    FreshTaskEpoch, FreshTaskQuery, FreshTaskQueryTelemetry,
+    FreshTaskEpoch, FreshTaskQuery, FreshTaskQueryTelemetry, GrowingTaskEpochState,
 };
 
 const SUBMITTED_REQUESTS: &str = "campaign submitted source requests";
@@ -21,6 +23,7 @@ const ACCUMULATED_REQUESTS: &str = "campaign accumulated source requests";
 const REQUEST_COORDINATES: &str = "campaign retained request coordinate cells";
 const MERGE_COMPARISONS: &str = "campaign stable request merge comparisons";
 const RETAINED_PROBE_COORDINATES: &str = "campaign retained raw probe coordinates";
+const GROWING_EPOCH_ORDINAL: &str = "growing campaign epoch ordinal";
 
 impl AccumulatedSourceRequests {
     /// Canonicalize one bounded finite request collection.
@@ -211,11 +214,10 @@ impl CampaignModularProbe {
 
 impl FreshTaskEpoch {
     /// Materialize a new immutable physical plan from the complete accumulated
-    /// request set.
+    /// request set on one intentionally fixed decorated stratum.
     ///
-    /// The fixed stratum/order/owner inputs are retained unchanged. In
-    /// particular, this constructor never recomputes a maximal domain from
-    /// the newly encountered columns.
+    /// This one-shot boundary never widens or refreshes a caller-selected
+    /// tightened domain. Growing campaigns use [`GrowingTaskEpochState`].
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn try_new(
         epoch_ordinal: usize,
@@ -224,6 +226,31 @@ impl FreshTaskEpoch {
         requests: AccumulatedSourceRequests,
         target_shift: IntegralShift,
         stratum: DecoratedStratum,
+        owners: crate::foundry::completion::stratum::ImmutableOwnerSnapshot,
+        ordering: crate::sector::OrderingPolicy,
+        limits: CampaignLimits,
+    ) -> Result<Self, CampaignError> {
+        Self::try_new_with_stratum(
+            epoch_ordinal,
+            generator,
+            completed,
+            requests,
+            target_shift,
+            EpochStratumInput::Fixed(stratum),
+            owners,
+            ordering,
+            limits,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn try_new_with_stratum(
+        epoch_ordinal: usize,
+        generator: &ParametricIbpGenerator<'_>,
+        completed: &CompletedIbpSourceRows,
+        requests: AccumulatedSourceRequests,
+        target_shift: IntegralShift,
+        stratum_input: EpochStratumInput<'_>,
         owners: crate::foundry::completion::stratum::ImmutableOwnerSnapshot,
         ordering: crate::sector::OrderingPolicy,
         limits: CampaignLimits,
@@ -250,10 +277,10 @@ impl FreshTaskEpoch {
                 actual: target_shift.len(),
             });
         }
-        if stratum.domain().arity() != requests.arity() {
+        if stratum_input.arity() != requests.arity() {
             return Err(CampaignError::WrongTargetArity {
                 expected: requests.arity(),
-                actual: stratum.domain().arity(),
+                actual: stratum_input.arity(),
             });
         }
 
@@ -269,10 +296,10 @@ impl FreshTaskEpoch {
                 actual: selected.source_layout_name(),
             });
         }
-        validate_fixed_scope(&selected, &requests, &stratum, &owners)?;
+        validate_fixed_scope(&selected, &requests, stratum_input.scope(), &owners)?;
         let frame = SelectedSourceFrame::try_new(
             selected,
-            stratum.domain().sector().clone(),
+            stratum_input.scope().domain().sector().clone(),
             limits.physical_frame,
         )
         .map_err(frame_error)?;
@@ -286,6 +313,9 @@ impl FreshTaskEpoch {
                 detail: "fresh campaign target lookup did not recover the raw target shift",
             });
         }
+        let stratum = stratum_input
+            .try_materialize(plan, target_column, limits.stratum)
+            .map_err(stratum_error)?;
         let telemetry = FreshTaskBuildTelemetry::new(
             epoch_ordinal,
             requests.len(),
@@ -413,6 +443,104 @@ impl FreshTaskEpoch {
         );
         FreshTaskQuery::new(partition, sampled, query, probe.clone(), telemetry)
     }
+}
+
+impl GrowingTaskEpochState {
+    /// Materialize the next growing epoch and advance the proof sequence only
+    /// after the complete fresh frame has been accepted.
+    pub(crate) fn try_next(
+        &mut self,
+        generator: &ParametricIbpGenerator<'_>,
+        completed: &CompletedIbpSourceRows,
+        requests: AccumulatedSourceRequests,
+        limits: CampaignLimits,
+    ) -> Result<FreshTaskEpoch, CampaignError> {
+        validate_growing_request_chronology(self.previous_requests(), &requests)?;
+        let epoch_ordinal = self.next_epoch_ordinal();
+        let next_epoch_ordinal =
+            epoch_ordinal
+                .checked_add(1)
+                .ok_or(CampaignError::ResourceCountOverflow {
+                    resource: GROWING_EPOCH_ORDINAL,
+                })?;
+        let retained_requests = requests.clone();
+        let target_shift = self.target_shift().clone();
+        let owners = self.owners().clone();
+        let ordering = self.ordering();
+        let epoch = FreshTaskEpoch::try_new_with_stratum(
+            epoch_ordinal,
+            generator,
+            completed,
+            requests,
+            target_shift,
+            EpochStratumInput::Growing(self.strata_mut()),
+            owners,
+            ordering,
+            limits,
+        )?;
+        self.commit(retained_requests, next_epoch_ordinal);
+        Ok(epoch)
+    }
+}
+
+enum EpochStratumInput<'state> {
+    Fixed(DecoratedStratum),
+    Growing(&'state mut MaximalStratumSequence),
+}
+
+impl EpochStratumInput<'_> {
+    fn scope(&self) -> &DecoratedStratum {
+        match self {
+            Self::Fixed(stratum) => stratum,
+            Self::Growing(sequence) => sequence.scope(),
+        }
+    }
+
+    fn arity(&self) -> usize {
+        self.scope().domain().arity()
+    }
+
+    fn try_materialize(
+        self,
+        frame: &crate::foundry::completion::frame::PhysicalFramePlan,
+        target_column: usize,
+        limits: crate::foundry::completion::stratum::StratumRegistryLimits,
+    ) -> Result<DecoratedStratum, crate::foundry::completion::stratum::StratumRegistryError> {
+        match self {
+            Self::Fixed(stratum) => Ok(stratum),
+            Self::Growing(sequence) => sequence.try_materialize(frame, target_column, limits),
+        }
+    }
+}
+
+fn validate_growing_request_chronology(
+    previous: Option<&AccumulatedSourceRequests>,
+    current: &AccumulatedSourceRequests,
+) -> Result<(), CampaignError> {
+    let Some(previous) = previous else {
+        return Ok(());
+    };
+    if current.arity() != previous.arity() || current.len() <= previous.len() {
+        return Err(CampaignError::NonMonotoneGrowingRequests {
+            previous: previous.len(),
+            current: current.len(),
+        });
+    }
+
+    let mut current_ordinal = 0usize;
+    for old in previous.requests() {
+        while current_ordinal < current.len() && current.requests()[current_ordinal] < *old {
+            current_ordinal += 1;
+        }
+        if current.requests().get(current_ordinal) != Some(old) {
+            return Err(CampaignError::NonMonotoneGrowingRequests {
+                previous: previous.len(),
+                current: current.len(),
+            });
+        }
+        current_ordinal += 1;
+    }
+    Ok(())
 }
 
 fn validate_fixed_scope(

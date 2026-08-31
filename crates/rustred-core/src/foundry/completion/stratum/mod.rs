@@ -14,12 +14,14 @@
 mod error;
 mod identity;
 mod limits;
+mod maximal;
 mod model;
 mod owners;
 mod partition;
 
 pub(crate) use error::StratumRegistryError;
 pub(crate) use limits::StratumRegistryLimits;
+pub(crate) use maximal::{MaximalStratumAnchor, MaximalStratumSequence};
 pub(crate) use model::{
     DecoratedStratum, DecoratedStratumId, GuardBranch, GuardBranchIdentity, GuardPredicateAuthority,
 };
