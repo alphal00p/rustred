@@ -14,6 +14,11 @@ scan through August 2026. It does not replace the longer reviews:
 - [`nonminimal_terminal_viability_audit_2026.md`](nonminimal_terminal_viability_audit_2026.md)
   audits proof, pole-depth, storage, and numerical-master budgets.
 
+The implementation-ordered form of the resulting proposal, including the
+six-loop terminology, worked guard example, parallel-memory design, and
+K6/K10/K15/K21 promotion gates, is maintained in
+[`six_loop_execution_runbook_2026.md`](six_loop_execution_runbook_2026.md).
+
 Statements below labelled **Verified result** summarize claims or measurements in the cited
 primary sources. Statements labelled **RustRed inference** are project conclusions; the cited
 authors do not claim a practical, exact six-loop RustRed compiler.

@@ -242,6 +242,22 @@ isolation, terminal-owner partitioning, and the need for proposal compression;
 it does not measure or promote any of experiments 1--5 and cannot be
 extrapolated into a `K = 10`, `K = 15`, or `K = 21` scaling result.
 
+The one-epoch infrastructure limitation has since been removed without
+promoting an experiment. Each probe now owns a transactional growing epoch
+sequence: a successful request set must strictly contain its predecessor, a
+fresh physical plan and exact maximal stratum are rebuilt, and the new domain
+is authenticated against the immediately preceding domain before the epoch is
+committed. A separate sealed bridge can losslessly lower a replayed exact
+circuit into a resource-admitted `ParametricRule` and direct
+`SourceViewBatch`, using compact source-owned shift buffers and an independent
+full-physical-column replay. This bridge deliberately cannot construct a
+`RuleCell`, owner, terminal, or closure artifact. These changes remove the
+common multi-epoch and exact-lowering blockers shared by experiments 1--4 and
+make future exact hits reusable by the existing foundry. Their
+experiment-specific Gram/syzygy, generating-function/seedless, quotient, and
+block-dual proposal compilers remain unimplemented. The infrastructure does
+not improve the unfavorable first-epoch K6 census and is not scaling evidence.
+
 No experiment is currently promoted. A future result must append the exact manifest revision,
 resource envelope, raw aggregate table, all censored members, adjacent scaling exponents, and the
 strongest proved evidence state. A favorable benchmark may justify a separate implementation

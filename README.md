@@ -576,6 +576,7 @@ Stable design documents are:
 - [graph-orbit and Baikov source-compression audit](docs/research/graph_orbit_baikov_source_compression_2026.md);
 - [executable K6 breakthrough prototype specification](docs/research/k6_breakthrough_prototype_spec_2026.md);
 - [six-loop algorithm and implementation update](docs/research/six_loop_algorithm_update_2026.md);
+- [six-loop execution runbook](docs/research/six_loop_execution_runbook_2026.md);
 - [dual-obstruction source-discovery design and evidence boundary](docs/research/dual_obstruction_source_discovery_2026.md);
 - [Vakint K6 oracle and terminal-budget audit](docs/research/vakint_k6_oracle.md); and
 - [current CLI contract](docs/CLI.md).

@@ -213,11 +213,25 @@ against three declared primes, for 18 probe-local tasks. Each first epoch has
 declared sample every forbidden rank and target-augmented rank is 90, so no
 bootstrap support is falsely lifted; the checked modular obstruction instead
 nominates 3,586--3,822 nonzero residual requests depending on the sector. The
-census stops at an explicit one-epoch research limit and claims neither a rule
-nor closure. The next K6 step is to replace that broad residual frontier with
-certificate-/syzygy-guided batches, rebuild the maximal stratum after request
-growth, promote successful exact circuits into guarded descending cells, and
-install solved sectors as immutable feedback before advancing bottom-up.
+census measurement stops at its declared one-epoch research limit and claims
+neither a rule nor closure. The generic scheduler can now continue beyond
+that measured first epoch without reusing stale geometry: every successful
+augmentation must be a strict
+canonical request superset, rebuilds the physical plan and exact maximal
+stratum, authenticates the first frame against its declared anchor and every
+later frame against its immediately preceding domain, and commits state only
+after the entire fresh epoch succeeds. A separately sealed boundary now lowers
+one live-plan-bound, exactly replayed circuit into the existing
+`ParametricRule` plus direct `SourceViewBatch` representation. It remaps compact
+source rows and shifts, preserves every guard origin, replays every physical
+column, proves fixed-sector and sector-monotone descent, and re-admits the
+payload under the caller's resource policy. It deliberately creates no
+`RuleCell`, owner, terminal, artifact, or closure authority. The next K6 step
+is therefore to replace the broad residual frontier with compact
+certificate-/syzygy-/generating-function-guided batches, promote successful
+lowered identities through the existing guarded `RuleCell` boundary, recompute
+the exact owner complement, and install each solved sector as immutable
+lower-sector feedback before advancing bottom-up.
 
 The three-loop search nevertheless now starts from an exact, test-only
 pressure manifest rather than an informal topology list: it authenticates the
@@ -914,6 +928,7 @@ into Stage 2.
 - [Graph-orbit and Baikov source-compression audit](docs/research/graph_orbit_baikov_source_compression_2026.md)
 - [Executable K6 breakthrough prototype specification](docs/research/k6_breakthrough_prototype_spec_2026.md)
 - [Six-loop algorithm and implementation update](docs/research/six_loop_algorithm_update_2026.md)
+- [Six-loop execution runbook](docs/research/six_loop_execution_runbook_2026.md)
 - [Dual-obstruction source-discovery proposal](docs/research/dual_obstruction_source_discovery_2026.md)
 - [Vakint K6 oracle and terminal-budget audit](docs/research/vakint_k6_oracle.md)
 - [Current CLI contract](docs/CLI.md)
