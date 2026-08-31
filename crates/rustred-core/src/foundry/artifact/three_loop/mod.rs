@@ -28,6 +28,8 @@ mod tests;
 pub(crate) use family::canonical_family;
 pub(crate) use symmetry::canonical_s4;
 #[cfg(test)]
-pub(crate) use terminal_authority::derive_k6_terminal_authority;
+pub(crate) use terminal_authority::{
+    derive_k6_terminal_authority, fresh_k6_terminal_authority_for_test,
+};
 #[cfg(test)]
 pub(crate) use terminals::{K6ReachabilityTerminals, exact_zero_sectors};

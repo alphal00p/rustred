@@ -33,6 +33,17 @@ pub(crate) fn derive_k6_terminal_authority() -> Result<Arc<ClosedTerminalAuthori
     AUTHORITY.get_or_init(build_k6_terminal_authority).clone()
 }
 
+/// Install a distinct K6 terminal authority for authority-identity tests.
+///
+/// Production callers always use the cached owner above.  This seam exists
+/// only to prove that equal structural snapshot payloads do not make two
+/// independently installed authorities interchangeable.
+#[cfg(test)]
+pub(crate) fn fresh_k6_terminal_authority_for_test()
+-> Result<Arc<ClosedTerminalAuthority>, ArtifactError> {
+    build_k6_terminal_authority()
+}
+
 fn build_k6_terminal_authority() -> Result<Arc<ClosedTerminalAuthority>, ArtifactError> {
     install_terminal_authority(k6_candidate()?).map(Arc::new)
 }

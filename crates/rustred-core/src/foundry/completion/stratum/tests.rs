@@ -1,5 +1,8 @@
 use crate::algebra::{CoefficientContext, IndexedCoefficientContext};
-use crate::foundry::artifact::{derive_k6_terminal_authority, derive_one_loop_unit_mass_tadpole};
+use crate::foundry::artifact::{
+    derive_k6_terminal_authority, derive_one_loop_unit_mass_tadpole,
+    fresh_k6_terminal_authority_for_test,
+};
 use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use crate::sector::{
     InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain, SectorMonotoneDomain,
@@ -371,8 +374,35 @@ fn terminal_authority_snapshot_retains_and_cheaply_rejoins_its_exact_owner() {
 
     let clone = snapshot.clone();
     assert_eq!(clone, snapshot);
+    assert!(clone.same_authority_as(&snapshot));
     assert!(clone.try_verify(StratumRegistryLimits::default()).unwrap());
     drop(clone);
+}
+
+#[test]
+fn structurally_equal_terminal_snapshots_do_not_alias_distinct_installed_authorities() {
+    let installed = derive_k6_terminal_authority().unwrap();
+    let same_installed = ImmutableOwnerSnapshot::try_from_terminal_authority(
+        installed.clone(),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let same_installed_again = ImmutableOwnerSnapshot::try_from_terminal_authority(
+        installed,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(same_installed, same_installed_again);
+    assert!(same_installed.same_authority_as(&same_installed_again));
+
+    let independently_installed = ImmutableOwnerSnapshot::try_from_terminal_authority(
+        fresh_k6_terminal_authority_for_test().unwrap(),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(same_installed.id(), independently_installed.id());
+    assert_eq!(same_installed, independently_installed);
+    assert!(!same_installed.same_authority_as(&independently_installed));
 }
 
 #[test]

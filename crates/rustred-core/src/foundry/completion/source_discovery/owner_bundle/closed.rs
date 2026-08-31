@@ -51,8 +51,11 @@ impl ClosedExactExecutableOwnerCover {
                 Some("ordering policy differs")
             } else if epoch.fixed_snapshot_id() != proof.owner_snapshot_id() {
                 Some("predecessor snapshot identity differs")
-            } else if epoch.predecessor_snapshot() != &predecessor_snapshot {
-                Some("exact predecessor snapshot differs")
+            } else if !epoch
+                .predecessor_snapshot()
+                .same_authority_as(&predecessor_snapshot)
+            {
+                Some("exact predecessor snapshot authority differs")
             } else {
                 None
             };

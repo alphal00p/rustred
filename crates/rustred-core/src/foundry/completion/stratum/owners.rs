@@ -380,6 +380,26 @@ impl ImmutableOwnerSnapshot {
         &self.id
     }
 
+    /// Return whether two structurally equal snapshots retain the same
+    /// installed proof authority.
+    ///
+    /// Snapshot IDs describe the bounded ordered lookup payload; they are not
+    /// independently executable authority.  A terminal-authority snapshot
+    /// must therefore rejoin the exact installed `Arc`, rather than accepting
+    /// a separately installed authority with identical structural content.
+    /// Future solved-sector owners must extend this match with the same
+    /// concrete-`Arc` requirement for every retained layer.
+    pub(crate) fn same_authority_as(&self, other: &Self) -> bool {
+        if self != other {
+            return false;
+        }
+        match (&self.terminal_authority, &other.terminal_authority) {
+            (None, None) => true,
+            (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+            _ => false,
+        }
+    }
+
     pub(super) fn owner_for(&self, target: &SectorInteriorDomain) -> Option<ImmutableOwnerWitness> {
         // Installation forbids zero/factorization overlap. A compiled
         // factorization intentionally precedes its embedded parent-terminal
