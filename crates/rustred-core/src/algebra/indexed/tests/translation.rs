@@ -11,16 +11,65 @@ fn lift_translate_and_specialize_preserve_authenticated_maps() {
     let family_value = &(&d + &base.integer(1)) / &m2;
     let lifted = context.lift(&family_value).unwrap();
     let n0 = context.index(0).unwrap();
-    let value = context.mul(&n0, &lifted).unwrap();
+    let n1 = context.index(1).unwrap();
+    let index_product = context.mul(&n0, &n1).unwrap();
+    let value = context.mul(&index_product, &lifted).unwrap();
     let translated = context
         .translate(&value, &[2, -3], IndexedAlgebraLimits::default())
         .unwrap();
+    let shifted_n0 = context.add(&n0, &context.integer(2)).unwrap();
+    let shifted_n1 = context.sub(&n1, &context.integer(3)).unwrap();
+    let expected_index_product = context.mul(&shifted_n0, &shifted_n1).unwrap();
+    let expected_indexed = context.mul(&expected_index_product, &lifted).unwrap();
+    assert_eq!(translated, expected_indexed);
+    assert_eq!(
+        translated.raw().numerator.variables.as_ref(),
+        context.variables.as_ref()
+    );
+    assert_eq!(
+        translated.raw().denominator.variables.as_ref(),
+        context.variables.as_ref()
+    );
+
     let (specialized, denominator_nonzero) = context
         .specialize(&translated, &[5, 100], IndexedAlgebraLimits::default())
         .unwrap();
-    let expected = &base.integer(7) * &family_value;
+    let expected = &base.integer(679) * &family_value;
     assert_eq!(specialized, expected);
     assert_eq!(denominator_nonzero.unwrap(), m2.numerator);
+}
+
+#[test]
+fn absent_index_shift_is_an_exact_noop_for_coefficients_and_polynomials() {
+    let base = CoefficientContext::new(Vec::<String>::new());
+    let context = IndexedCoefficientContext::try_new(&base, "absent-index-translation", 2).unwrap();
+    let n0 = context.index(0).unwrap();
+    let n0_squared = context.mul(&n0, &n0).unwrap();
+    let exact = IndexedAlgebraLimits {
+        exact_algebra: ExactAlgebraLimits {
+            max_polynomial_terms: 1,
+            ..ExactAlgebraLimits::default()
+        },
+        max_specialization_power_operations: 0,
+        max_specialization_integer_bits: 1,
+    };
+    let polynomial = context
+        .numerator_condition_with_limits(&n0_squared, exact.exact_algebra)
+        .unwrap();
+
+    let translated = context
+        .translate(&n0_squared, &[0, i64::MIN], exact)
+        .unwrap();
+    let translated_polynomial = context
+        .translate_polynomial(&polynomial, &[0, i64::MIN], exact)
+        .unwrap();
+
+    assert_eq!(translated, n0_squared);
+    assert_eq!(translated_polynomial, polynomial);
+    assert_eq!(
+        translated_polynomial.raw().variables.as_ref(),
+        context.variables.as_ref()
+    );
 }
 
 #[test]

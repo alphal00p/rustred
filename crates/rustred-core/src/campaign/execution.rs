@@ -104,7 +104,7 @@ impl ParallelExecution {
     /// Validate an invocation's requested core ceiling without creating a
     /// worker. Campaign width planning remains host-independent, then calls
     /// this preflight before consuming its checked memory plan.
-    fn validate_requested_core_budget(n_cores: usize) -> Result<(), ParallelExecutionError> {
+    pub fn preflight_requested_core_budget(n_cores: usize) -> Result<(), ParallelExecutionError> {
         let n_cores = NonZeroUsize::new(n_cores).ok_or(ParallelExecutionError::ZeroCoreBudget)?;
         if n_cores.get() == 1 {
             return Ok(());
@@ -140,7 +140,7 @@ impl ParallelExecution {
         n_cores: usize,
         ordered_result_ceiling: usize,
     ) -> Result<Self, ParallelExecutionError> {
-        Self::validate_requested_core_budget(n_cores)?;
+        Self::preflight_requested_core_budget(n_cores)?;
         let n_cores = NonZeroUsize::new(n_cores).ok_or(ParallelExecutionError::ZeroCoreBudget)?;
         if n_cores.get() == 1 {
             return Ok(Self {

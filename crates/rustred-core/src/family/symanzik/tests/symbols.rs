@@ -1,60 +1,25 @@
 use symbolica::atom::{NamespacedSymbol, SymbolAttribute, SymbolBuilder, UserData};
 
-use crate::algebra::CoefficientContext;
-use crate::family::{AffineDenominator, IntegralFamily};
-
-use super::super::context::FeynmanPolynomialContext;
+use super::super::context::authenticate_feynman_symbol;
 use super::super::error::FeynmanPolynomialError;
-use super::super::model::FeynmanPolynomialLimits;
-
-fn six_parameter_vacuum_family(name: &str) -> IntegralFamily {
-    let coefficients = CoefficientContext::new(["d"]);
-    let denominators = (0..6)
-        .map(|coordinate| {
-            AffineDenominator::new(
-                coefficients.zero(),
-                (0..6)
-                    .map(|candidate| {
-                        if candidate == coordinate {
-                            coefficients.one()
-                        } else {
-                            coefficients.zero()
-                        }
-                    })
-                    .collect(),
-            )
-        })
-        .collect();
-    IntegralFamily::new(
-        name,
-        vec!["k0".into(), "k1".into(), "k2".into()],
-        Vec::new(),
-        coefficients.clone(),
-        coefficients.parameter("d").unwrap(),
-        denominators,
-        Vec::new(),
-        vec![coefficients.zero(); 6],
-    )
-    .unwrap()
-}
 
 #[test]
-fn feynman_context_rejects_unsafe_process_global_symbol_squatting() {
-    // Native Symanzik tests construct at most five parameters, making the real
-    // positional x_5 name fresh regardless of test scheduling.
+fn feynman_symbol_authentication_rejects_unsafe_process_global_metadata() {
+    // Mutate a test-only name: Symbolica symbol metadata is process-global and
+    // cannot be unregistered, so poisoning a real positional Feynman symbol
+    // would make unrelated K >= 6 tests scheduling-dependent.
     let parameter = 5;
-    let qualified = "rustred::feynman_x_5";
+    let qualified = "rustred_test::unsafe_feynman_parameter_authentication_v1";
     let namespaced = NamespacedSymbol::try_parse(qualified).unwrap();
-    SymbolBuilder::new(namespaced)
+    let symbol = SymbolBuilder::new(namespaced)
         .with_attributes(&[SymbolAttribute::Symmetric])
         .with_tags(["rustred_test::unsafe_feynman_parameter"])
         .with_user_data(UserData::Integer(29))
         .build()
         .unwrap();
-    let family = six_parameter_vacuum_family("feynman-symbol-squatting");
 
     assert_eq!(
-        FeynmanPolynomialContext::try_new(&family, FeynmanPolynomialLimits::default()).unwrap_err(),
-        FeynmanPolynomialError::FeynmanParameterSymbolCollision { parameter }
+        authenticate_feynman_symbol(symbol, qualified, parameter),
+        Err(FeynmanPolynomialError::FeynmanParameterSymbolCollision { parameter })
     );
 }

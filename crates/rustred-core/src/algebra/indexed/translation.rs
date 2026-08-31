@@ -277,15 +277,8 @@ impl IndexedCoefficientContext {
                 // index is absent.
                 continue;
             }
-            let variable = self
-                .template
-                .numerator
-                .variable(&self.index_variables[position])
-                .map_err(IndexedAlgebraError::Symbolica)?;
             result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let replacement =
-                    &variable + &self.template.numerator.constant(Integer::from(*offset));
-                result.replace_with_poly(variable_position, &replacement)
+                result.shift_var(variable_position, &Integer::from(*offset))
             }))
             .map_err(|_| {
                 IndexedAlgebraError::Symbolica(

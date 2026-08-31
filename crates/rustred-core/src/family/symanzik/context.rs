@@ -5,6 +5,9 @@ mod authentication;
 mod gradient;
 mod state;
 
+#[cfg(test)]
+pub(super) use state::authenticate_feynman_symbol;
+
 use std::sync::Arc;
 
 use symbolica::domains::rational_polynomial::RationalPolynomialField;

@@ -18,7 +18,7 @@ use crate::family::symanzik::work::{check_limit, checked_mul};
 
 /// Reject process-global metadata that would change the algebraic or printed
 /// meaning of RustRed's positional Feynman parameters.
-fn authenticate_feynman_symbol(
+pub(in crate::family::symanzik) fn authenticate_feynman_symbol(
     symbol: Symbol,
     qualified: &str,
     parameter: usize,

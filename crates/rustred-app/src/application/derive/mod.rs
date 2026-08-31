@@ -28,6 +28,11 @@ const EQUATION_CONVENTION: &str =
     "sum(term.coefficient * I(n + term.shift) for term in relation.terms) = 0";
 
 pub(super) fn derive_request(request: DeriveRequest) -> Result<DeriveResult, AppError> {
+    // Reject an unavailable or unlicensed multicore request before input
+    // parsing can initialize any process-global Symbolica state. `try_new`
+    // repeats this cheap preflight at the later worker-construction boundary.
+    ParallelExecution::preflight_requested_core_budget(request.n_cores)
+        .map_err(parallel_execution_error)?;
     let prepared = super::input::prepare_input(&request.source, request.input_format)?;
     let lowered = super::lowering::lower_project(prepared)?;
     let output = build_output(
