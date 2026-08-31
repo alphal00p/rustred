@@ -1,11 +1,17 @@
 //! Proposal-only affine-unisolvent sampling inside blind lattice components.
 //!
-//! For every box of globally maximal free dimension, this planner moves all
-//! unbounded coordinates by a caller-selected interior margin and adds the
-//! complete nonnegative simplex of offsets through a total-degree ceiling.
-//! Bounded coordinates remain at the box's lower endpoint.  The resulting
-//! target proposals are suitable for testing or reconstructing polynomial
-//! dependence in a later algebraic layer.
+//! For every box of globally maximal free dimension, this planner enumerates
+//! the complete Cartesian product of its finite coordinates, moves every
+//! unbounded coordinate by a caller-selected positive interior margin, and
+//! adds the complete nonnegative simplex of offsets through a total-degree
+//! ceiling. The product and retained result are preflighted before task
+//! construction; finite assignments are streamed by mixed-radix ordinal and
+//! are never materialized as a separate combinatorial table. Canonical box
+//! rounds are flattened in linear work, and an ordered active frontier visits
+//! each live finite assignment exactly once instead of scanning the rectangle
+//! formed by the largest product and every box. The resulting target
+//! proposals are suitable for testing or reconstructing polynomial dependence
+//! in a later algebraic layer.
 //!
 //! This module performs lattice scheduling only.  It does not evaluate an IBP,
 //! infer polynomial degree, reconstruct a coefficient, admit a rule, mutate a
@@ -13,6 +19,7 @@
 //! completed schedule therefore has no semantic authority beyond identifying
 //! which target proposals belonged to one frozen in-memory geometry epoch.
 
+mod bounded;
 mod build;
 mod canonical;
 mod error;

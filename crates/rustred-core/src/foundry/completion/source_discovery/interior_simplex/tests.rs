@@ -46,6 +46,7 @@ fn complete_simplex_matches_brute_force_without_duplicates() {
     assert_eq!(plan.input_scope_count(), 1);
     assert_eq!(plan.selected_scope_count(), 1);
     assert_eq!(plan.selected_box_count(), 1);
+    assert_eq!(plan.finite_assignment_count(), 1);
     assert_eq!(plan.maximal_free_dimension(), 3);
     assert_eq!(plan.interior_margin(), 2);
     assert_eq!(plan.polynomial_degree_ceiling(), 3);
@@ -70,6 +71,7 @@ fn complete_simplex_matches_brute_force_without_duplicates() {
     assert_eq!(actual, expected);
     assert_eq!(actual.len(), plan.tasks().len());
     for task in plan.tasks() {
+        assert_eq!(task.key().finite_assignment_ordinal(), 0);
         assert_eq!(task.key().box_lower(), &[2, 4, 6]);
         assert_eq!(task.key().box_upper(), &[None, None, None]);
         assert_eq!(task.key().sector(), &sector);
@@ -84,7 +86,7 @@ fn complete_simplex_matches_brute_force_without_duplicates() {
 }
 
 #[test]
-fn one_free_axis_is_the_complete_interval_and_bounded_axes_stay_at_lower_endpoints() {
+fn one_free_axis_pairs_every_simplex_offset_with_all_finite_assignments() {
     let sector = all_active(3);
     let partition = UncoveredPartition::new(
         vec![
@@ -97,20 +99,135 @@ fn one_free_axis_is_the_complete_interval_and_bounded_axes_stay_at_lower_endpoin
     let plan = one_box_plan(&sector, &partition, 2, 4);
     assert_eq!(plan.maximal_free_dimension(), 1);
     assert_eq!(plan.selected_box_count(), 1);
+    assert_eq!(plan.finite_assignment_count(), 4);
     assert_eq!(plan.simplex_sample_count(), 5);
+    assert_eq!(plan.tasks().len(), 20);
+    let mut expected = Vec::new();
+    for free_offset in 0..=4 {
+        for bounded in 9..=12 {
+            expected.push(vec![4, 9 + free_offset, bounded]);
+        }
+    }
+    assert_eq!(
+        plan.tasks()
+            .iter()
+            .map(|task| task.lattice_target().to_vec())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert_eq!(
+        plan.tasks()
+            .iter()
+            .map(|task| task.key().finite_assignment_ordinal())
+            .collect::<Vec<_>>(),
+        (0..5).flat_map(|_| 0..4).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn zero_one_slab_enumerates_both_bounded_layers() {
+    let sector = all_active(2);
+    let partition = UncoveredPartition::new(vec![lattice_box(&[0, 0], &[Some(1), None])], 0);
+    let plan = one_box_plan(&sector, &partition, 1, 0);
+    assert_eq!(plan.finite_assignment_count(), 2);
+    assert_eq!(
+        plan.tasks()
+            .iter()
+            .map(|task| {
+                (
+                    task.key().finite_assignment_ordinal(),
+                    task.lattice_target().to_vec(),
+                )
+            })
+            .collect::<Vec<_>>(),
+        vec![(0, vec![0, 1]), (1, vec![1, 1])]
+    );
+    assert_ne!(plan.tasks()[0].key(), plan.tasks()[1].key());
+}
+
+#[test]
+fn mixed_boxes_stream_cartesian_products_in_fair_assignment_rounds() {
+    let sector = all_active(3);
+    let partition = UncoveredPartition::new(
+        vec![
+            lattice_box(&[0, 10, 3], &[Some(1), None, Some(4)]),
+            lattice_box(&[2, 20, 5], &[Some(2), None, Some(7)]),
+        ],
+        0,
+    );
+    let plan = one_box_plan(&sector, &partition, 1, 0);
+    assert_eq!(plan.selected_box_count(), 2);
+    assert_eq!(plan.finite_assignment_count(), 7);
     assert_eq!(
         plan.tasks()
             .iter()
             .map(|task| task.lattice_target().to_vec())
             .collect::<Vec<_>>(),
         vec![
-            vec![4, 9, 9],
-            vec![4, 10, 9],
-            vec![4, 11, 9],
-            vec![4, 12, 9],
-            vec![4, 13, 9],
+            vec![0, 11, 3],
+            vec![2, 21, 5],
+            vec![0, 11, 4],
+            vec![2, 21, 6],
+            vec![1, 11, 3],
+            vec![2, 21, 7],
+            vec![1, 11, 4],
         ]
     );
+}
+
+#[test]
+fn skewed_assignment_products_visit_only_live_boxes_in_canonical_order() {
+    let sector = all_active(2);
+    let long = UncoveredPartition::new(vec![lattice_box(&[0, 0], &[Some(4_095), None])], 0);
+    let short = UncoveredPartition::new(
+        (0..64)
+            .map(|ordinal| {
+                let coordinate = 10_000 + ordinal;
+                lattice_box(&[coordinate, 0], &[Some(coordinate), None])
+            })
+            .collect(),
+        0,
+    );
+    let plan = try_plan_interior_simplex_samples(
+        51,
+        [
+            InteriorSimplexScopePartition::new("short", &sector, &short),
+            InteriorSimplexScopePartition::new("long", &sector, &long),
+        ],
+        1,
+        0,
+        InteriorSimplexLimits::default(),
+    )
+    .unwrap();
+
+    assert_eq!(plan.selected_box_count(), 65);
+    assert_eq!(plan.finite_assignment_count(), 4_160);
+    assert_eq!(plan.tasks().len(), 4_160);
+    assert_eq!(plan.scheduler_workspace_entries(), 195);
+    // Flattening: 2 * 65 boxes + 64 rounds. Offset seeding: 65 boxes.
+    // The active frontier then visits exactly one live box per emitted task.
+    assert_eq!(plan.scheduler_visit_count(), 194 + 65 + 4_160);
+    let rectangular_visits = 4_096usize * 64 * 2;
+    assert!(rectangular_visits > 100 * plan.scheduler_visit_count());
+
+    let tasks = plan.tasks();
+    assert_eq!(tasks[0].key().stable_scope_key(), "long");
+    assert_eq!(tasks[0].key().finite_assignment_ordinal(), 0);
+    assert_eq!(tasks[0].lattice_target(), &[0, 1]);
+    for (short_ordinal, task) in tasks[1..65].iter().enumerate() {
+        assert_eq!(task.key().stable_scope_key(), "short");
+        assert_eq!(task.key().finite_assignment_ordinal(), 0);
+        assert_eq!(task.lattice_target(), &[10_000 + short_ordinal as u64, 1]);
+    }
+    for (assignment_ordinal, task) in tasks[65..].iter().enumerate() {
+        let assignment_ordinal = assignment_ordinal + 1;
+        assert_eq!(task.key().stable_scope_key(), "long");
+        assert_eq!(task.key().finite_assignment_ordinal(), assignment_ordinal);
+        assert_eq!(
+            task.lattice_target(),
+            &[u64::try_from(assignment_ordinal).unwrap(), 1]
+        );
+    }
 }
 
 #[test]
@@ -132,8 +249,14 @@ fn mixed_sector_signs_are_converted_by_the_sector_chart() {
             .collect::<Vec<_>>(),
         vec![
             (vec![0, 0], vec![4, 5, 5], vec![4, -5, 5]),
+            (vec![0, 0], vec![4, 5, 6], vec![4, -5, 6]),
+            (vec![0, 0], vec![4, 5, 7], vec![4, -5, 7]),
             (vec![0, 1], vec![4, 6, 5], vec![4, -6, 5]),
+            (vec![0, 1], vec![4, 6, 6], vec![4, -6, 6]),
+            (vec![0, 1], vec![4, 6, 7], vec![4, -6, 7]),
             (vec![1, 0], vec![5, 5, 5], vec![5, -5, 5]),
+            (vec![1, 0], vec![5, 5, 6], vec![5, -5, 6]),
+            (vec![1, 0], vec![5, 5, 7], vec![5, -5, 7]),
         ]
     );
 }
@@ -217,6 +340,44 @@ fn input_and_box_order_do_not_change_scope_round_robin_or_worker_merge_order() {
     }
 }
 
+fn finite_product_two_scope_plan(reverse_inputs: bool, reverse_boxes: bool) -> InteriorSimplexPlan {
+    let sector = all_active(3);
+    let alpha =
+        UncoveredPartition::new(vec![lattice_box(&[0, 0, 0], &[Some(1), None, Some(1)])], 0);
+    let mut beta_boxes = vec![
+        lattice_box(&[2, 0, 0], &[Some(3), None, Some(0)]),
+        lattice_box(&[4, 0, 0], &[Some(4), None, Some(2)]),
+    ];
+    if reverse_boxes {
+        beta_boxes.reverse();
+    }
+    let beta = UncoveredPartition::new(beta_boxes, 0);
+    let alpha_scope = InteriorSimplexScopePartition::new("z-alpha", &sector, &alpha);
+    let beta_scope = InteriorSimplexScopePartition::new("a-beta", &sector, &beta);
+    let scopes = if reverse_inputs {
+        vec![beta_scope, alpha_scope]
+    } else {
+        vec![alpha_scope, beta_scope]
+    };
+    try_plan_interior_simplex_samples(41, scopes, 1, 0, InteriorSimplexLimits::default()).unwrap()
+}
+
+#[test]
+fn finite_product_chronology_is_independent_of_scope_and_box_input_order() {
+    let forward = finite_product_two_scope_plan(false, false);
+    let reversed = finite_product_two_scope_plan(true, true);
+    assert_eq!(forward.finite_assignment_count(), 9);
+    assert_eq!(semantic_tasks(&forward), semantic_tasks(&reversed));
+    assert_eq!(
+        forward
+            .tasks()
+            .iter()
+            .map(|task| task.canonical_ordinal())
+            .collect::<Vec<_>>(),
+        (0..forward.tasks().len()).collect::<Vec<_>>()
+    );
+}
+
 #[test]
 fn coordinate_overflow_and_representative_global_caps_reject_the_whole_design() {
     let inactive = Mask::try_new([false]).unwrap();
@@ -277,6 +438,103 @@ fn coordinate_overflow_and_representative_global_caps_reject_the_whole_design() 
             limit: 0,
         })
     ));
+
+    let finite_partition = UncoveredPartition::new(vec![lattice_box(&[0, 0], &[Some(2), None])], 0);
+    let finite_scope =
+        || InteriorSimplexScopePartition::new("finite-capped", &sector, &finite_partition);
+    assert_eq!(
+        try_plan_interior_simplex_samples(
+            2,
+            [finite_scope()],
+            1,
+            0,
+            InteriorSimplexLimits {
+                max_finite_assignments_per_box: 2,
+                ..InteriorSimplexLimits::default()
+            },
+        )
+        .unwrap_err(),
+        InteriorSimplexPlanError::ResourceLimit {
+            resource: "finite assignments per selected box",
+            requested: 3,
+            limit: 2,
+        }
+    );
+    assert_eq!(
+        try_plan_interior_simplex_samples(
+            2,
+            [finite_scope()],
+            1,
+            0,
+            InteriorSimplexLimits {
+                max_finite_assignments: 2,
+                ..InteriorSimplexLimits::default()
+            },
+        )
+        .unwrap_err(),
+        InteriorSimplexPlanError::ResourceLimit {
+            resource: "finite coordinate assignments",
+            requested: 3,
+            limit: 2,
+        }
+    );
+    assert_eq!(
+        try_plan_interior_simplex_samples(
+            2,
+            [finite_scope()],
+            1,
+            0,
+            InteriorSimplexLimits {
+                max_scheduler_workspace_entries: 2,
+                ..InteriorSimplexLimits::default()
+            },
+        )
+        .unwrap_err(),
+        InteriorSimplexPlanError::ResourceLimit {
+            resource: "scheduler workspace entries",
+            requested: 3,
+            limit: 2,
+        }
+    );
+    assert_eq!(
+        try_plan_interior_simplex_samples(
+            2,
+            [finite_scope()],
+            1,
+            0,
+            InteriorSimplexLimits {
+                // One box uses three flatten visits, one offset seed, and
+                // three live assignment visits.
+                max_scheduler_visits: 6,
+                ..InteriorSimplexLimits::default()
+            },
+        )
+        .unwrap_err(),
+        InteriorSimplexPlanError::ResourceLimit {
+            resource: "scheduler visits",
+            requested: 7,
+            limit: 6,
+        }
+    );
+    let finite_overflow =
+        UncoveredPartition::new(vec![lattice_box(&[0, 0], &[Some(u64::MAX), None])], 0);
+    assert_eq!(
+        try_plan_interior_simplex_samples(
+            2,
+            [InteriorSimplexScopePartition::new(
+                "finite-overflow",
+                &sector,
+                &finite_overflow,
+            )],
+            1,
+            0,
+            InteriorSimplexLimits::default(),
+        )
+        .unwrap_err(),
+        InteriorSimplexPlanError::ResourceCountOverflow {
+            resource: "finite coordinate assignments",
+        }
+    );
     assert_eq!(
         try_plan_interior_simplex_samples(2, [scope()], 0, 0, InteriorSimplexLimits::default(),)
             .unwrap_err(),

@@ -84,13 +84,14 @@ impl InteriorSimplexBoxKey {
     }
 }
 
-/// Stable, epoch-independent identity of one simplex target proposal.
+/// Stable, epoch-independent identity of one finite-assignment/simplex target.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct InteriorSimplexTaskKey {
     scope: InteriorSimplexScopeKey,
     box_key: InteriorSimplexBoxKey,
     interior_margin: u64,
     simplex_offset: Arc<Vec<u64>>,
+    finite_assignment_ordinal: usize,
 }
 
 impl InteriorSimplexTaskKey {
@@ -99,12 +100,14 @@ impl InteriorSimplexTaskKey {
         box_key: InteriorSimplexBoxKey,
         interior_margin: u64,
         simplex_offset: Arc<Vec<u64>>,
+        finite_assignment_ordinal: usize,
     ) -> Self {
         Self {
             scope,
             box_key,
             interior_margin,
             simplex_offset,
+            finite_assignment_ordinal,
         }
     }
 
@@ -132,6 +135,15 @@ impl InteriorSimplexTaskKey {
     /// by ambient chart position.
     pub(crate) fn simplex_offset(&self) -> &[u64] {
         self.simplex_offset.as_slice()
+    }
+
+    /// Lexicographic mixed-radix ordinal of the finite-coordinate assignment.
+    ///
+    /// The complete box endpoints retained in this key make the ordinal an
+    /// exact identity: ascending finite axes define lexicographic order and
+    /// the last finite axis varies fastest.
+    pub(crate) const fn finite_assignment_ordinal(&self) -> usize {
+        self.finite_assignment_ordinal
     }
 }
 
@@ -201,7 +213,7 @@ impl InteriorSimplexTask {
     }
 }
 
-/// Immutable complete simplex design for one in-memory geometry capture.
+/// Immutable complete finite-assignment × simplex design for one geometry capture.
 ///
 /// This plan contains target proposals only.  In particular, it deliberately
 /// has no API for recording execution, exhaustion, cover deltas, or closure.
@@ -212,6 +224,9 @@ pub(crate) struct InteriorSimplexPlan {
     pub(super) input_scope_count: usize,
     pub(super) selected_scope_count: usize,
     pub(super) selected_box_count: usize,
+    pub(super) finite_assignment_count: usize,
+    pub(super) scheduler_workspace_entries: usize,
+    pub(super) scheduler_visit_count: usize,
     pub(super) maximal_free_dimension: usize,
     pub(super) interior_margin: u64,
     pub(super) polynomial_degree_ceiling: usize,
@@ -234,6 +249,25 @@ impl InteriorSimplexPlan {
 
     pub(crate) const fn selected_box_count(&self) -> usize {
         self.selected_box_count
+    }
+
+    /// Sum of complete finite-axis Cartesian products over selected boxes.
+    /// Each assignment is paired with every retained simplex offset.
+    pub(crate) const fn finite_assignment_count(&self) -> usize {
+        self.finite_assignment_count
+    }
+
+    /// Exact logical peak of index entries requested by the canonical box
+    /// flattener or the ordered active-assignment frontiers.
+    pub(crate) const fn scheduler_workspace_entries(&self) -> usize {
+        self.scheduler_workspace_entries
+    }
+
+    /// Exact number of canonical box/round inspections performed by task
+    /// scheduling. Every assignment-frontier visit emits one task; there are
+    /// no rectangular scans over already exhausted boxes.
+    pub(crate) const fn scheduler_visit_count(&self) -> usize {
+        self.scheduler_visit_count
     }
 
     pub(crate) const fn maximal_free_dimension(&self) -> usize {

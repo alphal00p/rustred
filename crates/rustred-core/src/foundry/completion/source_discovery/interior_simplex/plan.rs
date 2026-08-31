@@ -13,11 +13,12 @@ use super::simplex::{try_build_simplex_offsets, try_simplex_sample_count};
 /// simplex samples.
 ///
 /// Canonical scope chronology is sector, complete endpoint tuple, then stable
-/// key. For each graded simplex offset, boxes are interleaved round-robin
-/// across canonical scopes. Every count, coordinate cell, coordinate sum, and
-/// retained variable-size allocation is checked before any plan escapes. A
-/// returned plan is proposal geometry only and carries no execution or closure
-/// authority.
+/// key. For each graded simplex offset, live boxes are interleaved round-robin
+/// across canonical scopes and retired as soon as their finite product is
+/// exhausted. Every count, coordinate cell, coordinate sum, scheduler visit,
+/// and retained variable-size allocation is checked before any plan escapes.
+/// A returned plan is proposal geometry only and carries no execution or
+/// closure authority.
 pub(crate) fn try_plan_interior_simplex_samples<'a>(
     epoch_ordinal: u64,
     scopes: impl IntoIterator<Item = InteriorSimplexScopePartition<'a>>,
@@ -83,13 +84,14 @@ pub(crate) fn try_plan_interior_simplex_samples<'a>(
         simplex_sample_count,
     )?;
     let epoch_identity = InteriorSimplexGeometryEpochIdentity::fresh();
-    let tasks = try_build_tasks(
+    let built = try_build_tasks(
         epoch_identity.clone(),
         epoch_ordinal,
         &frozen.scopes,
         &offsets,
         interior_margin,
         frozen.total_tasks,
+        frozen.expected_scheduler_visits,
         limits.max_arity,
     )?;
 
@@ -99,10 +101,13 @@ pub(crate) fn try_plan_interior_simplex_samples<'a>(
         input_scope_count,
         selected_scope_count: frozen.scopes.len(),
         selected_box_count: frozen.selected_box_count,
+        finite_assignment_count: frozen.finite_assignment_count,
+        scheduler_workspace_entries: frozen.scheduler_workspace_entries,
+        scheduler_visit_count: built.scheduler_visits,
         maximal_free_dimension,
         interior_margin,
         polynomial_degree_ceiling,
         simplex_sample_count,
-        tasks,
+        tasks: built.tasks,
     })
 }
