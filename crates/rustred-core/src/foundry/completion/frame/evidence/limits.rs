@@ -3,7 +3,8 @@
 /// Modular matrices and exact replay retain their own independent policies.
 /// These limits bound the probe plan plus scheduler-owned diagnostics,
 /// including the selected exact result's diagnostics clone and every retained
-/// forbidden-column copy, and canonical trace telemetry.
+/// forbidden-column copy, modular no-hit obstruction sidecars, and canonical
+/// trace telemetry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TargetEvidenceLimits {
     pub(crate) max_probes: usize,
@@ -14,6 +15,9 @@ pub(crate) struct TargetEvidenceLimits {
     pub(crate) max_diagnostic_source_entries: usize,
     pub(crate) max_diagnostic_pivot_entries: usize,
     pub(crate) max_retained_diagnostic_forbidden_column_entries: usize,
+    /// Aggregate worst-case logical-column plus sparse-coefficient entries
+    /// retained if every admitted probe returns a modular obstruction.
+    pub(crate) max_retained_modular_obstruction_entries: usize,
     pub(crate) max_trace_scope_entries: usize,
     pub(crate) max_canonical_source_entries: usize,
     pub(crate) max_canonical_pivot_entries: usize,
@@ -32,6 +36,7 @@ impl Default for TargetEvidenceLimits {
             max_diagnostic_source_entries: 16_777_216,
             max_diagnostic_pivot_entries: 16_777_216,
             max_retained_diagnostic_forbidden_column_entries: 16_777_216,
+            max_retained_modular_obstruction_entries: 33_554_432,
             max_trace_scope_entries: 1_000_000,
             max_canonical_source_entries: 16_777_216,
             max_canonical_pivot_entries: 16_777_216,

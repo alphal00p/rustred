@@ -15,7 +15,9 @@ use crate::foundry::completion::stratum::{
 use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use crate::sector::{Mask, OrderingPolicy, SectorMonotoneDomain};
 
-use super::schedule::{retained_diagnostic_forbidden_entries, select_proposal};
+use super::schedule::{
+    retained_diagnostic_forbidden_entries, retained_modular_obstruction_entries, select_proposal,
+};
 use super::{
     CanonicalTraceIdentity, DiscoveryTraceGroup, EvidenceProbeOutcome, EvidenceProbePlan,
     EvidenceProbeRole, EvidenceProbeSpec, ExactProposalOutcome, HeldOutAssessment,
@@ -635,7 +637,7 @@ fn probe_plan_rejects_bad_or_duplicate_tasks_before_execution() {
 }
 
 #[test]
-fn scheduler_preflights_every_retained_forbidden_diagnostic_copy() {
+fn scheduler_preflights_every_retained_forbidden_and_obstruction_copy() {
     let (context, plan) = tadpole_frame("evidence-forbidden-copy-limit", true, 1);
     let target = column(&plan, &[1]);
     let partition = target_partition(&plan, target);
@@ -676,6 +678,39 @@ fn scheduler_preflights_every_retained_forbidden_diagnostic_copy() {
     )
     .unwrap();
 
+    let mut obstruction_rejected_limits = TargetEvidenceLimits::default();
+    // Two probes can each retain two logical columns and at most two sparse
+    // obstruction entries: eight aggregate sidecar entries.
+    obstruction_rejected_limits.max_retained_modular_obstruction_entries = 7;
+    let obstruction_rejected =
+        EvidenceProbePlan::try_new(&context, &plan, probes(), obstruction_rejected_limits).unwrap();
+    assert_eq!(
+        TargetEvidenceScheduler::try_new(
+            obstruction_rejected,
+            &partition,
+            ModularKernelLimits::default(),
+            ExactCircuitLimits::default(),
+        )
+        .unwrap_err(),
+        TargetEvidenceError::ResourceLimit {
+            resource: "target-evidence retained modular-obstruction entries",
+            requested: 8,
+            limit: 7,
+        }
+    );
+
+    let mut obstruction_exact_limits = TargetEvidenceLimits::default();
+    obstruction_exact_limits.max_retained_modular_obstruction_entries = 8;
+    let obstruction_exact =
+        EvidenceProbePlan::try_new(&context, &plan, probes(), obstruction_exact_limits).unwrap();
+    TargetEvidenceScheduler::try_new(
+        obstruction_exact,
+        &partition,
+        ModularKernelLimits::default(),
+        ExactCircuitLimits::default(),
+    )
+    .unwrap();
+
     assert_eq!(
         retained_diagnostic_forbidden_entries(usize::MAX, 1).unwrap_err(),
         TargetEvidenceError::ResourceCountOverflow {
@@ -686,6 +721,18 @@ fn scheduler_preflights_every_retained_forbidden_diagnostic_copy() {
         retained_diagnostic_forbidden_entries(usize::MAX - 1, 2).unwrap_err(),
         TargetEvidenceError::ResourceCountOverflow {
             resource: "target-evidence retained diagnostic forbidden-column entries",
+        }
+    );
+    assert_eq!(
+        retained_modular_obstruction_entries(1, usize::MAX).unwrap_err(),
+        TargetEvidenceError::ResourceCountOverflow {
+            resource: "target-evidence retained modular-obstruction entries",
+        }
+    );
+    assert_eq!(
+        retained_modular_obstruction_entries(usize::MAX, 1).unwrap_err(),
+        TargetEvidenceError::ResourceCountOverflow {
+            resource: "target-evidence retained modular-obstruction entries",
         }
     );
 }

@@ -10,9 +10,13 @@ use crate::foundry::artifact::canonical_three_loop_family;
 use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use crate::sector::Mask;
 
-use super::rank::rank_projection_for_test;
+use super::obstruction::verify_obstruction_for_test;
+use super::rank::{rank_projection_for_test, right_obstruction_for_test};
 use super::sample::evaluate_coefficient_for_test;
-use super::{ModularKernelError, ModularKernelLimits, ModularPhysicalFrame, ModularTargetQuery};
+use super::{
+    ModularKernelError, ModularKernelLimits, ModularObstructionEntry, ModularPhysicalFrame,
+    ModularTargetQuery,
+};
 use crate::foundry::completion::frame::{PhysicalFrameLimits, PhysicalFramePlan};
 
 const PRIME: u64 = 1_000_000_007;
@@ -117,6 +121,44 @@ fn repeated_samples_and_target_queries_are_deterministic() {
 }
 
 #[test]
+fn s4a_no_hit_obstruction_retains_exact_query_identity() {
+    let (context, plan) = s4a_degree_one();
+    let sampled = sampled_s4a(&context, &plan);
+    let target = 0;
+    let forbidden = (1..sampled.matrix().ncols() as usize).collect::<Vec<_>>();
+    let query = sampled
+        .query_target(target, &forbidden, ModularKernelLimits::default())
+        .unwrap();
+    let obstruction = query.obstruction().expect("all-other-column S4a no-hit");
+
+    assert!(matches!(
+        &query,
+        ModularTargetQuery::NoHitWithObstruction(_)
+    ));
+    assert!(std::ptr::eq(obstruction.plan(), &plan));
+    assert_eq!(
+        obstruction.sample_fingerprint(),
+        sampled.sample_fingerprint()
+    );
+    assert_eq!(obstruction.diagnostics(), query.diagnostics());
+    assert_eq!(
+        obstruction.logical_forbidden_columns(),
+        forbidden.as_slice()
+    );
+    assert_eq!(obstruction.target_physical_column(), target);
+    assert_eq!(
+        obstruction.target_logical_column(),
+        obstruction.logical_physical_columns().len() - 1
+    );
+    let target_entry = obstruction.entries().last().unwrap();
+    assert_eq!(
+        target_entry.logical_column(),
+        obstruction.target_logical_column()
+    );
+    assert!(sampled.field().is_one(target_entry.coefficient()));
+}
+
+#[test]
 fn sparse_and_symbolica_dense_rank_agree_on_the_s4a_sample() {
     let (context, plan) = s4a_degree_one();
     let sampled = sampled_s4a(&context, &plan);
@@ -145,8 +187,10 @@ fn s4a_nonempty_target_partition_matches_independent_dense_evidence() {
         .unwrap();
     let diagnostics = query.diagnostics();
 
+    // The query-local obstruction projection always numbers the target last,
+    // independently of its physical-frame ordinal.
     let mut augmented = forbidden.clone();
-    augmented.insert(augmented.binary_search(&target).unwrap_err(), target);
+    augmented.push(target);
     let dense = sampled.matrix().to_dense();
     let all_rows = (0..dense.nrows()).collect::<Vec<_>>();
 
@@ -164,7 +208,12 @@ fn s4a_nonempty_target_partition_matches_independent_dense_evidence() {
     );
     assert_eq!(
         diagnostics.augmented_pivot_columns.as_ref(),
-        dense_pivot_columns(&dense, &augmented).as_slice()
+        {
+            let mut pivots = dense_pivot_columns(&dense, &augmented);
+            pivots.sort_unstable();
+            pivots
+        }
+        .as_slice()
     );
     assert_eq!(
         diagnostics.forbidden_independent_source_rows.as_ref(),
@@ -181,6 +230,175 @@ fn s4a_nonempty_target_partition_matches_independent_dense_evidence() {
     assert_eq!(
         diagnostics.augmented_total_fill_nonzeros,
         diagnostics.augmented_lower_pattern_nonzeros + diagnostics.augmented_upper_nonzeros
+    );
+}
+
+#[test]
+fn target_first_no_hit_returns_a_checked_deterministic_obstruction() {
+    let field = Zp64::new(PRIME);
+    // Physical c0 is the target, while logical columns are [c1, c2, c0].
+    // c2 is an unrelated free column, so the right kernel is
+    // multidimensional.  The canonical target-normalized representative sets
+    // every non-target free coordinate to zero and returns (-1, 0, 1).
+    let matrix = SparseMatrix::from_csr(
+        1,
+        3,
+        vec![field.one(), field.one()],
+        vec![0, 2],
+        vec![0, 1],
+        field.clone(),
+    );
+    let limits = ModularKernelLimits::default();
+    let first = right_obstruction_for_test(&matrix, 0, &[2, 1], limits).unwrap();
+    let repeated = right_obstruction_for_test(&matrix, 0, &[1, 2], limits).unwrap();
+    assert_eq!(first, repeated);
+    assert_eq!((first.0, first.1), (1, 1));
+    assert_eq!(first.2, vec![1, 2, 0]);
+    assert_eq!(first.3.ncols(), 3);
+    assert_eq!(first.3.col_idcs(), &[0, 2]);
+    assert_eq!(
+        first.4,
+        vec![
+            ModularObstructionEntry::new(0, field.neg(&field.one())),
+            ModularObstructionEntry::new(2, field.one()),
+        ]
+    );
+    verify_obstruction_for_test(&first.3, 2, &first.4, limits).unwrap();
+}
+
+#[test]
+fn empty_rows_and_a_zero_target_column_have_canonical_unit_obstructions() {
+    let field = Zp64::new(PRIME);
+    let limits = ModularKernelLimits::default();
+    let empty = SparseMatrix::new(0, 2, field.clone());
+    let empty_obstruction = right_obstruction_for_test(&empty, 0, &[1], limits).unwrap();
+    assert_eq!((empty_obstruction.0, empty_obstruction.1), (0, 0));
+    assert_eq!(empty_obstruction.2, vec![1, 0]);
+    assert_eq!(empty_obstruction.3.row_ptrs(), &[0]);
+    assert_eq!(
+        empty_obstruction.4,
+        vec![ModularObstructionEntry::new(1, field.one())]
+    );
+
+    // The sole row has support only in forbidden physical c1; physical c0 is
+    // an identically zero target column and therefore supplies the unit
+    // target direction in the right kernel.
+    let zero_target =
+        SparseMatrix::from_csr(1, 2, vec![field.one()], vec![0, 1], vec![1], field.clone());
+    let zero_obstruction = right_obstruction_for_test(&zero_target, 0, &[1], limits).unwrap();
+    assert_eq!((zero_obstruction.0, zero_obstruction.1), (1, 1));
+    assert_eq!(zero_obstruction.2, vec![1, 0]);
+    assert_eq!(
+        zero_obstruction.4,
+        vec![ModularObstructionEntry::new(1, field.one())]
+    );
+    verify_obstruction_for_test(&zero_obstruction.3, 1, &zero_obstruction.4, limits).unwrap();
+}
+
+#[test]
+fn extending_forbidden_columns_rebuilds_the_logical_projection() {
+    let field = Zp64::new(PRIME);
+    // Row zero states c0+c1=0.  Row one contains the newly forbidden c2.
+    // Adding c2 must put it between c1 and the target in logical order and
+    // retain its physical row, without changing the normalized relation.
+    let matrix = SparseMatrix::from_csr(
+        2,
+        3,
+        vec![field.one(), field.one(), field.one()],
+        vec![0, 2, 3],
+        vec![0, 1, 2],
+        field.clone(),
+    );
+    let limits = ModularKernelLimits::default();
+    let smaller = right_obstruction_for_test(&matrix, 0, &[1], limits).unwrap();
+    assert_eq!(smaller.2, vec![1, 0]);
+    assert_eq!(smaller.3.row_ptrs(), &[0, 2, 2]);
+    assert_eq!(smaller.3.col_idcs(), &[0, 1]);
+
+    let extended = right_obstruction_for_test(&matrix, 0, &[1, 2], limits).unwrap();
+    assert_eq!((extended.0, extended.1), (2, 2));
+    assert_eq!(extended.2, vec![1, 2, 0]);
+    assert_eq!(extended.3.row_ptrs(), &[0, 2, 3]);
+    assert_eq!(extended.3.col_idcs(), &[0, 2, 1]);
+    assert_eq!(
+        extended.4,
+        vec![
+            ModularObstructionEntry::new(0, field.neg(&field.one())),
+            ModularObstructionEntry::new(2, field.one()),
+        ]
+    );
+}
+
+#[test]
+fn tampered_right_obstructions_fail_exact_finite_field_replay() {
+    let field = Zp64::new(PRIME);
+    let matrix = SparseMatrix::from_csr(
+        1,
+        2,
+        vec![field.one(), field.one()],
+        vec![0, 2],
+        vec![0, 1],
+        field.clone(),
+    );
+    let limits = ModularKernelLimits::default();
+    let (_, _, _, projected, entries) =
+        right_obstruction_for_test(&matrix, 0, &[1], limits).unwrap();
+
+    let mut bad_residual = entries.clone();
+    bad_residual[0] = ModularObstructionEntry::new(0, field.one());
+    assert_eq!(
+        verify_obstruction_for_test(&projected, 1, &bad_residual, limits).unwrap_err(),
+        ModularKernelError::Invariant {
+            detail: "modular right obstruction failed exact finite-field residual replay",
+        }
+    );
+
+    let mut bad_normalization = entries;
+    bad_normalization[1] = ModularObstructionEntry::new(1, field.neg(&field.one()));
+    assert_eq!(
+        verify_obstruction_for_test(&projected, 1, &bad_normalization, limits).unwrap_err(),
+        ModularKernelError::Invariant {
+            detail: "modular right obstruction is not normalized to target coefficient one",
+        }
+    );
+}
+
+#[test]
+fn obstruction_projection_and_back_substitution_have_owned_caps() {
+    let field = Zp64::new(PRIME);
+    let matrix = SparseMatrix::from_csr(
+        1,
+        3,
+        vec![field.one(), field.one()],
+        vec![0, 2],
+        vec![0, 1],
+        field,
+    );
+
+    let mut projection_limits = ModularKernelLimits::default();
+    projection_limits.max_projected_columns = 2;
+    assert_eq!(
+        right_obstruction_for_test(&matrix, 0, &[1, 2], projection_limits).unwrap_err(),
+        ModularKernelError::ResourceLimit {
+            resource: "modular projected columns",
+            requested: 3,
+            limit: 2,
+        }
+    );
+
+    // The two-column projection has two retained inputs, forward reduction
+    // owns three possible L+U entries, and obstruction extraction admits a
+    // two-entry RREF output.  A live cap of six must reject the conservative
+    // seven-entry envelope before native back substitution.
+    let mut live_limits = ModularKernelLimits::default();
+    live_limits.max_reducer_total_fill_entries = 6;
+    assert_eq!(
+        right_obstruction_for_test(&matrix, 0, &[1], live_limits).unwrap_err(),
+        ModularKernelError::ResourceLimit {
+            resource: "modular obstruction back-substitution live entries",
+            requested: 7,
+            limit: 6,
+        }
     );
 }
 

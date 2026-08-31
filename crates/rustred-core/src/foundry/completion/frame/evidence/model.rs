@@ -3,7 +3,8 @@ use std::sync::Arc;
 use crate::algebra::IndexedCoefficientContext;
 use crate::foundry::completion::frame::exact::{ExactCircuitError, ExactCircuitLift};
 use crate::foundry::completion::frame::modular::{
-    ModularHit, ModularKernelError, ModularNoHit, ModularRankDiagnostics, ModularSampleFingerprint,
+    ModularHit, ModularKernelError, ModularRankDiagnostics, ModularRightObstruction,
+    ModularSampleFingerprint,
 };
 use crate::identity::IntegralShift;
 
@@ -240,7 +241,7 @@ pub(crate) enum EvidenceProbeOutcome<'frame> {
     },
     ModularNoHit {
         sample: Arc<ModularSampleFingerprint>,
-        no_hit: ModularNoHit,
+        obstruction: ModularRightObstruction<'frame>,
     },
     Hit {
         hit: ModularHit<'frame>,
@@ -275,7 +276,7 @@ impl<'frame> EvidenceProbeOutcome<'frame> {
     pub(crate) const fn diagnostics(&self) -> Option<&ModularRankDiagnostics> {
         match self {
             Self::RejectedSample { .. } | Self::RejectedQuery { .. } => None,
-            Self::ModularNoHit { no_hit, .. } => Some(&no_hit.diagnostics),
+            Self::ModularNoHit { obstruction, .. } => Some(obstruction.diagnostics()),
             Self::Hit { hit, .. } => Some(hit.diagnostics()),
         }
     }

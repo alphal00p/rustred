@@ -108,6 +108,112 @@ pub(crate) struct ModularRankDiagnostics {
     pub(crate) augmented_total_fill_nonzeros: usize,
 }
 
+/// One nonzero entry of a target-normalized modular right obstruction.
+///
+/// Columns use the query-local logical order: canonical forbidden columns
+/// first and the target last.  This is discovery evidence only.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ModularObstructionEntry {
+    pub(super) logical_column: usize,
+    pub(super) coefficient: FiniteFieldElement<u64>,
+}
+
+impl ModularObstructionEntry {
+    pub(crate) const fn logical_column(&self) -> usize {
+        self.logical_column
+    }
+
+    pub(crate) const fn coefficient(&self) -> &FiniteFieldElement<u64> {
+        &self.coefficient
+    }
+
+    pub(super) const fn new(logical_column: usize, coefficient: FiniteFieldElement<u64>) -> Self {
+        Self {
+            logical_column,
+            coefficient,
+        }
+    }
+}
+
+/// Checked target-local right-nullspace evidence for one modular no-hit.
+///
+/// `logical_physical_columns` is exactly the canonical forbidden physical
+/// columns followed by the target physical column.  Construction is private
+/// to the checked obstruction service, which verifies a sparse `q` with
+/// `q_target = 1` and `A q = 0` against the sampled projected matrix.  The
+/// result cannot authorize an exact rule, owner, terminal, or closure claim.
+#[derive(Clone, Debug)]
+pub(crate) struct ModularRightObstruction<'frame> {
+    plan: &'frame PhysicalFramePlan,
+    sample: Arc<ModularSampleFingerprint>,
+    diagnostics: ModularRankDiagnostics,
+    logical_physical_columns: Box<[usize]>,
+    entries: Box<[ModularObstructionEntry]>,
+}
+
+impl<'frame> ModularRightObstruction<'frame> {
+    pub(crate) const fn plan(&self) -> &'frame PhysicalFramePlan {
+        self.plan
+    }
+
+    pub(crate) const fn diagnostics(&self) -> &ModularRankDiagnostics {
+        &self.diagnostics
+    }
+
+    pub(crate) const fn sample_fingerprint(&self) -> &Arc<ModularSampleFingerprint> {
+        &self.sample
+    }
+
+    /// Canonical forbidden physical columns followed by the physical target.
+    pub(crate) fn logical_physical_columns(&self) -> &[usize] {
+        &self.logical_physical_columns
+    }
+
+    pub(crate) fn logical_forbidden_columns(&self) -> &[usize] {
+        &self.logical_physical_columns[..self.logical_physical_columns.len() - 1]
+    }
+
+    pub(crate) const fn target_logical_column(&self) -> usize {
+        self.logical_physical_columns.len() - 1
+    }
+
+    pub(crate) fn target_physical_column(&self) -> usize {
+        self.logical_physical_columns[self.target_logical_column()]
+    }
+
+    pub(crate) fn entries(&self) -> &[ModularObstructionEntry] {
+        &self.entries
+    }
+
+    pub(super) fn from_checked_parts(
+        plan: &'frame PhysicalFramePlan,
+        sample: Arc<ModularSampleFingerprint>,
+        diagnostics: ModularRankDiagnostics,
+        logical_physical_columns: Vec<usize>,
+        entries: Vec<ModularObstructionEntry>,
+    ) -> Self {
+        Self {
+            plan,
+            sample,
+            diagnostics,
+            logical_physical_columns: logical_physical_columns.into_boxed_slice(),
+            entries: entries.into_boxed_slice(),
+        }
+    }
+}
+
+impl PartialEq for ModularRightObstruction<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.plan, other.plan)
+            && self.sample == other.sample
+            && self.diagnostics == other.diagnostics
+            && self.logical_physical_columns == other.logical_physical_columns
+            && self.entries == other.entries
+    }
+}
+
+impl Eq for ModularRightObstruction<'_> {}
+
 /// Positive modular discovery evidence.  Exact lift and replay are still
 /// required before this may become a closing relation.
 #[derive(Clone, Debug)]
@@ -153,24 +259,24 @@ impl PartialEq for ModularHit<'_> {
 
 impl Eq for ModularHit<'_> {}
 
-/// A target-local modular no-hit.  This is explicitly inconclusive: another
-/// sample, prime, source frame, or exact computation may still find a relation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ModularNoHit {
-    pub(crate) diagnostics: ModularRankDiagnostics,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ModularTargetQuery<'frame> {
     Hit(ModularHit<'frame>),
-    ModularNoHit(ModularNoHit),
+    NoHitWithObstruction(ModularRightObstruction<'frame>),
 }
 
-impl ModularTargetQuery<'_> {
+impl<'frame> ModularTargetQuery<'frame> {
     pub(crate) const fn diagnostics(&self) -> &ModularRankDiagnostics {
         match self {
             Self::Hit(hit) => &hit.diagnostics,
-            Self::ModularNoHit(no_hit) => &no_hit.diagnostics,
+            Self::NoHitWithObstruction(obstruction) => obstruction.diagnostics(),
+        }
+    }
+
+    pub(crate) const fn obstruction(&self) -> Option<&ModularRightObstruction<'frame>> {
+        match self {
+            Self::Hit(_) => None,
+            Self::NoHitWithObstruction(obstruction) => Some(obstruction),
         }
     }
 }

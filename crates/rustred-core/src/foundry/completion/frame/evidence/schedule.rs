@@ -30,6 +30,7 @@ const DIAGNOSTIC_SOURCES: &str = "target-evidence diagnostic source entries";
 const DIAGNOSTIC_PIVOTS: &str = "target-evidence diagnostic pivot entries";
 const RETAINED_DIAGNOSTIC_FORBIDDEN_COLUMNS: &str =
     "target-evidence retained diagnostic forbidden-column entries";
+const RETAINED_MODULAR_OBSTRUCTIONS: &str = "target-evidence retained modular-obstruction entries";
 const TRACE_SCOPE: &str = "target-evidence canonical trace scope entries";
 const CANONICAL_SOURCES: &str = "target-evidence canonical source entries";
 const CANONICAL_PIVOTS: &str = "target-evidence canonical pivot entries";
@@ -77,6 +78,15 @@ impl<'context, 'partition, 'frame> TargetEvidenceScheduler<'context, 'partition,
             probe_plan
                 .limits()
                 .max_retained_diagnostic_forbidden_column_entries,
+        )?;
+        let retained_obstruction_entries = retained_modular_obstruction_entries(
+            probe_plan.probes().len(),
+            partition.forbidden_columns().len(),
+        )?;
+        check_limit(
+            RETAINED_MODULAR_OBSTRUCTIONS,
+            retained_obstruction_entries,
+            probe_plan.limits().max_retained_modular_obstruction_entries,
         )?;
         Ok(Self {
             probe_plan,
@@ -126,8 +136,11 @@ impl<'context, 'partition, 'frame> TargetEvidenceScheduler<'context, 'partition,
             };
             budget.admit_diagnostics(query.diagnostics(), limits)?;
             match query {
-                ModularTargetQuery::ModularNoHit(no_hit) => {
-                    outcomes.push(EvidenceProbeOutcome::ModularNoHit { sample, no_hit });
+                ModularTargetQuery::NoHitWithObstruction(obstruction) => {
+                    outcomes.push(EvidenceProbeOutcome::ModularNoHit {
+                        sample,
+                        obstruction,
+                    });
                 }
                 ModularTargetQuery::Hit(hit) => {
                     let trace = canonical_trace(
@@ -708,6 +721,22 @@ pub(super) fn retained_diagnostic_forbidden_entries(
         RETAINED_DIAGNOSTIC_FORBIDDEN_COLUMNS,
         retained_copies,
         forbidden_column_count,
+    )
+}
+
+/// Worst-case retained sidecar cells when every probe is a modular no-hit.
+/// Each obstruction owns `|F| + 1` logical-to-physical column ordinals and at
+/// most `|F| + 1` nonzero `(logical column, coefficient)` entries.
+pub(super) fn retained_modular_obstruction_entries(
+    probe_count: usize,
+    forbidden_column_count: usize,
+) -> Result<usize, TargetEvidenceError> {
+    let logical_columns = checked_add(RETAINED_MODULAR_OBSTRUCTIONS, forbidden_column_count, 1)?;
+    let entries_per_probe = checked_mul(RETAINED_MODULAR_OBSTRUCTIONS, logical_columns, 2)?;
+    checked_mul(
+        RETAINED_MODULAR_OBSTRUCTIONS,
+        probe_count,
+        entries_per_probe,
     )
 }
 
