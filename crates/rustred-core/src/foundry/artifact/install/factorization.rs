@@ -3,28 +3,74 @@
 use std::collections::BTreeSet;
 
 use crate::algebra::Coefficient;
+use crate::family::IntegralKey;
 use crate::family::{
     AffineDenominator, IntegralFamily, ScalarProductCoordinate, congruence_symbolic_matrix,
     invert_symbolic_matrix,
 };
+use crate::sector::symmetry::Canonicalizer;
 
 use super::super::error::ArtifactError;
 use super::super::factorization::{FactorizationMasterEmbedding, FactorizationRule};
-use super::ClosingArtifactCandidate;
+use super::super::model::{ClosedArtifact, ZeroSectorTerminal};
 
 const MAX_MASTER_EMBEDDINGS_PER_RULE: usize = 1_000_000;
 
+/// Immutable generic inputs needed to authenticate factorization recipes.
+/// Rule storage is passed separately so installation can compile embeddings
+/// for either a complete artifact or a terminal-only authority.
+#[derive(Clone, Copy)]
+pub(super) struct InstallContext<'input> {
+    arity: usize,
+    family: &'input IntegralFamily,
+    canonicalizer: Option<&'input Canonicalizer>,
+    dependencies: &'input [Box<ClosedArtifact>],
+    parent_terminals: &'input BTreeSet<IntegralKey>,
+    zero_sectors: &'input [ZeroSectorTerminal],
+}
+
+impl<'input> InstallContext<'input> {
+    pub(super) const fn new(
+        arity: usize,
+        family: &'input IntegralFamily,
+        canonicalizer: Option<&'input Canonicalizer>,
+        dependencies: &'input [Box<ClosedArtifact>],
+        parent_terminals: &'input BTreeSet<IntegralKey>,
+        zero_sectors: &'input [ZeroSectorTerminal],
+    ) -> Self {
+        Self {
+            arity,
+            family,
+            canonicalizer,
+            dependencies,
+            parent_terminals,
+            zero_sectors,
+        }
+    }
+}
+
 pub(super) fn validate_and_compile(
-    candidate: &mut ClosingArtifactCandidate,
+    context: InstallContext<'_>,
+    rules: &mut [FactorizationRule],
 ) -> Result<(), ArtifactError> {
-    for rule_ordinal in 0..candidate.factorization_rules.len() {
-        let rule = &candidate.factorization_rules[rule_ordinal];
-        if rule.application_domain().arity() != candidate.arity {
+    let mut distinct_factorization_sectors = BTreeSet::new();
+    for rule in rules {
+        if rule.application_domain().arity() != context.arity {
             return Err(ArtifactError::InvalidFactorization {
                 detail: "the factorization domain has a foreign shape",
             });
         }
-        candidate
+        if !distinct_factorization_sectors.insert(rule.application_domain().sector().clone())
+            || context
+                .zero_sectors
+                .iter()
+                .any(|terminal| terminal.sector() == rule.application_domain().sector())
+        {
+            return Err(ArtifactError::InvalidFactorization {
+                detail: "factorization sectors are duplicated or overlap a zero terminal",
+            });
+        }
+        context
             .family
             .coefficient_context()
             .validate_with_limits(rule.normalization(), Default::default())
@@ -52,7 +98,7 @@ pub(super) fn validate_and_compile(
         }
 
         for factor in rule.factors() {
-            let dependency = candidate
+            let dependency = context
                 .dependencies
                 .get(factor.dependency_ordinal())
                 .ok_or(ArtifactError::InvalidFactorization {
@@ -60,7 +106,7 @@ pub(super) fn validate_and_compile(
                 })?;
             if !dependency
                 .coefficient_context()
-                .has_same_variable_map(candidate.family.coefficient_context())
+                .has_same_variable_map(context.family.coefficient_context())
                 || factor.parent_positions().len() != dependency.arity()
             {
                 return Err(ArtifactError::InvalidFactorization {
@@ -69,16 +115,16 @@ pub(super) fn validate_and_compile(
             }
             let mut seen = BTreeSet::new();
             for &position in factor.parent_positions() {
-                if position >= candidate.arity || !seen.insert(position) {
+                if position >= context.arity || !seen.insert(position) {
                     return Err(ArtifactError::InvalidFactorization {
                         detail: "a factorization projection is out of range or repeats a coordinate",
                     });
                 }
             }
         }
-        validate_kinematics(candidate, rule)?;
-        let embeddings = compile_embedded_master_products(candidate, rule)?;
-        candidate.factorization_rules[rule_ordinal].install_master_embeddings(embeddings);
+        validate_kinematics(&context, rule)?;
+        let embeddings = compile_embedded_master_products(&context, rule)?;
+        rule.install_master_embeddings(embeddings);
     }
     Ok(())
 }
@@ -88,12 +134,12 @@ pub(super) fn validate_and_compile(
 /// reducer can then perform the same projection without any hot-path artifact
 /// authentication.
 fn compile_embedded_master_products(
-    candidate: &ClosingArtifactCandidate,
+    context: &InstallContext<'_>,
     rule: &FactorizationRule,
 ) -> Result<Vec<FactorizationMasterEmbedding>, ArtifactError> {
     let embedding_count = rule.factors().iter().try_fold(1_usize, |count, factor| {
         count.checked_mul(
-            candidate.dependencies[factor.dependency_ordinal()]
+            context.dependencies[factor.dependency_ordinal()]
                 .masters()
                 .len(),
         )
@@ -114,8 +160,8 @@ fn compile_embedded_master_products(
             detail: "could not allocate the dependency-master embedding table",
         }
     })?;
-    let mut parent_powers = vec![0_i64; candidate.arity];
-    compile_embedded_master_product_at(candidate, rule, 0, &mut parent_powers, &mut embeddings)?;
+    let mut parent_powers = vec![0_i64; context.arity];
+    compile_embedded_master_product_at(context, rule, 0, &mut parent_powers, &mut embeddings)?;
     embeddings
         .sort_unstable_by(|left, right| left.raw_parent_master().cmp(right.raw_parent_master()));
     if embeddings.len() != embedding_count
@@ -131,7 +177,7 @@ fn compile_embedded_master_products(
 }
 
 fn compile_embedded_master_product_at(
-    candidate: &ClosingArtifactCandidate,
+    context: &InstallContext<'_>,
     rule: &FactorizationRule,
     factor_ordinal: usize,
     parent_powers: &mut [i64],
@@ -139,11 +185,11 @@ fn compile_embedded_master_product_at(
 ) -> Result<(), ArtifactError> {
     let Some(factor) = rule.factors().get(factor_ordinal) else {
         let raw = crate::family::IntegralKey::try_new(parent_powers.iter().copied())?;
-        let terminal = match &candidate.canonicalizer {
+        let terminal = match context.canonicalizer {
             Some(canonicalizer) => canonicalizer.canonicalize(&raw)?.canonical().clone(),
             None => raw.clone(),
         };
-        if !candidate.masters.contains(&terminal) {
+        if !context.parent_terminals.contains(&terminal) {
             return Err(ArtifactError::InvalidFactorization {
                 detail: "a dependency-master product does not embed into a parent master terminal",
             });
@@ -151,13 +197,13 @@ fn compile_embedded_master_product_at(
         embeddings.push(FactorizationMasterEmbedding::new(raw, terminal));
         return Ok(());
     };
-    let dependency = &candidate.dependencies[factor.dependency_ordinal()];
+    let dependency = &context.dependencies[factor.dependency_ordinal()];
     for master in dependency.masters() {
         for (&parent_position, &power) in factor.parent_positions().iter().zip(master.powers()) {
             parent_powers[parent_position] = power;
         }
         compile_embedded_master_product_at(
-            candidate,
+            context,
             rule,
             factor_ordinal + 1,
             parent_powers,
@@ -171,10 +217,10 @@ fn compile_embedded_master_product_at(
 }
 
 fn validate_kinematics(
-    candidate: &ClosingArtifactCandidate,
+    context: &InstallContext<'_>,
     rule: &FactorizationRule,
 ) -> Result<(), ArtifactError> {
-    let family = &candidate.family;
+    let family = context.family;
     let loop_count = family.loop_count();
     let basis = rule.loop_basis();
     let expected_entries =
@@ -193,12 +239,12 @@ fn validate_kinematics(
         });
     }
 
-    let context = family.coefficient_context();
-    let matrix = coefficient_matrix_from_i64(context, basis.row_major(), loop_count)?;
+    let coefficient_context = family.coefficient_context();
+    let matrix = coefficient_matrix_from_i64(coefficient_context, basis.row_major(), loop_count)?;
     let (inverse, determinant) =
-        invert_symbolic_matrix(context, &matrix, family.construction_limits())?;
-    let minus_one = context.integer(-1);
-    if determinant != context.one() && determinant != minus_one {
+        invert_symbolic_matrix(coefficient_context, &matrix, family.construction_limits())?;
+    let minus_one = coefficient_context.integer(-1);
+    if determinant != coefficient_context.one() && determinant != minus_one {
         return Err(ArtifactError::InvalidFactorization {
             detail: "the factorization loop-basis change is not unimodular",
         });
@@ -208,7 +254,7 @@ fn validate_kinematics(
     let mut owned_parent_denominators = BTreeSet::new();
     let mut owned_transformed_loops = BTreeSet::new();
     for factor in rule.factors() {
-        let dependency = &candidate.dependencies[factor.dependency_ordinal()];
+        let dependency = &context.dependencies[factor.dependency_ordinal()];
         if dependency.family().external_count() != 0
             || factor.transformed_loop_positions().len() != dependency.family().loop_count()
         {

@@ -19,6 +19,7 @@ use super::{
 /// can never make an integral harder.
 #[derive(Debug)]
 pub struct Canonicalizer {
+    family_fingerprint: Arc<String>,
     ordering: OrderingPolicy,
     arity: usize,
     generator_count: usize,
@@ -34,12 +35,22 @@ impl Canonicalizer {
     ) -> Result<Self, Error> {
         let mut retained = Vec::new();
         let mut expected_arity = None;
+        let mut expected_family_fingerprint: Option<Arc<String>> = None;
         for (ordinal, generator) in generators.into_iter().enumerate() {
             let requested = ordinal.checked_add(1).ok_or(Error::ResourceCountOverflow {
                 resource: "generator count",
             })?;
             check_limit("generator count", requested, limits.max_generators)?;
-            let entries = generator.into_source_for_target();
+            let (family_fingerprint, entries) = generator.into_parts();
+            if let Some(expected) = &expected_family_fingerprint {
+                if expected.as_str() != family_fingerprint.as_str() {
+                    return Err(Error::OrbitInvariant {
+                        detail: "authenticated symmetry generators belong to different families",
+                    });
+                }
+            } else {
+                expected_family_fingerprint = Some(family_fingerprint);
+            }
             let arity = entries.len();
             if let Some(expected) = expected_arity {
                 if arity != expected {
@@ -62,11 +73,13 @@ impl Canonicalizer {
             retained.push(Arc::<[usize]>::from(entries));
         }
         let arity = expected_arity.ok_or(Error::EmptyGenerators)?;
+        let family_fingerprint = expected_family_fingerprint.ok_or(Error::EmptyGenerators)?;
         retained.sort_unstable();
         retained.dedup();
         let generator_count = retained.len();
         let group = derive_group(arity, &retained, limits)?;
         Ok(Self {
+            family_fingerprint,
             ordering,
             arity,
             generator_count,
@@ -77,6 +90,10 @@ impl Canonicalizer {
 
     pub const fn ordering(&self) -> OrderingPolicy {
         self.ordering
+    }
+
+    pub(crate) fn family_fingerprint(&self) -> &str {
+        self.family_fingerprint.as_str()
     }
 
     pub const fn arity(&self) -> usize {

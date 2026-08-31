@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 /// An exact affine self-map compiled into an intrinsic family permutation.
 ///
 /// Construction is private to
@@ -7,6 +9,7 @@
 /// in the reusable transport object.
 #[derive(Debug)]
 pub struct Verified {
+    pub(super) family_fingerprint: Arc<String>,
     pub(super) source_for_target: Box<[usize]>,
 }
 
@@ -22,7 +25,7 @@ impl Verified {
         &self.source_for_target
     }
 
-    pub(in crate::sector::symmetry) fn into_source_for_target(self) -> Box<[usize]> {
-        self.source_for_target
+    pub(in crate::sector::symmetry) fn into_parts(self) -> (Arc<String>, Box<[usize]>) {
+        (self.family_fingerprint, self.source_for_target)
     }
 }

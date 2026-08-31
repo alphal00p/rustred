@@ -6,13 +6,13 @@ use crate::sector::symmetry::{CoefficientMatrix, Limits, MomentumMap, verify};
 
 use super::{CanonicalizationLimits, Canonicalizer, Error};
 
-fn sunset_family() -> IntegralFamily {
+fn sunset_family_with_identity(identity: &str) -> IntegralFamily {
     let coefficients = CoefficientContext::new(["d"]);
     let zero = coefficients.zero();
     let one = coefficients.one();
     let minus_one = coefficients.integer(-1);
     IntegralFamily::new(
-        "canonical-symmetry-sunset",
+        identity,
         vec!["k1".into(), "k2".into()],
         Vec::new(),
         coefficients.clone(),
@@ -32,6 +32,10 @@ fn sunset_family() -> IntegralFamily {
         vec![zero.clone(), zero.clone(), zero],
     )
     .unwrap()
+}
+
+fn sunset_family() -> IntegralFamily {
+    sunset_family_with_identity("canonical-symmetry-sunset")
 }
 
 fn vacuum_map(coefficients: &CoefficientContext, entries: [i64; 4]) -> MomentumMap {
@@ -75,7 +79,9 @@ fn sunset_s3() -> Canonicalizer {
 
 #[test]
 fn authenticated_sunset_generators_close_to_exact_s3() {
+    let expected_family = sunset_family();
     let owner = sunset_s3();
+    assert_eq!(owner.family_fingerprint(), expected_family.fingerprint());
     assert_eq!(owner.arity(), 3);
     assert_eq!(owner.generator_count(), 2);
     assert_eq!(owner.group_order(), 6);
@@ -89,6 +95,33 @@ fn authenticated_sunset_generators_close_to_exact_s3() {
             &[2, 0, 1][..],
             &[2, 1, 0][..],
         ]
+    );
+}
+
+#[test]
+fn canonicalizer_rejects_same_arity_generators_from_distinct_families() {
+    let first = sunset_family_with_identity("canonical-symmetry-family-first");
+    let second = sunset_family_with_identity("canonical-symmetry-family-second");
+    assert_ne!(first.fingerprint(), second.fingerprint());
+
+    let generators = [&first, &second].map(|family| {
+        let map = vacuum_map(family.coefficient_context(), [0, 1, 1, 0]);
+        compile(
+            family,
+            verify(family, family, map, Limits::default()).unwrap(),
+        )
+        .unwrap()
+    });
+    assert_eq!(
+        Canonicalizer::try_new(
+            OrderingPolicy::default(),
+            generators,
+            CanonicalizationLimits::default(),
+        )
+        .unwrap_err(),
+        Error::OrbitInvariant {
+            detail: "authenticated symmetry generators belong to different families",
+        }
     );
 }
 

@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use crate::family::{IntegralKey, invert_symbolic_matrix};
+use crate::foundry::artifact::ZeroTerminalProof;
 use crate::identity::{ParametricIbpConfig, ParametricIbpGenerator};
 use crate::sector::Mask;
 
@@ -10,6 +12,7 @@ use super::manifest::{
 };
 use super::momentum_rank::{EDGE_MOMENTA, active_momentum_rank};
 use super::symmetry::canonical_s4;
+use super::terminal_authority::derive_k6_terminal_authority;
 
 #[test]
 fn pressure_family_owns_the_exact_nine_ordinary_sources() {
@@ -111,6 +114,69 @@ fn exact_s4_action_partitions_all_sectors_into_zero_and_full_rank_orbits() {
             .sum::<usize>(),
         38
     );
+}
+
+#[test]
+fn sealed_terminal_authority_exactly_owns_zero_and_factorized_k6_regions() {
+    let authority = derive_k6_terminal_authority().unwrap();
+    assert!(Arc::ptr_eq(
+        &authority,
+        &derive_k6_terminal_authority().unwrap()
+    ));
+    assert_eq!(
+        authority.authority_id(),
+        "rustred.test.three-loop-k6-terminal-authority.v1"
+    );
+    assert_eq!(authority.arity(), 6);
+    assert_eq!(authority.family().denominator_count(), 6);
+    assert_eq!(authority.dependencies().len(), 2);
+    assert_eq!(authority.zero_sectors().len(), 26);
+    assert_eq!(authority.factorization_rules().len(), 3);
+    assert_eq!(
+        authority
+            .factorization_rules()
+            .iter()
+            .map(|rule| rule.application_domain().sector().clone())
+            .collect::<BTreeSet<_>>()
+            .len(),
+        3
+    );
+    assert_eq!(authority.parent_terminals().len(), 3);
+    assert_eq!(
+        authority
+            .factorization_rules()
+            .iter()
+            .map(|rule| rule.master_embeddings().len())
+            .collect::<Vec<_>>(),
+        [2, 1, 1]
+    );
+    assert_eq!(
+        authority
+            .zero_sectors()
+            .iter()
+            .filter(|terminal| { terminal.proof() == ZeroTerminalProof::ScalelessVacuumPolynomial })
+            .count(),
+        1
+    );
+
+    let zero_representatives = ZERO_ORBITS
+        .iter()
+        .map(|orbit| orbit.representative)
+        .collect::<BTreeSet<_>>();
+    for bits in 0_u64..64 {
+        let powers: [i64; 6] = std::array::from_fn(|slot| i64::from(((bits >> slot) & 1) != 0));
+        let key = IntegralKey::try_new(powers).unwrap();
+        let canonical = authority
+            .canonicalizer()
+            .unwrap()
+            .canonicalize(&key)
+            .unwrap();
+        assert_eq!(
+            authority.is_zero_terminal(&key),
+            zero_representatives.contains(canonical.canonical().powers()),
+            "wrong sealed zero ownership for {powers:?}"
+        );
+    }
 }
 
 #[test]

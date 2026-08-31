@@ -6,9 +6,9 @@ use super::{Error, Verified};
 /// Compile one verified affine self-map into a restriction-independent family
 /// permutation.
 pub fn compile(family: &IntegralFamily, affine: VerifiedMap) -> Result<Verified, Error> {
-    let family_fingerprint = family.fingerprint();
-    if affine.source_family_fingerprint() != family_fingerprint
-        || affine.target_family_fingerprint() != family_fingerprint
+    let family_fingerprint = family.fingerprint_owner();
+    if affine.source_family_fingerprint() != family_fingerprint.as_str()
+        || affine.target_family_fingerprint() != family_fingerprint.as_str()
     {
         return Err(Error::ForeignFamily);
     }
@@ -64,6 +64,7 @@ pub fn compile(family: &IntegralFamily, affine: VerifiedMap) -> Result<Verified,
     inverse.extend(source_for_target.into_iter().flatten());
 
     Ok(Verified {
+        family_fingerprint,
         source_for_target: inverse.into_boxed_slice(),
     })
 }

@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use crate::family::IntegralKey;
-use crate::foundry::artifact::{ArtifactSchemaVersion, ClosedArtifact, ZeroTerminalProof};
+use crate::foundry::artifact::{
+    ArtifactSchemaVersion, ClosedArtifact, ClosedTerminalAuthority, ZeroTerminalProof,
+};
 use crate::sector::{Mask, SectorInteriorDomain};
 
 use super::identity::BoundedIdentityBuilder;
@@ -101,15 +103,21 @@ enum SnapshotSource {
         factorization_count: usize,
         master_count: usize,
     },
+    TerminalAuthority {
+        authority_id: Arc<String>,
+        zero_sector_count: usize,
+        factorization_count: usize,
+        master_count: usize,
+    },
 }
 
-/// Frozen terminal-only view of one authenticated closing artifact.
+/// Frozen terminal-only view of authenticated terminal owners.
 ///
 /// Ordinary RuleCells are intentionally absent: they are one-step identities,
 /// not terminalizing owners by themselves. Only proof-backed zero sectors,
 /// installed factorizations into sealed dependencies, and explicit master
 /// points can discharge a lower-sector image in this snapshot.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(crate) struct ImmutableOwnerSnapshot {
     family_fingerprint: Arc<String>,
     context_fingerprint: Arc<String>,
@@ -117,7 +125,22 @@ pub(crate) struct ImmutableOwnerSnapshot {
     source: SnapshotSource,
     owners: Arc<[ImmutableTerminalOwner]>,
     id: ImmutableOwnerSnapshotId,
+    terminal_authority: Option<Arc<ClosedTerminalAuthority>>,
 }
+
+impl PartialEq for ImmutableOwnerSnapshot {
+    fn eq(&self, other: &Self) -> bool {
+        self.family_fingerprint == other.family_fingerprint
+            && self.context_fingerprint == other.context_fingerprint
+            && self.arity == other.arity
+            && self.source == other.source
+            && self.owners == other.owners
+            && self.id == other.id
+            && self.terminal_authority.is_some() == other.terminal_authority.is_some()
+    }
+}
+
+impl Eq for ImmutableOwnerSnapshot {}
 
 impl ImmutableOwnerSnapshot {
     /// Construct a sound snapshot with no terminal owners. This is useful for
@@ -154,6 +177,7 @@ impl ImmutableOwnerSnapshot {
             source,
             owners: Arc::from([]),
             id,
+            terminal_authority: None,
         })
     }
 
@@ -242,6 +266,97 @@ impl ImmutableOwnerSnapshot {
             source,
             owners: Arc::from(owners),
             id,
+            terminal_authority: None,
+        })
+    }
+
+    /// Freeze terminal regions while retaining their installed proof
+    /// authority for the complete snapshot lifetime. This boundary performs
+    /// only bounded copying of already authenticated domains; it never reruns
+    /// zero analysis or factorization compilation.
+    pub(crate) fn try_from_terminal_authority(
+        authority: Arc<ClosedTerminalAuthority>,
+        limits: StratumRegistryLimits,
+    ) -> Result<Self, StratumRegistryError> {
+        let zero_sector_count = authority.zero_sectors().len();
+        let factorization_count = authority.factorization_rules().len();
+        let master_count = authority.parent_terminals().len();
+        let owner_count = checked_add(
+            "immutable terminal-owner regions",
+            checked_add(
+                "immutable terminal-owner regions",
+                zero_sector_count,
+                factorization_count,
+            )?,
+            master_count,
+        )?;
+        check_limit(
+            "immutable terminal-owner regions",
+            owner_count,
+            limits.max_owner_regions,
+        )?;
+        let coordinate_cells = checked_mul(
+            "immutable terminal-owner coordinate cells",
+            owner_count,
+            authority.arity(),
+        )?;
+        check_limit(
+            "immutable terminal-owner coordinate cells",
+            coordinate_cells,
+            limits.max_owner_coordinate_cells,
+        )?;
+
+        let mut owners = Vec::new();
+        try_reserve(&mut owners, owner_count, "immutable terminal-owner regions")?;
+        for terminal in authority.zero_sectors() {
+            owners.push(ImmutableTerminalOwner::ZeroSector {
+                sector: terminal.sector().clone(),
+                proof: terminal.proof(),
+            });
+        }
+        for (source_ordinal, rule) in authority.factorization_rules().iter().enumerate() {
+            owners.push(ImmutableTerminalOwner::Factorization {
+                source_ordinal,
+                domain: rule.application_domain().clone(),
+            });
+        }
+        for master in authority.parent_terminals() {
+            owners.push(ImmutableTerminalOwner::Master {
+                key: master.clone(),
+            });
+        }
+        for (owner, region) in owners.iter().enumerate() {
+            if region.arity() != authority.arity() {
+                return Err(StratumRegistryError::WrongOwnerArity {
+                    owner,
+                    expected: authority.arity(),
+                    actual: region.arity(),
+                });
+            }
+        }
+
+        let source = SnapshotSource::TerminalAuthority {
+            authority_id: Arc::new(authority.authority_id().to_owned()),
+            zero_sector_count,
+            factorization_count,
+            master_count,
+        };
+        let id = build_snapshot_id(
+            authority.family_fingerprint(),
+            authority.context_fingerprint(),
+            authority.arity(),
+            &source,
+            &owners,
+            limits,
+        )?;
+        Ok(Self {
+            family_fingerprint: Arc::new(authority.family_fingerprint().to_owned()),
+            context_fingerprint: Arc::new(authority.context_fingerprint().to_owned()),
+            arity: authority.arity(),
+            source,
+            owners: Arc::from(owners),
+            id,
+            terminal_authority: Some(authority),
         })
     }
 
@@ -266,6 +381,10 @@ impl ImmutableOwnerSnapshot {
     }
 
     pub(super) fn owner_for(&self, target: &SectorInteriorDomain) -> Option<ImmutableOwnerWitness> {
+        // Installation forbids zero/factorization overlap. A compiled
+        // factorization intentionally precedes its embedded parent-terminal
+        // corner: that corner is reduced through sealed dependencies rather
+        // than being mistaken for an independent master.
         self.owners
             .iter()
             .enumerate()
@@ -316,14 +435,101 @@ impl ImmutableOwnerSnapshot {
             &self.owners,
             limits,
         )?;
-        Ok(expected == self.id && source_counts_match(&self.source, &self.owners))
+        Ok(expected == self.id
+            && source_counts_match(&self.source, &self.owners)
+            && self.source_authority_matches())
     }
+
+    /// Rejoin the cheap snapshot payload to its strongly owned installed
+    /// authority. Exact CAS validation already occurred at installation.
+    fn source_authority_matches(&self) -> bool {
+        match (&self.source, self.terminal_authority.as_ref()) {
+            (SnapshotSource::Empty | SnapshotSource::ClosedArtifact { .. }, None) => true,
+            (
+                SnapshotSource::TerminalAuthority {
+                    authority_id,
+                    zero_sector_count,
+                    factorization_count,
+                    master_count,
+                },
+                Some(authority),
+            ) => {
+                authority_id.as_str() == authority.authority_id()
+                    && self.family_fingerprint() == authority.family_fingerprint()
+                    && self.context_fingerprint() == authority.context_fingerprint()
+                    && self.arity == authority.arity()
+                    && *zero_sector_count == authority.zero_sectors().len()
+                    && *factorization_count == authority.factorization_rules().len()
+                    && *master_count == authority.parent_terminals().len()
+                    && authority_payload_matches(&self.owners, authority)
+            }
+            _ => false,
+        }
+    }
+}
+
+fn authority_payload_matches(
+    owners: &[ImmutableTerminalOwner],
+    authority: &ClosedTerminalAuthority,
+) -> bool {
+    let mut owners = owners.iter();
+    for terminal in authority.zero_sectors() {
+        if !matches!(
+            owners.next(),
+            Some(ImmutableTerminalOwner::ZeroSector { sector, proof })
+                if sector == terminal.sector() && *proof == terminal.proof()
+        ) {
+            return false;
+        }
+    }
+    for (source_ordinal, rule) in authority.factorization_rules().iter().enumerate() {
+        if !matches!(
+            owners.next(),
+            Some(ImmutableTerminalOwner::Factorization {
+                source_ordinal: actual_ordinal,
+                domain,
+            }) if *actual_ordinal == source_ordinal && domain == rule.application_domain()
+        ) {
+            return false;
+        }
+    }
+    for terminal in authority.parent_terminals() {
+        if !matches!(
+            owners.next(),
+            Some(ImmutableTerminalOwner::Master { key }) if key == terminal
+        ) {
+            return false;
+        }
+    }
+    owners.next().is_none()
 }
 
 fn source_counts_match(source: &SnapshotSource, owners: &[ImmutableTerminalOwner]) -> bool {
     match source {
         SnapshotSource::Empty => owners.is_empty(),
         SnapshotSource::ClosedArtifact {
+            zero_sector_count,
+            factorization_count,
+            master_count,
+            ..
+        } => {
+            owners
+                .iter()
+                .filter(|owner| matches!(owner, ImmutableTerminalOwner::ZeroSector { .. }))
+                .count()
+                == *zero_sector_count
+                && owners
+                    .iter()
+                    .filter(|owner| matches!(owner, ImmutableTerminalOwner::Factorization { .. }))
+                    .count()
+                    == *factorization_count
+                && owners
+                    .iter()
+                    .filter(|owner| matches!(owner, ImmutableTerminalOwner::Master { .. }))
+                    .count()
+                    == *master_count
+        }
+        SnapshotSource::TerminalAuthority {
             zero_sector_count,
             factorization_count,
             master_count,
@@ -413,6 +619,23 @@ fn build_snapshot_id(
             stable.push(":")?;
             stable.push_usize(*master_count)?;
         }
+        SnapshotSource::TerminalAuthority {
+            authority_id,
+            zero_sector_count,
+            factorization_count,
+            master_count,
+        } => {
+            stable.push("terminal-authority:")?;
+            stable.push_usize(authority_id.len())?;
+            stable.push("#")?;
+            stable.push(authority_id)?;
+            stable.push(":")?;
+            stable.push_usize(*zero_sector_count)?;
+            stable.push(":")?;
+            stable.push_usize(*factorization_count)?;
+            stable.push(":")?;
+            stable.push_usize(*master_count)?;
+        }
     }
     stable.push(":owners[")?;
     for (ordinal, owner) in owners.iter().enumerate() {
@@ -489,8 +712,12 @@ fn require_identity(value: &str, identity: &'static str) -> Result<(), StratumRe
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use crate::family::IntegralKey;
-    use crate::foundry::artifact::{ArtifactSchemaVersion, ZeroTerminalProof};
+    use crate::foundry::artifact::{
+        ArtifactSchemaVersion, ZeroTerminalProof, derive_k6_terminal_authority,
+    };
     use crate::sector::{InteriorBounds, Mask, SectorInteriorDomain};
 
     use super::{
@@ -562,6 +789,29 @@ mod tests {
                 requested: "rustred.immutable-terminal-owner-snapshot.v2:".len(),
                 limit: 0,
             }
+        );
+    }
+
+    #[test]
+    fn terminal_snapshot_strongly_rejoins_the_exact_sealed_arc() {
+        let authority = derive_k6_terminal_authority().unwrap();
+        let snapshot = super::ImmutableOwnerSnapshot::try_from_terminal_authority(
+            Arc::clone(&authority),
+            StratumRegistryLimits::default(),
+        )
+        .unwrap();
+        assert!(Arc::ptr_eq(
+            snapshot
+                .terminal_authority
+                .as_ref()
+                .expect("a terminal-authority snapshot retains its exact proof owner"),
+            &authority
+        ));
+        drop(authority);
+        assert!(
+            snapshot
+                .try_verify(StratumRegistryLimits::default())
+                .unwrap()
         );
     }
 }

@@ -1,5 +1,5 @@
 use crate::algebra::{CoefficientContext, IndexedCoefficientContext};
-use crate::foundry::artifact::derive_one_loop_unit_mass_tadpole;
+use crate::foundry::artifact::{derive_k6_terminal_authority, derive_one_loop_unit_mass_tadpole};
 use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use crate::sector::{
     InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain, SectorMonotoneDomain,
@@ -293,6 +293,86 @@ fn artifact_snapshot_exposes_only_proof_backed_terminal_regions() {
         SectorInteriorDomain::try_new(Mask::try_new([true]).unwrap(), [InteriorBounds::new(1, 2)])
             .unwrap();
     assert!(snapshot.owner_for(&nonterminal_domain).is_none());
+}
+
+#[test]
+fn terminal_authority_snapshot_retains_and_cheaply_rejoins_its_exact_owner() {
+    let authority = derive_k6_terminal_authority().unwrap();
+    let snapshot = ImmutableOwnerSnapshot::try_from_terminal_authority(
+        authority,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(snapshot.owner_count(), 26 + 3 + 3);
+    assert!(
+        snapshot
+            .try_verify(StratumRegistryLimits::default())
+            .unwrap()
+    );
+    assert!(
+        snapshot
+            .id()
+            .as_str()
+            .contains("rustred.test.three-loop-k6-terminal-authority.v1")
+    );
+
+    let zero = SectorInteriorDomain::try_new(
+        Mask::try_new([false; 6]).unwrap(),
+        [InteriorBounds::new(-7, 0); 6],
+    )
+    .unwrap();
+    let zero_owner = snapshot.owner_for(&zero).unwrap();
+    assert_eq!(zero_owner.kind(), ImmutableOwnerKind::ZeroSector);
+    assert!(snapshot.verifies_witness(&zero, zero_owner));
+
+    let factorized = SectorInteriorDomain::try_new(
+        Mask::try_new([false, false, true, false, true, true]).unwrap(),
+        [
+            InteriorBounds::new(0, 0),
+            InteriorBounds::new(0, 0),
+            InteriorBounds::new(2, 2),
+            InteriorBounds::new(0, 0),
+            InteriorBounds::new(3, 3),
+            InteriorBounds::new(4, 4),
+        ],
+    )
+    .unwrap();
+    let factorization_owner = snapshot.owner_for(&factorized).unwrap();
+    assert_eq!(
+        factorization_owner.kind(),
+        ImmutableOwnerKind::Factorization
+    );
+    assert!(snapshot.verifies_witness(&factorized, factorization_owner));
+
+    let embedded_corner = SectorInteriorDomain::try_new(
+        Mask::try_new([false, false, true, false, true, true]).unwrap(),
+        [
+            InteriorBounds::new(0, 0),
+            InteriorBounds::new(0, 0),
+            InteriorBounds::new(1, 1),
+            InteriorBounds::new(0, 0),
+            InteriorBounds::new(1, 1),
+            InteriorBounds::new(1, 1),
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        snapshot.owner_for(&embedded_corner).unwrap().kind(),
+        ImmutableOwnerKind::Factorization,
+        "compiled factorization must precede its embedded terminal corner"
+    );
+
+    let unresolved = SectorInteriorDomain::try_new(
+        Mask::try_new([true; 6]).unwrap(),
+        [InteriorBounds::new(1, 1); 6],
+    )
+    .unwrap();
+    assert!(snapshot.owner_for(&unresolved).is_none());
+
+    let clone = snapshot.clone();
+    assert_eq!(clone, snapshot);
+    assert!(clone.try_verify(StratumRegistryLimits::default()).unwrap());
+    drop(clone);
 }
 
 #[test]

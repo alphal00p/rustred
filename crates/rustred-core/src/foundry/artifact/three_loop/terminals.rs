@@ -5,54 +5,53 @@
 //! master while the three-loop fixed point remains open.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use crate::algebra::IndexedCoefficientContext;
 use crate::family::IntegralKey;
-use crate::foundry::artifact::ArtifactError;
+use crate::foundry::artifact::{ArtifactError, ClosedTerminalAuthority};
 use crate::foundry::search::{
     ReachabilityTerminal, ReachabilityTerminalKind, ReachabilityTerminalProvider,
 };
 use crate::sector::symmetry::Canonicalizer;
 use crate::sector::{Mask, SectorInteriorDomain};
 
-use super::factorization::K6FactorizationSupport;
 use super::manifest::ZERO_ORBITS;
-use super::momentum_rank::active_momentum_rank;
+use super::terminal_authority::derive_k6_terminal_authority;
 
 /// Exact terminal owner shared by the K=6 cell foundry and bounded reachability
 /// census.
 pub(crate) struct K6ReachabilityTerminals {
-    factorization: K6FactorizationSupport,
+    authority: Arc<ClosedTerminalAuthority>,
     zero_sectors: Box<[Mask]>,
 }
 
 impl K6ReachabilityTerminals {
     pub(crate) fn try_new() -> Result<Self, ArtifactError> {
-        let factorization = K6FactorizationSupport::try_new()?;
-        let zero_sectors = exact_zero_sectors(factorization.canonicalizer())?;
-        for sector in &zero_sectors {
-            let rank = active_momentum_rank(factorization.family(), sector)
-                .map_err(|_| ArtifactError::InvalidZeroTerminal)?;
-            if rank >= factorization.family().loop_count() {
-                return Err(ArtifactError::InvalidZeroTerminal);
-            }
-        }
+        let authority = derive_k6_terminal_authority()?;
+        let zero_sectors = authority
+            .zero_sectors()
+            .iter()
+            .map(|terminal| terminal.sector().clone())
+            .collect::<Vec<_>>();
         Ok(Self {
-            factorization,
+            authority,
             zero_sectors: zero_sectors.into_boxed_slice(),
         })
     }
 
     pub(crate) fn context(&self) -> &IndexedCoefficientContext {
-        self.factorization.context()
+        self.authority.context()
     }
 
     pub(crate) fn family_fingerprint(&self) -> &str {
-        self.factorization.family().fingerprint()
+        self.authority.family_fingerprint()
     }
 
     pub(crate) fn canonicalizer(&self) -> &Canonicalizer {
-        self.factorization.canonicalizer()
+        self.authority
+            .canonicalizer()
+            .expect("the sealed K=6 authority always owns exact S4")
     }
 
     pub(crate) fn zero_sectors(&self) -> &[Mask] {
@@ -60,12 +59,15 @@ impl K6ReachabilityTerminals {
     }
 
     pub(crate) fn factorization_rule_count(&self) -> usize {
-        self.factorization.factorization_rules().len()
+        self.authority.factorization_rules().len()
     }
 }
 
 impl ReachabilityTerminalProvider for K6ReachabilityTerminals {
     fn classify(&self, target: &IntegralKey) -> Option<ReachabilityTerminal> {
+        if target.powers().len() != self.authority.arity() {
+            return None;
+        }
         if let Some(ordinal) = self
             .zero_sectors
             .iter()
@@ -76,7 +78,7 @@ impl ReachabilityTerminalProvider for K6ReachabilityTerminals {
                 ordinal,
             ));
         }
-        self.factorization
+        self.authority
             .factorization_rules()
             .iter()
             .position(|rule| domain_contains(rule.application_domain(), target))
@@ -126,4 +128,21 @@ fn domain_contains(domain: &SectorInteriorDomain, target: &IntegralKey) -> bool 
         .iter()
         .zip(target.powers())
         .all(|(&bounds, &power)| bounds.contains(power))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::family::IntegralKey;
+    use crate::foundry::search::ReachabilityTerminalProvider;
+
+    use super::K6ReachabilityTerminals;
+
+    #[test]
+    fn terminal_classification_rejects_short_keys_before_domain_matching() {
+        let terminals = K6ReachabilityTerminals::try_new().unwrap();
+        for powers in [vec![0], vec![0, 0, 0, 0, 0]] {
+            let short = IntegralKey::try_new(powers).unwrap();
+            assert!(terminals.classify(&short).is_none());
+        }
+    }
 }

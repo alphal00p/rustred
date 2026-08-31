@@ -12,6 +12,8 @@ mod model;
 mod one_loop;
 mod persistence;
 #[cfg(test)]
+mod terminal;
+#[cfg(test)]
 mod three_loop;
 mod two_loop;
 
@@ -26,6 +28,12 @@ pub use model::{
 pub use one_loop::derive_one_loop_unit_mass_tadpole;
 pub use persistence::{ArtifactEncodingLimits, ArtifactLoadLimits};
 pub use two_loop::derive_two_loop_unit_mass_sunset;
+
+#[cfg(test)]
+pub(crate) use terminal::ClosedTerminalAuthority;
+
+#[cfg(test)]
+pub(crate) use three_loop::derive_k6_terminal_authority;
 
 #[cfg(test)]
 pub(crate) use three_loop::canonical_family as canonical_three_loop_family;

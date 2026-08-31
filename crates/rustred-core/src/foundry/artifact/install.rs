@@ -16,7 +16,12 @@ use super::model::{
 
 mod factorization;
 mod one_loop;
+#[cfg(test)]
+mod terminal;
 mod two_loop;
+
+#[cfg(test)]
+pub(crate) use terminal::{TerminalAuthorityCandidate, install_terminal_authority};
 
 pub(super) struct ClosingArtifactCandidate {
     pub schema: ArtifactSchemaVersion,
@@ -44,7 +49,17 @@ pub(super) fn install(
     mut candidate: ClosingArtifactCandidate,
 ) -> Result<ClosedArtifact, ArtifactError> {
     validate_generic_bindings(&candidate)?;
-    factorization::validate_and_compile(&mut candidate)?;
+    factorization::validate_and_compile(
+        factorization::InstallContext::new(
+            candidate.arity,
+            &candidate.family,
+            candidate.canonicalizer.as_ref(),
+            &candidate.dependencies,
+            &candidate.masters,
+            &candidate.zero_sectors,
+        ),
+        &mut candidate.factorization_rules,
+    )?;
     match candidate.algorithm_id {
         super::one_loop::ALGORITHM_ID => one_loop::validate(candidate),
         super::two_loop::ALGORITHM_ID => two_loop::validate(candidate),
@@ -52,32 +67,17 @@ pub(super) fn install(
     }
 }
 
-/// Authenticate and compile a test-only factorization fixture without
-/// pretending that its incomplete rule partition is a closing artifact.
-///
-/// The three-loop pressure fixture uses this seam to retain exactly the same
-/// generic binding, kinematic, dependency, and master-embedding proofs as the
-/// production installer while its K=6 closure verifier is still absent.
-#[cfg(test)]
-pub(crate) fn validate_factorization_fixture(
-    candidate: &mut ClosingArtifactCandidate,
-) -> Result<(), ArtifactError> {
-    validate_generic_bindings(candidate)?;
-    factorization::validate_and_compile(candidate)
-}
-
 fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(), ArtifactError> {
-    if candidate.schema != ArtifactSchemaVersion::CURRENT {
-        return Err(ArtifactError::UnsupportedSchema {
-            actual: candidate.schema.as_u32(),
-        });
-    }
-    if candidate.arity == 0 || candidate.context.index_count() != candidate.arity {
-        return Err(ArtifactError::WrongArity {
-            expected: candidate.context.index_count(),
-            actual: candidate.arity,
-        });
-    }
+    validate_terminal_bindings(TerminalBindings {
+        schema: candidate.schema,
+        arity: candidate.arity,
+        family: &candidate.family,
+        context: &candidate.context,
+        canonicalizer: candidate.canonicalizer.as_ref(),
+        parent_terminals: &candidate.masters,
+        zero_sectors: &candidate.zero_sectors,
+        require_parent_terminals: true,
+    })?;
     if candidate.supported_root_power_bounds.len() != candidate.arity
         || candidate
             .supported_root_power_bounds
@@ -88,36 +88,6 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
             detail: "the certified root-power box has invalid bounds or arity",
         });
     }
-    if candidate.family.denominator_count() != candidate.arity
-        || !candidate
-            .family
-            .coefficient_context()
-            .has_same_variable_map(candidate.context.base())
-    {
-        return Err(ArtifactError::WrongCoefficientContext);
-    }
-    if candidate.masters.is_empty()
-        || candidate
-            .masters
-            .iter()
-            .any(|master| master.powers().len() != candidate.arity)
-    {
-        return Err(ArtifactError::InvalidMasterManifest);
-    }
-    if candidate.zero_sectors.iter().any(|terminal| {
-        terminal.sector().arity() != candidate.arity
-            || candidate.masters.iter().any(|master| {
-                terminal
-                    .sector()
-                    .active_bits()
-                    .iter()
-                    .zip(master.powers())
-                    .all(|(&active, &power)| active == (power >= 1))
-            })
-    }) {
-        return Err(ArtifactError::InvalidZeroTerminal);
-    }
-    validate_zero_terminal_proofs(candidate)?;
     for source in &candidate.source_relations {
         source.validate_context(&candidate.context)?;
         if source.family_fingerprint_owner().as_str() != candidate.family.fingerprint() {
@@ -173,8 +143,70 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
         validate_source_view_construction(cell, candidate)?;
         validate_cell_replay(cell)?;
     }
-    if let Some(canonicalizer) = &candidate.canonicalizer {
-        if canonicalizer.arity() != candidate.arity
+    Ok(())
+}
+
+pub(super) struct TerminalBindings<'input> {
+    pub(super) schema: ArtifactSchemaVersion,
+    pub(super) arity: usize,
+    pub(super) family: &'input IntegralFamily,
+    pub(super) context: &'input IndexedCoefficientContext,
+    pub(super) canonicalizer: Option<&'input Canonicalizer>,
+    pub(super) parent_terminals: &'input BTreeSet<IntegralKey>,
+    pub(super) zero_sectors: &'input [ZeroSectorTerminal],
+    pub(super) require_parent_terminals: bool,
+}
+
+pub(super) fn validate_terminal_bindings(
+    bindings: TerminalBindings<'_>,
+) -> Result<(), ArtifactError> {
+    if bindings.schema != ArtifactSchemaVersion::CURRENT {
+        return Err(ArtifactError::UnsupportedSchema {
+            actual: bindings.schema.as_u32(),
+        });
+    }
+    if bindings.arity == 0 || bindings.context.index_count() != bindings.arity {
+        return Err(ArtifactError::WrongArity {
+            expected: bindings.context.index_count(),
+            actual: bindings.arity,
+        });
+    }
+    if bindings.family.denominator_count() != bindings.arity
+        || !bindings
+            .family
+            .coefficient_context()
+            .has_same_variable_map(bindings.context.base())
+    {
+        return Err(ArtifactError::WrongCoefficientContext);
+    }
+    if (bindings.require_parent_terminals && bindings.parent_terminals.is_empty())
+        || bindings
+            .parent_terminals
+            .iter()
+            .any(|master| master.powers().len() != bindings.arity)
+    {
+        return Err(ArtifactError::InvalidMasterManifest);
+    }
+    let mut distinct_zero_sectors = BTreeSet::new();
+    for terminal in bindings.zero_sectors {
+        if terminal.sector().arity() != bindings.arity
+            || !distinct_zero_sectors.insert(terminal.sector().clone())
+            || bindings.parent_terminals.iter().any(|master| {
+                terminal
+                    .sector()
+                    .active_bits()
+                    .iter()
+                    .zip(master.powers())
+                    .all(|(&active, &power)| active == (power >= 1))
+            })
+        {
+            return Err(ArtifactError::InvalidZeroTerminal);
+        }
+    }
+    validate_zero_terminal_proofs(bindings.family, bindings.zero_sectors)?;
+    if let Some(canonicalizer) = bindings.canonicalizer {
+        if canonicalizer.arity() != bindings.arity
+            || canonicalizer.family_fingerprint() != bindings.family.fingerprint()
             || canonicalizer.ordering() != OrderingPolicy::default()
         {
             return Err(ArtifactError::InvalidCanonicalizer);
@@ -184,16 +216,16 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
 }
 
 fn validate_zero_terminal_proofs(
-    candidate: &ClosingArtifactCandidate,
+    family: &IntegralFamily,
+    zero_sectors: &[ZeroSectorTerminal],
 ) -> Result<(), ArtifactError> {
-    let needs_rank_analysis = candidate
-        .zero_sectors
+    let needs_rank_analysis = zero_sectors
         .iter()
         .any(|terminal| terminal.proof() == ZeroTerminalProof::LeePomeranskyRankDeficiency);
     let analyzer = needs_rank_analysis
-        .then(|| crate::sector::zero::Analyzer::try_unrestricted(&candidate.family))
+        .then(|| crate::sector::zero::Analyzer::try_unrestricted(family))
         .transpose()?;
-    for terminal in &candidate.zero_sectors {
+    for terminal in zero_sectors {
         match terminal.proof() {
             ZeroTerminalProof::ScalelessVacuumPolynomial => {
                 if terminal.sector().active_bits().iter().any(|&active| active) {
