@@ -14,6 +14,10 @@ use crate::foundry::completion::stratum::{
 use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use crate::sector::{Mask, OrderingPolicy, SectorMonotoneDomain};
 
+use super::cleared::{
+    ClearedCircuitError, ClearedCircuitLimits, ClearedSemanticGuardOrigin, try_clear_exact_circuit,
+    try_compile_final_target_guard,
+};
 use super::{
     ExactCircuitError, ExactCircuitGuardOrigin, ExactCircuitLift, ExactCircuitLimits,
     try_lift_exact_circuit,
@@ -219,6 +223,110 @@ fn exact_lift_replays_a_frame_bound_nonempty_partition_deterministically() {
             )
         })
     }));
+
+    let cleared =
+        try_clear_exact_circuit(&context, &plan, &circuit, ClearedCircuitLimits::default())
+            .expect("the tadpole circuit must admit a fraction-free source replay");
+    assert_eq!(cleared.target_column(), target);
+    assert!(!cleared.target_coefficient().is_zero());
+    assert_eq!(
+        cleared.source_cofactors().len(),
+        circuit.source_combination().len()
+    );
+    assert!(cleared.source_cofactors().iter().all(|source| {
+        plan.source_instances().get(source.frame_row_ordinal()) == Some(source.source_instance())
+            && !source.row_denominator().is_zero()
+            && !source.cofactor().is_zero()
+    }));
+    assert!(cleared.physical_terms().iter().any(|term| {
+        term.physical_column() == target && term.coefficient() == cleared.target_coefficient()
+    }));
+    assert!(cleared.semantic_guards().iter().all(|guard| {
+        !guard.polynomial().is_zero()
+            && guard.origins().iter().all(|origin| {
+                matches!(
+                    origin,
+                    ClearedSemanticGuardOrigin::SourceOrFamily(_)
+                        | ClearedSemanticGuardOrigin::FinalTargetCoefficient
+                )
+            })
+    }));
+    let telemetry = cleared.guard_telemetry();
+    assert_eq!(telemetry.before_unique(), circuit.nonzero_guards().len());
+    assert!(telemetry.before_intermediate_only() + telemetry.before_mixed() > 0);
+    assert_eq!(
+        telemetry.before_unique(),
+        telemetry.before_source_or_family_only()
+            + telemetry.before_intermediate_only()
+            + telemetry.before_mixed()
+    );
+    assert_eq!(telemetry.after_unique(), cleared.semantic_guards().len());
+    assert!(telemetry.after_source_or_family() <= telemetry.after_unique());
+    assert_eq!(
+        telemetry.final_target_guard_retained(),
+        !cleared.target_coefficient().is_nonzero_constant()
+    );
+    assert!(cleared.exact_operations() > 0);
+    assert!(cleared.retained_polynomial_terms() > 0);
+    assert_eq!(
+        (
+            telemetry.before_unique(),
+            telemetry.before_source_or_family_only(),
+            telemetry.before_intermediate_only(),
+            telemetry.before_mixed(),
+            telemetry.after_unique(),
+            telemetry.after_source_or_family(),
+            telemetry.final_target_guard_retained(),
+        ),
+        (2, 0, 2, 0, 1, 0, true)
+    );
+    assert_eq!(
+        (
+            cleared.source_cofactors().len(),
+            cleared.physical_terms().len(),
+            cleared.target_coefficient().raw().nterms(),
+            cleared
+                .physical_terms()
+                .iter()
+                .map(|term| term.coefficient().raw().nterms())
+                .sum::<usize>(),
+            cleared.exact_operations(),
+            cleared.gcd_term_pairs(),
+            cleared.retained_polynomial_terms(),
+        ),
+        (1, 2, 1, 3, 31, 1, 15)
+    );
+
+    let zero_operation_limits = ClearedCircuitLimits::default().with_max_polynomial_operations(0);
+    assert_eq!(
+        try_clear_exact_circuit(&context, &plan, &circuit, zero_operation_limits).unwrap_err(),
+        ClearedCircuitError::ResourceLimit {
+            resource: "cleared-circuit polynomial operations",
+            requested: 1,
+            limit: 0,
+        }
+    );
+}
+
+#[test]
+fn n_times_target_zero_mutant_retains_the_final_target_guard() {
+    let (context, _) = tadpole_frame("cleared-circuit-n-target-mutant", true, 0);
+    let n = context.index(0).unwrap();
+    let n = context
+        .numerator_condition_with_limits(&n, Default::default())
+        .unwrap();
+    let guards = try_compile_final_target_guard(&context, &n, ClearedCircuitLimits::default())
+        .expect("the mutant target polynomial must compile as a mandatory guard");
+    assert_eq!(guards.len(), 1);
+    assert_eq!(guards[0].polynomial(), &n);
+    assert_eq!(
+        guards[0].origins(),
+        &[ClearedSemanticGuardOrigin::FinalTargetCoefficient]
+    );
+    let at_zero = context
+        .specialize_polynomial(guards[0].polynomial(), &[0], Default::default())
+        .unwrap();
+    assert!(at_zero.is_zero(), "n*I_t=0 must not own the n=0 branch");
 }
 
 #[test]
@@ -421,5 +529,50 @@ fn canonical_k6_s4a_has_a_nonempty_partition_exact_circuit() {
             .residual_terms()
             .iter()
             .all(|term| term.descent().verify())
+    );
+
+    let cleared =
+        try_clear_exact_circuit(&context, &plan, &circuit, ClearedCircuitLimits::default())
+            .expect("the K6 S4a circuit must admit a fraction-free source replay");
+    let repeated =
+        try_clear_exact_circuit(&context, &plan, &circuit, ClearedCircuitLimits::default())
+            .expect("the same K6 S4a circuit must replay a second time");
+    assert_eq!(cleared, repeated);
+    let telemetry = cleared.guard_telemetry();
+    assert_eq!(telemetry.before_unique(), circuit.nonzero_guards().len());
+    assert_eq!(telemetry.after_unique(), cleared.semantic_guards().len());
+    assert!(
+        telemetry.after_unique() <= telemetry.before_unique().saturating_add(1),
+        "clearing should replace elimination guards by at most one final-target predicate"
+    );
+    assert!(cleared.exact_operations() > 0);
+    assert!(cleared.gcd_term_pairs() > 0);
+    assert_eq!(
+        (
+            telemetry.before_unique(),
+            telemetry.before_source_or_family_only(),
+            telemetry.before_intermediate_only(),
+            telemetry.before_mixed(),
+            telemetry.after_unique(),
+            telemetry.after_source_or_family(),
+            telemetry.final_target_guard_retained(),
+        ),
+        (10, 0, 10, 0, 1, 0, true)
+    );
+    assert_eq!(
+        (
+            cleared.source_cofactors().len(),
+            cleared.physical_terms().len(),
+            cleared.target_coefficient().raw().nterms(),
+            cleared
+                .physical_terms()
+                .iter()
+                .map(|term| term.coefficient().raw().nterms())
+                .sum::<usize>(),
+            cleared.exact_operations(),
+            cleared.gcd_term_pairs(),
+            cleared.retained_polynomial_terms(),
+        ),
+        (6, 14, 1, 26, 422, 10, 221)
     );
 }

@@ -11,6 +11,10 @@ mod model;
 mod reduce;
 mod replay;
 
+#[cfg(test)]
+#[path = "cleared/mod.rs"]
+mod cleared;
+
 pub(crate) use error::ExactCircuitError;
 pub(crate) use limits::ExactCircuitLimits;
 pub(crate) use model::{
