@@ -247,14 +247,26 @@ bounded reduced ordered decision DAG. Hash lookup is followed by full structural
 Aggregate identity bytes, raw/canonical references, memo states and bitset words, candidate scans,
 nodes, edges, and pending work all fail closed under explicit caps. The two semantic-ideal examples,
 the shifted-lead regression, an exhaustive small truth table, and the K15 shared-wall proxy pass.
-Strictly increasing stable candidate IDs define priority after the deferred canonical content sort;
-the branch oracle is lazy. Each semantic identity retains the least primitive full-guard
-representative seen, and the exact API evaluates all requested predicates at one context-bound
-integer point under cumulative predicate, input-term, and specialization power-call caps. Per-
-predicate integer-bit limits remain active, but a cumulative path bit-volume cap is still required
-before untrusted production use. The caller-supplied Boolean oracle remains test-only. Independent
-re-audit found this generic same-context
-semantics sound while explicitly withholding physical-fibre authority.
+The next slice binds already replayed exact target circuits to the verified target partition,
+sorts them by complete structural proof content, assigns stable priority IDs, compiles every exact
+guard after target pullback, and returns the same retained `Arc` selected by the guard DAG.
+Modular sample and rank telemetry are excluded from semantic priority only after their partition
+join is checked; duplicate exact content fails closed so an upstream multi-prime collector must
+deduplicate it deliberately. Aggregate caps cover the sealed proof payload, nested condition-source
+coordinates, every translated representative/coefficient-system polynomial, monomial cells,
+generator identities, and even the retained modular telemetry arrays. Fill-introduced elimination
+pivots are correctly joined to the projected target/forbidden block rather than incorrectly
+required to occur in the original source-row sparsity.
+
+Each semantic identity retains the least primitive full-guard representative seen, and the exact
+API evaluates all requested predicates at one context-bound integer point under cumulative
+predicate, input-term, and specialization power-call caps. Per-predicate integer-bit limits remain
+active, but a cumulative path bit-volume cap is still required before an untrusted persisted DAG is
+accepted. Guard origins are joined against the sealed exact-replay chronology; this internal layer
+does not redundantly reconstruct every guard from raw sources. A future artifact load boundary
+must independently authenticate persisted proof content once. Independent adversarial re-audit
+found this generic same-context semantics sound while explicitly withholding physical-fibre
+authority.
 Leaves are only discovery candidates or `Incomplete`; no RuleCell, integer-locus owner, or closure
 authority has been added. The base variables are declared algebraically independent. A physical
 parameter quotient or unit-mass fibre must be imposed before compilation, and a later arbitrary
@@ -840,6 +852,131 @@ shipped table size. The global rank oracle can falsify `t < r`; it cannot prove 
 rewrite certificate must close every unbounded direction, and a target-rank-independent epsilon
 valuation bound plus a measured AMFlow pilot must show that the finite nonminimal set is actually
 evaluable.
+
+## Authorized complete-family scaling studies
+
+**RustRed decision, 2026-08-30.** The current research winner is a
+generating-function, syzygy-accelerated, stratified universal index-cone
+completion lane. This is a RustRed project label, not terminology claimed by
+the cited authors. It combines compact generating-function descendants,
+sector-local syzygies, exact guard strata, and a deterministic nonconfluent
+owner cover. Minimality and equality of overlapping normal forms remain
+optional diagnostics: a finite, exactly covered, independently evaluable
+redundant terminal set is acceptable.
+
+**Verified input from the recent generating-function literature.** The Weyl
+algebra recurrence translation carries falling/rising factorial index factors;
+their integer zero walls cannot be erased when a generating-function operator
+is converted to an ordinary source. Leader orthants describe structural reach,
+not guard validity. The path-agreement master-count criterion used in the
+generating-function construction is therefore not imported as RustRed closure
+authority ([arXiv:2605.09541](https://arxiv.org/abs/2605.09541)). Recent
+syzygy constructions can avoid gratuitous active-line power raises
+([arXiv:2507.11140](https://arxiv.org/abs/2507.11140)), while seedless inactive
+bulk/face/edge systems offer compact candidate sources without a general
+source-degree termination theorem
+([arXiv:2602.22111](https://arxiv.org/abs/2602.22111)).
+
+RustRed keeps a generating-function normalization internally and records an
+exact diagonal conjugation to freshly regenerated ordinary sources. In one
+fixed convention the operator conversion has the form
+
+```text
+p(Theta) eta^(delta-) partial^(delta+)
+  -> p(x) product_(delta_i>0) (x_i+1)^(rising delta_i) E^delta,
+E^delta q(x) = q(x+delta) E^delta.
+```
+
+Every admitted operator retains a left-module provenance DAG over the original
+ordinary sources. Factorial zero walls, target-pulled coefficient ideals,
+sector boundaries, and alternate parent incidences remain explicit. A
+modular leader shadow enters the discovery ideal only; only exact replay,
+guard ownership, boundary routing, and strict descent can enter the exact
+owner ideal.
+
+The user has authorized bounded studies of this winner on the complete
+single-scale vacuum families at four, five, and six loops while Stage 1 remains
+active. These are scaling studies, not Stage 2 artifact production. The study
+uses the following predeclared progression:
+
+1. `Manifested`: independently generate and reconcile the complete raw
+   contraction-pseudograph census, canonical hashes, edge action, and every
+   parent/child route.
+2. `Probed`: enumerate all structural sector/chart orbits and source/syzygy
+   envelopes without solving.
+3. `ModularCandidate`: run the same capped cheap finite-field probes on every
+   manifest member and retain timeouts/OOMs as censored failures.
+4. `ExactReplayed`: lift selected stable supports over exact `Q(d)` and replay
+   ordinary-source cofactors.
+5. `GuardOwned` and `BoundaryDischarged`: compile target-pulled guard strata
+   and prove every lower-sector, alternate-parent, zero, and factorization
+   route.
+6. `ChartClosed` and `FamilyClosed`: claim these states only after the exact
+   complement has no positive-dimensional or unresolved guard leaf across
+   the entire manifest.
+7. `EconomicallyEvaluable`: separately measure finite-terminal count,
+   evaluator SCC/block dimensions, epsilon debt, application-state growth,
+   precision, checkpointing, and aggregate resource cost.
+
+The manifest keeps both a raw pseudograph DAG and a normalized DAG. Self-loop,
+bridge/cut-vertex, and bivalent rewrites require decoration-aware proof
+objects. Cross-component ISPs can prevent literal factorization; unequal
+masses and cuts can invalidate dot or partial-fraction shortcuts. A physical
+propagator must map individually, up to an explicitly represented scalar/mass
+normalization, to a physical family slot. General exact linear changes are
+allowed only inside the auxiliary ISP subspace, with their numerator expansion
+cost measured. Cross-family loop routing normally requires a `GL(L,Z)` witness
+with determinant `±1`; otherwise the `|det|^d` measure factor lies outside the
+ordinary rational coefficient field unless represented explicitly.
+
+For an uncut fully massive core, loopless minimum-degree-three counting gives
+the finite structural ranges `V <= 2L-2` and `E <= 3L-3`, but only after the
+normalization obligations above are discharged. One generator/canonicalizer
+build is cross-checked against a separately implemented canonical-augmentation
+path using Symbolica graph canonicalization. Literature topology lists are
+regressions, not the manifest authority. Each family stores an exact cycle
+matrix, scalar-product completion and inverse, physical-slot map, mass/cut
+decorations, edge generators, parent-local contraction charts, and exact route
+witnesses.
+
+At `K=6`, the top-family edge symmetry is the order-24 `S4` action on the six
+edges of `K4`, not `S6`. It supplies one six-element leader orbit, but a leader
+does not uniquely identify a full circuit: its edge stabilizer can preserve
+the pivot while changing exact right-hand-side content. RustRed therefore pins
+a deterministic replayed transversal rather than demanding stabilizer-
+invariant normal forms. Missing-edge five-line charts split adjacent and
+opposite dotted-edge orbits, and the four-line numerator holes remain separate
+obligations. Top coverage never certifies these faces.
+
+All-family structural envelopes are reported before promotion. Conditional
+one-sided degree-three row counts are `4,576`, `20,400`, and `72,864` for full
+`K=10,15,21` frames; these numbers exclude topology multiplicity, sector
+orbits, guard leaves, parent incidences, operator support, and elimination
+fill. Every report therefore gives raw and authenticated-unique task counts,
+per-family median/tail/max costs, the named worst family, cold/warm-cache I/O,
+coordinator plus worker RSS/PSS, checkpoint bytes, and the split
+`M(W)=M_shared+W*M_private`. Discovery and online application are timed
+separately; a finite terminal set does not bound the number of memoized
+intermediate integral keys at large rank.
+
+An offline numerical evaluator must also accept the deliberately redundant
+tail honestly. AMFlow's `SkipReduction` option is used only for a set already
+certified to be an independent basis/subset; it is not enabled merely because
+RustRed proved the tail finite. Otherwise AMFlow or the offline oracle first
+reduces the retained terminals to its own certified basis, or RustRed supplies
+an exact map.
+
+K10 must pass dense planar, nonplanar `K3,3`, low-symmetry, banana, asymmetric
+multitheta, and principal-boundary controls without hiding failures behind
+orbit-weighted averages. K15 is the out-of-sample design gate: the scaling
+model and prediction interval are frozen after K6/K10, and a censored required
+dense family falsifies the K21 projection. Global degree-four dependence,
+unstable exact lifts, completion degree growing on two enlargements, promotion
+fill above 50 times input, rank-unbounded epsilon debt, or aggregate resources
+without twofold hardware headroom are kill conditions. K21 begins only with a
+complete manifest and uniformly capped structural/cheap modular probes; an
+expensive exact sweep still requires K15 promotion. No showcase banana or
+complete-graph proxy can substitute for this gate.
 
 ## Architecture delta by component
 

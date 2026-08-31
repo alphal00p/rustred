@@ -10,7 +10,7 @@ impl CoefficientIdealGuardAtom {
     /// compile its simultaneous parameter-coefficient ideal.
     pub(crate) fn try_for_target(
         context: &IndexedCoefficientContext,
-        source_guard: IndexedPolynomial,
+        source_guard: &IndexedPolynomial,
         target_shift: &[i64],
         limits: CoefficientIdealGuardLimits,
     ) -> Result<Self, CoefficientIdealGuardError> {
@@ -31,7 +31,7 @@ impl CoefficientIdealGuardAtom {
             );
         }
         let pulled_back =
-            context.translate_polynomial(&source_guard, &pullback, limits.indexed_algebra)?;
+            context.translate_polynomial(source_guard, &pullback, limits.indexed_algebra)?;
         Self::try_from_pulled_back(context, pulled_back, limits)
     }
 

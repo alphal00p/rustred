@@ -10,6 +10,7 @@ mod error;
 mod limits;
 mod model;
 mod refine;
+mod semantic;
 
 pub(crate) use error::ExactGuardRefinementError;
 pub(crate) use limits::ExactGuardRefinementLimits;
@@ -18,6 +19,10 @@ pub(crate) use model::{
     RequiredGuardPredicate,
 };
 pub(crate) use refine::try_refine_exact_circuit_guards;
+pub(crate) use semantic::{
+    ExactCircuitSemanticDag, ExactCircuitSemanticError, ExactCircuitSemanticLimits,
+    ExactCircuitSemanticSelection,
+};
 
 #[cfg(test)]
 mod tests;

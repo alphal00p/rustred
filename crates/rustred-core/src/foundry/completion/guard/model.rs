@@ -47,6 +47,10 @@ impl CoefficientIdealGuardPredicate {
         &self.representative_identity
     }
 
+    pub(crate) fn representative_guard(&self) -> &IndexedPolynomial {
+        self.representative_guard.as_ref()
+    }
+
     pub(crate) fn input_terms(&self) -> usize {
         self.representative_guard.raw().nterms()
     }

@@ -64,12 +64,14 @@ pub(crate) struct BaseCoefficientEquation {
 }
 
 impl BaseCoefficientEquation {
-    #[cfg(test)]
+    // The completion subsystem is deliberately compiled before its staged
+    // semantic-admission entry point is promoted into the public foundry.
+    #[allow(dead_code)]
     pub(crate) fn base_monomial(&self) -> &[u16] {
         &self.base_monomial
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn index_polynomial(&self) -> &IndexedPolynomial {
         &self.index_polynomial
     }
@@ -126,7 +128,7 @@ impl UnivariateIntegerZeroSet {
 }
 
 impl BaseCoefficientSystem {
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn equations(&self) -> &[BaseCoefficientEquation] {
         &self.equations
     }

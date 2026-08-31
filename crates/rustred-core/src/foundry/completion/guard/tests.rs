@@ -162,7 +162,7 @@ fn target_pullback_precedes_parameter_coefficient_split() {
         .unwrap();
     let pulled = CoefficientIdealGuardAtom::try_for_target(
         &context,
-        polynomial(&context, &source),
+        &polynomial(&context, &source),
         &[1, 0],
         Default::default(),
     )
@@ -186,7 +186,7 @@ fn target_pullback_precedes_parameter_coefficient_split() {
     assert!(matches!(
         CoefficientIdealGuardAtom::try_for_target(
             &context,
-            polynomial(&context, &source),
+            &polynomial(&context, &source),
             &[1],
             Default::default(),
         ),
@@ -201,7 +201,7 @@ fn target_pullback_precedes_parameter_coefficient_split() {
     assert_eq!(
         CoefficientIdealGuardAtom::try_for_target(
             &context,
-            polynomial(&context, &source),
+            &polynomial(&context, &source),
             &[i64::MIN, 0],
             Default::default(),
         )

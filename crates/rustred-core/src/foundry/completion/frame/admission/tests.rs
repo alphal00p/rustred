@@ -1,21 +1,28 @@
+use std::cmp::Ordering;
+use std::sync::Arc;
+
 use crate::algebra::{CoefficientContext, IndexedCoefficientContext};
 use crate::family::{AffineDenominator, IntegralFamily};
 use crate::foundry::completion::frame::exact::{
     ExactCircuitLift, ExactCircuitLimits, ExactTargetCircuit, try_lift_exact_circuit,
 };
-use crate::foundry::completion::frame::modular::{ModularKernelLimits, ModularTargetQuery};
+use crate::foundry::completion::frame::modular::{
+    ModularHit, ModularKernelLimits, ModularTargetQuery,
+};
 use crate::foundry::completion::frame::{PhysicalFrameLimits, PhysicalFramePlan};
 use crate::foundry::completion::stratum::{
     DecoratedStratum, GuardBranch, GuardBranchIdentity, ImmutableOwnerSnapshot,
-    StratumRegistryLimits, TargetColumnPartition,
+    StratumRegistryError, StratumRegistryLimits, TargetColumnPartition,
 };
 use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use crate::sector::{Mask, OrderingPolicy, SectorMonotoneDomain};
 
 use super::{
-    ExactGuardRefinementError, ExactGuardRefinementLimits, ExactGuardRefinementOutcome,
-    try_refine_exact_circuit_guards,
+    ExactCircuitSemanticDag, ExactCircuitSemanticError, ExactCircuitSemanticLimits,
+    ExactCircuitSemanticSelection, ExactGuardRefinementError, ExactGuardRefinementLimits,
+    ExactGuardRefinementOutcome, try_refine_exact_circuit_guards,
 };
+use crate::foundry::completion::guard::decision::GuardDecisionEvaluationLimits;
 
 const PRIME: u64 = 1_000_000_007;
 
@@ -62,41 +69,43 @@ fn target(frame: &PhysicalFramePlan) -> usize {
         .unwrap()
 }
 
-fn maximal_domain(frame: &PhysicalFramePlan, target: usize) -> SectorMonotoneDomain {
-    let shifts = frame
-        .columns()
-        .iter()
-        .map(|shift| shift.values())
-        .collect::<Vec<_>>();
-    SectorMonotoneDomain::try_maximal_for_rule(
-        frame.sector().clone(),
-        frame.columns()[target].values(),
-        &shifts,
-    )
-    .unwrap()
-}
-
 fn partition<'frame>(
     frame: &'frame PhysicalFramePlan,
     target: usize,
     guards: impl IntoIterator<Item = GuardBranchIdentity>,
 ) -> TargetColumnPartition<'frame> {
+    try_partition(frame, target, guards).unwrap()
+}
+
+fn try_partition<'frame>(
+    frame: &'frame PhysicalFramePlan,
+    target: usize,
+    guards: impl IntoIterator<Item = GuardBranchIdentity>,
+) -> Result<TargetColumnPartition<'frame>, StratumRegistryError> {
     let limits = StratumRegistryLimits::default();
+    let shifts = frame
+        .columns()
+        .iter()
+        .map(|shift| shift.values())
+        .collect::<Vec<_>>();
+    let domain = SectorMonotoneDomain::try_maximal_for_rule(
+        frame.sector().clone(),
+        frame.columns()[target].values(),
+        &shifts,
+    )?;
     let stratum = DecoratedStratum::try_new(
         frame.family_fingerprint(),
         frame.context_fingerprint(),
-        maximal_domain(frame, target),
+        domain,
         guards,
         limits,
-    )
-    .unwrap();
+    )?;
     let owners = ImmutableOwnerSnapshot::try_empty(
         frame.family_fingerprint(),
         frame.context_fingerprint(),
         frame.sector().arity(),
         limits,
-    )
-    .unwrap();
+    )?;
     TargetColumnPartition::try_new(
         frame,
         target,
@@ -105,7 +114,6 @@ fn partition<'frame>(
         OrderingPolicy::default(),
         limits,
     )
-    .unwrap()
 }
 
 fn exact_circuit(
@@ -113,8 +121,24 @@ fn exact_circuit(
     frame: &PhysicalFramePlan,
     partition: &TargetColumnPartition<'_>,
 ) -> ExactTargetCircuit {
+    exact_circuit_at(context, frame, partition, 37, 2)
+}
+
+fn exact_circuit_at(
+    context: &IndexedCoefficientContext,
+    frame: &PhysicalFramePlan,
+    partition: &TargetColumnPartition<'_>,
+    dimension: i64,
+    index: u64,
+) -> ExactTargetCircuit {
     let sample = frame
-        .try_modular_sample(context, PRIME, &[37], &[2], ModularKernelLimits::default())
+        .try_modular_sample(
+            context,
+            PRIME,
+            &[dimension],
+            &[index],
+            ModularKernelLimits::default(),
+        )
         .unwrap();
     let ModularTargetQuery::Hit(hit) = sample
         .query_target(
@@ -134,6 +158,75 @@ fn exact_circuit(
     circuit
 }
 
+fn k6_s4a_semantic_frame() -> (IndexedCoefficientContext, PhysicalFramePlan) {
+    let family = crate::foundry::artifact::canonical_three_loop_family().unwrap();
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let context = generator.context().clone();
+    let completed = complete_ordinary(&generator);
+    let frame = PhysicalFramePlan::try_new(
+        &generator,
+        &completed,
+        Mask::try_new([false, true, true, true, true, false]).unwrap(),
+        1,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    (context, frame)
+}
+
+fn k6_s4a_semantic_hit<'frame>(
+    context: &IndexedCoefficientContext,
+    frame: &'frame PhysicalFramePlan,
+    partition: &TargetColumnPartition<'frame>,
+) -> ModularHit<'frame> {
+    let sample = frame
+        .try_modular_sample(
+            context,
+            PRIME,
+            &[2],
+            &[1, 2, 3, 4, 5, 6],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    let ModularTargetQuery::Hit(hit) = sample
+        .query_target(
+            partition.target_column(),
+            partition.forbidden_columns(),
+            ModularKernelLimits::default(),
+        )
+        .unwrap()
+    else {
+        panic!("the canonical S4a semantic target must have a modular hit")
+    };
+    hit
+}
+
+fn k6_s4a_circuit_omitting(
+    context: &IndexedCoefficientContext,
+    frame: &PhysicalFramePlan,
+    partition: &TargetColumnPartition<'_>,
+    hit: &ModularHit<'_>,
+    omitted_row: usize,
+) -> ExactTargetCircuit {
+    let mut alternative = hit.clone();
+    let selected = (0..frame.row_count())
+        .filter(|&row| row != omitted_row)
+        .collect::<Vec<_>>();
+    alternative.diagnostics.augmented_rank = selected.len();
+    alternative.diagnostics.forbidden_rank = selected.len() - 1;
+    alternative.diagnostics.augmented_independent_source_rows = selected.into_boxed_slice();
+    let ExactCircuitLift::Replayed(circuit) = try_lift_exact_circuit(
+        context,
+        &alternative,
+        partition,
+        ExactCircuitLimits::default(),
+    )
+    .unwrap() else {
+        panic!("the independently replayed S4a support must retain its exact target")
+    };
+    circuit
+}
+
 fn has_branch(
     stratum: &DecoratedStratum,
     predicate: &GuardBranchIdentity,
@@ -143,6 +236,230 @@ fn has_branch(
         .guards()
         .iter()
         .any(|candidate| candidate.same_predicate(predicate) && candidate.branch() == branch)
+}
+
+#[test]
+fn semantic_candidates_are_content_sorted_and_return_the_exact_replayed_arc() {
+    let (context, frame) = k6_s4a_semantic_frame();
+    let target = frame
+        .columns()
+        .iter()
+        .position(|shift| shift.values() == [-1, 1, 0, 0, 1, 0])
+        .unwrap();
+    let target_partition = partition(&frame, target, []);
+    let hit = k6_s4a_semantic_hit(&context, &frame, &target_partition);
+    let first = Arc::new(k6_s4a_circuit_omitting(
+        &context,
+        &frame,
+        &target_partition,
+        &hit,
+        0,
+    ));
+    let second = Arc::new(k6_s4a_circuit_omitting(
+        &context,
+        &frame,
+        &target_partition,
+        &hit,
+        19,
+    ));
+    assert_ne!(first.source_combination(), second.source_combination());
+    assert!(!super::semantic::exact_content_equal_excluding_modular_telemetry(&first, &second));
+    let content_order = super::semantic::compare_exact_content(&first, &second);
+    assert_ne!(content_order, Ordering::Equal);
+    let expected = if content_order == Ordering::Less {
+        &first
+    } else {
+        &second
+    };
+
+    let forward = ExactCircuitSemanticDag::try_compile(
+        &context,
+        &target_partition,
+        &[first.clone(), second.clone()],
+        ExactCircuitSemanticLimits::default(),
+    )
+    .unwrap();
+    let reverse = ExactCircuitSemanticDag::try_compile(
+        &context,
+        &target_partition,
+        &[second.clone(), first.clone()],
+        ExactCircuitSemanticLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(forward.candidates().len(), 2);
+    assert_eq!(reverse.candidates().len(), 2);
+    for (ordinal, (left, right)) in forward
+        .candidates()
+        .iter()
+        .zip(reverse.candidates())
+        .enumerate()
+    {
+        assert_eq!(left.id().ordinal(), ordinal);
+        assert_eq!(right.id().ordinal(), ordinal);
+        assert!(
+            super::semantic::exact_content_equal_excluding_modular_telemetry(
+                left.circuit(),
+                right.circuit()
+            )
+        );
+    }
+
+    let singleton_first = ExactCircuitSemanticDag::try_compile(
+        &context,
+        &target_partition,
+        &[first.clone()],
+        ExactCircuitSemanticLimits::default(),
+    )
+    .unwrap();
+    let singleton_second = ExactCircuitSemanticDag::try_compile(
+        &context,
+        &target_partition,
+        &[second.clone()],
+        ExactCircuitSemanticLimits::default(),
+    )
+    .unwrap();
+    let mut common_point = None;
+    'points: for n0 in -3..=0 {
+        for n1 in 1..=3 {
+            for n2 in 1..=3 {
+                for n3 in 1..=3 {
+                    for n4 in 1..=3 {
+                        for n5 in -3..=0 {
+                            let point = [n0, n1, n2, n3, n4, n5];
+                            if matches!(
+                                singleton_first.try_select_at(
+                                    &context,
+                                    &point,
+                                    GuardDecisionEvaluationLimits::default()
+                                ),
+                                Ok(ExactCircuitSemanticSelection::Selected(_))
+                            ) && matches!(
+                                singleton_second.try_select_at(
+                                    &context,
+                                    &point,
+                                    GuardDecisionEvaluationLimits::default()
+                                ),
+                                Ok(ExactCircuitSemanticSelection::Selected(_))
+                            ) {
+                                common_point = Some(point);
+                                break 'points;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let point = common_point.expect("the two exact S4a candidates must overlap generically");
+    for dag in [&forward, &reverse] {
+        let ExactCircuitSemanticSelection::Selected(selected) = dag
+            .try_select_at(&context, &point, GuardDecisionEvaluationLimits::default())
+            .unwrap()
+        else {
+            panic!("the generic S4a point must have an admitted exact circuit")
+        };
+        assert!(Arc::ptr_eq(selected.circuit(), expected));
+        assert_eq!(selected.id().ordinal(), 0);
+    }
+
+    assert!(forward.guard_dag().stats().atoms > 0);
+    let mut evaluation_limits = GuardDecisionEvaluationLimits::default();
+    evaluation_limits.max_predicate_evaluations = 0;
+    assert!(matches!(
+        forward.try_select_at(&context, &point, evaluation_limits),
+        Err(ExactCircuitSemanticError::GuardDag(_))
+    ));
+}
+
+#[test]
+fn semantic_admission_rejects_duplicate_modular_discoveries_bad_joins_and_aggregate_overflow() {
+    let (context, frame) = tadpole_frame();
+    let target = target(&frame);
+    let target_partition = partition(&frame, target, []);
+    let first = Arc::new(exact_circuit_at(&context, &frame, &target_partition, 37, 2));
+    let second = Arc::new(exact_circuit_at(&context, &frame, &target_partition, 41, 3));
+    assert_ne!(first.sample_fingerprint(), second.sample_fingerprint());
+    assert!(super::semantic::exact_content_equal_excluding_modular_telemetry(&first, &second));
+    assert_eq!(
+        ExactCircuitSemanticDag::try_compile(
+            &context,
+            &target_partition,
+            &[first.clone(), second],
+            ExactCircuitSemanticLimits::default(),
+        )
+        .unwrap_err(),
+        ExactCircuitSemanticError::DuplicateExactContent
+    );
+
+    let foreign_partition = partition(
+        &frame,
+        target,
+        [GuardBranchIdentity::try_new(
+            "semantic-foreign-parent",
+            GuardBranch::NonZero,
+            Default::default(),
+        )
+        .unwrap()],
+    );
+    assert!(matches!(
+        ExactCircuitSemanticDag::try_compile(
+            &context,
+            &foreign_partition,
+            &[first.clone()],
+            ExactCircuitSemanticLimits::default(),
+        ),
+        Err(ExactCircuitSemanticError::CandidateJoin {
+            candidate: 0,
+            detail: "decorated stratum identity differs",
+        })
+    ));
+
+    let mut limits = ExactCircuitSemanticLimits::default();
+    limits.max_residual_terms = 0;
+    assert!(matches!(
+        ExactCircuitSemanticDag::try_compile(&context, &target_partition, &[first], limits),
+        Err(ExactCircuitSemanticError::ResourceLimit {
+            resource: "semantic exact-circuit residual terms",
+            requested: 1,
+            limit: 0,
+        })
+    ));
+
+    let first = Arc::new(exact_circuit_at(&context, &frame, &target_partition, 37, 2));
+    let mut limits = ExactCircuitSemanticLimits::default();
+    limits.max_guard_coefficient_equations = 0;
+    assert!(matches!(
+        ExactCircuitSemanticDag::try_compile(&context, &target_partition, &[first], limits),
+        Err(ExactCircuitSemanticError::ResourceLimit {
+            resource: "semantic exact-circuit compiled guard coefficient equations",
+            requested,
+            limit: 0,
+        }) if requested > 0
+    ));
+
+    let first = Arc::new(exact_circuit_at(&context, &frame, &target_partition, 37, 2));
+    let mut limits = ExactCircuitSemanticLimits::default();
+    limits.max_modular_sample_point_entries = 0;
+    assert!(matches!(
+        ExactCircuitSemanticDag::try_compile(&context, &target_partition, &[first], limits),
+        Err(ExactCircuitSemanticError::ResourceLimit {
+            resource: "semantic exact-circuit modular sample-point entries",
+            requested,
+            limit: 0,
+        }) if requested > 0
+    ));
+
+    let first = Arc::new(exact_circuit_at(&context, &frame, &target_partition, 37, 2));
+    let mut limits = ExactCircuitSemanticLimits::default();
+    limits.max_modular_diagnostic_entries = 0;
+    assert!(matches!(
+        ExactCircuitSemanticDag::try_compile(&context, &target_partition, &[first], limits),
+        Err(ExactCircuitSemanticError::ResourceLimit {
+            resource: "semantic exact-circuit modular diagnostic entries",
+            requested,
+            limit: 0,
+        }) if requested > 0
+    ));
 }
 
 #[test]

@@ -9,7 +9,7 @@
 //! physical parameter quotients and exact mass specializations first.
 
 mod build;
-mod decision;
+pub(crate) mod decision;
 mod error;
 mod limits;
 mod model;

@@ -42,9 +42,13 @@ Development is divided into two hard-gated stages:
   new scalar backend when tensor numerators are present.
 - **Stage 2 artifact production is deferred and must not start without new
   user guidance:** do not enhance tensor reduction, integrate speculative
-  collaborator tensor work, or run four- through six-loop closure campaigns.
-  The current user direction does authorize deep algorithm research and
-  bounded, falsifiable foundry prototypes during Stage 1. LiteRed2 is a
+  collaborator tensor work, or publish four- through six-loop closure
+  artifacts. The current user direction does authorize deep algorithm
+  research and bounded, falsifiable studies over the complete four-, five-,
+  and six-loop single-scale vacuum family manifests during Stage 1. These
+  studies must freeze and authenticate their complete family census, report
+  every censored or unresolved member, and keep modular discovery evidence
+  distinct from exact closure authority. LiteRed2 is a
   correctness baseline rather than an architecture target: candidate methods
   must be judged creatively against the eventual six-loop scaling problem,
   with independent research and adversarial viability audits. This permission
@@ -678,6 +682,12 @@ Acceptance requires:
   Laurent-series expectations against AlphaLoop/MATAD across the applicable
   Vakint harness; exact cross-backend raw-master comparison is required only
   where an explicit common-basis map exists;
+- an explicit policy on every Vakint comparison lane: `ExactMatadBasis`
+  requires raw coefficient equality after a certified basis map, whereas
+  `NumericalOnly` accepts a different finite RustRed terminal basis and
+  requires equality only after independently validated terminal substitution;
+  a valid nonminimal terminal set is never rejected merely for differing from
+  MATAD's preferred symbolic masters;
 - scalar RustRed-backend tests with an invalid FORM path;
 - tensor-bearing tests using the unchanged FORM tensor prepass followed by the
   FORM-free RustRed scalar tail; and
@@ -688,14 +698,19 @@ Acceptance requires:
 
 PySecDec comparisons are optional, non-gating corroboration.
 
-## Stage 2 — deferred, not authorized
+## Stage 2 production — deferred; complete-family scaling studies authorized
 
 Stage 2 preserves the long-term ambition from the historical preamble, but no
-four- through six-loop artifact-production or high-loop performance campaign
-may begin until the user provides the collaborator's tensor-reduction
-direction and explicit permission. Stage 1 may research and prototype the IBP
-breakthrough now, provided every experiment is bounded, topology-neutral, and
-directly falsifiable on the three-loop `K = 6` pressure family. Stage 2
+four- through six-loop artifact production or unbounded high-loop closure
+campaign may begin until the user provides the collaborator's tensor-reduction
+direction and explicit permission. During Stage 1, the winning IBP-foundry
+candidate may already be studied on the **complete authenticated** four-,
+five-, and six-loop single-scale vacuum manifests. Each study is bounded,
+pre-registers its resource and promotion/kill gates, includes all hard and
+censored families in aggregate results, and reports only the strongest proved
+state (`Manifested`, `Probed`, `ModularCandidate`, `ExactReplayed`,
+`GuardOwned`, `BoundaryDischarged`, `ChartClosed`, or `FamilyClosed`). A
+bounded or sampled census is never described as closure. Stage 2 production
 includes:
 
 - integrating or replacing tensor reduction and making it generic in rank;
