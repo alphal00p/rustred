@@ -7,6 +7,8 @@
 //! not expose a [`super::ClosedArtifact`] until the rule fixed point is closed.
 
 #[cfg(test)]
+mod bootstrap_census;
+#[cfg(test)]
 mod cells;
 #[cfg(test)]
 mod closure_sweep;
