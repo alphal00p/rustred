@@ -206,25 +206,9 @@ impl<'frame> TargetColumnPartition<'frame> {
                 admitted_target_cells,
                 limits.max_target_sector_cells,
             )?;
-            let owner_probes = checked_mul(
-                "decorated-stratum immutable-owner probes",
-                census.proper_subsector_cell_count(),
-                owners.owner_count(),
-            )?;
-            admitted_owner_probes = checked_add(
-                "decorated-stratum immutable-owner probes",
-                admitted_owner_probes,
-                owner_probes,
-            )?;
-            check_limit(
-                "decorated-stratum immutable-owner probes",
-                admitted_owner_probes,
-                limits.max_owner_probes,
-            )?;
-
             let partition = descent.try_target_sector_partition()?;
             let proper_count = partition.proper_subsector_cell_count();
-            if proper_count != 0 && owners.owner_count() == 0 {
+            if proper_count != 0 && owners.route_count() == 0 {
                 push_forbidden(
                     &mut forbidden,
                     &mut forbidden_descriptors,
@@ -260,6 +244,16 @@ impl<'frame> TargetColumnPartition<'frame> {
                         detail: "proper-subsector partition prefix contains a same-sector cell",
                     });
                 }
+                admitted_owner_probes = checked_add(
+                    "decorated-stratum immutable-owner probes",
+                    admitted_owner_probes,
+                    owners.route_candidates_for_sector(cell.target_domain().sector()),
+                )?;
+                check_limit(
+                    "decorated-stratum immutable-owner probes",
+                    admitted_owner_probes,
+                    limits.max_owner_probes,
+                )?;
                 let Some(owner) = owners.owner_for(frame.sector(), ordering, cell.target_domain())
                 else {
                     first_unowned = Some(cell_ordinal);
@@ -406,16 +400,6 @@ impl<'frame> TargetColumnPartition<'frame> {
             census.cell_count(),
             self.limits.max_target_sector_cells,
         )?;
-        let owner_probes = checked_mul(
-            "prospective immutable-owner probes",
-            census.proper_subsector_cell_count(),
-            self.owners.owner_count(),
-        )?;
-        check_limit(
-            "prospective immutable-owner probes",
-            owner_probes,
-            self.limits.max_owner_probes,
-        )?;
         check_limit(
             "prospective retained owner witnesses",
             census.proper_subsector_cell_count(),
@@ -424,9 +408,10 @@ impl<'frame> TargetColumnPartition<'frame> {
 
         let partition = descent.try_target_sector_partition()?;
         let proper_count = partition.proper_subsector_cell_count();
-        if proper_count != 0 && self.owners.owner_count() == 0 {
+        if proper_count != 0 && self.owners.route_count() == 0 {
             return Ok(ProspectiveColumnKind::Forbidden);
         }
+        let mut owner_probes = 0usize;
         for cell_ordinal in 0..proper_count {
             let cell = partition.cell(cell_ordinal)?;
             if cell.kind() != SectorMonotoneTargetCellKind::ProperSubsector {
@@ -434,6 +419,17 @@ impl<'frame> TargetColumnPartition<'frame> {
                     detail: "prospective proper-subsector prefix contains a same-sector cell",
                 });
             }
+            owner_probes = checked_add(
+                "prospective immutable-owner probes",
+                owner_probes,
+                self.owners
+                    .route_candidates_for_sector(cell.target_domain().sector()),
+            )?;
+            check_limit(
+                "prospective immutable-owner probes",
+                owner_probes,
+                self.limits.max_owner_probes,
+            )?;
             if self
                 .owners
                 .owner_for(self.frame.sector(), self.ordering, cell.target_domain())

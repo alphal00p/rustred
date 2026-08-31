@@ -298,6 +298,7 @@ fn stratum_budget_cause(error: &StratumRegistryError) -> Option<ProbeLocalBudget
         | StratumRegistryError::WrongFrameContext
         | StratumRegistryError::WrongOwnerFamily
         | StratumRegistryError::WrongOwnerContext
+        | StratumRegistryError::WrongOwnerRouteCanonicalizer
         | StratumRegistryError::WrongFrameSector
         | StratumRegistryError::WrongOwnerArity { .. }
         | StratumRegistryError::EmptyClosedSectorLayerBatch

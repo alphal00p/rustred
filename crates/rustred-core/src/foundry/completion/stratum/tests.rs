@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::algebra::{CoefficientContext, IndexedCoefficientContext};
 use crate::foundry::artifact::{
     derive_k6_terminal_authority, derive_one_loop_unit_mass_tadpole,
@@ -262,8 +264,9 @@ fn exact_guard_identity_uses_symbolica_primitive_associates_and_context_order() 
 #[test]
 fn artifact_snapshot_exposes_only_proof_backed_terminal_regions() {
     let (artifact, _) = one_loop_frame(0);
+    let artifact = Arc::new(artifact);
     let snapshot = ImmutableOwnerSnapshot::try_from_closed_artifact(
-        &artifact,
+        Arc::clone(&artifact),
         StratumRegistryLimits::default(),
     )
     .unwrap();
@@ -390,6 +393,116 @@ fn terminal_authority_snapshot_retains_and_cheaply_rejoins_its_exact_owner() {
     assert!(clone.same_authority_as(&snapshot));
     assert!(clone.try_verify(StratumRegistryLimits::default()).unwrap());
     drop(clone);
+}
+
+#[test]
+fn k6_snapshot_routes_every_factorization_and_master_orbit_image_exactly() {
+    let authority = derive_k6_terminal_authority().unwrap();
+    let snapshot = ImmutableOwnerSnapshot::try_from_terminal_authority(
+        Arc::clone(&authority),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let canonicalizer = authority.canonicalizer().unwrap();
+    let parent = Mask::try_new([true; 6]).unwrap();
+    let ordering = OrderingPolicy::default();
+    let factorization_base = authority.zero_sectors().len();
+
+    for (factorization_ordinal, rule) in authority.factorization_rules().iter().enumerate() {
+        let mut raw_domains = Vec::new();
+        for route in canonicalizer.routing_witnesses() {
+            let raw = preimage_domain(rule.application_domain(), route.source_for_target());
+            if !raw_domains.contains(&raw) {
+                raw_domains.push(raw);
+            }
+        }
+        let expected_orbit = k6_product_orbit_size(rule.application_domain().sector());
+        assert_eq!(raw_domains.len(), expected_orbit);
+        let expected_owner = factorization_base + factorization_ordinal;
+        assert_eq!(
+            snapshot.route_count_for_owner(expected_owner),
+            expected_orbit
+        );
+
+        for raw in raw_domains {
+            let owner = snapshot.owner_for(&parent, ordering, &raw).unwrap();
+            assert_eq!(owner.owner_ordinal(), expected_owner);
+            assert_eq!(owner.kind(), ImmutableOwnerKind::Factorization);
+            assert!(snapshot.verifies_witness(&parent, ordering, &raw, owner));
+
+            let corner = SectorInteriorDomain::try_new(
+                raw.sector().clone(),
+                raw.sector().active_bits().iter().map(|&active| {
+                    if active {
+                        InteriorBounds::new(1, 1)
+                    } else {
+                        InteriorBounds::new(0, 0)
+                    }
+                }),
+            )
+            .unwrap();
+            let corner_owner = snapshot.owner_for(&parent, ordering, &corner).unwrap();
+            assert_eq!(corner_owner.owner_ordinal(), expected_owner);
+            assert_eq!(corner_owner.kind(), ImmutableOwnerKind::Factorization);
+
+            let widened_slot = raw
+                .sector()
+                .active_bits()
+                .iter()
+                .position(|&active| !active)
+                .unwrap();
+            let widened = SectorInteriorDomain::try_new(
+                raw.sector().clone(),
+                raw.sector()
+                    .active_bits()
+                    .iter()
+                    .enumerate()
+                    .map(|(slot, &active)| {
+                        if active {
+                            InteriorBounds::new(1, 1)
+                        } else if slot == widened_slot {
+                            InteriorBounds::new(-1, 0)
+                        } else {
+                            InteriorBounds::new(0, 0)
+                        }
+                    }),
+            )
+            .unwrap();
+            assert!(snapshot.owner_for(&parent, ordering, &widened).is_none());
+        }
+    }
+
+    let master_base = factorization_base + authority.factorization_rules().len();
+    for (master_ordinal, master) in authority.parent_terminals().iter().enumerate() {
+        let sector = Mask::try_from_indices(master.powers()).unwrap();
+        assert_eq!(
+            snapshot.route_count_for_owner(master_base + master_ordinal),
+            k6_product_orbit_size(&sector),
+            "every shadowed master alias must still be retained and cold-verified"
+        );
+    }
+}
+
+fn preimage_domain(
+    owner: &SectorInteriorDomain,
+    source_for_target: &[usize],
+) -> SectorInteriorDomain {
+    let mut raw_bits = vec![false; owner.arity()];
+    let mut raw_bounds = vec![InteriorBounds::new(0, 0); owner.arity()];
+    for (owner_slot, &raw_slot) in source_for_target.iter().enumerate() {
+        raw_bits[raw_slot] = owner.sector().active_bits()[owner_slot];
+        raw_bounds[raw_slot] = owner.bounds()[owner_slot];
+    }
+    SectorInteriorDomain::try_new(Mask::try_new(raw_bits).unwrap(), raw_bounds).unwrap()
+}
+
+fn k6_product_orbit_size(sector: &Mask) -> usize {
+    match sector.active_bits() {
+        [false, false, true, true, true, true] => 12,
+        [false, false, true, true, false, true] => 4,
+        [false, false, true, false, true, true] => 12,
+        unexpected => panic!("unexpected canonical K6 product sector: {unexpected:?}"),
+    }
 }
 
 #[test]

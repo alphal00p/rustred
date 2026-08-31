@@ -7,18 +7,27 @@ use super::mask::Mask;
 
 /// Stable identifier of RustRed's first deterministic integral order.
 pub(super) const RUSTRED_UNSHIFTED_ORDER_V1_ID: &str = "rustred.unshifted-sector-order.v1";
+#[cfg(test)]
+const TEST_ONLY_DISTINCT_ORDER_ID: &str = "rustred.test-only-distinct-sector-order";
 
 /// Persisted choice of integral-ordering semantics.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum OrderingPolicy {
     #[default]
     RustRedUnshiftedV1,
+    /// Test-only distinct identity with the same arithmetic order. It exists
+    /// solely to exercise exact owner-ordering rejection and cannot enter a
+    /// production build or persisted artifact.
+    #[cfg(test)]
+    TestOnlyDistinct,
 }
 
 impl OrderingPolicy {
     pub fn try_from_stable_id(id: &str) -> Result<Self, Error> {
         match id {
             RUSTRED_UNSHIFTED_ORDER_V1_ID => Ok(Self::RustRedUnshiftedV1),
+            #[cfg(test)]
+            TEST_ONLY_DISTINCT_ORDER_ID => Ok(Self::TestOnlyDistinct),
             _ => Err(Error::UnknownOrderingPolicy {
                 id: try_copy_string(id, "ordering policy identifier")?,
             }),
@@ -28,6 +37,8 @@ impl OrderingPolicy {
     pub const fn stable_id(self) -> &'static str {
         match self {
             Self::RustRedUnshiftedV1 => RUSTRED_UNSHIFTED_ORDER_V1_ID,
+            #[cfg(test)]
+            Self::TestOnlyDistinct => TEST_ONLY_DISTINCT_ORDER_ID,
         }
     }
 

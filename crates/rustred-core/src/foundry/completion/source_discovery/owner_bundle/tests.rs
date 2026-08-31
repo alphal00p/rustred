@@ -816,7 +816,7 @@ fn closed_seal_rejects_a_finite_cover_without_explicit_terminal_ownership() {
 
 #[test]
 fn closed_seal_rechecks_the_exact_predecessor_scope_of_every_owner() {
-    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let completed = complete_ordinary(&generator);
     let first_owner = compiled_tadpole_owner(&artifact, &generator, &completed, 1, [2, 3]);
@@ -830,7 +830,7 @@ fn closed_seal_rechecks_the_exact_predecessor_scope_of_every_owner() {
     .unwrap();
 
     let predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
-        &artifact,
+        Arc::clone(&artifact),
         StratumRegistryLimits::default(),
     )
     .unwrap();
@@ -941,15 +941,22 @@ fn closed_tadpole_layer_extends_one_exact_predecessor_transactionally() {
 
 #[test]
 fn solved_layer_extension_preserves_a_closed_artifact_terminal_prefix() {
-    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let completed = complete_ordinary(&generator);
     let predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
-        &artifact,
+        Arc::clone(&artifact),
         StratumRegistryLimits::default(),
     )
     .unwrap();
     let terminal_owner_count = predecessor.owner_count();
+    let parent_sector = Mask::try_new([true]).unwrap();
+    let zero_domain =
+        SectorInteriorDomain::try_new(Mask::try_new([false]).unwrap(), [InteriorBounds::new(0, 0)])
+            .unwrap();
+    let retained_witness = predecessor
+        .owner_for(&parent_sector, OrderingPolicy::default(), &zero_domain)
+        .unwrap();
     let layer = published_tadpole_layer(&artifact, &generator, &completed, predecessor.clone());
     let extended = predecessor
         .try_extend_with_closed_layers(vec![layer], StratumRegistryLimits::default())
@@ -957,6 +964,11 @@ fn solved_layer_extension_preserves_a_closed_artifact_terminal_prefix() {
 
     assert_eq!(extended.owner_count(), terminal_owner_count + 1);
     assert!(extended.solved_owner_matches_layer(0));
+    assert_eq!(
+        extended.owner_for(&parent_sector, OrderingPolicy::default(), &zero_domain),
+        Some(retained_witness),
+        "append-only extension must preserve every pre-existing witness ordinal",
+    );
     assert!(
         extended
             .try_verify(StratumRegistryLimits::default())
@@ -1064,7 +1076,7 @@ fn closed_layer_content_id_covers_exact_circuit_and_rule_cell_payloads() {
 
 #[test]
 fn closed_layer_batch_rejections_leave_the_predecessor_unchanged() {
-    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let completed = complete_ordinary(&generator);
     let predecessor = ImmutableOwnerSnapshot::try_empty(
@@ -1090,7 +1102,7 @@ fn closed_layer_batch_rejections_leave_the_predecessor_unchanged() {
     ));
 
     let foreign_predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
-        &artifact,
+        Arc::clone(&artifact),
         StratumRegistryLimits::default(),
     )
     .unwrap();
@@ -1174,6 +1186,26 @@ fn closed_layer_batch_rejections_leave_the_predecessor_unchanged() {
         Err(StratumRegistryError::ResourceLimit {
             resource: "immutable owner regions",
             requested: 1,
+            limit: 0,
+        })
+    ));
+    let mut route_exhausted = StratumRegistryLimits::default();
+    route_exhausted.max_owner_routes = 0;
+    assert!(matches!(
+        predecessor.try_extend_with_closed_layers(vec![layer.clone()], route_exhausted),
+        Err(StratumRegistryError::ResourceLimit {
+            resource: "immutable owner symmetry routes",
+            requested: 1,
+            limit: 0,
+        })
+    ));
+    let mut route_coordinate_exhausted = StratumRegistryLimits::default();
+    route_coordinate_exhausted.max_owner_route_coordinate_cells = 0;
+    assert!(matches!(
+        predecessor.try_extend_with_closed_layers(vec![layer.clone()], route_coordinate_exhausted,),
+        Err(StratumRegistryError::ResourceLimit {
+            resource: "immutable owner symmetry-route coordinate cells",
+            requested: 3,
             limit: 0,
         })
     ));

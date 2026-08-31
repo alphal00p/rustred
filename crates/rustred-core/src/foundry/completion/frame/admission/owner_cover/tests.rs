@@ -682,7 +682,7 @@ fn owner_cover_resource_limits_fail_before_admission() {
 
 #[test]
 fn mixed_immutable_owner_snapshots_are_rejected() {
-    let artifact = crate::foundry::artifact::derive_one_loop_unit_mass_tadpole().unwrap();
+    let artifact = Arc::new(crate::foundry::artifact::derive_one_loop_unit_mass_tadpole().unwrap());
     let family = artifact.family();
     let generator = ParametricIbpGenerator::try_new(family).unwrap();
     let context = generator.context().clone();
@@ -737,7 +737,7 @@ fn mixed_immutable_owner_snapshots_are_rejected() {
             limits,
         )
         .unwrap(),
-        ImmutableOwnerSnapshot::try_from_closed_artifact(&artifact, limits).unwrap(),
+        ImmutableOwnerSnapshot::try_from_closed_artifact(Arc::clone(&artifact), limits).unwrap(),
     );
     let empty_semantic = semantic(
         &context,

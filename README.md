@@ -331,10 +331,12 @@ cover can now be published as an immutable solved-sector layer with a bounded,
 one-time BLAKE3 identity over its complete executable content. Strong retained
 ownership—not the digest—authorizes dependency joins. Later snapshots append
 canonically ordered same-rank waves transactionally and reject split,
-decreasing, or foreign-predecessor publication. The next K6 production
-boundary is exact symmetry routing for canonical terminal and solved owners,
-followed by the first bottom-up three-line wave. RustRed still has no closed K6
-artifact.
+decreasing, or foreign-predecessor publication. Their bounded append-only
+raw-to-owner route table now covers every authenticated symmetry image of root
+and solved owners, retains the exact canonicalizer authority, preserves
+factorization-before-master precedence, and performs allocation-free bucketed
+lookup. The next K6 production boundary is the first complete bottom-up
+three-line wave. RustRed still has no closed K6 artifact.
 
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,

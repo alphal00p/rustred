@@ -20,6 +20,7 @@ pub(crate) enum StratumRegistryError {
     WrongFrameContext,
     WrongOwnerFamily,
     WrongOwnerContext,
+    WrongOwnerRouteCanonicalizer,
     WrongFrameSector,
     WrongOwnerArity {
         owner: usize,
@@ -104,6 +105,9 @@ impl fmt::Display for StratumRegistryError {
             ),
             Self::WrongOwnerContext => formatter.write_str(
                 "immutable owner snapshot and decorated stratum use different coefficient contexts",
+            ),
+            Self::WrongOwnerRouteCanonicalizer => formatter.write_str(
+                "immutable owner routes use a foreign or wrong-arity symmetry authority",
             ),
             Self::WrongFrameSector => formatter
                 .write_str("decorated stratum domain and physical frame use different sectors"),

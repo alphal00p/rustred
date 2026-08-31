@@ -663,12 +663,17 @@ immutable retained `Arc`, not this digest, remains authority. Snapshot feedback
 appends canonically ordered same-rank batches transactionally, requires the
 exact predecessor authority, and permits only strictly increasing active-line
 frontiers. It does not repeat the content traversal during ordinary partition
-lookup. The missing cross-sector boundary is a symmetry-route index derived
-from the strongly retained exact family action, including noncanonical images
-of canonical factorization owners, followed by the fixed-point scheduler. That
-scheduler must repeat sector solving, exceptional refinement, and dependency
-substitution without allowing arrival order or worker count to change the
-semantic artifact.
+lookup. Immutable snapshots now derive a bounded append-only symmetry-route
+table from their strongly retained exact family action. A separate sector
+index preserves owner precedence while routing noncanonical zero,
+factorization, master, and solved-layer images; snapshot schema V4 commits the
+routes and derived index, and cold replay rejoins every nonidentity route to
+the retained `Canonicalizer`. The remaining K6 bottom-up blocker is not owner
+routing: RustRed must still produce complete closed executable covers for the
+required rank-three sectors and publish them as one transactional wave. The
+fixed-point scheduler must repeat sector solving, exceptional refinement, and
+dependency substitution without allowing arrival order or worker count to
+change the semantic artifact.
 
 ## Residual recentering
 

@@ -49,6 +49,8 @@ pub(super) fn registry_limits() -> StratumRegistryLimits {
         max_stratum_identity_bytes: 65_536,
         max_owner_regions: 0,
         max_owner_coordinate_cells: 0,
+        max_owner_routes: 0,
+        max_owner_route_coordinate_cells: 0,
         max_owner_identity_bytes: 65_536,
         max_physical_columns: MAX_FRAME_COLUMNS,
         max_column_coordinate_cells: MAX_FRAME_COLUMNS * 6,

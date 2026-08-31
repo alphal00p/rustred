@@ -102,7 +102,7 @@ fn replayed_owned_boundary_tadpole() -> (
     Arc<crate::foundry::completion::source_discovery::FreshTaskEpoch>,
     Arc<crate::foundry::completion::frame::exact::ExactTargetCircuit>,
 ) {
-    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let context = generator.context().clone();
     let completed = complete_ordinary(&generator);
@@ -122,7 +122,8 @@ fn replayed_owned_boundary_tadpole() -> (
         registry,
     )
     .unwrap();
-    let owners = ImmutableOwnerSnapshot::try_from_closed_artifact(&artifact, registry).unwrap();
+    let owners =
+        ImmutableOwnerSnapshot::try_from_closed_artifact(Arc::clone(&artifact), registry).unwrap();
     assert!(owners.owner_count() > 0);
     let probe = crate::foundry::completion::source_discovery::CampaignModularProbe::try_new(
         PRIME,

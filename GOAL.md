@@ -213,9 +213,14 @@ exactly once; the strongly retained `Arc` chain, not the digest, remains proof
 authority, and subsequent owner lookup does not rehash the payload. Snapshot
 extension is transactional: all sectors in one worker frontier share the
 exact predecessor, are canonically ordered, and later frontiers must have
-strictly greater active-line rank. The remaining dependency boundary is an
-exact symmetry-route index covering both canonical terminal owners and
-published solved layers before the first bottom-up K6 wave can advance.
+strictly greater active-line rank. Immutable snapshots now retain their exact
+canonicalizer authority and publish bounded append-only raw-to-owner symmetry
+routes for zero, factorization, master, and solved-sector owners. Snapshot V4
+commits the complete route records and derived sector buckets; cold replay
+reauthenticates every group element, while lookup preserves root-owner
+precedence without allocation, CAS work, or content rehashing. This closes the
+noncanonical product-sector dependency gap. The remaining dependency boundary
+is the first complete bottom-up K6 rank-three wave.
 
 On the Vakint side, the shared multimethod harness now exercises 21 applicable
 historical tests comprising 27 concrete inputs through two loops, including

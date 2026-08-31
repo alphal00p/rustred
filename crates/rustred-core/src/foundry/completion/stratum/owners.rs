@@ -5,11 +5,19 @@ use crate::foundry::artifact::{
     ArtifactSchemaVersion, ClosedArtifact, ClosedTerminalAuthority, ZeroTerminalProof,
 };
 use crate::foundry::completion::source_discovery::ClosedSectorLayer;
+use crate::sector::symmetry::Canonicalizer;
 use crate::sector::{Mask, OrderingPolicy, SectorInteriorDomain};
 
 use super::identity::BoundedIdentityBuilder;
 use super::{
     StratumRegistryError, StratumRegistryLimits, check_limit, checked_add, checked_mul, try_reserve,
+};
+
+mod routes;
+
+use routes::{
+    ImmutableOwnerRoute, ImmutableOwnerRouteBucket, build_owner_route_index,
+    check_owner_route_capacity, try_append_owner_routes, verify_owner_routes,
 };
 
 /// Stable execution identity of one immutable owner snapshot.
@@ -74,19 +82,6 @@ impl ImmutableOwner {
             Self::SolvedRewriteSector { sector, .. } => sector.arity(),
         }
     }
-
-    fn covers(&self, ordering: OrderingPolicy, target: &SectorInteriorDomain) -> bool {
-        match self {
-            Self::ZeroSector { sector, .. } => sector == target.sector(),
-            Self::Factorization { domain, .. } => domain_contains(domain, target),
-            Self::Master { key } => domain_is_singleton_key(target, key),
-            Self::SolvedRewriteSector {
-                sector,
-                ordering: owner_ordering,
-                ..
-            } => *owner_ordering == ordering && sector == target.sector(),
-        }
-    }
 }
 
 /// Exact reference to a terminalizing owner retained in one immutable
@@ -95,6 +90,7 @@ impl ImmutableOwner {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ImmutableOwnerWitness {
     owner_ordinal: usize,
+    route_ordinal: usize,
     kind: ImmutableOwnerKind,
 }
 
@@ -105,6 +101,10 @@ impl ImmutableOwnerWitness {
 
     pub(crate) const fn kind(self) -> ImmutableOwnerKind {
         self.kind
+    }
+
+    pub(crate) const fn route_ordinal(self) -> usize {
+        self.route_ordinal
     }
 }
 
@@ -140,7 +140,11 @@ pub(crate) struct ImmutableOwnerSnapshot {
     arity: usize,
     source: SnapshotSource,
     owners: Arc<[ImmutableOwner]>,
+    routes: Arc<[ImmutableOwnerRoute]>,
+    route_index: Arc<[usize]>,
+    route_buckets: Arc<[ImmutableOwnerRouteBucket]>,
     id: ImmutableOwnerSnapshotId,
+    closed_artifact: Option<Arc<ClosedArtifact>>,
     terminal_authority: Option<Arc<ClosedTerminalAuthority>>,
     closed_layers: Arc<[Arc<ClosedSectorLayer>]>,
 }
@@ -152,7 +156,11 @@ impl PartialEq for ImmutableOwnerSnapshot {
             && self.arity == other.arity
             && self.source == other.source
             && self.owners == other.owners
+            && self.routes == other.routes
+            && self.route_index == other.route_index
+            && self.route_buckets == other.route_buckets
             && self.id == other.id
+            && self.closed_artifact.is_some() == other.closed_artifact.is_some()
             && self.terminal_authority.is_some() == other.terminal_authority.is_some()
             && layer_content_ids_equal(&self.closed_layers, &other.closed_layers)
     }
@@ -180,11 +188,17 @@ impl ImmutableOwnerSnapshot {
             });
         }
         let source = SnapshotSource::Empty;
+        let routes = Vec::new();
+        let route_index = Vec::new();
+        let route_buckets = Vec::new();
         let id = build_snapshot_id(
             family_fingerprint,
             context_fingerprint,
             arity,
             &source,
+            &[],
+            &[],
+            &[],
             &[],
             &[],
             limits,
@@ -195,7 +209,11 @@ impl ImmutableOwnerSnapshot {
             arity,
             source,
             owners: Arc::from([]),
+            routes: routes.into(),
+            route_index: route_index.into(),
+            route_buckets: route_buckets.into(),
             id,
+            closed_artifact: None,
             terminal_authority: None,
             closed_layers: Arc::from([]),
         })
@@ -204,7 +222,7 @@ impl ImmutableOwnerSnapshot {
     /// Freeze only terminalizing regions from an already installed artifact.
     /// No caller-authored region can enter through this boundary.
     pub(crate) fn try_from_closed_artifact(
-        artifact: &ClosedArtifact,
+        artifact: Arc<ClosedArtifact>,
         limits: StratumRegistryLimits,
     ) -> Result<Self, StratumRegistryError> {
         let zero_sector_count = artifact.zero_sectors().len();
@@ -271,12 +289,26 @@ impl ImmutableOwnerSnapshot {
             factorization_count,
             master_count,
         };
+        let mut routes = Vec::new();
+        try_append_owner_routes(
+            &mut routes,
+            &owners,
+            0,
+            artifact.canonicalizer(),
+            artifact.family_fingerprint(),
+            artifact.arity(),
+            limits,
+        )?;
+        let (route_index, route_buckets) = build_owner_route_index(&routes, limits)?;
         let id = build_snapshot_id(
             artifact.family_fingerprint(),
             artifact.context_fingerprint(),
             artifact.arity(),
             &source,
             &owners,
+            &routes,
+            &route_index,
+            &route_buckets,
             &[],
             limits,
         )?;
@@ -286,7 +318,11 @@ impl ImmutableOwnerSnapshot {
             arity: artifact.arity(),
             source,
             owners: Arc::from(owners),
+            routes: routes.into(),
+            route_index: route_index.into(),
+            route_buckets: route_buckets.into(),
             id,
+            closed_artifact: Some(artifact),
             terminal_authority: None,
             closed_layers: Arc::from([]),
         })
@@ -363,12 +399,26 @@ impl ImmutableOwnerSnapshot {
             factorization_count,
             master_count,
         };
+        let mut routes = Vec::new();
+        try_append_owner_routes(
+            &mut routes,
+            &owners,
+            0,
+            authority.canonicalizer(),
+            authority.family_fingerprint(),
+            authority.arity(),
+            limits,
+        )?;
+        let (route_index, route_buckets) = build_owner_route_index(&routes, limits)?;
         let id = build_snapshot_id(
             authority.family_fingerprint(),
             authority.context_fingerprint(),
             authority.arity(),
             &source,
             &owners,
+            &routes,
+            &route_index,
+            &route_buckets,
             &[],
             limits,
         )?;
@@ -378,7 +428,11 @@ impl ImmutableOwnerSnapshot {
             arity: authority.arity(),
             source,
             owners: Arc::from(owners),
+            routes: routes.into(),
+            route_index: route_index.into(),
+            route_buckets: route_buckets.into(),
             id,
+            closed_artifact: None,
             terminal_authority: Some(authority),
             closed_layers: Arc::from([]),
         })
@@ -390,9 +444,9 @@ impl ImmutableOwnerSnapshot {
     /// another member of the wave.
     ///
     /// Incoming layers are sorted by exact sector and ordering before owner
-    /// ordinals are appended. Existing ordinals are never reordered. Symmetry
-    /// aliases are intentionally absent: each owner covers only its published
-    /// sector under its published ordering.
+    /// ordinals are appended. Existing owner and route ordinals are never
+    /// reordered; authenticated symmetry aliases are appended for the new
+    /// owner suffix when the snapshot strongly retains canonicalizer authority.
     pub(crate) fn try_extend_with_closed_layers(
         &self,
         layers: Vec<Arc<ClosedSectorLayer>>,
@@ -415,6 +469,14 @@ impl ImmutableOwnerSnapshot {
             "immutable owner coordinate cells",
             coordinate_cells,
             limits.max_owner_coordinate_cells,
+        )?;
+        check_owner_route_capacity(
+            self.routes.len(),
+            layers.len(),
+            self.canonicalizer_authority(),
+            self.family_fingerprint(),
+            self.arity,
+            limits,
         )?;
         let mut indexed_layers = Vec::new();
         try_reserve(
@@ -520,12 +582,34 @@ impl ImmutableOwnerSnapshot {
             closed_layers.push(layer);
         }
 
+        let first_owner_ordinal = self.owners.len();
+        let mut routes = Vec::new();
+        try_reserve(
+            &mut routes,
+            self.routes.len(),
+            "immutable owner symmetry routes",
+        )?;
+        routes.extend(self.routes.iter().cloned());
+        try_append_owner_routes(
+            &mut routes,
+            &owners[first_owner_ordinal..],
+            first_owner_ordinal,
+            self.canonicalizer_authority(),
+            self.family_fingerprint(),
+            self.arity,
+            limits,
+        )?;
+        let (route_index, route_buckets) = build_owner_route_index(&routes, limits)?;
+
         let id = build_snapshot_id(
             self.family_fingerprint(),
             self.context_fingerprint(),
             self.arity,
             &self.source,
             &owners,
+            &routes,
+            &route_index,
+            &route_buckets,
             &closed_layers,
             limits,
         )?;
@@ -535,7 +619,11 @@ impl ImmutableOwnerSnapshot {
             arity: self.arity,
             source: self.source.clone(),
             owners: Arc::from(owners),
+            routes: routes.into(),
+            route_index: route_index.into(),
+            route_buckets: route_buckets.into(),
             id,
+            closed_artifact: self.closed_artifact.clone(),
             terminal_authority: self.terminal_authority.clone(),
             closed_layers: Arc::from(closed_layers),
         })
@@ -555,6 +643,19 @@ impl ImmutableOwnerSnapshot {
 
     pub(crate) fn owner_count(&self) -> usize {
         self.owners.len()
+    }
+
+    pub(crate) fn route_count(&self) -> usize {
+        self.routes.len()
+    }
+
+    pub(crate) fn route_candidates_for_sector(&self, sector: &Mask) -> usize {
+        self.route_buckets
+            .binary_search_by(|bucket| bucket.sector().cmp(sector))
+            .ok()
+            .and_then(|ordinal| self.route_buckets.get(ordinal))
+            .and_then(ImmutableOwnerRouteBucket::candidate_count)
+            .unwrap_or(0)
     }
 
     pub(crate) fn closed_layer_count(&self) -> usize {
@@ -578,12 +679,18 @@ impl ImmutableOwnerSnapshot {
         if self != other {
             return false;
         }
+        let same_closed_artifact = match (&self.closed_artifact, &other.closed_artifact) {
+            (None, None) => true,
+            (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+            _ => false,
+        };
         let same_terminal_authority = match (&self.terminal_authority, &other.terminal_authority) {
             (None, None) => true,
             (Some(left), Some(right)) => Arc::ptr_eq(left, right),
             _ => false,
         };
-        same_terminal_authority
+        same_closed_artifact
+            && same_terminal_authority
             && self.closed_layers.len() == other.closed_layers.len()
             && self
                 .closed_layers
@@ -601,19 +708,28 @@ impl ImmutableOwnerSnapshot {
         if !target.sector().is_strict_subsector_of(parent_sector).ok()? {
             return None;
         }
-        // Installation forbids zero/factorization overlap. A compiled
-        // factorization intentionally precedes its embedded parent-terminal
-        // corner: that corner is reduced through sealed dependencies rather
-        // than being mistaken for an independent master. Root terminals also
-        // precede solved-sector owners and remain ordering-independent.
-        self.owners
-            .iter()
-            .enumerate()
-            .find(|(_, owner)| owner.covers(ordering, target))
-            .map(|(owner_ordinal, owner)| ImmutableOwnerWitness {
-                owner_ordinal,
-                kind: owner.kind(),
-            })
+        let bucket = self
+            .route_buckets
+            .binary_search_by(|bucket| bucket.sector().cmp(target.sector()))
+            .ok()
+            .and_then(|ordinal| self.route_buckets.get(ordinal))?;
+        let route_ordinals = bucket.route_ordinals(&self.route_index)?;
+        // The sidecar is sorted by owner ordinal, then stable append-only
+        // route ordinal. This preserves zero/factorization/master/solved
+        // precedence even when several routed regions share a raw sector.
+        for &route_ordinal in route_ordinals {
+            let route = self.routes.get(route_ordinal)?;
+            let owner_ordinal = route.owner_ordinal();
+            let owner = self.owners.get(owner_ordinal)?;
+            if route.covers(owner, ordering, target) {
+                return Some(ImmutableOwnerWitness {
+                    owner_ordinal,
+                    route_ordinal,
+                    kind: owner.kind(),
+                });
+            }
+        }
+        None
     }
 
     pub(crate) fn verifies_witness(
@@ -630,9 +746,29 @@ impl ImmutableOwnerSnapshot {
         {
             return false;
         }
-        self.owners
-            .get(witness.owner_ordinal)
-            .is_some_and(|owner| owner.kind() == witness.kind && owner.covers(ordering, target))
+        let Some(owner) = self.owners.get(witness.owner_ordinal) else {
+            return false;
+        };
+        let Some(route) = self.routes.get(witness.route_ordinal) else {
+            return false;
+        };
+        owner.kind() == witness.kind
+            && route.owner_ordinal() == witness.owner_ordinal
+            && route.covers(owner, ordering, target)
+            // Re-resolve through the sorted index so a witness cannot bypass
+            // an earlier overlapping owner.
+            && self.owner_for(parent_sector, ordering, target) == Some(witness)
+    }
+
+    fn canonicalizer_authority(&self) -> Option<&Canonicalizer> {
+        self.terminal_authority
+            .as_deref()
+            .and_then(ClosedTerminalAuthority::canonicalizer)
+            .or_else(|| {
+                self.closed_artifact
+                    .as_deref()
+                    .and_then(ClosedArtifact::canonicalizer)
+            })
     }
 
     pub(crate) fn try_verify(
@@ -657,12 +793,27 @@ impl ImmutableOwnerSnapshot {
         if self.owners.iter().any(|owner| owner.arity() != self.arity) {
             return Ok(false);
         }
+        if !verify_owner_routes(
+            &self.owners,
+            &self.routes,
+            &self.route_index,
+            &self.route_buckets,
+            self.canonicalizer_authority(),
+            self.family_fingerprint(),
+            self.arity,
+            limits,
+        )? {
+            return Ok(false);
+        }
         let expected = build_snapshot_id(
             self.family_fingerprint(),
             self.context_fingerprint(),
             self.arity,
             &self.source,
             &self.owners,
+            &self.routes,
+            &self.route_index,
+            &self.route_buckets,
             &self.closed_layers,
             limits,
         )?;
@@ -675,8 +826,33 @@ impl ImmutableOwnerSnapshot {
     /// Rejoin the cheap snapshot payload to its strongly owned installed
     /// authority. Exact CAS validation already occurred at installation.
     fn source_authority_matches(&self) -> bool {
-        match (&self.source, self.terminal_authority.as_ref()) {
-            (SnapshotSource::Empty | SnapshotSource::ClosedArtifact { .. }, None) => true,
+        match (
+            &self.source,
+            self.closed_artifact.as_ref(),
+            self.terminal_authority.as_ref(),
+        ) {
+            (SnapshotSource::Empty, None, None) => true,
+            (
+                SnapshotSource::ClosedArtifact {
+                    schema,
+                    algorithm_id,
+                    zero_sector_count,
+                    factorization_count,
+                    master_count,
+                },
+                Some(artifact),
+                None,
+            ) => {
+                *schema == artifact.schema()
+                    && algorithm_id.as_str() == artifact.algorithm_id()
+                    && self.family_fingerprint() == artifact.family_fingerprint()
+                    && self.context_fingerprint() == artifact.context_fingerprint()
+                    && self.arity == artifact.arity()
+                    && *zero_sector_count == artifact.zero_sectors().len()
+                    && *factorization_count == artifact.factorization_rules().len()
+                    && *master_count == artifact.masters().len()
+                    && artifact_payload_matches(&self.owners, artifact)
+            }
             (
                 SnapshotSource::TerminalAuthority {
                     authority_id,
@@ -684,6 +860,7 @@ impl ImmutableOwnerSnapshot {
                     factorization_count,
                     master_count,
                 },
+                None,
                 Some(authority),
             ) => {
                 authority_id.as_str() == authority.authority_id()
@@ -783,6 +960,20 @@ impl ImmutableOwnerSnapshot {
         )?;
         if predecessor_layer_count >= self.closed_layers.len()
             || predecessor_owner_count >= self.owners.len()
+            || predecessor.routes.len() > self.routes.len()
+        {
+            return Ok(false);
+        }
+        if !verify_owner_routes(
+            &predecessor.owners,
+            &predecessor.routes,
+            &predecessor.route_index,
+            &predecessor.route_buckets,
+            predecessor.canonicalizer_authority(),
+            predecessor.family_fingerprint(),
+            predecessor.arity,
+            limits,
+        )? || self.routes[..predecessor.routes.len()] != predecessor.routes[..]
         {
             return Ok(false);
         }
@@ -792,6 +983,9 @@ impl ImmutableOwnerSnapshot {
             self.arity,
             &self.source,
             &self.owners[..predecessor_owner_count],
+            &predecessor.routes,
+            &predecessor.route_index,
+            &predecessor.route_buckets,
             &self.closed_layers[..predecessor_layer_count],
             limits,
         )?;
@@ -804,7 +998,9 @@ impl ImmutableOwnerSnapshot {
             && predecessor.id == expected_id
             && source_counts_match(&predecessor.source, &predecessor.owners)
             && predecessor.source_authority_matches()
-            && terminal_authority_equal(
+            && source_authorities_equal(
+                self.closed_artifact.as_ref(),
+                predecessor.closed_artifact.as_ref(),
                 self.terminal_authority.as_ref(),
                 predecessor.terminal_authority.as_ref(),
             )
@@ -829,6 +1025,14 @@ impl ImmutableOwnerSnapshot {
                         layer.sector() == sector && layer.ordering() == *ordering)
             )
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn route_count_for_owner(&self, owner_ordinal: usize) -> usize {
+        self.routes
+            .iter()
+            .filter(|route| route.owner_ordinal() == owner_ordinal)
+            .count()
     }
 }
 
@@ -947,15 +1151,56 @@ fn authority_payload_matches(
     owners.all(|owner| matches!(owner, ImmutableOwner::SolvedRewriteSector { .. }))
 }
 
-fn terminal_authority_equal(
+fn artifact_payload_matches(owners: &[ImmutableOwner], artifact: &ClosedArtifact) -> bool {
+    let mut owners = owners.iter();
+    for terminal in artifact.zero_sectors() {
+        if !matches!(
+            owners.next(),
+            Some(ImmutableOwner::ZeroSector { sector, proof })
+                if sector == terminal.sector() && *proof == terminal.proof()
+        ) {
+            return false;
+        }
+    }
+    for (source_ordinal, rule) in artifact.factorization_rules().iter().enumerate() {
+        if !matches!(
+            owners.next(),
+            Some(ImmutableOwner::Factorization {
+                source_ordinal: actual_ordinal,
+                domain,
+            }) if *actual_ordinal == source_ordinal && domain == rule.application_domain()
+        ) {
+            return false;
+        }
+    }
+    for terminal in artifact.masters() {
+        if !matches!(
+            owners.next(),
+            Some(ImmutableOwner::Master { key }) if key == terminal
+        ) {
+            return false;
+        }
+    }
+    owners.all(|owner| matches!(owner, ImmutableOwner::SolvedRewriteSector { .. }))
+}
+
+fn source_authorities_equal(
+    left_artifact: Option<&Arc<ClosedArtifact>>,
+    right_artifact: Option<&Arc<ClosedArtifact>>,
     left: Option<&Arc<ClosedTerminalAuthority>>,
     right: Option<&Arc<ClosedTerminalAuthority>>,
 ) -> bool {
-    match (left, right) {
+    let artifacts_equal = match (left_artifact, right_artifact) {
         (None, None) => true,
         (Some(left), Some(right)) => Arc::ptr_eq(left, right),
         _ => false,
-    }
+    };
+    artifacts_equal
+        && match (left, right) {
+            (None, None) => true,
+            (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+            _ => false,
+        }
 }
 
 fn layer_content_ids_equal(
@@ -1025,32 +1270,15 @@ fn source_counts_match(source: &SnapshotSource, owners: &[ImmutableOwner]) -> bo
     }
 }
 
-fn domain_contains(outer: &SectorInteriorDomain, inner: &SectorInteriorDomain) -> bool {
-    outer.sector() == inner.sector()
-        && outer
-            .bounds()
-            .iter()
-            .zip(inner.bounds())
-            .all(|(&outer, &inner)| {
-                outer.lower() <= inner.lower() && inner.upper() <= outer.upper()
-            })
-}
-
-fn domain_is_singleton_key(domain: &SectorInteriorDomain, key: &IntegralKey) -> bool {
-    key.powers().len() == domain.arity()
-        && domain
-            .bounds()
-            .iter()
-            .zip(key.powers())
-            .all(|(&bounds, &power)| bounds.lower() == power && bounds.upper() == power)
-}
-
 fn build_snapshot_id(
     family: &str,
     context: &str,
     arity: usize,
     source: &SnapshotSource,
     owners: &[ImmutableOwner],
+    routes: &[ImmutableOwnerRoute],
+    route_index: &[usize],
+    route_buckets: &[ImmutableOwnerRouteBucket],
     closed_layers: &[Arc<ClosedSectorLayer>],
     limits: StratumRegistryLimits,
 ) -> Result<ImmutableOwnerSnapshotId, StratumRegistryError> {
@@ -1058,7 +1286,7 @@ fn build_snapshot_id(
         limits.max_owner_identity_bytes,
         "immutable owner identity bytes",
     );
-    stable.push("rustred.immutable-owner-snapshot.v3:")?;
+    stable.push("rustred.immutable-owner-snapshot.v4:")?;
     stable.push_usize(family.len())?;
     stable.push("#")?;
     stable.push(family)?;
@@ -1117,6 +1345,30 @@ fn build_snapshot_id(
         stable.push_usize(ordinal)?;
         stable.push("=")?;
         append_owner_identity(&mut stable, owner, closed_layers)?;
+    }
+    stable.push("]")?;
+    stable.push(":routes[")?;
+    for (ordinal, route) in routes.iter().enumerate() {
+        if ordinal != 0 {
+            stable.push(",")?;
+        }
+        stable.push_usize(ordinal)?;
+        stable.push("=")?;
+        route.append_identity(&mut stable)?;
+    }
+    stable.push("]:route-index[")?;
+    for (position, &route_ordinal) in route_index.iter().enumerate() {
+        if position != 0 {
+            stable.push(",")?;
+        }
+        stable.push_usize(route_ordinal)?;
+    }
+    stable.push("]:route-buckets[")?;
+    for (ordinal, bucket) in route_buckets.iter().enumerate() {
+        if ordinal != 0 {
+            stable.push(",")?;
+        }
+        bucket.append_identity(&mut stable)?;
     }
     stable.push("]")?;
     Ok(ImmutableOwnerSnapshotId(Arc::new(stable.finish())))
@@ -1297,12 +1549,36 @@ mod tests {
         let factorization_changed = owners(ZeroTerminalProof::ScalelessVacuumPolynomial, 5, 1);
         let master_changed = owners(ZeroTerminalProof::ScalelessVacuumPolynomial, 4, 2);
         let limits = StratumRegistryLimits::default();
-        let id = build_snapshot_id("family", "context", 1, &source, &base, &[], limits).unwrap();
+        let id = build_snapshot_id(
+            "family",
+            "context",
+            1,
+            &source,
+            &base,
+            &[],
+            &[],
+            &[],
+            &[],
+            limits,
+        )
+        .unwrap();
 
         for changed in [&zero_changed, &factorization_changed, &master_changed] {
             assert_ne!(
                 id,
-                build_snapshot_id("family", "context", 1, &source, changed, &[], limits).unwrap()
+                build_snapshot_id(
+                    "family",
+                    "context",
+                    1,
+                    &source,
+                    changed,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                    limits,
+                )
+                .unwrap()
             );
         }
     }
@@ -1374,12 +1650,15 @@ mod tests {
                 &SnapshotSource::Empty,
                 &[],
                 &[],
+                &[],
+                &[],
+                &[],
                 limits,
             )
             .unwrap_err(),
             StratumRegistryError::ResourceLimit {
                 resource: "immutable owner identity bytes",
-                requested: "rustred.immutable-owner-snapshot.v3:".len(),
+                requested: "rustred.immutable-owner-snapshot.v4:".len(),
                 limit: 0,
             }
         );
@@ -1406,5 +1685,148 @@ mod tests {
                 .try_verify(StratumRegistryLimits::default())
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn cold_route_replay_rejects_authority_index_and_bucket_corruption() {
+        let authority = derive_k6_terminal_authority().unwrap();
+        let snapshot = super::ImmutableOwnerSnapshot::try_from_terminal_authority(
+            Arc::clone(&authority),
+            StratumRegistryLimits::default(),
+        )
+        .unwrap();
+
+        let mut authority_corrupt = snapshot.clone();
+        assert!(super::routes::corrupt_first_symmetry_authority_for_test(
+            Arc::make_mut(&mut authority_corrupt.routes),
+            authority.canonicalizer().unwrap(),
+        ));
+        authority_corrupt.id = recompute_id(&authority_corrupt);
+        assert!(
+            !authority_corrupt
+                .try_verify(StratumRegistryLimits::default())
+                .unwrap()
+        );
+
+        let mut index_corrupt = snapshot.clone();
+        Arc::make_mut(&mut index_corrupt.route_index).swap(0, 1);
+        index_corrupt.id = recompute_id(&index_corrupt);
+        assert!(
+            !index_corrupt
+                .try_verify(StratumRegistryLimits::default())
+                .unwrap()
+        );
+
+        let mut bucket_corrupt = snapshot.clone();
+        Arc::make_mut(&mut bucket_corrupt.route_buckets).swap(0, 1);
+        bucket_corrupt.id = recompute_id(&bucket_corrupt);
+        assert!(
+            !bucket_corrupt
+                .try_verify(StratumRegistryLimits::default())
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn route_installation_obeys_explicit_record_and_coordinate_caps() {
+        let mut route_exhausted = StratumRegistryLimits::default();
+        route_exhausted.max_owner_routes = 0;
+        assert!(matches!(
+            super::ImmutableOwnerSnapshot::try_from_terminal_authority(
+                derive_k6_terminal_authority().unwrap(),
+                route_exhausted,
+            ),
+            Err(StratumRegistryError::ResourceLimit {
+                resource: "immutable owner symmetry routes",
+                limit: 0,
+                ..
+            })
+        ));
+
+        let mut coordinate_exhausted = StratumRegistryLimits::default();
+        coordinate_exhausted.max_owner_route_coordinate_cells = 0;
+        assert!(matches!(
+            super::ImmutableOwnerSnapshot::try_from_terminal_authority(
+                derive_k6_terminal_authority().unwrap(),
+                coordinate_exhausted,
+            ),
+            Err(StratumRegistryError::ResourceLimit {
+                resource: "immutable owner symmetry-route coordinate cells",
+                limit: 0,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn cold_route_verification_preflights_payloads_and_sidecars() {
+        let snapshot = super::ImmutableOwnerSnapshot::try_from_terminal_authority(
+            derive_k6_terminal_authority().unwrap(),
+            StratumRegistryLimits::default(),
+        )
+        .unwrap();
+
+        let mut route_exhausted = StratumRegistryLimits::default();
+        route_exhausted.max_owner_routes = snapshot.routes.len() - 1;
+        assert!(matches!(
+            snapshot.try_verify(route_exhausted),
+            Err(StratumRegistryError::ResourceLimit {
+                resource: "immutable owner symmetry routes",
+                ..
+            })
+        ));
+
+        let mut coordinate_exhausted = StratumRegistryLimits::default();
+        coordinate_exhausted.max_owner_route_coordinate_cells = 0;
+        assert!(matches!(
+            snapshot.try_verify(coordinate_exhausted),
+            Err(StratumRegistryError::ResourceLimit {
+                resource: "immutable owner symmetry-route coordinate cells",
+                ..
+            })
+        ));
+
+        let mut index_corrupt = snapshot.clone();
+        let mut oversized_index = index_corrupt.route_index.to_vec();
+        oversized_index.push(0);
+        index_corrupt.route_index = Arc::from(oversized_index);
+        let mut exact_route_cap = StratumRegistryLimits::default();
+        exact_route_cap.max_owner_routes = snapshot.routes.len();
+        assert!(matches!(
+            index_corrupt.try_verify(exact_route_cap),
+            Err(StratumRegistryError::ResourceLimit {
+                resource: "immutable owner route-ordinal index",
+                ..
+            })
+        ));
+
+        let mut buckets_corrupt = snapshot.clone();
+        let duplicate = buckets_corrupt.route_buckets[0].clone();
+        let mut oversized_buckets = buckets_corrupt.route_buckets.to_vec();
+        oversized_buckets.extend(std::iter::repeat_n(duplicate, snapshot.routes.len()));
+        buckets_corrupt.route_buckets = Arc::from(oversized_buckets);
+        assert!(matches!(
+            buckets_corrupt.try_verify(exact_route_cap),
+            Err(StratumRegistryError::ResourceLimit {
+                resource: "immutable owner route-sector buckets",
+                ..
+            })
+        ));
+    }
+
+    fn recompute_id(snapshot: &super::ImmutableOwnerSnapshot) -> super::ImmutableOwnerSnapshotId {
+        build_snapshot_id(
+            snapshot.family_fingerprint(),
+            snapshot.context_fingerprint(),
+            snapshot.arity,
+            &snapshot.source,
+            &snapshot.owners,
+            &snapshot.routes,
+            &snapshot.route_index,
+            &snapshot.route_buckets,
+            &snapshot.closed_layers,
+            StratumRegistryLimits::default(),
+        )
+        .unwrap()
     }
 }

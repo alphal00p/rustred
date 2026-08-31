@@ -309,6 +309,7 @@ fn append_owner_witness(
     witness: ImmutableOwnerWitness,
 ) -> Result<(), StratumRegistryError> {
     output.usize(witness.owner_ordinal())?;
+    output.usize(witness.route_ordinal())?;
     output.tag(match witness.kind() {
         ImmutableOwnerKind::ZeroSector => 0,
         ImmutableOwnerKind::Factorization => 1,

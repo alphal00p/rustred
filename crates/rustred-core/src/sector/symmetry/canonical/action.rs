@@ -121,6 +121,38 @@ impl Canonicalizer {
         self.group.iter().map(AsRef::as_ref)
     }
 
+    /// Exact routes for every authenticated group element in stable group
+    /// order.  This crate-private boundary is used by immutable owner-index
+    /// installation; detached [`RoutingWitness`] values are never accepted as
+    /// independent group-membership authority.
+    pub(crate) fn routing_witnesses(
+        &self,
+    ) -> impl ExactSizeIterator<Item = RoutingWitness> + DoubleEndedIterator + '_ {
+        self.group
+            .iter()
+            .enumerate()
+            .map(|(group_element, source_for_target)| RoutingWitness {
+                group_element,
+                source_for_target: source_for_target.clone(),
+            })
+    }
+
+    /// Rejoin one retained route to this exact authenticated finite group.
+    /// Value transport alone cannot establish that provenance.
+    pub(crate) fn authenticates_route(&self, route: &RoutingWitness) -> bool {
+        self.group
+            .get(route.group_element)
+            .is_some_and(|mapping| mapping.as_ref() == route.source_for_target.as_ref())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn unauthenticated_route_for_test(&self) -> RoutingWitness {
+        RoutingWitness {
+            group_element: self.group.len(),
+            source_for_target: self.group[0].clone(),
+        }
+    }
+
     /// Enumerate every value-distinct image and an exact least route to it.
     /// Images are returned in ascending persisted complexity order.
     pub fn orbit(&self, source: &IntegralKey) -> Result<ExactOrbit, Error> {

@@ -306,6 +306,7 @@ fn cmp_proper_owner(left: &ProperSubsectorOwner, right: &ProperSubsectorOwner) -
 fn cmp_owner_witness(left: ImmutableOwnerWitness, right: ImmutableOwnerWitness) -> Ordering {
     left.owner_ordinal()
         .cmp(&right.owner_ordinal())
+        .then_with(|| left.route_ordinal().cmp(&right.route_ordinal()))
         .then_with(|| left.kind().cmp(&right.kind()))
 }
 
