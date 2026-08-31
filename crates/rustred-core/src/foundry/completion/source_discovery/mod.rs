@@ -10,6 +10,7 @@ mod cover_delta;
 mod dual;
 mod error;
 mod incidence;
+mod interior_campaign;
 mod interior_replay;
 pub(crate) mod interior_simplex;
 pub(crate) mod leader_walk;
@@ -54,6 +55,13 @@ pub(crate) use dual::{
 };
 pub(crate) use error::SourceDiscoveryError;
 pub(crate) use incidence::OrdinarySourceIncidenceIndex;
+#[allow(unused_imports)] // Consumed by the staged blind-sector campaign.
+pub(crate) use interior_campaign::{
+    InteriorCampaignAdapter, InteriorCampaignAppliedOwner, InteriorCampaignBootstrapCensus,
+    InteriorCampaignCensus, InteriorCampaignError, InteriorCampaignLimits,
+    InteriorCampaignNoProposal, InteriorCampaignOutcome, InteriorCampaignOwnerEffect,
+    InteriorCampaignTaskBinding, InteriorCampaignTaskReport,
+};
 #[allow(unused_imports)] // Consumed by the staged interior-simplex orchestrator.
 pub(crate) use interior_replay::{
     InteriorReplayAttemptCensus, InteriorReplayCandidateSupport, InteriorReplayRelativeResidual,
