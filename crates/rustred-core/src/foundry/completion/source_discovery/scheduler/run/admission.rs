@@ -15,6 +15,7 @@ const PROBES: &str = "probe-local obstruction probes";
 const PROBE_COORDINATES: &str = "probe-local retained probe coordinate cells";
 const PROBE_KEY_ORDER: &str = "probe-local canonical probe-key order";
 const OUTCOMES: &str = "probe-local retained outcomes";
+const RESIDUAL_PROPOSALS: &str = "probe-local residual proposals per iteration";
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn validate_fixed_task(
@@ -25,6 +26,14 @@ pub(super) fn validate_fixed_task(
     owners: &ImmutableOwnerSnapshot,
     limits: ProbeLocalSchedulerLimits,
 ) -> Result<(), ProbeLocalSchedulerError> {
+    // A zero proposal cap would turn a complete, nonempty residual census into
+    // an artificial stall.  Reject that policy at the task boundary rather
+    // than allowing it to resemble discovery evidence later.
+    check_limit(
+        RESIDUAL_PROPOSALS,
+        1,
+        limits.max_residual_proposals_per_iteration,
+    )?;
     if !completed.is_complete_ordinary() {
         return Err(ProbeLocalSchedulerError::WrongSourceLayout {
             actual: completed.layout_name(),

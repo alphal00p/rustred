@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::{cmp::Ordering, cmp::Reverse};
 
 use crate::foundry::completion::frame::PhysicalFramePlanIdentity;
 use crate::foundry::completion::frame::modular::{
@@ -42,10 +43,59 @@ pub(crate) struct IncidentTranslationNominations {
 pub(crate) struct NonzeroIncidentTranslationResiduals {
     census: ResidualCensusProvenance,
     requests: Box<[TranslatedSourceRequest]>,
+    proposal_scores: Box<[ResidualProposalScore]>,
     evaluated_candidates: usize,
     evaluated_source_terms: usize,
     paired_source_terms: usize,
     obstruction_support_entries: usize,
+}
+
+/// Structural cost of admitting one obstruction-cutting translation into the
+/// next physical frame.
+///
+/// This is scheduling telemetry, not evidence.  It is computed from the
+/// complete exact translated row and the current checked partition: fewer new
+/// forbidden columns is preferred, then fewer new physical columns, broader
+/// contact with the current obstruction support, and finally a shorter exact
+/// row. The request itself breaks any remaining tie canonically at the
+/// scheduler boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ResidualProposalScore {
+    new_forbidden_columns: usize,
+    new_physical_columns: usize,
+    obstruction_support_terms: usize,
+    source_terms: usize,
+}
+
+impl ResidualProposalScore {
+    pub(crate) fn compare_proposal_preference(self, other: Self) -> Ordering {
+        (
+            self.new_forbidden_columns,
+            self.new_physical_columns,
+            Reverse(self.obstruction_support_terms),
+            self.source_terms,
+        )
+            .cmp(&(
+                other.new_forbidden_columns,
+                other.new_physical_columns,
+                Reverse(other.obstruction_support_terms),
+                other.source_terms,
+            ))
+    }
+
+    pub(super) const fn new(
+        new_forbidden_columns: usize,
+        new_physical_columns: usize,
+        obstruction_support_terms: usize,
+        source_terms: usize,
+    ) -> Self {
+        Self {
+            new_forbidden_columns,
+            new_physical_columns,
+            obstruction_support_terms,
+            source_terms,
+        }
+    }
 }
 
 /// Private admission seal retained by one complete residual evaluation.
@@ -181,6 +231,10 @@ impl NonzeroIncidentTranslationResiduals {
         &self.requests
     }
 
+    pub(crate) fn proposal_scores(&self) -> &[ResidualProposalScore] {
+        &self.proposal_scores
+    }
+
     pub(crate) const fn evaluated_candidates(&self) -> usize {
         self.evaluated_candidates
     }
@@ -210,14 +264,17 @@ impl NonzeroIncidentTranslationResiduals {
         _seal: ResidualConstructionSeal,
         census: ResidualCensusProvenance,
         requests: Vec<TranslatedSourceRequest>,
+        proposal_scores: Vec<ResidualProposalScore>,
         evaluated_candidates: usize,
         evaluated_source_terms: usize,
         paired_source_terms: usize,
         obstruction_support_entries: usize,
     ) -> Self {
+        debug_assert_eq!(requests.len(), proposal_scores.len());
         Self {
             census,
             requests: requests.into_boxed_slice(),
+            proposal_scores: proposal_scores.into_boxed_slice(),
             evaluated_candidates,
             evaluated_source_terms,
             paired_source_terms,
@@ -231,6 +288,7 @@ impl NonzeroIncidentTranslationResiduals {
 impl PartialEq for NonzeroIncidentTranslationResiduals {
     fn eq(&self, other: &Self) -> bool {
         self.requests == other.requests
+            && self.proposal_scores == other.proposal_scores
             && self.evaluated_candidates == other.evaluated_candidates
             && self.evaluated_source_terms == other.evaluated_source_terms
             && self.paired_source_terms == other.paired_source_terms

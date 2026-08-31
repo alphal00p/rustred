@@ -485,6 +485,9 @@ pub(crate) struct ProbeLocalRunCensus {
     epoch_request_work: usize,
     materialized_source_terms: usize,
     modular_entry_work: usize,
+    residual_candidate_work: usize,
+    residual_source_term_work: usize,
+    prospective_classification_reservation: usize,
     merge_request_work: usize,
     retained_iteration_records: usize,
     exact_lift_attempts: usize,
@@ -511,6 +514,18 @@ impl ProbeLocalRunCensus {
         self.modular_entry_work
     }
 
+    pub(crate) const fn residual_candidate_work(self) -> usize {
+        self.residual_candidate_work
+    }
+
+    pub(crate) const fn residual_source_term_work(self) -> usize {
+        self.residual_source_term_work
+    }
+
+    pub(crate) const fn prospective_classification_reservation(self) -> usize {
+        self.prospective_classification_reservation
+    }
+
     pub(crate) const fn merge_request_work(self) -> usize {
         self.merge_request_work
     }
@@ -524,6 +539,9 @@ impl ProbeLocalRunCensus {
         epoch_request_work: usize,
         materialized_source_terms: usize,
         modular_entry_work: usize,
+        residual_candidate_work: usize,
+        residual_source_term_work: usize,
+        prospective_classification_reservation: usize,
         merge_request_work: usize,
         retained_iteration_records: usize,
         exact_lift_attempts: usize,
@@ -533,6 +551,9 @@ impl ProbeLocalRunCensus {
             epoch_request_work,
             materialized_source_terms,
             modular_entry_work,
+            residual_candidate_work,
+            residual_source_term_work,
+            prospective_classification_reservation,
             merge_request_work,
             retained_iteration_records,
             exact_lift_attempts,

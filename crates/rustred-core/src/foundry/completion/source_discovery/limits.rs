@@ -21,6 +21,8 @@ pub(crate) struct SourceDiscoveryLimits {
     pub(crate) max_residual_candidates: usize,
     pub(crate) max_residual_source_terms: usize,
     pub(crate) max_residual_support_coordinate_cells: usize,
+    /// Nonzero-residual rows admitted to non-authoritative proposal scoring.
+    /// Empty-census authority is established before this limit is consulted.
     pub(crate) max_residual_classifications: usize,
     pub(crate) max_nonzero_residual_requests: usize,
     /// Owned request census retained by one admitted sampled dual.

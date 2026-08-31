@@ -575,11 +575,31 @@ wired into owner publication.
 It does not yet promote that value into a `RuleCell`, recompute a cover, seal a
 solved K6 sector layer, or publish the K6 artifact. Each first K6 sector/prime
 probe still has rank 90 on both forbidden and augmented blocks and nominates
-roughly 3,586--3,822 broad residual requests, depending on the sector. The
-immediate experiment is to replace that broad frontier with a small
-block-dual, Baikov/syzygy, or generating-function batch for one K6 sector and
-prime; exact hits then exercise the new lowering boundary and the existing
-owner-cover machinery. Only after K6 closure and genuine three-loop Vakint
-parity, followed by favorable bounded K10/K15 evidence, may the architecture
-be promoted toward a future production K21 campaign. The bounded structural
-studies remain research-only evidence before then.
+roughly 3,586--3,822 broad residual requests, depending on the sector.
+
+The scheduler now keeps that exhaustive residual census separate from bounded
+frame growth. It scores only nonzero rows by newly introduced forbidden and
+physical columns, obstruction-support overlap, exact row width, and canonical
+request identity, then admits at most 32 proposals per fresh epoch. Prospective
+column classification uses the exact current guard/owner partition, while an
+empty residual census bypasses proposal scoring entirely. Aggregate candidate,
+translated-source-term, and prospective-classification work is metered and any
+cap is an explicitly inconclusive stop.
+
+On the first K6 dependency sector, the frozen eight-epoch pressure run grows
+from 90 to 314 requests, 253 to 413 physical columns, and 918 to 3,055 entries.
+Forbidden and augmented ranks remain equal throughout, ending at 279/279; no
+hit is found. The exhaustive scans inspect 63,573 candidate rows and 645,012
+exact source terms. This removes the catastrophic next-frame inflation of the
+old all-residual merge, but it also falsifies scalar one-obstruction ranking as
+a sufficient closure strategy: repeated rescans dominate while many admitted
+rows are rank-dependent.
+
+The immediate experiment is therefore a compact independent obstruction block
+with batch-aware rank gain and evaluated-row reuse, followed by Baikov/syzygy
+or generating-function proposals aimed at exact uncovered directions. Exact
+hits then exercise the lowering boundary and existing owner-cover machinery.
+Only after K6 closure and genuine three-loop Vakint parity, followed by
+favorable bounded K10/K15 evidence, may the architecture be promoted toward a
+future production K21 campaign. The bounded structural studies remain
+research-only evidence before then.

@@ -187,6 +187,28 @@ fn census_limits() -> ProbeLocalSchedulerLimits {
     limits
 }
 
+fn bounded_proposal_pressure_limits() -> ProbeLocalSchedulerLimits {
+    let mut limits = ProbeLocalSchedulerLimits::default();
+    limits.max_probes = 1;
+    limits.max_retained_probe_coordinate_cells = BASE_PARAMETERS.len() + CHART_COORDINATES.len();
+    limits.max_retained_outcomes = 1;
+    limits.max_iterations_per_probe = 8;
+    limits.max_requests_per_probe = 100_000;
+    limits.max_request_coordinate_cells_per_probe = 6 * 100_000;
+    limits.max_residual_proposals_per_iteration = 32;
+    limits.max_aggregate_epochs = 8;
+    limits.max_aggregate_epoch_request_work = 100_000;
+    limits.max_aggregate_materialized_source_terms = 2_000_000;
+    limits.max_aggregate_modular_entry_work = 2_000_000;
+    limits.max_aggregate_residual_candidate_work = 100_000;
+    limits.max_aggregate_residual_source_term_work = 1_000_000;
+    limits.max_aggregate_prospective_classification_work = 1_000_000;
+    limits.max_aggregate_merge_request_work = 2_000_000;
+    limits.max_retained_iteration_records = 8;
+    limits.max_exact_lift_attempts = 1;
+    limits
+}
+
 fn probes(
     limits: ProbeLocalSchedulerLimits,
 ) -> Result<Vec<CampaignModularProbe>, Box<dyn std::error::Error>> {
@@ -437,4 +459,96 @@ fn k6_probe_local_bootstrap_census() {
             }
         );
     }
+}
+
+/// Bounded, deliberately ignored pressure probe for the first dependency
+/// sector. The frozen census above is the deterministic regression; this
+/// experiment follows up to eight fresh epochs while a bounded frontier-ranked
+/// proposal batch grows the frame after each complete obstruction census.
+#[test]
+#[ignore = "bounded K6 research pressure probe"]
+fn k6_first_sector_bounded_proposal_pressure() {
+    let family = canonical_family().unwrap();
+    let generator =
+        ParametricIbpGenerator::try_new_with_config(&family, ParametricIbpConfig::default())
+            .unwrap();
+    let completed = complete_ordinary(&generator);
+    let limits = bounded_proposal_pressure_limits();
+    let owners = ImmutableOwnerSnapshot::try_from_terminal_authority(
+        derive_k6_terminal_authority().unwrap(),
+        limits.campaign.stratum,
+    )
+    .unwrap();
+    let target = IntegralShift::try_new([0; 6]).unwrap();
+    let representative = FULL_RANK_ORBITS[0].representative;
+    let sector = Mask::try_from_indices(&representative).unwrap();
+    let stratum = bootstrap_stratum(&generator, &completed, sector, &target, limits).unwrap();
+    let probe = CampaignModularProbe::try_new(
+        PROBE_MODULI[0],
+        BASE_PARAMETERS,
+        CHART_COORDINATES,
+        limits.campaign,
+    )
+    .unwrap();
+
+    let report = ProbeLocalObstructionScheduler::try_new(
+        &generator,
+        &completed,
+        target,
+        MaximalStratumAnchor::try_new(stratum, limits.campaign.stratum).unwrap(),
+        owners,
+        OrderingPolicy::default(),
+        [probe],
+        limits,
+    )
+    .unwrap()
+    .run()
+    .unwrap();
+    eprintln!(
+        "K6 bounded-proposal aggregate residual candidates={} source_terms={} prospective_reservation={}",
+        report.census().residual_candidate_work(),
+        report.census().residual_source_term_work(),
+        report.census().prospective_classification_reservation(),
+    );
+    assert_eq!(report.census().residual_candidate_work(), 63_573);
+    assert_eq!(report.census().residual_source_term_work(), 645_012);
+    assert_eq!(
+        report.census().prospective_classification_reservation(),
+        report.census().residual_source_term_work(),
+    );
+    let [probe] = report.probes() else {
+        panic!("the pressure campaign must retain its one declared probe")
+    };
+    eprintln!(
+        "K6 bounded-proposal outcome={:?}, epochs={}",
+        probe.outcome().kind(),
+        probe.iterations().len()
+    );
+    for iteration in probe.iterations() {
+        eprintln!(
+            "epoch={} requests={} rows={} columns={} entries={} ranks={}/{} disposition={:?}",
+            iteration.epoch_ordinal(),
+            iteration.request_count(),
+            iteration.physical_rows(),
+            iteration.physical_columns(),
+            iteration.physical_entries(),
+            iteration.forbidden_rank(),
+            iteration.augmented_rank(),
+            iteration.disposition(),
+        );
+    }
+
+    assert_eq!(probe.iterations().len(), 8);
+    assert_eq!(probe.iterations()[0].request_count(), 90);
+    assert_eq!(probe.iterations()[1].request_count(), 90 + 32);
+    for pair in probe.iterations().windows(2) {
+        assert!(pair[1].request_count() > pair[0].request_count());
+        assert!(pair[1].request_count() <= pair[0].request_count() + 32);
+    }
+    let final_iteration = &probe.iterations()[7];
+    assert_eq!(final_iteration.request_count(), 314);
+    assert_eq!(final_iteration.physical_columns(), 413);
+    assert_eq!(final_iteration.physical_entries(), 3_055);
+    assert_eq!(final_iteration.forbidden_rank(), 279);
+    assert_eq!(final_iteration.augmented_rank(), 279);
 }

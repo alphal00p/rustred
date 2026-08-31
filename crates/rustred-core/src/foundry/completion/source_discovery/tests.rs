@@ -1184,7 +1184,7 @@ fn residual_resource_caps_admit_exact_boundaries_and_fail_transactionally() {
     boundary.max_residual_candidates = measured.evaluated_candidates();
     boundary.max_residual_source_terms = measured.evaluated_source_terms();
     boundary.max_residual_support_coordinate_cells = support_coordinates;
-    boundary.max_residual_classifications = measured.evaluated_candidates();
+    boundary.max_residual_classifications = measured.requests().len();
     boundary.max_nonzero_residual_requests = measured.requests().len();
     assert_eq!(
         incidence
@@ -1237,9 +1237,9 @@ fn residual_resource_caps_admit_exact_boundaries_and_fail_transactionally() {
                 value.max_residual_classifications -= 1;
                 value
             },
-            "source-discovery residual candidate classifications",
-            measured.evaluated_candidates(),
-            measured.evaluated_candidates() - 1,
+            "source-discovery nonzero proposal-score rows",
+            measured.requests().len(),
+            measured.requests().len() - 1,
         ),
         (
             {

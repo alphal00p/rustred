@@ -3,6 +3,7 @@ use std::sync::Arc;
 use symbolica::domains::{Ring, RingOps};
 
 use crate::foundry::completion::frame::modular::{ModularPhysicalFrame, ModularRightObstruction};
+use crate::foundry::completion::stratum::{ProspectiveColumnKind, TargetColumnPartition};
 use crate::identity::{
     CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator, SelectedTranslatedSourceBatch,
 };
@@ -11,14 +12,15 @@ use super::model::{IncidentNominationOrigin, ResidualCensusProvenance};
 use super::nominate::{check_limit, checked_add, try_vec};
 use super::{
     IncidentTranslationNominations, NonzeroIncidentTranslationResiduals,
-    OrdinarySourceIncidenceIndex, SourceDiscoveryError, SourceDiscoveryLimits,
+    OrdinarySourceIncidenceIndex, ResidualProposalScore, SourceDiscoveryError,
+    SourceDiscoveryLimits,
 };
 
 const RESIDUAL_CANDIDATES: &str = "source-discovery residual candidates";
 const RESIDUAL_SOURCE_TERMS: &str = "source-discovery residual exact-source terms";
 const RESIDUAL_SUPPORT_COORDINATES: &str =
     "source-discovery residual obstruction-support coordinate cells";
-const RESIDUAL_CLASSIFICATIONS: &str = "source-discovery residual candidate classifications";
+const RESIDUAL_CLASSIFICATIONS: &str = "source-discovery nonzero proposal-score rows";
 const NONZERO_RESIDUAL_REQUESTS: &str = "source-discovery nonzero residual requests";
 
 /// Private construction capability for a complete residual census.
@@ -59,6 +61,53 @@ impl OrdinarySourceIncidenceIndex<'_> {
         obstruction: &ModularRightObstruction<'_>,
         limits: SourceDiscoveryLimits,
     ) -> Result<NonzeroIncidentTranslationResiduals, SourceDiscoveryError> {
+        self.try_retain_nonzero_residuals_with_partition(
+            generator,
+            completed,
+            nominations,
+            frame,
+            obstruction,
+            None,
+            limits,
+        )
+    }
+
+    /// The production scheduler's residual census, augmented with an exact
+    /// current-partition classification of shifts absent from the frame.
+    /// This changes proposal priority only; the retained nonzero request set
+    /// and empty-census authority are identical to the guard-blind entrypoint.
+    pub(crate) fn try_retain_nonzero_residuals_for_partition(
+        &self,
+        generator: &ParametricIbpGenerator<'_>,
+        completed: &CompletedIbpSourceRows,
+        nominations: &IncidentTranslationNominations,
+        frame: &ModularPhysicalFrame<'_>,
+        obstruction: &ModularRightObstruction<'_>,
+        partition: &TargetColumnPartition<'_>,
+        limits: SourceDiscoveryLimits,
+    ) -> Result<NonzeroIncidentTranslationResiduals, SourceDiscoveryError> {
+        self.try_retain_nonzero_residuals_with_partition(
+            generator,
+            completed,
+            nominations,
+            frame,
+            obstruction,
+            Some(partition),
+            limits,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn try_retain_nonzero_residuals_with_partition(
+        &self,
+        generator: &ParametricIbpGenerator<'_>,
+        completed: &CompletedIbpSourceRows,
+        nominations: &IncidentTranslationNominations,
+        frame: &ModularPhysicalFrame<'_>,
+        obstruction: &ModularRightObstruction<'_>,
+        proposal_partition: Option<&TargetColumnPartition<'_>>,
+        limits: SourceDiscoveryLimits,
+    ) -> Result<NonzeroIncidentTranslationResiduals, SourceDiscoveryError> {
         validate_join(self, generator, completed, nominations, frame, obstruction)?;
         let support = raw_obstruction_support(self, frame, obstruction, limits)?;
         let census = residual_census_provenance(self, nominations, frame, obstruction);
@@ -69,17 +118,13 @@ impl OrdinarySourceIncidenceIndex<'_> {
             candidate_count,
             limits.max_residual_candidates,
         )?;
-        check_limit(
-            RESIDUAL_CLASSIFICATIONS,
-            candidate_count,
-            limits.max_residual_classifications,
-        )?;
         let evaluated_source_terms = preflight_candidate_terms(self, nominations, limits)?;
 
         if candidate_count == 0 {
             return Ok(NonzeroIncidentTranslationResiduals::from_parts(
                 ResidualConstructionSeal::mint(),
                 census,
+                Vec::new(),
                 Vec::new(),
                 0,
                 0,
@@ -100,6 +145,8 @@ impl OrdinarySourceIncidenceIndex<'_> {
             generator,
             nominations,
             frame,
+            obstruction,
+            proposal_partition,
             &support,
             census,
             translated,
@@ -138,17 +185,14 @@ pub(super) fn pair_selected_sources_for_test(
         candidate_count,
         limits.max_residual_candidates,
     )?;
-    check_limit(
-        RESIDUAL_CLASSIFICATIONS,
-        candidate_count,
-        limits.max_residual_classifications,
-    )?;
     let evaluated_source_terms = preflight_candidate_terms(incidence, nominations, limits)?;
     pair_translated_sources(
         incidence,
         generator,
         nominations,
         frame,
+        obstruction,
+        None,
         &support,
         census,
         selected,
@@ -164,6 +208,8 @@ fn pair_translated_sources(
     generator: &ParametricIbpGenerator<'_>,
     nominations: &IncidentTranslationNominations,
     frame: &ModularPhysicalFrame<'_>,
+    obstruction: &ModularRightObstruction<'_>,
+    proposal_partition: Option<&TargetColumnPartition<'_>>,
     support: &[RawObstructionEntry<'_>],
     census: ResidualCensusProvenance,
     translated: SelectedTranslatedSourceBatch,
@@ -219,9 +265,9 @@ fn pair_translated_sources(
         }
     }
 
-    let mut classifications = try_vec(RESIDUAL_CLASSIFICATIONS, candidate_count)?;
     let mut evaluated = Vec::new();
     let mut paired_source_terms = 0usize;
+    let mut nonzero_rows: Option<Vec<(usize, usize)>> = None;
     let field = frame.field();
 
     for (candidate_ordinal, (request, source)) in translated
@@ -244,39 +290,120 @@ fn pair_translated_sources(
         }
 
         let mut residual = field.zero();
+        let mut obstruction_support_terms = 0usize;
         for (term_shift, coefficient) in source.terms().keys().zip(&evaluated) {
             let Ok(position) =
                 support.binary_search_by(|entry| entry.shift.values().cmp(term_shift.values()))
             else {
                 continue;
             };
+            obstruction_support_terms =
+                checked_add(RESIDUAL_SOURCE_TERMS, obstruction_support_terms, 1)?;
             paired_source_terms = checked_add(RESIDUAL_SOURCE_TERMS, paired_source_terms, 1)?;
             residual = field.add(
                 &residual,
                 &field.mul(coefficient, support[position].coefficient),
             );
         }
-        classifications.push(!field.is_zero(&residual));
+        if !field.is_zero(&residual) {
+            let rows = match &mut nonzero_rows {
+                Some(rows) => rows,
+                None => nonzero_rows.insert(try_vec(NONZERO_RESIDUAL_REQUESTS, candidate_count)?),
+            };
+            rows.push((candidate_ordinal, obstruction_support_terms));
+        }
     }
 
-    if classifications.len() != candidate_count {
-        return Err(SourceDiscoveryError::Invariant {
-            detail: "residual pairing changed its preflighted candidate count",
-        });
-    }
-    let nonzero_count = classifications.iter().filter(|&&keep| keep).count();
+    // Proposal scoring is deliberately downstream of the exhaustive modular
+    // census.  An empty census therefore reaches sampled-dual admission
+    // without running any non-authoritative prospective-column classifier.
+    let Some(nonzero_rows) = nonzero_rows else {
+        return Ok(NonzeroIncidentTranslationResiduals::from_parts(
+            ResidualConstructionSeal::mint(),
+            census,
+            Vec::new(),
+            Vec::new(),
+            candidate_count,
+            evaluated_source_terms,
+            paired_source_terms,
+            support.len(),
+        ));
+    };
+    let nonzero_count = nonzero_rows.len();
     check_limit(
         NONZERO_RESIDUAL_REQUESTS,
         nonzero_count,
         limits.max_nonzero_residual_requests,
     )?;
+    check_limit(
+        RESIDUAL_CLASSIFICATIONS,
+        nonzero_count,
+        limits.max_residual_classifications,
+    )?;
+    validate_proposal_partition(frame, obstruction, proposal_partition)?;
+
     let mut retained = try_vec(NONZERO_RESIDUAL_REQUESTS, nonzero_count)?;
-    for (request, &keep) in nominations.requests().iter().zip(&classifications) {
-        if keep {
-            retained.push(request.clone());
+    let mut proposal_scores = try_vec(NONZERO_RESIDUAL_REQUESTS, nonzero_count)?;
+    for (candidate_ordinal, obstruction_support_terms) in nonzero_rows {
+        let request = translated.requests().get(candidate_ordinal).ok_or(
+            SourceDiscoveryError::Invariant {
+                detail: "nonzero residual ordinal is outside the selected request batch",
+            },
+        )?;
+        let source =
+            translated
+                .sources()
+                .get(candidate_ordinal)
+                .ok_or(SourceDiscoveryError::Invariant {
+                    detail: "nonzero residual ordinal is outside the translated source batch",
+                })?;
+        let mut new_forbidden_columns = 0usize;
+        let mut new_physical_columns = 0usize;
+        for term_shift in source.terms().keys() {
+            if frame
+                .plan()
+                .columns()
+                .binary_search_by(|candidate| candidate.values().cmp(term_shift.values()))
+                .is_ok()
+            {
+                continue;
+            }
+            new_physical_columns = checked_add(RESIDUAL_CLASSIFICATIONS, new_physical_columns, 1)?;
+            let prospective_forbidden = match proposal_partition {
+                Some(partition) => match partition
+                    .try_classify_prospective_shift(term_shift.values())
+                    .map_err(SourceDiscoveryError::ProposalClassification)?
+                {
+                    ProspectiveColumnKind::Allowed => false,
+                    ProspectiveColumnKind::Forbidden => true,
+                    ProspectiveColumnKind::Target => {
+                        return Err(SourceDiscoveryError::Invariant {
+                            detail: "a shift absent from the physical frame classified as its materialized target",
+                        });
+                    }
+                },
+                // The legacy/test entrypoint has no semantic partition. Treat
+                // every new physical shift conservatively so its score stays
+                // deterministic without pretending it is a checked child.
+                None => true,
+            };
+            if prospective_forbidden {
+                new_forbidden_columns =
+                    checked_add(RESIDUAL_CLASSIFICATIONS, new_forbidden_columns, 1)?;
+            }
         }
+        retained.push(request.clone());
+        proposal_scores.push(ResidualProposalScore::new(
+            new_forbidden_columns,
+            new_physical_columns,
+            obstruction_support_terms,
+            source.terms().len(),
+        ));
     }
-    if retained.len() != nonzero_count || retained.windows(2).any(|pair| pair[0] >= pair[1]) {
+    if retained.len() != nonzero_count
+        || proposal_scores.len() != nonzero_count
+        || retained.windows(2).any(|pair| pair[0] >= pair[1])
+    {
         return Err(SourceDiscoveryError::Invariant {
             detail: "nonzero residual requests are not canonical and unique",
         });
@@ -286,6 +413,7 @@ fn pair_translated_sources(
         ResidualConstructionSeal::mint(),
         census,
         retained,
+        proposal_scores,
         candidate_count,
         evaluated_source_terms,
         paired_source_terms,
@@ -307,6 +435,23 @@ fn residual_census_provenance(
         obstruction.identity_owner(),
         frame.sample_fingerprint().clone(),
     )
+}
+
+fn validate_proposal_partition(
+    frame: &ModularPhysicalFrame<'_>,
+    obstruction: &ModularRightObstruction<'_>,
+    partition: Option<&TargetColumnPartition<'_>>,
+) -> Result<(), SourceDiscoveryError> {
+    let Some(partition) = partition else {
+        return Ok(());
+    };
+    if !std::ptr::eq(partition.frame(), frame.plan())
+        || partition.target_column() != obstruction.target_physical_column()
+        || partition.forbidden_columns() != obstruction.logical_forbidden_columns()
+    {
+        return Err(SourceDiscoveryError::ProposalPartitionMismatch);
+    }
+    Ok(())
 }
 
 fn validate_join(

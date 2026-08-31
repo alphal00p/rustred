@@ -1,11 +1,14 @@
 //! One independent probe-local obstruction campaign.
 
 mod outcome;
+mod proposal;
 
 use crate::foundry::completion::frame::exact::{ExactCircuitLift, try_lift_exact_circuit};
 use crate::foundry::completion::frame::modular::ModularTargetQuery;
 use crate::foundry::completion::stratum::{ImmutableOwnerSnapshot, MaximalStratumAnchor};
-use crate::identity::{CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator};
+use crate::identity::{
+    CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator, TranslatedSourceRequest,
+};
 use crate::sector::OrderingPolicy;
 
 use super::super::super::{
@@ -19,13 +22,14 @@ use super::super::{
     ProbeLocalStopContext,
 };
 use super::budget::{
-    AGGREGATE_MATERIALIZED_SOURCE_TERMS, ITERATION_RECORDS, RunBudget, check_outer,
-    checked_budget_add,
+    AGGREGATE_MATERIALIZED_SOURCE_TERMS, AGGREGATE_RESIDUAL_SOURCE_TERM_WORK, ITERATION_RECORDS,
+    RunBudget, check_outer, checked_budget_add,
 };
 use outcome::{
     campaign_stop_or_rejection, finish_probe, sampled_dual_stop_or_rejection,
     source_stop_or_rejection,
 };
+use proposal::try_rank_residual_proposals;
 
 const ITERATIONS_PER_PROBE: &str = "probe-local iterations per probe";
 const REQUESTS_PER_PROBE: &str = "probe-local requests per probe";
@@ -161,7 +165,11 @@ pub(super) fn run_single_probe(
                 },
             ));
         }
-        let source_term_work = match request_source_term_work(incidence, &requests) {
+        let source_term_work = match translated_source_term_work(
+            incidence,
+            requests.requests(),
+            AGGREGATE_MATERIALIZED_SOURCE_TERMS,
+        ) {
             Ok(work) => work,
             Err(RequestSourceTermWorkError::Budget(cause)) => {
                 let stop = ProbeLocalBudgetStop::new(
@@ -375,12 +383,98 @@ pub(super) fn run_single_probe(
                         return Ok(finish_probe(probe_ordinal, probe, records, outcome));
                     }
                 };
-                let residuals = match incidence.try_retain_nonzero_residuals(
+                let residual_source_term_work = match translated_source_term_work(
+                    incidence,
+                    nominations.requests(),
+                    AGGREGATE_RESIDUAL_SOURCE_TERM_WORK,
+                ) {
+                    Ok(work) => work,
+                    Err(RequestSourceTermWorkError::Budget(cause)) => {
+                        records.push(outcome::iteration_record(
+                            &epoch,
+                            &query,
+                            ProbeLocalIterationDisposition::NoHitStopped {
+                                stage: ProbeLocalStage::ResidualEvaluation,
+                            },
+                        ));
+                        drop(query);
+                        let stop = ProbeLocalBudgetStop::new(
+                            probe_ordinal,
+                            epoch_ordinal,
+                            ProbeLocalStage::ResidualEvaluation,
+                            cause,
+                        );
+                        return Ok(finish_probe(
+                            probe_ordinal,
+                            probe,
+                            records,
+                            ProbeLocalOutcome::BudgetStop {
+                                context: ProbeLocalStopContext::Epoch(epoch),
+                                stop,
+                            },
+                        ));
+                    }
+                    Err(RequestSourceTermWorkError::InvalidSourceOrdinal) => {
+                        records.push(outcome::iteration_record(
+                            &epoch,
+                            &query,
+                            ProbeLocalIterationDisposition::NoHitStopped {
+                                stage: ProbeLocalStage::ResidualEvaluation,
+                            },
+                        ));
+                        drop(query);
+                        return Ok(finish_probe(
+                            probe_ordinal,
+                            probe,
+                            records,
+                            ProbeLocalOutcome::Rejected {
+                                context: ProbeLocalStopContext::Epoch(epoch),
+                                stage: ProbeLocalStage::ResidualEvaluation,
+                                error: ProbeLocalRejection::SourceDiscovery(
+                                    SourceDiscoveryError::Invariant {
+                                        detail: "residual nomination names a source outside its sealed incidence module",
+                                    },
+                                ),
+                            },
+                        ));
+                    }
+                };
+                if let Err(cause) = budget.try_admit_residual_work(
+                    nominations.requests().len(),
+                    residual_source_term_work,
+                    limits,
+                ) {
+                    records.push(outcome::iteration_record(
+                        &epoch,
+                        &query,
+                        ProbeLocalIterationDisposition::NoHitStopped {
+                            stage: ProbeLocalStage::ResidualEvaluation,
+                        },
+                    ));
+                    drop(query);
+                    let stop = ProbeLocalBudgetStop::new(
+                        probe_ordinal,
+                        epoch_ordinal,
+                        ProbeLocalStage::ResidualEvaluation,
+                        cause,
+                    );
+                    return Ok(finish_probe(
+                        probe_ordinal,
+                        probe,
+                        records,
+                        ProbeLocalOutcome::BudgetStop {
+                            context: ProbeLocalStopContext::Epoch(epoch),
+                            stop,
+                        },
+                    ));
+                }
+                let residuals = match incidence.try_retain_nonzero_residuals_for_partition(
                     generator,
                     completed,
                     &nominations,
                     query.sampled(),
                     obstruction,
+                    query.partition(),
                     limits.source_discovery,
                 ) {
                     Ok(residuals) => residuals,
@@ -437,9 +531,59 @@ pub(super) fn run_single_probe(
                 }
 
                 let nonzero_residual_requests = residuals.requests().len();
+                // The residual census above is deliberately exhaustive: only
+                // its empty result can authorize a sampled dual.  Frame growth
+                // is a separate, non-authoritative proposal policy.  Admit a
+                // deterministic frontier-ranked prefix so one obstruction
+                // cannot inflate the next exact frame by thousands of
+                // translations.
+                // Requests not selected here are not forbidden or forgotten;
+                // a fresh obstruction may nominate them again in a later
+                // epoch, while already admitted requests are excluded by the
+                // incidence boundary.
+                let proposals = match try_rank_residual_proposals(
+                    &residuals,
+                    limits.max_residual_proposals_per_iteration,
+                ) {
+                    Ok(proposals) => proposals,
+                    Err(ProbeLocalSchedulerError::AllocationFailure {
+                        resource,
+                        requested,
+                    }) => {
+                        records.push(outcome::iteration_record(
+                            &epoch,
+                            &query,
+                            ProbeLocalIterationDisposition::NoHitStopped {
+                                stage: ProbeLocalStage::RequestMerge,
+                            },
+                        ));
+                        drop(query);
+                        let stop = ProbeLocalBudgetStop::new(
+                            probe_ordinal,
+                            epoch_ordinal,
+                            ProbeLocalStage::RequestMerge,
+                            ProbeLocalBudgetCause::AllocationFailure {
+                                scope: ProbeLocalBudgetScope::Probe,
+                                resource,
+                                requested,
+                            },
+                        );
+                        return Ok(finish_probe(
+                            probe_ordinal,
+                            probe,
+                            records,
+                            ProbeLocalOutcome::BudgetStop {
+                                context: ProbeLocalStopContext::Epoch(epoch),
+                                stop,
+                            },
+                        ));
+                    }
+                    Err(error) => return Err(error),
+                };
+                let proposed_residual_requests = proposals.len();
                 if let Err(cause) = budget.try_admit_merge_work(
                     epoch.requests().len(),
-                    nonzero_residual_requests,
+                    proposed_residual_requests,
                     limits,
                 ) {
                     records.push(outcome::iteration_record(
@@ -468,7 +612,7 @@ pub(super) fn run_single_probe(
                 }
                 let merged = epoch
                     .requests()
-                    .try_merge_candidates(residuals.requests().iter().cloned(), limits.campaign);
+                    .try_merge_candidates(proposals, limits.campaign);
                 match merged {
                     Ok(CampaignRequestMerge::Augmented {
                         requests: augmented,
@@ -558,24 +702,20 @@ enum RequestSourceTermWorkError {
     InvalidSourceOrdinal,
 }
 
-fn request_source_term_work(
+fn translated_source_term_work(
     incidence: &OrdinarySourceIncidenceIndex<'_>,
-    requests: &AccumulatedSourceRequests,
+    requests: &[TranslatedSourceRequest],
+    resource: &'static str,
 ) -> Result<usize, RequestSourceTermWorkError> {
     let mut work = 0usize;
-    for request in requests.requests() {
+    for request in requests {
         let terms = incidence
             .sources()
             .get(request.source_ordinal())
             .map(|source| source.terms().len())
             .ok_or(RequestSourceTermWorkError::InvalidSourceOrdinal)?;
-        work = checked_budget_add(
-            ProbeLocalBudgetScope::Aggregate,
-            AGGREGATE_MATERIALIZED_SOURCE_TERMS,
-            work,
-            terms,
-        )
-        .map_err(RequestSourceTermWorkError::Budget)?;
+        work = checked_budget_add(ProbeLocalBudgetScope::Aggregate, resource, work, terms)
+            .map_err(RequestSourceTermWorkError::Budget)?;
     }
     Ok(work)
 }

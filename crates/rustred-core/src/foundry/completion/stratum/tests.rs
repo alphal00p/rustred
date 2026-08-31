@@ -8,8 +8,8 @@ use crate::sector::{
 use super::super::frame::{OneSidedChartFrame, PhysicalFrameLimits, PhysicalFramePlan};
 use super::{
     DecoratedStratum, ForbiddenColumnReason, GuardBranch, GuardBranchIdentity,
-    GuardPredicateAuthority, ImmutableOwnerKind, ImmutableOwnerSnapshot, StratumRegistryError,
-    StratumRegistryLimits, TargetColumnPartition,
+    GuardPredicateAuthority, ImmutableOwnerKind, ImmutableOwnerSnapshot, ProspectiveColumnKind,
+    StratumRegistryError, StratumRegistryLimits, TargetColumnPartition,
 };
 
 fn complete_ordinary(generator: &ParametricIbpGenerator<'_>) -> CompletedIbpSourceRows {
@@ -408,6 +408,12 @@ fn every_one_loop_physical_column_gets_exactly_one_target_local_role() {
         );
         assert!(!partition.is_allowed(target));
         assert!(!partition.forbidden_columns().contains(&target));
+        assert_eq!(
+            partition
+                .try_classify_prospective_shift(frame.columns()[target].values())
+                .unwrap(),
+            ProspectiveColumnKind::Target
+        );
         for allowed in partition.allowed_columns() {
             saw_allowed = true;
             assert!(allowed.descent().verify());
@@ -415,6 +421,12 @@ fn every_one_loop_physical_column_gets_exactly_one_target_local_role() {
             assert_eq!(
                 partition.allowed_descriptor(allowed.column()),
                 Some(allowed)
+            );
+            assert_eq!(
+                partition
+                    .try_classify_prospective_shift(frame.columns()[allowed.column()].values(),)
+                    .unwrap(),
+                ProspectiveColumnKind::Allowed
             );
         }
         for forbidden in partition.forbidden_descriptors() {
@@ -429,6 +441,12 @@ fn every_one_loop_physical_column_gets_exactly_one_target_local_role() {
                     | ForbiddenColumnReason::InactiveLineActivation { .. }
                     | ForbiddenColumnReason::UnownedProperSubsector { .. }
             ));
+            assert_eq!(
+                partition
+                    .try_classify_prospective_shift(frame.columns()[forbidden.column()].values(),)
+                    .unwrap(),
+                ProspectiveColumnKind::Forbidden
+            );
         }
     }
     assert!(saw_allowed);

@@ -525,13 +525,6 @@ fn validate_residual_telemetry(
         limits.max_residual_candidates,
     )
     .map_err(SampledDeclaredModuleDualError::NominationVerification)?;
-    check_limit(
-        RESIDUAL_CLASSIFICATIONS,
-        candidate_count,
-        limits.max_residual_classifications,
-    )
-    .map_err(SampledDeclaredModuleDualError::NominationVerification)?;
-
     let support_coordinates = obstruction_support_entries
         .checked_mul(incidence.arity())
         .ok_or_else(|| {

@@ -138,6 +138,42 @@ fn monotone_proofs_handle_extreme_and_pivot_tightened_bounds() {
 }
 
 #[test]
+fn additional_rhs_refinement_is_minimal_monotone_and_replayable() {
+    let active =
+        SectorMonotoneDomain::try_maximal_for_rule(Mask::try_new([true]).unwrap(), &[0], &[[0]])
+            .unwrap();
+    let active_refined = active
+        .try_refine_for_additional_rhs_shift(&[0], &[1])
+        .unwrap();
+    assert_eq!(active_refined.bounds()[0].lower(), 1);
+    assert_eq!(active_refined.bounds()[0].upper(), i64::MAX - 1);
+
+    let already_tight = SectorMonotoneDomain::try_new_for_rule(
+        Mask::try_new([true]).unwrap(),
+        [InteriorBounds::new(2, 8)],
+        &[0],
+        &[[0]],
+    )
+    .unwrap();
+    assert_eq!(
+        already_tight
+            .try_refine_for_additional_rhs_shift(&[0], &[1])
+            .unwrap(),
+        already_tight,
+        "prospective refinement must never widen an exceptional cell",
+    );
+
+    let inactive =
+        SectorMonotoneDomain::try_maximal_for_rule(Mask::try_new([false]).unwrap(), &[0], &[[0]])
+            .unwrap();
+    let inactive_refined = inactive
+        .try_refine_for_additional_rhs_shift(&[0], &[-1])
+        .unwrap();
+    assert_eq!(inactive_refined.bounds()[0].lower(), i64::MIN + 1);
+    assert_eq!(inactive_refined.bounds()[0].upper(), 0);
+}
+
+#[test]
 fn activation_and_same_sector_harder_shifts_are_rejected() {
     let inactive = Mask::try_new([false]).unwrap();
     let inactive_domain =

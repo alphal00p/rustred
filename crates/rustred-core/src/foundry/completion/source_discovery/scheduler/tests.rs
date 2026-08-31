@@ -316,11 +316,88 @@ fn singular_probe_is_local_and_cannot_seed_its_good_sibling() {
 }
 
 #[test]
+fn exhaustive_residual_census_can_feed_a_bounded_frontier_ranked_proposal_batch() {
+    let family = one_loop_one_external("probe-local-bounded-residual-proposals");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let mut limits = ProbeLocalSchedulerLimits::default();
+    limits.max_residual_proposals_per_iteration = 1;
+    let (target, stratum, owners) = external_inputs(&family, &generator, &completed, limits);
+    let report = ProbeLocalObstructionScheduler::try_new(
+        &generator,
+        &completed,
+        target,
+        maximal_anchor(stratum),
+        owners,
+        OrderingPolicy::default(),
+        [probe([37, 1], [0, 0], limits)],
+        limits,
+    )
+    .unwrap()
+    .run()
+    .unwrap();
+
+    assert!(matches!(
+        report.probes()[0].iterations(),
+        [first, ..]
+            if matches!(
+                first.disposition(),
+                ProbeLocalIterationDisposition::NoHitAugmented {
+                    nonzero_residual_requests: 2,
+                    added_requests: 1,
+                    ..
+                }
+            )
+    ));
+    assert!(report.probes()[0].iterations().len() >= 3);
+    assert_eq!(
+        report.probes()[0].iterations()[1].request_count(),
+        report.probes()[0].iterations()[0].request_count() + 1,
+    );
+    assert_eq!(
+        report.probes()[0].iterations()[2].request_count(),
+        report.probes()[0].iterations()[1].request_count() + 1,
+        "an unselected cutter must remain eligible for a later fresh obstruction",
+    );
+    assert!(report.probes()[0].outcome().sampled_dual().is_none());
+}
+
+#[test]
+fn zero_residual_proposal_cap_is_rejected_at_task_admission() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let mut limits = ProbeLocalSchedulerLimits::default();
+    limits.max_residual_proposals_per_iteration = 0;
+    let (target, stratum, owners) = tadpole_inputs(&artifact);
+
+    assert_eq!(
+        ProbeLocalObstructionScheduler::try_new(
+            &generator,
+            &completed,
+            target,
+            maximal_anchor(stratum),
+            owners,
+            OrderingPolicy::default(),
+            [probe([37], [2], limits)],
+            limits,
+        )
+        .unwrap_err(),
+        ProbeLocalSchedulerError::ResourceLimit {
+            resource: "probe-local residual proposals per iteration",
+            requested: 1,
+            limit: 0,
+        }
+    );
+}
+
+#[test]
 fn complete_empty_no_hit_census_returns_sampled_dual() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let completed = complete_ordinary(&generator);
-    let limits = ProbeLocalSchedulerLimits::default();
+    let mut limits = ProbeLocalSchedulerLimits::default();
+    limits.source_discovery.max_residual_classifications = 0;
     let report = tadpole_scheduler(
         &generator,
         &completed,
@@ -345,6 +422,65 @@ fn complete_empty_no_hit_census_returns_sampled_dual() {
             )
     ));
     assert!(report.probes()[0].outcome().sampled_dual().is_some());
+    assert_eq!(report.census().residual_candidate_work(), 0);
+    assert_eq!(report.census().residual_source_term_work(), 0);
+    assert_eq!(report.census().prospective_classification_reservation(), 0);
+}
+
+#[test]
+fn aggregate_residual_work_caps_are_explicit_inconclusive_stops() {
+    let family = one_loop_one_external("probe-local-aggregate-residual-budgets");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+
+    for (resource, configure) in [
+        ("probe-local aggregate residual candidate work", 0usize),
+        ("probe-local aggregate residual source-term work", 1usize),
+        (
+            "probe-local aggregate prospective classification work",
+            2usize,
+        ),
+    ] {
+        let mut limits = ProbeLocalSchedulerLimits::default();
+        match configure {
+            0 => limits.max_aggregate_residual_candidate_work = 0,
+            1 => limits.max_aggregate_residual_source_term_work = 0,
+            2 => limits.max_aggregate_prospective_classification_work = 0,
+            _ => unreachable!(),
+        }
+        let (target, stratum, owners) = external_inputs(&family, &generator, &completed, limits);
+        let report = ProbeLocalObstructionScheduler::try_new(
+            &generator,
+            &completed,
+            target,
+            maximal_anchor(stratum),
+            owners,
+            OrderingPolicy::default(),
+            [probe([37, 1], [0, 0], limits)],
+            limits,
+        )
+        .unwrap()
+        .run()
+        .unwrap();
+        let ProbeLocalOutcome::BudgetStop { context, stop } = report.probes()[0].outcome() else {
+            panic!(
+                "aggregate residual cap must stop inconclusively: {:#?}",
+                report.probes()[0].outcome(),
+            )
+        };
+        assert_eq!(stop.stage(), ProbeLocalStage::ResidualEvaluation);
+        assert_eq!(stop.cause().scope(), ProbeLocalBudgetScope::Aggregate);
+        assert_eq!(stop.cause().resource(), resource);
+        assert!(context.epoch().is_some());
+        assert!(matches!(
+            report.probes()[0].iterations(),
+            [record]
+                if record.disposition()
+                    == ProbeLocalIterationDisposition::NoHitStopped {
+                        stage: ProbeLocalStage::ResidualEvaluation,
+                    }
+        ));
+    }
 }
 
 #[test]

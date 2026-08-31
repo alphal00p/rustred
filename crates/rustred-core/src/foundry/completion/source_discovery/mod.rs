@@ -32,6 +32,8 @@ pub(crate) use dual::{
 pub(crate) use error::SourceDiscoveryError;
 pub(crate) use incidence::OrdinarySourceIncidenceIndex;
 pub(crate) use limits::SourceDiscoveryLimits;
-pub(crate) use model::{IncidentTranslationNominations, NonzeroIncidentTranslationResiduals};
+pub(crate) use model::{
+    IncidentTranslationNominations, NonzeroIncidentTranslationResiduals, ResidualProposalScore,
+};
 #[cfg(test)]
 mod tests;

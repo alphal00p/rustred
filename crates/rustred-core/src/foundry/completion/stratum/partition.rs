@@ -30,6 +30,17 @@ pub(crate) struct ForbiddenColumnDescriptor {
     reason: ForbiddenColumnReason,
 }
 
+/// Prospective role of an exact shift after the current semantic domain is
+/// monotonically refined to represent it. This is a checked scheduling
+/// classification only; it does not add the shift to the physical plan or
+/// mint a retained descent/owner witness.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProspectiveColumnKind {
+    Target,
+    Allowed,
+    Forbidden,
+}
+
 impl ForbiddenColumnDescriptor {
     pub(crate) const fn column(&self) -> usize {
         self.column
@@ -351,6 +362,82 @@ impl<'frame> TargetColumnPartition<'frame> {
             .binary_search_by_key(&column, ForbiddenColumnDescriptor::column)
             .ok()
             .map(|ordinal| self.forbidden_descriptors[ordinal].reason())
+    }
+
+    /// Classify a shift not yet materialized in the physical plan under the
+    /// exact same descent and immutable-lower-owner policy as existing
+    /// columns, after applying the monotone representability refinement which
+    /// the next growing epoch would require. The result is proposal telemetry,
+    /// never admission authority; a selected row is fully repartitioned when
+    /// the next fresh epoch is built.
+    pub(crate) fn try_classify_prospective_shift(
+        &self,
+        shift: &[i64],
+    ) -> Result<ProspectiveColumnKind, StratumRegistryError> {
+        if shift.len() != self.frame.sector().arity() {
+            return Err(StratumRegistryError::Sector(SectorError::WrongArity {
+                expected: self.frame.sector().arity(),
+                actual: shift.len(),
+            }));
+        }
+        let pivot = self.frame.columns()[self.target_column].values();
+        if shift == pivot {
+            return Ok(ProspectiveColumnKind::Target);
+        }
+        let prospective_domain = self
+            .stratum
+            .domain()
+            .try_refine_for_additional_rhs_shift(pivot, shift)?;
+        let descent = match self.ordering.prove_sector_monotone_shift_descent(
+            &prospective_domain,
+            pivot,
+            shift,
+        ) {
+            Ok(descent) => descent,
+            Err(SectorError::NotStrictDescent | SectorError::InactiveLineActivation { .. }) => {
+                return Ok(ProspectiveColumnKind::Forbidden);
+            }
+            Err(error) => return Err(StratumRegistryError::Sector(error)),
+        };
+        let census = descent.target_sector_partition_census()?;
+        check_limit(
+            "prospective target-sector cells",
+            census.cell_count(),
+            self.limits.max_target_sector_cells,
+        )?;
+        let owner_probes = checked_mul(
+            "prospective immutable-owner probes",
+            census.proper_subsector_cell_count(),
+            self.owners.owner_count(),
+        )?;
+        check_limit(
+            "prospective immutable-owner probes",
+            owner_probes,
+            self.limits.max_owner_probes,
+        )?;
+        check_limit(
+            "prospective retained owner witnesses",
+            census.proper_subsector_cell_count(),
+            self.limits.max_retained_owner_witnesses,
+        )?;
+
+        let partition = descent.try_target_sector_partition()?;
+        let proper_count = partition.proper_subsector_cell_count();
+        if proper_count != 0 && self.owners.owner_count() == 0 {
+            return Ok(ProspectiveColumnKind::Forbidden);
+        }
+        for cell_ordinal in 0..proper_count {
+            let cell = partition.cell(cell_ordinal)?;
+            if cell.kind() != SectorMonotoneTargetCellKind::ProperSubsector {
+                return Err(StratumRegistryError::Invariant {
+                    detail: "prospective proper-subsector prefix contains a same-sector cell",
+                });
+            }
+            if self.owners.owner_for(cell.target_domain()).is_none() {
+                return Ok(ProspectiveColumnKind::Forbidden);
+            }
+        }
+        Ok(ProspectiveColumnKind::Allowed)
     }
 
     /// Cold-path reconstruction of the complete registry and all retained

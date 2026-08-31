@@ -66,6 +66,7 @@ pub(super) fn source_budget_cause(error: &SourceDiscoveryError) -> Option<ProbeL
         SourceDiscoveryError::CandidateEvaluation { error, .. } => {
             modular_source_evaluation_budget_cause(error)
         }
+        SourceDiscoveryError::ProposalClassification(error) => stratum_budget_cause(error),
         SourceDiscoveryError::WrongSourceLayout { .. }
         | SourceDiscoveryError::ScopeMismatch { .. }
         | SourceDiscoveryError::WrongArity { .. }
@@ -78,6 +79,7 @@ pub(super) fn source_budget_cause(error: &SourceDiscoveryError) -> Option<ProbeL
         | SourceDiscoveryError::SelectedSourceRowMismatch { .. }
         | SourceDiscoveryError::ObstructionPlanMismatch
         | SourceDiscoveryError::ObstructionSampleMismatch
+        | SourceDiscoveryError::ProposalPartitionMismatch
         | SourceDiscoveryError::Invariant { .. } => None,
     }
 }

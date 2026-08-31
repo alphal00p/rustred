@@ -28,7 +28,9 @@ pub(crate) use model::{
 pub(crate) use owners::{
     ImmutableOwnerKind, ImmutableOwnerSnapshot, ImmutableOwnerSnapshotId, ImmutableOwnerWitness,
 };
-pub(crate) use partition::{ForbiddenColumnReason, ProperSubsectorOwner, TargetColumnPartition};
+pub(crate) use partition::{
+    ForbiddenColumnReason, ProperSubsectorOwner, ProspectiveColumnKind, TargetColumnPartition,
+};
 
 fn checked_add(
     resource: &'static str,

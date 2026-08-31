@@ -69,7 +69,8 @@ fn valid_empty_complete_census_mints_owned_sampled_declared_module_dual() {
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let completed = complete_ordinary(&generator);
     let campaign_limits = CampaignLimits::default();
-    let source_limits = SourceDiscoveryLimits::default();
+    let mut source_limits = SourceDiscoveryLimits::default();
+    source_limits.max_residual_classifications = 0;
     let zero_sources = generator
         .translate_completed_source_rows(
             &completed,

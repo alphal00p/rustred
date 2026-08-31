@@ -120,6 +120,49 @@ impl SectorMonotoneDomain {
         Ok(domain)
     }
 
+    /// Tighten an existing rule domain just enough to keep one additional RHS
+    /// shift representable.
+    ///
+    /// Growing exact frames add translated rows over time. Their semantic
+    /// domain must therefore shrink monotonically as new extreme shifts
+    /// approach the `i64` carrier boundary. This operation preserves every
+    /// existing bound, rechecks that the pivot stays in the parent sector, and
+    /// never widens a caller-supplied exceptional refinement.
+    pub fn try_refine_for_additional_rhs_shift(
+        &self,
+        pivot_shift: &[i64],
+        additional_shift: &[i64],
+    ) -> Result<Self, Error> {
+        self.check_arity(pivot_shift.len())?;
+        self.check_arity(additional_shift.len())?;
+        let mut bounds = Vec::new();
+        try_reserve_exact(
+            &mut bounds,
+            self.arity(),
+            "sector-monotone refined domain bounds",
+        )?;
+        for (position, (&current, &shift)) in self.bounds.iter().zip(additional_shift).enumerate() {
+            let mut lower = i128::from(current.lower());
+            let mut upper = i128::from(current.upper());
+            tighten_representability(&mut lower, &mut upper, shift);
+            lower = lower.max(i128::from(current.lower()));
+            upper = upper.min(i128::from(current.upper()));
+            if lower > upper {
+                return Err(Error::EmptyShiftInterior { position });
+            }
+            bounds.push(InteriorBounds::new(
+                i64::try_from(lower).map_err(|_| Error::EmptyShiftInterior { position })?,
+                i64::try_from(upper).map_err(|_| Error::EmptyShiftInterior { position })?,
+            ));
+        }
+        Self::try_new_for_rule(
+            self.sector.clone(),
+            bounds,
+            pivot_shift,
+            &[additional_shift],
+        )
+    }
+
     pub fn sector(&self) -> &Mask {
         &self.sector
     }

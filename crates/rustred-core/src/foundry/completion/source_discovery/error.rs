@@ -1,6 +1,7 @@
 use std::fmt;
 
 use crate::foundry::completion::frame::modular::ModularSourceEvaluationError;
+use crate::foundry::completion::stratum::StratumRegistryError;
 use crate::identity::TranslatedSourceError;
 
 /// Typed failures at the bounded inverse-incidence boundary.
@@ -40,6 +41,8 @@ pub(crate) enum SourceDiscoveryError {
     },
     ObstructionPlanMismatch,
     ObstructionSampleMismatch,
+    ProposalPartitionMismatch,
+    ProposalClassification(StratumRegistryError),
     CandidateEvaluation {
         candidate_ordinal: usize,
         source_ordinal: usize,
@@ -132,6 +135,13 @@ impl fmt::Display for SourceDiscoveryError {
             Self::ObstructionSampleMismatch => formatter.write_str(
                 "residual pairing frame is not the modular sample bound to its obstruction",
             ),
+            Self::ProposalPartitionMismatch => formatter.write_str(
+                "residual proposal partition is not bound to the checked obstruction frame and target",
+            ),
+            Self::ProposalClassification(error) => write!(
+                formatter,
+                "residual proposal frontier classification failed: {error}"
+            ),
             Self::CandidateEvaluation {
                 candidate_ordinal,
                 source_ordinal,
@@ -169,6 +179,7 @@ impl std::error::Error for SourceDiscoveryError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::ShiftConstruction(error) | Self::SourceTranslation(error) => Some(error),
+            Self::ProposalClassification(error) => Some(error),
             _ => None,
         }
     }

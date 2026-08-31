@@ -262,3 +262,20 @@ No experiment is currently promoted. A future result must append the exact manif
 resource envelope, raw aggregate table, all censored members, adjacent scaling exponents, and the
 strongest proved evidence state. A favorable benchmark may justify a separate implementation
 proposal; it cannot by itself widen Stage 1 or authorize an artifact.
+
+### Bounded residual-frontier control
+
+A non-promoted scheduler control now separates exhaustive residual authority
+from frame-growth policy. Only nonzero residual rows are scored, using exact
+prospective forbidden/allowed classification, obstruction-support overlap,
+row width, and canonical identity; at most 32 are retained per epoch. The
+eight-epoch first-sector K6 run grows from 90 to 314 rows and from 253 to 413
+columns, ending with equal forbidden/augmented ranks of 279/279. It scans
+63,573 candidate rows and 645,012 exact source terms without finding a hit.
+
+This is useful negative evidence. Bounded ranking prevents one obstruction
+from adding thousands of rows to the next frame, but a scalar score ignores
+batch-shared columns and linear independence across the obstruction space.
+The next control must therefore select against an independent obstruction
+block, reuse previously evaluated rows, and report marginal block-rank gain.
+No part of this result promotes experiments 1--5 or constitutes K6 closure.

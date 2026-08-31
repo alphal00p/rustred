@@ -32,7 +32,6 @@ const RESIDUAL_CANDIDATES: &str = "source-discovery residual candidates";
 const RESIDUAL_SOURCE_TERMS: &str = "source-discovery residual exact-source terms";
 const RESIDUAL_SUPPORT_COORDINATES: &str =
     "source-discovery residual obstruction-support coordinate cells";
-const RESIDUAL_CLASSIFICATIONS: &str = "source-discovery residual candidate classifications";
 const DUAL_REQUESTS: &str = "sampled-dual retained source requests";
 const DUAL_REQUEST_COORDINATES: &str = "sampled-dual retained request coordinate cells";
 const DUAL_OBSTRUCTION_ENTRIES: &str = "sampled-dual raw obstruction entries";

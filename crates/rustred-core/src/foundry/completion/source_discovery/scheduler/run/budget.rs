@@ -10,6 +10,11 @@ const AGGREGATE_EPOCH_REQUEST_WORK: &str = "probe-local aggregate epoch request 
 pub(super) const AGGREGATE_MATERIALIZED_SOURCE_TERMS: &str =
     "probe-local aggregate materialized source terms";
 const AGGREGATE_MODULAR_ENTRY_WORK: &str = "probe-local aggregate modular entry work";
+const AGGREGATE_RESIDUAL_CANDIDATE_WORK: &str = "probe-local aggregate residual candidate work";
+pub(super) const AGGREGATE_RESIDUAL_SOURCE_TERM_WORK: &str =
+    "probe-local aggregate residual source-term work";
+const AGGREGATE_PROSPECTIVE_CLASSIFICATION_WORK: &str =
+    "probe-local aggregate prospective classification work";
 const AGGREGATE_MERGE_REQUEST_WORK: &str = "probe-local aggregate merge request work";
 pub(super) const ITERATION_RECORDS: &str = "probe-local retained iteration records";
 const EXACT_ATTEMPTS: &str = "probe-local exact-lift attempts";
@@ -20,6 +25,9 @@ pub(super) struct RunBudget {
     epoch_request_work: usize,
     materialized_source_terms: usize,
     modular_entry_work: usize,
+    residual_candidate_work: usize,
+    residual_source_term_work: usize,
+    prospective_classification_reservation: usize,
     merge_request_work: usize,
     iteration_records: usize,
     exact_attempts: usize,
@@ -92,6 +100,58 @@ impl RunBudget {
             limits.max_aggregate_modular_entry_work,
         )?;
         self.modular_entry_work = work;
+        Ok(())
+    }
+
+    /// Reserve every term in the nominated residual source batch before the
+    /// exhaustive census begins. The same exact term count is a conservative
+    /// upper bound for the more expensive prospective classifier, which is
+    /// actually run only for retained nonzero rows.
+    pub(super) fn try_admit_residual_work(
+        &mut self,
+        candidate_work: usize,
+        source_term_work: usize,
+        limits: ProbeLocalSchedulerLimits,
+    ) -> Result<(), ProbeLocalBudgetCause> {
+        let candidates = checked_budget_add(
+            ProbeLocalBudgetScope::Aggregate,
+            AGGREGATE_RESIDUAL_CANDIDATE_WORK,
+            self.residual_candidate_work,
+            candidate_work,
+        )?;
+        check_outer(
+            ProbeLocalBudgetScope::Aggregate,
+            AGGREGATE_RESIDUAL_CANDIDATE_WORK,
+            candidates,
+            limits.max_aggregate_residual_candidate_work,
+        )?;
+        let source_terms = checked_budget_add(
+            ProbeLocalBudgetScope::Aggregate,
+            AGGREGATE_RESIDUAL_SOURCE_TERM_WORK,
+            self.residual_source_term_work,
+            source_term_work,
+        )?;
+        check_outer(
+            ProbeLocalBudgetScope::Aggregate,
+            AGGREGATE_RESIDUAL_SOURCE_TERM_WORK,
+            source_terms,
+            limits.max_aggregate_residual_source_term_work,
+        )?;
+        let classifications = checked_budget_add(
+            ProbeLocalBudgetScope::Aggregate,
+            AGGREGATE_PROSPECTIVE_CLASSIFICATION_WORK,
+            self.prospective_classification_reservation,
+            source_term_work,
+        )?;
+        check_outer(
+            ProbeLocalBudgetScope::Aggregate,
+            AGGREGATE_PROSPECTIVE_CLASSIFICATION_WORK,
+            classifications,
+            limits.max_aggregate_prospective_classification_work,
+        )?;
+        self.residual_candidate_work = candidates;
+        self.residual_source_term_work = source_terms;
+        self.prospective_classification_reservation = classifications;
         Ok(())
     }
 
@@ -169,6 +229,9 @@ impl RunBudget {
             self.epoch_request_work,
             self.materialized_source_terms,
             self.modular_entry_work,
+            self.residual_candidate_work,
+            self.residual_source_term_work,
+            self.prospective_classification_reservation,
             self.merge_request_work,
             self.iteration_records,
             self.exact_attempts,
