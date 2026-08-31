@@ -611,15 +611,20 @@ sets into an epoch-one union, rejects every stale plan-token crossing, and
 promotes the canonical candidate through the guarded `RuleCell` boundary.
 This still grants no owner, terminal, artifact, or closure authority.
 
-The remaining publication boundary is a paired semantic executable-owner
-compiler that preserves circuit-to-cell identity through candidate and owner
-sorting, followed by transactional whole-cover recomputation and solved-sector
-sealing. An ordinary globally admitted cell owns its complete carrier; its
-syntactic guard-refinement children are not separate cover obligations. Only
-`NeedsGuardedStratum` exports zero-branch obligations. RustRed still has no
-published K6 artifact. Each first K6 sector/prime probe has rank 90 on both
-forbidden and augmented blocks and nominates roughly 3,586--3,822 broad
-residual requests, depending on the sector.
+The paired semantic executable-owner compiler and transactional whole-cover
+replacement are now implemented. The compiler authenticates one partition per
+canonical batch, admits only globally applicable `RuleCell`s, retains normal
+guard obstructions with their exact epoch/circuit authority, and preserves
+circuit-to-cell identity through structural candidate and owner sorting. A
+guard wall is retried lazily at bounded, deduplicated exact anchors in canonical
+coordinate order, so diagnostic modulus/base ordering grants no authority.
+Cover terminals are canonicalized by the proof compiler, failed insertions
+leave the published cover untouched, and finite terminal or guard gaps remain
+explicitly incomplete. The remaining publication boundary is immutable solved-
+sector sealing and bottom-up feedback. RustRed still has no published K6
+artifact. Each first K6 sector/prime probe has rank 90 on both forbidden and
+augmented blocks and nominates roughly 3,586--3,822 broad residual requests,
+depending on the sector.
 
 The scheduler now keeps that exhaustive residual census separate from bounded
 frame growth. It scores only nonzero rows by newly introduced forbidden and
@@ -642,8 +647,8 @@ rows are rank-dependent.
 The immediate discovery experiment is therefore a compact independent
 obstruction block with batch-aware rank gain and evaluated-row reuse, followed
 by Baikov/syzygy or generating-function proposals aimed at exact uncovered
-directions. In parallel, exact hits exercise the new promotion boundary, the
-paired semantic executable owner, and existing whole-cover machinery.
+directions. In parallel, exact hits exercise the implemented executable-owner
+compiler and must close a cover before solved-sector publication.
 Only after K6 closure and genuine three-loop Vakint parity, followed by
 favorable bounded K10/K15 evidence, may the architecture be promoted toward a
 future production K21 campaign. The bounded structural studies remain

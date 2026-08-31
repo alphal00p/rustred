@@ -65,6 +65,12 @@ impl ExactCircuitOwner {
     pub(crate) const fn is_guard_total(&self) -> bool {
         self.guard_total
     }
+
+    /// Retain the exact semantic identity used to pair this canonically
+    /// ordered proof owner with its separately owned executable payload.
+    pub(crate) const fn semantic(&self) -> &Arc<ExactCircuitSemanticDag> {
+        &self.semantic
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

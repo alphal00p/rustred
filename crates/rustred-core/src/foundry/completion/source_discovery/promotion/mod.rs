@@ -10,7 +10,9 @@ mod error;
 mod limits;
 mod model;
 
-pub(crate) use admit::try_promote_replayed_rule_cell;
+pub(crate) use admit::{
+    try_promote_replayed_rule_cell, try_promote_replayed_rule_cell_on_partition,
+};
 pub(crate) use error::ExactRuleCellPromotionError;
 pub(crate) use limits::ExactRuleCellPromotionLimits;
 pub(crate) use model::{

@@ -9,6 +9,7 @@ use crate::foundry::completion::frame::exact::{
     ExactCircuitLoweringError, ExactTargetCircuit, try_lower_exact_circuit,
 };
 use crate::foundry::completion::source_discovery::FreshTaskEpoch;
+use crate::foundry::completion::stratum::TargetColumnPartition;
 use crate::foundry::parametric::ParametricRuleError;
 
 use super::{
@@ -23,6 +24,28 @@ pub(crate) fn try_promote_replayed_rule_cell(
     epoch: Arc<FreshTaskEpoch>,
     circuit: Arc<ExactTargetCircuit>,
     anchor: &[i64],
+    limits: ExactRuleCellPromotionLimits,
+) -> Result<ExactRuleCellPromotionDisposition, ExactRuleCellPromotionError> {
+    let partition = epoch.try_partition(limits.partition)?;
+    try_promote_replayed_rule_cell_on_partition(
+        context,
+        epoch.clone(),
+        circuit,
+        anchor,
+        &partition,
+        limits,
+    )
+}
+
+/// Promote one candidate against a partition already rebuilt and authenticated
+/// for its canonical batch. This avoids repeating the cold owner/stratum join
+/// for every exact candidate while retaining the same hard checks.
+pub(crate) fn try_promote_replayed_rule_cell_on_partition(
+    context: &IndexedCoefficientContext,
+    epoch: Arc<FreshTaskEpoch>,
+    circuit: Arc<ExactTargetCircuit>,
+    anchor: &[i64],
+    partition: &TargetColumnPartition<'_>,
     limits: ExactRuleCellPromotionLimits,
 ) -> Result<ExactRuleCellPromotionDisposition, ExactRuleCellPromotionError> {
     if context.fingerprint() != epoch.plan().context_fingerprint() {
@@ -42,13 +65,27 @@ pub(crate) fn try_promote_replayed_rule_cell(
     if circuit.owner_snapshot_id() != epoch.fixed_snapshot_id() {
         return Err(ExactRuleCellPromotionError::OwnerSnapshotMismatch);
     }
+    if !std::ptr::eq(partition.frame(), epoch.plan()) {
+        return Err(ExactRuleCellPromotionError::WrongPhysicalPlan);
+    }
+    if partition.target_column() != epoch.target_column() {
+        return Err(ExactRuleCellPromotionError::TargetMismatch);
+    }
+    if partition.stratum_id() != epoch.fixed_stratum().id() {
+        return Err(ExactRuleCellPromotionError::StratumMismatch);
+    }
+    if partition.snapshot_id() != epoch.fixed_snapshot_id() {
+        return Err(ExactRuleCellPromotionError::OwnerSnapshotMismatch);
+    }
+    if partition.ordering() != epoch.fixed_ordering() {
+        return Err(ExactRuleCellPromotionError::OrderingMismatch);
+    }
 
-    let partition = epoch.try_partition(limits.partition)?;
-    validate_exact_residual_owners(&epoch, &circuit, &partition)?;
+    validate_exact_residual_owners(&epoch, &circuit, partition)?;
     let refinement = match try_refine_exact_circuit_guards(
         context,
         &circuit,
-        &partition,
+        partition,
         limits.guard_refinement,
     )? {
         ExactGuardRefinementOutcome::Admitted(refinement) => refinement,
@@ -57,7 +94,6 @@ pub(crate) fn try_promote_replayed_rule_cell(
             first_circuit_guard_ordinal,
             zero_branch,
         } => {
-            drop(partition);
             return Ok(ExactRuleCellPromotionDisposition::BlockedByKnownZero {
                 epoch,
                 circuit,
@@ -74,7 +110,6 @@ pub(crate) fn try_promote_replayed_rule_cell(
             Err(ExactCircuitLoweringError::Parametric(
                 ParametricRuleError::GuardVanishedAtAnchor { guard_ordinal },
             )) => {
-                drop(partition);
                 return Ok(ExactRuleCellPromotionDisposition::AnchorOnGuardWall {
                     epoch,
                     circuit,
@@ -101,7 +136,6 @@ pub(crate) fn try_promote_replayed_rule_cell(
             position,
             value,
         }) => {
-            drop(partition);
             return Ok(ExactRuleCellPromotionDisposition::NeedsGuardedStratum {
                 epoch,
                 circuit,
@@ -114,7 +148,6 @@ pub(crate) fn try_promote_replayed_rule_cell(
             });
         }
         Err(RuleCellError::UnsupportedMultivariateGuardLocus { ordinal }) => {
-            drop(partition);
             return Ok(ExactRuleCellPromotionDisposition::NeedsGuardedStratum {
                 epoch,
                 circuit,
@@ -126,7 +159,6 @@ pub(crate) fn try_promote_replayed_rule_cell(
         }
         Err(error) => return Err(ExactRuleCellPromotionError::Cell(error)),
     };
-    drop(partition);
     Ok(ExactRuleCellPromotionDisposition::Admitted(
         AdmittedExactRuleCandidate::new(epoch, circuit, cell, refinement),
     ))

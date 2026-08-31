@@ -12,6 +12,7 @@ mod incidence;
 mod limits;
 mod model;
 mod nominate;
+mod owner_bundle;
 mod promotion;
 mod residual;
 pub(crate) mod scheduler;
@@ -45,9 +46,17 @@ pub(crate) use model::{
     IncidentTranslationNominations, NonzeroIncidentTranslationResiduals, ResidualProposalScore,
 };
 #[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
+pub(crate) use owner_bundle::{
+    ExactExecutableCandidateObstruction, ExactExecutableOwnerCover, ExactExecutableOwnerError,
+    ExactExecutableOwnerLimits, ExactExecutableOwnerObstruction, ExactExecutableOwnerProposal,
+    ExactExecutableOwnerSelection, ExactSemanticExecutableOwner, UnpublishedCanonicalOwnerProposal,
+    try_compile_canonical_executable_owner,
+};
+#[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
 pub(crate) use promotion::{
     AdmittedExactRuleCandidate, ExactRuleCellGuardObstruction, ExactRuleCellPromotionDisposition,
     ExactRuleCellPromotionError, ExactRuleCellPromotionLimits, try_promote_replayed_rule_cell,
+    try_promote_replayed_rule_cell_on_partition,
 };
 #[cfg(test)]
 mod tests;

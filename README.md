@@ -35,6 +35,11 @@ The currently evidenced core can:
 - analyze requested zero sectors using generic Symanzik/rank evidence; and
 - provide deterministic core-owned campaign execution and memory-preflight
   primitives, with roots-only composition in the application layer;
+- rebase independent modular hits onto one fresh canonical exact epoch,
+  promote only globally applicable candidates into guarded executable cells,
+  pair those cells with their exact semantic circuits, and transactionally
+  rebuild an immutable all-rank owner cover while retaining guard and terminal
+  incompleteness explicitly;
 - freshly generate, exactly replay, and seal the complete canonical one-loop
   `K = 1` and equal-mass two-loop sunset `K = 3` vacuum partitions over
   `Q(d)`, including explicit masters, scaleless zero terminals, exact `S3`
@@ -310,13 +315,17 @@ the admitted value keeps its epoch and circuit authority alongside the
 executable cell. Guard walls remain typed retry or exceptional-stratum
 obligations, never implicit coverage.
 
-The semantic target-coordinate guard DAG and all-rank outer-extension/owner-
-cover compiler are already individually exact and bounded. The remaining K6
-production step is to pair each admitted executable cell with its semantic
-circuit through deterministic owner sorting, transactionally recompute the
-whole cover, and seal a solved sector as immutable lower-sector feedback.
-`Incomplete` remains the only answer for an unbounded geometric complement,
-unresolved guard branch, or undeclared finite terminal. RustRed still has no
+The canonical replay-to-publication bridge is now executable and bounded. It
+authenticates the shared partition once, retries a guard wall only at distinct
+exact anchors in canonical coordinate order, admits only globally applicable
+`RuleCell`s, keeps ordinary guard obstructions beside the unpublished exact
+authority, and pointer-pairs each admitted cell with its semantic circuit.
+Whole-cover compilation canonically sorts owners and terminals; insertion
+publishes only after a complete replacement cover and every pairing check
+succeeds. `Incomplete` remains the only answer for an unbounded geometric
+complement, unresolved guard branch, or undeclared finite terminal. The next
+K6 production boundary is to feed these compiled covers into immutable solved-
+sector snapshots and run the dependency DAG bottom-up. RustRed still has no
 closed K6 artifact.
 
 The codebase has no RustRed backward-compatibility promise during deep

@@ -187,9 +187,15 @@ than modular telemetry, and deduplicated with bounded support, diagnostic,
 exact-payload, and integer-bit retention. The result is still a
 non-authoritative proposal batch, but a genuine distinct-request epoch-one
 union and its subsequent guarded `RuleCell` promotion are regression-pinned.
-The remaining production boundary pairs admitted executable cells with the
-semantic owner DAG, transactionally rebuilds the whole cover, and feeds a
-sealed solved sector into the next immutable layer.
+The replay-to-publication boundary now pairs only globally admitted executable
+cells with their exact semantic circuits, preserves epoch/circuit/cell identity
+through canonical candidate and owner ordering, retains normal guard
+obstructions without granting them coverage, and transactionally replaces the
+whole exact owner cover. Retry probes influence promotion only through their
+deduplicated exact anchors in canonical coordinate order. Finite undeclared
+terminals and guard/complement gaps remain explicit `Incomplete` outcomes.
+The remaining production boundary seals a successfully closed cover as one
+immutable solved-sector layer and feeds it into the next dependency task.
 
 On the Vakint side, the shared multimethod harness now exercises 21 applicable
 historical tests comprising 27 concrete inputs through two loops, including
@@ -243,10 +249,10 @@ column, proves fixed-sector and sector-monotone descent, and re-admits the
 payload under the caller's resource policy. It deliberately creates no
 `RuleCell`, owner, terminal, artifact, or closure authority. The next K6 step
 is therefore to replace the broad residual frontier with compact
-certificate-/syzygy-/generating-function-guided batches, promote successful
-lowered identities through the existing guarded `RuleCell` boundary, recompute
-the exact owner complement, and install each solved sector as immutable
-lower-sector feedback before advancing bottom-up.
+certificate-/syzygy-/generating-function-guided batches, send successful exact
+hits through the implemented guarded executable-owner compiler, and install
+each genuinely closed cover as immutable lower-sector feedback before
+advancing bottom-up.
 
 The three-loop search nevertheless now starts from an exact, test-only
 pressure manifest rather than an informal topology list: it authenticates the
