@@ -622,10 +622,15 @@ Cover terminals are canonicalized by the proof compiler, failed insertions
 leave the published cover untouched, and finite terminal or guard gaps remain
 explicitly incomplete. A consuming seal now admits only `Closed`, strongly
 owns its exact predecessor snapshot, and revalidates every executable owner's
-common scope without disturbing its paired circuit and cell. The remaining
-publication boundary is the content-identified solved-sector layer, immutable
-snapshot extension, and bottom-up feedback. RustRed still has no published K6
-artifact. Each first K6 sector/prime probe has rank 90 on both forbidden and
+common scope without disturbing its paired circuit and cell. The resulting
+cover now publishes as a content-identified solved-sector layer: one bounded
+streaming digest commits its complete executable semantics at publication,
+while exact `Arc` ownership remains the join authority and hot lookup performs
+no rehash. Immutable snapshots transactionally append canonical same-rank
+waves and reject non-increasing or foreign-predecessor updates. The remaining
+bottom-up boundary is exact symmetry routing for both canonical terminal
+owners and solved layers. RustRed still has no published K6 artifact. Each
+first K6 sector/prime probe has rank 90 on both forbidden and
 augmented blocks and nominates roughly 3,586--3,822 broad residual requests,
 depending on the sector.
 
@@ -651,7 +656,10 @@ The immediate discovery experiment is therefore a compact independent
 obstruction block with batch-aware rank gain and evaluated-row reuse, followed
 by Baikov/syzygy or generating-function proposals aimed at exact uncovered
 directions. In parallel, exact hits exercise the implemented executable-owner
-compiler and must close a cover before solved-sector publication.
+compiler, must close a cover before solved-sector publication, and enter the
+next rank only as a complete transactional wave. The first wave additionally
+waits on the generic exact route index for noncanonical factorization and
+solved-sector images.
 Only after K6 closure and genuine three-loop Vakint parity, followed by
 favorable bounded K10/K15 evidence, may the architecture be promoted toward a
 future production K21 campaign. The bounded structural studies remain

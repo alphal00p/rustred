@@ -12,19 +12,22 @@ use crate::foundry::completion::source_discovery::scheduler::{
     ProbeLocalObstructionScheduler, ProbeLocalSchedulerLimits,
 };
 use crate::foundry::completion::stratum::{
-    DecoratedStratum, ImmutableOwnerSnapshot, MaximalStratumAnchor, StratumRegistryLimits,
+    DecoratedStratum, ImmutableOwnerSnapshot, MaximalStratumAnchor, StratumRegistryError,
+    StratumRegistryLimits,
 };
 use crate::identity::{CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator};
-use crate::sector::{Mask, OrderingPolicy, SectorMonotoneDomain};
+use crate::sector::{
+    InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain, SectorMonotoneDomain,
+};
 
 use super::super::{
     CampaignModularProbe, CanonicalReplayBatch, CanonicalReplayDisposition, CanonicalReplayLimits,
     OrdinarySourceIncidenceIndex, SourceDiscoveryLimits, try_canonicalize_replayed_probes,
 };
 use super::{
-    ClosedExactExecutableOwnerCover, ExactExecutableOwnerCover, ExactExecutableOwnerError,
-    ExactExecutableOwnerLimits, ExactExecutableOwnerProposal, ExactExecutableOwnerSelection,
-    try_compile_canonical_executable_owner,
+    ClosedExactExecutableOwnerCover, ClosedSectorLayer, ExactExecutableOwnerCover,
+    ExactExecutableOwnerError, ExactExecutableOwnerLimits, ExactExecutableOwnerProposal,
+    ExactExecutableOwnerSelection, try_compile_canonical_executable_owner,
 };
 
 const PRIME: u64 = 1_000_000_007;
@@ -183,6 +186,48 @@ fn compiled_tadpole_owner(
     };
     assert!(obstructions.is_empty());
     owner
+}
+
+fn published_tadpole_layer(
+    artifact: &ClosedArtifact,
+    generator: &ParametricIbpGenerator<'_>,
+    completed: &CompletedIbpSourceRows,
+    predecessor: ImmutableOwnerSnapshot,
+) -> Arc<ClosedSectorLayer> {
+    let campaign = ProbeLocalSchedulerLimits::default().campaign;
+    let batch = canonical_tadpole_batch_from_probes_and_owners(
+        artifact,
+        generator,
+        completed,
+        1,
+        [
+            CampaignModularProbe::try_new(PRIME, [37], [2], campaign).unwrap(),
+            CampaignModularProbe::try_new(PRIME, [37], [3], campaign).unwrap(),
+        ],
+        predecessor,
+    );
+    let ExactExecutableOwnerProposal::Compiled {
+        owner,
+        obstructions,
+    } = try_compile_canonical_executable_owner(
+        generator.context(),
+        batch,
+        ExactExecutableOwnerLimits::default(),
+    )
+    .unwrap()
+    else {
+        panic!("the tadpole layer candidate must compile")
+    };
+    assert!(obstructions.is_empty());
+    let cover = ExactExecutableOwnerCover::try_compile(
+        generator.context(),
+        vec![owner],
+        vec![IntegralKey::try_new([1]).unwrap()],
+        ExactExecutableOwnerLimits::default(),
+    )
+    .unwrap();
+    let sealed = ClosedExactExecutableOwnerCover::try_seal(cover).unwrap();
+    ClosedSectorLayer::try_publish(sealed, StratumRegistryLimits::default()).unwrap()
 }
 
 #[test]
@@ -826,4 +871,328 @@ fn closed_seal_rechecks_the_exact_predecessor_scope_of_every_owner() {
             detail: "predecessor snapshot identity differs",
         })
     ));
+}
+
+#[test]
+fn closed_tadpole_layer_extends_one_exact_predecessor_transactionally() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let predecessor = ImmutableOwnerSnapshot::try_empty(
+        artifact.family_fingerprint(),
+        artifact.context_fingerprint(),
+        1,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let predecessor_id = predecessor.id().clone();
+    let layer = published_tadpole_layer(&artifact, &generator, &completed, predecessor.clone());
+
+    assert_eq!(layer.family_fingerprint(), artifact.family_fingerprint());
+    assert_eq!(layer.context_fingerprint(), artifact.context_fingerprint());
+    assert_eq!(layer.sector().active_bits(), &[true]);
+    assert_eq!(layer.ordering(), OrderingPolicy::default());
+    assert_eq!(layer.predecessor_snapshot().id(), &predecessor_id);
+    assert!(
+        layer
+            .content_id()
+            .as_str()
+            .contains("closed-sector-layer-content.v1")
+    );
+    let recomputed = layer
+        .try_recompute_content_id(StratumRegistryLimits::default())
+        .unwrap();
+    assert_eq!(&recomputed, layer.content_id());
+
+    let weak_layer = Arc::downgrade(&layer);
+    let extended = predecessor
+        .try_extend_with_closed_layers(vec![layer.clone()], StratumRegistryLimits::default())
+        .unwrap();
+    assert_eq!(extended.owner_count(), 1);
+    assert_eq!(extended.closed_layer_count(), 1);
+    assert!(extended.solved_owner_matches_layer(0));
+    assert!(
+        extended
+            .try_verify(StratumRegistryLimits::default())
+            .unwrap()
+    );
+    assert!(extended.id().as_str().contains(layer.content_id().as_str()));
+
+    let clone = extended.clone();
+    assert_eq!(clone, extended);
+    assert!(clone.same_authority_as(&extended));
+    drop(layer);
+    assert!(weak_layer.upgrade().is_some());
+
+    let same_sector =
+        SectorInteriorDomain::try_new(Mask::try_new([true]).unwrap(), [InteriorBounds::new(1, 7)])
+            .unwrap();
+    assert!(
+        extended
+            .owner_for(
+                &Mask::try_new([true]).unwrap(),
+                OrderingPolicy::default(),
+                &same_sector,
+            )
+            .is_none(),
+        "owner lookup must reject a target that is not a strict subsector"
+    );
+}
+
+#[test]
+fn solved_layer_extension_preserves_a_closed_artifact_terminal_prefix() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        &artifact,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let terminal_owner_count = predecessor.owner_count();
+    let layer = published_tadpole_layer(&artifact, &generator, &completed, predecessor.clone());
+    let extended = predecessor
+        .try_extend_with_closed_layers(vec![layer], StratumRegistryLimits::default())
+        .unwrap();
+
+    assert_eq!(extended.owner_count(), terminal_owner_count + 1);
+    assert!(extended.solved_owner_matches_layer(0));
+    assert!(
+        extended
+            .try_verify(StratumRegistryLimits::default())
+            .unwrap()
+    );
+}
+
+#[test]
+fn structurally_equal_solved_snapshots_do_not_alias_distinct_layer_arcs() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let predecessor = ImmutableOwnerSnapshot::try_empty(
+        artifact.family_fingerprint(),
+        artifact.context_fingerprint(),
+        1,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let first_layer =
+        published_tadpole_layer(&artifact, &generator, &completed, predecessor.clone());
+    let second_layer =
+        published_tadpole_layer(&artifact, &generator, &completed, predecessor.clone());
+    assert!(!Arc::ptr_eq(&first_layer, &second_layer));
+    assert_eq!(first_layer.content_id(), second_layer.content_id());
+
+    let first = predecessor
+        .try_extend_with_closed_layers(vec![first_layer], StratumRegistryLimits::default())
+        .unwrap();
+    let second = predecessor
+        .try_extend_with_closed_layers(vec![second_layer], StratumRegistryLimits::default())
+        .unwrap();
+    assert_eq!(first.id(), second.id());
+    assert_eq!(first, second);
+    assert!(!first.same_authority_as(&second));
+}
+
+#[test]
+fn closed_layer_content_id_covers_exact_circuit_and_rule_cell_payloads() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let predecessor = ImmutableOwnerSnapshot::try_empty(
+        artifact.family_fingerprint(),
+        artifact.context_fingerprint(),
+        1,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let layer = published_tadpole_layer(&artifact, &generator, &completed, predecessor);
+    let candidate =
+        &layer.executable_cover().executable_cover().owners()[0].executable_candidates()[0];
+
+    // A cloned circuit with one exact source cofactor changed is deliberately
+    // not republished: exact replay would reject it. The focused test seam
+    // changes only that canonical-stream component and proves it is covered.
+    let mut changed_circuit = candidate.circuit().as_ref().clone();
+    let changed_coefficient = generator
+        .context()
+        .neg_with_limits(
+            changed_circuit.source_combination()[0].coefficient(),
+            Default::default(),
+        )
+        .unwrap();
+    changed_circuit.replace_first_source_coefficient_for_test(changed_coefficient);
+    let circuit_id = layer
+        .try_content_id_with_first_circuit_for_test(
+            &changed_circuit,
+            StratumRegistryLimits::default(),
+        )
+        .unwrap();
+    assert_ne!(&circuit_id, layer.content_id());
+
+    assert!(!candidate.cell().guards().is_empty());
+    let shifted = generator
+        .context()
+        .add(
+            &generator.context().index(0).unwrap(),
+            &generator.context().one(),
+        )
+        .unwrap();
+    let changed_guard = generator
+        .context()
+        .numerator_condition_with_limits(&shifted, Default::default())
+        .unwrap();
+    let cell_id = layer
+        .try_content_id_with_first_cell_guard_for_test(
+            &changed_guard,
+            StratumRegistryLimits::default(),
+        )
+        .unwrap();
+    assert_ne!(&cell_id, layer.content_id());
+    assert_ne!(cell_id, circuit_id);
+
+    let mut exhausted = StratumRegistryLimits::default();
+    exhausted.max_owner_identity_bytes = 0;
+    assert!(matches!(
+        layer.try_recompute_content_id(exhausted),
+        Err(StratumRegistryError::ResourceLimit {
+            resource: "closed-sector layer canonical content bytes",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn closed_layer_batch_rejections_leave_the_predecessor_unchanged() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let predecessor = ImmutableOwnerSnapshot::try_empty(
+        artifact.family_fingerprint(),
+        artifact.context_fingerprint(),
+        1,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let original_id = predecessor.id().clone();
+    let layer = published_tadpole_layer(&artifact, &generator, &completed, predecessor.clone());
+
+    assert_eq!(
+        predecessor.try_extend_with_closed_layers(Vec::new(), StratumRegistryLimits::default(),),
+        Err(StratumRegistryError::EmptyClosedSectorLayerBatch)
+    );
+    assert!(matches!(
+        predecessor.try_extend_with_closed_layers(
+            vec![layer.clone(), layer.clone()],
+            StratumRegistryLimits::default(),
+        ),
+        Err(StratumRegistryError::DuplicateClosedSectorOwner { .. })
+    ));
+
+    let foreign_predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        &artifact,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        foreign_predecessor
+            .try_extend_with_closed_layers(vec![layer.clone()], StratumRegistryLimits::default(),),
+        Err(StratumRegistryError::WrongClosedSectorLayerPredecessor { layer: 0 })
+    ));
+
+    let wrong_family = ImmutableOwnerSnapshot::try_empty(
+        "foreign-family",
+        artifact.context_fingerprint(),
+        1,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        wrong_family
+            .try_extend_with_closed_layers(vec![layer.clone()], StratumRegistryLimits::default(),),
+        Err(StratumRegistryError::WrongClosedSectorLayerFamily { layer: 0 })
+    ));
+
+    let wrong_context = ImmutableOwnerSnapshot::try_empty(
+        artifact.family_fingerprint(),
+        "foreign-context",
+        1,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        wrong_context
+            .try_extend_with_closed_layers(vec![layer.clone()], StratumRegistryLimits::default(),),
+        Err(StratumRegistryError::WrongClosedSectorLayerContext { layer: 0 })
+    ));
+
+    let wrong_arity = ImmutableOwnerSnapshot::try_empty(
+        artifact.family_fingerprint(),
+        artifact.context_fingerprint(),
+        2,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        wrong_arity
+            .try_extend_with_closed_layers(vec![layer.clone()], StratumRegistryLimits::default(),),
+        Err(StratumRegistryError::WrongOwnerArity {
+            owner: 0,
+            expected: 2,
+            actual: 1,
+        })
+    ));
+
+    let first_wave = predecessor
+        .try_extend_with_closed_layers(vec![layer.clone()], StratumRegistryLimits::default())
+        .unwrap();
+    let split_same_rank =
+        published_tadpole_layer(&artifact, &generator, &completed, first_wave.clone());
+    assert_eq!(
+        first_wave.try_extend_with_closed_layers(
+            vec![split_same_rank],
+            StratumRegistryLimits::default(),
+        ),
+        Err(
+            StratumRegistryError::NonIncreasingClosedSectorLayerFrontier {
+                previous_active_count: 1,
+                incoming_active_count: 1,
+            }
+        )
+    );
+    assert_eq!(first_wave.closed_layer_count(), 1);
+    assert!(
+        first_wave
+            .try_verify(StratumRegistryLimits::default())
+            .unwrap()
+    );
+
+    let mut exhausted = StratumRegistryLimits::default();
+    exhausted.max_owner_regions = 0;
+    assert!(matches!(
+        predecessor.try_extend_with_closed_layers(vec![layer.clone()], exhausted),
+        Err(StratumRegistryError::ResourceLimit {
+            resource: "immutable owner regions",
+            requested: 1,
+            limit: 0,
+        })
+    ));
+    let mut coordinate_exhausted = StratumRegistryLimits::default();
+    coordinate_exhausted.max_owner_coordinate_cells = 0;
+    assert!(matches!(
+        predecessor.try_extend_with_closed_layers(vec![layer], coordinate_exhausted),
+        Err(StratumRegistryError::ResourceLimit {
+            resource: "immutable owner coordinate cells",
+            requested: 1,
+            limit: 0,
+        })
+    ));
+    assert_eq!(predecessor.id(), &original_id);
+    assert_eq!(predecessor.owner_count(), 0);
+    assert_eq!(predecessor.closed_layer_count(), 0);
+    assert!(
+        predecessor
+            .try_verify(StratumRegistryLimits::default())
+            .unwrap()
+    );
 }

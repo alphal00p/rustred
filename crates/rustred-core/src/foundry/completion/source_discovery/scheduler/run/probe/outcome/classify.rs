@@ -300,6 +300,13 @@ fn stratum_budget_cause(error: &StratumRegistryError) -> Option<ProbeLocalBudget
         | StratumRegistryError::WrongOwnerContext
         | StratumRegistryError::WrongFrameSector
         | StratumRegistryError::WrongOwnerArity { .. }
+        | StratumRegistryError::EmptyClosedSectorLayerBatch
+        | StratumRegistryError::WrongClosedSectorLayerFamily { .. }
+        | StratumRegistryError::WrongClosedSectorLayerContext { .. }
+        | StratumRegistryError::WrongClosedSectorLayerPredecessor { .. }
+        | StratumRegistryError::MixedClosedSectorLayerFrontier { .. }
+        | StratumRegistryError::NonIncreasingClosedSectorLayerFrontier { .. }
+        | StratumRegistryError::DuplicateClosedSectorOwner { .. }
         | StratumRegistryError::TargetColumnOutOfRange { .. }
         | StratumRegistryError::UncoveredPhysicalShift { .. }
         | StratumRegistryError::InitialMaximalDomainMismatch

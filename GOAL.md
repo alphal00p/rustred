@@ -24,6 +24,12 @@ Remember, before implementing in vakint the application of the parametric IBPs f
 Also never escalate commands but find workaround if sanbox is being hit.
 ````
 
+> **Runtime license note (2026-08-31):** the Symbolica license literal in the
+> historical verbatim preamble above has expired. Commands requiring licensed
+> Symbolica features must use the current operator-provided
+> `SYMBOLICA_LICENSE` environment value; that runtime value is deliberately not
+> recorded in the repository.
+
 ## Authority and staged assignment
 
 The preamble above records the long-term scientific motivation verbatim. The
@@ -200,9 +206,16 @@ terminals and guard/complement gaps remain explicit `Incomplete` outcomes.
 A consuming seal now accepts only an exactly `Closed` executable cover,
 retains its predecessor snapshot by strong ownership, and rechecks the common
 family, context, sector, ordering, and exact snapshot across every owner
-without recompiling or cloning its circuits and `RuleCell`s. The remaining
-production boundary wraps that sealed cover as one content-identified
-immutable solved-sector layer and feeds it into the next dependency task.
+without recompiling or cloning its circuits and `RuleCell`s. That sealed cover
+can now be published as one immutable solved-sector layer. Publication streams
+the complete executable/proof payload into one bounded BLAKE3 content identity
+exactly once; the strongly retained `Arc` chain, not the digest, remains proof
+authority, and subsequent owner lookup does not rehash the payload. Snapshot
+extension is transactional: all sectors in one worker frontier share the
+exact predecessor, are canonically ordered, and later frontiers must have
+strictly greater active-line rank. The remaining dependency boundary is an
+exact symmetry-route index covering both canonical terminal owners and
+published solved layers before the first bottom-up K6 wave can advance.
 
 On the Vakint side, the shared multimethod harness now exercises 21 applicable
 historical tests comprising 27 concrete inputs through two loops, including
@@ -255,11 +268,13 @@ source rows and shifts, preserves every guard origin, replays every physical
 column, proves fixed-sector and sector-monotone descent, and re-admits the
 payload under the caller's resource policy. It deliberately creates no
 `RuleCell`, owner, terminal, artifact, or closure authority. The next K6 step
-is therefore to replace the broad residual frontier with compact
-certificate-/syzygy-/generating-function-guided batches, send successful exact
-hits through the implemented guarded executable-owner compiler, and install
-each genuinely closed cover as immutable lower-sector feedback before
-advancing bottom-up.
+is therefore to derive bounded symmetry routes from the strongly retained
+exact family action, including the noncanonical images of the three canonical
+factorization domains, then replace the broad residual frontier with compact
+certificate-/syzygy-/generating-function-guided batches. Successful exact hits
+pass through the implemented guarded executable-owner compiler and one-time
+content publication; complete same-rank waves are installed as immutable
+lower-sector feedback before advancing bottom-up.
 
 The three-loop search nevertheless now starts from an exact, test-only
 pressure manifest rather than an informal topology list: it authenticates the

@@ -26,6 +26,29 @@ pub(crate) enum StratumRegistryError {
         expected: usize,
         actual: usize,
     },
+    EmptyClosedSectorLayerBatch,
+    WrongClosedSectorLayerFamily {
+        layer: usize,
+    },
+    WrongClosedSectorLayerContext {
+        layer: usize,
+    },
+    WrongClosedSectorLayerPredecessor {
+        layer: usize,
+    },
+    MixedClosedSectorLayerFrontier {
+        layer: usize,
+        expected_active_count: usize,
+        actual_active_count: usize,
+    },
+    NonIncreasingClosedSectorLayerFrontier {
+        previous_active_count: usize,
+        incoming_active_count: usize,
+    },
+    DuplicateClosedSectorOwner {
+        first_layer: usize,
+        second_layer: usize,
+    },
     TargetColumnOutOfRange {
         target: usize,
         columns: usize,
@@ -91,6 +114,43 @@ impl fmt::Display for StratumRegistryError {
             } => write!(
                 formatter,
                 "immutable owner {owner} has arity {actual}, expected {expected}"
+            ),
+            Self::EmptyClosedSectorLayerBatch => {
+                formatter.write_str("a closed-sector snapshot extension batch cannot be empty")
+            }
+            Self::WrongClosedSectorLayerFamily { layer } => write!(
+                formatter,
+                "closed-sector layer {layer} belongs to another family"
+            ),
+            Self::WrongClosedSectorLayerContext { layer } => write!(
+                formatter,
+                "closed-sector layer {layer} uses another coefficient context"
+            ),
+            Self::WrongClosedSectorLayerPredecessor { layer } => write!(
+                formatter,
+                "closed-sector layer {layer} does not retain the exact extension predecessor"
+            ),
+            Self::MixedClosedSectorLayerFrontier {
+                layer,
+                expected_active_count,
+                actual_active_count,
+            } => write!(
+                formatter,
+                "closed-sector layer {layer} has active count {actual_active_count}, expected the common frontier {expected_active_count}"
+            ),
+            Self::NonIncreasingClosedSectorLayerFrontier {
+                previous_active_count,
+                incoming_active_count,
+            } => write!(
+                formatter,
+                "closed-sector frontier rank {incoming_active_count} does not strictly exceed the retained frontier rank {previous_active_count}"
+            ),
+            Self::DuplicateClosedSectorOwner {
+                first_layer,
+                second_layer,
+            } => write!(
+                formatter,
+                "closed-sector layers {first_layer} and {second_layer} publish the same exact sector and ordering"
             ),
             Self::TargetColumnOutOfRange { target, columns } => write!(
                 formatter,

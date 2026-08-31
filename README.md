@@ -326,10 +326,15 @@ succeeds. `Incomplete` remains the only answer for an unbounded geometric
 complement, unresolved guard branch, or undeclared finite terminal. A consuming
 seal now rejects every such incomplete cover, strongly retains the exact
 predecessor snapshot, and rechecks the complete common execution scope of every
-owner while preserving the existing proof/circuit/`RuleCell` pairing. The next
-K6 production boundary is to give that sealed cover a content-bound immutable
-solved-sector identity, extend later snapshots with it, and run the dependency
-DAG bottom-up. RustRed still has no closed K6 artifact.
+owner while preserving the existing proof/circuit/`RuleCell` pairing. A sealed
+cover can now be published as an immutable solved-sector layer with a bounded,
+one-time BLAKE3 identity over its complete executable content. Strong retained
+ownership—not the digest—authorizes dependency joins. Later snapshots append
+canonically ordered same-rank waves transactionally and reject split,
+decreasing, or foreign-predecessor publication. The next K6 production
+boundary is exact symmetry routing for canonical terminal and solved owners,
+followed by the first bottom-up three-line wave. RustRed still has no closed K6
+artifact.
 
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,

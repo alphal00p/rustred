@@ -72,7 +72,7 @@ impl ProperSubsectorOwner {
 ///
 /// The sector witness proves strict descent on the same-sector cell and at
 /// every proper-subsector transition. Every materialized proper-subsector
-/// child additionally points into the immutable terminal-owner snapshot.
+/// child additionally points into the immutable owner snapshot.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AllowedColumnDescriptor {
     column: usize,
@@ -260,7 +260,8 @@ impl<'frame> TargetColumnPartition<'frame> {
                         detail: "proper-subsector partition prefix contains a same-sector cell",
                     });
                 }
-                let Some(owner) = owners.owner_for(cell.target_domain()) else {
+                let Some(owner) = owners.owner_for(frame.sector(), ordering, cell.target_domain())
+                else {
                     first_unowned = Some(cell_ordinal);
                     break;
                 };
@@ -433,7 +434,11 @@ impl<'frame> TargetColumnPartition<'frame> {
                     detail: "prospective proper-subsector prefix contains a same-sector cell",
                 });
             }
-            if self.owners.owner_for(cell.target_domain()).is_none() {
+            if self
+                .owners
+                .owner_for(self.frame.sector(), self.ordering, cell.target_domain())
+                .is_none()
+            {
                 return Ok(ProspectiveColumnKind::Forbidden);
             }
         }
@@ -478,9 +483,12 @@ impl<'frame> TargetColumnPartition<'frame> {
                 }
                 let cell = partition.cell(retained.cell_ordinal())?;
                 if cell.kind() != SectorMonotoneTargetCellKind::ProperSubsector
-                    || !self
-                        .owners
-                        .verifies_witness(cell.target_domain(), retained.owner())
+                    || !self.owners.verifies_witness(
+                        self.frame.sector(),
+                        self.ordering,
+                        cell.target_domain(),
+                        retained.owner(),
+                    )
                 {
                     return Ok(false);
                 }

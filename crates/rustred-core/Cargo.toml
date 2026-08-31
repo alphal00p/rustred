@@ -11,6 +11,7 @@ name = "rustred"
 path = "src/lib.rs"
 
 [dependencies]
+blake3 = "1"
 rand = "0.9"
 rayon = "1"
 symbolica.workspace = true

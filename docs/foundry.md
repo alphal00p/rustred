@@ -655,14 +655,20 @@ only an exact momentum/denominator transformation with the correct Jacobian
 may quotient work. A verified symmetry maps a query to a representative; it
 cannot turn an unresolved representative into a closed one.
 
-Today, tasks can consume an immutable owner snapshot and seal one exactly
-closed executable owner cover, but `ClosedSectorLayer`, its content-bound
-identity, persistent solved-sector snapshot feedback, and the cross-sector
-fixed-point scheduler are not implemented. The future scheduler must feed
-solved proper subsectors into parent work through immutable, fingerprint-bound
-dependencies and repeat sector solving, exceptional refinement, and dependency
-substitution to a deterministic fixed point. Arrival order or worker count must
-not change the semantic artifact.
+Today, tasks can consume an immutable owner snapshot, seal one exactly closed
+executable owner cover, and publish it as a `ClosedSectorLayer`. Publication
+computes one bounded content identity over the complete physical-plan,
+exact-circuit, guard, `RuleCell`, descent, owner, and terminal semantics; the
+immutable retained `Arc`, not this digest, remains authority. Snapshot feedback
+appends canonically ordered same-rank batches transactionally, requires the
+exact predecessor authority, and permits only strictly increasing active-line
+frontiers. It does not repeat the content traversal during ordinary partition
+lookup. The missing cross-sector boundary is a symmetry-route index derived
+from the strongly retained exact family action, including noncanonical images
+of canonical factorization owners, followed by the fixed-point scheduler. That
+scheduler must repeat sector solving, exceptional refinement, and dependency
+substitution without allowing arrival order or worker count to change the
+semantic artifact.
 
 ## Residual recentering
 

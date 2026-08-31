@@ -280,22 +280,30 @@ fn artifact_snapshot_exposes_only_proof_backed_terminal_regions() {
         [InteriorBounds::new(-17, 0)],
     )
     .unwrap();
-    let zero_owner = snapshot.owner_for(&zero_domain).unwrap();
+    let parent = Mask::try_new([true]).unwrap();
+    let ordering = OrderingPolicy::default();
+    let zero_owner = snapshot.owner_for(&parent, ordering, &zero_domain).unwrap();
     assert_eq!(zero_owner.kind(), ImmutableOwnerKind::ZeroSector);
     assert!(zero_owner.owner_ordinal() < snapshot.owner_count());
-    assert!(snapshot.verifies_witness(&zero_domain, zero_owner));
+    assert!(snapshot.verifies_witness(&parent, ordering, &zero_domain, zero_owner));
 
     let master_domain =
         SectorInteriorDomain::try_new(Mask::try_new([true]).unwrap(), [InteriorBounds::new(1, 1)])
             .unwrap();
-    let master_owner = snapshot.owner_for(&master_domain).unwrap();
-    assert_eq!(master_owner.kind(), ImmutableOwnerKind::Master);
-    assert!(snapshot.verifies_witness(&master_domain, master_owner));
+    assert!(
+        snapshot
+            .owner_for(&parent, ordering, &master_domain)
+            .is_none()
+    );
 
     let nonterminal_domain =
         SectorInteriorDomain::try_new(Mask::try_new([true]).unwrap(), [InteriorBounds::new(1, 2)])
             .unwrap();
-    assert!(snapshot.owner_for(&nonterminal_domain).is_none());
+    assert!(
+        snapshot
+            .owner_for(&parent, ordering, &nonterminal_domain)
+            .is_none()
+    );
 }
 
 #[test]
@@ -324,9 +332,11 @@ fn terminal_authority_snapshot_retains_and_cheaply_rejoins_its_exact_owner() {
         [InteriorBounds::new(-7, 0); 6],
     )
     .unwrap();
-    let zero_owner = snapshot.owner_for(&zero).unwrap();
+    let parent = Mask::try_new([true; 6]).unwrap();
+    let ordering = OrderingPolicy::default();
+    let zero_owner = snapshot.owner_for(&parent, ordering, &zero).unwrap();
     assert_eq!(zero_owner.kind(), ImmutableOwnerKind::ZeroSector);
-    assert!(snapshot.verifies_witness(&zero, zero_owner));
+    assert!(snapshot.verifies_witness(&parent, ordering, &zero, zero_owner));
 
     let factorized = SectorInteriorDomain::try_new(
         Mask::try_new([false, false, true, false, true, true]).unwrap(),
@@ -340,12 +350,12 @@ fn terminal_authority_snapshot_retains_and_cheaply_rejoins_its_exact_owner() {
         ],
     )
     .unwrap();
-    let factorization_owner = snapshot.owner_for(&factorized).unwrap();
+    let factorization_owner = snapshot.owner_for(&parent, ordering, &factorized).unwrap();
     assert_eq!(
         factorization_owner.kind(),
         ImmutableOwnerKind::Factorization
     );
-    assert!(snapshot.verifies_witness(&factorized, factorization_owner));
+    assert!(snapshot.verifies_witness(&parent, ordering, &factorized, factorization_owner));
 
     let embedded_corner = SectorInteriorDomain::try_new(
         Mask::try_new([false, false, true, false, true, true]).unwrap(),
@@ -360,7 +370,10 @@ fn terminal_authority_snapshot_retains_and_cheaply_rejoins_its_exact_owner() {
     )
     .unwrap();
     assert_eq!(
-        snapshot.owner_for(&embedded_corner).unwrap().kind(),
+        snapshot
+            .owner_for(&parent, ordering, &embedded_corner)
+            .unwrap()
+            .kind(),
         ImmutableOwnerKind::Factorization,
         "compiled factorization must precede its embedded terminal corner"
     );
@@ -370,7 +383,7 @@ fn terminal_authority_snapshot_retains_and_cheaply_rejoins_its_exact_owner() {
         [InteriorBounds::new(1, 1); 6],
     )
     .unwrap();
-    assert!(snapshot.owner_for(&unresolved).is_none());
+    assert!(snapshot.owner_for(&parent, ordering, &unresolved).is_none());
 
     let clone = snapshot.clone();
     assert_eq!(clone, snapshot);
