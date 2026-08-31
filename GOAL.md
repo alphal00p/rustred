@@ -118,11 +118,18 @@ regression-pinned across the six full-rank K6 sector representatives. All 17
 modular nominations lift and replay exactly, but they provide only
 `0, 3, 2, 2, 3, 7` admitted owners (with `0, 1, 0, 0, 1, 3` guard-total), and
 every compiled cover remains `NonFinite`; the empty first sector is reported as
-`NoAdmittedOwners`, never as closure. This makes insufficient source depth the
-current structural blocker and directs the next bounded experiment to a
-combined degree-one/degree-two exact owner supply without promoting any sampled
-miss to a terminal. On the Vakint side, the shared multimethod harness now
-exercises 21 applicable historical tests comprising 27 concrete inputs through two loops,
+`NoAdmittedOwners`, never as closure. The audited combined degree-one/degree-two
+S4a sweep adds 22 exactly replayed degree-two owners to the two degree-one
+owners, with zero lift failures or exact-content duplicates. Its one
+guard-total owner reduces the maximal uncovered dimension from six to five,
+but the cover remains `NonFinite` with three unbounded five-dimensional boxes
+and no terminals. Blind prolongation therefore helps without closing the
+sector. The next bounded experiment is a target-normalized dual-obstruction
+source oracle which nominates translated rows capable of cutting the current
+modular no-hit; every nomination remains discovery-only until the existing
+exact replay, semantic, descent, and owner-cover gates pass. On the Vakint side,
+the shared multimethod harness now exercises 21 applicable historical tests
+comprising 27 concrete inputs through two loops,
 including nine inputs with the unchanged FORM tensor prepass. Eleven genuine
 three-loop oracle fixtures and five matcher-class fixtures are executable but
 honestly ignored until the certified K6 artifact and terminal catalog exist.
@@ -820,5 +827,6 @@ into Stage 2.
 - [Graph-orbit and Baikov source-compression audit](docs/research/graph_orbit_baikov_source_compression_2026.md)
 - [Executable K6 breakthrough prototype specification](docs/research/k6_breakthrough_prototype_spec_2026.md)
 - [Six-loop algorithm and implementation update](docs/research/six_loop_algorithm_update_2026.md)
+- [Dual-obstruction source-discovery proposal](docs/research/dual_obstruction_source_discovery_2026.md)
 - [Vakint K6 oracle and terminal-budget audit](docs/research/vakint_k6_oracle.md)
 - [Current CLI contract](docs/CLI.md)
