@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use crate::algebra::{IndexedCoefficientContext, IndexedPolynomial};
 use crate::family::IntegralKey;
-#[cfg(test)]
 use crate::foundry::completion::frame::exact::ExactCircuitLoweringSeal;
 use crate::foundry::parametric::ParametricRule;
 use crate::identity::{ParametricRelation, TranslatedSourceProvenance};
@@ -49,8 +48,6 @@ pub struct SourceViewProvenance {
 }
 
 impl SourceViewProvenance {
-    #[allow(dead_code)] // First exact-lowering slice is crate-private and not scheduler-wired yet.
-    #[cfg(test)]
     pub(crate) const fn from_exact_translation(
         _seal: &ExactCircuitLoweringSeal,
         translated: TranslatedSourceProvenance,
@@ -148,8 +145,6 @@ impl ResidualProjectionEvidence {
 }
 
 impl SourceViewBatch {
-    #[allow(dead_code)] // First exact-lowering slice is crate-private and not scheduler-wired yet.
-    #[cfg(test)]
     pub(crate) fn try_from_exact_lowered_parts(
         _seal: &ExactCircuitLoweringSeal,
         family_fingerprint: Arc<String>,

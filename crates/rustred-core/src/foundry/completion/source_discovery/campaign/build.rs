@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use crate::algebra::IndexedCoefficientContext;
 use crate::foundry::completion::frame::SelectedSourceFrame;
 use crate::foundry::completion::stratum::{
-    DecoratedStratum, MaximalStratumSequence, TargetColumnPartition,
+    DecoratedStratum, MaximalStratumSequence, StratumRegistryLimits, TargetColumnPartition,
 };
 use crate::identity::{
     CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator, TranslatedSourceRequest,
@@ -336,6 +336,28 @@ impl FreshTaskEpoch {
         ))
     }
 
+    /// Rebuild the exhaustive target partition on this exact immutable epoch.
+    /// Promotion uses the same boundary after a modular query has gone out of
+    /// scope; no physical ordinal is trusted without this reconstruction.
+    pub(crate) fn try_partition(
+        &self,
+        limits: StratumRegistryLimits,
+    ) -> Result<TargetColumnPartition<'_>, CampaignError> {
+        // `TargetColumnPartition::try_new` cold-verifies and reconstructs the
+        // retained stratum and owner snapshot once.  Rebuilding the stratum
+        // separately here would repeat the same complete identity scan for
+        // every promoted candidate.
+        TargetColumnPartition::try_new(
+            self.plan(),
+            self.target_column(),
+            self.fixed_stratum().clone(),
+            self.owners().clone(),
+            self.ordering(),
+            limits,
+        )
+        .map_err(stratum_error)
+    }
+
     /// Rebuild the exact target partition on this plan, resample from the
     /// retained original integer probe inputs, and query the target span.
     pub(crate) fn try_query<'epoch>(
@@ -345,29 +367,7 @@ impl FreshTaskEpoch {
         limits: CampaignLimits,
     ) -> Result<FreshTaskQuery<'epoch>, CampaignError> {
         validate_probe_in_fixed_stratum(self.fixed_stratum(), probe)?;
-        let fixed = self.fixed_stratum();
-        let rebuilt = DecoratedStratum::try_new(
-            fixed.family_fingerprint(),
-            fixed.context_fingerprint(),
-            fixed.domain().clone(),
-            fixed.guards().iter().cloned(),
-            limits.stratum,
-        )
-        .map_err(stratum_error)?;
-        if rebuilt != *fixed {
-            return Err(CampaignError::Invariant {
-                detail: "fixed decorated stratum changed during a fresh-plan rebuild",
-            });
-        }
-        let partition = TargetColumnPartition::try_new(
-            self.plan(),
-            self.target_column(),
-            rebuilt,
-            self.owners().clone(),
-            self.ordering(),
-            limits.stratum,
-        )
-        .map_err(stratum_error)?;
+        let partition = self.try_partition(limits.stratum)?;
         let sampled = self
             .plan()
             .try_modular_sample(

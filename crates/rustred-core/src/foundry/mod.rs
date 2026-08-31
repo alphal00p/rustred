@@ -18,7 +18,11 @@
 pub mod anchored;
 pub mod artifact;
 pub mod cell;
-#[cfg(test)]
+// The completion engine remains crate-private while Stage 1 turns its exact
+// discovery evidence into published artifacts.  Compiling it in production
+// prevents the offline lowering path from drifting away from the code that
+// will eventually own K = 6 closure.
+#[allow(dead_code)]
 pub(crate) mod completion;
 pub mod dependency;
 pub mod parametric;

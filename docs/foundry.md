@@ -430,7 +430,7 @@ forbidden-column diagnostic—including the selected exact result's clone—and
 the one shared canonical trace scope before promotion. Tadpole adversarial
 controls and a genuine K6 `S4a` target exercise this boundary.
 
-The next exact circuit gate is now an executable test-only fallback. It binds
+The exact circuit gate is now crate-private production code. It binds
 the context, frame, target, parent stratum, immutable lower-owner snapshot,
 and complete forbidden-column diagnostics again before inspecting a circuit.
 Every nonzero guard receives an authority-tagged identity of its Symbolica
@@ -443,15 +443,30 @@ zero branch blocks the circuit normally, and only the final child retains the
 circuit. Exceptional children carry no partition or owner and must restart
 discovery. Count, reference, identity, integer-formatting, and sparse-payload
 limits are enforced before the corresponding allocations. This proves only
-an exhaustive Boolean refinement of the retained syntactic atoms. It neither
-proves branch nonemptiness nor installs a RuleCell or a closure owner.
+an exhaustive Boolean refinement of the retained syntactic atoms. It does not
+by itself prove branch nonemptiness or closure ownership.
+
+The adjacent promotion boundary consumes only an owned scheduler
+`Replayed { epoch, circuit }` result. It reconstructs the exact partition from
+that same epoch after query teardown, rejoins every residual against the
+actual immutable lower-owner snapshot, performs lossless lowering, and
+rechecks the lowered monotone dependencies. A guard-total circuit may then
+become a sealed candidate retaining the epoch, circuit, and executable
+`RuleCell` together by value; only a cell borrow is exposed. Probe-local
+results first have to be replayed on one canonical union epoch because
+structurally equal probe frames deliberately carry different plan tokens. A
+root crossing the carrier or an unsupported multivariate integer locus instead
+yields a typed guarded-stratum requirement
+carrying the nonzero child and explicit zero-branch obligations. Nothing is
+added to a cover in either incomplete case. This intentionally avoids treating
+the reducer's pointwise guard check as proof of whole-box ownership.
 
 For scaling, a guard in `Q(lambda)[n]` must ultimately be interpreted after
 integer-index specialization: it vanishes identically in the generic
 parameters `lambda` exactly when all of its parameter coefficients vanish.
 That exceptional set is therefore a coefficient ideal, not necessarily one
 polynomial hypersurface. The eager first-zero chain remains a sound fallback.
-The first test-only semantic compiler now performs the target pullback before
+The crate-private semantic compiler performs the target pullback before
 this coefficient split, binds the normalized generator set to the indexed
 context, removes a literal unit generator, and compiles first-applicable
 candidate conjunctions into a bounded reduced ordered decision DAG. Nodes are

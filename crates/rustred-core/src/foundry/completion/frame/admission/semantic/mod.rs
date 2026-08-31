@@ -1,6 +1,6 @@
 //! Deterministic semantic routing for already replayed exact target circuits.
 //!
-//! This test-only layer binds exact circuit proof payloads to one verified
+//! This crate-private layer binds exact circuit proof payloads to one verified
 //! target partition and compiles every required guard in target coordinates.
 //! A selected candidate is still only generic-context, pointwise evidence:
 //! physical parameter quotients/fibres, rule ownership, and closure remain

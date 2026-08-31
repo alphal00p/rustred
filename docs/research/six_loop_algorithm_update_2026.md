@@ -247,7 +247,7 @@ variables, wall time, and worker peak RSS. Relaxed master minimality changes onl
 gate: exact finite coverage comes first, followed by terminal count, symmetry compression,
 dot/numerator complexity, epsilon debt, and measured AMFlow block/SCC dimensions.
 
-**Implementation status, 2026-08-30.** The first test-only slice now performs the exact target
+**Implementation status, 2026-08-31.** The crate-private production slice performs the exact target
 pullback before Symbolica's coefficient split, binds normalized primitive generator sets to the
 indexed context, removes literal-unit ideals, and compiles priority-ordered conjunctions into a
 bounded reduced ordered decision DAG. Hash lookup is followed by full structural equality.
@@ -274,12 +274,22 @@ does not redundantly reconstruct every guard from raw sources. A future artifact
 must independently authenticate persisted proof content once. Independent adversarial re-audit
 found this generic same-context semantics sound while explicitly withholding physical-fibre
 authority.
-Leaves are only discovery candidates or `Incomplete`; no RuleCell, integer-locus owner, or closure
-authority has been added. The base variables are declared algebraically independent. A physical
-parameter quotient or unit-mass fibre must be imposed before compilation, and a later arbitrary
-specialization requires fresh guard evaluation. Production promotion still requires a persisted
-physical-fibre signature, binding the selected exact circuit to the same point, proof that no reachable
-`Incomplete` branch escapes the finite tail, and a measured RSS envelope; no algebraic-implication or
+Leaves remain exact circuit candidates or `Incomplete`; the semantic DAG alone grants no closure
+authority. The adjacent production promotion boundary now consumes only a scheduler-owned
+epoch+circuit pair, rebuilds the same-epoch partition after query teardown, rejoins the actual
+immutable lower-owner payload, lowers and replays the source span, and constructs a sealed
+epoch+circuit+`RuleCell` candidate only when every guard is globally nonzero on the complete
+application box. A crossing integer root or unsupported multivariate locus returns a typed
+guarded-stratum requirement with explicit zero-branch obligations and makes no cover mutation.
+The executable cell is held by value and only borrowed, so it cannot be detached from this
+authority. A concrete anchor landing on a nonzero guard is a typed retry outcome. The remaining
+integration step first rebases probe-local evidence onto one canonical union epoch: independently
+scheduled probes carry distinct plan tokens even when their frames are structurally equal. Exact
+content is then sorted and deduplicated before deterministic all-nonzero anchor selection. Only
+after that may sealed executable candidates be bound to semantic IDs and owner IDs without losing
+circuit/cell pairing, and the whole owner cover be recompiled transactionally.
+Physical-fibre signatures, proof that no reachable `Incomplete` branch escapes the finite tail,
+and a measured RSS envelope remain publication gates; no algebraic-implication or
 radical-equivalence pruning is claimed.
 
 The audit separates three certificates which must never be conflated. Let `kappa` be the generic

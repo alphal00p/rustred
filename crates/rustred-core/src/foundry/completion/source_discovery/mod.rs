@@ -11,6 +11,7 @@ mod incidence;
 mod limits;
 mod model;
 mod nominate;
+mod promotion;
 mod residual;
 pub(crate) mod scheduler;
 
@@ -34,6 +35,11 @@ pub(crate) use incidence::OrdinarySourceIncidenceIndex;
 pub(crate) use limits::SourceDiscoveryLimits;
 pub(crate) use model::{
     IncidentTranslationNominations, NonzeroIncidentTranslationResiduals, ResidualProposalScore,
+};
+#[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
+pub(crate) use promotion::{
+    AdmittedExactRuleCandidate, ExactRuleCellGuardObstruction, ExactRuleCellPromotionDisposition,
+    ExactRuleCellPromotionError, ExactRuleCellPromotionLimits, try_promote_replayed_rule_cell,
 };
 #[cfg(test)]
 mod tests;

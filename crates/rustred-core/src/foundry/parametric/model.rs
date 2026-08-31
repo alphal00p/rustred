@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use crate::algebra::{IndexedCoefficient, IndexedPolynomial};
 use crate::family::IntegralKey;
-#[cfg(test)]
 use crate::foundry::completion::frame::exact::ExactCircuitLoweringSeal;
 use crate::identity::{IdentityConditionSource, IndexShift, RowId};
 use crate::sector::{Mask, OrderingPolicy, SectorInteriorDomain, ShiftStrictDescentWitness};
@@ -36,8 +35,6 @@ impl ParametricRuleTerm {
 }
 
 impl ParametricNonZeroGuard {
-    #[allow(dead_code)] // First exact-lowering slice is crate-private and not scheduler-wired yet.
-    #[cfg(test)]
     pub(crate) fn from_replayed_exact_parts(
         _seal: &ExactCircuitLoweringSeal,
         polynomial: IndexedPolynomial,
@@ -268,8 +265,6 @@ pub struct ParametricRule {
 
 impl ParametricRule {
     #[allow(clippy::too_many_arguments)]
-    #[allow(dead_code)] // First exact-lowering slice is crate-private and not scheduler-wired yet.
-    #[cfg(test)]
     pub(crate) fn from_replayed_exact_parts(
         _seal: &ExactCircuitLoweringSeal,
         family_fingerprint: Arc<String>,
@@ -387,7 +382,6 @@ impl ParametricRuleTerm {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn from_exact_lowering(
         _seal: &ExactCircuitLoweringSeal,
         shift: IndexShift,
@@ -411,7 +405,6 @@ impl ParametricSourceRowContribution {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn from_exact_lowering(
         _seal: &ExactCircuitLoweringSeal,
         source_ordinal: usize,
@@ -442,7 +435,6 @@ impl ParametricReducerPivotGuard {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[cfg(test)]
     pub(crate) fn from_exact_lowering(
         _seal: &ExactCircuitLoweringSeal,
         source_ordinal: usize,
@@ -476,7 +468,6 @@ impl ParametricExactReplayWitness {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn from_exact_lowering(
         _seal: &ExactCircuitLoweringSeal,
         source_rows_used: usize,

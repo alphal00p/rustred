@@ -15,7 +15,7 @@
 mod error;
 mod limits;
 // This crate-private result model is the staged integration boundary for the
-// future completion driver. Unit-test builds can reach every outcome variant
+// completion driver. Unit-test builds can reach every outcome variant
 // directly and therefore lose production's crate-visible consumer assumption;
 // suppress only that configuration's premature accessor/payload diagnostics.
 #[cfg_attr(test, allow(dead_code))]
@@ -24,12 +24,15 @@ mod run;
 
 pub(crate) use error::ProbeLocalSchedulerError;
 pub(crate) use limits::ProbeLocalSchedulerLimits;
+#[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
+pub(crate) use model::ProbeLocalOutcomeKind;
 pub(crate) use model::{
     ProbeLocalBudgetCause, ProbeLocalBudgetScope, ProbeLocalBudgetStop,
     ProbeLocalIterationDisposition, ProbeLocalIterationRecord, ProbeLocalOutcome,
-    ProbeLocalOutcomeKind, ProbeLocalProbeReport, ProbeLocalRejection, ProbeLocalRunCensus,
-    ProbeLocalSchedulerReport, ProbeLocalStage, ProbeLocalStall, ProbeLocalStopContext,
+    ProbeLocalProbeReport, ProbeLocalRejection, ProbeLocalRunCensus, ProbeLocalSchedulerReport,
+    ProbeLocalStage, ProbeLocalStall, ProbeLocalStopContext,
 };
+#[allow(unused_imports)] // Production caller lands with the sector-layer orchestrator.
 pub(crate) use run::ProbeLocalObstructionScheduler;
 
 #[cfg(test)]

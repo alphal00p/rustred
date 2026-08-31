@@ -30,6 +30,13 @@ impl LoweredExactCircuit {
         &self.sources
     }
 
+    /// Transfer the replayed identity into the rule-cell admission boundary.
+    /// The pair remains incapable of constructing a cell without that
+    /// boundary's independent domain, descent, and guard checks.
+    pub(crate) fn into_parts(self) -> (ParametricRule, SourceViewBatch) {
+        (self.rule, self.sources)
+    }
+
     pub(super) const fn new(rule: ParametricRule, sources: SourceViewBatch) -> Self {
         Self { rule, sources }
     }

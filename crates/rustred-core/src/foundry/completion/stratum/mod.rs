@@ -22,15 +22,15 @@ mod partition;
 pub(crate) use error::StratumRegistryError;
 pub(crate) use limits::StratumRegistryLimits;
 pub(crate) use maximal::{MaximalStratumAnchor, MaximalStratumSequence};
-pub(crate) use model::{
-    DecoratedStratum, DecoratedStratumId, GuardBranch, GuardBranchIdentity, GuardPredicateAuthority,
-};
-pub(crate) use owners::{
-    ImmutableOwnerKind, ImmutableOwnerSnapshot, ImmutableOwnerSnapshotId, ImmutableOwnerWitness,
-};
-pub(crate) use partition::{
-    ForbiddenColumnReason, ProperSubsectorOwner, ProspectiveColumnKind, TargetColumnPartition,
-};
+#[allow(unused_imports)] // Consumed by persisted guard-authority integration.
+pub(crate) use model::GuardPredicateAuthority;
+pub(crate) use model::{DecoratedStratum, DecoratedStratumId, GuardBranch, GuardBranchIdentity};
+#[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
+pub(crate) use owners::ImmutableOwnerKind;
+pub(crate) use owners::{ImmutableOwnerSnapshot, ImmutableOwnerSnapshotId, ImmutableOwnerWitness};
+#[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
+pub(crate) use partition::ForbiddenColumnReason;
+pub(crate) use partition::{ProperSubsectorOwner, ProspectiveColumnKind, TargetColumnPartition};
 
 fn checked_add(
     resource: &'static str,

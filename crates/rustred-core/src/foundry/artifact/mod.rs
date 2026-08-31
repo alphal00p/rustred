@@ -11,7 +11,6 @@ mod install;
 mod model;
 mod one_loop;
 mod persistence;
-#[cfg(test)]
 mod terminal;
 #[cfg(test)]
 mod three_loop;
@@ -29,7 +28,6 @@ pub use one_loop::derive_one_loop_unit_mass_tadpole;
 pub use persistence::{ArtifactEncodingLimits, ArtifactLoadLimits};
 pub use two_loop::derive_two_loop_unit_mass_sunset;
 
-#[cfg(test)]
 pub(crate) use terminal::ClosedTerminalAuthority;
 
 #[cfg(test)]

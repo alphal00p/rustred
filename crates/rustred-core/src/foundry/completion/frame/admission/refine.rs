@@ -151,15 +151,11 @@ fn validate_join(
     if context.fingerprint() != partition.frame().context_fingerprint() {
         return Err(ExactGuardRefinementError::WrongContext);
     }
-    match partition.try_verify() {
-        Ok(true) => {}
-        Ok(false) => {
-            return Err(ExactGuardRefinementError::Invariant {
-                detail: "incoming target partition failed cold verification",
-            });
-        }
-        Err(error) => return Err(ExactGuardRefinementError::PartitionVerification(error)),
-    }
+    // `TargetColumnPartition` is crate-private, has no unchecked constructor,
+    // and was already cold-verified by `try_new`.  Reconstructing its full
+    // frame and owner census for every candidate would multiply K=6 promotion
+    // cost without increasing authority.  This boundary therefore rejoins
+    // only the circuit-dependent identities below.
     if circuit.stratum_id() != partition.stratum_id() {
         return Err(ExactGuardRefinementError::CircuitStratumMismatch);
     }

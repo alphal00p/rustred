@@ -463,6 +463,10 @@ impl ProbeLocalProbeReport {
         &self.outcome
     }
 
+    pub(crate) fn into_outcome(self) -> ProbeLocalOutcome {
+        self.outcome
+    }
+
     pub(super) fn new(
         probe_ordinal: usize,
         probe: CampaignModularProbe,
@@ -575,6 +579,10 @@ impl ProbeLocalSchedulerReport {
 
     pub(crate) const fn census(&self) -> ProbeLocalRunCensus {
         self.census
+    }
+
+    pub(crate) fn into_probes(self) -> Box<[ProbeLocalProbeReport]> {
+        self.probes
     }
 
     pub(super) fn new(probes: Vec<ProbeLocalProbeReport>, census: ProbeLocalRunCensus) -> Self {

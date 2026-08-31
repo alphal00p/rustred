@@ -564,18 +564,43 @@ replace the closure certificate.
 
 ## Current implementation boundary
 
-RustRed now has authenticated probe-local growing epochs and a sealed,
-crate-private/test-only boundary that can lower one live-plan-bound exact
+RustRed now compiles the completion engine as crate-private production code.
+An authenticated `ProbeLocalOutcome::Replayed { epoch, circuit }` can be
+promoted after the modular query has been dropped: promotion reconstructs the
+partition from the retained epoch, rejoins the live plan token, target,
+stratum, ordering, and actual immutable lower-owner payload, then lowers the
 circuit losslessly into `ParametricRule` plus a compact direct
-`SourceViewBatch`. The lowering replays all physical columns, preserves guard
-chronology, shares canonical source-owned shifts, rechecks its resource
-policy, and has passed an independent authority/soundness audit. It is not yet
-wired into owner publication.
+`SourceViewBatch`. It replays all physical columns, preserves guard chronology,
+shares canonical source-owned shifts, rejoins the lowered monotone dependency
+table, and constructs an ordinary globally guarded `RuleCell` only after the
+existing complete-box guard proof succeeds. The sealed admitted candidate
+retains the epoch and exact circuit beside the executable cell by value and
+exposes only a borrowed cell, so physical ordinals and lower-owner witnesses
+cannot be detached from their authority. A caller-selected concrete replay
+anchor on a valid guard wall is a typed retry outcome rather than rejection of
+the exact identity.
 
-It does not yet promote that value into a `RuleCell`, recompute a cover, seal a
-solved K6 sector layer, or publish the K6 artifact. Each first K6 sector/prime
-probe still has rank 90 on both forbidden and augmented blocks and nominates
-roughly 3,586--3,822 broad residual requests, depending on the sector.
+If an integer guard root intersects the carrier box, or its multivariate
+integer locus is not supported, promotion now returns `NeedsGuardedStratum`
+with the all-nonzero refinement and every explicit first-zero obligation. It
+does not install a partial cell or alter coverage. A deliberately inserted
+tadpole guard wall and a structurally equal but freshly sealed epoch are both
+negative controls; a genuine scheduler-produced tadpole replay passes the
+full bridge. The remaining publication boundary begins with a canonical
+multi-probe epoch. Probe-local schedulers intentionally own distinct freshly
+tokened physical plans, so their exact circuits cannot be combined directly.
+The coordinator must union their final canonical request sets, build one
+superset epoch, replay every retained probe on that exact plan, sort and
+deduplicate exact circuit content, and only then promote at a deterministic
+certified all-nonzero anchor. A paired semantic owner compiler must preserve
+circuit-to-cell identity through candidate and owner sorting, followed by
+transactional whole-cover recomputation and solved-sector sealing. An ordinary
+globally admitted cell owns its complete carrier; its syntactic
+guard-refinement children are not separate cover obligations. Only
+`NeedsGuardedStratum` exports zero-branch obligations. RustRed still has no
+published K6 artifact. Each first K6 sector/prime probe has rank 90 on both
+forbidden and augmented blocks and nominates roughly 3,586--3,822 broad
+residual requests, depending on the sector.
 
 The scheduler now keeps that exhaustive residual census separate from bounded
 frame growth. It scores only nonzero rows by newly introduced forbidden and
@@ -595,10 +620,11 @@ old all-residual merge, but it also falsifies scalar one-obstruction ranking as
 a sufficient closure strategy: repeated rescans dominate while many admitted
 rows are rank-dependent.
 
-The immediate experiment is therefore a compact independent obstruction block
-with batch-aware rank gain and evaluated-row reuse, followed by Baikov/syzygy
-or generating-function proposals aimed at exact uncovered directions. Exact
-hits then exercise the lowering boundary and existing owner-cover machinery.
+The immediate discovery experiment is therefore a compact independent
+obstruction block with batch-aware rank gain and evaluated-row reuse, followed
+by Baikov/syzygy or generating-function proposals aimed at exact uncovered
+directions. In parallel, exact hits exercise the new promotion boundary, the
+paired semantic executable owner, and existing whole-cover machinery.
 Only after K6 closure and genuine three-loop Vakint parity, followed by
 favorable bounded K10/K15 evidence, may the architecture be promoted toward a
 future production K21 campaign. The bounded structural studies remain

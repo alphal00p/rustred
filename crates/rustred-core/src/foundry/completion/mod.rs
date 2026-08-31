@@ -7,13 +7,11 @@
 //! antichain, and [`UncoveredPartition`] represents its complement exactly as
 //! disjoint boxes, including unbounded axes and faces.
 //!
-//! This bounded E0 prototype is test-only until measured K6 evidence justifies
-//! promoting it into the production foundry.  It owns lattice geometry only.
-//! Its separate semantic-guard prototype compiles exact Symbolica coefficient
-//! ideals into a bounded discovery DAG and binds generic predicates at one
-//! exact index point. Physical-fibre sealing, source replay, strict descent,
-//! and exceptional integer-locus ownership remain proof obligations before
-//! either prototype gains closure authority.
+//! The engine is crate-private production code during Stage 1.  Discovery
+//! evidence never gains closure authority by existing: exact source replay,
+//! strict descent, guard-stratum refinement, immutable lower-sector ownership,
+//! and an independently compiled owner cover remain mandatory promotion
+//! boundaries.
 //! [`SectorChart`] maps only the `i64` carrier.  No carrier endpoint is treated
 //! as mathematical infinity without a separate asymptotic-extension witness.
 
@@ -29,10 +27,13 @@ pub(crate) mod source_discovery;
 pub(crate) mod stratum;
 
 pub(crate) use chart::SectorChart;
-pub(crate) use coverage::{BoxCover, LeadingIdeal};
+#[allow(unused_imports)] // Consumed by the staged owner-cover publisher.
+pub(crate) use coverage::BoxCover;
+pub(crate) use coverage::LeadingIdeal;
 pub(crate) use error::CompletionGeometryError;
 pub(crate) use limits::CompletionGeometryLimits;
 pub(crate) use model::{LatticeBox, LatticeCardinality, LatticePoint, UncoveredPartition};
+#[allow(unused_imports)] // Consumed by the staged owner-cover publisher.
 pub(crate) use region::{GuardBlindCarrierRegion, OuterPowerDirection};
 
 #[cfg(test)]

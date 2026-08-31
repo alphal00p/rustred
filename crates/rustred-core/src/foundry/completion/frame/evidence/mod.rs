@@ -14,11 +14,14 @@ mod schedule;
 
 pub(crate) use error::TargetEvidenceError;
 pub(crate) use limits::TargetEvidenceLimits;
+#[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
+pub(crate) use model::ProbeRejectionStage;
 pub(crate) use model::{
     CanonicalTraceIdentity, DiscoveryTraceGroup, EvidenceProbe, EvidenceProbeOutcome,
     EvidenceProbePlan, EvidenceProbeRole, EvidenceProbeSpec, ExactProposalOutcome,
-    HeldOutAssessment, HeldOutDiagnostic, ProbeRejectionStage, TargetEvidenceReport,
+    HeldOutAssessment, HeldOutDiagnostic, TargetEvidenceReport,
 };
+#[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
 pub(crate) use schedule::TargetEvidenceScheduler;
 
 #[cfg(test)]

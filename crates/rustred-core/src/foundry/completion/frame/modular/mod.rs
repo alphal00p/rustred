@@ -1,7 +1,7 @@
 //! Deterministic finite-field probes of one exact physical frame.
 //!
-//! This bounded A0 experiment is deliberately test-only with its parent
-//! completion module.  A modular hit is discovery evidence for a later exact
+//! This bounded A0 discovery lane is crate-private production code with its
+//! parent completion module. A modular hit is evidence for a later exact
 //! lift and replay; a checked
 //! [`ModularTargetQuery::NoHitWithObstruction`] is still inconclusive.
 

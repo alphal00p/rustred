@@ -15,7 +15,6 @@ mod specialization;
 mod translation;
 mod value;
 
-#[cfg(test)]
 pub(crate) use base_coefficients::BaseCoefficientSystem;
 pub use base_coefficients::IndexedGuardLimits;
 pub(crate) use base_coefficients::IntegerZeroSetResolution;

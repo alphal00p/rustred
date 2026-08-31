@@ -152,7 +152,6 @@ impl TranslatedSource {
 
     /// Re-admit and copy one immutable translated row for a proof-bearing
     /// foundry owner without exposing an unrestricted relation clone.
-    #[allow(dead_code)] // First exact-lowering slice is crate-private and not scheduler-wired yet.
     pub(crate) fn cloned_foundry_parts_with_limits(
         &self,
         context: &crate::algebra::IndexedCoefficientContext,
@@ -359,7 +358,6 @@ impl SelectedTranslatedSourceBatch {
         true
     }
 
-    #[cfg(test)]
     pub(crate) fn into_foundry_parts(
         self,
     ) -> (

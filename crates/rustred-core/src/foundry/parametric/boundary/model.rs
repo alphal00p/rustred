@@ -1,4 +1,3 @@
-#[cfg(test)]
 use crate::foundry::completion::frame::exact::ExactCircuitLoweringSeal;
 use crate::identity::IndexShift;
 use crate::sector::{
@@ -126,7 +125,6 @@ impl SectorMonotoneDependency {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn from_exact_lowering(
         _seal: &ExactCircuitLoweringSeal,
         right_hand_side_ordinal: usize,
@@ -293,7 +291,6 @@ impl SectorMonotoneTargetAdmission {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn from_exact_lowering(
         _seal: &ExactCircuitLoweringSeal,
         domain: SectorMonotoneDomain,

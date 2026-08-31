@@ -290,6 +290,14 @@ impl ExactTargetCircuit {
         self.plan_identity.belongs_to(plan)
     }
 
+    #[cfg(test)]
+    pub(crate) fn replace_first_guard_polynomial_for_test(
+        &mut self,
+        polynomial: IndexedPolynomial,
+    ) {
+        self.nonzero_guards[0].polynomial = polynomial;
+    }
+
     pub(crate) fn sample_fingerprint(&self) -> &Arc<ModularSampleFingerprint> {
         &self.sample
     }

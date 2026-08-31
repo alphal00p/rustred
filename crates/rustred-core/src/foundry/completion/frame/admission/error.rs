@@ -11,7 +11,6 @@ pub(crate) enum ExactGuardRefinementError {
     CircuitOwnerSnapshotMismatch,
     CircuitTargetMismatch,
     CircuitTargetShiftMismatch,
-    PartitionVerification(StratumRegistryError),
     Stratum(StratumRegistryError),
     ResourceCountOverflow {
         resource: &'static str,
@@ -46,9 +45,6 @@ impl fmt::Display for ExactGuardRefinementError {
             Self::CircuitTargetShiftMismatch => formatter.write_str(
                 "exact circuit target shift differs from the target partition's physical column",
             ),
-            Self::PartitionVerification(error) => {
-                write!(formatter, "target partition verification failed: {error}")
-            }
             Self::Stratum(error) => write!(formatter, "guard stratum construction failed: {error}"),
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} overflowed usize")
@@ -81,7 +77,7 @@ impl fmt::Display for ExactGuardRefinementError {
 impl std::error::Error for ExactGuardRefinementError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::PartitionVerification(error) | Self::Stratum(error) => Some(error),
+            Self::Stratum(error) => Some(error),
             _ => None,
         }
     }

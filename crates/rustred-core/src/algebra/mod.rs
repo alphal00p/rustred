@@ -14,7 +14,6 @@ pub(crate) use coefficient::{
     coefficient_clone_owned_retained_byte_bound, validate_coefficient_on_map,
     validate_polynomial_on_map,
 };
-#[cfg(test)]
 pub(crate) use indexed::BaseCoefficientSystem;
 pub use indexed::{
     IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficient, IndexedCoefficientContext,

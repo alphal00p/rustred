@@ -1,4 +1,3 @@
-#[cfg(test)]
 use std::mem::size_of;
 
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
@@ -10,7 +9,6 @@ use crate::algebra::{
 };
 
 use super::super::error::IndexedAlgebraError;
-#[cfg(test)]
 use super::super::limits::integer_magnitude_bits;
 use super::super::value::{IndexedCoefficient, IndexedPolynomial};
 use super::{BoundIndexedCoefficient, IndexedCoefficientContext};
@@ -85,7 +83,6 @@ impl IndexedCoefficientContext {
     /// integer content; RustRed fixes the remaining unit by requiring a
     /// positive leading coefficient. Callers must reject zero before entering
     /// this boundary.
-    #[cfg(test)]
     pub(crate) fn primitive_guard_associate_with_limits(
         &self,
         value: &IndexedPolynomial,
@@ -243,7 +240,6 @@ impl IndexedCoefficientContext {
 /// `30103 / 100000 > log10(2)` bounds decimal coefficient strings without
 /// allocating them; the second envelope includes the cloned integer and
 /// exponent buffers.
-#[cfg(test)]
 fn preflight_guard_polynomial_payload(
     polynomial: &CoefficientPolynomial,
     byte_limit: usize,
@@ -356,7 +352,6 @@ fn preflight_guard_polynomial_payload(
     Ok(())
 }
 
-#[cfg(test)]
 fn decimal_digits(mut value: usize) -> usize {
     let mut digits = 1usize;
     while value >= 10 {

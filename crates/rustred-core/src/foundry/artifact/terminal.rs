@@ -15,6 +15,7 @@ use super::{ClosedArtifact, FactorizationRule, ZeroSectorTerminal};
 /// generic installers used for complete artifacts. Callers retain this value
 /// through an [`Arc`] and perform only domain lookup after installation.
 #[derive(Debug)]
+#[allow(dead_code)] // K = 6 consumes the complete authority during Stage 1 publication.
 pub(crate) struct ClosedTerminalAuthority {
     // Human-reviewable revision label. It is never treated as a content hash:
     // immutable snapshots bind this label together with the complete ordered
@@ -31,6 +32,7 @@ pub(crate) struct ClosedTerminalAuthority {
     zero_sectors: Vec<ZeroSectorTerminal>,
 }
 
+#[allow(dead_code)] // K = 6 consumes the complete authority during Stage 1 publication.
 impl ClosedTerminalAuthority {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn from_validated_parts(
