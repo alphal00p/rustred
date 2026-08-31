@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::foundry::completion::frame::exact::ExactCircuitLoweringSeal;
 use crate::identity::IndexShift;
 use crate::sector::{
     ComplexityComponent, Mask, SectorMonotoneDomain, SectorMonotonePointClass,
@@ -122,6 +124,17 @@ impl SectorMonotoneDependency {
             shift,
             descent,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_exact_lowering(
+        _seal: &ExactCircuitLoweringSeal,
+        right_hand_side_ordinal: usize,
+        pivot_shift: IndexShift,
+        shift: IndexShift,
+        descent: SectorMonotoneShiftDescentWitness,
+    ) -> Self {
+        Self::new(right_hand_side_ordinal, pivot_shift, shift, descent)
     }
 }
 
@@ -278,6 +291,16 @@ impl SectorMonotoneTargetAdmission {
             pivot,
             dependencies,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_exact_lowering(
+        _seal: &ExactCircuitLoweringSeal,
+        domain: SectorMonotoneDomain,
+        pivot: IndexShift,
+        dependencies: Vec<SectorMonotoneDependency>,
+    ) -> Self {
+        Self::new(domain, pivot, dependencies)
     }
 }
 

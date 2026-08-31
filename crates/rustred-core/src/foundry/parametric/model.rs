@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use crate::algebra::{IndexedCoefficient, IndexedPolynomial};
 use crate::family::IntegralKey;
+#[cfg(test)]
+use crate::foundry::completion::frame::exact::ExactCircuitLoweringSeal;
 use crate::identity::{IdentityConditionSource, IndexShift, RowId};
 use crate::sector::{Mask, OrderingPolicy, SectorInteriorDomain, ShiftStrictDescentWitness};
 
@@ -30,6 +32,21 @@ impl ParametricRuleTerm {
     /// returned fixed-sector interior.
     pub fn descent(&self) -> &ShiftStrictDescentWitness {
         &self.descent
+    }
+}
+
+impl ParametricNonZeroGuard {
+    #[allow(dead_code)] // First exact-lowering slice is crate-private and not scheduler-wired yet.
+    #[cfg(test)]
+    pub(crate) fn from_replayed_exact_parts(
+        _seal: &ExactCircuitLoweringSeal,
+        polynomial: IndexedPolynomial,
+        origins: Vec<ParametricGuardOrigin>,
+    ) -> Self {
+        Self {
+            polynomial,
+            origins,
+        }
     }
 }
 
@@ -250,6 +267,40 @@ pub struct ParametricRule {
 }
 
 impl ParametricRule {
+    #[allow(clippy::too_many_arguments)]
+    #[allow(dead_code)] // First exact-lowering slice is crate-private and not scheduler-wired yet.
+    #[cfg(test)]
+    pub(crate) fn from_replayed_exact_parts(
+        _seal: &ExactCircuitLoweringSeal,
+        family_fingerprint: Arc<String>,
+        context_fingerprint: Arc<String>,
+        domain: SectorInteriorDomain,
+        ordering: OrderingPolicy,
+        pivot: IndexShift,
+        right_hand_side: Vec<ParametricRuleTerm>,
+        pivot_guards: Vec<ParametricReducerPivotGuard>,
+        nonzero_guards: Vec<ParametricNonZeroGuard>,
+        source_combination: Vec<ParametricSourceRowContribution>,
+        replay: ParametricExactReplayWitness,
+        concrete_replay: ConcreteSpecializationReplayWitness,
+        sector_monotone_admission: SectorMonotoneTargetAdmission,
+    ) -> Self {
+        Self {
+            family_fingerprint,
+            context_fingerprint,
+            domain,
+            ordering,
+            pivot,
+            right_hand_side,
+            pivot_guards,
+            nonzero_guards,
+            source_combination,
+            replay,
+            concrete_replay,
+            sector_monotone_admission: Some(sector_monotone_admission),
+        }
+    }
+
     pub fn family_fingerprint(&self) -> &str {
         self.family_fingerprint.as_str()
     }
@@ -335,6 +386,16 @@ impl ParametricRuleTerm {
             descent,
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn from_exact_lowering(
+        _seal: &ExactCircuitLoweringSeal,
+        shift: IndexShift,
+        coefficient: IndexedCoefficient,
+        descent: ShiftStrictDescentWitness,
+    ) -> Self {
+        Self::new(shift, coefficient, descent)
+    }
 }
 
 impl ParametricSourceRowContribution {
@@ -348,6 +409,16 @@ impl ParametricSourceRowContribution {
             row_id,
             coefficient,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_exact_lowering(
+        _seal: &ExactCircuitLoweringSeal,
+        source_ordinal: usize,
+        row_id: RowId,
+        coefficient: IndexedCoefficient,
+    ) -> Self {
+        Self::new(source_ordinal, row_id, coefficient)
     }
 }
 
@@ -369,6 +440,27 @@ impl ParametricReducerPivotGuard {
             nonzero_polynomial,
         }
     }
+
+    #[allow(clippy::too_many_arguments)]
+    #[cfg(test)]
+    pub(crate) fn from_exact_lowering(
+        _seal: &ExactCircuitLoweringSeal,
+        source_ordinal: usize,
+        row_id: RowId,
+        pivot_column: usize,
+        pivot_shift: IndexShift,
+        coefficient: IndexedCoefficient,
+        nonzero_polynomial: IndexedPolynomial,
+    ) -> Self {
+        Self::new(
+            source_ordinal,
+            row_id,
+            pivot_column,
+            pivot_shift,
+            coefficient,
+            nonzero_polynomial,
+        )
+    }
 }
 
 impl ParametricExactReplayWitness {
@@ -382,6 +474,16 @@ impl ParametricExactReplayWitness {
             shift_columns_checked,
             exact_operations,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_exact_lowering(
+        _seal: &ExactCircuitLoweringSeal,
+        source_rows_used: usize,
+        shift_columns_checked: usize,
+        exact_operations: usize,
+    ) -> Self {
+        Self::new(source_rows_used, shift_columns_checked, exact_operations)
     }
 }
 

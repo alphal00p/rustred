@@ -15,6 +15,10 @@ pub enum RuleCellError {
     DuplicateSourceOrdinal {
         ordinal: usize,
     },
+    SourceProvenanceCountMismatch {
+        relations: usize,
+        provenance: usize,
+    },
     ForeignFamily,
     ForeignContext,
     SourceReplayMismatch {
@@ -108,6 +112,13 @@ impl fmt::Display for RuleCellError {
                     "source-view ordinal {ordinal} was selected twice"
                 )
             }
+            Self::SourceProvenanceCountMismatch {
+                relations,
+                provenance,
+            } => write!(
+                formatter,
+                "exact source view has {relations} relations but {provenance} provenance records"
+            ),
             Self::ForeignFamily => {
                 formatter.write_str("rule cell sources belong to another family")
             }

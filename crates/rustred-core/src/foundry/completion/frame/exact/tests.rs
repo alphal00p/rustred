@@ -13,6 +13,7 @@ use crate::foundry::completion::stratum::{
     DecoratedStratum, ImmutableOwnerSnapshot, StratumRegistryError, StratumRegistryLimits,
     TargetColumnPartition,
 };
+use crate::foundry::parametric::ParametricGuardOrigin;
 use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use crate::sector::{Mask, OrderingPolicy, SectorMonotoneDomain};
 
@@ -22,7 +23,8 @@ use super::cleared::{
 };
 use super::{
     ExactCircuitError, ExactCircuitGuardOrigin, ExactCircuitLift, ExactCircuitLimits,
-    try_lift_exact_circuit,
+    ExactCircuitLoweringError, ExactCircuitLoweringLimits, ExactTargetCircuit, LoweredExactCircuit,
+    try_lift_exact_circuit, try_lower_exact_circuit,
 };
 
 const PRIME: u64 = 1_000_000_007;
@@ -140,6 +142,278 @@ fn sample_tadpole<'frame>(
         .unwrap()
 }
 
+fn assert_lossless_lowering(
+    context: &IndexedCoefficientContext,
+    plan: &PhysicalFramePlan,
+    circuit: &ExactTargetCircuit,
+    lowered: &LoweredExactCircuit,
+) {
+    let rule = lowered.rule();
+    let sources = lowered.sources();
+    assert_eq!(rule.family_fingerprint(), plan.family_fingerprint());
+    assert_eq!(rule.context_fingerprint(), plan.context_fingerprint());
+    assert_eq!(sources.family_fingerprint(), plan.family_fingerprint());
+    assert_eq!(sources.context_fingerprint(), plan.context_fingerprint());
+    assert_eq!(rule.pivot().values(), circuit.target_shift().values());
+    assert_eq!(rule.right_hand_side().len(), circuit.residual_terms().len());
+
+    let assert_canonical_source_shift = |shift: &crate::identity::IndexShift| {
+        assert!(
+            sources
+                .relations()
+                .iter()
+                .flat_map(|relation| relation.terms().keys())
+                .filter(|candidate| candidate.values() == shift.values())
+                .any(|candidate| shift.shares_storage_with(candidate)),
+            "every lowered shift must share one compact source-view buffer"
+        );
+    };
+    assert_canonical_source_shift(rule.pivot());
+    for term in rule.right_hand_side() {
+        assert_canonical_source_shift(term.shift());
+    }
+    for pivot in rule.elimination_pivot_guards() {
+        assert_canonical_source_shift(pivot.pivot_shift());
+    }
+    for guard in rule.nonzero_guards() {
+        for origin in guard.origins() {
+            let shift = match origin {
+                ParametricGuardOrigin::SourceCoefficientDenominator { shift, .. }
+                | ParametricGuardOrigin::ReducerPivotNumerator {
+                    pivot_shift: shift, ..
+                }
+                | ParametricGuardOrigin::ReducerPivotDenominator {
+                    pivot_shift: shift, ..
+                }
+                | ParametricGuardOrigin::RuleCoefficientDenominator { shift } => Some(shift),
+                ParametricGuardOrigin::SourceCondition { .. }
+                | ParametricGuardOrigin::SourceCombinationDenominator { .. } => None,
+            };
+            if let Some(shift) = shift {
+                assert_canonical_source_shift(shift);
+            }
+        }
+    }
+
+    for (rhs, exact) in rule.right_hand_side().iter().zip(circuit.residual_terms()) {
+        assert_eq!(rhs.shift().values(), exact.shift().values());
+        assert!(
+            context
+                .add(rhs.coefficient(), exact.coefficient())
+                .unwrap()
+                .is_zero(),
+            "ParametricRule solves target = -sum(exact residuals)"
+        );
+        assert!(rhs.descent().verify());
+    }
+
+    let admission = rule
+        .sector_monotone_admission()
+        .expect("exact lowering retains universal sector-monotone descent");
+    assert!(admission.verify());
+    for (dependency, exact) in admission
+        .dependencies()
+        .iter()
+        .zip(circuit.residual_terms())
+    {
+        assert_eq!(dependency.descent(), exact.descent());
+    }
+
+    let mut physical_rows = circuit
+        .source_combination()
+        .iter()
+        .map(|source| source.frame_row_ordinal())
+        .chain(
+            circuit
+                .pivot_guards()
+                .iter()
+                .map(|pivot| pivot.frame_row_ordinal()),
+        )
+        .collect::<Vec<_>>();
+    physical_rows.sort_unstable();
+    physical_rows.dedup();
+    let mut source_shift_columns = sources
+        .relations()
+        .iter()
+        .flat_map(|relation| relation.terms().keys().map(|shift| shift.values()))
+        .collect::<Vec<_>>();
+    source_shift_columns.sort_unstable();
+    source_shift_columns.dedup();
+    assert_eq!(sources.len(), physical_rows.len());
+    for (&physical_row, provenance) in physical_rows.iter().zip(sources.provenance()) {
+        assert_eq!(
+            provenance.translated(),
+            plan.source_instances()[physical_row].provenance()
+        );
+        assert_eq!(provenance.symmetry(), None);
+    }
+    for (translated, exact) in rule
+        .source_combination()
+        .iter()
+        .zip(circuit.source_combination())
+    {
+        assert_eq!(
+            physical_rows[translated.source_ordinal()],
+            exact.frame_row_ordinal()
+        );
+        assert_eq!(translated.coefficient(), exact.coefficient());
+        assert_eq!(
+            translated.row_id(),
+            plan.source_for_row(exact.frame_row_ordinal())
+                .unwrap()
+                .row_id()
+        );
+    }
+
+    assert_eq!(rule.nonzero_guards().len(), circuit.nonzero_guards().len());
+    for (translated, exact) in rule.nonzero_guards().iter().zip(circuit.nonzero_guards()) {
+        assert_eq!(translated.polynomial(), exact.polynomial());
+        assert_eq!(translated.origins().len(), exact.origins().len());
+        for (translated, exact) in translated.origins().iter().zip(exact.origins()) {
+            match (translated, exact) {
+                (
+                    ParametricGuardOrigin::SourceCondition {
+                        source_ordinal,
+                        row_id,
+                        condition_ordinal,
+                        condition_sources,
+                    },
+                    ExactCircuitGuardOrigin::SourceCondition {
+                        frame_row_ordinal,
+                        condition_ordinal: exact_condition,
+                        condition_sources: exact_sources,
+                        ..
+                    },
+                ) => {
+                    assert_eq!(physical_rows[*source_ordinal], *frame_row_ordinal);
+                    assert_eq!(
+                        row_id,
+                        plan.source_for_row(*frame_row_ordinal).unwrap().row_id()
+                    );
+                    assert_eq!(condition_ordinal, exact_condition);
+                    assert_eq!(condition_sources, exact_sources);
+                }
+                (
+                    ParametricGuardOrigin::SourceCoefficientDenominator {
+                        source_ordinal,
+                        row_id,
+                        shift,
+                    },
+                    ExactCircuitGuardOrigin::SourceCoefficientDenominator {
+                        frame_row_ordinal,
+                        physical_column,
+                        ..
+                    },
+                ) => {
+                    assert_eq!(physical_rows[*source_ordinal], *frame_row_ordinal);
+                    assert_eq!(
+                        row_id,
+                        plan.source_for_row(*frame_row_ordinal).unwrap().row_id()
+                    );
+                    assert_eq!(shift.values(), plan.columns()[*physical_column].values());
+                }
+                (
+                    ParametricGuardOrigin::ReducerPivotNumerator {
+                        source_ordinal,
+                        row_id,
+                        pivot_column,
+                        pivot_shift,
+                    },
+                    ExactCircuitGuardOrigin::ReducerPivotNumerator {
+                        frame_row_ordinal,
+                        physical_pivot_column,
+                        ..
+                    },
+                )
+                | (
+                    ParametricGuardOrigin::ReducerPivotDenominator {
+                        source_ordinal,
+                        row_id,
+                        pivot_column,
+                        pivot_shift,
+                    },
+                    ExactCircuitGuardOrigin::ReducerPivotDenominator {
+                        frame_row_ordinal,
+                        physical_pivot_column,
+                        ..
+                    },
+                ) => {
+                    assert_eq!(physical_rows[*source_ordinal], *frame_row_ordinal);
+                    assert_eq!(
+                        row_id,
+                        plan.source_for_row(*frame_row_ordinal).unwrap().row_id()
+                    );
+                    assert_eq!(
+                        *pivot_column,
+                        source_shift_columns
+                            .binary_search(&plan.columns()[*physical_pivot_column].values())
+                            .unwrap()
+                    );
+                    assert_eq!(
+                        pivot_shift.values(),
+                        plan.columns()[*physical_pivot_column].values()
+                    );
+                }
+                (
+                    ParametricGuardOrigin::SourceCombinationDenominator {
+                        source_ordinal,
+                        row_id,
+                    },
+                    ExactCircuitGuardOrigin::SourceMultiplierDenominator {
+                        frame_row_ordinal, ..
+                    },
+                ) => {
+                    assert_eq!(physical_rows[*source_ordinal], *frame_row_ordinal);
+                    assert_eq!(
+                        row_id,
+                        plan.source_for_row(*frame_row_ordinal).unwrap().row_id()
+                    );
+                }
+                (
+                    ParametricGuardOrigin::RuleCoefficientDenominator { shift },
+                    ExactCircuitGuardOrigin::ResidualCoefficientDenominator { physical_column },
+                ) => assert_eq!(shift.values(), plan.columns()[*physical_column].values()),
+                pair => panic!("guard-origin mapping changed variant: {pair:?}"),
+            }
+        }
+    }
+
+    assert_eq!(
+        rule.elimination_pivot_guards().len(),
+        circuit.pivot_guards().len()
+    );
+    for (translated, exact) in rule
+        .elimination_pivot_guards()
+        .iter()
+        .zip(circuit.pivot_guards())
+    {
+        assert_eq!(
+            physical_rows[translated.source_ordinal()],
+            exact.frame_row_ordinal()
+        );
+        assert_eq!(
+            translated.pivot_column(),
+            source_shift_columns
+                .binary_search(&plan.columns()[exact.physical_pivot_column()].values())
+                .unwrap()
+        );
+        assert_eq!(translated.coefficient(), exact.coefficient());
+        assert_eq!(translated.nonzero_polynomial(), exact.nonzero_polynomial());
+    }
+    assert_eq!(
+        rule.replay().source_rows_used(),
+        circuit.replay().source_contributions()
+    );
+    assert_eq!(
+        rule.replay().shift_columns_checked(),
+        circuit.replay().physical_columns()
+    );
+    assert_eq!(
+        rule.replay().exact_operations(),
+        circuit.replay().exact_operations()
+    );
+}
+
 #[test]
 fn exact_lift_replays_a_frame_bound_nonempty_partition_deterministically() {
     let (context, plan) = tadpole_frame("exact-circuit-massive", true, 1);
@@ -226,6 +500,120 @@ fn exact_lift_replays_a_frame_bound_nonempty_partition_deterministically() {
             )
         })
     }));
+
+    let lowered = try_lower_exact_circuit(
+        &context,
+        &plan,
+        &circuit,
+        &[2],
+        ExactCircuitLoweringLimits::default(),
+    )
+    .expect("the replayed tadpole circuit must lower losslessly");
+    let repeated = try_lower_exact_circuit(
+        &context,
+        &plan,
+        &circuit,
+        &[2],
+        ExactCircuitLoweringLimits::default(),
+    )
+    .expect("exact lowering must be deterministic");
+    assert_lossless_lowering(&context, &plan, &circuit, &lowered);
+    assert_eq!(lowered.rule(), repeated.rule());
+    assert_eq!(
+        lowered.sources().relations(),
+        repeated.sources().relations()
+    );
+    assert_eq!(
+        lowered.sources().provenance(),
+        repeated.sources().provenance()
+    );
+    assert_eq!(lowered.rule().anchor().powers(), &[2]);
+    assert_eq!(
+        try_lower_exact_circuit(
+            &context,
+            &plan,
+            &circuit,
+            &[0],
+            ExactCircuitLoweringLimits::default(),
+        )
+        .unwrap_err(),
+        ExactCircuitLoweringError::AnchorOutsideMonotoneAdmission
+    );
+    assert_eq!(
+        try_lower_exact_circuit(
+            &context,
+            &plan,
+            &circuit,
+            &[i64::MAX - 1],
+            ExactCircuitLoweringLimits::default(),
+        )
+        .unwrap_err(),
+        ExactCircuitLoweringError::AnchorOutsideMonotoneAdmission
+    );
+
+    macro_rules! rejects_parametric_limit {
+        ($field:ident, $resource:literal) => {{
+            let mut limits = ExactCircuitLoweringLimits::default();
+            limits.parametric.$field = 0;
+            assert!(matches!(
+                try_lower_exact_circuit(&context, &plan, &circuit, &[2], limits),
+                Err(ExactCircuitLoweringError::ResourceLimit {
+                    resource: $resource,
+                    requested: 1..,
+                    limit: 0,
+                })
+            ));
+        }};
+    }
+    rejects_parametric_limit!(max_source_rows, "parametric source rows");
+    rejects_parametric_limit!(
+        max_input_nonzero_entries,
+        "parametric source nonzero entries"
+    );
+    rejects_parametric_limit!(max_shift_columns, "source-view shift columns");
+    rejects_parametric_limit!(
+        max_index_coordinate_cells,
+        "live parametric index-coordinate cells"
+    );
+    rejects_parametric_limit!(
+        max_ordering_key_coordinate_cells,
+        "live parametric ordering-key coordinate cells"
+    );
+    rejects_parametric_limit!(
+        max_domain_bound_endpoint_cells,
+        "sector-monotone domain bound endpoint cells"
+    );
+    rejects_parametric_limit!(max_sector_mask_cells, "sector mask cells");
+    rejects_parametric_limit!(max_rule_guards, "nonzero guards");
+    rejects_parametric_limit!(max_guard_origins, "parametric rule guard origins");
+    rejects_parametric_limit!(max_elimination_pivots, "elimination pivots");
+    rejects_parametric_limit!(max_source_combination_terms, "source combination terms");
+    rejects_parametric_limit!(
+        max_replay_exact_operations,
+        "full-span replay exact operations"
+    );
+
+    let mut parametric_algebra = ExactCircuitLoweringLimits::default();
+    parametric_algebra
+        .parametric
+        .indexed_algebra
+        .exact_algebra
+        .max_polynomial_terms = 0;
+    assert!(matches!(
+        try_lower_exact_circuit(&context, &plan, &circuit, &[2], parametric_algebra),
+        Err(ExactCircuitLoweringError::IndexedAlgebra(_))
+    ));
+
+    let mut relation_algebra = ExactCircuitLoweringLimits::default();
+    relation_algebra
+        .relation
+        .arithmetic
+        .exact_algebra
+        .max_polynomial_terms = 0;
+    assert!(matches!(
+        try_lower_exact_circuit(&context, &plan, &circuit, &[2], relation_algebra),
+        Err(ExactCircuitLoweringError::Relation(_))
+    ));
 
     let cleared =
         try_clear_exact_circuit(&context, &plan, &circuit, ClearedCircuitLimits::default())
@@ -396,6 +784,17 @@ fn exact_lift_accepts_a_genuine_target_only_zero_circuit() {
     assert!(circuit.residual_terms().is_empty());
     assert_eq!(circuit.target_shift().values(), [0]);
     assert_eq!(circuit.replay().physical_columns(), 1);
+    assert_eq!(
+        try_lower_exact_circuit(
+            &context,
+            &plan,
+            &circuit,
+            &[1],
+            ExactCircuitLoweringLimits::default(),
+        )
+        .unwrap_err(),
+        ExactCircuitLoweringError::EmptyRightHandSide
+    );
 }
 
 #[test]
@@ -428,6 +827,75 @@ fn a_modular_hit_cannot_be_reused_with_an_equal_foreign_frame() {
         .unwrap_err(),
         ExactCircuitError::ForeignFrameHit
     );
+}
+
+#[test]
+fn exact_lowering_rejects_wrong_plan_scope_and_replay_mutation() {
+    let (context, plan) = tadpole_frame("exact-lowering-boundary", true, 1);
+    let target = column(&plan, &[1]);
+    let partition = target_partition(&plan, target);
+    let sampled = sample_tadpole(&context, &plan);
+    let ModularTargetQuery::Hit(hit) = sampled
+        .query_target(
+            target,
+            partition.forbidden_columns(),
+            ModularKernelLimits::default(),
+        )
+        .unwrap()
+    else {
+        panic!("the tadpole target must produce a hit")
+    };
+    let ExactCircuitLift::Replayed(circuit) =
+        try_lift_exact_circuit(&context, &hit, &partition, ExactCircuitLimits::default()).unwrap()
+    else {
+        panic!("the tadpole hit must lift exactly")
+    };
+
+    let (_, equal_foreign_plan) = tadpole_frame("exact-lowering-boundary", true, 1);
+    assert_eq!(plan, equal_foreign_plan);
+    assert_eq!(
+        try_lower_exact_circuit(
+            &context,
+            &equal_foreign_plan,
+            &circuit,
+            &[2],
+            ExactCircuitLoweringLimits::default(),
+        )
+        .unwrap_err(),
+        ExactCircuitLoweringError::WrongPhysicalPlan
+    );
+
+    let (foreign_context, _) = tadpole_frame("exact-lowering-foreign-scope", true, 1);
+    assert_eq!(
+        try_lower_exact_circuit(
+            &foreign_context,
+            &plan,
+            &circuit,
+            &[2],
+            ExactCircuitLoweringLimits::default(),
+        )
+        .unwrap_err(),
+        ExactCircuitLoweringError::WrongContext
+    );
+
+    let mut mutated = circuit.clone();
+    let changed = context
+        .neg_with_limits(
+            mutated.source_combination()[0].coefficient(),
+            Default::default(),
+        )
+        .unwrap();
+    mutated.replace_first_source_coefficient_for_test(changed);
+    assert!(matches!(
+        try_lower_exact_circuit(
+            &context,
+            &plan,
+            &mutated,
+            &[2],
+            ExactCircuitLoweringLimits::default(),
+        ),
+        Err(ExactCircuitLoweringError::ReplayMismatch { .. })
+    ));
 }
 
 #[test]
@@ -534,6 +1002,17 @@ fn canonical_k6_s4a_has_a_nonempty_partition_exact_circuit() {
             .iter()
             .all(|term| term.descent().verify())
     );
+
+    let lowered = try_lower_exact_circuit(
+        &context,
+        &plan,
+        &circuit,
+        &[-100, 100, 100, 100, 100, -100],
+        ExactCircuitLoweringLimits::default(),
+    )
+    .expect("the canonical K6 exact circuit must lower losslessly");
+    assert_lossless_lowering(&context, &plan, &circuit, &lowered);
+    assert!(lowered.sources().len() > 1);
 
     let cleared =
         try_clear_exact_circuit(&context, &plan, &circuit, ClearedCircuitLimits::default())

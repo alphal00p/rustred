@@ -70,8 +70,16 @@ impl PhysicalFramePlan {
         self.family_fingerprint.as_str()
     }
 
+    pub(crate) fn family_fingerprint_owner(&self) -> Arc<String> {
+        self.family_fingerprint.clone()
+    }
+
     pub(crate) fn context_fingerprint(&self) -> &str {
         self.context_fingerprint.as_str()
+    }
+
+    pub(crate) fn context_fingerprint_owner(&self) -> Arc<String> {
+        self.context_fingerprint.clone()
     }
 
     pub(crate) const fn sector(&self) -> &Mask {

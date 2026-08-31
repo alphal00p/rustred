@@ -24,7 +24,6 @@ use super::prepare::{check_cell_limit, check_limit, checked_add, try_vec};
 /// introducing a second elimination or mutating the retained rule witness.
 /// It is a derivation/test boundary, never a reducer-hot-path operation.
 #[cfg(test)]
-#[allow(dead_code)]
 pub(crate) fn replay_rule_at_concrete_assignment(
     context: &IndexedCoefficientContext,
     relations: &[ParametricRelation],
@@ -51,7 +50,7 @@ pub(crate) fn replay_rule_at_concrete_assignment(
 /// second elimination. Concrete boundary sectors can reorder columns after a
 /// pinch, so equality with an independently reduced row would be stronger
 /// than — and unrelated to — exact membership in the retained source span.
-pub(super) fn verify_concrete_specialization_replay(
+pub(crate) fn verify_concrete_specialization_replay(
     context: &IndexedCoefficientContext,
     relations: &[ParametricRelation],
     anchor: &[i64],

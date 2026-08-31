@@ -83,6 +83,9 @@ pub(super) fn validate_candidate(
     totals: &mut ContentTotals,
 ) -> Result<(), ExactCircuitSemanticError> {
     let fail = |detail| ExactCircuitSemanticError::CandidateJoin { candidate, detail };
+    if !circuit.is_bound_to(partition.frame()) {
+        return Err(fail("exact circuit belongs to another physical plan"));
+    }
     if circuit.stratum_id() != partition.stratum_id() {
         return Err(fail("decorated stratum identity differs"));
     }

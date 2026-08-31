@@ -195,6 +195,7 @@ pub(super) fn replay_exact_circuit<'frame>(
         })?
         .clone();
     Ok(ExactCircuitLift::Replayed(ExactTargetCircuit::new(
+        plan.identity_owner(),
         hit.sample_fingerprint().clone(),
         partition.stratum_id().clone(),
         partition.snapshot_id().clone(),

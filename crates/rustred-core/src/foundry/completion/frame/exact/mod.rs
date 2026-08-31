@@ -7,6 +7,7 @@
 
 mod error;
 mod limits;
+mod lowering;
 mod model;
 mod reduce;
 mod replay;
@@ -17,6 +18,10 @@ mod cleared;
 
 pub(crate) use error::ExactCircuitError;
 pub(crate) use limits::ExactCircuitLimits;
+pub(crate) use lowering::{
+    ExactCircuitLoweringError, ExactCircuitLoweringLimits, ExactCircuitLoweringSeal,
+    LoweredExactCircuit, try_lower_exact_circuit,
+};
 pub(crate) use model::{
     ExactCircuitGuard, ExactCircuitGuardOrigin, ExactCircuitLift, ExactCircuitPivotGuard,
     ExactCircuitReplayWitness, ExactCircuitSupportDidNotLift, ExactCircuitTerm,

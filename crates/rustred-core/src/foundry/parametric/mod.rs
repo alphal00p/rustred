@@ -21,8 +21,9 @@ mod replay;
 mod sparse;
 
 #[cfg(test)]
-#[allow(unused_imports)]
 pub(crate) use anchor::replay_rule_at_concrete_assignment;
+#[allow(unused_imports)]
+pub(crate) use anchor::verify_concrete_specialization_replay;
 
 pub use boundary::{
     SectorMonotoneDependency, SectorMonotoneDependencyAtPoint, SectorMonotoneDependencyKind,

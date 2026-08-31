@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use crate::algebra::{IndexedCoefficientContext, IndexedPolynomial};
 use crate::family::IntegralKey;
+#[cfg(test)]
+use crate::foundry::completion::frame::exact::ExactCircuitLoweringSeal;
 use crate::foundry::parametric::ParametricRule;
 use crate::identity::{ParametricRelation, TranslatedSourceProvenance};
 use crate::sector::{
@@ -47,6 +49,18 @@ pub struct SourceViewProvenance {
 }
 
 impl SourceViewProvenance {
+    #[allow(dead_code)] // First exact-lowering slice is crate-private and not scheduler-wired yet.
+    #[cfg(test)]
+    pub(crate) const fn from_exact_translation(
+        _seal: &ExactCircuitLoweringSeal,
+        translated: TranslatedSourceProvenance,
+    ) -> Self {
+        Self {
+            translated,
+            symmetry: None,
+        }
+    }
+
     pub fn translated(&self) -> &TranslatedSourceProvenance {
         &self.translated
     }
@@ -134,6 +148,30 @@ impl ResidualProjectionEvidence {
 }
 
 impl SourceViewBatch {
+    #[allow(dead_code)] // First exact-lowering slice is crate-private and not scheduler-wired yet.
+    #[cfg(test)]
+    pub(crate) fn try_from_exact_lowered_parts(
+        _seal: &ExactCircuitLoweringSeal,
+        family_fingerprint: Arc<String>,
+        context_fingerprint: Arc<String>,
+        relations: Vec<ParametricRelation>,
+        provenance: Vec<SourceViewProvenance>,
+    ) -> Result<Self, super::RuleCellError> {
+        if relations.len() != provenance.len() {
+            return Err(super::RuleCellError::SourceProvenanceCountMismatch {
+                relations: relations.len(),
+                provenance: provenance.len(),
+            });
+        }
+        Ok(Self {
+            family_fingerprint,
+            context_fingerprint,
+            relations,
+            provenance,
+            construction: SourceViewConstruction::Direct,
+        })
+    }
+
     pub fn family_fingerprint(&self) -> &str {
         self.family_fingerprint.as_str()
     }

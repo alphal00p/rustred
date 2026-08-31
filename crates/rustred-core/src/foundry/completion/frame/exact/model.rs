@@ -9,6 +9,7 @@ use crate::sector::SectorMonotoneShiftDescentWitness;
 
 use super::super::SourceInstanceId;
 use super::super::modular::{ModularRankDiagnostics, ModularSampleFingerprint};
+use super::super::{PhysicalFramePlan, PhysicalFramePlanIdentity};
 
 /// One allowed physical residual in the normalized exact zero equation
 /// `target + sum(coefficient * integral) = 0`.
@@ -246,8 +247,9 @@ impl ExactCircuitReplayWitness {
 ///
 /// This value proves its guarded algebraic relation only. The caller-supplied
 /// column partition is not promoted into completion or stratum authority.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(crate) struct ExactTargetCircuit {
+    plan_identity: PhysicalFramePlanIdentity,
     sample: Arc<ModularSampleFingerprint>,
     stratum_id: DecoratedStratumId,
     owner_snapshot_id: ImmutableOwnerSnapshotId,
@@ -261,7 +263,33 @@ pub(crate) struct ExactTargetCircuit {
     replay: ExactCircuitReplayWitness,
 }
 
+// The live-plan token is an in-memory admission seal, not mathematical
+// payload. Structural equality is used by deterministic campaign regressions
+// and therefore deliberately excludes `plan_identity`; authority checks use
+// `is_bound_to` instead.
+impl PartialEq for ExactTargetCircuit {
+    fn eq(&self, other: &Self) -> bool {
+        self.sample == other.sample
+            && self.stratum_id == other.stratum_id
+            && self.owner_snapshot_id == other.owner_snapshot_id
+            && self.modular_diagnostics == other.modular_diagnostics
+            && self.target_column == other.target_column
+            && self.target_shift == other.target_shift
+            && self.residual_terms == other.residual_terms
+            && self.source_combination == other.source_combination
+            && self.pivot_guards == other.pivot_guards
+            && self.nonzero_guards == other.nonzero_guards
+            && self.replay == other.replay
+    }
+}
+
+impl Eq for ExactTargetCircuit {}
+
 impl ExactTargetCircuit {
+    pub(crate) fn is_bound_to(&self, plan: &PhysicalFramePlan) -> bool {
+        self.plan_identity.belongs_to(plan)
+    }
+
     pub(crate) fn sample_fingerprint(&self) -> &Arc<ModularSampleFingerprint> {
         &self.sample
     }
@@ -306,8 +334,17 @@ impl ExactTargetCircuit {
         self.replay
     }
 
+    #[cfg(test)]
+    pub(crate) fn replace_first_source_coefficient_for_test(
+        &mut self,
+        coefficient: IndexedCoefficient,
+    ) {
+        self.source_combination[0].coefficient = coefficient;
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
+        plan_identity: PhysicalFramePlanIdentity,
         sample: Arc<ModularSampleFingerprint>,
         stratum_id: DecoratedStratumId,
         owner_snapshot_id: ImmutableOwnerSnapshotId,
@@ -321,6 +358,7 @@ impl ExactTargetCircuit {
         replay: ExactCircuitReplayWitness,
     ) -> Self {
         Self {
+            plan_identity,
             sample,
             stratum_id,
             owner_snapshot_id,

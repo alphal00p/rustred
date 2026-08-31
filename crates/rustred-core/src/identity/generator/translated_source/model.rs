@@ -149,6 +149,23 @@ impl TranslatedSource {
     pub(crate) fn into_foundry_parts(self) -> (ParametricRelation, TranslatedSourceProvenance) {
         (self.relation, self.provenance)
     }
+
+    /// Re-admit and copy one immutable translated row for a proof-bearing
+    /// foundry owner without exposing an unrestricted relation clone.
+    #[allow(dead_code)] // First exact-lowering slice is crate-private and not scheduler-wired yet.
+    pub(crate) fn cloned_foundry_parts_with_limits(
+        &self,
+        context: &crate::algebra::IndexedCoefficientContext,
+        limits: crate::identity::RelationLimits,
+    ) -> Result<
+        (ParametricRelation, TranslatedSourceProvenance),
+        crate::identity::ParametricRelationError,
+    > {
+        Ok((
+            self.relation.cloned_with_limits(context, limits)?,
+            self.provenance.clone(),
+        ))
+    }
 }
 
 /// Deterministically ordered owner of a complete translated source span.
