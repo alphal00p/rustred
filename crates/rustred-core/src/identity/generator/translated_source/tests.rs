@@ -565,3 +565,5 @@ fn empty_complete_source_batches_are_rejected() {
         Err(TranslatedSourceError::EmptySourceRows)
     );
 }
+
+mod selected;

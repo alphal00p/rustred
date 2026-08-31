@@ -12,8 +12,8 @@ pub use condition::{
 pub use generator::{
     CompletedIbpSourceRows, IbpSourceRow, IntegralShift, ParametricIbpConfig, ParametricIbpError,
     ParametricIbpGenerator, PreparedIbpSourceBatch, PreparedLorentzInvarianceBatch,
-    TranslatedSource, TranslatedSourceBatch, TranslatedSourceError, TranslatedSourceLimits,
-    TranslatedSourceProvenance,
+    SelectedTranslatedSourceBatch, TranslatedSource, TranslatedSourceBatch, TranslatedSourceError,
+    TranslatedSourceLimits, TranslatedSourceProvenance, TranslatedSourceRequest,
 };
 pub use relation::{IndexShift, ParametricRelation, ParametricRelationError, RelationLimits};
 pub use row::RowId;

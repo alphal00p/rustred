@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
@@ -27,6 +28,48 @@ impl IntegralShift {
 
     pub fn is_empty(&self) -> bool {
         self.values().is_empty()
+    }
+}
+
+/// One requested source row at one signed integral-lattice offset.
+///
+/// Selected batches canonicalize requests offset-major and then by stable
+/// source chronology. Exact duplicate pairs are removed before any symbolic
+/// translation work.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TranslatedSourceRequest {
+    source_ordinal: usize,
+    offset: IntegralShift,
+}
+
+impl TranslatedSourceRequest {
+    pub const fn new(source_ordinal: usize, offset: IntegralShift) -> Self {
+        Self {
+            source_ordinal,
+            offset,
+        }
+    }
+
+    pub const fn source_ordinal(&self) -> usize {
+        self.source_ordinal
+    }
+
+    pub const fn offset(&self) -> &IntegralShift {
+        &self.offset
+    }
+}
+
+impl Ord for TranslatedSourceRequest {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.offset
+            .cmp(&other.offset)
+            .then_with(|| self.source_ordinal.cmp(&other.source_ordinal))
+    }
+}
+
+impl PartialOrd for TranslatedSourceRequest {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -155,5 +198,49 @@ impl TranslatedSourceBatch {
             self.context_fingerprint,
             self.sources,
         )
+    }
+}
+
+/// Deterministically ordered sparse selection of translated source rows.
+///
+/// `requests()[i]` and `sources()[i]` describe the same exact translation.
+/// The completed-row count records the source chronology against which every
+/// retained source ordinal was validated.
+#[derive(Debug, PartialEq, Eq)]
+pub struct SelectedTranslatedSourceBatch {
+    pub(super) family_fingerprint: Arc<String>,
+    pub(super) context_fingerprint: Arc<String>,
+    pub(super) completed_source_row_count: usize,
+    pub(super) requests: Vec<TranslatedSourceRequest>,
+    pub(super) sources: Vec<TranslatedSource>,
+}
+
+impl SelectedTranslatedSourceBatch {
+    pub fn family_fingerprint(&self) -> &str {
+        self.family_fingerprint.as_str()
+    }
+
+    pub fn context_fingerprint(&self) -> &str {
+        self.context_fingerprint.as_str()
+    }
+
+    pub const fn completed_source_row_count(&self) -> usize {
+        self.completed_source_row_count
+    }
+
+    pub fn requests(&self) -> &[TranslatedSourceRequest] {
+        &self.requests
+    }
+
+    pub fn sources(&self) -> &[TranslatedSource] {
+        &self.sources
+    }
+
+    pub fn len(&self) -> usize {
+        self.sources.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sources.is_empty()
     }
 }

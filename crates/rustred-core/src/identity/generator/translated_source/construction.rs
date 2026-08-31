@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use super::super::super::condition::IdentityConditionSource;
-use super::super::super::relation::IndexShift;
+use super::super::super::relation::{
+    IndexShift, ParametricRelation, ParametricRelationError, RelationLimits,
+};
 use super::super::model::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use super::error::TranslatedSourceError;
 use super::limits::TranslatedSourceLimits;
@@ -93,10 +95,6 @@ impl ParametricIbpGenerator<'_> {
 
         let source_rows = completed.relations.len();
         let offset_count = canonical_offsets.len();
-        let nonzero_offset_count = canonical_offsets
-            .iter()
-            .filter(|offset| offset.values().iter().any(|value| *value != 0))
-            .count();
         let translated_sources = checked_mul("translated source rows", source_rows, offset_count)?;
         check_limit(
             "translated source rows",
@@ -148,13 +146,15 @@ impl ParametricIbpGenerator<'_> {
             limits.max_retained_condition_source_entries,
         )?;
 
-        let coordinate_cells = retained_coordinate_cell_bound(
-            completed,
+        let coordinate_cells = retained_coordinate_cell_bound_for(
             arity,
             offset_count,
-            nonzero_offset_count,
-            terms_per_offset,
-            conditions_per_offset,
+            canonical_offsets.iter().flat_map(|offset| {
+                completed
+                    .relations
+                    .iter()
+                    .map(move |relation| (relation, offset))
+            }),
         )?;
         check_limit(
             "translated-source retained index-coordinate cells",
@@ -171,37 +171,14 @@ impl ParametricIbpGenerator<'_> {
             })?;
         for (offset_ordinal, offset) in canonical_offsets.iter().enumerate() {
             for (source_ordinal, source) in completed.relations.iter().enumerate() {
-                let source_row = source.row_id().clone();
-                let relation = if offset.values().iter().all(|value| *value == 0) {
-                    source
-                        .cloned_with_limits(&self.context, limits.relation)
+                translated.push(
+                    translate_source(self, source, source_ordinal, offset, limits.relation)
                         .map_err(|error| TranslatedSourceError::RelationTranslation {
                             offset_ordinal,
                             source_ordinal,
                             error,
-                        })?
-                } else {
-                    source
-                        .translated(
-                            &self.context,
-                            &offset.0,
-                            source_row.clone(),
-                            limits.relation,
-                        )
-                        .map_err(|error| TranslatedSourceError::RelationTranslation {
-                            offset_ordinal,
-                            source_ordinal,
-                            error,
-                        })?
-                };
-                translated.push(TranslatedSource {
-                    relation,
-                    provenance: TranslatedSourceProvenance {
-                        source_ordinal,
-                        source_row,
-                        offset: offset.clone(),
-                    },
-                });
+                        })?,
+                );
             }
         }
 
@@ -214,7 +191,7 @@ impl ParametricIbpGenerator<'_> {
         })
     }
 
-    fn validate_completed_scope(
+    pub(super) fn validate_completed_scope(
         &self,
         completed: &CompletedIbpSourceRows,
     ) -> Result<(), TranslatedSourceError> {
@@ -234,6 +211,29 @@ impl ParametricIbpGenerator<'_> {
     }
 }
 
+pub(super) fn translate_source(
+    generator: &ParametricIbpGenerator<'_>,
+    source: &ParametricRelation,
+    source_ordinal: usize,
+    offset: &IntegralShift,
+    limits: RelationLimits,
+) -> Result<TranslatedSource, ParametricRelationError> {
+    let source_row = source.row_id().clone();
+    let relation = if offset.values().iter().all(|value| *value == 0) {
+        source.cloned_with_limits(&generator.context, limits)?
+    } else {
+        source.translated(&generator.context, &offset.0, source_row.clone(), limits)?
+    };
+    Ok(TranslatedSource {
+        relation,
+        provenance: TranslatedSourceProvenance {
+            source_ordinal,
+            source_row,
+            offset: offset.clone(),
+        },
+    })
+}
+
 fn same_owner_or_value(left: &Arc<String>, right: &Arc<String>) -> bool {
     Arc::ptr_eq(left, right) || left == right
 }
@@ -242,60 +242,69 @@ pub(super) fn retained_condition_source_entry_bound(
     completed: &CompletedIbpSourceRows,
     offsets: &[IntegralShift],
 ) -> Result<usize, TranslatedSourceError> {
+    retained_condition_source_entry_bound_for(offsets.iter().flat_map(|offset| {
+        completed
+            .relations
+            .iter()
+            .map(move |relation| (relation, offset))
+    }))
+}
+
+pub(super) fn retained_condition_source_entry_bound_for<'a>(
+    translations: impl IntoIterator<Item = (&'a ParametricRelation, &'a IntegralShift)>,
+) -> Result<usize, TranslatedSourceError> {
     let mut total = 0usize;
-    for offset in offsets {
+    for (relation, offset) in translations {
         let is_zero = offset.values().iter().all(|value| *value == 0);
-        for relation in &completed.relations {
-            for condition in relation.nonzero_conditions() {
-                total = add_condition_source_entries(total, condition.sources().len())?;
-                if is_zero {
-                    continue;
-                }
-                if !condition.sources().iter().any(|source| {
-                    matches!(
-                        source,
-                        IdentityConditionSource::IndexTranslation { offset: existing }
-                            if existing.as_ref() == offset.values()
-                    )
-                }) {
-                    total = add_condition_source_entries(total, 1)?;
-                }
-                if !condition.sources().iter().any(|source| {
-                    matches!(
-                        source,
-                        IdentityConditionSource::RelationTranslation {
-                            source_row,
-                            target_row,
-                            offset: existing,
-                        } if source_row == relation.row_id()
-                            && target_row == relation.row_id()
-                            && existing.as_ref() == offset.values()
-                    )
-                }) {
-                    total = add_condition_source_entries(total, 1)?;
-                }
-                if !condition.sources().iter().any(|source| {
-                    matches!(
-                        source,
-                        IdentityConditionSource::RelationConditionAttached { row }
-                            if row == relation.row_id()
-                    )
-                }) {
-                    total = add_condition_source_entries(total, 1)?;
-                }
+        for condition in relation.nonzero_conditions() {
+            total = add_condition_source_entries(total, condition.sources().len())?;
+            if is_zero {
+                continue;
             }
-            if !is_zero {
-                let denominator_conditions = relation
-                    .terms()
-                    .values()
-                    .filter(|coefficient| !coefficient.raw().denominator.is_constant())
-                    .count();
-                // Translation is an automorphism, so each nonconstant source
-                // denominator stays nonconstant. Sealed relation construction
-                // already retained its guard; rebuilding the translated term
-                // can add at most its translated input-term provenance source.
-                total = add_condition_source_entries(total, denominator_conditions)?;
+            if !condition.sources().iter().any(|source| {
+                matches!(
+                    source,
+                    IdentityConditionSource::IndexTranslation { offset: existing }
+                        if existing.as_ref() == offset.values()
+                )
+            }) {
+                total = add_condition_source_entries(total, 1)?;
             }
+            if !condition.sources().iter().any(|source| {
+                matches!(
+                    source,
+                    IdentityConditionSource::RelationTranslation {
+                        source_row,
+                        target_row,
+                        offset: existing,
+                    } if source_row == relation.row_id()
+                        && target_row == relation.row_id()
+                        && existing.as_ref() == offset.values()
+                )
+            }) {
+                total = add_condition_source_entries(total, 1)?;
+            }
+            if !condition.sources().iter().any(|source| {
+                matches!(
+                    source,
+                    IdentityConditionSource::RelationConditionAttached { row }
+                        if row == relation.row_id()
+                )
+            }) {
+                total = add_condition_source_entries(total, 1)?;
+            }
+        }
+        if !is_zero {
+            let denominator_conditions = relation
+                .terms()
+                .values()
+                .filter(|coefficient| !coefficient.raw().denominator.is_constant())
+                .count();
+            // Translation is an automorphism, so each nonconstant source
+            // denominator stays nonconstant. Sealed relation construction
+            // already retained its guard; rebuilding the translated term can
+            // add at most its translated input-term provenance source.
+            total = add_condition_source_entries(total, denominator_conditions)?;
         }
     }
     Ok(total)
@@ -312,50 +321,43 @@ pub(super) fn add_condition_source_entries(
     )
 }
 
-fn retained_coordinate_cell_bound(
-    completed: &CompletedIbpSourceRows,
+pub(super) fn retained_coordinate_cell_bound_for<'a>(
     arity: usize,
-    offset_count: usize,
-    nonzero_offset_count: usize,
-    terms_per_offset: usize,
-    conditions_per_offset: usize,
+    retained_offset_count: usize,
+    translations: impl IntoIterator<Item = (&'a ParametricRelation, &'a IntegralShift)>,
 ) -> Result<usize, TranslatedSourceError> {
     let resource = "translated-source retained index-coordinate cells";
-    // One canonical coordinate buffer per unique offset.
-    let canonical_offsets = checked_mul(resource, arity, offset_count)?;
-    // Every nonzero translation can retain both one newly summed sparse-key
-    // buffer and one term-denominator provenance shift. Zero translations
-    // share key buffers and add no provenance, so only nonzero offsets are
-    // charged here.
-    let translated_nonzero_terms = checked_mul(resource, terms_per_offset, nonzero_offset_count)?;
-    let term_shift_cells = checked_mul(resource, arity, translated_nonzero_terms)?;
-    let term_shifts_and_provenance = checked_mul(resource, term_shift_cells, 2)?;
-
-    // Existing condition provenance is deep-cloned into every translated
-    // result. Each condition can additionally retain both IndexTranslation
-    // and RelationTranslation offsets; using two is a conservative bound when
-    // one of those exact sources was already present and gets deduplicated.
-    let existing_per_offset = checked_sum(
-        resource,
-        completed.relations.iter().flat_map(|relation| {
-            relation
-                .nonzero_conditions()
-                .iter()
-                .flat_map(|condition| condition.sources().iter())
-                .map(identity_source_coordinate_cells)
-        }),
-    )?;
-    let existing = checked_mul(resource, existing_per_offset, offset_count)?;
-    let translated_nonzero_conditions =
-        checked_mul(resource, conditions_per_offset, nonzero_offset_count)?;
-    let added_per_condition = checked_mul(resource, arity, 2)?;
-    let added = checked_mul(resource, translated_nonzero_conditions, added_per_condition)?;
-
-    checked_add(
-        resource,
-        checked_add(resource, canonical_offsets, term_shifts_and_provenance)?,
-        checked_add(resource, existing, added)?,
-    )
+    let mut total = checked_mul(resource, arity, retained_offset_count)?;
+    for (relation, offset) in translations {
+        total = checked_add(
+            resource,
+            total,
+            checked_sum(
+                resource,
+                relation
+                    .nonzero_conditions()
+                    .iter()
+                    .flat_map(|condition| condition.sources().iter())
+                    .map(identity_source_coordinate_cells),
+            )?,
+        )?;
+        if offset.values().iter().all(|value| *value == 0) {
+            continue;
+        }
+        let term_shift_cells = checked_mul(resource, arity, relation.terms().len())?;
+        total = checked_add(resource, total, checked_mul(resource, term_shift_cells, 2)?)?;
+        let added_per_condition = checked_mul(resource, arity, 2)?;
+        total = checked_add(
+            resource,
+            total,
+            checked_mul(
+                resource,
+                relation.nonzero_conditions().len(),
+                added_per_condition,
+            )?,
+        )?;
+    }
+    Ok(total)
 }
 
 fn identity_source_coordinate_cells(source: &IdentityConditionSource) -> usize {
@@ -371,7 +373,7 @@ fn identity_source_coordinate_cells(source: &IdentityConditionSource) -> usize {
     }
 }
 
-fn checked_sum(
+pub(super) fn checked_sum(
     resource: &'static str,
     values: impl IntoIterator<Item = usize>,
 ) -> Result<usize, TranslatedSourceError> {
@@ -380,7 +382,7 @@ fn checked_sum(
         .try_fold(0usize, |total, value| checked_add(resource, total, value))
 }
 
-fn checked_add(
+pub(super) fn checked_add(
     resource: &'static str,
     left: usize,
     right: usize,
@@ -389,7 +391,7 @@ fn checked_add(
         .ok_or(TranslatedSourceError::ResourceCountOverflow { resource })
 }
 
-fn checked_mul(
+pub(super) fn checked_mul(
     resource: &'static str,
     left: usize,
     right: usize,
@@ -398,7 +400,7 @@ fn checked_mul(
         .ok_or(TranslatedSourceError::ResourceCountOverflow { resource })
 }
 
-fn check_limit(
+pub(super) fn check_limit(
     resource: &'static str,
     requested: usize,
     limit: usize,

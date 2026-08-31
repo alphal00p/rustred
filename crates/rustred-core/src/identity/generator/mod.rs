@@ -23,8 +23,9 @@ pub use model::{
     PreparedLorentzInvarianceBatch,
 };
 pub use translated_source::{
-    IntegralShift, TranslatedSource, TranslatedSourceBatch, TranslatedSourceError,
-    TranslatedSourceLimits, TranslatedSourceProvenance,
+    IntegralShift, SelectedTranslatedSourceBatch, TranslatedSource, TranslatedSourceBatch,
+    TranslatedSourceError, TranslatedSourceLimits, TranslatedSourceProvenance,
+    TranslatedSourceRequest,
 };
 
 #[cfg(test)]

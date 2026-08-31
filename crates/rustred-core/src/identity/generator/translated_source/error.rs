@@ -8,10 +8,21 @@ pub enum TranslatedSourceError {
     EmptyIntegralShift,
     EmptySourceRows,
     EmptyOffsets,
+    EmptySourceRequests,
     WrongOffsetArity {
         offset_ordinal: usize,
         expected: usize,
         actual: usize,
+    },
+    WrongRequestOffsetArity {
+        request_ordinal: usize,
+        expected: usize,
+        actual: usize,
+    },
+    SourceOrdinalOutOfRange {
+        request_ordinal: usize,
+        source_ordinal: usize,
+        source_count: usize,
     },
     CompletedSourceFamilyMismatch,
     CompletedSourceContextMismatch,
@@ -32,6 +43,11 @@ pub enum TranslatedSourceError {
         source_ordinal: usize,
         error: ParametricRelationError,
     },
+    RequestTranslation {
+        canonical_request_ordinal: usize,
+        source_ordinal: usize,
+        error: ParametricRelationError,
+    },
 }
 
 impl fmt::Display for TranslatedSourceError {
@@ -43,6 +59,9 @@ impl fmt::Display for TranslatedSourceError {
             Self::EmptyOffsets => {
                 formatter.write_str("translated-source construction needs at least one offset")
             }
+            Self::EmptySourceRequests => formatter.write_str(
+                "selected translated-source construction needs at least one source request",
+            ),
             Self::WrongOffsetArity {
                 offset_ordinal,
                 expected,
@@ -50,6 +69,22 @@ impl fmt::Display for TranslatedSourceError {
             } => write!(
                 formatter,
                 "translation offset {offset_ordinal} has arity {actual}, expected {expected}"
+            ),
+            Self::WrongRequestOffsetArity {
+                request_ordinal,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "selected translation request {request_ordinal} has offset arity {actual}, expected {expected}"
+            ),
+            Self::SourceOrdinalOutOfRange {
+                request_ordinal,
+                source_ordinal,
+                source_count,
+            } => write!(
+                formatter,
+                "selected translation request {request_ordinal} names source row {source_ordinal}, outside 0..{source_count}"
             ),
             Self::CompletedSourceFamilyMismatch => formatter
                 .write_str("the completed source batch belongs to a different integral family"),
@@ -82,6 +117,14 @@ impl fmt::Display for TranslatedSourceError {
                 formatter,
                 "could not translate source row {source_ordinal} at canonical offset {offset_ordinal}: {error}"
             ),
+            Self::RequestTranslation {
+                canonical_request_ordinal,
+                source_ordinal,
+                error,
+            } => write!(
+                formatter,
+                "could not translate source row {source_ordinal} at canonical selected request {canonical_request_ordinal}: {error}"
+            ),
         }
     }
 }
@@ -89,7 +132,9 @@ impl fmt::Display for TranslatedSourceError {
 impl std::error::Error for TranslatedSourceError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::RelationTranslation { error, .. } => Some(error),
+            Self::RelationTranslation { error, .. } | Self::RequestTranslation { error, .. } => {
+                Some(error)
+            }
             _ => None,
         }
     }
