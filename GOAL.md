@@ -211,10 +211,10 @@ bootstrap census now runs every one of the six full-rank orbit representatives
 against three declared primes, for 18 probe-local tasks. Each first epoch has
 90 selected rows, 253 physical columns, and 918 structural entries. At the
 declared sample every forbidden rank and target-augmented rank is 90, so no
-bootstrap support is falsely lifted; the exact obstruction instead nominates
-3,586--3,822 nonzero residual requests depending on the sector. The census
-stops at an explicit one-epoch research limit and claims neither a rule nor
-closure. The next K6 step is to replace that broad residual frontier with
+bootstrap support is falsely lifted; the checked modular obstruction instead
+nominates 3,586--3,822 nonzero residual requests depending on the sector. The
+census stops at an explicit one-epoch research limit and claims neither a rule
+nor closure. The next K6 step is to replace that broad residual frontier with
 certificate-/syzygy-guided batches, rebuild the maximal stratum after request
 growth, promote successful exact circuits into guarded descending cells, and
 install solved sectors as immutable feedback before advancing bottom-up.
