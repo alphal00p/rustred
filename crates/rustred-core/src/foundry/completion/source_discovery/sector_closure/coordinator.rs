@@ -192,6 +192,45 @@ impl StagedSectorClosureCoordinator {
         self.terminal_coordinate_cells
     }
 
+    /// Compile the exact cover for one staged sector without sealing or
+    /// publishing it. This is the cold preview boundary used by discovery
+    /// campaigns to compare an immutable owner ledger before and after one
+    /// canonical proposal. Closure authority remains with the returned exact
+    /// compiler status; this method never extends the predecessor snapshot.
+    pub(crate) fn try_compile_single_sector_preview(
+        self,
+    ) -> Result<ExactExecutableOwnerCover, StagedSectorClosureError> {
+        let Self {
+            context,
+            stages,
+            limits,
+            ..
+        } = self;
+        if stages.len() != 1 {
+            return Err(StagedSectorClosureError::PreviewRequiresSingleSector {
+                actual: stages.len(),
+            });
+        }
+        preflight_pairing_work(&stages, limits.max_compiled_pairing_probes)?;
+        let stage = stages
+            .into_iter()
+            .next()
+            .ok_or(StagedSectorClosureError::PreviewRequiresSingleSector { actual: 0 })?;
+        if stage.owners.is_empty() {
+            return Err(StagedSectorClosureError::PreviewRequiresOwner);
+        }
+        let mut compiled_work = CompiledWaveWork::default();
+        let executable_limits = compiled_work.constrain(limits)?;
+        let cover = ExactExecutableOwnerCover::try_compile(
+            &context,
+            stage.owners,
+            stage.terminals,
+            executable_limits,
+        )?;
+        compiled_work.try_retain(&cover, limits)?;
+        Ok(cover)
+    }
+
     /// Insert one already pointer-paired canonical executable owner. A
     /// content-equal duplicate is ignored without replacing retained pointer
     /// authority.

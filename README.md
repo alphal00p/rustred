@@ -602,6 +602,7 @@ Stable design documents are:
 - [Symbolica finite-frame feasibility audit](docs/research/symbolica_finite_frame_feasibility.md);
 - [nonminimal-terminal viability audit](docs/research/nonminimal_terminal_viability_audit_2026.md);
 - [independent six-loop candidate shootout](docs/research/six_loop_candidate_shootout_2026.md);
+- [independent six-loop closure scaling audit](docs/research/six_loop_scaling_audit_2026.md);
 - [universal nonminimal closure review](docs/research/universal_nonminimal_closure_review_2026.md);
 - [graph-orbit and Baikov source-compression audit](docs/research/graph_orbit_baikov_source_compression_2026.md);
 - [executable K6 breakthrough prototype specification](docs/research/k6_breakthrough_prototype_spec_2026.md);

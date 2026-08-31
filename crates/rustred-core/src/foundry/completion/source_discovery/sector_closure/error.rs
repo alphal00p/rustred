@@ -22,6 +22,10 @@ pub(crate) enum StagedSectorClosureError {
         actual: usize,
     },
     DuplicateSector,
+    PreviewRequiresSingleSector {
+        actual: usize,
+    },
+    PreviewRequiresOwner,
     UnregisteredSector,
     OwnerScope {
         detail: &'static str,
@@ -72,6 +76,13 @@ impl fmt::Display for StagedSectorClosureError {
             ),
             Self::DuplicateSector => {
                 formatter.write_str("a staged closure wave repeats one sector and ordering")
+            }
+            Self::PreviewRequiresSingleSector { actual } => write!(
+                formatter,
+                "an exact cover preview requires one staged sector, found {actual}"
+            ),
+            Self::PreviewRequiresOwner => {
+                formatter.write_str("an exact cover preview requires at least one staged owner")
             }
             Self::UnregisteredSector => {
                 formatter.write_str("an owner or terminal targets an unstaged sector")

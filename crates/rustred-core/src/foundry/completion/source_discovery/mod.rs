@@ -6,6 +6,7 @@
 
 mod campaign;
 mod canonical_replay;
+mod cover_delta;
 mod dual;
 mod error;
 mod incidence;
@@ -39,6 +40,12 @@ pub(crate) use canonical_replay::{
     CanonicalRebaseAttempt, CanonicalRebaseAttemptOutcome, CanonicalRebasedCandidate,
     CanonicalReplayBatch, CanonicalReplayDisposition, CanonicalReplayError, CanonicalReplayLimits,
     CanonicalReplayTelemetry, try_canonicalize_replayed_probes,
+};
+#[allow(unused_imports)] // Consumed by the staged interior-replay campaign.
+pub(crate) use cover_delta::{
+    CanonicalExactOwnerLedger, ExactOwnerCoverDelta, ExactOwnerCoverDeltaError,
+    ExactOwnerCoverDeltaKind, ExactOwnerCoverDeltaLimits, ExactOwnerCoverSnapshot,
+    ExactOwnerLedgerCoverStatus,
 };
 #[allow(unused_imports)]
 pub(crate) use dual::{
