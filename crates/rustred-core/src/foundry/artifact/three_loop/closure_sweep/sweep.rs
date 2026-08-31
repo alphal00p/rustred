@@ -106,7 +106,7 @@ pub(super) fn sweep_sector(
 
     // Only replayed hits are retained. No-hit and inactive target partitions
     // fall out of scope immediately and cannot masquerade as negative proof.
-    let mut admitted_partitions = Vec::new();
+    let mut semantic_input_partitions = Vec::new();
     let mut extensions = Vec::new();
     let mut degree_reports = Vec::new();
     degree_reports.try_reserve_exact(frames.len())?;
@@ -138,7 +138,7 @@ pub(super) fn sweep_sector(
             exact_replayed: 0,
             exact_support_did_not_lift: 0,
             exact_content_duplicates: 0,
-            admitted_owners: 0,
+            semantic_owner_inputs: 0,
         };
 
         for target_column in 0..plan.columns().len() {
@@ -210,19 +210,19 @@ pub(super) fn sweep_sector(
                 semantic_limits(candidates.len()),
             )?);
             let extension = ExactCircuitOuterExtensionWitness::try_prove(&partition, semantic)?;
-            let partition_ordinal = admitted_partitions.len();
-            admitted_partitions.push(partition);
+            let partition_ordinal = semantic_input_partitions.len();
+            semantic_input_partitions.push(partition);
             extensions.push((partition_ordinal, extension));
-            report.admitted_owners += 1;
+            report.semantic_owner_inputs += 1;
         }
         degree_reports.push(report);
     }
 
-    let admitted_owners = extensions.len();
+    let semantic_owner_inputs = extensions.len();
     let owner_inputs = extensions
         .into_iter()
         .map(|(partition, extension)| {
-            ExactCircuitOwnerInput::new(&admitted_partitions[partition], extension)
+            ExactCircuitOwnerInput::new(&semantic_input_partitions[partition], extension)
         })
         .collect::<Vec<_>>();
     let compiled = ExactCircuitOwnerCover::try_compile(
@@ -231,13 +231,13 @@ pub(super) fn sweep_sector(
         Vec::<IntegralKey>::new(),
         owner_cover_limits(),
     );
-    let cover = cover_telemetry(compiled, sector.arity(), admitted_owners)?;
+    let cover = cover_telemetry(compiled, sector.arity(), semantic_owner_inputs)?;
 
     Ok(SectorSweepTelemetry {
         sector,
         ordinary_sources,
         degrees: degree_reports.into_boxed_slice(),
-        admitted_owners,
+        semantic_owner_inputs,
         cover,
     })
 }
@@ -304,11 +304,11 @@ fn insert_exact_candidate(
 fn cover_telemetry(
     compiled: Result<ExactCircuitOwnerCover, ExactCircuitOwnerCoverError>,
     arity: usize,
-    admitted_owners: usize,
+    semantic_owner_inputs: usize,
 ) -> Result<SweepCoverTelemetry, Box<dyn std::error::Error>> {
     match compiled {
-        Err(ExactCircuitOwnerCoverError::EmptyOwnerInputs) if admitted_owners == 0 => {
-            Ok(SweepCoverTelemetry::NoAdmittedOwners {
+        Err(ExactCircuitOwnerCoverError::EmptyOwnerInputs) if semantic_owner_inputs == 0 => {
+            Ok(SweepCoverTelemetry::NoSemanticOwnerInputs {
                 full_orthant_free_dimension: arity,
             })
         }
@@ -348,9 +348,9 @@ pub(super) fn assert_structural_accounting(report: &SectorSweepTelemetry) {
         report
             .degrees
             .iter()
-            .map(|degree| degree.admitted_owners)
+            .map(|degree| degree.semantic_owner_inputs)
             .sum::<usize>(),
-        report.admitted_owners
+        report.semantic_owner_inputs
     );
     for degree in &report.degrees {
         assert_eq!(
@@ -370,15 +370,15 @@ pub(super) fn assert_structural_accounting(report: &SectorSweepTelemetry) {
             degree.modular_hits
         );
         assert_eq!(
-            degree.admitted_owners + degree.exact_content_duplicates,
+            degree.semantic_owner_inputs + degree.exact_content_duplicates,
             degree.exact_replayed
         );
     }
     match &report.cover {
-        SweepCoverTelemetry::NoAdmittedOwners {
+        SweepCoverTelemetry::NoSemanticOwnerInputs {
             full_orthant_free_dimension,
         } => {
-            assert_eq!(report.admitted_owners, 0);
+            assert_eq!(report.semantic_owner_inputs, 0);
             assert_eq!(*full_orthant_free_dimension, report.sector.arity());
         }
         SweepCoverTelemetry::Compiled {
@@ -389,7 +389,7 @@ pub(super) fn assert_structural_accounting(report: &SectorSweepTelemetry) {
             maximum_uncovered_varying_dimension,
             ..
         } => {
-            assert!(*guard_total_owners <= report.admitted_owners);
+            assert!(*guard_total_owners <= report.semantic_owner_inputs);
             assert_eq!(
                 uncovered_free_dimension_histogram.iter().sum::<usize>(),
                 *uncovered_boxes

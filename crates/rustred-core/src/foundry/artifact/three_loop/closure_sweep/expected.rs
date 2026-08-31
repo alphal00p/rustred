@@ -1,8 +1,8 @@
 //! Typed regression baseline for the fixed degree-one K6 experiment.
 //!
 //! These counts do not turn modular no-hits into negative evidence. They make
-//! the exact, deterministic experiment reviewable: losing a nominated and
-//! exactly admitted owner, changing its guard-total proof, or changing the
+//! the exact, deterministic experiment reviewable: losing an exactly replayed
+//! semantic owner input, changing its guard-total proof, or changing the
 //! measured obstruction geometry must be accepted as an explicit baseline
 //! update instead of drifting silently behind printed telemetry.
 
@@ -23,13 +23,13 @@ pub(super) struct ExpectedSectorSweepTelemetry {
     modular_no_hits: usize,
     exact_replayed: usize,
     exact_support_did_not_lift: usize,
-    admitted_owners: usize,
+    semantic_owner_inputs: usize,
     cover: ExpectedSweepCoverTelemetry,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ExpectedSweepCoverTelemetry {
-    NoAdmittedOwners {
+    NoSemanticOwnerInputs {
         full_orthant_free_dimension: usize,
     },
     Compiled {
@@ -54,8 +54,8 @@ pub(super) const EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP: [ExpectedSectorSweepTeleme
         modular_no_hits: 85,
         exact_replayed: 0,
         exact_support_did_not_lift: 0,
-        admitted_owners: 0,
-        cover: ExpectedSweepCoverTelemetry::NoAdmittedOwners {
+        semantic_owner_inputs: 0,
+        cover: ExpectedSweepCoverTelemetry::NoSemanticOwnerInputs {
             full_orthant_free_dimension: 6,
         },
     },
@@ -68,7 +68,7 @@ pub(super) const EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP: [ExpectedSectorSweepTeleme
         modular_no_hits: 88,
         exact_replayed: 3,
         exact_support_did_not_lift: 0,
-        admitted_owners: 3,
+        semantic_owner_inputs: 3,
         cover: ExpectedSweepCoverTelemetry::Compiled {
             guard_total_owners: 1,
             status: ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite),
@@ -89,7 +89,7 @@ pub(super) const EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP: [ExpectedSectorSweepTeleme
         modular_no_hits: 109,
         exact_replayed: 2,
         exact_support_did_not_lift: 0,
-        admitted_owners: 2,
+        semantic_owner_inputs: 2,
         cover: ExpectedSweepCoverTelemetry::Compiled {
             guard_total_owners: 0,
             status: ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite),
@@ -110,7 +110,7 @@ pub(super) const EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP: [ExpectedSectorSweepTeleme
         modular_no_hits: 105,
         exact_replayed: 2,
         exact_support_did_not_lift: 0,
-        admitted_owners: 2,
+        semantic_owner_inputs: 2,
         cover: ExpectedSweepCoverTelemetry::Compiled {
             guard_total_owners: 0,
             status: ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite),
@@ -131,7 +131,7 @@ pub(super) const EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP: [ExpectedSectorSweepTeleme
         modular_no_hits: 125,
         exact_replayed: 3,
         exact_support_did_not_lift: 0,
-        admitted_owners: 3,
+        semantic_owner_inputs: 3,
         cover: ExpectedSweepCoverTelemetry::Compiled {
             guard_total_owners: 1,
             status: ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite),
@@ -152,7 +152,7 @@ pub(super) const EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP: [ExpectedSectorSweepTeleme
         modular_no_hits: 129,
         exact_replayed: 7,
         exact_support_did_not_lift: 0,
-        admitted_owners: 7,
+        semantic_owner_inputs: 7,
         cover: ExpectedSweepCoverTelemetry::Compiled {
             guard_total_owners: 3,
             status: ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite),
@@ -180,7 +180,7 @@ const EXPECTED_CANONICAL_S4A_MIXED_DEGREES: [DegreeSweepTelemetry; 2] = [
         exact_replayed: 2,
         exact_support_did_not_lift: 0,
         exact_content_duplicates: 0,
-        admitted_owners: 2,
+        semantic_owner_inputs: 2,
     },
     DegreeSweepTelemetry {
         degree: 2,
@@ -195,7 +195,7 @@ const EXPECTED_CANONICAL_S4A_MIXED_DEGREES: [DegreeSweepTelemetry; 2] = [
         exact_replayed: 22,
         exact_support_did_not_lift: 0,
         exact_content_duplicates: 0,
-        admitted_owners: 22,
+        semantic_owner_inputs: 22,
     },
 ];
 
@@ -209,7 +209,7 @@ pub(super) fn assert_expected_mixed_s4a_sweep(actual: &SectorSweepTelemetry) {
         actual.degrees.as_ref(),
         EXPECTED_CANONICAL_S4A_MIXED_DEGREES.as_slice()
     );
-    assert_eq!(actual.admitted_owners, 24);
+    assert_eq!(actual.semantic_owner_inputs, 24);
     match &actual.cover {
         SweepCoverTelemetry::Compiled {
             guard_total_owners,
@@ -236,8 +236,8 @@ pub(super) fn assert_expected_mixed_s4a_sweep(actual: &SectorSweepTelemetry) {
             assert_eq!(*missing_terminal_points, 0);
             assert_eq!(*guard_incomplete_owners, 0);
         }
-        SweepCoverTelemetry::NoAdmittedOwners { .. } => {
-            panic!("the pinned mixed-degree S4a sweep lost every admitted owner")
+        SweepCoverTelemetry::NoSemanticOwnerInputs { .. } => {
+            panic!("the pinned mixed-degree S4a sweep lost every semantic owner input")
         }
     }
 }
@@ -270,14 +270,14 @@ pub(super) fn assert_expected_sweep(
         expected.exact_support_did_not_lift
     );
     assert_eq!(degree.exact_content_duplicates, 0);
-    assert_eq!(degree.admitted_owners, expected.admitted_owners);
-    assert_eq!(actual.admitted_owners, expected.admitted_owners);
+    assert_eq!(degree.semantic_owner_inputs, expected.semantic_owner_inputs);
+    assert_eq!(actual.semantic_owner_inputs, expected.semantic_owner_inputs);
     match (&actual.cover, expected.cover) {
         (
-            SweepCoverTelemetry::NoAdmittedOwners {
+            SweepCoverTelemetry::NoSemanticOwnerInputs {
                 full_orthant_free_dimension: actual,
             },
-            ExpectedSweepCoverTelemetry::NoAdmittedOwners {
+            ExpectedSweepCoverTelemetry::NoSemanticOwnerInputs {
                 full_orthant_free_dimension: expected,
             },
         ) => assert_eq!(*actual, expected),

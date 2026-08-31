@@ -620,8 +620,11 @@ guard wall is retried lazily at bounded, deduplicated exact anchors in canonical
 coordinate order, so diagnostic modulus/base ordering grants no authority.
 Cover terminals are canonicalized by the proof compiler, failed insertions
 leave the published cover untouched, and finite terminal or guard gaps remain
-explicitly incomplete. The remaining publication boundary is immutable solved-
-sector sealing and bottom-up feedback. RustRed still has no published K6
+explicitly incomplete. A consuming seal now admits only `Closed`, strongly
+owns its exact predecessor snapshot, and revalidates every executable owner's
+common scope without disturbing its paired circuit and cell. The remaining
+publication boundary is the content-identified solved-sector layer, immutable
+snapshot extension, and bottom-up feedback. RustRed still has no published K6
 artifact. Each first K6 sector/prime probe has rank 90 on both forbidden and
 augmented blocks and nominates roughly 3,586--3,822 broad residual requests,
 depending on the sector.

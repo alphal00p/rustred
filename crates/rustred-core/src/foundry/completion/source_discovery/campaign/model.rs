@@ -358,6 +358,16 @@ impl FreshTaskEpoch {
         self.owners.id()
     }
 
+    /// The exact immutable lower-sector authority used to build every frame,
+    /// partition, and replay in this epoch.  Closure sealing clones this
+    /// already-owned snapshot; it must never attempt to recover authority from
+    /// [`Self::fixed_snapshot_id`] alone.
+    pub(in crate::foundry::completion::source_discovery) const fn predecessor_snapshot(
+        &self,
+    ) -> &ImmutableOwnerSnapshot {
+        &self.owners
+    }
+
     pub(crate) const fn fixed_ordering(&self) -> OrderingPolicy {
         self.ordering
     }

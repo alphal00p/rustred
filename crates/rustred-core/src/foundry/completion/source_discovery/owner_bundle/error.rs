@@ -3,6 +3,7 @@ use std::fmt;
 use crate::foundry::cell::RuleCellError;
 use crate::foundry::completion::frame::admission::{
     ExactCircuitOuterExtensionError, ExactCircuitOwnerCoverError, ExactCircuitSemanticError,
+    ExactOwnerCoverObstructionKind,
 };
 
 use super::super::{CampaignError, ExactRuleCellPromotionError};
@@ -15,6 +16,13 @@ pub(crate) enum ExactExecutableOwnerError {
     EmptyCandidates,
     EmptyOwners,
     WrongContext,
+    CoverNotClosed {
+        obstruction: ExactOwnerCoverObstructionKind,
+    },
+    ClosedCoverScopeMismatch {
+        owner: usize,
+        detail: &'static str,
+    },
     Promotion {
         candidate: usize,
         error: ExactRuleCellPromotionError,
@@ -58,6 +66,14 @@ impl fmt::Display for ExactExecutableOwnerError {
             Self::WrongContext => {
                 formatter.write_str("executable-owner compilation uses another indexed context")
             }
+            Self::CoverNotClosed { obstruction } => write!(
+                formatter,
+                "an incomplete executable-owner cover cannot be sealed: {obstruction:?}"
+            ),
+            Self::ClosedCoverScopeMismatch { owner, detail } => write!(
+                formatter,
+                "executable owner {owner} is outside the closed cover scope: {detail}"
+            ),
             Self::Promotion { candidate, error } => {
                 write!(
                     formatter,

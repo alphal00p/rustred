@@ -22,8 +22,8 @@ use super::super::{
     OrdinarySourceIncidenceIndex, SourceDiscoveryLimits, try_canonicalize_replayed_probes,
 };
 use super::{
-    ExactExecutableOwnerCover, ExactExecutableOwnerError, ExactExecutableOwnerLimits,
-    ExactExecutableOwnerProposal, ExactExecutableOwnerSelection,
+    ClosedExactExecutableOwnerCover, ExactExecutableOwnerCover, ExactExecutableOwnerError,
+    ExactExecutableOwnerLimits, ExactExecutableOwnerProposal, ExactExecutableOwnerSelection,
     try_compile_canonical_executable_owner,
 };
 
@@ -57,6 +57,32 @@ fn canonical_tadpole_batch_from_probes(
     completed: &CompletedIbpSourceRows,
     target_power: i64,
     probes: impl IntoIterator<Item = CampaignModularProbe>,
+) -> CanonicalReplayBatch {
+    let registry = StratumRegistryLimits::default();
+    let owners = ImmutableOwnerSnapshot::try_empty(
+        artifact.family_fingerprint(),
+        artifact.context_fingerprint(),
+        1,
+        registry,
+    )
+    .unwrap();
+    canonical_tadpole_batch_from_probes_and_owners(
+        artifact,
+        generator,
+        completed,
+        target_power,
+        probes,
+        owners,
+    )
+}
+
+fn canonical_tadpole_batch_from_probes_and_owners(
+    artifact: &ClosedArtifact,
+    generator: &ParametricIbpGenerator<'_>,
+    completed: &CompletedIbpSourceRows,
+    target_power: i64,
+    probes: impl IntoIterator<Item = CampaignModularProbe>,
+    owners: ImmutableOwnerSnapshot,
 ) -> CanonicalReplayBatch {
     let target = IntegralShift::try_new([target_power]).unwrap();
     let source_limits = SourceDiscoveryLimits::default();
@@ -96,13 +122,6 @@ fn canonical_tadpole_batch_from_probes(
         artifact.family_fingerprint(),
         artifact.context_fingerprint(),
         domain,
-        registry,
-    )
-    .unwrap();
-    let owners = ImmutableOwnerSnapshot::try_empty(
-        artifact.family_fingerprint(),
-        artifact.context_fingerprint(),
-        1,
         registry,
     )
     .unwrap();
@@ -640,5 +659,171 @@ fn missing_finite_terminal_remains_explicitly_incomplete_through_pairing() {
             )
             .unwrap(),
         ExactExecutableOwnerSelection::Incomplete
+    ));
+}
+
+#[test]
+fn closed_seal_consumes_the_cover_without_losing_retained_authority() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let owner = compiled_tadpole_owner(&artifact, &generator, &completed, 1, [2, 3]);
+    let retained_epoch = owner.epoch().clone();
+    let retained_circuit = owner.semantic().candidates()[0].circuit().clone();
+    let weak_owner = Arc::downgrade(&owner);
+    let weak_epoch = Arc::downgrade(&retained_epoch);
+    let weak_semantic = Arc::downgrade(owner.semantic());
+    let weak_circuit = Arc::downgrade(&retained_circuit);
+    let owner_address = Arc::as_ptr(&owner);
+    let circuit_address = Arc::as_ptr(&retained_circuit);
+    let cell_address = owner.executable_candidates()[0].cell() as *const _;
+    let predecessor_id = retained_epoch.fixed_snapshot_id().as_str().to_owned();
+
+    let cover = ExactExecutableOwnerCover::try_compile(
+        generator.context(),
+        vec![owner.clone()],
+        vec![IntegralKey::try_new([1]).unwrap()],
+        ExactExecutableOwnerLimits::default(),
+    )
+    .unwrap();
+    drop(retained_circuit);
+    drop(retained_epoch);
+    drop(owner);
+
+    let sealed = ClosedExactExecutableOwnerCover::try_seal(cover).unwrap();
+    assert_eq!(
+        sealed.executable_cover().proof_cover().status(),
+        ExactOwnerCoverStatus::Closed
+    );
+    assert_eq!(sealed.predecessor_snapshot().id().as_str(), predecessor_id);
+    assert_eq!(
+        sealed.predecessor_snapshot().family_fingerprint(),
+        sealed.executable_cover().proof_cover().family_fingerprint()
+    );
+    assert_eq!(
+        sealed.predecessor_snapshot().context_fingerprint(),
+        sealed
+            .executable_cover()
+            .proof_cover()
+            .context_fingerprint()
+    );
+    assert_eq!(
+        sealed.predecessor_snapshot().arity(),
+        sealed.executable_cover().proof_cover().sector().arity()
+    );
+    assert_eq!(
+        sealed.predecessor_snapshot().id(),
+        sealed.executable_cover().proof_cover().owner_snapshot_id()
+    );
+    assert_eq!(
+        Arc::as_ptr(&sealed.executable_cover().owners()[0]),
+        owner_address
+    );
+    assert_eq!(
+        Arc::as_ptr(
+            sealed.executable_cover().owners()[0]
+                .semantic()
+                .candidates()[0]
+                .circuit()
+        ),
+        circuit_address
+    );
+
+    let ExactExecutableOwnerSelection::Descending { cell, .. } = sealed
+        .executable_cover()
+        .try_select_at(
+            generator.context(),
+            &IntegralKey::try_new([2]).unwrap(),
+            GuardDecisionEvaluationLimits::default(),
+        )
+        .unwrap()
+    else {
+        panic!("the sealed tadpole cover must retain its executable recurrence")
+    };
+    assert_eq!(cell as *const _, cell_address);
+    assert!(weak_owner.upgrade().is_some());
+    assert!(weak_epoch.upgrade().is_some());
+    assert!(weak_semantic.upgrade().is_some());
+    assert!(weak_circuit.upgrade().is_some());
+}
+
+#[test]
+fn closed_seal_rejects_a_finite_cover_without_explicit_terminal_ownership() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let owner = compiled_tadpole_owner(&artifact, &generator, &completed, 1, [2, 3]);
+    let cover = ExactExecutableOwnerCover::try_compile(
+        generator.context(),
+        vec![owner],
+        Vec::new(),
+        ExactExecutableOwnerLimits::default(),
+    )
+    .unwrap();
+
+    assert!(matches!(
+        ClosedExactExecutableOwnerCover::try_seal(cover),
+        Err(ExactExecutableOwnerError::CoverNotClosed {
+            obstruction: ExactOwnerCoverObstructionKind::FiniteTerminalOwnership,
+        })
+    ));
+}
+
+#[test]
+fn closed_seal_rechecks_the_exact_predecessor_scope_of_every_owner() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let first_owner = compiled_tadpole_owner(&artifact, &generator, &completed, 1, [2, 3]);
+    let second_owner = compiled_tadpole_owner(&artifact, &generator, &completed, 2, [3, 4]);
+    let mut cover = ExactExecutableOwnerCover::try_compile(
+        generator.context(),
+        vec![first_owner, second_owner],
+        vec![IntegralKey::try_new([1]).unwrap()],
+        ExactExecutableOwnerLimits::default(),
+    )
+    .unwrap();
+
+    let predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        &artifact,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let campaign = ProbeLocalSchedulerLimits::default().campaign;
+    let batch = canonical_tadpole_batch_from_probes_and_owners(
+        &artifact,
+        &generator,
+        &completed,
+        2,
+        [
+            CampaignModularProbe::try_new(PRIME, [37], [3], campaign).unwrap(),
+            CampaignModularProbe::try_new(PRIME, [37], [4], campaign).unwrap(),
+        ],
+        predecessor,
+    );
+    let ExactExecutableOwnerProposal::Compiled {
+        owner: foreign_snapshot_owner,
+        obstructions,
+    } = try_compile_canonical_executable_owner(
+        generator.context(),
+        batch,
+        ExactExecutableOwnerLimits::default(),
+    )
+    .unwrap()
+    else {
+        panic!("the alternate-snapshot tadpole candidate must compile")
+    };
+    assert!(obstructions.is_empty());
+
+    // Test-only corruption seam: the proof and first executable owner still
+    // name the original empty snapshot, while the second owner now retains
+    // another exact epoch.
+    cover.owners[1] = foreign_snapshot_owner;
+    assert!(matches!(
+        ClosedExactExecutableOwnerCover::try_seal(cover),
+        Err(ExactExecutableOwnerError::ClosedCoverScopeMismatch {
+            owner: 1,
+            detail: "predecessor snapshot identity differs",
+        })
     ));
 }

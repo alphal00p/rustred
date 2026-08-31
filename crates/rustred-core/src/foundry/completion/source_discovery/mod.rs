@@ -47,9 +47,10 @@ pub(crate) use model::{
 };
 #[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
 pub(crate) use owner_bundle::{
-    ExactExecutableCandidateObstruction, ExactExecutableOwnerCover, ExactExecutableOwnerError,
-    ExactExecutableOwnerLimits, ExactExecutableOwnerObstruction, ExactExecutableOwnerProposal,
-    ExactExecutableOwnerSelection, ExactSemanticExecutableOwner, UnpublishedCanonicalOwnerProposal,
+    ClosedExactExecutableOwnerCover, ExactExecutableCandidateObstruction,
+    ExactExecutableOwnerCover, ExactExecutableOwnerError, ExactExecutableOwnerLimits,
+    ExactExecutableOwnerObstruction, ExactExecutableOwnerProposal, ExactExecutableOwnerSelection,
+    ExactSemanticExecutableOwner, UnpublishedCanonicalOwnerProposal,
     try_compile_canonical_executable_owner,
 };
 #[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.

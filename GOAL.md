@@ -113,14 +113,17 @@ test-only fraction-free reconstruction also demonstrates on the canonical K6
 S4a circuit that ten elimination-induced guards can be replaced by its one
 mandatory target-coefficient guard with exact source cofactors and full column
 replay; it has no production or closure authority until its measured promotion
-gates pass. The first all-orbit degree-one owner sweep is now measured and
-regression-pinned across the six full-rank K6 sector representatives. All 17
+gates pass. The first all-orbit degree-one semantic-owner-input sweep is now
+measured and regression-pinned across the six full-rank K6 sector
+representatives. All 17
 modular nominations lift and replay exactly, but they provide only
-`0, 3, 2, 2, 3, 7` admitted owners (with `0, 1, 0, 0, 1, 3` guard-total), and
+`0, 3, 2, 2, 3, 7` semantic owner inputs (of which `0, 1, 0, 0, 1, 3`
+compile as guard-total owners), and
 every compiled cover remains `NonFinite`; the empty first sector is reported as
-`NoAdmittedOwners`, never as closure. The audited combined degree-one/degree-two
-S4a sweep adds 22 exactly replayed degree-two owners to the two degree-one
-owners, with zero lift failures or exact-content duplicates. Its one
+`NoSemanticOwnerInputs`, never as closure. The audited combined
+degree-one/degree-two S4a sweep adds 22 exactly replayed degree-two semantic
+inputs to the two degree-one inputs, with zero lift failures or exact-content
+duplicates. Its one
 guard-total owner reduces the maximal uncovered dimension from six to five,
 but the cover remains `NonFinite` with three unbounded five-dimensional boxes
 and no terminals. Blind prolongation therefore helps without closing the
@@ -194,7 +197,11 @@ obstructions without granting them coverage, and transactionally replaces the
 whole exact owner cover. Retry probes influence promotion only through their
 deduplicated exact anchors in canonical coordinate order. Finite undeclared
 terminals and guard/complement gaps remain explicit `Incomplete` outcomes.
-The remaining production boundary seals a successfully closed cover as one
+A consuming seal now accepts only an exactly `Closed` executable cover,
+retains its predecessor snapshot by strong ownership, and rechecks the common
+family, context, sector, ordering, and exact snapshot across every owner
+without recompiling or cloning its circuits and `RuleCell`s. The remaining
+production boundary wraps that sealed cover as one content-identified
 immutable solved-sector layer and feeds it into the next dependency task.
 
 On the Vakint side, the shared multimethod harness now exercises 21 applicable

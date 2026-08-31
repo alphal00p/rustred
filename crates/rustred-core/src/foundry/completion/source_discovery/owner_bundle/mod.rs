@@ -6,11 +6,13 @@
 //! exposes only whole-cover transactions.  A failed rebuild leaves the
 //! previously published in-memory cover untouched.
 
+mod closed;
 mod compile;
 mod error;
 mod limits;
 mod model;
 
+pub(crate) use closed::ClosedExactExecutableOwnerCover;
 pub(crate) use compile::try_compile_canonical_executable_owner;
 pub(crate) use error::ExactExecutableOwnerError;
 pub(crate) use limits::ExactExecutableOwnerLimits;

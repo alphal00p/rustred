@@ -1,4 +1,4 @@
-//! Deterministic telemetry for bounded exact-owner sweeps.
+//! Deterministic telemetry for bounded semantic-owner-input sweeps.
 
 use crate::foundry::completion::frame::admission::ExactOwnerCoverStatus;
 use crate::sector::Mask;
@@ -20,7 +20,9 @@ pub(super) struct DegreeSweepTelemetry {
     /// degree-local target. Modular support and sample identity never enter
     /// this count.
     pub(super) exact_content_duplicates: usize,
-    pub(super) admitted_owners: usize,
+    /// Exactly replayed circuits compiled into semantic owner-cover inputs.
+    /// This does not imply guarded executable `RuleCell` promotion.
+    pub(super) semantic_owner_inputs: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,15 +30,15 @@ pub(super) struct SectorSweepTelemetry {
     pub(super) sector: Mask,
     pub(super) ordinary_sources: usize,
     pub(super) degrees: Box<[DegreeSweepTelemetry]>,
-    pub(super) admitted_owners: usize,
+    pub(super) semantic_owner_inputs: usize,
     pub(super) cover: SweepCoverTelemetry,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SweepCoverTelemetry {
-    /// The bounded modular discovery budget nominated no replayed owner. The
-    /// cover compiler was called and returned its typed empty-input error.
-    NoAdmittedOwners {
+    /// The bounded modular discovery budget produced no replayed semantic
+    /// owner input. The cover compiler returned its typed empty-input error.
+    NoSemanticOwnerInputs {
         /// With no owner orthant, the entire sector chart remains uncovered.
         full_orthant_free_dimension: usize,
     },

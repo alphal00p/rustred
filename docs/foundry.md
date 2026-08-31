@@ -515,9 +515,14 @@ authority by itself. Only a verified whole-layer cover can be copied into a
 later snapshot as a transitive owner. Propagator-count descent makes the layer
 graph acyclic; same-sector terms remain governed by the global strict order.
 This removes the apparent bootstrap cycle without requiring the final parent
-artifact to exist during discovery. The layer type, its disjoint-cover
-certificate, and its content-bound persistence are now the next owner-boundary
-implementation; they are not yet present in the production foundry.
+artifact to exist during discovery. The first boundary is now present:
+`ClosedExactExecutableOwnerCover` consumes only an exactly closed cover,
+strongly owns its exact predecessor snapshot, rechecks every owner's complete
+scope, and preserves the already paired proof circuits and executable cells.
+It deliberately has no weak pointer- or label-derived identity. The solved
+layer type, its content-bound identity, snapshot extension, and persistence are
+the next owner-boundary implementation; they are not yet present in the
+production foundry.
 
 The proposed layer cover is deliberately hybrid. An immutable half-open
 axis-block trie is the disjoint coordinate authority; a hash-consed ordered
@@ -650,13 +655,14 @@ only an exact momentum/denominator transformation with the correct Jacobian
 may quotient work. A verified symmetry maps a query to a representative; it
 cannot turn an unresolved representative into a closed one.
 
-Today, tasks can consume an immutable owner snapshot, but `ClosedSectorLayer`,
-its disjoint-cover certificate, persistent solved-sector feedback, and the
-cross-sector fixed-point scheduler are not implemented. The future scheduler
-must feed solved proper subsectors into parent work through immutable,
-fingerprint-bound dependencies and repeat sector solving, exceptional
-refinement, and dependency substitution to a deterministic fixed point.
-Arrival order or worker count must not change the semantic artifact.
+Today, tasks can consume an immutable owner snapshot and seal one exactly
+closed executable owner cover, but `ClosedSectorLayer`, its content-bound
+identity, persistent solved-sector snapshot feedback, and the cross-sector
+fixed-point scheduler are not implemented. The future scheduler must feed
+solved proper subsectors into parent work through immutable, fingerprint-bound
+dependencies and repeat sector solving, exceptional refinement, and dependency
+substitution to a deterministic fixed point. Arrival order or worker count must
+not change the semantic artifact.
 
 ## Residual recentering
 

@@ -1,8 +1,9 @@
-//! Bounded exact-owner sweeps for canonical three-loop sectors.
+//! Bounded semantic-owner-input sweeps for canonical three-loop sectors.
 //!
 //! These tests are discovery telemetry, not production artifact authority.
-//! Every retained owner survives exact lift, full replay, semantic admission,
-//! and a cold outer-extension proof. Modular no-hits remain inconclusive.
+//! Every retained semantic input survives exact lift, full replay, semantic
+//! DAG compilation, and a cold outer-extension proof. It does not pass
+//! guarded executable `RuleCell` promotion. Modular no-hits remain inconclusive.
 
 mod expected;
 mod limits;
@@ -26,7 +27,7 @@ fn canonical_s4a_degree_one_reports_an_exact_owner_cover_obstruction() {
     let sector = Mask::try_from_indices(&CANONICAL_S4A).unwrap();
     let report = sweep_sector(sector.clone(), DEGREE_ONE).unwrap();
     let repeated = sweep_sector(sector, DEGREE_ONE).unwrap();
-    eprintln!("K6 S4a degree-one exact owner sweep: {report:#?}");
+    eprintln!("K6 S4a degree-one semantic owner-input sweep: {report:#?}");
     assert_eq!(report, repeated);
     assert_structural_accounting(&report);
     let degree = &report.degrees[0];
@@ -44,7 +45,7 @@ fn canonical_s4a_degree_one_reports_an_exact_owner_cover_obstruction() {
 }
 
 #[test]
-fn every_full_rank_orbit_has_bounded_exact_owner_sweep_telemetry() {
+fn every_full_rank_orbit_has_bounded_semantic_owner_input_sweep_telemetry() {
     assert_eq!(
         FULL_RANK_ORBITS.map(|orbit| orbit.representative),
         EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP.map(|expected| expected.representative),
@@ -57,7 +58,7 @@ fn every_full_rank_orbit_has_bounded_exact_owner_sweep_telemetry() {
         )
         .unwrap();
         eprintln!(
-            "K6 orbit {:?} degree-one exact owner sweep: {report:#?}",
+            "K6 orbit {:?} degree-one semantic owner-input sweep: {report:#?}",
             expected.representative
         );
         assert_structural_accounting(&report);
@@ -71,7 +72,7 @@ fn canonical_s4a_mixed_degree_reports_the_exact_owner_cover_obstruction() {
     let sector = Mask::try_from_indices(&CANONICAL_S4A).unwrap();
     let report = sweep_sector(sector.clone(), DEGREE_ONE_AND_TWO).unwrap();
     let repeated = sweep_sector(sector, DEGREE_ONE_AND_TWO).unwrap();
-    eprintln!("K6 S4a degree-one plus degree-two exact owner sweep: {report:#?}");
+    eprintln!("K6 S4a degree-one plus degree-two semantic owner-input sweep: {report:#?}");
     assert_eq!(report, repeated);
     assert_structural_accounting(&report);
     assert_eq!(report.degrees.len(), 2);

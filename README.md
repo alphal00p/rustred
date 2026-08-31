@@ -323,10 +323,13 @@ authority, and pointer-pairs each admitted cell with its semantic circuit.
 Whole-cover compilation canonically sorts owners and terminals; insertion
 publishes only after a complete replacement cover and every pairing check
 succeeds. `Incomplete` remains the only answer for an unbounded geometric
-complement, unresolved guard branch, or undeclared finite terminal. The next
-K6 production boundary is to feed these compiled covers into immutable solved-
-sector snapshots and run the dependency DAG bottom-up. RustRed still has no
-closed K6 artifact.
+complement, unresolved guard branch, or undeclared finite terminal. A consuming
+seal now rejects every such incomplete cover, strongly retains the exact
+predecessor snapshot, and rechecks the complete common execution scope of every
+owner while preserving the existing proof/circuit/`RuleCell` pairing. The next
+K6 production boundary is to give that sealed cover a content-bound immutable
+solved-sector identity, extend later snapshots with it, and run the dependency
+DAG bottom-up. RustRed still has no closed K6 artifact.
 
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,

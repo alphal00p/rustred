@@ -66,12 +66,13 @@ one-sided chart frames have:
 | 2 | 28 | 252 | 2,520 | 488 | 22 | 22 |
 | 3 | 84 | 756 | 7,560 | 1,191 | not a pinned sweep | not a pinned sweep |
 
-Across all six full-rank sector orbits, the pinned degree-one sweep produced owner counts
-`0, 3, 2, 2, 3, 7`. All 17 modular hits replayed exactly. Only five admitted owners were
-individually guard-total, and the maximal uncovered free dimensions remained
-`6, 5, 6, 6, 5, 5`. The combined S4a degree-one plus degree-two sweep admitted 24 owners but only
-one guard-total owner; its exact complement still consists of three five-dimensional unbounded
-boxes. Increasing degree produced real relations but did not solve closure.
+Across all six full-rank sector orbits, the pinned degree-one sweep produced
+semantic-owner-input counts `0, 3, 2, 2, 3, 7`. All 17 modular hits replayed exactly. Only five of
+those inputs compiled as individually guard-total owners, and the maximal uncovered free dimensions
+remained `6, 5, 6, 6, 5, 5`. The combined S4a degree-one plus degree-two sweep supplied 24 semantic
+owner inputs but only one guard-total owner; its exact complement still consists of three
+five-dimensional unbounded boxes. Increasing degree produced real relations but did not solve
+closure.
 
 These frames remain controls. The inverse-incidence lane must beat them in exact cover improvement,
 not merely in row count or modular hit rate.
