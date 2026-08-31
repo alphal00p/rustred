@@ -245,6 +245,32 @@ does not yet prove a symbolic bulk/wall recurrence. The next decisive result is 
 hit but the first exactly replayed lifted owner that strictly removes one of the current unbounded
 path/star complement components.
 
+The subsequent AlphaLoop forensic explains how those fixed endpoints sit in
+an all-rank closure hierarchy. It does not reveal a new master. A guard-free
+unimodular routing/factorization identity first moves the relevant path/star
+representatives into a common chart. Its maximal three-inactive-coordinate
+interior has a 14-child ordinary-IBP recurrence with affine pivot
+`y+z+2-d`; every same-sector child lowers total inactive depth
+`H=-x-y-z`, while the remaining children enter immutable lower sectors. The
+exact complement left after that interior box exposes a two-coordinate face
+with pivot `x+y+2-d`, then a one-coordinate ray with pivot `x+2-d`, and then
+the installed triple-tadpole factorization root. This is a concrete K6
+realization of counterexample-guided upward completion: bulk first, followed
+by precisely the walls made visible by the new cover.
+
+The forensic also supplies a mandatory negative control for candidate
+lifting. At the first boundary anchor, several generic child coefficients
+vanish, so endpoint support is strictly smaller than interior support. For a
+declared coefficient-degree ceiling `p`, sample a complete simplex of
+interior chart points after raising every free coordinate away from its lower
+wall. Support agreement on that unisolvent block and held-out points is only a
+proposal signal. Promotion still reconstructs the symbolic source
+combination over Symbolica's exact rational-function field, factors its pivot
+with Symbolica, replays every ordinary source, proves uniform descent, and
+subtracts an exact positive-dimensional owner. FORM-derived support and
+coefficients are excluded from discovery inputs; an oracle-disabled rebuild
+is the acceptance test.
+
 #### Semantic generic-parameter guard atoms
 
 **Verified algebra.** For algebraically independent generic parameters `lambda`, expand a pulled-

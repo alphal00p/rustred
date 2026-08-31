@@ -115,6 +115,65 @@ oracle-negative regression set. They must not be used to reject a replayed
 RustRed relation, and the future Vakint fix must reproduce the exact nonzero
 values before triple-inactive MATAD comparisons become gating.
 
+### AlphaLoop forensic: an interior/face/ray closure hierarchy
+
+A direct trace through Vakint's AlphaLoop route resolves the apparent
+contradiction. Vakint first maps canonical `I3L` powers to AlphaLoop's
+internal order as
+
+```text
+[n1,n2,n3,n4,n5,n6] -> [n1,n3,n2,n4,n6,n5].
+```
+
+The path representative has a guard-free loop-routing identity that removes
+one inactive numerator by expanding a fixed affine combination of denominator
+lowering operators and the common mass. At numerator rank `N` its direct
+expansion has simplex cardinality `binomial(N+6,6)`. RustRed must not store or
+apply that rank-growing expansion: the same exact affine identity can instead
+be compiled into a constant-width one-step recurrence, derived automatically
+from the authenticated denominator forms and unimodular routing witness.
+
+After a guard-free routing of the star representative, the genuine IBP part
+forms a nested parametric hierarchy. In the internal chart
+
+```text
+U(x,y,z) = uvid(3,1,x,y,1,z,1,1),
+x,y <= 0, z < 0,
+```
+
+the maximal interior rule has 14 children and pivot
+`G = y+z+2-d`. Every same-sector child strictly lowers the total inactive
+depth `H = -x-y-z`; the other children pinch an active line. At `z=0` the
+route switches to a two-dimensional face rule with pivot `x+y+2-d`, then to a
+one-dimensional ray with pivot `x+2-d`, and finally to the installed
+triple-tadpole factorization terminal. AlphaLoop obtains exactly
+
+```text
+path:  2 (d+2)^2 / d^2
+star:  (d^2-8) / d^2
+```
+
+on the two oracle-negative inputs. MATAD loses these expressions in its
+three-loop partial-fraction/mass-pattern prepass before its top-family reducer;
+the zeros are therefore a preprocessing defect, not zero-integral evidence.
+
+This trace is diagnostic only. No FORM rule, support, coefficient, topology
+name, or pivot may enter production RustRed. The oracle-free regression starts
+from the family, its nine regenerated ordinary IBPs, graph/routing compiler,
+zero sectors, and immutable lower owners. It must rediscover and replay the
+interior rule, subtract its exact owned box, then let the exposed face and ray
+choose the next sources. Repeating the run with every oracle fixture disabled
+is mandatory.
+
+There is an important interpolation trap. At the boundary point `z=-1`, all
+terms proportional to `z+1` disappear, so a single triple-negative endpoint
+cannot reveal the generic source or child support. Candidate lifting must use
+a deterministic interior unisolvent set, require transported-support
+stability at additional points, solve over exact symbolic indices with
+Symbolica, and retain boundary points as separate closure obligations. The
+observed affine coefficient degree and shift radius are useful bounded K6
+priors, never completeness assumptions.
+
 ### Current nine diagnostic inputs
 
 The three scalar corners are:

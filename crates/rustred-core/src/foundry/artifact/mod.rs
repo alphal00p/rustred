@@ -31,7 +31,9 @@ pub use two_loop::derive_two_loop_unit_mass_sunset;
 pub(crate) use terminal::ClosedTerminalAuthority;
 
 #[cfg(test)]
-pub(crate) use three_loop::{derive_k6_terminal_authority, fresh_k6_terminal_authority_for_test};
+pub(crate) use three_loop::{
+    FULL_RANK_ORBITS, derive_k6_terminal_authority, fresh_k6_terminal_authority_for_test,
+};
 
 #[cfg(test)]
 pub(crate) use three_loop::canonical_family as canonical_three_loop_family;

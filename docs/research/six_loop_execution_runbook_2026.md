@@ -853,6 +853,18 @@ discard every stale task from the previous
 geometry epoch. Path and star use reserved quotas and publish only together on
 the same immutable 32-owner predecessor.
 
+Do not confuse those boundary-oriented seed waves with a symbolic
+interpolation set. The AlphaLoop forensic proves that generic K6 child support
+can disappear at the first boundary point: factors such as `z+1` vanish at
+`z=-1`. When a support is nominated, raise every unbounded chart coordinate by
+an explicit positive interior margin and sample the complete simplex required
+by the declared coefficient-degree ceiling. Require support stability at
+held-out interior points before attempting the exact lift. The sample block is
+still proposal evidence; only symbolic ordinary-source replay, whole-domain
+descent, guards, and a strict `BoxCover` delta confer authority. Degree and
+radius grow fairly after a failed bounded attempt, and no AlphaLoop support or
+coefficient enters the request.
+
 Prefer a symbolic maximal-orthant lift: retain every free box coordinate as an
 index, and use the sampled integer point only to discover source support. Such
 a rule can pass the existing outer-extension authority without adding a new

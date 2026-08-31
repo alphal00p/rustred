@@ -14,6 +14,8 @@ mod cells;
 mod closure_sweep;
 #[cfg(test)]
 mod factorization;
+#[cfg(test)]
+mod factorized_numerator_lift;
 mod family;
 #[cfg(test)]
 mod isp_shell_probe;
@@ -32,6 +34,8 @@ mod terminals;
 mod tests;
 
 pub(crate) use family::canonical_family;
+#[cfg(test)]
+pub(crate) use manifest::FULL_RANK_ORBITS;
 pub(crate) use symmetry::canonical_s4;
 #[cfg(test)]
 pub(crate) use terminal_authority::{

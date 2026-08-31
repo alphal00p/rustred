@@ -9,6 +9,8 @@ mod canonical_replay;
 mod dual;
 mod error;
 mod incidence;
+mod interior_replay;
+pub(crate) mod interior_simplex;
 pub(crate) mod leader_walk;
 mod limits;
 mod model;
@@ -45,6 +47,14 @@ pub(crate) use dual::{
 };
 pub(crate) use error::SourceDiscoveryError;
 pub(crate) use incidence::OrdinarySourceIncidenceIndex;
+#[allow(unused_imports)] // Consumed by the staged interior-simplex orchestrator.
+pub(crate) use interior_replay::{
+    InteriorReplayAttemptCensus, InteriorReplayCandidateSupport, InteriorReplayRelativeResidual,
+    InteriorReplayRelativeSource, InteriorReplayRunDisposition, InteriorReplayRunError,
+    InteriorReplayRunLimits, InteriorReplaySchedulerOutcomeCensus, InteriorReplaySupportCensus,
+    InteriorReplaySupportSet, InteriorReplayTaskReport, support_shapes_match,
+    try_run_interior_replay_task,
+};
 pub(crate) use limits::SourceDiscoveryLimits;
 pub(crate) use model::{
     IncidentTranslationNominations, NonzeroIncidentTranslationResiduals, ResidualProposalScore,
