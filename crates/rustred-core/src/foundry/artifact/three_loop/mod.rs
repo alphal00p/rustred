@@ -9,6 +9,8 @@
 #[cfg(test)]
 mod cells;
 #[cfg(test)]
+mod closure_sweep;
+#[cfg(test)]
 mod factorization;
 mod family;
 mod manifest;
