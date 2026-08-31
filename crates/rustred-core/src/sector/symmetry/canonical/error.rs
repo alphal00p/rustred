@@ -25,6 +25,16 @@ pub enum Error {
         expected: usize,
         actual: usize,
     },
+    #[cfg(test)]
+    WrongPriorityArity {
+        expected: usize,
+        actual: usize,
+    },
+    #[cfg(test)]
+    UnknownGroupElement {
+        ordinal: usize,
+        group_order: usize,
+    },
     ResourceCountOverflow {
         resource: &'static str,
     },
@@ -73,6 +83,19 @@ impl fmt::Display for Error {
             Self::WrongKeyArity { expected, actual } => write!(
                 formatter,
                 "integral key has arity {actual}; the symmetry action expects {expected}"
+            ),
+            #[cfg(test)]
+            Self::WrongPriorityArity { expected, actual } => write!(
+                formatter,
+                "coordinate priority has arity {actual}; the symmetry action expects {expected}"
+            ),
+            #[cfg(test)]
+            Self::UnknownGroupElement {
+                ordinal,
+                group_order,
+            } => write!(
+                formatter,
+                "canonical symmetry group element {ordinal} is outside a group of order {group_order}"
             ),
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "canonical symmetry {resource} overflowed usize")

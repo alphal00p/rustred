@@ -174,6 +174,77 @@ must be converted to an exact implication witness before it enters this trusted 
 unbounded affine wall, congruence class, or nonlinear integer wall is a hard `Incomplete`, never a
 terminal label.
 
+### Counterexample-guided blind-sector completion
+
+The operational interpretation of the proposed "start at fixed integer powers, walk upward, and
+pick the next powers from the blind sector" clue is a counterexample-guided completion algorithm,
+not an enumeration algorithm. It is consistent with the feedback loop in the 2026
+[generating-function algorithm](https://arxiv.org/abs/2605.09541), which tests completeness on the
+index lattice and uses the surviving geometry to request new descendants. RustRed adds exact
+ordinary-source provenance, guarded ownership, and a finite-versus-unbounded complement
+certificate. In one sector, write its powers in the pointed chart
+
+```text
+a_i = 1 + x_i  for an active denominator,
+a_i =    -x_i  for an inactive denominator,        x in N^K.
+```
+
+After every deterministic wave, compute the **exact** complement of the accepted leading regions.
+Choose an unbounded component `u + N^F`, sample a fair sequence of integer points in its interior,
+and instantiate ordinary translated IBPs only near those points. Modular arithmetic may identify a
+useful support, pivot, and source combination, but the integer point is only a counterexample to
+the current cover. Before admission, RustRed must replace every free coordinate in `F` by a symbolic
+index, reconstruct an exact recurrence, replay it as a combination of ordinary IBPs, prove its
+pulled-back guard and uniform strict descent, and show that it owns a new infinite subcone. If the
+generic lift fails because a coefficient vanishes on a face, recurse on that exact lower-dimensional
+face. A fixed-point relation that cannot be lifted remains discovery telemetry and shrinks no cover.
+
+This yields the following certified loop:
+
+```text
+seal lower sectors and freeze one global integral order
+repeat fairly over the maximum-free-dimension blind components:
+    choose an uncovered integer leader and a bounded local source frame
+    discover candidate support modularly
+    reconstruct and ordinary-source-replay a symbolic bulk or face recurrence
+    accept only a guard-total, strictly descending executable owner
+    recompute the exact complement and require strict set shrinkage
+until the complement is empty or finite
+retain every authenticated finite survivor as an explicit, possibly nonminimal terminal
+```
+
+There is a useful conditional termination statement. A guard-total rule with leader `ell` owns the
+upward cone `ell + N^K`; the accepted leaders generate a monomial ideal. Every accepted bulk rule
+strictly enlarges that ideal, so Dickson's lemma forbids an infinite chain of such enlargements. The
+same argument applies within a tube `u + N^F`. Global termination follows **if** every unbounded
+blind component eventually yields such a lift and every exceptional split has finitely many
+children of strictly lower chart dimension. The discovery-oracle and finite-stratification
+hypotheses are not theorems about generic IBPs. A cap stop, singular modular sample, failed lift, or
+bounded no-progress wave is therefore typed `Incomplete`, never a master certificate.
+
+[Lee's nested operator schedule](https://arxiv.org/abs/0804.3008) supplies a principled queue order.
+For an `L`-loop vacuum family it orders `L(L+1)/2` operators so that the next operator need only be
+generated on the blind region left by earlier ones; the remaining `L(L-1)/2` ordinary operators
+repair the residue. RustRed should combine that redundancy criterion with exact complement geometry
+rather than assume the heuristic claim that every operator automatically removes one blind
+dimension. A [Janet/involutive difference-basis](https://arxiv.org/abs/1206.3463) lane can
+independently audit the remaining nonmultiplicative prolongations once the sector chart is proved to
+be a faithful one-sided difference-module representation.
+
+The first K6 endpoint experiment materially improves the outlook. For both three-line path and star
+sectors, the three inactive K4 coordinates form an ISP basis. Complete cumulative triangular shells
+through inactive total degree three contain only `4`, `10`, and `20` offsets, compared with `7`,
+`28`, and `84` full six-coordinate shell points. Exact combinations of all nine ordinary K6 IBPs
+reduce all 12 path and six star stabilizer-orbit representatives through degree three to the
+installed factorized root. The test pins every coefficient, exact ordinary-source replay, strict
+descent, symmetry/zero projection, and the complete `36/90/180` source-row levels. The observed
+relations include path coefficients `2`, `1`, `2(d+2)/d`, and
+`2(d+2)^2/d^2`, and star coefficients `1`, `1`, and `(d^2-8)/d^2` on the successive tested
+inactive monomials. This proves that the required ordinary identities exist at those endpoints; it
+does not yet prove a symbolic bulk/wall recurrence. The next decisive result is not another endpoint
+hit but the first exactly replayed lifted owner that strictly removes one of the current unbounded
+path/star complement components.
+
 #### Semantic generic-parameter guard atoms
 
 **Verified algebra.** For algebraically independent generic parameters `lambda`, expand a pulled-
@@ -447,6 +518,17 @@ boundary must either join an already certified rule cell or remain an explicit s
 obligation. CALICO is a promising source generator on the physical unit-mass stratum, not a
 closure authority.
 
+The immediate K6 falsifier is more specific. In the path and star sectors, the three inactive K4
+denominator slots are precisely an ISP basis for the contracted topology. Construct complete
+triangular levels `T^3[m]` in those inactive shifts, grouped by the exact coefficient degree of an
+IBP-generating vector, and solve for free source-combination parameters that eliminate every
+non-wall-hugging same-sector term. Recurse over faces where one, then two, inactive powers vanish.
+Compare these level-complete systems against the present translated-row frames and the MATAD oracle:
+the lane advances only if it produces a new exactly replayed guard-total rule and shrinks an
+unbounded path/star `BoxCover` component. This is especially relevant because the seedless examples
+need successively deeper levels on boundaries, while propagator lowering and general termination
+remain open; the experiment is a targeted candidate generator, not a completeness theorem.
+
 ### Generating-function prolongations and syzygy-compressed rules
 
 **Verified result.** The generating-function construction packages every integral in one sector
@@ -578,17 +660,45 @@ chosen integral ordering, but it publishes neither the ordering formula nor a cl
 [*Nonlocal-in-time tail effects in gravitational scattering*, Section IV](https://arxiv.org/html/2604.25916v1#S4),
 arXiv:`2604.25916`.
 
-RustRed must keep three notions separate. Symbolica coefficient-variable order and equation/pivot
-insertion order can change arithmetic and sparse fill but not the exact row space. Integral/shift
-column order can instead change leaders, the forbidden/right-hand-side split, the triangular route,
-and the resulting nonminimal terminal basis. The artifact's sector-monotone, well-founded integral
-order is therefore still a correctness witness, but an ordering-policy experiment may select a
-different witness only by assigning it a stable identity and freezing it for the complete campaign,
-admission, and application path.
+RustRed must keep three notions separate. For one fixed exact matrix and fixed next pivot column,
+equation insertion and canonically normalized pivot-row scheduling can change arithmetic and sparse
+fill without changing the row space. Pivot-column or leader eligibility is semantic: it can change
+the forbidden/right-hand-side split, triangular route, and nonminimal terminal basis. Coefficient-
+variable order is likewise only cost-level when no Gröbner leading ideal or guard decomposition can
+depend on it. The artifact's sector-monotone, well-founded integral order remains a correctness
+witness; an experiment may select a different witness only by assigning it a stable identity and
+freezing it for the complete campaign, admission, and application path.
 
-For K6, enumerate the `6!` complete edge-priority permutations and quotient them by the K4 `S4`
-automorphism action, leaving at most 30 inequivalent policies. Screen all policies modularly on the
-same path/star translated rows, samples, predecessor snapshot, and aggregate budgets. Retain the
+Implement this in two authority-separated phases. A proposal-only coordinate priority may first
+change deterministic request, row, or telemetry chronology while every partition, canonicalizer,
+descent witness, rule, terminal, and artifact remains on the existing persisted order. Its output is
+only a cost/search report and can never be converted into executable authority. A semantic finalist
+must instead be rebuilt from fresh inputs under an arity-bound persisted integral order; that exact
+descriptor must own the campaign and artifact globally and agree with every rule, cell, symmetry
+canonicalizer, same-family owner layer, descent witness, and reducer invocation. Budget exhaustion
+in either phase is inconclusive.
+
+For K6, the `S4` action on complete six-edge priorities is free, so quotienting the `6!` policies
+leaves 30 global policy orbits **only when the entire campaign task is transported with the
+policy**. A fixed path representative has stabilizer order two and therefore 360 policy classes; a
+fixed star has stabilizer order six and 120. It is invalid to screen 30 priorities against fixed
+path/star coordinate representatives and call that exhaustive.
+
+Use the 30 global representatives by evaluating each on the same complete transported task bundle:
+sector, stratum, target, source requests, terminal/owner routes, and canonicalizer all move under
+every authenticated `S4` route before telemetry is aggregated. Equivalently, a deliberately fixed
+representative experiment must use its stabilizer quotient. For the present path-plus-star census,
+the nontrivial path stabilizer does not stabilize the chosen star, so the joint fixed bundle has
+trivial stabilizer and would require all 720 priorities. The implemented bounded diagonal census is
+30 priority-orbit representatives times the 12 path and four star **sector-mask** images: 480
+structural pairs. This is portfolio accounting, not yet a partition screen: it may be promoted to 480
+runs only after every omitted stratum/request/owner payload is proved invariant under the relevant
+mask stabilizer. The current modular chart sample `[1,2,3,4,5,6]` breaks every nonidentity stabilizer,
+so its decorated census has 24 path and 24 star images and 1,440 query cases. Do not collapse those
+to 16 sector masks: either retain the two path and six star route/probe variants, or first introduce
+and validate a genuinely stabilizer-invariant probe ensemble. Count each distinct decorated task
+image once and transport telemetry back to one canonical chart before comparison. Keep samples,
+predecessor authority, and one aggregate budget per policy identical after transport. Retain the
 baseline and at most four finalists for exact lifting and full closure sweeps. Separately benchmark
 coefficient-variable, equation, pivot, mother, derivative, request, predicted-fill, and
 symmetry-orbit orders under each fixed integral policy. Record admissible leaders, cutters, modular
@@ -596,10 +706,18 @@ and exact fill, selected-row count, exact-lift cost, guard complexity, terminal 
 `BoxCover` delta. A policy matters only if it shrinks the exact unbounded complement or creates an
 additional guard-total descending cell—not merely because modular RREF is faster.
 
+Interpret those auxiliary schedules conservatively. Request, mother, derivative, and symmetry
+interleavings change proposal yield under any finite cap, so exhaustion is inconclusive. Pivot-row
+scheduling is cost-only only for a fixed next column after exact canonical normalization;
+pivot-column selection is semantic. Different certificates must be canonically reprojected before
+byte comparison, and coefficient-variable order is semantic whenever it changes leading ideals or
+exceptional-guard stratification.
+
 Canonical accepted content must be byte-identical across insertion orders and supported worker
 counts *within one persisted integral-order policy*. Different integral-order policies may produce
 different valid artifacts and terminal sets; each must independently pass exact replay, guard,
-owner, and strict-descent authority. At K21 the symmetry quotient of all edge orders is still
+owner, and strict-descent authority. Tests must prove orbit coverage, stabilizer counts, and
+equivariance of transported telemetry. At K21 the symmetry quotient of all edge orders is still
 astronomical, so any surviving strategy must become a small graph-canonical portfolio based on
 edge-orbit features, obstruction scores, guard complexity, and sparse min-fill estimates, with K10
 and K15 kill gates before promotion.

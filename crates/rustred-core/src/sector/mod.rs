@@ -47,6 +47,8 @@ pub use monotone::{
     SectorMonotoneTargetCells, SectorMonotoneTargetPartition, SectorMonotoneTargetPartitionCensus,
 };
 pub use ordering::{ComplexityComponent, ComplexityKey, OrderingPolicy, StrictDescentWitness};
+#[cfg(test)]
+pub(crate) use ordering::{CoordinatePriority, CoordinatePriorityError, CoordinatePriorityLimits};
 pub use restriction::{
     CutConstraint, Exclusion, Pattern, PatternMismatch, PatternSlot, Restrictions,
 };

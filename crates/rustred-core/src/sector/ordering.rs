@@ -5,6 +5,14 @@ use std::sync::Arc;
 use super::error::{Error, try_copy_string, try_reserve_exact};
 use super::mask::Mask;
 
+#[cfg(test)]
+mod coordinate_priority;
+
+#[cfg(test)]
+pub(crate) use coordinate_priority::{
+    CoordinatePriority, CoordinatePriorityError, CoordinatePriorityLimits,
+};
+
 /// Stable identifier of RustRed's first deterministic integral order.
 pub(super) const RUSTRED_UNSHIFTED_ORDER_V1_ID: &str = "rustred.unshifted-sector-order.v1";
 #[cfg(test)]

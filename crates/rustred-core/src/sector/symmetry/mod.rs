@@ -25,6 +25,8 @@ pub use canonical::{
     Error as CanonicalizationError, ExactOrbit, NoHarderWitness, OrbitImage, RoutingCoefficient,
     RoutingWitness,
 };
+#[cfg(test)]
+pub(crate) use canonical::{CoordinatePriorityActionLimits, CoordinatePriorityQuotient};
 pub use condition::{ConditionSource, NonZeroCondition};
 pub use error::Error;
 pub use limits::{DEFAULT_MAX_MATRIX_ENTRIES, Limits, Stats};

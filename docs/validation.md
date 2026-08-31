@@ -220,6 +220,47 @@ freshly checked by Symbolica exact matrix rank before it may terminate
 discovery. These numbers are regression evidence for the current finite graph
 only, not the Stage 1 closure acceptance result.
 
+The non-authoritative K6 ordering portfolio now has a bounded, immutable
+test-only `rank_by_slot` descriptor and exact transport under the authenticated
+denominator group. All `6! = 720` complete priorities split into 30 pinned
+`S4` classes of size 24. The path routes split into 12 structural images of
+multiplicity two and the star routes into four images of multiplicity six;
+their fixed-sector quotients contain exactly 360 and 120 classes, and their
+joint fixed structural stabilizer is trivial. The existing generic chart
+sample `[1,2,3,4,5,6]` breaks both stabilizers. The proven accounting is 480
+sector-mask/priority pairs and 1,440 decorated chart queries per declared
+probe; 480 is not yet an executable partition screen because the real stratum,
+request, and owner payload has not been transported. Symbolica graph canonization independently reproduces
+`|Aut(K4)| = 24` and the same 30 uniquely edge-colored forms. This establishes
+portfolio accounting only: the descriptor cannot enter partitions, rules,
+owners, terminals, artifacts, or application until a separate artifact-global
+semantic ordering implementation is installed and revalidated.
+
+A separate test-only K6 falsifier uses all nine authenticated ordinary IBPs
+and complete cumulative simplices on only the three inactive path/star chart
+coordinates. It contains exactly `4`, `10`, and `20` offsets, hence `36`,
+`90`, and `180` ordinary-source rows, through total inactive degree one, two,
+and three. The corresponding full six-coordinate counts would be `7`, `28`,
+and `84` offsets. Exact anchored source combinations reduce all `12` path and
+all `6` star stabilizer-orbit representatives in those levels to the existing
+factorized root, with every normalized coefficient pinned. In the chart
+conventions
+
+```text
+path n=(-x1,-x2,1+x3,-x4,1+x5,1+x6)
+star n=(-x1,-x2,1+x3,1+x4,-x5,1+x6),
+```
+
+the pinned normalized coefficients include path `x1 -> 2`, `x4 -> 1`,
+`x1*x4 -> 2(d+2)/d`, `x1*x2*x4 -> 2(d+2)^2/d^2`, and star `x5 -> 1`,
+`x2*x5 -> 1`, `x1*x2*x5 -> (d^2-8)/d^2`. The test proves exact request-universe
+equality before its uniform source-by-offset batch is retranslated and replayed;
+it never calls FORM or MATAD. This is exact endpoint evidence that ordinary
+translated sources span the missing identities. It is not part of an artifact
+and grants no cover authority until the free indices are retained symbolically,
+all guards and faces are proved, and an executable owner strictly shrinks the
+exact infinite complement.
+
 The adjacent exact guard census expands all 205 retained K6 guard occurrences
 by base-parameter monomial. It pins 119 immediate nonzero-constant
 certificates, 86 one-index exceptional systems, their complete integer-root

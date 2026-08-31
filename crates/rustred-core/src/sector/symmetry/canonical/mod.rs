@@ -12,6 +12,8 @@
 mod action;
 mod error;
 mod model;
+#[cfg(test)]
+mod priority;
 
 pub use action::Canonicalizer;
 pub use error::Error;
@@ -20,6 +22,8 @@ pub use model::{
     DEFAULT_MAX_GROUP_ORDER, DescendingCanonicalization, ExactOrbit, NoHarderWitness, OrbitImage,
     RoutingCoefficient, RoutingWitness,
 };
+#[cfg(test)]
+pub(crate) use priority::{CoordinatePriorityActionLimits, CoordinatePriorityQuotient};
 
 #[cfg(test)]
 mod tests;

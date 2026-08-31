@@ -24,12 +24,15 @@ six-loop, 20,000-digit throughput for a large terminal basis.
 
 ## Executive verdict
 
-At `K = 6`, Vakint gives a precise and useful oracle. Its canonical `I3L`
-slots are exactly RustRed's slots, MATAD accepts the required zero and negative
-powers, and public Vakint settings can return either exact coefficients of
-MATAD master symbols or high-precision Laurent values. The three scalar
-corners and the six exposed recurrence witnesses can therefore be queried
-without any topology rematching.
+At `K = 6`, Vakint gives a precise and useful but not universal oracle. Its
+canonical `I3L` slots are exactly RustRed's slots, and public Vakint settings
+can return either exact coefficients of MATAD master symbols or high-precision
+Laurent values. Scalar corners and the established single-/double-inactive
+witnesses can be queried without topology rematching. A newly isolated Vakint/
+MATAD routing defect incorrectly returns zero for some simultaneous
+triple-inactive negative-power inputs, so those cases require exact RustRed
+source replay and an independent angular/factorization check until the oracle
+adapter is fixed.
 
 The nonminimal-terminal policy is sound only as a stopping criterion paired
 with a real completion algorithm. It does not turn a sampled list of misses
@@ -89,10 +92,28 @@ I3L(muvsq,n1,n2,n3,n4,n5,n6)
 
 The implementation is in `src/matad.rs`, symbol
 `Vakint::matad_evaluate`. Short-form matching intentionally retains zero
-powers. Numeric negative powers are valid, and MATAD's `matad-ng.hh` handles
-a denominator power `<= 0` by converting the corresponding inverse
-propagator to numerator scalar products before descending to a simpler
-topology.
+powers. MATAD's `matad-ng.hh` is designed to handle a denominator power `<= 0`
+by converting the corresponding inverse propagator to numerator scalar
+products before descending to a simpler topology. That mechanism works for
+the established diagnostic inputs below, but the current Vakint route is not
+sound for every multi-negative `I3L` tuple; negative-power support must be
+validated per input class rather than assumed globally.
+
+In particular, direct Vakint/MATAD evaluation reports zero for the path input
+`I3L(1,-1,-1,1,-1,1,1)` and the star input
+`I3L(1,-1,-1,1,1,-1,1)`. Exact combinations of the nine ordinary K6 IBPs,
+independently checked by angular averaging of the factorized topology, give
+the nonzero normalized coefficients
+
+```text
+path:  2 (d+2)^2 / d^2
+star:  (d^2-8) / d^2
+```
+
+relative to the installed factorized root. These two tuples are an explicit
+oracle-negative regression set. They must not be used to reject a replayed
+RustRed relation, and the future Vakint fix must reproduce the exact nonzero
+values before triple-inactive MATAD comparisons become gating.
 
 ### Current nine diagnostic inputs
 

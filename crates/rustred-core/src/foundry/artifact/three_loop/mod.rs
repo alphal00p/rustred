@@ -15,9 +15,13 @@ mod closure_sweep;
 #[cfg(test)]
 mod factorization;
 mod family;
+#[cfg(test)]
+mod isp_shell_probe;
 mod manifest;
 #[cfg(test)]
 mod momentum_rank;
+#[cfg(test)]
+mod ordering_portfolio;
 #[cfg(test)]
 mod rank_three_wave;
 mod symmetry;

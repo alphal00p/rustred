@@ -839,28 +839,126 @@ finite-point rules, unsupported guards, unstable proposals, or a cap hit is a
 bounded inconclusive result. Canonical accepted content must be reproduced
 with one and four workers.
 
+Run the blind-sector upward walk as the deterministic outer orchestrator for
+this experiment. Freeze one geometry epoch, select **all** exact complement
+boxes of maximum free dimension, and sort them by sector and complete endpoint
+tuple. The current first wave therefore contains one path and three star
+dimension-five boxes. Target every lower corner before giving any component a
+second probe; if that full wave yields no exact delta, target a separate
+depth-one point for each unbounded axis, changing that coordinate alone.
+Bounded coordinates are not perturbed by this seed schedule. Collect and
+canonicalize the complete wave before admitting anything. After an admission,
+rebuild the executable staging cover, recompute the exact complement, and
+discard every stale task from the previous
+geometry epoch. Path and star use reserved quotas and publish only together on
+the same immutable 32-owner predecessor.
+
+Prefer a symbolic maximal-orthant lift: retain every free box coordinate as an
+index, and use the sampled integer point only to discover source support. Such
+a rule can pass the existing outer-extension authority without adding a new
+owner type. Recurse to a fixed wall only when an exact leading coefficient
+forces that split. A wall result does not shrink the authoritative cover until
+the arbitrary-box owner path proves that fixed coordinates remain fixed and
+all free coordinates are uniform rays. In particular, the current replayed
+path/star endpoint counts and the inactive-ISP relations below are proposal
+evidence, not executable owners.
+
+The implemented private `leader_walk` seam is deliberately smaller than that
+outer orchestrator. It owns frozen-snapshot input, sector/endpoint canonical
+ordering, round-robin fairness inside a bounded lower-corner/depth-one seed
+envelope, checked chart-point to target-shift conversion, local all-or-error
+planning caps, and in-memory geometry-epoch invalidation. Its neutral planning
+census contains no execution result or stop disposition. It is not yet the
+shared execution ledger, canonical worker-result merge, admission driver,
+exact pre/post `BoxCover` comparison, geometry-rebuild loop, or fair infinite
+walk; those remain one future driver over this seam and the existing authority
+boundaries. Neither layer may own algebraic truth or introduce another closure
+authority. Likewise, an ISP `triangular_support` component is only a request
+producer: given an ordered subset of chart axes and one total-degree ceiling
+per ordinary source, it emits canonical `TranslatedSourceRequest`s into the
+existing `SelectedSourceFrame`. The present local planning caps prevent partial seed
+prefixes but do not satisfy the future shared-ledger requirement. Execution
+and algebra limits must ultimately be charged to one outer ledger and cannot
+reset per point, box, sector, ordering, or worker.
+
+The Noetherian progress invariant is simple but conditional. Every admitted
+maximal-orthant leader strictly enlarges the current monomial leading ideal;
+Dickson's lemma makes the number of such enlargements finite. On a wall, apply
+the same invariant in its lower-dimensional free-coordinate chart. This proves
+termination only if every unbounded blind component eventually supplies a
+liftable rule and every guard split is a finite dimension-decreasing
+stratification. Two bounded no-progress waves remain an inconclusive execution
+outcome. The current planning-envelope census records only which bounded seeds
+were planned; it is not an exhaustion record and cannot certify a master or
+terminal.
+
 Treat ordering as a measured portfolio, because the SpideR report observes
 strong ordering sensitivity in its forward-solved sparse system but does not
 publish an ordering prescription
 ([arXiv:2604.25916, Section IV](https://arxiv.org/html/2604.25916v1#S4)).
-At K6, quotient all `6!` complete K4 edge-priority permutations by the `S4`
-graph action and modularly screen the resulting at most 30 integral-order
-policies under identical requests, samples, caps, and predecessor data. Give
-each policy a stable identity and freeze its well-founded descent order for
-the whole campaign; retain the baseline and at most four finalists for exact
+First run a proposal-only lane in which coordinate priority may affect request,
+row, or telemetry chronology but cannot affect partitions, leaders, symmetry
+representatives, descent, terminals, rules, or artifacts. That lane returns no
+authority-bearing value. A promoted semantic priority must be installed as an
+arity-bound persisted integral-order descriptor, and the complete campaign and
+artifact must then be rebuilt from fresh inputs under that descriptor. Enforce
+one artifact-global order across all rules, cells, canonicalizers, same-family
+owners, witnesses, and application; any cap stop is inconclusive.
+At K6, the free `S4` action on all `6!` complete K4 edge-priority permutations
+has 30 global orbits only when the whole campaign task is transported with the
+order. Holding the canonical path or star coordinate representative fixed
+instead leaves 360 and 120 classes under their respective stabilizers of order
+two and six. Never use the 30-count quotient on fixed representatives.
+
+The implemented bounded structural census uses the 30 global representatives
+and the deduplicated sector-mask orbit: 12 path images and four star images.
+This proves 480 structural mask/priority pairs, not 480 executable partition
+runs. Promotion to a screen requires transporting the complete payload or
+proving that stratum, target, source-request, owner, and canonicalizer data are
+invariant under every relevant mask stabilizer. The
+current modular chart sample `[1,2,3,4,5,6]` has trivial stabilizer, so the
+decorated census has 24 path and 24 star images and 1,440 query cases.
+Preserve the two path and six star route/probe variants rather
+than collapsing them onto equal sector masks, unless a separately validated
+stabilizer-invariant probe ensemble replaces the present chart. The joint fixed
+path-plus-star bundle has trivial stabilizer and would otherwise require all
+720 priorities; adding the separate 360 and 120 fixed-sector counts is not an
+equivalent joint ranking. Sector, stratum, target, source requests,
+terminal/owner routes, and canonicalizer move together. Count each distinct
+task image once and aggregate telemetry only after exact transport replay into
+one canonical chart. Give each policy one shared aggregate logical-work budget
+across all transported tasks; never reset it per route. Give each policy a
+stable identity and freeze its well-founded descent order for the
+whole campaign; retain the baseline and at most four finalists for exact
 lifting. Different integral policies may legitimately choose different
 leaders and nonminimal terminals, but every one must independently prove
-strict descent, exact replay, and guard-total coverage.
+strict descent, exact replay, guard-total coverage, orbit coverage, and
+transport equivariance.
 
-Within each persisted integral policy, vary deterministic coefficient-variable,
-equation, pivot, mother, request, predicted-fill, and symmetry-interleaving
-orders only as cost/search heuristics. Compare admissible leaders, selected
-rows, sparse fill, exact-lift cost, guard complexity, terminal count, and exact
-cover delta. Canonical accepted content must be byte-identical across insertion
-orders and worker counts within a policy. At K21 an exhaustive edge-order
+Within each persisted integral policy, fixed-column pivot-row and equation
+schedules are cost-only after canonical exact normalization. Pivot-column and
+leader eligibility are semantic. Coefficient-variable order is cost-only only
+when it cannot affect a Gröbner leading ideal or guard decomposition. Mother,
+request, derivative, predicted-fill, and symmetry schedules change bounded
+proposal yield, so every cap stop is inconclusive. Compare admissible leaders,
+selected rows, sparse fill, exact-lift cost, guard complexity, terminal count,
+and exact cover delta. Canonically reproject distinct proof certificates before
+requiring byte-identical accepted content across insertion orders and worker
+counts within a policy. At K21 an exhaustive edge-order
 quotient is still impossible; promotion requires a small graph-canonical
 portfolio selected from orbit features, obstruction scores, guard complexity,
 and sparse min-fill evidence at K6, K10, and K15.
+
+In parallel, run the seedless-simplex falsifier on the K6 path and star
+frontier. Treat their three inactive denominator coordinates as contracted-
+topology ISPs. Generate complete triangular shift levels `T^3[m]`, respecting
+the exact coefficient degree of each IBP-generating vector, and solve the free
+linear-combination parameters to remove every non-wall-hugging same-sector
+term. Recurse over the one- and two-coordinate zero faces. Compare each lifted
+operator against MATAD reductions only as an oracle, then regenerate and replay
+its ordinary RustRed sources exactly. Promotion requires one new guard-total
+descending owner that removes an unbounded `BoxCover` component; a finite
+sample win, a cap stop, or a nonreplayed oracle relation is inconclusive.
 
 The K21 scaling verdict is skeptical. For an `L`-loop vacuum family,
 `K = L(L + 1)/2` and the complete ordinary source count is `L^2`. Thus K21
@@ -875,6 +973,19 @@ operator levels empirically rather than proving a topology-independent bound:
 [symbolic reduction via generating functions, arXiv:2605.09541](https://arxiv.org/abs/2605.09541),
 [the SpideR application report, arXiv:2604.25916](https://arxiv.org/abs/2604.25916),
 and [Untangling the IBP Equations, arXiv:2512.05923](https://arxiv.org/abs/2512.05923).
+
+The ISP-only simplex hypothesis is much smaller and therefore deserves an
+early falsifier. At cumulative degrees one through four, complete all-coordinate
+frames require `176/1,056/4,576/16,016` rows at K10,
+`400/3,400/20,400/96,900` at K15, and
+`792/9,108/72,864/455,400` at K21. For representative dense vacuum
+descendants with respectively about one, three, and six inactive ISP directions,
+the corresponding ISP-only counts are only `32/48/64/80`,
+`100/250/500/875`, and `252/1,008/3,024/7,560`. These are pre-symmetry,
+pre-syzygy upper counts, not runtime forecasts. Promotion requires the needed
+simplex degree to stabilize as blind-component probe height grows; growth with
+height falsifies any fixed-width all-rank claim.
+
 A K6 win would therefore qualify this primarily as an exceptional-face repair
 lane. It would still require favorable bounded K10 and K15 kill-gate data
 before influencing any K21 architecture.

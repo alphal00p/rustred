@@ -9,6 +9,7 @@ mod canonical_replay;
 mod dual;
 mod error;
 mod incidence;
+pub(crate) mod leader_walk;
 mod limits;
 mod model;
 mod nominate;
@@ -18,6 +19,7 @@ mod promotion;
 mod residual;
 pub(crate) mod scheduler;
 mod sector_closure;
+mod triangular_support;
 
 // The probe-local scheduler consumes this sealed campaign boundary. A few
 // evidence and telemetry types remain reexported for sibling admission tests,
@@ -76,5 +78,7 @@ pub(crate) use sector_closure::{
     StagedSectorClosureLimits, StagedSectorClosureOutcome, StagedSectorClosureStop,
     StagedSectorClosureStopEvidence,
 };
+#[allow(unused_imports)] // Generic seed frame for the staged K6 discovery portfolio.
+pub(crate) use triangular_support::{TriangularSupportError, try_build_triangular_support_frame};
 #[cfg(test)]
 mod tests;
