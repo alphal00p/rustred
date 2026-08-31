@@ -21,4 +21,4 @@ pub(crate) use model::{
 };
 pub(super) use order::compare_exact_content;
 #[cfg(test)]
-pub(super) use order::exact_content_equal_excluding_modular_telemetry;
+pub(crate) use order::exact_content_equal_excluding_modular_telemetry;

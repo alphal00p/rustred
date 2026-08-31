@@ -11,7 +11,7 @@ use crate::foundry::completion::frame::admission::{
 };
 use crate::sector::Mask;
 
-use super::{SectorSweepTelemetry, SweepCoverTelemetry};
+use super::model::{DegreeSweepTelemetry, SectorSweepTelemetry, SweepCoverTelemetry};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ExpectedSectorSweepTelemetry {
@@ -166,6 +166,82 @@ pub(super) const EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP: [ExpectedSectorSweepTeleme
     },
 ];
 
+const EXPECTED_CANONICAL_S4A_MIXED_DEGREES: [DegreeSweepTelemetry; 2] = [
+    DegreeSweepTelemetry {
+        degree: 1,
+        frame_offsets: 7,
+        frame_rows: 63,
+        frame_columns: 157,
+        frame_entries: 630,
+        partitioned_targets: 107,
+        inactive_activation_targets: 50,
+        modular_hits: 2,
+        modular_no_hits: 105,
+        exact_replayed: 2,
+        exact_support_did_not_lift: 0,
+        exact_content_duplicates: 0,
+        admitted_owners: 2,
+    },
+    DegreeSweepTelemetry {
+        degree: 2,
+        frame_offsets: 28,
+        frame_rows: 252,
+        frame_columns: 488,
+        frame_entries: 2_520,
+        partitioned_targets: 328,
+        inactive_activation_targets: 160,
+        modular_hits: 22,
+        modular_no_hits: 306,
+        exact_replayed: 22,
+        exact_support_did_not_lift: 0,
+        exact_content_duplicates: 0,
+        admitted_owners: 22,
+    },
+];
+
+pub(super) fn assert_expected_mixed_s4a_sweep(actual: &SectorSweepTelemetry) {
+    assert_eq!(
+        actual.sector,
+        Mask::try_from_indices(&[0, 1, 1, 1, 1, 0]).unwrap()
+    );
+    assert_eq!(actual.ordinary_sources, 9);
+    assert_eq!(
+        actual.degrees.as_ref(),
+        EXPECTED_CANONICAL_S4A_MIXED_DEGREES.as_slice()
+    );
+    assert_eq!(actual.admitted_owners, 24);
+    match &actual.cover {
+        SweepCoverTelemetry::Compiled {
+            guard_total_owners,
+            status,
+            uncovered_boxes,
+            uncovered_free_dimension_histogram,
+            maximum_uncovered_free_dimension,
+            maximum_uncovered_varying_dimension,
+            missing_terminal_points,
+            guard_incomplete_owners,
+        } => {
+            assert_eq!(*guard_total_owners, 1);
+            assert_eq!(
+                *status,
+                ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite)
+            );
+            assert_eq!(*uncovered_boxes, 3);
+            assert_eq!(
+                uncovered_free_dimension_histogram.as_ref(),
+                [0, 0, 0, 0, 0, 3, 0]
+            );
+            assert_eq!(*maximum_uncovered_free_dimension, 5);
+            assert_eq!(*maximum_uncovered_varying_dimension, 5);
+            assert_eq!(*missing_terminal_points, 0);
+            assert_eq!(*guard_incomplete_owners, 0);
+        }
+        SweepCoverTelemetry::NoAdmittedOwners { .. } => {
+            panic!("the pinned mixed-degree S4a sweep lost every admitted owner")
+        }
+    }
+}
+
 pub(super) fn assert_expected_sweep(
     actual: &SectorSweepTelemetry,
     expected: &ExpectedSectorSweepTelemetry,
@@ -174,19 +250,27 @@ pub(super) fn assert_expected_sweep(
         actual.sector,
         Mask::try_from_indices(&expected.representative).unwrap()
     );
-    assert_eq!(actual.frame_columns, expected.frame_columns);
-    assert_eq!(actual.partitioned_targets, expected.partitioned_targets);
+    assert_eq!(actual.degrees.len(), 1);
+    let degree = &actual.degrees[0];
+    assert_eq!(degree.degree, 1);
+    assert_eq!(degree.frame_offsets, 7);
+    assert_eq!(degree.frame_rows, 63);
+    assert_eq!(degree.frame_columns, expected.frame_columns);
+    assert_eq!(degree.frame_entries, 630);
+    assert_eq!(degree.partitioned_targets, expected.partitioned_targets);
     assert_eq!(
-        actual.inactive_activation_targets,
+        degree.inactive_activation_targets,
         expected.inactive_activation_targets
     );
-    assert_eq!(actual.modular_hits, expected.modular_hits);
-    assert_eq!(actual.modular_no_hits, expected.modular_no_hits);
-    assert_eq!(actual.exact_replayed, expected.exact_replayed);
+    assert_eq!(degree.modular_hits, expected.modular_hits);
+    assert_eq!(degree.modular_no_hits, expected.modular_no_hits);
+    assert_eq!(degree.exact_replayed, expected.exact_replayed);
     assert_eq!(
-        actual.exact_support_did_not_lift,
+        degree.exact_support_did_not_lift,
         expected.exact_support_did_not_lift
     );
+    assert_eq!(degree.exact_content_duplicates, 0);
+    assert_eq!(degree.admitted_owners, expected.admitted_owners);
     assert_eq!(actual.admitted_owners, expected.admitted_owners);
     match (&actual.cover, expected.cover) {
         (

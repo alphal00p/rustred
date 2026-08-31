@@ -317,7 +317,7 @@ fn cmp_option_by<T>(
 }
 
 #[cfg(test)]
-pub(in crate::foundry::completion::frame::admission) fn exact_content_equal_excluding_modular_telemetry(
+pub(crate) fn exact_content_equal_excluding_modular_telemetry(
     left: &ExactTargetCircuit,
     right: &ExactTargetCircuit,
 ) -> bool {

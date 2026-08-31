@@ -29,6 +29,8 @@ pub(crate) use owner_cover::{
     ExactOwnerCoverObstructionKind, ExactOwnerCoverSelection, ExactOwnerCoverStatus,
 };
 pub(crate) use refine::try_refine_exact_circuit_guards;
+#[cfg(test)]
+pub(crate) use semantic::exact_content_equal_excluding_modular_telemetry;
 pub(crate) use semantic::{
     ExactCircuitSemanticDag, ExactCircuitSemanticError, ExactCircuitSemanticLimits,
     ExactCircuitSemanticSelection,
