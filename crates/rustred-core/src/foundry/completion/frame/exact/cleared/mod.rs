@@ -7,6 +7,7 @@
 mod budget;
 mod compile;
 mod model;
+mod tests;
 
 pub(super) use compile::{try_clear_exact_circuit, try_compile_final_target_guard};
 pub(super) use model::{ClearedCircuitError, ClearedCircuitLimits, ClearedSemanticGuardOrigin};

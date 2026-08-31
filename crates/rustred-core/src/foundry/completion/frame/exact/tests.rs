@@ -685,7 +685,7 @@ fn exact_lift_replays_a_frame_bound_nonempty_partition_deterministically() {
             cleared.gcd_term_pairs(),
             cleared.retained_polynomial_terms(),
         ),
-        (1, 2, 1, 3, 31, 1, 15)
+        (1, 2, 1, 3, 25, 1, 15)
     );
 
     let zero_operation_limits = ClearedCircuitLimits::default().with_max_polynomial_operations(0);
@@ -1056,6 +1056,6 @@ fn canonical_k6_s4a_has_a_nonempty_partition_exact_circuit() {
             cleared.gcd_term_pairs(),
             cleared.retained_polynomial_terms(),
         ),
-        (6, 14, 1, 26, 422, 10, 221)
+        (6, 14, 1, 26, 386, 10, 221)
     );
 }

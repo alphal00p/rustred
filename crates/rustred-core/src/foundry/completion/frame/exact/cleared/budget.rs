@@ -2,7 +2,10 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial};
+use crate::algebra::{
+    ExactAlgebraError, IndexedAlgebraError, IndexedCoefficient, IndexedCoefficientContext,
+    IndexedPolynomial,
+};
 
 use super::model::{ClearedCircuitError, ClearedCircuitLimits};
 
@@ -191,16 +194,32 @@ impl<'context> PolynomialBudget<'context> {
         numerator: &IndexedPolynomial,
         denominator: &IndexedPolynomial,
     ) -> Result<IndexedPolynomial, ClearedCircuitError> {
-        let numerator = self.as_coefficient(numerator)?;
-        let denominator = self.as_coefficient(denominator)?;
-        let quotient = self.div(&numerator, &denominator)?;
-        match self.require_polynomial(&quotient) {
-            Ok(polynomial) => Ok(polynomial),
-            Err(ClearedCircuitError::RationalCoefficientSurvivedClearing) => {
-                Err(ClearedCircuitError::NonExactPolynomialDivision)
-            }
-            Err(error) => Err(error),
+        self.context
+            .validate_polynomial_with_limits(numerator, self.limits.exact_algebra)?;
+        self.context
+            .validate_polynomial_with_limits(denominator, self.limits.exact_algebra)?;
+        if denominator.is_zero() {
+            return Err(ClearedCircuitError::IndexedAlgebra(
+                IndexedAlgebraError::ExactAlgebra(ExactAlgebraError::DivisionByZero),
+            ));
         }
+
+        // Symbolica exposes no quotient scratch-work census. Charge the one
+        // logical operation and authenticate both inputs and the exact output
+        // instead of presenting an operand-term count as an internal bound.
+        self.charge_operation()?;
+        let raw = catch_unwind(AssertUnwindSafe(|| {
+            numerator.raw().try_div(denominator.raw())
+        }))
+        .map_err(|_| ClearedCircuitError::NativePanic {
+            operation: "performing cleared-circuit exact polynomial division",
+        })?
+        .ok_or(ClearedCircuitError::NonExactPolynomialDivision)?;
+        let quotient = self
+            .context
+            .admit_native_polynomial_result_with_limits(raw, self.limits.exact_algebra)?;
+        self.retain(&quotient)?;
+        Ok(quotient)
     }
 }
 

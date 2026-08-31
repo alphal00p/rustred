@@ -202,6 +202,33 @@ impl IndexedCoefficientContext {
         self.wrap_checked_with_limits(raw, limits)
     }
 
+    /// Admit one raw polynomial returned by a native Symbolica algorithm
+    /// which consumed values from this exact indexed context.
+    ///
+    /// This is the polynomial counterpart of
+    /// [`Self::admit_native_result_with_limits`].  It authenticates the exact
+    /// variable map, sparse layout, exponent ceiling, and retained-term limit
+    /// before sealing the result with this context identity.  Callers must
+    /// still authenticate every native input before invoking Symbolica.
+    #[cfg(test)]
+    pub(crate) fn admit_native_polynomial_result_with_limits(
+        &self,
+        raw: CoefficientPolynomial,
+        limits: ExactAlgebraLimits,
+    ) -> Result<IndexedPolynomial, IndexedAlgebraError> {
+        validate_polynomial_on_map(
+            &raw,
+            &self.variables,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
+            limits,
+        )?;
+        self.record_authenticated_native_result();
+        Ok(IndexedPolynomial {
+            raw,
+            context: self.fingerprint.clone(),
+        })
+    }
+
     fn extend_base_polynomial(
         &self,
         source: &CoefficientPolynomial,

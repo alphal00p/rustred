@@ -136,11 +136,16 @@ The current indexed services are:
   map;
 - checked add/subtract/multiply/divide/negate in `K(n)`, plus authenticated
   numerator and denominator extraction for guard construction;
-- integer translation `n -> n + a`, implemented with Symbolica polynomial
-  `replace_with_poly` after a complete support/bit/work preflight; and
+- integer translation `n -> n + a`, implemented with Symbolica's native
+  `MultivariatePolynomial::shift_var` after a complete
+  support/bit/work preflight;
 - simultaneous integer specialization back to `K`, returning both the
   normalized coefficient and the mapped nonconstant denominator before
-  cancellation. A caller must retain that polynomial as a nonzero guard; and
+  cancellation. A caller must retain that polynomial as a nonzero guard;
+- the test-only cleared-circuit prototype performs exact division of
+  authenticated indexed polynomials through Symbolica's native sparse
+  `MultivariatePolynomial::try_div`, with a typed zero-divisor boundary,
+  unwind containment, and output reauthentication; and
 - cold exact guard decomposition by base-parameter monomial, followed by a
   resource-admitted Symbolica polynomial GCD/factorization lane when the
   simultaneous exceptional system depends on one integral index. Every
@@ -271,6 +276,7 @@ algebra.
 | Dense single-row indexing uses the wrong stride for rectangular matrices. | Use tuple indexing and iterators, never `Index<u32>` row slices. |
 | Dense rank panics for a valid `0 x N` matrix with `N > 0`. | Reject empty coefficient matrices before native reduction; handle structural empty cases outside that call. |
 | Sparse inverse shares the augmented-matrix defect, and sparse inconsistent-row detection is inverted. | The anchored and parametric foundry paths do not use either operation. They pin the adopted `SparseRowReducer` pivot/`U`/`L` behavior and exactly replay every returned candidate from source rows. |
+| `Matrix::solve_fraction_free` reaches an unfinished polynomial-ring GCD path when instantiated over `UnivariatePolynomialRing`. | Do not use that composition. Exact parametric lifts stay over Symbolica's `RationalPolynomialField` and `SparseRowReducer`; narrow univariate Bezout work uses the public polynomial EEA. |
 | Multivariate multiplication is infallible, selects private dense/heap lanes, and can panic when fixed-width exponents overflow; its coefficient-ring and scratch censuses are opaque. | Authenticate inputs, preflight the outer product count and per-variable degree sums, invoke native arithmetic, then authenticate and exactly rebind the result. The known exponent-overflow path is excluded prospectively; standalone coefficient operations do not claim a general unwind boundary. |
 | Rational-polynomial power is infallible, rejects exponents above `u32::MAX` by panic, uses a linear multiplication schedule, and can overflow `u16` degrees. | Checked matrix sessions preflight exponent, degree box, terms, operations, and retained output; their native-session transport contains unwind and reauthenticates the result. Do not replace it with a RustRed power algorithm. |
 | Symbolica `Integer` equality/hash and zero/one predicates can observe noncanonical backend variants. | Construct values through canonical conversions and numerically reject every representation of zero during sparse-polynomial authentication. |
