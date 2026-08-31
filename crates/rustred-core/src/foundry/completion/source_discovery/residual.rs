@@ -7,7 +7,7 @@ use crate::identity::{
     CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator, SelectedTranslatedSourceBatch,
 };
 
-use super::model::IncidentNominationOrigin;
+use super::model::{IncidentNominationOrigin, ResidualCensusProvenance};
 use super::nominate::{check_limit, checked_add, try_vec};
 use super::{
     IncidentTranslationNominations, NonzeroIncidentTranslationResiduals,
@@ -20,6 +20,20 @@ const RESIDUAL_SUPPORT_COORDINATES: &str =
     "source-discovery residual obstruction-support coordinate cells";
 const RESIDUAL_CLASSIFICATIONS: &str = "source-discovery residual candidate classifications";
 const NONZERO_RESIDUAL_REQUESTS: &str = "source-discovery nonzero residual requests";
+
+/// Private construction capability for a complete residual census.
+///
+/// The type is visible to the sibling model module only so its checked value
+/// can appear in constructor signatures. Its field and minting function are
+/// private to this module, preventing a scheduler sibling from fabricating an
+/// empty census out of copied plan/sample tokens and caller-authored counts.
+pub(super) struct ResidualConstructionSeal(());
+
+impl ResidualConstructionSeal {
+    fn mint() -> Self {
+        Self(())
+    }
+}
 
 struct RawObstructionEntry<'entry> {
     shift: &'entry IntegralShift,
@@ -47,6 +61,7 @@ impl OrdinarySourceIncidenceIndex<'_> {
     ) -> Result<NonzeroIncidentTranslationResiduals, SourceDiscoveryError> {
         validate_join(self, generator, completed, nominations, frame, obstruction)?;
         let support = raw_obstruction_support(self, frame, obstruction, limits)?;
+        let census = residual_census_provenance(self, nominations, frame, obstruction);
 
         let candidate_count = nominations.requests().len();
         check_limit(
@@ -63,6 +78,8 @@ impl OrdinarySourceIncidenceIndex<'_> {
 
         if candidate_count == 0 {
             return Ok(NonzeroIncidentTranslationResiduals::from_parts(
+                ResidualConstructionSeal::mint(),
+                census,
                 Vec::new(),
                 0,
                 0,
@@ -84,6 +101,7 @@ impl OrdinarySourceIncidenceIndex<'_> {
             nominations,
             frame,
             &support,
+            census,
             translated,
             candidate_count,
             evaluated_source_terms,
@@ -113,6 +131,7 @@ pub(super) fn pair_selected_sources_for_test(
         obstruction,
     )?;
     let support = raw_obstruction_support(incidence, frame, obstruction, limits)?;
+    let census = residual_census_provenance(incidence, nominations, frame, obstruction);
     let candidate_count = nominations.requests().len();
     check_limit(
         RESIDUAL_CANDIDATES,
@@ -131,6 +150,7 @@ pub(super) fn pair_selected_sources_for_test(
         nominations,
         frame,
         &support,
+        census,
         selected,
         candidate_count,
         evaluated_source_terms,
@@ -145,6 +165,7 @@ fn pair_translated_sources(
     nominations: &IncidentTranslationNominations,
     frame: &ModularPhysicalFrame<'_>,
     support: &[RawObstructionEntry<'_>],
+    census: ResidualCensusProvenance,
     translated: SelectedTranslatedSourceBatch,
     candidate_count: usize,
     evaluated_source_terms: usize,
@@ -262,12 +283,30 @@ fn pair_translated_sources(
     }
 
     Ok(NonzeroIncidentTranslationResiduals::from_parts(
+        ResidualConstructionSeal::mint(),
+        census,
         retained,
         candidate_count,
         evaluated_source_terms,
         paired_source_terms,
         support.len(),
     ))
+}
+
+fn residual_census_provenance(
+    incidence: &OrdinarySourceIncidenceIndex<'_>,
+    nominations: &IncidentTranslationNominations,
+    frame: &ModularPhysicalFrame<'_>,
+    obstruction: &ModularRightObstruction<'_>,
+) -> ResidualCensusProvenance {
+    ResidualCensusProvenance::new(
+        ResidualConstructionSeal::mint(),
+        nominations,
+        incidence.identity_owner(),
+        frame.plan().identity_owner(),
+        obstruction.identity_owner(),
+        frame.sample_fingerprint().clone(),
+    )
 }
 
 fn validate_join(

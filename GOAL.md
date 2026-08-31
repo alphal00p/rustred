@@ -124,9 +124,9 @@ owners, with zero lift failures or exact-content duplicates. Its one
 guard-total owner reduces the maximal uncovered dimension from six to five,
 but the cover remains `NonFinite` with three unbounded five-dimensional boxes
 and no terminals. Blind prolongation therefore helps without closing the
-sector. The next bounded experiment is a target-normalized dual-obstruction
-source oracle which nominates translated rows capable of cutting the current
-modular no-hit; every nomination remains discovery-only until the existing
+sector. The active bounded experiment is a native-target-zero dual-obstruction
+source-discovery oracle which nominates translated rows capable of cutting the
+current modular no-hit; every nomination remains discovery-only until the existing
 exact replay, semantic, descent, and owner-cover gates pass. Its first two
 generic prerequisites are now implemented and independently audited: a bounded
 API translates only canonical requested `(ordinary source, signed offset)`
@@ -157,7 +157,17 @@ boundary is regression-pinned: obstruction nominations are sealed to the
 exact ordinary-source incidence index and checked query, every complete row is
 evaluated before sparse projection, and every augmentation creates a new
 immutable plan, partition, and modular sample from raw identities. Candidate
-batch exhaustion remains telemetry only. The next slice is the bounded outer
+batch exhaustion remains telemetry only. `SampledDeclaredModuleDual` now seals
+one complete guard-free fixed-sample empty census after independently replaying
+the inverse-incidence and exact translated-term/support counts. It is joined to
+the fresh plan, sample, exhaustive partition, stratum, ordering, immutable
+owner snapshot, and incidence index; guarded strata fail closed until an exact
+sample witness exists. This value has no conversion to a rule, owner, terminal,
+exact no-relation result, artifact, or closure claim. Production discovery
+currently constructs each task natively with target shift zero. No general
+arbitrary-target coordinate transport is implemented; transport of source
+offsets, columns, domains, charts, coefficients, and guards is deferred until a
+typed production caller exists. The next slice is the bounded outer
 scheduler which repeats these epochs over a predeclared probe schedule, hands
 actual hits to exact lift and replay while their plan is alive, and reports
 only typed sampled-dual or budget evidence on exhaustive misses. On the Vakint
@@ -167,6 +177,22 @@ through two loops,
 including nine inputs with the unchanged FORM tensor prepass. Eleven genuine
 three-loop oracle fixtures and five matcher-class fixtures are executable but
 honestly ignored until the certified K6 artifact and terminal catalog exist.
+
+An independent exact K6 dependency census now fixes the bottom-up pressure
+order without introducing topology names into the generic core. None of the
+six full-rank sector orbits is zero-owned. The three-line path and star are
+first; the factorized triangle-plus-pendant four-line orbit depends on both,
+while the inequivalent four-cycle depends on the path; the five-line orbit
+depends on both four-line orbits; and the top orbit depends on the five-line
+orbit. Existing factorization ownership covers active dots only when every
+inactive power is exactly zero, so all six decorated sectors still require
+rewrite layers for inactive numerators. The immediate implementation blocker
+is circular authority: `ImmutableOwnerSnapshot` currently obtains zero and
+factorization owners only from an already globally closed artifact. The next
+lower-sector slice must first build a generic, production-sealed terminal owner
+set by replaying the existing zero and factorization validators with strongly
+owned closed K1/K3 dependencies. Test-only synthetic K6 artifacts must not seed
+that authority.
 
 The three-loop search nevertheless now starts from an exact, test-only
 pressure manifest rather than an informal topology list: it authenticates the
@@ -824,8 +850,9 @@ architecture is documented and killed or retained explicitly.
 - Deterministic parallel work uses one bounded coordinator/pool, shared
   immutable state, RAM-aware admission, stable ordinals, and sorted merges.
   Stage 1 implements only the parallelism justified by three-loop workloads;
-  high-loop execution belongs to Stage 2, while scaling models and bounded
-  K6 experiments are active research inputs now.
+  high-loop artifact production and extreme execution infrastructure belong to
+  Stage 2. Stage 1 nevertheless authorizes bounded, census-complete
+  K10/K15/K21 scaling studies, with K6 controls, under the evidence gates above.
 - `FOR_REFERENCE_ONLY_DO_NOT_PUSH` is ignored and never enters RustRed history.
   GammaLoop inside it is a separate repository and branch.
 - Never escalate commands. Use rollback-sized commits, push passing milestones

@@ -36,14 +36,18 @@ audited:
 - a complete-source modular evaluator whose point and finite-field domain are obtainable only from
   one admitted `ModularPhysicalFrame`; and
 - bounded inverse-incidence nomination using checked `alpha = u - s`, canonical deduplication, and
-  existing-row exclusion.
+  existing-row exclusion; and
+- `SampledDeclaredModuleDual`, admitting one complete guard-free fixed-sample empty census only
+  after independent nomination/pairing replay and exact plan, sample, partition, stratum, ordering,
+  lower-owner-snapshot, and incidence joins. It retains no stale physical ordinals and has no
+  rule/owner/terminal/exact-no-relation conversion.
 
 The canonical K6 zero-offset index contains nine sources, 90 term incidences, and 31 distinct
 relative shifts. Its target-unit bootstrap produces 90 unique requests. This is a structural
 census, not a modular hit or closure result. Executable full-row residual pairing, stable request
-accumulation, and one immutable fresh-plan/partition/query epoch are now implemented. The bounded
-outer scheduler which repeats those epochs and hands a live hit to exact lift remains the next
-slice.
+accumulation local to one sample, and one immutable fresh-plan/partition/query epoch are now
+implemented. The bounded outer scheduler which repeats those epochs and hands a live hit to exact
+lift remains the next slice.
 
 ## Measured K6 control
 
@@ -122,7 +126,7 @@ It annihilates every selected projected row but evaluates to one on the target. 
 are assigned zero in `q`. For arguments involving rows not yet materialized, `q` is also extended
 by zero to every forbidden column outside its finite support.
 
-### Target-zero normalization
+### Deferred arbitrary-target normalization
 
 If the original target is `J(n+t)`, substitute `m=n+t` and replace every source offset `alpha` by
 `beta=alpha-t`. The same relation is then searched with target `J(m)` and source rows
@@ -131,13 +135,15 @@ If the original target is `J(n+t)`, substitute `m=n+t` and replace every source 
 G_(r,beta)(m) = sum_s c_{r,s}(m + beta) J(m + beta + s).
 ```
 
-Thus every discovery task may use target shift zero and arbitrary signed source offsets. This is an
-algebraic reindexing, not permission to ignore domains: target stratum, source conditions, guards,
-sector crossings, and ordering roles must be pulled back and checked exactly. Same-sector ordering
-is translation invariant only while both compared integrals remain in that sector. In particular,
+Production discovery currently constructs each requested task natively with target shift zero; it
+does not implement this arbitrary-target coordinate transport. A future typed caller may use the
+algebraic reindexing above, but it is not permission to ignore domains: target stratum, source
+conditions, guards, sector crossings, and ordering roles must be pulled back and checked exactly.
+Same-sector ordering is translation invariant only while both compared integrals remain in that
+sector. In particular,
 the decorated target domain and the mapping from nonnegative chart coordinates to sampled integral
 indices must be translated together with the source rows; running the existing origin-based chart
-sampler unchanged would sample the wrong problem. An admitted target-zero result must be transported
+sampler unchanged would sample the wrong problem. Any future normalized result must be transported
 back to the original target coordinates before semantic and outer-extension comparison.
 
 ## Inverse-incidence oracle
@@ -249,8 +255,11 @@ prove that:
 
 If a finite exact generic witness exists, sufficiently generic modular states should expose it, but
 only exact lift and replay turn that expectation into a rule. Independent deterministic primes and
-index/parameter points are discovery retries, not voting-based proof. Their selected row identities
-may be unioned; null-vector supports must never be compared as invariant objects across samples.
+index/parameter points are discovery retries, not voting-based proof. Each probe owns its complete
+selected-row history and evaluates every admitted row at that probe; no row admitted by one probe
+may enter another probe's matrix. Raw request identities may be merged after execution only as
+nonauthoritative telemetry or future scheduling hints. Null-vector supports must never be compared
+as invariant objects across samples.
 
 ## Geometry-driven target scheduling
 
@@ -277,9 +286,10 @@ After every exact admission batch, recompute the exact complement and discard st
 priority scores. Positive-dimensional guard-zero sets are separate algebraic obligations; standard
 pairs describe the monomial leading ideal, not arbitrary affine or nonlinear guard varieties.
 
-Production scheduling is bottom-up. Proper-subsector terms are allowed only through an immutable
-lower-sector owner snapshot. The empty snapshot used by a diagnostic sweep is not a production
-closure policy.
+Production scheduling must ultimately be bottom-up. Proper-subsector terms may be allowed only
+through an immutable lower-sector owner snapshot. The empty snapshot used by a diagnostic sweep is
+not a production closure policy. Persistent closed-sector layers and their cross-sector scheduler
+remain unimplemented.
 
 ## Certificate boundary
 
@@ -287,7 +297,7 @@ closure policy.
 | --- | --- | --- |
 | Modular rank hit | a sampled candidate support | an exact relation |
 | Modular right obstruction | which translated rows can cut the current sampled no-hit | a master or terminal |
-| Incident exhaustion | a finite-support dual for every signed translation of the declared sources in one target partition and sample | a generic or full-IBP-module no-rule result |
+| `SampledDeclaredModuleDual` | a finite-support dual for every signed translation of the declared sources in one guard-free target partition and fixed sample | a generic or full-IBP-module no-rule result |
 | Exact Symbolica lift and regenerated-source replay | an exact source identity on its authenticated source gate | applicability or descent |
 | Exact target unit and forbidden cancellation | a rule with only authenticated allowed descendants | guard totality |
 | Semantic guard DAG and strict-order proof | applicability and termination on its exact stratum | translation-stable orthant ownership |
@@ -367,14 +377,21 @@ source condition, coefficient denominator, and source term before pairing the su
 Every stable augmentation is then translated anew, assembled into a pointer-distinct physical
 plan, exhaustively repartitioned under the fixed stratum/order/lower-owner snapshot, and resampled
 from the original integer probe inputs. Empty residual batches still authenticate family, context,
-layout, and row chronology. Neither empty nor unchanged batches carry sampled-dual authority.
+layout, and row chronology, but an empty batch by itself carries no sampled-dual authority. The
+implemented `SampledDeclaredModuleDual` admission boundary independently repeats the complete
+inverse-incidence nomination and exact translated-term/support census, rejoins the precise plan,
+sample, obstruction, stratum, ordering, and immutable-owner snapshot, and admits only a guard-blind
+fixed-sample empty residual. It retains raw integral keys and count-only rank telemetry—never stale
+physical ordinals—and has no conversion to a rule, owner, terminal, or closure result.
 
 The active work is the bounded outer scheduler. It must bootstrap the target-unit requests, execute
-fresh query epochs in deterministic probe order, union every obstruction-bound nonzero residual
-request in stable raw identity order, discard all stale plan-local ordinals and witnesses before a
-rebuild, and invoke exact lift and replay on an actual hit while its epoch is alive. Exhaustive
-sampled-dual and resource-stop outcomes must remain typed discovery evidence with no terminal or
-closure authority.
+fresh query epochs independently inside each deterministic probe, extend only that probe's stable
+raw request queue with its obstruction-bound nonzero residuals, discard all stale plan-local
+ordinals and witnesses before a rebuild, and invoke exact lift and replay on an actual hit while its
+epoch is alive. Exhaustive sampled-dual and resource-stop outcomes must remain typed discovery
+evidence with no terminal or closure authority. Production tasks currently define their requested
+target natively as shift zero. General `beta=alpha-t` source/domain/chart/guard transport has no
+module or evidence integration and remains deferred until a real typed caller requires it.
 
 After that compatibility boundary exists and rank separates, reuse the current modular-hit support
 selection, exact lift, fraction-free source replay, semantic admission, cold outer extension, and
@@ -390,9 +407,9 @@ inside a fixed-target solve.
   append target last.
 - Use a canonical serial RREF for obstruction selection. Parallel RREF row permutations must not
   alter the discovery artifact.
-- Keep selected-row sets and reducer state sample-local. A global request pool may union stable row
-  identities discovered by several samples, but a row singular at one sample cannot be inserted
-  into that sample's matrix merely because another sample admitted it.
+- Keep selected-row sets, request queues, and reducer state sample-local. Cross-probe identity
+  unions are telemetry only and have no evidence role. A row must be independently nominated and
+  successfully evaluated before it enters each probe's matrix.
 - Evaluate independent standard-pair/sample tasks against immutable source skeletons and lower
   owners. Merge nominated requests and exact results in stable key order.
 - Share support/provenance data read-only. Each prime owns only its modular values and bounded
@@ -488,8 +505,9 @@ The first implementation must kill all of the following mutants.
    pair; immediate rank-gain filtering must fail.
 5. **Incidence exhaustiveness.** On a small family and signed ball, brute force and the oracle must
    agree on every nonzero residual candidate.
-6. **Target normalization.** Reindex a known target-`t` circuit to target zero and require identical
-   exact replay, descendant roles, and pulled-back guards.
+6. **Future arbitrary-target normalization.** A typed implementation must reindex a known
+   target-`t` circuit to target zero and recover identical exact replay, descendant roles, and
+   pulled-back guards. This remains an open requirement, not a current capability.
 7. **Bad-prime false hit.** A specialization dropping `rank(F)` too far may nominate a hit; exact
    lift must reject it without creating an owner.
 8. **Sample-specific zero residual.** A true row invisible at one point is nominated by another
@@ -525,10 +543,12 @@ The first implementation must kill all of the following mutants.
 
 1. Use the canonical S4a fixture to test the oracle at target zero on the highest-priority current
    uncovered box. Begin with no rows; do not seed a degree shell.
-2. Run at least three deterministic valid modular states. Add every residual-cutting request to a
-   stable shared request set, while retaining per-state validity and sample-local selected matrices.
-3. On the first rank hit, reuse exact support recovery and replay. Run deterministic alternative
-   sample/row schedules to seek additional target pivots for guard-totality.
+2. Run at least three deterministic probe-local campaigns. Each campaign starts from the target-unit
+   bootstrap and retains only rows independently nominated and evaluated at that same modular state;
+   any cross-probe request union is telemetry only.
+3. On a rank hit, immediately reuse exact support recovery and replay while that exact epoch is
+   alive. Run deterministic alternative probe-local schedules to seek additional target pivots for
+   guard-totality.
 4. Compare retained rows, columns, nonzeros, fill, exact coefficient sizes, guards, and exact
    complement delta with degree-one, degree-two, signed-radius, and exact backward-incidence
    controls.

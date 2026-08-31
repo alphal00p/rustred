@@ -360,11 +360,19 @@ control has nine sources, 90 term incidences, 31 distinct relative shifts, and
 through the Symbolica-backed scalar evaluator bound to one admitted modular
 frame, so its point cannot be paired with another finite-field domain. Full-row
 residual pairing is now sealed to the exact incidence index and checked
-obstruction query. Its immutable campaign epoch stably accumulates retained
-requests, rebuilds a new selected plan and exhaustive target partition from raw
-identities, and resamples from the retained integer probe. The outer
-multi-epoch scheduler remains discovery work; neither a nomination, a sampled
-dual, nor budget or finite-batch exhaustion can become a terminal.
+obstruction query. Within one fixed sample and task, its immutable campaign
+epoch stably accumulates retained requests, rebuilds a new selected plan and
+exhaustive target partition from raw identities, and resamples from that
+probe's retained integer input. `SampledDeclaredModuleDual` now admits only a
+complete guard-free empty residual census after independently replaying the
+inverse-incidence and translated-term/support counts and rejoining the precise
+plan, sample, exhaustive partition, stratum, ordering, immutable owner snapshot,
+and incidence index. It retains no plan-local ordinals and cannot become a
+rule, owner, terminal, or exact no-relation result. There is no global
+materialized row set or cross-sample modular authority. The outer multi-epoch
+scheduler remains discovery work. Tasks are currently constructed natively at
+target zero; arbitrary-target source/domain/chart/coefficient/guard transport
+is deferred until a typed production caller exists.
 
 The corresponding modular hit is bound by pointer identity to its physical
 frame and by an immutable prime/sample fingerprint. Exact lifting projects the
@@ -582,8 +590,8 @@ stable structural row count, or failure to find another pivot is not closure.
 
 ## Generic fixed point
 
-The foundry is target-driven and lazy. It does not eagerly enumerate all
-`2^K` sectors or all integer orthants. In outline:
+The intended fixed point is target-driven and lazy. It must not eagerly
+enumerate all `2^K` sectors or all integer orthants. In outline:
 
 ```text
 requested roots
@@ -594,7 +602,7 @@ requested roots
   -> anchored identity generation and sparse elimination
   -> guarded recurrence candidates
   -> accepted domains plus exceptional children
-  -> immutable solved-dependency feedback
+  -> future immutable solved-dependency feedback
   -> repeat until every reachable residual is discharged
 ```
 
@@ -605,10 +613,13 @@ only an exact momentum/denominator transformation with the correct Jacobian
 may quotient work. A verified symmetry maps a query to a representative; it
 cannot turn an unresolved representative into a closed one.
 
-Solved proper subsectors feed back into parent work through immutable,
-fingerprint-bound dependencies. The scheduler repeats sector solving,
-exceptional refinement, and dependency substitution to a deterministic fixed
-point. Arrival order or worker count must not change the semantic artifact.
+Today, tasks can consume an immutable owner snapshot, but `ClosedSectorLayer`,
+its disjoint-cover certificate, persistent solved-sector feedback, and the
+cross-sector fixed-point scheduler are not implemented. The future scheduler
+must feed solved proper subsectors into parent work through immutable,
+fingerprint-bound dependencies and repeat sector solving, exceptional
+refinement, and dependency substitution to a deterministic fixed point.
+Arrival order or worker count must not change the semantic artifact.
 
 ## Residual recentering
 

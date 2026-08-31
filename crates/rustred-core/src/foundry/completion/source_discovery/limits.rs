@@ -23,6 +23,19 @@ pub(crate) struct SourceDiscoveryLimits {
     pub(crate) max_residual_support_coordinate_cells: usize,
     pub(crate) max_residual_classifications: usize,
     pub(crate) max_nonzero_residual_requests: usize,
+    /// Owned request census retained by one admitted sampled dual.
+    pub(crate) max_sampled_dual_requests: usize,
+    pub(crate) max_sampled_dual_request_coordinate_cells: usize,
+    /// Sparse checked obstruction copied from plan-local columns to raw keys.
+    pub(crate) max_sampled_dual_obstruction_entries: usize,
+    pub(crate) max_sampled_dual_obstruction_coordinate_cells: usize,
+    /// Finite-field coordinates kept alive by the retained sample owner.
+    pub(crate) max_sampled_dual_sample_coordinates: usize,
+    /// Coordinate additions used to recompute the exact translated-term /
+    /// raw-obstruction intersection census at admission.
+    pub(crate) max_sampled_dual_pairing_coordinate_cells: usize,
+    /// Aggregate ordinals in all copied modular-rank diagnostic sidecars.
+    pub(crate) max_sampled_dual_diagnostic_ordinals: usize,
 }
 
 impl Default for SourceDiscoveryLimits {
@@ -44,6 +57,13 @@ impl Default for SourceDiscoveryLimits {
             max_residual_support_coordinate_cells: 64_000_000,
             max_residual_classifications: 1_000_000,
             max_nonzero_residual_requests: 1_000_000,
+            max_sampled_dual_requests: 1_000_000,
+            max_sampled_dual_request_coordinate_cells: 64_000_000,
+            max_sampled_dual_obstruction_entries: 1_000_000,
+            max_sampled_dual_obstruction_coordinate_cells: 64_000_000,
+            max_sampled_dual_sample_coordinates: 65_536,
+            max_sampled_dual_pairing_coordinate_cells: 64_000_000,
+            max_sampled_dual_diagnostic_ordinals: 8_000_000,
         }
     }
 }

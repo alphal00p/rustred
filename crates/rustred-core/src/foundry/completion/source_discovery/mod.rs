@@ -5,6 +5,7 @@
 //! here can authorize a rule, owner, terminal, artifact, or closure claim.
 
 mod campaign;
+mod dual;
 mod error;
 mod incidence;
 mod limits;
@@ -21,6 +22,11 @@ pub(crate) use campaign::{
     CampaignModularProbe, CampaignRequestMerge, CampaignRequestMergeTelemetry,
     CampaignResourceStage, CandidateBatchExhaustionTelemetry, FreshTaskBuildTelemetry,
     FreshTaskEpoch, FreshTaskQuery, FreshTaskQueryTelemetry,
+};
+#[allow(unused_imports)]
+pub(crate) use dual::{
+    SampledDeclaredModuleDual, SampledDeclaredModuleDualCensus, SampledDeclaredModuleDualError,
+    SampledDeclaredModuleDualObstructionEntry, SampledDeclaredModuleDualRankCensus,
 };
 pub(crate) use error::SourceDiscoveryError;
 pub(crate) use incidence::OrdinarySourceIncidenceIndex;

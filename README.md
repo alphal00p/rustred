@@ -241,8 +241,10 @@ FORM tensor prepass, while the new RustRed evaluation backend is FORM-free
 from scalar IBP application through master substitution. Existing experimental
 RustRed rank-two tensor code remains frozen. Four- through six-loop closure,
 high-loop artifact production, and new tensor technology are deferred until
-explicit new guidance. Algorithm research and bounded K6 foundry experiments
-are active now: LiteRed2 is the correctness control, while modular
+explicit new guidance. Algorithm research, bounded K6 foundry experiments,
+and census-complete K10/K15/K21 scaling studies are active now; these studies
+do not authorize high-loop artifact production or extreme execution
+infrastructure. LiteRed2 is the correctness control, while modular
 target-separation, exact lattice-stratum completion, seedless syzygy sources,
 generating-function operators, and decorated graph/minor reuse are evaluated
 as possible routes beyond its scaling. See [`GOAL.md`](GOAL.md) for the
@@ -256,6 +258,16 @@ strictly descending RHS with all proper-subsector images terminal-owned, or a
 forbidden column. The registry admits lower images only from immutable sealed-
 artifact zero, factorization, or master owners; it never upgrades an ordinary
 RuleCell into closure authority.
+
+The current source-discovery boundary constructs every requested task natively
+with target shift zero. `SampledDeclaredModuleDual` can seal one complete,
+guard-free fixed-sample empty residual census after independently replaying all
+inverse-incidence and translated-term/support counts and rejoining the exact
+plan, sample, partition, stratum, ordering, lower-owner snapshot, and incidence
+index. Each future probe must keep its request accumulator and selected matrix
+local; cross-probe unions are telemetry only. Guarded evidence fails closed,
+the multi-epoch outer driver is not yet implemented, and no arbitrary-target
+coordinate-transport subsystem exists.
 
 Positive finite-field supports can now be lifted over Symbolica's exact
 rational-function field. The lift recovers the original translated-source
@@ -545,6 +557,7 @@ Stable design documents are:
 - [graph-orbit and Baikov source-compression audit](docs/research/graph_orbit_baikov_source_compression_2026.md);
 - [executable K6 breakthrough prototype specification](docs/research/k6_breakthrough_prototype_spec_2026.md);
 - [six-loop algorithm and implementation update](docs/research/six_loop_algorithm_update_2026.md);
+- [dual-obstruction source-discovery design and evidence boundary](docs/research/dual_obstruction_source_discovery_2026.md);
 - [Vakint K6 oracle and terminal-budget audit](docs/research/vakint_k6_oracle.md); and
 - [current CLI contract](docs/CLI.md).
 

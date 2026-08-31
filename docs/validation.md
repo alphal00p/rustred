@@ -446,5 +446,8 @@ The Stage 1 acceptance gate requires the three artifacts to cover all eight
 Vakint graph classes through three loops, with no reachable uncovered branch,
 and requires the RustRed scalar backend to reproduce every applicable
 through-three-loop Vakint expectation without changing existing defaults. Once
-that passes, development pauses. Four- through six-loop gates and new tensor
-technology are defined only after explicit Stage 2 authorization.
+that passes, development pauses. Four- through six-loop artifact-production
+acceptance gates and new tensor technology require explicit Stage 2
+authorization. Bounded complete-manifest K10/K15/K21 studies are already
+authorized in Stage 1, but must remain behind the research note's explicit
+falsification and promotion gates and cannot publish closure artifacts.

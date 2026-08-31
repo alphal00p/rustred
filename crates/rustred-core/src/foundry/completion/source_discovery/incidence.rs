@@ -137,6 +137,32 @@ impl<'sources> OrdinarySourceIncidenceIndex<'sources> {
         self.distinct_shift_count
     }
 
+    /// Reapply a caller's current resource policy before this previously
+    /// admitted index enters a new cold evidence boundary.
+    ///
+    /// The exact source batch is immutable and borrowed, so no content can
+    /// change after construction. Counts still have to be checked again:
+    /// admission under one permissive policy must not bypass a later tighter
+    /// sampled-dual policy.
+    pub(crate) fn try_verify_limits(
+        &self,
+        limits: SourceDiscoveryLimits,
+    ) -> Result<(), SourceDiscoveryError> {
+        check_limit("source-discovery arity", self.arity, limits.max_arity)?;
+        check_limit(SOURCE_ROWS, self.source_count(), limits.max_source_rows)?;
+        check_limit(
+            SOURCE_TERMS,
+            self.term_occurrences,
+            limits.max_source_term_occurrences,
+        )?;
+        check_limit(
+            DISTINCT_SHIFTS,
+            self.distinct_shift_count,
+            limits.max_distinct_source_shifts,
+        )?;
+        Ok(())
+    }
+
     pub(super) fn sources(&self) -> &'sources [TranslatedSource] {
         self.sources.sources()
     }

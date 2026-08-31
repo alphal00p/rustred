@@ -370,6 +370,49 @@ impl FreshTaskEpoch {
             telemetry,
         ))
     }
+
+    /// Build an intentionally caller-selected projection for adversarial
+    /// evidence-boundary tests. Production queries always use [`Self::try_query`].
+    #[cfg(test)]
+    pub(crate) fn projected_query_for_test<'epoch>(
+        &'epoch self,
+        context: &IndexedCoefficientContext,
+        probe: &CampaignModularProbe,
+        projected_target: usize,
+        projected_forbidden: &[usize],
+        limits: CampaignLimits,
+    ) -> FreshTaskQuery<'epoch> {
+        let partition = TargetColumnPartition::try_new(
+            self.plan(),
+            self.target_column(),
+            self.fixed_stratum().clone(),
+            self.owners().clone(),
+            self.ordering(),
+            limits.stratum,
+        )
+        .unwrap();
+        let sampled = self
+            .plan()
+            .try_modular_sample(
+                context,
+                probe.modulus(),
+                probe.base_parameters(),
+                probe.chart_coordinates(),
+                limits.modular,
+            )
+            .unwrap();
+        let query = sampled
+            .query_target(projected_target, projected_forbidden, limits.modular)
+            .unwrap();
+        let diagnostics = query.diagnostics();
+        let telemetry = FreshTaskQueryTelemetry::new(
+            partition.allowed_columns().len(),
+            partition.forbidden_columns().len(),
+            diagnostics.forbidden_rank,
+            diagnostics.augmented_rank,
+        );
+        FreshTaskQuery::new(partition, sampled, query, probe.clone(), telemetry)
+    }
 }
 
 fn validate_fixed_scope(

@@ -29,8 +29,10 @@ Minimality is secondary. Exact finite coverage, an affordable finite terminal-ev
 and a target-rank-independent epsilon-depth bound are not. An independent quotient is optional
 compression, not a prerequisite when every retained typed terminal can be evaluated directly.
 
-This is Stage 2 research guidance. It does not authorize work beyond the active scope in
-[`GOAL.md`](../../GOAL.md).
+This is long-horizon design guidance. The bounded, census-complete K10/K15/K21 studies described
+below are authorized Stage 1 research under [`GOAL.md`](../../GOAL.md); they do not authorize
+high-loop artifact production, extreme execution infrastructure, tensor work, or other Stage 2
+implementation.
 
 ## Executive decision
 

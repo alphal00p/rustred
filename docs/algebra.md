@@ -354,10 +354,12 @@ implements one invocation-wide policy:
 
 This is foundational execution infrastructure, not yet a high-loop
 memory-sharing architecture. Stage 1 extends it only where the through-three-
-loop workload demonstrates a need. High-loop worker benchmarking belongs to
-deferred Stage 2; any later model must account for Symbolica TLS/scratch, avoid
-nested pools and per-task forks, and share immutable family/source data instead
-of cloning complete symbolic state for each lane.
+loop workload demonstrates a need. Bounded, census-complete K10/K15/K21 scaling
+benchmarks are authorized during Stage 1, but high-loop artifact production
+and extreme worker infrastructure remain deferred to Stage 2. Any later model
+must account for Symbolica TLS/scratch, avoid nested pools and per-task forks,
+and share immutable family/source data instead of cloning complete symbolic
+state for each lane.
 
 The Python adapter releases the GIL, but all top-level calls enter the
 application through one process-wide coordinator thread. Its zero-capacity
