@@ -118,6 +118,24 @@ pub(crate) struct ModularObstructionEntry {
     pub(super) coefficient: FiniteFieldElement<u64>,
 }
 
+/// Opaque in-memory identity of one checked target query.
+///
+/// Cloning an obstruction preserves this token, while independently rerunning
+/// even the same structural query creates a fresh owner. Structural
+/// obstruction equality deliberately ignores the token.
+#[derive(Clone, Debug)]
+pub(crate) struct ModularRightObstructionIdentity(Arc<()>);
+
+impl ModularRightObstructionIdentity {
+    fn fresh() -> Self {
+        Self(Arc::new(()))
+    }
+
+    pub(crate) fn belongs_to(&self, obstruction: &ModularRightObstruction<'_>) -> bool {
+        Arc::ptr_eq(&self.0, &obstruction.identity.0)
+    }
+}
+
 impl ModularObstructionEntry {
     pub(crate) const fn logical_column(&self) -> usize {
         self.logical_column
@@ -144,6 +162,7 @@ impl ModularObstructionEntry {
 /// result cannot authorize an exact rule, owner, terminal, or closure claim.
 #[derive(Clone, Debug)]
 pub(crate) struct ModularRightObstruction<'frame> {
+    identity: ModularRightObstructionIdentity,
     plan: &'frame PhysicalFramePlan,
     sample: Arc<ModularSampleFingerprint>,
     diagnostics: ModularRankDiagnostics,
@@ -152,6 +171,10 @@ pub(crate) struct ModularRightObstruction<'frame> {
 }
 
 impl<'frame> ModularRightObstruction<'frame> {
+    pub(crate) fn identity_owner(&self) -> ModularRightObstructionIdentity {
+        self.identity.clone()
+    }
+
     pub(crate) const fn plan(&self) -> &'frame PhysicalFramePlan {
         self.plan
     }
@@ -193,6 +216,7 @@ impl<'frame> ModularRightObstruction<'frame> {
         entries: Vec<ModularObstructionEntry>,
     ) -> Self {
         Self {
+            identity: ModularRightObstructionIdentity::fresh(),
             plan,
             sample,
             diagnostics,

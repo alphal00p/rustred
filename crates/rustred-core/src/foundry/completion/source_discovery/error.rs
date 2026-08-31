@@ -1,5 +1,6 @@
 use std::fmt;
 
+use crate::foundry::completion::frame::modular::ModularSourceEvaluationError;
 use crate::identity::TranslatedSourceError;
 
 /// Typed failures at the bounded inverse-incidence boundary.
@@ -25,6 +26,25 @@ pub(crate) enum SourceDiscoveryError {
         source_shift: i64,
     },
     ShiftConstruction(TranslatedSourceError),
+    SourceTranslation(TranslatedSourceError),
+    NominationIncidenceMismatch,
+    TargetUnitNominationForObstruction,
+    NominationObstructionMismatch,
+    CompletedSourceChronologyMismatch,
+    SelectedRequestProvenanceMismatch {
+        candidate_ordinal: usize,
+    },
+    SelectedSourceRowMismatch {
+        candidate_ordinal: usize,
+        source_ordinal: usize,
+    },
+    ObstructionPlanMismatch,
+    ObstructionSampleMismatch,
+    CandidateEvaluation {
+        candidate_ordinal: usize,
+        source_ordinal: usize,
+        error: ModularSourceEvaluationError,
+    },
     ResourceCountOverflow {
         resource: &'static str,
     },
@@ -77,6 +97,49 @@ impl fmt::Display for SourceDiscoveryError {
                     "could not retain an incident translation offset: {error}"
                 )
             }
+            Self::SourceTranslation(error) => {
+                write!(
+                    formatter,
+                    "could not translate residual source candidates: {error}"
+                )
+            }
+            Self::NominationIncidenceMismatch => formatter.write_str(
+                "residual nominations were constructed by a different ordinary-source incidence index",
+            ),
+            Self::TargetUnitNominationForObstruction => formatter.write_str(
+                "target-unit bootstrap nominations cannot be paired with a checked obstruction",
+            ),
+            Self::NominationObstructionMismatch => formatter.write_str(
+                "residual nominations belong to a different checked obstruction query",
+            ),
+            Self::CompletedSourceChronologyMismatch => formatter.write_str(
+                "completed source chronology differs from the sealed incidence module",
+            ),
+            Self::SelectedRequestProvenanceMismatch { candidate_ordinal } => write!(
+                formatter,
+                "selected residual candidate {candidate_ordinal} disagrees with its request provenance"
+            ),
+            Self::SelectedSourceRowMismatch {
+                candidate_ordinal,
+                source_ordinal,
+            } => write!(
+                formatter,
+                "selected residual candidate {candidate_ordinal} has the wrong sealed row identity for ordinary source {source_ordinal}"
+            ),
+            Self::ObstructionPlanMismatch => formatter.write_str(
+                "residual pairing frame is not the physical plan bound to its obstruction",
+            ),
+            Self::ObstructionSampleMismatch => formatter.write_str(
+                "residual pairing frame is not the modular sample bound to its obstruction",
+            ),
+            Self::CandidateEvaluation {
+                candidate_ordinal,
+                source_ordinal,
+                error,
+            } => write!(
+                formatter,
+                "residual candidate {candidate_ordinal} (ordinary source {source_ordinal}) could not be completely evaluated: {error:?}"
+            ),
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} count overflowed usize")
             }
@@ -105,7 +168,7 @@ impl fmt::Display for SourceDiscoveryError {
 impl std::error::Error for SourceDiscoveryError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::ShiftConstruction(error) => Some(error),
+            Self::ShiftConstruction(error) | Self::SourceTranslation(error) => Some(error),
             _ => None,
         }
     }

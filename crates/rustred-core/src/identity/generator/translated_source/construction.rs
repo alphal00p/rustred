@@ -192,7 +192,7 @@ impl ParametricIbpGenerator<'_> {
         })
     }
 
-    pub(super) fn validate_completed_scope(
+    pub(crate) fn validate_completed_scope(
         &self,
         completed: &CompletedIbpSourceRows,
     ) -> Result<(), TranslatedSourceError> {

@@ -1,9 +1,13 @@
+use crate::identity::TranslatedSourceLimits;
+
 /// Resource policy for one ordinary-source incidence index and nomination.
 ///
 /// Exhausting any limit is a typed research-budget result.  It never means
 /// that the declared translated module has no rule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SourceDiscoveryLimits {
+    /// Exact selected-source translation policy used by residual pairing.
+    pub(crate) translation: TranslatedSourceLimits,
     pub(crate) max_arity: usize,
     pub(crate) max_source_rows: usize,
     pub(crate) max_source_term_occurrences: usize,
@@ -14,11 +18,17 @@ pub(crate) struct SourceDiscoveryLimits {
     pub(crate) max_raw_requests: usize,
     pub(crate) max_unique_requests: usize,
     pub(crate) max_existing_requests: usize,
+    pub(crate) max_residual_candidates: usize,
+    pub(crate) max_residual_source_terms: usize,
+    pub(crate) max_residual_support_coordinate_cells: usize,
+    pub(crate) max_residual_classifications: usize,
+    pub(crate) max_nonzero_residual_requests: usize,
 }
 
 impl Default for SourceDiscoveryLimits {
     fn default() -> Self {
         Self {
+            translation: TranslatedSourceLimits::default(),
             max_arity: 4_096,
             max_source_rows: 65_536,
             max_source_term_occurrences: 1_000_000,
@@ -29,6 +39,11 @@ impl Default for SourceDiscoveryLimits {
             max_raw_requests: 16_000_000,
             max_unique_requests: 16_000_000,
             max_existing_requests: 1_000_000,
+            max_residual_candidates: 1_000_000,
+            max_residual_source_terms: 16_000_000,
+            max_residual_support_coordinate_cells: 64_000_000,
+            max_residual_classifications: 1_000_000,
+            max_nonzero_residual_requests: 1_000_000,
         }
     }
 }

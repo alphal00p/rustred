@@ -358,9 +358,13 @@ External-contraction-only batches are rejected before the census. The K6
 control has nine sources, 90 term incidences, 31 distinct relative shifts, and
 90 unique target-unit bootstrap requests. Candidate coefficients are evaluated
 through the Symbolica-backed scalar evaluator bound to one admitted modular
-frame, so its point cannot be paired with another finite-field domain. Full
-residual pairing and the fresh-plan fixed-point loop remain discovery work;
-neither a nomination nor exhaustion can become a terminal.
+frame, so its point cannot be paired with another finite-field domain. Full-row
+residual pairing is now sealed to the exact incidence index and checked
+obstruction query. Its immutable campaign epoch stably accumulates retained
+requests, rebuilds a new selected plan and exhaustive target partition from raw
+identities, and resamples from the retained integer probe. The outer
+multi-epoch scheduler remains discovery work; neither a nomination, a sampled
+dual, nor budget or finite-batch exhaustion can become a terminal.
 
 The corresponding modular hit is bound by pointer identity to its physical
 frame and by an immutable prime/sample fingerprint. Exact lifting projects the

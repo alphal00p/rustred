@@ -40,8 +40,10 @@ audited:
 
 The canonical K6 zero-offset index contains nine sources, 90 term incidences, and 31 distinct
 relative shifts. Its target-unit bootstrap produces 90 unique requests. This is a structural
-census, not a modular hit or closure result. The executable residual pairing, stable accumulation,
-fresh-plan/partition rebuild, and fixed-task campaign loop described below remain the next slice.
+census, not a modular hit or closure result. Executable full-row residual pairing, stable request
+accumulation, and one immutable fresh-plan/partition/query epoch are now implemented. The bounded
+outer scheduler which repeats those epochs and hands a live hit to exact lift remains the next
+slice.
 
 ## Measured K6 control
 
@@ -309,9 +311,8 @@ The existing exact proof path should remain authoritative. The new work belongs 
 
 ### Selected source plan
 
-`PhysicalFramePlan::try_new` in
-`crates/rustred-core/src/foundry/completion/frame/build.rs` currently enumerates every ordinary
-source for every one-sided offset. Add a selected signed-source plan around records equivalent to:
+This boundary is implemented. `OneSidedChartFrame::try_new` retains the rectangular
+one-sided schedule, while `SelectedSourceFrame::try_new` consumes only exact records of the form:
 
 ```text
 TranslatedSourceRequest {
@@ -324,50 +325,56 @@ Provenance plus signed offset is the stable identity. Total translation degree i
 cost, not identity. The selected plan must not translate all `L^2` ordinary rows merely because one
 row at an offset was nominated.
 
-`ParametricIbpGenerator::translate_completed_source_rows` already accepts signed
-`IntegralShift`s, but it deliberately expands **every** completed ordinary source at every supplied
-offset and returns an offset-major rectangular batch. Calling it once per nominated offset and then
-discarding `L^2-1` rows would defeat selected-source scaling. Add a bounded selected-translation
-entry point, implemented through the same Symbolica-backed relation translation and exact
-`TranslatedSourceProvenance`, whose input is the canonical `(source_ordinal, signed_offset)` request
-set. A modular scout may compile/cache coefficient evaluators for cheap
+`ParametricIbpGenerator::translate_completed_source_rows` remains the rectangular API and expands
+**every** completed ordinary source at every supplied offset. The implemented
+`translate_selected_completed_source_rows` instead translates only the canonical deduplicated
+`(source_ordinal, signed_offset)` request set through the same Symbolica-backed relation translation
+and exact `TranslatedSourceProvenance`. A modular scout may later compile/cache coefficient evaluators for cheap
 `(source, offset, sample)` evaluation, but every retained exact row is regenerated through that
 normal identity boundary before lift and replay.
 
 ### Obstruction service
 
-Refactor the projected sparse reduction in
-`crates/rustred-core/src/foundry/completion/frame/modular/rank.rs` so it can return either a target
-hit or a checked `ModularAffineObstruction`. Use Symbolica's `SparseRowReducer`, `U`, pivots, and
+This boundary is also implemented. The projected sparse reduction in
+`crates/rustred-core/src/foundry/completion/frame/modular/rank.rs` returns either a target
+hit or a checked `ModularRightObstruction`. It uses Symbolica's `SparseRowReducer`, `U`, pivots, and
 serial `back_substitute`; no independent CAS or generic elimination engine is needed. Target-last
 projection makes the canonical normalized kernel vector a thin extraction from the RREF. Preserve
 the current preflighted fill bounds, native-panic boundary, and postvalidation: Symbolica provides
 the elimination primitive, not RustRed's resource or trust policy.
 
-This requires a distinct logical projected-column map. The current `query_target` sorts the target
-back into physical-column order before reduction; under that layout rank equality does not imply
-that the target itself is the chosen free column. Obstruction extraction must instead number all
-forbidden keys first and the target last, and retain an explicit logical-to-physical key map for
-verification and later rebuilds.
+The obstruction numbers every canonical forbidden key first and the target last, retains an
+explicit logical-to-physical map, normalizes `q_target = 1`, and replays `A q = 0` before returning.
 
 Useful private components are:
 
-- `TranslatedSourceIncidenceIndex`: source term shifts and source ordinals;
+- `OrdinarySourceIncidenceIndex`: source term shifts and source ordinals;
 - `TranslatedSourceRequest`: one ordinary row and one signed offset;
-- `ModularAffineObstruction`: field/sample identity, ordered support, and verified normalized `q`;
-- `IncidentTranslationOracle`: stable inverse-incidence nomination and full-residual evaluation;
+- `ModularRightObstruction`: field/sample identity, ordered support, and verified normalized `q`;
+- `IncidentTranslationNominations`: stable inverse-incidence nomination without proof authority;
   and
-- `SelectedPhysicalFramePlan`: CSR, exact provenance, and target-role partition for only retained
-  requests.
+- `SelectedSourceFrame`: construction-neutral CSR and exact provenance for only retained requests.
 
-The present `ModularPhysicalFrame`, `ModularHit`, `TargetColumnPartition`, exact lift, and replay
-APIs are concretely bound to `PhysicalFramePlan`, whose constructor and invariants assume a
-one-sided rectangular `offsets x all ordinary sources` frame. A separate
-`SelectedPhysicalFramePlan` therefore cannot directly enter the existing proof path. Before relying
-on reuse, either generalize those consumers over one sealed physical-plan interface or make the
-selected constructor produce the same verified physical-plan representation without pretending it
-is rectangular. Pointer/frame joins, source chronology, exhaustive column partitioning, and replay
-must remain equally strict.
+`ModularPhysicalFrame`, `ModularHit`, `TargetColumnPartition`, exact lift, and replay now consume the
+construction-neutral `PhysicalFramePlan` nested by either scheduling shell. The shared assembler
+retains exact source chronology and raw columns without pretending a sparse selection is a
+rectangle. Pointer and sealed-identity joins remain strict across every proof-bearing boundary.
+
+The full-residual filter and immutable fresh-plan epoch are implemented. Nominations are sealed to
+their exact ordinary-source incidence index and either a target-unit bootstrap or one exact checked
+obstruction query; only the latter may enter residual pairing. The evaluator materializes every
+source condition, coefficient denominator, and source term before pairing the supported columns.
+Every stable augmentation is then translated anew, assembled into a pointer-distinct physical
+plan, exhaustively repartitioned under the fixed stratum/order/lower-owner snapshot, and resampled
+from the original integer probe inputs. Empty residual batches still authenticate family, context,
+layout, and row chronology. Neither empty nor unchanged batches carry sampled-dual authority.
+
+The active work is the bounded outer scheduler. It must bootstrap the target-unit requests, execute
+fresh query epochs in deterministic probe order, union every obstruction-bound nonzero residual
+request in stable raw identity order, discard all stale plan-local ordinals and witnesses before a
+rebuild, and invoke exact lift and replay on an actual hit while its epoch is alive. Exhaustive
+sampled-dual and resource-stop outcomes must remain typed discovery evidence with no terminal or
+closure authority.
 
 After that compatibility boundary exists and rank separates, reuse the current modular-hit support
 selection, exact lift, fraction-free source replay, semantic admission, cold outer extension, and

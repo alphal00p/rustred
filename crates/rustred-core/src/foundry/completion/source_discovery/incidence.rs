@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::identity::{IndexShift, TranslatedSource, TranslatedSourceBatch};
 
 use super::nominate::{check_limit, checked_add, try_vec};
@@ -14,6 +16,7 @@ const DISTINCT_SHIFTS: &str = "source-discovery distinct ordinary shifts";
 /// index records only checked cardinalities and borrows its exact term keys.
 #[derive(Debug)]
 pub(crate) struct OrdinarySourceIncidenceIndex<'sources> {
+    identity: Arc<()>,
     sources: &'sources TranslatedSourceBatch,
     arity: usize,
     term_occurrences: usize,
@@ -94,6 +97,7 @@ impl<'sources> OrdinarySourceIncidenceIndex<'sources> {
         let distinct_shift_count = distinct.len();
 
         Ok(Self {
+            identity: Arc::new(()),
             sources,
             arity,
             term_occurrences,
@@ -103,6 +107,14 @@ impl<'sources> OrdinarySourceIncidenceIndex<'sources> {
 
     pub(crate) const fn arity(&self) -> usize {
         self.arity
+    }
+
+    pub(super) fn identity_owner(&self) -> Arc<()> {
+        self.identity.clone()
+    }
+
+    pub(super) fn owns_identity(&self, identity: &Arc<()>) -> bool {
+        Arc::ptr_eq(&self.identity, identity)
     }
 
     pub(crate) fn family_fingerprint(&self) -> &str {

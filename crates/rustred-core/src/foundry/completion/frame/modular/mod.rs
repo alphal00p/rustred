@@ -16,7 +16,8 @@ pub(crate) use error::ModularKernelError;
 pub(crate) use limits::ModularKernelLimits;
 pub(crate) use model::{
     ModularHit, ModularObstructionEntry, ModularPhysicalFrame, ModularRankDiagnostics,
-    ModularRightObstruction, ModularSampleFingerprint, ModularTargetQuery,
+    ModularRightObstruction, ModularRightObstructionIdentity, ModularSampleFingerprint,
+    ModularTargetQuery,
 };
 pub(crate) use sample::ModularSourceEvaluationError;
 

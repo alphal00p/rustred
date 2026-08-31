@@ -149,11 +149,19 @@ cannot be mismatched. Finally, the bounded inverse-incidence index now
 enumerates canonical `alpha = u - s` requests from either the target-unit
 bootstrap or a checked obstruction, with the canonical K6 census pinned at
 nine sources, 90 term incidences, 31 distinct relative shifts, and 90 unique
-bootstrap requests. These values remain nomination-only. The next slice must
-evaluate every nominated complete row against the current obstruction, retain
-all nonzero-residual requests, rebuild a fresh selected plan and exhaustive
-target partition, and iterate to a modular hit or honest budget/exhaustion
-telemetry before exact lift and replay. On the Vakint side, the shared multimethod harness
+bootstrap requests. These values remain nomination-only. The implementation
+now evaluates every nominated complete row against the current obstruction,
+retains all nonzero-residual requests, and rebuilds a fresh selected plan and
+exhaustive target partition after each stable augmentation. This single-epoch
+boundary is regression-pinned: obstruction nominations are sealed to the
+exact ordinary-source incidence index and checked query, every complete row is
+evaluated before sparse projection, and every augmentation creates a new
+immutable plan, partition, and modular sample from raw identities. Candidate
+batch exhaustion remains telemetry only. The next slice is the bounded outer
+scheduler which repeats these epochs over a predeclared probe schedule, hands
+actual hits to exact lift and replay while their plan is alive, and reports
+only typed sampled-dual or budget evidence on exhaustive misses. On the Vakint
+side, the shared multimethod harness
 now exercises 21 applicable historical tests comprising 27 concrete inputs
 through two loops,
 including nine inputs with the unchanged FORM tensor prepass. Eleven genuine

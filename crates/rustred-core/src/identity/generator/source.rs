@@ -4,7 +4,6 @@ use super::model::{
     CompletedIbpSourceRows, IbpSourceRow, ParametricIbpGenerator, PreparedIbpSource,
     PreparedIbpSourceBatch,
 };
-#[cfg(test)]
 use super::scope::IbpSourceLayout;
 
 impl CompletedIbpSourceRows {
@@ -16,14 +15,37 @@ impl CompletedIbpSourceRows {
     ///
     /// Consumers that make rank or completeness claims must reject the
     /// intentionally smaller external-contraction-only source layout.
-    #[cfg(test)]
+    #[allow(dead_code)] // Consumed by the staged crate-private foundry driver.
     pub(crate) const fn is_complete_ordinary(&self) -> bool {
         matches!(self.layout, IbpSourceLayout::CompleteOrdinary)
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)] // Consumed by the staged crate-private foundry driver.
     pub(crate) const fn layout_name(&self) -> &'static str {
         self.layout.name()
+    }
+
+    #[allow(dead_code)] // Consumed by the staged crate-private foundry driver.
+    pub(crate) fn source_row_count(&self) -> usize {
+        self.relations.len()
+    }
+
+    #[allow(dead_code)] // Consumed by the staged crate-private foundry driver.
+    pub(crate) fn source_row_id(&self, ordinal: usize) -> Option<&crate::identity::RowId> {
+        self.relations
+            .get(ordinal)
+            .map(|relation| relation.row_id())
+    }
+
+    /// Crate-test-only chronology mutant. Prepared-batch completion never
+    /// permits this ordering in production.
+    #[cfg(test)]
+    pub(crate) fn swap_source_rows_for_test(&mut self, left: usize, right: usize) -> bool {
+        if left >= self.relations.len() || right >= self.relations.len() {
+            return false;
+        }
+        self.relations.swap(left, right);
+        true
     }
 }
 

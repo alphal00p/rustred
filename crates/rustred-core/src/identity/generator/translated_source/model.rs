@@ -269,6 +269,79 @@ impl SelectedTranslatedSourceBatch {
         self.sources.is_empty()
     }
 
+    /// Inject one authenticated same-context coefficient without its
+    /// denominator gate for a crate-local projection-order mutant test.
+    ///
+    /// Normal source generation cannot produce this state: relation ingress
+    /// always retains the denominator condition. Keeping the seam behind
+    /// `cfg(test)` lets discovery tests prove that a term outside sparse
+    /// obstruction support is still evaluated, without weakening production
+    /// constructors or visibility.
+    #[cfg(test)]
+    pub(crate) fn replace_term_without_denominator_gate_for_test(
+        &mut self,
+        context: &crate::algebra::IndexedCoefficientContext,
+        selected_source_ordinal: usize,
+        term_ordinal: usize,
+        coefficient: IndexedCoefficient,
+    ) -> Result<(), &'static str> {
+        if context.fingerprint() != self.context_fingerprint() {
+            return Err("missing-gate mutant coefficient belongs to a foreign context");
+        }
+        context
+            .bind_sealed(&coefficient)
+            .map_err(|_| "missing-gate mutant coefficient is not authenticated")?;
+        let source = self
+            .sources
+            .get_mut(selected_source_ordinal)
+            .ok_or("missing-gate mutant source ordinal is out of range")?;
+        if !source
+            .relation
+            .replace_term_without_denominator_gate_for_test(term_ordinal, coefficient)
+        {
+            return Err("missing-gate mutant term ordinal is out of range");
+        }
+        Ok(())
+    }
+
+    /// Crate-test-only provenance mutant used to prove that consumers join
+    /// each selected row to the exact request which authorized it. Normal
+    /// selected translation constructs both vectors together and cannot
+    /// create this state.
+    #[cfg(test)]
+    pub(crate) fn swap_source_provenance_for_test(&mut self, left: usize, right: usize) -> bool {
+        if left >= self.sources.len() || right >= self.sources.len() {
+            return false;
+        }
+        if left == right {
+            return true;
+        }
+        let (left_source, right_source) = if left < right {
+            let (before_right, from_right) = self.sources.split_at_mut(right);
+            (&mut before_right[left], &mut from_right[0])
+        } else {
+            let (before_left, from_left) = self.sources.split_at_mut(left);
+            (&mut from_left[0], &mut before_left[right])
+        };
+        std::mem::swap(&mut left_source.provenance, &mut right_source.provenance);
+        true
+    }
+
+    /// Crate-test-only row-identity mutant used to prove that selected
+    /// residual rows retain the sealed completed-source chronology.
+    #[cfg(test)]
+    pub(crate) fn replace_source_row_id_for_test(
+        &mut self,
+        selected_source_ordinal: usize,
+        row_id: RowId,
+    ) -> bool {
+        let Some(source) = self.sources.get_mut(selected_source_ordinal) else {
+            return false;
+        };
+        source.provenance.source_row = row_id;
+        true
+    }
+
     #[cfg(test)]
     pub(crate) fn into_foundry_parts(
         self,

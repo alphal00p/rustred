@@ -1,15 +1,25 @@
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use symbolica::domains::finite_field::FiniteFieldCore;
+use symbolica::domains::{Ring, RingOps};
+
 use crate::algebra::CoefficientContext;
 use crate::family::{AffineDenominator, IntegralFamily};
 use crate::foundry::artifact::canonical_three_loop_family;
-use crate::foundry::completion::frame::modular::{ModularKernelLimits, ModularTargetQuery};
+use crate::foundry::completion::frame::modular::{
+    ModularKernelLimits, ModularPhysicalFrame, ModularRightObstruction,
+    ModularSourceEvaluationError, ModularTargetQuery,
+};
 use crate::foundry::completion::frame::{OneSidedChartFrame, PhysicalFrameLimits};
 use crate::identity::{
-    CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator, TranslatedSourceBatch,
-    TranslatedSourceLimits, TranslatedSourceRequest,
+    CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator, RowId, TranslatedSourceBatch,
+    TranslatedSourceError, TranslatedSourceLimits, TranslatedSourceRequest,
 };
 use crate::sector::Mask;
 
-use super::nominate::nominate_support_for_test;
+use super::nominate::{empty_obstruction_nominations_for_test, nominate_support_for_test};
+use super::residual::pair_selected_sources_for_test;
 use super::{OrdinarySourceIncidenceIndex, SourceDiscoveryError, SourceDiscoveryLimits};
 
 const PRIME: u64 = 1_000_000_007;
@@ -46,6 +56,62 @@ fn one_loop_one_external(name: &str) -> IntegralFamily {
         vec![context.zero(), context.zero()],
     )
     .unwrap()
+}
+
+fn one_loop_vacuum(name: &str) -> IntegralFamily {
+    let context = CoefficientContext::new(["d"]);
+    IntegralFamily::new(
+        name,
+        vec!["k".to_owned()],
+        Vec::new(),
+        context.clone(),
+        context.parameter("d").unwrap(),
+        vec![AffineDenominator::new(
+            context.integer(-1),
+            vec![context.one()],
+        )],
+        Vec::new(),
+        vec![context.zero()],
+    )
+    .unwrap()
+}
+
+fn all_other_no_hit<'frame>(
+    sampled: &ModularPhysicalFrame<'frame>,
+) -> ModularRightObstruction<'frame> {
+    for target in 0..sampled.plan().columns().len() {
+        let forbidden = (0..sampled.plan().columns().len())
+            .filter(|&column| column != target)
+            .collect::<Vec<_>>();
+        if let ModularTargetQuery::NoHitWithObstruction(obstruction) = sampled
+            .query_target(target, &forbidden, ModularKernelLimits::default())
+            .unwrap()
+        {
+            return obstruction;
+        }
+    }
+    panic!("fixture has no all-other-column modular no-hit")
+}
+
+fn different_target_all_other_no_hit<'frame>(
+    sampled: &ModularPhysicalFrame<'frame>,
+    excluded_target: usize,
+) -> ModularRightObstruction<'frame> {
+    for target in 0..sampled.plan().columns().len() {
+        if target == excluded_target {
+            continue;
+        }
+        let forbidden = (0..sampled.plan().columns().len())
+            .filter(|&column| column != target)
+            .collect::<Vec<_>>();
+        if let ModularTargetQuery::NoHitWithObstruction(obstruction) = sampled
+            .query_target(target, &forbidden, ModularKernelLimits::default())
+            .unwrap()
+        {
+            return obstruction;
+        }
+    }
+    panic!("fixture has no second all-other-column modular no-hit")
 }
 
 fn zero_offset_sources(
@@ -409,6 +475,936 @@ fn checked_obstruction_nomination_excludes_every_materialized_request() {
                 && source.provenance().offset() == request.offset()
         }));
     }
+}
+
+#[test]
+fn complete_row_residual_pairing_matches_an_independent_raw_shift_replay() {
+    let family = one_loop_vacuum("source-discovery-residual-replay");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let sources = generator
+        .translate_completed_source_rows(
+            &completed,
+            [IntegralShift::try_new([0]).unwrap()],
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    let limits = SourceDiscoveryLimits::default();
+    let incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    let chart = OneSidedChartFrame::try_new(
+        &generator,
+        &completed,
+        Mask::try_new([true]).unwrap(),
+        0,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let sampled = chart
+        .plan()
+        .try_modular_sample(
+            generator.context(),
+            PRIME,
+            &[37],
+            &[0],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    let obstruction = all_other_no_hit(&sampled);
+    let nominations = incidence
+        .try_nominate_obstruction(&obstruction, limits)
+        .unwrap();
+    let retained = incidence
+        .try_retain_nonzero_residuals(
+            &generator,
+            &completed,
+            &nominations,
+            &sampled,
+            &obstruction,
+            limits,
+        )
+        .unwrap();
+    let repeated = incidence
+        .try_retain_nonzero_residuals(
+            &generator,
+            &completed,
+            &nominations,
+            &sampled,
+            &obstruction,
+            limits,
+        )
+        .unwrap();
+    assert_eq!(retained, repeated);
+
+    let selected = generator
+        .translate_selected_completed_source_rows(
+            &completed,
+            nominations.requests().iter().cloned(),
+            limits.translation,
+        )
+        .unwrap();
+    let mut raw_q = BTreeMap::new();
+    for entry in obstruction.entries() {
+        let physical = obstruction.logical_physical_columns()[entry.logical_column()];
+        raw_q.insert(
+            sampled.plan().columns()[physical].values().to_vec(),
+            entry.coefficient().clone(),
+        );
+    }
+    let mut evaluated = Vec::new();
+    let mut expected = Vec::new();
+    let mut paired = 0usize;
+    for (request, source) in selected.requests().iter().zip(selected.sources()) {
+        sampled
+            .try_evaluate_translated_source(generator.context(), source, &mut evaluated)
+            .unwrap();
+        assert_eq!(evaluated.len(), source.terms().len());
+        let mut residual = sampled.field().zero();
+        for (shift, value) in source.terms().keys().zip(&evaluated) {
+            let Some(q) = raw_q.get(shift.values()) else {
+                continue;
+            };
+            paired += 1;
+            residual = sampled
+                .field()
+                .add(&residual, &sampled.field().mul(value, q));
+        }
+        if !sampled.field().is_zero(&residual) {
+            expected.push(request.clone());
+        }
+    }
+
+    assert_eq!(retained.requests(), expected);
+    assert_eq!(
+        (
+            nominations.requests().len(),
+            retained.requests().len(),
+            retained.evaluated_source_terms(),
+            retained.paired_source_terms(),
+            retained.obstruction_support_entries(),
+        ),
+        (2, 1, 4, 2, 2),
+        "the one-loop complete-row residual census is frozen",
+    );
+    assert_eq!(
+        retained.evaluated_candidates(),
+        nominations.requests().len()
+    );
+    assert_eq!(
+        retained.evaluated_source_terms(),
+        selected
+            .sources()
+            .iter()
+            .map(|source| source.terms().len())
+            .sum::<usize>()
+    );
+    assert_eq!(retained.paired_source_terms(), paired);
+    assert_eq!(
+        retained.obstruction_support_entries(),
+        obstruction.entries().len()
+    );
+    assert!(retained.requests().windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(
+        retained.requests().len() < nominations.requests().len(),
+        "the fixture must exercise complete-row modular cancellation"
+    );
+}
+
+#[test]
+fn residual_pairing_rejoins_exact_plan_sample_and_generator_scope() {
+    let family = one_loop_vacuum("source-discovery-residual-joins");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let sources = generator
+        .translate_completed_source_rows(
+            &completed,
+            [IntegralShift::try_new([0]).unwrap()],
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    let limits = SourceDiscoveryLimits::default();
+    let incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    let first_chart = OneSidedChartFrame::try_new(
+        &generator,
+        &completed,
+        Mask::try_new([true]).unwrap(),
+        0,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let first_sample = first_chart
+        .plan()
+        .try_modular_sample(
+            generator.context(),
+            PRIME,
+            &[37],
+            &[0],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    let first_obstruction = all_other_no_hit(&first_sample);
+    let nominations = incidence
+        .try_nominate_obstruction(&first_obstruction, limits)
+        .unwrap();
+
+    let independent_same_point = first_chart
+        .plan()
+        .try_modular_sample(
+            generator.context(),
+            PRIME,
+            &[37],
+            &[0],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    assert_eq!(independent_same_point.point(), first_sample.point());
+    assert_eq!(
+        incidence
+            .try_retain_nonzero_residuals(
+                &generator,
+                &completed,
+                &nominations,
+                &independent_same_point,
+                &first_obstruction,
+                limits,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::ObstructionSampleMismatch
+    );
+
+    let foreign_field_sample = first_chart
+        .plan()
+        .try_modular_sample(
+            generator.context(),
+            1_000_000_009,
+            &[37],
+            &[0],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    assert_ne!(
+        foreign_field_sample.field().get_prime(),
+        first_sample.field().get_prime()
+    );
+    assert_eq!(
+        incidence
+            .try_retain_nonzero_residuals(
+                &generator,
+                &completed,
+                &nominations,
+                &foreign_field_sample,
+                &first_obstruction,
+                limits,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::ObstructionSampleMismatch
+    );
+
+    let second_chart = OneSidedChartFrame::try_new(
+        &generator,
+        &completed,
+        Mask::try_new([true]).unwrap(),
+        0,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(first_chart.plan(), second_chart.plan());
+    let second_sample = second_chart
+        .plan()
+        .try_modular_sample(
+            generator.context(),
+            PRIME,
+            &[37],
+            &[0],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    let second_obstruction = all_other_no_hit(&second_sample);
+    assert_eq!(
+        incidence
+            .try_retain_nonzero_residuals(
+                &generator,
+                &completed,
+                &nominations,
+                &first_sample,
+                &second_obstruction,
+                limits,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::ObstructionPlanMismatch
+    );
+
+    let foreign_family = one_loop_vacuum("source-discovery-residual-foreign-generator");
+    let foreign_generator = ParametricIbpGenerator::try_new(&foreign_family).unwrap();
+    let foreign_completed = complete_ordinary(&foreign_generator);
+    assert!(matches!(
+        incidence.try_retain_nonzero_residuals(
+            &foreign_generator,
+            &foreign_completed,
+            &nominations,
+            &first_sample,
+            &first_obstruction,
+            limits,
+        ),
+        Err(SourceDiscoveryError::ScopeMismatch { .. })
+    ));
+}
+
+#[test]
+fn residual_pairing_requires_exact_incidence_origin_and_obstruction_query() {
+    let family = one_loop_vacuum("source-discovery-residual-admission-seals");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let sources = generator
+        .translate_completed_source_rows(
+            &completed,
+            [IntegralShift::try_new([0]).unwrap()],
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    let limits = SourceDiscoveryLimits::default();
+    let incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    let equal_shaped_foreign_incidence =
+        OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    let chart = OneSidedChartFrame::try_new(
+        &generator,
+        &completed,
+        Mask::try_new([true]).unwrap(),
+        0,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let sampled = chart
+        .plan()
+        .try_modular_sample(
+            generator.context(),
+            PRIME,
+            &[37],
+            &[0],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    let obstruction = all_other_no_hit(&sampled);
+    let nominations = incidence
+        .try_nominate_obstruction(&obstruction, limits)
+        .unwrap();
+
+    assert_eq!(
+        equal_shaped_foreign_incidence
+            .try_retain_nonzero_residuals(
+                &generator,
+                &completed,
+                &nominations,
+                &sampled,
+                &obstruction,
+                limits,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::NominationIncidenceMismatch
+    );
+
+    let target_unit = incidence
+        .try_nominate_target_unit(&IntegralShift::try_new([0]).unwrap(), limits)
+        .unwrap();
+    assert_eq!(
+        incidence
+            .try_retain_nonzero_residuals(
+                &generator,
+                &completed,
+                &target_unit,
+                &sampled,
+                &obstruction,
+                limits,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::TargetUnitNominationForObstruction
+    );
+
+    let different_obstruction =
+        different_target_all_other_no_hit(&sampled, obstruction.target_physical_column());
+    assert_ne!(
+        different_obstruction.target_physical_column(),
+        obstruction.target_physical_column()
+    );
+    assert_eq!(
+        incidence
+            .try_retain_nonzero_residuals(
+                &generator,
+                &completed,
+                &nominations,
+                &sampled,
+                &different_obstruction,
+                limits,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::NominationObstructionMismatch
+    );
+}
+
+#[test]
+fn empty_residual_nominations_still_authenticate_scope_and_chronology() {
+    let family = one_loop_vacuum("source-discovery-empty-residual-admission");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let sources = generator
+        .translate_completed_source_rows(
+            &completed,
+            [IntegralShift::try_new([0]).unwrap()],
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    let limits = SourceDiscoveryLimits::default();
+    let incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    let foreign_incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    let chart = OneSidedChartFrame::try_new(
+        &generator,
+        &completed,
+        Mask::try_new([true]).unwrap(),
+        0,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let sampled = chart
+        .plan()
+        .try_modular_sample(
+            generator.context(),
+            PRIME,
+            &[37],
+            &[0],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    let obstruction = all_other_no_hit(&sampled);
+    let empty = empty_obstruction_nominations_for_test(&incidence, &obstruction).unwrap();
+    let retained = incidence
+        .try_retain_nonzero_residuals(
+            &generator,
+            &completed,
+            &empty,
+            &sampled,
+            &obstruction,
+            limits,
+        )
+        .unwrap();
+    assert!(retained.requests().is_empty());
+    assert_eq!(retained.evaluated_candidates(), 0);
+    assert_eq!(
+        retained.obstruction_support_entries(),
+        obstruction.entries().len()
+    );
+
+    let foreign_empty =
+        empty_obstruction_nominations_for_test(&foreign_incidence, &obstruction).unwrap();
+    assert_eq!(
+        incidence
+            .try_retain_nonzero_residuals(
+                &generator,
+                &completed,
+                &foreign_empty,
+                &sampled,
+                &obstruction,
+                limits,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::NominationIncidenceMismatch
+    );
+
+    let foreign_family = one_loop_vacuum("source-discovery-empty-residual-foreign-family");
+    let foreign_generator = ParametricIbpGenerator::try_new(&foreign_family).unwrap();
+    let foreign_completed = complete_ordinary(&foreign_generator);
+    assert_eq!(
+        incidence
+            .try_retain_nonzero_residuals(
+                &generator,
+                &foreign_completed,
+                &empty,
+                &sampled,
+                &obstruction,
+                limits,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::SourceTranslation(
+            TranslatedSourceError::CompletedSourceFamilyMismatch
+        )
+    );
+
+    let chronological_family = one_loop_one_external("source-discovery-empty-residual-chronology");
+    let chronological_generator = ParametricIbpGenerator::try_new(&chronological_family).unwrap();
+    let mut chronological_completed = complete_ordinary(&chronological_generator);
+    let chronological_sources = chronological_generator
+        .translate_completed_source_rows(
+            &chronological_completed,
+            [IntegralShift::try_new([0, 0]).unwrap()],
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    let chronological_incidence =
+        OrdinarySourceIncidenceIndex::try_new(&chronological_sources, limits).unwrap();
+    let chronological_chart = OneSidedChartFrame::try_new(
+        &chronological_generator,
+        &chronological_completed,
+        Mask::try_new([true, false]).unwrap(),
+        0,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let chronological_sample = chronological_chart
+        .plan()
+        .try_modular_sample(
+            chronological_generator.context(),
+            PRIME,
+            &[37, 5],
+            &[0, 0],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    let chronological_obstruction = all_other_no_hit(&chronological_sample);
+    let chronological_empty = empty_obstruction_nominations_for_test(
+        &chronological_incidence,
+        &chronological_obstruction,
+    )
+    .unwrap();
+    assert_eq!(chronological_completed.source_row_count(), 2);
+    assert!(chronological_completed.swap_source_rows_for_test(0, 1));
+    assert_eq!(
+        chronological_incidence
+            .try_retain_nonzero_residuals(
+                &chronological_generator,
+                &chronological_completed,
+                &chronological_empty,
+                &chronological_sample,
+                &chronological_obstruction,
+                limits,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::CompletedSourceChronologyMismatch
+    );
+}
+
+#[test]
+fn residual_pairing_rejects_selected_request_and_row_provenance_mutants() {
+    let family = one_loop_vacuum("source-discovery-selected-residual-provenance");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let sources = generator
+        .translate_completed_source_rows(
+            &completed,
+            [IntegralShift::try_new([0]).unwrap()],
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    let limits = SourceDiscoveryLimits::default();
+    let incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    let chart = OneSidedChartFrame::try_new(
+        &generator,
+        &completed,
+        Mask::try_new([true]).unwrap(),
+        0,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let sampled = chart
+        .plan()
+        .try_modular_sample(
+            generator.context(),
+            PRIME,
+            &[37],
+            &[0],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    let obstruction = all_other_no_hit(&sampled);
+    let nominations = incidence
+        .try_nominate_obstruction(&obstruction, limits)
+        .unwrap();
+    assert!(nominations.requests().len() >= 2);
+
+    let mut wrong_request = generator
+        .translate_selected_completed_source_rows(
+            &completed,
+            nominations.requests().iter().cloned(),
+            limits.translation,
+        )
+        .unwrap();
+    assert!(wrong_request.swap_source_provenance_for_test(0, 1));
+    assert_eq!(
+        pair_selected_sources_for_test(
+            &incidence,
+            &generator,
+            &completed,
+            &nominations,
+            &sampled,
+            &obstruction,
+            wrong_request,
+            limits,
+        )
+        .unwrap_err(),
+        SourceDiscoveryError::SelectedRequestProvenanceMismatch {
+            candidate_ordinal: 0,
+        }
+    );
+
+    let mut wrong_row = generator
+        .translate_selected_completed_source_rows(
+            &completed,
+            nominations.requests().iter().cloned(),
+            limits.translation,
+        )
+        .unwrap();
+    assert!(wrong_row.replace_source_row_id_for_test(
+        0,
+        RowId::Derived {
+            label: Arc::from("foreign-residual-row"),
+        },
+    ));
+    assert_eq!(
+        pair_selected_sources_for_test(
+            &incidence,
+            &generator,
+            &completed,
+            &nominations,
+            &sampled,
+            &obstruction,
+            wrong_row,
+            limits,
+        )
+        .unwrap_err(),
+        SourceDiscoveryError::SelectedSourceRowMismatch {
+            candidate_ordinal: 0,
+            source_ordinal: nominations.requests()[0].source_ordinal(),
+        }
+    );
+}
+
+#[test]
+fn residual_pairing_rejects_external_only_completed_rows_before_translation() {
+    let family = one_loop_one_external("source-discovery-residual-layout");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let ordinary = complete_ordinary(&generator);
+    let sources = generator
+        .translate_completed_source_rows(
+            &ordinary,
+            [IntegralShift::try_new([0, 0]).unwrap()],
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    let limits = SourceDiscoveryLimits::default();
+    let incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    let chart = OneSidedChartFrame::try_new(
+        &generator,
+        &ordinary,
+        Mask::try_new([true, false]).unwrap(),
+        0,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let sampled = chart
+        .plan()
+        .try_modular_sample(
+            generator.context(),
+            PRIME,
+            &[37, 5],
+            &[0, 0],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    let obstruction = all_other_no_hit(&sampled);
+    let nominations = incidence
+        .try_nominate_obstruction(&obstruction, limits)
+        .unwrap();
+    let external = complete_external(&generator);
+
+    assert_eq!(
+        incidence
+            .try_retain_nonzero_residuals(
+                &generator,
+                &external,
+                &nominations,
+                &sampled,
+                &obstruction,
+                limits,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::WrongSourceLayout {
+            actual: "external-contraction IBP source",
+        }
+    );
+}
+
+#[test]
+fn residual_resource_caps_admit_exact_boundaries_and_fail_transactionally() {
+    let family = one_loop_vacuum("source-discovery-residual-limits");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let sources = generator
+        .translate_completed_source_rows(
+            &completed,
+            [IntegralShift::try_new([0]).unwrap()],
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    let defaults = SourceDiscoveryLimits::default();
+    let incidence = OrdinarySourceIncidenceIndex::try_new(&sources, defaults).unwrap();
+    let chart = OneSidedChartFrame::try_new(
+        &generator,
+        &completed,
+        Mask::try_new([true]).unwrap(),
+        0,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let sampled = chart
+        .plan()
+        .try_modular_sample(
+            generator.context(),
+            PRIME,
+            &[37],
+            &[0],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    let obstruction = all_other_no_hit(&sampled);
+    let nominations = incidence
+        .try_nominate_obstruction(&obstruction, defaults)
+        .unwrap();
+    let measured = incidence
+        .try_retain_nonzero_residuals(
+            &generator,
+            &completed,
+            &nominations,
+            &sampled,
+            &obstruction,
+            defaults,
+        )
+        .unwrap();
+    assert!(!measured.requests().is_empty());
+
+    let support_coordinates = measured.obstruction_support_entries() * incidence.arity();
+    let mut boundary = defaults;
+    boundary.max_obstruction_support = measured.obstruction_support_entries();
+    boundary.max_residual_candidates = measured.evaluated_candidates();
+    boundary.max_residual_source_terms = measured.evaluated_source_terms();
+    boundary.max_residual_support_coordinate_cells = support_coordinates;
+    boundary.max_residual_classifications = measured.evaluated_candidates();
+    boundary.max_nonzero_residual_requests = measured.requests().len();
+    assert_eq!(
+        incidence
+            .try_retain_nonzero_residuals(
+                &generator,
+                &completed,
+                &nominations,
+                &sampled,
+                &obstruction,
+                boundary,
+            )
+            .unwrap(),
+        measured
+    );
+
+    for (limits, resource, requested, limit) in [
+        (
+            {
+                let mut value = boundary;
+                value.max_residual_candidates -= 1;
+                value
+            },
+            "source-discovery residual candidates",
+            measured.evaluated_candidates(),
+            measured.evaluated_candidates() - 1,
+        ),
+        (
+            {
+                let mut value = boundary;
+                value.max_residual_source_terms -= 1;
+                value
+            },
+            "source-discovery residual exact-source terms",
+            measured.evaluated_source_terms(),
+            measured.evaluated_source_terms() - 1,
+        ),
+        (
+            {
+                let mut value = boundary;
+                value.max_residual_support_coordinate_cells -= 1;
+                value
+            },
+            "source-discovery residual obstruction-support coordinate cells",
+            support_coordinates,
+            support_coordinates - 1,
+        ),
+        (
+            {
+                let mut value = boundary;
+                value.max_residual_classifications -= 1;
+                value
+            },
+            "source-discovery residual candidate classifications",
+            measured.evaluated_candidates(),
+            measured.evaluated_candidates() - 1,
+        ),
+        (
+            {
+                let mut value = boundary;
+                value.max_nonzero_residual_requests -= 1;
+                value
+            },
+            "source-discovery nonzero residual requests",
+            measured.requests().len(),
+            measured.requests().len() - 1,
+        ),
+    ] {
+        assert_eq!(
+            incidence
+                .try_retain_nonzero_residuals(
+                    &generator,
+                    &completed,
+                    &nominations,
+                    &sampled,
+                    &obstruction,
+                    limits,
+                )
+                .unwrap_err(),
+            SourceDiscoveryError::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            }
+        );
+    }
+
+    // A failed call retained no mutable campaign state: the same immutable
+    // nominations and admitted sample still reproduce the original payload.
+    assert_eq!(
+        incidence
+            .try_retain_nonzero_residuals(
+                &generator,
+                &completed,
+                &nominations,
+                &sampled,
+                &obstruction,
+                boundary,
+            )
+            .unwrap(),
+        measured
+    );
+}
+
+#[test]
+fn off_support_denominator_singularity_is_evaluated_before_sparse_pairing() {
+    let family = one_loop_vacuum("source-discovery-residual-off-support-denominator");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let sources = generator
+        .translate_completed_source_rows(
+            &completed,
+            [IntegralShift::try_new([0]).unwrap()],
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    let limits = SourceDiscoveryLimits::default();
+    let incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    let chart = OneSidedChartFrame::try_new(
+        &generator,
+        &completed,
+        Mask::try_new([true]).unwrap(),
+        0,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    let sampled = chart
+        .plan()
+        .try_modular_sample(
+            generator.context(),
+            PRIME,
+            &[37],
+            &[0],
+            ModularKernelLimits::default(),
+        )
+        .unwrap();
+    let obstruction = all_other_no_hit(&sampled);
+    let nominations = incidence
+        .try_nominate_obstruction(&obstruction, limits)
+        .unwrap();
+    let mut selected = generator
+        .translate_selected_completed_source_rows(
+            &completed,
+            nominations.requests().iter().cloned(),
+            limits.translation,
+        )
+        .unwrap();
+
+    let support = obstruction
+        .entries()
+        .iter()
+        .map(|entry| {
+            let physical = obstruction.logical_physical_columns()[entry.logical_column()];
+            sampled.plan().columns()[physical].values().to_vec()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let (candidate_ordinal, term_ordinal) = selected
+        .sources()
+        .iter()
+        .enumerate()
+        .find_map(|(candidate_ordinal, source)| {
+            source
+                .terms()
+                .keys()
+                .enumerate()
+                .find(|(_, shift)| !support.contains(shift.values()))
+                .map(|(term_ordinal, _)| (candidate_ordinal, term_ordinal))
+        })
+        .expect("the inverse-incidence fixture must retain a complete-row term outside q support");
+    let singular = generator
+        .context()
+        .lift(&generator.context().base().coefficient_fixture("1/(d-37)"))
+        .unwrap();
+    selected
+        .replace_term_without_denominator_gate_for_test(
+            generator.context(),
+            candidate_ordinal,
+            term_ordinal,
+            singular,
+        )
+        .unwrap();
+
+    assert_eq!(
+        pair_selected_sources_for_test(
+            &incidence,
+            &generator,
+            &completed,
+            &nominations,
+            &sampled,
+            &obstruction,
+            selected,
+            limits,
+        )
+        .unwrap_err(),
+        SourceDiscoveryError::CandidateEvaluation {
+            candidate_ordinal,
+            source_ordinal: nominations.requests()[candidate_ordinal].source_ordinal(),
+            error: ModularSourceEvaluationError::TermDenominatorZero { term_ordinal },
+        }
+    );
+
+    // The failure cannot leak a retained prefix or mutate the immutable
+    // nomination/sample inputs: a clean retranslation still pairs normally.
+    let clean = generator
+        .translate_selected_completed_source_rows(
+            &completed,
+            nominations.requests().iter().cloned(),
+            limits.translation,
+        )
+        .unwrap();
+    pair_selected_sources_for_test(
+        &incidence,
+        &generator,
+        &completed,
+        &nominations,
+        &sampled,
+        &obstruction,
+        clean,
+        limits,
+    )
+    .unwrap();
 }
 
 fn shifted_support(source: &[i64], alpha: &[i64; 6]) -> IntegralShift {

@@ -1,7 +1,8 @@
 use crate::foundry::completion::frame::PhysicalFramePlan;
 use crate::foundry::completion::frame::modular::ModularRightObstruction;
-use crate::identity::{IntegralShift, TranslatedSourceError, TranslatedSourceRequest};
+use crate::identity::{IntegralShift, TranslatedSourceRequest};
 
+use super::model::IncidentNominationOrigin;
 use super::{
     IncidentTranslationNominations, OrdinarySourceIncidenceIndex, SourceDiscoveryError,
     SourceDiscoveryLimits,
@@ -30,7 +31,13 @@ impl OrdinarySourceIncidenceIndex<'_> {
                 actual: target.len(),
             });
         }
-        nominate(self, &[target], &[], limits)
+        nominate(
+            self,
+            IncidentNominationOrigin::TargetUnit,
+            &[target],
+            &[],
+            limits,
+        )
     }
 
     /// Nominate every declared translation incident to the nonzero support of
@@ -83,12 +90,19 @@ impl OrdinarySourceIncidenceIndex<'_> {
         }
 
         let existing = existing_requests(self, plan, limits)?;
-        nominate(self, &support, &existing, limits)
+        nominate(
+            self,
+            IncidentNominationOrigin::CheckedObstruction(obstruction.identity_owner()),
+            &support,
+            &existing,
+            limits,
+        )
     }
 }
 
 fn nominate(
     incidence: &OrdinarySourceIncidenceIndex<'_>,
+    origin: IncidentNominationOrigin,
     support: &[&IntegralShift],
     existing: &[TranslatedSourceRequest],
     limits: SourceDiscoveryLimits,
@@ -186,6 +200,8 @@ fn nominate(
     requests.retain(|request| existing.binary_search(request).is_err());
     let excluded_existing_requests = unique_before_existing_exclusion - requests.len();
     Ok(IncidentTranslationNominations::from_parts(
+        incidence.identity_owner(),
+        origin,
         requests,
         raw_count,
         unique_before_existing_exclusion,
@@ -200,7 +216,29 @@ pub(super) fn nominate_support_for_test(
     existing: &[TranslatedSourceRequest],
     limits: SourceDiscoveryLimits,
 ) -> Result<IncidentTranslationNominations, SourceDiscoveryError> {
-    nominate(incidence, support, existing, limits)
+    nominate(
+        incidence,
+        IncidentNominationOrigin::TargetUnit,
+        support,
+        existing,
+        limits,
+    )
+}
+
+#[cfg(test)]
+pub(super) fn empty_obstruction_nominations_for_test(
+    incidence: &OrdinarySourceIncidenceIndex<'_>,
+    obstruction: &ModularRightObstruction<'_>,
+) -> Result<IncidentTranslationNominations, SourceDiscoveryError> {
+    validate_plan_scope(incidence, obstruction.plan())?;
+    Ok(IncidentTranslationNominations::from_parts(
+        incidence.identity_owner(),
+        IncidentNominationOrigin::CheckedObstruction(obstruction.identity_owner()),
+        Vec::new(),
+        0,
+        0,
+        0,
+    ))
 }
 
 fn existing_requests(
@@ -319,10 +357,4 @@ pub(super) fn try_vec<T>(
             requested: capacity,
         })?;
     Ok(values)
-}
-
-impl From<TranslatedSourceError> for SourceDiscoveryError {
-    fn from(error: TranslatedSourceError) -> Self {
-        Self::ShiftConstruction(error)
-    }
 }

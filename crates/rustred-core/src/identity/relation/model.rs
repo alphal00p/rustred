@@ -106,4 +106,24 @@ impl ParametricRelation {
             Err(ParametricRelationError::WrongFamily)
         }
     }
+
+    /// Test-only missing-gate mutant used to prove that downstream modular
+    /// consumers evaluate coefficients outside their eventual projection.
+    ///
+    /// Production relation construction always records the incoming
+    /// denominator as a nonzero condition. This deliberately replaces one
+    /// already-retained coefficient without adding that condition, and is
+    /// therefore unavailable outside crate tests.
+    #[cfg(test)]
+    pub(in crate::identity) fn replace_term_without_denominator_gate_for_test(
+        &mut self,
+        term_ordinal: usize,
+        coefficient: IndexedCoefficient,
+    ) -> bool {
+        let Some(retained) = self.terms.values_mut().nth(term_ordinal) else {
+            return false;
+        };
+        *retained = coefficient;
+        true
+    }
 }
