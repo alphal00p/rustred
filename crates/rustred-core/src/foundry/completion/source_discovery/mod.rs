@@ -4,6 +4,7 @@
 //! nomination is neither a modular hit nor an exact relation, and no result
 //! here can authorize a rule, owner, terminal, artifact, or closure claim.
 
+pub(crate) mod boundary_simplex;
 mod campaign;
 mod canonical_replay;
 mod cover_delta;
@@ -23,6 +24,7 @@ mod promotion;
 mod residual;
 pub(crate) mod scheduler;
 mod sector_closure;
+mod simplex_support;
 #[cfg(test)]
 pub(crate) mod test_fixtures;
 mod triangular_support;

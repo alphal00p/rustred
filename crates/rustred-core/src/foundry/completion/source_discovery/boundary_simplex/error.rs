@@ -5,10 +5,9 @@ use crate::identity::TranslatedSourceError;
 
 use super::super::simplex_support::SimplexSupportError;
 
-/// Typed failure to construct or consume one proposal-only simplex plan.
+/// Typed failure to construct or consume one proposal-only boundary plan.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum InteriorSimplexPlanError {
-    ZeroInteriorMargin,
+pub(crate) enum BoundarySimplexPlanError {
     EmptyScopeSchedule,
     EmptyStableScopeKey {
         input_ordinal: usize,
@@ -23,19 +22,26 @@ pub(crate) enum InteriorSimplexPlanError {
         expected: usize,
         actual: usize,
     },
-    ZeroRequestedFreeDimension,
-    InvalidRequestedFreeDimension {
+    InvalidParentFreeDimension {
         requested: usize,
         maximal_input_arity: usize,
     },
-    RequestedFreeDimensionUnavailable {
+    ParentFreeDimensionUnavailable {
         requested: usize,
         maximal_available: usize,
     },
-    NoUnboundedGeometry,
+    InvalidBoundaryCodimension {
+        parent_free_dimension: usize,
+        requested: usize,
+    },
+    SimplexProfileRequiresPositiveFaceDimension,
+    VertexProfileRequiresZeroFaceDimension {
+        actual: usize,
+    },
+    ZeroInteriorMargin,
     CoordinateOverflow {
         canonical_scope_ordinal: usize,
-        box_ordinal: usize,
+        parent_box_ordinal: usize,
         position: usize,
     },
     ResourceCountOverflow {
@@ -66,25 +72,22 @@ pub(crate) enum InteriorSimplexPlanError {
     },
 }
 
-impl fmt::Display for InteriorSimplexPlanError {
+impl fmt::Display for BoundarySimplexPlanError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ZeroInteriorMargin => formatter.write_str(
-                "interior-simplex sampling requires a strictly positive interior margin",
-            ),
             Self::EmptyScopeSchedule => {
-                formatter.write_str("interior-simplex sampling requires a frozen scope")
+                formatter.write_str("boundary-simplex sampling requires a frozen scope")
             }
             Self::EmptyStableScopeKey { input_ordinal } => write!(
                 formatter,
-                "interior-simplex input scope {input_ordinal} has an empty stable key"
+                "boundary-simplex input scope {input_ordinal} has an empty stable key"
             ),
             Self::DuplicateStableScopeKey {
                 first_canonical_ordinal,
                 duplicate_canonical_ordinal,
             } => write!(
                 formatter,
-                "interior-simplex canonical scope {duplicate_canonical_ordinal} repeats the stable key of scope {first_canonical_ordinal}"
+                "boundary-simplex canonical scope {duplicate_canonical_ordinal} repeats the stable key of scope {first_canonical_ordinal}"
             ),
             Self::WrongPartitionBoxArity {
                 input_scope_ordinal,
@@ -93,38 +96,49 @@ impl fmt::Display for InteriorSimplexPlanError {
                 actual,
             } => write!(
                 formatter,
-                "interior-simplex input scope {input_scope_ordinal} box {box_ordinal} has arity {actual}, expected {expected}"
+                "boundary-simplex input scope {input_scope_ordinal} box {box_ordinal} has arity {actual}, expected {expected}"
             ),
-            Self::ZeroRequestedFreeDimension => formatter.write_str(
-                "interior-simplex exact free-dimension selection must be strictly positive",
-            ),
-            Self::InvalidRequestedFreeDimension {
+            Self::InvalidParentFreeDimension {
                 requested,
                 maximal_input_arity,
             } => write!(
                 formatter,
-                "interior-simplex requested free dimension {requested} exceeds the maximal input arity {maximal_input_arity}"
+                "boundary-simplex parent free dimension {requested} exceeds the maximal input arity {maximal_input_arity}"
             ),
-            Self::RequestedFreeDimensionUnavailable {
+            Self::ParentFreeDimensionUnavailable {
                 requested,
                 maximal_available,
             } => write!(
                 formatter,
-                "interior-simplex input geometry has no box of requested free dimension {requested}; its maximal available free dimension is {maximal_available}"
+                "boundary-simplex input geometry has no box of parent free dimension {requested}; its maximal available free dimension is {maximal_available}"
             ),
-            Self::NoUnboundedGeometry => formatter.write_str(
-                "the frozen uncovered partitions contain no unbounded box; interior sampling applies only to blind rays",
+            Self::InvalidBoundaryCodimension {
+                parent_free_dimension,
+                requested,
+            } => write!(
+                formatter,
+                "boundary-simplex codimension {requested} exceeds parent free dimension {parent_free_dimension}"
+            ),
+            Self::SimplexProfileRequiresPositiveFaceDimension => formatter.write_str(
+                "boundary-simplex all-pinned faces require the typed vertex profile",
+            ),
+            Self::VertexProfileRequiresZeroFaceDimension { actual } => write!(
+                formatter,
+                "boundary-simplex vertex profile requires a zero-dimensional face, not dimension {actual}"
+            ),
+            Self::ZeroInteriorMargin => formatter.write_str(
+                "boundary-simplex positive-dimensional sampling requires a strictly positive interior margin",
             ),
             Self::CoordinateOverflow {
                 canonical_scope_ordinal,
-                box_ordinal,
+                parent_box_ordinal,
                 position,
             } => write!(
                 formatter,
-                "interior-simplex coordinate overflowed in scope {canonical_scope_ordinal}, box {box_ordinal}, position {position}"
+                "boundary-simplex coordinate overflowed in scope {canonical_scope_ordinal}, parent box {parent_box_ordinal}, position {position}"
             ),
             Self::ResourceCountOverflow { resource } => {
-                write!(formatter, "interior-simplex {resource} overflowed usize")
+                write!(formatter, "boundary-simplex {resource} overflowed usize")
             }
             Self::ResourceLimit {
                 resource,
@@ -132,7 +146,7 @@ impl fmt::Display for InteriorSimplexPlanError {
                 limit,
             } => write!(
                 formatter,
-                "interior-simplex {resource} requires {requested}, exceeding the configured limit {limit}"
+                "boundary-simplex {resource} requires {requested}, exceeding the configured limit {limit}"
             ),
             Self::ValueLimit {
                 resource,
@@ -140,38 +154,38 @@ impl fmt::Display for InteriorSimplexPlanError {
                 limit,
             } => write!(
                 formatter,
-                "interior-simplex {resource} value {requested} exceeds the configured limit {limit}"
+                "boundary-simplex {resource} value {requested} exceeds the configured limit {limit}"
             ),
             Self::AllocationFailure {
                 resource,
                 requested,
             } => write!(
                 formatter,
-                "could not reserve {requested} entries for interior-simplex {resource}"
+                "could not reserve {requested} entries for boundary-simplex {resource}"
             ),
             Self::Geometry(error) => write!(
                 formatter,
-                "interior-simplex chart-point conversion failed: {error}"
+                "boundary-simplex chart-point conversion failed: {error}"
             ),
             Self::Shift(error) => write!(
                 formatter,
-                "interior-simplex target-shift construction failed: {error}"
+                "boundary-simplex target-shift construction failed: {error}"
             ),
             Self::StaleGeometryEpoch {
                 expected_ordinal,
                 actual_ordinal,
             } => write!(
                 formatter,
-                "interior-simplex task belongs to stale geometry epoch {actual_ordinal}; the current frozen epoch is {expected_ordinal}"
+                "boundary-simplex task belongs to stale geometry epoch {actual_ordinal}; the current frozen epoch is {expected_ordinal}"
             ),
             Self::Invariant { detail } => {
-                write!(formatter, "interior-simplex planning invariant failed: {detail}")
+                write!(formatter, "boundary-simplex planning invariant failed: {detail}")
             }
         }
     }
 }
 
-impl std::error::Error for InteriorSimplexPlanError {
+impl std::error::Error for BoundarySimplexPlanError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Geometry(error) => Some(error),
@@ -181,19 +195,19 @@ impl std::error::Error for InteriorSimplexPlanError {
     }
 }
 
-impl From<CompletionGeometryError> for InteriorSimplexPlanError {
+impl From<CompletionGeometryError> for BoundarySimplexPlanError {
     fn from(error: CompletionGeometryError) -> Self {
         Self::Geometry(error)
     }
 }
 
-impl From<TranslatedSourceError> for InteriorSimplexPlanError {
+impl From<TranslatedSourceError> for BoundarySimplexPlanError {
     fn from(error: TranslatedSourceError) -> Self {
         Self::Shift(error)
     }
 }
 
-impl From<SimplexSupportError> for InteriorSimplexPlanError {
+impl From<SimplexSupportError> for BoundarySimplexPlanError {
     fn from(error: SimplexSupportError) -> Self {
         match error {
             SimplexSupportError::ResourceCountOverflow { resource } => {

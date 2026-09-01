@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use super::super::simplex_support::try_apply_finite_assignment;
 use super::InteriorSimplexPlanError;
-use super::bounded::try_apply_finite_assignment;
 use super::freeze::FrozenSelectedScope;
 use super::model::{
     InteriorSimplexGeometryEpochIdentity, InteriorSimplexTask, InteriorSimplexTaskKey,

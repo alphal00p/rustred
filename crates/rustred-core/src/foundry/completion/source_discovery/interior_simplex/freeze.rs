@@ -1,10 +1,12 @@
+use super::super::simplex_support::try_finite_assignment_count;
 use super::InteriorSimplexPlanError;
-use super::bounded::try_finite_assignment_count;
 use super::canonical::CanonicalScope;
 use super::limits::InteriorSimplexLimits;
 use super::model::{InteriorSimplexBoxKey, InteriorSimplexScopeKey};
 use super::resource::{check_limit, checked_add, checked_mul, try_copy_string, try_reserve_exact};
 use super::target::try_chart_point_to_target_shift;
+
+const FINITE_ASSIGNMENTS: &str = "finite coordinate assignments";
 
 pub(super) struct FrozenSelectedBox {
     pub(super) key: InteriorSimplexBoxKey,
@@ -111,8 +113,11 @@ pub(super) fn try_freeze_selected_geometry(
             .copied()
             .filter(|lattice_box| lattice_box.free_dimension() == selected_free_dimension)
         {
-            let assignment_count =
-                try_finite_assignment_count(lattice_box.lower(), lattice_box.upper())?;
+            let assignment_count = try_finite_assignment_count(
+                lattice_box.lower(),
+                lattice_box.upper(),
+                FINITE_ASSIGNMENTS,
+            )?;
             check_limit(
                 "finite assignments per selected box",
                 assignment_count,
@@ -274,7 +279,8 @@ pub(super) fn try_freeze_selected_geometry(
                     .enumerate()
                     .filter_map(|(position, upper)| upper.is_none().then_some(position)),
             );
-            let finite_assignment_count = try_finite_assignment_count(&lower, &upper)?;
+            let finite_assignment_count =
+                try_finite_assignment_count(&lower, &upper, FINITE_ASSIGNMENTS)?;
             boxes.push(FrozenSelectedBox {
                 key: InteriorSimplexBoxKey::new(lower, upper),
                 free_axes,

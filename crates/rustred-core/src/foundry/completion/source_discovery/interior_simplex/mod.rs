@@ -25,7 +25,6 @@
 //! faces inside a box of higher free dimension; a separate proposal-only face
 //! planner must sample those faces without mutating the exact cover geometry.
 
-mod bounded;
 mod build;
 mod canonical;
 mod error;

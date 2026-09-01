@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use crate::foundry::completion::{LatticeBox, UncoveredPartition};
 use crate::sector::Mask;
 
-use super::simplex::try_simplex_sample_count;
+use super::simplex::{try_build_simplex_offsets, try_simplex_sample_count};
 use super::{
     InteriorSimplexFreeDimensionSelection, InteriorSimplexLimits, InteriorSimplexPlan,
     InteriorSimplexPlanError, InteriorSimplexScopePartition, InteriorSimplexTaskKey,
@@ -84,6 +84,16 @@ fn complete_simplex_matches_brute_force_without_duplicates() {
                 .collect::<Vec<_>>()
         );
     }
+}
+
+#[test]
+fn interior_simplex_keeps_its_positive_dimension_helper_contract() {
+    assert_eq!(
+        try_build_simplex_offsets(0, 0, 1).unwrap_err(),
+        InteriorSimplexPlanError::Invariant {
+            detail: "an interior simplex requires a positive free dimension",
+        }
+    );
 }
 
 #[test]
