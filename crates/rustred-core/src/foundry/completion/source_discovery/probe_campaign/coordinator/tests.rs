@@ -360,14 +360,6 @@ fn compact_probe_census_joins_replay_exactly_and_classifies_every_scheduler_buck
             canonical_query_rejections: 1,
             ..CompactProbeEvidence::default()
         },
-        CompactProbeEvidence {
-            scheduler_support_did_not_lift: 1,
-            ..CompactProbeEvidence::default()
-        },
-        CompactProbeEvidence {
-            canonical_support_did_not_lift: 1,
-            ..CompactProbeEvidence::default()
-        },
     ] {
         assert!(search_refinement_reason(as_result(evidence)).is_some());
     }
@@ -378,6 +370,16 @@ fn compact_probe_census_joins_replay_exactly_and_classifies_every_scheduler_buck
         },
         CompactProbeEvidence {
             scheduler_sampled_dual: 1,
+            ..CompactProbeEvidence::default()
+        },
+        // Both support-did-not-lift buckets are exact finite-program misses.
+        // They remain counted but do not require a different search config.
+        CompactProbeEvidence {
+            scheduler_support_did_not_lift: 1,
+            ..CompactProbeEvidence::default()
+        },
+        CompactProbeEvidence {
+            canonical_support_did_not_lift: 1,
             ..CompactProbeEvidence::default()
         },
     ] {

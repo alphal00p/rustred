@@ -334,13 +334,11 @@ pub(super) fn search_refinement_reason(
             },
         );
     }
-    if evidence.scheduler_support_did_not_lift != 0 || evidence.canonical_support_did_not_lift != 0
-    {
-        return Some(ProbeCoordinatorNeedsRefinementReason::SupportDidNotLift {
-            scheduler_support_did_not_lift: evidence.scheduler_support_did_not_lift,
-            canonical_support_did_not_lift: evidence.canonical_support_did_not_lift,
-        });
-    }
+    // SupportDidNotLift is a completed outcome of the declared finite probe
+    // program, not an operational failure or an instruction to change that
+    // program. Both scheduler and canonical buckets remain in the exact
+    // census. Their presence is compatible only with ExhaustedAtConfig's weak
+    // finite-program meaning and can never produce CompilerClosed.
     None
 }
 

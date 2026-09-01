@@ -336,10 +336,6 @@ pub(crate) enum ProbeCoordinatorNeedsRefinementReason {
     CanonicalQueryRejected {
         canonical_query_rejections: usize,
     },
-    SupportDidNotLift {
-        scheduler_support_did_not_lift: usize,
-        canonical_support_did_not_lift: usize,
-    },
     /// Diagnostic only: exact obstruction payloads are not retained by this
     /// compact coordinator. The task must be replayed by a refinement owner.
     DiagnosticExactObstructions {
