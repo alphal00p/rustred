@@ -9,6 +9,12 @@ six-loop closure has been achieved. No reviewed paper or public program proves
 that its method closes the complete physical `L = 6`, `K = 21` manifest with
 acceptable time and memory.
 
+The current audited K6 execution status is recorded separately in
+[`k6_boundary_walk_2026.md`](k6_boundary_walk_2026.md). Exact boundary probes
+have admitted owners and strictly shrunk the authenticated K6 complement, but
+the captured runs stopped at report caps rather than stable-snapshot
+exhaustion. No closing K6 artifact exists.
+
 Published results establish important components: master-integral finiteness
 for a fixed graph, parametric-annihilator and Euler-characteristic rank
 descriptions, complete Baikov logarithmic-vector-field generators, rational
@@ -688,10 +694,14 @@ Both widths reproduce the same authoritative q0 census and select 32 rows.
 Width four broadens the proposal signature at modest incremental evaluation
 cost, but it produces no modular hit or exact-lift attempt in this experiment.
 The independent exact closure baselines therefore remain path `9/4/10` and
-star `22/12/4`; there is still no K6 cover or artifact. Exact hits, when found,
-must exercise the executable-owner compiler, close every required cover, and
-enter the next rank only as a complete transactional wave. The generic route
-index removes noncanonical factorization and solved-sector ownership as a wave
+star `22/12/4`; there is still no **closed** K6 cover or artifact. Subsequent
+proposal-only boundary walks have admitted exact owners and strictly shrunk an
+authenticated K6 complement, as recorded in
+[`k6_boundary_walk_2026.md`](k6_boundary_walk_2026.md), but neither measured
+run reached stable-snapshot exhaustion or closure. Exact hits must continue to
+exercise the executable-owner compiler, close every required cover, and enter
+the next rank only as a complete transactional wave. The generic route index
+removes noncanonical factorization and solved-sector ownership as a wave
 blocker, but the first rank-three wave still waits on complete covers for all
 of its required canonical sectors.
 
@@ -880,15 +890,16 @@ outer orchestrator. It owns frozen-snapshot input, sector/endpoint canonical
 ordering, round-robin fairness inside a bounded lower-corner/depth-one seed
 envelope, checked chart-point to target-shift conversion, local all-or-error
 planning caps, and in-memory geometry-epoch invalidation. Its neutral planning
-census contains no execution result or stop disposition. It is not yet the
-shared execution ledger, canonical worker-result merge, admission driver,
-exact pre/post `BoxCover` comparison, geometry-rebuild loop, or fair infinite
-walk; those remain one future driver over this seam and the existing authority
-boundaries. Neither layer may own algebraic truth or introduce another closure
-authority. Likewise, an ISP `triangular_support` component is only a request
-producer: given an ordered subset of chart axes and one total-degree ceiling
-per ordinary source, it emits canonical `TranslatedSourceRequest`s into the
-existing `SelectedSourceFrame`. The present local planning caps prevent partial seed
+census itself contains no execution result or stop disposition. A separate
+proposal-only boundary walker now has bounded exact execution results, but its
+transient task-retaining harness is not yet the compact production epoch and
+exhaustion coordinator described in
+[`k6_boundary_walk_2026.md`](k6_boundary_walk_2026.md). Neither layer may own
+algebraic truth or introduce another closure authority. Likewise, an ISP
+`triangular_support` component is only a request producer: given an ordered
+subset of chart axes and one total-degree ceiling per ordinary source, it emits
+canonical `TranslatedSourceRequest`s into the existing
+`SelectedSourceFrame`. The present local planning caps prevent partial seed
 prefixes but do not satisfy the future shared-ledger requirement. Execution
 and algebra limits must ultimately be charged to one outer ledger and cannot
 reset per point, box, sector, ordering, or worker.
