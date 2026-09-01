@@ -126,6 +126,33 @@ stop requests report 257 against limit 256 at
 report-cap prefix, not schedule exhaustion; in particular, two dimension-five
 uncovered boxes still remain.
 
+Commit `398b190` extends the durable evidence to 512 reports. Its ignored test
+again performs two fresh authenticated revision-nine reconstructions and
+agrees exactly. The stop requests report 513 against limit 512 at
+`(revision=40,class=2,r=4,d=4,c=0,task=5)`. The live ledger has 40 owners, one
+explicit terminal, and 84 uncovered boxes with histogram
+`[0,0,0,65,17,2,0]`. Outcomes are 274 no-proposal, 207 duplicate, 14
+changed-without-geometric-shrink, and 17 strict-shrink reports. All incomplete,
+scheduler-failure, canonical-rejection, refinement, and exact-obstruction
+counters remain zero.
+
+The two surviving dimension-five boxes are now frozen exactly in sector chart
+coordinates:
+
+```text
+lower [0,4,0,0,0,0], upper [inf,inf,0,inf,inf,inf]
+lower [2,4,4,0,0,0], upper [inf,inf,inf,0,inf,inf]
+```
+
+This ledger concerns only the first bottom-up full-loop-rank sector
+representative, mask `[0,0,1,0,1,1]`; it is not a whole-family K6 ledger. Its
+complete unchanged degree-zero final-snapshot schedule contains 3,328 tasks.
+Consequently the 512 stop is far short of finite-program exhaustion even if no
+later owner were admitted. Closing this sector would still leave the other
+five nonzero sector orbits and their atomic bottom-up wave publication before
+a single K6 artifact could cover all five registered three-loop Vakint graph
+classes.
+
 ## Audited compact production coordinator
 
 Commit `e873de8` installs the independently audited, topology-neutral
@@ -190,8 +217,10 @@ repeated hot-path authentication, topology dispatch, or compatibility shim was
 introduced. The independently audited 80-report checkpoint and ignored
 two-run 256-report checkpoint remain bit-for-bit exact after this migration.
 
-The next measured gate is the structurally bound 512-report checkpoint,
-followed by an honest unchanged complete zero-offset-seed/degree-zero sweep.
-Richer source neighborhoods are justified only after the corresponding
-smaller program has been exhausted honestly; they must not be inferred from a
-report-cap stop.
+The next measured gate is an honest unchanged complete
+zero-offset-seed/degree-zero sweep. Richer source neighborhoods are justified
+only after the corresponding smaller program has been exhausted honestly;
+they must not be inferred from a report-cap stop. In parallel, the exact
+dimension-five boxes are compared with the existing offline AlphaLoop/MATAD
+rules to identify a generic source-selection or interpolation experiment. No
+oracle rule or coefficient enters RustRed publication authority.
