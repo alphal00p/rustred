@@ -73,10 +73,13 @@ Neither run reached one unchanged snapshot on which the declared probe
 program was exhausted. `ReportCap` is therefore neither exhaustion nor
 closure, and stale-sibling counts are expected consequences of transactional
 revision invalidation. Only `CompilerClosed` can establish closure. The
-transient harness also retained full task payloads, which contributes to its
-RSS trend; production memory behavior cannot be inferred from it. The plan
-counts are restart telemetry across changing ledger revisions, not counts of
-classes exhausted at one stable snapshot.
+transient harness dropped each full task report after extracting its target,
+scalar fields, and compact census, but still retained those compact records in
+`O(reports)` memory rather than using a bounded window. Its retention model is
+therefore not the intended production design; the measurements do not
+establish a causal explanation for the observed RSS trend. The plan counts are
+restart telemetry across changing ledger revisions, not counts of classes
+exhausted at one stable snapshot.
 
 ## Durable deterministic checkpoint
 
