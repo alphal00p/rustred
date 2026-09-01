@@ -210,6 +210,15 @@ impl ProbeCampaignEvaluatedTask {
         self.census
     }
 
+    /// Borrow the exact replay disposition before serial owner application.
+    ///
+    /// The compact coordinator uses this seam to validate every fallible
+    /// census join and reserve every possible scalar-counter update before a
+    /// compiled owner is allowed to mutate the live ledger.
+    pub(super) fn replay_disposition(&self) -> &InteriorReplayRunDisposition {
+        self.replay.disposition()
+    }
+
     pub(super) const fn new(
         canonical_task_ordinal: usize,
         planned_ledger_snapshot: ExactOwnerLedgerSnapshotIdentity,

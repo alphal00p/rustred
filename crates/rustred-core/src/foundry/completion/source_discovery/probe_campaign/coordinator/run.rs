@@ -14,8 +14,8 @@ use crate::sector::Mask;
 
 use super::super::ProbeCampaignAdapter;
 use super::compact::{
-    CompactTaskAction, CompactTaskResult, operational_reason, search_refinement_reason,
-    try_compact_report, try_increment, try_record_compact, validate_live_effect,
+    CompactTaskAction, CompactTaskCommit, operational_reason, search_refinement_reason,
+    try_increment, try_reserve_evaluated_task, validate_live_effect,
 };
 use super::schedule::try_build_class_schedule;
 use super::{
@@ -91,31 +91,47 @@ impl BoundaryProbeCoordinator {
         let revision = initial.revision().get();
         let expected_probes_per_task = self.config.declared_probes_per_task().get();
 
-        let drive = try_drive_partition(self, revision, &sector, &partition, |plan, task| {
-            ledger.try_require_current_snapshot(&snapshot_identity)?;
-            let before = ledger.snapshot();
-            let binding = adapter.try_bind_task(plan, task, ledger)?;
-            let probes = probes_for_task(task)?;
-            let declared_probe_count = probes.declared_count();
-            if declared_probe_count != expected_probes_per_task {
-                return Err(ProbeCoordinatorFailure::ProbeCountMismatch {
-                    expected: expected_probes_per_task,
-                    actual: declared_probe_count,
-                });
-            }
-            let evaluated = adapter.try_evaluate_task(binding, ledger, probes.into_probes())?;
-            let report = adapter.try_apply_evaluated_task(evaluated, ledger)?;
-            let compact = try_compact_report(&report)?;
-            if compact.evidence.declared_probes != declared_probe_count {
-                return Err(ProbeCoordinatorFailure::Invariant {
-                    detail: "scheduler outcome total differed from declared task probes",
-                });
-            }
-            let after = ledger.snapshot();
-            validate_live_effect(before, after, compact.action)?;
-            drop(report);
-            Ok(compact)
-        });
+        let drive = try_drive_partition(
+            self,
+            revision,
+            &sector,
+            &partition,
+            |plan, task, baseline_census, requested_report, invalidated_tickets| {
+                ledger.try_require_current_snapshot(&snapshot_identity)?;
+                let before = ledger.snapshot();
+                let binding = adapter.try_bind_task(plan, task, ledger)?;
+                let probes = probes_for_task(task)?;
+                let declared_probe_count = probes.declared_count();
+                if declared_probe_count != expected_probes_per_task {
+                    return Err(ProbeCoordinatorFailure::ProbeCountMismatch {
+                        expected: expected_probes_per_task,
+                        actual: declared_probe_count,
+                    });
+                }
+                let evaluated = adapter.try_evaluate_task(binding, ledger, probes.into_probes())?;
+                // Every fallible replay/census join and every possible scalar
+                // counter update is checked while the exact ledger is still
+                // immutable. Serial application below is the transaction's
+                // sole mutation boundary.
+                let reservation = try_reserve_evaluated_task(
+                    &evaluated,
+                    baseline_census,
+                    requested_report,
+                    invalidated_tickets,
+                )?;
+                if reservation.declared_probes() != declared_probe_count {
+                    return Err(ProbeCoordinatorFailure::Invariant {
+                        detail: "scheduler outcome total differed from declared task probes",
+                    });
+                }
+                let report = adapter.try_apply_evaluated_task(evaluated, ledger)?;
+                let commit = reservation.finish_report(&report);
+                let after = ledger.snapshot();
+                debug_assert!(validate_live_effect(before, after, commit.compact.action).is_ok());
+                drop(report);
+                Ok(commit)
+            },
+        );
         upgrade_drive_stop(drive, ledger, &snapshot_identity)
     }
 }
@@ -131,7 +147,10 @@ where
     F: FnMut(
         &BoundarySimplexPlan,
         &BoundarySimplexTask,
-    ) -> Result<CompactTaskResult, ProbeCoordinatorFailure>,
+        ProbeCoordinatorCensus,
+        usize,
+        usize,
+    ) -> Result<CompactTaskCommit, ProbeCoordinatorFailure>,
 {
     let limits = coordinator.config.limits();
     let requested_epoch = match coordinator.census.epochs_started.checked_add(1) {
@@ -252,15 +271,44 @@ where
                 }
             };
 
-            let compact = match execute(&plan, task) {
-                Ok(compact) => compact,
+            // The possible plan suffix is computed before task evaluation so
+            // its cumulative counter can be reserved before any owner
+            // application. It is committed only for a non-closing mutation.
+            let next_task_ordinal = match task.canonical_ordinal().checked_add(1) {
+                Some(ordinal) => ordinal,
+                None => {
+                    return failed(
+                        coordinator.census,
+                        ProbeCoordinatorFailure::ResourceCountOverflow {
+                            resource: INVALIDATED_TICKETS,
+                        },
+                    );
+                }
+            };
+            let invalidated_tickets = match plan.tasks().len().checked_sub(next_task_ordinal) {
+                Some(count) => count,
+                None => {
+                    return failed(
+                        coordinator.census,
+                        ProbeCoordinatorFailure::Invariant {
+                            detail: "canonical task ordinal exceeded its owning plan",
+                        },
+                    );
+                }
+            };
+
+            let commit = match execute(
+                &plan,
+                task,
+                coordinator.census,
+                requested_report,
+                invalidated_tickets,
+            ) {
+                Ok(commit) => commit,
                 Err(error) => return failed(coordinator.census, error),
             };
-            if let Err(error) =
-                try_record_compact(&mut coordinator.census, requested_report, compact)
-            {
-                return failed(coordinator.census, error);
-            }
+            coordinator.census = commit.census;
+            let compact = commit.compact;
             epoch_completed_tasks = requested_epoch_completed;
 
             if !matches!(
@@ -302,43 +350,6 @@ where
                     before_revision,
                     after_revision,
                 } => {
-                    let next_task_ordinal = match task.canonical_ordinal().checked_add(1) {
-                        Some(ordinal) => ordinal,
-                        None => {
-                            return failed(
-                                coordinator.census,
-                                ProbeCoordinatorFailure::ResourceCountOverflow {
-                                    resource: INVALIDATED_TICKETS,
-                                },
-                            );
-                        }
-                    };
-                    let invalidated_tickets =
-                        plan.tasks().len().checked_sub(next_task_ordinal).ok_or(
-                            ProbeCoordinatorFailure::Invariant {
-                                detail: "canonical task ordinal exceeded its owning plan",
-                            },
-                        );
-                    let invalidated_tickets = match invalidated_tickets {
-                        Ok(count) => count,
-                        Err(error) => return failed(coordinator.census, error),
-                    };
-                    let updated_invalidated = match coordinator
-                        .census
-                        .invalidated_tickets
-                        .checked_add(invalidated_tickets)
-                    {
-                        Some(count) => count,
-                        None => {
-                            return failed(
-                                coordinator.census,
-                                ProbeCoordinatorFailure::ResourceCountOverflow {
-                                    resource: INVALIDATED_TICKETS,
-                                },
-                            );
-                        }
-                    };
-                    coordinator.census.invalidated_tickets = updated_invalidated;
                     return ProbeCoordinatorDriveStop::OwnerSetChanged(
                         ProbeCoordinatorOwnerSetChanged {
                             census: coordinator.census,

@@ -21,8 +21,8 @@ use crate::sector::{Mask, OrderingPolicy};
 
 use super::compact::{
     CompactProbeEvidence, CompactTaskAction, CompactTaskResult, operational_reason,
-    search_refinement_reason, try_scheduler_outcome_total, try_validate_canonical_join,
-    validate_live_effect,
+    search_refinement_reason, try_reserve_compact_result, try_scheduler_outcome_total,
+    try_validate_canonical_join, validate_live_effect,
 };
 use super::run::{ProbeCoordinatorDriveStop, try_drive_partition, upgrade_drive_stop};
 use super::schedule::try_build_class_schedule;
@@ -122,15 +122,21 @@ fn stable_pure_drive_is_uncertified_and_visits_every_task_canonically() {
     let (sector, partition) = single_d2_partition();
     let mut coordinator = BoundaryProbeCoordinator::new(config());
     let mut visited = Vec::new();
-    let stop = try_drive_partition(&mut coordinator, 7, &sector, &partition, |plan, task| {
-        visited.push((
-            plan.face_dimension(),
-            plan.parent_free_dimension(),
-            plan.boundary_codimension(),
-            task.canonical_ordinal(),
-        ));
-        Ok(no_proposal())
-    });
+    let stop = try_drive_partition(
+        &mut coordinator,
+        7,
+        &sector,
+        &partition,
+        |plan, task, census, requested, invalidated| {
+            visited.push((
+                plan.face_dimension(),
+                plan.parent_free_dimension(),
+                plan.boundary_codimension(),
+                task.canonical_ordinal(),
+            ));
+            try_reserve_compact_result(census, requested, invalidated, no_proposal())
+        },
+    );
     assert_eq!(
         visited,
         vec![(2, 2, 0, 0), (1, 2, 1, 0), (1, 2, 1, 1), (0, 2, 2, 0)]
@@ -164,26 +170,33 @@ fn owner_mutation_invalidates_the_plan_suffix_and_next_epoch_restarts() {
     ] {
         let mut coordinator = BoundaryProbeCoordinator::new(config());
         let mut first_visits = Vec::new();
-        let first = try_drive_partition(&mut coordinator, 7, &sector, &partition, |plan, task| {
-            first_visits.push((plan.face_dimension(), task.canonical_ordinal()));
-            if first_visits.len() == 2 {
-                Ok(CompactTaskResult {
-                    action: CompactTaskAction::OwnerSetChanged {
-                        mutation,
-                        before_revision: 7,
-                        after_revision: 8,
-                    },
-                    evidence: CompactProbeEvidence {
-                        declared_probes: 1,
-                        scheduler_replayed: 1,
-                        canonical_replayed: 1,
-                        ..CompactProbeEvidence::default()
-                    },
-                })
-            } else {
-                Ok(no_proposal())
-            }
-        });
+        let first = try_drive_partition(
+            &mut coordinator,
+            7,
+            &sector,
+            &partition,
+            |plan, task, census, requested, invalidated| {
+                first_visits.push((plan.face_dimension(), task.canonical_ordinal()));
+                let compact = if first_visits.len() == 2 {
+                    CompactTaskResult {
+                        action: CompactTaskAction::OwnerSetChanged {
+                            mutation,
+                            before_revision: 7,
+                            after_revision: 8,
+                        },
+                        evidence: CompactProbeEvidence {
+                            declared_probes: 1,
+                            scheduler_replayed: 1,
+                            canonical_replayed: 1,
+                            ..CompactProbeEvidence::default()
+                        },
+                    }
+                } else {
+                    no_proposal()
+                };
+                try_reserve_compact_result(census, requested, invalidated, compact)
+            },
+        );
         let ProbeCoordinatorDriveStop::OwnerSetChanged(changed) = first else {
             panic!("the first owner mutation must terminate its immutable epoch")
         };
@@ -195,10 +208,16 @@ fn owner_mutation_invalidates_the_plan_suffix_and_next_epoch_restarts() {
         assert_eq!(changed.census().invalidated_tickets(), 1);
 
         let mut second_first = None;
-        let second = try_drive_partition(&mut coordinator, 8, &sector, &partition, |plan, task| {
-            second_first.get_or_insert((plan.face_dimension(), task.canonical_ordinal()));
-            Ok(no_proposal())
-        });
+        let second = try_drive_partition(
+            &mut coordinator,
+            8,
+            &sector,
+            &partition,
+            |plan, task, census, requested, invalidated| {
+                second_first.get_or_insert((plan.face_dimension(), task.canonical_ordinal()));
+                try_reserve_compact_result(census, requested, invalidated, no_proposal())
+            },
+        );
         assert_eq!(second_first, Some((2, 0)));
         assert!(matches!(
             second,
@@ -215,16 +234,27 @@ fn operational_refinement_failure_and_stable_stops_are_disjoint() {
     let (sector, partition) = single_d2_partition();
 
     let mut operational = BoundaryProbeCoordinator::new(config());
-    let stop = try_drive_partition(&mut operational, 0, &sector, &partition, |_, _| {
-        Ok(CompactTaskResult {
-            action: CompactTaskAction::NoProposal,
-            evidence: CompactProbeEvidence {
-                declared_probes: 1,
-                scheduler_budget_stops: 1,
-                ..CompactProbeEvidence::default()
-            },
-        })
-    });
+    let stop = try_drive_partition(
+        &mut operational,
+        0,
+        &sector,
+        &partition,
+        |_, _, census, requested, invalidated| {
+            try_reserve_compact_result(
+                census,
+                requested,
+                invalidated,
+                CompactTaskResult {
+                    action: CompactTaskAction::NoProposal,
+                    evidence: CompactProbeEvidence {
+                        declared_probes: 1,
+                        scheduler_budget_stops: 1,
+                        ..CompactProbeEvidence::default()
+                    },
+                },
+            )
+        },
+    );
     assert!(matches!(
         stop,
         ProbeCoordinatorDriveStop::OperationallyBounded(stop)
@@ -238,17 +268,28 @@ fn operational_refinement_failure_and_stable_stops_are_disjoint() {
     ));
 
     let mut refinement = BoundaryProbeCoordinator::new(config());
-    let stop = try_drive_partition(&mut refinement, 0, &sector, &partition, |_, _| {
-        Ok(CompactTaskResult {
-            action: CompactTaskAction::NoProposal,
-            evidence: CompactProbeEvidence {
-                declared_probes: 1,
-                scheduler_sampled_dual: 1,
-                canonical_query_rejections: 1,
-                ..CompactProbeEvidence::default()
-            },
-        })
-    });
+    let stop = try_drive_partition(
+        &mut refinement,
+        0,
+        &sector,
+        &partition,
+        |_, _, census, requested, invalidated| {
+            try_reserve_compact_result(
+                census,
+                requested,
+                invalidated,
+                CompactTaskResult {
+                    action: CompactTaskAction::NoProposal,
+                    evidence: CompactProbeEvidence {
+                        declared_probes: 1,
+                        scheduler_sampled_dual: 1,
+                        canonical_query_rejections: 1,
+                        ..CompactProbeEvidence::default()
+                    },
+                },
+            )
+        },
+    );
     assert!(matches!(
         stop,
         ProbeCoordinatorDriveStop::NeedsRefinement(stop)
@@ -261,11 +302,17 @@ fn operational_refinement_failure_and_stable_stops_are_disjoint() {
     ));
 
     let mut failed_coordinator = BoundaryProbeCoordinator::new(config());
-    let stop = try_drive_partition(&mut failed_coordinator, 0, &sector, &partition, |_, _| {
-        Err(ProbeCoordinatorFailure::Invariant {
-            detail: "synthetic failure",
-        })
-    });
+    let stop = try_drive_partition(
+        &mut failed_coordinator,
+        0,
+        &sector,
+        &partition,
+        |_, _, _, _, _| {
+            Err(ProbeCoordinatorFailure::Invariant {
+                detail: "synthetic failure",
+            })
+        },
+    );
     assert!(matches!(stop, ProbeCoordinatorDriveStop::Failed(_)));
 }
 
@@ -583,20 +630,74 @@ fn production_stop_rejoins_live_identity_and_never_upgrades_owner_free_state() {
         ProbeCoordinatorLimits::default(),
     )
     .unwrap();
-    let batch_config = coordinator_config.clone();
-    let mut coordinator = BoundaryProbeCoordinator::new(coordinator_config);
-    let mut probes = move |_: &super::super::super::boundary_simplex::BoundarySimplexTask| {
-        let build = |coordinate| {
-            CampaignModularProbe::try_new(
-                1_000_000_007,
-                [37],
-                [coordinate],
-                campaign_limits.replay.scheduler.campaign,
-            )
-            .unwrap()
-        };
-        ProbeCoordinatorProbeBatch::try_new([build(2), build(3)], &batch_config)
+    let make_probes = |batch_config: ProbeCoordinatorConfig| {
+        move |_: &super::super::super::boundary_simplex::BoundarySimplexTask| {
+            let build = |coordinate| {
+                CampaignModularProbe::try_new(
+                    1_000_000_007,
+                    [37],
+                    [coordinate],
+                    campaign_limits.replay.scheduler.campaign,
+                )
+                .unwrap()
+            };
+            ProbeCoordinatorProbeBatch::try_new([build(2), build(3)], &batch_config)
+        }
     };
+
+    // A compiled owner may have any exact cover effect. Force one possible
+    // action counter to overflow and require the reservation to fail before
+    // serial application, leaving the opaque exact ledger untouched.
+    let before_overflow = ledger.snapshot();
+    let before_overflow_identity = ledger.snapshot_identity();
+    let mut overflow_coordinator = BoundaryProbeCoordinator::new(coordinator_config.clone());
+    overflow_coordinator.census.duplicate = usize::MAX;
+    let mut overflow_probes = make_probes(coordinator_config.clone());
+    let overflow =
+        overflow_coordinator.try_run_boundary_epoch(&adapter, &mut ledger, &mut overflow_probes);
+    assert!(matches!(
+        overflow,
+        ProbeCoordinatorStop::Failed(ref stop)
+            if matches!(
+                stop.failure(),
+                ProbeCoordinatorFailure::ResourceCountOverflow { resource: "scalar census" }
+            )
+    ));
+    assert_eq!(ledger.snapshot(), before_overflow);
+    assert!(
+        ledger
+            .snapshot_identity()
+            .same_snapshot_as(&before_overflow_identity)
+    );
+
+    let mut alternate_action_overflow_coordinator =
+        BoundaryProbeCoordinator::new(coordinator_config.clone());
+    alternate_action_overflow_coordinator
+        .census
+        .strict_geometric_shrink = usize::MAX;
+    let mut alternate_action_overflow_probes = make_probes(coordinator_config.clone());
+    let alternate_action_overflow = alternate_action_overflow_coordinator.try_run_boundary_epoch(
+        &adapter,
+        &mut ledger,
+        &mut alternate_action_overflow_probes,
+    );
+    assert!(matches!(
+        alternate_action_overflow,
+        ProbeCoordinatorStop::Failed(ref stop)
+            if matches!(
+                stop.failure(),
+                ProbeCoordinatorFailure::ResourceCountOverflow { resource: "scalar census" }
+            )
+    ));
+    assert_eq!(ledger.snapshot(), before_overflow);
+    assert!(
+        ledger
+            .snapshot_identity()
+            .same_snapshot_as(&before_overflow_identity)
+    );
+
+    let mut coordinator = BoundaryProbeCoordinator::new(coordinator_config.clone());
+    let mut probes = make_probes(coordinator_config);
     let stop = coordinator.try_run_boundary_epoch(&adapter, &mut ledger, &mut probes);
     let ProbeCoordinatorStop::CompilerClosed {
         ledger_snapshot,

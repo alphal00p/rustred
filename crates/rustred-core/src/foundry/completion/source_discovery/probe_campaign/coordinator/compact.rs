@@ -1,6 +1,12 @@
 use crate::foundry::completion::source_discovery::cover_delta::ExactOwnerCoverSnapshot;
+use crate::foundry::completion::source_discovery::{
+    ExactExecutableOwnerProposal, InteriorReplayRunDisposition,
+};
 
-use super::super::{ProbeCampaignNoProposal, ProbeCampaignOutcome, ProbeCampaignTaskReport};
+use super::super::{
+    ProbeCampaignEvaluatedTask, ProbeCampaignNoProposal, ProbeCampaignOutcome,
+    ProbeCampaignTaskReport,
+};
 use super::{
     ProbeCoordinatorCensus, ProbeCoordinatorFailure, ProbeCoordinatorNeedsRefinementReason,
     ProbeCoordinatorOperationalReason, ProbeCoordinatorOwnerMutation,
@@ -46,10 +52,138 @@ pub(super) struct CompactTaskResult {
     pub(super) evidence: CompactProbeEvidence,
 }
 
-pub(super) fn try_compact_report(
-    report: &ProbeCampaignTaskReport,
-) -> Result<CompactTaskResult, ProbeCoordinatorFailure> {
-    let census = report.census();
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CompactTaskKind {
+    NoProposal = 0,
+    Duplicate = 1,
+    IncompleteProposal = 2,
+    ChangedWithoutGeometricShrink = 3,
+    StrictGeometricShrink = 4,
+    CompilerClosed = 5,
+}
+
+impl CompactTaskKind {
+    const COUNT: usize = 6;
+
+    const fn from_action(action: CompactTaskAction) -> Self {
+        match action {
+            CompactTaskAction::NoProposal => Self::NoProposal,
+            CompactTaskAction::Duplicate => Self::Duplicate,
+            CompactTaskAction::IncompleteProposal => Self::IncompleteProposal,
+            CompactTaskAction::OwnerSetChanged {
+                mutation: ProbeCoordinatorOwnerMutation::ChangedWithoutGeometricShrink,
+                ..
+            } => Self::ChangedWithoutGeometricShrink,
+            CompactTaskAction::OwnerSetChanged {
+                mutation: ProbeCoordinatorOwnerMutation::StrictGeometricShrink,
+                ..
+            } => Self::StrictGeometricShrink,
+            CompactTaskAction::CompilerClosed { .. } => Self::CompilerClosed,
+        }
+    }
+}
+
+/// Every fallible compact-census update reserved before serial application.
+///
+/// A compiled proposal can still be duplicate, mutate by either exact cover
+/// effect, or close the compiler. All four counter states are therefore
+/// checked while the ledger is immutable. Finishing after application only
+/// selects one already materialized state and cannot return `Failed`.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct CompactTaskReservation {
+    evidence: CompactProbeEvidence,
+    updated: [Option<ProbeCoordinatorCensus>; CompactTaskKind::COUNT],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct CompactTaskCommit {
+    pub(super) compact: CompactTaskResult,
+    pub(super) census: ProbeCoordinatorCensus,
+}
+
+pub(super) fn try_reserve_evaluated_task(
+    evaluated: &ProbeCampaignEvaluatedTask,
+    baseline: ProbeCoordinatorCensus,
+    requested_report: usize,
+    invalidated_tickets: usize,
+) -> Result<CompactTaskReservation, ProbeCoordinatorFailure> {
+    let evidence = try_compact_census(evaluated.census())?;
+    let possible: &[CompactTaskKind] = match evaluated.replay_disposition() {
+        InteriorReplayRunDisposition::NoReplayedNominations
+        | InteriorReplayRunDisposition::NoRebasedCircuits { .. } => &[CompactTaskKind::NoProposal],
+        InteriorReplayRunDisposition::OwnerProposal {
+            proposal: ExactExecutableOwnerProposal::Incomplete(_),
+            ..
+        } => &[CompactTaskKind::IncompleteProposal],
+        InteriorReplayRunDisposition::OwnerProposal {
+            proposal: ExactExecutableOwnerProposal::Compiled { .. },
+            ..
+        } => &[
+            CompactTaskKind::Duplicate,
+            CompactTaskKind::ChangedWithoutGeometricShrink,
+            CompactTaskKind::StrictGeometricShrink,
+            CompactTaskKind::CompilerClosed,
+        ],
+    };
+    try_reserve_kinds(
+        baseline,
+        requested_report,
+        invalidated_tickets,
+        evidence,
+        possible,
+    )
+}
+
+/// Reserve a synthetic compact result before invoking a test executor.
+pub(super) fn try_reserve_compact_result(
+    baseline: ProbeCoordinatorCensus,
+    requested_report: usize,
+    invalidated_tickets: usize,
+    compact: CompactTaskResult,
+) -> Result<CompactTaskCommit, ProbeCoordinatorFailure> {
+    let kind = CompactTaskKind::from_action(compact.action);
+    let reservation = try_reserve_kinds(
+        baseline,
+        requested_report,
+        invalidated_tickets,
+        compact.evidence,
+        &[kind],
+    )?;
+    Ok(reservation.finish_action(compact.action))
+}
+
+impl CompactTaskReservation {
+    pub(super) const fn declared_probes(self) -> usize {
+        self.evidence.declared_probes
+    }
+
+    /// Select the counter state reserved for the exact post-application
+    /// outcome. This is intentionally infallible: a mismatch means the same
+    /// evaluated replay changed disposition while being consumed.
+    pub(super) fn finish_report(self, report: &ProbeCampaignTaskReport) -> CompactTaskCommit {
+        debug_assert!(
+            matches!(try_compact_census(report.census()), Ok(evidence) if evidence == self.evidence)
+        );
+        self.finish_action(compact_action(report))
+    }
+
+    fn finish_action(self, action: CompactTaskAction) -> CompactTaskCommit {
+        let kind = CompactTaskKind::from_action(action);
+        let census = self.updated[kind as usize]
+            .expect("post-application action lacked its prevalidated compact reservation");
+        CompactTaskCommit {
+            compact: CompactTaskResult {
+                action,
+                evidence: self.evidence,
+            },
+            census,
+        }
+    }
+}
+
+fn try_compact_census(
+    census: super::super::ProbeCampaignCensus,
+) -> Result<CompactProbeEvidence, ProbeCoordinatorFailure> {
     let scheduler = census.scheduler_outcomes();
     let attempts = census.canonical_attempts();
     let canonical_attempt_count = attempts
@@ -66,7 +200,27 @@ pub(super) fn try_compact_report(
             .map(|replay| (replay.rebase_attempts(), replay.replayed_nominations())),
     )?;
 
-    let action = match report.outcome() {
+    let mut evidence = CompactProbeEvidence {
+        scheduler_budget_stops: scheduler.budget_stop(),
+        scheduler_rejections: scheduler.rejected(),
+        scheduler_stalls: scheduler.stalled(),
+        scheduler_exact_lift_errors: scheduler.exact_lift_error(),
+        canonical_replayed: attempts.replayed(),
+        canonical_no_modular_hit: attempts.no_modular_hit(),
+        canonical_query_rejections: attempts.query_rejected(),
+        canonical_support_did_not_lift: attempts.support_did_not_lift(),
+        exact_obstructions: census.exact_obstructions(),
+        declared_probes: 0,
+        scheduler_replayed: scheduler.replayed(),
+        scheduler_support_did_not_lift: scheduler.support_did_not_lift(),
+        scheduler_sampled_dual: scheduler.sampled_dual(),
+    };
+    evidence.declared_probes = try_scheduler_outcome_total(evidence)?;
+    Ok(evidence)
+}
+
+fn compact_action(report: &ProbeCampaignTaskReport) -> CompactTaskAction {
+    match report.outcome() {
         ProbeCampaignOutcome::NoProposal(ProbeCampaignNoProposal::NoReplayedNominations)
         | ProbeCampaignOutcome::NoProposal(ProbeCampaignNoProposal::NoRebasedCircuits { .. }) => {
             CompactTaskAction::NoProposal
@@ -92,27 +246,7 @@ pub(super) fn try_compact_report(
         ProbeCampaignOutcome::Closed { applied, .. } => CompactTaskAction::CompilerClosed {
             exact: applied.delta().updated(),
         },
-    };
-    let mut compact = CompactTaskResult {
-        action,
-        evidence: CompactProbeEvidence {
-            scheduler_budget_stops: scheduler.budget_stop(),
-            scheduler_rejections: scheduler.rejected(),
-            scheduler_stalls: scheduler.stalled(),
-            scheduler_exact_lift_errors: scheduler.exact_lift_error(),
-            canonical_replayed: attempts.replayed(),
-            canonical_no_modular_hit: attempts.no_modular_hit(),
-            canonical_query_rejections: attempts.query_rejected(),
-            canonical_support_did_not_lift: attempts.support_did_not_lift(),
-            exact_obstructions: census.exact_obstructions(),
-            declared_probes: 0,
-            scheduler_replayed: scheduler.replayed(),
-            scheduler_support_did_not_lift: scheduler.support_did_not_lift(),
-            scheduler_sampled_dual: scheduler.sampled_dual(),
-        },
-    };
-    compact.evidence.declared_probes = try_scheduler_outcome_total(compact.evidence)?;
-    Ok(compact)
+    }
 }
 
 pub(super) fn try_validate_canonical_join(
@@ -205,98 +339,130 @@ pub(super) fn validate_live_effect(
     Ok(())
 }
 
-pub(super) fn try_record_compact(
-    census: &mut ProbeCoordinatorCensus,
+fn try_reserve_kinds(
+    baseline: ProbeCoordinatorCensus,
     requested_report: usize,
-    compact: CompactTaskResult,
-) -> Result<(), ProbeCoordinatorFailure> {
-    let mut updated = *census;
+    invalidated_tickets: usize,
+    evidence: CompactProbeEvidence,
+    possible: &[CompactTaskKind],
+) -> Result<CompactTaskReservation, ProbeCoordinatorFailure> {
+    let mut reserved = [None; CompactTaskKind::COUNT];
+    for &kind in possible {
+        reserved[kind as usize] = Some(try_updated_census(
+            baseline,
+            requested_report,
+            invalidated_tickets,
+            evidence,
+            kind,
+        )?);
+    }
+    Ok(CompactTaskReservation {
+        evidence,
+        updated: reserved,
+    })
+}
+
+fn try_updated_census(
+    baseline: ProbeCoordinatorCensus,
+    requested_report: usize,
+    invalidated_tickets: usize,
+    evidence: CompactProbeEvidence,
+    kind: CompactTaskKind,
+) -> Result<ProbeCoordinatorCensus, ProbeCoordinatorFailure> {
+    let mut updated = baseline;
     updated.task_reports = requested_report;
-    match compact.action {
-        CompactTaskAction::NoProposal => try_increment(&mut updated.no_proposal, CENSUS)?,
-        CompactTaskAction::Duplicate => try_increment(&mut updated.duplicate, CENSUS)?,
-        CompactTaskAction::IncompleteProposal => {
+    match kind {
+        CompactTaskKind::NoProposal => try_increment(&mut updated.no_proposal, CENSUS)?,
+        CompactTaskKind::Duplicate => try_increment(&mut updated.duplicate, CENSUS)?,
+        CompactTaskKind::IncompleteProposal => {
             try_increment(&mut updated.incomplete_proposal, CENSUS)?;
         }
-        CompactTaskAction::OwnerSetChanged {
-            mutation: ProbeCoordinatorOwnerMutation::ChangedWithoutGeometricShrink,
-            ..
-        } => try_increment(&mut updated.changed_without_geometric_shrink, CENSUS)?,
-        CompactTaskAction::OwnerSetChanged {
-            mutation: ProbeCoordinatorOwnerMutation::StrictGeometricShrink,
-            ..
-        } => try_increment(&mut updated.strict_geometric_shrink, CENSUS)?,
-        CompactTaskAction::CompilerClosed { .. } => {
+        CompactTaskKind::ChangedWithoutGeometricShrink => {
+            try_increment(&mut updated.changed_without_geometric_shrink, CENSUS)?;
+            try_add(
+                &mut updated.invalidated_tickets,
+                invalidated_tickets,
+                CENSUS,
+            )?;
+        }
+        CompactTaskKind::StrictGeometricShrink => {
+            try_increment(&mut updated.strict_geometric_shrink, CENSUS)?;
+            try_add(
+                &mut updated.invalidated_tickets,
+                invalidated_tickets,
+                CENSUS,
+            )?;
+        }
+        CompactTaskKind::CompilerClosed => {
             try_increment(&mut updated.compiler_closed, CENSUS)?;
         }
     }
     try_add(
         &mut updated.scheduler_budget_stops,
-        compact.evidence.scheduler_budget_stops,
+        evidence.scheduler_budget_stops,
         CENSUS,
     )?;
     try_add(
         &mut updated.scheduler_rejections,
-        compact.evidence.scheduler_rejections,
+        evidence.scheduler_rejections,
         CENSUS,
     )?;
     try_add(
         &mut updated.scheduler_stalls,
-        compact.evidence.scheduler_stalls,
+        evidence.scheduler_stalls,
         CENSUS,
     )?;
     try_add(
         &mut updated.scheduler_exact_lift_errors,
-        compact.evidence.scheduler_exact_lift_errors,
+        evidence.scheduler_exact_lift_errors,
         CENSUS,
     )?;
     try_add(
         &mut updated.canonical_replayed,
-        compact.evidence.canonical_replayed,
+        evidence.canonical_replayed,
         CENSUS,
     )?;
     try_add(
         &mut updated.canonical_no_modular_hit,
-        compact.evidence.canonical_no_modular_hit,
+        evidence.canonical_no_modular_hit,
         CENSUS,
     )?;
     try_add(
         &mut updated.canonical_query_rejections,
-        compact.evidence.canonical_query_rejections,
+        evidence.canonical_query_rejections,
         CENSUS,
     )?;
     try_add(
         &mut updated.canonical_support_did_not_lift,
-        compact.evidence.canonical_support_did_not_lift,
+        evidence.canonical_support_did_not_lift,
         CENSUS,
     )?;
     try_add(
         &mut updated.exact_obstructions,
-        compact.evidence.exact_obstructions,
+        evidence.exact_obstructions,
         CENSUS,
     )?;
     try_add(
         &mut updated.declared_probes,
-        compact.evidence.declared_probes,
+        evidence.declared_probes,
         CENSUS,
     )?;
     try_add(
         &mut updated.scheduler_replayed,
-        compact.evidence.scheduler_replayed,
+        evidence.scheduler_replayed,
         CENSUS,
     )?;
     try_add(
         &mut updated.scheduler_support_did_not_lift,
-        compact.evidence.scheduler_support_did_not_lift,
+        evidence.scheduler_support_did_not_lift,
         CENSUS,
     )?;
     try_add(
         &mut updated.scheduler_sampled_dual,
-        compact.evidence.scheduler_sampled_dual,
+        evidence.scheduler_sampled_dual,
         CENSUS,
     )?;
-    *census = updated;
-    Ok(())
+    Ok(updated)
 }
 
 pub(super) fn operational_reason(
