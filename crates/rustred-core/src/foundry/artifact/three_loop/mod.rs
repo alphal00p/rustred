@@ -21,6 +21,8 @@ mod family;
 mod isp_shell_probe;
 mod manifest;
 #[cfg(test)]
+mod matcher_seed_portfolio;
+#[cfg(test)]
 mod momentum_rank;
 #[cfg(test)]
 mod ordering_portfolio;

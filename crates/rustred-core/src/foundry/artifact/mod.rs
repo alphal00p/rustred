@@ -11,6 +11,8 @@ mod error;
 mod factorization;
 #[allow(dead_code, unused_imports)]
 pub(crate) mod factorized_numerator_lift;
+#[cfg(test)]
+mod factorized_product_moments;
 mod install;
 mod model;
 mod one_loop;

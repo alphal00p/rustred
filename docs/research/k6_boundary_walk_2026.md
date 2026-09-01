@@ -328,3 +328,53 @@ Passing this experiment will close the factorized bottom wave, not the whole
 K6 family. Four-, five-, and six-line irreducible waves must still close under
 ordinary/translated source discovery with the new immutable lower feedback,
 and artifact publication still requires zero uncovered branches everywhere.
+
+## Product-moment prototype result
+
+The bounded `K1^N` prototype described above is now executable for the path
+and star `K1^3` charts. It is deliberately schema-free and non-owning. Its
+compiler binds the installed terminal authority, factorization rule, signed
+singleton loop rows, exact parent slots, three sealed one-loop dependencies,
+normalization, raw master embedding, and process-local capability. Evaluation
+uses Symbolica's native exact sparse polynomial power for routed numerator and
+`(D+1)^r` expansion, an iterative explicitly bounded angular incidence DP,
+and the ordinary one-loop `Reducer` for every radial shift. A public Symbolica
+isotropic-moment primitive was checked for and was not present; only that
+domain-specific recurrence is implemented locally.
+
+The focused acceptance suite proves:
+
+- numerator-free path and star corners terminate in the installed product
+  terminal with the installed normalization;
+- `q^2/D^2` gives `(d/2) T` through the sealed one-loop artifact, rather than
+  the obsolete undotted-corner shortcut;
+- odd incidence vanishes, the rank-two coefficient is `1/d`, and the
+  rank-four coefficient is `3/(d(d+2))`, with the traversed `d` and `d+2`
+  guards retained even when later algebra cancels a factor;
+- the known path and star numerator samples reproduce
+  `2(d+2)^2/d^2` and `(d^2-8)/d^2` exactly; and
+- the two persistent path witnesses `[-2,-6,1,-2,3,3]` and
+  `[-4,-6,7,0,3,3]` reduce deterministically to one authenticated terminal,
+  after 3,886 and 4,396 exact scalar monomials respectively, with their full
+  angular guard provenance and no unresolved leaves.
+
+The prototype exposes caller limits for native support, operation, exponent,
+angular-state, transition, pending, radial, dependency-request, coefficient,
+key, guard, and coalescing work. The current compiler rejects the correlated
+`K3 x K1` rule with a typed shape error; its independent-one-loop peel is the
+next product action. This result does not yet install an infinite-domain owner
+or close the rank-three wave, so it is not a K6 artifact or Vakint three-loop
+parity claim.
+
+The follow-up interpretation of Vakint's matcher roots is recorded in
+[the sector-local coordinate-chart proposal](sector_local_coordinate_chart_2026.md).
+A bounded executable fixture now derives all five roots inside the one complete
+K6 contraction plan and builds deterministic foreign ISP-completed charts.
+They seed 34 raw full-rank masks across five `S4` orbits; the four-member star
+orbit `[0,0,1,1,0,1]` remains unseeded. The S5 completion appends `s23` and
+replays `2 s23 = 1 + D2 + D3 - D6` exactly. This proves chart feasibility and
+authority separation, not improved source coverage. Natural S4/S5 ISP charts
+may nominate sparse correlated parent source portfolios, but every nomination
+must be regenerated and replayed exactly in the parent K6 family. Local chart
+closure cannot publish a parent owner, and appended ISP slots must remain in
+their numerator/nonpositive domain for finite transport.

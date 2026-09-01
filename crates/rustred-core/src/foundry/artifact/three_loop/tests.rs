@@ -22,7 +22,7 @@ use super::momentum_rank::{EDGE_MOMENTA, active_momentum_rank};
 use super::symmetry::canonical_s4;
 use super::terminal_authority::derive_k6_terminal_authority;
 
-fn canonical_presentation(auxiliary_slots: &[usize]) -> FamilyPresentation {
+pub(super) fn canonical_presentation(auxiliary_slots: &[usize]) -> FamilyPresentation {
     let family = canonical_family().unwrap();
     let context = family.coefficient_context();
     let roles = EDGE_MOMENTA

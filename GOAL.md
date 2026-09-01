@@ -301,6 +301,38 @@ integral keys, not the frozen general tensor-reduction project. Until that
 prototype and the remaining ordinary sector waves pass exact coverage, none
 of these actions grants a K6 artifact or Vakint three-loop parity claim.
 
+The bounded, schema-free `K1^N` product-moment prototype now implements the
+first half of that design for the path and star `K1^3` charts. It authenticates
+the installed signed singleton routing once, expands routed numerators with
+Symbolica's native exact sparse polynomials, evaluates angular incidences with
+an iterative bounded recurrence, preserves every radial power, and delegates
+`q_i^2 = D_i + 1` terms to the sealed one-loop reducer. The independent checks
+include `q^2/D^2 = (d/2) T`, rank-two and rank-four moments with their exact
+`d+R-2 != 0` guards, the known path/star coefficients, and both persistent
+path witnesses `[-2,-6,1,-2,3,3]` and `[-4,-6,7,0,3,3]`. Those witnesses now
+terminate deterministically in one authenticated product terminal after
+3,886 and 4,396 exact scalar monomials respectively. This remains a cold,
+non-owning feasibility result: it creates no `RuleCell`, cover, terminal,
+artifact, persistence payload, or reducer dispatch. The correlated `K3 x K1`
+peel and the four-, five-, and six-line waves remain open.
+
+Vakint's matcher roots have now been tested in their strongest useful role as
+natural sector-local coordinate charts, not concatenated into a new
+denominator family and not treated as closure authority. A deterministic cold
+fixture derives all five roots from the one complete K6 contraction plan,
+checks their candidate loop bases for shape and unimodularity, and builds
+six-coordinate ISP completions with foreign family fingerprints. The roots
+cover five of the six full-rank `S4` orbits, or 34 raw masks; the four-member
+star orbit `[0,0,1,1,0,1]` remains explicit. The S5 chart independently
+replays `2 s23 = 1 + D2 + D3 - D6`. These charts can precondition the bounded
+source search in the S4 and S5 waves by making correlated parent translations
+sparse locally, but the current fixture proves feasibility and authority
+separation only. They add no IBP identities, cannot transport positive
+auxiliary poles or arbitrary symbolic numerator powers as finite key sums,
+and may only nominate parent K6 source requests. Every candidate must be
+regenerated, exact-lifted, and replayed in the parent family before promotion.
+The complete 64-mask/11-orbit contraction plan remains authoritative.
+
 On the Vakint side, the shared multimethod harness now exercises 21 applicable
 historical tests comprising 27 concrete inputs through two loops, including
 nine inputs with the unchanged FORM tensor prepass. Eleven genuine three-loop
@@ -1059,5 +1091,6 @@ into Stage 2.
 - [Dual-obstruction source-discovery proposal](docs/research/dual_obstruction_source_discovery_2026.md)
 - [Vakint K6 oracle and terminal-budget audit](docs/research/vakint_k6_oracle.md)
 - [Audited factorized product-angular owner design](docs/research/factorized_product_angular_owner_2026.md)
+- [Sector-local coordinate charts as a K6 search preconditioner](docs/research/sector_local_coordinate_chart_2026.md)
 - [Audited K6 boundary-walk observations](docs/research/k6_boundary_walk_2026.md)
 - [Current CLI contract](docs/CLI.md)

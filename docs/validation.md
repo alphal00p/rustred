@@ -261,6 +261,30 @@ and grants no cover authority until the free indices are retained symbolically,
 all guards and faces are proved, and an executable owner strictly shrinks the
 exact infinite complement.
 
+The separate cold `K1^N` product-moment suite now executes the path and star
+factorizations without re-entering the parent reducer. It authenticates the
+installed signed routing and one-loop dependencies, uses Symbolica sparse
+polynomial power for routed numerators and radial `(D+1)^r`, and retains the
+iterative angular guards. Eight focused tests cover the two scalar corners,
+odd zero, rank-two and rank-four moments, `q^2/D^2 = (d/2)T`, shared radial
+memoization, deterministic process-local provenance, typed unsupported
+`K3 x K1`, and caller limits. The persistent path witnesses
+`[-2,-6,1,-2,3,3]` and `[-4,-6,7,0,3,3]` are pinned to one authenticated
+terminal with exact coefficients, guard sets, and native supports `3,886` and
+`4,396`. This suite validates a bounded non-owning action only; it does not
+install a `RuleCell` or discharge the infinite path/star cover.
+
+A separate three-test matcher-seed portfolio derives all five frozen Vakint
+three-loop roots from the complete K6 contraction plan, checks their candidate
+loop bases for shape and unimodularity, and deterministically ISP-completes
+each root as a foreign search family. The exact census is five of six
+full-rank `S4` orbits and 34 raw masks; the omitted star orbit
+`[0,0,1,1,0,1]` has size four. The S5 completion appends scalar coordinate
+`s23` and replays `2 s23 = 1 + D2 + D3 - D6` component by component. Local
+source batches retain their foreign family fingerprints and cannot enter the
+parent authority. These tests prove seed/chart feasibility and separation,
+not additional parent identities, improved nomination, or closure.
+
 The adjacent exact guard census expands all 205 retained K6 guard occurrences
 by base-parameter monomial. It pins 119 immediate nonzero-constant
 certificates, 86 one-index exceptional systems, their complete integer-root
