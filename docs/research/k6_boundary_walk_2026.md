@@ -102,9 +102,16 @@ must not be promoted into a production exhaustion certificate until the stop
 policy retains canonical replay-attempt/query-rejection evidence and exact
 obstruction/refinement state.
 
-## Minimal production coordinator
+## Audited compact production coordinator
 
-The audited production seam should remain topology-neutral and compact:
+Commit `e873de8` installs the independently audited, topology-neutral
+window-one coordinator required by the next measurements. Its public stop
+taxonomy separates exact compiler closure, owner-set mutation, actionable
+refinement, operational bounds, hard failure, and clean exhaustion of one
+declared finite configuration. In particular, `ExhaustedAtConfig` is not a
+closure result and cannot be produced from a report cap.
+
+The production seam is compact and transactional:
 
 1. A pure class schedule emits only `(r,d,c,profile)` descriptors and builds a
    plan on demand against the current exact complement.
@@ -117,18 +124,29 @@ The audited production seam should remain topology-neutral and compact:
 3. Workers may evaluate immutable tickets concurrently, but results commit in
    canonical class/task/probe order. Any owner-set mutation discards all later
    results and replans from the new exact revision.
-4. The coordinator retains compact counters plus a bounded out-of-order
-   window, consuming task reports rather than retaining their replay payloads.
-   Its target retained state is `O(number of classes + worker window)`, not
-   `O(number of tasks)`.
+4. The current serial coordinator consumes and drops each task report after
+   retaining checked scalar counters. Its live memory is bounded by the exact
+   uncovered partition, the class schedule, the largest materialized class
+   plan, and one evaluated task. It retains no completed task history. A later
+   parallel executor may replace the single-task window with a bounded
+   out-of-order window without changing serial commit semantics.
 5. Proposal evaluation and serial owner application remain separate. Typed
    stops distinguish `CompilerClosed`, `OwnerSetChanged`, `NeedsRefinement`,
    `Failed`, and `ExhaustedAtConfig`; exhaustion has no closure authority.
 
-An honest `ExhaustedAtConfig` requires every task and probe in the declared
-program to finish at one unchanged opaque snapshot, with no budget,
-rejection, or exact-lift error. The next durable gate is therefore a bounded
-coordinator with compact retention and stable-snapshot exhaustion accounting,
-followed by a reproduced K6 regression. Radius-one or richer source
+Every task declares a nonzero exact probe cardinality. The coordinator checks
+that all seven scheduler outcome buckets sum to that cardinality and that
+canonical replay attempts agree with both scheduler replay and replay-engine
+telemetry. Any owner mutation ends the immutable epoch immediately; stale
+siblings are discarded and the next call replans from the new opaque ledger
+identity. Before reporting clean exhaustion it revalidates that identity and
+requires an exact `Incomplete(NonFinite)` compiler snapshot with a nonfinite
+uncovered region, zero missing terminals, and zero guard-incomplete owners.
+The copied snapshot remains telemetry rather than publication authority:
+artifact sealing must still consume the live exact ledger.
+
+The next durable gate is reproduction of the 80-report K6 checkpoint through
+this compact coordinator, followed by 256- and 512-report checkpoints and an
+honest unchanged radius-zero/degree-zero sweep. Radius-one or richer source
 neighborhoods are justified only after the corresponding smaller program has
 been exhausted honestly; they must not be inferred from a report-cap stop.
