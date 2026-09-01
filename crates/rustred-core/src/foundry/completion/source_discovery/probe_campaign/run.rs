@@ -7,8 +7,9 @@ use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use crate::sector::SectorMonotoneDomain;
 
 use super::{
-    ProbeCampaignBootstrapCensus, ProbeCampaignCensus, ProbeCampaignError, ProbeCampaignLimits,
-    ProbeCampaignPlannedTask, ProbeCampaignTaskBinding, ProbeCampaignTaskReport,
+    ProbeCampaignBootstrapCensus, ProbeCampaignCensus, ProbeCampaignError,
+    ProbeCampaignEvaluatedTask, ProbeCampaignLimits, ProbeCampaignPlannedTask,
+    ProbeCampaignTaskBinding, ProbeCampaignTaskReport,
 };
 
 const PHYSICAL_SHIFTS: &str = "bootstrap physical shift occurrences";
@@ -87,16 +88,15 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
         ))
     }
 
-    /// Execute and transactionally apply one previously bound task. This
-    /// serial adapter deliberately makes no exhaustion, publication,
-    /// parallelism, or closure claim beyond the exact ledger status
-    /// represented by its typed outcome.
-    pub(crate) fn try_run_task<Task: ProbeCampaignPlannedTask>(
+    /// Evaluate one bound task without mutating the exact owner ledger.
+    /// Application must later rejoin the same opaque ledger snapshot through
+    /// [`Self::try_apply_evaluated_task`].
+    pub(crate) fn try_evaluate_task<Task: ProbeCampaignPlannedTask>(
         &self,
         binding: ProbeCampaignTaskBinding<'_, Task>,
-        ledger: &mut CanonicalExactOwnerLedger,
+        ledger: &CanonicalExactOwnerLedger,
         probes: impl IntoIterator<Item = CampaignModularProbe>,
-    ) -> Result<ProbeCampaignTaskReport, ProbeCampaignError> {
+    ) -> Result<ProbeCampaignEvaluatedTask, ProbeCampaignError> {
         binding.task.validate_in_plan(binding.plan)?;
         ledger.try_require_current_snapshot(&binding.ledger_snapshot)?;
         self.validate_task_scope(binding.task, ledger)?;
@@ -121,21 +121,46 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
             exact_obstructions,
             self.limits.max_retained_exact_obstructions,
         )?;
-        let delta = match replay.disposition() {
+        let census = ProbeCampaignCensus::new(bootstrap, &replay, exact_obstructions);
+        Ok(ProbeCampaignEvaluatedTask::new(
+            binding.task.canonical_ordinal(),
+            binding.ledger_snapshot,
+            census,
+            replay,
+        ))
+    }
+
+    /// Revalidate and transactionally apply one evaluated task. The opaque
+    /// snapshot join prevents delayed worker results from crossing any owner
+    /// mutation, including a change that left the geometric cover equal.
+    pub(crate) fn try_apply_evaluated_task(
+        &self,
+        evaluated: ProbeCampaignEvaluatedTask,
+        ledger: &mut CanonicalExactOwnerLedger,
+    ) -> Result<ProbeCampaignTaskReport, ProbeCampaignError> {
+        ledger.try_require_current_snapshot(&evaluated.planned_ledger_snapshot)?;
+        let delta = match evaluated.replay.disposition() {
             InteriorReplayRunDisposition::OwnerProposal {
                 proposal: ExactExecutableOwnerProposal::Compiled { owner, .. },
                 ..
             } => Some(ledger.try_apply_owner(owner.clone())?),
             _ => None,
         };
-        let census = ProbeCampaignCensus::new(bootstrap, &replay, exact_obstructions);
-        Ok(ProbeCampaignTaskReport::new(
-            binding.task.canonical_ordinal(),
-            binding.ledger_snapshot.revision(),
-            census,
-            replay,
-            delta,
-        ))
+        Ok(evaluated.into_report(delta))
+    }
+
+    /// Evaluate and immediately apply one task in serial canonical order.
+    /// This compatibility wrapper deliberately makes no exhaustion,
+    /// publication, parallelism, or closure claim beyond the exact ledger
+    /// status represented by its typed outcome.
+    pub(crate) fn try_run_task<Task: ProbeCampaignPlannedTask>(
+        &self,
+        binding: ProbeCampaignTaskBinding<'_, Task>,
+        ledger: &mut CanonicalExactOwnerLedger,
+        probes: impl IntoIterator<Item = CampaignModularProbe>,
+    ) -> Result<ProbeCampaignTaskReport, ProbeCampaignError> {
+        let evaluated = self.try_evaluate_task(binding, ledger, probes)?;
+        self.try_apply_evaluated_task(evaluated, ledger)
     }
 
     fn validate_task_scope<Task: ProbeCampaignPlannedTask>(

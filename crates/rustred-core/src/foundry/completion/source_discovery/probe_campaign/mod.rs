@@ -10,18 +10,29 @@
 //! exposed as closure; every other result remains discovery or cover-delta
 //! telemetry.
 
+mod coordinator;
 mod error;
 mod limits;
 mod model;
 mod planned_task;
 mod run;
 
+#[allow(unused_imports)] // Production boundary campaign awaiting the Stage-1 driver.
+pub(crate) use coordinator::{
+    BoundaryProbeCoordinator, ProbeCoordinatorCensus, ProbeCoordinatorClass,
+    ProbeCoordinatorClassSchedule, ProbeCoordinatorConfig, ProbeCoordinatorFailure,
+    ProbeCoordinatorFailureStop, ProbeCoordinatorLimits, ProbeCoordinatorNeedsRefinement,
+    ProbeCoordinatorNeedsRefinementReason, ProbeCoordinatorOperationalReason,
+    ProbeCoordinatorOperationalStop, ProbeCoordinatorOwnerMutation,
+    ProbeCoordinatorOwnerSetChanged, ProbeCoordinatorProbeBatch, ProbeCoordinatorStop,
+    ProbeCoordinatorTaskLocation,
+};
 pub(crate) use error::ProbeCampaignError;
 pub(crate) use limits::ProbeCampaignLimits;
 pub(crate) use model::{
     ProbeCampaignAppliedOwner, ProbeCampaignBootstrapCensus, ProbeCampaignCensus,
-    ProbeCampaignNoProposal, ProbeCampaignOutcome, ProbeCampaignOwnerEffect,
-    ProbeCampaignTaskBinding, ProbeCampaignTaskReport,
+    ProbeCampaignEvaluatedTask, ProbeCampaignNoProposal, ProbeCampaignOutcome,
+    ProbeCampaignOwnerEffect, ProbeCampaignTaskBinding, ProbeCampaignTaskReport,
 };
 pub(crate) use planned_task::ProbeCampaignPlannedTask;
 pub(crate) use run::ProbeCampaignAdapter;

@@ -125,6 +125,7 @@ pub(crate) struct ProbeCampaignCensus {
     scheduler: ProbeLocalRunCensus,
     scheduler_outcomes: InteriorReplaySchedulerOutcomeCensus,
     replay: Option<CanonicalReplayTelemetry>,
+    canonical_attempts: InteriorReplayAttemptCensus,
     support: Option<InteriorReplaySupportCensus>,
     exact_obstructions: usize,
 }
@@ -144,6 +145,10 @@ impl ProbeCampaignCensus {
 
     pub(crate) const fn replay(self) -> Option<CanonicalReplayTelemetry> {
         self.replay
+    }
+
+    pub(crate) const fn canonical_attempts(self) -> InteriorReplayAttemptCensus {
+        self.canonical_attempts
     }
 
     pub(crate) const fn support(self) -> Option<InteriorReplaySupportCensus> {
@@ -171,9 +176,65 @@ impl ProbeCampaignCensus {
             scheduler: replay.scheduler(),
             scheduler_outcomes: replay.scheduler_outcomes(),
             replay: replay.replay(),
+            canonical_attempts: replay.canonical_attempts(),
             support,
             exact_obstructions,
         }
+    }
+}
+
+/// Exact replay result evaluated against one immutable ledger snapshot but
+/// not yet applied to the live owner set.
+///
+/// This owned seam permits future workers to perform the expensive proposal
+/// evaluation independently. Transactional application remains serial and
+/// revalidates the opaque ledger identity immediately before mutation.
+#[derive(Debug)]
+pub(crate) struct ProbeCampaignEvaluatedTask {
+    pub(super) canonical_task_ordinal: usize,
+    pub(super) planned_ledger_snapshot: ExactOwnerLedgerSnapshotIdentity,
+    pub(super) census: ProbeCampaignCensus,
+    pub(super) replay: InteriorReplayTaskReport,
+}
+
+impl ProbeCampaignEvaluatedTask {
+    pub(crate) const fn canonical_task_ordinal(&self) -> usize {
+        self.canonical_task_ordinal
+    }
+
+    pub(crate) const fn planned_ledger_revision(&self) -> ExactOwnerLedgerRevision {
+        self.planned_ledger_snapshot.revision()
+    }
+
+    pub(crate) const fn census(&self) -> ProbeCampaignCensus {
+        self.census
+    }
+
+    pub(super) const fn new(
+        canonical_task_ordinal: usize,
+        planned_ledger_snapshot: ExactOwnerLedgerSnapshotIdentity,
+        census: ProbeCampaignCensus,
+        replay: InteriorReplayTaskReport,
+    ) -> Self {
+        Self {
+            canonical_task_ordinal,
+            planned_ledger_snapshot,
+            census,
+            replay,
+        }
+    }
+
+    pub(super) fn into_report(
+        self,
+        delta: Option<ExactOwnerCoverDelta>,
+    ) -> ProbeCampaignTaskReport {
+        ProbeCampaignTaskReport::new(
+            self.canonical_task_ordinal,
+            self.planned_ledger_snapshot.revision(),
+            self.census,
+            self.replay,
+            delta,
+        )
     }
 }
 

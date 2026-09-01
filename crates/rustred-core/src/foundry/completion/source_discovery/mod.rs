@@ -90,10 +90,16 @@ pub(crate) use owner_bundle::{
 };
 #[allow(unused_imports)] // Consumed by the shared planned-probe campaign.
 pub(crate) use probe_campaign::{
-    ProbeCampaignAdapter, ProbeCampaignAppliedOwner, ProbeCampaignBootstrapCensus,
-    ProbeCampaignCensus, ProbeCampaignError, ProbeCampaignLimits, ProbeCampaignNoProposal,
-    ProbeCampaignOutcome, ProbeCampaignOwnerEffect, ProbeCampaignTaskBinding,
-    ProbeCampaignTaskReport,
+    BoundaryProbeCoordinator, ProbeCampaignAdapter, ProbeCampaignAppliedOwner,
+    ProbeCampaignBootstrapCensus, ProbeCampaignCensus, ProbeCampaignError,
+    ProbeCampaignEvaluatedTask, ProbeCampaignLimits, ProbeCampaignNoProposal, ProbeCampaignOutcome,
+    ProbeCampaignOwnerEffect, ProbeCampaignTaskBinding, ProbeCampaignTaskReport,
+    ProbeCoordinatorCensus, ProbeCoordinatorClass, ProbeCoordinatorClassSchedule,
+    ProbeCoordinatorConfig, ProbeCoordinatorFailure, ProbeCoordinatorFailureStop,
+    ProbeCoordinatorLimits, ProbeCoordinatorNeedsRefinement, ProbeCoordinatorNeedsRefinementReason,
+    ProbeCoordinatorOperationalReason, ProbeCoordinatorOperationalStop,
+    ProbeCoordinatorOwnerMutation, ProbeCoordinatorOwnerSetChanged, ProbeCoordinatorProbeBatch,
+    ProbeCoordinatorStop, ProbeCoordinatorTaskLocation,
 };
 #[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
 pub(crate) use promotion::{

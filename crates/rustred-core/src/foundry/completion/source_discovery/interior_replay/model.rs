@@ -281,6 +281,7 @@ pub(crate) struct InteriorReplayTaskReport {
     scheduler: ProbeLocalRunCensus,
     scheduler_outcomes: InteriorReplaySchedulerOutcomeCensus,
     replay: Option<CanonicalReplayTelemetry>,
+    canonical_attempts: InteriorReplayAttemptCensus,
     disposition: InteriorReplayRunDisposition,
 }
 
@@ -294,6 +295,13 @@ impl InteriorReplayTaskReport {
     pub(crate) const fn replay(&self) -> Option<CanonicalReplayTelemetry> {
         self.replay
     }
+    /// Complete scalar census of common-plan replay attempts. This is
+    /// retained for every disposition, including successful owner proposals,
+    /// so an outer exhaustion coordinator cannot hide query rejections behind
+    /// a later exact candidate.
+    pub(crate) const fn canonical_attempts(&self) -> InteriorReplayAttemptCensus {
+        self.canonical_attempts
+    }
     pub(crate) const fn disposition(&self) -> &InteriorReplayRunDisposition {
         &self.disposition
     }
@@ -302,12 +310,14 @@ impl InteriorReplayTaskReport {
         scheduler: ProbeLocalRunCensus,
         scheduler_outcomes: InteriorReplaySchedulerOutcomeCensus,
         replay: Option<CanonicalReplayTelemetry>,
+        canonical_attempts: InteriorReplayAttemptCensus,
         disposition: InteriorReplayRunDisposition,
     ) -> Self {
         Self {
             scheduler,
             scheduler_outcomes,
             replay,
+            canonical_attempts,
             disposition,
         }
     }

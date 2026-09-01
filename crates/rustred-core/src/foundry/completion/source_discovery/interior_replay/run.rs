@@ -57,10 +57,12 @@ pub(crate) fn try_run_interior_replay_task(
         limits.canonical_replay,
     )?;
 
-    let (replay, disposition) = match canonical {
-        CanonicalReplayDisposition::NoReplayedNominations => {
-            (None, InteriorReplayRunDisposition::NoReplayedNominations)
-        }
+    let (replay, canonical_attempts, disposition) = match canonical {
+        CanonicalReplayDisposition::NoReplayedNominations => (
+            None,
+            InteriorReplayAttemptCensus::default(),
+            InteriorReplayRunDisposition::NoReplayedNominations,
+        ),
         CanonicalReplayDisposition::NoRebasedCircuits {
             epoch: _,
             attempts,
@@ -69,6 +71,7 @@ pub(crate) fn try_run_interior_replay_task(
             let attempt_census = attempt_census(&attempts);
             (
                 Some(telemetry),
+                attempt_census,
                 InteriorReplayRunDisposition::NoRebasedCircuits {
                     replay: telemetry,
                     attempts: attempt_census,
@@ -77,6 +80,7 @@ pub(crate) fn try_run_interior_replay_task(
         }
         CanonicalReplayDisposition::Rebased(batch) => {
             let telemetry = batch.telemetry();
+            let attempt_census = attempt_census(batch.attempts());
             let proposal =
                 try_compile_canonical_executable_owner(generator.context(), batch, limits.owner)?;
             let support = match &proposal {
@@ -87,6 +91,7 @@ pub(crate) fn try_run_interior_replay_task(
             };
             (
                 Some(telemetry),
+                attempt_census,
                 InteriorReplayRunDisposition::OwnerProposal { proposal, support },
             )
         }
@@ -99,6 +104,7 @@ pub(crate) fn try_run_interior_replay_task(
         scheduler,
         scheduler_outcomes,
         replay,
+        canonical_attempts,
         disposition,
     ))
 }
