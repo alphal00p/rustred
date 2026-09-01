@@ -3,6 +3,7 @@
 mod all_full_rank_orbits;
 mod boundary;
 mod k6;
+mod k6_boundary_walk;
 
 use std::sync::Arc;
 

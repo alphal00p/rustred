@@ -7,7 +7,8 @@ use crate::foundry::completion::frame::admission::{
     ExactOwnerCoverObstructionKind, ExactOwnerCoverStatus,
 };
 use crate::foundry::completion::source_discovery::cover_delta::{
-    ExactOwnerCoverDeltaError, ExactOwnerCoverDeltaKind, ExactOwnerLedgerCoverStatus,
+    CanonicalExactOwnerLedger, ExactOwnerCoverDeltaError, ExactOwnerCoverDeltaKind,
+    ExactOwnerLedgerCoverStatus,
 };
 use crate::foundry::completion::source_discovery::test_fixtures::OracleDisabledK6Fixture;
 use crate::foundry::completion::source_discovery::{
@@ -40,7 +41,7 @@ fn probe(target: &[u64], limits: ProbeCampaignLimits) -> CampaignModularProbe {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RecordedOutcome {
+pub(super) enum RecordedOutcome {
     NoReplayedNominations,
     NoRebasedCircuits,
     IncompleteProposal,
@@ -61,7 +62,7 @@ struct TaskRecord {
     outcome: RecordedOutcome,
 }
 
-fn classify_outcome(outcome: ProbeCampaignOutcome<'_>) -> RecordedOutcome {
+pub(super) fn classify_outcome(outcome: ProbeCampaignOutcome<'_>) -> RecordedOutcome {
     match outcome {
         ProbeCampaignOutcome::NoProposal(ProbeCampaignNoProposal::NoReplayedNominations) => {
             RecordedOutcome::NoReplayedNominations
@@ -228,21 +229,12 @@ fn k6_degree_zero_margin_two_first_face_campaign_is_revision_safe() {
     }
 }
 
-#[test]
-fn k6_cumulative_jit_replan_is_bounded_inconclusive_at_positive_margin() {
+/// Construct and fully re-authenticate the deterministic revision-nine K=6
+/// ledger used by subsequent proposal experiments. Keeping the complete
+/// nineteen-report assertion here prevents downstream tests from treating a
+/// hand-written owner set or serialized partition as discovery authority.
+pub(super) fn asserted_revision_nine_ledger() -> CanonicalExactOwnerLedger {
     let fixture = OracleDisabledK6Fixture::shared();
-    let mut ledger = fixture.new_ledger();
-    let orthant_plan = fixture.plan(&ledger, 2, 0);
-    let orthant_owner = fixture.replay_owner(&orthant_plan.tasks()[0]);
-    ledger.try_apply_owner(orthant_owner).unwrap();
-    let first_face = fixture.plan(&ledger, 2, 0);
-    let initial_targets = first_face
-        .tasks()
-        .iter()
-        .map(|task| task.lattice_target().to_vec())
-        .collect::<BTreeSet<_>>();
-    assert_eq!(initial_targets.len(), 12);
-
     let limits = ProbeCampaignLimits::default();
     let incidence = OrdinarySourceIncidenceIndex::try_new(
         fixture.zero_sources(),
@@ -252,6 +244,46 @@ fn k6_cumulative_jit_replan_is_bounded_inconclusive_at_positive_margin() {
     let adapter =
         ProbeCampaignAdapter::try_new(fixture.generator(), fixture.completed(), &incidence, limits)
             .unwrap();
+    let mut ledger = fixture.new_ledger();
+    let orthant_plan = fixture.plan(&ledger, 2, 0);
+    let orthant_task = &orthant_plan.tasks()[0];
+    let orthant_binding = adapter
+        .try_bind_task(&orthant_plan, orthant_task, &ledger)
+        .unwrap();
+    let orthant_report = adapter
+        .try_run_task(
+            orthant_binding,
+            &mut ledger,
+            [probe(orthant_task.lattice_target(), limits)],
+        )
+        .unwrap();
+    let ProbeCampaignOutcome::StrictGeometricShrink(orthant_applied) = orthant_report.outcome()
+    else {
+        panic!("the canonical orthant task must reproduce the proven first owner")
+    };
+    assert!(orthant_applied.obstructions().is_empty());
+    assert_eq!(orthant_report.census().scheduler_outcomes().replayed(), 1);
+    assert_eq!(
+        orthant_report.census().scheduler_outcomes().budget_stop(),
+        0
+    );
+    assert_eq!(orthant_report.census().scheduler_outcomes().rejected(), 0);
+    assert_eq!(orthant_report.census().scheduler_outcomes().stalled(), 0);
+    assert_eq!(
+        orthant_report
+            .census()
+            .scheduler_outcomes()
+            .exact_lift_error(),
+        0
+    );
+    let first_face = fixture.plan(&ledger, 2, 0);
+    let initial_targets = first_face
+        .tasks()
+        .iter()
+        .map(|task| task.lattice_target().to_vec())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(initial_targets.len(), 12);
+
     let mut unresolved = initial_targets.clone();
     let mut records = Vec::new();
 
@@ -571,4 +603,11 @@ fn k6_cumulative_jit_replan_is_bounded_inconclusive_at_positive_margin() {
                 .all(|task| task.lattice_target() != point)
         );
     }
+    ledger
+}
+
+#[test]
+fn k6_cumulative_jit_replan_is_bounded_inconclusive_at_positive_margin() {
+    let ledger = asserted_revision_nine_ledger();
+    assert_eq!(ledger.revision().get(), 9);
 }
