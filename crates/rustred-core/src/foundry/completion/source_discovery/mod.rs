@@ -23,6 +23,8 @@ mod promotion;
 mod residual;
 pub(crate) mod scheduler;
 mod sector_closure;
+#[cfg(test)]
+pub(crate) mod test_fixtures;
 mod triangular_support;
 
 // The probe-local scheduler consumes this sealed campaign boundary. A few

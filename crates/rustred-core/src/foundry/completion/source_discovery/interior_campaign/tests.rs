@@ -1,5 +1,7 @@
 //! Focused semantic adapter regressions.
 
+mod k6;
+
 use std::sync::Arc;
 
 use crate::family::IntegralKey;
