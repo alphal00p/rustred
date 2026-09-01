@@ -1,8 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use crate::family::presentation::{
+    AuxiliaryDenominator, CommonMassScale, DenominatorRole, FamilyConventions, FamilyPresentation,
+    MetricConvention, MomentumCombination, MomentumRouting, PhysicalPropagator,
+    PropagatorConvention,
+};
 use crate::family::{IntegralKey, invert_symbolic_matrix};
 use crate::foundry::artifact::ZeroTerminalProof;
+use crate::foundry::completion::{
+    CompletePhysicalContractionGoal, FamilyCoverageError, FamilyCoverageLimits,
+};
 use crate::identity::{ParametricIbpConfig, ParametricIbpGenerator};
 use crate::sector::Mask;
 
@@ -13,6 +21,57 @@ use super::manifest::{
 use super::momentum_rank::{EDGE_MOMENTA, active_momentum_rank};
 use super::symmetry::canonical_s4;
 use super::terminal_authority::derive_k6_terminal_authority;
+
+fn canonical_presentation(auxiliary_slots: &[usize]) -> FamilyPresentation {
+    let family = canonical_family().unwrap();
+    let context = family.coefficient_context();
+    let roles = EDGE_MOMENTA
+        .iter()
+        .enumerate()
+        .map(|(slot, momentum)| {
+            if auxiliary_slots.contains(&slot) {
+                DenominatorRole::Auxiliary(AuxiliaryDenominator::new(format!("ISP{}", slot + 1)))
+            } else {
+                DenominatorRole::Physical(PhysicalPropagator::new(
+                    format!("D{}", slot + 1),
+                    MomentumCombination::new(
+                        momentum
+                            .iter()
+                            .map(|&coefficient| context.integer(coefficient))
+                            .collect(),
+                        Vec::new(),
+                    ),
+                    context.one(),
+                ))
+            }
+        })
+        .collect();
+    let routing = MomentumRouting::new(
+        vec!["k1".to_owned(), "k2".to_owned(), "k3".to_owned()],
+        Vec::new(),
+        (0..3)
+            .map(|row| {
+                (0..3)
+                    .map(|column| {
+                        if row == column {
+                            context.one()
+                        } else {
+                            context.zero()
+                        }
+                    })
+                    .collect()
+            })
+            .collect(),
+        vec![Vec::new(), Vec::new(), Vec::new()],
+        Vec::new(),
+    );
+    let conventions = FamilyConventions::new(
+        MetricConvention::Euclidean,
+        PropagatorConvention::MOMENTUM_SQUARED_MINUS_MASS_SQUARED,
+    );
+    let common_scale = CommonMassScale::new(context.one());
+    FamilyPresentation::try_new(family, roles, routing, conventions, Some(common_scale)).unwrap()
+}
 
 #[test]
 fn pressure_family_owns_the_exact_nine_ordinary_sources() {
@@ -114,6 +173,128 @@ fn exact_s4_action_partitions_all_sectors_into_zero_and_full_rank_orbits() {
             .sum::<usize>(),
         38
     );
+}
+
+#[test]
+fn complete_k6_physical_downset_plans_all_sixty_four_masks_and_eleven_s4_orbits() {
+    let presentation = canonical_presentation(&[]);
+    let family = presentation.family();
+    let canonicalizer = canonical_s4(&family).unwrap();
+    let goal = CompletePhysicalContractionGoal::try_new(&presentation).unwrap();
+    let plan = goal
+        .try_plan(&canonicalizer, FamilyCoverageLimits::default())
+        .unwrap();
+    let repeated = goal
+        .try_plan(&canonicalizer, FamilyCoverageLimits::default())
+        .unwrap();
+
+    assert_eq!(plan, repeated);
+    assert_eq!(goal.physical_slot_count(), 6);
+    assert_eq!(goal.maximal_sector().active_bits(), &[true; 6]);
+    assert_eq!(plan.family_fingerprint(), family.fingerprint());
+    assert_eq!(plan.maximal_sector(), goal.maximal_sector());
+    assert_eq!(plan.raw_sector_count(), 64);
+    assert_eq!(plan.required_orbits().len(), 11);
+    assert_eq!(
+        plan.required_orbits()
+            .iter()
+            .map(|orbit| orbit.raw_sector_count())
+            .sum::<usize>(),
+        64
+    );
+
+    let planned = plan
+        .required_orbits()
+        .iter()
+        .map(|orbit| (orbit.corner().powers().to_vec(), orbit.raw_sector_count()))
+        .collect::<BTreeMap<_, _>>();
+    let expected = ZERO_ORBITS
+        .iter()
+        .chain(FULL_RANK_ORBITS.iter())
+        .map(|orbit| (orbit.representative.to_vec(), orbit.size))
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(planned, expected);
+    assert_eq!(planned.get(&vec![0, 0, 1, 1, 0, 1]), Some(&4));
+
+    assert_eq!(
+        plan.required_orbits()
+            .iter()
+            .map(|orbit| orbit.corner().powers().to_vec())
+            .collect::<Vec<_>>(),
+        [
+            vec![0, 0, 0, 0, 0, 0],
+            vec![0, 0, 0, 0, 0, 1],
+            vec![0, 0, 0, 0, 1, 1],
+            vec![0, 0, 1, 0, 1, 0],
+            vec![0, 0, 0, 1, 1, 1],
+            vec![0, 0, 1, 0, 1, 1],
+            vec![0, 0, 1, 1, 0, 1],
+            vec![0, 0, 1, 1, 1, 1],
+            vec![0, 1, 1, 1, 1, 0],
+            vec![0, 1, 1, 1, 1, 1],
+            vec![1, 1, 1, 1, 1, 1],
+        ]
+    );
+    assert!(plan.required_orbits().windows(2).all(|pair| {
+        let left_active = pair[0].sector().active_count();
+        let right_active = pair[1].sector().active_count();
+        left_active < right_active
+            || (left_active == right_active && pair[0].corner() < pair[1].corner())
+    }));
+}
+
+#[test]
+fn five_vakint_matcher_roots_are_not_a_complete_full_rank_sector_manifest() {
+    let presentation = canonical_presentation(&[]);
+    let family = presentation.family();
+    let canonicalizer = canonical_s4(&family).unwrap();
+    let goal = CompletePhysicalContractionGoal::try_new(&presentation).unwrap();
+    let plan = goal
+        .try_plan(&canonicalizer, FamilyCoverageLimits::default())
+        .unwrap();
+
+    let matcher_roots = VAKINT_CLASSES
+        .iter()
+        .map(|witness| witness.canonical_sector.to_vec())
+        .collect::<BTreeSet<_>>();
+    let full_rank_plan = FULL_RANK_ORBITS
+        .iter()
+        .map(|orbit| orbit.representative.to_vec())
+        .collect::<BTreeSet<_>>();
+    let planned = plan
+        .required_orbits()
+        .iter()
+        .map(|orbit| orbit.corner().powers().to_vec())
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(matcher_roots.len(), 5);
+    assert_eq!(full_rank_plan.len(), 6);
+    assert!(matcher_roots.is_subset(&planned));
+    assert_eq!(
+        full_rank_plan
+            .difference(&matcher_roots)
+            .cloned()
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([vec![0, 0, 1, 1, 0, 1]])
+    );
+}
+
+#[test]
+fn auxiliary_isp_slots_are_inactive_in_the_maximal_physical_sector() {
+    let presentation = canonical_presentation(&[5]);
+    let family = presentation.family();
+    let canonicalizer = canonical_s4(&family).unwrap();
+    let goal = CompletePhysicalContractionGoal::try_new(&presentation).unwrap();
+
+    assert_eq!(goal.physical_slot_count(), 5);
+    assert_eq!(
+        goal.maximal_sector().active_bits(),
+        &[true, true, true, true, true, false]
+    );
+    assert!(matches!(
+        goal.try_plan(&canonicalizer, FamilyCoverageLimits::default()),
+        Err(FamilyCoverageError::SlotRolesNotSymmetryInvariant { .. })
+    ));
 }
 
 #[test]

@@ -18,6 +18,7 @@
 mod chart;
 mod coverage;
 mod error;
+mod family_campaign;
 pub(crate) mod frame;
 pub(crate) mod guard;
 mod limits;
@@ -31,6 +32,11 @@ pub(crate) use chart::SectorChart;
 pub(crate) use coverage::BoxCover;
 pub(crate) use coverage::LeadingIdeal;
 pub(crate) use error::CompletionGeometryError;
+#[allow(unused_imports)] // First topology-generic family-closure planning slice.
+pub(crate) use family_campaign::{
+    CompletePhysicalContractionGoal, CompletePhysicalContractionPlan, FamilyCoverageError,
+    FamilyCoverageLimits, RequiredSectorOrbit,
+};
 pub(crate) use limits::CompletionGeometryLimits;
 pub(crate) use model::{LatticeBox, LatticeCardinality, LatticePoint, UncoveredPartition};
 #[allow(unused_imports)] // Consumed by the staged owner-cover publisher.

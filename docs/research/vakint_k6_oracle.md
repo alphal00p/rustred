@@ -22,6 +22,44 @@ The quantitative terminal limits below are provisional engineering gates, not
 theorems about AMFlow. Published AMFlow benchmarks do not establish
 six-loop, 20,000-digit throughput for a large terminal basis.
 
+## Complete family input versus Vakint matcher roots
+
+Vakint's five registered three-loop graph classes are routed integral roots
+inside one complete six-coordinate family; they are not five independent
+integral families.  In RustRed's canonical slot order their sector
+representatives are
+
+```text
+I3L                    [1,1,1,1,1,1]
+I3L_pinch_6            [0,1,1,1,1,1]
+I3L_pinch_1_6          [0,1,1,1,1,0]
+I3L_pinch_3_6          [0,0,1,1,1,1]
+I3L_pinch_1_3_6        [0,0,1,0,1,1]
+```
+
+The maximal K4 root already generates the complete physical contraction
+downset of all 64 masks.  Canonicalization under the authenticated `S4`
+action partitions it into five zero/scaleless orbits containing 26 raw
+sectors and six full-loop-rank closure orbits containing the remaining 38.
+The latter include the star spanning-tree representative
+`[0,0,1,1,0,1]`, whose orbit has size four and which is deliberately absent
+from Vakint's five user-facing matcher classes.  A publication campaign must
+therefore saturate and canonicalize the maximal root's complete physical
+downset; the five Vakint roots remain required replay/coverage fixtures.  It
+must not ISP-complete the five pinches as unrelated families.
+
+This saturation is necessary but not sufficient to discover a closing rule
+set.  Adding roots changes the set of obligations and the lower-sector
+feedback schedule; it does not add algebraic identities to the foundry.  In
+particular, the two persistent dimension-five boxes from the compact walk are
+already numerator-bearing points of the bottom path sector and already see
+all nine ordinary K6 IBP sources.  Their first exact reduction action is an
+affine loop-routing identity derived from the family and its authenticated
+unimodular factorization basis, not another topology and not an ordinary IBP
+pivot.  The complete-family campaign will expose every such obligation, but
+closure additionally requires that generic factorized-numerator action to be
+compiled, authenticated, and installed as an owner.
+
 ## Executive verdict
 
 At `K = 6`, Vakint gives a precise and useful but not universal oracle. Its
