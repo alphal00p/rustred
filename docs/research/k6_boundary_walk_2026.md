@@ -107,7 +107,7 @@ compact production coordinator without retaining the diagnostic transcript.
 Its cumulative census has 10 immutable epochs, 20 materialized plans, 80 task
 reports, and 135 invalidated plan-suffix tickets. It stops at the typed request
 for report 81 against the declared limit 80, at revision 18 and canonical
-location `(class=0,r=5,d=5,c=0,task=1)`. Of the 80 declared D37 probes, 47
+location `(class=0,r=5,d=5,c=0,task=1)`. Of the 80 coordinator-owned D37 probes, 47
 replayed canonically and 33 completed with modular support that did not lift;
 all stalls, rejections, exact-lift errors, canonical query rejections,
 incomplete proposals, and exact obstructions are zero. A support-lift miss is
@@ -141,11 +141,10 @@ The production seam is compact and transactional:
    plan on demand against the current exact complement.
 2. A campaign epoch is keyed by opaque owner-ledger snapshot identity,
    immutable plan identity, a fresh nonce, and its boundary/resource
-   configuration. The current coordinator also retains a caller-declared
-   campaign label and exact probe cardinality, but does not yet structurally
-   own the adapter, source incidence, or probe contents. That remaining gap
-   must be closed before `ExhaustedAtConfig` is treated as a production
-   certificate. Worker count is telemetry, not semantic identity.
+   configuration. The coordinator structurally owns its semantic adapter,
+   exact zero-source incidence, ordered task-relative probe program, and the
+   process-local nonce of the concrete ledger to which it was bound. Worker
+   count is telemetry, not semantic identity.
 3. Workers may evaluate immutable tickets concurrently, but results commit in
    canonical class/task/probe order. Any owner-set mutation discards all later
    results and replans from the new exact revision.
@@ -159,8 +158,9 @@ The production seam is compact and transactional:
    stops distinguish `CompilerClosed`, `OwnerSetChanged`, `NeedsRefinement`,
    `Failed`, and `ExhaustedAtConfig`; exhaustion has no closure authority.
 
-Every task currently declares a nonzero exact probe cardinality. The coordinator checks
-that all seven scheduler outcome buckets sum to that cardinality and that
+Every task receives the same nonempty, coordinator-owned exact probe program.
+The coordinator checks that all seven scheduler outcome buckets sum to that
+cardinality and that
 canonical replay attempts agree with both scheduler replay and replay-engine
 telemetry. Any owner mutation ends the immutable epoch immediately; stale
 siblings are discarded and the next call replans from the new opaque ledger
@@ -178,11 +178,20 @@ coordinator only selects one prevalidated scalar state. Adversarial tests
 force distinct possible-action counter overflows and prove that both the
 exact snapshot and opaque ledger identity remain unchanged.
 
-The next production-hardening gate is to replace the caller label, per-call
-adapter, and arbitrary probe callback with an owned, topology-neutral,
-task-relative modular-probe program and a coordinator-bound ordinary-source
-incidence. This needs no new digest or repeated artifact authentication. The
-next measured gate is the independent 512-report checkpoint, followed by an
-honest unchanged complete zero-offset-seed/degree-zero sweep. Richer source
-neighborhoods are justified only after the corresponding smaller program has
-been exhausted honestly; they must not be inferred from a report-cap stop.
+Commit `16d0cea` closes that production-hardening gate. The adapter constructs
+and owns its ordinary zero-source incidence and performs one cold, row-exact
+join against the sealed completed source chronology. The coordinator owns the
+adapter and fixed task-relative modular probes; it materializes each concrete
+sample with checked `task.lattice_target + offset` arithmetic. It is bound to
+one concrete ledger nonce and rejects an otherwise identical foreign ledger
+before closure or census handling. Caller-authored campaign strings, per-call
+probe batches, and arbitrary probe callbacks have been removed. No digest,
+repeated hot-path authentication, topology dispatch, or compatibility shim was
+introduced. The independently audited 80-report checkpoint and ignored
+two-run 256-report checkpoint remain bit-for-bit exact after this migration.
+
+The next measured gate is the structurally bound 512-report checkpoint,
+followed by an honest unchanged complete zero-offset-seed/degree-zero sweep.
+Richer source neighborhoods are justified only after the corresponding
+smaller program has been exhausted honestly; they must not be inferred from a
+report-cap stop.
