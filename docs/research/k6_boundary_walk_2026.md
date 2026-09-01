@@ -102,6 +102,18 @@ must not be promoted into a production exhaustion certificate until the stop
 policy retains canonical replay-attempt/query-rejection evidence and exact
 obstruction/refinement state.
 
+Commit `e12f4a5` independently reproduces the same checkpoint through the
+compact production coordinator without retaining the diagnostic transcript.
+Its cumulative census has 10 immutable epochs, 20 materialized plans, 80 task
+reports, and 135 invalidated plan-suffix tickets. It stops at the typed request
+for report 81 against the declared limit 80, at revision 18 and canonical
+location `(class=0,r=5,d=5,c=0,task=1)`. Of the 80 declared D37 probes, 47
+replayed canonically and 33 completed with modular support that did not lift;
+all stalls, rejections, exact-lift errors, canonical query rejections,
+incomplete proposals, and exact obstructions are zero. A support-lift miss is
+therefore retained as an exact finite-program outcome, not misclassified as
+an operational/refinement failure and never promoted to closure evidence.
+
 ## Audited compact production coordinator
 
 Commit `e873de8` installs the independently audited, topology-neutral
@@ -145,8 +157,13 @@ uncovered region, zero missing terminals, and zero guard-incomplete owners.
 The copied snapshot remains telemetry rather than publication authority:
 artifact sealing must still consume the live exact ledger.
 
-The next durable gate is reproduction of the 80-report K6 checkpoint through
-this compact coordinator, followed by 256- and 512-report checkpoints and an
-honest unchanged radius-zero/degree-zero sweep. Radius-one or richer source
-neighborhoods are justified only after the corresponding smaller program has
-been exhausted honestly; they must not be inferred from a report-cap stop.
+The next gates are independent 256- and 512-report checkpoints, each rebuilt
+from the same authenticated revision-nine ledger, followed by an honest
+unchanged zero-offset-seed/degree-zero sweep. Before those longer runs, the
+coordinator should preflight all fallible compact-census joins and cumulative
+counter reservations before serial owner application; this preserves the
+strong interpretation that a returned `Failed` stop did not accompany a
+valid owner mutation. This hardening does not invalidate the bounded
+80-report result. Richer source neighborhoods are justified only after the
+corresponding smaller program has been exhausted honestly; they must not be
+inferred from a report-cap stop.
