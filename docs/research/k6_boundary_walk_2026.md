@@ -114,6 +114,18 @@ incomplete proposals, and exact obstructions are zero. A support-lift miss is
 therefore retained as an exact finite-program outcome, not misclassified as
 an operational/refinement failure and never promoted to closure evidence.
 
+Commit `34b6243` adds an ignored 256-report checkpoint whose single test
+performs two fresh authenticated revision-nine reconstructions. Both agree
+exactly and reach revision 29 with 29 owners, 56 uncovered boxes, and
+free-dimension histogram `[0, 0, 0, 37, 17, 2, 0]`. Its outcomes are 138
+no-proposal, 98 duplicate, 8 changed-without-geometric-shrink, and 12
+strict-shrink reports. All incomplete-proposal, scheduler-failure,
+canonical-rejection, and exact-obstruction counters remain zero. The typed
+stop requests report 257 against limit 256 at
+`(revision=29,class=2,r=4,d=4,c=0,task=3)`. This is another deterministic
+report-cap prefix, not schedule exhaustion; in particular, two dimension-five
+uncovered boxes still remain.
+
 ## Audited compact production coordinator
 
 Commit `e873de8` installs the independently audited, topology-neutral
@@ -128,11 +140,12 @@ The production seam is compact and transactional:
 1. A pure class schedule emits only `(r,d,c,profile)` descriptors and builds a
    plan on demand against the current exact complement.
 2. A campaign epoch is keyed by opaque owner-ledger snapshot identity,
-   immutable plan identity, a fresh nonce, and the full typed search
-   configuration. Configuration includes family/context/source and
-   predecessor authority, sector and ordering, boundary profile, source
-   radius, sampling policy, and resource limits. Worker count is telemetry,
-   not semantic identity.
+   immutable plan identity, a fresh nonce, and its boundary/resource
+   configuration. The current coordinator also retains a caller-declared
+   campaign label and exact probe cardinality, but does not yet structurally
+   own the adapter, source incidence, or probe contents. That remaining gap
+   must be closed before `ExhaustedAtConfig` is treated as a production
+   certificate. Worker count is telemetry, not semantic identity.
 3. Workers may evaluate immutable tickets concurrently, but results commit in
    canonical class/task/probe order. Any owner-set mutation discards all later
    results and replans from the new exact revision.
@@ -146,7 +159,7 @@ The production seam is compact and transactional:
    stops distinguish `CompilerClosed`, `OwnerSetChanged`, `NeedsRefinement`,
    `Failed`, and `ExhaustedAtConfig`; exhaustion has no closure authority.
 
-Every task declares a nonzero exact probe cardinality. The coordinator checks
+Every task currently declares a nonzero exact probe cardinality. The coordinator checks
 that all seven scheduler outcome buckets sum to that cardinality and that
 canonical replay attempts agree with both scheduler replay and replay-engine
 telemetry. Any owner mutation ends the immutable epoch immediately; stale
@@ -157,13 +170,19 @@ uncovered region, zero missing terminals, and zero guard-incomplete owners.
 The copied snapshot remains telemetry rather than publication authority:
 artifact sealing must still consume the live exact ledger.
 
-The next gates are independent 256- and 512-report checkpoints, each rebuilt
-from the same authenticated revision-nine ledger, followed by an honest
-unchanged zero-offset-seed/degree-zero sweep. Before those longer runs, the
-coordinator should preflight all fallible compact-census joins and cumulative
-counter reservations before serial owner application; this preserves the
-strong interpretation that a returned `Failed` stop did not accompany a
-valid owner mutation. This hardening does not invalidate the bounded
-80-report result. Richer source neighborhoods are justified only after the
-corresponding smaller program has been exhausted honestly; they must not be
-inferred from a report-cap stop.
+Commit `b377b10` now preflights every fallible compact-census join and every
+possible compiled-owner counter state before serial owner application. The
+exact ledger itself stages and validates compilation, partition comparison,
+and revision advance before replacing live state; after application the
+coordinator only selects one prevalidated scalar state. Adversarial tests
+force distinct possible-action counter overflows and prove that both the
+exact snapshot and opaque ledger identity remain unchanged.
+
+The next production-hardening gate is to replace the caller label, per-call
+adapter, and arbitrary probe callback with an owned, topology-neutral,
+task-relative modular-probe program and a coordinator-bound ordinary-source
+incidence. This needs no new digest or repeated artifact authentication. The
+next measured gate is the independent 512-report checkpoint, followed by an
+honest unchanged complete zero-offset-seed/degree-zero sweep. Richer source
+neighborhoods are justified only after the corresponding smaller program has
+been exhausted honestly; they must not be inferred from a report-cap stop.
