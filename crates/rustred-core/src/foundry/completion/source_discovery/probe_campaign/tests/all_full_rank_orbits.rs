@@ -13,7 +13,7 @@ use crate::foundry::completion::source_discovery::cover_delta::{
 use crate::foundry::completion::source_discovery::test_fixtures::OracleDisabledK6Fixture;
 use crate::sector::{Mask, OrderingPolicy};
 
-use super::super::{InteriorCampaignAdapter, InteriorCampaignLimits, InteriorCampaignOutcome};
+use super::super::{ProbeCampaignAdapter, ProbeCampaignLimits, ProbeCampaignOutcome};
 use super::{plan, probe};
 
 #[test]
@@ -23,19 +23,15 @@ fn every_typed_k6_full_rank_orbit_has_an_obstruction_free_first_exact_shrink() {
     assert!(fixture.completed().is_complete_ordinary());
     assert_eq!(fixture.predecessor().closed_layer_count(), 0);
 
-    let limits = InteriorCampaignLimits::default();
+    let limits = ProbeCampaignLimits::default();
     let incidence = OrdinarySourceIncidenceIndex::try_new(
         fixture.zero_sources(),
         limits.replay.scheduler.source_discovery,
     )
     .unwrap();
-    let adapter = InteriorCampaignAdapter::try_new(
-        fixture.generator(),
-        fixture.completed(),
-        &incidence,
-        limits,
-    )
-    .unwrap();
+    let adapter =
+        ProbeCampaignAdapter::try_new(fixture.generator(), fixture.completed(), &incidence, limits)
+            .unwrap();
 
     for orbit in FULL_RANK_ORBITS {
         let sector = Mask::try_from_indices(&orbit.representative).unwrap();
@@ -72,7 +68,7 @@ fn every_typed_k6_full_rank_orbit_has_an_obstruction_free_first_exact_shrink() {
             )
             .unwrap();
         assert_eq!(report.planned_ledger_revision().get(), 0);
-        let InteriorCampaignOutcome::StrictGeometricShrink(applied) = report.outcome() else {
+        let ProbeCampaignOutcome::StrictGeometricShrink(applied) = report.outcome() else {
             panic!("every typed K=6 full-rank orbit must produce a strict first exact shrink")
         };
         assert!(applied.obstructions().is_empty());

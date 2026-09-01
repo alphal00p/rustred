@@ -6,10 +6,9 @@ use crate::foundry::completion::stratum::{DecoratedStratum, MaximalStratumAnchor
 use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use crate::sector::SectorMonotoneDomain;
 
-use super::super::interior_simplex::{InteriorSimplexPlan, InteriorSimplexTask};
 use super::{
-    InteriorCampaignBootstrapCensus, InteriorCampaignCensus, InteriorCampaignError,
-    InteriorCampaignLimits, InteriorCampaignTaskBinding, InteriorCampaignTaskReport,
+    ProbeCampaignBootstrapCensus, ProbeCampaignCensus, ProbeCampaignError, ProbeCampaignLimits,
+    ProbeCampaignPlannedTask, ProbeCampaignTaskBinding, ProbeCampaignTaskReport,
 };
 
 const PHYSICAL_SHIFTS: &str = "bootstrap physical shift occurrences";
@@ -20,46 +19,46 @@ const EXACT_OBSTRUCTIONS: &str = "retained exact candidate obstructions";
 
 /// Immutable shared inputs for serial, one-task semantic transactions.
 #[derive(Debug)]
-pub(crate) struct InteriorCampaignAdapter<'inputs, 'sources, 'family> {
+pub(crate) struct ProbeCampaignAdapter<'inputs, 'sources, 'family> {
     generator: &'inputs ParametricIbpGenerator<'family>,
     completed: &'inputs CompletedIbpSourceRows,
     incidence: &'inputs OrdinarySourceIncidenceIndex<'sources>,
-    limits: InteriorCampaignLimits,
+    limits: ProbeCampaignLimits,
 }
 
-impl<'inputs, 'sources, 'family> InteriorCampaignAdapter<'inputs, 'sources, 'family> {
+impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family> {
     pub(crate) fn try_new(
         generator: &'inputs ParametricIbpGenerator<'family>,
         completed: &'inputs CompletedIbpSourceRows,
         incidence: &'inputs OrdinarySourceIncidenceIndex<'sources>,
-        limits: InteriorCampaignLimits,
-    ) -> Result<Self, InteriorCampaignError> {
+        limits: ProbeCampaignLimits,
+    ) -> Result<Self, ProbeCampaignError> {
         generator
             .validate_completed_scope(completed)
-            .map_err(InteriorCampaignError::SourceScope)?;
+            .map_err(ProbeCampaignError::SourceScope)?;
         if !completed.is_complete_ordinary() {
-            return Err(InteriorCampaignError::WrongSourceLayout {
+            return Err(ProbeCampaignError::WrongSourceLayout {
                 actual: completed.layout_name(),
             });
         }
         if incidence.arity() != generator.context().index_count() {
-            return Err(InteriorCampaignError::Scope {
+            return Err(ProbeCampaignError::Scope {
                 detail: "incidence index and generator have different arities",
             });
         }
         if incidence.context_fingerprint() != generator.context().fingerprint() {
-            return Err(InteriorCampaignError::Scope {
+            return Err(ProbeCampaignError::Scope {
                 detail: "incidence index and generator have different coefficient contexts",
             });
         }
         if incidence.source_count() != completed.source_row_count() {
-            return Err(InteriorCampaignError::Scope {
+            return Err(ProbeCampaignError::Scope {
                 detail: "incidence index and completed source module have different row counts",
             });
         }
         incidence
             .try_verify_limits(limits.replay.scheduler.source_discovery)
-            .map_err(InteriorCampaignError::SourceDiscovery)?;
+            .map_err(ProbeCampaignError::SourceDiscovery)?;
         Ok(Self {
             generator,
             completed,
@@ -70,22 +69,18 @@ impl<'inputs, 'sources, 'family> InteriorCampaignAdapter<'inputs, 'sources, 'fam
 
     /// Bind one plan task to the exact current ledger revision and require its
     /// complete planner box to occur in that ledger's exact partition.
-    pub(crate) fn try_bind_task<'plan>(
+    pub(crate) fn try_bind_task<'plan, Task: ProbeCampaignPlannedTask>(
         &self,
-        plan: &'plan InteriorSimplexPlan,
-        task: &'plan InteriorSimplexTask,
+        plan: &'plan Task::Plan,
+        task: &'plan Task,
         ledger: &CanonicalExactOwnerLedger,
-    ) -> Result<InteriorCampaignTaskBinding<'plan>, InteriorCampaignError> {
-        plan.validate_task(task)
-            .map_err(InteriorCampaignError::Plan)?;
+    ) -> Result<ProbeCampaignTaskBinding<'plan, Task>, ProbeCampaignError> {
+        task.validate_in_plan(plan)?;
         self.validate_task_scope(task, ledger)?;
-        let partition = ledger.try_clone_uncovered_partition()?;
-        if !partition.boxes().iter().any(|cell| {
-            cell.lower() == task.key().box_lower() && cell.upper() == task.key().box_upper()
-        }) {
-            return Err(InteriorCampaignError::StalePlanGeometry);
+        if !ledger.has_exact_uncovered_box(task.parent_box_lower(), task.parent_box_upper()) {
+            return Err(ProbeCampaignError::StaleParentGeometry);
         }
-        Ok(InteriorCampaignTaskBinding::new(
+        Ok(ProbeCampaignTaskBinding::new(
             plan,
             task,
             ledger.snapshot_identity(),
@@ -96,16 +91,13 @@ impl<'inputs, 'sources, 'family> InteriorCampaignAdapter<'inputs, 'sources, 'fam
     /// serial adapter deliberately makes no exhaustion, publication,
     /// parallelism, or closure claim beyond the exact ledger status
     /// represented by its typed outcome.
-    pub(crate) fn try_run_task(
+    pub(crate) fn try_run_task<Task: ProbeCampaignPlannedTask>(
         &self,
-        binding: InteriorCampaignTaskBinding<'_>,
+        binding: ProbeCampaignTaskBinding<'_, Task>,
         ledger: &mut CanonicalExactOwnerLedger,
         probes: impl IntoIterator<Item = CampaignModularProbe>,
-    ) -> Result<InteriorCampaignTaskReport, InteriorCampaignError> {
-        binding
-            .plan
-            .validate_task(binding.task)
-            .map_err(InteriorCampaignError::Plan)?;
+    ) -> Result<ProbeCampaignTaskReport, ProbeCampaignError> {
+        binding.task.validate_in_plan(binding.plan)?;
         ledger.try_require_current_snapshot(&binding.ledger_snapshot)?;
         self.validate_task_scope(binding.task, ledger)?;
         let (bootstrap, anchor) = self.try_build_anchor(binding.task)?;
@@ -136,8 +128,8 @@ impl<'inputs, 'sources, 'family> InteriorCampaignAdapter<'inputs, 'sources, 'fam
             } => Some(ledger.try_apply_owner(owner.clone())?),
             _ => None,
         };
-        let census = InteriorCampaignCensus::new(bootstrap, &replay, exact_obstructions);
-        Ok(InteriorCampaignTaskReport::new(
+        let census = ProbeCampaignCensus::new(bootstrap, &replay, exact_obstructions);
+        Ok(ProbeCampaignTaskReport::new(
             binding.task.canonical_ordinal(),
             binding.ledger_snapshot.revision(),
             census,
@@ -146,45 +138,44 @@ impl<'inputs, 'sources, 'family> InteriorCampaignAdapter<'inputs, 'sources, 'fam
         ))
     }
 
-    fn validate_task_scope(
+    fn validate_task_scope<Task: ProbeCampaignPlannedTask>(
         &self,
-        task: &InteriorSimplexTask,
+        task: &Task,
         ledger: &CanonicalExactOwnerLedger,
-    ) -> Result<(), InteriorCampaignError> {
+    ) -> Result<(), ProbeCampaignError> {
         let predecessor = ledger.predecessor_snapshot();
-        if task.key().sector() != ledger.sector() {
-            return Err(InteriorCampaignError::Scope {
-                detail: "simplex task and canonical ledger have different sectors",
+        if task.sector() != ledger.sector() {
+            return Err(ProbeCampaignError::Scope {
+                detail: "planned task and canonical ledger have different sectors",
             });
         }
         if task.target_shift().len() != self.incidence.arity()
             || task.lattice_target().len() != self.incidence.arity()
         {
-            return Err(InteriorCampaignError::Scope {
-                detail: "simplex task and source incidence have different arities",
+            return Err(ProbeCampaignError::Scope {
+                detail: "planned task and source incidence have different arities",
             });
         }
         if predecessor.arity() != self.incidence.arity()
             || predecessor.family_fingerprint() != self.incidence.family_fingerprint()
             || predecessor.context_fingerprint() != self.incidence.context_fingerprint()
         {
-            return Err(InteriorCampaignError::Scope {
+            return Err(ProbeCampaignError::Scope {
                 detail: "canonical ledger and source incidence have different exact scopes",
             });
         }
         Ok(())
     }
 
-    fn try_build_anchor(
+    fn try_build_anchor<Task: ProbeCampaignPlannedTask>(
         &self,
-        task: &InteriorSimplexTask,
-    ) -> Result<(InteriorCampaignBootstrapCensus, MaximalStratumAnchor), InteriorCampaignError>
-    {
+        task: &Task,
+    ) -> Result<(ProbeCampaignBootstrapCensus, MaximalStratumAnchor), ProbeCampaignError> {
         let discovery = self.limits.replay.scheduler.source_discovery;
         let nominations = self
             .incidence
             .try_nominate_target_unit(task.target_shift(), discovery)
-            .map_err(InteriorCampaignError::SourceDiscovery)?;
+            .map_err(ProbeCampaignError::SourceDiscovery)?;
         let selected = self
             .generator
             .translate_selected_completed_source_rows(
@@ -192,16 +183,16 @@ impl<'inputs, 'sources, 'family> InteriorCampaignAdapter<'inputs, 'sources, 'fam
                 nominations.requests().iter().cloned(),
                 self.limits.replay.scheduler.campaign.translated_sources,
             )
-            .map_err(InteriorCampaignError::SourceTranslation)?;
+            .map_err(ProbeCampaignError::SourceTranslation)?;
         if selected.requests() != nominations.requests() {
-            return Err(InteriorCampaignError::Invariant {
+            return Err(ProbeCampaignError::Invariant {
                 detail: "bootstrap translation changed the canonical request set",
             });
         }
         if selected.family_fingerprint() != self.incidence.family_fingerprint()
             || selected.context_fingerprint() != self.incidence.context_fingerprint()
         {
-            return Err(InteriorCampaignError::Scope {
+            return Err(ProbeCampaignError::Scope {
                 detail: "bootstrap translation and source incidence have different exact scopes",
             });
         }
@@ -242,7 +233,7 @@ impl<'inputs, 'sources, 'family> InteriorCampaignAdapter<'inputs, 'sources, 'fam
         let mut physical_shifts: Vec<&[i64]> = Vec::new();
         physical_shifts
             .try_reserve_exact(physical_shift_occurrences)
-            .map_err(|_| InteriorCampaignError::AllocationFailure {
+            .map_err(|_| ProbeCampaignError::AllocationFailure {
                 resource: PHYSICAL_SHIFTS,
                 requested: physical_shift_occurrences,
             })?;
@@ -262,22 +253,22 @@ impl<'inputs, 'sources, 'family> InteriorCampaignAdapter<'inputs, 'sources, 'fam
         )?;
 
         let domain = SectorMonotoneDomain::try_maximal_for_rule(
-            task.key().sector().clone(),
+            task.sector().clone(),
             task.target_shift().values(),
             &physical_shifts,
         )
-        .map_err(InteriorCampaignError::Sector)?;
+        .map_err(ProbeCampaignError::Sector)?;
         let stratum = DecoratedStratum::try_guard_blind(
             self.incidence.family_fingerprint(),
             self.incidence.context_fingerprint(),
             domain,
             self.limits.replay.scheduler.campaign.stratum,
         )
-        .map_err(InteriorCampaignError::Stratum)?;
+        .map_err(ProbeCampaignError::Stratum)?;
         let anchor =
             MaximalStratumAnchor::try_new(stratum, self.limits.replay.scheduler.campaign.stratum)
-                .map_err(InteriorCampaignError::Stratum)?;
-        let census = InteriorCampaignBootstrapCensus::new(
+                .map_err(ProbeCampaignError::Stratum)?;
+        let census = ProbeCampaignBootstrapCensus::new(
             nominations.raw_incidence_visits(),
             nominations.unique_before_existing_exclusion(),
             nominations.excluded_existing_requests(),
@@ -310,21 +301,21 @@ fn checked_add(
     resource: &'static str,
     left: usize,
     right: usize,
-) -> Result<usize, InteriorCampaignError> {
+) -> Result<usize, ProbeCampaignError> {
     left.checked_add(right)
-        .ok_or(InteriorCampaignError::ResourceCountOverflow { resource })
+        .ok_or(ProbeCampaignError::ResourceCountOverflow { resource })
 }
 
 fn checked_mul(
     resource: &'static str,
     left: usize,
     right: usize,
-) -> Result<usize, InteriorCampaignError> {
+) -> Result<usize, ProbeCampaignError> {
     left.checked_mul(right)
-        .ok_or(InteriorCampaignError::ResourceCountOverflow { resource })
+        .ok_or(ProbeCampaignError::ResourceCountOverflow { resource })
 }
 
-fn logical_sort_work(count: usize) -> Result<usize, InteriorCampaignError> {
+fn logical_sort_work(count: usize) -> Result<usize, ProbeCampaignError> {
     let normalized = count.max(2);
     let levels = usize::BITS as usize - normalized.saturating_sub(1).leading_zeros() as usize;
     checked_mul(PHYSICAL_SHIFT_SORT_WORK, count, levels)
@@ -334,9 +325,9 @@ fn check_limit(
     resource: &'static str,
     requested: usize,
     limit: usize,
-) -> Result<(), InteriorCampaignError> {
+) -> Result<(), ProbeCampaignError> {
     if requested > limit {
-        Err(InteriorCampaignError::ResourceLimit {
+        Err(ProbeCampaignError::ResourceLimit {
             resource,
             requested,
             limit,

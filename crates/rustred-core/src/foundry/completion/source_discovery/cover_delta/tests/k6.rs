@@ -29,6 +29,14 @@ fn apply_first_owner(
         initial.boxes()[0].upper(),
         vec![None; fixture.sector().arity()]
     );
+    assert!(ledger.has_exact_uncovered_box(initial.boxes()[0].lower(), initial.boxes()[0].upper()));
+    assert!(!ledger.has_exact_uncovered_box(&[0; 5], &[None; 5]));
+    assert!(!ledger.has_exact_uncovered_box(&[0; 6], &[None, None, None, None, None, Some(0)]));
+    assert!(!ledger.has_exact_uncovered_box(&[1; 6], &[None; 6]));
+    assert!(!ledger.has_exact_uncovered_box(
+        &[1, 0, 0, 0, 0, 0],
+        &[Some(0), None, None, None, None, None],
+    ));
     let delta = ledger.try_apply_owner(owner).unwrap();
     (ledger, delta)
 }
@@ -103,4 +111,20 @@ fn oracle_disabled_k6_interior_replay_strictly_shrinks_the_exact_blind_orthant()
         first_partition.split_operations(),
         second_partition.split_operations()
     );
+    assert!(
+        first_partition
+            .boxes()
+            .iter()
+            .all(|cell| first_ledger.has_exact_uncovered_box(cell.lower(), cell.upper()))
+    );
+    assert!(!first_ledger.has_exact_uncovered_box(&[0; 6], &[None; 6]));
+    let first_cell = &first_partition.boxes()[0];
+    let mut changed_lower = first_cell.lower().to_vec();
+    let free_axis = first_cell
+        .upper()
+        .iter()
+        .position(Option::is_none)
+        .expect("a nonfinite K=6 residual box must retain one free axis");
+    changed_lower[free_axis] = changed_lower[free_axis].checked_add(1).unwrap();
+    assert!(!first_ledger.has_exact_uncovered_box(&changed_lower, first_cell.upper()));
 }

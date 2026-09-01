@@ -11,7 +11,6 @@ mod cover_delta;
 mod dual;
 mod error;
 mod incidence;
-mod interior_campaign;
 mod interior_replay;
 pub(crate) mod interior_simplex;
 pub(crate) mod leader_walk;
@@ -20,6 +19,7 @@ mod model;
 mod nominate;
 mod obstruction_block;
 mod owner_bundle;
+mod probe_campaign;
 mod promotion;
 mod residual;
 pub(crate) mod scheduler;
@@ -46,7 +46,7 @@ pub(crate) use canonical_replay::{
     CanonicalReplayBatch, CanonicalReplayDisposition, CanonicalReplayError, CanonicalReplayLimits,
     CanonicalReplayTelemetry, try_canonicalize_replayed_probes,
 };
-#[allow(unused_imports)] // Consumed by the staged interior-replay campaign.
+#[allow(unused_imports)] // Consumed by the shared planned-probe campaign.
 pub(crate) use cover_delta::{
     CanonicalExactOwnerLedger, ExactOwnerCoverDelta, ExactOwnerCoverDeltaError,
     ExactOwnerCoverDeltaKind, ExactOwnerCoverDeltaLimits, ExactOwnerCoverSnapshot,
@@ -59,14 +59,7 @@ pub(crate) use dual::{
 };
 pub(crate) use error::SourceDiscoveryError;
 pub(crate) use incidence::OrdinarySourceIncidenceIndex;
-#[allow(unused_imports)] // Consumed by the staged blind-sector campaign.
-pub(crate) use interior_campaign::{
-    InteriorCampaignAdapter, InteriorCampaignAppliedOwner, InteriorCampaignBootstrapCensus,
-    InteriorCampaignCensus, InteriorCampaignError, InteriorCampaignLimits,
-    InteriorCampaignNoProposal, InteriorCampaignOutcome, InteriorCampaignOwnerEffect,
-    InteriorCampaignTaskBinding, InteriorCampaignTaskReport,
-};
-#[allow(unused_imports)] // Consumed by the staged interior-simplex orchestrator.
+#[allow(unused_imports)] // Consumed by the shared planned-probe campaign.
 pub(crate) use interior_replay::{
     InteriorReplayAttemptCensus, InteriorReplayCandidateSupport, InteriorReplayRelativeResidual,
     InteriorReplayRelativeSource, InteriorReplayRunDisposition, InteriorReplayRunError,
@@ -94,6 +87,13 @@ pub(crate) use owner_bundle::{
     ExactExecutableOwnerSelection, ExactSemanticExecutableOwner, UnpublishedCanonicalOwnerProposal,
     compare_exact_owner_group_content, compare_exact_owner_proof_content,
     try_compile_canonical_executable_owner,
+};
+#[allow(unused_imports)] // Consumed by the shared planned-probe campaign.
+pub(crate) use probe_campaign::{
+    ProbeCampaignAdapter, ProbeCampaignAppliedOwner, ProbeCampaignBootstrapCensus,
+    ProbeCampaignCensus, ProbeCampaignError, ProbeCampaignLimits, ProbeCampaignNoProposal,
+    ProbeCampaignOutcome, ProbeCampaignOwnerEffect, ProbeCampaignTaskBinding,
+    ProbeCampaignTaskReport,
 };
 #[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
 pub(crate) use promotion::{

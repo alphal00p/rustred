@@ -1,6 +1,7 @@
 //! Focused semantic adapter regressions.
 
 mod all_full_rank_orbits;
+mod boundary;
 mod k6;
 
 use std::sync::Arc;
@@ -27,8 +28,8 @@ use crate::identity::{
 use crate::sector::{Mask, OrderingPolicy};
 
 use super::{
-    InteriorCampaignAdapter, InteriorCampaignError, InteriorCampaignLimits,
-    InteriorCampaignOutcome, InteriorCampaignOwnerEffect,
+    ProbeCampaignAdapter, ProbeCampaignError, ProbeCampaignLimits, ProbeCampaignOutcome,
+    ProbeCampaignOwnerEffect,
 };
 
 const PRIME: u64 = 1_000_000_007;
@@ -44,7 +45,7 @@ fn complete_ordinary(generator: &ParametricIbpGenerator<'_>) -> CompletedIbpSour
 fn zero_sources(
     generator: &ParametricIbpGenerator<'_>,
     completed: &CompletedIbpSourceRows,
-    limits: InteriorCampaignLimits,
+    limits: ProbeCampaignLimits,
 ) -> TranslatedSourceBatch {
     generator
         .translate_completed_source_rows(
@@ -88,7 +89,7 @@ fn plan(
 
 fn probe(
     coordinates: impl IntoIterator<Item = u64>,
-    limits: InteriorCampaignLimits,
+    limits: ProbeCampaignLimits,
 ) -> CampaignModularProbe {
     CampaignModularProbe::try_new(PRIME, [37], coordinates, limits.replay.scheduler.campaign)
         .unwrap()
@@ -100,7 +101,7 @@ fn one_loop_task_closes_only_through_the_exact_ledger_compiler() {
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let completed = complete_ordinary(&generator);
     assert_eq!(completed.source_row_count(), 1);
-    let limits = InteriorCampaignLimits::default();
+    let limits = ProbeCampaignLimits::default();
     let zero_sources = zero_sources(&generator, &completed, limits);
     let incidence = OrdinarySourceIncidenceIndex::try_new(
         &zero_sources,
@@ -108,7 +109,7 @@ fn one_loop_task_closes_only_through_the_exact_ledger_compiler() {
     )
     .unwrap();
     let adapter =
-        InteriorCampaignAdapter::try_new(&generator, &completed, &incidence, limits).unwrap();
+        ProbeCampaignAdapter::try_new(&generator, &completed, &incidence, limits).unwrap();
     let predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
         Arc::clone(&artifact),
         StratumRegistryLimits::default(),
@@ -140,10 +141,10 @@ fn one_loop_task_closes_only_through_the_exact_ledger_compiler() {
     assert_eq!(report.planned_ledger_revision().get(), 0);
     assert!(report.census().bootstrap().requests() > 0);
     assert_eq!(report.census().scheduler_outcomes().replayed(), 2);
-    let InteriorCampaignOutcome::Closed { effect, applied } = report.outcome() else {
+    let ProbeCampaignOutcome::Closed { effect, applied } = report.outcome() else {
         panic!("the one-loop campaign task must close through the exact compiler")
     };
-    assert_eq!(effect, InteriorCampaignOwnerEffect::StrictGeometricShrink);
+    assert_eq!(effect, ProbeCampaignOwnerEffect::StrictGeometricShrink);
     assert_eq!(
         applied.delta().kind(),
         ExactOwnerCoverDeltaKind::StrictGeometricShrink
@@ -157,7 +158,7 @@ fn one_loop_task_closes_only_through_the_exact_ledger_compiler() {
         .unwrap_err();
     assert!(matches!(
         stale,
-        InteriorCampaignError::CoverDelta(
+        ProbeCampaignError::CoverDelta(
             ExactOwnerCoverDeltaError::StaleLedgerSnapshotIdentity { expected, actual }
         ) if expected.get() == 1 && actual.get() == 0
     ));
@@ -169,7 +170,7 @@ fn two_loop_planned_dot_task_strictly_shrinks_without_a_closure_claim() {
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let completed = complete_ordinary(&generator);
     assert_eq!(completed.source_row_count(), 4);
-    let limits = InteriorCampaignLimits::default();
+    let limits = ProbeCampaignLimits::default();
     let zero_sources = zero_sources(&generator, &completed, limits);
     let incidence = OrdinarySourceIncidenceIndex::try_new(
         &zero_sources,
@@ -177,7 +178,7 @@ fn two_loop_planned_dot_task_strictly_shrinks_without_a_closure_claim() {
     )
     .unwrap();
     let adapter =
-        InteriorCampaignAdapter::try_new(&generator, &completed, &incidence, limits).unwrap();
+        ProbeCampaignAdapter::try_new(&generator, &completed, &incidence, limits).unwrap();
     let predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
         Arc::clone(&artifact),
         StratumRegistryLimits::default(),
@@ -207,7 +208,7 @@ fn two_loop_planned_dot_task_strictly_shrinks_without_a_closure_claim() {
             [probe([2, 3, 5], limits), probe([3, 5, 7], limits)],
         )
         .unwrap();
-    let InteriorCampaignOutcome::StrictGeometricShrink(applied) = report.outcome() else {
+    let ProbeCampaignOutcome::StrictGeometricShrink(applied) = report.outcome() else {
         panic!("the two-loop dot task must strictly shrink but remain incomplete")
     };
     assert_eq!(
@@ -225,7 +226,7 @@ fn bootstrap_sort_work_one_below_fails_before_ledger_mutation() {
     let artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let completed = complete_ordinary(&generator);
-    let mut limits = InteriorCampaignLimits::default();
+    let mut limits = ProbeCampaignLimits::default();
     let zero_sources = zero_sources(&generator, &completed, limits);
     let incidence = OrdinarySourceIncidenceIndex::try_new(
         &zero_sources,
@@ -275,7 +276,7 @@ fn bootstrap_sort_work_one_below_fails_before_ledger_mutation() {
     limits.max_bootstrap_physical_shift_sort_work = exact_sort_work - 1;
 
     let adapter =
-        InteriorCampaignAdapter::try_new(&generator, &completed, &incidence, limits).unwrap();
+        ProbeCampaignAdapter::try_new(&generator, &completed, &incidence, limits).unwrap();
     let binding = adapter.try_bind_task(&plan, task, &ledger).unwrap();
     let baseline = ledger.snapshot();
     let baseline_identity = ledger.snapshot_identity();
@@ -284,7 +285,7 @@ fn bootstrap_sort_work_one_below_fails_before_ledger_mutation() {
         .unwrap_err();
     assert!(matches!(
         error,
-        InteriorCampaignError::ResourceLimit {
+        ProbeCampaignError::ResourceLimit {
             resource: "bootstrap physical shift logical sort work reservation",
             requested,
             limit,

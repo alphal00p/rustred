@@ -15,8 +15,8 @@ use crate::foundry::completion::source_discovery::{
 };
 
 use super::super::{
-    InteriorCampaignAdapter, InteriorCampaignError, InteriorCampaignLimits,
-    InteriorCampaignNoProposal, InteriorCampaignOutcome, InteriorCampaignOwnerEffect,
+    ProbeCampaignAdapter, ProbeCampaignError, ProbeCampaignLimits, ProbeCampaignNoProposal,
+    ProbeCampaignOutcome, ProbeCampaignOwnerEffect,
 };
 
 const PRIME: u64 = 1_000_000_007;
@@ -29,7 +29,7 @@ fn expected_slab(pivot: usize) -> (Vec<u64>, Vec<Option<u64>>) {
     (lower, upper)
 }
 
-fn probe(target: &[u64], limits: InteriorCampaignLimits) -> CampaignModularProbe {
+fn probe(target: &[u64], limits: ProbeCampaignLimits) -> CampaignModularProbe {
     CampaignModularProbe::try_new(
         PRIME,
         [37],
@@ -47,7 +47,7 @@ enum RecordedOutcome {
     Duplicate,
     ChangedWithoutGeometricShrink,
     StrictGeometricShrink,
-    Closed(InteriorCampaignOwnerEffect),
+    Closed(ProbeCampaignOwnerEffect),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -61,31 +61,31 @@ struct TaskRecord {
     outcome: RecordedOutcome,
 }
 
-fn classify_outcome(outcome: InteriorCampaignOutcome<'_>) -> RecordedOutcome {
+fn classify_outcome(outcome: ProbeCampaignOutcome<'_>) -> RecordedOutcome {
     match outcome {
-        InteriorCampaignOutcome::NoProposal(InteriorCampaignNoProposal::NoReplayedNominations) => {
+        ProbeCampaignOutcome::NoProposal(ProbeCampaignNoProposal::NoReplayedNominations) => {
             RecordedOutcome::NoReplayedNominations
         }
-        InteriorCampaignOutcome::NoProposal(InteriorCampaignNoProposal::NoRebasedCircuits {
-            ..
-        }) => RecordedOutcome::NoRebasedCircuits,
-        InteriorCampaignOutcome::IncompleteProposal(_) => RecordedOutcome::IncompleteProposal,
-        InteriorCampaignOutcome::Duplicate(_) => RecordedOutcome::Duplicate,
-        InteriorCampaignOutcome::ChangedWithoutGeometricShrink(applied) => {
+        ProbeCampaignOutcome::NoProposal(ProbeCampaignNoProposal::NoRebasedCircuits { .. }) => {
+            RecordedOutcome::NoRebasedCircuits
+        }
+        ProbeCampaignOutcome::IncompleteProposal(_) => RecordedOutcome::IncompleteProposal,
+        ProbeCampaignOutcome::Duplicate(_) => RecordedOutcome::Duplicate,
+        ProbeCampaignOutcome::ChangedWithoutGeometricShrink(applied) => {
             assert_eq!(
                 applied.delta().kind(),
                 ExactOwnerCoverDeltaKind::ChangedWithoutGeometricShrink
             );
             RecordedOutcome::ChangedWithoutGeometricShrink
         }
-        InteriorCampaignOutcome::StrictGeometricShrink(applied) => {
+        ProbeCampaignOutcome::StrictGeometricShrink(applied) => {
             assert_eq!(
                 applied.delta().kind(),
                 ExactOwnerCoverDeltaKind::StrictGeometricShrink
             );
             RecordedOutcome::StrictGeometricShrink
         }
-        InteriorCampaignOutcome::Closed { effect, .. } => RecordedOutcome::Closed(effect),
+        ProbeCampaignOutcome::Closed { effect, .. } => RecordedOutcome::Closed(effect),
     }
 }
 
@@ -158,19 +158,15 @@ fn k6_degree_zero_margin_two_first_face_campaign_is_revision_safe() {
         assert_eq!(assignment, usize::from(ordinal >= 6));
     }
 
-    let limits = InteriorCampaignLimits::default();
+    let limits = ProbeCampaignLimits::default();
     let incidence = OrdinarySourceIncidenceIndex::try_new(
         fixture.zero_sources(),
         limits.replay.scheduler.source_discovery,
     )
     .unwrap();
-    let adapter = InteriorCampaignAdapter::try_new(
-        fixture.generator(),
-        fixture.completed(),
-        &incidence,
-        limits,
-    )
-    .unwrap();
+    let adapter =
+        ProbeCampaignAdapter::try_new(fixture.generator(), fixture.completed(), &incidence, limits)
+            .unwrap();
     let initial_targets = face_plan
         .tasks()
         .iter()
@@ -247,19 +243,15 @@ fn k6_cumulative_jit_replan_is_bounded_inconclusive_at_positive_margin() {
         .collect::<BTreeSet<_>>();
     assert_eq!(initial_targets.len(), 12);
 
-    let limits = InteriorCampaignLimits::default();
+    let limits = ProbeCampaignLimits::default();
     let incidence = OrdinarySourceIncidenceIndex::try_new(
         fixture.zero_sources(),
         limits.replay.scheduler.source_discovery,
     )
     .unwrap();
-    let adapter = InteriorCampaignAdapter::try_new(
-        fixture.generator(),
-        fixture.completed(),
-        &incidence,
-        limits,
-    )
-    .unwrap();
+    let adapter =
+        ProbeCampaignAdapter::try_new(fixture.generator(), fixture.completed(), &incidence, limits)
+            .unwrap();
     let mut unresolved = initial_targets.clone();
     let mut records = Vec::new();
 
@@ -314,7 +306,7 @@ fn k6_cumulative_jit_replan_is_bounded_inconclusive_at_positive_margin() {
                             &mut ledger,
                             [probe(&delayed_target, limits)],
                         ),
-                        Err(InteriorCampaignError::CoverDelta(
+                        Err(ProbeCampaignError::CoverDelta(
                             ExactOwnerCoverDeltaError::StaleLedgerSnapshotIdentity {
                                 expected,
                                 actual,

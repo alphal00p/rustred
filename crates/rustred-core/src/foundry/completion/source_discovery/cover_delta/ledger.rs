@@ -199,6 +199,36 @@ impl CanonicalExactOwnerLedger {
         }
     }
 
+    /// Test allocation-free membership of one complete box in the exact
+    /// current uncovered partition.
+    ///
+    /// This structural query carries no ledger authority and cannot validate
+    /// delayed work; callers must separately retain and rejoin an opaque
+    /// snapshot identity. Invalid arity or invalid finite endpoints return
+    /// `false`.
+    pub(crate) fn has_exact_uncovered_box(&self, lower: &[u64], upper: &[Option<u64>]) -> bool {
+        if lower.len() != self.sector.arity()
+            || upper.len() != self.sector.arity()
+            || lower
+                .iter()
+                .zip(upper)
+                .any(|(&lower, &upper)| upper.is_some_and(|upper| upper < lower))
+        {
+            return false;
+        }
+        match &self.state {
+            CanonicalLedgerState::OwnerFree { .. } => {
+                lower.iter().all(|&coordinate| coordinate == 0) && upper.iter().all(Option::is_none)
+            }
+            CanonicalLedgerState::Compiled(cover) => cover
+                .proof_cover()
+                .uncovered_partition()
+                .boxes()
+                .iter()
+                .any(|cell| cell.lower() == lower && cell.upper() == upper),
+        }
+    }
+
     /// Stage, exactly compile, and compare one already canonical executable
     /// owner. The ledger is replaced only after every scope, resource,
     /// compiler, and exact box-union check succeeds.

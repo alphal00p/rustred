@@ -1,8 +1,5 @@
 use crate::foundry::completion::source_discovery::cover_delta::ExactOwnerLedgerRevision;
 use crate::foundry::completion::source_discovery::cover_delta::ExactOwnerLedgerSnapshotIdentity;
-use crate::foundry::completion::source_discovery::interior_simplex::{
-    InteriorSimplexPlan, InteriorSimplexTask,
-};
 use crate::foundry::completion::source_discovery::scheduler::ProbeLocalRunCensus;
 use crate::foundry::completion::source_discovery::{
     CanonicalReplayTelemetry, ExactExecutableCandidateObstruction, ExactOwnerCoverDelta,
@@ -11,17 +8,18 @@ use crate::foundry::completion::source_discovery::{
     UnpublishedCanonicalOwnerProposal,
 };
 
+use super::ProbeCampaignPlannedTask;
+
 /// Opaque pairing of one checked plan task with the exact ledger revision and
 /// uncovered box from which it was bound.
-#[derive(Debug)]
-pub(crate) struct InteriorCampaignTaskBinding<'plan> {
-    pub(super) plan: &'plan InteriorSimplexPlan,
-    pub(super) task: &'plan InteriorSimplexTask,
+pub(crate) struct ProbeCampaignTaskBinding<'plan, Task: ProbeCampaignPlannedTask> {
+    pub(super) plan: &'plan Task::Plan,
+    pub(super) task: &'plan Task,
     pub(super) ledger_snapshot: ExactOwnerLedgerSnapshotIdentity,
 }
 
-impl InteriorCampaignTaskBinding<'_> {
-    pub(crate) const fn task(&self) -> &InteriorSimplexTask {
+impl<Task: ProbeCampaignPlannedTask> ProbeCampaignTaskBinding<'_, Task> {
+    pub(crate) const fn task(&self) -> &Task {
         self.task
     }
 
@@ -30,11 +28,11 @@ impl InteriorCampaignTaskBinding<'_> {
     }
 
     pub(super) const fn new<'plan>(
-        plan: &'plan InteriorSimplexPlan,
-        task: &'plan InteriorSimplexTask,
+        plan: &'plan Task::Plan,
+        task: &'plan Task,
         ledger_snapshot: ExactOwnerLedgerSnapshotIdentity,
-    ) -> InteriorCampaignTaskBinding<'plan> {
-        InteriorCampaignTaskBinding {
+    ) -> ProbeCampaignTaskBinding<'plan, Task> {
+        ProbeCampaignTaskBinding {
             plan,
             task,
             ledger_snapshot,
@@ -45,7 +43,7 @@ impl InteriorCampaignTaskBinding<'_> {
 /// Allocation-free census for the target-unit bootstrap used to derive one
 /// task-specific maximal stratum.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct InteriorCampaignBootstrapCensus {
+pub(crate) struct ProbeCampaignBootstrapCensus {
     raw_incidence_visits: usize,
     unique_before_existing_exclusion: usize,
     excluded_existing_requests: usize,
@@ -57,7 +55,7 @@ pub(crate) struct InteriorCampaignBootstrapCensus {
     physical_shift_sort_work: usize,
 }
 
-impl InteriorCampaignBootstrapCensus {
+impl ProbeCampaignBootstrapCensus {
     pub(crate) const fn raw_incidence_visits(self) -> usize {
         self.raw_incidence_visits
     }
@@ -122,8 +120,8 @@ impl InteriorCampaignBootstrapCensus {
 
 /// Compact, bounded scalar evidence retained beside one typed outcome.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct InteriorCampaignCensus {
-    bootstrap: InteriorCampaignBootstrapCensus,
+pub(crate) struct ProbeCampaignCensus {
+    bootstrap: ProbeCampaignBootstrapCensus,
     scheduler: ProbeLocalRunCensus,
     scheduler_outcomes: InteriorReplaySchedulerOutcomeCensus,
     replay: Option<CanonicalReplayTelemetry>,
@@ -131,8 +129,8 @@ pub(crate) struct InteriorCampaignCensus {
     exact_obstructions: usize,
 }
 
-impl InteriorCampaignCensus {
-    pub(crate) const fn bootstrap(self) -> InteriorCampaignBootstrapCensus {
+impl ProbeCampaignCensus {
+    pub(crate) const fn bootstrap(self) -> ProbeCampaignBootstrapCensus {
         self.bootstrap
     }
 
@@ -157,7 +155,7 @@ impl InteriorCampaignCensus {
     }
 
     pub(super) const fn new(
-        bootstrap: InteriorCampaignBootstrapCensus,
+        bootstrap: ProbeCampaignBootstrapCensus,
         replay: &InteriorReplayTaskReport,
         exact_obstructions: usize,
     ) -> Self {
@@ -181,7 +179,7 @@ impl InteriorCampaignCensus {
 
 /// Why exact replay did not yield an owner proposal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum InteriorCampaignNoProposal {
+pub(crate) enum ProbeCampaignNoProposal {
     NoReplayedNominations,
     NoRebasedCircuits {
         replay: CanonicalReplayTelemetry,
@@ -192,7 +190,7 @@ pub(crate) enum InteriorCampaignNoProposal {
 /// Geometric effect of an owner application before any closure status is
 /// interpreted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum InteriorCampaignOwnerEffect {
+pub(crate) enum ProbeCampaignOwnerEffect {
     Duplicate,
     ChangedWithoutGeometricShrink,
     StrictGeometricShrink,
@@ -201,12 +199,12 @@ pub(crate) enum InteriorCampaignOwnerEffect {
 /// Borrowed exact result of a compiled owner application. Candidate
 /// obstructions remain available for later exact guard refinement.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct InteriorCampaignAppliedOwner<'a> {
+pub(crate) struct ProbeCampaignAppliedOwner<'a> {
     delta: ExactOwnerCoverDelta,
     obstructions: &'a [ExactExecutableCandidateObstruction],
 }
 
-impl<'a> InteriorCampaignAppliedOwner<'a> {
+impl<'a> ProbeCampaignAppliedOwner<'a> {
     pub(crate) const fn delta(self) -> ExactOwnerCoverDelta {
         self.delta
     }
@@ -229,15 +227,15 @@ impl<'a> InteriorCampaignAppliedOwner<'a> {
 /// Typed semantic outcome. `Closed` is emitted only when the ledger's exact
 /// compiler status is closed; no scheduler or replay state can produce it.
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum InteriorCampaignOutcome<'a> {
-    NoProposal(InteriorCampaignNoProposal),
+pub(crate) enum ProbeCampaignOutcome<'a> {
+    NoProposal(ProbeCampaignNoProposal),
     IncompleteProposal(&'a UnpublishedCanonicalOwnerProposal),
-    Duplicate(InteriorCampaignAppliedOwner<'a>),
-    ChangedWithoutGeometricShrink(InteriorCampaignAppliedOwner<'a>),
-    StrictGeometricShrink(InteriorCampaignAppliedOwner<'a>),
+    Duplicate(ProbeCampaignAppliedOwner<'a>),
+    ChangedWithoutGeometricShrink(ProbeCampaignAppliedOwner<'a>),
+    StrictGeometricShrink(ProbeCampaignAppliedOwner<'a>),
     Closed {
-        effect: InteriorCampaignOwnerEffect,
-        applied: InteriorCampaignAppliedOwner<'a>,
+        effect: ProbeCampaignOwnerEffect,
+        applied: ProbeCampaignAppliedOwner<'a>,
     },
 }
 
@@ -245,15 +243,15 @@ pub(crate) enum InteriorCampaignOutcome<'a> {
 /// limits so incomplete proposals and compiled-candidate obstructions remain
 /// available to the next refinement layer; the census is allocation-free.
 #[derive(Debug)]
-pub(crate) struct InteriorCampaignTaskReport {
+pub(crate) struct ProbeCampaignTaskReport {
     canonical_task_ordinal: usize,
     planned_ledger_revision: ExactOwnerLedgerRevision,
-    census: InteriorCampaignCensus,
+    census: ProbeCampaignCensus,
     replay: InteriorReplayTaskReport,
     delta: Option<ExactOwnerCoverDelta>,
 }
 
-impl InteriorCampaignTaskReport {
+impl ProbeCampaignTaskReport {
     pub(crate) const fn canonical_task_ordinal(&self) -> usize {
         self.canonical_task_ordinal
     }
@@ -262,19 +260,17 @@ impl InteriorCampaignTaskReport {
         self.planned_ledger_revision
     }
 
-    pub(crate) const fn census(&self) -> InteriorCampaignCensus {
+    pub(crate) const fn census(&self) -> ProbeCampaignCensus {
         self.census
     }
 
-    pub(crate) fn outcome(&self) -> InteriorCampaignOutcome<'_> {
+    pub(crate) fn outcome(&self) -> ProbeCampaignOutcome<'_> {
         match self.replay.disposition() {
             InteriorReplayRunDisposition::NoReplayedNominations => {
-                InteriorCampaignOutcome::NoProposal(
-                    InteriorCampaignNoProposal::NoReplayedNominations,
-                )
+                ProbeCampaignOutcome::NoProposal(ProbeCampaignNoProposal::NoReplayedNominations)
             }
             InteriorReplayRunDisposition::NoRebasedCircuits { replay, attempts } => {
-                InteriorCampaignOutcome::NoProposal(InteriorCampaignNoProposal::NoRebasedCircuits {
+                ProbeCampaignOutcome::NoProposal(ProbeCampaignNoProposal::NoRebasedCircuits {
                     replay: *replay,
                     attempts: *attempts,
                 })
@@ -282,7 +278,7 @@ impl InteriorCampaignTaskReport {
             InteriorReplayRunDisposition::OwnerProposal {
                 proposal: super::super::ExactExecutableOwnerProposal::Incomplete(proposal),
                 ..
-            } => InteriorCampaignOutcome::IncompleteProposal(proposal),
+            } => ProbeCampaignOutcome::IncompleteProposal(proposal),
             InteriorReplayRunDisposition::OwnerProposal {
                 proposal: super::super::ExactExecutableOwnerProposal::Compiled { obstructions, .. },
                 ..
@@ -292,28 +288,28 @@ impl InteriorCampaignTaskReport {
                     .expect("compiled campaign owners are applied before report construction");
                 let effect = match delta.kind() {
                     super::super::ExactOwnerCoverDeltaKind::Duplicate => {
-                        InteriorCampaignOwnerEffect::Duplicate
+                        ProbeCampaignOwnerEffect::Duplicate
                     }
                     super::super::ExactOwnerCoverDeltaKind::ChangedWithoutGeometricShrink => {
-                        InteriorCampaignOwnerEffect::ChangedWithoutGeometricShrink
+                        ProbeCampaignOwnerEffect::ChangedWithoutGeometricShrink
                     }
                     super::super::ExactOwnerCoverDeltaKind::StrictGeometricShrink => {
-                        InteriorCampaignOwnerEffect::StrictGeometricShrink
+                        ProbeCampaignOwnerEffect::StrictGeometricShrink
                     }
                 };
-                let applied = InteriorCampaignAppliedOwner::new(delta, obstructions);
+                let applied = ProbeCampaignAppliedOwner::new(delta, obstructions);
                 if delta.updated().status().is_compiler_closed() {
-                    InteriorCampaignOutcome::Closed { effect, applied }
+                    ProbeCampaignOutcome::Closed { effect, applied }
                 } else {
                     match effect {
-                        InteriorCampaignOwnerEffect::Duplicate => {
-                            InteriorCampaignOutcome::Duplicate(applied)
+                        ProbeCampaignOwnerEffect::Duplicate => {
+                            ProbeCampaignOutcome::Duplicate(applied)
                         }
-                        InteriorCampaignOwnerEffect::ChangedWithoutGeometricShrink => {
-                            InteriorCampaignOutcome::ChangedWithoutGeometricShrink(applied)
+                        ProbeCampaignOwnerEffect::ChangedWithoutGeometricShrink => {
+                            ProbeCampaignOutcome::ChangedWithoutGeometricShrink(applied)
                         }
-                        InteriorCampaignOwnerEffect::StrictGeometricShrink => {
-                            InteriorCampaignOutcome::StrictGeometricShrink(applied)
+                        ProbeCampaignOwnerEffect::StrictGeometricShrink => {
+                            ProbeCampaignOutcome::StrictGeometricShrink(applied)
                         }
                     }
                 }
@@ -324,7 +320,7 @@ impl InteriorCampaignTaskReport {
     pub(super) const fn new(
         canonical_task_ordinal: usize,
         planned_ledger_revision: ExactOwnerLedgerRevision,
-        census: InteriorCampaignCensus,
+        census: ProbeCampaignCensus,
         replay: InteriorReplayTaskReport,
         delta: Option<ExactOwnerCoverDelta>,
     ) -> Self {

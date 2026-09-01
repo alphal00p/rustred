@@ -3,7 +3,7 @@ use super::super::InteriorReplayRunLimits;
 /// Complete one-task resource envelope for bootstrap construction, streaming
 /// replay, and bounded retention of exact refinement obstructions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct InteriorCampaignLimits {
+pub(crate) struct ProbeCampaignLimits {
     pub(crate) replay: InteriorReplayRunLimits,
     pub(crate) max_bootstrap_physical_shift_occurrences: usize,
     pub(crate) max_bootstrap_physical_shift_coordinate_cells: usize,
@@ -17,7 +17,7 @@ pub(crate) struct InteriorCampaignLimits {
     pub(crate) max_retained_exact_obstructions: usize,
 }
 
-impl Default for InteriorCampaignLimits {
+impl Default for ProbeCampaignLimits {
     fn default() -> Self {
         Self {
             replay: InteriorReplayRunLimits::default(),

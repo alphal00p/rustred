@@ -7,12 +7,14 @@ use crate::foundry::completion::stratum::StratumRegistryError;
 use crate::identity::TranslatedSourceError;
 use crate::sector;
 
+use super::super::boundary_simplex::BoundarySimplexPlanError;
 use super::super::interior_simplex::InteriorSimplexPlanError;
 
 /// Hard failure of one plan-to-ledger semantic transaction.
 #[derive(Debug)]
-pub(crate) enum InteriorCampaignError {
-    Plan(InteriorSimplexPlanError),
+pub(crate) enum ProbeCampaignError {
+    InteriorPlan(InteriorSimplexPlanError),
+    BoundaryPlan(BoundarySimplexPlanError),
     SourceScope(TranslatedSourceError),
     WrongSourceLayout {
         actual: &'static str,
@@ -20,7 +22,7 @@ pub(crate) enum InteriorCampaignError {
     Scope {
         detail: &'static str,
     },
-    StalePlanGeometry,
+    StaleParentGeometry,
     SourceDiscovery(SourceDiscoveryError),
     SourceTranslation(TranslatedSourceError),
     Sector(sector::Error),
@@ -44,22 +46,27 @@ pub(crate) enum InteriorCampaignError {
     },
 }
 
-impl fmt::Display for InteriorCampaignError {
+impl fmt::Display for ProbeCampaignError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Plan(error) => write!(formatter, "invalid interior campaign plan: {error}"),
+            Self::InteriorPlan(error) => {
+                write!(formatter, "invalid interior-simplex probe plan: {error}")
+            }
+            Self::BoundaryPlan(error) => {
+                write!(formatter, "invalid boundary-simplex probe plan: {error}")
+            }
             Self::SourceScope(error) => {
                 write!(formatter, "invalid completed source scope: {error}")
             }
             Self::WrongSourceLayout { actual } => write!(
                 formatter,
-                "interior campaign requires complete ordinary sources, got {actual}"
+                "probe campaign requires complete ordinary sources, got {actual}"
             ),
             Self::Scope { detail } => {
-                write!(formatter, "interior campaign scope mismatch: {detail}")
+                write!(formatter, "probe campaign scope mismatch: {detail}")
             }
-            Self::StalePlanGeometry => formatter
-                .write_str("the planned simplex task box is absent from the bound ledger geometry"),
+            Self::StaleParentGeometry => formatter
+                .write_str("the planned task parent box is absent from the bound ledger geometry"),
             Self::SourceDiscovery(error) => error.fmt(formatter),
             Self::SourceTranslation(error) => error.fmt(formatter),
             Self::Sector(error) => error.fmt(formatter),
@@ -67,7 +74,7 @@ impl fmt::Display for InteriorCampaignError {
             Self::Replay(error) => error.fmt(formatter),
             Self::CoverDelta(error) => error.fmt(formatter),
             Self::ResourceCountOverflow { resource } => {
-                write!(formatter, "interior campaign {resource} overflowed usize")
+                write!(formatter, "probe campaign {resource} overflowed usize")
             }
             Self::ResourceLimit {
                 resource,
@@ -75,26 +82,27 @@ impl fmt::Display for InteriorCampaignError {
                 limit,
             } => write!(
                 formatter,
-                "interior campaign {resource} needs {requested}, exceeding limit {limit}"
+                "probe campaign {resource} needs {requested}, exceeding limit {limit}"
             ),
             Self::AllocationFailure {
                 resource,
                 requested,
             } => write!(
                 formatter,
-                "could not reserve {requested} entries for interior campaign {resource}"
+                "could not reserve {requested} entries for probe campaign {resource}"
             ),
             Self::Invariant { detail } => {
-                write!(formatter, "interior campaign invariant failed: {detail}")
+                write!(formatter, "probe campaign invariant failed: {detail}")
             }
         }
     }
 }
 
-impl std::error::Error for InteriorCampaignError {
+impl std::error::Error for ProbeCampaignError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Plan(error) => Some(error),
+            Self::InteriorPlan(error) => Some(error),
+            Self::BoundaryPlan(error) => Some(error),
             Self::SourceScope(error) | Self::SourceTranslation(error) => Some(error),
             Self::SourceDiscovery(error) => Some(error),
             Self::Sector(error) => Some(error),
@@ -106,13 +114,13 @@ impl std::error::Error for InteriorCampaignError {
     }
 }
 
-impl From<InteriorReplayRunError> for InteriorCampaignError {
+impl From<InteriorReplayRunError> for ProbeCampaignError {
     fn from(value: InteriorReplayRunError) -> Self {
         Self::Replay(value)
     }
 }
 
-impl From<ExactOwnerCoverDeltaError> for InteriorCampaignError {
+impl From<ExactOwnerCoverDeltaError> for ProbeCampaignError {
     fn from(value: ExactOwnerCoverDeltaError) -> Self {
         Self::CoverDelta(value)
     }
