@@ -1,5 +1,6 @@
 use std::fmt;
 
+use super::super::super::CampaignError;
 use super::super::super::boundary_simplex::BoundarySimplexPlanError;
 use super::super::super::cover_delta::ExactOwnerCoverDeltaError;
 use super::super::ProbeCampaignError;
@@ -9,11 +10,20 @@ use super::super::ProbeCampaignError;
 /// operational stop; neither masquerades as failure, exhaustion, or closure.
 #[derive(Debug)]
 pub(crate) enum ProbeCoordinatorFailure {
-    EmptyDeclaredCampaignKey,
-    EmptyProbeBatch,
-    ProbeCountMismatch {
+    EmptyProbeProgram,
+    WrongProbeBaseParameterArity {
+        probe_ordinal: usize,
         expected: usize,
         actual: usize,
+    },
+    WrongProbeChartOffsetArity {
+        probe_ordinal: usize,
+        expected: usize,
+        actual: usize,
+    },
+    ProbeChartCoordinateOverflow {
+        probe_ordinal: usize,
+        coordinate: usize,
     },
     ZeroInteriorMargin,
     EmptyUncoveredPartition,
@@ -36,6 +46,7 @@ pub(crate) enum ProbeCoordinatorFailure {
     },
     Cover(ExactOwnerCoverDeltaError),
     BoundaryPlan(BoundarySimplexPlanError),
+    Probe(CampaignError),
     Campaign(ProbeCampaignError),
     Invariant {
         detail: &'static str,
@@ -45,15 +56,31 @@ pub(crate) enum ProbeCoordinatorFailure {
 impl fmt::Display for ProbeCoordinatorFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::EmptyDeclaredCampaignKey => {
-                formatter.write_str("probe coordinator declared campaign key is empty")
+            Self::EmptyProbeProgram => {
+                formatter.write_str("probe coordinator fixed probe program is empty")
             }
-            Self::EmptyProbeBatch => {
-                formatter.write_str("probe coordinator declared an empty task probe batch")
-            }
-            Self::ProbeCountMismatch { expected, actual } => write!(
+            Self::WrongProbeBaseParameterArity {
+                probe_ordinal,
+                expected,
+                actual,
+            } => write!(
                 formatter,
-                "probe coordinator task supplied {actual} probes, expected exactly {expected}"
+                "probe coordinator template {probe_ordinal} has {actual} base parameters, expected {expected}"
+            ),
+            Self::WrongProbeChartOffsetArity {
+                probe_ordinal,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "probe coordinator template {probe_ordinal} has {actual} chart offsets, expected {expected}"
+            ),
+            Self::ProbeChartCoordinateOverflow {
+                probe_ordinal,
+                coordinate,
+            } => write!(
+                formatter,
+                "probe coordinator template {probe_ordinal} overflowed task-relative chart coordinate {coordinate}"
             ),
             Self::ZeroInteriorMargin => formatter
                 .write_str("probe coordinator positive-dimensional profile has zero margin"),
@@ -88,6 +115,7 @@ impl fmt::Display for ProbeCoordinatorFailure {
             ),
             Self::Cover(error) => error.fmt(formatter),
             Self::BoundaryPlan(error) => error.fmt(formatter),
+            Self::Probe(error) => error.fmt(formatter),
             Self::Campaign(error) => error.fmt(formatter),
             Self::Invariant { detail } => {
                 write!(formatter, "probe coordinator invariant failed: {detail}")
@@ -101,6 +129,7 @@ impl std::error::Error for ProbeCoordinatorFailure {
         match self {
             Self::Cover(error) => Some(error),
             Self::BoundaryPlan(error) => Some(error),
+            Self::Probe(error) => Some(error),
             Self::Campaign(error) => Some(error),
             _ => None,
         }
@@ -122,5 +151,11 @@ impl From<BoundarySimplexPlanError> for ProbeCoordinatorFailure {
 impl From<ProbeCampaignError> for ProbeCoordinatorFailure {
     fn from(error: ProbeCampaignError) -> Self {
         Self::Campaign(error)
+    }
+}
+
+impl From<CampaignError> for ProbeCoordinatorFailure {
+    fn from(error: CampaignError) -> Self {
+        Self::Probe(error)
     }
 }

@@ -5,7 +5,6 @@ use crate::foundry::artifact::FULL_RANK_ORBITS;
 use crate::foundry::completion::frame::admission::{
     ExactOwnerCoverObstructionKind, ExactOwnerCoverStatus,
 };
-use crate::foundry::completion::source_discovery::OrdinarySourceIncidenceIndex;
 use crate::foundry::completion::source_discovery::cover_delta::{
     CanonicalExactOwnerLedger, ExactOwnerCoverDeltaKind, ExactOwnerCoverDeltaLimits,
     ExactOwnerLedgerCoverStatus,
@@ -24,14 +23,13 @@ fn every_typed_k6_full_rank_orbit_has_an_obstruction_free_first_exact_shrink() {
     assert_eq!(fixture.predecessor().closed_layer_count(), 0);
 
     let limits = ProbeCampaignLimits::default();
-    let incidence = OrdinarySourceIncidenceIndex::try_new(
+    let adapter = ProbeCampaignAdapter::try_new(
+        fixture.generator(),
+        fixture.completed(),
         fixture.zero_sources(),
-        limits.replay.scheduler.source_discovery,
+        limits,
     )
     .unwrap();
-    let adapter =
-        ProbeCampaignAdapter::try_new(fixture.generator(), fixture.completed(), &incidence, limits)
-            .unwrap();
 
     for orbit in FULL_RANK_ORBITS {
         let sector = Mask::try_from_indices(&orbit.representative).unwrap();

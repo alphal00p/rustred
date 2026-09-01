@@ -1,8 +1,5 @@
 //! Boundary-planner authentication at the shared probe-campaign seam.
 
-use std::sync::OnceLock;
-
-use crate::foundry::completion::source_discovery::OrdinarySourceIncidenceIndex;
 use crate::foundry::completion::source_discovery::boundary_simplex::{
     BoundarySimplexLimits, BoundarySimplexPlan, BoundarySimplexPlanError,
     BoundarySimplexSamplingProfile, BoundarySimplexScopePartition,
@@ -20,24 +17,20 @@ use super::super::{
 };
 use super::probe;
 
-static K6_INCIDENCE: OnceLock<OrdinarySourceIncidenceIndex<'static>> = OnceLock::new();
-
 fn adapter() -> (
     ProbeCampaignAdapter<'static, 'static, 'static>,
     ProbeCampaignLimits,
 ) {
     let fixture = OracleDisabledK6Fixture::shared();
     let limits = ProbeCampaignLimits::default();
-    let incidence = K6_INCIDENCE.get_or_init(|| {
-        OrdinarySourceIncidenceIndex::try_new(
-            fixture.zero_sources(),
-            limits.replay.scheduler.source_discovery,
-        )
-        .unwrap()
-    });
     (
-        ProbeCampaignAdapter::try_new(fixture.generator(), fixture.completed(), incidence, limits)
-            .unwrap(),
+        ProbeCampaignAdapter::try_new(
+            fixture.generator(),
+            fixture.completed(),
+            fixture.zero_sources(),
+            limits,
+        )
+        .unwrap(),
         limits,
     )
 }

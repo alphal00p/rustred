@@ -98,8 +98,8 @@ pub(crate) use probe_campaign::{
     ProbeCoordinatorConfig, ProbeCoordinatorFailure, ProbeCoordinatorFailureStop,
     ProbeCoordinatorLimits, ProbeCoordinatorNeedsRefinement, ProbeCoordinatorNeedsRefinementReason,
     ProbeCoordinatorOperationalReason, ProbeCoordinatorOperationalStop,
-    ProbeCoordinatorOwnerMutation, ProbeCoordinatorOwnerSetChanged, ProbeCoordinatorProbeBatch,
-    ProbeCoordinatorStop, ProbeCoordinatorTaskLocation,
+    ProbeCoordinatorOwnerMutation, ProbeCoordinatorOwnerSetChanged, ProbeCoordinatorStop,
+    ProbeCoordinatorTaskLocation, TaskRelativeModularProbe,
 };
 #[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
 pub(crate) use promotion::{

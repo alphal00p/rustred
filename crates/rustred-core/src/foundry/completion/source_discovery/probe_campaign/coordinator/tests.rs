@@ -1,5 +1,4 @@
 use std::mem::size_of;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use crate::family::IntegralKey;
@@ -11,8 +10,8 @@ use crate::foundry::completion::source_discovery::cover_delta::ExactOwnerCoverDe
 use crate::foundry::completion::source_discovery::cover_delta::ExactOwnerLedgerCoverStatus;
 use crate::foundry::completion::source_discovery::test_fixtures::OracleDisabledK6Fixture;
 use crate::foundry::completion::source_discovery::{
-    CampaignLimits, CampaignModularProbe, CanonicalExactOwnerLedger, ExactOwnerCoverDeltaLimits,
-    OrdinarySourceIncidenceIndex, ProbeCampaignAdapter, ProbeCampaignLimits,
+    CampaignLimits, CanonicalExactOwnerLedger, ExactOwnerCoverDeltaLimits, ProbeCampaignAdapter,
+    ProbeCampaignLimits,
 };
 use crate::foundry::completion::stratum::{ImmutableOwnerSnapshot, StratumRegistryLimits};
 use crate::foundry::completion::{LatticeBox, UncoveredPartition};
@@ -29,8 +28,8 @@ use super::schedule::try_build_class_schedule;
 use super::{
     BoundaryProbeCoordinator, ProbeCoordinatorCensus, ProbeCoordinatorConfig,
     ProbeCoordinatorFailure, ProbeCoordinatorLimits, ProbeCoordinatorNeedsRefinementReason,
-    ProbeCoordinatorOperationalReason, ProbeCoordinatorOwnerMutation, ProbeCoordinatorProbeBatch,
-    ProbeCoordinatorStop,
+    ProbeCoordinatorOperationalReason, ProbeCoordinatorOwnerMutation, ProbeCoordinatorStop,
+    TaskRelativeModularProbe,
 };
 
 fn lattice_box(lower: &[u64], upper: &[Option<u64>]) -> LatticeBox {
@@ -39,8 +38,15 @@ fn lattice_box(lower: &[u64], upper: &[Option<u64>]) -> LatticeBox {
 
 fn config() -> ProbeCoordinatorConfig {
     ProbeCoordinatorConfig::try_new(
-        "synthetic-program-v1",
-        NonZeroUsize::new(1).unwrap(),
+        [
+            TaskRelativeModularProbe::try_new(
+                1_000_000_007,
+                [37],
+                [0, 0],
+                CampaignLimits::default(),
+            )
+            .unwrap(),
+        ],
         1,
         0,
         ProbeCoordinatorLimits::default(),
@@ -120,10 +126,13 @@ fn class_schedule_is_dimension_descending_and_includes_bulk_and_vertices() {
 #[test]
 fn stable_pure_drive_is_uncertified_and_visits_every_task_canonically() {
     let (sector, partition) = single_d2_partition();
-    let mut coordinator = BoundaryProbeCoordinator::new(config());
+    let config = config();
+    let mut census = ProbeCoordinatorCensus::default();
     let mut visited = Vec::new();
     let stop = try_drive_partition(
-        &mut coordinator,
+        &config,
+        "synthetic-pure-scope",
+        &mut census,
         7,
         &sector,
         &partition,
@@ -168,10 +177,13 @@ fn owner_mutation_invalidates_the_plan_suffix_and_next_epoch_restarts() {
         ProbeCoordinatorOwnerMutation::StrictGeometricShrink,
         ProbeCoordinatorOwnerMutation::ChangedWithoutGeometricShrink,
     ] {
-        let mut coordinator = BoundaryProbeCoordinator::new(config());
+        let config = config();
+        let mut census = ProbeCoordinatorCensus::default();
         let mut first_visits = Vec::new();
         let first = try_drive_partition(
-            &mut coordinator,
+            &config,
+            "synthetic-pure-scope",
+            &mut census,
             7,
             &sector,
             &partition,
@@ -209,7 +221,9 @@ fn owner_mutation_invalidates_the_plan_suffix_and_next_epoch_restarts() {
 
         let mut second_first = None;
         let second = try_drive_partition(
-            &mut coordinator,
+            &config,
+            "synthetic-pure-scope",
+            &mut census,
             8,
             &sector,
             &partition,
@@ -233,9 +247,12 @@ fn owner_mutation_invalidates_the_plan_suffix_and_next_epoch_restarts() {
 fn operational_refinement_failure_and_stable_stops_are_disjoint() {
     let (sector, partition) = single_d2_partition();
 
-    let mut operational = BoundaryProbeCoordinator::new(config());
+    let operational_config = config();
+    let mut operational_census = ProbeCoordinatorCensus::default();
     let stop = try_drive_partition(
-        &mut operational,
+        &operational_config,
+        "synthetic-pure-scope",
+        &mut operational_census,
         0,
         &sector,
         &partition,
@@ -267,9 +284,12 @@ fn operational_refinement_failure_and_stable_stops_are_disjoint() {
             )
     ));
 
-    let mut refinement = BoundaryProbeCoordinator::new(config());
+    let refinement_config = config();
+    let mut refinement_census = ProbeCoordinatorCensus::default();
     let stop = try_drive_partition(
-        &mut refinement,
+        &refinement_config,
+        "synthetic-pure-scope",
+        &mut refinement_census,
         0,
         &sector,
         &partition,
@@ -301,9 +321,12 @@ fn operational_refinement_failure_and_stable_stops_are_disjoint() {
             )
     ));
 
-    let mut failed_coordinator = BoundaryProbeCoordinator::new(config());
+    let failed_config = config();
+    let mut failed_census = ProbeCoordinatorCensus::default();
     let stop = try_drive_partition(
-        &mut failed_coordinator,
+        &failed_config,
+        "synthetic-pure-scope",
+        &mut failed_census,
         0,
         &sector,
         &partition,
@@ -436,38 +459,45 @@ fn compact_probe_census_joins_replay_exactly_and_classifies_every_scheduler_buck
 }
 
 #[test]
-fn typed_probe_batch_is_nonempty_exact_counted_and_bounded() {
+fn task_relative_probe_program_is_nonempty_exact_counted_and_bounded() {
+    let probe = |offset| {
+        TaskRelativeModularProbe::try_new(1_000_000_007, [37], [offset], CampaignLimits::default())
+            .unwrap()
+    };
     let two_probe_config = ProbeCoordinatorConfig::try_new(
-        "two-probe-program",
-        NonZeroUsize::new(2).unwrap(),
+        [probe(1), probe(2)],
         1,
         0,
         ProbeCoordinatorLimits::default(),
     )
     .unwrap();
-    let probe = || {
-        CampaignModularProbe::try_new(1_000_000_007, [37], [2], CampaignLimits::default()).unwrap()
+    assert_eq!(two_probe_config.probes_per_task(), 2);
+    assert_eq!(two_probe_config.probes()[0].chart_offsets(), &[1]);
+    assert_eq!(two_probe_config.probes()[1].chart_offsets(), &[2]);
+
+    assert!(matches!(
+        ProbeCoordinatorConfig::try_new([], 1, 0, ProbeCoordinatorLimits::default(),),
+        Err(ProbeCoordinatorFailure::EmptyProbeProgram)
+    ));
+    let bounded = ProbeCoordinatorLimits {
+        max_probes_per_task: 1,
+        ..ProbeCoordinatorLimits::default()
     };
-    let batch = ProbeCoordinatorProbeBatch::try_new([probe(), probe()], &two_probe_config).unwrap();
-    assert_eq!(batch.declared_count(), 2);
-    assert_eq!(batch.into_probes().count(), 2);
     assert!(matches!(
-        ProbeCoordinatorProbeBatch::try_new([probe()], &two_probe_config),
-        Err(ProbeCoordinatorFailure::ProbeCountMismatch {
-            expected: 2,
-            actual: 1
+        ProbeCoordinatorConfig::try_new([probe(1), probe(2)], 1, 0, bounded),
+        Err(ProbeCoordinatorFailure::ResourceLimit {
+            resource: "fixed task-relative probes",
+            requested: 2,
+            limit: 1,
         })
     ));
     assert!(matches!(
-        ProbeCoordinatorProbeBatch::try_new(std::iter::repeat_with(probe), &two_probe_config),
-        Err(ProbeCoordinatorFailure::ProbeCountMismatch {
-            expected: 2,
-            actual: 3
+        ProbeCoordinatorConfig::try_new(std::iter::repeat_with(|| probe(1)), 1, 0, bounded,),
+        Err(ProbeCoordinatorFailure::ResourceLimit {
+            resource: "fixed task-relative probes",
+            requested: 2,
+            limit: 1,
         })
-    ));
-    assert!(matches!(
-        ProbeCoordinatorProbeBatch::try_new([], &two_probe_config),
-        Err(ProbeCoordinatorFailure::EmptyProbeBatch)
     ));
 }
 
@@ -580,13 +610,10 @@ fn production_stop_rejoins_live_identity_and_never_upgrades_owner_free_state() {
                 .translation,
         )
         .unwrap();
-    let incidence = OrdinarySourceIncidenceIndex::try_new(
-        &zero_sources,
-        campaign_limits.replay.scheduler.source_discovery,
-    )
-    .unwrap();
-    let adapter =
-        ProbeCampaignAdapter::try_new(&generator, &completed, &incidence, campaign_limits).unwrap();
+    let make_adapter = || {
+        ProbeCampaignAdapter::try_new(&generator, &completed, &zero_sources, campaign_limits)
+            .unwrap()
+    };
     let predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
         Arc::clone(&artifact),
         StratumRegistryLimits::default(),
@@ -622,39 +649,134 @@ fn production_stop_rejoins_live_identity_and_never_upgrades_owner_free_state() {
                 }
             )
     ));
-    let coordinator_config = ProbeCoordinatorConfig::try_new(
-        "one-loop-two-probe-program",
-        NonZeroUsize::new(2).unwrap(),
+
+    let wrong_base = ProbeCoordinatorConfig::try_new(
+        [TaskRelativeModularProbe::try_new(
+            1_000_000_007,
+            [],
+            [0],
+            campaign_limits.replay.scheduler.campaign,
+        )
+        .unwrap()],
         1,
         0,
         ProbeCoordinatorLimits::default(),
     )
     .unwrap();
-    let make_probes = |batch_config: ProbeCoordinatorConfig| {
-        move |_: &super::super::super::boundary_simplex::BoundarySimplexTask| {
-            let build = |coordinate| {
-                CampaignModularProbe::try_new(
-                    1_000_000_007,
-                    [37],
-                    [coordinate],
-                    campaign_limits.replay.scheduler.campaign,
+    assert!(matches!(
+        BoundaryProbeCoordinator::try_new(wrong_base, make_adapter(), &ledger),
+        Err(ProbeCoordinatorFailure::WrongProbeBaseParameterArity {
+            probe_ordinal: 0,
+            expected: 1,
+            actual: 0,
+        })
+    ));
+    let wrong_offsets = ProbeCoordinatorConfig::try_new(
+        [TaskRelativeModularProbe::try_new(
+            1_000_000_007,
+            [37],
+            [0, 0],
+            campaign_limits.replay.scheduler.campaign,
+        )
+        .unwrap()],
+        1,
+        0,
+        ProbeCoordinatorLimits::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        BoundaryProbeCoordinator::try_new(wrong_offsets, make_adapter(), &ledger),
+        Err(ProbeCoordinatorFailure::WrongProbeChartOffsetArity {
+            probe_ordinal: 0,
+            expected: 1,
+            actual: 2,
+        })
+    ));
+
+    let coordinator_config = ProbeCoordinatorConfig::try_new(
+        [
+            TaskRelativeModularProbe::try_new(
+                1_000_000_007,
+                [37],
+                [1],
+                campaign_limits.replay.scheduler.campaign,
+            )
+            .unwrap(),
+            TaskRelativeModularProbe::try_new(
+                1_000_000_007,
+                [37],
+                [2],
+                campaign_limits.replay.scheduler.campaign,
+            )
+            .unwrap(),
+        ],
+        1,
+        0,
+        ProbeCoordinatorLimits::default(),
+    )
+    .unwrap();
+
+    let mut peer = CanonicalExactOwnerLedger::try_new(
+        generator.context(),
+        ledger.predecessor_snapshot().clone(),
+        sector.clone(),
+        OrderingPolicy::default(),
+        [IntegralKey::try_new(sector.corner_indices()).unwrap()],
+        ExactOwnerCoverDeltaLimits::default(),
+    )
+    .unwrap();
+    let mut foreign_coordinator =
+        BoundaryProbeCoordinator::try_new(coordinator_config.clone(), make_adapter(), &ledger)
+            .unwrap();
+    assert!(matches!(
+        foreign_coordinator.try_run_boundary_epoch(&mut peer),
+        ProbeCoordinatorStop::Failed(ref stop)
+            if matches!(
+                stop.failure(),
+                ProbeCoordinatorFailure::Cover(
+                    crate::foundry::completion::source_discovery::cover_delta::ExactOwnerCoverDeltaError::ForeignLedgerSnapshotIdentity
                 )
-                .unwrap()
-            };
-            ProbeCoordinatorProbeBatch::try_new([build(2), build(3)], &batch_config)
-        }
-    };
+            )
+    ));
+
+    let overflow_program = ProbeCoordinatorConfig::try_new(
+        [TaskRelativeModularProbe::try_new(
+            1_000_000_007,
+            [37],
+            [u64::MAX],
+            campaign_limits.replay.scheduler.campaign,
+        )
+        .unwrap()],
+        1,
+        0,
+        ProbeCoordinatorLimits::default(),
+    )
+    .unwrap();
+    let mut coordinate_overflow =
+        BoundaryProbeCoordinator::try_new(overflow_program, make_adapter(), &ledger).unwrap();
+    assert!(matches!(
+        coordinate_overflow.try_run_boundary_epoch(&mut ledger),
+        ProbeCoordinatorStop::Failed(ref stop)
+            if matches!(
+                stop.failure(),
+                ProbeCoordinatorFailure::ProbeChartCoordinateOverflow {
+                    probe_ordinal: 0,
+                    coordinate: 0,
+                }
+            )
+    ));
+    assert_eq!(ledger.snapshot(), owner_free);
 
     // A compiled owner may have any exact cover effect. Force one possible
     // action counter to overflow and require the reservation to fail before
     // serial application, leaving the opaque exact ledger untouched.
     let before_overflow = ledger.snapshot();
     let before_overflow_identity = ledger.snapshot_identity();
-    let mut overflow_coordinator = BoundaryProbeCoordinator::new(coordinator_config.clone());
+    let mut overflow_coordinator =
+        BoundaryProbeCoordinator::try_new(coordinator_config.clone(), make_adapter(), &ledger)
+            .unwrap();
     overflow_coordinator.census.duplicate = usize::MAX;
-    let mut overflow_probes = make_probes(coordinator_config.clone());
-    let overflow =
-        overflow_coordinator.try_run_boundary_epoch(&adapter, &mut ledger, &mut overflow_probes);
+    let overflow = overflow_coordinator.try_run_boundary_epoch(&mut ledger);
     assert!(matches!(
         overflow,
         ProbeCoordinatorStop::Failed(ref stop)
@@ -671,16 +793,13 @@ fn production_stop_rejoins_live_identity_and_never_upgrades_owner_free_state() {
     );
 
     let mut alternate_action_overflow_coordinator =
-        BoundaryProbeCoordinator::new(coordinator_config.clone());
+        BoundaryProbeCoordinator::try_new(coordinator_config.clone(), make_adapter(), &ledger)
+            .unwrap();
     alternate_action_overflow_coordinator
         .census
         .strict_geometric_shrink = usize::MAX;
-    let mut alternate_action_overflow_probes = make_probes(coordinator_config.clone());
-    let alternate_action_overflow = alternate_action_overflow_coordinator.try_run_boundary_epoch(
-        &adapter,
-        &mut ledger,
-        &mut alternate_action_overflow_probes,
-    );
+    let alternate_action_overflow =
+        alternate_action_overflow_coordinator.try_run_boundary_epoch(&mut ledger);
     assert!(matches!(
         alternate_action_overflow,
         ProbeCoordinatorStop::Failed(ref stop)
@@ -696,9 +815,9 @@ fn production_stop_rejoins_live_identity_and_never_upgrades_owner_free_state() {
             .same_snapshot_as(&before_overflow_identity)
     );
 
-    let mut coordinator = BoundaryProbeCoordinator::new(coordinator_config.clone());
-    let mut probes = make_probes(coordinator_config);
-    let stop = coordinator.try_run_boundary_epoch(&adapter, &mut ledger, &mut probes);
+    let mut coordinator =
+        BoundaryProbeCoordinator::try_new(coordinator_config, make_adapter(), &ledger).unwrap();
+    let stop = coordinator.try_run_boundary_epoch(&mut ledger);
     let ProbeCoordinatorStop::CompilerClosed {
         ledger_snapshot,
         exact,

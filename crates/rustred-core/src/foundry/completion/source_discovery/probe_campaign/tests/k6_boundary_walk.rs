@@ -5,7 +5,6 @@ use crate::foundry::completion::UncoveredPartition;
 use crate::foundry::completion::frame::admission::{
     ExactOwnerCoverObstructionKind, ExactOwnerCoverStatus,
 };
-use crate::foundry::completion::source_discovery::OrdinarySourceIncidenceIndex;
 use crate::foundry::completion::source_discovery::boundary_simplex::{
     BoundarySimplexLimits, BoundarySimplexPlan, BoundarySimplexSamplingProfile,
     BoundarySimplexScopePartition, try_plan_boundary_simplex_samples,
@@ -185,14 +184,13 @@ fn run_walk(report_cap: usize) -> WalkResult {
     assert!(report_cap > 0);
     let fixture = OracleDisabledK6Fixture::shared();
     let limits = ProbeCampaignLimits::default();
-    let incidence = OrdinarySourceIncidenceIndex::try_new(
+    let adapter = ProbeCampaignAdapter::try_new(
+        fixture.generator(),
+        fixture.completed(),
         fixture.zero_sources(),
-        limits.replay.scheduler.source_discovery,
+        limits,
     )
     .unwrap();
-    let adapter =
-        ProbeCampaignAdapter::try_new(fixture.generator(), fixture.completed(), &incidence, limits)
-            .unwrap();
     let mut ledger = asserted_revision_nine_ledger();
     let mut snapshots = Vec::new();
     let mut plans = Vec::new();

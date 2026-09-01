@@ -6,14 +6,12 @@ use crate::foundry::completion::LatticePoint;
 use crate::foundry::completion::frame::admission::{
     ExactOwnerCoverObstructionKind, ExactOwnerCoverStatus,
 };
+use crate::foundry::completion::source_discovery::CampaignModularProbe;
 use crate::foundry::completion::source_discovery::cover_delta::{
     CanonicalExactOwnerLedger, ExactOwnerCoverDeltaError, ExactOwnerCoverDeltaKind,
     ExactOwnerLedgerCoverStatus,
 };
 use crate::foundry::completion::source_discovery::test_fixtures::OracleDisabledK6Fixture;
-use crate::foundry::completion::source_discovery::{
-    CampaignModularProbe, OrdinarySourceIncidenceIndex,
-};
 
 use super::super::{
     ProbeCampaignAdapter, ProbeCampaignError, ProbeCampaignLimits, ProbeCampaignNoProposal,
@@ -160,14 +158,13 @@ fn k6_degree_zero_margin_two_first_face_campaign_is_revision_safe() {
     }
 
     let limits = ProbeCampaignLimits::default();
-    let incidence = OrdinarySourceIncidenceIndex::try_new(
+    let adapter = ProbeCampaignAdapter::try_new(
+        fixture.generator(),
+        fixture.completed(),
         fixture.zero_sources(),
-        limits.replay.scheduler.source_discovery,
+        limits,
     )
     .unwrap();
-    let adapter =
-        ProbeCampaignAdapter::try_new(fixture.generator(), fixture.completed(), &incidence, limits)
-            .unwrap();
     let initial_targets = face_plan
         .tasks()
         .iter()
@@ -236,14 +233,13 @@ fn k6_degree_zero_margin_two_first_face_campaign_is_revision_safe() {
 pub(super) fn asserted_revision_nine_ledger() -> CanonicalExactOwnerLedger {
     let fixture = OracleDisabledK6Fixture::shared();
     let limits = ProbeCampaignLimits::default();
-    let incidence = OrdinarySourceIncidenceIndex::try_new(
+    let adapter = ProbeCampaignAdapter::try_new(
+        fixture.generator(),
+        fixture.completed(),
         fixture.zero_sources(),
-        limits.replay.scheduler.source_discovery,
+        limits,
     )
     .unwrap();
-    let adapter =
-        ProbeCampaignAdapter::try_new(fixture.generator(), fixture.completed(), &incidence, limits)
-            .unwrap();
     let mut ledger = fixture.new_ledger();
     let orthant_plan = fixture.plan(&ledger, 2, 0);
     let orthant_task = &orthant_plan.tasks()[0];

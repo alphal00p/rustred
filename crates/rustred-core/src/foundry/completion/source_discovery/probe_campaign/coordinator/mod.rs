@@ -8,7 +8,7 @@
 //! mutation ends the epoch, drops every remaining materialized ticket, and
 //! requires the next call to replan from the new ledger snapshot.
 //!
-//! ExhaustedAtConfig means only that the declared probe program completed on
+//! ExhaustedAtConfig means only that the coordinator-owned probe program completed on
 //! one unchanged snapshot. It carries no closure API. Only the exact compiler
 //! status can produce CompilerClosed.
 
@@ -26,8 +26,8 @@ pub(crate) use model::{
     ProbeCoordinatorClassSchedule, ProbeCoordinatorConfig, ProbeCoordinatorFailureStop,
     ProbeCoordinatorNeedsRefinement, ProbeCoordinatorNeedsRefinementReason,
     ProbeCoordinatorOperationalReason, ProbeCoordinatorOperationalStop,
-    ProbeCoordinatorOwnerMutation, ProbeCoordinatorOwnerSetChanged, ProbeCoordinatorProbeBatch,
-    ProbeCoordinatorStop, ProbeCoordinatorTaskLocation,
+    ProbeCoordinatorOwnerMutation, ProbeCoordinatorOwnerSetChanged, ProbeCoordinatorStop,
+    ProbeCoordinatorTaskLocation, TaskRelativeModularProbe,
 };
 
 #[cfg(test)]

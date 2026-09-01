@@ -7,13 +7,10 @@
 //! every post-bootstrap owner is discovered from the declared modular probe
 //! program.
 
-use std::num::NonZeroUsize;
-
 use crate::foundry::completion::UncoveredPartition;
 use crate::foundry::completion::frame::admission::{
     ExactOwnerCoverObstructionKind, ExactOwnerCoverStatus,
 };
-use crate::foundry::completion::source_discovery::OrdinarySourceIncidenceIndex;
 use crate::foundry::completion::source_discovery::cover_delta::{
     ExactOwnerCoverSnapshot, ExactOwnerLedgerCoverStatus,
 };
@@ -22,9 +19,9 @@ use crate::foundry::completion::source_discovery::test_fixtures::OracleDisabledK
 use super::super::{
     BoundaryProbeCoordinator, ProbeCampaignAdapter, ProbeCampaignLimits, ProbeCoordinatorConfig,
     ProbeCoordinatorLimits, ProbeCoordinatorOperationalReason, ProbeCoordinatorOperationalStop,
-    ProbeCoordinatorProbeBatch, ProbeCoordinatorStop,
+    ProbeCoordinatorStop, TaskRelativeModularProbe,
 };
-use super::{k6::asserted_revision_nine_ledger, probe};
+use super::k6::asserted_revision_nine_ledger;
 
 const MAX_REPORTS: usize = 80;
 const LONG_CHECKPOINT_REPORTS: usize = 256;
@@ -47,15 +44,10 @@ fn free_dimension_histogram(partition: &UncoveredPartition) -> [usize; 7] {
 fn run_report_capped_checkpoint(max_reports: usize) -> CompactK6Checkpoint {
     let fixture = OracleDisabledK6Fixture::shared();
     let campaign_limits = ProbeCampaignLimits::default();
-    let incidence = OrdinarySourceIncidenceIndex::try_new(
-        fixture.zero_sources(),
-        campaign_limits.replay.scheduler.source_discovery,
-    )
-    .unwrap();
     let adapter = ProbeCampaignAdapter::try_new(
         fixture.generator(),
         fixture.completed(),
-        &incidence,
+        fixture.zero_sources(),
         campaign_limits,
     )
     .unwrap();
@@ -65,24 +57,22 @@ fn run_report_capped_checkpoint(max_reports: usize) -> CompactK6Checkpoint {
         ..ProbeCoordinatorLimits::default()
     };
     let config = ProbeCoordinatorConfig::try_new(
-        "unit-mass-k6-s4a-default-order-rev9-boundary-m2-d0-p1000000007-x37-v1",
-        NonZeroUsize::new(1).unwrap(),
+        [TaskRelativeModularProbe::try_new(
+            1_000_000_007,
+            [37],
+            std::iter::repeat_n(0, fixture.sector().arity()),
+            campaign_limits.replay.scheduler.campaign,
+        )
+        .unwrap()],
         2,
         0,
         coordinator_limits,
     )
     .unwrap();
-    let batch_config = config.clone();
-    let mut coordinator = BoundaryProbeCoordinator::new(config);
-    let mut probes = move |task: &crate::foundry::completion::source_discovery::boundary_simplex::BoundarySimplexTask| {
-        ProbeCoordinatorProbeBatch::try_new(
-            [probe(task.lattice_target().iter().copied(), campaign_limits)],
-            &batch_config,
-        )
-    };
+    let mut coordinator = BoundaryProbeCoordinator::try_new(config, adapter, &ledger).unwrap();
 
     let terminal_stop = loop {
-        match coordinator.try_run_boundary_epoch(&adapter, &mut ledger, &mut probes) {
+        match coordinator.try_run_boundary_epoch(&mut ledger) {
             ProbeCoordinatorStop::OwnerSetChanged(changed) => {
                 assert_eq!(changed.after_revision(), changed.before_revision() + 1);
                 assert_eq!(ledger.revision().get(), changed.after_revision());

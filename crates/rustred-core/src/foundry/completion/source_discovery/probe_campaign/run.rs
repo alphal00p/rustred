@@ -23,7 +23,7 @@ const EXACT_OBSTRUCTIONS: &str = "retained exact candidate obstructions";
 pub(crate) struct ProbeCampaignAdapter<'inputs, 'sources, 'family> {
     generator: &'inputs ParametricIbpGenerator<'family>,
     completed: &'inputs CompletedIbpSourceRows,
-    incidence: &'inputs OrdinarySourceIncidenceIndex<'sources>,
+    incidence: OrdinarySourceIncidenceIndex<'sources>,
     limits: ProbeCampaignLimits,
 }
 
@@ -31,7 +31,7 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
     pub(crate) fn try_new(
         generator: &'inputs ParametricIbpGenerator<'family>,
         completed: &'inputs CompletedIbpSourceRows,
-        incidence: &'inputs OrdinarySourceIncidenceIndex<'sources>,
+        zero_sources: &'sources crate::identity::TranslatedSourceBatch,
         limits: ProbeCampaignLimits,
     ) -> Result<Self, ProbeCampaignError> {
         generator
@@ -42,6 +42,11 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
                 actual: completed.layout_name(),
             });
         }
+        let incidence = OrdinarySourceIncidenceIndex::try_new(
+            zero_sources,
+            limits.replay.scheduler.source_discovery,
+        )
+        .map_err(ProbeCampaignError::SourceDiscovery)?;
         if incidence.arity() != generator.context().index_count() {
             return Err(ProbeCampaignError::Scope {
                 detail: "incidence index and generator have different arities",
@@ -57,9 +62,11 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
                 detail: "incidence index and completed source module have different row counts",
             });
         }
-        incidence
-            .try_verify_limits(limits.replay.scheduler.source_discovery)
-            .map_err(ProbeCampaignError::SourceDiscovery)?;
+        if !incidence.exactly_replays_completed(completed) {
+            return Err(ProbeCampaignError::Scope {
+                detail: "zero-source incidence is not the exact translation of the completed source barrier",
+            });
+        }
         Ok(Self {
             generator,
             completed,
@@ -163,12 +170,45 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
         self.try_apply_evaluated_task(evaluated, ledger)
     }
 
+    pub(crate) fn probe_base_parameter_count(&self) -> usize {
+        self.generator.context().base().parameter_names().len()
+    }
+
+    pub(crate) fn probe_chart_arity(&self) -> usize {
+        self.incidence.arity()
+    }
+
+    pub(crate) const fn limits(&self) -> ProbeCampaignLimits {
+        self.limits
+    }
+
+    pub(crate) fn validate_ledger_scope(
+        &self,
+        ledger: &CanonicalExactOwnerLedger,
+    ) -> Result<(), ProbeCampaignError> {
+        let predecessor = ledger.predecessor_snapshot();
+        if ledger.sector().arity() != self.incidence.arity() {
+            return Err(ProbeCampaignError::Scope {
+                detail: "canonical ledger sector and source incidence have different arities",
+            });
+        }
+        if predecessor.arity() != self.incidence.arity()
+            || predecessor.family_fingerprint() != self.incidence.family_fingerprint()
+            || predecessor.context_fingerprint() != self.incidence.context_fingerprint()
+        {
+            return Err(ProbeCampaignError::Scope {
+                detail: "canonical ledger and source incidence have different exact scopes",
+            });
+        }
+        Ok(())
+    }
+
     fn validate_task_scope<Task: ProbeCampaignPlannedTask>(
         &self,
         task: &Task,
         ledger: &CanonicalExactOwnerLedger,
     ) -> Result<(), ProbeCampaignError> {
-        let predecessor = ledger.predecessor_snapshot();
+        self.validate_ledger_scope(ledger)?;
         if task.sector() != ledger.sector() {
             return Err(ProbeCampaignError::Scope {
                 detail: "planned task and canonical ledger have different sectors",
@@ -179,14 +219,6 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
         {
             return Err(ProbeCampaignError::Scope {
                 detail: "planned task and source incidence have different arities",
-            });
-        }
-        if predecessor.arity() != self.incidence.arity()
-            || predecessor.family_fingerprint() != self.incidence.family_fingerprint()
-            || predecessor.context_fingerprint() != self.incidence.context_fingerprint()
-        {
-            return Err(ProbeCampaignError::Scope {
-                detail: "canonical ledger and source incidence have different exact scopes",
             });
         }
         Ok(())

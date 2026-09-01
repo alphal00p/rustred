@@ -37,6 +37,19 @@ impl CompletedIbpSourceRows {
             .map(|relation| relation.row_id())
     }
 
+    /// Borrow one sealed source relation for an exact crate-internal join.
+    ///
+    /// This does not expose mutation or unrestricted cloning.  In particular,
+    /// source-discovery uses it once when binding a complete zero-offset
+    /// translation to the completed source barrier from which it must have
+    /// been derived.
+    pub(crate) fn source_relation(
+        &self,
+        ordinal: usize,
+    ) -> Option<&super::super::relation::ParametricRelation> {
+        self.relations.get(ordinal)
+    }
+
     /// Crate-test-only chronology mutant. Prepared-batch completion never
     /// permits this ordering in production.
     #[cfg(test)]

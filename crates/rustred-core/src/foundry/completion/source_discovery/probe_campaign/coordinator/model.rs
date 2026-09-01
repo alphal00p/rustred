@@ -1,26 +1,22 @@
-use std::num::NonZeroUsize;
-
-use crate::foundry::completion::source_discovery::CampaignModularProbe;
 use crate::foundry::completion::source_discovery::cover_delta::{
     ExactOwnerCoverSnapshot, ExactOwnerLedgerCoverStatus, ExactOwnerLedgerSnapshotIdentity,
 };
+use crate::foundry::completion::source_discovery::{CampaignLimits, CampaignModularProbe};
 
 use super::super::super::boundary_simplex::BoundarySimplexSamplingProfile;
 use super::{ProbeCoordinatorFailure, ProbeCoordinatorLimits};
 
-const CAMPAIGN_KEY: &str = "declared campaign-key bytes";
-const PROBES: &str = "declared task probes";
+const PROBES: &str = "fixed task-relative probes";
 
 /// Immutable semantics of one bounded boundary probe program.
 ///
-/// The caller-declared key must bind every external choice not stored here,
-/// notably the probe program, family/context/predecessor scope, sector, and
-/// ordering. It is an audit label, not a digest or authority token. Opaque
-/// ledger and planner identities remain the actual delayed-work authority.
+/// Probe templates are retained in exact scheduling order.  Family, source,
+/// predecessor, sector, ordering, and concrete-ledger scope are bound later by
+/// [`BoundaryProbeCoordinator::try_new`]; no caller-authored string stands in
+/// for those typed values.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ProbeCoordinatorConfig {
-    declared_campaign_key: Box<str>,
-    declared_probes_per_task: NonZeroUsize,
+    probes: Box<[TaskRelativeModularProbe]>,
     interior_margin: u64,
     polynomial_degree_ceiling: usize,
     limits: ProbeCoordinatorLimits,
@@ -28,59 +24,56 @@ pub(crate) struct ProbeCoordinatorConfig {
 
 impl ProbeCoordinatorConfig {
     pub(crate) fn try_new(
-        declared_campaign_key: &str,
-        declared_probes_per_task: NonZeroUsize,
+        probes: impl IntoIterator<Item = TaskRelativeModularProbe>,
         interior_margin: u64,
         polynomial_degree_ceiling: usize,
         limits: ProbeCoordinatorLimits,
     ) -> Result<Self, ProbeCoordinatorFailure> {
-        if declared_campaign_key.is_empty() {
-            return Err(ProbeCoordinatorFailure::EmptyDeclaredCampaignKey);
-        }
         if interior_margin == 0 {
             return Err(ProbeCoordinatorFailure::ZeroInteriorMargin);
         }
-        if declared_probes_per_task.get() > limits.max_probes_per_task {
-            return Err(ProbeCoordinatorFailure::ResourceLimit {
-                resource: PROBES,
-                requested: declared_probes_per_task.get(),
-                limit: limits.max_probes_per_task,
-            });
+        let mut retained = Vec::new();
+        for probe in probes {
+            let requested = retained
+                .len()
+                .checked_add(1)
+                .ok_or(ProbeCoordinatorFailure::ResourceCountOverflow { resource: PROBES })?;
+            if requested > limits.max_probes_per_task {
+                return Err(ProbeCoordinatorFailure::ResourceLimit {
+                    resource: PROBES,
+                    requested,
+                    limit: limits.max_probes_per_task,
+                });
+            }
+            retained
+                .try_reserve(1)
+                .map_err(|_| ProbeCoordinatorFailure::AllocationFailure {
+                    resource: PROBES,
+                    requested,
+                })?;
+            retained.push(probe);
         }
-        if declared_campaign_key.len() > limits.max_declared_campaign_key_bytes {
-            return Err(ProbeCoordinatorFailure::ResourceLimit {
-                resource: CAMPAIGN_KEY,
-                requested: declared_campaign_key.len(),
-                limit: limits.max_declared_campaign_key_bytes,
-            });
+        if retained.is_empty() {
+            return Err(ProbeCoordinatorFailure::EmptyProbeProgram);
         }
-        let mut retained = String::new();
-        retained
-            .try_reserve_exact(declared_campaign_key.len())
-            .map_err(|_| ProbeCoordinatorFailure::AllocationFailure {
-                resource: CAMPAIGN_KEY,
-                requested: declared_campaign_key.len(),
-            })?;
-        retained.push_str(declared_campaign_key);
         Ok(Self {
-            declared_campaign_key: retained.into_boxed_str(),
-            declared_probes_per_task,
+            probes: retained.into_boxed_slice(),
             interior_margin,
             polynomial_degree_ceiling,
             limits,
         })
     }
 
-    pub(crate) fn declared_campaign_key(&self) -> &str {
-        &self.declared_campaign_key
+    pub(crate) fn probes(&self) -> &[TaskRelativeModularProbe] {
+        &self.probes
     }
 
     pub(crate) const fn interior_margin(&self) -> u64 {
         self.interior_margin
     }
 
-    pub(crate) const fn declared_probes_per_task(&self) -> NonZeroUsize {
-        self.declared_probes_per_task
+    pub(crate) fn probes_per_task(&self) -> usize {
+        self.probes.len()
     }
 
     pub(crate) const fn polynomial_degree_ceiling(&self) -> usize {
@@ -92,63 +85,45 @@ impl ProbeCoordinatorConfig {
     }
 }
 
-/// Nonempty bounded probe program for one canonical task.
+/// One immutable modular sample relative to every canonical task target.
 ///
-/// Construction freezes the declared probe count before evaluation. The
-/// coordinator later requires the complete scheduler outcome census to have
-/// exactly this cardinality before any stable-program result can be upgraded
-/// to ExhaustedAtConfig.
+/// `chart_offsets` are nonnegative chart-space displacements.  A concrete
+/// `CampaignModularProbe` is materialized as `task.lattice_target + offset`,
+/// with checked `u64` arithmetic.  No topology name, loop count, sector, or
+/// family-specific dispatch enters this value.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ProbeCoordinatorProbeBatch {
-    probes: Box<[CampaignModularProbe]>,
+pub(crate) struct TaskRelativeModularProbe {
+    template: CampaignModularProbe,
 }
 
-impl ProbeCoordinatorProbeBatch {
+impl TaskRelativeModularProbe {
     pub(crate) fn try_new(
-        probes: impl IntoIterator<Item = CampaignModularProbe>,
-        config: &ProbeCoordinatorConfig,
+        modulus: u64,
+        base_parameters: impl IntoIterator<Item = i64>,
+        chart_offsets: impl IntoIterator<Item = u64>,
+        limits: CampaignLimits,
     ) -> Result<Self, ProbeCoordinatorFailure> {
-        let expected = config.declared_probes_per_task().get();
-        let mut retained = Vec::new();
-        retained.try_reserve_exact(expected).map_err(|_| {
-            ProbeCoordinatorFailure::AllocationFailure {
-                resource: PROBES,
-                requested: expected,
-            }
-        })?;
-        for probe in probes {
-            let requested = retained
-                .len()
-                .checked_add(1)
-                .ok_or(ProbeCoordinatorFailure::ResourceCountOverflow { resource: PROBES })?;
-            if requested > expected {
-                return Err(ProbeCoordinatorFailure::ProbeCountMismatch {
-                    expected,
-                    actual: requested,
-                });
-            }
-            retained.push(probe);
-        }
-        if retained.is_empty() {
-            return Err(ProbeCoordinatorFailure::EmptyProbeBatch);
-        }
-        if retained.len() != expected {
-            return Err(ProbeCoordinatorFailure::ProbeCountMismatch {
-                expected,
-                actual: retained.len(),
-            });
-        }
         Ok(Self {
-            probes: retained.into_boxed_slice(),
+            template: CampaignModularProbe::try_new(
+                modulus,
+                base_parameters,
+                chart_offsets,
+                limits,
+            )
+            .map_err(ProbeCoordinatorFailure::Probe)?,
         })
     }
 
-    pub(crate) const fn declared_count(&self) -> usize {
-        self.probes.len()
+    pub(crate) const fn modulus(&self) -> u64 {
+        self.template.modulus()
     }
 
-    pub(super) fn into_probes(self) -> impl Iterator<Item = CampaignModularProbe> {
-        self.probes.into_vec().into_iter()
+    pub(crate) fn base_parameters(&self) -> &[i64] {
+        self.template.base_parameters()
+    }
+
+    pub(crate) fn chart_offsets(&self) -> &[u64] {
+        self.template.chart_coordinates()
     }
 }
 
@@ -496,43 +471,44 @@ impl ProbeCoordinatorStop {
 /// Stateful aggregate budget and telemetry owner. During a call, live memory
 /// is O(partition + classes + largest materialized class plan + one evaluated
 /// task). It retains no completed report history and no task, plan, circuit,
-/// proposal, owner, or ledger identity between calls.
+/// proposal, or owner between calls. It deliberately retains the immutable
+/// adapter, fixed probe templates, and process-local nonce of its bound ledger.
 #[derive(Debug)]
-pub(crate) struct BoundaryProbeCoordinator {
+pub(crate) struct BoundaryProbeCoordinator<'inputs, 'sources, 'family> {
     pub(super) config: ProbeCoordinatorConfig,
+    pub(super) adapter: super::super::ProbeCampaignAdapter<'inputs, 'sources, 'family>,
+    pub(super) bound_ledger: ExactOwnerLedgerSnapshotIdentity,
+    pub(super) planner_scope_key: Box<str>,
     pub(super) census: ProbeCoordinatorCensus,
 }
 
-impl BoundaryProbeCoordinator {
-    pub(crate) const fn new(config: ProbeCoordinatorConfig) -> Self {
-        Self {
-            config,
-            census: ProbeCoordinatorCensus {
-                epochs_started: 0,
-                plans_built: 0,
-                classes_completed: 0,
-                task_reports: 0,
-                no_proposal: 0,
-                duplicate: 0,
-                incomplete_proposal: 0,
-                changed_without_geometric_shrink: 0,
-                strict_geometric_shrink: 0,
-                compiler_closed: 0,
-                invalidated_tickets: 0,
-                scheduler_budget_stops: 0,
-                scheduler_rejections: 0,
-                scheduler_stalls: 0,
-                scheduler_exact_lift_errors: 0,
-                canonical_replayed: 0,
-                canonical_no_modular_hit: 0,
-                canonical_query_rejections: 0,
-                canonical_support_did_not_lift: 0,
-                exact_obstructions: 0,
-                declared_probes: 0,
-                scheduler_replayed: 0,
-                scheduler_support_did_not_lift: 0,
-                scheduler_sampled_dual: 0,
-            },
+impl BoundaryProbeCoordinator<'_, '_, '_> {
+    pub(super) const fn empty_census() -> ProbeCoordinatorCensus {
+        ProbeCoordinatorCensus {
+            epochs_started: 0,
+            plans_built: 0,
+            classes_completed: 0,
+            task_reports: 0,
+            no_proposal: 0,
+            duplicate: 0,
+            incomplete_proposal: 0,
+            changed_without_geometric_shrink: 0,
+            strict_geometric_shrink: 0,
+            compiler_closed: 0,
+            invalidated_tickets: 0,
+            scheduler_budget_stops: 0,
+            scheduler_rejections: 0,
+            scheduler_stalls: 0,
+            scheduler_exact_lift_errors: 0,
+            canonical_replayed: 0,
+            canonical_no_modular_hit: 0,
+            canonical_query_rejections: 0,
+            canonical_support_did_not_lift: 0,
+            exact_obstructions: 0,
+            declared_probes: 0,
+            scheduler_replayed: 0,
+            scheduler_support_did_not_lift: 0,
+            scheduler_sampled_dual: 0,
         }
     }
 

@@ -8,7 +8,6 @@ use super::super::super::boundary_simplex::BoundarySimplexLimits;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ProbeCoordinatorLimits {
     pub(crate) boundary_plan: BoundarySimplexLimits,
-    pub(crate) max_declared_campaign_key_bytes: usize,
     pub(crate) max_present_dimensions: usize,
     pub(crate) max_classes_per_epoch: usize,
     pub(crate) max_epochs: usize,
@@ -21,7 +20,6 @@ impl Default for ProbeCoordinatorLimits {
     fn default() -> Self {
         Self {
             boundary_plan: BoundarySimplexLimits::default(),
-            max_declared_campaign_key_bytes: 1_048_576,
             max_present_dimensions: 4_097,
             max_classes_per_epoch: 8_396_801,
             max_epochs: 1_048_576,

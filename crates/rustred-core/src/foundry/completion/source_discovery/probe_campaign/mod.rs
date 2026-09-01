@@ -1,9 +1,9 @@
 //! One-task semantic adapter from frozen probe geometry to an exact owner-cover
 //! delta.
 //!
-//! The caller owns an immutable interior- or boundary-simplex plan, completed
-//! ordinary source module, zero-source incidence index, and canonical sector
-//! ledger. This module validates the task against its originating planner
+//! The direct one-task adapter consumes an immutable interior- or
+//! boundary-simplex plan, completed ordinary source module, and canonical
+//! sector ledger. This module validates the task against its originating planner
 //! epoch and exact parent box, derives a fresh maximal anchor, streams the
 //! scheduler result through exact replay, and transactionally submits any
 //! compiled owner to the ledger. Only an exact compiler `Closed` status is
@@ -24,8 +24,8 @@ pub(crate) use coordinator::{
     ProbeCoordinatorFailureStop, ProbeCoordinatorLimits, ProbeCoordinatorNeedsRefinement,
     ProbeCoordinatorNeedsRefinementReason, ProbeCoordinatorOperationalReason,
     ProbeCoordinatorOperationalStop, ProbeCoordinatorOwnerMutation,
-    ProbeCoordinatorOwnerSetChanged, ProbeCoordinatorProbeBatch, ProbeCoordinatorStop,
-    ProbeCoordinatorTaskLocation,
+    ProbeCoordinatorOwnerSetChanged, ProbeCoordinatorStop, ProbeCoordinatorTaskLocation,
+    TaskRelativeModularProbe,
 };
 pub(crate) use error::ProbeCampaignError;
 pub(crate) use limits::ProbeCampaignLimits;

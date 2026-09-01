@@ -2,6 +2,7 @@ use crate::foundry::completion::UncoveredPartition;
 use crate::foundry::completion::frame::admission::{
     ExactOwnerCoverObstructionKind, ExactOwnerCoverStatus,
 };
+use crate::foundry::completion::source_discovery::CampaignModularProbe;
 use crate::foundry::completion::source_discovery::boundary_simplex::{
     BoundarySimplexPlan, BoundarySimplexScopePartition, BoundarySimplexTask,
     try_plan_boundary_simplex_samples,
@@ -22,8 +23,8 @@ use super::{
     BoundaryProbeCoordinator, ProbeCoordinatorCensus, ProbeCoordinatorFailure,
     ProbeCoordinatorFailureStop, ProbeCoordinatorNeedsRefinement,
     ProbeCoordinatorNeedsRefinementReason, ProbeCoordinatorOperationalReason,
-    ProbeCoordinatorOperationalStop, ProbeCoordinatorOwnerSetChanged, ProbeCoordinatorProbeBatch,
-    ProbeCoordinatorStop, ProbeCoordinatorTaskLocation,
+    ProbeCoordinatorOperationalStop, ProbeCoordinatorOwnerSetChanged, ProbeCoordinatorStop,
+    ProbeCoordinatorTaskLocation,
 };
 
 const EPOCHS: &str = "epochs";
@@ -31,6 +32,10 @@ const PLANS: &str = "plans";
 const TASK_REPORTS: &str = "task reports";
 const INVALIDATED_TICKETS: &str = "invalidated tickets";
 const CENSUS: &str = "scalar census";
+const PROBES: &str = "fixed task-relative probes";
+const PROBE_COORDINATES: &str = "fixed task-relative probe coordinate cells";
+const PLANNER_SCOPE_KEY: &str = "internal planner scope key bytes";
+const PLANNER_SCOPE_PREFIX: &str = "rustred.boundary-probe-coordinator.scope.v1:";
 
 #[derive(Debug)]
 pub(super) enum ProbeCoordinatorDriveStop {
@@ -50,23 +55,46 @@ pub(super) enum ProbeCoordinatorDriveStop {
     },
 }
 
-impl BoundaryProbeCoordinator {
+impl<'inputs, 'sources, 'family> BoundaryProbeCoordinator<'inputs, 'sources, 'family> {
+    /// Bind one fixed probe program, semantic adapter, and concrete exact
+    /// ledger authority. The retained snapshot identity contributes only its
+    /// process-local ledger nonce; later revisions of that same ledger remain
+    /// valid replanning epochs.
+    pub(crate) fn try_new(
+        config: super::ProbeCoordinatorConfig,
+        adapter: ProbeCampaignAdapter<'inputs, 'sources, 'family>,
+        ledger: &CanonicalExactOwnerLedger,
+    ) -> Result<Self, ProbeCoordinatorFailure> {
+        adapter.validate_ledger_scope(ledger)?;
+        validate_probe_program(&config, &adapter)?;
+        let planner_scope_key = try_build_planner_scope_key(&config, ledger)?;
+        Ok(Self {
+            config,
+            adapter,
+            bound_ledger: ledger.snapshot_identity(),
+            planner_scope_key,
+            census: Self::empty_census(),
+        })
+    }
+
     /// Run one immutable ledger epoch in canonical order.
     ///
     /// A changed owner set ends this call immediately. No plan or ticket is
     /// retained; calling this method again necessarily clones the new exact
     /// partition and creates fresh opaque planner identities.
-    pub(crate) fn try_run_boundary_epoch<F>(
+    pub(crate) fn try_run_boundary_epoch(
         &mut self,
-        adapter: &ProbeCampaignAdapter<'_, '_, '_>,
         ledger: &mut CanonicalExactOwnerLedger,
-        probes_for_task: &mut F,
-    ) -> ProbeCoordinatorStop
-    where
-        F: FnMut(
-            &BoundarySimplexTask,
-        ) -> Result<ProbeCoordinatorProbeBatch, ProbeCoordinatorFailure>,
-    {
+    ) -> ProbeCoordinatorStop {
+        if !self
+            .bound_ledger
+            .same_ledger_as(&ledger.snapshot_identity())
+        {
+            return failed_public(
+                self.census,
+                crate::foundry::completion::source_discovery::cover_delta::ExactOwnerCoverDeltaError::ForeignLedgerSnapshotIdentity.into(),
+            );
+        }
         let initial = ledger.snapshot();
         if initial.status().is_compiler_closed() {
             let ledger_snapshot = ledger.snapshot_identity();
@@ -89,10 +117,16 @@ impl BoundaryProbeCoordinator {
         let snapshot_identity = ledger.snapshot_identity();
         let sector = ledger.sector().clone();
         let revision = initial.revision().get();
-        let expected_probes_per_task = self.config.declared_probes_per_task().get();
+        let expected_probes_per_task = self.config.probes_per_task();
+
+        let config = &self.config;
+        let adapter = &self.adapter;
+        let planner_scope_key = self.planner_scope_key.as_ref();
 
         let drive = try_drive_partition(
-            self,
+            config,
+            planner_scope_key,
+            &mut self.census,
             revision,
             &sector,
             &partition,
@@ -100,15 +134,8 @@ impl BoundaryProbeCoordinator {
                 ledger.try_require_current_snapshot(&snapshot_identity)?;
                 let before = ledger.snapshot();
                 let binding = adapter.try_bind_task(plan, task, ledger)?;
-                let probes = probes_for_task(task)?;
-                let declared_probe_count = probes.declared_count();
-                if declared_probe_count != expected_probes_per_task {
-                    return Err(ProbeCoordinatorFailure::ProbeCountMismatch {
-                        expected: expected_probes_per_task,
-                        actual: declared_probe_count,
-                    });
-                }
-                let evaluated = adapter.try_evaluate_task(binding, ledger, probes.into_probes())?;
+                let probes = try_materialize_probes(config, adapter, task)?;
+                let evaluated = adapter.try_evaluate_task(binding, ledger, probes)?;
                 // Every fallible replay/census join and every possible scalar
                 // counter update is checked while the exact ledger is still
                 // immutable. Serial application below is the transaction's
@@ -119,9 +146,9 @@ impl BoundaryProbeCoordinator {
                     requested_report,
                     invalidated_tickets,
                 )?;
-                if reservation.declared_probes() != declared_probe_count {
+                if reservation.declared_probes() != expected_probes_per_task {
                     return Err(ProbeCoordinatorFailure::Invariant {
-                        detail: "scheduler outcome total differed from declared task probes",
+                        detail: "scheduler outcome total differed from the fixed task probes",
                     });
                 }
                 let report = adapter.try_apply_evaluated_task(evaluated, ledger)?;
@@ -136,8 +163,171 @@ impl BoundaryProbeCoordinator {
     }
 }
 
+fn validate_probe_program(
+    config: &super::ProbeCoordinatorConfig,
+    adapter: &ProbeCampaignAdapter<'_, '_, '_>,
+) -> Result<(), ProbeCoordinatorFailure> {
+    let scheduler = adapter.limits().replay.scheduler;
+    let probe_count = config.probes_per_task();
+    for (resource, limit) in [
+        (PROBES, scheduler.max_probes),
+        (
+            "retained fixed probe outcomes",
+            scheduler.max_retained_outcomes,
+        ),
+    ] {
+        if probe_count > limit {
+            return Err(ProbeCoordinatorFailure::ResourceLimit {
+                resource,
+                requested: probe_count,
+                limit,
+            });
+        }
+    }
+
+    let expected_base = adapter.probe_base_parameter_count();
+    let expected_chart = adapter.probe_chart_arity();
+    let mut coordinate_cells = 0usize;
+    for (probe_ordinal, probe) in config.probes().iter().enumerate() {
+        if probe.base_parameters().len() != expected_base {
+            return Err(ProbeCoordinatorFailure::WrongProbeBaseParameterArity {
+                probe_ordinal,
+                expected: expected_base,
+                actual: probe.base_parameters().len(),
+            });
+        }
+        if probe.chart_offsets().len() != expected_chart {
+            return Err(ProbeCoordinatorFailure::WrongProbeChartOffsetArity {
+                probe_ordinal,
+                expected: expected_chart,
+                actual: probe.chart_offsets().len(),
+            });
+        }
+        let probe_cells = probe
+            .base_parameters()
+            .len()
+            .checked_add(probe.chart_offsets().len())
+            .ok_or(ProbeCoordinatorFailure::ResourceCountOverflow {
+                resource: PROBE_COORDINATES,
+            })?;
+        if probe_cells > scheduler.campaign.max_retained_probe_coordinates {
+            return Err(ProbeCoordinatorFailure::ResourceLimit {
+                resource: PROBE_COORDINATES,
+                requested: probe_cells,
+                limit: scheduler.campaign.max_retained_probe_coordinates,
+            });
+        }
+        coordinate_cells = coordinate_cells.checked_add(probe_cells).ok_or(
+            ProbeCoordinatorFailure::ResourceCountOverflow {
+                resource: PROBE_COORDINATES,
+            },
+        )?;
+    }
+    if coordinate_cells > scheduler.max_retained_probe_coordinate_cells {
+        return Err(ProbeCoordinatorFailure::ResourceLimit {
+            resource: PROBE_COORDINATES,
+            requested: coordinate_cells,
+            limit: scheduler.max_retained_probe_coordinate_cells,
+        });
+    }
+    Ok(())
+}
+
+fn try_build_planner_scope_key(
+    config: &super::ProbeCoordinatorConfig,
+    ledger: &CanonicalExactOwnerLedger,
+) -> Result<Box<str>, ProbeCoordinatorFailure> {
+    let predecessor = ledger.predecessor_snapshot().id().as_str();
+    let ordering = ledger.ordering().stable_id();
+    let predecessor_length = predecessor.len().to_string();
+    let ordering_length = ordering.len().to_string();
+    let pieces = [
+        PLANNER_SCOPE_PREFIX,
+        predecessor_length.as_str(),
+        "#",
+        predecessor,
+        ":",
+        ordering_length.as_str(),
+        "#",
+        ordering,
+    ];
+    let mut requested = 0usize;
+    for piece in pieces {
+        requested = requested.checked_add(piece.len()).ok_or(
+            ProbeCoordinatorFailure::ResourceCountOverflow {
+                resource: PLANNER_SCOPE_KEY,
+            },
+        )?;
+    }
+    let limit = config.limits().boundary_plan.max_aggregate_scope_key_bytes;
+    if requested > limit {
+        return Err(ProbeCoordinatorFailure::ResourceLimit {
+            resource: PLANNER_SCOPE_KEY,
+            requested,
+            limit,
+        });
+    }
+    let mut key = String::new();
+    key.try_reserve_exact(requested)
+        .map_err(|_| ProbeCoordinatorFailure::AllocationFailure {
+            resource: PLANNER_SCOPE_KEY,
+            requested,
+        })?;
+    for piece in pieces {
+        key.push_str(piece);
+    }
+    debug_assert_eq!(key.len(), requested);
+    Ok(key.into_boxed_str())
+}
+
+fn try_materialize_probes(
+    config: &super::ProbeCoordinatorConfig,
+    adapter: &ProbeCampaignAdapter<'_, '_, '_>,
+    task: &BoundarySimplexTask,
+) -> Result<Vec<CampaignModularProbe>, ProbeCoordinatorFailure> {
+    let probe_count = config.probes_per_task();
+    let mut probes = Vec::new();
+    probes.try_reserve_exact(probe_count).map_err(|_| {
+        ProbeCoordinatorFailure::AllocationFailure {
+            resource: PROBES,
+            requested: probe_count,
+        }
+    })?;
+    for (probe_ordinal, template) in config.probes().iter().enumerate() {
+        let mut chart_coordinates = Vec::new();
+        chart_coordinates
+            .try_reserve_exact(task.lattice_target().len())
+            .map_err(|_| ProbeCoordinatorFailure::AllocationFailure {
+                resource: PROBE_COORDINATES,
+                requested: task.lattice_target().len(),
+            })?;
+        for (coordinate, (&target, &offset)) in task
+            .lattice_target()
+            .iter()
+            .zip(template.chart_offsets())
+            .enumerate()
+        {
+            chart_coordinates.push(target.checked_add(offset).ok_or(
+                ProbeCoordinatorFailure::ProbeChartCoordinateOverflow {
+                    probe_ordinal,
+                    coordinate,
+                },
+            )?);
+        }
+        probes.push(CampaignModularProbe::try_new(
+            template.modulus(),
+            template.base_parameters().iter().copied(),
+            chart_coordinates,
+            adapter.limits().replay.scheduler.campaign,
+        )?);
+    }
+    Ok(probes)
+}
+
 pub(super) fn try_drive_partition<F>(
-    coordinator: &mut BoundaryProbeCoordinator,
+    config: &super::ProbeCoordinatorConfig,
+    planner_scope_key: &str,
+    census: &mut ProbeCoordinatorCensus,
     ledger_revision: u64,
     sector: &Mask,
     partition: &UncoveredPartition,
@@ -152,19 +342,19 @@ where
         usize,
     ) -> Result<CompactTaskCommit, ProbeCoordinatorFailure>,
 {
-    let limits = coordinator.config.limits();
-    let requested_epoch = match coordinator.census.epochs_started.checked_add(1) {
+    let limits = config.limits();
+    let requested_epoch = match census.epochs_started.checked_add(1) {
         Some(requested) => requested,
         None => {
             return failed(
-                coordinator.census,
+                *census,
                 ProbeCoordinatorFailure::ResourceCountOverflow { resource: EPOCHS },
             );
         }
     };
     if requested_epoch > limits.max_epochs {
         return operationally_bounded(
-            coordinator.census,
+            *census,
             None,
             ProbeCoordinatorOperationalReason::EpochLimit {
                 requested: requested_epoch,
@@ -173,26 +363,26 @@ where
         );
     }
 
-    let schedule = match try_build_class_schedule(partition, sector.arity(), &coordinator.config) {
+    let schedule = match try_build_class_schedule(partition, sector.arity(), config) {
         Ok(schedule) => schedule,
-        Err(error) => return failed(coordinator.census, error),
+        Err(error) => return failed(*census, error),
     };
-    coordinator.census.epochs_started = requested_epoch;
+    census.epochs_started = requested_epoch;
     let mut epoch_completed_tasks = 0usize;
 
     for class in schedule.classes() {
-        let requested_plan = match coordinator.census.plans_built.checked_add(1) {
+        let requested_plan = match census.plans_built.checked_add(1) {
             Some(requested) => requested,
             None => {
                 return failed(
-                    coordinator.census,
+                    *census,
                     ProbeCoordinatorFailure::ResourceCountOverflow { resource: PLANS },
                 );
             }
         };
         if requested_plan > limits.max_plans {
             return operationally_bounded(
-                coordinator.census,
+                *census,
                 None,
                 ProbeCoordinatorOperationalReason::PlanLimit {
                     requested: requested_plan,
@@ -203,7 +393,7 @@ where
         let plan = match try_plan_boundary_simplex_samples(
             ledger_revision,
             [BoundarySimplexScopePartition::new(
-                coordinator.config.declared_campaign_key(),
+                planner_scope_key,
                 sector,
                 partition,
             )],
@@ -213,7 +403,7 @@ where
             limits.boundary_plan,
         ) {
             Ok(plan) => plan,
-            Err(error) => return failed(coordinator.census, error.into()),
+            Err(error) => return failed(*census, error.into()),
         };
         if plan.parent_free_dimension() != class.parent_free_dimension()
             || plan.face_dimension() != class.effective_dimension()
@@ -221,13 +411,13 @@ where
             || plan.profile() != class.profile()
         {
             return failed(
-                coordinator.census,
+                *census,
                 ProbeCoordinatorFailure::Invariant {
                     detail: "boundary plan changed its canonical class semantics",
                 },
             );
         }
-        coordinator.census.plans_built = requested_plan;
+        census.plans_built = requested_plan;
 
         for task in plan.tasks() {
             let location = ProbeCoordinatorTaskLocation {
@@ -238,11 +428,11 @@ where
                 boundary_codimension: class.boundary_codimension(),
                 task_ordinal: task.canonical_ordinal(),
             };
-            let requested_report = match coordinator.census.task_reports.checked_add(1) {
+            let requested_report = match census.task_reports.checked_add(1) {
                 Some(requested) => requested,
                 None => {
                     return failed(
-                        coordinator.census,
+                        *census,
                         ProbeCoordinatorFailure::ResourceCountOverflow {
                             resource: TASK_REPORTS,
                         },
@@ -251,7 +441,7 @@ where
             };
             if requested_report > limits.max_task_reports {
                 return operationally_bounded(
-                    coordinator.census,
+                    *census,
                     Some(location),
                     ProbeCoordinatorOperationalReason::TaskReportLimit {
                         requested: requested_report,
@@ -263,7 +453,7 @@ where
                 Some(requested) => requested,
                 None => {
                     return failed(
-                        coordinator.census,
+                        *census,
                         ProbeCoordinatorFailure::ResourceCountOverflow {
                             resource: TASK_REPORTS,
                         },
@@ -278,7 +468,7 @@ where
                 Some(ordinal) => ordinal,
                 None => {
                     return failed(
-                        coordinator.census,
+                        *census,
                         ProbeCoordinatorFailure::ResourceCountOverflow {
                             resource: INVALIDATED_TICKETS,
                         },
@@ -289,7 +479,7 @@ where
                 Some(count) => count,
                 None => {
                     return failed(
-                        coordinator.census,
+                        *census,
                         ProbeCoordinatorFailure::Invariant {
                             detail: "canonical task ordinal exceeded its owning plan",
                         },
@@ -297,17 +487,12 @@ where
                 }
             };
 
-            let commit = match execute(
-                &plan,
-                task,
-                coordinator.census,
-                requested_report,
-                invalidated_tickets,
-            ) {
+            let commit = match execute(&plan, task, *census, requested_report, invalidated_tickets)
+            {
                 Ok(commit) => commit,
-                Err(error) => return failed(coordinator.census, error),
+                Err(error) => return failed(*census, error),
             };
-            coordinator.census = commit.census;
+            *census = commit.census;
             let compact = commit.compact;
             epoch_completed_tasks = requested_epoch_completed;
 
@@ -317,10 +502,10 @@ where
                     | CompactTaskAction::CompilerClosed { .. }
             ) {
                 if let Some(reason) = operational_reason(compact) {
-                    return operationally_bounded(coordinator.census, Some(location), reason);
+                    return operationally_bounded(*census, Some(location), reason);
                 }
                 if let Some(reason) = search_refinement_reason(compact) {
-                    return needs_refinement(coordinator.census, Some(location), reason);
+                    return needs_refinement(*census, Some(location), reason);
                 }
             }
 
@@ -328,7 +513,7 @@ where
                 CompactTaskAction::NoProposal | CompactTaskAction::Duplicate => {
                     if compact.evidence.exact_obstructions != 0 {
                         return needs_refinement(
-                            coordinator.census,
+                            *census,
                             Some(location),
                             ProbeCoordinatorNeedsRefinementReason::DiagnosticExactObstructions {
                                 count: compact.evidence.exact_obstructions,
@@ -338,7 +523,7 @@ where
                 }
                 CompactTaskAction::IncompleteProposal => {
                     return needs_refinement(
-                        coordinator.census,
+                        *census,
                         Some(location),
                         ProbeCoordinatorNeedsRefinementReason::IncompleteProposal {
                             exact_obstructions: compact.evidence.exact_obstructions,
@@ -352,7 +537,7 @@ where
                 } => {
                     return ProbeCoordinatorDriveStop::OwnerSetChanged(
                         ProbeCoordinatorOwnerSetChanged {
-                            census: coordinator.census,
+                            census: *census,
                             location,
                             mutation,
                             before_revision,
@@ -363,19 +548,19 @@ where
                 }
                 CompactTaskAction::CompilerClosed { exact } => {
                     return ProbeCoordinatorDriveStop::CompilerClosed {
-                        census: coordinator.census,
+                        census: *census,
                         exact,
                     };
                 }
             }
         }
-        if let Err(error) = try_increment(&mut coordinator.census.classes_completed, CENSUS) {
-            return failed(coordinator.census, error);
+        if let Err(error) = try_increment(&mut census.classes_completed, CENSUS) {
+            return failed(*census, error);
         }
     }
 
     ProbeCoordinatorDriveStop::StableProgramCompleted {
-        census: coordinator.census,
+        census: *census,
         ledger_revision,
         completed_classes: schedule.classes().len(),
         completed_tasks: epoch_completed_tasks,

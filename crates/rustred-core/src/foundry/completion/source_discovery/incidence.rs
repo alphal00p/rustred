@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use crate::identity::{IndexShift, TranslatedSource, TranslatedSourceBatch};
+use crate::identity::{
+    CompletedIbpSourceRows, IndexShift, TranslatedSource, TranslatedSourceBatch,
+};
 
 use super::nominate::{check_limit, checked_add, try_vec};
 use super::{SourceDiscoveryError, SourceDiscoveryLimits};
@@ -135,6 +137,30 @@ impl<'sources> OrdinarySourceIncidenceIndex<'sources> {
 
     pub(crate) const fn distinct_shift_count(&self) -> usize {
         self.distinct_shift_count
+    }
+
+    /// Require this exact zero-offset translation to replay one completed
+    /// ordinary source barrier row for row.
+    ///
+    /// Both inputs are already sealed.  This cold, allocation-free equality
+    /// join prevents a same-scope, same-cardinality translation of a different
+    /// completed chronology from being paired with the campaign adapter.  No
+    /// digest is introduced and the scan is never repeated in the task path.
+    pub(crate) fn exactly_replays_completed(&self, completed: &CompletedIbpSourceRows) -> bool {
+        completed.is_complete_ordinary()
+            && self.source_count() == completed.source_row_count()
+            && self
+                .sources()
+                .iter()
+                .enumerate()
+                .all(|(ordinal, translated)| {
+                    let Some(source) = completed.source_relation(ordinal) else {
+                        return false;
+                    };
+                    translated.row_id() == source.row_id()
+                        && translated.terms() == source.terms()
+                        && translated.nonzero_conditions() == source.nonzero_conditions()
+                })
     }
 
     /// Reapply a caller's current resource policy before this previously
