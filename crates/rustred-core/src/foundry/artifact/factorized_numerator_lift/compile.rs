@@ -157,7 +157,6 @@ pub(crate) fn compile_factorized_numerator_lift(
                     routing,
                     affine_source: source,
                     branch_width,
-                    identity: Arc::new(()),
                 },
             ))
         }
@@ -249,6 +248,7 @@ fn compile_gauge(
     let unit_image_count = unit_images.iter().filter(|image| image.is_some()).count();
     Ok(GaugeCandidate {
         routing: CompiledFactorizationRouting {
+            identity: Arc::new(()),
             family_fingerprint: family.fingerprint_owner(),
             application_domain,
             signed_loop_basis,

@@ -272,10 +272,34 @@ The topology-neutral, Symbolica-backed cold compiler for that
 factorized-numerator lift is now independently audited. It binds installed
 factorization rules to their exact family, derives pure routed-key or
 constant-width auxiliary actions for all three installed K6 factorization
-classes, and explicitly proves only auxiliary descent. Until those actions are
-installed as exact owners and the resulting complete wave has zero uncovered
-branches, they grant no K6 artifact, terminal, or Vakint three-loop parity
-claim.
+classes, and explicitly proves only auxiliary descent. A separate cold,
+non-owning expansion service now delegates finite affine powers to Symbolica's
+native sparse-polynomial implementation and exactly coalesces the resulting
+ordinary keys. It materializes the two persistent path representatives into
+28 and 210 deterministic endpoints and replays the one-factor recurrence
+exactly for both the path and `K3 x K1` charts. Endpoint payload,
+canonicalization-orbit work, exact-coefficient policy, full `i64` shifts, and
+compiled-routing provenance are all admitted explicitly. This service still
+creates no `RuleCell`, owner, terminal, artifact, persistence payload, or
+reducer dispatch. Its current auditable native-power boundary accepts only
+parameter-independent affine coefficients; parameter-dependent coefficients
+remain a typed unsupported case until their native coefficient-term work and
+output can be pre-admitted exactly.
+
+Independent follow-up audits identified a stronger cycle-free consumer than
+installing those endpoints as raw parent-family actions. The path and star
+factorizations are both `K1^3`; a radial-preserving product-angular owner can
+reduce their complete dot/numerator domains directly to their single installed
+product master. The `K3 x K1` chart can peel only its independent one-loop
+block, reduce the retained scalar polynomial through the closed `K3` and `K1`
+dependencies, and terminate in at most its two installed parent-master
+embeddings. The next bounded prototype must use the installer-authenticated
+block basis, retain radial powers, intersect every dependency root domain,
+carry the indexed `d+R-2 != 0` guard family, and reject products with multiple
+correlated multi-loop blocks. It is scalar factorization logic over typed
+integral keys, not the frozen general tensor-reduction project. Until that
+prototype and the remaining ordinary sector waves pass exact coverage, none
+of these actions grants a K6 artifact or Vakint three-loop parity claim.
 
 On the Vakint side, the shared multimethod harness now exercises 21 applicable
 historical tests comprising 27 concrete inputs through two loops, including
@@ -1034,4 +1058,6 @@ into Stage 2.
 - [Six-loop execution runbook](docs/research/six_loop_execution_runbook_2026.md)
 - [Dual-obstruction source-discovery proposal](docs/research/dual_obstruction_source_discovery_2026.md)
 - [Vakint K6 oracle and terminal-budget audit](docs/research/vakint_k6_oracle.md)
+- [Audited factorized product-angular owner design](docs/research/factorized_product_angular_owner_2026.md)
+- [Audited K6 boundary-walk observations](docs/research/k6_boundary_walk_2026.md)
 - [Current CLI contract](docs/CLI.md)

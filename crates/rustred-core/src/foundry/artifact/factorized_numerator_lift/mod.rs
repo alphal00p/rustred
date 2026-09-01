@@ -8,16 +8,18 @@
 
 mod compile;
 mod error;
+mod expand;
 mod limits;
 mod model;
 mod recurrence;
 
 pub(crate) use compile::compile_factorized_numerator_lift;
 pub(crate) use error::FactorizedNumeratorLiftError;
-pub(crate) use limits::FactorizedNumeratorLiftLimits;
+pub(crate) use limits::{FactorizedNumeratorLiftExpansionLimits, FactorizedNumeratorLiftLimits};
 pub(crate) use model::{
     CompiledFactorizationRouting, FactorizedNumeratorLiftAction,
-    FactorizedNumeratorLiftCompilation, FactorizedNumeratorLiftStart,
+    FactorizedNumeratorLiftCompilation, FactorizedNumeratorLiftEndpoint,
+    FactorizedNumeratorLiftExpansion, FactorizedNumeratorLiftStart,
     FactorizedNumeratorLiftUnsupportedReason, RoutedAffineDenominator,
 };
 

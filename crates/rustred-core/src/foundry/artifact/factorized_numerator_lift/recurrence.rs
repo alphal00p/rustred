@@ -104,7 +104,7 @@ impl FactorizedNumeratorLiftAction {
         }
         Ok(FactorizedNumeratorLiftStart::Auxiliary(
             FactorizedNumeratorLiftState {
-                identity: self.identity.clone(),
+                identity: self.routing.identity.clone(),
                 remaining_power: affine_power.unsigned_abs(),
                 routed_powers: self.routing.try_route_unit_images(powers)?,
             },
@@ -118,7 +118,7 @@ impl FactorizedNumeratorLiftAction {
         &self,
         state: &FactorizedNumeratorLiftState,
     ) -> Result<Box<[FactorizedNumeratorLiftChild]>, FactorizedNumeratorLiftError> {
-        if !Arc::ptr_eq(&self.identity, &state.identity) {
+        if !Arc::ptr_eq(&self.routing.identity, &state.identity) {
             return Err(FactorizedNumeratorLiftError::ForeignAuxiliaryState);
         }
         let remaining_power = state
@@ -143,7 +143,7 @@ impl FactorizedNumeratorLiftAction {
             children.push(FactorizedNumeratorLiftChild {
                 coefficient: relation.constant.clone(),
                 state: FactorizedNumeratorLiftState {
-                    identity: self.identity.clone(),
+                    identity: self.routing.identity.clone(),
                     remaining_power,
                     routed_powers: try_clone_routed_powers(&state.routed_powers)?,
                 },
@@ -163,7 +163,7 @@ impl FactorizedNumeratorLiftAction {
             children.push(FactorizedNumeratorLiftChild {
                 coefficient: coefficient.clone(),
                 state: FactorizedNumeratorLiftState {
-                    identity: self.identity.clone(),
+                    identity: self.routing.identity.clone(),
                     remaining_power,
                     routed_powers,
                 },

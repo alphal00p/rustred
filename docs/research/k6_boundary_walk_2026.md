@@ -266,3 +266,65 @@ the family and authenticated unimodular factorization basis. That action
 language is the next gate; richer source neighborhoods must not be inferred
 merely from the operational stop. No oracle rule or coefficient enters
 RustRed publication authority.
+
+## Complete-family and factorized-chart follow-up
+
+Vakint's five registered three-loop matcher roots are useful routing and
+acceptance fixtures, but they are not a complete denominator-sector manifest.
+They cover 34 of the 38 raw full-rank masks. The four omitted masks form the
+star orbit represented by `[0,0,1,1,0,1]`. RustRed therefore plans from the
+maximal K4 root's complete 64-mask physical contraction downset and its eleven
+authenticated `S4` orbits. Supplying the five matcher roots separately would
+change campaign seeds, not the nine ordinary three-loop IBP identities, and
+declaring their arbitrary-power classes to be terminals would only rename an
+infinite unsolved family.
+
+The production factorization-routing compiler now has a cold, non-owning
+endpoint expansion boundary. It uses Symbolica's native exact sparse
+polynomial power, not a RustRed multinomial CAS, and returns deterministic,
+exactly coalesced `(IntegralKey, Coefficient)` endpoints. The two surviving
+path representatives expand to 28 and 210 raw endpoints. Exact recurrence
+replay, K3-times-K1 coverage, large-rank width-one behavior, power-shift
+underflow, retained endpoint bytes, aggregate symmetry-orbit work, strict
+coefficient policy, and route capability identity are regression-pinned. The
+boundary currently admits only parameter-independent affine coefficients;
+parameter-dependent coefficient powers are rejected before native expansion
+until their coefficient-term work has its own exact admission proof. It
+remains deliberately incapable of producing an artifact owner.
+
+A separately audited next experiment avoids feeding those endpoints back into
+the parent reducer. Both three-line path and star charts are authenticated
+products of three one-loop radial blocks. Sequential isotropic integration of
+those blocks can retain radial powers and reduce the complete scalar
+dot/numerator sector to the one installed `K1^3` master. Likewise, the
+`K3 x K1` chart can peel only the independent one-loop block and pass the
+resulting scalar polynomial to the immutable K3 and K1 reducers, producing at
+most the two existing parent-master embeddings. Since no parent-family key is
+re-entered, this design has no star-routing cycle.
+
+The old bounded corner oracle is not this owner. Its `q_i^2 = 1` replacement
+is valid only for undotted tadpole corners. For example, with `D=q^2-1`, exact
+one-loop reduction gives `integral(q^2/D^2) = (d/2) integral(1/D)`, whereas the
+corner shortcut gives `((d-2)/2) integral(1/D)`. The prototype must therefore
+retain every radial power, use the lower artifacts for its exact reduction,
+and carry an indexed generic-dimension guard `d+R-2 != 0` at even angular rank
+`R`.
+
+Before any ownership claim, the prototype must also:
+
+- use the original installer-authenticated factor block map, or reauthenticate
+  a selected signed routing gauge against the dependency coordinates;
+- compile its domain as the exact preimage of every dependency root box,
+  including radial-shift headroom and checked `i64` endpoints;
+- use iterative, explicitly bounded angular dynamic programming and Symbolica
+  exact integers/polynomials for multiplicities and affine expansion;
+- support only products whose factors are all one-loop radial blocks except
+  for at most one correlated multi-loop block; and
+- return a typed unsupported disposition for cross-coupled products of two or
+  more correlated multi-loop blocks, which belong to the deferred tensor
+  project.
+
+Passing this experiment will close the factorized bottom wave, not the whole
+K6 family. Four-, five-, and six-line irreducible waves must still close under
+ordinary/translated source discovery with the new immutable lower feedback,
+and artifact publication still requires zero uncovered branches everywhere.

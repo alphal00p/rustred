@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use crate::algebra::Coefficient;
+use crate::family::IntegralKey;
 use crate::sector::SectorInteriorDomain;
 
 use super::error::FactorizedNumeratorLiftError;
@@ -42,6 +43,10 @@ impl CanonicalDenominatorRelation {
 /// Exact routing proof retained after deterministic row-sign gauge selection.
 #[derive(Debug)]
 pub(crate) struct CompiledFactorizationRouting {
+    /// Process-local capability shared by every state and cold expansion
+    /// derived from this exact compilation.  Value-equal independent
+    /// compilations deliberately receive distinct capabilities.
+    pub(super) identity: Arc<()>,
     pub(super) family_fingerprint: Arc<String>,
     pub(super) application_domain: SectorInteriorDomain,
     pub(super) signed_loop_basis: Box<[i64]>,
@@ -121,7 +126,6 @@ pub(crate) struct FactorizedNumeratorLiftAction {
     pub(super) routing: CompiledFactorizationRouting,
     pub(super) affine_source: usize,
     pub(super) branch_width: usize,
-    pub(super) identity: Arc<()>,
 }
 
 impl FactorizedNumeratorLiftAction {
@@ -206,5 +210,73 @@ impl FactorizedNumeratorLiftChild {
 
     pub(crate) fn state(&self) -> &FactorizedNumeratorLiftState {
         &self.state
+    }
+}
+
+/// One exact endpoint of a cold factorized-numerator identity.
+///
+/// This value carries no owner, closure, or reducer-dispatch semantics.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FactorizedNumeratorLiftEndpoint {
+    pub(super) key: IntegralKey,
+    pub(super) coefficient: Coefficient,
+}
+
+impl FactorizedNumeratorLiftEndpoint {
+    pub(crate) fn key(&self) -> &IntegralKey {
+        &self.key
+    }
+
+    pub(crate) fn coefficient(&self) -> &Coefficient {
+        &self.coefficient
+    }
+}
+
+/// Deterministically sorted, exactly coalesced endpoints of one cold identity.
+///
+/// The compiled routing capability and original source are retained so later
+/// foundry experiments cannot accidentally combine an expansion with another
+/// independently compiled route or affine action.  There is deliberately no
+/// conversion from this value to a rule cell or an owner.
+#[derive(Clone, Debug)]
+pub(crate) struct FactorizedNumeratorLiftExpansion {
+    pub(super) family_fingerprint: Arc<String>,
+    pub(super) routing_identity: Arc<()>,
+    pub(super) source: IntegralKey,
+    pub(super) endpoints: Box<[FactorizedNumeratorLiftEndpoint]>,
+}
+
+impl PartialEq for FactorizedNumeratorLiftExpansion {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.routing_identity, &other.routing_identity)
+            && self.family_fingerprint == other.family_fingerprint
+            && self.source == other.source
+            && self.endpoints == other.endpoints
+    }
+}
+
+impl Eq for FactorizedNumeratorLiftExpansion {}
+
+impl FactorizedNumeratorLiftExpansion {
+    pub(crate) fn family_fingerprint(&self) -> &str {
+        self.family_fingerprint.as_str()
+    }
+
+    pub(crate) fn source(&self) -> &IntegralKey {
+        &self.source
+    }
+
+    pub(crate) fn endpoints(&self) -> &[FactorizedNumeratorLiftEndpoint] {
+        &self.endpoints
+    }
+
+    pub(crate) fn belongs_to_action(&self, action: &FactorizedNumeratorLiftAction) -> bool {
+        self.family_fingerprint() == action.routing.family_fingerprint()
+            && Arc::ptr_eq(&self.routing_identity, &action.routing.identity)
+    }
+
+    pub(crate) fn belongs_to_routing(&self, routing: &CompiledFactorizationRouting) -> bool {
+        self.family_fingerprint() == routing.family_fingerprint()
+            && Arc::ptr_eq(&self.routing_identity, &routing.identity)
     }
 }
