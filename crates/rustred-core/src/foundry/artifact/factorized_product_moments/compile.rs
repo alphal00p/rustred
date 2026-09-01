@@ -1,4 +1,4 @@
-//! Structural compilation of one authenticated `K_1^N` product chart.
+//! Structural compilation of one authenticated closed-block product chart.
 
 use std::sync::Arc;
 
@@ -12,7 +12,9 @@ use super::super::factorized_numerator_lift::{
 };
 use super::error::FactorizedProductMomentError;
 use super::limits::FactorizedProductMomentLimits;
-use super::model::FactorizedProductMomentChart;
+use super::model::{
+    CorrelatedProductBlock, FactorizedProductMomentChart, ProductBlockLayout, SingletonProductBlock,
+};
 use super::resources::{admit_output_key_payload, constant_integer_magnitude_bits};
 
 pub(crate) fn compile_factorized_product_moment_chart(
@@ -47,91 +49,126 @@ pub(crate) fn compile_factorized_product_moment_chart(
     }
 
     let loop_count = family.loop_count();
-    if rule.factors().len() != loop_count {
-        return Err(FactorizedProductMomentError::UnsupportedFactorCount {
-            expected: loop_count,
-            actual: rule.factors().len(),
-        });
-    }
-    prove_signed_singleton_block_equivalence(
+    let row_signs = prove_signed_block_equivalence(
         rule.loop_basis().row_major(),
         routing.signed_loop_basis(),
         loop_count,
     )?;
 
     let active = rule.application_domain().sector().active_bits();
-    if active.len() != family.denominator_count()
-        || active.iter().filter(|&&entry| entry).count() != loop_count
-    {
+    if active.len() != family.denominator_count() {
         return Err(FactorizedProductMomentError::IncompleteFactorCover);
     }
-    let mut parent_by_vector =
-        fallible_filled(loop_count, usize::MAX, "product parent-by-vector entries")?;
-    let mut dependency_by_vector = fallible_filled(
-        loop_count,
-        usize::MAX,
-        "product dependency-by-vector entries",
-    )?;
     let mut seen_parent = fallible_filled(
         family.denominator_count(),
         false,
         "product parent occupancy",
     )?;
+    let mut seen_vector = fallible_filled(loop_count, false, "product loop occupancy")?;
+    let mut active_parent_positions = Vec::new();
+    active_parent_positions
+        .try_reserve_exact(active.iter().filter(|&&entry| entry).count())
+        .map_err(|_| FactorizedProductMomentError::AllocationFailure {
+            resource: "product active-parent positions",
+            requested: active.iter().filter(|&&entry| entry).count(),
+        })?;
+    let mut singletons = Vec::new();
+    singletons
+        .try_reserve_exact(rule.factors().len())
+        .map_err(|_| FactorizedProductMomentError::AllocationFailure {
+            resource: "product singleton blocks",
+            requested: rule.factors().len(),
+        })?;
+    let mut correlated = None;
+    let mut correlated_count = 0_usize;
     for (factor_ordinal, factor) in rule.factors().iter().enumerate() {
-        if factor.parent_positions().len() != 1 {
-            return Err(FactorizedProductMomentError::UnsupportedFactorShape {
-                factor: factor_ordinal,
-                detail: "expected exactly one parent denominator",
-            });
-        }
-        if factor.transformed_loop_positions().len() != 1 {
-            return Err(FactorizedProductMomentError::UnsupportedFactorShape {
-                factor: factor_ordinal,
-                detail: "expected exactly one transformed loop row",
-            });
-        }
-        let parent = factor.parent_positions()[0];
-        let vector = factor.transformed_loop_positions()[0];
-        if parent >= active.len() || !active[parent] || vector >= loop_count {
-            return Err(FactorizedProductMomentError::UnsupportedFactorShape {
-                factor: factor_ordinal,
-                detail: "the singleton parent or transformed row is outside its admitted cover",
-            });
-        }
-        if seen_parent[parent] || parent_by_vector[vector] != usize::MAX {
-            return Err(FactorizedProductMomentError::IncompleteFactorCover);
-        }
         let dependency_ordinal = factor.dependency_ordinal();
         let dependency = authority.dependencies().get(dependency_ordinal).ok_or(
             FactorizedProductMomentError::MissingDependency {
                 ordinal: dependency_ordinal,
             },
         )?;
-        if dependency.arity() != 1 {
-            return Err(FactorizedProductMomentError::DependencyNotOneCoordinate {
-                ordinal: dependency_ordinal,
-                arity: dependency.arity(),
+        if factor.parent_positions().len() != dependency.arity() {
+            return Err(FactorizedProductMomentError::UnsupportedFactorShape {
+                factor: factor_ordinal,
+                detail: "parent positions do not match the dependency arity",
             });
         }
-        if dependency.masters().len() != 1 {
-            return Err(FactorizedProductMomentError::DependencyMasterCount {
-                ordinal: dependency_ordinal,
-                count: dependency.masters().len(),
+        if factor.transformed_loop_positions().len() != dependency.family().loop_count() {
+            return Err(FactorizedProductMomentError::UnsupportedFactorShape {
+                factor: factor_ordinal,
+                detail: "transformed loop rows do not match the dependency loop count",
             });
         }
-        validate_tadpole_dependency(
-            family.coefficient_context(),
-            family.dimension(),
-            dependency,
-            dependency_ordinal,
-            limits,
-        )?;
-        seen_parent[parent] = true;
-        parent_by_vector[vector] = parent;
-        dependency_by_vector[vector] = dependency_ordinal;
+        let active_power_start = active_parent_positions.len();
+        for &parent in factor.parent_positions() {
+            if parent >= active.len() || !active[parent] || seen_parent[parent] {
+                return Err(FactorizedProductMomentError::IncompleteFactorCover);
+            }
+            seen_parent[parent] = true;
+            active_parent_positions.push(parent);
+        }
+        for &vector in factor.transformed_loop_positions() {
+            if vector >= loop_count || seen_vector[vector] {
+                return Err(FactorizedProductMomentError::IncompleteFactorCover);
+            }
+            seen_vector[vector] = true;
+        }
+
+        if dependency.family().loop_count() == 1 && dependency.arity() == 1 {
+            if dependency.masters().len() != 1 {
+                return Err(FactorizedProductMomentError::DependencyMasterCount {
+                    ordinal: dependency_ordinal,
+                    count: dependency.masters().len(),
+                });
+            }
+            validate_tadpole_dependency(
+                family.coefficient_context(),
+                family.dimension(),
+                dependency,
+                dependency_ordinal,
+                limits,
+            )?;
+            singletons.push(SingletonProductBlock {
+                dependency_ordinal,
+                parent_position: factor.parent_positions()[0],
+                transformed_vector: factor.transformed_loop_positions()[0],
+                active_power_ordinal: active_power_start,
+            });
+        } else {
+            correlated_count = correlated_count.checked_add(1).ok_or(
+                FactorizedProductMomentError::ResourceCountOverflow {
+                    resource: "product correlated blocks",
+                },
+            )?;
+            admit_correlated_factor_count(correlated_count)?;
+            validate_correlated_dependency(
+                family.coefficient_context(),
+                family.dimension(),
+                dependency,
+                dependency_ordinal,
+                limits,
+            )?;
+            correlated = Some(CorrelatedProductBlock {
+                dependency_ordinal,
+                parent_positions: clone_usize_box(
+                    factor.parent_positions(),
+                    "product correlated parent positions",
+                )?,
+                transformed_vectors: clone_usize_box(
+                    factor.transformed_loop_positions(),
+                    "product correlated loop positions",
+                )?,
+                vector_signs: clone_selected_i64_box(
+                    &row_signs,
+                    factor.transformed_loop_positions(),
+                    "product correlated row signs",
+                )?,
+                active_power_start,
+            });
+        }
     }
-    if parent_by_vector.contains(&usize::MAX)
-        || dependency_by_vector.contains(&usize::MAX)
+    if seen_vector.iter().any(|&seen| !seen)
         || active
             .iter()
             .enumerate()
@@ -139,6 +176,26 @@ pub(crate) fn compile_factorized_product_moment_chart(
     {
         return Err(FactorizedProductMomentError::IncompleteFactorCover);
     }
+    singletons.sort_unstable_by_key(|block| block.transformed_vector);
+    let layout = if let Some(correlated) = correlated {
+        if singletons.is_empty() {
+            return Err(FactorizedProductMomentError::UnsupportedSingletonFactorCount { count: 0 });
+        }
+        ProductBlockLayout::OneCorrelated {
+            correlated,
+            singletons_by_vector: singletons.into_boxed_slice(),
+        }
+    } else {
+        if singletons.len() != loop_count {
+            return Err(FactorizedProductMomentError::UnsupportedFactorCount {
+                expected: loop_count,
+                actual: singletons.len(),
+            });
+        }
+        ProductBlockLayout::AllSingleton {
+            singletons_by_vector: singletons.into_boxed_slice(),
+        }
+    };
 
     let edges = complete_cross_edges(loop_count)?;
     let variable_count = loop_count.checked_add(edges.len()).ok_or(
@@ -157,52 +214,57 @@ pub(crate) fn compile_factorized_product_moment_chart(
         routing.transformed_denominators(),
         limits,
     )?;
-    validate_unit_radial_denominators(
+    validate_block_denominators(
+        authority,
         family.coefficient_context(),
         routing.transformed_denominators(),
         &coordinate_positions,
-        &parent_by_vector,
+        &edges,
+        &layout,
         limits,
     )?;
 
-    if rule.master_embeddings().len() != 1 {
+    let expected_embeddings = rule.factors().iter().try_fold(1_usize, |count, factor| {
+        count
+            .checked_mul(
+                authority.dependencies()[factor.dependency_ordinal()]
+                    .masters()
+                    .len(),
+            )
+            .ok_or(FactorizedProductMomentError::ResourceCountOverflow {
+                resource: "product master embeddings",
+            })
+    })?;
+    if expected_embeddings == 0 || rule.master_embeddings().len() != expected_embeddings {
         return Err(FactorizedProductMomentError::InvalidMasterEmbedding);
     }
-    let embedding = &rule.master_embeddings()[0];
-    let mut expected_raw_powers = fallible_filled(
-        family.denominator_count(),
-        0_i64,
-        "product raw-master powers",
-    )?;
-    for factor in rule.factors() {
-        let dependency = &authority.dependencies()[factor.dependency_ordinal()];
-        expected_raw_powers[factor.parent_positions()[0]] = dependency
-            .masters()
-            .first()
-            .ok_or(FactorizedProductMomentError::InvalidMasterEmbedding)?
-            .powers()[0];
-    }
-    let expected_raw = IntegralKey::try_new(expected_raw_powers)?;
-    if embedding.raw_parent_master() != &expected_raw {
-        return Err(FactorizedProductMomentError::InvalidMasterEmbedding);
-    }
-    admit_output_key_payload(2, family.denominator_count(), limits)?;
-    let raw_master = IntegralKey::try_new(embedding.raw_parent_master().powers().iter().copied())?;
-    let terminal = IntegralKey::try_new(embedding.parent_terminal().powers().iter().copied())?;
+    let (sole_raw_master, sole_terminal) = if let [embedding] = rule.master_embeddings() {
+        admit_output_key_payload(2, family.denominator_count(), limits)?;
+        (
+            Some(IntegralKey::try_new(
+                embedding.raw_parent_master().powers().iter().copied(),
+            )?),
+            Some(IntegralKey::try_new(
+                embedding.parent_terminal().powers().iter().copied(),
+            )?),
+        )
+    } else {
+        (None, None)
+    };
 
     Ok(FactorizedProductMomentChart {
         authority,
         factorization_ordinal,
         identity: Arc::new(()),
         routing: compiled,
-        parent_by_vector: parent_by_vector.into_boxed_slice(),
-        dependency_by_vector: dependency_by_vector.into_boxed_slice(),
+        layout,
+        active_parent_positions: active_parent_positions.into_boxed_slice(),
         edges,
         radial_coordinate_positions: coordinate_positions.radial,
         cross_coordinate_positions: coordinate_positions.cross,
         normalization: rule.normalization().clone(),
-        raw_master,
-        terminal,
+        sole_raw_master,
+        sole_terminal,
     })
 }
 
@@ -292,11 +354,69 @@ fn validate_tadpole_dependency(
     Ok(())
 }
 
-fn prove_signed_singleton_block_equivalence(
+fn validate_correlated_dependency(
+    parent_context: &CoefficientContext,
+    parent_dimension: &Coefficient,
+    dependency: &super::super::ClosedArtifact,
+    ordinal: usize,
+    limits: FactorizedProductMomentLimits,
+) -> Result<(), FactorizedProductMomentError> {
+    let family = dependency.family();
+    let loops = family.loop_count();
+    let scalar_products = loops
+        .checked_mul(loops.checked_add(1).ok_or(
+            FactorizedProductMomentError::ResourceCountOverflow {
+                resource: "correlated dependency scalar products",
+            },
+        )?)
+        .and_then(|value| value.checked_div(2))
+        .ok_or(FactorizedProductMomentError::ResourceCountOverflow {
+            resource: "correlated dependency scalar products",
+        })?;
+    let semantic_shape = loops >= 2
+        && family.external_count() == 0
+        && dependency.arity() == scalar_products
+        && family.denominator_count() == scalar_products
+        && family.coordinates().len() == scalar_products
+        && family
+            .coordinates()
+            .iter()
+            .all(|coordinate| matches!(coordinate, ScalarProductCoordinate::LoopLoop { .. }))
+        && parent_context.has_same_variable_map(family.coefficient_context())
+        && family.power_shifts().len() == scalar_products
+        && family.power_shifts().iter().all(Coefficient::is_zero)
+        && dependency.common_mass_homogeneity()
+            == Some(CommonMassHomogeneityProof::UniformVacuumMassSquared)
+        && !dependency.masters().is_empty();
+    if !semantic_shape {
+        return Err(FactorizedProductMomentError::UnsupportedDependencySemantic { ordinal });
+    }
+    if !coefficients_equal(parent_context, parent_dimension, family.dimension(), limits)? {
+        return Err(FactorizedProductMomentError::DependencyDimensionMismatch { ordinal });
+    }
+    for coordinate in 0..scalar_products {
+        let expansion = family.scalar_product_expansion(coordinate)?;
+        for coefficient in
+            std::iter::once(expansion.constant()).chain(expansion.denominator_coefficients())
+        {
+            family
+                .coefficient_context()
+                .validate_with_limits(coefficient, limits.exact_algebra)?;
+            if super::resources::constant_rational_magnitude_bits(coefficient).is_none() {
+                return Err(
+                    FactorizedProductMomentError::UnsupportedDependencySemantic { ordinal },
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn prove_signed_block_equivalence(
     original: &[i64],
     signed: &[i64],
     dimension: usize,
-) -> Result<(), FactorizedProductMomentError> {
+) -> Result<Box<[i64]>, FactorizedProductMomentError> {
     let expected = dimension.checked_mul(dimension).ok_or(
         FactorizedProductMomentError::ResourceCountOverflow {
             resource: "product signed-basis entries",
@@ -307,6 +427,13 @@ fn prove_signed_singleton_block_equivalence(
             detail: "the compiled and installed loop bases have incompatible dimensions",
         });
     }
+    let mut signs = Vec::new();
+    signs.try_reserve_exact(dimension).map_err(|_| {
+        FactorizedProductMomentError::AllocationFailure {
+            resource: "product signed-basis row signs",
+            requested: dimension,
+        }
+    })?;
     for row in 0..dimension {
         let range = row * dimension..(row + 1) * dimension;
         let original_row = &original[range.clone()];
@@ -321,8 +448,9 @@ fn prove_signed_singleton_block_equivalence(
                 detail: "a compiled singleton block is not the installed row up to sign",
             });
         }
+        signs.push(if same { 1 } else { -1 });
     }
-    Ok(())
+    Ok(signs.into_boxed_slice())
 }
 
 fn complete_cross_edges(
@@ -418,57 +546,170 @@ fn coordinate_positions(
     })
 }
 
-fn validate_unit_radial_denominators(
+fn validate_block_denominators(
+    authority: &ClosedTerminalAuthority,
     context: &CoefficientContext,
     forms: &[super::super::factorized_numerator_lift::RoutedAffineDenominator],
     positions: &CoordinatePositions,
-    parent_by_vector: &[usize],
+    edges: &[(usize, usize)],
+    layout: &ProductBlockLayout,
     limits: FactorizedProductMomentLimits,
 ) -> Result<(), FactorizedProductMomentError> {
-    let minus_one = context.integer(-1);
-    let one = context.one();
-    for (vector, &parent) in parent_by_vector.iter().enumerate() {
-        let form =
-            forms
-                .get(parent)
-                .ok_or(FactorizedProductMomentError::NonUnitRadialDenominator {
-                    vector,
-                    parent_position: parent,
-                })?;
-        if !coefficients_equal(context, form.constant(), &minus_one, limits)? {
+    let validate_singletons = |singletons: &[SingletonProductBlock]| {
+        for block in singletons {
+            validate_dependency_denominators(
+                context,
+                forms,
+                positions,
+                edges,
+                std::slice::from_ref(&block.parent_position),
+                std::slice::from_ref(&block.transformed_vector),
+                &[1],
+                &authority.dependencies()[block.dependency_ordinal],
+                limits,
+            )?;
+        }
+        Ok::<(), FactorizedProductMomentError>(())
+    };
+    match layout {
+        ProductBlockLayout::AllSingleton {
+            singletons_by_vector,
+        } => validate_singletons(singletons_by_vector),
+        ProductBlockLayout::OneCorrelated {
+            correlated,
+            singletons_by_vector,
+        } => {
+            validate_dependency_denominators(
+                context,
+                forms,
+                positions,
+                edges,
+                &correlated.parent_positions,
+                &correlated.transformed_vectors,
+                &correlated.vector_signs,
+                &authority.dependencies()[correlated.dependency_ordinal],
+                limits,
+            )?;
+            validate_singletons(singletons_by_vector)
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_dependency_denominators(
+    context: &CoefficientContext,
+    forms: &[super::super::factorized_numerator_lift::RoutedAffineDenominator],
+    positions: &CoordinatePositions,
+    edges: &[(usize, usize)],
+    parent_positions: &[usize],
+    transformed_vectors: &[usize],
+    vector_signs: &[i64],
+    dependency: &super::super::ClosedArtifact,
+    limits: FactorizedProductMomentLimits,
+) -> Result<(), FactorizedProductMomentError> {
+    let family = dependency.family();
+    if parent_positions.len() != family.denominator_count()
+        || transformed_vectors.len() != family.loop_count()
+        || vector_signs.len() != transformed_vectors.len()
+    {
+        return Err(
+            FactorizedProductMomentError::UnsupportedDependencySemantic {
+                ordinal: usize::MAX,
+            },
+        );
+    }
+    for (local_denominator, &parent) in parent_positions.iter().enumerate() {
+        let form = forms
+            .get(parent)
+            .ok_or(FactorizedProductMomentError::Invariant {
+                detail: "a factor parent is absent from the routed denominator table",
+            })?;
+        let expected = &family.denominators()[local_denominator];
+        if !coefficients_equal(context, form.constant(), expected.constant(), limits)? {
             return Err(FactorizedProductMomentError::NonUnitRadialDenominator {
-                vector,
+                vector: transformed_vectors[0],
                 parent_position: parent,
             });
         }
-        for (candidate, &position) in positions.radial.iter().enumerate() {
-            let expected = if candidate == vector {
-                one.clone()
-            } else {
-                context.zero()
-            };
-            if !coefficients_equal(
-                context,
-                &form.scalar_coefficients()[position],
-                &expected,
-                limits,
-            )? {
-                return Err(FactorizedProductMomentError::NonUnitRadialDenominator {
-                    vector,
-                    parent_position: parent,
-                });
+        for global_coordinate in 0..form.scalar_coefficients().len() {
+            let mut expected_coefficient = None;
+            for (local_coordinate, coordinate) in family.coordinates().iter().enumerate() {
+                let ScalarProductCoordinate::LoopLoop { left, right } = *coordinate else {
+                    return Err(
+                        FactorizedProductMomentError::UnsupportedDependencySemantic {
+                            ordinal: usize::MAX,
+                        },
+                    );
+                };
+                let global_position = coordinate_position(
+                    transformed_vectors[left],
+                    transformed_vectors[right],
+                    positions,
+                    edges,
+                )?;
+                if global_position == global_coordinate {
+                    expected_coefficient = Some((
+                        &expected.coefficients()[local_coordinate],
+                        vector_signs[left].checked_mul(vector_signs[right]).ok_or(
+                            FactorizedProductMomentError::Invariant {
+                                detail: "a signed block coefficient overflowed i64",
+                            },
+                        )?,
+                    ));
+                    break;
+                }
             }
-        }
-        for &position in &positions.cross {
-            if !form.scalar_coefficients()[position].is_zero() {
+            let matches = if let Some((expected_coefficient, sign)) = expected_coefficient {
+                let signed_expected = if sign == 1 {
+                    expected_coefficient.clone()
+                } else if sign == -1 {
+                    context.try_neg(expected_coefficient, limits.exact_algebra)?
+                } else {
+                    return Err(FactorizedProductMomentError::Invariant {
+                        detail: "a routed block row sign is not unit",
+                    });
+                };
+                coefficients_equal(
+                    context,
+                    &form.scalar_coefficients()[global_coordinate],
+                    &signed_expected,
+                    limits,
+                )?
+            } else {
+                form.scalar_coefficients()[global_coordinate].is_zero()
+            };
+            if !matches {
                 return Err(FactorizedProductMomentError::NonUnitRadialDenominator {
-                    vector,
+                    vector: transformed_vectors[0],
                     parent_position: parent,
                 });
             }
         }
     }
     Ok(())
+}
+
+fn coordinate_position(
+    left: usize,
+    right: usize,
+    positions: &CoordinatePositions,
+    edges: &[(usize, usize)],
+) -> Result<usize, FactorizedProductMomentError> {
+    if left == right {
+        return positions.radial.get(left).copied().ok_or(
+            FactorizedProductMomentError::Invariant {
+                detail: "a block radial coordinate lies outside the parent basis",
+            },
+        );
+    }
+    let pair = (left.min(right), left.max(right));
+    edges
+        .iter()
+        .position(|&edge| edge == pair)
+        .and_then(|edge| positions.cross.get(edge).copied())
+        .ok_or(FactorizedProductMomentError::Invariant {
+            detail: "a block cross coordinate is absent from the parent basis",
+        })
 }
 
 fn coefficients_equal(
@@ -502,6 +743,45 @@ fn fallible_filled<T: Clone>(
     Ok(output)
 }
 
+fn clone_usize_box(
+    values: &[usize],
+    resource: &'static str,
+) -> Result<Box<[usize]>, FactorizedProductMomentError> {
+    let mut output = Vec::new();
+    output.try_reserve_exact(values.len()).map_err(|_| {
+        FactorizedProductMomentError::AllocationFailure {
+            resource,
+            requested: values.len(),
+        }
+    })?;
+    output.extend_from_slice(values);
+    Ok(output.into_boxed_slice())
+}
+
+fn clone_selected_i64_box(
+    values: &[i64],
+    positions: &[usize],
+    resource: &'static str,
+) -> Result<Box<[i64]>, FactorizedProductMomentError> {
+    let mut output = Vec::new();
+    output.try_reserve_exact(positions.len()).map_err(|_| {
+        FactorizedProductMomentError::AllocationFailure {
+            resource,
+            requested: positions.len(),
+        }
+    })?;
+    for &position in positions {
+        output.push(
+            *values
+                .get(position)
+                .ok_or(FactorizedProductMomentError::Invariant {
+                    detail: "a block references an absent signed-basis row",
+                })?,
+        );
+    }
+    Ok(output.into_boxed_slice())
+}
+
 pub(super) fn admit_limit(
     resource: &'static str,
     requested: usize,
@@ -518,6 +798,14 @@ pub(super) fn admit_limit(
     }
 }
 
+fn admit_correlated_factor_count(count: usize) -> Result<(), FactorizedProductMomentError> {
+    if count > 1 {
+        Err(FactorizedProductMomentError::UnsupportedCorrelatedFactorCount { count })
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::algebra::CoefficientContext;
@@ -525,8 +813,8 @@ mod tests {
     use crate::foundry::artifact::derive_one_loop_unit_mass_tadpole;
 
     use super::{
-        FactorizedProductMomentError, FactorizedProductMomentLimits, validate_parent_power_shifts,
-        validate_tadpole_dependency,
+        FactorizedProductMomentError, FactorizedProductMomentLimits, admit_correlated_factor_count,
+        validate_parent_power_shifts, validate_tadpole_dependency,
     };
 
     #[test]
@@ -565,6 +853,15 @@ mod tests {
         assert_eq!(
             validate_parent_power_shifts(&family, FactorizedProductMomentLimits::default()),
             Err(FactorizedProductMomentError::UnsupportedParentPowerShift { position: 0 })
+        );
+    }
+
+    #[test]
+    fn semantic_admission_rejects_multiple_correlated_blocks() {
+        assert_eq!(admit_correlated_factor_count(1), Ok(()));
+        assert_eq!(
+            admit_correlated_factor_count(2),
+            Err(FactorizedProductMomentError::UnsupportedCorrelatedFactorCount { count: 2 })
         );
     }
 }

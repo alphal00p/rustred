@@ -272,10 +272,13 @@ RustRed publication authority.
 Vakint's five registered three-loop matcher roots are useful routing and
 acceptance fixtures, but they are not a complete denominator-sector manifest.
 They cover 34 of the 38 raw full-rank masks. The four omitted masks form the
-star orbit represented by `[0,0,1,1,0,1]`. RustRed therefore plans from the
-maximal K4 root's complete 64-mask physical contraction downset and its eleven
-authenticated `S4` orbits. Supplying the five matcher roots separately would
-change campaign seeds, not the nine ordinary three-loop IBP identities, and
+star orbit represented by `[0,0,1,1,0,1]`, which the installed unimodular
+authority proves is a `K1^3` product. Therefore the five roots, the 26 raw
+scaleless masks, and that four-mask product orbit account for the complete
+64-mask downset without a sixth interacting chart. RustRed still plans from
+the maximal K4 root and its eleven authenticated `S4` orbits. Supplying all
+five matcher roots as internal ISP-completed charts changes campaign
+coordinates and seeds, not the nine ordinary three-loop IBP identities, and
 declaring their arbitrary-power classes to be terminals would only rename an
 infinite unsolved family.
 
@@ -360,18 +363,26 @@ The focused acceptance suite proves:
 
 The prototype exposes caller limits for native support, operation, exponent,
 angular-state, transition, pending, radial, dependency-request, coefficient,
-key, guard, and coalescing work. The current compiler rejects the correlated
-`K3 x K1` rule with a typed shape error; its independent-one-loop peel is the
-next product action. This result does not yet install an infinite-domain owner
-or close the rank-three wave, so it is not a K6 artifact or Vakint three-loop
-parity claim.
+key, guard, and coalescing work. The compiler now admits exactly one correlated
+closed block accompanied by at least one independent one-loop block. For
+`K3 x K1`, partial isotropic elimination integrates only the singleton vector,
+preserves the complete K3 Gram polynomial with its authenticated row signs,
+and reduces the resulting keys through the sealed K3 and K1 artifacts. Exact
+tests pin the scalar corner, both active dots, routed numerator sources, odd
+zero, rank-two and rank-four moments, signed mixed products, and both installed
+parent-master embeddings. Products with two correlated blocks still return a
+typed unsupported result. This result does not yet compile an infinite-domain
+owner or close the rank-three wave, so it is not a K6 artifact or Vakint
+three-loop parity claim.
 
 The follow-up interpretation of Vakint's matcher roots is recorded in
 [the sector-local coordinate-chart proposal](sector_local_coordinate_chart_2026.md).
 A bounded executable fixture now derives all five roots inside the one complete
 K6 contraction plan and builds deterministic foreign ISP-completed charts.
 They seed 34 raw full-rank masks across five `S4` orbits; the four-member star
-orbit `[0,0,1,1,0,1]` remains unseeded. The S5 completion appends `s23` and
+orbit `[0,0,1,1,0,1]` remains unseeded by a matcher but is structurally owned
+as a `K1^3` product. With the 26 zero masks, those two mechanisms cover every
+physical sector. The S5 completion appends `s23` and
 replays `2 s23 = 1 + D2 + D3 - D6` exactly. This proves chart feasibility and
 authority separation, not improved source coverage. Natural S4/S5 ISP charts
 may nominate sparse correlated parent source portfolios, but every nomination

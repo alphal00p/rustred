@@ -1,17 +1,21 @@
-//! Cold product moments at an authenticated `K_1^N` factorization.
+//! Cold product moments at an authenticated closed-block factorization.
 //!
 //! This schema-free prototype composes the exact transformed-denominator map
 //! produced by [`super::factorized_numerator_lift`] with a bounded isotropic
-//! angular incidence DP and immutable feedback from the installed closed
-//! one-loop dependency reducer. It is deliberately test-only. It
+//! angular incidence DP and immutable feedback from installed closed
+//! dependency reducers. The admitted lanes are all-`K_1` products and exactly
+//! one correlated scalar block accompanied by independent `K_1` blocks. It is
+//! deliberately test-only. It
 //! owns no artifact region, rule cell, reducer dispatch, or closure claim.
 
 mod angular;
 mod compile;
+mod correlated;
 mod error;
 mod evaluate;
 mod limits;
 mod model;
+mod partial_angular;
 mod radial;
 mod resources;
 

@@ -3,7 +3,7 @@
 use std::fmt;
 
 use crate::algebra::ExactAlgebraError;
-use crate::family::IntegralKeyError;
+use crate::family::{IntegralFamilyError, IntegralKeyError};
 use crate::reduction::ReductionError;
 
 use super::super::factorized_numerator_lift::FactorizedNumeratorLiftError;
@@ -12,6 +12,7 @@ use super::super::factorized_numerator_lift::FactorizedNumeratorLiftError;
 pub(crate) enum FactorizedProductMomentError {
     Routing(FactorizedNumeratorLiftError),
     ExactAlgebra(ExactAlgebraError),
+    Family(IntegralFamilyError),
     IntegralKey(IntegralKeyError),
     DependencyReduction(ReductionError),
     WrongFamily,
@@ -20,10 +21,6 @@ pub(crate) enum FactorizedProductMomentError {
     },
     MissingDependency {
         ordinal: usize,
-    },
-    DependencyNotOneCoordinate {
-        ordinal: usize,
-        arity: usize,
     },
     DependencyMasterCount {
         ordinal: usize,
@@ -42,6 +39,12 @@ pub(crate) enum FactorizedProductMomentError {
     UnsupportedFactorCount {
         expected: usize,
         actual: usize,
+    },
+    UnsupportedCorrelatedFactorCount {
+        count: usize,
+    },
+    UnsupportedSingletonFactorCount {
+        count: usize,
     },
     UnsupportedFactorShape {
         factor: usize,
@@ -125,6 +128,7 @@ impl fmt::Display for FactorizedProductMomentError {
         match self {
             Self::Routing(error) => error.fmt(formatter),
             Self::ExactAlgebra(error) => error.fmt(formatter),
+            Self::Family(error) => error.fmt(formatter),
             Self::IntegralKey(error) => error.fmt(formatter),
             Self::DependencyReduction(error) => error.fmt(formatter),
             Self::WrongFamily => formatter.write_str(
@@ -137,17 +141,13 @@ impl fmt::Display for FactorizedProductMomentError {
             Self::MissingDependency { ordinal } => {
                 write!(formatter, "terminal authority has no dependency {ordinal}")
             }
-            Self::DependencyNotOneCoordinate { ordinal, arity } => write!(
-                formatter,
-                "factorization dependency {ordinal} has arity {arity}, expected one"
-            ),
             Self::DependencyMasterCount { ordinal, count } => write!(
                 formatter,
                 "one-coordinate dependency {ordinal} has {count} masters, expected one"
             ),
             Self::UnsupportedDependencySemantic { ordinal } => write!(
                 formatter,
-                "factorization dependency {ordinal} is not the authenticated unit-mass one-loop tadpole family"
+                "factorization dependency {ordinal} does not provide the authenticated closed-block semantics required by this product lane"
             ),
             Self::DependencyDimensionMismatch { ordinal } => write!(
                 formatter,
@@ -158,17 +158,25 @@ impl fmt::Display for FactorizedProductMomentError {
                 "parent power shift {position} is nonzero and cannot enter the unshifted K1 product prototype"
             ),
             Self::InvalidMasterEmbedding => formatter.write_str(
-                "the K1 product rule does not have one exact installed Cartesian master embedding",
+                "the product rule does not contain the complete exact Cartesian master embedding",
             ),
             Self::UnsupportedFactorCount { expected, actual } => write!(
                 formatter,
                 "the current product-moment fixture admits {expected} one-loop factors, received {actual}"
             ),
+            Self::UnsupportedCorrelatedFactorCount { count } => write!(
+                formatter,
+                "the product-moment lane admits exactly one correlated dependency block, received {count}"
+            ),
+            Self::UnsupportedSingletonFactorCount { count } => write!(
+                formatter,
+                "a correlated product-moment lane needs at least one independent singleton block, received {count}"
+            ),
             Self::UnsupportedFactorShape { factor, detail } => {
                 write!(formatter, "factorized product factor {factor} is unsupported: {detail}")
             }
             Self::IncompleteFactorCover => formatter.write_str(
-                "one-coordinate factors do not form a disjoint cover of the active denominators and transformed loops",
+                "dependency factors do not form a disjoint cover of the active denominators and transformed loops",
             ),
             Self::UnsupportedCoordinate { coordinate } => write!(
                 formatter,
@@ -283,6 +291,12 @@ impl From<ExactAlgebraError> for FactorizedProductMomentError {
 impl From<IntegralKeyError> for FactorizedProductMomentError {
     fn from(value: IntegralKeyError) -> Self {
         Self::IntegralKey(value)
+    }
+}
+
+impl From<IntegralFamilyError> for FactorizedProductMomentError {
+    fn from(value: IntegralFamilyError) -> Self {
+        Self::Family(value)
     }
 }
 

@@ -15,8 +15,8 @@ use super::compile::admit_limit;
 use super::error::FactorizedProductMomentError;
 use super::limits::FactorizedProductMomentLimits;
 use super::model::{
-    FactorizedProductMomentChart, ProductMomentExpansion, ProductMomentMonomial,
-    ProductMomentSource, ProductMomentStatistics,
+    FactorizedProductMomentChart, ProductBlockLayout, ProductMomentExpansion,
+    ProductMomentMonomial, ProductMomentSource, ProductMomentStatistics, SingletonProductBlock,
 };
 use super::radial::RadialEvaluator;
 use super::resources::{
@@ -24,7 +24,8 @@ use super::resources::{
     admit_output_key_payload, constant_integer_magnitude_bits, release_map_resources,
 };
 
-type ProductPolynomial = MultivariatePolynomial<RationalPolynomialField<IntegerRing, u16>, u32>;
+pub(super) type ProductPolynomial =
+    MultivariatePolynomial<RationalPolynomialField<IntegerRing, u16>, u32>;
 
 impl FactorizedProductMomentChart<'_> {
     pub(crate) fn try_evaluate_parent(
@@ -62,6 +63,39 @@ impl FactorizedProductMomentChart<'_> {
         source: ProductMomentSource,
         limits: FactorizedProductMomentLimits,
     ) -> Result<ProductMomentExpansion, FactorizedProductMomentError> {
+        match &self.layout {
+            ProductBlockLayout::AllSingleton {
+                singletons_by_vector,
+            } => self.evaluate_all_singleton_polynomial(
+                active_powers,
+                polynomial,
+                source,
+                singletons_by_vector,
+                limits,
+            ),
+            ProductBlockLayout::OneCorrelated {
+                correlated,
+                singletons_by_vector,
+            } => super::correlated::evaluate_correlated_product(
+                self,
+                active_powers,
+                polynomial,
+                source,
+                correlated,
+                singletons_by_vector,
+                limits,
+            ),
+        }
+    }
+
+    fn evaluate_all_singleton_polynomial(
+        &self,
+        active_powers: Box<[i64]>,
+        polynomial: ProductPolynomial,
+        source: ProductMomentSource,
+        singletons_by_vector: &[SingletonProductBlock],
+        limits: FactorizedProductMomentLimits,
+    ) -> Result<ProductMomentExpansion, FactorizedProductMomentError> {
         let family = self.authority.family();
         let context = family.coefficient_context();
         let loop_count = self.loop_factor_count();
@@ -78,15 +112,23 @@ impl FactorizedProductMomentChart<'_> {
             budget.retain(coefficient)?;
         }
         let mut key_budget = OutputKeyBudget::new(limits);
-        key_budget.retain(&self.raw_master)?;
-        key_budget.retain(&self.terminal)?;
+        let raw_master = self
+            .sole_raw_master
+            .as_ref()
+            .ok_or(FactorizedProductMomentError::InvalidMasterEmbedding)?;
+        let terminal = self
+            .sole_terminal
+            .as_ref()
+            .ok_or(FactorizedProductMomentError::InvalidMasterEmbedding)?;
+        key_budget.retain(raw_master)?;
+        key_budget.retain(terminal)?;
         if let ProductMomentSource::Parent(parent) = &source {
             key_budget.retain(parent)?;
         }
 
         let mut angular =
             AngularEvaluator::new(context, family.dimension(), loop_count, &self.edges, limits);
-        let mut radial = RadialEvaluator::try_new(self, limits)?;
+        let mut radial = RadialEvaluator::try_new(self, singletons_by_vector, limits)?;
         let mut output = BTreeMap::new();
         let mut coalescing_additions = 0_usize;
         for (polynomial_coefficient, exponents) in polynomial
@@ -161,11 +203,12 @@ impl FactorizedProductMomentChart<'_> {
                 &mut coalescing_additions,
             )?;
 
-            for vector in 0..loop_count {
+            for block in singletons_by_vector {
                 let dependency = radial.evaluate(
-                    self.dependency_by_vector[vector],
-                    active_powers[vector],
-                    total_radial[vector],
+                    block.dependency_ordinal,
+                    active_powers[block.active_power_ordinal],
+                    total_radial[block.transformed_vector],
+                    0,
                     &mut budget,
                     &mut key_budget,
                     &mut coalescing_additions,
@@ -186,7 +229,7 @@ impl FactorizedProductMomentChart<'_> {
                     for (dependency_master, dependency_coefficient) in &dependency {
                         let mut powers =
                             clone_i64_vec(partial_key.powers(), "product convolution key")?;
-                        let parent = self.parent_by_vector[vector];
+                        let parent = block.parent_position;
                         if powers[parent] != 0 || dependency_master.powers().len() != 1 {
                             return Err(FactorizedProductMomentError::Invariant {
                                 detail: "a singleton dependency does not inject into one fresh parent slot",
@@ -217,7 +260,12 @@ impl FactorizedProductMomentChart<'_> {
                 products = next;
             }
             for (raw_master, coefficient) in products {
-                if raw_master != self.raw_master {
+                if raw_master
+                    != *self
+                        .sole_raw_master
+                        .as_ref()
+                        .ok_or(FactorizedProductMomentError::InvalidMasterEmbedding)?
+                {
                     return Err(FactorizedProductMomentError::InvalidMasterEmbedding);
                 }
                 let terminal = self
@@ -244,7 +292,8 @@ impl FactorizedProductMomentChart<'_> {
             budget.release(&angular_coefficient)?;
         }
 
-        let (dependency_rule_applications, dependency_cache_hits) = radial.dependency_statistics();
+        let (dependency_rule_applications, dependency_cache_hits) =
+            radial.dependency_statistics()?;
         let statistics = ProductMomentStatistics {
             numerator_polynomial_terms: polynomial.nterms(),
             angular_states: angular.state_count(),
@@ -295,12 +344,16 @@ impl FactorizedProductMomentChart<'_> {
         }
         let mut output = Vec::new();
         output
-            .try_reserve_exact(self.loop_factor_count())
+            .try_reserve_exact(self.active_parent_positions.len())
             .map_err(|_| FactorizedProductMomentError::AllocationFailure {
                 resource: "product active powers",
-                requested: self.loop_factor_count(),
+                requested: self.active_parent_positions.len(),
             })?;
-        output.extend(self.parent_by_vector.iter().map(|&parent| powers[parent]));
+        output.extend(
+            self.active_parent_positions
+                .iter()
+                .map(|&parent| powers[parent]),
+        );
         Ok(output.into_boxed_slice())
     }
 
@@ -309,7 +362,12 @@ impl FactorizedProductMomentChart<'_> {
         source_keys: usize,
         limits: FactorizedProductMomentLimits,
     ) -> Result<(), FactorizedProductMomentError> {
-        let rows = 2_usize.checked_add(source_keys).ok_or(
+        let chart_keys = usize::from(self.sole_raw_master.is_some())
+            .checked_add(usize::from(self.sole_terminal.is_some()))
+            .ok_or(FactorizedProductMomentError::ResourceCountOverflow {
+                resource: "product retained integral keys",
+            })?;
+        let rows = chart_keys.checked_add(source_keys).ok_or(
             FactorizedProductMomentError::ResourceCountOverflow {
                 resource: "product retained integral keys",
             },
@@ -325,7 +383,7 @@ impl FactorizedProductMomentChart<'_> {
         for (component, expected, actual) in [
             (
                 "active powers",
-                self.loop_factor_count(),
+                self.active_parent_positions.len(),
                 monomial.active_powers().len(),
             ),
             (
@@ -643,7 +701,7 @@ impl FactorizedProductMomentChart<'_> {
         Ok(polynomial)
     }
 
-    fn retain_chart_inputs(
+    pub(super) fn retain_chart_inputs(
         &self,
         budget: &mut CoefficientBudget,
     ) -> Result<(), FactorizedProductMomentError> {
@@ -658,7 +716,7 @@ impl FactorizedProductMomentChart<'_> {
     }
 }
 
-fn clone_u32_as_u64(
+pub(super) fn clone_u32_as_u64(
     values: &[u32],
     resource: &'static str,
 ) -> Result<Vec<u64>, FactorizedProductMomentError> {
@@ -745,7 +803,7 @@ fn affine_polynomial(
     Ok(affine)
 }
 
-fn validate_native_coefficients(
+pub(super) fn validate_native_coefficients(
     context: &crate::algebra::CoefficientContext,
     polynomial: &ProductPolynomial,
     limits: FactorizedProductMomentLimits,
@@ -796,7 +854,10 @@ fn ceil_log2(value: usize) -> usize {
     }
 }
 
-fn multiset_support(power: u64, width: usize) -> Result<usize, FactorizedProductMomentError> {
+pub(super) fn multiset_support(
+    power: u64,
+    width: usize,
+) -> Result<usize, FactorizedProductMomentError> {
     if power == 0 {
         return Ok(1);
     }
@@ -827,7 +888,7 @@ fn multiset_support(power: u64, width: usize) -> Result<usize, FactorizedProduct
     })
 }
 
-fn zero_parent_key(arity: usize) -> Result<IntegralKey, FactorizedProductMomentError> {
+pub(super) fn zero_parent_key(arity: usize) -> Result<IntegralKey, FactorizedProductMomentError> {
     let mut powers = Vec::new();
     powers.try_reserve_exact(arity).map_err(|_| {
         FactorizedProductMomentError::AllocationFailure {
@@ -839,7 +900,7 @@ fn zero_parent_key(arity: usize) -> Result<IntegralKey, FactorizedProductMomentE
     Ok(IntegralKey::try_new(powers)?)
 }
 
-fn clone_key(key: &IntegralKey) -> Result<IntegralKey, FactorizedProductMomentError> {
+pub(super) fn clone_key(key: &IntegralKey) -> Result<IntegralKey, FactorizedProductMomentError> {
     Ok(IntegralKey::try_new(key.powers().iter().copied())?)
 }
 
@@ -850,7 +911,7 @@ fn clone_i64_box(
     Ok(clone_i64_vec(values, resource)?.into_boxed_slice())
 }
 
-fn clone_i64_vec(
+pub(super) fn clone_i64_vec(
     values: &[i64],
     resource: &'static str,
 ) -> Result<Vec<i64>, FactorizedProductMomentError> {

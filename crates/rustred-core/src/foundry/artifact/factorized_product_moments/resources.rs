@@ -172,6 +172,45 @@ impl CoefficientBudget {
         self.admit(self.current.checked_add(projected)?)
     }
 
+    /// Admit a pre-native envelope for constant rational coefficients. Both
+    /// numerator and denominator are limb-rounded independently because the
+    /// Symbolica rational field owns both arbitrary-precision integers.
+    pub(super) fn admit_native_rational_envelope(
+        &self,
+        rows: usize,
+        numerator_bits: usize,
+        denominator_bits: usize,
+        context_unit: &Coefficient,
+    ) -> Result<(), FactorizedProductMomentError> {
+        let terms =
+            rows.checked_mul(2)
+                .ok_or(FactorizedProductMomentError::ResourceCountOverflow {
+                    resource: "product projected native coefficient terms",
+                })?;
+        let magnitude_bytes = conservative_integer_capacity_bytes(numerator_bits)?
+            .checked_add(conservative_integer_capacity_bytes(denominator_bits)?)
+            .ok_or(FactorizedProductMomentError::ResourceCountOverflow {
+                resource: "product projected native coefficient bytes",
+            })?;
+        let per_coefficient = coefficient_clone_owned_retained_byte_bound(context_unit)
+            .ok_or(FactorizedProductMomentError::ResourceCountOverflow {
+                resource: "product projected native coefficient bytes",
+            })?
+            .checked_add(magnitude_bytes)
+            .ok_or(FactorizedProductMomentError::ResourceCountOverflow {
+                resource: "product projected native coefficient bytes",
+            })?;
+        let projected = CoefficientWeight {
+            terms,
+            clone_owned_bytes: rows.checked_mul(per_coefficient).ok_or(
+                FactorizedProductMomentError::ResourceCountOverflow {
+                    resource: "product projected native coefficient bytes",
+                },
+            )?,
+        };
+        self.admit(self.current.checked_add(projected)?)
+    }
+
     fn retain_weight(
         &mut self,
         weight: CoefficientWeight,
@@ -343,10 +382,28 @@ pub(super) fn constant_integer_magnitude_bits(coefficient: &Coefficient) -> Opti
     if !coefficient.is_constant() || !coefficient.denominator.is_one() {
         return None;
     }
-    if coefficient.numerator.is_zero() {
+    constant_polynomial_magnitude_bits(&coefficient.numerator)
+}
+
+pub(super) fn constant_rational_magnitude_bits(
+    coefficient: &Coefficient,
+) -> Option<(usize, usize)> {
+    if !coefficient.is_constant() {
+        return None;
+    }
+    Some((
+        constant_polynomial_magnitude_bits(&coefficient.numerator)?,
+        constant_polynomial_magnitude_bits(&coefficient.denominator)?,
+    ))
+}
+
+fn constant_polynomial_magnitude_bits(
+    polynomial: &crate::algebra::CoefficientPolynomial,
+) -> Option<usize> {
+    if polynomial.is_zero() {
         return Some(0);
     }
-    let [integer] = coefficient.numerator.coefficients.as_slice() else {
+    let [integer] = polynomial.coefficients.as_slice() else {
         return None;
     };
     let bits = match integer {

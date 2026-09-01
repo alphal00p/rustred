@@ -258,9 +258,13 @@ definitions—owns the maximal K4/Mercedes sector and its complete physical
 contraction downset. Deterministic enumeration produces all 64 raw masks and
 the exact 11 `S4` sector orbits. Vakint's five registered three-loop matcher
 roots are retained as mandatory coverage/replay fixtures, but they omit the
-four-member full-rank star orbit represented by `[0,0,1,1,0,1]`; consequently
-they cannot replace saturation of the maximal root. This complete manifest is
-an obligation census, not closure evidence. An extended compact walk reached
+four-member full-rank star orbit represented by `[0,0,1,1,0,1]`. The installed
+unimodular authority proves that omitted orbit is a `K1^3` product: the five
+matcher charts cover 34 raw masks, zero authority covers 26, and the star
+product covers the remaining four. Thus no sixth nonfactorized graph chart is
+missing, but this combined sector accounting still cannot replace saturation
+of the maximal root or prove dotted/numerator recurrence closure. This complete
+manifest is an obligation census, not closure evidence. An extended compact walk reached
 10,926 exact reports before a typed 64 MiB retained-content limit stopped the
 next transaction; it did not close, exhaust the scheduler, or hit the report
 cap. Both persistent dimension-five residual representatives already lie in
@@ -290,16 +294,19 @@ Independent follow-up audits identified a stronger cycle-free consumer than
 installing those endpoints as raw parent-family actions. The path and star
 factorizations are both `K1^3`; a radial-preserving product-angular owner can
 reduce their complete dot/numerator domains directly to their single installed
-product master. The `K3 x K1` chart can peel only its independent one-loop
-block, reduce the retained scalar polynomial through the closed `K3` and `K1`
-dependencies, and terminate in at most its two installed parent-master
-embeddings. The next bounded prototype must use the installer-authenticated
-block basis, retain radial powers, intersect every dependency root domain,
-carry the indexed `d+R-2 != 0` guard family, and reject products with multiple
-correlated multi-loop blocks. It is scalar factorization logic over typed
-integral keys, not the frozen general tensor-reduction project. Until that
-prototype and the remaining ordinary sector waves pass exact coverage, none
-of these actions grants a K6 artifact or Vakint three-loop parity claim.
+product master. The `K3 x K1` chart peels only its independent one-loop block,
+retains the correlated two-loop scalar polynomial, reduces it through the
+closed `K3` and `K1` dependencies, and terminates in its two installed
+parent-master embeddings. The bounded implementation uses the
+installer-authenticated block basis, preserves routed row signs, retains
+radial powers, carries the indexed `d+R-2 != 0` guard family, and rejects
+products with multiple correlated multi-loop blocks. It is scalar
+factorization logic over typed integral keys, not the frozen general
+tensor-reduction project. Its exact dependency-domain preimage and an infinite
+procedural owner remain to be compiled before it can discharge a sector.
+Until that promotion and the remaining ordinary sector waves pass exact
+coverage, none of these actions grants a K6 artifact or Vakint three-loop
+parity claim.
 
 The bounded, schema-free `K1^N` product-moment prototype now implements the
 first half of that design for the path and star `K1^3` charts. It authenticates
@@ -311,24 +318,38 @@ include `q^2/D^2 = (d/2) T`, rank-two and rank-four moments with their exact
 `d+R-2 != 0` guards, the known path/star coefficients, and both persistent
 path witnesses `[-2,-6,1,-2,3,3]` and `[-4,-6,7,0,3,3]`. Those witnesses now
 terminate deterministically in one authenticated product terminal after
-3,886 and 4,396 exact scalar monomials respectively. This remains a cold,
-non-owning feasibility result: it creates no `RuleCell`, cover, terminal,
-artifact, persistence payload, or reducer dispatch. The correlated `K3 x K1`
-peel and the four-, five-, and six-line waves remain open.
+3,886 and 4,396 exact scalar monomials respectively. The same cold service now
+admits exactly one correlated closed block plus one or more independent
+one-loop blocks. For `K3 x K1` it integrates only the singleton loop, lowers
+the preserved two-loop Gram polynomial with Symbolica, and invokes the sealed
+K3 and K1 reducers. Exact scalar corners, both active dots, routed numerator
+sources, odd-zero, rank-two/rank-four moments, signed mixed products, and the
+two installed parent-master embeddings are pinned. This remains a non-owning
+feasibility result: it creates no `RuleCell`, cover, terminal, artifact,
+persistence payload, or reducer dispatch. Compiling its full domain and the
+four-, five-, and six-line ordinary waves remains open.
 
 Vakint's matcher roots have now been tested in their strongest useful role as
 natural sector-local coordinate charts, not concatenated into a new
 denominator family and not treated as closure authority. A deterministic cold
 fixture derives all five roots from the one complete K6 contraction plan,
-checks their candidate loop bases for shape and unimodularity, and builds
-six-coordinate ISP completions with foreign family fingerprints. The roots
-cover five of the six full-rank `S4` orbits, or 34 raw masks; the four-member
-star orbit `[0,0,1,1,0,1]` remains explicit. The S5 chart independently
+applies each shape-checked unimodular witness as `q = T k`, and builds
+six-coordinate ISP completions in those routed coordinates with foreign family
+fingerprints. Symbolica inverts and congruence-transforms the maps; every
+completed local row is then routed back, converted to the parent denominator
+basis, and replayed exactly, with each physical row required to recover its
+stable parent slot. The roots cover five of the six full-rank `S4` orbits, or
+34 raw masks; the four-member
+star orbit `[0,0,1,1,0,1]` remains explicit and is owned structurally as a
+`K1^3` product. Together with the 26 raw scaleless masks, the portfolio plus
+terminal authority accounts for all 64 physical masks. The S5 chart independently
 replays `2 s23 = 1 + D2 + D3 - D6`. These charts can precondition the bounded
 source search in the S4 and S5 waves by making correlated parent translations
-sparse locally, but the current fixture proves feasibility and authority
-separation only. They add no IBP identities, cannot transport positive
-auxiliary poles or arbitrary symbolic numerator powers as finite key sums,
+sparse locally, but the current fixture proves exact routed construction,
+feasibility, and authority separation only. Its caller-supplied fixed-degree
+admission limit is a resource policy, not a rank cap. The charts add no IBP
+identities, cannot transport positive auxiliary poles or arbitrary symbolic
+numerator powers as finite key sums,
 and may only nominate parent K6 source requests. Every candidate must be
 regenerated, exact-lifted, and replayed in the parent family before promotion.
 The complete 64-mask/11-orbit contraction plan remains authoritative.

@@ -16,6 +16,7 @@ use super::compile::admit_limit;
 use super::error::FactorizedProductMomentError;
 use super::limits::FactorizedProductMomentLimits;
 use super::model::FactorizedProductMomentChart;
+use super::model::SingletonProductBlock;
 use super::resources::{
     CoefficientBudget, OutputKeyBudget, accumulate_coefficient, admit_exponent_payload,
     admit_state_key_payload, release_map_resources,
@@ -35,10 +36,15 @@ pub(super) struct RadialEvaluator<'authority> {
 impl<'authority> RadialEvaluator<'authority> {
     pub(super) fn try_new(
         chart: &FactorizedProductMomentChart<'authority>,
+        singleton_blocks: &[SingletonProductBlock],
         limits: FactorizedProductMomentLimits,
     ) -> Result<Self, FactorizedProductMomentError> {
         let mut ordinals = BTreeSet::new();
-        ordinals.extend(chart.dependency_by_vector.iter().copied());
+        ordinals.extend(
+            singleton_blocks
+                .iter()
+                .map(|block| block.dependency_ordinal),
+        );
         let mut reducers = BTreeMap::new();
         for ordinal in ordinals {
             let dependency = chart
@@ -66,6 +72,7 @@ impl<'authority> RadialEvaluator<'authority> {
         dependency_ordinal: usize,
         denominator_power: i64,
         radial_power: u64,
+        request_offset: usize,
         budget: &mut CoefficientBudget,
         key_budget: &mut OutputKeyBudget,
         coalescing_additions: &mut usize,
@@ -84,6 +91,16 @@ impl<'authority> RadialEvaluator<'authority> {
         admit_limit("radial power", radial_size, self.limits.max_radial_power)?;
         let cache_key = (dependency_ordinal, denominator_power, radial_power);
         if let Some(cached) = self.cache.get(&cache_key) {
+            let aggregate_requests = request_offset.checked_add(self.requests).ok_or(
+                FactorizedProductMomentError::ResourceCountOverflow {
+                    resource: "product dependency requests",
+                },
+            )?;
+            admit_limit(
+                "product dependency requests",
+                aggregate_requests,
+                self.limits.max_dependency_requests,
+            )?;
             return retain_map_clone(cached, budget, key_budget);
         }
         if !self.reducers.contains_key(&dependency_ordinal) {
@@ -124,16 +141,19 @@ impl<'authority> RadialEvaluator<'authority> {
                 resource: "product dependency requests",
             },
         )?;
+        let aggregate_requests = request_offset.checked_add(prospective_requests).ok_or(
+            FactorizedProductMomentError::ResourceCountOverflow {
+                resource: "product dependency requests",
+            },
+        )?;
         admit_limit(
             "product dependency requests",
-            prospective_requests,
+            aggregate_requests,
             self.limits.max_dependency_requests,
         )?;
-        let polynomial = radial_polynomial(self.context, radial_power, support, self.limits)?;
+        let polynomial =
+            radial_polynomial(self.context, radial_power, support, budget, self.limits)?;
         admit_exponent_payload(polynomial.nterms(), 1, self.limits)?;
-        for coefficient in &polynomial.coefficients {
-            budget.retain(coefficient)?;
-        }
 
         let mut output = BTreeMap::new();
         for (radial_coefficient, exponents) in polynomial
@@ -217,14 +237,27 @@ impl<'authority> RadialEvaluator<'authority> {
         self.summands
     }
 
-    pub(super) fn dependency_statistics(&self) -> (usize, usize) {
-        self.reducers.values().fold((0, 0), |aggregate, reducer| {
-            let statistics = reducer.statistics();
-            (
-                aggregate.0.saturating_add(statistics.rule_applications()),
-                aggregate.1.saturating_add(statistics.cache_hits()),
-            )
-        })
+    pub(super) fn dependency_statistics(
+        &self,
+    ) -> Result<(usize, usize), FactorizedProductMomentError> {
+        self.reducers
+            .values()
+            .try_fold((0_usize, 0_usize), |aggregate, reducer| {
+                let statistics = reducer.statistics();
+                Ok((
+                    aggregate
+                        .0
+                        .checked_add(statistics.rule_applications())
+                        .ok_or(FactorizedProductMomentError::ResourceCountOverflow {
+                            resource: "product dependency rule applications",
+                        })?,
+                    aggregate.1.checked_add(statistics.cache_hits()).ok_or(
+                        FactorizedProductMomentError::ResourceCountOverflow {
+                            resource: "product dependency cache hits",
+                        },
+                    )?,
+                ))
+            })
     }
 
     pub(super) fn finish(
@@ -244,6 +277,7 @@ fn radial_polynomial(
     context: &CoefficientContext,
     radial_power: u64,
     expected_support: usize,
+    budget: &mut CoefficientBudget,
     limits: FactorizedProductMomentLimits,
 ) -> Result<RadialPolynomial, FactorizedProductMomentError> {
     let native_limit = i32::MAX as u32;
@@ -288,7 +322,6 @@ fn radial_polynomial(
             .ok_or(FactorizedProductMomentError::ResourceCountOverflow {
                 resource: "radial projected native coefficient bits",
             })?;
-    let mut budget = CoefficientBudget::new(limits);
     let context_unit = context.one();
     budget.retain(&context_unit)?;
     // The affine polynomial has two unit coefficients and `(1+D)^r` has
@@ -342,9 +375,8 @@ fn radial_polynomial(
     for coefficient in &affine.coefficients {
         budget.release(coefficient)?;
     }
-    for coefficient in &polynomial.coefficients {
-        budget.release(coefficient)?;
-    }
+    // The returned coefficients stay charged to the caller's aggregate
+    // budget until every sealed dependency reduction has consumed them.
     budget.release(&context_unit)?;
     Ok(polynomial)
 }

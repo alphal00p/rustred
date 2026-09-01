@@ -10,7 +10,37 @@ use super::super::ClosedTerminalAuthority;
 use super::super::factorized_numerator_lift::FactorizedNumeratorLiftCompilation;
 use super::error::FactorizedProductMomentError;
 
-/// Cold chart compiled from one installed `K_1^N` factorization rule.
+#[derive(Debug)]
+pub(super) struct SingletonProductBlock {
+    pub(super) dependency_ordinal: usize,
+    pub(super) parent_position: usize,
+    pub(super) transformed_vector: usize,
+    pub(super) active_power_ordinal: usize,
+}
+
+#[derive(Debug)]
+pub(super) struct CorrelatedProductBlock {
+    pub(super) dependency_ordinal: usize,
+    pub(super) parent_positions: Box<[usize]>,
+    pub(super) transformed_vectors: Box<[usize]>,
+    /// Signs relating the routed vectors to the installed dependency vectors:
+    /// `r_i = sign_i * t_i`.
+    pub(super) vector_signs: Box<[i64]>,
+    pub(super) active_power_start: usize,
+}
+
+#[derive(Debug)]
+pub(super) enum ProductBlockLayout {
+    AllSingleton {
+        singletons_by_vector: Box<[SingletonProductBlock]>,
+    },
+    OneCorrelated {
+        correlated: CorrelatedProductBlock,
+        singletons_by_vector: Box<[SingletonProductBlock]>,
+    },
+}
+
+/// Cold chart compiled from one admitted installed product factorization rule.
 ///
 /// The exact routing compilation is retained as its provenance capability.
 /// This type intentionally has no artifact/persistence conversion.
@@ -20,35 +50,50 @@ pub(crate) struct FactorizedProductMomentChart<'authority> {
     pub(super) factorization_ordinal: usize,
     pub(super) identity: Arc<()>,
     pub(super) routing: FactorizedNumeratorLiftCompilation,
-    pub(super) parent_by_vector: Box<[usize]>,
-    pub(super) dependency_by_vector: Box<[usize]>,
+    pub(super) layout: ProductBlockLayout,
+    pub(super) active_parent_positions: Box<[usize]>,
     pub(super) edges: Box<[(usize, usize)]>,
     pub(super) radial_coordinate_positions: Box<[usize]>,
     pub(super) cross_coordinate_positions: Box<[usize]>,
     pub(super) normalization: Coefficient,
-    pub(super) raw_master: IntegralKey,
-    pub(super) terminal: IntegralKey,
+    pub(super) sole_raw_master: Option<IntegralKey>,
+    pub(super) sole_terminal: Option<IntegralKey>,
 }
 
 impl FactorizedProductMomentChart<'_> {
     pub(crate) fn loop_factor_count(&self) -> usize {
-        self.parent_by_vector.len()
+        self.authority.family().loop_count()
     }
 
     pub(crate) fn cross_coordinate_count(&self) -> usize {
         self.edges.len()
     }
 
-    pub(crate) fn parent_by_vector(&self) -> &[usize] {
-        &self.parent_by_vector
+    pub(crate) fn singleton_factor_count(&self) -> usize {
+        match &self.layout {
+            ProductBlockLayout::AllSingleton {
+                singletons_by_vector,
+            }
+            | ProductBlockLayout::OneCorrelated {
+                singletons_by_vector,
+                ..
+            } => singletons_by_vector.len(),
+        }
     }
 
-    pub(crate) fn dependency_by_vector(&self) -> &[usize] {
-        &self.dependency_by_vector
+    pub(crate) fn correlated_factor_loop_count(&self) -> Option<usize> {
+        match &self.layout {
+            ProductBlockLayout::AllSingleton { .. } => None,
+            ProductBlockLayout::OneCorrelated { correlated, .. } => {
+                Some(correlated.transformed_vectors.len())
+            }
+        }
     }
 
     pub(crate) fn terminal(&self) -> &IntegralKey {
-        &self.terminal
+        self.sole_terminal
+            .as_ref()
+            .expect("the all-singleton chart has one installed terminal")
     }
 
     pub(crate) fn normalization(&self) -> &Coefficient {

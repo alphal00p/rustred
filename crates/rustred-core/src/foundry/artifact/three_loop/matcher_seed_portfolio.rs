@@ -1,18 +1,20 @@
 //! Non-authoritative Vakint-root seed and local-chart experiment.
 //!
 //! Each input is compiled structurally from active parent slots. The frozen
-//! matcher routing is retained only as a shape-checked, unimodular candidate:
-//! this fixture does not authenticate it as a simultaneous routing witness or
-//! apply it to the denominators. The ISP completion therefore remains in the
-//! parent loop coordinates. Every resulting family is a cold search chart
-//! only. It cannot replace the parent K6 family fingerprint, its complete
-//! contraction plan, or parent-source replay.
+//! matcher routing is applied exactly as `q = T k`: Symbolica inverts `T`,
+//! routes the physical quadratics, and replays every ISP-completed local row
+//! in the parent denominator basis. Every resulting family is nevertheless a
+//! cold foreign search chart only. It cannot replace the parent K6 family
+//! fingerprint, its complete contraction plan, or parent-source replay.
+
+mod routing;
 
 use std::collections::BTreeSet;
 
 use crate::algebra::Coefficient;
 use crate::family::isp::IspCompletion;
-use crate::family::{IntegralFamily, IntegralKey, invert_symbolic_matrix};
+use crate::family::{IntegralFamily, IntegralKey};
+use crate::foundry::completion::frame::{OneSidedChartFrame, PhysicalFrameLimits};
 use crate::foundry::completion::source_discovery::{
     OrdinarySourceIncidenceIndex, SourceDiscoveryLimits,
 };
@@ -20,10 +22,15 @@ use crate::foundry::completion::{CompletePhysicalContractionGoal, FamilyCoverage
 use crate::identity::{
     CompletedIbpSourceRows, IntegralShift, ParametricIbpConfig, ParametricIbpGenerator,
 };
+use crate::sector::Mask;
 
-use super::manifest::{FULL_RANK_ORBITS, VAKINT_CLASSES, VakintClassWitness, ZERO_ORBITS};
+use super::manifest::{FULL_RANK_ORBITS, VAKINT_CLASSES, ZERO_ORBITS};
 use super::tests::canonical_presentation;
-use super::{canonical_family, canonical_s4};
+use super::{canonical_family, canonical_s4, derive_k6_terminal_authority};
+use routing::{
+    ExactMatcherChartRouting, MatcherChartTransportError, MatcherChartTransportLimits,
+    try_route_and_complete,
+};
 
 const ARITY: usize = 6;
 const LOOP_COUNT: usize = 3;
@@ -38,8 +45,7 @@ struct MatcherSeedChart {
     diagnostic_label: &'static str,
     raw_corner: IntegralKey,
     canonical_corner: IntegralKey,
-    loop_basis_candidate: Box<[i64]>,
-    loop_basis_candidate_determinant: Coefficient,
+    routing: ExactMatcherChartRouting,
     raw_orbit_size: usize,
     completion: IspCompletion,
 }
@@ -79,46 +85,27 @@ impl MatcherSeedPortfolio {
                 .find(|orbit| orbit.corner() == &canonical_corner)
                 .ok_or("a matcher seed is outside the complete K6 contraction plan")?;
 
-            let loop_basis_candidate = checked_loop_basis_candidate(parent, witness)?;
-            let matrix = loop_basis_candidate
-                .chunks_exact(LOOP_COUNT)
-                .map(|row| {
-                    row.iter()
-                        .map(|&entry| parent.coefficient_context().integer(entry))
-                        .collect::<Vec<_>>()
-                })
-                .collect::<Vec<_>>();
-            let (_, determinant) = invert_symbolic_matrix(
-                parent.coefficient_context(),
-                &matrix,
-                parent.construction_limits(),
-            )?;
-            if determinant != parent.coefficient_context().one()
-                && determinant != parent.coefficient_context().integer(-1)
-            {
-                return Err("a matcher seed supplied a non-unimodular loop basis".into());
-            }
+            let (completion, routing) = try_route_and_complete(parent, witness)?;
 
             charts.push(MatcherSeedChart {
                 diagnostic_label: witness.label,
                 raw_corner,
                 canonical_corner,
-                loop_basis_candidate,
-                loop_basis_candidate_determinant: determinant,
+                routing,
                 raw_orbit_size: required.raw_sector_count(),
-                completion: complete_seed_chart(parent, witness)?,
+                completion,
             });
         }
         charts.sort_unstable_by(|left, right| {
             left.canonical_corner
                 .cmp(&right.canonical_corner)
                 .then_with(|| left.raw_corner.cmp(&right.raw_corner))
-                .then_with(|| left.loop_basis_candidate.cmp(&right.loop_basis_candidate))
+                .then_with(|| left.routing.loop_basis().cmp(right.routing.loop_basis()))
         });
         if charts.windows(2).any(|pair| {
             pair[0].canonical_corner == pair[1].canonical_corner
                 && pair[0].raw_corner == pair[1].raw_corner
-                && pair[0].loop_basis_candidate == pair[1].loop_basis_candidate
+                && pair[0].routing.loop_basis() == pair[1].routing.loop_basis()
         }) {
             return Err("the matcher seed portfolio repeats one exact chart input".into());
         }
@@ -149,53 +136,6 @@ impl MatcherSeedPortfolio {
             unseeded_required_orbits,
         })
     }
-}
-
-fn checked_loop_basis_candidate(
-    family: &IntegralFamily,
-    witness: VakintClassWitness,
-) -> Result<Box<[i64]>, Box<dyn std::error::Error>> {
-    let expected = family
-        .loop_count()
-        .checked_mul(family.loop_count())
-        .ok_or("matcher seed loop-basis size overflow")?;
-    if witness.routing_rows.len() != expected {
-        return Err("matcher seed loop basis has the wrong shape".into());
-    }
-    Ok(witness.routing_rows.into())
-}
-
-fn complete_seed_chart(
-    parent: &IntegralFamily,
-    witness: VakintClassWitness,
-) -> Result<IspCompletion, Box<dyn std::error::Error>> {
-    let active_slots = witness
-        .active_slots
-        .iter()
-        .enumerate()
-        .filter_map(|(slot, &active)| active.then_some(slot))
-        .collect::<Vec<_>>();
-    let chart_id = witness
-        .active_slots
-        .iter()
-        .map(|&active| if active { '1' } else { '0' })
-        .collect::<String>();
-    Ok(IspCompletion::try_new(
-        format!("rustred-k6-sector-seed-chart-{chart_id}"),
-        parent.loop_momenta().to_vec(),
-        parent.external_momenta().to_vec(),
-        parent.coefficient_context().clone(),
-        parent.dimension().clone(),
-        active_slots
-            .iter()
-            .map(|&slot| parent.denominators()[slot].clone())
-            .collect(),
-        parent.external_gram().to_vec(),
-        active_slots
-            .iter()
-            .map(|&slot| parent.power_shifts()[slot].clone())
-            .collect(),
-    )?)
 }
 
 fn complete_ordinary(
@@ -231,12 +171,24 @@ fn all_vakint_roots_compile_as_foreign_search_charts_inside_one_k6_plan() {
     for chart in &portfolio.charts {
         assert_eq!(chart.raw_corner.powers().len(), ARITY);
         assert_eq!(chart.canonical_corner.powers().len(), ARITY);
-        assert_eq!(chart.loop_basis_candidate.len(), LOOP_COUNT * LOOP_COUNT);
+        assert_eq!(chart.routing.loop_basis().len(), LOOP_COUNT * LOOP_COUNT);
+        assert_eq!(
+            chart.routing.inverse_loop_basis().len(),
+            LOOP_COUNT * LOOP_COUNT
+        );
         assert!(
-            chart.loop_basis_candidate_determinant == context.one()
-                || chart.loop_basis_candidate_determinant == context.integer(-1),
-            "{} lost its unimodular routing candidate",
+            chart.routing.determinant() == &context.one()
+                || chart.routing.determinant() == &context.integer(-1),
+            "{} lost its exact unimodular routing",
             chart.diagnostic_label
+        );
+        assert_eq!(
+            chart.routing.physical_parent_slots().len(),
+            chart.completion.input_denominator_count()
+        );
+        assert_eq!(
+            chart.routing.local_to_parent().len(),
+            chart.completion.family().denominator_count()
         );
         assert_eq!(chart.completion.family().denominator_count(), ARITY);
         assert_eq!(
@@ -334,6 +286,33 @@ fn local_seed_completion_is_deterministic_and_the_s5_isp_is_s23() {
         ]
     );
 
+    let half = context
+        .try_div(
+            &context.one(),
+            &context.integer(2),
+            s5.completion.family().construction_limits().exact_algebra,
+        )
+        .unwrap();
+    let minus_half = context
+        .try_neg(
+            &half,
+            s5.completion.family().construction_limits().exact_algebra,
+        )
+        .unwrap();
+    let parent_relation = &s5.routing.local_to_parent()[5];
+    assert_eq!(parent_relation.constant(), &half);
+    assert_eq!(
+        parent_relation.denominator_coefficients(),
+        [
+            context.zero(),
+            half.clone(),
+            half,
+            context.zero(),
+            context.zero(),
+            minus_half,
+        ]
+    );
+
     // In the parent family this unit row obeys
     // 2*s23 = 1 + D2 + D3 - D6. Replay every affine component exactly.
     let parent = canonical_family().unwrap();
@@ -368,6 +347,203 @@ fn local_seed_completion_is_deterministic_and_the_s5_isp_is_s23() {
             "S5 affine replay failed at component {component}"
         );
     }
+}
+
+#[test]
+fn a_nontrivial_matcher_route_freezes_both_auxiliary_parent_relations() {
+    let portfolio = MatcherSeedPortfolio::try_compile().unwrap();
+    let chart = portfolio
+        .charts
+        .iter()
+        .find(|chart| chart.diagnostic_label == "I3L_pinch_1_6")
+        .unwrap();
+    assert_eq!(chart.routing.loop_basis(), [0, 1, 0, 0, 0, 1, -1, 0, 1]);
+    assert_eq!(chart.completion.input_denominator_count(), 4);
+    assert_eq!(chart.completion.appended_coordinate_ordinals(), [1, 2]);
+
+    let context = chart.completion.family().coefficient_context();
+    let half = context
+        .try_div(
+            &context.one(),
+            &context.integer(2),
+            chart
+                .completion
+                .family()
+                .construction_limits()
+                .exact_algebra,
+        )
+        .unwrap();
+    let minus_half = context
+        .try_neg(
+            &half,
+            chart
+                .completion
+                .family()
+                .construction_limits()
+                .exact_algebra,
+        )
+        .unwrap();
+
+    // q1=k2, q2=k3, q3=-k1+k3. The appended coordinates therefore obey
+    // 2 q1.q2 = 1 + D2 + D3 - D6 and
+    // 2 q1.q3 = -D1 + D3 + D5 - D6 in the stable parent slot basis.
+    let q1_q2 = &chart.routing.local_to_parent()[4];
+    assert_eq!(q1_q2.constant(), &half);
+    assert_eq!(
+        q1_q2.denominator_coefficients(),
+        [
+            context.zero(),
+            half.clone(),
+            half.clone(),
+            context.zero(),
+            context.zero(),
+            minus_half.clone(),
+        ]
+    );
+    let q1_q3 = &chart.routing.local_to_parent()[5];
+    assert_eq!(q1_q3.constant(), &context.zero());
+    assert_eq!(
+        q1_q3.denominator_coefficients(),
+        [
+            minus_half.clone(),
+            context.zero(),
+            half.clone(),
+            context.zero(),
+            half.clone(),
+            minus_half.clone(),
+        ]
+    );
+
+    let mut local_powers = vec![0_i64; ARITY];
+    local_powers[4] = -33;
+    local_powers[5] = -33;
+    assert_eq!(
+        chart.routing.try_admit_numerator_only_transport(
+            &IntegralKey::try_new(local_powers).unwrap(),
+            MatcherChartTransportLimits::new(64),
+        ),
+        Err(MatcherChartTransportError::AuxiliaryDegreeLimit {
+            requested: 66,
+            limit: 64,
+        })
+    );
+}
+
+#[test]
+fn exact_matcher_routes_replay_stable_parent_slots_and_refuse_auxiliary_poles() {
+    let first = MatcherSeedPortfolio::try_compile().unwrap();
+    let second = MatcherSeedPortfolio::try_compile().unwrap();
+    let parent = canonical_family().unwrap();
+    let context = parent.coefficient_context();
+    let transport_limits = MatcherChartTransportLimits::new(64);
+
+    assert_eq!(first.charts.len(), second.charts.len());
+    for (chart, repeated) in first.charts.iter().zip(second.charts.iter()) {
+        assert_eq!(chart.routing, repeated.routing);
+        assert_eq!(
+            chart.completion.family().fingerprint(),
+            repeated.completion.family().fingerprint()
+        );
+        assert_ne!(
+            chart.completion.family().fingerprint(),
+            parent.fingerprint()
+        );
+
+        let physical_count = chart.routing.physical_parent_slots().len();
+        assert_eq!(physical_count, chart.completion.input_denominator_count());
+        for (local_slot, &parent_slot) in chart.routing.physical_parent_slots().iter().enumerate() {
+            let relation = &chart.routing.local_to_parent()[local_slot];
+            assert_eq!(relation.constant(), &context.zero());
+            assert_eq!(
+                relation.denominator_coefficients(),
+                &(0..ARITY)
+                    .map(|candidate| {
+                        if candidate == parent_slot {
+                            context.one()
+                        } else {
+                            context.zero()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            );
+        }
+
+        // Distinct physical powers prove that transport preserves stable
+        // parent slots rather than dense positions in the contracted chart.
+        let mut local_powers = vec![0_i64; ARITY];
+        let mut expected_parent = vec![0_i64; ARITY];
+        for (local_slot, &parent_slot) in chart.routing.physical_parent_slots().iter().enumerate() {
+            let power = 11 + i64::try_from(parent_slot).unwrap();
+            local_powers[local_slot] = power;
+            expected_parent[parent_slot] = power;
+        }
+        let admitted = chart
+            .routing
+            .try_admit_numerator_only_transport(
+                &IntegralKey::try_new(local_powers.clone()).unwrap(),
+                transport_limits,
+            )
+            .unwrap();
+        assert_eq!(admitted.parent_physical_key().powers(), expected_parent);
+        assert_eq!(admitted.total_auxiliary_numerator_degree(), 0);
+
+        if physical_count < ARITY {
+            local_powers[physical_count] = -1;
+            let numerator = chart
+                .routing
+                .try_admit_numerator_only_transport(
+                    &IntegralKey::try_new(local_powers.clone()).unwrap(),
+                    transport_limits,
+                )
+                .unwrap();
+            assert_eq!(numerator.total_auxiliary_numerator_degree(), 1);
+            assert_eq!(
+                chart.routing.try_admit_numerator_only_transport(
+                    &IntegralKey::try_new(local_powers.clone()).unwrap(),
+                    MatcherChartTransportLimits::new(0),
+                ),
+                Err(MatcherChartTransportError::AuxiliaryDegreeLimit {
+                    requested: 1,
+                    limit: 0,
+                })
+            );
+
+            local_powers[physical_count] = 1;
+            assert_eq!(
+                chart.routing.try_admit_numerator_only_transport(
+                    &IntegralKey::try_new(local_powers.clone()).unwrap(),
+                    transport_limits,
+                ),
+                Err(MatcherChartTransportError::PositiveAuxiliaryPole {
+                    local_slot: physical_count,
+                    power: 1,
+                })
+            );
+
+            local_powers[physical_count] = -65;
+            assert_eq!(
+                chart.routing.try_admit_numerator_only_transport(
+                    &IntegralKey::try_new(local_powers.clone()).unwrap(),
+                    transport_limits,
+                ),
+                Err(MatcherChartTransportError::AuxiliaryDegreeLimit {
+                    requested: 65,
+                    limit: 64,
+                })
+            );
+        }
+    }
+
+    assert_eq!(
+        first.charts[0].routing.try_admit_numerator_only_transport(
+            &IntegralKey::try_new([0; 5]).unwrap(),
+            transport_limits,
+        ),
+        Err(MatcherChartTransportError::WrongArity {
+            expected: ARITY,
+            actual: 5,
+        })
+    );
 }
 
 fn affine_component(
@@ -422,4 +598,92 @@ fn matcher_root_seeding_does_not_install_foreign_rows_into_parent_authority() {
         assert_eq!(local_sources.family_fingerprint(), local.fingerprint());
         assert_ne!(local_sources.family_fingerprint(), parent.fingerprint());
     }
+}
+
+#[test]
+fn matcher_roots_plus_structural_terminals_cover_the_complete_k6_sector_downset() {
+    let portfolio = MatcherSeedPortfolio::try_compile().unwrap();
+    let authority = derive_k6_terminal_authority().unwrap();
+    let seeded = portfolio
+        .charts
+        .iter()
+        .map(|chart| chart.canonical_corner.clone())
+        .collect::<BTreeSet<_>>();
+
+    let mut terminal_owned_raw_sectors = 0usize;
+    for (corner, raw_orbit_size) in &*portfolio.unseeded_required_orbits {
+        assert!(!seeded.contains(corner));
+        let zero_owned = authority.is_zero_terminal(corner);
+        let factorization_owned = authority
+            .factorization_rules()
+            .iter()
+            .any(|rule| rule.application_domain().contains(corner.powers()).unwrap());
+        assert!(
+            zero_owned || factorization_owned,
+            "unseeded K6 orbit {corner:?} has neither a matcher chart nor structural terminal authority"
+        );
+        terminal_owned_raw_sectors += *raw_orbit_size;
+    }
+
+    // The apparent 30-sector gap is exactly 26 scaleless masks plus the
+    // four-member K1^3 star orbit. It is not a sixth nonfactorized topology
+    // that needs another ordinary-IBP chart.
+    assert_eq!(terminal_owned_raw_sectors, 30);
+    assert_eq!(
+        portfolio.seeded_raw_sector_count + terminal_owned_raw_sectors,
+        portfolio.complete_raw_sector_count
+    );
+}
+
+#[test]
+fn matcher_chart_degree_two_source_shapes_are_deterministic() {
+    fn census(
+        family: &IntegralFamily,
+        sector: Mask,
+    ) -> Result<(usize, usize, usize), Box<dyn std::error::Error>> {
+        let generator =
+            ParametricIbpGenerator::try_new_with_config(family, ParametricIbpConfig::default())?;
+        let completed = complete_ordinary(&generator)?;
+        let frame = OneSidedChartFrame::try_new(
+            &generator,
+            &completed,
+            sector,
+            2,
+            PhysicalFrameLimits::default(),
+        )?;
+        Ok((
+            frame.plan().row_count(),
+            frame.plan().columns().len(),
+            frame.plan().entry_count(),
+        ))
+    }
+
+    let first = MatcherSeedPortfolio::try_compile().unwrap();
+    let second = MatcherSeedPortfolio::try_compile().unwrap();
+    let chart_census = |portfolio: &MatcherSeedPortfolio| {
+        portfolio
+            .charts
+            .iter()
+            .map(|chart| {
+                let active = chart.completion.input_denominator_count();
+                let sector = Mask::try_new((0..ARITY).map(|slot| slot < active)).unwrap();
+                (
+                    chart.diagnostic_label,
+                    census(chart.completion.family(), sector).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let first_census = chart_census(&first);
+    assert_eq!(first_census, chart_census(&second));
+
+    // This is a measured scheduling fingerprint, not closure evidence. Every
+    // chart still owns the same nine complete ordinary sources; only their
+    // sparse coordinate representation and one-sided source neighbourhood
+    // change.
+    assert!(
+        first_census
+            .iter()
+            .all(|(_, (rows, columns, entries))| *rows == 252 && *columns > 0 && *entries > 0)
+    );
 }

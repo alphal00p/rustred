@@ -43,14 +43,19 @@ action partitions it into five zero/scaleless orbits containing 26 raw
 sectors and six full-loop-rank closure orbits containing the remaining 38.
 The latter include the star spanning-tree representative
 `[0,0,1,1,0,1]`, whose orbit has size four and which is deliberately absent
-from Vakint's five user-facing matcher classes.  A publication campaign must
-therefore saturate and canonicalize the maximal root's complete physical
-downset; the five Vakint roots remain required replay/coverage fixtures.  It
-must not ISP-complete the five pinches as unrelated families.
+from Vakint's five user-facing matcher classes. That orbit has an installed
+unimodular `K1^3` factorization. Hence the five matcher roots plus the zero and
+factorization authority cover every physical mask: 34 raw masks are seeded by
+the matcher portfolio, 26 are scaleless, and the remaining four are the star
+product. A publication campaign must still saturate and canonicalize the
+maximal root's complete physical downset, but it should ISP-complete each
+pinch as an internal sector-local search chart. Those charts remain subordinate
+to one parent K6 artifact rather than becoming unrelated published families.
 
 This saturation is necessary but not sufficient to discover a closing rule
-set.  Adding roots changes the set of obligations and the lower-sector
-feedback schedule; it does not add algebraic identities to the foundry.  In
+set. Adding roots changes the coordinates, source schedule, and lower-sector
+feedback seen by the bounded solver; it does not add algebraic identities to
+the foundry. In
 particular, the two persistent dimension-five boxes from the compact walk are
 already numerator-bearing points of the bottom path sector and already see
 all nine ordinary K6 IBP sources.  Their first exact reduction action is an

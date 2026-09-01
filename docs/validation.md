@@ -261,29 +261,47 @@ and grants no cover authority until the free indices are retained symbolically,
 all guards and faces are proved, and an executable owner strictly shrinks the
 exact infinite complement.
 
-The separate cold `K1^N` product-moment suite now executes the path and star
-factorizations without re-entering the parent reducer. It authenticates the
-installed signed routing and one-loop dependencies, uses Symbolica sparse
-polynomial power for routed numerators and radial `(D+1)^r`, and retains the
-iterative angular guards. Eight focused tests cover the two scalar corners,
-odd zero, rank-two and rank-four moments, `q^2/D^2 = (d/2)T`, shared radial
-memoization, deterministic process-local provenance, typed unsupported
-`K3 x K1`, and caller limits. The persistent path witnesses
+The separate cold closed-block product-moment suite executes the path and star
+`K1^3` factorizations and the `K3 x K1` factorization without re-entering the
+parent K6 reducer. It authenticates the installed signed routing and lower
+dependencies, uses Symbolica sparse-polynomial operations for routed
+numerators and radial `(D+1)^r`, and retains the iterative angular guards.
+Eighteen focused tests cover the scalar corners, odd zero, rank-two and
+rank-four moments, `q^2/D^2 = (d/2)T`, shared radial memoization,
+deterministic process-local provenance, both K3 active dots, routed K3-product
+numerators, signed mixed products, the two installed K3-product master
+embeddings, typed rejection of multiple correlated blocks, and caller limits.
+They also pin symmetric aggregate K3/K1 request accounting, one shared
+coefficient budget across outer and native Symbolica phases, pre-allocation
+state-key limits, and typed rejection of a K3 `i64::MAX` root-boundary input.
+The persistent path witnesses
 `[-2,-6,1,-2,3,3]` and `[-4,-6,7,0,3,3]` are pinned to one authenticated
 terminal with exact coefficients, guard sets, and native supports `3,886` and
 `4,396`. This suite validates a bounded non-owning action only; it does not
-install a `RuleCell` or discharge the infinite path/star cover.
+install a `RuleCell` or discharge the infinite product-sector covers.
 
-A separate three-test matcher-seed portfolio derives all five frozen Vakint
-three-loop roots from the complete K6 contraction plan, checks their candidate
-loop bases for shape and unimodularity, and deterministically ISP-completes
-each root as a foreign search family. The exact census is five of six
+A separate seven-test matcher-seed portfolio derives all five frozen Vakint
+three-loop roots from the complete K6 contraction plan and applies their exact
+unimodular loop maps before deterministically ISP-completing each root as a
+foreign search family. Symbolica inverts each map, performs both quadratic
+congruences, converts every completed local affine row to the parent basis, and
+replays it independently. Every routed physical row is required to be the unit
+image of its original stable parent slot. The exact census is five of six
 full-rank `S4` orbits and 34 raw masks; the omitted star orbit
 `[0,0,1,1,0,1]` has size four. The S5 completion appends scalar coordinate
 `s23` and replays `2 s23 = 1 + D2 + D3 - D6` component by component. Local
 source batches retain their foreign family fingerprints and cannot enter the
-parent authority. These tests prove seed/chart feasibility and separation,
-not additional parent identities, improved nomination, or closure.
+parent authority. Fixed numerator-only admission preserves distinct physical
+slot powers, uses a caller-supplied resource limit (64 in this test), and refuses
+positive auxiliary poles with a typed result. A coverage test proves that every
+unseeded orbit is already
+owned by zero/factorization authority: 34 matcher-seeded plus 26 scaleless plus
+four star-product raw masks exhaust all 64. A bounded degree-two frame census
+also freezes deterministic local source shapes, while a nonidentity routed
+chart pins both appended affine ISP relations and cumulative auxiliary-degree
+admission. None of these tests makes a sparsity or closure claim. They prove
+seed/chart feasibility, sector accounting, and authority separation—not
+additional parent identities, improved nomination, or recurrence closure.
 
 The adjacent exact guard census expands all 205 retained K6 guard occurrences
 by base-parameter monomial. It pins 119 immediate nonzero-constant

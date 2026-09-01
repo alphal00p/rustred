@@ -41,17 +41,30 @@ They are sectors of one complete K6 family, not five independent families.
 The maximal K4 root generates all 64 physical contraction masks. Under the
 authenticated `S4` action, those masks form five zero/scaleless orbits and six
 full-loop-rank closure orbits. Vakint's roots omit the four-member star orbit
-represented by `[0,0,1,1,0,1]`. Consequently:
+represented by `[0,0,1,1,0,1]`. That orbit is not a missing interacting graph
+class: the installed unimodular factorization proves it is a `K1^3` product.
+Consequently:
 
 - the five roots are useful routing, chart, and acceptance fixtures;
-- they do not define publication coverage;
-- solving their local charts does not discharge the omitted star orbit; and
-- the final artifact must still close the complete contraction downset derived
-  from `FamilyPresentation`.
+- they do not define publication coverage by themselves;
+- together with the installed zero and factorization authority, they do cover
+  every one of the 64 physical sector masks (34 matcher-seeded, 26 scaleless,
+  and four in the omitted factorized star orbit);
+- the omitted star orbit is discharged by its structural product action, not
+  by pretending that it was one of Vakint's matcher roots; and
+- the final artifact must still close every dotted and numerator-bearing
+  lattice branch above that complete contraction downset.
 
 This distinction is enforced by
 [`CompletePhysicalContractionGoal`](../../crates/rustred-core/src/foundry/completion/family_campaign/model.rs),
 which cannot be constructed from an arbitrary list of matcher roots.
+
+Thus the strong form of the matcher-root proposal is now the preferred Stage-1
+schedule: compile all five roots as internal local charts of one K6 campaign,
+then let zero/factorized structural owners handle the complementary masks. It
+removes any need to discover a sixth nonfactorized graph topology. It does not
+by itself prove recurrence closure, because a finite set of graph corners is
+not the infinite index lattice above those corners.
 
 ## Concrete S5 chart
 
@@ -268,22 +281,53 @@ budgets, record:
 This stage has no owner, terminal, or artifact output.
 
 The first bounded Stage-A fixture is now executable. It derives the five
-frozen Vakint roots from the single complete K6 contraction plan, admits each
-candidate routing only after shape and unimodularity checks, and constructs a
-deterministic six-coordinate ISP completion with a foreign family fingerprint.
-The roots cover 34 raw masks in five of the six full-rank `S4` orbits; the
-four-member star orbit `[0,0,1,1,0,1]` remains explicit. The S5 completion
-selects `s23` and replays `2 s23 = 1 + D2 + D3 - D6` coefficient by
-coefficient. This fixture does not yet transport a source, compare sparse
-fill, or demonstrate a parent nomination improvement; those measurements
+frozen Vakint roots from the single complete K6 contraction plan and applies
+each exact unimodular witness as `q = T k`. Symbolica's checked inversion and
+congruence boundaries route the surviving parent propagators with
+`T^-T Q T^-1`; deterministic ISP completion then occurs in those routed local
+coordinates. Every completed row is routed back with `T^T Q_local T`, converted
+to the parent denominator basis by Symbolica, and replayed independently. The
+physical rows must be exact unit images of their original stable parent slots.
+All five resulting six-coordinate families retain foreign fingerprints.
+
+The roots cover 34 raw masks in five of the six full-rank `S4` orbits. Installed
+zero authority covers 26 more, and the four-member omitted star orbit
+`[0,0,1,1,0,1]` is an installed `K1^3` factorization, accounting for all 64
+physical masks without inventing a sixth interacting chart. This finite corner
+census is not recurrence closure. The S5 completion selects `s23` and retains
+the exact parent relation `2 s23 = 1 + D2 + D3 - D6`. A bounded admission seam
+accepts only fixed nonpositive auxiliary powers under a caller-supplied work
+limit and refuses positive auxiliary poles before expansion; that limit is not
+a semantic rank cap. The fixture still does not transport a source, compare
+sparse fill, or demonstrate a parent nomination improvement; those measurements
 remain the substantive Stage-A/B gate.
 
 ### Stage B: finite fixed-sample transport
 
-Implement bounded parent-to-local and local-to-parent expansion for concrete
-integer numerator degrees. Pin the S5 identities above as the first exact
-fixture. Reject positive auxiliary poles, exponent overflow, unsupported
-parameter-dependent expansion, and every resource excess with typed outcomes.
+The audited minimal seam needs only local-to-parent transport for concrete
+integer samples; a bidirectional affine inverse may improve later sample
+selection but is not required for the first falsifier. For every local sample
+`s`, request all nine completed local rows translated by `s`, then specialize
+their indexed coefficients and conditions at the zero assignment. Translation
+already changes `c_delta(n)` into `c_delta(n+s)`, so specializing again at `s`
+would be an incorrect double translation.
+
+Specialize and remove exact-zero terms first. Transactionally refuse a row if
+any surviving endpoint has a positive auxiliary power. Expand every remaining
+nonpositive auxiliary power with Symbolica sparse-polynomial `pow` and native
+multiplication over its retained affine parent relation; a monomial `D^e`
+shifts the stable parent physical key to `b-e`. Coalesce the whole transported
+row exactly. Extract the existing single-affine Symbolica pattern into a
+topology-neutral multi-affine primitive rather than implementing a RustRed
+multinomial CAS. Reject exponent overflow, unsupported coefficient domains,
+and every resource excess with typed outcomes.
+
+For a canonical blind target, first choose one deterministic orbit image in
+the chart's raw sector. Canonicalizing that raw target yields one authenticated
+raw-to-canonical group route; apply that same route to every expanded endpoint.
+Independently canonicalizing endpoints would destroy the correlated equality.
+Pin the S5 identities above at auxiliary degrees `0,1,2,4` as the first exact
+fixture.
 
 ### Stage C: sealed proposal adapter
 
@@ -297,12 +341,20 @@ Add a cold `source_discovery::chart_proposal` seam that returns only:
 It must be unable to construct a `RuleCell`, owner, terminal, closure layer, or
 artifact.
 
+The proposal adapter specializes complete local rows but discards their
+coefficients after exact row-wide coalescing. Only nonzero canonical parent
+support reaches the parent ordinary-source incidence index. Local family
+fingerprints, indexed contexts, row IDs, coefficients, and guards remain
+diagnostic and never become parent evidence.
+
 ### Stage D: parent replay
 
-Materialize the nominated requests with the parent K6 generator, rebuild one
-fresh parent physical frame, and use the existing exact-lift, canonical replay,
-guard-refinement, and promotion path. A chart is useful only if this parent
-path produces an exact replayed owner.
+Merge the nominated requests with the ordinary target-unit bootstrap at the
+start of each independent probe. Materialize every request with the parent K6
+generator, rebuild one fresh parent physical frame, and use the existing
+exact-lift, canonical replay, guard-refinement, and promotion path. No modular
+value, accumulated row weight, or foreign chart state crosses probes. A chart
+is useful only if this parent path produces an exact replayed owner.
 
 If support-only proposals win decisively but repeat coefficient discovery is
 expensive, a later sealed proposal may carry exact suggested source weights.
