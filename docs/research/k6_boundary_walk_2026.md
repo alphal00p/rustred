@@ -217,10 +217,52 @@ repeated hot-path authentication, topology dispatch, or compatibility shim was
 introduced. The independently audited 80-report checkpoint and ignored
 two-run 256-report checkpoint remain bit-for-bit exact after this migration.
 
-The next measured gate is an honest unchanged complete
-zero-offset-seed/degree-zero sweep. Richer source neighborhoods are justified
-only after the corresponding smaller program has been exhausted honestly;
-they must not be inferred from a report-cap stop. In parallel, the exact
-dimension-five boxes are compared with the existing offline AlphaLoop/MATAD
-rules to identify a generic source-selection or interpolation experiment. No
-oracle rule or coefficient enters RustRed publication authority.
+### Extended release-mode observation
+
+A transient release-mode driver subsequently requested at most 16,384 reports
+from the same zero-offset-seed, degree-zero program while retaining one
+coordinator across every exact ledger mutation. It did not reach that cap or
+an unchanged-program exhaustion. At report 10,926, staging the next proposal
+returned the typed operational failure
+
+```text
+ResourceLimit {
+    resource: "staged sector-closure owner canonical content bytes",
+    requested: 67,184,181,
+    limit: 67,108,864,
+}
+```
+
+The failed transaction left the exact ledger unchanged at revision 181 with
+181 owners, one terminal, and 129 nonfinite boxes. The free-dimension
+histogram was `[0,12,77,28,10,2,0]`; an unchanged degree-zero schedule at that
+snapshot would still contain 4,000 tasks. The cumulative outcomes were 6,009
+no-proposal, 4,745 duplicate, 97 changed-without-geometric-shrink, and 75
+strict-shrink reports, with no incomplete proposal or exact obstruction. The
+run took 272.39 seconds; its last sampled peak RSS was 184,048 KiB and is only
+a lower bound because the process exited before a final sample.
+
+Two dimension-five boxes still survived, now in the canonical decomposition
+
+```text
+lower [0,1,0,0,0,0], upper [inf,inf,0,inf,inf,inf]
+lower [0,3,4,0,0,0], upper [inf,inf,inf,0,inf,inf]
+```
+
+Their smaller finite lower endpoints do not mean that the uncovered union
+grew: bounded four-dimensional staircase slabs from the earlier decomposition
+can coalesce with an old unbounded tail when the exact complement is
+recanonicalized. Every committed mutation first proves
+`updated \ baseline = empty`; the failing staging operation occurred before
+the only live-state replacement. The transient driver was removed after the
+audit rather than retained as another expensive regression.
+
+This observation is neither closure nor a reason to raise the byte limit and
+continue blindly. More than ten thousand ordinary-source proposals kept
+adding exact local owners while both five-dimensional tails survived. The
+offline comparison then identified their first missing action as a generic
+affine factorized-numerator route, which RustRed independently derives from
+the family and authenticated unimodular factorization basis. That action
+language is the next gate; richer source neighborhoods must not be inferred
+merely from the operational stop. No oracle rule or coefficient enters
+RustRed publication authority.

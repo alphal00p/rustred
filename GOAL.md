@@ -252,6 +252,31 @@ path (orbit 12) and star (orbit 4) against the same 32-owner root snapshot; it
 honestly stops both as nonfinite and publishes neither. The remaining
 dependency boundary is still the first complete bottom-up K6 rank-three wave.
 
+The family-level campaign boundary is now explicit and independently audited.
+One authenticated three-loop six-coordinate family—not five unrelated family
+definitions—owns the maximal K4/Mercedes sector and its complete physical
+contraction downset. Deterministic enumeration produces all 64 raw masks and
+the exact 11 `S4` sector orbits. Vakint's five registered three-loop matcher
+roots are retained as mandatory coverage/replay fixtures, but they omit the
+four-member full-rank star orbit represented by `[0,0,1,1,0,1]`; consequently
+they cannot replace saturation of the maximal root. This complete manifest is
+an obligation census, not closure evidence. An extended compact walk reached
+10,926 exact reports before a typed 64 MiB retained-content limit stopped the
+next transaction; it did not close, exhaust the scheduler, or hit the report
+cap. Both persistent dimension-five residual representatives already lie in
+the complete path sector and see all nine ordinary IBP sources. Offline
+AlphaLoop/MATAD diagnosis shows that their missing first operation is a
+guard-free affine loop-routing expansion of an inactive numerator, followed
+by ordinary IBPs, rather than another graph class or another ordinary source.
+The topology-neutral, Symbolica-backed cold compiler for that
+factorized-numerator lift is now independently audited. It binds installed
+factorization rules to their exact family, derives pure routed-key or
+constant-width auxiliary actions for all three installed K6 factorization
+classes, and explicitly proves only auxiliary descent. Until those actions are
+installed as exact owners and the resulting complete wave has zero uncovered
+branches, they grant no K6 artifact, terminal, or Vakint three-loop parity
+claim.
+
 On the Vakint side, the shared multimethod harness now exercises 21 applicable
 historical tests comprising 27 concrete inputs through two loops, including
 nine inputs with the unchanged FORM tensor prepass. Eleven genuine three-loop
