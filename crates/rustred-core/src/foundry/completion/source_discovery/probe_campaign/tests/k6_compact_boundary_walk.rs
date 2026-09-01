@@ -25,12 +25,14 @@ use super::k6::asserted_revision_nine_ledger;
 
 const MAX_REPORTS: usize = 80;
 const LONG_CHECKPOINT_REPORTS: usize = 256;
+const EXTENDED_CHECKPOINT_REPORTS: usize = 512;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct CompactK6Checkpoint {
     stop: ProbeCoordinatorOperationalStop,
     snapshot: ExactOwnerCoverSnapshot,
     free_dimension_histogram: [usize; 7],
+    dimension_five_boxes: Vec<(Vec<u64>, Vec<Option<u64>>)>,
 }
 
 fn free_dimension_histogram(partition: &UncoveredPartition) -> [usize; 7] {
@@ -97,12 +99,17 @@ fn run_report_capped_checkpoint(max_reports: usize) -> CompactK6Checkpoint {
         unreachable!()
     };
     let snapshot = ledger.snapshot();
+    let partition = ledger.try_clone_uncovered_partition().unwrap();
     CompactK6Checkpoint {
         stop,
         snapshot,
-        free_dimension_histogram: free_dimension_histogram(
-            &ledger.try_clone_uncovered_partition().unwrap(),
-        ),
+        free_dimension_histogram: free_dimension_histogram(&partition),
+        dimension_five_boxes: partition
+            .boxes()
+            .iter()
+            .filter(|lattice_box| lattice_box.free_dimension() == 5)
+            .map(|lattice_box| (lattice_box.lower().to_vec(), lattice_box.upper().to_vec()))
+            .collect(),
     }
 }
 
@@ -253,4 +260,95 @@ fn k6_revision_nine_compact_coordinator_reproduces_two_hundred_fifty_six_report_
         ))
     );
     assert_eq!(first.free_dimension_histogram, [0, 0, 0, 37, 17, 2, 0],);
+}
+
+#[test]
+#[ignore = "explicit long-running deterministic K=6 research checkpoint"]
+fn k6_revision_nine_compact_coordinator_reproduces_five_hundred_twelve_report_checkpoint() {
+    let first = run_report_capped_checkpoint(EXTENDED_CHECKPOINT_REPORTS);
+    let second = run_report_capped_checkpoint(EXTENDED_CHECKPOINT_REPORTS);
+    assert_eq!(
+        first, second,
+        "independent authenticated revision-nine reconstructions must agree"
+    );
+
+    let stop = first.stop;
+    assert!(matches!(
+        stop.reason(),
+        ProbeCoordinatorOperationalReason::TaskReportLimit {
+            requested: 513,
+            limit: EXTENDED_CHECKPOINT_REPORTS,
+        }
+    ));
+    let location = stop.location().unwrap();
+    assert_eq!(location.ledger_revision(), 40);
+    assert_eq!(location.class_ordinal(), 2);
+    assert_eq!(location.effective_dimension(), 4);
+    assert_eq!(location.parent_free_dimension(), 4);
+    assert_eq!(location.boundary_codimension(), 0);
+    assert_eq!(location.task_ordinal(), 5);
+
+    let census = stop.census();
+    assert_eq!(census.epochs_started(), 32);
+    assert_eq!(census.plans_built(), 86);
+    assert_eq!(census.classes_completed(), 54);
+    assert_eq!(census.task_reports(), EXTENDED_CHECKPOINT_REPORTS);
+    assert_eq!(census.no_proposal(), 274);
+    assert_eq!(census.duplicate(), 207);
+    assert_eq!(census.incomplete_proposal(), 0);
+    assert_eq!(census.changed_without_geometric_shrink(), 14);
+    assert_eq!(census.strict_geometric_shrink(), 17);
+    assert_eq!(census.compiler_closed(), 0);
+    assert_eq!(
+        census.no_proposal()
+            + census.duplicate()
+            + census.incomplete_proposal()
+            + census.changed_without_geometric_shrink()
+            + census.strict_geometric_shrink()
+            + census.compiler_closed(),
+        EXTENDED_CHECKPOINT_REPORTS,
+    );
+    assert_eq!(census.invalidated_tickets(), 943);
+    assert_eq!(census.declared_probes(), EXTENDED_CHECKPOINT_REPORTS);
+    assert_eq!(census.scheduler_replayed(), 238);
+    assert_eq!(census.scheduler_support_did_not_lift(), 274);
+    assert_eq!(census.scheduler_sampled_dual(), 0);
+    assert_eq!(census.scheduler_budget_stops(), 0);
+    assert_eq!(census.scheduler_rejections(), 0);
+    assert_eq!(census.scheduler_stalls(), 0);
+    assert_eq!(census.scheduler_exact_lift_errors(), 0);
+    assert_eq!(census.canonical_replayed(), 238);
+    assert_eq!(census.canonical_no_modular_hit(), 0);
+    assert_eq!(census.canonical_query_rejections(), 0);
+    assert_eq!(census.canonical_support_did_not_lift(), 0);
+    assert_eq!(census.exact_obstructions(), 0);
+
+    let snapshot = first.snapshot;
+    assert_eq!(snapshot.revision().get(), 40);
+    assert_eq!(snapshot.owner_count(), 40);
+    assert_eq!(snapshot.terminal_count(), 1);
+    assert_eq!(snapshot.uncovered_box_count(), 84);
+    assert!(!snapshot.uncovered_is_finite());
+    assert_eq!(snapshot.missing_terminal_count(), 0);
+    assert_eq!(snapshot.guard_incomplete_owner_count(), 0);
+    assert_eq!(
+        snapshot.status(),
+        ExactOwnerLedgerCoverStatus::Compiled(ExactOwnerCoverStatus::Incomplete(
+            ExactOwnerCoverObstructionKind::NonFinite,
+        ))
+    );
+    assert_eq!(first.free_dimension_histogram, [0, 0, 0, 65, 17, 2, 0],);
+    assert_eq!(
+        first.dimension_five_boxes,
+        vec![
+            (
+                vec![0, 4, 0, 0, 0, 0],
+                vec![None, None, Some(0), None, None, None],
+            ),
+            (
+                vec![2, 4, 4, 0, 0, 0],
+                vec![None, None, None, Some(0), None, None],
+            ),
+        ],
+    );
 }
