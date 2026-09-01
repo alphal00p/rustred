@@ -1,5 +1,6 @@
 //! Focused semantic adapter regressions.
 
+mod all_full_rank_orbits;
 mod k6;
 
 use std::sync::Arc;
