@@ -78,6 +78,27 @@ RSS trend; production memory behavior cannot be inferred from it. The plan
 counts are restart telemetry across changing ledger revisions, not counts of
 classes exhausted at one stable snapshot.
 
+## Durable deterministic checkpoint
+
+Commit `ac68736` preserves a bounded, oracle-disabled regression that rebuilds
+the authenticated revision-nine ledger by executing ordinary-source probes,
+then performs two independent 80-report boundary walks. Both walks reproduce
+the same canonical plan/task transcript, exact owner content keys, and exact
+uncovered partition. Each reaches revision 18 with 18 owners and 39 boxes,
+with free-dimension histogram `[0, 0, 0, 17, 20, 2, 0]`. The outcome census is
+33 no-nomination, 38 duplicate, 6 changed-without-geometric-shrink, and 3
+strict-shrink reports, with no incomplete proposal, replay failure, or exact
+obstruction. Nine mutations are followed by exact replanning and an
+independently checked stale-sibling rejection.
+
+The regression was independently audited and reproduced. Its typed stop is
+deliberately `ReportCap`, and its compiler status is deliberately
+`Incomplete(NonFinite)`: it proves deterministic exact progress, not closure
+or schedule exhaustion. In particular, the test-only stable-sweep telemetry
+must not be promoted into a production exhaustion certificate until the stop
+policy retains canonical replay-attempt/query-rejection evidence and exact
+obstruction/refinement state.
+
 ## Minimal production coordinator
 
 The audited production seam should remain topology-neutral and compact:
