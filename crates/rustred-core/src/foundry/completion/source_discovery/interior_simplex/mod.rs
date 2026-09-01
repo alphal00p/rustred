@@ -1,10 +1,11 @@
 //! Proposal-only affine-unisolvent sampling inside blind lattice components.
 //!
-//! For every box of globally maximal free dimension, this planner enumerates
-//! the complete Cartesian product of its finite coordinates, moves every
-//! unbounded coordinate by a caller-selected positive interior margin, and
-//! adds the complete nonnegative simplex of offsets through a total-degree
-//! ceiling. The product and retained result are preflighted before task
+//! For every box at either the globally maximal or one explicitly requested
+//! positive free dimension, this planner enumerates the complete Cartesian
+//! product of its finite coordinates, moves every unbounded coordinate by a
+//! caller-selected positive interior margin, and adds the complete
+//! nonnegative simplex of offsets through a total-degree ceiling. The product
+//! and retained result are preflighted before task
 //! construction; finite assignments are streamed by mixed-radix ordinal and
 //! are never materialized as a separate combinatorial table. Canonical box
 //! rounds are flattened in linear work, and an ordered active frontier visits
@@ -18,6 +19,11 @@
 //! cover, or authorize an owner, terminal, artifact, or closure claim.  A
 //! completed schedule therefore has no semantic authority beyond identifying
 //! which target proposals belonged to one frozen in-memory geometry epoch.
+//!
+//! Exact-dimension selection filters the canonical boxes already present in
+//! the supplied partition. It does not synthesize lower-dimensional boundary
+//! faces inside a box of higher free dimension; a separate proposal-only face
+//! planner must sample those faces without mutating the exact cover geometry.
 
 mod bounded;
 mod build;
@@ -45,10 +51,13 @@ pub(crate) use execution::{
 pub(crate) use limits::InteriorSimplexLimits;
 #[allow(unused_imports)] // Proposal seam awaiting the algebraic execution driver.
 pub(crate) use model::{
-    InteriorSimplexPlan, InteriorSimplexScopePartition, InteriorSimplexTask, InteriorSimplexTaskKey,
+    InteriorSimplexFreeDimensionSelection, InteriorSimplexPlan, InteriorSimplexScopePartition,
+    InteriorSimplexTask, InteriorSimplexTaskKey,
 };
 #[allow(unused_imports)] // Proposal seam awaiting the algebraic execution driver.
-pub(crate) use plan::try_plan_interior_simplex_samples;
+pub(crate) use plan::{
+    try_plan_interior_simplex_samples, try_plan_interior_simplex_samples_at_free_dimension,
+};
 
 #[cfg(test)]
 mod tests;

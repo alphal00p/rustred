@@ -21,6 +21,15 @@ pub(crate) enum InteriorSimplexPlanError {
         expected: usize,
         actual: usize,
     },
+    ZeroRequestedFreeDimension,
+    InvalidRequestedFreeDimension {
+        requested: usize,
+        maximal_input_arity: usize,
+    },
+    RequestedFreeDimensionUnavailable {
+        requested: usize,
+        maximal_available: usize,
+    },
     NoUnboundedGeometry,
     CoordinateOverflow {
         canonical_scope_ordinal: usize,
@@ -83,6 +92,23 @@ impl fmt::Display for InteriorSimplexPlanError {
             } => write!(
                 formatter,
                 "interior-simplex input scope {input_scope_ordinal} box {box_ordinal} has arity {actual}, expected {expected}"
+            ),
+            Self::ZeroRequestedFreeDimension => formatter.write_str(
+                "interior-simplex exact free-dimension selection must be strictly positive",
+            ),
+            Self::InvalidRequestedFreeDimension {
+                requested,
+                maximal_input_arity,
+            } => write!(
+                formatter,
+                "interior-simplex requested free dimension {requested} exceeds the maximal input arity {maximal_input_arity}"
+            ),
+            Self::RequestedFreeDimensionUnavailable {
+                requested,
+                maximal_available,
+            } => write!(
+                formatter,
+                "interior-simplex input geometry has no box of requested free dimension {requested}; its maximal available free dimension is {maximal_available}"
             ),
             Self::NoUnboundedGeometry => formatter.write_str(
                 "the frozen uncovered partitions contain no unbounded box; interior sampling applies only to blind rays",

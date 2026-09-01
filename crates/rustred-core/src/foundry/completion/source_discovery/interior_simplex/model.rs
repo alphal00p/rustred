@@ -213,6 +213,16 @@ impl InteriorSimplexTask {
     }
 }
 
+/// Free-dimension policy frozen into one proposal plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) enum InteriorSimplexFreeDimensionSelection {
+    /// Select every box at the largest positive free dimension present in the
+    /// captured input geometry.
+    Maximal,
+    /// Select every box at exactly this positive free dimension.
+    Exact(usize),
+}
+
 /// Immutable complete finite-assignment × simplex design for one geometry capture.
 ///
 /// This plan contains target proposals only.  In particular, it deliberately
@@ -227,6 +237,8 @@ pub(crate) struct InteriorSimplexPlan {
     pub(super) finite_assignment_count: usize,
     pub(super) scheduler_workspace_entries: usize,
     pub(super) scheduler_visit_count: usize,
+    pub(super) free_dimension_selection: InteriorSimplexFreeDimensionSelection,
+    pub(super) selected_free_dimension: usize,
     pub(super) maximal_free_dimension: usize,
     pub(super) interior_margin: u64,
     pub(super) polynomial_degree_ceiling: usize,
@@ -270,6 +282,19 @@ impl InteriorSimplexPlan {
         self.scheduler_visit_count
     }
 
+    /// Caller selection that produced this frozen plan.
+    pub(crate) const fn free_dimension_selection(&self) -> InteriorSimplexFreeDimensionSelection {
+        self.free_dimension_selection
+    }
+
+    /// Common free dimension of every box selected into this plan.
+    pub(crate) const fn selected_free_dimension(&self) -> usize {
+        self.selected_free_dimension
+    }
+
+    /// Largest free dimension present anywhere in the captured input, which
+    /// can exceed [`Self::selected_free_dimension`] for an exact
+    /// lower-dimension-box plan.
     pub(crate) const fn maximal_free_dimension(&self) -> usize {
         self.maximal_free_dimension
     }

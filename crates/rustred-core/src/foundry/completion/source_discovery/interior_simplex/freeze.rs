@@ -27,9 +27,9 @@ pub(super) struct FrozenGeometry {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn try_freeze_maximal_geometry(
+pub(super) fn try_freeze_selected_geometry(
     canonical_scopes: &[CanonicalScope<'_>],
-    maximal_free_dimension: usize,
+    selected_free_dimension: usize,
     interior_margin: u64,
     degree_ceiling: u64,
     simplex_sample_count: usize,
@@ -52,52 +52,55 @@ pub(super) fn try_freeze_maximal_geometry(
         let selected_in_scope = canonical
             .canonical_boxes
             .iter()
-            .filter(|lattice_box| lattice_box.free_dimension() == maximal_free_dimension)
+            .filter(|lattice_box| lattice_box.free_dimension() == selected_free_dimension)
             .count();
         if selected_in_scope == 0 {
             continue;
         }
         selected_scope_count = checked_add("selected canonical scopes", selected_scope_count, 1)?;
         maximal_box_round_count = maximal_box_round_count.max(selected_in_scope);
-        let next_selected_boxes =
-            checked_add("selected maximal boxes", selected_boxes, selected_in_scope)?;
+        let next_selected_boxes = checked_add(
+            "selected free-dimension boxes",
+            selected_boxes,
+            selected_in_scope,
+        )?;
         check_limit(
-            "selected maximal boxes",
+            "selected free-dimension boxes",
             next_selected_boxes,
             limits.max_selected_boxes,
         )?;
         let cells_per_box = checked_mul(
-            "selected maximal-box coordinate cells",
+            "selected free-dimension box coordinate cells",
             canonical.input.sector.arity(),
             2,
         )?;
         let scope_box_cells = checked_mul(
-            "selected maximal-box coordinate cells",
+            "selected free-dimension box coordinate cells",
             selected_in_scope,
             cells_per_box,
         )?;
         let next_box_cells = checked_add(
-            "selected maximal-box coordinate cells",
+            "selected free-dimension box coordinate cells",
             selected_box_coordinate_cells,
             scope_box_cells,
         )?;
         check_limit(
-            "selected maximal-box coordinate cells",
+            "selected free-dimension box coordinate cells",
             next_box_cells,
             limits.max_selected_box_coordinate_cells,
         )?;
         let scope_free_axes = checked_mul(
-            "selected maximal-box free-axis cells",
+            "selected free-dimension box free-axis cells",
             selected_in_scope,
-            maximal_free_dimension,
+            selected_free_dimension,
         )?;
         let next_free_axis_cells = checked_add(
-            "selected maximal-box free-axis cells",
+            "selected free-dimension box free-axis cells",
             selected_free_axis_cells,
             scope_free_axes,
         )?;
         check_limit(
-            "selected maximal-box free-axis cells",
+            "selected free-dimension box free-axis cells",
             next_free_axis_cells,
             limits.max_selected_free_axis_cells,
         )?;
@@ -106,7 +109,7 @@ pub(super) fn try_freeze_maximal_geometry(
             .canonical_boxes
             .iter()
             .copied()
-            .filter(|lattice_box| lattice_box.free_dimension() == maximal_free_dimension)
+            .filter(|lattice_box| lattice_box.free_dimension() == selected_free_dimension)
         {
             let assignment_count =
                 try_finite_assignment_count(lattice_box.lower(), lattice_box.upper())?;
@@ -164,7 +167,7 @@ pub(super) fn try_freeze_maximal_geometry(
 
     if selected_boxes == 0 {
         return Err(InteriorSimplexPlanError::Invariant {
-            detail: "a positive maximal free dimension selected no boxes",
+            detail: "a validated positive free dimension selected no boxes",
         });
     }
 
@@ -212,7 +215,7 @@ pub(super) fn try_freeze_maximal_geometry(
         let selected_in_scope = canonical
             .canonical_boxes
             .iter()
-            .filter(|lattice_box| lattice_box.free_dimension() == maximal_free_dimension)
+            .filter(|lattice_box| lattice_box.free_dimension() == selected_free_dimension)
             .count();
         if selected_in_scope == 0 {
             continue;
@@ -222,12 +225,16 @@ pub(super) fn try_freeze_maximal_geometry(
             canonical.input.sector.clone(),
         );
         let mut boxes = Vec::new();
-        try_reserve_exact(&mut boxes, selected_in_scope, "selected maximal boxes")?;
+        try_reserve_exact(
+            &mut boxes,
+            selected_in_scope,
+            "selected free-dimension boxes",
+        )?;
         for (box_ordinal, lattice_box) in canonical
             .canonical_boxes
             .iter()
             .copied()
-            .filter(|lattice_box| lattice_box.free_dimension() == maximal_free_dimension)
+            .filter(|lattice_box| lattice_box.free_dimension() == selected_free_dimension)
             .enumerate()
         {
             preflight_box_coordinates(
@@ -257,7 +264,7 @@ pub(super) fn try_freeze_maximal_geometry(
             let mut free_axes = Vec::new();
             try_reserve_exact(
                 &mut free_axes,
-                maximal_free_dimension,
+                selected_free_dimension,
                 "selected box free axes",
             )?;
             free_axes.extend(

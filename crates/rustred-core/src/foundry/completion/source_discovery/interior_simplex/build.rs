@@ -41,7 +41,7 @@ pub(super) fn try_build_tasks(
     max_arity: usize,
 ) -> Result<BuiltInteriorSimplexTasks, InteriorSimplexPlanError> {
     let selected_box_count = scopes.iter().try_fold(0usize, |count, scope| {
-        checked_add("selected maximal boxes", count, scope.boxes.len())
+        checked_add("selected free-dimension boxes", count, scope.boxes.len())
     })?;
     let (flat_boxes, mut scheduler_visits) =
         try_flatten_canonical_boxes(scopes, selected_box_count)?;

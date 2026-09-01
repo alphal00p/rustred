@@ -5,8 +5,9 @@ use crate::sector::Mask;
 
 use super::simplex::try_simplex_sample_count;
 use super::{
-    InteriorSimplexLimits, InteriorSimplexPlan, InteriorSimplexPlanError,
-    InteriorSimplexScopePartition, InteriorSimplexTaskKey, try_plan_interior_simplex_samples,
+    InteriorSimplexFreeDimensionSelection, InteriorSimplexLimits, InteriorSimplexPlan,
+    InteriorSimplexPlanError, InteriorSimplexScopePartition, InteriorSimplexTaskKey,
+    try_plan_interior_simplex_samples, try_plan_interior_simplex_samples_at_free_dimension,
 };
 
 fn lattice_box(lower: &[u64], upper: &[Option<u64>]) -> LatticeBox {
@@ -378,6 +379,261 @@ fn finite_product_chronology_is_independent_of_scope_and_box_input_order() {
     );
 }
 
+fn mixed_dimension_plan(
+    reverse_inputs: bool,
+    reverse_boxes: bool,
+    selection: InteriorSimplexFreeDimensionSelection,
+    limits: InteriorSimplexLimits,
+) -> Result<InteriorSimplexPlan, InteriorSimplexPlanError> {
+    let sector = all_active(3);
+    let mut alpha_boxes = vec![
+        lattice_box(&[0, 0, 0], &[None, None, Some(0)]),
+        lattice_box(&[10, 0, 1], &[Some(11), None, Some(2)]),
+    ];
+    if reverse_boxes {
+        alpha_boxes.reverse();
+    }
+    let alpha = UncoveredPartition::new(alpha_boxes, 0);
+    let beta = UncoveredPartition::new(
+        vec![lattice_box(&[20, 0, 3], &[Some(20), None, Some(5)])],
+        0,
+    );
+    let alpha_scope = InteriorSimplexScopePartition::new("a-alpha", &sector, &alpha);
+    let beta_scope = InteriorSimplexScopePartition::new("z-beta", &sector, &beta);
+    let scopes = if reverse_inputs {
+        vec![beta_scope, alpha_scope]
+    } else {
+        vec![alpha_scope, beta_scope]
+    };
+    match selection {
+        InteriorSimplexFreeDimensionSelection::Maximal => {
+            try_plan_interior_simplex_samples(71, scopes, 1, 0, limits)
+        }
+        InteriorSimplexFreeDimensionSelection::Exact(dimension) => {
+            try_plan_interior_simplex_samples_at_free_dimension(71, scopes, dimension, 1, 0, limits)
+        }
+    }
+}
+
+#[test]
+fn maximal_then_exact_lower_dimension_selects_all_boxes_and_assignments() {
+    let maximal = mixed_dimension_plan(
+        false,
+        false,
+        InteriorSimplexFreeDimensionSelection::Maximal,
+        InteriorSimplexLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        maximal.free_dimension_selection(),
+        InteriorSimplexFreeDimensionSelection::Maximal
+    );
+    assert_eq!(maximal.maximal_free_dimension(), 2);
+    assert_eq!(maximal.selected_free_dimension(), 2);
+    assert_eq!(maximal.selected_scope_count(), 1);
+    assert_eq!(maximal.selected_box_count(), 1);
+    assert_eq!(maximal.finite_assignment_count(), 1);
+    assert_eq!(maximal.tasks()[0].lattice_target(), &[1, 1, 0]);
+
+    let exact = mixed_dimension_plan(
+        false,
+        false,
+        InteriorSimplexFreeDimensionSelection::Exact(1),
+        InteriorSimplexLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        exact.free_dimension_selection(),
+        InteriorSimplexFreeDimensionSelection::Exact(1)
+    );
+    assert_eq!(exact.maximal_free_dimension(), 2);
+    assert_eq!(exact.selected_free_dimension(), 1);
+    assert_eq!(exact.selected_scope_count(), 2);
+    assert_eq!(exact.selected_box_count(), 2);
+    assert_eq!(exact.finite_assignment_count(), 7);
+    assert_eq!(exact.simplex_sample_count(), 1);
+    assert_eq!(
+        exact
+            .tasks()
+            .iter()
+            .map(|task| task.lattice_target().to_vec())
+            .collect::<Vec<_>>(),
+        vec![
+            vec![10, 1, 1],
+            vec![20, 1, 3],
+            vec![10, 1, 2],
+            vec![20, 1, 4],
+            vec![11, 1, 1],
+            vec![20, 1, 5],
+            vec![11, 1, 2],
+        ]
+    );
+}
+
+#[test]
+fn exact_dimension_is_input_order_independent_and_matches_maximal_at_the_maximum() {
+    let forward = mixed_dimension_plan(
+        false,
+        false,
+        InteriorSimplexFreeDimensionSelection::Exact(1),
+        InteriorSimplexLimits::default(),
+    )
+    .unwrap();
+    let reversed = mixed_dimension_plan(
+        true,
+        true,
+        InteriorSimplexFreeDimensionSelection::Exact(1),
+        InteriorSimplexLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(semantic_tasks(&forward), semantic_tasks(&reversed));
+    assert_eq!(
+        forward.scheduler_visit_count(),
+        reversed.scheduler_visit_count()
+    );
+
+    let maximal = mixed_dimension_plan(
+        false,
+        false,
+        InteriorSimplexFreeDimensionSelection::Maximal,
+        InteriorSimplexLimits::default(),
+    )
+    .unwrap();
+    let exact_maximal = mixed_dimension_plan(
+        false,
+        false,
+        InteriorSimplexFreeDimensionSelection::Exact(2),
+        InteriorSimplexLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(semantic_tasks(&maximal), semantic_tasks(&exact_maximal));
+    assert_eq!(
+        maximal.selected_scope_count(),
+        exact_maximal.selected_scope_count()
+    );
+    assert_eq!(
+        maximal.selected_box_count(),
+        exact_maximal.selected_box_count()
+    );
+    assert_eq!(
+        maximal.finite_assignment_count(),
+        exact_maximal.finite_assignment_count()
+    );
+    assert_eq!(
+        maximal.scheduler_workspace_entries(),
+        exact_maximal.scheduler_workspace_entries()
+    );
+    assert_eq!(
+        maximal.scheduler_visit_count(),
+        exact_maximal.scheduler_visit_count()
+    );
+    assert!(matches!(
+        exact_maximal.validate_task(&maximal.tasks()[0]),
+        Err(InteriorSimplexPlanError::StaleGeometryEpoch {
+            expected_ordinal: 71,
+            actual_ordinal: 71,
+        })
+    ));
+}
+
+#[test]
+fn exact_dimension_rejects_zero_invalid_unavailable_and_one_below_resources() {
+    assert_eq!(
+        mixed_dimension_plan(
+            false,
+            false,
+            InteriorSimplexFreeDimensionSelection::Exact(0),
+            InteriorSimplexLimits::default(),
+        )
+        .unwrap_err(),
+        InteriorSimplexPlanError::ZeroRequestedFreeDimension
+    );
+    assert_eq!(
+        mixed_dimension_plan(
+            false,
+            false,
+            InteriorSimplexFreeDimensionSelection::Exact(4),
+            InteriorSimplexLimits::default(),
+        )
+        .unwrap_err(),
+        InteriorSimplexPlanError::InvalidRequestedFreeDimension {
+            requested: 4,
+            maximal_input_arity: 3,
+        }
+    );
+
+    let sector = all_active(3);
+    let higher_only =
+        UncoveredPartition::new(vec![lattice_box(&[0, 0, 0], &[None, None, Some(0)])], 0);
+    assert_eq!(
+        try_plan_interior_simplex_samples_at_free_dimension(
+            71,
+            [InteriorSimplexScopePartition::new(
+                "higher-only",
+                &sector,
+                &higher_only,
+            )],
+            1,
+            1,
+            0,
+            InteriorSimplexLimits::default(),
+        )
+        .unwrap_err(),
+        InteriorSimplexPlanError::RequestedFreeDimensionUnavailable {
+            requested: 1,
+            maximal_available: 2,
+        }
+    );
+
+    assert_eq!(
+        mixed_dimension_plan(
+            false,
+            false,
+            InteriorSimplexFreeDimensionSelection::Exact(3),
+            InteriorSimplexLimits::default(),
+        )
+        .unwrap_err(),
+        InteriorSimplexPlanError::RequestedFreeDimensionUnavailable {
+            requested: 3,
+            maximal_available: 2,
+        }
+    );
+    assert_eq!(
+        mixed_dimension_plan(
+            false,
+            false,
+            InteriorSimplexFreeDimensionSelection::Exact(1),
+            InteriorSimplexLimits {
+                max_selected_boxes: 1,
+                ..InteriorSimplexLimits::default()
+            },
+        )
+        .unwrap_err(),
+        InteriorSimplexPlanError::ResourceLimit {
+            resource: "selected free-dimension boxes",
+            requested: 2,
+            limit: 1,
+        }
+    );
+    assert_eq!(
+        mixed_dimension_plan(
+            false,
+            false,
+            InteriorSimplexFreeDimensionSelection::Exact(1),
+            InteriorSimplexLimits {
+                max_finite_assignments: 6,
+                ..InteriorSimplexLimits::default()
+            },
+        )
+        .unwrap_err(),
+        InteriorSimplexPlanError::ResourceLimit {
+            resource: "finite coordinate assignments",
+            requested: 7,
+            limit: 6,
+        }
+    );
+}
+
 #[test]
 fn coordinate_overflow_and_representative_global_caps_reject_the_whole_design() {
     let inactive = Mask::try_new([false]).unwrap();
@@ -433,7 +689,7 @@ fn coordinate_overflow_and_representative_global_caps_reject_the_whole_design() 
             },
         ),
         Err(InteriorSimplexPlanError::ResourceLimit {
-            resource: "selected maximal boxes",
+            resource: "selected free-dimension boxes",
             requested: 1,
             limit: 0,
         })

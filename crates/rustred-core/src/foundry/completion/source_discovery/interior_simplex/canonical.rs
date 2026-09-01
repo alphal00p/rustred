@@ -14,12 +14,13 @@ pub(super) struct CanonicalScope<'a> {
 pub(super) fn try_collect_canonical_scopes<'a>(
     scopes: impl IntoIterator<Item = InteriorSimplexScopePartition<'a>>,
     limits: InteriorSimplexLimits,
-) -> Result<(Vec<CanonicalScope<'a>>, usize), InteriorSimplexPlanError> {
+) -> Result<(Vec<CanonicalScope<'a>>, usize, usize), InteriorSimplexPlanError> {
     let mut canonical_scopes = Vec::new();
     let mut aggregate_scope_key_bytes = 0usize;
     let mut input_boxes = 0usize;
     let mut input_box_coordinate_cells = 0usize;
     let mut maximal_free_dimension = 0usize;
+    let mut maximal_input_arity = 0usize;
 
     for (input_ordinal, input) in scopes.into_iter().enumerate() {
         let requested_scopes = checked_add("input scopes", canonical_scopes.len(), 1)?;
@@ -38,6 +39,7 @@ pub(super) fn try_collect_canonical_scopes<'a>(
             limits.max_aggregate_scope_key_bytes,
         )?;
         check_limit("scope arity", input.sector.arity(), limits.max_arity)?;
+        maximal_input_arity = maximal_input_arity.max(input.sector.arity());
 
         for (box_ordinal, lattice_box) in input.uncovered.boxes().iter().enumerate() {
             if lattice_box.arity() != input.sector.arity() {
@@ -92,11 +94,12 @@ pub(super) fn try_collect_canonical_scopes<'a>(
     if canonical_scopes.is_empty() {
         return Err(InteriorSimplexPlanError::EmptyScopeSchedule);
     }
-    if maximal_free_dimension == 0 {
-        return Err(InteriorSimplexPlanError::NoUnboundedGeometry);
-    }
     reject_duplicate_keys_and_install_chronology(&mut canonical_scopes)?;
-    Ok((canonical_scopes, maximal_free_dimension))
+    Ok((
+        canonical_scopes,
+        maximal_free_dimension,
+        maximal_input_arity,
+    ))
 }
 
 fn reject_duplicate_keys_and_install_chronology(

@@ -1,10 +1,11 @@
 use super::InteriorSimplexPlanError;
 use super::build::try_build_tasks;
 use super::canonical::try_collect_canonical_scopes;
-use super::freeze::try_freeze_maximal_geometry;
+use super::freeze::try_freeze_selected_geometry;
 use super::limits::InteriorSimplexLimits;
 use super::model::{
-    InteriorSimplexGeometryEpochIdentity, InteriorSimplexPlan, InteriorSimplexScopePartition,
+    InteriorSimplexFreeDimensionSelection, InteriorSimplexGeometryEpochIdentity,
+    InteriorSimplexPlan, InteriorSimplexScopePartition,
 };
 use super::resource::{check_limit, checked_mul};
 use super::simplex::{try_build_simplex_offsets, try_simplex_sample_count};
@@ -22,6 +23,54 @@ use super::simplex::{try_build_simplex_offsets, try_simplex_sample_count};
 pub(crate) fn try_plan_interior_simplex_samples<'a>(
     epoch_ordinal: u64,
     scopes: impl IntoIterator<Item = InteriorSimplexScopePartition<'a>>,
+    interior_margin: u64,
+    polynomial_degree_ceiling: usize,
+    limits: InteriorSimplexLimits,
+) -> Result<InteriorSimplexPlan, InteriorSimplexPlanError> {
+    try_plan_interior_simplex_samples_with_selection(
+        epoch_ordinal,
+        scopes,
+        InteriorSimplexFreeDimensionSelection::Maximal,
+        interior_margin,
+        polynomial_degree_ceiling,
+        limits,
+    )
+}
+
+/// Freeze every box at one exact positive free dimension and plan its complete
+/// interior-simplex samples.
+///
+/// Unlike the maximal-selection entry point, this never falls back to a
+/// dimension that happens to exist. Missing, zero, and arity-invalid requests
+/// are rejected distinctly so a fair outer driver can prove each dimension's
+/// exhaustion without silently skipping geometry. Only boxes already having
+/// the requested dimension are selected; this call does not slice boundary
+/// faces out of higher-dimensional boxes.
+pub(crate) fn try_plan_interior_simplex_samples_at_free_dimension<'a>(
+    epoch_ordinal: u64,
+    scopes: impl IntoIterator<Item = InteriorSimplexScopePartition<'a>>,
+    requested_free_dimension: usize,
+    interior_margin: u64,
+    polynomial_degree_ceiling: usize,
+    limits: InteriorSimplexLimits,
+) -> Result<InteriorSimplexPlan, InteriorSimplexPlanError> {
+    if requested_free_dimension == 0 {
+        return Err(InteriorSimplexPlanError::ZeroRequestedFreeDimension);
+    }
+    try_plan_interior_simplex_samples_with_selection(
+        epoch_ordinal,
+        scopes,
+        InteriorSimplexFreeDimensionSelection::Exact(requested_free_dimension),
+        interior_margin,
+        polynomial_degree_ceiling,
+        limits,
+    )
+}
+
+fn try_plan_interior_simplex_samples_with_selection<'a>(
+    epoch_ordinal: u64,
+    scopes: impl IntoIterator<Item = InteriorSimplexScopePartition<'a>>,
+    free_dimension_selection: InteriorSimplexFreeDimensionSelection,
     interior_margin: u64,
     polynomial_degree_ceiling: usize,
     limits: InteriorSimplexLimits,
@@ -47,9 +96,44 @@ pub(crate) fn try_plan_interior_simplex_samples<'a>(
         }
     })?;
 
-    let (canonical_scopes, maximal_free_dimension) = try_collect_canonical_scopes(scopes, limits)?;
+    let (canonical_scopes, maximal_free_dimension, maximal_input_arity) =
+        try_collect_canonical_scopes(scopes, limits)?;
+    let selected_free_dimension = match free_dimension_selection {
+        InteriorSimplexFreeDimensionSelection::Maximal => {
+            if maximal_free_dimension == 0 {
+                return Err(InteriorSimplexPlanError::NoUnboundedGeometry);
+            }
+            maximal_free_dimension
+        }
+        InteriorSimplexFreeDimensionSelection::Exact(requested) => {
+            if requested == 0 {
+                return Err(InteriorSimplexPlanError::ZeroRequestedFreeDimension);
+            }
+            if requested > maximal_input_arity {
+                return Err(InteriorSimplexPlanError::InvalidRequestedFreeDimension {
+                    requested,
+                    maximal_input_arity,
+                });
+            }
+            let is_available = canonical_scopes.iter().any(|scope| {
+                scope
+                    .canonical_boxes
+                    .iter()
+                    .any(|lattice_box| lattice_box.free_dimension() == requested)
+            });
+            if !is_available {
+                return Err(
+                    InteriorSimplexPlanError::RequestedFreeDimensionUnavailable {
+                        requested,
+                        maximal_available: maximal_free_dimension,
+                    },
+                );
+            }
+            requested
+        }
+    };
     let simplex_sample_count =
-        try_simplex_sample_count(maximal_free_dimension, polynomial_degree_ceiling)?;
+        try_simplex_sample_count(selected_free_dimension, polynomial_degree_ceiling)?;
     check_limit(
         "complete simplex samples",
         simplex_sample_count,
@@ -58,7 +142,7 @@ pub(crate) fn try_plan_interior_simplex_samples<'a>(
     let simplex_coordinate_cells = checked_mul(
         "simplex offset coordinate cells",
         simplex_sample_count,
-        maximal_free_dimension,
+        selected_free_dimension,
     )?;
     check_limit(
         "simplex offset coordinate cells",
@@ -67,9 +151,9 @@ pub(crate) fn try_plan_interior_simplex_samples<'a>(
     )?;
 
     let input_scope_count = canonical_scopes.len();
-    let frozen = try_freeze_maximal_geometry(
+    let frozen = try_freeze_selected_geometry(
         &canonical_scopes,
-        maximal_free_dimension,
+        selected_free_dimension,
         interior_margin,
         degree_u64,
         simplex_sample_count,
@@ -79,7 +163,7 @@ pub(crate) fn try_plan_interior_simplex_samples<'a>(
     // Construct the shared design only after all aggregate result sizes and
     // every selected box's worst coordinate have passed preflight.
     let offsets = try_build_simplex_offsets(
-        maximal_free_dimension,
+        selected_free_dimension,
         polynomial_degree_ceiling,
         simplex_sample_count,
     )?;
@@ -104,6 +188,8 @@ pub(crate) fn try_plan_interior_simplex_samples<'a>(
         finite_assignment_count: frozen.finite_assignment_count,
         scheduler_workspace_entries: frozen.scheduler_workspace_entries,
         scheduler_visit_count: built.scheduler_visits,
+        free_dimension_selection,
+        selected_free_dimension,
         maximal_free_dimension,
         interior_margin,
         polynomial_degree_ceiling,
