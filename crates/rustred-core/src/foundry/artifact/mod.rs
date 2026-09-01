@@ -6,7 +6,11 @@
 //! [`ClosedArtifact`].
 
 mod error;
+// This cold compiler is intentionally kept separate from the durable artifact
+// and reducer until its routed-key integration has an authenticated owner.
 mod factorization;
+#[allow(dead_code, unused_imports)]
+pub(crate) mod factorized_numerator_lift;
 mod install;
 mod model;
 mod one_loop;

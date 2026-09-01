@@ -124,7 +124,7 @@ pub(super) fn validate_and_compile(
         }
         validate_kinematics(&context, rule)?;
         let embeddings = compile_embedded_master_products(&context, rule)?;
-        rule.install_master_embeddings(embeddings);
+        rule.install_master_embeddings(embeddings, context.family.fingerprint_owner());
     }
     Ok(())
 }

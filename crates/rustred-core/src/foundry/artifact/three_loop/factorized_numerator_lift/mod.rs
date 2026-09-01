@@ -1,12 +1,10 @@
-//! Test-only proof probe for factorized inactive-numerator lifting.
+//! Test-only angular-moment oracle for production factorized routing.
 //!
-//! This module owns no artifact rule, cover, or production dispatch. It asks
-//! whether the already authenticated factorization loop bases contain enough
-//! exact information to derive, without an oracle, (1) routed affine
-//! denominator relations and (2) a bounded-branch, one-factor-at-a-time
-//! numerator recurrence. A second, deliberately corner-only probe contracts
-//! the resulting cross-factor scalar products by exact spherical moments. It
-//! is evidence for a future proof-backed action, not authority to close K=6.
+//! The topology-generic affine derivation and one-factor recurrence live in
+//! [`crate::foundry::artifact::factorized_numerator_lift`]. This module keeps
+//! only the deliberately K6, undotted-corner spherical-moment evaluation used
+//! to validate that production routing. It owns no artifact rule, cover, or
+//! production dispatch and does not confer authority to close K6.
 
 mod derive;
 mod error;

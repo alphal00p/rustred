@@ -18,7 +18,9 @@ pub mod symanzik;
 mod tests;
 
 pub use error::IntegralFamilyError;
-pub(crate) use exact::{congruence_symbolic_matrix, invert_symbolic_matrix};
+pub(crate) use exact::{
+    congruence_symbolic_matrix, invert_symbolic_matrix, symbolica_matrix_limits,
+};
 pub use integral::{IntegralKey, IntegralKeyError};
 pub use model::{
     AffineDenominator, CoefficientLocation, ContractionMomentum, DenominatorExpansion,

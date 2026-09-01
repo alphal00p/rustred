@@ -1,4 +1,4 @@
-use crate::algebra::{Coefficient, CoefficientContext};
+use crate::algebra::Coefficient;
 use crate::foundry::artifact::FactorizationRule;
 
 use super::error::ProbeError;
@@ -6,93 +6,8 @@ use super::exact_limits;
 use super::limits::{
     ProbeLimits, admit_degree, admit_new_cache_entry, checked_total, record_count,
 };
-use super::model::{
-    AffineMomentKey, AffinePowerChild, AffinePowerState, CornerMomentEvaluator, DenominatorRelation,
-};
+use super::model::{AffineMomentKey, CornerMomentEvaluator};
 use super::{ARITY, LOOP_COUNT};
-
-/// Expand one factor of a routed affine denominator.
-///
-/// The only descent certified here is the auxiliary `remaining_power`
-/// coordinate. Turning the children into ordinary integral keys and proving
-/// descent in the artifact order remains a production-owner obligation.
-pub(super) fn affine_power_step(
-    context: &CoefficientContext,
-    state: &AffinePowerState,
-    relation: &DenominatorRelation,
-    limits: ProbeLimits,
-) -> Result<Vec<AffinePowerChild>, ProbeError> {
-    let limits = limits.validate()?;
-    if state.remaining_power == 0 {
-        return Err(ProbeError::EmptyAffinePower);
-    }
-    admit_degree(
-        "affine recurrence degree",
-        state.remaining_power,
-        limits.max_affine_degree,
-    )?;
-    if relation.denominator_coefficients.len() != ARITY {
-        return Err(ProbeError::WrongRelationArity {
-            expected: ARITY,
-            actual: relation.denominator_coefficients.len(),
-        });
-    }
-
-    let remaining_power = state
-        .remaining_power
-        .checked_sub(1)
-        .ok_or(ProbeError::EmptyAffinePower)?;
-    let mut transition_count = 0_usize;
-    let mut children = Vec::with_capacity(ARITY + 1);
-    if !relation.constant.is_zero() {
-        record_count(
-            "one-step affine transitions",
-            &mut transition_count,
-            limits.max_affine_transitions,
-        )?;
-        children.push(AffinePowerChild {
-            coefficient: relation.constant.clone(),
-            state: AffinePowerState {
-                remaining_power,
-                routed_powers: state.routed_powers,
-            },
-        });
-    }
-    for (slot, coefficient) in relation.denominator_coefficients.iter().enumerate() {
-        if coefficient.is_zero() {
-            continue;
-        }
-        let mut routed_powers = state.routed_powers;
-        routed_powers[slot] =
-            routed_powers[slot]
-                .checked_sub(1)
-                .ok_or(ProbeError::RoutedPowerUnderflow {
-                    slot,
-                    power: routed_powers[slot],
-                })?;
-        record_count(
-            "one-step affine transitions",
-            &mut transition_count,
-            limits.max_affine_transitions,
-        )?;
-        children.push(AffinePowerChild {
-            coefficient: coefficient.clone(),
-            state: AffinePowerState {
-                remaining_power,
-                routed_powers,
-            },
-        });
-    }
-    if children.iter().any(|child| {
-        !context.contains(&child.coefficient)
-            || child.state.remaining_power >= state.remaining_power
-    }) {
-        return Err(ProbeError::Invariant {
-            detail: "an affine child escaped its coefficient context or failed auxiliary descent",
-        });
-    }
-    Ok(children)
-}
 
 impl CornerMomentEvaluator<'_> {
     /// Evaluate admitted numerator powers in a bounded work frame.

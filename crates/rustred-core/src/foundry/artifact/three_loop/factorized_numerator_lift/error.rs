@@ -5,12 +5,7 @@ use crate::sector::CoordinatePriorityError;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ProbeError {
-    EmptyAffinePower,
     WrongTransformedFormCount {
-        expected: usize,
-        actual: usize,
-    },
-    WrongRelationArity {
         expected: usize,
         actual: usize,
     },
@@ -30,10 +25,6 @@ pub(super) enum ProbeError {
         detail: &'static str,
     },
     MissingDimensionParameter,
-    RoutedPowerUnderflow {
-        slot: usize,
-        power: i64,
-    },
     DegreeOverflow {
         resource: &'static str,
     },
@@ -66,16 +57,9 @@ pub(super) enum ProbeError {
 impl fmt::Display for ProbeError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::EmptyAffinePower => {
-                formatter.write_str("an affine-power step needs a positive remaining power")
-            }
             Self::WrongTransformedFormCount { expected, actual } => write!(
                 formatter,
                 "the corner probe received {actual} transformed forms, expected {expected}"
-            ),
-            Self::WrongRelationArity { expected, actual } => write!(
-                formatter,
-                "the affine relation has {actual} denominator coefficients, expected {expected}"
             ),
             Self::WrongSectorArity { expected, actual } => write!(
                 formatter,
@@ -95,10 +79,6 @@ impl fmt::Display for ProbeError {
             Self::MissingDimensionParameter => {
                 formatter.write_str("the corner probe coefficient context has no d parameter")
             }
-            Self::RoutedPowerUnderflow { slot, power } => write!(
-                formatter,
-                "routed power {power} at slot {slot} cannot be lowered by one"
-            ),
             Self::DegreeOverflow { resource } => {
                 write!(formatter, "{resource} overflowed u64")
             }

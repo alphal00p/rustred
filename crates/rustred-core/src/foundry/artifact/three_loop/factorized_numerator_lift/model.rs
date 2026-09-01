@@ -2,51 +2,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::algebra::{Coefficient, CoefficientContext};
 use crate::foundry::artifact::FactorizationRule;
+use crate::foundry::artifact::factorized_numerator_lift::RoutedAffineDenominator;
 use crate::sector::{CoordinatePriority, CoordinatePriorityLimits};
 
 use super::error::ProbeError;
 use super::limits::ProbeLimits;
 use super::{ARITY, LOOP_COUNT};
-
-#[derive(Clone, Debug)]
-pub(super) struct AffineForm {
-    pub(super) constant: Coefficient,
-    pub(super) scalar_coefficients: Box<[Coefficient]>,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct DenominatorRelation {
-    pub(super) constant: Coefficient,
-    pub(super) denominator_coefficients: Box<[Coefficient]>,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct RoutedBasis {
-    pub(super) signed_loop_basis: Box<[i64]>,
-    pub(super) transformed_forms: Box<[AffineForm]>,
-    pub(super) relations: Box<[DenominatorRelation]>,
-    pub(super) unit_images: Box<[Option<usize>]>,
-    pub(super) unit_image_count: usize,
-}
-
-/// One internal state of the compiled affine-power recurrence.
-///
-/// `remaining_power` is deliberately explicit: ordinary integral keys cannot
-/// represent an unexpanded power of a routed affine form. Every transition
-/// decreases it by exactly one within the fixture's admitted degree. This is
-/// not yet a proof that the resulting ordinary [`crate::family::IntegralKey`]
-/// children descend under the artifact ordering.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct AffinePowerState {
-    pub(super) remaining_power: u64,
-    pub(super) routed_powers: [i64; ARITY],
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct AffinePowerChild {
-    pub(super) coefficient: Coefficient,
-    pub(super) state: AffinePowerState,
-}
 
 #[derive(Clone, Debug)]
 pub(super) struct CornerAngularForm {
@@ -80,7 +41,7 @@ impl<'a> CornerMomentEvaluator<'a> {
     pub(super) fn try_new(
         family: &'a crate::family::IntegralFamily,
         rule: &FactorizationRule,
-        transformed: &[AffineForm],
+        transformed: &[RoutedAffineDenominator],
         rank_by_denominator: &[usize; ARITY],
         limits: ProbeLimits,
     ) -> Result<Self, ProbeError> {

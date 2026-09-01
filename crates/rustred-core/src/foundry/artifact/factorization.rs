@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::algebra::Coefficient;
 use crate::family::IntegralKey;
 use crate::sector::SectorInteriorDomain;
@@ -112,6 +114,8 @@ pub struct FactorizationRule {
     pub(super) master_embeddings: Box<[FactorizationMasterEmbedding]>,
     pub(super) normalization: Coefficient,
     pub(super) loop_basis: UnimodularLoopBasis,
+    /// Cold-installation binding. This is derived state, not durable schema.
+    pub(super) installed_family_fingerprint: Option<Arc<String>>,
 }
 
 impl FactorizationRule {
@@ -148,14 +152,24 @@ impl FactorizationRule {
             master_embeddings: Box::new([]),
             normalization,
             loop_basis,
+            installed_family_fingerprint: None,
         }
     }
 
     pub(super) fn install_master_embeddings(
         &mut self,
         embeddings: impl IntoIterator<Item = FactorizationMasterEmbedding>,
+        family_fingerprint: Arc<String>,
     ) {
         self.master_embeddings = embeddings.into_iter().collect();
+        self.installed_family_fingerprint = Some(family_fingerprint);
+    }
+
+    /// Family identity stamped only by the exact artifact installer.
+    pub(crate) fn installed_family_fingerprint(&self) -> Option<&str> {
+        self.installed_family_fingerprint
+            .as_ref()
+            .map(|fingerprint| fingerprint.as_str())
     }
 
     pub(crate) fn parent_terminal_for(&self, raw: &IntegralKey) -> Option<&IntegralKey> {
