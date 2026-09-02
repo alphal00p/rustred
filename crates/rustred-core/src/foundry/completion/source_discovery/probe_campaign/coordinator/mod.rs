@@ -35,7 +35,8 @@ pub(crate) use model::{
     ProbeCoordinatorNeedsRefinement, ProbeCoordinatorNeedsRefinementReason,
     ProbeCoordinatorOperationalReason, ProbeCoordinatorOperationalStop,
     ProbeCoordinatorOwnerMutation, ProbeCoordinatorOwnerSetChanged, ProbeCoordinatorStop,
-    ProbeCoordinatorTaskLocation, TaskRelativeModularProbe,
+    ProbeCoordinatorTaskLocation, ProbeCoordinatorTaskLocationKind, RequestedProbeCoordinatorStop,
+    TaskRelativeModularProbe,
 };
 
 #[cfg(test)]

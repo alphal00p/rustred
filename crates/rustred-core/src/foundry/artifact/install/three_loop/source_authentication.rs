@@ -20,11 +20,21 @@ use super::validate_candidate_shell;
 pub(crate) fn authenticate_canonical_source_views(
     candidate: &ClosingArtifactCandidate,
 ) -> Result<(), ArtifactError> {
-    validate_candidate_shell(candidate)?;
-    let generator = ParametricIbpGenerator::try_new_with_config(
-        &candidate.family,
+    authenticate_canonical_source_views_with_limits(
+        candidate,
         ParametricIbpConfig::default(),
-    )?;
+        TranslatedSourceLimits::default(),
+    )
+}
+
+pub(crate) fn authenticate_canonical_source_views_with_limits(
+    candidate: &ClosingArtifactCandidate,
+    source_generation: ParametricIbpConfig,
+    translated_sources: TranslatedSourceLimits,
+) -> Result<(), ArtifactError> {
+    validate_candidate_shell(candidate)?;
+    let generator =
+        ParametricIbpGenerator::try_new_with_config(&candidate.family, source_generation)?;
     let prepared = generator.prepare_ordinary_ibp()?;
     if prepared.len() != 9 {
         return Err(ArtifactError::InvalidReplayEvidence {
@@ -41,7 +51,12 @@ pub(crate) fn authenticate_canonical_source_views(
         });
     }
     authenticate_canonical_source_manifest(candidate, &completed)?;
-    authenticate_rule_cell_source_views(&generator, &completed, &candidate.rule_cells)
+    authenticate_rule_cell_source_views_with_limits(
+        &generator,
+        &completed,
+        &candidate.rule_cells,
+        translated_sources,
+    )
 }
 
 fn authenticate_canonical_source_manifest(
@@ -75,12 +90,26 @@ fn authenticate_canonical_source_manifest(
 /// translation plan. The selected-source primitive owns arity, source-row,
 /// aggregate term/condition, and allocation bounds; this layer only performs
 /// the exact canonical join and construction-specific selection.
+#[cfg(test)]
 pub(crate) fn authenticate_rule_cell_source_views(
     generator: &ParametricIbpGenerator<'_>,
     completed: &CompletedIbpSourceRows,
     cells: &[Arc<RuleCell>],
 ) -> Result<(), ArtifactError> {
-    let limits = TranslatedSourceLimits::default();
+    authenticate_rule_cell_source_views_with_limits(
+        generator,
+        completed,
+        cells,
+        TranslatedSourceLimits::default(),
+    )
+}
+
+fn authenticate_rule_cell_source_views_with_limits(
+    generator: &ParametricIbpGenerator<'_>,
+    completed: &CompletedIbpSourceRows,
+    cells: &[Arc<RuleCell>],
+    limits: TranslatedSourceLimits,
+) -> Result<(), ArtifactError> {
     let requested =
         cells.iter().try_fold(0usize, |count, cell| {
             count.checked_add(cell.sources().provenance().len()).ok_or(

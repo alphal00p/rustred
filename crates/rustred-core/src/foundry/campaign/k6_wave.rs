@@ -14,6 +14,8 @@ use crate::campaign::{ParallelExecution, ParallelExecutionError};
 use crate::foundry::artifact::FULL_RANK_ORBITS;
 #[cfg(test)]
 use crate::foundry::completion::source_discovery::CanonicalExactOwnerLedger;
+#[cfg(test)]
+use crate::foundry::completion::source_discovery::ProbeCoordinatorCensus;
 use crate::foundry::completion::source_discovery::{
     ClosedExactExecutableOwnerCover, ClosedSectorClosureWave, ExactOwnerLedgerSealError,
     ProbeCampaignAdapter, ProbeCampaignLimits, ProbeCoordinatorConfig, ProbeCoordinatorStop,
@@ -28,11 +30,11 @@ use super::preset_k6::{
     try_new_k6_full_rank_ledger_with_profile_and_ordering,
 };
 use super::run::{
-    RetainedLedgerCampaignRun, detach_scheduler_rejection, try_build_coordinator_config,
-    try_drive_live_ledger_until_terminal_with_progress,
+    RetainedLedgerCampaignRun, detach_report, detach_scheduler_rejection,
+    try_build_coordinator_config, try_drive_live_ledger_until_terminal_with_progress,
 };
 use super::{
-    FoundryCampaignConfig, FoundryCampaignError, FoundryCampaignItinerary,
+    FoundryCampaignConfig, FoundryCampaignError, FoundryCampaignItinerary, FoundryCampaignReport,
     FoundryCampaignSetupStage,
 };
 
@@ -56,6 +58,29 @@ pub(crate) struct K6SectorCampaignStop {
     _retained: RetainedLedgerCampaignRun,
 }
 
+/// Complete detached diagnostics for one sibling that prevented an atomic
+/// same-rank wave from publishing.
+///
+/// This value has no ledger, rule-owner, or publication authority. It exists
+/// so release campaign clients can inspect the exact residual census,
+/// caller-bounded box coordinates, and typed stop that selected the next
+/// completion slice.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct K6IncompleteOrbitReport {
+    orbit_ordinal: usize,
+    report: FoundryCampaignReport,
+}
+
+impl K6IncompleteOrbitReport {
+    pub const fn orbit_ordinal(&self) -> usize {
+        self.orbit_ordinal
+    }
+
+    pub const fn report(&self) -> &FoundryCampaignReport {
+        &self.report
+    }
+}
+
 #[cfg(test)]
 impl K6SectorCampaignStop {
     pub(crate) const fn orbit_ordinal(&self) -> usize {
@@ -68,6 +93,10 @@ impl K6SectorCampaignStop {
 
     pub(crate) const fn terminal_stop(&self) -> &ProbeCoordinatorStop {
         self._retained.terminal_stop()
+    }
+
+    pub(crate) const fn final_census(&self) -> ProbeCoordinatorCensus {
+        self._retained.final_census()
     }
 }
 
@@ -84,6 +113,7 @@ pub struct K6IncompleteSectorWave {
     published_waves: Box<[ClosedSectorClosureWave]>,
     closed_sector_count: usize,
     _stops: Box<[K6SectorCampaignStop]>,
+    incomplete_orbits: Box<[K6IncompleteOrbitReport]>,
     progress: Box<[K6WaveCampaignProgress]>,
 }
 
@@ -116,6 +146,13 @@ impl K6IncompleteSectorWave {
         &self.progress
     }
 
+    /// Exact detached residual reports for every sibling which blocked this
+    /// wave. Reported boxes obey the caller's explicit diagnostic ceiling and
+    /// carry a truncation bit when that ceiling is smaller than the partition.
+    pub fn incomplete_orbits(&self) -> &[K6IncompleteOrbitReport] {
+        &self.incomplete_orbits
+    }
+
     #[cfg(test)]
     pub(crate) fn stops(&self) -> &[K6SectorCampaignStop] {
         &self._stops
@@ -123,9 +160,8 @@ impl K6IncompleteSectorWave {
 }
 
 /// All four exact same-rank waves published and eligible for generic in-memory
-/// artifact installation. Schema-v4 durable K6 encoding remains a separately
-/// registered boundary and currently returns a typed unsupported-feature
-/// error rather than writing a partial document.
+/// artifact installation. Durable encoding remains a separate consuming app
+/// boundary so no partial or diagnostic campaign state can be serialized.
 #[derive(Debug)]
 pub struct K6PublishedSectorWaves {
     waves: Box<[ClosedSectorClosureWave]>,
@@ -167,7 +203,8 @@ impl K6PublishedSectorWaves {
 
 /// Proof-retaining campaign outcome. `Published` still requires the consuming
 /// `into_closed_artifact` installation boundary before it is a closing
-/// artifact; durable K6 encoding is not implied by successful installation.
+/// artifact; the application must still encode and cold-reload the installed
+/// value before publishing durable bytes.
 #[derive(Debug)]
 pub enum K6WaveCampaignOutcome {
     Published(K6PublishedSectorWaves),
@@ -178,6 +215,7 @@ pub enum K6WaveCampaignOutcome {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum K6WaveCampaignErrorKind {
     Campaign,
+    ResourceLimit,
     ParallelExecution,
     ProgressAggregation,
     LedgerSeal,
@@ -193,7 +231,16 @@ pub struct K6WaveCampaignRunError(K6WaveCampaignError);
 impl K6WaveCampaignRunError {
     pub const fn kind(&self) -> K6WaveCampaignErrorKind {
         match &self.0 {
-            K6WaveCampaignError::Campaign(_) => K6WaveCampaignErrorKind::Campaign,
+            K6WaveCampaignError::Campaign(error) => match error {
+                FoundryCampaignError::ResourceCountOverflow { .. }
+                | FoundryCampaignError::ResourceLimit { .. } => {
+                    K6WaveCampaignErrorKind::ResourceLimit
+                }
+                FoundryCampaignError::Invariant { .. } => K6WaveCampaignErrorKind::Invariant,
+                FoundryCampaignError::Setup { .. } | FoundryCampaignError::Execution { .. } => {
+                    K6WaveCampaignErrorKind::Campaign
+                }
+            },
             K6WaveCampaignError::ParallelExecution(_) => K6WaveCampaignErrorKind::ParallelExecution,
             K6WaveCampaignError::ProgressAggregation { .. } => {
                 K6WaveCampaignErrorKind::ProgressAggregation
@@ -336,6 +383,10 @@ pub fn run_k6_full_rank_wave_campaign_with_progress(
     sibling_worker_count: usize,
     mut observe: impl FnMut(K6WaveCampaignProgress),
 ) -> Result<K6WaveCampaignOutcome, K6WaveCampaignRunError> {
+    let resolved = config
+        .try_resolve_search_program()
+        .map_err(K6WaveCampaignError::from)?;
+    let config = &resolved;
     if config.itinerary() != FoundryCampaignItinerary::FullRankAtomicWaves {
         return Err(K6WaveCampaignError::Invariant {
             detail: "full-rank-wave runner received a single-sector itinerary",
@@ -431,7 +482,7 @@ fn try_run_k6_full_rank_waves_with_progress_against_root(
     let publication_limits = resource_profile
         .try_raise_publication_limits(publication_limits, maximum_wave_width)
         .map_err(|error| FoundryCampaignError::setup(FoundryCampaignSetupStage::Ledger, error))?;
-    let campaign_limits = ProbeCampaignLimits::default();
+    let campaign_limits = resource_profile.probe_campaign_limits();
     let coordinator_config = try_build_coordinator_config(config, campaign_limits)?;
     let mut predecessor = initial_predecessor;
     let mut published = Vec::new();
@@ -488,6 +539,7 @@ fn try_run_k6_full_rank_waves_with_progress_against_root(
             campaign_limits,
             config.ordering(),
             &coordinator_config,
+            config,
             observe,
         )?;
         for result in sibling_results {
@@ -499,6 +551,24 @@ fn try_run_k6_full_rank_waves_with_progress_against_root(
         attach_stopped_sibling_diagnostics(&mut live_progress, &stops)?;
 
         if !stops.is_empty() {
+            let mut incomplete_orbits = Vec::new();
+            incomplete_orbits
+                .try_reserve_exact(stops.len())
+                .map_err(|_| K6WaveCampaignError::AllocationFailure {
+                    resource: "detached incomplete K6 orbit reports",
+                    requested: stops.len(),
+                })?;
+            for stop in &stops {
+                incomplete_orbits.push(K6IncompleteOrbitReport {
+                    orbit_ordinal: stop._orbit_ordinal,
+                    report: detach_report(
+                        config,
+                        stop._retained.ledger(),
+                        stop._retained.terminal_stop(),
+                        stop._retained.final_census(),
+                    )?,
+                });
+            }
             let final_progress =
                 finalize_wave_progress(live_progress, K6WaveCampaignState::Incomplete)?;
             observe(final_progress.clone());
@@ -510,6 +580,7 @@ fn try_run_k6_full_rank_waves_with_progress_against_root(
                 published_waves: published.into_boxed_slice(),
                 closed_sector_count: closed.len(),
                 _stops: stops.into_boxed_slice(),
+                incomplete_orbits: incomplete_orbits.into_boxed_slice(),
                 progress: progress.into_boxed_slice(),
             }));
         }
@@ -558,8 +629,9 @@ fn attach_stopped_sibling_diagnostics(
                 detail: "stopped K6 sibling is absent from final wave progress",
             })?;
         let terminal_stop = stop._retained.terminal_stop();
-        let first = terminal_stop
-            .census()
+        let first = stop
+            ._retained
+            .final_census()
             .first_scheduler_rejection()
             .map(detach_scheduler_rejection);
         let terminal = match terminal_stop {
@@ -607,6 +679,7 @@ fn try_drive_k6_wave_with_progress(
     campaign_limits: ProbeCampaignLimits,
     ordering: OrderingPolicy,
     coordinator_config: &ProbeCoordinatorConfig,
+    campaign_config: &FoundryCampaignConfig,
     observe: &mut impl FnMut(K6WaveCampaignProgress),
 ) -> Result<
     (
@@ -638,6 +711,7 @@ fn try_drive_k6_wave_with_progress(
                         campaign_limits,
                         ordering,
                         coordinator_config,
+                        campaign_config,
                         &latest,
                     )
                 })
@@ -746,6 +820,7 @@ fn try_drive_k6_sibling(
     campaign_limits: ProbeCampaignLimits,
     ordering: OrderingPolicy,
     coordinator_config: &ProbeCoordinatorConfig,
+    campaign_config: &FoundryCampaignConfig,
     progress: &LatestK6WaveProgress,
 ) -> Result<K6DrivenSibling, K6WaveCampaignError> {
     let orbit = FULL_RANK_ORBITS
@@ -785,6 +860,7 @@ fn try_drive_k6_sibling(
     .map_err(|error| FoundryCampaignError::setup(FoundryCampaignSetupStage::Coordinator, error))?;
     let retained = try_drive_live_ledger_until_terminal_with_progress(
         coordinator_config.clone(),
+        campaign_config,
         adapter,
         ledger,
         |exact, census, _| {
@@ -806,7 +882,7 @@ fn try_drive_k6_sibling(
         local_ordinal,
         terminal_state,
         retained.ledger().snapshot(),
-        retained.terminal_stop().census(),
+        retained.final_census(),
     );
     match retained.terminal_stop() {
         ProbeCoordinatorStop::CompilerClosed { .. } => {

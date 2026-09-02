@@ -73,6 +73,9 @@ fn trusted_artifact_encoding_error_kind(error: &ArtifactError) -> AppErrorKind {
 fn artifact_validation_error_kind(error: &ArtifactError) -> AppErrorKind {
     match error {
         ArtifactError::UnsupportedSchema { .. } => AppErrorKind::Schema,
+        ArtifactError::ResourceCountOverflow { .. }
+        | ArtifactError::ResourceLimit { .. }
+        | ArtifactError::AllocationFailure { .. } => AppErrorKind::Limit,
         ArtifactError::Family(error) if integral_family_error_is_limit(error) => {
             AppErrorKind::Limit
         }
@@ -147,6 +150,7 @@ pub(super) fn map_reduction_error(context: &'static str, error: ReductionError) 
 fn reduction_error_kind(error: &ReductionError) -> AppErrorKind {
     match error {
         ReductionError::RuleApplicationLimit { .. }
+        | ReductionError::CoalescingAdditionLimit { .. }
         | ReductionError::AllocationFailure { .. }
         | ReductionError::CacheLimit { .. }
         | ReductionError::CacheCoefficientTermLimit { .. }
@@ -176,6 +180,7 @@ fn reduction_error_kind(error: &ReductionError) -> AppErrorKind {
             AppErrorKind::Execution
         }
         ReductionError::CycleDetected { .. }
+        | ReductionError::FactorizedProductMoment { .. }
         | ReductionError::ReducerInvariant { .. }
         | ReductionError::RuleCell(_)
         | ReductionError::Canonicalization(_)
@@ -459,6 +464,35 @@ mod tests {
         ];
         for error in resource_errors {
             assert_eq!(map_artifact_load_error(error).kind(), AppErrorKind::Limit);
+        }
+    }
+
+    #[test]
+    fn nested_artifact_resource_failures_keep_operation_specific_categories() {
+        let resource_errors = [
+            ArtifactError::ResourceCountOverflow {
+                resource: "persisted cover coordinate cells",
+            },
+            ArtifactError::ResourceLimit {
+                resource: "persisted cover boxes",
+                requested: 2,
+                limit: 1,
+            },
+            ArtifactError::AllocationFailure {
+                resource: "persisted cover boxes",
+                requested: 2,
+            },
+        ];
+        for error in resource_errors {
+            assert_eq!(artifact_validation_error_kind(&error), AppErrorKind::Limit);
+            assert_eq!(
+                map_artifact_load_error(ArtifactPersistenceError::Artifact(error.clone())).kind(),
+                AppErrorKind::Limit
+            );
+            assert_eq!(
+                map_artifact_encoding_error(ArtifactPersistenceError::Artifact(error)).kind(),
+                AppErrorKind::OutputLimit
+            );
         }
     }
 

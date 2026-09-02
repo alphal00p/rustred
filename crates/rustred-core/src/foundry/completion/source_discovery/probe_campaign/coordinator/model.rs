@@ -297,8 +297,26 @@ impl ProbeCoordinatorCensus {
     }
 }
 
+/// Semantic origin of one diagnostic task location.
+///
+/// Requested-domain execution deliberately does not impersonate a boundary
+/// service class: its request ordinal remains typed here even though the
+/// compact stop shares the boundary coordinator's scalar location envelope.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProbeCoordinatorTaskLocationKind {
+    BoundarySimplex,
+    RequestedDomain { requested_ordinal: usize },
+}
+
+/// Detached diagnostic coordinates of the task that produced a compact stop.
+///
+/// For [`ProbeCoordinatorTaskLocationKind::RequestedDomain`], the class and
+/// dimension fields are a deterministic display projection only. They carry
+/// no boundary exhaustion or closure authority. Closure remains exclusively
+/// the live exact ledger compiler's status.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ProbeCoordinatorTaskLocation {
+    pub(super) kind: ProbeCoordinatorTaskLocationKind,
     pub(super) ledger_revision: u64,
     pub(super) class_ordinal: usize,
     pub(super) effective_dimension: usize,
@@ -349,6 +367,9 @@ impl ProbeCoordinatorFairCursor {
 }
 
 impl ProbeCoordinatorTaskLocation {
+    pub(crate) const fn kind(self) -> ProbeCoordinatorTaskLocationKind {
+        self.kind
+    }
     pub(crate) const fn ledger_revision(self) -> u64 {
         self.ledger_revision
     }
@@ -538,6 +559,44 @@ impl ProbeCoordinatorStop {
     pub(crate) const fn census(&self) -> ProbeCoordinatorCensus {
         match self {
             Self::CompilerClosed { census, .. } | Self::ExhaustedAtConfig { census, .. } => *census,
+            Self::OwnerSetChanged(stop) => stop.census,
+            Self::NeedsRefinement(stop) => stop.census,
+            Self::OperationallyBounded(stop) => stop.census,
+            Self::Failed(stop) => stop.census,
+        }
+    }
+}
+
+/// Stop of the explicit requested-domain phase.
+///
+/// `PhaseCompleted` means only that every residual task in this one immutable
+/// requested plan was serviced without changing the owner set. It is not
+/// search exhaustion and carries no closure authority. A composite driver
+/// must continue with freshly planned boundary service; only
+/// `CompilerClosed` reflects the live exact compiler's closed status.
+#[derive(Debug)]
+pub(crate) enum RequestedProbeCoordinatorStop {
+    CompilerClosed {
+        census: ProbeCoordinatorCensus,
+        ledger_snapshot: ExactOwnerLedgerSnapshotIdentity,
+        exact: ExactOwnerCoverSnapshot,
+    },
+    OwnerSetChanged(ProbeCoordinatorOwnerSetChanged),
+    NeedsRefinement(ProbeCoordinatorNeedsRefinement),
+    OperationallyBounded(ProbeCoordinatorOperationalStop),
+    Failed(ProbeCoordinatorFailureStop),
+    PhaseCompleted {
+        census: ProbeCoordinatorCensus,
+        ledger_snapshot: ExactOwnerLedgerSnapshotIdentity,
+        ledger_revision: u64,
+        completed_tasks: usize,
+    },
+}
+
+impl RequestedProbeCoordinatorStop {
+    pub(crate) const fn census(&self) -> ProbeCoordinatorCensus {
+        match self {
+            Self::CompilerClosed { census, .. } | Self::PhaseCompleted { census, .. } => *census,
             Self::OwnerSetChanged(stop) => stop.census,
             Self::NeedsRefinement(stop) => stop.census,
             Self::OperationallyBounded(stop) => stop.census,

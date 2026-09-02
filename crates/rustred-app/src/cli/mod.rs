@@ -11,7 +11,8 @@ use crate::{
     ClosingArtifactInspectRequest, ClosingArtifactReduceRequest, DeriveRequest,
     FoundryCampaignRunRequest, FoundryWaveCampaignRunRequest, campaign_plan, campaign_preflight,
     closing_artifact_generate, closing_artifact_inspect, closing_artifact_reduce,
-    derive as derive_application, foundry_campaign_run_with_progress, foundry_wave_campaign_run,
+    derive as derive_application, foundry_campaign_run_with_progress,
+    foundry_wave_campaign_run_with_progress,
 };
 use args::{
     CampaignGenerateArgs, CampaignInspectArgs, CampaignPlanArgs, CampaignPreflightArgs,
@@ -66,25 +67,56 @@ fn run_foundry_wave_campaign_cli(arguments: FoundryWaveCampaignRunArgs) -> Resul
     if let Some(destination) = &arguments.measurements_output {
         preflight_output_destination(destination, arguments.force)?;
     }
-    let result = foundry_wave_campaign_run(FoundryWaveCampaignRunRequest {
-        config,
-        sibling_worker_count: arguments.n_cores,
-    })?;
+    if let Some(destination) = &arguments.artifact_output {
+        preflight_output_destination(destination, arguments.force)?;
+    }
+    let presentation = ProgressPresentation::resolve(
+        arguments.no_progress,
+        arguments.color,
+        std::io::stderr().is_terminal(),
+        std::env::var_os("NO_COLOR").is_some(),
+    );
+    let mut monitor = CampaignProgressMonitor::new(std::io::stderr(), presentation);
+    monitor.start();
+    let result = match foundry_wave_campaign_run_with_progress(
+        FoundryWaveCampaignRunRequest {
+            config,
+            sibling_worker_count: arguments.n_cores,
+        },
+        |progress| monitor.observe_wave(progress),
+    ) {
+        Ok(result) => result,
+        Err(error) => {
+            monitor.finish_failed();
+            return Err(error.into());
+        }
+    };
+    monitor.finish_wave();
     let report = result.to_toml().as_bytes();
     let measurements = result.measurements_to_toml().as_bytes();
+    let artifact = result.artifact_bytes().map(<[u8]>::to_vec);
+    // Install the authenticated durable payload before exposing any report
+    // which advertises its publication. File destinations are atomic, and an
+    // artifact sent to stdout is complete before a later companion-file error
+    // can be reported; neither ordering can leave a success report referring
+    // to an artifact whose destination was never installed.
+    if let (Some(destination), Some(artifact)) = (&arguments.artifact_output, artifact.as_deref()) {
+        write_output(destination, artifact, arguments.force)?;
+    }
     match &arguments.measurements_output {
-        None => write_output(&arguments.output, report, arguments.force),
+        None => write_output(&arguments.output, report, arguments.force)?,
         Some(measurements_output) => match (&arguments.output, measurements_output) {
             (StreamPath::Stdio, StreamPath::File(_)) => {
                 write_output(measurements_output, measurements, arguments.force)?;
-                write_output(&arguments.output, report, arguments.force)
+                write_output(&arguments.output, report, arguments.force)?;
             }
             _ => {
                 write_output(&arguments.output, report, arguments.force)?;
-                write_output(measurements_output, measurements, arguments.force)
+                write_output(measurements_output, measurements, arguments.force)?;
             }
         },
     }
+    Ok(())
 }
 
 fn run_foundry_campaign_cli(arguments: FoundryCampaignRunArgs) -> Result<(), CliError> {

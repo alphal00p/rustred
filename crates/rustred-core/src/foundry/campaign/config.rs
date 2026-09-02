@@ -1,11 +1,34 @@
+use crate::family::IntegralKey;
 use crate::foundry::completion::source_discovery::{CampaignLimits, TaskRelativeModularProbe};
 use crate::sector::{CoordinatePriority, CoordinatePriorityLimits, OrderingPolicy};
 
-use super::{FoundryCampaignConfigError, FoundrySearchProvenance};
+use super::{
+    FoundryAutonomousSelectionTelemetry, FoundryCampaignConfigError, FoundryCampaignError,
+    FoundrySearchProvenance,
+};
 
 /// Stable schema identifier for the deterministic report payload.
 pub const FOUNDRY_CAMPAIGN_CONFIG_SCHEMA: &str = "rustred.foundry-campaign-config.toml.v2";
-pub const FOUNDRY_CAMPAIGN_REPORT_SCHEMA: &str = "rustred.foundry-campaign-report.toml.v1";
+pub const FOUNDRY_CAMPAIGN_REPORT_SCHEMA: &str = "rustred.foundry-campaign-report.toml.v2";
+
+/// Cold-ingress ceiling for reviewed requested-domain hints.
+///
+/// A domain hint is proposal metadata only. Keeping this independent of the
+/// task-report budget prevents an input document from retaining unbounded
+/// steering state before the requested-domain planner applies its own limits.
+pub const MAX_FOUNDRY_CAMPAIGN_DOMAIN_HINTS: usize = 4_096;
+
+/// Maximum arity retained by one reviewed requested-domain hint.
+pub const MAX_FOUNDRY_CAMPAIGN_DOMAIN_HINT_ARITY: usize = 4_096;
+
+/// Maximum number of probe templates admitted at the public campaign ingress.
+pub const MAX_FOUNDRY_CAMPAIGN_PROBES: usize = 4_096;
+
+/// Maximum retained base-parameter plus chart-offset coordinates in one probe.
+pub const MAX_FOUNDRY_CAMPAIGN_PROBE_COORDINATES: usize = 8_192;
+
+/// Maximum aggregate retained coordinates across one probe program.
+pub const MAX_FOUNDRY_CAMPAIGN_PROBE_COORDINATE_CELLS: usize = 4_194_304;
 
 /// Built-in family/sector pressure target.
 ///
@@ -79,16 +102,35 @@ pub struct FoundryCampaignProbe {
 }
 
 impl FoundryCampaignProbe {
-    pub fn new(
+    pub fn try_new(
         modulus: u64,
         base_parameters: impl IntoIterator<Item = i64>,
         chart_offsets: impl IntoIterator<Item = u64>,
-    ) -> Self {
-        Self {
-            modulus,
-            base_parameters: base_parameters.into_iter().collect(),
-            chart_offsets: chart_offsets.into_iter().collect(),
+    ) -> Result<Self, FoundryCampaignConfigError> {
+        let mut retained_base = Vec::new();
+        let mut coordinate_count = 0usize;
+        for parameter in base_parameters {
+            try_push_probe_coordinate(
+                &mut retained_base,
+                parameter,
+                &mut coordinate_count,
+                "foundry campaign probe base parameters",
+            )?;
         }
+        let mut retained_chart = Vec::new();
+        for offset in chart_offsets {
+            try_push_probe_coordinate(
+                &mut retained_chart,
+                offset,
+                &mut coordinate_count,
+                "foundry campaign probe chart offsets",
+            )?;
+        }
+        Ok(Self {
+            modulus,
+            base_parameters: retained_base.into_boxed_slice(),
+            chart_offsets: retained_chart.into_boxed_slice(),
+        })
     }
 
     pub const fn modulus(&self) -> u64 {
@@ -101,6 +143,166 @@ impl FoundryCampaignProbe {
 
     pub fn chart_offsets(&self) -> &[u64] {
         &self.chart_offsets
+    }
+
+    fn retained_coordinate_cells(&self) -> usize {
+        self.base_parameters.len() + self.chart_offsets.len()
+    }
+}
+
+fn try_push_probe_coordinate<T>(
+    retained: &mut Vec<T>,
+    value: T,
+    total: &mut usize,
+    resource: &'static str,
+) -> Result<(), FoundryCampaignConfigError> {
+    let requested = total
+        .checked_add(1)
+        .ok_or(FoundryCampaignConfigError::ProbeCoordinateCountOverflow)?;
+    if requested > MAX_FOUNDRY_CAMPAIGN_PROBE_COORDINATES {
+        return Err(FoundryCampaignConfigError::TooManyProbeCoordinates {
+            requested,
+            limit: MAX_FOUNDRY_CAMPAIGN_PROBE_COORDINATES,
+        });
+    }
+    retained
+        .try_reserve_exact(1)
+        .map_err(|_| FoundryCampaignConfigError::AllocationFailure {
+            resource,
+            requested,
+        })?;
+    retained.push(value);
+    *total = requested;
+    Ok(())
+}
+
+fn try_collect_probes(
+    probes: impl IntoIterator<Item = FoundryCampaignProbe>,
+) -> Result<Box<[FoundryCampaignProbe]>, FoundryCampaignConfigError> {
+    let mut retained = Vec::new();
+    let mut coordinate_cells = 0usize;
+    for probe in probes {
+        let requested = retained
+            .len()
+            .checked_add(1)
+            .ok_or(FoundryCampaignConfigError::ProbeCountOverflow)?;
+        if requested > MAX_FOUNDRY_CAMPAIGN_PROBES {
+            return Err(FoundryCampaignConfigError::TooManyProbes {
+                requested,
+                limit: MAX_FOUNDRY_CAMPAIGN_PROBES,
+            });
+        }
+        coordinate_cells = coordinate_cells
+            .checked_add(probe.retained_coordinate_cells())
+            .ok_or(FoundryCampaignConfigError::ProbeCoordinateCountOverflow)?;
+        if coordinate_cells > MAX_FOUNDRY_CAMPAIGN_PROBE_COORDINATE_CELLS {
+            return Err(
+                FoundryCampaignConfigError::TooManyAggregateProbeCoordinates {
+                    requested: coordinate_cells,
+                    limit: MAX_FOUNDRY_CAMPAIGN_PROBE_COORDINATE_CELLS,
+                },
+            );
+        }
+        retained.try_reserve_exact(1).map_err(|_| {
+            FoundryCampaignConfigError::AllocationFailure {
+                resource: "foundry campaign probes",
+                requested,
+            }
+        })?;
+        retained.push(probe);
+    }
+    if retained.is_empty() {
+        return Err(FoundryCampaignConfigError::EmptyProbeProgram);
+    }
+    Ok(retained.into_boxed_slice())
+}
+
+fn try_collect_domain_hints(
+    domains: impl IntoIterator<Item = FoundryCampaignDomainHint>,
+) -> Result<Vec<FoundryCampaignDomainHint>, FoundryCampaignConfigError> {
+    let mut retained = Vec::new();
+    for domain in domains {
+        let requested = retained
+            .len()
+            .checked_add(1)
+            .ok_or(FoundryCampaignConfigError::DomainHintCountOverflow)?;
+        if requested > MAX_FOUNDRY_CAMPAIGN_DOMAIN_HINTS {
+            return Err(FoundryCampaignConfigError::TooManyDomainHints {
+                requested,
+                limit: MAX_FOUNDRY_CAMPAIGN_DOMAIN_HINTS,
+            });
+        }
+        retained.try_reserve_exact(1).map_err(|_| {
+            FoundryCampaignConfigError::AllocationFailure {
+                resource: "foundry campaign domain hints",
+                requested,
+            }
+        })?;
+        retained.push(domain);
+    }
+    Ok(retained)
+}
+
+/// One structurally restricted requested-domain hint.
+///
+/// The anchor is an exact integral key. `symbolic_axes` is a strictly
+/// increasing subset of its coordinates; those axes will eventually denote
+/// the unbounded directions of the requested rectangle while all remaining
+/// powers stay fixed at the anchor. This value cannot carry a source row,
+/// support, coefficient, recurrence, owner, terminal, master, or reduction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FoundryCampaignDomainHint {
+    anchor: IntegralKey,
+    symbolic_axes: Box<[usize]>,
+}
+
+impl FoundryCampaignDomainHint {
+    pub fn try_new(
+        anchor: IntegralKey,
+        symbolic_axes: impl IntoIterator<Item = usize>,
+    ) -> Result<Self, FoundryCampaignConfigError> {
+        let arity = anchor.powers().len();
+        if arity > MAX_FOUNDRY_CAMPAIGN_DOMAIN_HINT_ARITY {
+            return Err(FoundryCampaignConfigError::DomainHintArityLimit {
+                actual: arity,
+                limit: MAX_FOUNDRY_CAMPAIGN_DOMAIN_HINT_ARITY,
+            });
+        }
+        let mut retained = Vec::new();
+        retained.try_reserve_exact(arity).map_err(|_| {
+            FoundryCampaignConfigError::AllocationFailure {
+                resource: "foundry campaign domain symbolic axes",
+                requested: arity,
+            }
+        })?;
+        for axis in symbolic_axes {
+            if axis >= arity {
+                return Err(FoundryCampaignConfigError::DomainHintAxisOutOfBounds { axis, arity });
+            }
+            if let Some(&previous) = retained.last()
+                && previous >= axis
+            {
+                return Err(
+                    FoundryCampaignConfigError::DomainHintAxesNotStrictlyIncreasing {
+                        previous,
+                        current: axis,
+                    },
+                );
+            }
+            retained.push(axis);
+        }
+        Ok(Self {
+            anchor,
+            symbolic_axes: retained.into_boxed_slice(),
+        })
+    }
+
+    pub const fn anchor(&self) -> &IntegralKey {
+        &self.anchor
+    }
+
+    pub fn symbolic_axes(&self) -> &[usize] {
+        &self.symbolic_axes
     }
 }
 
@@ -117,6 +319,7 @@ pub struct FoundryCampaignExternalHints {
     polynomial_degree_ceiling: usize,
     ordering: OrderingPolicy,
     discovery_coordinate_priority: Option<CoordinatePriority>,
+    domains: Box<[FoundryCampaignDomainHint]>,
 }
 
 impl FoundryCampaignExternalHints {
@@ -128,13 +331,31 @@ impl FoundryCampaignExternalHints {
         ordering: OrderingPolicy,
         discovery_coordinate_priority: Option<CoordinatePriority>,
     ) -> Result<Self, FoundryCampaignConfigError> {
-        let probes = probes.into_iter().collect::<Box<[_]>>();
-        if probes.is_empty() {
-            return Err(FoundryCampaignConfigError::EmptyProbeProgram);
-        }
+        Self::try_new_with_domains(
+            itinerary,
+            probes,
+            interior_margin,
+            polynomial_degree_ceiling,
+            ordering,
+            discovery_coordinate_priority,
+            [],
+        )
+    }
+
+    pub fn try_new_with_domains(
+        itinerary: FoundryCampaignItinerary,
+        probes: impl IntoIterator<Item = FoundryCampaignProbe>,
+        interior_margin: u64,
+        polynomial_degree_ceiling: usize,
+        ordering: OrderingPolicy,
+        discovery_coordinate_priority: Option<CoordinatePriority>,
+        domains: impl IntoIterator<Item = FoundryCampaignDomainHint>,
+    ) -> Result<Self, FoundryCampaignConfigError> {
         if interior_margin == 0 {
             return Err(FoundryCampaignConfigError::ZeroInteriorMargin);
         }
+        let probes = try_collect_probes(probes)?;
+        let retained_domains = try_collect_domain_hints(domains)?;
         Ok(Self {
             itinerary,
             probes,
@@ -142,11 +363,16 @@ impl FoundryCampaignExternalHints {
             polynomial_degree_ceiling,
             ordering,
             discovery_coordinate_priority,
+            domains: retained_domains.into_boxed_slice(),
         })
     }
 
     pub const fn itinerary(&self) -> FoundryCampaignItinerary {
         self.itinerary
+    }
+
+    pub fn domains(&self) -> &[FoundryCampaignDomainHint] {
+        &self.domains
     }
 }
 
@@ -161,8 +387,10 @@ pub struct FoundryCampaignConfig {
     polynomial_degree_ceiling: usize,
     ordering: OrderingPolicy,
     discovery_coordinate_priority: CoordinatePriority,
+    domain_hints: Box<[FoundryCampaignDomainHint]>,
     max_task_reports: usize,
     max_reported_uncovered_boxes: usize,
+    autonomous_selection: Option<FoundryAutonomousSelectionTelemetry>,
 }
 
 impl FoundryCampaignConfig {
@@ -170,7 +398,7 @@ impl FoundryCampaignConfig {
         FOUNDRY_CAMPAIGN_CONFIG_SCHEMA
     }
 
-    fn try_build(
+    pub(super) fn try_build(
         preset: FoundryCampaignPreset,
         itinerary: FoundryCampaignItinerary,
         search_provenance: FoundrySearchProvenance,
@@ -179,18 +407,20 @@ impl FoundryCampaignConfig {
         polynomial_degree_ceiling: usize,
         ordering: OrderingPolicy,
         discovery_coordinate_priority: Option<CoordinatePriority>,
+        domain_hints: impl IntoIterator<Item = FoundryCampaignDomainHint>,
         max_task_reports: usize,
         max_reported_uncovered_boxes: usize,
     ) -> Result<Self, FoundryCampaignConfigError> {
-        let probes = probes.into_iter().collect::<Box<[_]>>();
-        if probes.is_empty() {
-            return Err(FoundryCampaignConfigError::EmptyProbeProgram);
-        }
         if interior_margin == 0 {
             return Err(FoundryCampaignConfigError::ZeroInteriorMargin);
         }
         if max_task_reports == 0 {
             return Err(FoundryCampaignConfigError::ZeroTaskReportLimit);
+        }
+        let probes = try_collect_probes(probes)?;
+        let domain_hints = try_collect_domain_hints(domain_hints)?.into_boxed_slice();
+        if search_provenance == FoundrySearchProvenance::Autonomous && !domain_hints.is_empty() {
+            return Err(FoundryCampaignConfigError::AutonomousDomainHints);
         }
         let (expected_base, expected_chart) = match preset {
             FoundryCampaignPreset::ThreeLoopUnitMassVacuumK6Orbit0 => (1, 6),
@@ -229,6 +459,15 @@ impl FoundryCampaignConfig {
                 message: error.to_string(),
             })?;
         }
+        for (domain_ordinal, domain) in domain_hints.iter().enumerate() {
+            if domain.anchor().powers().len() != expected_chart {
+                return Err(FoundryCampaignConfigError::WrongDomainHintAnchorArity {
+                    domain_ordinal,
+                    expected: expected_chart,
+                    actual: domain.anchor().powers().len(),
+                });
+            }
+        }
         let ordering_priority = ordering.try_coordinate_priority().map_err(|error| {
             FoundryCampaignConfigError::InvalidOrderingPolicy {
                 message: error.to_string(),
@@ -264,8 +503,10 @@ impl FoundryCampaignConfig {
             polynomial_degree_ceiling,
             ordering,
             discovery_coordinate_priority,
+            domain_hints,
             max_task_reports,
             max_reported_uncovered_boxes,
+            autonomous_selection: None,
         })
     }
 
@@ -280,15 +521,16 @@ impl FoundryCampaignConfig {
                 preset,
                 itinerary,
                 FoundrySearchProvenance::Autonomous,
-                [FoundryCampaignProbe::new(
+                [FoundryCampaignProbe::try_new(
                     1_000_000_007,
                     [37],
                     [0, 0, 0, 0, 0, 0],
-                )],
+                )?],
                 2,
                 0,
                 OrderingPolicy::default(),
                 None,
+                [],
                 max_task_reports,
                 max_reported_uncovered_boxes,
             ),
@@ -336,6 +578,7 @@ impl FoundryCampaignConfig {
             hints.polynomial_degree_ceiling,
             hints.ordering,
             hints.discovery_coordinate_priority,
+            hints.domains,
             max_task_reports,
             max_reported_uncovered_boxes,
         )
@@ -390,11 +633,47 @@ impl FoundryCampaignConfig {
         &self.discovery_coordinate_priority
     }
 
+    /// Reviewed proposal domains. Autonomous configurations always return an
+    /// empty slice; these values never carry proof or publication authority.
+    pub fn domain_hints(&self) -> &[FoundryCampaignDomainHint] {
+        &self.domain_hints
+    }
+
     pub const fn max_task_reports(&self) -> usize {
         self.max_task_reports
     }
 
     pub const fn max_reported_uncovered_boxes(&self) -> usize {
         self.max_reported_uncovered_boxes
+    }
+
+    /// Resolve RustRed's internal autonomous ordering/probe selector at the
+    /// execution boundary. Parsing and construction remain free of source,
+    /// symmetry, modular, and terminal setup. External-hints configurations
+    /// and previously resolved autonomous values are returned unchanged.
+    pub fn try_resolve_search_program(&self) -> Result<Self, FoundryCampaignError> {
+        if self.search_provenance != FoundrySearchProvenance::Autonomous
+            || self.autonomous_selection.is_some()
+        {
+            return Ok(self.clone());
+        }
+        if !self.domain_hints.is_empty() {
+            return Err(FoundryCampaignError::Invariant {
+                detail: "autonomous search-program resolution retained external domains",
+            });
+        }
+        let selected = super::autonomous::try_select_autonomous_k6_search_program()?;
+        let mut resolved = self.clone();
+        resolved.ordering = selected.ordering();
+        resolved.discovery_coordinate_priority = selected.priority().clone();
+        resolved.probes = selected.probes().to_vec().into_boxed_slice();
+        resolved.autonomous_selection = Some(selected.telemetry().clone());
+        Ok(resolved)
+    }
+
+    /// Proposal-only autonomous selector telemetry, present only after
+    /// [`Self::try_resolve_search_program`]. It carries no proof authority.
+    pub const fn autonomous_selection(&self) -> Option<&FoundryAutonomousSelectionTelemetry> {
+        self.autonomous_selection.as_ref()
     }
 }

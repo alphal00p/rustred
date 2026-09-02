@@ -296,34 +296,33 @@ parameter-independent affine coefficients; parameter-dependent coefficients
 remain a typed unsupported case until their native coefficient-term work and
 output can be pre-admitted exactly.
 
-Independent follow-up audits identified a stronger cycle-free consumer than
-installing those endpoints as raw parent-family actions. The path and star
-factorizations are both `K1^3`; a radial-preserving product-angular owner can
-reduce their complete dot/numerator domains directly to their single installed
-product master. The `K3 x K1` chart peels only its independent one-loop block,
-retains the correlated two-loop scalar polynomial, reduces it through the
-closed `K3` and `K1` dependencies, and terminates in its two installed
-parent-master embeddings. The bounded implementation uses the
-installer-authenticated block basis, preserves routed row signs, retains
-radial powers, carries the indexed `d+R-2 != 0` guard family, and rejects
-products with multiple correlated multi-loop blocks. It is scalar
+Independent follow-up audits identified and have now implemented a stronger
+cycle-free consumer than installing those endpoints as raw parent-family
+actions. The path and star factorizations are both `K1^3`; their authenticated
+radial-preserving product-angular programs reduce admitted dot/numerator
+domains directly to the installed product master. The `K3 x K1` program peels
+its independent one-loop block, retains the correlated two-loop scalar
+polynomial, reduces it through the closed `K3` and `K1` dependencies, and
+terminates in its two installed parent-master embeddings. The installer derives
+the exact sparse dependency-root preimage from the authenticated block basis
+and lower artifacts, retains it in immutable symmetry-routed owner snapshots,
+and cold-regenerates the executable program at load. Runtime execution uses the
+parent reducer's dependency instances, memo table, request-wide application and
+coalescing budgets, and exact coefficient accounting. It preserves routed row
+signs, radial powers, and the indexed `d+R-2 != 0` guard family, and rejects
+products with multiple correlated multi-loop blocks. This is scalar
 factorization logic over typed integral keys, not the frozen general
-tensor-reduction project. Its exact dependency-domain preimage and an infinite
-procedural owner remain to be compiled before it can discharge a sector.
-Until that promotion and the remaining ordinary sector waves pass exact
-coverage, none of these actions grants a K6 artifact or Vakint three-loop
-parity claim.
+tensor-reduction project.
 
-An earlier bounded `K1^N`/`K3 x K1` product-moment executable prototype
-established useful path/star angular and radial identities, recorded in the
-research documents. It was deliberately removed after audit: it had no
-authenticated `RuleCell`/cover owner or persistence payload and created fresh
-dependency reducers, so its memoization and request budgets were not shared
-with the parent reduction. Any production revival must compile the complete
-domain once at install/load, retain an authenticated immutable program in the
-artifact, and execute through the parent reducer's dependency instances, memo
-table, and `ReductionRequest` limits. Historical feasibility numbers are
-research evidence only and cannot support a closure or performance claim.
+The current implementation is the audited successor to the earlier bounded
+prototype, which lacked owner authority, persistence, shared memoization, and
+shared budgets. Exact preimages correctly reveal coupled endpoint fringes that
+the former rectangular hull had overclaimed; those valid arbitrary-rank
+obligations remain for ordinary-source discovery rather than being removed by
+narrowing the certified root. Until all ordinary sector waves close those
+fringes and pass cold artifact replay, this product lane grants neither a
+closing K6 artifact nor Vakint three-loop parity by itself. Historical
+feasibility numbers remain research evidence only.
 
 Vakint's matcher roots have now been tested in their strongest useful role as
 natural sector-local coordinate charts, not concatenated into a new
@@ -908,6 +907,14 @@ serialization/reload, and representative reduction checks. The hinted lane is
 an earlier existence/debugging milestone, never a substitute for autonomous
 closure.
 
+After every coherent foundry implementation slice passes its focused safety
+gates, rerun both campaigns from a release build and record their exact
+uncovered geometry, resource stop, and execution time. These periodic full-K6
+grounding runs are required even when a slice is primarily architectural: the
+next slice must be selected from measured surviving rays, and a zero-uncovered
+result is accepted only after deterministic serialization and cold reload of
+the resulting artifact.
+
 The provisional direct-numerical-basis budget is green only for at most 100
 terminals whose largest measured auxiliary AMFlow system has dimension at
 most 100. Counts through 1,000 terminals and system dimension 300 are
@@ -1150,6 +1157,7 @@ into Stage 2.
 - [Six-loop execution runbook](docs/research/six_loop_execution_runbook_2026.md)
 - [Dual-obstruction source-discovery proposal](docs/research/dual_obstruction_source_discovery_2026.md)
 - [Vakint K6 oracle and terminal-budget audit](docs/research/vakint_k6_oracle.md)
+- [Blind-domain-guided Janet closure synthesis](docs/research/blind_domain_janet_closure_2026.md)
 - [Audited factorized product-angular owner design](docs/research/factorized_product_angular_owner_2026.md)
 - [Sector-local coordinate charts as a K6 search preconditioner](docs/research/sector_local_coordinate_chart_2026.md)
 - [Audited K6 boundary-walk observations](docs/research/k6_boundary_walk_2026.md)

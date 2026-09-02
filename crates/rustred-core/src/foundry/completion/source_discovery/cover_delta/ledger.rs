@@ -103,15 +103,27 @@ impl CanonicalExactOwnerLedger {
             }
         }
         terminals.sort_unstable_by(|left, right| left.powers().cmp(right.powers()));
+        let predecessor_closed = ExactExecutableOwnerCover::try_compile_predecessor_closed(
+            context,
+            &predecessor,
+            &sector,
+            ordering,
+            &closure_carrier,
+        )
+        .map_err(crate::foundry::completion::source_discovery::StagedSectorClosureError::from)?;
+        let state = match predecessor_closed {
+            Some(cover) => CanonicalLedgerState::Compiled(cover),
+            None => CanonicalLedgerState::OwnerFree {
+                terminals: terminals.into_boxed_slice(),
+            },
+        };
         Ok(Self {
             context: context.clone(),
             predecessor,
             sector,
             ordering,
             closure_carrier,
-            state: CanonicalLedgerState::OwnerFree {
-                terminals: terminals.into_boxed_slice(),
-            },
+            state,
             identity: ExactOwnerLedgerSnapshotIdentity::fresh(ExactOwnerLedgerRevision::ZERO),
             limits,
         })
@@ -188,7 +200,8 @@ impl CanonicalExactOwnerLedger {
             Some("cover carrier differs from the ledger carrier")
         } else if proof.owner_snapshot_id() != predecessor.id() {
             Some("cover predecessor identity differs from the ledger predecessor")
-        } else if first_predecessor.is_none_or(|retained| !retained.same_authority_as(&predecessor))
+        } else if first_predecessor
+            .is_some_and(|retained| !retained.same_authority_as(&predecessor))
         {
             Some("cover predecessor authority differs from the ledger predecessor")
         } else {
@@ -197,7 +210,8 @@ impl CanonicalExactOwnerLedger {
         if let Some(detail) = detail {
             return Err(ExactOwnerLedgerSealError::ScopeMismatch { detail });
         }
-        ClosedExactExecutableOwnerCover::try_seal(cover).map_err(Into::into)
+        ClosedExactExecutableOwnerCover::try_seal_against_predecessor(cover, predecessor)
+            .map_err(Into::into)
     }
 
     pub(crate) fn owners(&self) -> &[Arc<ExactSemanticExecutableOwner>] {

@@ -1,6 +1,7 @@
 use std::fmt;
 
 use crate::foundry::cell::RuleCellError;
+use crate::foundry::completion::CompletionGeometryError;
 use crate::foundry::completion::frame::admission::{
     ExactCircuitOuterExtensionError, ExactCircuitOwnerCoverError, ExactCircuitSemanticError,
     ExactOwnerCoverObstructionKind,
@@ -37,6 +38,7 @@ pub(crate) enum ExactExecutableOwnerError {
     Cover(ExactCircuitOwnerCoverError),
     CellSelection(RuleCellError),
     ContentOrder(StratumRegistryError),
+    Geometry(CompletionGeometryError),
     AuthorityMismatch {
         candidate: usize,
         detail: &'static str,
@@ -98,6 +100,7 @@ impl fmt::Display for ExactExecutableOwnerError {
                 )
             }
             Self::ContentOrder(error) => error.fmt(formatter),
+            Self::Geometry(error) => error.fmt(formatter),
             Self::AuthorityMismatch { candidate, detail } => write!(
                 formatter,
                 "exact candidate {candidate} lost its retained authority: {detail}"
@@ -140,6 +143,7 @@ impl std::error::Error for ExactExecutableOwnerError {
             Self::Cover(error) => Some(error),
             Self::CellSelection(error) => Some(error),
             Self::ContentOrder(error) => Some(error),
+            Self::Geometry(error) => Some(error),
             _ => None,
         }
     }
@@ -148,6 +152,12 @@ impl std::error::Error for ExactExecutableOwnerError {
 impl From<CampaignError> for ExactExecutableOwnerError {
     fn from(value: CampaignError) -> Self {
         Self::Campaign(value)
+    }
+}
+
+impl From<CompletionGeometryError> for ExactExecutableOwnerError {
+    fn from(value: CompletionGeometryError) -> Self {
+        Self::Geometry(value)
     }
 }
 

@@ -11,9 +11,11 @@ import pickle
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import tomllib
 import unittest
+from unittest import mock
 
 import rustred
 
@@ -232,6 +234,124 @@ def cli_bytes(arguments: list[str], source: bytes = b"") -> bytes:
 
 
 class PythonApiTests(unittest.TestCase):
+    def test_k6_python_example_persists_before_rendering_publication_report(
+        self,
+    ) -> None:
+        example = (
+            Path(__file__).resolve().parents[3]
+            / "examples"
+            / "python"
+            / "three_loop_k6_foundry_campaign.py"
+        )
+        if not example.is_file():
+            repository_root = Path(__file__).resolve().parents[3]
+            if (repository_root / ".git").exists():
+                self.fail("Git checkout is missing the documented K6 Python example")
+            self.skipTest("repository examples are not included in source distributions")
+        specification = importlib.util.spec_from_file_location(
+            "rustred_three_loop_k6_foundry_campaign_example",
+            example,
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+
+        payload = b"authenticated-k6-artifact"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "autonomous.toml"
+            config.write_text(FOUNDRY_CAMPAIGN, encoding="utf-8")
+            artifact = root / "k6.rribp"
+            report = root / "report.toml"
+            measurements = root / "measurements.toml"
+
+            class FakeResult:
+                artifact_bytes = payload
+
+                def to_toml(self) -> str:
+                    self_test.assertEqual(artifact.read_bytes(), payload)
+                    return (
+                        'schema = "rustred.test-wave-report.v1"\n'
+                        'status = "completed"\n'
+                        'durable_artifact_published = true\n'
+                    )
+
+                @staticmethod
+                def measurements_to_toml() -> str:
+                    return (
+                        'schema = "rustred.test-wave-measurements.v1"\n'
+                        'status = "measured"\n'
+                    )
+
+            self_test = self
+            output = io.StringIO()
+            diagnostics = io.StringIO()
+            arguments = [
+                str(example),
+                "--mode",
+                "autonomous",
+                "--output",
+                str(report),
+                "--measurements-output",
+                str(measurements),
+                "--artifact-output",
+                str(artifact),
+            ]
+            with (
+                mock.patch.object(module, "CONFIGS", {"autonomous": config}),
+                mock.patch.object(
+                    module.rustred,
+                    "run_foundry_wave_campaign",
+                    return_value=FakeResult(),
+                ),
+                mock.patch.object(sys, "argv", arguments),
+                contextlib.redirect_stdout(output),
+                contextlib.redirect_stderr(diagnostics),
+            ):
+                module.main()
+
+            self.assertEqual(artifact.read_bytes(), payload)
+            self.assertEqual(list(root.glob(".k6.rribp.rustred-tmp-*")), [])
+            self.assertEqual(output.getvalue(), "")
+            self.assertTrue(tomllib.loads(report.read_text())["durable_artifact_published"])
+            self.assertEqual(
+                tomllib.loads(measurements.read_text())["status"],
+                "measured",
+            )
+            self.assertIn(
+                f"wrote {len(payload)} canonical artifact bytes",
+                diagnostics.getvalue(),
+            )
+
+            output = io.StringIO()
+            with (
+                mock.patch.object(module, "CONFIGS", {"autonomous": config}),
+                mock.patch.object(
+                    module.rustred,
+                    "run_foundry_wave_campaign",
+                    return_value=FakeResult(),
+                ),
+                mock.patch.object(sys, "argv", arguments),
+                contextlib.redirect_stdout(output),
+                self.assertRaises(FileExistsError),
+            ):
+                module.main()
+            self.assertEqual(output.getvalue(), "")
+            self.assertEqual(artifact.read_bytes(), payload)
+            self.assertTrue(report.is_file())
+            self.assertTrue(measurements.is_file())
+            self.assertEqual(list(root.glob(".k6.rribp.rustred-tmp-*")), [])
+
+            failed_artifact = root / "failed.rribp"
+            with (
+                mock.patch.object(module.os, "fsync", side_effect=OSError("sync failed")),
+                self.assertRaisesRegex(OSError, "sync failed"),
+            ):
+                module.persist_artifact(failed_artifact, payload)
+            self.assertFalse(failed_artifact.exists())
+            self.assertEqual(list(root.glob(".failed.rribp.rustred-tmp-*")), [])
+
     def test_repository_two_loop_example_generates_and_applies_closed_artifact(
         self,
     ) -> None:
@@ -407,7 +527,7 @@ class PythonApiTests(unittest.TestCase):
         foundry = rustred.run_foundry_campaign(FOUNDRY_CAMPAIGN)
         self.assertEqual(
             foundry.schema,
-            "rustred.foundry-campaign-report.toml.v1",
+            "rustred.foundry-campaign-report.toml.v2",
         )
         self.assertEqual(
             foundry.measurements_schema,
@@ -415,7 +535,7 @@ class PythonApiTests(unittest.TestCase):
         )
         self.assertIn('publication = "diagnostic_only"', foundry.to_toml())
         self.assertIn(
-            'semantic_report_schema = "rustred.foundry-campaign-report.toml.v1"',
+            'semantic_report_schema = "rustred.foundry-campaign-report.toml.v2"',
             foundry.measurements_to_toml(),
         )
         self.assertEqual(
@@ -473,7 +593,7 @@ class PythonApiTests(unittest.TestCase):
         )
         self.assertEqual(
             wave.schema,
-            "rustred.foundry-wave-campaign-report.toml.v1",
+            "rustred.foundry-wave-campaign-report.toml.v2",
         )
         self.assertEqual(
             wave.measurements_schema,
@@ -488,6 +608,7 @@ class PythonApiTests(unittest.TestCase):
         self.assertEqual(wave_report["outcome"], "incomplete")
         self.assertFalse(wave_report["artifact_installed"])
         self.assertFalse(wave_report["durable_artifact_published"])
+        self.assertIsNone(wave.artifact_bytes)
         self.assertEqual(
             wave.to_toml(),
             cli_toml(

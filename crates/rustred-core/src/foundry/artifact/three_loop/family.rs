@@ -10,6 +10,12 @@ use super::super::ArtifactError;
 /// `k1^2-1`, `k2^2-1`, `k3^2-1`, `(k3-k1)^2-1`,
 /// `(k1-k2)^2-1`, `(k2-k3)^2-1`.
 pub(crate) fn canonical_family() -> Result<IntegralFamily, ArtifactError> {
+    canonical_family_with_limits(IntegralFamilyLimits::default())
+}
+
+pub(crate) fn canonical_family_with_limits(
+    limits: IntegralFamilyLimits,
+) -> Result<IntegralFamily, ArtifactError> {
     let context = CoefficientContext::try_new(["d"])?;
     let dimension = context
         .parameter("d")
@@ -101,6 +107,6 @@ pub(crate) fn canonical_family() -> Result<IntegralFamily, ArtifactError> {
             zero.clone(),
             zero,
         ],
-        IntegralFamilyLimits::default(),
+        limits,
     )?)
 }

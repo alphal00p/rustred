@@ -2,8 +2,9 @@ use super::*;
 use crate::family::IntegralKey;
 use crate::foundry::artifact::fresh_k6_terminal_authority_for_test;
 use crate::foundry::campaign::{
-    FoundryCampaignConfig, FoundryCampaignExternalHints, FoundryCampaignPreset,
-    FoundryCampaignProbe,
+    FoundryCampaignConfig, FoundryCampaignError, FoundryCampaignExternalHints,
+    FoundryCampaignOperationalLimit, FoundryCampaignPreset, FoundryCampaignProbe,
+    FoundryCampaignSetupStage, FoundryCampaignStop,
 };
 use crate::foundry::completion::LatticeBox;
 use crate::foundry::completion::source_discovery::{
@@ -37,6 +38,10 @@ fn full_rank_wave_manifest_and_fresh_siblings_share_each_predecessor() {
             );
             assert!(ledger.predecessor_snapshot().same_authority_as(&root));
             assert_eq!(ledger.revision().get(), 0);
+            assert!(
+                !ledger.snapshot().status().is_compiler_closed(),
+                "exact product preimages deliberately leave coupled endpoint fringes"
+            );
             assert_eq!(ledger.terminals().len(), 1);
             assert_eq!(ledger.terminals()[0].powers(), orbit.representative);
             assert_eq!(ledger.sector().active_count(), wave_ordinal + 3);
@@ -47,7 +52,7 @@ fn full_rank_wave_manifest_and_fresh_siblings_share_each_predecessor() {
 }
 
 #[test]
-fn bounded_first_wave_drives_both_siblings_without_partial_publication() {
+fn exact_product_preimages_leave_the_coupled_first_wave_fringe_for_discovery() {
     let root = super::super::preset_k6::shared_k6_root_predecessor().unwrap();
     let config = FoundryCampaignConfig::try_three_loop_unit_mass_vacuum_k6_orbit_0(1, 1).unwrap();
     let K6WaveCampaignOutcome::Incomplete(incomplete) = try_run_k6_full_rank_waves(
@@ -57,35 +62,40 @@ fn bounded_first_wave_drives_both_siblings_without_partial_publication() {
         1,
     )
     .unwrap() else {
-        panic!("one task per sector cannot close the first K6 wave")
+        panic!("one task per unresolved sector cannot close every K6 wave")
     };
     assert_eq!(incomplete.wave_ordinal(), 0);
     assert_eq!(incomplete.active_count(), 3);
     assert_eq!(incomplete.closed_sector_count(), 0);
     assert_eq!(incomplete.stops().len(), K6_FULL_RANK_WAVE_WIDTHS[0]);
-    assert!(incomplete.predecessor().same_authority_as(&root));
+    assert_eq!(
+        incomplete.incomplete_orbits().len(),
+        K6_FULL_RANK_WAVE_WIDTHS[0]
+    );
+    assert_eq!(incomplete.predecessor().closed_layer_count(), 0);
     assert_eq!(incomplete.progress().len(), 1);
     let wave = &incomplete.progress()[0];
     assert_eq!(wave.wave_ordinal(), 0);
     assert_eq!(wave.active_count(), 3);
     assert_eq!(wave.state(), K6WaveCampaignState::Incomplete);
     assert_eq!(wave.orbits().len(), K6_FULL_RANK_WAVE_WIDTHS[0]);
-    assert!(wave.orbits().iter().enumerate().all(|(ordinal, orbit)| {
-        orbit.orbit_ordinal() == ordinal
-            && orbit.active_count() == 3
-            && orbit.state() == K6OrbitCampaignState::OperationallyBounded
-            && orbit.ledger_revision() == 1
-            && orbit.owner_count() == 1
-            && orbit.task_reports() == 1
-    }));
-    for (local_ordinal, stop) in incomplete.stops().iter().enumerate() {
-        assert_eq!(stop.orbit_ordinal(), local_ordinal);
+    for (expected_ordinal, orbit) in wave.orbits().iter().enumerate() {
+        assert_eq!(orbit.orbit_ordinal(), expected_ordinal);
+        assert_eq!(orbit.active_count(), 3);
+        assert_eq!(orbit.state(), K6OrbitCampaignState::OperationallyBounded);
+        assert_eq!(orbit.ledger_revision(), 0);
+        assert_eq!(orbit.owner_count(), 0);
+        assert_eq!(orbit.task_reports(), 1);
+    }
+    for (expected_ordinal, stop) in incomplete.stops().iter().enumerate() {
+        assert_eq!(stop.orbit_ordinal(), expected_ordinal);
         assert!(
             stop.ledger()
                 .predecessor_snapshot()
-                .same_authority_as(&root)
+                .same_authority_as(incomplete.predecessor())
         );
-        assert_eq!(stop.ledger().revision().get(), 1);
+        assert_eq!(stop.ledger().revision().get(), 0);
+        assert!(stop.ledger().owners().is_empty());
         assert!(matches!(
             stop.terminal_stop(),
             ProbeCoordinatorStop::OperationallyBounded(bound)
@@ -98,6 +108,63 @@ fn bounded_first_wave_drives_both_siblings_without_partial_publication() {
                 )
         ));
     }
+    let residual = &incomplete.incomplete_orbits()[0];
+    assert_eq!(residual.orbit_ordinal(), 0);
+    assert_eq!(
+        residual.report().total_uncovered_box_count(),
+        incomplete.stops()[0]
+            .ledger()
+            .snapshot()
+            .uncovered_box_count()
+    );
+    assert_eq!(residual.report().reported_uncovered_box_count(), 1);
+    assert_eq!(
+        residual.report().census().task_reports(),
+        incomplete.stops()[0].final_census().task_reports()
+    );
+    assert!(
+        incomplete.stops()[0].final_census().task_reports()
+            >= incomplete.stops()[0]
+                .terminal_stop()
+                .census()
+                .task_reports()
+    );
+    assert_eq!(
+        residual.report().uncovered_boxes_truncated(),
+        residual.report().total_uncovered_box_count() > 1
+    );
+    assert!(matches!(
+        residual.report().stop(),
+        FoundryCampaignStop::OperationallyBounded {
+            limit: FoundryCampaignOperationalLimit::TaskReport {
+                requested: 2,
+                limit: 1,
+            },
+            ..
+        }
+    ));
+
+    let partition = incomplete.stops()[0]
+        .ledger()
+        .try_clone_uncovered_partition()
+        .unwrap();
+    let exact_box = &partition.boxes()[0];
+    let reported_box = &residual.report().uncovered_boxes()[0];
+    assert_eq!(reported_box.lower(), exact_box.lower());
+    assert_eq!(reported_box.upper(), exact_box.upper());
+    assert_eq!(reported_box.free_dimension(), exact_box.free_dimension());
+
+    let zero_cap = FoundryCampaignConfig::try_three_loop_unit_mass_vacuum_k6_orbit_0(1, 0).unwrap();
+    let zero_report = detach_report(
+        &zero_cap,
+        incomplete.stops()[0].ledger(),
+        incomplete.stops()[0].terminal_stop(),
+        incomplete.stops()[0].final_census(),
+    )
+    .unwrap();
+    assert_eq!(zero_report.total_uncovered_box_count(), 1);
+    assert_eq!(zero_report.reported_uncovered_box_count(), 0);
+    assert!(zero_report.uncovered_boxes_truncated());
     assert_eq!(root.closed_layer_count(), 0);
 }
 
@@ -109,7 +176,7 @@ fn public_wave_runner_uses_the_configured_persisted_order_for_every_sibling() {
     let ordering = OrderingPolicy::try_with_coordinate_priority(&priority).unwrap();
     let hints = FoundryCampaignExternalHints::try_new(
         FoundryCampaignItinerary::FullRankAtomicWaves,
-        [FoundryCampaignProbe::new(1_000_000_007, [37], [0; 6])],
+        [FoundryCampaignProbe::try_new(1_000_000_007, [37], [0; 6]).unwrap()],
         2,
         0,
         ordering,
@@ -162,20 +229,29 @@ fn bounded_wave_results_are_identical_for_one_and_two_workers() {
     if ParallelExecution::preflight_requested_core_budget(2).is_err() {
         return;
     }
-    let root = super::super::preset_k6::shared_k6_root_predecessor().unwrap();
-    let config = FoundryCampaignConfig::try_three_loop_unit_mass_vacuum_k6_orbit_0(1, 1).unwrap();
-    let serial = try_run_k6_full_rank_waves(
+    let config = FoundryCampaignConfig::try_three_loop_unit_mass_vacuum_k6_orbit_0(1, 1)
+        .unwrap()
+        .try_resolve_search_program()
+        .unwrap();
+    let root =
+        super::super::preset_k6::k6_root_predecessor_for_ordering(config.ordering()).unwrap();
+    let mut discard_progress = |_: K6WaveCampaignProgress| {};
+    let serial = try_run_k6_full_rank_waves_with_progress_against_root(
         &config,
         root.clone(),
+        &root,
         StagedSectorClosureLimits::default(),
         1,
+        &mut discard_progress,
     )
     .unwrap();
-    let parallel = try_run_k6_full_rank_waves(
+    let parallel = try_run_k6_full_rank_waves_with_progress_against_root(
         &config,
         root.clone(),
+        &root,
         StagedSectorClosureLimits::default(),
         2,
+        &mut discard_progress,
     )
     .unwrap();
     assert_same_bounded_outcome(serial, parallel, &root);
@@ -187,7 +263,7 @@ fn live_wave_progress_is_monotone_orbit_ordered_and_matches_the_final_outcome() 
         return;
     }
     let root = super::super::preset_k6::shared_k6_root_predecessor().unwrap();
-    let config = FoundryCampaignConfig::try_three_loop_unit_mass_vacuum_k6_orbit_0(4, 1).unwrap();
+    let config = FoundryCampaignConfig::try_three_loop_unit_mass_vacuum_k6_orbit_0(1, 1).unwrap();
     let mut events = Vec::new();
     let outcome = try_run_k6_full_rank_waves_with_progress(
         &config,
@@ -198,25 +274,30 @@ fn live_wave_progress_is_monotone_orbit_ordered_and_matches_the_final_outcome() 
     )
     .unwrap();
     let K6WaveCampaignOutcome::Incomplete(incomplete) = outcome else {
-        panic!("four tasks per sibling unexpectedly closed the first K6 wave")
+        panic!("one task per sibling unexpectedly closed every K6 wave")
     };
     assert!(!events.is_empty());
-    let mut previous_revision = [0_u64; K6_FULL_RANK_WAVE_WIDTHS[0]];
-    let mut previous_reports = [0_usize; K6_FULL_RANK_WAVE_WIDTHS[0]];
+    let mut previous_revision = [0_u64; FULL_RANK_ORBITS.len()];
+    let mut previous_reports = [0_usize; FULL_RANK_ORBITS.len()];
     for event in &events {
-        assert_eq!(event.wave_ordinal(), 0);
-        assert_eq!(event.active_count(), 3);
-        assert_eq!(event.orbits().len(), K6_FULL_RANK_WAVE_WIDTHS[0]);
+        let wave_ordinal = event.wave_ordinal();
+        assert!(wave_ordinal <= incomplete.wave_ordinal());
+        let orbit_start = K6_FULL_RANK_WAVE_WIDTHS[..wave_ordinal]
+            .iter()
+            .sum::<usize>();
+        assert_eq!(event.active_count(), wave_ordinal + 3);
+        assert_eq!(event.orbits().len(), K6_FULL_RANK_WAVE_WIDTHS[wave_ordinal]);
         for (local_ordinal, orbit) in event.orbits().iter().enumerate() {
-            assert_eq!(orbit.orbit_ordinal(), local_ordinal);
+            let orbit_ordinal = orbit_start + local_ordinal;
+            assert_eq!(orbit.orbit_ordinal(), orbit_ordinal);
             assert_eq!(
                 orbit.representative(),
-                &FULL_RANK_ORBITS[local_ordinal].representative
+                &FULL_RANK_ORBITS[orbit_ordinal].representative
             );
-            assert!(orbit.ledger_revision() >= previous_revision[local_ordinal]);
-            assert!(orbit.task_reports() >= previous_reports[local_ordinal]);
-            previous_revision[local_ordinal] = orbit.ledger_revision();
-            previous_reports[local_ordinal] = orbit.task_reports();
+            assert!(orbit.ledger_revision() >= previous_revision[orbit_ordinal]);
+            assert!(orbit.task_reports() >= previous_reports[orbit_ordinal]);
+            previous_revision[orbit_ordinal] = orbit.ledger_revision();
+            previous_reports[orbit_ordinal] = orbit.task_reports();
         }
     }
     assert_eq!(events.last(), incomplete.progress().last());
@@ -292,18 +373,13 @@ fn artifact_wave_extraction_strips_nonempty_detached_search_progress() {
     let published = latest.try_snapshot(K6WaveCampaignState::Published).unwrap();
     assert_ne!(running, published);
 
-    // Materialize the same nonempty, proof-bearing wave twice from autonomous
-    // RustRed evidence.  The one-point carrier is discharged by its exact
-    // corner terminal; retaining an ordinary-source owner forces the ledger
-    // through the real compiler/seal/publication path without importing any
-    // external reduction algebra or claiming positive-dimensional closure.
+    // Materialize the same proof-bearing predecessor-closed wave twice. The
+    // factorization program, rather than an ordinary rule cell or a declared
+    // master, owns this exact one-point carrier.
     let fixture = OracleDisabledK6Fixture::shared();
-    let seed = fixture.new_ledger();
-    let plan = fixture.plan(&seed, 2, 0);
-    let owner = fixture.replay_owner(&plan.tasks()[0]);
     let make_wave = || {
         let arity = fixture.sector().arity();
-        let mut ledger = CanonicalExactOwnerLedger::try_new_with_closure_carrier(
+        let ledger = CanonicalExactOwnerLedger::try_new_with_closure_carrier(
             fixture.generator().context(),
             fixture.predecessor().clone(),
             fixture.sector().clone(),
@@ -317,8 +393,8 @@ fn artifact_wave_extraction_strips_nonempty_detached_search_progress() {
             ExactOwnerCoverDeltaLimits::default(),
         )
         .unwrap();
-        let delta = ledger.try_apply_owner(owner.clone()).unwrap();
-        assert!(delta.updated().status().is_compiler_closed());
+        assert!(ledger.snapshot().status().is_compiler_closed());
+        assert!(ledger.owners().is_empty());
         let sealed = ledger.try_into_closed_cover().unwrap();
         try_publish_sealed_sector_wave(
             fixture.predecessor().clone(),
@@ -366,6 +442,39 @@ fn zero_sibling_worker_count_is_rejected_before_campaign_execution() {
     ));
 }
 
+#[test]
+fn public_error_kind_preserves_nested_campaign_resource_and_invariant_categories() {
+    for nested in [
+        FoundryCampaignError::ResourceCountOverflow {
+            stage: FoundryCampaignSetupStage::RequestedDomains,
+            resource: "requested domains",
+        },
+        FoundryCampaignError::ResourceLimit {
+            stage: FoundryCampaignSetupStage::RequestedDomains,
+            resource: "requested domains",
+            requested: 2,
+            limit: 1,
+        },
+    ] {
+        let public = K6WaveCampaignRunError(K6WaveCampaignError::Campaign(nested));
+        assert_eq!(public.kind(), K6WaveCampaignErrorKind::ResourceLimit);
+    }
+
+    let invariant = K6WaveCampaignRunError(K6WaveCampaignError::Campaign(
+        FoundryCampaignError::Invariant {
+            detail: "nested campaign invariant",
+        },
+    ));
+    assert_eq!(invariant.kind(), K6WaveCampaignErrorKind::Invariant);
+
+    let execution = K6WaveCampaignRunError(K6WaveCampaignError::Campaign(
+        FoundryCampaignError::Execution {
+            message: "campaign execution".to_owned(),
+        },
+    ));
+    assert_eq!(execution.kind(), K6WaveCampaignErrorKind::Campaign);
+}
+
 fn assert_same_bounded_outcome(
     left: K6WaveCampaignOutcome,
     right: K6WaveCampaignOutcome,
@@ -381,9 +490,13 @@ fn assert_same_bounded_outcome(
     assert_eq!(left.active_count(), right.active_count());
     assert_eq!(left.closed_sector_count(), right.closed_sector_count());
     assert_eq!(left.stops().len(), right.stops().len());
+    assert_eq!(left.incomplete_orbits(), right.incomplete_orbits());
     assert_eq!(left.progress(), right.progress());
+    assert_eq!(root.closed_layer_count(), 0);
+    assert_eq!(left.predecessor().closed_layer_count(), 0);
     assert!(left.predecessor().same_authority_as(root));
     assert!(right.predecessor().same_authority_as(root));
+    assert!(left.predecessor().same_authority_as(right.predecessor()));
     assert_eq!(left.predecessor().id(), right.predecessor().id());
 
     for (left, right) in left.stops().iter().zip(right.stops()) {

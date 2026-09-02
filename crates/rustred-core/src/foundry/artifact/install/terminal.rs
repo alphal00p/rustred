@@ -95,6 +95,15 @@ pub(crate) fn install_terminal_authority(
             });
         }
     }
+    let factorized_product_programs =
+        super::super::factorized_product_moments::compile_factorized_product_moment_programs(
+            &candidate.family,
+            &candidate.dependencies,
+            &candidate.factorization_rules,
+        )
+        .map_err(|_| ArtifactError::InvalidFactorization {
+            detail: "the authenticated product factorization could not compile its exact dependency-root preimage executor",
+        })?;
     Ok(ClosedTerminalAuthority::from_validated_parts(
         candidate.authority_id,
         candidate.arity,
@@ -103,6 +112,7 @@ pub(crate) fn install_terminal_authority(
         candidate.canonicalizer,
         candidate.dependencies,
         candidate.factorization_rules,
+        factorized_product_programs,
         candidate.parent_terminals,
         declared_masters,
         candidate.zero_sectors,

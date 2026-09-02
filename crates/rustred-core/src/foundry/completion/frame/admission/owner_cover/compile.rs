@@ -43,6 +43,43 @@ struct PreparedOwner {
 }
 
 impl ExactCircuitOwnerCover {
+    /// Materialize the exact proof shell for a carrier already authenticated
+    /// as completely owned by the retained immutable predecessor.
+    ///
+    /// The caller must establish that ownership through the installed
+    /// predecessor snapshot, not from serialized bounds or a detached domain.
+    /// Consequently this proof has no ordinary circuit owner and no fabricated
+    /// terminal: its empty uncovered partition records predecessor closure.
+    pub(crate) fn predecessor_closed(
+        family_fingerprint: &str,
+        context_fingerprint: &str,
+        sector: Mask,
+        ordering: OrderingPolicy,
+        owner_snapshot_id: crate::foundry::completion::stratum::ImmutableOwnerSnapshotId,
+        closure_carrier: LatticeBox,
+    ) -> Self {
+        Self {
+            family_fingerprint: Arc::new(family_fingerprint.to_owned()),
+            context_fingerprint: Arc::new(context_fingerprint.to_owned()),
+            sector,
+            ordering,
+            owner_snapshot_id,
+            closure_carrier,
+            owners: Box::new([]),
+            terminals: Box::new([]),
+            finite_point_owners: Box::new([]),
+            uncovered: UncoveredPartition::new(Vec::new(), 0),
+            missing_terminals: Box::new([]),
+            guard_incomplete_owners: Box::new([]),
+            finite_complement_points: 0,
+            point_owner_probes: 0,
+            compiled_uncovered_boxes: 0,
+            compiled_uncovered_box_coordinate_cells: 0,
+            compiled_split_operations: 0,
+            status: ExactOwnerCoverStatus::Closed,
+        }
+    }
+
     pub(crate) fn try_compile<'partition, 'frame: 'partition>(
         context: &IndexedCoefficientContext,
         inputs: impl IntoIterator<Item = ExactCircuitOwnerInput<'partition, 'frame>>,

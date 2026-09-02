@@ -25,6 +25,7 @@ pub(crate) trait ProbeCampaignPlannedTask: sealed::Sealed {
     type Plan;
 
     fn validate_in_plan(&self, plan: &Self::Plan) -> Result<(), ProbeCampaignError>;
+    fn planned_ledger_revision(&self) -> u64;
     fn canonical_ordinal(&self) -> usize;
     fn parent_box_lower(&self) -> &[u64];
     fn parent_box_upper(&self) -> &[Option<u64>];
@@ -55,6 +56,10 @@ impl ProbeCampaignPlannedTask for InteriorSimplexTask {
     fn validate_in_plan(&self, plan: &Self::Plan) -> Result<(), ProbeCampaignError> {
         plan.validate_task(self)
             .map_err(ProbeCampaignError::InteriorPlan)
+    }
+
+    fn planned_ledger_revision(&self) -> u64 {
+        self.epoch_ordinal()
     }
 
     fn canonical_ordinal(&self) -> usize {
@@ -96,6 +101,10 @@ impl ProbeCampaignPlannedTask for BoundarySimplexTask {
             .map_err(ProbeCampaignError::BoundaryPlan)
     }
 
+    fn planned_ledger_revision(&self) -> u64 {
+        self.epoch_ordinal()
+    }
+
     fn canonical_ordinal(&self) -> usize {
         self.canonical_ordinal()
     }
@@ -135,6 +144,10 @@ impl ProbeCampaignPlannedTask for LeaderWalkTask {
             .map_err(ProbeCampaignError::LeaderPlan)
     }
 
+    fn planned_ledger_revision(&self) -> u64 {
+        self.epoch_ordinal()
+    }
+
     fn canonical_ordinal(&self) -> usize {
         self.canonical_ordinal()
     }
@@ -172,6 +185,10 @@ impl ProbeCampaignPlannedTask for RequestedDomainTask {
     fn validate_in_plan(&self, plan: &Self::Plan) -> Result<(), ProbeCampaignError> {
         plan.validate_task(self)
             .map_err(ProbeCampaignError::LeaderPlan)
+    }
+
+    fn planned_ledger_revision(&self) -> u64 {
+        self.epoch_ordinal()
     }
 
     fn canonical_ordinal(&self) -> usize {

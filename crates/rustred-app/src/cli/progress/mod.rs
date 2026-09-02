@@ -14,11 +14,12 @@ use std::time::{Duration, Instant};
 use rustred::foundry::campaign::{
     FoundryCampaignCensus, FoundryCampaignCoverageStatus, FoundryCampaignProgress,
     FoundryCampaignSnapshot, FoundryCampaignStop, FoundryCampaignTaskLocation,
+    K6OrbitCampaignState, K6WaveCampaignProgress, K6WaveCampaignState,
 };
 
 use super::args::ColorPolicy;
 use model::{
-    CampaignPhase, DashboardState, RateSample, defensible_cap_eta, error_count,
+    CampaignPhase, DashboardState, RateSample, WaveDashboardState, defensible_cap_eta, error_count,
     owner_progress_is_one_to_one, phase_for_stop, stop_location,
 };
 use terminal::{TerminalSession, resident_set_bytes};
@@ -64,6 +65,7 @@ pub(crate) struct CampaignProgressMonitor<W: Write + Send + 'static> {
     presenter: Option<JoinHandle<()>>,
     refresh_interval: Duration,
     viewport: PresenterViewport,
+    last_wave: Option<(ProgressUpdate, CampaignPhase)>,
 }
 
 #[derive(Clone, Copy)]
@@ -90,6 +92,7 @@ impl<W: Write + Send + 'static> CampaignProgressMonitor<W> {
             presenter: None,
             refresh_interval,
             viewport: PresenterViewport::Inline,
+            last_wave: None,
         }
     }
 
@@ -157,10 +160,20 @@ impl<W: Write + Send + 'static> CampaignProgressMonitor<W> {
     }
 
     pub(crate) fn observe(&mut self, progress: FoundryCampaignProgress) {
+        self.publish(ProgressUpdate::from_progress(&progress));
+    }
+
+    pub(crate) fn observe_wave(&mut self, progress: K6WaveCampaignProgress) {
+        let update = ProgressUpdate::from_wave(&progress);
+        self.last_wave = Some((update, terminal_phase_for_wave(&progress)));
+        self.publish(update);
+    }
+
+    fn publish(&self, update: ProgressUpdate) {
         let Some(shared) = &self.shared else {
             return;
         };
-        shared.publish_progress(ProgressUpdate::from_progress(&progress));
+        shared.publish_progress(update);
     }
 
     pub(crate) fn finish(
@@ -172,7 +185,7 @@ impl<W: Write + Send + 'static> CampaignProgressMonitor<W> {
         task_report_ceiling: usize,
     ) {
         self.stop_presenter(PresenterTerminal::Finished(FinalUpdate {
-            stop,
+            phase: phase_for_stop(stop),
             progress: ProgressUpdate::from_parts(
                 snapshot,
                 census,
@@ -181,6 +194,16 @@ impl<W: Write + Send + 'static> CampaignProgressMonitor<W> {
                 task_report_ceiling,
             ),
         }));
+    }
+
+    pub(crate) fn finish_wave(&mut self) {
+        let Some((progress, phase)) = self.last_wave.take() else {
+            // A valid K6 wave run always publishes at least one terminal
+            // callback. Keep this defensive presentation path nonsemantic.
+            self.stop_presenter(PresenterTerminal::Shutdown);
+            return;
+        };
+        self.stop_presenter(PresenterTerminal::Finished(FinalUpdate { phase, progress }));
     }
 
     pub(crate) fn finish_failed(&mut self) {
@@ -207,14 +230,20 @@ impl<W: Write + Send + 'static> Drop for CampaignProgressMonitor<W> {
 
 #[derive(Clone, Copy, Debug)]
 struct ProgressUpdate {
-    coverage: FoundryCampaignCoverageStatus,
+    phase: CampaignPhase,
     revision: u64,
     owner_count: usize,
     uncovered_box_count: usize,
-    census: FoundryCampaignCensus,
-    location: Option<FoundryCampaignTaskLocation>,
+    effective_dimension: Option<usize>,
     maximum_dimension: usize,
-    task_report_ceiling: usize,
+    task_report_ceiling: Option<usize>,
+    strict_shrink: usize,
+    no_proposal: usize,
+    duplicate: usize,
+    errors: usize,
+    task_reports: usize,
+    owner_progress_is_one_to_one: bool,
+    wave: Option<WaveDashboardState>,
 }
 
 impl ProgressUpdate {
@@ -235,22 +264,92 @@ impl ProgressUpdate {
         maximum_dimension: usize,
         task_report_ceiling: usize,
     ) -> Self {
+        let one_to_one = owner_progress_is_one_to_one(snapshot.owner_count(), census);
         Self {
-            coverage: snapshot.coverage(),
+            phase: if snapshot.coverage() == FoundryCampaignCoverageStatus::Closed {
+                CampaignPhase::Closing
+            } else {
+                CampaignPhase::Discovering
+            },
             revision: snapshot.revision(),
             owner_count: snapshot.owner_count(),
             uncovered_box_count: snapshot.uncovered_box_count(),
-            census,
-            location,
+            effective_dimension: location.map(|value| value.effective_dimension()),
             maximum_dimension,
-            task_report_ceiling,
+            task_report_ceiling: Some(task_report_ceiling),
+            strict_shrink: census.strict_geometric_shrink(),
+            no_proposal: census.no_proposal(),
+            duplicate: census.duplicate(),
+            errors: error_count(census),
+            task_reports: census.task_reports(),
+            owner_progress_is_one_to_one: one_to_one,
+            wave: None,
+        }
+    }
+
+    fn from_wave(progress: &K6WaveCampaignProgress) -> Self {
+        let mut revision = 0_u64;
+        let mut owner_count = 0_usize;
+        let mut uncovered_box_count = 0_usize;
+        let mut task_reports = 0_usize;
+        let mut closed_orbit_count = 0_usize;
+        let mut running_orbit_count = 0_usize;
+        let mut terminal_orbit_count = 0_usize;
+        for orbit in progress.orbits() {
+            revision = revision.max(orbit.ledger_revision());
+            owner_count = owner_count.saturating_add(orbit.owner_count());
+            uncovered_box_count = uncovered_box_count.saturating_add(orbit.uncovered_box_count());
+            task_reports = task_reports.saturating_add(orbit.task_reports());
+            match orbit.state() {
+                K6OrbitCampaignState::Published | K6OrbitCampaignState::ClosedUnpublished => {
+                    closed_orbit_count = closed_orbit_count.saturating_add(1);
+                }
+                K6OrbitCampaignState::Running => {
+                    running_orbit_count = running_orbit_count.saturating_add(1);
+                }
+                K6OrbitCampaignState::NeedsRefinement
+                | K6OrbitCampaignState::OperationallyBounded
+                | K6OrbitCampaignState::ExhaustedAtConfig => {
+                    terminal_orbit_count = terminal_orbit_count.saturating_add(1);
+                }
+                K6OrbitCampaignState::Pending => {}
+            }
+        }
+        let maximum_dimension = progress
+            .orbits()
+            .first()
+            .map_or(progress.active_count(), |orbit| {
+                orbit.representative().len()
+            });
+        Self {
+            phase: live_phase_for_wave(progress),
+            revision,
+            owner_count,
+            uncovered_box_count,
+            effective_dimension: Some(progress.active_count()),
+            maximum_dimension,
+            task_report_ceiling: None,
+            strict_shrink: 0,
+            no_proposal: 0,
+            duplicate: 0,
+            errors: 0,
+            task_reports,
+            owner_progress_is_one_to_one: false,
+            wave: Some(WaveDashboardState {
+                ordinal: progress.wave_ordinal(),
+                active_count: progress.active_count(),
+                orbit_count: progress.orbits().len(),
+                closed_orbit_count,
+                running_orbit_count,
+                terminal_orbit_count,
+            }),
         }
     }
 }
 
 #[derive(Clone, Copy, Debug)]
 struct FinalUpdate {
-    stop: FoundryCampaignStop,
+    phase: CampaignPhase,
     progress: ProgressUpdate,
 }
 
@@ -381,7 +480,7 @@ impl<W: Write> Presenter<W> {
         match terminal {
             PresenterTerminal::Finished(final_update) => {
                 self.apply_progress(now, final_update.progress);
-                self.state.phase = phase_for_stop(final_update.stop);
+                self.state.phase = final_update.phase;
             }
             PresenterTerminal::Failed => {
                 self.state.elapsed = now.saturating_duration_since(self.started);
@@ -400,34 +499,36 @@ impl<W: Write> Presenter<W> {
     fn apply_progress(&mut self, now: Instant, progress: ProgressUpdate) {
         self.update_rate(now, progress.owner_count);
         self.state.elapsed = now.saturating_duration_since(self.started);
-        self.state.phase = if progress.coverage == FoundryCampaignCoverageStatus::Closed {
-            CampaignPhase::Closing
-        } else {
-            CampaignPhase::Discovering
-        };
+        self.state.phase = progress.phase;
         self.state.revision = progress.revision;
         self.state.owner_count = progress.owner_count;
-        self.state.task_report_ceiling = Some(progress.task_report_ceiling);
+        self.state.task_report_ceiling = progress.task_report_ceiling;
         self.state.uncovered_box_count = Some(progress.uncovered_box_count);
-        self.state.effective_dimension = progress.location.map(|value| value.effective_dimension());
+        self.state.effective_dimension = progress.effective_dimension;
         self.state.maximum_dimension = Some(progress.maximum_dimension);
-        self.state.strict_shrink = progress.census.strict_geometric_shrink();
-        self.state.no_proposal = progress.census.no_proposal();
-        self.state.duplicate = progress.census.duplicate();
-        self.state.errors = error_count(progress.census);
-        self.state.task_reports = progress.census.task_reports();
+        self.state.strict_shrink = progress.strict_shrink;
+        self.state.no_proposal = progress.no_proposal;
+        self.state.duplicate = progress.duplicate;
+        self.state.errors = progress.errors;
+        self.state.task_reports = progress.task_reports;
         self.state.owner_rate = self.smoothed_owner_rate;
         self.state.cap_eta = defensible_cap_eta(
             progress.owner_count,
-            progress.task_report_ceiling,
-            owner_progress_is_one_to_one(progress.owner_count, progress.census),
+            progress.task_report_ceiling.unwrap_or(progress.owner_count),
+            progress.task_report_ceiling.is_some() && progress.owner_progress_is_one_to_one,
             self.smoothed_owner_rate,
         );
+        self.state.wave = progress.wave;
     }
 
     fn update_rate(&mut self, now: Instant, owners: usize) {
         let interval = now.saturating_duration_since(self.rate_sample.at);
-        if interval < RATE_SAMPLE_INTERVAL || owners < self.rate_sample.owners {
+        if owners < self.rate_sample.owners {
+            self.rate_sample = RateSample { at: now, owners };
+            self.smoothed_owner_rate = None;
+            return;
+        }
+        if interval < RATE_SAMPLE_INTERVAL {
             return;
         }
         let added = owners - self.rate_sample.owners;
@@ -457,6 +558,51 @@ impl<W: Write> Presenter<W> {
         self.terminal.render(&self.state, self.presentation.color)?;
         self.last_render = Some(now);
         Ok(())
+    }
+}
+
+fn live_phase_for_wave(progress: &K6WaveCampaignProgress) -> CampaignPhase {
+    match progress.state() {
+        K6WaveCampaignState::Running => {
+            if progress
+                .orbits()
+                .iter()
+                .all(|orbit| orbit.state() == K6OrbitCampaignState::Pending)
+            {
+                CampaignPhase::Starting
+            } else {
+                CampaignPhase::Discovering
+            }
+        }
+        K6WaveCampaignState::Published => CampaignPhase::Closing,
+        K6WaveCampaignState::Incomplete => incomplete_wave_phase(progress),
+    }
+}
+
+fn terminal_phase_for_wave(progress: &K6WaveCampaignProgress) -> CampaignPhase {
+    match progress.state() {
+        K6WaveCampaignState::Published => CampaignPhase::Closed,
+        K6WaveCampaignState::Incomplete => incomplete_wave_phase(progress),
+        K6WaveCampaignState::Running => CampaignPhase::Failed,
+    }
+}
+
+fn incomplete_wave_phase(progress: &K6WaveCampaignProgress) -> CampaignPhase {
+    let mut states = progress.orbits().iter().map(|orbit| orbit.state());
+    if states
+        .clone()
+        .any(|state| state == K6OrbitCampaignState::NeedsRefinement)
+    {
+        CampaignPhase::Refinement
+    } else if states
+        .clone()
+        .any(|state| state == K6OrbitCampaignState::OperationallyBounded)
+    {
+        CampaignPhase::Bounded
+    } else if states.any(|state| state == K6OrbitCampaignState::ExhaustedAtConfig) {
+        CampaignPhase::Exhausted
+    } else {
+        CampaignPhase::Failed
     }
 }
 

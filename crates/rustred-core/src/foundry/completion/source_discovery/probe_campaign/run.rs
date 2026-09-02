@@ -99,6 +99,13 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
     ) -> Result<ProbeCampaignTaskBinding<'plan, Task>, ProbeCampaignError> {
         task.validate_in_plan(plan)?;
         self.validate_task_scope(task, ledger)?;
+        let current_revision = ledger.revision().get();
+        if task.planned_ledger_revision() != current_revision {
+            return Err(ProbeCampaignError::StaleLedgerRevision {
+                planned: task.planned_ledger_revision(),
+                current: current_revision,
+            });
+        }
         if !ledger.has_exact_uncovered_box(task.parent_box_lower(), task.parent_box_upper()) {
             return Err(ProbeCampaignError::StaleParentGeometry);
         }

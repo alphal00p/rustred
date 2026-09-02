@@ -261,13 +261,18 @@ and grants no cover authority until the free indices are retained symbolically,
 all guards and faces are proved, and an executable owner strictly shrinks the
 exact infinite complement.
 
-The earlier executable product-moment prototype has been removed. Its nested
-evaluation constructed fresh dependency reducers, so it did not share the
-root reducer's memoization or request budget and could not serve as sound
-viability evidence. The mathematical design remains in
-`docs/research/factorized_product_angular_owner_2026.md`; implementation is
-deferred until an autonomous K6 installer can persist and authenticate the
-owner and execute it through one shared reducer state.
+The prototype has since been replaced by authenticated product-moment
+programs compiled by the installer from the certified factorization and lower
+artifacts. Their nested reductions share the root reducer's memoization,
+request-wide application/coalescing budgets, and exact coefficient accounting.
+Product authority is the exact sparse dependency-root preimage, transported
+through authenticated K6 symmetry routes, rather than the former rectangular
+sector hull. Persistence carries the underlying authority and cold-regenerates
+the executable program instead of accepting a duplicate program payload.
+Boundary, arbitrary-rank, wide-measure, symmetry-routing, cache, and resource
+tests validate this lane. It closes its mathematically safe subdomains but
+deliberately leaves the coupled source-safe-carrier fringe to ordinary-source
+discovery, so it is not by itself a closing K6 artifact.
 
 A separate seven-test matcher-seed portfolio derives all five frozen Vakint
 three-loop roots from the complete K6 contraction plan and applies their exact
@@ -307,6 +312,16 @@ memoized hot reducer does not repeat that work. Vakint now ships and consumes
 both artifacts through its opt-in scalar RustRed backend; the three-loop
 `K = 6` artifact remains open Stage 1 work. Tensor development and master
 substitution inside RustRed remain outside this checkpoint.
+
+As a release-mode transport smoke measurement on 2026-09-02, 15 fresh Python
+processes per family were pinned to one logical AMD EPYC 9754 CPU. Each process
+ran generation, durable serialization, cold inspection, and one reduction via
+`import rustred`; compilation was excluded. The `K = 1` example took a median
+31.69 ms wall / 30.86 ms CPU (31.32--34.24 ms wall) with 12.1 MiB peak RSS and
+produced 2,736 artifact bytes. The `K = 3` example took a median 41.15 ms wall /
+40.17 ms CPU (40.63--41.80 ms wall) with 15.1 MiB peak RSS and produced 50,525
+artifact bytes. These are reproducibility observations, not cross-machine
+performance thresholds.
 
 For the eventual K6 adapter, raw MATAD oracle runs on three
 symmetry-equivalent five-line pinches agree exactly. After removing Vakint's

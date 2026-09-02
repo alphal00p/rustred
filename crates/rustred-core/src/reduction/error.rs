@@ -32,6 +32,10 @@ pub enum ReductionError {
         requested: usize,
         limit: usize,
     },
+    CoalescingAdditionLimit {
+        requested: usize,
+        limit: usize,
+    },
     AllocationFailure {
         resource: &'static str,
         requested: usize,
@@ -58,6 +62,9 @@ pub enum ReductionError {
     FactorizationTermLimit {
         requested: usize,
         limit: usize,
+    },
+    FactorizedProductMoment {
+        detail: String,
     },
     ReducerInvariant {
         detail: &'static str,
@@ -108,6 +115,10 @@ impl fmt::Display for ReductionError {
                 formatter,
                 "reduction needs at least {requested} rule applications, exceeding the configured limit {limit}"
             ),
+            Self::CoalescingAdditionLimit { requested, limit } => write!(
+                formatter,
+                "reduction needs at least {requested} coefficient coalescing additions, exceeding the configured limit {limit}"
+            ),
             Self::AllocationFailure {
                 resource,
                 requested,
@@ -139,6 +150,12 @@ impl fmt::Display for ReductionError {
                 formatter,
                 "factorization needs {requested} intermediate master-product terms, exceeding the configured limit {limit}"
             ),
+            Self::FactorizedProductMoment { detail } => {
+                write!(
+                    formatter,
+                    "factorized product-moment reduction failed: {detail}"
+                )
+            }
             Self::ReducerInvariant { detail } => {
                 write!(formatter, "sealed reducer invariant failed: {detail}")
             }

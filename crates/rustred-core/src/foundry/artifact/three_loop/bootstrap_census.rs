@@ -1,4 +1,4 @@
-//! Probe-local bootstrap census for the six unresolved full-rank K=6 orbits.
+//! Probe-local bootstrap census for unresolved full-rank K=6 orbits.
 //!
 //! This is deliberately test-only discovery telemetry. A modular hit, sampled
 //! obstruction, exact replay, or scheduler stop recorded here cannot install a
@@ -17,7 +17,9 @@ use crate::foundry::completion::stratum::{
 use crate::identity::{
     CompletedIbpSourceRows, IntegralShift, ParametricIbpConfig, ParametricIbpGenerator,
 };
-use crate::sector::{Mask, OrderingPolicy, SectorMonotoneDomain};
+use crate::sector::{
+    InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain, SectorMonotoneDomain,
+};
 
 use super::manifest::FULL_RANK_ORBITS;
 use super::{canonical_family, derive_k6_terminal_authority};
@@ -162,10 +164,12 @@ const EXPECTED_BOOTSTRAP_SECTORS: [ExpectedBootstrapSector; 6] = [
     ExpectedBootstrapSector {
         representative: [0, 1, 1, 1, 1, 1],
         active_propagators: 5,
-        allowed_columns: 0,
-        forbidden_columns: 252,
-        nominated_requests: 3_764,
-        nonzero_residual_requests: 3_726,
+        // Exact factorized proper-subsector domains authenticate only the
+        // sampled columns in their sparse preimages; the rest remain blind.
+        allowed_columns: 44,
+        forbidden_columns: 208,
+        nominated_requests: 4_208,
+        nonzero_residual_requests: 4_173,
         added_requests: 32,
         final_requests: 122,
     },
@@ -357,11 +361,26 @@ fn run_k6_probe_local_bootstrap_census()
 
     let target = IntegralShift::try_new([0; 6])?;
     let mut census = Vec::new();
-    census.try_reserve_exact(FULL_RANK_ORBITS.len() * PROBE_MODULI.len())?;
+    census.try_reserve_exact(EXPECTED_BOOTSTRAP_SECTORS.len() * PROBE_MODULI.len())?;
     for (orbit_ordinal, orbit) in FULL_RANK_ORBITS.into_iter().enumerate() {
         let expected = EXPECTED_BOOTSTRAP_SECTORS[orbit_ordinal];
         assert_eq!(orbit.representative, expected.representative);
         let sector = Mask::try_from_indices(&orbit.representative)?;
+        let complete_sector = SectorInteriorDomain::try_new(
+            sector.clone(),
+            sector.active_bits().iter().map(|&active| {
+                if active {
+                    InteriorBounds::new(1, i64::MAX)
+                } else {
+                    InteriorBounds::new(i64::MIN, 0)
+                }
+            }),
+        )?;
+        // A bootstrap census is discovery telemetry, not a reason to search a
+        // carrier already closed by an installed factorization program.
+        if owners.authenticates_same_sector_domain(OrderingPolicy::default(), &complete_sector) {
+            continue;
+        }
         let stratum = bootstrap_stratum(&generator, &completed, sector, &target, limits)?;
         let report = ProbeLocalObstructionScheduler::try_new(
             &generator,
@@ -504,7 +523,11 @@ fn run_obstruction_block_width_probe(
 fn k6_probe_local_bootstrap_census() {
     let census = run_k6_probe_local_bootstrap_census().unwrap();
     eprintln!("K6 probe-local bootstrap census: {census:#?}");
-    assert_eq!(census.len(), 18);
+    assert_eq!(
+        census.len(),
+        EXPECTED_BOOTSTRAP_SECTORS.len() * PROBE_MODULI.len(),
+        "exact product preimages leave a discovery fringe in every K6 orbit",
+    );
     for (entry_ordinal, entry) in census.iter().enumerate() {
         let expected = EXPECTED_BOOTSTRAP_SECTORS[entry.orbit_ordinal];
         assert_eq!(entry.orbit_ordinal, entry_ordinal / PROBE_MODULI.len());
@@ -523,8 +546,9 @@ fn k6_probe_local_bootstrap_census() {
             entry.physical_columns,
             "the target column belongs to neither partition side"
         );
-        assert_eq!(entry.forbidden_rank, 90);
-        assert_eq!(entry.augmented_rank, 90);
+        let expected_rank = if entry.orbit_ordinal == 4 { 89 } else { 90 };
+        assert_eq!(entry.forbidden_rank, expected_rank);
+        assert_eq!(entry.augmented_rank, expected_rank);
         assert!(!entry.exact_lift_attempted);
         assert_eq!(
             entry.disposition,

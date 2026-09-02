@@ -1,14 +1,17 @@
 use std::time::Instant;
 
+use rustred::family::IntegralKey;
 use rustred::foundry::campaign::{
-    FOUNDRY_CAMPAIGN_CONFIG_SCHEMA, FOUNDRY_CAMPAIGN_REPORT_SCHEMA, FoundryCampaignCensus,
+    FOUNDRY_CAMPAIGN_CONFIG_SCHEMA, FOUNDRY_CAMPAIGN_REPORT_SCHEMA,
+    FoundryAutonomousSelectionRound, FoundryAutonomousSelectionTelemetry, FoundryCampaignCensus,
     FoundryCampaignConfig, FoundryCampaignCoverageObstruction, FoundryCampaignCoverageStatus,
-    FoundryCampaignError, FoundryCampaignExternalHints, FoundryCampaignItinerary,
-    FoundryCampaignNeedsRefinementReason, FoundryCampaignOperationalLimit, FoundryCampaignPreset,
-    FoundryCampaignProbe, FoundryCampaignProgress, FoundryCampaignReport,
-    FoundryCampaignSchedulerRejection, FoundryCampaignSnapshot, FoundryCampaignStop,
-    FoundryCampaignTaskLocation, FoundryCampaignUncoveredBox, FoundrySearchProvenance,
-    run_foundry_campaign_with_progress,
+    FoundryCampaignDomainHint, FoundryCampaignError, FoundryCampaignExternalHints,
+    FoundryCampaignItinerary, FoundryCampaignNeedsRefinementReason,
+    FoundryCampaignOperationalLimit, FoundryCampaignPreset, FoundryCampaignProbe,
+    FoundryCampaignProgress, FoundryCampaignReport, FoundryCampaignSchedulerRejection,
+    FoundryCampaignSnapshot, FoundryCampaignStop, FoundryCampaignTaskLocation,
+    FoundryCampaignTaskLocationKind, FoundryCampaignUncoveredBox, FoundrySearchProvenance,
+    MAX_FOUNDRY_CAMPAIGN_DOMAIN_HINTS, run_foundry_campaign_with_progress,
 };
 use rustred::sector::{CoordinatePriority, CoordinatePriorityLimits, OrderingPolicy};
 use serde::{Deserialize, Serialize};
@@ -44,6 +47,8 @@ struct FoundryCampaignExternalHintsDocumentV2 {
     ordering_policy: String,
     #[serde(default)]
     discovery_coordinate_priority: Option<Vec<u64>>,
+    #[serde(default)]
+    domains: Vec<FoundryCampaignDomainHintDocumentV2>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,8 +59,15 @@ struct FoundryCampaignProbeDocumentV2 {
     chart_offsets: Vec<u64>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FoundryCampaignDomainHintDocumentV2 {
+    anchor_powers: Vec<i64>,
+    symbolic_axes: Vec<u64>,
+}
+
 #[derive(Debug, Serialize)]
-struct FoundryCampaignReportDocumentV1 {
+struct FoundryCampaignReportDocumentV2 {
     schema: &'static str,
     status: &'static str,
     publication: &'static str,
@@ -66,6 +78,20 @@ struct FoundryCampaignReportDocumentV1 {
     sector_active: Vec<bool>,
     closure_status: &'static str,
     configuration: FoundryCampaignConfigurationOutputV1,
+    stop: FoundryCampaignStopOutputV1,
+    census: FoundryCampaignCensusOutputV1,
+    snapshot: FoundryCampaignSnapshotOutputV1,
+    uncovered_partition: FoundryCampaignUncoveredPartitionOutputV1,
+    uncovered_boxes: Vec<FoundryCampaignUncoveredBoxOutputV1>,
+}
+
+/// Detached exact residual diagnostics embedded by the atomic K6 wave report.
+/// The enclosing wave supplies the orbit ordinal; this payload deliberately
+/// contains no live ledger or publication authority.
+#[derive(Debug, Serialize)]
+pub(super) struct FoundryCampaignResidualOutputV1 {
+    sector_active: Vec<bool>,
+    closure_status: &'static str,
     stop: FoundryCampaignStopOutputV1,
     census: FoundryCampaignCensusOutputV1,
     snapshot: FoundryCampaignSnapshotOutputV1,
@@ -87,6 +113,14 @@ struct FoundryCampaignConfigurationOutputV1 {
     max_task_reports: usize,
     max_reported_uncovered_boxes: usize,
     probes: Vec<FoundryCampaignProbeOutputV1>,
+    /// Reviewed proposal metadata only. Omitted in the autonomous lane and
+    /// from hinted reports which do not request an explicit domain schedule.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    domains: Vec<FoundryCampaignDomainHintOutputV1>,
+    /// Proposal-only selector diagnostics. The proof campaign constructs a
+    /// fresh ledger after every screen object has been dropped.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    autonomous_selection: Option<FoundryAutonomousSelectionOutputV1>,
 }
 
 #[derive(Debug, Serialize)]
@@ -97,10 +131,49 @@ struct FoundryCampaignProbeOutputV1 {
 }
 
 #[derive(Debug, Serialize)]
+struct FoundryCampaignDomainHintOutputV1 {
+    anchor_powers: Vec<i64>,
+    symbolic_axes: Vec<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct FoundryAutonomousSelectionOutputV1 {
+    algorithm: &'static str,
+    coordinate_priority_count: usize,
+    authenticated_source_row_count: usize,
+    authenticated_source_term_count: usize,
+    screened_sector_count: usize,
+    symmetry_group_order: usize,
+    caller_hint_count: usize,
+    static_finalist_count: usize,
+    ordering_specific_screen_root_count: usize,
+    modular_physical_sample_count: usize,
+    modular_target_query_count: usize,
+    modular_bounded_query_count: usize,
+    retained_target_order_cell_count: usize,
+    retained_target_order_byte_count: usize,
+    retained_hit_ledger_cell_count: usize,
+    retained_hit_ledger_byte_count: usize,
+    rounds: Vec<FoundryAutonomousSelectionRoundOutputV1>,
+    selected_coordinate_priority: Vec<usize>,
+    selected_probe_count: usize,
+    fresh_proof_root_required: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct FoundryAutonomousSelectionRoundOutputV1 {
+    input_candidate_count: usize,
+    new_probe_count: usize,
+    retained_candidate_count: usize,
+    target_query_count: usize,
+    bounded_query_count: usize,
+}
+
+#[derive(Debug, Serialize)]
 struct FoundryCampaignStopOutputV1 {
     kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    location: Option<FoundryCampaignTaskLocationOutputV1>,
+    location: Option<FoundryCampaignTaskLocationOutputV2>,
     #[serde(skip_serializing_if = "Option::is_none")]
     refinement: Option<FoundryCampaignRefinementOutputV1>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -114,7 +187,10 @@ struct FoundryCampaignStopOutputV1 {
 }
 
 #[derive(Debug, Serialize)]
-struct FoundryCampaignTaskLocationOutputV1 {
+struct FoundryCampaignTaskLocationOutputV2 {
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    requested_ordinal: Option<usize>,
     ledger_revision: u64,
     class_ordinal: usize,
     effective_dimension: usize,
@@ -260,6 +336,9 @@ pub(crate) fn run_request_with_progress(
         "foundry_campaign_run",
     )?;
     let core_started = Instant::now();
+    let config = config
+        .try_resolve_search_program()
+        .map_err(map_core_error)?;
     let run = run_foundry_campaign_with_progress(&config, observe).map_err(map_core_error)?;
     let core_elapsed = core_started.elapsed();
     let core_report = run.report();
@@ -346,6 +425,12 @@ pub(super) fn parse_config(
             hints.probes.len()
         )));
     }
+    if hints.domains.len() > MAX_FOUNDRY_CAMPAIGN_DOMAIN_HINTS {
+        return Err(AppError::limit(format!(
+            "foundry campaign declares {} hinted domains, exceeding the {MAX_FOUNDRY_CAMPAIGN_DOMAIN_HINTS}-domain application limit",
+            hints.domains.len()
+        )));
+    }
     let itinerary =
         FoundryCampaignItinerary::from_stable_id(&hints.itinerary).ok_or_else(|| {
             AppError::input(format!(
@@ -372,10 +457,42 @@ pub(super) fn parse_config(
         None => None,
         Some(rank_by_slot) => Some(parse_coordinate_priority(rank_by_slot, 6)?),
     };
-    let probes = hints.probes.into_iter().map(|probe| {
-        FoundryCampaignProbe::new(probe.modulus, probe.base_parameters, probe.chart_offsets)
-    });
-    let hints = FoundryCampaignExternalHints::try_new(
+    let probes = hints
+        .probes
+        .into_iter()
+        .enumerate()
+        .map(|(probe_ordinal, probe)| {
+            FoundryCampaignProbe::try_new(probe.modulus, probe.base_parameters, probe.chart_offsets)
+                .map_err(|error| {
+                    AppError::input(format!(
+                        "invalid foundry campaign probe {probe_ordinal}: {error}"
+                    ))
+                })
+        })
+        .collect::<Result<Vec<_>, AppError>>()?;
+    let domains = hints
+        .domains
+        .into_iter()
+        .enumerate()
+        .map(|(domain_ordinal, domain)| {
+            let anchor = IntegralKey::try_new(domain.anchor_powers).map_err(|error| {
+                AppError::input(format!(
+                    "invalid foundry campaign domain hint {domain_ordinal} anchor: {error}"
+                ))
+            })?;
+            let symbolic_axes = domain
+                .symbolic_axes
+                .into_iter()
+                .map(|axis| checked_usize("hints.domains.symbolic_axes", axis))
+                .collect::<Result<Vec<_>, _>>()?;
+            FoundryCampaignDomainHint::try_new(anchor, symbolic_axes).map_err(|error| {
+                AppError::input(format!(
+                    "invalid foundry campaign domain hint {domain_ordinal}: {error}"
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, AppError>>()?;
+    let hints = FoundryCampaignExternalHints::try_new_with_domains(
         itinerary,
         probes,
         hints.interior_margin,
@@ -385,6 +502,7 @@ pub(super) fn parse_config(
         )?,
         ordering,
         discovery_coordinate_priority,
+        domains,
     )
     .map_err(|error| AppError::input(format!("invalid foundry campaign hints: {error}")))?;
     FoundryCampaignConfig::try_external_hints(
@@ -438,11 +556,13 @@ fn checked_usize(field: &'static str, value: u64) -> Result<usize, AppError> {
     })
 }
 
-fn map_core_error(error: FoundryCampaignError) -> AppError {
+pub(super) fn map_core_error(error: FoundryCampaignError) -> AppError {
     match error {
         FoundryCampaignError::Setup { .. } | FoundryCampaignError::Execution { .. } => {
             AppError::execution(error.to_string())
         }
+        FoundryCampaignError::ResourceCountOverflow { .. }
+        | FoundryCampaignError::ResourceLimit { .. } => AppError::limit(error.to_string()),
         FoundryCampaignError::Invariant { .. } => AppError::internal_invariant(error.to_string()),
     }
 }
@@ -452,7 +572,7 @@ fn render_report(
     report: &FoundryCampaignReport,
 ) -> Result<String, AppError> {
     let closure_status = coverage_name(report.snapshot().coverage()).0;
-    let output = FoundryCampaignReportDocumentV1 {
+    let output = FoundryCampaignReportDocumentV2 {
         schema: FOUNDRY_CAMPAIGN_REPORT_SCHEMA,
         status: "completed",
         publication: DIAGNOSTIC_PUBLICATION,
@@ -484,6 +604,26 @@ fn render_report(
     )
 }
 
+pub(super) fn residual_output(report: &FoundryCampaignReport) -> FoundryCampaignResidualOutputV1 {
+    FoundryCampaignResidualOutputV1 {
+        sector_active: report.sector_active().to_vec(),
+        closure_status: coverage_name(report.snapshot().coverage()).0,
+        stop: stop_output(report.stop()),
+        census: census_output(report.census()),
+        snapshot: snapshot_output(report.snapshot()),
+        uncovered_partition: FoundryCampaignUncoveredPartitionOutputV1 {
+            total_box_count: report.total_uncovered_box_count(),
+            reported_box_count: report.reported_uncovered_box_count(),
+            truncated: report.uncovered_boxes_truncated(),
+        },
+        uncovered_boxes: report
+            .uncovered_boxes()
+            .iter()
+            .map(uncovered_box_output)
+            .collect(),
+    }
+}
+
 fn configuration_output(config: &FoundryCampaignConfig) -> FoundryCampaignConfigurationOutputV1 {
     FoundryCampaignConfigurationOutputV1 {
         itinerary: config.itinerary().stable_id(),
@@ -510,6 +650,61 @@ fn configuration_output(config: &FoundryCampaignConfig) -> FoundryCampaignConfig
                 chart_offsets: probe.chart_offsets().to_vec(),
             })
             .collect(),
+        domains: config
+            .domain_hints()
+            .iter()
+            .map(|domain| FoundryCampaignDomainHintOutputV1 {
+                anchor_powers: domain.anchor().powers().to_vec(),
+                symbolic_axes: domain.symbolic_axes().to_vec(),
+            })
+            .collect(),
+        autonomous_selection: config
+            .autonomous_selection()
+            .map(autonomous_selection_output),
+    }
+}
+
+pub(super) fn autonomous_selection_output(
+    telemetry: &FoundryAutonomousSelectionTelemetry,
+) -> FoundryAutonomousSelectionOutputV1 {
+    FoundryAutonomousSelectionOutputV1 {
+        algorithm: telemetry.algorithm(),
+        coordinate_priority_count: telemetry.coordinate_priority_count(),
+        authenticated_source_row_count: telemetry.authenticated_source_row_count(),
+        authenticated_source_term_count: telemetry.authenticated_source_term_count(),
+        screened_sector_count: telemetry.screened_sector_count(),
+        symmetry_group_order: telemetry.symmetry_group_order(),
+        caller_hint_count: telemetry.caller_hint_count(),
+        static_finalist_count: telemetry.static_finalist_count(),
+        ordering_specific_screen_root_count: telemetry.ordering_specific_screen_root_count(),
+        modular_physical_sample_count: telemetry.modular_physical_sample_count(),
+        modular_target_query_count: telemetry.modular_target_query_count(),
+        modular_bounded_query_count: telemetry.modular_bounded_query_count(),
+        retained_target_order_cell_count: telemetry.retained_target_order_cell_count(),
+        retained_target_order_byte_count: telemetry.retained_target_order_byte_count(),
+        retained_hit_ledger_cell_count: telemetry.retained_hit_ledger_cell_count(),
+        retained_hit_ledger_byte_count: telemetry.retained_hit_ledger_byte_count(),
+        rounds: telemetry
+            .rounds()
+            .iter()
+            .copied()
+            .map(autonomous_selection_round_output)
+            .collect(),
+        selected_coordinate_priority: telemetry.selected_priority().rank_by_slot().to_vec(),
+        selected_probe_count: telemetry.selected_probe_count(),
+        fresh_proof_root_required: telemetry.fresh_proof_root_required(),
+    }
+}
+
+fn autonomous_selection_round_output(
+    round: FoundryAutonomousSelectionRound,
+) -> FoundryAutonomousSelectionRoundOutputV1 {
+    FoundryAutonomousSelectionRoundOutputV1 {
+        input_candidate_count: round.input_candidate_count(),
+        new_probe_count: round.new_probe_count(),
+        retained_candidate_count: round.retained_candidate_count(),
+        target_query_count: round.target_query_count(),
+        bounded_query_count: round.bounded_query_count(),
     }
 }
 
@@ -560,8 +755,16 @@ fn stop_output(stop: FoundryCampaignStop) -> FoundryCampaignStopOutputV1 {
     }
 }
 
-fn location_output(location: FoundryCampaignTaskLocation) -> FoundryCampaignTaskLocationOutputV1 {
-    FoundryCampaignTaskLocationOutputV1 {
+fn location_output(location: FoundryCampaignTaskLocation) -> FoundryCampaignTaskLocationOutputV2 {
+    let requested_ordinal = match location.kind() {
+        FoundryCampaignTaskLocationKind::BoundarySimplex => None,
+        FoundryCampaignTaskLocationKind::RequestedDomain { requested_ordinal } => {
+            Some(requested_ordinal)
+        }
+    };
+    FoundryCampaignTaskLocationOutputV2 {
+        kind: location.kind().stable_id(),
+        requested_ordinal,
         ledger_revision: location.ledger_revision(),
         class_ordinal: location.class_ordinal(),
         effective_dimension: location.effective_dimension(),
@@ -824,6 +1027,10 @@ ordering_policy = "rustred.unshifted-sector-order.v1"
 modulus = 1000000007
 base_parameters = [37]
 chart_offsets = [0, 0, 0, 0, 0, 0]
+
+[[hints.domains]]
+anchor_powers = [1, 1, 1, 0, -1, 2]
+symbolic_axes = [0, 2, 5]
 "#;
 
     #[test]
@@ -835,12 +1042,14 @@ chart_offsets = [0, 0, 0, 0, 0, 0]
         .unwrap();
         assert_eq!(config.schema(), FOUNDRY_CAMPAIGN_CONFIG_SCHEMA);
         assert_eq!(config.probes().len(), 1);
+        assert!(config.autonomous_selection().is_none());
         assert_eq!(config.max_task_reports(), 1);
         assert_eq!(config.max_reported_uncovered_boxes(), 2);
         assert_eq!(
             config.search_provenance(),
             FoundrySearchProvenance::Autonomous
         );
+        assert!(config.domain_hints().is_empty());
 
         let wrong_schema = AUTONOMOUS_CONFIG.replace(".v2", ".v1");
         assert_eq!(
@@ -905,6 +1114,10 @@ chart_offsets = [0, 0, 0, 0, 0, 0]
             "support",
             "source_rows",
             "rule",
+            "reduction",
+            "owner",
+            "terminal",
+            "master",
             "form_line",
             "topology",
         ] {
@@ -925,6 +1138,65 @@ chart_offsets = [0, 0, 0, 0, 0, 0]
                 "external hints must reject the {forbidden_key} payload"
             );
         }
+
+        for forbidden_key in [
+            "rhs",
+            "coefficient",
+            "support",
+            "source_rows",
+            "rule",
+            "reduction",
+            "owner",
+            "terminal",
+            "master",
+        ] {
+            let forbidden_payload = EXTERNAL_CONFIG.replace(
+                "symbolic_axes = [0, 2, 5]\n",
+                &format!("symbolic_axes = [0, 2, 5]\n{forbidden_key} = \"forbidden\"\n"),
+            );
+            assert_eq!(
+                parse_config(
+                    &forbidden_payload,
+                    FoundryCampaignItinerary::SingleSectorFixedPoint
+                )
+                .unwrap_err()
+                .kind(),
+                AppErrorKind::Input,
+                "domain hints must reject the {forbidden_key} payload"
+            );
+        }
+    }
+
+    #[test]
+    fn external_domain_hints_parse_exactly_and_reject_malformed_geometry() {
+        let parsed = parse_config(
+            EXTERNAL_CONFIG,
+            FoundryCampaignItinerary::SingleSectorFixedPoint,
+        )
+        .unwrap();
+        assert_eq!(parsed.domain_hints().len(), 1);
+        assert_eq!(
+            parsed.domain_hints()[0].anchor().powers(),
+            [1, 1, 1, 0, -1, 2]
+        );
+        assert_eq!(parsed.domain_hints()[0].symbolic_axes(), [0, 2, 5]);
+
+        for malformed in [
+            EXTERNAL_CONFIG.replace("symbolic_axes = [0, 2, 5]", "symbolic_axes = [0, 2, 2]"),
+            EXTERNAL_CONFIG.replace("symbolic_axes = [0, 2, 5]", "symbolic_axes = [2, 0]"),
+            EXTERNAL_CONFIG.replace("symbolic_axes = [0, 2, 5]", "symbolic_axes = [0, 6]"),
+            EXTERNAL_CONFIG.replace(
+                "anchor_powers = [1, 1, 1, 0, -1, 2]",
+                "anchor_powers = [1, 1, 1, 0, -1]",
+            ),
+        ] {
+            assert_eq!(
+                parse_config(&malformed, FoundryCampaignItinerary::SingleSectorFixedPoint)
+                    .unwrap_err()
+                    .kind(),
+                AppErrorKind::Input
+            );
+        }
     }
 
     #[test]
@@ -934,7 +1206,16 @@ chart_offsets = [0, 0, 0, 0, 0, 0]
             .to_toml()
             .to_owned();
         assert!(autonomous.contains("search_provenance = \"autonomous\""));
-        assert!(!autonomous.contains("discovery_coordinate_priority"));
+        assert!(autonomous.contains("[configuration.autonomous_selection]"));
+        assert!(autonomous.contains("algorithm = \"rustred.autonomous-k6-selector.v1\""));
+        assert!(autonomous.contains("caller_hint_count = 0"));
+        assert!(autonomous.contains("selected_coordinate_priority = ["));
+        assert!(autonomous.contains("selected_probe_count = 6"));
+        assert!(autonomous.contains("retained_target_order_cell_count = "));
+        assert!(autonomous.contains("retained_target_order_byte_count = "));
+        assert!(autonomous.contains("retained_hit_ledger_cell_count = "));
+        assert!(autonomous.contains("retained_hit_ledger_byte_count = "));
+        assert!(autonomous.contains("fresh_proof_root_required = true"));
 
         let external = run_request(FoundryCampaignRunRequest::new(EXTERNAL_CONFIG))
             .unwrap()
@@ -943,6 +1224,8 @@ chart_offsets = [0, 0, 0, 0, 0, 0]
         assert!(external.contains("search_provenance = \"external-hints-only\""));
         assert!(!external.contains("rhs"));
         assert!(!external.contains("recurrence"));
+        assert!(external.contains("[[configuration.domains]]"));
+        assert!(external.contains("anchor_powers = ["));
 
         let nonnatural = EXTERNAL_CONFIG.replace(
             "ordering_policy = \"rustred.unshifted-sector-order.v1\"\n",
@@ -1033,6 +1316,140 @@ chart_offsets = [0, 0, 0, 0, 0, 0]
     }
 
     #[test]
+    fn checked_in_k6_examples_are_disjoint_and_search_metadata_only() {
+        const EXTERNAL_EXAMPLE: &str =
+            include_str!("../../../../../examples/k6_external_search_hints.toml");
+        const AUTONOMOUS_EXAMPLE: &str =
+            include_str!("../../../../../examples/k6_autonomous_campaign.toml");
+
+        let external_document: toml::Value = toml::from_str(EXTERNAL_EXAMPLE).unwrap();
+        let external_root = external_document.as_table().unwrap();
+        let external_root_keys = external_root
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            external_root_keys,
+            std::collections::BTreeSet::from([
+                "hints",
+                "max_reported_uncovered_boxes",
+                "max_task_reports",
+                "mode",
+                "preset",
+                "schema",
+            ])
+        );
+        let hints = external_root["hints"].as_table().unwrap();
+        let hint_keys = hints
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            hint_keys,
+            std::collections::BTreeSet::from([
+                "discovery_coordinate_priority",
+                "domains",
+                "interior_margin",
+                "itinerary",
+                "ordering_policy",
+                "polynomial_degree_ceiling",
+                "probes",
+            ])
+        );
+        let domains = hints["domains"].as_array().unwrap();
+        assert_eq!(domains.len(), 55);
+        for domain in domains {
+            let keys = domain
+                .as_table()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(
+                keys,
+                std::collections::BTreeSet::from(["anchor_powers", "symbolic_axes"]),
+                "a checked-in domain may contain proposal geometry only"
+            );
+        }
+        let probes = hints["probes"].as_array().unwrap();
+        assert_eq!(probes.len(), 6);
+        for probe in probes {
+            let keys = probe
+                .as_table()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(
+                keys,
+                std::collections::BTreeSet::from(["base_parameters", "chart_offsets", "modulus",])
+            );
+        }
+
+        let external = parse_config(
+            EXTERNAL_EXAMPLE,
+            FoundryCampaignItinerary::FullRankAtomicWaves,
+        )
+        .unwrap();
+        assert_eq!(
+            external.search_provenance(),
+            FoundrySearchProvenance::ExternalHintsOnly
+        );
+        assert_eq!(external.domain_hints().len(), 55);
+        assert_eq!(external.probes().len(), 6);
+        assert_eq!(
+            external.ordering().stable_id().as_str(),
+            "rustred.unshifted-sector-order.v1;priority=rustred.coordinate-priority.v1;k=6;rank-by-slot=5,3,4,2,0,1"
+        );
+        assert_eq!(
+            external.domain_hints()[0].anchor().powers(),
+            [0, 1, 0, -1, 2, 1]
+        );
+        assert_eq!(
+            external.domain_hints()[54].anchor().powers(),
+            [2, 1, 1, 1, 1, 1]
+        );
+        let unique_domains = external
+            .domain_hints()
+            .iter()
+            .map(|domain| {
+                (
+                    domain.anchor().powers().to_vec(),
+                    domain.symbolic_axes().to_vec(),
+                )
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(unique_domains.len(), 55);
+
+        let autonomous_document: toml::Value = toml::from_str(AUTONOMOUS_EXAMPLE).unwrap();
+        let autonomous_root = autonomous_document.as_table().unwrap();
+        let autonomous_root_keys = autonomous_root
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            autonomous_root_keys,
+            std::collections::BTreeSet::from([
+                "max_reported_uncovered_boxes",
+                "max_task_reports",
+                "mode",
+                "preset",
+                "schema",
+            ])
+        );
+        let autonomous = parse_config(
+            AUTONOMOUS_EXAMPLE,
+            FoundryCampaignItinerary::FullRankAtomicWaves,
+        )
+        .unwrap();
+        assert_eq!(
+            autonomous.search_provenance(),
+            FoundrySearchProvenance::Autonomous
+        );
+        assert!(autonomous.domain_hints().is_empty());
+    }
+
+    #[test]
     fn core_failures_map_without_message_parsing() {
         let execution = map_core_error(FoundryCampaignError::Execution {
             message: "bounded failure".to_owned(),
@@ -1042,5 +1459,12 @@ chart_offsets = [0, 0, 0, 0, 0, 0]
             detail: "broken invariant",
         });
         assert_eq!(invariant.kind(), AppErrorKind::InternalInvariant);
+        let bounded = map_core_error(FoundryCampaignError::ResourceLimit {
+            stage: rustred::foundry::campaign::FoundryCampaignSetupStage::RequestedDomains,
+            resource: "domains",
+            requested: 2,
+            limit: 1,
+        });
+        assert_eq!(bounded.kind(), AppErrorKind::Limit);
     }
 }

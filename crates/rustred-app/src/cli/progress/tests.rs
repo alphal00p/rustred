@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::model::{CampaignPhase, DashboardState, defensible_cap_eta};
+use super::model::{CampaignPhase, DashboardState, WaveDashboardState, defensible_cap_eta};
 use super::render::{render_dashboard, render_dashboard_for_width};
 use super::{CampaignProgressMonitor, ColorPolicy, ProgressPresentation, REFRESH_INTERVAL};
 
@@ -26,6 +26,7 @@ fn example_state() -> DashboardState {
         owner_rate: Some(3.5),
         cap_eta: Some(Duration::from_secs(1_158)),
         rss_bytes: Some(512 * 1_024 * 1_024),
+        wave: None,
     }
 }
 
@@ -176,6 +177,37 @@ fn narrow_view_uses_compact_clipped_content() {
     let bytes = observed.bytes();
     assert!(!bytes.windows(4).any(|value| value == b"\x1b[1A"));
     assert!(String::from_utf8_lossy(&bytes).contains("RustRed"));
+}
+
+#[test]
+fn wave_dashboard_reuses_the_tty_table_without_claiming_single_sector_census() {
+    let mut state = example_state();
+    state.task_report_ceiling = None;
+    state.strict_shrink = 0;
+    state.no_proposal = 0;
+    state.duplicate = 0;
+    state.errors = 0;
+    state.wave = Some(WaveDashboardState {
+        ordinal: 1,
+        active_count: 4,
+        orbit_count: 10,
+        closed_orbit_count: 3,
+        running_orbit_count: 5,
+        terminal_orbit_count: 1,
+    });
+
+    let full = render_dashboard(&state);
+    assert!(full.contains("wave / rank"), "{full}");
+    assert!(full.contains("orbits c / r / t"), "{full}");
+    assert!(full.contains("2 / 4"), "{full}");
+    assert!(full.contains("3 / 5 / 1"), "{full}");
+    assert!(!full.contains("strict shrink"), "{full}");
+    assert!(!full.contains("\x1b["), "{full:?}");
+
+    let compact = render_dashboard_for_width(&state, 32);
+    assert!(compact.contains("wave 2 · rank 4"), "{compact}");
+    assert!(compact.contains("orbits 3/10"), "{compact}");
+    assert!(compact.contains("running 5 · terminal 1"), "{compact}");
 }
 
 #[test]

@@ -5,7 +5,8 @@ use std::cell::Cell;
 
 use crate::family::IntegralKey;
 use crate::foundry::artifact::{
-    ArtifactSchemaVersion, ClosedArtifact, ClosedTerminalAuthority, ZeroTerminalProof,
+    ArtifactSchemaVersion, ClosedArtifact, ClosedTerminalAuthority, ProductApplicationDomain,
+    ZeroTerminalProof,
 };
 use crate::foundry::completion::source_discovery::ClosedSectorLayer;
 use crate::sector::symmetry::Canonicalizer;
@@ -55,7 +56,7 @@ enum ImmutableOwner {
     },
     Factorization {
         source_ordinal: usize,
-        domain: SectorInteriorDomain,
+        domain: FactorizationOwnerDomain,
     },
     Master {
         key: IntegralKey,
@@ -68,6 +69,36 @@ enum ImmutableOwner {
         ordering: OrderingPolicy,
         layer_ordinal: usize,
     },
+}
+
+/// Exact factorization authority retained by an immutable predecessor.  A
+/// durable corner-only factorization is rectangular; a compiled product
+/// program retains the sparse coupled dependency-root preimage that its
+/// rectangular lookup hull cannot express.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum FactorizationOwnerDomain {
+    Interior(SectorInteriorDomain),
+    Product(ProductApplicationDomain),
+}
+
+impl FactorizationOwnerDomain {
+    fn arity(&self) -> usize {
+        self.hull().arity()
+    }
+
+    fn hull(&self) -> &SectorInteriorDomain {
+        match self {
+            Self::Interior(domain) => domain,
+            Self::Product(domain) => domain.hull(),
+        }
+    }
+
+    fn product(&self) -> Option<&ProductApplicationDomain> {
+        match self {
+            Self::Interior(_) => None,
+            Self::Product(domain) => Some(domain),
+        }
+    }
 }
 
 impl ImmutableOwner {
@@ -329,10 +360,11 @@ impl ImmutableOwnerSnapshot {
                 proof: terminal.proof(),
             });
         }
-        for (source_ordinal, rule) in artifact.factorization_rules().iter().enumerate() {
+        for source_ordinal in 0..artifact.factorization_rules().len() {
+            let domain = factorization_owner_domain_from_artifact(&artifact, source_ordinal)?;
             owners.push(ImmutableOwner::Factorization {
                 source_ordinal,
-                domain: rule.application_domain().clone(),
+                domain,
             });
         }
         for master in artifact.masters() {
@@ -440,10 +472,11 @@ impl ImmutableOwnerSnapshot {
                 proof: terminal.proof(),
             });
         }
-        for (source_ordinal, rule) in authority.factorization_rules().iter().enumerate() {
+        for source_ordinal in 0..authority.factorization_rules().len() {
+            let domain = factorization_owner_domain_from_authority(&authority, source_ordinal)?;
             owners.push(ImmutableOwner::Factorization {
                 source_ordinal,
-                domain: rule.application_domain().clone(),
+                domain,
             });
         }
         for master in authority.master_terminals() {
@@ -716,6 +749,17 @@ impl ImmutableOwnerSnapshot {
         self.canonicalizer_authority().map(Canonicalizer::ordering)
     }
 
+    /// Borrow the already authenticated symmetry authority retained by this
+    /// immutable predecessor.
+    ///
+    /// Campaign search metadata is canonicalized through this cold-installed
+    /// owner instead of rebuilding the graph action for every sector or
+    /// replanning epoch. The returned value can route proposals only; exact
+    /// rule and closure authority still comes from the consuming owner ledger.
+    pub(crate) fn canonicalizer(&self) -> Option<&Canonicalizer> {
+        self.canonicalizer_authority()
+    }
+
     pub(crate) fn owner_count(&self) -> usize {
         self.owners.len()
     }
@@ -830,6 +874,42 @@ impl ImmutableOwnerSnapshot {
             }
         }
         None
+    }
+
+    /// Authenticate complete ownership of a domain in its own sector.
+    ///
+    /// Ordinary frame classification deliberately accepts only strict
+    /// subsectors through [`Self::owner_for`].  Campaign bootstrap needs one
+    /// narrower cold-path question: does the retained predecessor already own
+    /// the complete finite carrier that discovery was about to search?  This
+    /// bypasses only the strict-subsector gate; it retains the canonical route
+    /// order, exact domain containment, ordering check, and installed owner
+    /// authority used by ordinary lookup.
+    pub(crate) fn authenticates_same_sector_domain(
+        &self,
+        ordering: OrderingPolicy,
+        target: &SectorInteriorDomain,
+    ) -> bool {
+        let Some(bucket) = self
+            .route_buckets
+            .binary_search_by(|bucket| bucket.sector().cmp(target.sector()))
+            .ok()
+            .and_then(|ordinal| self.route_buckets.get(ordinal))
+        else {
+            return false;
+        };
+        let Some(route_ordinals) = bucket.route_ordinals(&self.route_index) else {
+            return false;
+        };
+        route_ordinals.iter().any(|&route_ordinal| {
+            let Some(route) = self.routes.get(route_ordinal) else {
+                return false;
+            };
+            let Some(owner) = self.owners.get(route.owner_ordinal()) else {
+                return false;
+            };
+            route.covers(owner, ordering, target)
+        })
     }
 
     /// Authenticate one explicitly staged finite terminal against retained
@@ -1309,6 +1389,38 @@ fn require_frontier_advance(
     Ok(())
 }
 
+fn factorization_owner_domain_from_artifact(
+    artifact: &ClosedArtifact,
+    source_ordinal: usize,
+) -> Result<FactorizationOwnerDomain, StratumRegistryError> {
+    if let Some(domain) = artifact.factorization_product_domain(source_ordinal) {
+        return Ok(FactorizationOwnerDomain::Product(domain.clone()));
+    }
+    artifact
+        .factorization_application_hull(source_ordinal)
+        .cloned()
+        .map(FactorizationOwnerDomain::Interior)
+        .ok_or(StratumRegistryError::Invariant {
+            detail: "a sealed factorization has no executable domain",
+        })
+}
+
+fn factorization_owner_domain_from_authority(
+    authority: &ClosedTerminalAuthority,
+    source_ordinal: usize,
+) -> Result<FactorizationOwnerDomain, StratumRegistryError> {
+    if let Some(domain) = authority.factorization_product_domain(source_ordinal) {
+        return Ok(FactorizationOwnerDomain::Product(domain.clone()));
+    }
+    authority
+        .factorization_application_hull(source_ordinal)
+        .cloned()
+        .map(FactorizationOwnerDomain::Interior)
+        .ok_or(StratumRegistryError::Invariant {
+            detail: "a sealed factorization has no executable domain",
+        })
+}
+
 fn authority_payload_matches(
     owners: &[ImmutableOwner],
     authority: &ClosedTerminalAuthority,
@@ -1330,13 +1442,18 @@ fn authority_payload_matches(
             return false;
         }
     }
-    for (source_ordinal, rule) in authority.factorization_rules().iter().enumerate() {
+    for source_ordinal in 0..authority.factorization_rules().len() {
+        let Ok(expected_domain) =
+            factorization_owner_domain_from_authority(authority, source_ordinal)
+        else {
+            return false;
+        };
         if !matches!(
             owners.next(),
             Some(ImmutableOwner::Factorization {
                 source_ordinal: actual_ordinal,
                 domain,
-            }) if *actual_ordinal == source_ordinal && domain == rule.application_domain()
+            }) if *actual_ordinal == source_ordinal && domain == &expected_domain
         ) {
             return false;
         }
@@ -1363,13 +1480,18 @@ fn artifact_payload_matches(owners: &[ImmutableOwner], artifact: &ClosedArtifact
             return false;
         }
     }
-    for (source_ordinal, rule) in artifact.factorization_rules().iter().enumerate() {
+    for source_ordinal in 0..artifact.factorization_rules().len() {
+        let Ok(expected_domain) =
+            factorization_owner_domain_from_artifact(artifact, source_ordinal)
+        else {
+            return false;
+        };
         if !matches!(
             owners.next(),
             Some(ImmutableOwner::Factorization {
                 source_ordinal: actual_ordinal,
                 domain,
-            }) if *actual_ordinal == source_ordinal && domain == rule.application_domain()
+            }) if *actual_ordinal == source_ordinal && domain == &expected_domain
         ) {
             return false;
         }
@@ -1596,15 +1718,39 @@ fn append_owner_identity(
             stable.push("factorization:")?;
             stable.push_usize(*source_ordinal)?;
             stable.push(":")?;
-            append_mask(stable, domain.sector().active_bits())?;
+            append_mask(stable, domain.hull().sector().active_bits())?;
             stable.push(":")?;
-            for (position, bounds) in domain.bounds().iter().enumerate() {
+            for (position, bounds) in domain.hull().bounds().iter().enumerate() {
                 if position != 0 {
                     stable.push(",")?;
                 }
                 stable.push_i64(bounds.lower())?;
                 stable.push("..")?;
                 stable.push_i64(bounds.upper())?;
+            }
+            match domain {
+                FactorizationOwnerDomain::Interior(_) => stable.push(":interior")?,
+                FactorizationOwnerDomain::Product(product) => {
+                    stable.push(":product[")?;
+                    for (row, preimage) in product.dependency_preimages().iter().enumerate() {
+                        if row != 0 {
+                            stable.push(";")?;
+                        }
+                        stable.push_usize(preimage.base_parent_position())?;
+                        stable.push("@")?;
+                        stable.push_i64(preimage.dependency_bounds().lower())?;
+                        stable.push("..")?;
+                        stable.push_i64(preimage.dependency_bounds().upper())?;
+                        stable.push("<-")?;
+                        for (source, &position) in preimage.shift_sources().iter().enumerate() {
+                            if source != 0 {
+                                stable.push(",")?;
+                            }
+                            stable.push_usize(position)?;
+                        }
+                    }
+                    stable.push("]")?;
+                }
             }
         }
         ImmutableOwner::Master { key } => {
@@ -1680,9 +1826,9 @@ mod tests {
     use crate::sector::{InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain};
 
     use super::{
-        ClosedLayerWaveMetadata, ImmutableOwner, SnapshotSource, StratumRegistryError,
-        StratumRegistryLimits, build_snapshot_id, closed_layer_wave_metadata_is_valid,
-        require_frontier_advance,
+        ClosedLayerWaveMetadata, FactorizationOwnerDomain, ImmutableOwner, SnapshotSource,
+        StratumRegistryError, StratumRegistryLimits, build_snapshot_id,
+        closed_layer_wave_metadata_is_valid, require_frontier_advance,
     };
 
     struct TestWaveMetadata {
@@ -1741,11 +1887,13 @@ mod tests {
             },
             ImmutableOwner::Factorization {
                 source_ordinal: 0,
-                domain: SectorInteriorDomain::try_new(
-                    Mask::try_new([true]).unwrap(),
-                    [InteriorBounds::new(1, factorization_upper)],
-                )
-                .unwrap(),
+                domain: FactorizationOwnerDomain::Interior(
+                    SectorInteriorDomain::try_new(
+                        Mask::try_new([true]).unwrap(),
+                        [InteriorBounds::new(1, factorization_upper)],
+                    )
+                    .unwrap(),
+                ),
             },
             ImmutableOwner::Master {
                 key: IntegralKey::try_new([master_power]).unwrap(),

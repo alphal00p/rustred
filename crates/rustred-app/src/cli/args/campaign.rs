@@ -1,4 +1,5 @@
 use std::ffi::OsString;
+use std::path::{Component, Path, PathBuf};
 
 use crate::application::memory::parse_memory_bytes;
 use crate::{ClosingFamilySelector, InputFormat};
@@ -38,7 +39,10 @@ fn parse_run_waves(arguments: impl Iterator<Item = OsString>) -> Result<Command,
     let mut config = None;
     let mut output = None;
     let mut measurements_output = None;
+    let mut artifact_output = None;
     let mut n_cores = None;
+    let mut color = None;
+    let mut no_progress = false;
     let mut force = false;
     let mut help = false;
     let mut arguments = arguments.peekable();
@@ -47,6 +51,11 @@ fn parse_run_waves(arguments: impl Iterator<Item = OsString>) -> Result<Command,
         match option.as_str() {
             "--help" | "-h" => set_flag(&mut help, "--help")?,
             "--force" => set_flag(&mut force, "--force")?,
+            "--no-progress" => set_flag(&mut no_progress, "--no-progress")?,
+            "--color" => {
+                let value = next_utf8_value(&mut arguments, "--color")?;
+                set_once(&mut color, "--color", parse_color_policy(value)?)?;
+            }
             "--config" => set_once(
                 &mut config,
                 "--config",
@@ -61,6 +70,11 @@ fn parse_run_waves(arguments: impl Iterator<Item = OsString>) -> Result<Command,
                 &mut measurements_output,
                 "--measurements-output",
                 StreamPath::parse(next_value(&mut arguments, "--measurements-output")?)?,
+            )?,
+            "--artifact-output" => set_once(
+                &mut artifact_output,
+                "--artifact-output",
+                StreamPath::parse(next_value(&mut arguments, "--artifact-output")?)?,
             )?,
             "--n-cores" => {
                 let value = next_utf8_value(&mut arguments, "--n-cores")?;
@@ -77,12 +91,30 @@ fn parse_run_waves(arguments: impl Iterator<Item = OsString>) -> Result<Command,
     let config = config.ok_or(ArgError::MissingRequiredOption("--config"))?;
     let output = output.ok_or(ArgError::MissingRequiredOption("--output"))?;
     validate_run_paths(&config, &output, measurements_output.as_ref())?;
+    if let Some(artifact) = artifact_output.as_ref() {
+        if same_stream_or_file(artifact, &output) || same_file(&config, artifact) {
+            return Err(ArgError::InvalidCombination(
+                "--artifact-output must differ from --config and --output",
+            ));
+        }
+        if measurements_output
+            .as_ref()
+            .is_some_and(|measurements| same_stream_or_file(measurements, artifact))
+        {
+            return Err(ArgError::InvalidCombination(
+                "--artifact-output and --measurements-output must differ",
+            ));
+        }
+    }
     Ok(Command::FoundryWaveCampaignRun(
         FoundryWaveCampaignRunArgs {
             config,
             output,
             measurements_output,
+            artifact_output,
             n_cores: n_cores.unwrap_or(1),
+            no_progress,
+            color: color.unwrap_or_default(),
             force,
         },
     ))
@@ -105,19 +137,7 @@ fn parse_run(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgEr
             "--no-progress" => set_flag(&mut no_progress, "--no-progress")?,
             "--color" => {
                 let value = next_utf8_value(&mut arguments, "--color")?;
-                let parsed = match value.as_str() {
-                    "auto" => ColorPolicy::Auto,
-                    "always" => ColorPolicy::Always,
-                    "never" => ColorPolicy::Never,
-                    _ => {
-                        return Err(ArgError::InvalidValue {
-                            option: "--color",
-                            value,
-                            expected: "auto, always, or never",
-                        });
-                    }
-                };
-                set_once(&mut color, "--color", parsed)?;
+                set_once(&mut color, "--color", parse_color_policy(value)?)?;
             }
             "--config" => set_once(
                 &mut config,
@@ -154,6 +174,19 @@ fn parse_run(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgEr
     }))
 }
 
+fn parse_color_policy(value: String) -> Result<ColorPolicy, ArgError> {
+    match value.as_str() {
+        "auto" => Ok(ColorPolicy::Auto),
+        "always" => Ok(ColorPolicy::Always),
+        "never" => Ok(ColorPolicy::Never),
+        _ => Err(ArgError::InvalidValue {
+            option: "--color",
+            value,
+            expected: "auto, always, or never",
+        }),
+    }
+}
+
 fn validate_run_paths(
     config: &StreamPath,
     output: &StreamPath,
@@ -167,7 +200,7 @@ fn validate_run_paths(
     let Some(measurements_output) = measurements_output else {
         return Ok(());
     };
-    if output == measurements_output {
+    if same_stream_or_file(output, measurements_output) {
         return Err(ArgError::InvalidCombination(
             "--output and --measurements-output must not name the same stream or path",
         ));
@@ -181,7 +214,74 @@ fn validate_run_paths(
 }
 
 fn same_file(left: &StreamPath, right: &StreamPath) -> bool {
-    matches!((left, right), (StreamPath::File(left), StreamPath::File(right)) if left == right)
+    matches!(
+        (left, right),
+        (StreamPath::File(left), StreamPath::File(right))
+            if resolve_path_without_requiring_destination(left)
+                == resolve_path_without_requiring_destination(right)
+    )
+}
+
+fn same_stream_or_file(left: &StreamPath, right: &StreamPath) -> bool {
+    matches!((left, right), (StreamPath::Stdio, StreamPath::Stdio)) || same_file(left, right)
+}
+
+/// Resolve every existing prefix through the filesystem, then normalize any
+/// missing suffix lexically. This mirrors `Path.resolve(strict=False)` for the
+/// output paths accepted by the CLI: destinations need not exist, while two
+/// spellings through `.`/`..` or symlinked parent directories still compare as
+/// the same eventual directory entry.
+fn resolve_path_without_requiring_destination(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|current| current.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    };
+    let mut existing_prefix = absolute.clone();
+    let mut missing_suffix = Vec::new();
+    loop {
+        if let Ok(resolved_prefix) = existing_prefix.canonicalize() {
+            let mut resolved = resolved_prefix;
+            for component in missing_suffix.iter().rev() {
+                resolved.push(component);
+            }
+            return normalize_path_lexically(&resolved);
+        }
+        let Some(component) = existing_prefix.components().next_back() else {
+            return normalize_path_lexically(&absolute);
+        };
+        let is_root = matches!(component, Component::Prefix(_) | Component::RootDir);
+        let component = component.as_os_str().to_os_string();
+        if is_root || !existing_prefix.pop() {
+            return normalize_path_lexically(&absolute);
+        }
+        missing_suffix.push(component);
+    }
+}
+
+fn normalize_path_lexically(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                normalized.push(component.as_os_str());
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(
+                    normalized.components().next_back(),
+                    Some(Component::Normal(_))
+                ) {
+                    normalized.pop();
+                } else if !normalized.has_root() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+        }
+    }
+    normalized
 }
 
 fn parse_generate(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -582,6 +682,66 @@ mod tests {
     }
 
     #[test]
+    fn run_waves_parses_the_same_progress_contract() {
+        assert_eq!(
+            parse(arguments(&[
+                "run-waves",
+                "--config",
+                "config.toml",
+                "--output",
+                "report.toml",
+                "--artifact-output",
+                "closed.rribp",
+                "--n-cores",
+                "3",
+                "--no-progress",
+                "--color",
+                "never",
+            ])),
+            Ok(Command::FoundryWaveCampaignRun(
+                FoundryWaveCampaignRunArgs {
+                    config: StreamPath::File("config.toml".into()),
+                    output: StreamPath::File("report.toml".into()),
+                    measurements_output: None,
+                    artifact_output: Some(StreamPath::File("closed.rribp".into())),
+                    n_cores: 3,
+                    no_progress: true,
+                    color: ColorPolicy::Never,
+                    force: false,
+                }
+            ))
+        );
+        assert_eq!(
+            parse(arguments(&[
+                "run-waves",
+                "--config",
+                "-",
+                "--output",
+                "report.toml",
+                "--color",
+                "rainbow",
+            ])),
+            Err(ArgError::InvalidValue {
+                option: "--color",
+                value: "rainbow".to_owned(),
+                expected: "auto, always, or never",
+            })
+        );
+        assert_eq!(
+            parse(arguments(&[
+                "run-waves",
+                "--config",
+                "-",
+                "--output",
+                "report.toml",
+                "--no-progress",
+                "--no-progress",
+            ])),
+            Err(ArgError::DuplicateOption("--no-progress"))
+        );
+    }
+
+    #[test]
     fn run_rejects_ambiguous_measurement_and_file_destinations() {
         assert_eq!(
             parse(arguments(&[
@@ -619,5 +779,22 @@ mod tests {
             ])),
             Err(ArgError::InvalidCombination(_))
         ));
+    }
+
+    #[test]
+    fn path_equivalence_does_not_require_destinations_to_exist() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "rustred-uncreated-campaign-destinations-{}-{nonce}",
+            std::process::id(),
+        ));
+        assert!(!root.exists());
+        let direct = StreamPath::File(root.join("report.toml"));
+        let lexical_alias = StreamPath::File(root.join("missing").join("..").join("report.toml"));
+
+        assert!(same_file(&direct, &lexical_alias));
     }
 }

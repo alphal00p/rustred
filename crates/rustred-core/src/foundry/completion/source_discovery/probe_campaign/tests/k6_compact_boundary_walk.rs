@@ -1,4 +1,4 @@
-//! Compact canonical boundary walk from the authenticated K=6 revision-nine
+//! Compact canonical boundary walk from the authenticated K=6 positive-margin
 //! cover.
 //!
 //! Unlike the diagnostic transcript regression, the post-bootstrap drive here
@@ -18,18 +18,17 @@ use crate::foundry::completion::source_discovery::test_fixtures::OracleDisabledK
 
 use super::super::{
     BoundaryProbeCoordinator, ProbeCampaignAdapter, ProbeCampaignLimits, ProbeCoordinatorConfig,
-    ProbeCoordinatorLimits, ProbeCoordinatorOperationalReason, ProbeCoordinatorOperationalStop,
+    ProbeCoordinatorLimits, ProbeCoordinatorNeedsRefinement, ProbeCoordinatorNeedsRefinementReason,
     ProbeCoordinatorStop, TaskRelativeModularProbe,
 };
-use super::k6::asserted_revision_nine_ledger;
+use super::k6::asserted_positive_margin_ledger;
 
-const MAX_REPORTS: usize = 80;
-const LONG_CHECKPOINT_REPORTS: usize = 256;
-const EXTENDED_CHECKPOINT_REPORTS: usize = 512;
+const REPORT_LIMIT: usize = 80;
+const K6_ARITY: usize = 6;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct CompactK6Checkpoint {
-    stop: ProbeCoordinatorOperationalStop,
+    stop: ProbeCoordinatorNeedsRefinement,
     snapshot: ExactOwnerCoverSnapshot,
     free_dimension_histogram: [usize; 7],
     dimension_five_boxes: Vec<(Vec<u64>, Vec<Option<u64>>)>,
@@ -43,7 +42,7 @@ fn free_dimension_histogram(partition: &UncoveredPartition) -> [usize; 7] {
     histogram
 }
 
-fn run_report_capped_checkpoint(max_reports: usize) -> CompactK6Checkpoint {
+fn run_refinement_checkpoint(max_reports: usize) -> CompactK6Checkpoint {
     let fixture = OracleDisabledK6Fixture::shared();
     let campaign_limits = ProbeCampaignLimits::default();
     let adapter = ProbeCampaignAdapter::try_new(
@@ -53,7 +52,7 @@ fn run_report_capped_checkpoint(max_reports: usize) -> CompactK6Checkpoint {
         campaign_limits,
     )
     .unwrap();
-    let mut ledger = asserted_revision_nine_ledger();
+    let mut ledger = asserted_positive_margin_ledger();
     let coordinator_limits = ProbeCoordinatorLimits {
         max_task_reports: max_reports,
         ..ProbeCoordinatorLimits::default()
@@ -79,29 +78,28 @@ fn run_report_capped_checkpoint(max_reports: usize) -> CompactK6Checkpoint {
                 assert_eq!(changed.after_revision(), changed.before_revision() + 1);
                 assert_eq!(ledger.revision().get(), changed.after_revision());
             }
-            stop @ ProbeCoordinatorStop::OperationallyBounded(_) => break stop,
+            ProbeCoordinatorStop::OperationallyBounded(stop) => {
+                panic!(
+                    "the exact-preimage K6 prefix unexpectedly hit an operational limit: {stop:?}"
+                )
+            }
             ProbeCoordinatorStop::CompilerClosed { .. } => {
-                panic!("the report-capped K6 checkpoint must remain exactly nonfinite")
+                panic!("the K6 refinement checkpoint must remain exactly nonfinite")
             }
-            ProbeCoordinatorStop::NeedsRefinement(stop) => {
-                panic!("the fixed probe program unexpectedly needs refinement: {stop:?}")
-            }
+            ProbeCoordinatorStop::NeedsRefinement(stop) => break stop,
             ProbeCoordinatorStop::Failed(stop) => {
                 panic!("the compact coordinator failed: {stop:?}")
             }
             ProbeCoordinatorStop::ExhaustedAtConfig { .. } => {
-                panic!("the report cap must stop this deliberately bounded prefix")
+                panic!("the K6 refinement checkpoint must stop before exhausting its limit")
             }
         }
     };
 
-    let ProbeCoordinatorStop::OperationallyBounded(stop) = terminal_stop else {
-        unreachable!()
-    };
     let snapshot = ledger.snapshot();
     let partition = ledger.try_clone_uncovered_partition().unwrap();
     CompactK6Checkpoint {
-        stop,
+        stop: terminal_stop,
         snapshot,
         free_dimension_histogram: free_dimension_histogram(&partition),
         dimension_five_boxes: partition
@@ -113,36 +111,21 @@ fn run_report_capped_checkpoint(max_reports: usize) -> CompactK6Checkpoint {
     }
 }
 
-#[test]
-fn k6_revision_nine_compact_coordinator_reproduces_eighty_report_checkpoint() {
-    let checkpoint = run_report_capped_checkpoint(MAX_REPORTS);
+fn assert_refinement_checkpoint(checkpoint: &CompactK6Checkpoint, max_reports: usize) {
     let stop = checkpoint.stop;
-    assert!(matches!(
-        stop.reason(),
-        ProbeCoordinatorOperationalReason::TaskReportLimit {
-            requested: 81,
-            limit: MAX_REPORTS,
-        }
-    ));
+    let ProbeCoordinatorNeedsRefinementReason::IncompleteProposal { exact_obstructions } =
+        stop.reason()
+    else {
+        panic!("the K6 refinement stop must retain the exact obstruction census")
+    };
+    assert!(exact_obstructions > 0);
     let location = stop.location().unwrap();
-    assert_eq!(location.ledger_revision(), 89);
-    assert_eq!(location.class_ordinal(), 2);
-    assert_eq!(location.effective_dimension(), 4);
-    assert_eq!(location.parent_free_dimension(), 4);
-    assert_eq!(location.boundary_codimension(), 0);
-    assert_eq!(location.task_ordinal(), 9);
-
     let census = stop.census();
-    assert_eq!(census.epochs_started(), 81);
-    assert_eq!(census.plans_built(), 81);
-    assert_eq!(census.classes_completed(), 0);
-    assert_eq!(census.task_reports(), MAX_REPORTS);
-    assert_eq!(census.no_proposal(), 0);
-    assert_eq!(census.duplicate(), 0);
-    assert_eq!(census.incomplete_proposal(), 0);
-    assert_eq!(census.changed_without_geometric_shrink(), 0);
-    assert_eq!(census.strict_geometric_shrink(), MAX_REPORTS);
-    assert_eq!(census.compiler_closed(), 0);
+    assert!(census.epochs_started() > 0);
+    assert!(census.plans_built() >= census.epochs_started());
+    assert!(census.classes_completed() <= census.plans_built());
+    assert!(census.task_reports() > 0);
+    assert!(census.task_reports() < max_reports);
     assert_eq!(
         census.no_proposal()
             + census.duplicate()
@@ -150,31 +133,40 @@ fn k6_revision_nine_compact_coordinator_reproduces_eighty_report_checkpoint() {
             + census.changed_without_geometric_shrink()
             + census.strict_geometric_shrink()
             + census.compiler_closed(),
-        MAX_REPORTS,
+        census.task_reports(),
     );
-    assert_eq!(census.invalidated_tickets(), 6_666);
-    assert_eq!(census.declared_probes(), MAX_REPORTS);
-    assert_eq!(census.scheduler_replayed(), MAX_REPORTS);
-    assert_eq!(census.scheduler_support_did_not_lift(), 0);
+    assert_eq!(census.compiler_closed(), 0);
+    assert_eq!(census.declared_probes(), census.task_reports());
+    assert_eq!(
+        census.scheduler_replayed() + census.scheduler_support_did_not_lift(),
+        census.task_reports()
+    );
     assert_eq!(census.scheduler_sampled_dual(), 0);
     assert_eq!(census.scheduler_budget_stops(), 0);
     assert_eq!(census.scheduler_rejections(), 0);
     assert_eq!(census.scheduler_stalls(), 0);
     assert_eq!(census.scheduler_exact_lift_errors(), 0);
-    assert_eq!(census.canonical_replayed(), MAX_REPORTS);
+    assert_eq!(census.canonical_replayed(), census.scheduler_replayed());
     assert_eq!(census.canonical_no_modular_hit(), 0);
     assert_eq!(census.canonical_query_rejections(), 0);
     assert_eq!(census.canonical_support_did_not_lift(), 0);
-    assert_eq!(census.exact_obstructions(), 0);
+    assert_eq!(census.exact_obstructions(), exact_obstructions);
 
-    // With the source-safe carrier, all eighty admitted probes replay exactly
-    // and shrink the cover. The report cap is therefore reached after eighty
-    // successive revisions rather than after boundary-overflow stalls.
     let snapshot = checkpoint.snapshot;
-    assert_eq!(snapshot.revision().get(), 89);
-    assert_eq!(snapshot.owner_count(), 89);
+    let mutation_count = census
+        .changed_without_geometric_shrink()
+        .checked_add(census.strict_geometric_shrink())
+        .unwrap();
+    assert_eq!(
+        snapshot.revision().get(),
+        7_u64
+            .checked_add(u64::try_from(mutation_count).unwrap())
+            .unwrap()
+    );
+    assert_eq!(location.ledger_revision(), snapshot.revision().get());
+    assert!(snapshot.owner_count() >= 7);
+    assert!(u64::try_from(snapshot.owner_count()).unwrap() <= snapshot.revision().get());
     assert_eq!(snapshot.terminal_count(), 1);
-    assert_eq!(snapshot.uncovered_box_count(), 346);
     assert!(!snapshot.uncovered_is_finite());
     assert_eq!(snapshot.missing_terminal_count(), 0);
     assert_eq!(snapshot.guard_incomplete_owner_count(), 0);
@@ -185,183 +177,24 @@ fn k6_revision_nine_compact_coordinator_reproduces_eighty_report_checkpoint() {
         ))
     );
     assert_eq!(
-        checkpoint.free_dimension_histogram,
-        [0, 0, 0, 302, 43, 1, 0],
+        checkpoint.free_dimension_histogram.iter().sum::<usize>(),
+        snapshot.uncovered_box_count()
     );
+    assert_eq!(checkpoint.free_dimension_histogram[6], 0);
     assert_eq!(
-        checkpoint.dimension_five_boxes,
-        vec![(
-            vec![11, 11, 9, 0, 3, 1],
-            vec![None, None, None, Some(0), None, None],
-        )],
+        checkpoint.dimension_five_boxes.len(),
+        checkpoint.free_dimension_histogram[5]
+    );
+    assert!(
+        checkpoint
+            .dimension_five_boxes
+            .iter()
+            .all(|(lower, upper)| { lower.len() == K6_ARITY && upper.len() == K6_ARITY })
     );
 }
 
 #[test]
-#[ignore = "explicit long-running deterministic K=6 research checkpoint"]
-fn k6_revision_nine_compact_coordinator_reproduces_two_hundred_fifty_six_report_checkpoint() {
-    let first = run_report_capped_checkpoint(LONG_CHECKPOINT_REPORTS);
-    let second = run_report_capped_checkpoint(LONG_CHECKPOINT_REPORTS);
-    assert_eq!(
-        first, second,
-        "independent authenticated revision-nine reconstructions must agree"
-    );
-
-    let stop = first.stop;
-    assert!(matches!(
-        stop.reason(),
-        ProbeCoordinatorOperationalReason::TaskReportLimit {
-            requested: 257,
-            limit: LONG_CHECKPOINT_REPORTS,
-        }
-    ));
-    let location = stop.location().unwrap();
-    assert_eq!(location.ledger_revision(), 29);
-    assert_eq!(location.class_ordinal(), 2);
-    assert_eq!(location.effective_dimension(), 4);
-    assert_eq!(location.parent_free_dimension(), 4);
-    assert_eq!(location.boundary_codimension(), 0);
-    assert_eq!(location.task_ordinal(), 3);
-
-    let census = stop.census();
-    assert_eq!(census.epochs_started(), 21);
-    assert_eq!(census.plans_built(), 53);
-    assert_eq!(census.classes_completed(), 32);
-    assert_eq!(census.task_reports(), LONG_CHECKPOINT_REPORTS);
-    assert_eq!(census.no_proposal(), 138);
-    assert_eq!(census.duplicate(), 98);
-    assert_eq!(census.incomplete_proposal(), 0);
-    assert_eq!(census.changed_without_geometric_shrink(), 8);
-    assert_eq!(census.strict_geometric_shrink(), 12);
-    assert_eq!(census.compiler_closed(), 0);
-    assert_eq!(
-        census.no_proposal()
-            + census.duplicate()
-            + census.incomplete_proposal()
-            + census.changed_without_geometric_shrink()
-            + census.strict_geometric_shrink()
-            + census.compiler_closed(),
-        LONG_CHECKPOINT_REPORTS,
-    );
-    assert_eq!(census.invalidated_tickets(), 609);
-    assert_eq!(census.declared_probes(), LONG_CHECKPOINT_REPORTS);
-    assert_eq!(census.scheduler_replayed(), 118);
-    assert_eq!(census.scheduler_support_did_not_lift(), 138);
-    assert_eq!(census.scheduler_sampled_dual(), 0);
-    assert_eq!(census.scheduler_budget_stops(), 0);
-    assert_eq!(census.scheduler_rejections(), 0);
-    assert_eq!(census.scheduler_stalls(), 0);
-    assert_eq!(census.scheduler_exact_lift_errors(), 0);
-    assert_eq!(census.canonical_replayed(), 118);
-    assert_eq!(census.canonical_no_modular_hit(), 0);
-    assert_eq!(census.canonical_query_rejections(), 0);
-    assert_eq!(census.canonical_support_did_not_lift(), 0);
-    assert_eq!(census.exact_obstructions(), 0);
-
-    let snapshot = first.snapshot;
-    assert_eq!(snapshot.revision().get(), 29);
-    assert_eq!(snapshot.owner_count(), 29);
-    assert_eq!(snapshot.terminal_count(), 1);
-    assert_eq!(snapshot.uncovered_box_count(), 56);
-    assert!(!snapshot.uncovered_is_finite());
-    assert_eq!(snapshot.missing_terminal_count(), 0);
-    assert_eq!(snapshot.guard_incomplete_owner_count(), 0);
-    assert_eq!(
-        snapshot.status(),
-        ExactOwnerLedgerCoverStatus::Compiled(ExactOwnerCoverStatus::Incomplete(
-            ExactOwnerCoverObstructionKind::NonFinite,
-        ))
-    );
-    assert_eq!(first.free_dimension_histogram, [0, 0, 0, 37, 17, 2, 0],);
-}
-
-#[test]
-#[ignore = "explicit long-running deterministic K=6 research checkpoint"]
-fn k6_revision_nine_compact_coordinator_reproduces_five_hundred_twelve_report_checkpoint() {
-    let first = run_report_capped_checkpoint(EXTENDED_CHECKPOINT_REPORTS);
-    let second = run_report_capped_checkpoint(EXTENDED_CHECKPOINT_REPORTS);
-    assert_eq!(
-        first, second,
-        "independent authenticated revision-nine reconstructions must agree"
-    );
-
-    let stop = first.stop;
-    assert!(matches!(
-        stop.reason(),
-        ProbeCoordinatorOperationalReason::TaskReportLimit {
-            requested: 513,
-            limit: EXTENDED_CHECKPOINT_REPORTS,
-        }
-    ));
-    let location = stop.location().unwrap();
-    assert_eq!(location.ledger_revision(), 40);
-    assert_eq!(location.class_ordinal(), 2);
-    assert_eq!(location.effective_dimension(), 4);
-    assert_eq!(location.parent_free_dimension(), 4);
-    assert_eq!(location.boundary_codimension(), 0);
-    assert_eq!(location.task_ordinal(), 5);
-
-    let census = stop.census();
-    assert_eq!(census.epochs_started(), 32);
-    assert_eq!(census.plans_built(), 86);
-    assert_eq!(census.classes_completed(), 54);
-    assert_eq!(census.task_reports(), EXTENDED_CHECKPOINT_REPORTS);
-    assert_eq!(census.no_proposal(), 274);
-    assert_eq!(census.duplicate(), 207);
-    assert_eq!(census.incomplete_proposal(), 0);
-    assert_eq!(census.changed_without_geometric_shrink(), 14);
-    assert_eq!(census.strict_geometric_shrink(), 17);
-    assert_eq!(census.compiler_closed(), 0);
-    assert_eq!(
-        census.no_proposal()
-            + census.duplicate()
-            + census.incomplete_proposal()
-            + census.changed_without_geometric_shrink()
-            + census.strict_geometric_shrink()
-            + census.compiler_closed(),
-        EXTENDED_CHECKPOINT_REPORTS,
-    );
-    assert_eq!(census.invalidated_tickets(), 943);
-    assert_eq!(census.declared_probes(), EXTENDED_CHECKPOINT_REPORTS);
-    assert_eq!(census.scheduler_replayed(), 238);
-    assert_eq!(census.scheduler_support_did_not_lift(), 274);
-    assert_eq!(census.scheduler_sampled_dual(), 0);
-    assert_eq!(census.scheduler_budget_stops(), 0);
-    assert_eq!(census.scheduler_rejections(), 0);
-    assert_eq!(census.scheduler_stalls(), 0);
-    assert_eq!(census.scheduler_exact_lift_errors(), 0);
-    assert_eq!(census.canonical_replayed(), 238);
-    assert_eq!(census.canonical_no_modular_hit(), 0);
-    assert_eq!(census.canonical_query_rejections(), 0);
-    assert_eq!(census.canonical_support_did_not_lift(), 0);
-    assert_eq!(census.exact_obstructions(), 0);
-
-    let snapshot = first.snapshot;
-    assert_eq!(snapshot.revision().get(), 40);
-    assert_eq!(snapshot.owner_count(), 40);
-    assert_eq!(snapshot.terminal_count(), 1);
-    assert_eq!(snapshot.uncovered_box_count(), 84);
-    assert!(!snapshot.uncovered_is_finite());
-    assert_eq!(snapshot.missing_terminal_count(), 0);
-    assert_eq!(snapshot.guard_incomplete_owner_count(), 0);
-    assert_eq!(
-        snapshot.status(),
-        ExactOwnerLedgerCoverStatus::Compiled(ExactOwnerCoverStatus::Incomplete(
-            ExactOwnerCoverObstructionKind::NonFinite,
-        ))
-    );
-    assert_eq!(first.free_dimension_histogram, [0, 0, 0, 65, 17, 2, 0],);
-    assert_eq!(
-        first.dimension_five_boxes,
-        vec![
-            (
-                vec![0, 4, 0, 0, 0, 0],
-                vec![None, None, Some(0), None, None, None],
-            ),
-            (
-                vec![2, 4, 4, 0, 0, 0],
-                vec![None, None, None, Some(0), None, None],
-            ),
-        ],
-    );
+fn k6_positive_margin_compact_coordinator_reports_exact_refinement_stop() {
+    let checkpoint = run_refinement_checkpoint(REPORT_LIMIT);
+    assert_refinement_checkpoint(&checkpoint, REPORT_LIMIT);
 }

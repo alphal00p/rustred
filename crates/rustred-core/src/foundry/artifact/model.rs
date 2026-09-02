@@ -10,6 +10,7 @@ use crate::sector::{InteriorBounds, Mask, OrderingPolicy, symmetry::Canonicalize
 
 use super::error::ArtifactPersistenceError;
 use super::factorization::FactorizationRule;
+use super::factorized_product_moments::FactorizedProductMomentProgram;
 
 /// Stable schema identity of an installed closing artifact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -162,6 +163,10 @@ pub struct ClosedArtifact {
     pub(super) canonicalizer: Option<Canonicalizer>,
     pub(super) dependencies: Vec<Box<ClosedArtifact>>,
     pub(super) factorization_rules: Vec<FactorizationRule>,
+    /// Process-local executor-safe product programs rebuilt from authenticated
+    /// factorization recipes at installation/load. This derived payload is not
+    /// serialized independently.
+    pub(super) factorized_product_programs: Vec<Option<FactorizedProductMomentProgram>>,
     pub(super) masters: BTreeSet<IntegralKey>,
     pub(super) zero_sectors: Vec<ZeroSectorTerminal>,
     pub(super) common_mass_homogeneity: Option<CommonMassHomogeneityProof>,
@@ -246,6 +251,37 @@ impl ClosedArtifact {
     /// Deterministically ordered exact factorization actions.
     pub fn factorization_rules(&self) -> &[FactorizationRule] {
         &self.factorization_rules
+    }
+
+    pub(crate) fn factorized_product_programs(&self) -> &[Option<FactorizedProductMomentProgram>] {
+        &self.factorized_product_programs
+    }
+
+    /// Rectangular lookup hull. Exact product authority, when present, is
+    /// retained by [`Self::factorization_product_domain`].
+    pub(crate) fn factorization_application_hull(
+        &self,
+        ordinal: usize,
+    ) -> Option<&crate::sector::SectorInteriorDomain> {
+        self.factorized_product_programs
+            .get(ordinal)
+            .and_then(Option::as_ref)
+            .map(FactorizedProductMomentProgram::application_hull)
+            .or_else(|| {
+                self.factorization_rules
+                    .get(ordinal)
+                    .map(FactorizationRule::application_domain)
+            })
+    }
+
+    pub(crate) fn factorization_product_domain(
+        &self,
+        ordinal: usize,
+    ) -> Option<&super::factorized_product_moments::ProductApplicationDomain> {
+        self.factorized_product_programs
+            .get(ordinal)
+            .and_then(Option::as_ref)
+            .map(FactorizedProductMomentProgram::exact_application_domain)
     }
 
     pub fn masters(&self) -> &BTreeSet<IntegralKey> {

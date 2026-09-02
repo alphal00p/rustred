@@ -390,4 +390,25 @@ impl SelectedTranslatedSourceBatch {
             self.sources,
         )
     }
+
+    /// Forget only the sparse request index after it has been authenticated,
+    /// retaining the complete-ordinary source authority for cold foundry
+    /// reconstruction.  Distinct selected offsets remain canonical.
+    pub(crate) fn into_translated_batch(self) -> TranslatedSourceBatch {
+        let mut offsets = self
+            .requests
+            .iter()
+            .map(|request| request.offset().clone())
+            .collect::<Vec<_>>();
+        offsets.sort_unstable();
+        offsets.dedup();
+        TranslatedSourceBatch {
+            family_fingerprint: self.family_fingerprint,
+            context_fingerprint: self.context_fingerprint,
+            source_layout: self.source_layout,
+            source_row_count: self.completed_source_row_count,
+            offsets,
+            sources: self.sources,
+        }
+    }
 }

@@ -44,9 +44,9 @@ global pool, and worker count does not enter the semantic output. Vendored
 restricted/unlicensed Symbolica
 currently initializes its own one-thread global fallback, while the licensed
 multicore path does not use it. Integration tests require
-byte-identical output for `N=1`, `N=2`, and `N=4`. The forthcoming
-multi-topology campaign scheduler uses the same option to bound all
-concurrently active topology/sector/case work.
+byte-identical output for `N=1`, `N=2`, and `N=4`. The separate implemented
+`campaign run-waves --n-cores N` option bounds sibling workers within one
+atomic K6 wave; it is not a generic multi-topology execution width.
 
 `parameters(d,m2)` is intentionally absent: RustRed infers family scalars after
 excluding declared family identifiers, momenta, and propagator IDs. The
@@ -373,8 +373,9 @@ targets, enumerate subsectors, discover dependencies, derive an IBP, claim
 masters/closure, or publish replacement rules. It contains no fictional status
 records for those unimplemented operations and no dependency counts.
 `campaign plan` deliberately rejects `--n-cores` and `--max-memory`: neither
-resource controls a roots-only metadata operation. Future execution commands
-will be documented only when their implementations exist.
+resource controls a roots-only metadata operation. The K6-specific execution
+commands below consume their own strict foundry configuration; they do not
+consume or upgrade this roots-only plan into a closure claim.
 
 ### Physical campaign preflight
 
@@ -408,6 +409,63 @@ initialize Symbolica or require a license, consume an accepted plan, construct
 a worker pool, hydrate a reducer, or schedule campaign work. The inline test
 profiles contain illustrative values, not named-host measurements.
 
+### Bounded K6 foundry execution
+
+Two implemented commands exercise the current K6 foundry without accepting
+recurrence algebra from the caller:
+
+```console
+rustred campaign run \
+  --config CONFIG.toml \
+  --output run.report.toml \
+  --measurements-output run.measurements.toml
+
+rustred campaign run-waves \
+  --config examples/k6_autonomous_campaign.toml \
+  --output waves.report.toml \
+  --measurements-output waves.measurements.toml \
+  --artifact-output waves.rribp \
+  --n-cores 4
+```
+
+Both commands consume schema `rustred.foundry-campaign-config.toml.v2`.
+`mode = "autonomous"` admits no caller-authored hint object: RustRed selects
+the proposal ordering, probes, coordinate priority, and itinerary. `mode =
+"external-hints-only"` requires a typed `[hints]` object containing only
+bounded search metadata. Neither form can encode an imported identity,
+recurrence right-hand side, coefficient, source row, support, reduction, or
+artifact payload. `campaign run` requires the single-sector fixed-point
+itinerary and remains diagnostic-only. `campaign run-waves` requires the
+full-rank atomic-wave itinerary and publishes same-rank siblings only as a
+complete wave.
+
+The deterministic semantic schemas are
+`rustred.foundry-campaign-report.toml.v2` and
+`rustred.foundry-wave-campaign-report.toml.v2`. Optional timing sidecars use
+`rustred.foundry-campaign-measurements.toml.v1` and
+`rustred.foundry-wave-campaign-measurements.toml.v1`; timings never enter the
+semantic report. The stderr dashboard is terminal-only by default,
+`--no-progress` disables it, and `--color auto|always|never` controls only that
+presentation.
+
+A completed process is not necessarily a closed campaign. An incomplete wave
+report has `publication = "diagnostic_only"`, `outcome = "incomplete"`,
+`artifact_installed = false`, and `durable_artifact_published = false`. It owns
+no artifact bytes and does not touch `--artifact-output`; the report instead
+contains the blocking wave and detached exact residual diagnostics for every
+blocking sibling. Only a fully published wave chain is installed as a K6
+artifact, deterministically encoded, decoded through the untrusted cold-load
+boundary, replayed, and canonically re-encoded before artifact bytes become
+available. Report, measurement, and artifact destinations must be distinct;
+lexical aliases and aliases through existing symlinked parents are rejected
+before any write, including with `--force`.
+
+The supplied external-hint and autonomous example configurations are bounded
+release inputs, not evidence of K6 closure. Run both from a release build after
+each coherent foundry slice and retain their exact residual geometry, resource
+stop, and execution time. K6 remains open until both lanes independently pass
+the documented closure, replay, reload, and representative-reduction gates.
+
 ### Durable closing artifacts
 
 Three fine-grained campaign operations expose the completed `K = 1` and
@@ -439,7 +497,9 @@ rustred campaign reduce \
 
 `campaign generate` writes the deterministic binary artifact itself, not a
 TOML proxy. The semantic family selectors are `unit-mass-vacuum-k1` and
-`unit-mass-vacuum-k3`; the three-loop `K = 6` family remains Stage 1 work.
+`unit-mass-vacuum-k3`. There is no preset K6 selector: K6 bytes can originate
+only from a completely published `campaign run-waves` result, and the current
+bounded example campaigns do not close K6.
 `campaign inspect` and `campaign reduce` require artifact bytes from a path or
 from `--artifact -`; neither substitutes a hidden preset for those bytes. The
 `K = 3` untrusted-load boundary cold-regenerates its registered derivation once
@@ -473,14 +533,15 @@ algebra limits. Successful decoding produces one sealed owner; recursive hot-
 path application does not repeat cold authentication.
 
 The core library contains a host-independent pre-pool effective-width planner,
-checked resource values, and bounded ordered execution. Roots-only
-family/sector/job interning is application-owned. The width plan enforces
+checked resource values, bounded ordered execution, and the K6-specific
+single-sector and atomic-wave foundry drivers. Roots-only family/sector/job
+interning is application-owned. The width plan enforces
 `M_operational < M_enclosing`, charges the coordinator and every possible
 warmed worker plus one minimum runnable task, and returns a typed no-fit pause
 without constructing a pool. The roots-only CLI remains separate; the resource
 preflight exposes only the pure decision from an explicit profile. Named-host
-calibration, task-specific estimator adapters, the actual foundry scheduler,
-multi-family campaign execution, and checkpointing remain unimplemented. The
+calibration, task-specific estimator adapters, generic multi-family campaign
+execution, and checkpointing remain unimplemented. The
 fine-grained `K = 1` and `K = 3` artifact commands are separate from roots-only
 planning and physical preflight; they do not claim three-loop closure or
 Vakint integration.
@@ -497,6 +558,7 @@ pause.
 Operators should keep `--max-memory` below physical RAM to preserve headroom
 for the OS and opaque Symbolica scratch that its public API cannot census. The
 reported width, limits, fixed breakdown, and estimator revision are physical
-metadata excluded from mathematical identities. The future deterministic
-execution, closure, checkpoint, and parallel-memory contracts are documented
-in the [foundry design](foundry.md), not implemented by the present CLI.
+metadata excluded from mathematical identities. The exact closure boundary,
+remaining checkpoint work, and parallel-memory contracts are documented in
+the [foundry design](foundry.md); the present K6 commands implement only the
+bounded execution and conditional publication surfaces described above.

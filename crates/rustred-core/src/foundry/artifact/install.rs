@@ -5,7 +5,7 @@ use crate::algebra::IndexedCoefficientContext;
 use crate::family::{IntegralFamily, IntegralKey};
 use crate::foundry::cell::{RuleCell, SourceViewConstruction};
 use crate::foundry::parametric::{ParametricRule, ParametricRuleTermDescent};
-use crate::identity::ParametricRelation;
+use crate::identity::{ParametricIbpConfig, ParametricRelation, TranslatedSourceLimits};
 use crate::sector::{InteriorBounds, OrderingPolicy, symmetry::Canonicalizer};
 
 use super::error::ArtifactError;
@@ -14,6 +14,7 @@ use super::model::{
     ArtifactSchemaVersion, ClosedArtifact, CommonMassHomogeneityProof, ZeroSectorTerminal,
     ZeroTerminalProof,
 };
+use super::persistence::ArtifactCoverReplayLimits;
 
 mod factorization;
 mod one_loop;
@@ -75,6 +76,9 @@ pub(super) fn install(
 pub(super) fn install_published_k6(
     mut candidate: ClosingArtifactCandidate,
     waves: Box<[crate::foundry::completion::source_discovery::ClosedSectorClosureWave]>,
+    factorized_product_programs: Vec<
+        Option<super::factorized_product_moments::FactorizedProductMomentProgram>,
+    >,
 ) -> Result<ClosedArtifact, ArtifactError> {
     three_loop::prepare(&mut candidate, &waves)?;
     three_loop::authenticate_canonical_source_views(&candidate)?;
@@ -91,7 +95,42 @@ pub(super) fn install_published_k6(
         &mut candidate.factorization_rules,
     )?;
     drop(waves);
-    three_loop::seal(candidate)
+    three_loop::seal_with_programs(candidate, factorized_product_programs)
+}
+
+/// Cold-load an already closed K6 payload after persistence has regenerated
+/// every dynamic cell from canonical source requests.  Unlike wave
+/// installation this boundary owns no search transcript; it therefore reruns
+/// the complete cell/source/factorization authentication and the exact
+/// registered geometric cover check before sealing once.
+pub(super) fn install_persisted_k6(
+    mut candidate: ClosingArtifactCandidate,
+    factorized_product_programs: Vec<
+        Option<super::factorized_product_moments::FactorizedProductMomentProgram>,
+    >,
+    source_generation: ParametricIbpConfig,
+    translated_sources: TranslatedSourceLimits,
+    cover_replay: ArtifactCoverReplayLimits,
+) -> Result<ClosedArtifact, ArtifactError> {
+    three_loop::authenticate_canonical_source_views_with_limits(
+        &candidate,
+        source_generation,
+        translated_sources,
+    )?;
+    validate_generic_bindings(&candidate)?;
+    factorization::validate_and_compile(
+        factorization::InstallContext::new(
+            candidate.arity,
+            &candidate.family,
+            candidate.canonicalizer.as_ref(),
+            &candidate.dependencies,
+            &candidate.masters,
+            &candidate.zero_sectors,
+        ),
+        &mut candidate.factorization_rules,
+    )?;
+    three_loop::validate_persisted_cover(&candidate, &factorized_product_programs, cover_replay)?;
+    three_loop::seal_with_programs(candidate, factorized_product_programs)
 }
 
 fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(), ArtifactError> {
@@ -187,6 +226,23 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
         validate_cell_replay(cell, &candidate.context)?;
     }
     Ok(())
+}
+
+fn compile_factorized_product_programs(
+    candidate: &ClosingArtifactCandidate,
+) -> Result<
+    Vec<Option<super::factorized_product_moments::FactorizedProductMomentProgram>>,
+    ArtifactError,
+> {
+    let programs = super::factorized_product_moments::compile_factorized_product_moment_programs(
+        &candidate.family,
+        &candidate.dependencies,
+        &candidate.factorization_rules,
+    )
+    .map_err(|_| ArtifactError::InvalidFactorization {
+        detail: "the authenticated product factorization could not compile its exact dependency-root preimage executor",
+    })?;
+    Ok(programs)
 }
 
 pub(super) struct TerminalBindings<'input> {

@@ -25,7 +25,7 @@ pub(crate) use coordinator::{
     ProbeCoordinatorNeedsRefinementReason, ProbeCoordinatorOperationalReason,
     ProbeCoordinatorOperationalStop, ProbeCoordinatorOwnerMutation,
     ProbeCoordinatorOwnerSetChanged, ProbeCoordinatorStop, ProbeCoordinatorTaskLocation,
-    TaskRelativeModularProbe,
+    ProbeCoordinatorTaskLocationKind, RequestedProbeCoordinatorStop, TaskRelativeModularProbe,
 };
 pub(crate) use error::ProbeCampaignError;
 pub(crate) use limits::ProbeCampaignLimits;

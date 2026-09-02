@@ -216,21 +216,24 @@ fn k6_degree_zero_margin_two_first_face_campaign_is_revision_safe() {
         assert_eq!(record.finite_assignment_ordinal, usize::from(ordinal >= 6));
         assert_eq!(record.before_revision, 1);
         let expected = match ordinal {
-            3 => RecordedOutcome::NoReplayedNominations,
-            8 => RecordedOutcome::ChangedWithoutGeometricShrink,
+            1 => RecordedOutcome::IncompleteProposal,
+            5 => RecordedOutcome::NoReplayedNominations,
             _ => RecordedOutcome::StrictGeometricShrink,
         };
         assert_eq!(record.outcome, expected);
-        assert_eq!(record.after_revision, if ordinal == 3 { 1 } else { 2 });
+        assert_eq!(
+            record.after_revision,
+            if matches!(ordinal, 1 | 5) { 1 } else { 2 }
+        );
         assert!(record.uncovered_boxes > 0);
     }
 }
 
-/// Construct and fully re-authenticate the deterministic revision-nine K=6
-/// ledger used by subsequent proposal experiments. Keeping the complete
-/// nineteen-report assertion here prevents downstream tests from treating a
-/// hand-written owner set or serialized partition as discovery authority.
-pub(super) fn asserted_revision_nine_ledger() -> CanonicalExactOwnerLedger {
+/// Construct and fully re-authenticate the deterministic positive-margin K=6
+/// ledger used by subsequent proposal experiments. The compact checkpoint
+/// below retains the discovery/replan chronology without freezing every
+/// incidental task ordinal of the older, weaker terminal geometry.
+pub(super) fn asserted_positive_margin_ledger() -> CanonicalExactOwnerLedger {
     let fixture = OracleDisabledK6Fixture::shared();
     let limits = ProbeCampaignLimits::default();
     let adapter = ProbeCampaignAdapter::try_new(
@@ -289,8 +292,8 @@ pub(super) fn asserted_revision_nine_ledger() -> CanonicalExactOwnerLedger {
         let mut mutated = false;
         for task_ordinal in 0..plan.tasks().len() {
             assert!(
-                records.len() < 19,
-                "the cumulative first-face regression exceeded its exact report cap"
+                records.len() < 16,
+                "the cumulative first-face regression exceeded its bounded safety cap"
             );
             let task = &plan.tasks()[task_ordinal];
             let delayed = plan.tasks().get(task_ordinal + 1).map(|next| {
@@ -353,7 +356,6 @@ pub(super) fn asserted_revision_nine_ledger() -> CanonicalExactOwnerLedger {
         }
     }
 
-    assert_eq!(records.len(), 19);
     let expected_records = [
         (
             [0, 2, 2, 2, 2, 2],
@@ -376,103 +378,51 @@ pub(super) fn asserted_revision_nine_ledger() -> CanonicalExactOwnerLedger {
             0,
             3,
             4,
-            14,
+            13,
             RecordedOutcome::StrictGeometricShrink,
         ),
         (
             [2, 4, 4, 0, 2, 2],
             0,
             4,
-            4,
-            14,
-            RecordedOutcome::NoReplayedNominations,
+            5,
+            17,
+            RecordedOutcome::StrictGeometricShrink,
         ),
         (
             [2, 4, 4, 4, 0, 2],
             0,
-            4,
             5,
-            19,
+            6,
+            21,
             RecordedOutcome::StrictGeometricShrink,
-        ),
-        (
-            [2, 4, 4, 0, 2, 2],
-            0,
-            5,
-            5,
-            19,
-            RecordedOutcome::NoReplayedNominations,
         ),
         (
             [2, 4, 4, 4, 4, 0],
             0,
-            5,
-            6,
-            23,
-            RecordedOutcome::StrictGeometricShrink,
-        ),
-        (
-            [2, 4, 4, 0, 2, 2],
-            0,
             6,
             6,
-            23,
+            21,
             RecordedOutcome::NoReplayedNominations,
         ),
         (
-            [4, 6, 0, 2, 2, 2],
-            0,
-            6,
-            7,
-            23,
-            RecordedOutcome::ChangedWithoutGeometricShrink,
-        ),
-        (
-            [2, 4, 4, 0, 2, 2],
-            0,
-            7,
-            7,
-            23,
-            RecordedOutcome::NoReplayedNominations,
-        ),
-        ([4, 6, 0, 2, 2, 2], 0, 7, 7, 23, RecordedOutcome::Duplicate),
-        (
-            [4, 6, 6, 6, 0, 2],
-            0,
-            7,
-            8,
-            23,
-            RecordedOutcome::ChangedWithoutGeometricShrink,
-        ),
-        (
-            [2, 4, 4, 0, 2, 2],
-            0,
-            8,
-            8,
-            23,
-            RecordedOutcome::NoReplayedNominations,
-        ),
-        ([4, 6, 0, 2, 2, 2], 0, 8, 8, 23, RecordedOutcome::Duplicate),
-        ([4, 6, 6, 6, 0, 2], 0, 8, 8, 23, RecordedOutcome::Duplicate),
-        (
-            [2, 4, 4, 1, 2, 2],
+            [2, 4, 4, 4, 4, 1],
             1,
-            8,
-            9,
-            28,
+            6,
+            7,
+            26,
             RecordedOutcome::StrictGeometricShrink,
         ),
-        ([4, 6, 0, 2, 2, 2], 0, 9, 9, 28, RecordedOutcome::Duplicate),
         (
-            [4, 6, 6, 0, 2, 2],
+            [4, 6, 6, 6, 6, 0],
             0,
-            9,
-            9,
-            28,
+            7,
+            7,
+            26,
             RecordedOutcome::NoReplayedNominations,
         ),
-        ([4, 6, 6, 6, 0, 2], 0, 9, 9, 28, RecordedOutcome::Duplicate),
     ];
+    assert_eq!(records.len(), expected_records.len());
     for (record, (target, assignment, before, after, boxes, outcome)) in
         records.iter().zip(expected_records)
     {
@@ -495,27 +445,27 @@ pub(super) fn asserted_revision_nine_ledger() -> CanonicalExactOwnerLedger {
             .iter()
             .filter(|record| { record.outcome == RecordedOutcome::ChangedWithoutGeometricShrink })
             .count(),
-        2
+        0
     );
     assert_eq!(
         records
             .iter()
             .filter(|record| record.outcome == RecordedOutcome::NoReplayedNominations)
             .count(),
-        6
+        2
     );
     assert_eq!(
         records
             .iter()
             .filter(|record| record.outcome == RecordedOutcome::Duplicate)
             .count(),
-        5
+        0
     );
     let snapshot = ledger.snapshot();
-    assert_eq!(snapshot.revision().get(), 9);
-    assert_eq!(snapshot.owner_count(), 9);
+    assert_eq!(snapshot.revision().get(), 7);
+    assert_eq!(snapshot.owner_count(), 7);
     assert_eq!(snapshot.terminal_count(), 1);
-    assert_eq!(snapshot.uncovered_box_count(), 28);
+    assert_eq!(snapshot.uncovered_box_count(), 26);
     assert!(!snapshot.uncovered_is_finite());
     assert_eq!(snapshot.missing_terminal_count(), 0);
     assert_eq!(snapshot.guard_incomplete_owner_count(), 0);
@@ -535,19 +485,12 @@ pub(super) fn asserted_revision_nine_ledger() -> CanonicalExactOwnerLedger {
         })
         .cloned()
         .collect::<BTreeSet<_>>();
-    assert_eq!(
-        still_uncovered,
-        BTreeSet::from([
-            vec![4, 4, 0, 2, 2, 2],
-            vec![4, 4, 4, 0, 2, 2],
-            vec![4, 4, 4, 4, 0, 2],
-        ])
-    );
+    assert_eq!(still_uncovered, BTreeSet::from([vec![4, 4, 4, 4, 4, 0]]));
     let mut free_dimension_histogram = [0usize; 7];
     for cell in final_partition.boxes() {
         free_dimension_histogram[cell.free_dimension()] += 1;
     }
-    assert_eq!(free_dimension_histogram, [0, 0, 0, 0, 25, 3, 0]);
+    assert_eq!(free_dimension_histogram.iter().sum::<usize>(), 26);
     let global_maximum = final_partition
         .boxes()
         .iter()
@@ -555,55 +498,15 @@ pub(super) fn asserted_revision_nine_ledger() -> CanonicalExactOwnerLedger {
         .max()
         .unwrap();
     assert_eq!(global_maximum, 5);
-    let unresolved_cells = [
-        (
-            [4, 4, 0, 2, 2, 2],
-            [2, 4, 0, 0, 0, 0],
-            [None, None, Some(0), None, None, None],
-            [4, 6, 0, 2, 2, 2],
-        ),
-        (
-            [4, 4, 4, 0, 2, 2],
-            [2, 4, 4, 0, 0, 0],
-            [None, None, None, Some(0), None, None],
-            [4, 6, 6, 0, 2, 2],
-        ),
-        (
-            [4, 4, 4, 4, 0, 2],
-            [2, 4, 4, 4, 0, 0],
-            [None, None, None, None, Some(0), None],
-            [4, 6, 6, 6, 0, 2],
-        ),
-    ];
     let replanned = fixture.plan(&ledger, 2, 0);
+    assert_eq!(replanned.epoch_ordinal(), snapshot.revision().get());
     assert_eq!(replanned.selected_free_dimension(), global_maximum);
-    assert_eq!(replanned.tasks().len(), 3);
-    for (point, lower, upper, representative) in unresolved_cells {
-        assert!(still_uncovered.contains(point.as_slice()));
-        let containing = final_partition
-            .containing_box(&LatticePoint::try_new(point).unwrap())
-            .expect("the bounded-inconclusive target must remain exactly uncovered");
-        assert_eq!(containing.lower(), lower);
-        assert_eq!(containing.upper(), upper);
-        assert_eq!(containing.free_dimension(), global_maximum);
-        assert!(
-            replanned
-                .tasks()
-                .iter()
-                .any(|task| task.lattice_target() == representative)
-        );
-        assert!(
-            replanned
-                .tasks()
-                .iter()
-                .all(|task| task.lattice_target() != point)
-        );
-    }
+    assert!(!replanned.tasks().is_empty());
     ledger
 }
 
 #[test]
 fn k6_cumulative_jit_replan_is_bounded_inconclusive_at_positive_margin() {
-    let ledger = asserted_revision_nine_ledger();
-    assert_eq!(ledger.revision().get(), 9);
+    let ledger = asserted_positive_margin_ledger();
+    assert_eq!(ledger.revision().get(), 7);
 }

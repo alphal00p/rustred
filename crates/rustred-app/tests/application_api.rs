@@ -264,21 +264,28 @@ fn public_foundry_progress_is_revision_complete_scalar_telemetry() {
         |event| progress.push(event),
     )
     .expect("run cap-one foundry campaign with progress");
-    assert_eq!(progress.len(), 1);
-    let event = &progress[0];
-    assert_eq!(event.revision(), 1);
-    assert_eq!(event.snapshot().owner_count(), 1);
-    assert_eq!(event.census().strict_geometric_shrink(), 1);
-    assert_eq!(event.task_report_ceiling(), 1);
-    assert_eq!(event.maximum_dimension(), 6);
-    let location = event.location().expect("committing task location");
-    assert!(location.effective_dimension() <= location.parent_free_dimension());
-    assert!(location.parent_free_dimension() <= event.maximum_dimension());
-    assert_eq!(result.snapshot(), event.snapshot());
+    // The exact factorized-product root leaves an unbounded coupled fringe.
+    // Its first autonomous task is a truthful no-proposal report, not an
+    // owner or revision merely manufactured for progress presentation. The
+    // callback is mutation-only, while the final result retains the terminal
+    // no-proposal census and task location.
+    assert!(progress.is_empty());
+    assert_eq!(result.snapshot().revision(), 0);
+    assert_eq!(result.snapshot().owner_count(), 0);
+    assert_eq!(result.snapshot().terminal_count(), 1);
+    assert_eq!(result.snapshot().uncovered_box_count(), 1);
+    assert_eq!(result.census().no_proposal(), 1);
+    assert_eq!(result.census().strict_geometric_shrink(), 0);
+    assert_eq!(result.census().task_reports(), 1);
     assert_eq!(result.task_report_ceiling(), 1);
     assert_eq!(result.maximum_dimension(), 6);
-    assert!(matches!(
-        result.stop(),
-        FoundryCampaignStop::OperationallyBounded { .. }
-    ));
+    let FoundryCampaignStop::OperationallyBounded {
+        location: Some(location),
+        ..
+    } = result.stop()
+    else {
+        panic!("cap-one owner-free campaign did not retain its terminal task location")
+    };
+    assert!(location.effective_dimension() <= location.parent_free_dimension());
+    assert!(location.parent_free_dimension() <= result.maximum_dimension());
 }

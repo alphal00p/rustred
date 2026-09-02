@@ -27,6 +27,18 @@ pub enum ArtifactError {
     IntegralKey(IntegralKeyError),
     Ordering(sector::Error),
     ZeroAnalysis(sector::zero::Error),
+    ResourceCountOverflow {
+        resource: &'static str,
+    },
+    ResourceLimit {
+        resource: &'static str,
+        requested: usize,
+        limit: usize,
+    },
+    AllocationFailure {
+        resource: &'static str,
+        requested: usize,
+    },
     UnsupportedSchema {
         actual: u32,
     },
@@ -85,6 +97,24 @@ impl fmt::Display for ArtifactError {
             Self::IntegralKey(error) => error.fmt(formatter),
             Self::Ordering(error) => error.fmt(formatter),
             Self::ZeroAnalysis(error) => error.fmt(formatter),
+            Self::ResourceCountOverflow { resource } => {
+                write!(formatter, "artifact {resource} count overflowed usize")
+            }
+            Self::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            } => write!(
+                formatter,
+                "artifact {resource} requires {requested} units, limit is {limit}"
+            ),
+            Self::AllocationFailure {
+                resource,
+                requested,
+            } => write!(
+                formatter,
+                "could not reserve {requested} units for artifact {resource}"
+            ),
             Self::UnsupportedSchema { actual } => {
                 write!(formatter, "artifact schema version {actual} is unsupported")
             }
@@ -293,6 +323,27 @@ impl std::error::Error for ArtifactPersistenceError {}
 
 impl From<ArtifactError> for ArtifactPersistenceError {
     fn from(value: ArtifactError) -> Self {
-        Self::Artifact(value)
+        match value {
+            ArtifactError::ResourceCountOverflow { resource } => {
+                Self::ResourceCountOverflow { resource }
+            }
+            ArtifactError::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            } => Self::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            },
+            ArtifactError::AllocationFailure {
+                resource,
+                requested,
+            } => Self::AllocationFailure {
+                resource,
+                requested,
+            },
+            other => Self::Artifact(other),
+        }
     }
 }

@@ -35,6 +35,22 @@ impl ClosedExactExecutableOwnerCover {
             .first()
             .ok_or(ExactExecutableOwnerError::EmptyOwners)?;
         let predecessor_snapshot = first.epoch().predecessor_snapshot().clone();
+        Self::try_seal_against_predecessor(cover, predecessor_snapshot)
+    }
+
+    /// Seal a compiler-closed cover against the exact retained predecessor.
+    /// Unlike [`Self::try_seal`], this authority-bearing boundary also accepts
+    /// a zero-cell cover whose closure was proved directly by that predecessor.
+    pub(crate) fn try_seal_against_predecessor(
+        cover: ExactExecutableOwnerCover,
+        predecessor_snapshot: ImmutableOwnerSnapshot,
+    ) -> Result<Self, ExactExecutableOwnerError> {
+        match cover.proof_cover().status() {
+            ExactOwnerCoverStatus::Closed => {}
+            ExactOwnerCoverStatus::Incomplete(obstruction) => {
+                return Err(ExactExecutableOwnerError::CoverNotClosed { obstruction });
+            }
+        }
         let proof = cover.proof_cover();
 
         validate_predecessor_scope(proof, &predecessor_snapshot)?;

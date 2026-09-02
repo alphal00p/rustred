@@ -19,6 +19,9 @@ pub struct ReductionLimits {
     /// bounded independently by the integral and coefficient-term limits.
     pub max_cached_coefficient_bytes: usize,
     pub max_pending_frames: usize,
+    /// Maximum coefficient additions that merge like terms during one
+    /// top-level reduction request, including nested factorized recurrences.
+    pub max_coalescing_additions: usize,
     /// Maximum exact Cartesian terms admitted at any intermediate step of a
     /// lower-family product factorization.
     pub max_factorization_terms: usize,
@@ -34,6 +37,7 @@ impl Default for ReductionLimits {
             max_cached_coefficient_terms: 16_000_000,
             max_cached_coefficient_bytes: 1024 * 1024 * 1024,
             max_pending_frames: 1_000_000,
+            max_coalescing_additions: 16_000_000,
             max_factorization_terms: 1_000_000,
         }
     }
@@ -44,6 +48,7 @@ impl Default for ReductionLimits {
 pub struct ReductionStatistics {
     cache_hits: usize,
     rule_applications: usize,
+    coalescing_additions: usize,
     cached_integrals: usize,
     cached_coefficient_terms: usize,
     cached_coefficient_bytes: usize,
@@ -58,6 +63,10 @@ impl ReductionStatistics {
         self.rule_applications
     }
 
+    pub fn coalescing_additions(self) -> usize {
+        self.coalescing_additions
+    }
+
     pub fn cached_integrals(self) -> usize {
         self.cached_integrals
     }
@@ -70,19 +79,30 @@ impl ReductionStatistics {
         self.cached_coefficient_bytes
     }
 
-    pub(super) fn record_cache_hit(&mut self) {
+    pub(crate) fn record_cache_hit(&mut self) {
         self.cache_hits = self.cache_hits.saturating_add(1);
     }
 
-    pub(super) fn record_rule_application(&mut self) {
-        self.rule_applications = self.rule_applications.saturating_add(1);
+    pub(crate) fn record_rule_application(&mut self) {
+        self.record_rule_applications(1);
     }
 
-    pub(super) fn merge_work(&mut self, other: Self) {
+    pub(crate) fn record_rule_applications(&mut self, count: usize) {
+        self.rule_applications = self.rule_applications.saturating_add(count);
+    }
+
+    pub(crate) fn record_coalescing_additions(&mut self, count: usize) {
+        self.coalescing_additions = self.coalescing_additions.saturating_add(count);
+    }
+
+    pub(crate) fn merge_work(&mut self, other: Self) {
         self.cache_hits = self.cache_hits.saturating_add(other.cache_hits);
         self.rule_applications = self
             .rule_applications
             .saturating_add(other.rule_applications);
+        self.coalescing_additions = self
+            .coalescing_additions
+            .saturating_add(other.coalescing_additions);
     }
 
     pub(super) fn set_cache_census(

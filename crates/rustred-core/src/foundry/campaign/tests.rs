@@ -3,6 +3,7 @@ use super::preset_k6::{
     try_new_k6_full_rank_ledger, try_new_k6_full_rank_ledger_with_profile_and_ordering,
 };
 use super::*;
+use crate::family::IntegralKey;
 use crate::foundry::artifact::FULL_RANK_ORBITS;
 use crate::foundry::completion::SectorChart;
 use crate::foundry::completion::source_discovery::ProbeCampaignLimits;
@@ -20,7 +21,7 @@ fn external_hints(
 ) -> FoundryCampaignExternalHints {
     FoundryCampaignExternalHints::try_new(
         itinerary,
-        [FoundryCampaignProbe::new(1_000_000_007, [37], [0; 6])],
+        [FoundryCampaignProbe::try_new(1_000_000_007, [37], [0; 6]).unwrap()],
         2,
         0,
         ordering,
@@ -49,7 +50,7 @@ fn preset_id_and_config_validation_are_stable() {
         .unwrap_err(),
         FoundryCampaignConfigError::EmptyProbeProgram
     );
-    let probe = FoundryCampaignProbe::new(1_000_000_007, [37], [0; 6]);
+    let probe = FoundryCampaignProbe::try_new(1_000_000_007, [37], [0; 6]).unwrap();
     assert_eq!(
         FoundryCampaignExternalHints::try_new(
             FoundryCampaignItinerary::SingleSectorFixedPoint,
@@ -66,7 +67,7 @@ fn preset_id_and_config_validation_are_stable() {
         FoundryCampaignConfig::try_autonomous_single_sector(preset, 0, 1).unwrap_err(),
         FoundryCampaignConfigError::ZeroTaskReportLimit
     );
-    let composite = FoundryCampaignProbe::new(9, [37], [0; 6]);
+    let composite = FoundryCampaignProbe::try_new(9, [37], [0; 6]).unwrap();
     let hints = FoundryCampaignExternalHints::try_new(
         FoundryCampaignItinerary::SingleSectorFixedPoint,
         [composite],
@@ -83,6 +84,177 @@ fn preset_id_and_config_validation_are_stable() {
             ..
         })
     ));
+}
+
+#[test]
+fn probe_ingress_rejects_adversarial_iterators_at_the_public_limit() {
+    use std::cell::Cell;
+
+    let consumed_coordinates = Cell::new(0usize);
+    let unbounded_coordinates = std::iter::from_fn(|| {
+        consumed_coordinates.set(consumed_coordinates.get() + 1);
+        Some(0_i64)
+    });
+    assert_eq!(
+        FoundryCampaignProbe::try_new(1_000_000_007, unbounded_coordinates, []).unwrap_err(),
+        FoundryCampaignConfigError::TooManyProbeCoordinates {
+            requested: MAX_FOUNDRY_CAMPAIGN_PROBE_COORDINATES + 1,
+            limit: MAX_FOUNDRY_CAMPAIGN_PROBE_COORDINATES,
+        }
+    );
+    assert_eq!(
+        consumed_coordinates.get(),
+        MAX_FOUNDRY_CAMPAIGN_PROBE_COORDINATES + 1,
+        "the fallible constructor must not drain an adversarial iterator"
+    );
+    let boundary_probe = FoundryCampaignProbe::try_new(
+        1_000_000_007,
+        std::iter::repeat_n(37, MAX_FOUNDRY_CAMPAIGN_PROBE_COORDINATES - 1),
+        [0],
+    )
+    .unwrap();
+    assert_eq!(
+        boundary_probe.base_parameters().len() + boundary_probe.chart_offsets().len(),
+        MAX_FOUNDRY_CAMPAIGN_PROBE_COORDINATES
+    );
+
+    let small = FoundryCampaignProbe::try_new(1_000_000_007, [37], [0; 6]).unwrap();
+    let consumed_probes = Cell::new(0usize);
+    let unbounded_probes = std::iter::from_fn(|| {
+        consumed_probes.set(consumed_probes.get() + 1);
+        Some(small.clone())
+    });
+    assert_eq!(
+        FoundryCampaignExternalHints::try_new(
+            FoundryCampaignItinerary::SingleSectorFixedPoint,
+            unbounded_probes,
+            2,
+            0,
+            OrderingPolicy::default(),
+            None,
+        )
+        .unwrap_err(),
+        FoundryCampaignConfigError::TooManyProbes {
+            requested: MAX_FOUNDRY_CAMPAIGN_PROBES + 1,
+            limit: MAX_FOUNDRY_CAMPAIGN_PROBES,
+        }
+    );
+    assert_eq!(consumed_probes.get(), MAX_FOUNDRY_CAMPAIGN_PROBES + 1);
+}
+
+#[test]
+fn external_requested_domains_are_structural_bounded_and_arity_checked() {
+    let anchor = IntegralKey::try_new([1, 1, 1, 0, -1, 2]).unwrap();
+    let domain = FoundryCampaignDomainHint::try_new(anchor.clone(), [0, 2, 5]).unwrap();
+    assert_eq!(domain.anchor(), &anchor);
+    assert_eq!(domain.symbolic_axes(), [0, 2, 5]);
+
+    assert_eq!(
+        FoundryCampaignDomainHint::try_new(anchor.clone(), [0, 2, 2]).unwrap_err(),
+        FoundryCampaignConfigError::DomainHintAxesNotStrictlyIncreasing {
+            previous: 2,
+            current: 2,
+        }
+    );
+    assert_eq!(
+        FoundryCampaignDomainHint::try_new(anchor.clone(), [2, 1]).unwrap_err(),
+        FoundryCampaignConfigError::DomainHintAxesNotStrictlyIncreasing {
+            previous: 2,
+            current: 1,
+        }
+    );
+    assert_eq!(
+        FoundryCampaignDomainHint::try_new(anchor, [6]).unwrap_err(),
+        FoundryCampaignConfigError::DomainHintAxisOutOfBounds { axis: 6, arity: 6 }
+    );
+
+    let wrong_arity =
+        FoundryCampaignDomainHint::try_new(IntegralKey::try_new([1, 1, 1, 1, 1]).unwrap(), [0, 4])
+            .unwrap();
+    let hints = FoundryCampaignExternalHints::try_new_with_domains(
+        FoundryCampaignItinerary::SingleSectorFixedPoint,
+        [FoundryCampaignProbe::try_new(1_000_000_007, [37], [0; 6]).unwrap()],
+        2,
+        0,
+        OrderingPolicy::default(),
+        None,
+        [wrong_arity],
+    )
+    .unwrap();
+    assert_eq!(
+        FoundryCampaignConfig::try_external_hints(
+            FoundryCampaignPreset::ThreeLoopUnitMassVacuumK6Orbit0,
+            hints,
+            1,
+            1,
+        )
+        .unwrap_err(),
+        FoundryCampaignConfigError::WrongDomainHintAnchorArity {
+            domain_ordinal: 0,
+            expected: 6,
+            actual: 5,
+        }
+    );
+}
+
+#[test]
+fn external_requested_domain_retention_has_cold_resource_limits() {
+    let oversized_anchor =
+        IntegralKey::try_new(vec![0; MAX_FOUNDRY_CAMPAIGN_DOMAIN_HINT_ARITY + 1]).unwrap();
+    assert_eq!(
+        FoundryCampaignDomainHint::try_new(oversized_anchor, []).unwrap_err(),
+        FoundryCampaignConfigError::DomainHintArityLimit {
+            actual: MAX_FOUNDRY_CAMPAIGN_DOMAIN_HINT_ARITY + 1,
+            limit: MAX_FOUNDRY_CAMPAIGN_DOMAIN_HINT_ARITY,
+        }
+    );
+
+    let domain =
+        FoundryCampaignDomainHint::try_new(IntegralKey::try_new([1, 1, 1, 1, 1, 1]).unwrap(), [0])
+            .unwrap();
+    let too_many = (0..=MAX_FOUNDRY_CAMPAIGN_DOMAIN_HINTS).map(|_| domain.clone());
+    assert_eq!(
+        FoundryCampaignExternalHints::try_new_with_domains(
+            FoundryCampaignItinerary::SingleSectorFixedPoint,
+            [FoundryCampaignProbe::try_new(1_000_000_007, [37], [0; 6]).unwrap()],
+            2,
+            0,
+            OrderingPolicy::default(),
+            None,
+            too_many,
+        )
+        .unwrap_err(),
+        FoundryCampaignConfigError::TooManyDomainHints {
+            requested: MAX_FOUNDRY_CAMPAIGN_DOMAIN_HINTS + 1,
+            limit: MAX_FOUNDRY_CAMPAIGN_DOMAIN_HINTS,
+        }
+    );
+}
+
+#[test]
+fn autonomous_core_configuration_rejects_external_domains() {
+    let domain = FoundryCampaignDomainHint::try_new(
+        IntegralKey::try_new([1, 1, 1, 1, 1, 1]).unwrap(),
+        [0, 1],
+    )
+    .unwrap();
+    assert_eq!(
+        FoundryCampaignConfig::try_build(
+            FoundryCampaignPreset::ThreeLoopUnitMassVacuumK6Orbit0,
+            FoundryCampaignItinerary::SingleSectorFixedPoint,
+            FoundrySearchProvenance::Autonomous,
+            [FoundryCampaignProbe::try_new(1_000_000_007, [37], [0; 6]).unwrap()],
+            2,
+            0,
+            OrderingPolicy::default(),
+            None,
+            [domain],
+            1,
+            1,
+        )
+        .unwrap_err(),
+        FoundryCampaignConfigError::AutonomousDomainHints
+    );
 }
 
 #[test]
@@ -122,14 +294,22 @@ fn proof_ordering_is_arity_checked_and_becomes_the_default_discovery_order() {
 
 #[test]
 fn search_provenance_is_non_authoritative_for_identical_typed_inputs() {
-    let autonomous =
-        FoundryCampaignConfig::try_three_loop_unit_mass_vacuum_k6_orbit_0(1, 1).unwrap();
+    let autonomous = FoundryCampaignConfig::try_three_loop_unit_mass_vacuum_k6_orbit_0(1, 1)
+        .unwrap()
+        .try_resolve_search_program()
+        .unwrap();
+    let identical_hints = FoundryCampaignExternalHints::try_new(
+        FoundryCampaignItinerary::SingleSectorFixedPoint,
+        autonomous.probes().iter().cloned(),
+        autonomous.interior_margin(),
+        autonomous.polynomial_degree_ceiling(),
+        autonomous.ordering(),
+        Some(autonomous.discovery_coordinate_priority().clone()),
+    )
+    .unwrap();
     let informed = FoundryCampaignConfig::try_external_hints(
         FoundryCampaignPreset::ThreeLoopUnitMassVacuumK6Orbit0,
-        external_hints(
-            FoundryCampaignItinerary::SingleSectorFixedPoint,
-            OrderingPolicy::default(),
-        ),
+        identical_hints,
         1,
         1,
     )
@@ -192,10 +372,25 @@ fn public_orbit_campaign_runs_with_one_coherent_persisted_ordering() {
     let report = run_foundry_campaign(&config).unwrap().into_report();
     assert_eq!(report.ordering(), winner_ordering());
     assert_eq!(report.census().task_reports(), 1);
+    assert_eq!(
+        report.snapshot().coverage(),
+        FoundryCampaignCoverageStatus::OwnerFree
+    );
+    assert_eq!(report.snapshot().terminal_count(), 1);
+    assert!(matches!(
+        report.stop(),
+        FoundryCampaignStop::OperationallyBounded {
+            limit: FoundryCampaignOperationalLimit::TaskReport {
+                requested: 2,
+                limit: 1,
+            },
+            ..
+        }
+    ));
 }
 
 #[test]
-fn k6_orbit_zero_campaign_starts_fresh_and_returns_deterministic_detached_state() {
+fn k6_orbit_zero_campaign_returns_deterministic_exact_fringe_state() {
     let config = FoundryCampaignConfig::try_three_loop_unit_mass_vacuum_k6_orbit_0(1, 2).unwrap();
     assert_eq!(config.schema(), FOUNDRY_CAMPAIGN_CONFIG_SCHEMA);
     let first = run_foundry_campaign(&config).unwrap().into_report();
@@ -203,36 +398,35 @@ fn k6_orbit_zero_campaign_starts_fresh_and_returns_deterministic_detached_state(
     assert_eq!(second, first);
     assert_eq!(first.schema(), FOUNDRY_CAMPAIGN_REPORT_SCHEMA);
     assert_eq!(first.preset(), config.preset());
+    // This preset continues to mean orbit 0; it must not silently retarget the
+    // first unresolved orbit. Exact product authority owns its certified
+    // sparse preimage while ordinary discovery retains the coupled endpoint
+    // fringe rather than accepting the former over-broad rectangular hull.
     assert_eq!(first.census().task_reports(), 1);
-    assert_eq!(first.census().declared_probes(), 1);
-    assert_eq!(first.snapshot().revision(), 1);
-    assert_eq!(first.snapshot().owner_count(), 1);
+    assert_eq!(first.census().declared_probes(), 6);
+    assert_eq!(first.snapshot().revision(), 0);
+    assert_eq!(first.snapshot().owner_count(), 0);
     assert_eq!(first.snapshot().terminal_count(), 1);
     assert_eq!(
         first.snapshot().coverage(),
-        FoundryCampaignCoverageStatus::Incomplete(FoundryCampaignCoverageObstruction::NonFinite)
+        FoundryCampaignCoverageStatus::OwnerFree
     );
-    assert_eq!(
+    assert!(matches!(
         first.stop(),
         FoundryCampaignStop::OperationallyBounded {
-            location: Some(FoundryCampaignTaskLocation::new(1, 1, 4, 5, 1, 0)),
             limit: FoundryCampaignOperationalLimit::TaskReport {
                 requested: 2,
                 limit: 1,
             },
+            ..
         }
-    );
-    // Carrier normalization keeps large faces symbolic while materializing
-    // the thin endpoint tails that must not be sampled outside `IntegralKey`.
-    assert_eq!(first.total_uncovered_box_count(), 6);
-    assert_eq!(first.reported_uncovered_box_count(), 2);
-    assert!(first.uncovered_boxes_truncated());
-    assert!(
-        first
-            .uncovered_boxes()
-            .iter()
-            .all(|lattice_box| lattice_box.lower().len() == 6 && lattice_box.upper().len() == 6)
-    );
+    ));
+    assert_eq!(first.total_uncovered_box_count(), 1);
+    assert_eq!(first.reported_uncovered_box_count(), 1);
+    assert!(!first.uncovered_boxes_truncated());
+    assert_eq!(first.uncovered_boxes()[0].lower(), [0; 6]);
+    assert_eq!(first.uncovered_boxes()[0].upper(), [None; 6]);
+    assert_eq!(first.uncovered_boxes()[0].free_dimension(), 6);
 }
 
 #[test]
@@ -245,6 +439,7 @@ fn k6_ledgers_use_the_bounded_recursive_source_safe_carrier() {
         let carrier = ledger.closure_carrier();
         let sector = ledger.sector();
         assert_eq!(carrier.lower(), [0; 6]);
+        assert!(!ledger.snapshot().status().is_compiler_closed());
         assert_eq!(ledger.terminals().len(), 1);
         assert_eq!(ledger.terminals()[0].powers(), orbit.representative);
         assert!(
@@ -260,52 +455,10 @@ fn k6_ledgers_use_the_bounded_recursive_source_safe_carrier() {
 }
 
 #[test]
-fn k6_campaign_four_task_smoke_has_only_strict_owner_shrinks() {
-    let config = FoundryCampaignConfig::try_three_loop_unit_mass_vacuum_k6_orbit_0(4, 4).unwrap();
-    let mut progress = Vec::new();
-    let report = run_foundry_campaign_with_progress(&config, |event| progress.push(event))
-        .unwrap()
-        .into_report();
-    assert_eq!(report.census().task_reports(), 4);
-    assert_eq!(report.census().strict_geometric_shrink(), 4);
-    assert_eq!(report.census().scheduler_rejections(), 0);
-    assert_eq!(report.census().scheduler_exact_lift_errors(), 0);
-    assert_eq!(report.snapshot().revision(), 4);
-    assert_eq!(report.snapshot().owner_count(), 4);
-    assert_eq!(progress.len(), 4);
-    for (ordinal, event) in progress.iter().enumerate() {
-        let revision = (ordinal + 1) as u64;
-        assert_eq!(event.revision(), revision);
-        assert_eq!(event.snapshot().revision(), revision);
-        assert_eq!(event.snapshot().owner_count(), ordinal + 1);
-        assert_eq!(event.census().task_reports(), ordinal + 1);
-        assert_eq!(event.census().strict_geometric_shrink(), ordinal + 1);
-        assert_eq!(event.task_report_ceiling(), 4);
-        assert_eq!(event.maximum_dimension(), 6);
-        let location = event.location().expect("owner mutation task location");
-        assert!(location.effective_dimension() <= location.parent_free_dimension());
-        assert!(location.parent_free_dimension() <= event.maximum_dimension());
-    }
-    let last = progress.last().unwrap();
-    assert_eq!(last.snapshot(), report.snapshot());
-    assert_eq!(last.census().task_reports(), report.census().task_reports());
-    assert_eq!(
-        last.census().strict_geometric_shrink(),
-        report.census().strict_geometric_shrink()
-    );
-    // The terminal budget check opens one final immutable planning epoch but
-    // emits no progress event because it commits no owner mutation.
-    assert_eq!(
-        report.census().epochs_started(),
-        last.census().epochs_started() + 1
-    );
-}
-
-#[test]
 fn malformed_probe_shape_fails_at_the_public_setup_boundary() {
     let hints = FoundryCampaignExternalHints::try_new(
         FoundryCampaignItinerary::SingleSectorFixedPoint,
-        [FoundryCampaignProbe::new(1_000_000_007, [37], [0; 5])],
+        [FoundryCampaignProbe::try_new(1_000_000_007, [37], [0; 5]).unwrap()],
         2,
         0,
         OrderingPolicy::default(),

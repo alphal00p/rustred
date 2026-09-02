@@ -295,10 +295,26 @@ rules. `rustred campaign run` selects the autonomous single-sector itinerary;
 itinerary. External hints state the same itinerary explicitly and are rejected
 at the wrong entry point. Single-sector reports remain diagnostic and carry
 `artifact_published = false`. Full-wave reports distinguish an exact in-memory
-`artifact_installed` result from `durable_artifact_published`: the latter stays
-false while durable K6 encoding remains typed unsupported. The corresponding
-Python functions are `rustred.run_foundry_campaign(config)` and
+`artifact_installed` result from `durable_artifact_published`: the latter is
+true only after deterministic K6 encoding, independent cold-load validation,
+exact regenerated-source replay, and canonical re-encoding all succeed. An
+incomplete run exposes no artifact bytes; it instead reports each blocking
+orbit's typed stop and exact residual-box census, with partition coordinates
+bounded per orbit by `max_reported_uncovered_boxes` and an explicit truncation
+flag. The corresponding Python functions are
+`rustred.run_foundry_campaign(config)` and
 `rustred.run_foundry_wave_campaign(config, n_cores=N)`.
+
+The repository includes two directly runnable, reviewable full-wave inputs:
+[`examples/k6_external_search_hints.toml`](examples/k6_external_search_hints.toml)
+contains the 55 raw anchor/axis rectangles from the externally informed
+itinerary, while
+[`examples/k6_autonomous_campaign.toml`](examples/k6_autonomous_campaign.toml)
+contains no hints at all. The former carries search chronology only; it has no
+identity rows, right-hand sides, coefficients, supports, reductions, owners,
+terminals, or master payload. Both can be passed unchanged to release CLI and
+Python runs, and both remain bounded investigations until exact K6 closure is
+reported.
 
 Live matcher comparison remains an integration gate, and no artifact is
 published before the complete rule fixed point closes.
@@ -543,7 +559,7 @@ Loading authenticates and exactly replays untrusted artifact bytes once;
 recursive application then uses the sealed owner without repeating cold-load
 authentication in the hot path. The `K = 6` artifact remains Stage 1 work.
 
-## Two-loop parametric-IBP examples
+## One- and two-loop parametric-IBP examples
 
 The [`examples/`](examples/) tree contains complete, runnable versions of the
 same closing-artifact calculation through the Rust library, CLI, and Python
@@ -560,6 +576,20 @@ proves exact `S3` routing and four scaleless zero sectors, and factorizes the
 two-line face through the immutable `K = 1` artifact. The two explicit masters
 are `I(1,1,1)` and `I(0,1,1)`. An arbitrary common `m^2` is restored after
 unit-mass reduction by the reported homogeneity power.
+
+The shortest complete campaign is the one-loop Python example. It generates
+and cold-loads the durable `K = 1` artifact, then reduces `I(3)` to `I(1)`:
+
+```bash
+uv venv .venv
+. .venv/bin/activate
+maturin develop --release --features extension-module
+python examples/python/one_loop_single_mass_vacuum.py
+```
+
+Its generation TOML reports one ordinary source and one guarded rule. The
+cold-loaded artifact has no uncovered branch; the reduction TOML reports
+master `[1]` with `common_mass_squared_power = -2`.
 
 The Rust example calls the public `rustred` crate directly:
 
@@ -610,7 +640,7 @@ artifact, and verifies both exact master keys and mass powers:
 ```bash
 uv venv .venv
 . .venv/bin/activate
-maturin develop --features extension-module
+maturin develop --release --features extension-module
 python examples/python/two_loop_single_mass_vacuum.py
 ```
 
@@ -673,7 +703,8 @@ Stable design documents are:
 - [six-loop algorithm and implementation update](docs/research/six_loop_algorithm_update_2026.md);
 - [six-loop execution runbook](docs/research/six_loop_execution_runbook_2026.md);
 - [dual-obstruction source-discovery design and evidence boundary](docs/research/dual_obstruction_source_discovery_2026.md);
-- [Vakint K6 oracle and terminal-budget audit](docs/research/vakint_k6_oracle.md); and
+- [Vakint K6 oracle and terminal-budget audit](docs/research/vakint_k6_oracle.md);
+- [blind-domain-guided Janet closure synthesis](docs/research/blind_domain_janet_closure_2026.md); and
 - [current CLI contract](docs/CLI.md).
 
 Local LiteRed2, GammaLoop/Vakint, FORM, and other reference checkouts live only

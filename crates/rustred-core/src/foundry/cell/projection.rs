@@ -2,7 +2,7 @@ use crate::algebra::IndexedCoefficientContext;
 use crate::family::IntegralKey;
 use crate::identity::{
     IdentityConditionSource, IndexShift, ParametricNonZeroCondition, RelationBuilder,
-    TranslatedSourceBatch,
+    SelectedTranslatedSourceBatch, TranslatedSourceBatch,
 };
 use crate::sector::{Mask, SectorInteriorDomain, symmetry::Canonicalizer};
 
@@ -13,6 +13,68 @@ use super::{
 };
 
 impl SourceViewBatch {
+    /// Reconstitute one canonical sparse translated span at a cold artifact
+    /// boundary.  The selected batch remains the authority for chronology;
+    /// callers cannot provide detached relations or provenance.
+    pub(crate) fn try_from_complete_selected(
+        selected: SelectedTranslatedSourceBatch,
+        fixed: Box<[FixedIndexRestriction]>,
+    ) -> Result<Self, RuleCellError> {
+        if selected.is_empty() || selected.requests().len() != selected.sources().len() {
+            return Err(RuleCellError::EmptySourceSelection);
+        }
+        let (family_fingerprint, context_fingerprint, _, requests, sources) =
+            selected.into_foundry_parts();
+        let mut relations = Vec::new();
+        let mut provenance = Vec::new();
+        relations.try_reserve_exact(sources.len()).map_err(|_| {
+            RuleCellError::AllocationFailure {
+                resource: "cold selected-source relations",
+                requested: sources.len(),
+            }
+        })?;
+        provenance.try_reserve_exact(sources.len()).map_err(|_| {
+            RuleCellError::AllocationFailure {
+                resource: "cold selected-source provenance",
+                requested: sources.len(),
+            }
+        })?;
+        for (request, source) in requests.into_iter().zip(sources) {
+            let (relation, translated) = source.into_foundry_parts();
+            if translated.source_ordinal() != request.source_ordinal()
+                || translated.offset() != request.offset()
+            {
+                return Err(RuleCellError::ForeignContext);
+            }
+            relations.push(relation);
+            provenance.push(SourceViewProvenance {
+                translated,
+                symmetry: None,
+            });
+        }
+        let construction = if fixed.is_empty() {
+            SourceViewConstruction::Direct
+        } else {
+            for window in fixed.windows(2) {
+                if window[0].position() >= window[1].position() {
+                    return Err(RuleCellError::DuplicateFixedPosition {
+                        position: window[1].position(),
+                    });
+                }
+            }
+            SourceViewConstruction::FixedIndexSpecialization(
+                super::FixedIndexSpecializationEvidence { fixed },
+            )
+        };
+        Ok(Self {
+            family_fingerprint,
+            context_fingerprint,
+            relations,
+            provenance,
+            construction,
+        })
+    }
+
     /// Project every translated source in one complete admitted batch.
     ///
     /// Unlike the ordinal-selection entry point, this admits every row already

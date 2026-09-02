@@ -16,6 +16,10 @@ pub use model::{
     ReductionLimits, ReductionStatistics,
 };
 pub use reducer::Reducer;
+pub(crate) use reducer::{
+    CacheCensus, CacheWeight, ReductionRequest, SharedCacheBudget, accumulate_master_in_request,
+    coefficient_cache_weight, convolve_factor_expansion_in_request,
+};
 
 #[cfg(test)]
 mod tests;

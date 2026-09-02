@@ -8,20 +8,23 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, OnceLock};
 
-use crate::family::IntegralKey;
+use crate::family::{IntegralFamilyLimits, IntegralKey};
 use crate::foundry::artifact::install::{TerminalAuthorityCandidate, install_terminal_authority};
 use crate::foundry::artifact::model::{
     ArtifactSchemaVersion, ZeroSectorTerminal, ZeroTerminalProof,
 };
-use crate::foundry::artifact::one_loop::derive_one_loop_unit_mass_tadpole;
-use crate::foundry::artifact::two_loop::derive_two_loop_unit_mass_sunset;
+use crate::foundry::artifact::one_loop::derive_one_loop_unit_mass_tadpole_with_limits;
+use crate::foundry::artifact::two_loop::derive_two_loop_unit_mass_sunset_with_limits;
 use crate::foundry::artifact::{ArtifactError, ClosedTerminalAuthority};
+use crate::foundry::parametric::ParametricRuleLimits;
 use crate::identity::{ParametricIbpConfig, ParametricIbpGenerator};
 use crate::sector::OrderingPolicy;
 
 use super::factorization::factorization_rules;
 use super::terminals::exact_zero_sectors;
-use super::{FULL_RANK_ORBITS, canonical_family, canonical_s4, canonical_s4_with_ordering};
+use super::{
+    FULL_RANK_ORBITS, canonical_family_with_limits, canonical_s4, canonical_s4_with_ordering,
+};
 
 const AUTHORITY_ID: &str = "rustred.three-loop-unit-mass-vacuum-k6.terminal-authority.v1";
 static AUTHORITY: OnceLock<Result<Arc<ClosedTerminalAuthority>, ArtifactError>> = OnceLock::new();
@@ -47,7 +50,9 @@ pub(crate) fn fresh_k6_terminal_authority_for_test()
 }
 
 fn build_k6_terminal_authority() -> Result<Arc<ClosedTerminalAuthority>, ArtifactError> {
-    install_terminal_authority(k6_candidate()?).map(Arc::new)
+    install_terminal_authority(k6_candidate()?)
+        .and_then(require_complete_product_programs)
+        .map(Arc::new)
 }
 
 /// Install an uncached K6 terminal registry under the exact ordering used by
@@ -57,6 +62,42 @@ pub(crate) fn derive_k6_terminal_authority_with_ordering(
     ordering: OrderingPolicy,
 ) -> Result<ClosedTerminalAuthority, ArtifactError> {
     install_terminal_authority(k6_candidate_with_ordering(ordering)?)
+        .and_then(require_complete_product_programs)
+}
+
+/// Reconstruct the registered authority under an explicit untrusted-load
+/// resource policy. Unlike the cached production authority, this path also
+/// applies the caller's limits to the K=6 family, indexed source context, and
+/// both nested durable dependency artifacts.
+pub(crate) fn derive_k6_terminal_authority_with_ordering_and_limits(
+    ordering: OrderingPolicy,
+    family_limits: IntegralFamilyLimits,
+    source_limits: ParametricIbpConfig,
+    rule_limits: ParametricRuleLimits,
+) -> Result<ClosedTerminalAuthority, ArtifactError> {
+    install_terminal_authority(k6_candidate_with_ordering_and_limits(
+        ordering,
+        family_limits,
+        source_limits,
+        rule_limits,
+    )?)
+    .and_then(require_complete_product_programs)
+}
+
+fn require_complete_product_programs(
+    authority: ClosedTerminalAuthority,
+) -> Result<ClosedTerminalAuthority, ArtifactError> {
+    if authority.factorized_product_programs().len() != authority.factorization_rules().len()
+        || authority
+            .factorized_product_programs()
+            .iter()
+            .any(Option::is_none)
+    {
+        return Err(ArtifactError::InvalidFactorization {
+            detail: "the K6 terminal authority lacks an exact dependency-root preimage product-moment executor",
+        });
+    }
+    Ok(authority)
 }
 
 fn k6_candidate() -> Result<TerminalAuthorityCandidate, ArtifactError> {
@@ -66,14 +107,27 @@ fn k6_candidate() -> Result<TerminalAuthorityCandidate, ArtifactError> {
 fn k6_candidate_with_ordering(
     ordering: OrderingPolicy,
 ) -> Result<TerminalAuthorityCandidate, ArtifactError> {
-    let family = canonical_family()?;
+    k6_candidate_with_ordering_and_limits(
+        ordering,
+        IntegralFamilyLimits::default(),
+        ParametricIbpConfig::default(),
+        ParametricRuleLimits::default(),
+    )
+}
+
+fn k6_candidate_with_ordering_and_limits(
+    ordering: OrderingPolicy,
+    family_limits: IntegralFamilyLimits,
+    source_limits: ParametricIbpConfig,
+    rule_limits: ParametricRuleLimits,
+) -> Result<TerminalAuthorityCandidate, ArtifactError> {
+    let family = canonical_family_with_limits(family_limits)?;
     let canonicalizer = if ordering == OrderingPolicy::default() {
         canonical_s4(&family)?
     } else {
         canonical_s4_with_ordering(&family, ordering)?
     };
-    let generator =
-        ParametricIbpGenerator::try_new_with_config(&family, ParametricIbpConfig::default())?;
+    let generator = ParametricIbpGenerator::try_new_with_config(&family, source_limits)?;
     let context = generator.context().clone();
     drop(generator);
 
@@ -89,8 +143,16 @@ fn k6_candidate_with_ordering(
         })
         .collect();
     let dependencies = vec![
-        Box::new(derive_two_loop_unit_mass_sunset()?),
-        Box::new(derive_one_loop_unit_mass_tadpole()?),
+        Box::new(derive_two_loop_unit_mass_sunset_with_limits(
+            family_limits,
+            source_limits,
+            rule_limits,
+        )?),
+        Box::new(derive_one_loop_unit_mass_tadpole_with_limits(
+            family_limits,
+            source_limits,
+            rule_limits,
+        )?),
     ];
     let factorization_rules = factorization_rules(&family)?;
     let parent_terminals = [

@@ -520,9 +520,10 @@ artifact to exist during discovery. The first boundary is now present:
 strongly owns its exact predecessor snapshot, rechecks every owner's complete
 scope, and preserves the already paired proof circuits and executable cells.
 It deliberately has no weak pointer- or label-derived identity. The solved
-layer type, its content-bound identity, snapshot extension, and persistence are
-the next owner-boundary implementation; they are not yet present in the
-production foundry.
+layer type, its content-bound identity, transactional same-rank snapshot
+extension, symmetry routes, and K6 persistence path are now implemented. This
+infrastructure can publish only a complete wave; it does not turn the current
+nonfinite K6 residual into a closed cover.
 
 The proposed layer cover is deliberately hybrid. An immutable half-open
 axis-block trie is the disjoint coordinate authority; a hash-consed ordered
@@ -781,7 +782,8 @@ deliberately provides neither migration nor a dual decoder; RustRed artifact
 schemas have no backward-compatibility promise, including inside Vakint.
 Vakint's API/defaults and existing FORM methods retain their separate backward-
 compatibility obligation. Schema V4 records the semantics needed to load and
-apply the sealed `K = 1` and `K = 3` artifacts:
+apply the sealed `K = 1` and `K = 3` artifacts and the registered payload for
+an eventually fully published `K = 6` proof chain:
 
 - schema/algorithm identifiers and canonical bounded sparse binary Symbolica
   rational-polynomial payloads;
@@ -813,9 +815,26 @@ publication remains an application-layer responsibility. The `K = 3`
 installer independently validates its complete five-cell projection,
 symmetry, factorization, and terminal layout at this cold boundary. No such
 authentication is repeated by recursive hot-path reduction. Schema v4 records
-the generic typed dependency-master product embeddings needed by `K3 x K1`;
-the future `K = 6` codec will extend the registered algorithm payload without
-changing those semantics.
+the generic typed dependency-master product embeddings needed by `K3 x K1`.
+Its registered `K = 6` payload now persists the exact ordinary rule-cell and
+published-owner proof data and cold-regenerates the authenticated product
+executors; the existence of this codec does not imply that a closing K6
+artifact has been generated.
+
+Installer-compiled product-moment programs do not claim the whole
+representable `i64` factorized sector. Their rectangular sector hull is only a
+lookup filter; exact authority additionally retains, for every nested
+dependency denominator, the sparse coupled preimage inequality obtained from
+its certified root bounds and the maximum radial/correlated shifts of inactive
+parent powers. These rows are derived cold from the authenticated
+factorization, family, and lower artifacts rather than persisted as duplicate
+algebra. Immutable owner routes transport the exact rows under the installed
+symmetry action. At reduction time, factorization selection searches that same
+authenticated orbit for the first executor-safe image, applies the compact
+product recurrence there, and caches the resulting sealed parent-master map
+under the reducer's ordinary canonical key. Thus symmetry-owned coverage and
+runtime dispatch agree even when a sector stabilizer changes the sparse
+preimage while leaving its rectangular hull unchanged.
 
 ## RAM-aware deterministic parallelism
 

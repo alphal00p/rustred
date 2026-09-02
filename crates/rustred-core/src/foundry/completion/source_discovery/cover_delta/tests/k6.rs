@@ -52,7 +52,7 @@ fn oracle_disabled_k6_interior_replay_strictly_shrinks_the_exact_blind_orthant()
     assert_eq!(plan.tasks().len(), 1);
     let task = &plan.tasks()[0];
     assert_eq!(task.lattice_target(), &[2; 6]);
-    assert_eq!(task.target_shift().values(), &[-2, -2, 2, -2, 2, 2]);
+    assert_eq!(task.target_shift().values(), &[-2, 2, 2, 2, 2, -2]);
 
     let first_owner = fixture.replay_owner(task);
     let second_owner = fixture.replay_owner(task);

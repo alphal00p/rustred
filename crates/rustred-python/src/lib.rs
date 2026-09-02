@@ -132,6 +132,7 @@ pub struct PyFoundryWaveCampaignRunResult {
     measurements_schema: &'static str,
     report_toml: String,
     measurements_toml: String,
+    artifact: Option<Vec<u8>>,
 }
 
 #[pymethods]
@@ -152,6 +153,13 @@ impl PyFoundryWaveCampaignRunResult {
 
     fn measurements_to_toml(&self) -> &str {
         &self.measurements_toml
+    }
+
+    #[getter]
+    fn artifact_bytes<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyBytes>> {
+        self.artifact
+            .as_deref()
+            .map(|bytes| PyBytes::new(py, bytes))
     }
 
     fn __repr__(&self) -> String {
@@ -450,6 +458,7 @@ fn run_foundry_wave_campaign(
         measurements_schema: result.measurements_schema(),
         report_toml: result.to_toml().to_owned(),
         measurements_toml: result.measurements_to_toml().to_owned(),
+        artifact: result.artifact_bytes().map(<[u8]>::to_vec),
     })
 }
 

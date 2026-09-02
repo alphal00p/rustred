@@ -1,6 +1,9 @@
 use crate::foundry::completion::frame::admission::{
     ExactOwnerCoverObstructionKind, ExactOwnerCoverStatus,
 };
+use crate::foundry::completion::source_discovery::leader_walk::{
+    LeaderWalkLimits, RequestedDomainScopePartition, try_plan_requested_domains,
+};
 use crate::foundry::completion::source_discovery::scheduler::{
     ProbeLocalRejectionCategory, ProbeLocalRejectionSummary, ProbeLocalStage,
 };
@@ -9,7 +12,7 @@ use crate::foundry::completion::source_discovery::{
     ExactOwnerLedgerCoverStatus, ProbeCampaignAdapter, ProbeCampaignLimits, ProbeCoordinatorCensus,
     ProbeCoordinatorConfig, ProbeCoordinatorLimits, ProbeCoordinatorNeedsRefinementReason,
     ProbeCoordinatorOperationalReason, ProbeCoordinatorStop, ProbeCoordinatorTaskLocation,
-    TaskRelativeModularProbe,
+    ProbeCoordinatorTaskLocationKind, RequestedProbeCoordinatorStop, TaskRelativeModularProbe,
 };
 
 use crate::foundry::artifact::FULL_RANK_ORBITS;
@@ -19,6 +22,9 @@ use super::preset_k6::{
     k6_root_predecessor_for_ordering, shared_k6_algebra_inputs,
     try_new_k6_full_rank_ledger_with_profile_and_ordering,
 };
+use super::requested::{
+    K6RequestedDomainSpec, try_resolve_autonomous_k6_shells, try_resolve_external_k6_domains,
+};
 use super::{
     FoundryCampaignCensus, FoundryCampaignConfig, FoundryCampaignCoverageObstruction,
     FoundryCampaignCoverageStatus, FoundryCampaignError, FoundryCampaignItinerary,
@@ -26,7 +32,7 @@ use super::{
     FoundryCampaignProbeStage, FoundryCampaignProgress, FoundryCampaignReport, FoundryCampaignRun,
     FoundryCampaignSchedulerRejection, FoundryCampaignSchedulerRejectionCategory,
     FoundryCampaignSetupStage, FoundryCampaignSnapshot, FoundryCampaignStop,
-    FoundryCampaignTaskLocation, FoundryCampaignUncoveredBox,
+    FoundryCampaignTaskLocation, FoundryCampaignTaskLocationKind, FoundryCampaignUncoveredBox,
 };
 
 /// Run one bounded campaign from a fresh authenticated exact ledger.
@@ -50,6 +56,8 @@ pub fn run_foundry_campaign_with_progress(
     config: &FoundryCampaignConfig,
     observe: impl FnMut(FoundryCampaignProgress),
 ) -> Result<FoundryCampaignRun, FoundryCampaignError> {
+    let resolved = config.try_resolve_search_program()?;
+    let config = &resolved;
     if config.itinerary() != FoundryCampaignItinerary::SingleSectorFixedPoint {
         return Err(FoundryCampaignError::Invariant {
             detail: "single-sector campaign runner received a full-rank-wave itinerary",
@@ -76,7 +84,7 @@ fn run_k6_orbit_0(
         config.max_task_reports(),
     )
     .map_err(|error| FoundryCampaignError::setup(FoundryCampaignSetupStage::Ledger, error))?;
-    let campaign_limits = ProbeCampaignLimits::default();
+    let campaign_limits = resource_profile.probe_campaign_limits();
     let ledger = try_new_k6_full_rank_ledger_with_profile_and_ordering(
         inputs,
         representative,
@@ -93,14 +101,15 @@ fn run_k6_orbit_0(
     )
     .map_err(|error| FoundryCampaignError::setup(FoundryCampaignSetupStage::Coordinator, error))?;
     let coordinator_config = try_build_coordinator_config(config, campaign_limits)?;
-    if ledger.revision().get() != 0 || ledger.snapshot().owner_count() != 0 {
+    if ledger.revision().get() != 0 || !ledger.owners().is_empty() {
         return Err(FoundryCampaignError::Invariant {
-            detail: "built-in campaign did not start from a fresh owner-free ledger",
+            detail: "built-in campaign did not start without discovered ordinary owners",
         });
     }
     let maximum_dimension = ledger.closure_carrier().arity();
     let retained = try_drive_live_ledger_until_terminal_with_progress(
         coordinator_config,
+        config,
         adapter,
         ledger,
         |exact, census, location| {
@@ -113,9 +122,10 @@ fn run_k6_orbit_0(
             ));
         },
     )?;
+    let final_census = retained.final_census();
     let (ledger, terminal_stop) = retained.into_parts();
 
-    detach_run(config, ledger, terminal_stop)
+    detach_run(config, ledger, terminal_stop, final_census)
 }
 
 pub(super) fn try_build_coordinator_config(
@@ -169,6 +179,7 @@ pub(super) fn try_build_coordinator_config(
 pub(crate) struct RetainedLedgerCampaignRun {
     ledger: CanonicalExactOwnerLedger,
     terminal_stop: ProbeCoordinatorStop,
+    final_census: ProbeCoordinatorCensus,
 }
 
 impl RetainedLedgerCampaignRun {
@@ -180,6 +191,13 @@ impl RetainedLedgerCampaignRun {
         &self.terminal_stop
     }
 
+    /// Final cumulative coordinator census. The retained terminal reason may
+    /// deliberately be the first local obstruction, while later probing can
+    /// still increase cumulative work without mutating the owner ledger.
+    pub(crate) const fn final_census(&self) -> ProbeCoordinatorCensus {
+        self.final_census
+    }
+
     pub(crate) fn into_parts(self) -> (CanonicalExactOwnerLedger, ProbeCoordinatorStop) {
         (self.ledger, self.terminal_stop)
     }
@@ -187,6 +205,7 @@ impl RetainedLedgerCampaignRun {
 
 pub(crate) fn try_drive_live_ledger_until_terminal_with_progress<'inputs, 'sources, 'family>(
     coordinator_config: ProbeCoordinatorConfig,
+    campaign_config: &FoundryCampaignConfig,
     adapter: ProbeCampaignAdapter<'inputs, 'sources, 'family>,
     mut ledger: CanonicalExactOwnerLedger,
     mut observe: impl FnMut(
@@ -199,27 +218,139 @@ pub(crate) fn try_drive_live_ledger_until_terminal_with_progress<'inputs, 'sourc
         .map_err(|error| {
         FoundryCampaignError::setup(FoundryCampaignSetupStage::Coordinator, error)
     })?;
+    let external_domains = try_resolve_external_k6_domains(
+        campaign_config,
+        ledger.predecessor_snapshot(),
+        ledger.sector(),
+    )?;
+    let mut autonomous_shell_depth = 0usize;
+    let requested_domain_limits = LeaderWalkLimits::default();
+    let mut first_local_obstruction = None;
 
     loop {
-        match coordinator.try_run_boundary_epoch(&mut ledger) {
-            ProbeCoordinatorStop::OwnerSetChanged(changed) => {
-                let expected_revision = changed.before_revision().checked_add(1).ok_or(
-                    FoundryCampaignError::Invariant {
-                        detail: "owner mutation overflowed the exact ledger revision",
-                    },
-                )?;
-                if changed.after_revision() != expected_revision
-                    || ledger.revision().get() != changed.after_revision()
-                {
-                    return Err(FoundryCampaignError::Invariant {
-                        detail: "owner mutation did not advance the fresh ledger by one revision",
+        let partition = ledger.try_clone_uncovered_partition().map_err(|error| {
+            FoundryCampaignError::Execution {
+                message: error.to_string(),
+            }
+        })?;
+        let blind_domains = match try_resolve_autonomous_k6_shells(
+            &partition,
+            autonomous_shell_depth,
+            campaign_config.discovery_coordinate_priority(),
+            requested_domain_limits,
+        ) {
+            Ok(domains) => domains,
+            Err(
+                error @ (FoundryCampaignError::ResourceCountOverflow { .. }
+                | FoundryCampaignError::ResourceLimit { .. }),
+            ) => {
+                if let Some(terminal_stop) = first_local_obstruction.take() {
+                    return Ok(RetainedLedgerCampaignRun {
+                        ledger,
+                        terminal_stop,
+                        final_census: coordinator.census(),
                     });
                 }
-                observe(
-                    ledger.snapshot(),
-                    changed.census(),
-                    Some(changed.location()),
-                );
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
+        let requested_domains = match merge_requested_domains(
+            &external_domains,
+            blind_domains,
+            requested_domain_limits,
+        ) {
+            Ok(domains) => domains,
+            Err(
+                error @ (FoundryCampaignError::ResourceCountOverflow { .. }
+                | FoundryCampaignError::ResourceLimit { .. }),
+            ) => {
+                if let Some(terminal_stop) = first_local_obstruction.take() {
+                    return Ok(RetainedLedgerCampaignRun {
+                        ledger,
+                        terminal_stop,
+                        final_census: coordinator.census(),
+                    });
+                }
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
+        if !requested_domains.is_empty() {
+            let requested_stop = try_run_requested_phase(
+                &mut coordinator,
+                &mut ledger,
+                &requested_domains,
+                requested_domain_limits,
+            )?;
+            match requested_stop {
+                RequestedProbeCoordinatorStop::OwnerSetChanged(changed) => {
+                    validate_and_observe_owner_change(&ledger, &changed, &mut observe)?;
+                    first_local_obstruction = None;
+                    autonomous_shell_depth = 0;
+                    continue;
+                }
+                RequestedProbeCoordinatorStop::CompilerClosed {
+                    census,
+                    ledger_snapshot,
+                    exact,
+                } => {
+                    // Requested and boundary closure have the same exact
+                    // compiler authority. If this phase ran a task, that task
+                    // committed the closing owner and must produce the same
+                    // detached mutation callback as boundary closure.
+                    if census.task_reports() != 0 {
+                        observe(ledger.snapshot(), census, None);
+                    }
+                    return Ok(RetainedLedgerCampaignRun {
+                        ledger,
+                        terminal_stop: ProbeCoordinatorStop::CompilerClosed {
+                            census,
+                            ledger_snapshot,
+                            exact,
+                        },
+                        final_census: coordinator.census(),
+                    });
+                }
+                RequestedProbeCoordinatorStop::NeedsRefinement(stop) => {
+                    if first_local_obstruction.is_none() {
+                        first_local_obstruction = Some(ProbeCoordinatorStop::NeedsRefinement(stop));
+                    }
+                }
+                RequestedProbeCoordinatorStop::OperationallyBounded(stop) => {
+                    if matches!(
+                        stop.reason(),
+                        ProbeCoordinatorOperationalReason::IncompleteProbeExecution { .. }
+                    ) {
+                        if first_local_obstruction.is_none() {
+                            first_local_obstruction =
+                                Some(ProbeCoordinatorStop::OperationallyBounded(stop));
+                        }
+                    } else {
+                        return Ok(RetainedLedgerCampaignRun {
+                            ledger,
+                            terminal_stop: ProbeCoordinatorStop::OperationallyBounded(stop),
+                            final_census: coordinator.census(),
+                        });
+                    }
+                }
+                RequestedProbeCoordinatorStop::Failed(failure) => {
+                    return Err(FoundryCampaignError::Execution {
+                        message: failure.failure().to_string(),
+                    });
+                }
+                RequestedProbeCoordinatorStop::PhaseCompleted { .. } => {
+                    // Local stability is not exhaustion. Service the complete
+                    // generic boundary schedule on this same live revision.
+                }
+            }
+        }
+
+        match coordinator.try_run_boundary_epoch(&mut ledger) {
+            ProbeCoordinatorStop::OwnerSetChanged(changed) => {
+                validate_and_observe_owner_change(&ledger, &changed, &mut observe)?;
+                first_local_obstruction = None;
+                autonomous_shell_depth = 0;
             }
             ProbeCoordinatorStop::Failed(failure) => {
                 return Err(FoundryCampaignError::Execution {
@@ -237,25 +368,203 @@ pub(crate) fn try_drive_live_ledger_until_terminal_with_progress<'inputs, 'sourc
                 return Ok(RetainedLedgerCampaignRun {
                     ledger,
                     terminal_stop: stop,
+                    final_census: coordinator.census(),
                 });
             }
-            stop => {
-                return Ok(RetainedLedgerCampaignRun {
-                    ledger,
-                    terminal_stop: stop,
-                });
+            ProbeCoordinatorStop::NeedsRefinement(stop) => {
+                if first_local_obstruction.is_none() {
+                    first_local_obstruction = Some(ProbeCoordinatorStop::NeedsRefinement(stop));
+                }
+                autonomous_shell_depth = autonomous_shell_depth.checked_add(1).ok_or(
+                    FoundryCampaignError::Invariant {
+                        detail: "autonomous K6 shell depth overflowed usize",
+                    },
+                )?;
+            }
+            ProbeCoordinatorStop::OperationallyBounded(stop) => {
+                if matches!(
+                    stop.reason(),
+                    ProbeCoordinatorOperationalReason::IncompleteProbeExecution { .. }
+                ) {
+                    if first_local_obstruction.is_none() {
+                        first_local_obstruction =
+                            Some(ProbeCoordinatorStop::OperationallyBounded(stop));
+                    }
+                    autonomous_shell_depth = autonomous_shell_depth.checked_add(1).ok_or(
+                        FoundryCampaignError::Invariant {
+                            detail: "autonomous K6 shell depth overflowed usize",
+                        },
+                    )?;
+                } else {
+                    return Ok(RetainedLedgerCampaignRun {
+                        ledger,
+                        terminal_stop: ProbeCoordinatorStop::OperationallyBounded(stop),
+                        final_census: coordinator.census(),
+                    });
+                }
+            }
+            ProbeCoordinatorStop::ExhaustedAtConfig { .. } => {
+                autonomous_shell_depth = autonomous_shell_depth.checked_add(1).ok_or(
+                    FoundryCampaignError::Invariant {
+                        detail: "autonomous K6 shell depth overflowed usize",
+                    },
+                )?;
             }
         }
     }
+}
+
+fn merge_requested_domains(
+    external: &[K6RequestedDomainSpec],
+    blind: Vec<K6RequestedDomainSpec>,
+    limits: LeaderWalkLimits,
+) -> Result<Vec<K6RequestedDomainSpec>, FoundryCampaignError> {
+    let requested =
+        external
+            .len()
+            .checked_add(blind.len())
+            .ok_or(FoundryCampaignError::Invariant {
+                detail: "combined K6 requested-domain count overflowed usize",
+            })?;
+    if requested > limits.max_tasks {
+        return Err(FoundryCampaignError::ResourceLimit {
+            stage: FoundryCampaignSetupStage::RequestedDomains,
+            resource: "combined K6 requested domains",
+            requested,
+            limit: limits.max_tasks,
+        });
+    }
+    let requested_coordinate_cells =
+        external
+            .iter()
+            .chain(&blind)
+            .try_fold(0usize, |retained, domain| {
+                let domain_cells = domain.retained_coordinate_cells()?;
+                retained.checked_add(domain_cells).ok_or(
+                    FoundryCampaignError::ResourceCountOverflow {
+                        stage: FoundryCampaignSetupStage::RequestedDomains,
+                        resource: "combined K6 requested-domain coordinate cells",
+                    },
+                )
+            })?;
+    if requested_coordinate_cells > limits.max_task_coordinate_cells {
+        return Err(FoundryCampaignError::ResourceLimit {
+            stage: FoundryCampaignSetupStage::RequestedDomains,
+            resource: "combined K6 requested-domain coordinate cells",
+            requested: requested_coordinate_cells,
+            limit: limits.max_task_coordinate_cells,
+        });
+    }
+    let mut merged = Vec::new();
+    merged
+        .try_reserve_exact(requested)
+        .map_err(|_| FoundryCampaignError::Setup {
+            stage: FoundryCampaignSetupStage::RequestedDomains,
+            message: format!("could not reserve {requested} combined K6 requested domains"),
+        })?;
+    let mut seen = std::collections::BTreeSet::new();
+    for domain in external.iter().cloned().chain(blind) {
+        if seen.insert(domain.clone()) {
+            merged.push(domain);
+        }
+    }
+    Ok(merged)
+}
+
+fn try_run_requested_phase<'inputs, 'sources, 'family>(
+    coordinator: &mut BoundaryProbeCoordinator<'inputs, 'sources, 'family>,
+    ledger: &mut CanonicalExactOwnerLedger,
+    specs: &[K6RequestedDomainSpec],
+    limits: LeaderWalkLimits,
+) -> Result<RequestedProbeCoordinatorStop, FoundryCampaignError> {
+    let partition = ledger.try_clone_uncovered_partition().map_err(|error| {
+        FoundryCampaignError::Execution {
+            message: error.to_string(),
+        }
+    })?;
+    let mut requests = Vec::new();
+    requests
+        .try_reserve_exact(specs.len())
+        .map_err(|_| FoundryCampaignError::Setup {
+            stage: FoundryCampaignSetupStage::RequestedDomains,
+            message: format!(
+                "could not reserve {} canonical requested domains",
+                specs.len()
+            ),
+        })?;
+    for spec in specs {
+        requests.push(spec.materialize()?);
+    }
+    let plan = try_plan_requested_domains(
+        ledger.revision().get(),
+        [RequestedDomainScopePartition::new(
+            "rustred.k6.requested-domains.v1",
+            ledger.sector(),
+            &partition,
+            &requests,
+        )],
+        limits,
+    )
+    .map_err(|error| {
+        FoundryCampaignError::setup(FoundryCampaignSetupStage::RequestedDomains, error)
+    })?;
+    Ok(coordinator.try_run_requested_plan(&plan, ledger))
+}
+
+fn validate_and_observe_owner_change(
+    ledger: &CanonicalExactOwnerLedger,
+    changed: &crate::foundry::completion::source_discovery::ProbeCoordinatorOwnerSetChanged,
+    observe: &mut impl FnMut(
+        ExactOwnerCoverSnapshot,
+        ProbeCoordinatorCensus,
+        Option<ProbeCoordinatorTaskLocation>,
+    ),
+) -> Result<(), FoundryCampaignError> {
+    let expected_revision =
+        changed
+            .before_revision()
+            .checked_add(1)
+            .ok_or(FoundryCampaignError::Invariant {
+                detail: "owner mutation overflowed the exact ledger revision",
+            })?;
+    if changed.after_revision() != expected_revision
+        || ledger.revision().get() != changed.after_revision()
+    {
+        return Err(FoundryCampaignError::Invariant {
+            detail: "owner mutation did not advance the fresh ledger by one revision",
+        });
+    }
+    observe(
+        ledger.snapshot(),
+        changed.census(),
+        Some(changed.location()),
+    );
+    Ok(())
 }
 
 fn detach_run(
     config: &FoundryCampaignConfig,
     ledger: CanonicalExactOwnerLedger,
     terminal_stop: ProbeCoordinatorStop,
+    final_census: ProbeCoordinatorCensus,
 ) -> Result<FoundryCampaignRun, FoundryCampaignError> {
-    let stop = detach_stop(&terminal_stop)?;
-    let census = detach_census(terminal_stop.census());
+    let report = detach_report(config, &ledger, &terminal_stop, final_census)?;
+    Ok(FoundryCampaignRun::new(report))
+}
+
+/// Detach complete, bounded diagnostics while retaining the live ledger.
+///
+/// Full-wave orchestration needs this borrowing form so an incomplete sibling
+/// can expose its exact residual geometry without surrendering or cloning any
+/// executable-owner authority retained by the unpublished wave.
+pub(super) fn detach_report(
+    config: &FoundryCampaignConfig,
+    ledger: &CanonicalExactOwnerLedger,
+    terminal_stop: &ProbeCoordinatorStop,
+    final_census: ProbeCoordinatorCensus,
+) -> Result<FoundryCampaignReport, FoundryCampaignError> {
+    let stop = detach_stop(terminal_stop)?;
+    let census = detach_census(final_census);
     let exact = ledger.snapshot();
     let snapshot = detach_snapshot(exact);
     let partition = ledger.try_clone_uncovered_partition().map_err(|error| {
@@ -293,7 +602,7 @@ fn detach_run(
         snapshot,
         uncovered_boxes,
     );
-    Ok(FoundryCampaignRun::new(report))
+    Ok(report)
 }
 
 fn detach_stop(stop: &ProbeCoordinatorStop) -> Result<FoundryCampaignStop, FoundryCampaignError> {
@@ -333,7 +642,16 @@ fn detach_stop(stop: &ProbeCoordinatorStop) -> Result<FoundryCampaignStop, Found
 }
 
 fn detach_location(location: ProbeCoordinatorTaskLocation) -> FoundryCampaignTaskLocation {
+    let kind = match location.kind() {
+        ProbeCoordinatorTaskLocationKind::BoundarySimplex => {
+            FoundryCampaignTaskLocationKind::BoundarySimplex
+        }
+        ProbeCoordinatorTaskLocationKind::RequestedDomain { requested_ordinal } => {
+            FoundryCampaignTaskLocationKind::RequestedDomain { requested_ordinal }
+        }
+    };
     FoundryCampaignTaskLocation::new(
+        kind,
         location.ledger_revision(),
         location.class_ordinal(),
         location.effective_dimension(),

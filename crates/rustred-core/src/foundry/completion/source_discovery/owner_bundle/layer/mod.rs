@@ -13,4 +13,6 @@ mod content;
 mod model;
 
 pub(super) use content::{try_build_owner_content_key, try_compare_owner_content_exact};
-pub(crate) use model::{ClosedSectorLayer, ClosedSectorLayerContentId};
+pub(crate) use model::{
+    ClosedSectorLayer, ClosedSectorLayerContentId, try_carrier_domain_from_lattice,
+};

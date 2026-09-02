@@ -96,13 +96,28 @@ impl ImmutableOwnerRoute {
         ordering: OrderingPolicy,
         target: &SectorInteriorDomain,
     ) -> bool {
-        (!matches!(
+        let rectangularly_covered = (!matches!(
             owner,
             ImmutableOwner::SolvedRewriteSector {
                 ordering: expected,
                 ..
             } if *expected != ordering
-        )) && self.coverage.covers(target)
+        )) && self.coverage.covers(target);
+        if !rectangularly_covered {
+            return false;
+        }
+        let ImmutableOwner::Factorization { domain, .. } = owner else {
+            return true;
+        };
+        let Some(product) = domain.product() else {
+            return true;
+        };
+        match &self.transport {
+            ImmutableOwnerTransport::Direct => product.covers_domain(target),
+            ImmutableOwnerTransport::Symmetry(witness) => {
+                product.covers_transported_domain(target, witness.source_for_target())
+            }
+        }
     }
 
     pub(super) fn append_identity(
@@ -216,9 +231,17 @@ pub(super) fn try_append_owner_routes(
             transport: ImmutableOwnerTransport::Direct,
         });
         if let Some(canonicalizer) = canonicalizer {
+            let retain_every_exact_product_route = matches!(
+                owner,
+                ImmutableOwner::Factorization { domain, .. } if domain.product().is_some()
+            );
             for route in canonicalizer.routing_witnesses() {
                 let coverage = try_preimage_coverage(owner, route.source_for_target(), arity)?;
-                if seen.insert(coverage.clone()) {
+                // Equal rectangular hulls do not imply equal transported
+                // sparse product preimages. Keep every bounded authenticated
+                // witness for exact product owners; ordinary rectangular
+                // owners retain the existing hull deduplication.
+                if retain_every_exact_product_route || seen.insert(coverage.clone()) {
                     routes.push(ImmutableOwnerRoute {
                         owner_ordinal,
                         coverage,
@@ -418,8 +441,12 @@ fn try_direct_coverage(
         ImmutableOwner::ZeroSector { sector, .. } => {
             Ok(ImmutableOwnerRouteCoverage::Sector(sector.clone()))
         }
-        ImmutableOwner::Factorization { domain, .. }
-        | ImmutableOwner::SolvedRewriteSector { domain, .. } => {
+        ImmutableOwner::Factorization { .. } | ImmutableOwner::SolvedRewriteSector { .. } => {
+            let domain = match owner {
+                ImmutableOwner::Factorization { domain, .. } => domain.hull(),
+                ImmutableOwner::SolvedRewriteSector { domain, .. } => domain,
+                _ => unreachable!(),
+            };
             let mut bounds = Vec::new();
             try_reserve(
                 &mut bounds,
@@ -455,8 +482,12 @@ fn try_preimage_coverage(
         ImmutableOwner::ZeroSector { sector, .. } => Ok(ImmutableOwnerRouteCoverage::Sector(
             try_preimage_mask(sector, source_for_target)?,
         )),
-        ImmutableOwner::Factorization { domain, .. }
-        | ImmutableOwner::SolvedRewriteSector { domain, .. } => {
+        ImmutableOwner::Factorization { .. } | ImmutableOwner::SolvedRewriteSector { .. } => {
+            let domain = match owner {
+                ImmutableOwner::Factorization { domain, .. } => domain.hull(),
+                ImmutableOwner::SolvedRewriteSector { domain, .. } => domain,
+                _ => unreachable!(),
+            };
             let raw_sector = try_preimage_mask(domain.sector(), source_for_target)?;
             let mut raw_bounds = try_empty_slots(arity, "owner-route factorization bounds")?;
             for (target, &source) in source_for_target.iter().enumerate() {
@@ -625,7 +656,7 @@ mod tests {
     use crate::foundry::artifact::derive_two_loop_unit_mass_sunset;
     use crate::sector::{InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain};
 
-    use super::super::ImmutableOwner;
+    use super::super::{FactorizationOwnerDomain, ImmutableOwner};
     use super::{
         ImmutableOwnerRouteCoverage, ImmutableOwnerTransport, StratumRegistryLimits,
         build_owner_route_index, try_append_owner_routes, verify_owner_routes,
@@ -638,15 +669,17 @@ mod tests {
         assert_eq!(canonicalizer.group_order(), 6);
         let owners = [ImmutableOwner::Factorization {
             source_ordinal: 0,
-            domain: SectorInteriorDomain::try_new(
-                Mask::try_new([true; 3]).unwrap(),
-                [
-                    InteriorBounds::new(1, 2),
-                    InteriorBounds::new(1, 3),
-                    InteriorBounds::new(1, 4),
-                ],
-            )
-            .unwrap(),
+            domain: FactorizationOwnerDomain::Interior(
+                SectorInteriorDomain::try_new(
+                    Mask::try_new([true; 3]).unwrap(),
+                    [
+                        InteriorBounds::new(1, 2),
+                        InteriorBounds::new(1, 3),
+                        InteriorBounds::new(1, 4),
+                    ],
+                )
+                .unwrap(),
+            ),
         }];
         let mut routes = Vec::new();
         try_append_owner_routes(
@@ -691,7 +724,7 @@ mod tests {
         let ImmutableOwner::Factorization { domain, .. } = &owners[0] else {
             unreachable!()
         };
-        assert!(domain.contains(&owner_point).unwrap());
+        assert!(domain.hull().contains(&owner_point).unwrap());
     }
 
     #[test]
@@ -702,15 +735,17 @@ mod tests {
         let owners = [
             ImmutableOwner::Factorization {
                 source_ordinal: 0,
-                domain: SectorInteriorDomain::try_new(
-                    canonical_sector.clone(),
-                    [
-                        InteriorBounds::new(1, 2),
-                        InteriorBounds::new(1, 3),
-                        InteriorBounds::new(0, 0),
-                    ],
-                )
-                .unwrap(),
+                domain: FactorizationOwnerDomain::Interior(
+                    SectorInteriorDomain::try_new(
+                        canonical_sector.clone(),
+                        [
+                            InteriorBounds::new(1, 2),
+                            InteriorBounds::new(1, 3),
+                            InteriorBounds::new(0, 0),
+                        ],
+                    )
+                    .unwrap(),
+                ),
             },
             ImmutableOwner::SolvedRewriteSector {
                 domain: SectorInteriorDomain::try_new(

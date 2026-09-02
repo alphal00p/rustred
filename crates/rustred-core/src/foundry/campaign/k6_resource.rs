@@ -9,15 +9,23 @@
 use std::fmt;
 
 use crate::foundry::completion::source_discovery::{
-    ExactOwnerContentOrderKey, ExactOwnerCoverDeltaLimits, StagedSectorClosureLimits,
+    ExactOwnerContentOrderKey, ExactOwnerCoverDeltaLimits, ProbeCampaignLimits,
+    StagedSectorClosureLimits,
 };
 
 const K6_ARITY: usize = 6;
+/// A smaller run is a diagnostic screen and should fail quickly at the
+/// ordinary per-task envelope.  A campaign with enough reports to make a
+/// serious closure attempt raises the *coupled* scheduler resources together;
+/// widening only the first named stop was measured to expose the next one.
+const K6_PROOF_REPORT_FLOOR: usize = 64;
+const K6_PROOF_SCHEDULER_MULTIPLIER: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct K6CampaignResourceProfile {
     task_report_ceiling: usize,
     exact: ExactOwnerCoverDeltaLimits,
+    probe_campaign: ProbeCampaignLimits,
 }
 
 impl K6CampaignResourceProfile {
@@ -101,14 +109,60 @@ impl K6CampaignResourceProfile {
             .max_requested_box_coordinate_cells
             .max(cover_coordinate_cells);
 
+        let mut probe_campaign = ProbeCampaignLimits::default();
+        if task_report_ceiling >= K6_PROOF_REPORT_FLOOR {
+            let scheduler = &mut probe_campaign.replay.scheduler;
+            scheduler.max_aggregate_residual_candidate_work = checked_mul(
+                "K6 aggregate residual candidate work",
+                scheduler.max_aggregate_residual_candidate_work,
+                K6_PROOF_SCHEDULER_MULTIPLIER,
+            )?;
+            scheduler.max_aggregate_residual_source_term_work = checked_mul(
+                "K6 aggregate residual source-term work",
+                scheduler.max_aggregate_residual_source_term_work,
+                K6_PROOF_SCHEDULER_MULTIPLIER,
+            )?;
+            scheduler.max_aggregate_prospective_classification_work = checked_mul(
+                "K6 aggregate prospective classification work",
+                scheduler.max_aggregate_prospective_classification_work,
+                K6_PROOF_SCHEDULER_MULTIPLIER,
+            )?;
+            scheduler.max_aggregate_obstruction_block_candidate_work = checked_mul(
+                "K6 aggregate obstruction-block candidate work",
+                scheduler.max_aggregate_obstruction_block_candidate_work,
+                K6_PROOF_SCHEDULER_MULTIPLIER,
+            )?;
+            scheduler.max_aggregate_obstruction_block_source_term_work = checked_mul(
+                "K6 aggregate obstruction-block source-term work",
+                scheduler.max_aggregate_obstruction_block_source_term_work,
+                K6_PROOF_SCHEDULER_MULTIPLIER,
+            )?;
+            scheduler.max_aggregate_obstruction_block_signature_work = checked_mul(
+                "K6 aggregate obstruction-block signature work",
+                scheduler.max_aggregate_obstruction_block_signature_work,
+                K6_PROOF_SCHEDULER_MULTIPLIER,
+            )?;
+            scheduler.max_aggregate_obstruction_block_selection_work = checked_mul(
+                "K6 aggregate obstruction-block selection work",
+                scheduler.max_aggregate_obstruction_block_selection_work,
+                K6_PROOF_SCHEDULER_MULTIPLIER,
+            )?;
+        }
+
         Ok(Self {
             task_report_ceiling,
             exact,
+            probe_campaign,
         })
     }
 
     pub(crate) const fn exact_limits(self) -> ExactOwnerCoverDeltaLimits {
         self.exact
+    }
+
+    /// Coherent one-task replay envelope for this campaign tier.
+    pub(crate) const fn probe_campaign_limits(self) -> ProbeCampaignLimits {
+        self.probe_campaign
     }
 
     /// Raise the aggregate publication envelope for a same-rank sibling wave.
@@ -316,6 +370,94 @@ mod tests {
         assert!(
             publication.max_compiled_uncovered_boxes
                 >= 2 * exact.staged.max_compiled_uncovered_boxes
+        );
+
+        let defaults = ProbeCampaignLimits::default();
+        let proof = profile.probe_campaign_limits();
+        assert_eq!(
+            proof.replay.scheduler.max_aggregate_residual_candidate_work,
+            K6_PROOF_SCHEDULER_MULTIPLIER
+                * defaults
+                    .replay
+                    .scheduler
+                    .max_aggregate_residual_candidate_work
+        );
+        assert_eq!(
+            proof
+                .replay
+                .scheduler
+                .max_aggregate_residual_source_term_work,
+            K6_PROOF_SCHEDULER_MULTIPLIER
+                * defaults
+                    .replay
+                    .scheduler
+                    .max_aggregate_residual_source_term_work
+        );
+        assert_eq!(
+            proof
+                .replay
+                .scheduler
+                .max_aggregate_prospective_classification_work,
+            K6_PROOF_SCHEDULER_MULTIPLIER
+                * defaults
+                    .replay
+                    .scheduler
+                    .max_aggregate_prospective_classification_work
+        );
+        assert_eq!(
+            proof
+                .replay
+                .scheduler
+                .max_aggregate_obstruction_block_candidate_work,
+            K6_PROOF_SCHEDULER_MULTIPLIER
+                * defaults
+                    .replay
+                    .scheduler
+                    .max_aggregate_obstruction_block_candidate_work
+        );
+        assert_eq!(
+            proof
+                .replay
+                .scheduler
+                .max_aggregate_obstruction_block_source_term_work,
+            K6_PROOF_SCHEDULER_MULTIPLIER
+                * defaults
+                    .replay
+                    .scheduler
+                    .max_aggregate_obstruction_block_source_term_work
+        );
+        assert_eq!(
+            proof
+                .replay
+                .scheduler
+                .max_aggregate_obstruction_block_signature_work,
+            K6_PROOF_SCHEDULER_MULTIPLIER
+                * defaults
+                    .replay
+                    .scheduler
+                    .max_aggregate_obstruction_block_signature_work
+        );
+        assert_eq!(
+            proof
+                .replay
+                .scheduler
+                .max_aggregate_obstruction_block_selection_work,
+            K6_PROOF_SCHEDULER_MULTIPLIER
+                * defaults
+                    .replay
+                    .scheduler
+                    .max_aggregate_obstruction_block_selection_work
+        );
+    }
+
+    #[test]
+    fn short_k6_screens_keep_the_fast_default_probe_envelope() {
+        let profile =
+            K6CampaignResourceProfile::try_for_task_report_ceiling(K6_PROOF_REPORT_FLOOR - 1)
+                .unwrap();
+        assert_eq!(
+            profile.probe_campaign_limits(),
+            ProbeCampaignLimits::default()
         );
     }
 

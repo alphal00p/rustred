@@ -1,0 +1,268 @@
+# Pure RustRed K=6 search with externally reviewed search chronology.
+#
+# The 55 rectangles below contain only integral anchors and their unbounded
+# coordinate axes. RustRed canonicalizes and deduplicates them, regenerates
+# all nine ordinary K=6 IBP rows, and retains sole authority for replay,
+# descent, coverage, terminals, and artifact publication.
+schema = "rustred.foundry-campaign-config.toml.v2"
+preset = "three-loop-unit-mass-vacuum-k6-orbit-0"
+mode = "external-hints-only"
+max_task_reports = 4096
+max_reported_uncovered_boxes = 4096
+
+[hints]
+itinerary = "full-rank-atomic-waves"
+interior_margin = 2
+polynomial_degree_ceiling = 0
+ordering_policy = "rustred.unshifted-sector-order.v1;priority=rustred.coordinate-priority.v1;k=6;rank-by-slot=5,3,4,2,0,1"
+discovery_coordinate_priority = [5, 3, 4, 2, 0, 1]
+
+[[hints.probes]]
+modulus = 1000000007
+base_parameters = [31]
+chart_offsets = [0, 0, 0, 0, 0, 0]
+
+[[hints.probes]]
+modulus = 1000000007
+base_parameters = [37]
+chart_offsets = [0, 0, 0, 0, 0, 0]
+
+[[hints.probes]]
+modulus = 1000000009
+base_parameters = [31]
+chart_offsets = [0, 0, 0, 0, 0, 0]
+
+[[hints.probes]]
+modulus = 1000000009
+base_parameters = [37]
+chart_offsets = [0, 0, 0, 0, 0, 0]
+
+[[hints.probes]]
+modulus = 998244353
+base_parameters = [31]
+chart_offsets = [0, 0, 0, 0, 0, 0]
+
+[[hints.probes]]
+modulus = 998244353
+base_parameters = [37]
+chart_offsets = [0, 0, 0, 0, 0, 0]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 0, -1, 2, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [-1, 1, 0, 0, 2, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 0, -1, 1, 2]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, -1, 0, 1, 2]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 2, -1, 0, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [-1, 2, 0, 0, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 0, 0, 2, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 0, 0, 1, 2]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 2, 0, 0, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 0, -1, 1, 1]
+symbolic_axes = [0, 2, 3]
+
+[[hints.domains]]
+anchor_powers = [0, 1, -1, 0, 1, 1]
+symbolic_axes = [0, 2]
+
+[[hints.domains]]
+anchor_powers = [-1, 1, 0, 0, 1, 1]
+symbolic_axes = [0]
+
+[[hints.domains]]
+anchor_powers = [-1, 1, 0, 1, 2, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, -1, 1, 1, 2]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 2, -1, 1, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [-1, 2, 0, 1, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 0, 1, 2, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 0, 1, 1, 2]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 0, 2, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 2, 0, 1, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, -1, 1, 1, 1]
+symbolic_axes = [0, 2]
+
+[[hints.domains]]
+anchor_powers = [-1, 1, 0, 1, 1, 1]
+symbolic_axes = [0]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 1, 1, 2, -1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [-1, 1, 1, 1, 2, 0]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 1, 2, 1, -1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [-1, 1, 1, 2, 1, 0]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 2, 1, 1, 1, -1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [-1, 2, 1, 1, 1, 0]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 2, 1, 1, -1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [-1, 1, 2, 1, 1, 0]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 1, 1, 2, 0]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 1, 3, 1, 0]
+symbolic_axes = [1, 2, 3]
+
+[[hints.domains]]
+anchor_powers = [0, 2, 1, 2, 1, 0]
+symbolic_axes = [1, 2]
+
+[[hints.domains]]
+anchor_powers = [0, 3, 1, 1, 1, 0]
+symbolic_axes = [1, 2]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 1, 1, 1, -1]
+symbolic_axes = [0, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 1, 2, 1, 0]
+symbolic_axes = [2]
+
+[[hints.domains]]
+anchor_powers = [0, 2, 1, 1, 1, 0]
+symbolic_axes = [2]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 2, 1, 1, 0]
+symbolic_axes = [2]
+
+[[hints.domains]]
+anchor_powers = [-1, 1, 1, 1, 1, 0]
+symbolic_axes = [0]
+
+[[hints.domains]]
+anchor_powers = [-1, 1, 1, 1, 2, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [-1, 1, 1, 2, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [-1, 2, 1, 1, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [-1, 1, 2, 1, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 1, 1, 2, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 1, 1, 1, 2]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 1, 2, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 2, 1, 1, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [0, 1, 2, 1, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [-1, 1, 1, 1, 1, 1]
+symbolic_axes = [0]
+
+[[hints.domains]]
+anchor_powers = [1, 1, 1, 1, 2, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [1, 1, 1, 1, 1, 2]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [1, 1, 1, 2, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [1, 2, 1, 1, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [1, 1, 2, 1, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]
+
+[[hints.domains]]
+anchor_powers = [2, 1, 1, 1, 1, 1]
+symbolic_axes = [0, 1, 2, 3, 4, 5]

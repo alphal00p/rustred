@@ -3,7 +3,10 @@
 use std::sync::Arc;
 
 use crate::family::IntegralKey;
-use crate::foundry::artifact::FULL_RANK_ORBITS;
+use crate::foundry::artifact::{
+    ArtifactCoverReplayLimits, FULL_RANK_ORBITS, K6_ARITY, K6_MASTER_TERMINAL_COUNT,
+    MAX_PUBLISHED_K6_RULE_CELLS,
+};
 use crate::foundry::completion::frame::admission::ExactOwnerCoverStatus;
 use crate::foundry::completion::source_discovery::ClosedSectorClosureWave;
 use crate::foundry::completion::stratum::ImmutableOwnerSnapshot;
@@ -16,11 +19,350 @@ use super::ClosingArtifactCandidate;
 mod source_authentication;
 
 pub(super) use source_authentication::authenticate_canonical_source_views;
+pub(super) use source_authentication::authenticate_canonical_source_views_with_limits;
 #[cfg(test)]
 pub(crate) use source_authentication::authenticate_rule_cell_source_views;
 
 const WAVE_WIDTHS: [usize; 4] = [2, 2, 1, 1];
-const MAX_PUBLISHED_RULE_CELLS: usize = 1_000_000;
+/// Recompile the persisted rule-cell/terminal geometry without trusting a
+/// campaign wave transcript.  Algebraic replay and guard validity are checked
+/// by the generic installer immediately afterwards; this pass establishes
+/// that their target boxes plus explicit full-rank terminals leave no point
+/// uncovered in any registered orbit representative.
+pub(super) fn validate_persisted_cover(
+    candidate: &ClosingArtifactCandidate,
+    factorized_product_programs: &[Option<
+        crate::foundry::artifact::factorized_product_moments::FactorizedProductMomentProgram,
+    >],
+    cover_limits: ArtifactCoverReplayLimits,
+) -> Result<(), ArtifactError> {
+    validate_candidate_shell(candidate)?;
+    if candidate.supported_root_power_bounds.len() != candidate.arity {
+        return Err(invalid(
+            "persisted K6 root-power bounds have the wrong arity",
+        ));
+    }
+    // Fail a caller-tightened arity policy before constructing even the fixed
+    // six-coordinate universe or any per-sector box container.
+    preflight_persisted_cover_inputs(candidate.arity, 0, cover_limits)?;
+    use crate::foundry::completion::{BoxCover, LatticeBox, SectorChart};
+    for orbit in FULL_RANK_ORBITS {
+        let sector = Mask::try_from_indices(&orbit.representative)?;
+        let chart = SectorChart::new(sector.clone());
+        let universe = power_box_to_lattice(
+            &chart,
+            &sector,
+            &candidate.supported_root_power_bounds,
+            None,
+        )?;
+        let requested_boxes = candidate
+            .rule_cells
+            .iter()
+            .filter(|cell| cell.application_domain().sector() == &sector)
+            .count()
+            .checked_add(
+                candidate
+                    .masters
+                    .iter()
+                    .filter(|master| {
+                        sector
+                            .active_bits()
+                            .iter()
+                            .zip(master.powers())
+                            .all(|(&active, &power)| active == (power >= 1))
+                    })
+                    .count(),
+            )
+            .ok_or(ArtifactError::ResourceCountOverflow {
+                resource: "persisted K6 cover boxes",
+            })?;
+        preflight_persisted_cover_inputs(candidate.arity, requested_boxes, cover_limits)?;
+        let mut boxes = Vec::new();
+        boxes
+            .try_reserve_exact(requested_boxes)
+            .map_err(|_| ArtifactError::AllocationFailure {
+                resource: "persisted K6 cover boxes",
+                requested: requested_boxes,
+            })?;
+        for cell in &candidate.rule_cells {
+            if cell.application_domain().sector() == &sector {
+                boxes.push(power_box_to_lattice(
+                    &chart,
+                    &sector,
+                    cell.application_domain().bounds(),
+                    Some(cell.rule().pivot().values()),
+                )?);
+            }
+        }
+        if factorized_product_programs.iter().any(Option::is_none) {
+            return Err(invalid(
+                "persisted K6 factorization lacks an authenticated product program",
+            ));
+        }
+        for master in &candidate.masters {
+            if sector
+                .active_bits()
+                .iter()
+                .zip(master.powers())
+                .all(|(&active, &power)| active == (power >= 1))
+            {
+                let point = chart
+                    .to_lattice(master)
+                    .map_err(|_| invalid("persisted K6 master is outside its sector chart"))?;
+                boxes.push(
+                    LatticeBox::try_new(
+                        point.coordinates().iter().copied(),
+                        point.coordinates().iter().copied().map(Some),
+                    )
+                    .map_err(|_| invalid("persisted K6 master box is invalid"))?,
+                );
+            }
+        }
+        debug_assert_eq!(boxes.len(), requested_boxes);
+        let uncovered = BoxCover::try_new(candidate.arity, boxes, cover_limits.geometry())
+            .and_then(|cover| cover.uncovered_within(universe))
+            .map_err(map_cover_geometry_error)?;
+        // K6 completeness of this any-one-route test is stronger than its
+        // deliberately conservative generic shape.  Within each admitted K6
+        // product-sector orbit, every transported sparse preimage is an
+        // upward-closed intersection of lower affine inequalities and every
+        // stabilizer route has the same rectangular upper carrier (the
+        // K3-times-K1 stabilizer fixes its unique singleton factor).  Hence,
+        // if a rectangular ordinary-rule remainder is covered by the route
+        // union, its power-space lower corner belongs to one route and that
+        // same route covers the complete rectangle.  Future product shapes
+        // with route-dependent upper carriers may be safely rejected here
+        // until a bounded exact union-discharge algorithm is registered.
+        for uncovered_box in uncovered.boxes() {
+            let domain = lattice_box_to_power_domain(&sector, uncovered_box)?;
+            let product_covers_remainder = factorized_product_programs
+                .iter()
+                .filter_map(Option::as_ref)
+                .any(|program| {
+                    program.exact_application_domain().covers_domain(&domain)
+                        || candidate
+                            .canonicalizer
+                            .as_ref()
+                            .is_some_and(|canonicalizer| {
+                                canonicalizer.routing_witnesses().any(|route| {
+                                    program
+                                        .exact_application_domain()
+                                        .covers_transported_domain(
+                                            &domain,
+                                            route.source_for_target(),
+                                        )
+                                })
+                            })
+                });
+            if !product_covers_remainder {
+                return Err(invalid(
+                    "persisted K6 rule cells do not close a registered full-rank orbit",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn preflight_persisted_cover_inputs(
+    arity: usize,
+    requested_boxes: usize,
+    limits: ArtifactCoverReplayLimits,
+) -> Result<(), ArtifactError> {
+    if arity > limits.max_arity {
+        return Err(ArtifactError::ResourceLimit {
+            resource: "completion coordinate arity",
+            requested: arity,
+            limit: limits.max_arity,
+        });
+    }
+    if requested_boxes > limits.max_requested_boxes {
+        return Err(ArtifactError::ResourceLimit {
+            resource: "requested structural cover boxes",
+            requested: requested_boxes,
+            limit: limits.max_requested_boxes,
+        });
+    }
+    let coordinate_cells = requested_boxes
+        .checked_mul(arity)
+        .and_then(|cells| cells.checked_mul(2))
+        .ok_or(ArtifactError::ResourceCountOverflow {
+            resource: "requested structural-cover coordinate cells",
+        })?;
+    if coordinate_cells > limits.max_requested_box_coordinate_cells {
+        return Err(ArtifactError::ResourceLimit {
+            resource: "requested structural-cover coordinate cells",
+            requested: coordinate_cells,
+            limit: limits.max_requested_box_coordinate_cells,
+        });
+    }
+    Ok(())
+}
+
+fn map_cover_geometry_error(
+    error: crate::foundry::completion::CompletionGeometryError,
+) -> ArtifactError {
+    use crate::foundry::completion::CompletionGeometryError;
+    match error {
+        CompletionGeometryError::ResourceCountOverflow { resource } => {
+            ArtifactError::ResourceCountOverflow { resource }
+        }
+        CompletionGeometryError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        } => ArtifactError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        },
+        CompletionGeometryError::AllocationFailure {
+            resource,
+            requested,
+        } => ArtifactError::AllocationFailure {
+            resource,
+            requested,
+        },
+        _ => invalid("persisted K6 exact cover geometry is invalid"),
+    }
+}
+
+fn lattice_box_to_power_domain(
+    sector: &Mask,
+    lattice: &crate::foundry::completion::LatticeBox,
+) -> Result<crate::sector::SectorInteriorDomain, ArtifactError> {
+    if lattice.arity() != sector.arity() {
+        return Err(invalid("persisted K6 uncovered box has the wrong arity"));
+    }
+    let mut bounds = Vec::new();
+    bounds
+        .try_reserve_exact(sector.arity())
+        .map_err(|_| ArtifactError::AllocationFailure {
+            resource: "persisted K6 uncovered-domain bounds",
+            requested: sector.arity(),
+        })?;
+    for (position, &active) in sector.active_bits().iter().enumerate() {
+        let lower = lattice.lower()[position];
+        let upper = lattice.upper()[position].ok_or(invalid(
+            "persisted K6 uncovered box escaped its finite root",
+        ))?;
+        let (power_lower, power_upper) = if active {
+            (
+                chart_coordinate_to_power(true, lower)?,
+                chart_coordinate_to_power(true, upper)?,
+            )
+        } else {
+            (
+                chart_coordinate_to_power(false, upper)?,
+                chart_coordinate_to_power(false, lower)?,
+            )
+        };
+        bounds.push(InteriorBounds::new(power_lower, power_upper));
+    }
+    crate::sector::SectorInteriorDomain::try_new(sector.clone(), bounds)
+        .map_err(ArtifactError::from)
+}
+
+fn chart_coordinate_to_power(active: bool, coordinate: u64) -> Result<i64, ArtifactError> {
+    if active {
+        i64::try_from(coordinate)
+            .ok()
+            .and_then(|coordinate| coordinate.checked_add(1))
+            .ok_or(invalid(
+                "persisted K6 active chart endpoint is not representable",
+            ))
+    } else if coordinate == 1_u64 << 63 {
+        Ok(i64::MIN)
+    } else {
+        i64::try_from(coordinate)
+            .ok()
+            .map(|coordinate| -coordinate)
+            .ok_or(invalid(
+                "persisted K6 inactive chart endpoint is not representable",
+            ))
+    }
+}
+
+fn power_box_to_lattice(
+    chart: &crate::foundry::completion::SectorChart,
+    sector: &Mask,
+    bounds: &[InteriorBounds],
+    shift: Option<&[i64]>,
+) -> Result<crate::foundry::completion::LatticeBox, ArtifactError> {
+    if bounds.len() != sector.arity() || shift.is_some_and(|shift| shift.len() != sector.arity()) {
+        return Err(invalid("persisted K6 target box has the wrong arity"));
+    }
+    let mut lower = Vec::new();
+    let mut upper = Vec::new();
+    lower
+        .try_reserve_exact(bounds.len())
+        .map_err(|_| ArtifactError::AllocationFailure {
+            resource: "persisted K6 lattice-lower coordinates",
+            requested: bounds.len(),
+        })?;
+    upper
+        .try_reserve_exact(bounds.len())
+        .map_err(|_| ArtifactError::AllocationFailure {
+            resource: "persisted K6 lattice-upper coordinates",
+            requested: bounds.len(),
+        })?;
+    for (position, (&active, bound)) in sector.active_bits().iter().zip(bounds).enumerate() {
+        let displacement = shift.map_or(0, |shift| shift[position]);
+        let mut low_power = bound
+            .lower()
+            .checked_add(displacement)
+            .ok_or(invalid("persisted K6 target lower endpoint overflowed"))?;
+        let mut high_power = bound
+            .upper()
+            .checked_add(displacement)
+            .ok_or(invalid("persisted K6 target upper endpoint overflowed"))?;
+        if shift.is_none() {
+            if active {
+                low_power = low_power.max(1);
+            } else {
+                high_power = high_power.min(0);
+            }
+        }
+        if low_power > high_power {
+            return Err(invalid("persisted K6 root box misses a registered sector"));
+        }
+        let low_key = IntegralKey::try_new((0..sector.arity()).map(|slot| {
+            if slot == position {
+                low_power
+            } else if sector.active_bits()[slot] {
+                1
+            } else {
+                0
+            }
+        }))?;
+        let high_key = IntegralKey::try_new((0..sector.arity()).map(|slot| {
+            if slot == position {
+                high_power
+            } else if sector.active_bits()[slot] {
+                1
+            } else {
+                0
+            }
+        }))?;
+        let low_coordinate = chart
+            .to_lattice(&low_key)
+            .map_err(|_| invalid("persisted K6 target lower endpoint leaves its sector"))?
+            .coordinates()[position];
+        let high_coordinate = chart
+            .to_lattice(&high_key)
+            .map_err(|_| invalid("persisted K6 target upper endpoint leaves its sector"))?
+            .coordinates()[position];
+        if active {
+            lower.push(low_coordinate);
+            upper.push(Some(high_coordinate));
+        } else {
+            lower.push(high_coordinate);
+            upper.push(Some(low_coordinate));
+        }
+    }
+    crate::foundry::completion::LatticeBox::try_new(lower, upper)
+        .map_err(|_| invalid("persisted K6 target box is invalid"))
+}
 
 /// Validate proof-chain topology and transfer every retained executable cell
 /// into the generic candidate before generic source/descent replay runs.
@@ -101,12 +443,27 @@ pub(super) fn prepare(
                 &mut lower,
                 &mut upper,
             )?;
-            validate_terminal_ownership(candidate, expected_sector, executable.terminals())?;
+            if executable.owners().is_empty() && executable.terminals().is_empty() {
+                // A factorized carrier needs no ordinary rule cell or master.
+                // Re-authenticate the exact published domain against the
+                // strongly retained predecessor whose compiled product
+                // programs supplied the zero-uncovered proof.
+                if !wave
+                    .predecessor()
+                    .authenticates_same_sector_domain(candidate.ordering, layer.proven_domain())
+                {
+                    return Err(invalid(
+                        "a zero-cell K6 layer is not completely owned by its retained predecessor",
+                    ));
+                }
+            } else {
+                validate_terminal_ownership(candidate, expected_sector, executable.terminals())?;
+            }
             for owner in executable.owners() {
                 cell_count = cell_count
                     .checked_add(owner.executable_candidates().len())
                     .ok_or(invalid("published K6 rule-cell count overflowed"))?;
-                if cell_count > MAX_PUBLISHED_RULE_CELLS {
+                if cell_count > MAX_PUBLISHED_K6_RULE_CELLS {
                     return Err(invalid(
                         "published K6 rule-cell count exceeds the installation limit",
                     ));
@@ -168,7 +525,17 @@ pub(super) fn prepare(
     Ok(())
 }
 
-pub(super) fn seal(candidate: ClosingArtifactCandidate) -> Result<ClosedArtifact, ArtifactError> {
+/// Seal with product programs compiled once at the untrusted load boundary.
+/// Persisted-cover validation consumes these exact authenticated domains, and
+/// the hot artifact retains the same programs without a second compilation.
+pub(super) fn seal_with_programs(
+    candidate: ClosingArtifactCandidate,
+    factorized_product_programs: Vec<
+        Option<
+            crate::foundry::artifact::factorized_product_moments::FactorizedProductMomentProgram,
+        >,
+    >,
+) -> Result<ClosedArtifact, ArtifactError> {
     validate_candidate_shell(&candidate)?;
     if candidate.supported_root_power_bounds.len() != 6 || candidate.rule_cells.is_empty() {
         return Err(invalid("prepared K6 artifact payload is incomplete"));
@@ -201,6 +568,13 @@ pub(super) fn seal(candidate: ClosingArtifactCandidate) -> Result<ClosedArtifact
         cell.rule().replay().shift_columns_checked()
     })?;
     let guards = checked_cell_sum(&candidate, |cell| cell.guards().len())?;
+    if factorized_product_programs.len() != candidate.factorization_rules.len()
+        || factorized_product_programs.iter().any(Option::is_none)
+    {
+        return Err(invalid(
+            "the K6 artifact lacks an exact dependency-root preimage product-moment executor",
+        ));
+    }
     let validation = ArtifactValidationWitness::new(
         candidate.source_relations.len(),
         replayed_source_rows,
@@ -225,6 +599,7 @@ pub(super) fn seal(candidate: ClosingArtifactCandidate) -> Result<ClosedArtifact
         canonicalizer: candidate.canonicalizer,
         dependencies: candidate.dependencies,
         factorization_rules: candidate.factorization_rules,
+        factorized_product_programs,
         masters: candidate.masters,
         zero_sectors: candidate.zero_sectors,
         common_mass_homogeneity: candidate.common_mass_homogeneity,
@@ -234,12 +609,12 @@ pub(super) fn seal(candidate: ClosingArtifactCandidate) -> Result<ClosedArtifact
 
 fn validate_candidate_shell(candidate: &ClosingArtifactCandidate) -> Result<(), ArtifactError> {
     if candidate.algorithm_id != super::super::three_loop::ALGORITHM_ID
-        || candidate.arity != 6
+        || candidate.arity != K6_ARITY
         || candidate.source_relations.len() != 9
         || !candidate.rules.is_empty()
         || candidate.dependencies.len() != 2
         || candidate.factorization_rules.len() != 3
-        || candidate.masters.len() != 6
+        || candidate.masters.len() != K6_MASTER_TERMINAL_COUNT
         || candidate.common_mass_homogeneity
             != Some(CommonMassHomogeneityProof::UniformVacuumMassSquared)
     {
@@ -416,18 +791,75 @@ mod tests {
     use crate::algebra::IndexedCoefficientContext;
     use crate::foundry::artifact::derive_two_loop_unit_mass_sunset;
     use crate::foundry::artifact::model::{ArtifactSchemaVersion, CommonMassHomogeneityProof};
+    use crate::foundry::artifact::{ArtifactCoverReplayLimits, K6_ARITY};
     use crate::foundry::cell::SourceViewConstruction;
+    use crate::foundry::completion::CompletionGeometryError;
     use crate::identity::{
         IdentityConditionSource, IntegralShift, ParametricIbpConfig, ParametricIbpGenerator,
         ParametricNonZeroCondition, ParametricRelation, RelationBuilder, RelationLimits,
     };
     use crate::sector::{InteriorBounds, OrderingPolicy};
 
-    use super::super::{ClosingArtifactCandidate, validate_generic_bindings};
+    use super::super::{
+        ClosingArtifactCandidate, compile_factorized_product_programs, validate_generic_bindings,
+    };
     use super::{
         WAVE_WIDTHS, authenticate_rule_cell_source_views, common_symmetric_endpoint,
-        merge_endpoint, seal,
+        map_cover_geometry_error, merge_endpoint, preflight_persisted_cover_inputs,
+        seal_with_programs,
     };
+
+    #[test]
+    fn persisted_cover_preflight_accepts_more_than_the_legacy_box_ceiling() {
+        let former_ceiling_plus_one = 65_537;
+        assert!(
+            preflight_persisted_cover_inputs(
+                K6_ARITY,
+                former_ceiling_plus_one,
+                ArtifactCoverReplayLimits::default(),
+            )
+            .is_ok()
+        );
+        let mut tightened = ArtifactCoverReplayLimits::default();
+        tightened.max_requested_boxes = former_ceiling_plus_one - 1;
+        assert!(
+            preflight_persisted_cover_inputs(K6_ARITY, former_ceiling_plus_one, tightened).is_err()
+        );
+
+        let mut overflow = ArtifactCoverReplayLimits::default();
+        overflow.max_requested_boxes = usize::MAX;
+        overflow.max_requested_box_coordinate_cells = usize::MAX;
+        assert_eq!(
+            preflight_persisted_cover_inputs(K6_ARITY, usize::MAX, overflow),
+            Err(
+                crate::foundry::artifact::ArtifactError::ResourceCountOverflow {
+                    resource: "requested structural-cover coordinate cells",
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn persisted_cover_geometry_resource_errors_keep_typed_payloads() {
+        assert_eq!(
+            map_cover_geometry_error(CompletionGeometryError::ResourceCountOverflow {
+                resource: "synthetic cover count",
+            }),
+            crate::foundry::artifact::ArtifactError::ResourceCountOverflow {
+                resource: "synthetic cover count",
+            }
+        );
+        assert_eq!(
+            map_cover_geometry_error(CompletionGeometryError::AllocationFailure {
+                resource: "synthetic cover allocation",
+                requested: 17,
+            }),
+            crate::foundry::artifact::ArtifactError::AllocationFailure {
+                resource: "synthetic cover allocation",
+                requested: 17,
+            }
+        );
+    }
 
     #[test]
     fn registered_wave_widths_cover_every_k6_orbit_once() {
@@ -493,7 +925,9 @@ mod tests {
             vec![InteriorBounds::new(i64::MIN, i64::MAX - 1); 6].into_boxed_slice();
         validate_generic_bindings(&candidate).unwrap();
         assert!(
-            seal(candidate).is_err(),
+            compile_factorized_product_programs(&candidate)
+                .and_then(|programs| seal_with_programs(candidate, programs))
+                .is_err(),
             "a validated shell without published executable owners must never seal",
         );
     }

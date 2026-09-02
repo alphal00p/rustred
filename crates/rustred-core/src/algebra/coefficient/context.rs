@@ -141,6 +141,16 @@ impl CoefficientContext {
             .into()
     }
 
+    /// Exact nonnegative integer coefficient without an artificial signed
+    /// machine-word ceiling. Symbolica owns the multiprecision integer
+    /// construction; callers need not widen or reimplement CAS arithmetic.
+    pub fn unsigned_integer(&self, value: u128) -> Coefficient {
+        self.template
+            .numerator
+            .constant(Integer::from(value))
+            .into()
+    }
+
     pub fn parameter(&self, name: &str) -> Option<Coefficient> {
         self.names
             .iter()

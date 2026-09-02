@@ -177,9 +177,29 @@ impl FoundryCampaignUncoveredBox {
     }
 }
 
+/// Semantic origin of one detached campaign task location.
+///
+/// A requested-domain ordinal is proposal chronology only; it never denotes
+/// a boundary service class and carries no exhaustion or closure authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FoundryCampaignTaskLocationKind {
+    BoundarySimplex,
+    RequestedDomain { requested_ordinal: usize },
+}
+
+impl FoundryCampaignTaskLocationKind {
+    pub const fn stable_id(self) -> &'static str {
+        match self {
+            Self::BoundarySimplex => "boundary_simplex",
+            Self::RequestedDomain { .. } => "requested_domain",
+        }
+    }
+}
+
 /// Canonical task location for a bounded or refinement stop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FoundryCampaignTaskLocation {
+    kind: FoundryCampaignTaskLocationKind,
     ledger_revision: u64,
     class_ordinal: usize,
     effective_dimension: usize,
@@ -190,6 +210,7 @@ pub struct FoundryCampaignTaskLocation {
 
 impl FoundryCampaignTaskLocation {
     pub(crate) const fn new(
+        kind: FoundryCampaignTaskLocationKind,
         ledger_revision: u64,
         class_ordinal: usize,
         effective_dimension: usize,
@@ -198,6 +219,7 @@ impl FoundryCampaignTaskLocation {
         task_ordinal: usize,
     ) -> Self {
         Self {
+            kind,
             ledger_revision,
             class_ordinal,
             effective_dimension,
@@ -207,6 +229,9 @@ impl FoundryCampaignTaskLocation {
         }
     }
 
+    pub const fn kind(self) -> FoundryCampaignTaskLocationKind {
+        self.kind
+    }
     pub const fn ledger_revision(self) -> u64 {
         self.ledger_revision
     }

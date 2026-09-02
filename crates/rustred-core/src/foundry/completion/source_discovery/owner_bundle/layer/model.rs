@@ -147,7 +147,7 @@ fn try_carrier_domain(
     try_carrier_domain_from_lattice(proof.sector(), proof.closure_carrier())
 }
 
-fn try_carrier_domain_from_lattice(
+pub(crate) fn try_carrier_domain_from_lattice(
     sector: &Mask,
     carrier: &LatticeBox,
 ) -> Result<SectorInteriorDomain, StratumRegistryError> {

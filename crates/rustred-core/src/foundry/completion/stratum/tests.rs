@@ -646,27 +646,31 @@ fn k6_snapshot_routes_every_factorization_and_master_orbit_image_exactly() {
     let ordering = OrderingPolicy::default();
     let factorization_base = authority.zero_sectors().len();
 
-    for (factorization_ordinal, rule) in authority.factorization_rules().iter().enumerate() {
+    for factorization_ordinal in 0..authority.factorization_rules().len() {
+        let application_hull = authority
+            .factorization_application_hull(factorization_ordinal)
+            .expect("authenticated K6 factorization program");
         let mut raw_domains = Vec::new();
         for route in canonicalizer.routing_witnesses() {
-            let raw = preimage_domain(rule.application_domain(), route.source_for_target());
+            let raw = preimage_domain(application_hull, route.source_for_target());
             if !raw_domains.contains(&raw) {
                 raw_domains.push(raw);
             }
         }
-        let expected_orbit = k6_product_orbit_size(rule.application_domain().sector());
+        let expected_orbit = k6_product_orbit_size(application_hull.sector());
         assert_eq!(raw_domains.len(), expected_orbit);
         let expected_owner = factorization_base + factorization_ordinal;
         assert_eq!(
             snapshot.route_count_for_owner(expected_owner),
-            expected_orbit
+            canonicalizer.group_order() + 1,
+            "exact product routes retain every bounded authenticated witness because equal hulls can transport different sparse preimages",
         );
 
         for raw in raw_domains {
-            let owner = snapshot.owner_for(&parent, ordering, &raw).unwrap();
-            assert_eq!(owner.owner_ordinal(), expected_owner);
-            assert_eq!(owner.kind(), ImmutableOwnerKind::Factorization);
-            assert!(snapshot.verifies_witness(&parent, ordering, &raw, owner));
+            assert!(
+                snapshot.owner_for(&parent, ordering, &raw).is_none(),
+                "the rectangular i64 hull must not widen coupled product authority",
+            );
 
             let corner = SectorInteriorDomain::try_new(
                 raw.sector().clone(),
@@ -706,7 +710,10 @@ fn k6_snapshot_routes_every_factorization_and_master_orbit_image_exactly() {
                     }),
             )
             .unwrap();
-            assert!(snapshot.owner_for(&parent, ordering, &widened).is_none());
+            let widened_owner = snapshot.owner_for(&parent, ordering, &widened).unwrap();
+            assert_eq!(widened_owner.owner_ordinal(), expected_owner);
+            assert_eq!(widened_owner.kind(), ImmutableOwnerKind::Factorization);
+            assert!(snapshot.verifies_witness(&parent, ordering, &widened, widened_owner));
         }
     }
 

@@ -47,6 +47,7 @@ pub(crate) fn install_published_sector_waves(
     }
     let source_relations = completed.into_relations();
     drop(generator);
+    let factorized_product_programs = parts.factorized_product_programs;
 
     let candidate = ClosingArtifactCandidate {
         schema: ArtifactSchemaVersion::CURRENT,
@@ -68,5 +69,5 @@ pub(crate) fn install_published_sector_waves(
         zero_sectors: parts.zero_sectors,
         common_mass_homogeneity: Some(CommonMassHomogeneityProof::UniformVacuumMassSquared),
     };
-    install_published_k6(candidate, waves)
+    install_published_k6(candidate, waves, factorized_product_programs)
 }

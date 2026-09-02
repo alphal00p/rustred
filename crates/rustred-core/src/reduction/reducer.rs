@@ -39,6 +39,15 @@ impl<'artifact> Reducer<'artifact> {
         Self::build(artifact, limits, Arc::new(SharedCacheBudget::default()))
     }
 
+    #[cfg(test)]
+    pub(crate) fn with_shared_cache(
+        artifact: &'artifact ClosedArtifact,
+        limits: ReductionLimits,
+        shared_cache: Arc<SharedCacheBudget>,
+    ) -> Result<Self, ReductionError> {
+        Self::build(artifact, limits, shared_cache)
+    }
+
     fn build(
         artifact: &'artifact ClosedArtifact,
         limits: ReductionLimits,
@@ -119,7 +128,7 @@ impl<'artifact> Reducer<'artifact> {
         self.reduce_unit_mass_in_request(target, &mut request)
     }
 
-    fn reduce_unit_mass_in_request(
+    pub(crate) fn reduce_unit_mass_in_request(
         &mut self,
         target: &IntegralKey,
         request: &mut ReductionRequest,
@@ -148,104 +157,125 @@ impl<'artifact> Reducer<'artifact> {
             return Ok(cached);
         }
 
-        let mut stack = Vec::new();
-        self.push_frame(&mut stack, Frame::Expand(target.clone()))?;
-        let mut active = BTreeSet::new();
-        while let Some(frame) = stack.pop() {
-            match frame {
-                Frame::Expand(key) => {
-                    if self.cache.contains_key(&key) {
-                        self.statistics.record_cache_hit();
-                        continue;
+        let pending_baseline = request.pending_frame_count();
+        let result = (|| {
+            let mut stack = Vec::new();
+            self.push_frame(&mut stack, Frame::Expand(target.clone()), request)?;
+            let mut active = BTreeSet::new();
+            while let Some(frame) = stack.pop() {
+                request.release_pending_frame()?;
+                match frame {
+                    Frame::Expand(key) => {
+                        if self.cache.contains_key(&key) {
+                            self.statistics.record_cache_hit();
+                            continue;
+                        }
+                        if self.artifact.is_zero_terminal(&key) {
+                            self.cache_insert(
+                                key.clone(),
+                                MasterDecomposition::new(
+                                    self.family_fingerprint.clone(),
+                                    key,
+                                    BTreeMap::new(),
+                                ),
+                            )?;
+                            continue;
+                        }
+                        if let Some(factorization) = self.select_first_factorization(&key)? {
+                            request.record_rule_application(self.limits.max_rule_applications)?;
+                            let routed = self.apply_factorization(
+                                &factorization.routed_target,
+                                factorization.ordinal,
+                                request,
+                            )?;
+                            let expansion = MasterDecomposition::new(
+                                self.family_fingerprint.clone(),
+                                key.clone(),
+                                routed.into_terms(),
+                            );
+                            self.statistics.record_rule_application();
+                            self.cache_insert(key, expansion)?;
+                            continue;
+                        }
+                        let selected = self.select_first_rule(&key)?;
+                        begin_expansion(&mut active, &key)?;
+                        request.record_rule_application(self.limits.max_rule_applications)?;
+                        let application = self.apply_selected_rule(&key, selected)?;
+                        self.statistics.record_rule_application();
+                        let mut children = Vec::new();
+                        children.try_reserve_exact(application.len()).map_err(|_| {
+                            ReductionError::AllocationFailure {
+                                resource: "applied rule child schedule",
+                                requested: application.len(),
+                            }
+                        })?;
+                        children.extend(application.iter().map(|(child, _)| child.clone()));
+                        self.push_frame(
+                            &mut stack,
+                            Frame::Combine {
+                                target: key,
+                                terms: application,
+                            },
+                            request,
+                        )?;
+                        for child in children.into_iter().rev() {
+                            if !self.cache.contains_key(&child) {
+                                self.push_frame(&mut stack, Frame::Expand(child), request)?;
+                            }
+                        }
                     }
-                    if self.artifact.is_zero_terminal(&key) {
+                    Frame::Combine { target, terms } => {
+                        let mut masters = BTreeMap::new();
+                        for (child, rule_coefficient) in terms {
+                            let child_expansion =
+                                self.cache
+                                    .get(&child)
+                                    .ok_or(ReductionError::ReducerInvariant {
+                                        detail: "a child expansion is absent at its combine frame",
+                                    })?;
+                            for (master, child_coefficient) in child_expansion.terms() {
+                                let contribution = self.artifact.coefficient_context().try_mul(
+                                    &rule_coefficient,
+                                    child_coefficient,
+                                    self.limits.exact_algebra,
+                                )?;
+                                accumulate_master_in_request(
+                                    self.artifact.coefficient_context(),
+                                    &mut masters,
+                                    master,
+                                    contribution,
+                                    self.limits,
+                                    request,
+                                    &mut self.statistics,
+                                )?;
+                            }
+                        }
+                        if !active.remove(&target) {
+                            return Err(ReductionError::ReducerInvariant {
+                                detail: "a combine frame is not present in the active dependency set",
+                            });
+                        }
                         self.cache_insert(
-                            key.clone(),
+                            target.clone(),
                             MasterDecomposition::new(
                                 self.family_fingerprint.clone(),
-                                key,
-                                BTreeMap::new(),
+                                target,
+                                masters,
                             ),
                         )?;
-                        continue;
                     }
-                    if let Some(factorization_ordinal) = self.select_first_factorization(&key)? {
-                        request.record_rule_application(self.limits.max_rule_applications)?;
-                        let expansion =
-                            self.apply_factorization(&key, factorization_ordinal, request)?;
-                        self.statistics.record_rule_application();
-                        self.cache_insert(key, expansion)?;
-                        continue;
-                    }
-                    let selected = self.select_first_rule(&key)?;
-                    begin_expansion(&mut active, &key)?;
-                    request.record_rule_application(self.limits.max_rule_applications)?;
-                    let application = self.apply_selected_rule(&key, selected)?;
-                    self.statistics.record_rule_application();
-                    let mut children = Vec::new();
-                    children.try_reserve_exact(application.len()).map_err(|_| {
-                        ReductionError::AllocationFailure {
-                            resource: "applied rule child schedule",
-                            requested: application.len(),
-                        }
-                    })?;
-                    children.extend(application.iter().map(|(child, _)| child.clone()));
-                    self.push_frame(
-                        &mut stack,
-                        Frame::Combine {
-                            target: key,
-                            terms: application,
-                        },
-                    )?;
-                    for child in children.into_iter().rev() {
-                        if !self.cache.contains_key(&child) {
-                            self.push_frame(&mut stack, Frame::Expand(child))?;
-                        }
-                    }
-                }
-                Frame::Combine { target, terms } => {
-                    let mut masters = BTreeMap::new();
-                    for (child, rule_coefficient) in terms {
-                        let child_expansion =
-                            self.cache
-                                .get(&child)
-                                .ok_or(ReductionError::ReducerInvariant {
-                                    detail: "a child expansion is absent at its combine frame",
-                                })?;
-                        for (master, child_coefficient) in child_expansion.terms() {
-                            let contribution = self.artifact.coefficient_context().try_mul(
-                                &rule_coefficient,
-                                child_coefficient,
-                                self.limits.exact_algebra,
-                            )?;
-                            accumulate_master(
-                                self.artifact.coefficient_context(),
-                                &mut masters,
-                                master,
-                                contribution,
-                                self.limits,
-                            )?;
-                        }
-                    }
-                    if !active.remove(&target) {
-                        return Err(ReductionError::ReducerInvariant {
-                            detail: "a combine frame is not present in the active dependency set",
-                        });
-                    }
-                    self.cache_insert(
-                        target.clone(),
-                        MasterDecomposition::new(self.family_fingerprint.clone(), target, masters),
-                    )?;
                 }
             }
-        }
 
-        self.cache
-            .get(target)
-            .cloned()
-            .ok_or(ReductionError::ReducerInvariant {
-                detail: "the root expansion is absent after exhausting the work stack",
-            })
+            self.cache
+                .get(target)
+                .cloned()
+                .ok_or(ReductionError::ReducerInvariant {
+                    detail: "the root expansion is absent after exhausting the work stack",
+                })
+        })();
+        request.restore_pending_frames(pending_baseline);
+        result
     }
 
     /// Restore an arbitrary nonzero common mass squared inside the artifact's
@@ -417,10 +447,47 @@ impl<'artifact> Reducer<'artifact> {
     fn select_first_factorization(
         &self,
         target: &IntegralKey,
-    ) -> Result<Option<usize>, ReductionError> {
-        for (ordinal, rule) in self.artifact.factorization_rules().iter().enumerate() {
-            if rule.application_domain().contains(target.powers())? {
-                return Ok(Some(ordinal));
+    ) -> Result<Option<SelectedFactorization>, ReductionError> {
+        let orbit = self
+            .artifact
+            .canonicalizer()
+            .map(|canonicalizer| canonicalizer.orbit(target))
+            .transpose()?;
+        for ordinal in 0..self.artifact.factorization_rules().len() {
+            let rule = self.artifact.factorization_rules().get(ordinal).ok_or(
+                ReductionError::ReducerInvariant {
+                    detail: "a sealed factorization has no executable domain",
+                },
+            )?;
+            let program = self
+                .artifact
+                .factorized_product_programs()
+                .get(ordinal)
+                .and_then(Option::as_ref);
+            let test = |candidate: &IntegralKey| -> Result<bool, ReductionError> {
+                match program {
+                    Some(program) => Ok(program.contains(candidate.powers())?),
+                    None => Ok(rule.application_domain().contains(candidate.powers())?),
+                }
+            };
+            if let Some(orbit) = &orbit {
+                // Images are already sorted by the installed exact ordering.
+                // Selecting the first safe image is deterministic for the
+                // entire orbit, while the outer ordinal loop preserves sealed
+                // factorization-owner precedence.
+                for image in orbit.images() {
+                    if test(image.integral())? {
+                        return Ok(Some(SelectedFactorization {
+                            ordinal,
+                            routed_target: image.integral().clone(),
+                        }));
+                    }
+                }
+            } else if test(target)? {
+                return Ok(Some(SelectedFactorization {
+                    ordinal,
+                    routed_target: target.clone(),
+                }));
             }
         }
         Ok(None)
@@ -439,6 +506,42 @@ impl<'artifact> Reducer<'artifact> {
             .ok_or(ReductionError::ReducerInvariant {
                 detail: "a selected factorization ordinal is absent",
             })?;
+        let masters = if let Some(program) = self
+            .artifact
+            .factorized_product_programs()
+            .get(factorization_ordinal)
+            .and_then(Option::as_ref)
+        {
+            program.reduce_parent(
+                self.artifact.family(),
+                rule,
+                self.artifact.dependencies(),
+                &mut self.dependency_reducers,
+                target,
+                request,
+                &mut self.statistics,
+                Arc::clone(&self.shared_cache),
+                self.limits,
+            )?
+        } else {
+            self.apply_corner_factorization(target, rule, request)?
+        };
+        Ok(MasterDecomposition::new(
+            self.family_fingerprint.clone(),
+            target.clone(),
+            masters,
+        ))
+    }
+
+    /// Generic zero-inactive-power product lane retained for authenticated
+    /// factorization shapes that do not admit the complete numerator-moment
+    /// compiler yet.
+    fn apply_corner_factorization(
+        &mut self,
+        target: &IntegralKey,
+        rule: &crate::foundry::artifact::FactorizationRule,
+        request: &mut ReductionRequest,
+    ) -> Result<BTreeMap<IntegralKey, Coefficient>, ReductionError> {
         let context = self.artifact.coefficient_context();
         let mut products = BTreeMap::new();
         products.insert(
@@ -468,13 +571,15 @@ impl<'artifact> Reducer<'artifact> {
                     detail: "a sealed factorization dependency is absent",
                 })?;
             let expansion = dependency.reduce_unit_mass_in_request(&dependency_target, request)?;
-            products = convolve_factor_expansion(
+            products = convolve_factor_expansion_in_request(
                 context,
                 &products,
                 expansion.terms(),
                 factor.parent_positions(),
                 self.artifact.arity(),
                 self.limits,
+                request,
+                &mut self.statistics,
             )?;
         }
         let mut masters = BTreeMap::new();
@@ -484,13 +589,17 @@ impl<'artifact> Reducer<'artifact> {
                     detail: "a sealed factorization produced an unauthenticated parent-master product",
                 },
             )?;
-            accumulate_master(context, &mut masters, master, coefficient, self.limits)?;
+            accumulate_master_in_request(
+                context,
+                &mut masters,
+                master,
+                coefficient,
+                self.limits,
+                request,
+                &mut self.statistics,
+            )?;
         }
-        Ok(MasterDecomposition::new(
-            self.family_fingerprint.clone(),
-            target.clone(),
-            masters,
-        ))
+        Ok(masters)
     }
 
     fn apply_selected_rule(
@@ -571,7 +680,12 @@ impl<'artifact> Reducer<'artifact> {
         }
     }
 
-    fn push_frame(&self, stack: &mut Vec<Frame>, frame: Frame) -> Result<(), ReductionError> {
+    fn push_frame(
+        &self,
+        stack: &mut Vec<Frame>,
+        frame: Frame,
+        request: &mut ReductionRequest,
+    ) -> Result<(), ReductionError> {
         let requested = stack
             .len()
             .checked_add(1)
@@ -579,18 +693,13 @@ impl<'artifact> Reducer<'artifact> {
                 resource: "reduction work frames",
                 requested: usize::MAX,
             })?;
-        if requested > self.limits.max_pending_frames {
-            return Err(ReductionError::PendingFrameLimit {
-                requested,
-                limit: self.limits.max_pending_frames,
-            });
-        }
         stack
             .try_reserve(1)
             .map_err(|_| ReductionError::AllocationFailure {
                 resource: "reduction work frames",
                 requested,
             })?;
+        request.retain_pending_frame(self.limits.max_pending_frames)?;
         stack.push(frame);
         Ok(())
     }
@@ -653,13 +762,42 @@ impl<'artifact> Reducer<'artifact> {
 /// Deterministically convolve one complete dependency-master expansion into
 /// disjoint parent positions. Kept separate from dependency scheduling so the
 /// generic multi-master product algebra has direct tests.
-pub(super) fn convolve_factor_expansion(
+#[cfg(test)]
+pub(crate) fn convolve_factor_expansion(
     context: &CoefficientContext,
     products: &BTreeMap<IntegralKey, Coefficient>,
     dependency_terms: &BTreeMap<IntegralKey, Coefficient>,
     parent_positions: &[usize],
     parent_arity: usize,
     limits: ReductionLimits,
+) -> Result<BTreeMap<IntegralKey, Coefficient>, ReductionError> {
+    let mut request = ReductionRequest::default();
+    let mut statistics = ReductionStatistics::default();
+    convolve_factor_expansion_in_request(
+        context,
+        products,
+        dependency_terms,
+        parent_positions,
+        parent_arity,
+        limits,
+        &mut request,
+        &mut statistics,
+    )
+}
+
+/// Request-accounted variant used by every live factorized reduction. An
+/// occupied output entry is charged before exact addition, including the
+/// rejected one-beyond-limit attempt.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn convolve_factor_expansion_in_request(
+    context: &CoefficientContext,
+    products: &BTreeMap<IntegralKey, Coefficient>,
+    dependency_terms: &BTreeMap<IntegralKey, Coefficient>,
+    parent_positions: &[usize],
+    parent_arity: usize,
+    limits: ReductionLimits,
+    request: &mut ReductionRequest,
+    statistics: &mut ReductionStatistics,
 ) -> Result<BTreeMap<IntegralKey, Coefficient>, ReductionError> {
     let requested = products.len().checked_mul(dependency_terms.len()).ok_or(
         ReductionError::FactorizationTermLimit {
@@ -702,12 +840,14 @@ pub(super) fn convolve_factor_expansion(
                 dependency_coefficient,
                 limits.exact_algebra,
             )?;
-            accumulate_master(
+            accumulate_master_in_request(
                 context,
                 &mut next_products,
                 &parent_master,
                 coefficient,
                 limits,
+                request,
+                statistics,
             )?;
         }
     }
@@ -715,19 +855,28 @@ pub(super) fn convolve_factor_expansion(
 }
 
 #[derive(Default)]
-struct ReductionRequest {
+pub(crate) struct ReductionRequest {
     rule_applications: usize,
+    coalescing_additions: usize,
+    pending_frames: usize,
 }
 
 impl ReductionRequest {
-    fn record_rule_application(&mut self, limit: usize) -> Result<(), ReductionError> {
-        self.rule_applications =
-            self.rule_applications
-                .checked_add(1)
-                .ok_or(ReductionError::RuleApplicationLimit {
-                    requested: usize::MAX,
-                    limit,
-                })?;
+    pub(crate) fn record_rule_application(&mut self, limit: usize) -> Result<(), ReductionError> {
+        self.record_rule_applications(1, limit)
+    }
+
+    pub(crate) fn record_rule_applications(
+        &mut self,
+        count: usize,
+        limit: usize,
+    ) -> Result<(), ReductionError> {
+        self.rule_applications = self.rule_applications.checked_add(count).ok_or(
+            ReductionError::RuleApplicationLimit {
+                requested: usize::MAX,
+                limit,
+            },
+        )?;
         if self.rule_applications > limit {
             return Err(ReductionError::RuleApplicationLimit {
                 requested: self.rule_applications,
@@ -736,35 +885,103 @@ impl ReductionRequest {
         }
         Ok(())
     }
+
+    pub(crate) fn remaining_rule_applications(&self, limit: usize) -> usize {
+        limit.saturating_sub(self.rule_applications)
+    }
+
+    pub(crate) fn record_coalescing_additions(
+        &mut self,
+        count: usize,
+        limit: usize,
+    ) -> Result<(), ReductionError> {
+        self.coalescing_additions = self.coalescing_additions.checked_add(count).ok_or(
+            ReductionError::CoalescingAdditionLimit {
+                requested: usize::MAX,
+                limit,
+            },
+        )?;
+        if self.coalescing_additions > limit {
+            return Err(ReductionError::CoalescingAdditionLimit {
+                requested: self.coalescing_additions,
+                limit,
+            });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn remaining_coalescing_additions(&self, limit: usize) -> usize {
+        limit.saturating_sub(self.coalescing_additions)
+    }
+
+    pub(crate) const fn pending_frame_count(&self) -> usize {
+        self.pending_frames
+    }
+
+    pub(crate) fn remaining_pending_frames(&self, limit: usize) -> usize {
+        limit.saturating_sub(self.pending_frames)
+    }
+
+    pub(crate) fn retain_pending_frame(&mut self, limit: usize) -> Result<(), ReductionError> {
+        self.pending_frames =
+            self.pending_frames
+                .checked_add(1)
+                .ok_or(ReductionError::PendingFrameLimit {
+                    requested: usize::MAX,
+                    limit,
+                })?;
+        if self.pending_frames > limit {
+            return Err(ReductionError::PendingFrameLimit {
+                requested: self.pending_frames,
+                limit,
+            });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn release_pending_frame(&mut self) -> Result<(), ReductionError> {
+        self.pending_frames =
+            self.pending_frames
+                .checked_sub(1)
+                .ok_or(ReductionError::ReducerInvariant {
+                    detail: "the shared pending-frame census underflowed",
+                })?;
+        Ok(())
+    }
+
+    pub(crate) fn restore_pending_frames(&mut self, baseline: usize) {
+        debug_assert!(self.pending_frames >= baseline);
+        self.pending_frames = baseline;
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct CacheWeight {
-    coefficient_terms: usize,
-    coefficient_bytes: usize,
+pub(crate) struct CacheWeight {
+    pub(crate) coefficient_terms: usize,
+    pub(crate) coefficient_bytes: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct CacheCensus {
-    integrals: usize,
-    coefficient_terms: usize,
-    coefficient_bytes: usize,
+pub(crate) struct CacheCensus {
+    pub(crate) integrals: usize,
+    pub(crate) coefficient_terms: usize,
+    pub(crate) coefficient_bytes: usize,
 }
 
 #[derive(Debug, Default)]
-struct SharedCacheBudget {
+pub(crate) struct SharedCacheBudget {
     census: Mutex<CacheCensus>,
 }
 
 impl SharedCacheBudget {
-    fn snapshot(&self) -> CacheCensus {
+    pub(crate) fn snapshot(&self) -> CacheCensus {
         *self
             .census
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn replace(
+    pub(crate) fn replace(
         &self,
         old_integrals: usize,
         old_weight: CacheWeight,
@@ -825,7 +1042,7 @@ impl SharedCacheBudget {
 }
 
 impl CacheWeight {
-    fn checked_add(self, other: Self) -> Result<Self, ReductionError> {
+    pub(crate) fn checked_add(self, other: Self) -> Result<Self, ReductionError> {
         Ok(Self {
             coefficient_terms: self
                 .coefficient_terms
@@ -842,7 +1059,7 @@ impl CacheWeight {
         })
     }
 
-    fn checked_sub(self, other: Self) -> Result<Self, ReductionError> {
+    pub(crate) fn checked_sub(self, other: Self) -> Result<Self, ReductionError> {
         Ok(Self {
             coefficient_terms: self
                 .coefficient_terms
@@ -863,9 +1080,14 @@ impl CacheWeight {
 fn decomposition_cache_weight(
     decomposition: &MasterDecomposition,
 ) -> Result<CacheWeight, ReductionError> {
-    decomposition
-        .terms()
-        .values()
+    coefficient_cache_weight(decomposition.terms().values())
+}
+
+pub(crate) fn coefficient_cache_weight<'a>(
+    coefficients: impl IntoIterator<Item = &'a Coefficient>,
+) -> Result<CacheWeight, ReductionError> {
+    coefficients
+        .into_iter()
         .try_fold(CacheWeight::default(), |weight, coefficient| {
             let coefficient_terms = coefficient
                 .numerator
@@ -894,6 +1116,13 @@ enum Frame {
     },
 }
 
+struct SelectedFactorization {
+    ordinal: usize,
+    /// Exact symmetry image admitted by the selected executor-safe product
+    /// domain. The cache key remains the reducer's ordinary canonical target.
+    routed_target: IntegralKey,
+}
+
 pub(super) struct SelectedRule<'rule> {
     pub(super) rule: &'rule ParametricRule,
     assignment: Vec<i64>,
@@ -913,17 +1142,47 @@ pub(super) fn begin_expansion(
     }
 }
 
-pub(super) fn accumulate_master(
+pub(crate) fn accumulate_master(
     context: &CoefficientContext,
     terms: &mut BTreeMap<IntegralKey, Coefficient>,
     master: &IntegralKey,
     contribution: Coefficient,
     limits: ReductionLimits,
 ) -> Result<(), ReductionError> {
+    accumulate_master_with(context, terms, master, contribution, limits, || Ok(()))
+}
+
+/// Merge one exact master coefficient while charging the aggregate request
+/// before any occupied-entry algebra. Statistics intentionally record a
+/// rejected attempt as work performed, matching rule and angular accounting.
+pub(crate) fn accumulate_master_in_request(
+    context: &CoefficientContext,
+    terms: &mut BTreeMap<IntegralKey, Coefficient>,
+    master: &IntegralKey,
+    contribution: Coefficient,
+    limits: ReductionLimits,
+    request: &mut ReductionRequest,
+    statistics: &mut ReductionStatistics,
+) -> Result<(), ReductionError> {
+    accumulate_master_with(context, terms, master, contribution, limits, || {
+        statistics.record_coalescing_additions(1);
+        request.record_coalescing_additions(1, limits.max_coalescing_additions)
+    })
+}
+
+fn accumulate_master_with(
+    context: &CoefficientContext,
+    terms: &mut BTreeMap<IntegralKey, Coefficient>,
+    master: &IntegralKey,
+    contribution: Coefficient,
+    limits: ReductionLimits,
+    mut before_coalescing: impl FnMut() -> Result<(), ReductionError>,
+) -> Result<(), ReductionError> {
     if contribution.is_zero() {
         return Ok(());
     }
     if let std::collections::btree_map::Entry::Occupied(mut entry) = terms.entry(master.clone()) {
+        before_coalescing()?;
         let sum = context.try_add(entry.get(), &contribution, limits.exact_algebra)?;
         if sum.is_zero() {
             entry.remove();

@@ -8,16 +8,20 @@ use crate::foundry::completion::frame::admission::{
 };
 use crate::foundry::completion::source_discovery::cover_delta::ExactOwnerCoverDeltaKind;
 use crate::foundry::completion::source_discovery::cover_delta::ExactOwnerLedgerCoverStatus;
+use crate::foundry::completion::source_discovery::leader_walk::{
+    LeaderWalkLimits, RequestedDomain, RequestedDomainPlan, RequestedDomainScopePartition,
+    try_plan_requested_domains,
+};
 use crate::foundry::completion::source_discovery::scheduler::{
     ProbeLocalRejection, ProbeLocalRejectionCategory, ProbeLocalRejectionSummary, ProbeLocalStage,
 };
 use crate::foundry::completion::source_discovery::test_fixtures::OracleDisabledK6Fixture;
 use crate::foundry::completion::source_discovery::{
     CampaignError, CampaignLimits, CanonicalExactOwnerLedger, ExactOwnerCoverDeltaLimits,
-    ProbeCampaignAdapter, ProbeCampaignLimits,
+    ProbeCampaignAdapter, ProbeCampaignError, ProbeCampaignLimits,
 };
 use crate::foundry::completion::stratum::{ImmutableOwnerSnapshot, StratumRegistryLimits};
-use crate::foundry::completion::{LatticeBox, UncoveredPartition};
+use crate::foundry::completion::{LatticeBox, LatticePoint, UncoveredPartition};
 use crate::identity::{IntegralShift, ParametricIbpGenerator};
 use crate::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, OrderingPolicy};
 
@@ -26,13 +30,17 @@ use super::compact::{
     search_refinement_reason, try_reserve_compact_result, try_scheduler_outcome_total,
     try_validate_canonical_join, validate_live_effect,
 };
-use super::run::{ProbeCoordinatorDriveStop, try_drive_partition, upgrade_drive_stop};
+use super::run::{
+    ProbeCoordinatorDriveStop, try_drive_partition, try_drive_requested_plan,
+    try_materialize_probes, upgrade_drive_stop, upgrade_requested_drive_stop,
+};
 use super::schedule::try_build_class_schedule;
 use super::{
     BoundaryProbeCoordinator, ProbeCoordinatorCensus, ProbeCoordinatorConfig,
     ProbeCoordinatorFailure, ProbeCoordinatorFairCursor, ProbeCoordinatorLimits,
     ProbeCoordinatorNeedsRefinementReason, ProbeCoordinatorOperationalReason,
-    ProbeCoordinatorOwnerMutation, ProbeCoordinatorStop, TaskRelativeModularProbe,
+    ProbeCoordinatorOwnerMutation, ProbeCoordinatorStop, ProbeCoordinatorTaskLocationKind,
+    RequestedProbeCoordinatorStop, TaskRelativeModularProbe,
 };
 
 fn lattice_box(lower: &[u64], upper: &[Option<u64>]) -> LatticeBox {
@@ -86,6 +94,42 @@ fn single_d2_partition() -> (Mask, UncoveredPartition) {
         Mask::try_new([true, true]).unwrap(),
         UncoveredPartition::new(vec![lattice_box(&[0, 0], &[None, None])], 0),
     )
+}
+
+fn requested_d2_plan(epoch: u64) -> RequestedDomainPlan {
+    let sector = Mask::try_new([true, true]).unwrap();
+    let partition = UncoveredPartition::new(vec![lattice_box(&[0, 0], &[None, None])], 0);
+    let requested = [
+        RequestedDomain::new(LatticePoint::try_new([0, 0]).unwrap(), [0]),
+        RequestedDomain::new(LatticePoint::try_new([0, 0]).unwrap(), [1]),
+    ];
+    try_plan_requested_domains(
+        epoch,
+        [RequestedDomainScopePartition::new(
+            "requested-d2",
+            &sector,
+            &partition,
+            &requested,
+        )],
+        LeaderWalkLimits::default(),
+    )
+    .unwrap()
+}
+
+fn d1_config(offset: u64) -> ProbeCoordinatorConfig {
+    ProbeCoordinatorConfig::try_new(
+        [TaskRelativeModularProbe::try_new(
+            1_000_000_007,
+            [37],
+            [offset],
+            CampaignLimits::default(),
+        )
+        .unwrap()],
+        1,
+        0,
+        ProbeCoordinatorLimits::default(),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -223,6 +267,576 @@ fn discovery_priority_changes_only_execution_chronology_and_is_deterministic() {
     let second = run();
     assert_eq!(first, second);
     assert_eq!(first, vec![(2, 0), (1, 1), (1, 0), (0, 0)]);
+}
+
+#[test]
+fn requested_plan_uses_its_semantic_order_and_shared_cumulative_budgets() {
+    let plan = requested_d2_plan(7);
+    assert_eq!(plan.tasks().len(), 2);
+    let config = reversed_d2_config();
+    let mut census = ProbeCoordinatorCensus::default();
+    let mut first_visits = Vec::new();
+    let first = try_drive_requested_plan(
+        &config,
+        &mut census,
+        7,
+        &plan,
+        |_, task, census, requested, invalidated| {
+            first_visits.push((
+                task.canonical_ordinal(),
+                task.key().requested_ordinal(),
+                task.key().symbolic_axes().to_vec(),
+            ));
+            try_reserve_compact_result(census, requested, invalidated, no_proposal())
+        },
+    );
+    assert_eq!(first_visits, vec![(0, 0, vec![0]), (1, 1, vec![1])]);
+    let ProbeCoordinatorDriveStop::StableProgramCompleted {
+        census: first_census,
+        completed_classes,
+        completed_tasks,
+        ..
+    } = first
+    else {
+        panic!("a no-proposal requested phase must complete only locally")
+    };
+    assert_eq!(completed_classes, 0);
+    assert_eq!(completed_tasks, 2);
+    assert_eq!(first_census.epochs_started(), 1);
+    assert_eq!(first_census.plans_built(), 1);
+    assert_eq!(first_census.classes_completed(), 0);
+    assert_eq!(first_census.task_reports(), 2);
+    assert_eq!(first_census.no_proposal(), 2);
+
+    let mut second_visits = Vec::new();
+    let second = try_drive_requested_plan(
+        &config,
+        &mut census,
+        7,
+        &plan,
+        |_, task, census, requested, invalidated| {
+            second_visits.push(task.canonical_ordinal());
+            try_reserve_compact_result(census, requested, invalidated, no_proposal())
+        },
+    );
+    assert_eq!(second_visits, vec![0, 1]);
+    assert_eq!(second.census().epochs_started(), 2);
+    assert_eq!(second.census().plans_built(), 2);
+    assert_eq!(second.census().task_reports(), 4);
+    assert_eq!(second.census().no_proposal(), 4);
+}
+
+#[test]
+fn requested_no_proposal_has_no_boundary_exhaustion_or_closure_authority() {
+    let artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        Arc::clone(&artifact),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let sector = Mask::try_new([true]).unwrap();
+    let ledger = CanonicalExactOwnerLedger::try_new(
+        generator.context(),
+        predecessor,
+        sector,
+        OrderingPolicy::default(),
+        [IntegralKey::try_new([1]).unwrap()],
+        ExactOwnerCoverDeltaLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        ledger.snapshot().status(),
+        ExactOwnerLedgerCoverStatus::OwnerFree
+    );
+
+    let partition = ledger.try_clone_uncovered_partition().unwrap();
+    let requested = [RequestedDomain::new(
+        LatticePoint::try_new([0]).unwrap(),
+        [0],
+    )];
+    let plan = try_plan_requested_domains(
+        ledger.revision().get(),
+        [RequestedDomainScopePartition::new(
+            "owner-free-requested",
+            ledger.sector(),
+            &partition,
+            &requested,
+        )],
+        LeaderWalkLimits::default(),
+    )
+    .unwrap();
+    let config = d1_config(0);
+    let mut census = ProbeCoordinatorCensus::default();
+    let drive = try_drive_requested_plan(
+        &config,
+        &mut census,
+        ledger.revision().get(),
+        &plan,
+        |_, _, census, requested, invalidated| {
+            try_reserve_compact_result(census, requested, invalidated, no_proposal())
+        },
+    );
+    let identity = ledger.snapshot_identity();
+    let RequestedProbeCoordinatorStop::PhaseCompleted {
+        census,
+        ledger_snapshot,
+        ledger_revision,
+        completed_tasks,
+    } = upgrade_requested_drive_stop(drive, &ledger, &identity)
+    else {
+        panic!("stable requested probes must remain a local phase completion")
+    };
+    ledger
+        .try_require_current_snapshot(&ledger_snapshot)
+        .unwrap();
+    assert_eq!(ledger_revision, 0);
+    assert_eq!(completed_tasks, 1);
+    assert_eq!(census.no_proposal(), 1);
+    assert_eq!(
+        ledger.snapshot().status(),
+        ExactOwnerLedgerCoverStatus::OwnerFree
+    );
+}
+
+#[test]
+fn requested_stop_location_is_typed_and_never_impersonates_a_boundary_class() {
+    let plan = requested_d2_plan(5);
+    let mut census = ProbeCoordinatorCensus::default();
+    let mut visited = Vec::new();
+    let stop = try_drive_requested_plan(
+        &config(),
+        &mut census,
+        5,
+        &plan,
+        |_, task, census, requested, invalidated| {
+            visited.push(task.canonical_ordinal());
+            try_reserve_compact_result(
+                census,
+                requested,
+                invalidated,
+                CompactTaskResult {
+                    action: CompactTaskAction::IncompleteProposal,
+                    evidence: CompactProbeEvidence {
+                        declared_probes: 1,
+                        scheduler_replayed: 1,
+                        canonical_replayed: 1,
+                        ..CompactProbeEvidence::default()
+                    },
+                },
+            )
+        },
+    );
+    let ProbeCoordinatorDriveStop::NeedsRefinement(stop) = stop else {
+        panic!("stable incomplete requests must retain their first typed refinement")
+    };
+    assert_eq!(
+        visited,
+        [0, 1],
+        "one local miss must not block later requests"
+    );
+    assert_eq!(stop.census().incomplete_proposal(), 2);
+    let location = stop.location().unwrap();
+    assert_eq!(
+        location.kind(),
+        ProbeCoordinatorTaskLocationKind::RequestedDomain {
+            requested_ordinal: 0,
+        }
+    );
+    assert_eq!(location.ledger_revision(), 5);
+    assert_eq!(location.task_ordinal(), 0);
+}
+
+#[test]
+fn requested_first_operational_obstruction_survives_later_local_misses() {
+    let plan = requested_d2_plan(5);
+    let mut census = ProbeCoordinatorCensus::default();
+    let mut visited = Vec::new();
+    let stop = try_drive_requested_plan(
+        &config(),
+        &mut census,
+        5,
+        &plan,
+        |_, task, census, requested, invalidated| {
+            visited.push(task.canonical_ordinal());
+            let result = if task.canonical_ordinal() == 0 {
+                CompactTaskResult {
+                    action: CompactTaskAction::NoProposal,
+                    evidence: CompactProbeEvidence {
+                        scheduler_rejections: 1,
+                        first_scheduler_rejection: Some(campaign_rejection_summary()),
+                        declared_probes: 1,
+                        ..CompactProbeEvidence::default()
+                    },
+                }
+            } else {
+                no_proposal()
+            };
+            try_reserve_compact_result(census, requested, invalidated, result)
+        },
+    );
+    let ProbeCoordinatorDriveStop::OperationallyBounded(stop) = stop else {
+        panic!("the first scheduler obstruction must survive a stable requested plan")
+    };
+    assert_eq!(visited, [0, 1]);
+    assert!(matches!(
+        stop.reason(),
+        ProbeCoordinatorOperationalReason::IncompleteProbeExecution {
+            scheduler_rejections: 1,
+            ..
+        }
+    ));
+    assert_eq!(
+        stop.location().unwrap().kind(),
+        ProbeCoordinatorTaskLocationKind::RequestedDomain {
+            requested_ordinal: 0,
+        }
+    );
+    assert_eq!(stop.census().task_reports(), 2);
+}
+
+#[test]
+fn requested_exact_mutation_wins_over_an_earlier_local_obstruction() {
+    let plan = requested_d2_plan(5);
+    let mut census = ProbeCoordinatorCensus::default();
+    let stop = try_drive_requested_plan(
+        &config(),
+        &mut census,
+        5,
+        &plan,
+        |_, task, census, requested, invalidated| {
+            let result = if task.canonical_ordinal() == 0 {
+                CompactTaskResult {
+                    action: CompactTaskAction::IncompleteProposal,
+                    evidence: CompactProbeEvidence {
+                        declared_probes: 1,
+                        scheduler_replayed: 1,
+                        canonical_replayed: 1,
+                        ..CompactProbeEvidence::default()
+                    },
+                }
+            } else {
+                CompactTaskResult {
+                    action: CompactTaskAction::OwnerSetChanged {
+                        mutation: ProbeCoordinatorOwnerMutation::StrictGeometricShrink,
+                        before_revision: 5,
+                        after_revision: 6,
+                    },
+                    evidence: CompactProbeEvidence {
+                        declared_probes: 1,
+                        scheduler_sampled_dual: 1,
+                        ..CompactProbeEvidence::default()
+                    },
+                }
+            };
+            try_reserve_compact_result(census, requested, invalidated, result)
+        },
+    );
+    let ProbeCoordinatorDriveStop::OwnerSetChanged(changed) = stop else {
+        panic!("later exact mutation must supersede an earlier local obstruction")
+    };
+    assert_eq!(changed.before_revision(), 5);
+    assert_eq!(changed.after_revision(), 6);
+    assert_eq!(changed.census().incomplete_proposal(), 1);
+    assert_eq!(changed.census().strict_geometric_shrink(), 1);
+    assert_eq!(
+        changed.location().kind(),
+        ProbeCoordinatorTaskLocationKind::RequestedDomain {
+            requested_ordinal: 1,
+        }
+    );
+}
+
+#[test]
+fn requested_probe_materialization_clamps_every_finite_residual() {
+    let fixture = OracleDisabledK6Fixture::shared();
+    let limits = ProbeCampaignLimits::default();
+    let adapter = ProbeCampaignAdapter::try_new(
+        fixture.generator(),
+        fixture.completed(),
+        fixture.zero_sources(),
+        limits,
+    )
+    .unwrap();
+    let sector = fixture.sector().clone();
+    let fixed_upper = [Some(0); 6];
+    let mut finite_upper = fixed_upper;
+    finite_upper[0] = Some(4);
+    let mut unbounded_upper = fixed_upper;
+    unbounded_upper[0] = None;
+    let partition = UncoveredPartition::new(
+        vec![
+            lattice_box(&[0, 0, 0, 0, 0, 0], &fixed_upper),
+            lattice_box(&[2, 0, 0, 0, 0, 0], &finite_upper),
+            lattice_box(&[6, 0, 0, 0, 0, 0], &unbounded_upper),
+        ],
+        0,
+    );
+    let requested = [RequestedDomain::new(
+        LatticePoint::try_new([0, 0, 0, 0, 0, 0]).unwrap(),
+        [0],
+    )];
+    let plan = try_plan_requested_domains(
+        0,
+        [RequestedDomainScopePartition::new(
+            "finite-requested-probes",
+            &sector,
+            &partition,
+            &requested,
+        )],
+        LeaderWalkLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(plan.tasks().len(), 3);
+    assert_eq!(plan.tasks()[0].leader(), [0, 0, 0, 0, 0, 0]);
+    assert_eq!(plan.tasks()[1].leader(), [2, 0, 0, 0, 0, 0]);
+    assert_eq!(plan.tasks()[2].leader(), [6, 0, 0, 0, 0, 0]);
+    for task in plan.tasks() {
+        // Every replanned tail retains the original recurrence target.
+        assert_eq!(task.target_shift().values(), [0, 0, 0, 0, 0, 0]);
+    }
+
+    let config = ProbeCoordinatorConfig::try_new(
+        [TaskRelativeModularProbe::try_new(
+            1_000_000_007,
+            [37],
+            [99, 0, 0, 0, 0, 0],
+            limits.replay.scheduler.campaign,
+        )
+        .unwrap()],
+        1,
+        0,
+        ProbeCoordinatorLimits::default(),
+    )
+    .unwrap();
+    let coordinates = plan
+        .tasks()
+        .iter()
+        .map(|task| {
+            try_materialize_probes(&config, &adapter, task).unwrap()[0]
+                .chart_coordinates()
+                .to_vec()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        coordinates,
+        vec![
+            vec![0, 0, 0, 0, 0, 0],
+            vec![2, 0, 0, 0, 0, 0],
+            vec![100, 0, 0, 0, 0, 0],
+        ]
+    );
+    for (task, coordinates) in plan.tasks().iter().zip(&coordinates) {
+        if let Some(upper) = task.key().residual_domain_upper()[0] {
+            assert!(coordinates[0] <= upper - task.leader()[0]);
+        }
+    }
+
+    let fixed_axis_offset = ProbeCoordinatorConfig::try_new(
+        [TaskRelativeModularProbe::try_new(
+            1_000_000_007,
+            [37],
+            [0, 1, 0, 0, 0, 0],
+            limits.replay.scheduler.campaign,
+        )
+        .unwrap()],
+        1,
+        0,
+        ProbeCoordinatorLimits::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        try_materialize_probes(&fixed_axis_offset, &adapter, &plan.tasks()[0]),
+        Err(ProbeCoordinatorFailure::NonzeroRestrictedProbeOffset {
+            probe_ordinal: 0,
+            coordinate: 1,
+            offset: 1,
+        })
+    ));
+}
+
+#[test]
+fn requested_plan_and_bound_task_are_invalidated_by_any_owner_mutation() {
+    let fixture = OracleDisabledK6Fixture::shared();
+    let limits = ProbeCampaignLimits::default();
+    let adapter = ProbeCampaignAdapter::try_new(
+        fixture.generator(),
+        fixture.completed(),
+        fixture.zero_sources(),
+        limits,
+    )
+    .unwrap();
+    let mut ledger = fixture.new_ledger();
+    let partition = ledger.try_clone_uncovered_partition().unwrap();
+    let requested = [RequestedDomain::new(
+        LatticePoint::try_new([0, 0, 0, 0, 0, 0]).unwrap(),
+        [0, 1, 2, 3, 4, 5],
+    )];
+    let plan = try_plan_requested_domains(
+        ledger.revision().get(),
+        [RequestedDomainScopePartition::new(
+            "stale-requested-plan",
+            fixture.sector(),
+            &partition,
+            &requested,
+        )],
+        LeaderWalkLimits::default(),
+    )
+    .unwrap();
+    let task = &plan.tasks()[0];
+    let delayed = adapter.try_bind_task(&plan, task, &ledger).unwrap();
+    drop(delayed);
+
+    let discovery_plan = fixture.plan(&ledger, 2, 0);
+    let owner = fixture.replay_owner(&discovery_plan.tasks()[0]);
+    let mutation = ledger.try_apply_owner(owner).unwrap();
+    assert_eq!(mutation.updated().revision().get(), 1);
+    let baseline = ledger.snapshot();
+    assert!(matches!(
+        adapter.try_bind_task(&plan, task, &ledger),
+        Err(ProbeCampaignError::StaleLedgerRevision {
+            planned: 0,
+            current: 1,
+        })
+    ));
+    assert_eq!(ledger.snapshot(), baseline);
+
+    let coordinator = BoundaryProbeCoordinator::try_new(
+        ProbeCoordinatorConfig::try_new(
+            [TaskRelativeModularProbe::try_new(
+                1_000_000_007,
+                [37],
+                [0, 0, 0, 0, 0, 0],
+                limits.replay.scheduler.campaign,
+            )
+            .unwrap()],
+            1,
+            0,
+            ProbeCoordinatorLimits::default(),
+        )
+        .unwrap(),
+        adapter,
+        &ledger,
+    )
+    .unwrap();
+    let mut coordinator = coordinator;
+    assert!(matches!(
+        coordinator.try_run_requested_plan(&plan, &mut ledger),
+        RequestedProbeCoordinatorStop::Failed(ref stop)
+            if matches!(
+                stop.failure(),
+                ProbeCoordinatorFailure::Campaign(
+                    ProbeCampaignError::StaleLedgerRevision {
+                        planned: 0,
+                        current: 1,
+                    }
+                )
+            )
+    ));
+    assert_eq!(ledger.snapshot(), baseline);
+}
+
+#[test]
+fn requested_task_uses_the_shared_exact_transaction_and_closes_only_via_the_compiler() {
+    let artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let prepared = generator.prepare_ordinary_ibp().unwrap();
+    let rows = (0..prepared.len())
+        .map(|ordinal| prepared.generate(ordinal))
+        .collect();
+    let completed = prepared.complete(rows).unwrap();
+    let campaign_limits = ProbeCampaignLimits::default();
+    let zero_sources = generator
+        .translate_completed_source_rows(
+            &completed,
+            [IntegralShift::try_new([0]).unwrap()],
+            campaign_limits
+                .replay
+                .scheduler
+                .source_discovery
+                .translation,
+        )
+        .unwrap();
+    let adapter =
+        ProbeCampaignAdapter::try_new(&generator, &completed, &zero_sources, campaign_limits)
+            .unwrap();
+    let predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        Arc::clone(&artifact),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let sector = Mask::try_new([true]).unwrap();
+    let mut ledger = CanonicalExactOwnerLedger::try_new_with_closure_carrier(
+        generator.context(),
+        predecessor,
+        sector.clone(),
+        OrderingPolicy::default(),
+        [IntegralKey::try_new(sector.corner_indices()).unwrap()],
+        lattice_box(&[0], &[Some(11)]),
+        ExactOwnerCoverDeltaLimits::default(),
+    )
+    .unwrap();
+    let partition = ledger.try_clone_uncovered_partition().unwrap();
+    let requested = [RequestedDomain::new(
+        LatticePoint::try_new([1]).unwrap(),
+        [0],
+    )];
+    let plan = try_plan_requested_domains(
+        ledger.revision().get(),
+        [RequestedDomainScopePartition::new(
+            "one-loop-requested-closure",
+            &sector,
+            &partition,
+            &requested,
+        )],
+        LeaderWalkLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(plan.tasks().len(), 1);
+    assert_eq!(plan.tasks()[0].target_shift().values(), [1]);
+
+    let config = ProbeCoordinatorConfig::try_new(
+        [
+            TaskRelativeModularProbe::try_new(
+                1_000_000_007,
+                [37],
+                [1],
+                campaign_limits.replay.scheduler.campaign,
+            )
+            .unwrap(),
+            TaskRelativeModularProbe::try_new(
+                1_000_000_007,
+                [37],
+                [2],
+                campaign_limits.replay.scheduler.campaign,
+            )
+            .unwrap(),
+        ],
+        1,
+        0,
+        ProbeCoordinatorLimits::default(),
+    )
+    .unwrap();
+    let mut coordinator = BoundaryProbeCoordinator::try_new(config, adapter, &ledger).unwrap();
+    let RequestedProbeCoordinatorStop::CompilerClosed {
+        census,
+        ledger_snapshot,
+        exact,
+    } = coordinator.try_run_requested_plan(&plan, &mut ledger)
+    else {
+        panic!("the requested one-loop recurrence must close via the exact compiler")
+    };
+    ledger
+        .try_require_current_snapshot(&ledger_snapshot)
+        .unwrap();
+    assert!(exact.status().is_compiler_closed());
+    assert_eq!(exact, ledger.snapshot());
+    assert_eq!(exact.revision().get(), 1);
+    assert_eq!(census.epochs_started(), 1);
+    assert_eq!(census.plans_built(), 1);
+    assert_eq!(census.task_reports(), 1);
+    assert_eq!(census.declared_probes(), 2);
+    assert_eq!(census.compiler_closed(), 1);
 }
 
 #[test]

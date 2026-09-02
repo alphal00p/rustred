@@ -9,6 +9,7 @@
 
 mod binary;
 mod coefficient;
+mod k6;
 mod limits;
 mod semantic;
 mod two_loop;
@@ -28,12 +29,13 @@ use super::model::{
     ZeroTerminalProof,
 };
 use super::one_loop::ALGORITHM_ID as ONE_LOOP_ALGORITHM_ID;
+use super::three_loop::ALGORITHM_ID as K6_ALGORITHM_ID;
 use super::two_loop::{
     ALGORITHM_ID as TWO_LOOP_ALGORITHM_ID, derive_two_loop_unit_mass_sunset_with_limits,
 };
 use binary::{Reader, Writer, try_vec};
 use coefficient::{decode_base_coefficient, encode_base_coefficient};
-pub use limits::{ArtifactEncodingLimits, ArtifactLoadLimits};
+pub use limits::{ArtifactCoverReplayLimits, ArtifactEncodingLimits, ArtifactLoadLimits};
 use semantic::{
     decode_bool_vec, decode_i64_vec, decode_owned_string, encode_bool_slice,
     encode_condition_source, encode_i64_slice, encode_integral_key, encode_row_id,
@@ -49,12 +51,15 @@ const RULES_SECTION: u16 = 4;
 const TERMINALS_SECTION: u16 = 5;
 
 /// Generate every ordinary `L*(L+E)` source row in canonical ordinal order.
-/// The plan applies unchanged to the future four-row and nine-row families.
+/// The plan applies unchanged to the registered one-, four-, and nine-row
+/// family grammars.
 /// Translated-source plans will receive a distinct tag and payload grammar.
 const COMPLETE_ORDINARY_SOURCE_PLAN: u16 = 1;
 const INTERIOR_FIRST_DESCENDING_RULE_PLAN: u16 = 1;
 const REGISTERED_RULE_CELL_PLAN: u16 = 2;
 const TWO_LOOP_CLOSURE_HEADER: u16 = 0x200;
+const K6_CLOSURE_HEADER: u16 = 0x600;
+const K6_REGENERATED_RULE_CELL_PLAN: u16 = 0x601;
 
 fn write_section(
     output: &mut Writer,
@@ -89,7 +94,7 @@ fn encode_into_writer(
     }
     if !matches!(
         artifact.algorithm_id(),
-        ONE_LOOP_ALGORITHM_ID | TWO_LOOP_ALGORITHM_ID
+        ONE_LOOP_ALGORITHM_ID | TWO_LOOP_ALGORITHM_ID | K6_ALGORITHM_ID
     ) {
         return Err(ArtifactPersistenceError::UnsupportedFeature {
             detail: "schema-v4 has no registered durable rule-cell grammar for this closing algorithm",
@@ -130,6 +135,8 @@ fn encode_into_writer(
     let mut rules = output.child();
     if artifact.algorithm_id() == TWO_LOOP_ALGORITHM_ID {
         two_loop::encode(&mut rules, artifact)?;
+    } else if artifact.algorithm_id() == K6_ALGORITHM_ID {
+        k6::encode(&mut rules, artifact)?;
     } else {
         rules.usize(artifact.rules().len(), "artifact rules")?;
         for rule in artifact.rules() {
@@ -195,6 +202,7 @@ pub(super) fn decode(
     let algorithm_id = match algorithm.as_str() {
         ONE_LOOP_ALGORITHM_ID => ONE_LOOP_ALGORITHM_ID,
         TWO_LOOP_ALGORITHM_ID => TWO_LOOP_ALGORITHM_ID,
+        K6_ALGORITHM_ID => K6_ALGORITHM_ID,
         _ => {
             return Err(ArtifactPersistenceError::UnsupportedFeature {
                 detail: "unknown closing algorithm identifier",
@@ -209,18 +217,15 @@ pub(super) fn decode(
             limit: limits.max_index_arity,
         });
     }
-    let expected_arity = if algorithm_id == ONE_LOOP_ALGORITHM_ID {
-        1
-    } else {
-        3
+    let expected_arity = match algorithm_id {
+        ONE_LOOP_ALGORITHM_ID => 1,
+        TWO_LOOP_ALGORITHM_ID => 3,
+        K6_ALGORITHM_ID => 6,
+        _ => unreachable!("algorithm identifier was matched above"),
     };
     if arity != expected_arity {
         return Err(ArtifactPersistenceError::SemanticMismatch {
-            field: if algorithm_id == ONE_LOOP_ALGORITHM_ID {
-                "one-loop algorithm arity"
-            } else {
-                "two-loop algorithm arity"
-            },
+            field: algorithm_arity_mismatch_field(algorithm_id),
         });
     }
     let expected_family_fingerprint = decode_owned_string(&mut metadata, "family fingerprint")?;
@@ -259,6 +264,21 @@ pub(super) fn decode(
             });
         }
         return Ok(artifact);
+    }
+
+    if algorithm_id == K6_ALGORITHM_ID {
+        return k6::decode(
+            &input,
+            family_bytes,
+            sources_bytes,
+            rules_bytes,
+            terminals_bytes,
+            ordering,
+            &expected_family_fingerprint,
+            &expected_context_fingerprint,
+            limits,
+            bytes,
+        );
     }
 
     // Parse and globally charge all opaque coefficient-bearing witnesses
@@ -354,6 +374,15 @@ pub(super) fn decode(
         common_mass_homogeneity: decoded_terminals.common_mass_homogeneity,
     })
     .map_err(ArtifactPersistenceError::from)
+}
+
+fn algorithm_arity_mismatch_field(algorithm_id: &str) -> &'static str {
+    match algorithm_id {
+        ONE_LOOP_ALGORITHM_ID => "one-loop algorithm arity",
+        TWO_LOOP_ALGORITHM_ID => "two-loop algorithm arity",
+        K6_ALGORITHM_ID => "K6 algorithm arity",
+        _ => unreachable!("algorithm identifier was matched before arity validation"),
+    }
 }
 
 fn decode_source_plan<'input>(
@@ -691,6 +720,22 @@ mod aggregate_budget_tests {
     use crate::foundry::artifact::derive_one_loop_unit_mass_tadpole;
 
     #[test]
+    fn algorithm_arity_diagnostics_name_each_registered_grammar() {
+        assert_eq!(
+            algorithm_arity_mismatch_field(ONE_LOOP_ALGORITHM_ID),
+            "one-loop algorithm arity"
+        );
+        assert_eq!(
+            algorithm_arity_mismatch_field(TWO_LOOP_ALGORITHM_ID),
+            "two-loop algorithm arity"
+        );
+        assert_eq!(
+            algorithm_arity_mismatch_field(K6_ALGORITHM_ID),
+            "K6 algorithm arity"
+        );
+    }
+
+    #[test]
     fn nested_documents_share_the_root_aggregate_coefficient_budget() {
         let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
         let mut lower = 0usize;
@@ -730,13 +775,13 @@ mod aggregate_budget_tests {
     }
 
     #[test]
-    fn unregistered_k6_rule_cell_grammar_fails_before_emitting_v4_bytes() {
+    fn registered_k6_grammar_rejects_a_foreign_artifact_shape() {
         let mut artifact = derive_one_loop_unit_mass_tadpole().unwrap();
         artifact.algorithm_id = super::super::three_loop::ALGORITHM_ID;
         assert_eq!(
             encode(&artifact).unwrap_err(),
             ArtifactPersistenceError::UnsupportedFeature {
-                detail: "schema-v4 has no registered durable rule-cell grammar for this closing algorithm",
+                detail: "K6 closure has no canonical symmetry owner",
             }
         );
     }

@@ -61,12 +61,29 @@ pub(super) fn render_dashboard(state: &DashboardState) -> String {
         "dim eff / max".to_owned(),
         fixed_right(&dimension, VALUE_WIDTH),
     ]);
-    builder.push_record([
-        "strict shrink".to_owned(),
-        fixed_right(&state.strict_shrink.to_string(), VALUE_WIDTH),
-        "no / dup / err".to_owned(),
-        fixed_right(&outcomes, VALUE_WIDTH),
-    ]);
+    match state.wave {
+        None => builder.push_record([
+            "strict shrink".to_owned(),
+            fixed_right(&state.strict_shrink.to_string(), VALUE_WIDTH),
+            "no / dup / err".to_owned(),
+            fixed_right(&outcomes, VALUE_WIDTH),
+        ]),
+        Some(wave) => builder.push_record([
+            "wave / rank".to_owned(),
+            fixed_right(
+                &format!("{} / {}", wave.ordinal.saturating_add(1), wave.active_count),
+                VALUE_WIDTH,
+            ),
+            "orbits c / r / t".to_owned(),
+            fixed_right(
+                &format!(
+                    "{} / {} / {}",
+                    wave.closed_orbit_count, wave.running_orbit_count, wave.terminal_orbit_count
+                ),
+                VALUE_WIDTH,
+            ),
+        ]),
+    }
     builder.push_record([
         "owner rate".to_owned(),
         fixed_right(&rate, VALUE_WIDTH),
@@ -105,6 +122,26 @@ pub(super) fn render_dashboard_for_width(state: &DashboardState, width: u16) -> 
         .rss_bytes
         .map(format_bytes)
         .unwrap_or_else(|| "—".to_owned());
+    let scope = match state.wave {
+        None => format!("dim {dimension} · RSS {rss}"),
+        Some(wave) => format!(
+            "wave {} · rank {} · orbits {}/{}",
+            wave.ordinal.saturating_add(1),
+            wave.active_count,
+            wave.closed_orbit_count,
+            wave.orbit_count
+        ),
+    };
+    let outcomes = match state.wave {
+        None => format!(
+            "shrink {} · no/dup/err {}/{}/{}",
+            state.strict_shrink, state.no_proposal, state.duplicate, state.errors
+        ),
+        Some(wave) => format!(
+            "running {} · terminal {} · RSS {rss}",
+            wave.running_orbit_count, wave.terminal_orbit_count
+        ),
+    };
     [
         format!(
             "RustRed · {} · {}",
@@ -113,11 +150,8 @@ pub(super) fn render_dashboard_for_width(state: &DashboardState, width: u16) -> 
         ),
         format!("rev {} · owners {}", state.revision, state.owner_count),
         format!("reports {}/{cap} · boxes {boxes}", state.task_reports),
-        format!("dim {dimension} · RSS {rss}"),
-        format!(
-            "shrink {} · no/dup/err {}/{}/{}",
-            state.strict_shrink, state.no_proposal, state.duplicate, state.errors
-        ),
+        scope,
+        outcomes,
     ]
     .join("\n")
 }

@@ -97,9 +97,13 @@ resource inputs. Unknown fields are rejected, and neither shape can represent
 an imported rule, recurrence RHS, coefficient, source row, or support. The
 report-only provenance ID is derived from the successful construction path,
 never accepted as a free label. RustRed derives and replays all identities
-itself. Single-sector results remain diagnostic-only; a successful full-wave
-result may install an in-memory artifact, while durable K6 publication remains
-a separate typed boundary.
+itself. Single-sector results remain diagnostic-only. A complete full-wave
+result crosses the separate installation boundary, deterministically encodes
+and cold-reloads the artifact, and owns its canonical durable bytes; an
+incomplete result owns no artifact bytes. Full-wave diagnostics retain a
+detached report for every sibling that blocks atomic wave publication,
+including its typed stop, exact residual-box census, the caller-bounded box
+coordinates for that sibling, and an explicit truncation bit.
 
 `derive` parses and lowers one family and emits selected raw parametric
 ordinary and/or LI relations. A concrete target in the input is validated and
@@ -114,6 +118,15 @@ hidden preset. The `K = 3` loader cold-regenerates its tagged derivation and
 requires byte-exact equality at that one untrusted boundary. Reduction returns
 an ordered exact decomposition keyed by typed master power vectors plus
 common-mass-squared homogeneity powers.
+
+Rust callers that accept untrusted artifact bytes may use
+`ClosedArtifact::decode_durable_with_limits` with `ArtifactLoadLimits`. Its
+public `cover_replay: ArtifactCoverReplayLimits` member independently bounds
+arity, requested boxes and coordinate cells, uncovered boxes and coordinate
+cells, and exact-cover split operations. K6 decoding also applies the existing
+translated-source and rule-cell limits before retaining cell-plan payloads.
+These checks belong only to cold loading; a successfully sealed artifact does
+not repeat them during memoized reduction.
 
 Each result owns a canonical, newline-terminated TOML document accessible
 through `to_toml()` (and, where appropriate, `into_toml()`). The generation
@@ -147,9 +160,12 @@ and is committed atomically.
 `campaign run` executes one bounded single-sector K6 diagnostic campaign.
 `campaign run-waves` executes the bounded full-rank atomic-wave itinerary and
 requires an explicit positive sibling-worker count. Both consume the strict
-V2 campaign configuration, produce diagnostic reports rather than durable K6
-artifact bytes, and distinguish autonomous requests from external search
-hints structurally. Neither command accepts or imports recurrence algebra.
+V2 campaign configuration, produce diagnostic reports, and distinguish
+autonomous requests from external search hints structurally. A completely
+published `run-waves` result additionally exposes canonical artifact bytes only
+after exact installation, deterministic encoding, and one cold reload; an
+incomplete result exposes none. Neither command accepts or imports recurrence
+algebra.
 
 `campaign generate` writes binary durable bytes. Inspection and reduction read
 those bytes from a file or standard input and emit canonical TOML. Invalid

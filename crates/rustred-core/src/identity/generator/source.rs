@@ -7,6 +7,10 @@ use super::model::{
 use super::scope::IbpSourceLayout;
 
 impl CompletedIbpSourceRows {
+    pub(crate) fn relations(&self) -> &[super::super::relation::ParametricRelation] {
+        &self.relations
+    }
+
     pub fn into_relations(self) -> Vec<super::super::relation::ParametricRelation> {
         self.relations
     }

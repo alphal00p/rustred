@@ -91,7 +91,10 @@ pub(crate) struct FoundryWaveCampaignRunArgs {
     pub(crate) config: StreamPath,
     pub(crate) output: StreamPath,
     pub(crate) measurements_output: Option<StreamPath>,
+    pub(crate) artifact_output: Option<StreamPath>,
     pub(crate) n_cores: usize,
+    pub(crate) no_progress: bool,
+    pub(crate) color: ColorPolicy,
     pub(crate) force: bool,
 }
 
@@ -323,7 +326,10 @@ FOUNDRY WAVE CAMPAIGN RUN OPTIONS:
     --output <PATH|->            Write deterministic diagnostic TOML to PATH or stdout
     --measurements-output <PATH|->
                                  Optionally write nonsemantic timing TOML separately
+    --artifact-output <PATH|->   Write canonical durable K6 bytes after successful closure
     --n-cores <COUNT>            Sibling workers within one atomic wave [default: 1]
+    --no-progress                Disable the interactive stderr dashboard
+    --color <WHEN>               auto, always, or never [default: auto]
     --force                      Atomically replace existing output files
 
 CAMPAIGN GENERATE OPTIONS:
@@ -368,8 +374,11 @@ configuration uses disjoint `autonomous` and `external-hints-only` modes;
 autonomous requests cannot carry caller-authored search hints.
 
 `campaign run-waves` executes the `full-rank-atomic-waves` itinerary. Its
-successful result can still be incomplete and never constitutes a closing
-artifact; same-rank siblings publish only as a complete atomic wave.
+successful result can still be incomplete; same-rank siblings publish only as
+a complete atomic wave. After complete publication, `--artifact-output`
+writes bytes only after exact installation and one successful cold reload. Its
+terminal-only dashboard aggregates detached sibling telemetry and is quiet
+when stderr is redirected.
 
 `campaign generate` writes a deterministic durable artifact encoding.
 `campaign inspect` loads and authenticates durable artifact bytes once, then

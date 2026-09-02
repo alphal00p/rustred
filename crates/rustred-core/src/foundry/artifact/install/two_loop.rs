@@ -63,6 +63,7 @@ pub(super) fn validate(
                 detail: "two-loop guard census overflowed",
             })
     })?;
+    let factorized_product_programs = super::compile_factorized_product_programs(&candidate)?;
     let validation = ArtifactValidationWitness::new(
         candidate.source_relations.len(),
         replayed_source_rows,
@@ -87,6 +88,7 @@ pub(super) fn validate(
         canonicalizer: candidate.canonicalizer,
         dependencies: candidate.dependencies,
         factorization_rules: candidate.factorization_rules,
+        factorized_product_programs,
         masters: candidate.masters,
         zero_sectors: candidate.zero_sectors,
         common_mass_homogeneity: candidate.common_mass_homogeneity,

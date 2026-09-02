@@ -431,10 +431,27 @@ fn boundary_binding_rejects_foreign_ledger_and_every_owner_set_revision_change()
         .try_bind_task(&strict_boundary, strict_task, &strict)
         .unwrap();
     let strict_interior = fixture.plan(&strict, 2, 0);
-    let strict_owner = fixture.replay_owner(&strict_interior.tasks()[0]);
-    let strict_delta = strict.try_apply_owner(strict_owner).unwrap();
+    let strict_mutating_task = &strict_interior.tasks()[0];
+    let strict_mutating_binding = adapter
+        .try_bind_task(&strict_interior, strict_mutating_task, &strict)
+        .unwrap();
+    let strict_mutating_report = adapter
+        .try_run_task(
+            strict_mutating_binding,
+            &mut strict,
+            [probe(
+                strict_mutating_task.lattice_target().iter().copied(),
+                limits,
+            )],
+        )
+        .unwrap();
+    let ProbeCampaignOutcome::StrictGeometricShrink(strict_applied) =
+        strict_mutating_report.outcome()
+    else {
+        panic!("the canonical first boundary task must strictly shrink geometry")
+    };
     assert_eq!(
-        strict_delta.kind(),
+        strict_applied.delta().kind(),
         ExactOwnerCoverDeltaKind::StrictGeometricShrink
     );
     let strict_baseline = strict.snapshot();
@@ -450,31 +467,50 @@ fn boundary_binding_rejects_foreign_ledger_and_every_owner_set_revision_change()
     ));
     assert_eq!(strict.snapshot(), strict_baseline);
 
-    let mut unchanged_cover = rev1_ledger(fixture);
-    let unchanged_partition = unchanged_cover.try_clone_uncovered_partition().unwrap();
-    let unchanged_boundary =
-        boundary_plan(&unchanged_cover, fixture.sector(), &unchanged_partition, 1);
-    let unchanged_task = &unchanged_boundary.tasks()[0];
-    let unchanged_binding = adapter
-        .try_bind_task(&unchanged_boundary, unchanged_task, &unchanged_cover)
+    // Exact product-domain preimages make the former ordinal-seven redundant
+    // owner a genuine geometric shrink. The stale-binding invariant is about
+    // the owner-set revision identity, not the historical delta shape, so
+    // authenticate it on this distinct mutation as well.
+    let mut second_change = rev1_ledger(fixture);
+    let second_partition = second_change.try_clone_uncovered_partition().unwrap();
+    let second_boundary = boundary_plan(&second_change, fixture.sector(), &second_partition, 1);
+    let second_task = &second_boundary.tasks()[0];
+    let second_binding = adapter
+        .try_bind_task(&second_boundary, second_task, &second_change)
         .unwrap();
-    let unchanged_interior = fixture.plan(&unchanged_cover, 2, 0);
-    let unchanged_owner = fixture.replay_owner(&unchanged_interior.tasks()[8]);
-    let unchanged_delta = unchanged_cover.try_apply_owner(unchanged_owner).unwrap();
+    let second_interior = fixture.plan(&second_change, 2, 0);
+    let mutating_task = &second_interior.tasks()[7];
+    let mutating_binding = adapter
+        .try_bind_task(&second_interior, mutating_task, &second_change)
+        .unwrap();
+    let mutating_report = adapter
+        .try_run_task(
+            mutating_binding,
+            &mut second_change,
+            [probe(
+                mutating_task.lattice_target().iter().copied(),
+                limits,
+            )],
+        )
+        .unwrap();
+    let ProbeCampaignOutcome::StrictGeometricShrink(mutating_applied) = mutating_report.outcome()
+    else {
+        panic!("the exact-preimage ordinal-seven task must strictly shrink geometry")
+    };
     assert_eq!(
-        unchanged_delta.kind(),
-        ExactOwnerCoverDeltaKind::ChangedWithoutGeometricShrink
+        mutating_applied.delta().kind(),
+        ExactOwnerCoverDeltaKind::StrictGeometricShrink
     );
-    let unchanged_baseline = unchanged_cover.snapshot();
+    let second_baseline = second_change.snapshot();
     assert!(matches!(
         adapter.try_run_task(
-            unchanged_binding,
-            &mut unchanged_cover,
-            [probe(unchanged_task.base_probe_chart_origin(), limits)],
+            second_binding,
+            &mut second_change,
+            [probe(second_task.base_probe_chart_origin(), limits)],
         ),
         Err(ProbeCampaignError::CoverDelta(
             ExactOwnerCoverDeltaError::StaleLedgerSnapshotIdentity { expected, actual },
         )) if expected.get() == 2 && actual.get() == 1
     ));
-    assert_eq!(unchanged_cover.snapshot(), unchanged_baseline);
+    assert_eq!(second_change.snapshot(), second_baseline);
 }

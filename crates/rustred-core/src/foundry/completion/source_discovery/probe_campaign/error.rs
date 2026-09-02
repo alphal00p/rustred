@@ -24,6 +24,10 @@ pub(crate) enum ProbeCampaignError {
     Scope {
         detail: &'static str,
     },
+    StaleLedgerRevision {
+        planned: u64,
+        current: u64,
+    },
     StaleParentGeometry,
     SourceDiscovery(SourceDiscoveryError),
     SourceTranslation(TranslatedSourceError),
@@ -70,6 +74,10 @@ impl fmt::Display for ProbeCampaignError {
             Self::Scope { detail } => {
                 write!(formatter, "probe campaign scope mismatch: {detail}")
             }
+            Self::StaleLedgerRevision { planned, current } => write!(
+                formatter,
+                "probe campaign task belongs to ledger revision {planned}, but the current revision is {current}"
+            ),
             Self::StaleParentGeometry => formatter
                 .write_str("the planned task parent box is absent from the bound ledger geometry"),
             Self::SourceDiscovery(error) => error.fmt(formatter),

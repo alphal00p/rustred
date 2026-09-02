@@ -36,12 +36,13 @@ mod terminals;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use family::canonical_family;
+pub(crate) use family::{canonical_family, canonical_family_with_limits};
 pub(crate) use manifest::FULL_RANK_ORBITS;
 pub(crate) use publication::{ALGORITHM_ID, install_published_sector_waves};
 pub(crate) use symmetry::{canonical_s4, canonical_s4_with_ordering};
 pub(crate) use terminal_authority::derive_k6_terminal_authority;
 pub(crate) use terminal_authority::derive_k6_terminal_authority_with_ordering;
+pub(crate) use terminal_authority::derive_k6_terminal_authority_with_ordering_and_limits;
 #[cfg(test)]
 pub(crate) use terminals::exact_zero_sectors;
 

@@ -23,6 +23,8 @@ pub use rustred::foundry::campaign::{
     FoundryCampaignCensus, FoundryCampaignCoverageObstruction, FoundryCampaignCoverageStatus,
     FoundryCampaignNeedsRefinementReason, FoundryCampaignOperationalLimit, FoundryCampaignProgress,
     FoundryCampaignSnapshot, FoundryCampaignStop, FoundryCampaignTaskLocation,
+    FoundryCampaignTaskLocationKind, K6OrbitCampaignProgress, K6OrbitCampaignState,
+    K6WaveCampaignProgress, K6WaveCampaignState,
 };
 
 /// Maximum UTF-8 source payload accepted by every in-process application API.
@@ -40,7 +42,7 @@ pub const FOUNDRY_CAMPAIGN_MEASUREMENTS_SCHEMA: &str =
     "rustred.foundry-campaign-measurements.toml.v1";
 /// Deterministic report schema for a transactional full-rank wave campaign.
 pub const FOUNDRY_WAVE_CAMPAIGN_REPORT_SCHEMA: &str =
-    "rustred.foundry-wave-campaign-report.toml.v1";
+    "rustred.foundry-wave-campaign-report.toml.v2";
 /// Nonsemantic timing sidecar for a transactional full-rank wave campaign.
 pub const FOUNDRY_WAVE_CAMPAIGN_MEASUREMENTS_SCHEMA: &str =
     "rustred.foundry-wave-campaign-measurements.toml.v1";
@@ -260,19 +262,26 @@ impl FoundryCampaignRunResult {
 
 /// Deterministic detached telemetry for a transactional full-rank itinerary.
 ///
-/// Even when every same-rank wave publishes, this result is not a closing
-/// artifact and deliberately exposes no live owner or publication authority.
+/// A successful complete run additionally owns canonical durable artifact
+/// bytes after one cold-load authentication. No live campaign owner or search
+/// provenance crosses this boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FoundryWaveCampaignRunResult {
     report_toml: String,
     measurements_toml: String,
+    artifact: Option<Vec<u8>>,
 }
 
 impl FoundryWaveCampaignRunResult {
-    pub(crate) fn new(report_toml: String, measurements_toml: String) -> Self {
+    pub(crate) fn new(
+        report_toml: String,
+        measurements_toml: String,
+        artifact: Option<Vec<u8>>,
+    ) -> Self {
         Self {
             report_toml,
             measurements_toml,
+            artifact,
         }
     }
 
@@ -292,12 +301,18 @@ impl FoundryWaveCampaignRunResult {
         &self.measurements_toml
     }
 
+    /// Canonical durable bytes only when all K6 waves published, exact
+    /// installation succeeded, and one cold reload reauthenticated them.
+    pub fn artifact_bytes(&self) -> Option<&[u8]> {
+        self.artifact.as_deref()
+    }
+
     pub fn into_toml(self) -> String {
         self.report_toml
     }
 
-    pub fn into_parts(self) -> (String, String) {
-        (self.report_toml, self.measurements_toml)
+    pub fn into_parts(self) -> (String, String, Option<Vec<u8>>) {
+        (self.report_toml, self.measurements_toml, self.artifact)
     }
 }
 
@@ -569,8 +584,9 @@ pub fn foundry_campaign_run_with_progress(
 
 /// Run the configured full-rank sectors in atomic same-rank waves.
 ///
-/// This is a bounded diagnostic. A successful return may be incomplete, and
-/// even a fully published frontier is not serialized as a closing artifact.
+/// A successful return may be incomplete, in which case it owns no artifact
+/// bytes. A completely published frontier is installed, deterministically
+/// encoded, cold-reloaded once, and returned as canonical durable bytes.
 pub fn foundry_wave_campaign_run(
     request: FoundryWaveCampaignRunRequest,
 ) -> Result<FoundryWaveCampaignRunResult, AppError> {
@@ -581,6 +597,24 @@ pub fn foundry_wave_campaign_run(
         ));
     }
     campaign::foundry_wave::run_request(request)
+}
+
+/// Run the full-rank wave itinerary while observing coalesced sibling state.
+///
+/// Progress values are detached scalar telemetry. The callback runs only on
+/// the invoking coordinator thread and cannot acquire live-ledger or wave
+/// publication authority.
+pub fn foundry_wave_campaign_run_with_progress(
+    request: FoundryWaveCampaignRunRequest,
+    observe: impl FnMut(K6WaveCampaignProgress),
+) -> Result<FoundryWaveCampaignRunResult, AppError> {
+    validate_ingress("foundry wave campaign configuration", &request.config)?;
+    if request.sibling_worker_count == 0 {
+        return Err(AppError::input(
+            "foundry wave campaign sibling_worker_count must be a positive integer",
+        ));
+    }
+    campaign::foundry_wave::run_request_with_progress(request, observe)
 }
 
 /// Generate and seal one selected closing artifact for this operation.

@@ -49,6 +49,7 @@ pub(super) struct DashboardState {
     pub(super) owner_rate: Option<f64>,
     pub(super) cap_eta: Option<Duration>,
     pub(super) rss_bytes: Option<u64>,
+    pub(super) wave: Option<WaveDashboardState>,
 }
 
 impl Default for DashboardState {
@@ -70,8 +71,19 @@ impl Default for DashboardState {
             owner_rate: None,
             cap_eta: None,
             rss_bytes: None,
+            wave: None,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct WaveDashboardState {
+    pub(super) ordinal: usize,
+    pub(super) active_count: usize,
+    pub(super) orbit_count: usize,
+    pub(super) closed_orbit_count: usize,
+    pub(super) running_orbit_count: usize,
+    pub(super) terminal_orbit_count: usize,
 }
 
 #[derive(Clone, Copy, Debug)]

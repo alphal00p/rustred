@@ -38,8 +38,9 @@ static K6_FAMILY: OnceLock<IntegralFamily> = OnceLock::new();
 static K6_FIXTURE: OnceLock<OracleDisabledK6Fixture> = OnceLock::new();
 
 /// Typed K=6 family, complete ordinary module, zero-source incidence input,
-/// and terminal-only predecessor authority. No reduction-oracle rule,
-/// coefficient, support, or topology name enters this fixture.
+/// and the production terminal/factorization predecessor authority. No
+/// reduction-oracle rule, coefficient, support, or topology name enters this
+/// fixture.
 pub(crate) struct OracleDisabledK6Fixture {
     generator: ParametricIbpGenerator<'static>,
     completed: CompletedIbpSourceRows,
@@ -67,7 +68,11 @@ impl OracleDisabledK6Fixture {
         assert!(completed.is_complete_ordinary());
         assert_eq!(completed.source_row_count(), 9);
 
-        let sector = Mask::try_from_indices(&FULL_RANK_ORBITS[0].representative).unwrap();
+        // The first three registered full-rank orbits are now completely owned
+        // by the exact factorized-product predecessor. Discovery regressions
+        // must start from an actually unresolved sector, not hide that new
+        // production authority behind a weaker test predecessor.
+        let sector = Mask::try_from_indices(&FULL_RANK_ORBITS[3].representative).unwrap();
         let predecessor = ImmutableOwnerSnapshot::try_from_terminal_authority(
             derive_k6_terminal_authority().unwrap(),
             Default::default(),
@@ -195,18 +200,18 @@ impl OracleDisabledK6Fixture {
         let partition = ledger.try_clone_uncovered_partition().unwrap();
         let scope = format!(
             "{}|{}|{}|{:?}|{:?}|{}",
-            self.predecessor.family_fingerprint(),
-            self.predecessor.context_fingerprint(),
-            self.predecessor.id().as_str(),
-            self.sector.active_bits(),
-            self.ordering,
+            ledger.predecessor_snapshot().family_fingerprint(),
+            ledger.predecessor_snapshot().context_fingerprint(),
+            ledger.predecessor_snapshot().id().as_str(),
+            ledger.sector().active_bits(),
+            ledger.ordering(),
             ledger.revision().get(),
         );
         try_plan_interior_simplex_samples(
             ledger.revision().get(),
             [InteriorSimplexScopePartition::new(
                 &scope,
-                &self.sector,
+                ledger.sector(),
                 &partition,
             )],
             interior_margin,

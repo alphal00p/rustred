@@ -135,6 +135,43 @@ pub(crate) fn try_compile_canonical_executable_owner(
 }
 
 impl ExactExecutableOwnerCover {
+    /// Build a zero-cell executable cover only when the installed predecessor
+    /// itself proves complete ownership of this exact campaign carrier.
+    pub(crate) fn try_compile_predecessor_closed(
+        context: &IndexedCoefficientContext,
+        predecessor: &crate::foundry::completion::stratum::ImmutableOwnerSnapshot,
+        sector: &crate::sector::Mask,
+        ordering: crate::sector::OrderingPolicy,
+        carrier: &LatticeBox,
+    ) -> Result<Option<Self>, ExactExecutableOwnerError> {
+        if context.fingerprint() != predecessor.context_fingerprint()
+            || sector.arity() != predecessor.arity()
+        {
+            return Err(ExactExecutableOwnerError::WrongContext);
+        }
+        let domain = super::layer::try_carrier_domain_from_lattice(sector, carrier)
+            .map_err(ExactExecutableOwnerError::ContentOrder)?;
+        if !predecessor.authenticates_same_sector_domain(ordering, &domain) {
+            return Ok(None);
+        }
+        let retained_carrier = LatticeBox::try_new(
+            carrier.lower().iter().copied(),
+            carrier.upper().iter().copied(),
+        )?;
+        Ok(Some(Self {
+            owners: Box::new([]),
+            terminals: Box::new([]),
+            cover: ExactCircuitOwnerCover::predecessor_closed(
+                predecessor.family_fingerprint(),
+                context.fingerprint(),
+                sector.clone(),
+                ordering,
+                predecessor.id().clone(),
+                retained_carrier,
+            ),
+        }))
+    }
+
     /// Compile a complete immutable owner set. Input order cannot affect owner
     /// IDs: the proof cover supplies the canonical order and a pointer-only
     /// cold join recovers the already-owned executable groups.

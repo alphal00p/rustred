@@ -1,0 +1,7 @@
+# Pure standalone K=6 search. This lane receives no externally supplied
+# ordering, probes, anchors, or domain itinerary.
+schema = "rustred.foundry-campaign-config.toml.v2"
+preset = "three-loop-unit-mass-vacuum-k6-orbit-0"
+mode = "autonomous"
+max_task_reports = 4096
+max_reported_uncovered_boxes = 4096
