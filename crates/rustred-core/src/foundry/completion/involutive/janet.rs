@@ -1,0 +1,968 @@
+use std::sync::Arc;
+
+use crate::algebra::IndexedCoefficientContext;
+use crate::sector::ShiftComplexityKey;
+
+use super::super::{
+    CompletionGeometryLimits, LatticeCardinality, LatticePoint, LeadingIdeal, UncoveredPartition,
+};
+use super::error::{
+    check_limit, checked_add, checked_mul, checked_sort_coordinate_work, try_push_bounded, try_vec,
+};
+use super::limits::InvolutiveWorkBudget;
+use super::{
+    ForwardShift, InvolutiveError, InvolutiveLimits, OreActionIdentity, OreConsequence,
+    OreOrderingAdapter,
+};
+
+/// Opaque identity shared by every immutable revision of one Janet basis.
+#[derive(Clone, Debug)]
+struct BasisInstanceIdentity(Arc<()>);
+
+impl BasisInstanceIdentity {
+    fn fresh() -> Self {
+        Self(Arc::new(()))
+    }
+
+    fn belongs_to(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl PartialEq for BasisInstanceIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        self.belongs_to(other)
+    }
+}
+
+impl Eq for BasisInstanceIdentity {}
+
+/// Opaque basis-instance identity plus its monotone immutable revision.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct EpochId {
+    instance: BasisInstanceIdentity,
+    revision: u64,
+}
+
+impl EpochId {
+    fn fresh_initial() -> Self {
+        Self {
+            instance: BasisInstanceIdentity::fresh(),
+            revision: 0,
+        }
+    }
+
+    pub(crate) const fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    pub(crate) fn same_instance(&self, other: &Self) -> bool {
+        self.instance.belongs_to(&other.instance)
+    }
+
+    fn try_successor(&self, limits: InvolutiveLimits) -> Result<Self, InvolutiveError> {
+        let next = self
+            .revision
+            .checked_add(1)
+            .ok_or(InvolutiveError::ResourceCountOverflow {
+                resource: "Janet epoch",
+            })?;
+        if next > limits.max_epoch {
+            return Err(InvolutiveError::EpochLimit {
+                requested: next,
+                limit: limits.max_epoch,
+            });
+        }
+        Ok(Self {
+            instance: self.instance.clone(),
+            revision: next,
+        })
+    }
+}
+
+/// Multiplicative-variable decision for one Janet leading monomial.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct JanetMultiplicativeMask {
+    bits: Arc<Vec<bool>>,
+}
+
+impl JanetMultiplicativeMask {
+    pub(crate) fn bits(&self) -> &[bool] {
+        self.bits.as_slice()
+    }
+
+    pub(crate) fn is_multiplicative(&self, position: usize) -> Result<bool, InvolutiveError> {
+        self.bits
+            .get(position)
+            .copied()
+            .ok_or(InvolutiveError::CoordinateOutOfRange {
+                position,
+                arity: self.bits.len(),
+            })
+    }
+
+    pub(crate) fn janet_divides(&self, divisor: &ForwardShift, target: &ForwardShift) -> bool {
+        divisor.arity() == self.bits.len()
+            && target.arity() == self.bits.len()
+            && divisor
+                .values()
+                .iter()
+                .zip(target.values())
+                .zip(self.bits.iter())
+                .all(|((&left, &right), &multiplicative)| {
+                    left <= right && (left == right || multiplicative)
+                })
+    }
+}
+
+/// One immutable basis row with its epoch-local Janet division data.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct JanetBasisElement {
+    ordinal: usize,
+    leading_shift: ForwardShift,
+    leading_key: ShiftComplexityKey,
+    multiplicative: JanetMultiplicativeMask,
+    consequence: Arc<OreConsequence>,
+}
+
+impl JanetBasisElement {
+    pub(crate) fn ordinal(&self) -> usize {
+        self.ordinal
+    }
+
+    pub(crate) fn leading_shift(&self) -> &ForwardShift {
+        &self.leading_shift
+    }
+
+    pub(crate) fn leading_key(&self) -> &ShiftComplexityKey {
+        &self.leading_key
+    }
+
+    pub(crate) fn multiplicative(&self) -> &JanetMultiplicativeMask {
+        &self.multiplicative
+    }
+
+    pub(crate) fn consequence(&self) -> &OreConsequence {
+        self.consequence.as_ref()
+    }
+}
+
+/// One mandatory nonmultiplicative prolongation tied to its source epoch.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct JanetProlongation {
+    epoch: EpochId,
+    basis_ordinal: usize,
+    variable: usize,
+    target_leading_shift: ForwardShift,
+    target_key: ShiftComplexityKey,
+}
+
+impl JanetProlongation {
+    pub(crate) fn epoch(&self) -> &EpochId {
+        &self.epoch
+    }
+
+    pub(crate) fn basis_ordinal(&self) -> usize {
+        self.basis_ordinal
+    }
+
+    pub(crate) fn variable(&self) -> usize {
+        self.variable
+    }
+
+    pub(crate) fn target_leading_shift(&self) -> &ForwardShift {
+        &self.target_leading_shift
+    }
+
+    pub(crate) fn target_key(&self) -> &ShiftComplexityKey {
+        &self.target_key
+    }
+}
+
+/// Pure-power witnesses for zero-dimensionality of a monomial complement.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PurePowerCoverage {
+    exponents: Box<[Option<u64>]>,
+}
+
+impl PurePowerCoverage {
+    pub(crate) fn is_complete(&self) -> bool {
+        self.exponents.iter().all(Option::is_some)
+    }
+
+    pub(crate) fn exponent(&self, position: usize) -> Option<u64> {
+        self.exponents.get(position).copied().flatten()
+    }
+
+    pub(crate) fn missing_axes(&self) -> impl Iterator<Item = usize> + '_ {
+        self.exponents
+            .iter()
+            .enumerate()
+            .filter_map(|(position, exponent)| exponent.is_none().then_some(position))
+    }
+}
+
+/// Immutable basis, exact leading complement, and mandatory Janet queue.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct JanetBasisEpoch {
+    epoch: EpochId,
+    predecessor: Option<EpochId>,
+    action: OreActionIdentity,
+    arity: usize,
+    elements: Box<[JanetBasisElement]>,
+    prolongations: Box<[JanetProlongation]>,
+    leading_ideal: LeadingIdeal,
+    uncovered: UncoveredPartition,
+    pure_power_coverage: PurePowerCoverage,
+}
+
+impl JanetBasisEpoch {
+    pub(crate) fn try_initial(
+        consequences: impl IntoIterator<Item = OreConsequence>,
+        ordering: &OreOrderingAdapter,
+        context: &IndexedCoefficientContext,
+        limits: InvolutiveLimits,
+        geometry_limits: CompletionGeometryLimits,
+    ) -> Result<Self, InvolutiveError> {
+        let mut work = InvolutiveWorkBudget::default();
+        Self::try_initial_with_budget(
+            consequences,
+            ordering,
+            context,
+            limits,
+            geometry_limits,
+            &mut work,
+        )
+    }
+
+    pub(super) fn try_initial_with_budget(
+        consequences: impl IntoIterator<Item = OreConsequence>,
+        ordering: &OreOrderingAdapter,
+        context: &IndexedCoefficientContext,
+        limits: InvolutiveLimits,
+        geometry_limits: CompletionGeometryLimits,
+        work: &mut InvolutiveWorkBudget,
+    ) -> Result<Self, InvolutiveError> {
+        let mut pending = Vec::new();
+        for consequence in consequences {
+            consequence.try_validate(ordering, context, limits)?;
+            try_push_bounded(
+                &mut pending,
+                consequence,
+                "Janet basis rows",
+                limits.max_basis_rows,
+            )?;
+        }
+        Self::try_initial_sealed_with_budget(
+            pending,
+            ordering,
+            context,
+            limits,
+            geometry_limits,
+            work,
+        )
+    }
+
+    /// Construct an initial epoch from consequences already authenticated by
+    /// the in-process preprocessing owner.
+    pub(super) fn try_initial_sealed_with_budget(
+        pending: Vec<OreConsequence>,
+        ordering: &OreOrderingAdapter,
+        context: &IndexedCoefficientContext,
+        limits: InvolutiveLimits,
+        geometry_limits: CompletionGeometryLimits,
+        work: &mut InvolutiveWorkBudget,
+    ) -> Result<Self, InvolutiveError> {
+        preflight_basis_shape(pending.len(), ordering.arity(), limits)?;
+        preflight_basis_coefficient_payload(pending.iter(), limits)?;
+        let mut retained = try_vec("initial Janet basis rows", pending.len())?;
+        retained.extend(pending.into_iter().map(Arc::new));
+        build_epoch(
+            EpochId::fresh_initial(),
+            None,
+            retained,
+            ordering,
+            context,
+            limits,
+            geometry_limits,
+            work,
+        )
+    }
+
+    /// Recompute all Janet masks and obligations in a fresh immutable epoch.
+    /// Existing exact consequences are shared; no old queue entry is carried.
+    pub(crate) fn try_successor(
+        &self,
+        additions: impl IntoIterator<Item = OreConsequence>,
+        ordering: &OreOrderingAdapter,
+        context: &IndexedCoefficientContext,
+        limits: InvolutiveLimits,
+        geometry_limits: CompletionGeometryLimits,
+    ) -> Result<Self, InvolutiveError> {
+        let mut work = InvolutiveWorkBudget::default();
+        self.try_successor_with_budget(
+            additions,
+            ordering,
+            context,
+            limits,
+            geometry_limits,
+            &mut work,
+        )
+    }
+
+    pub(super) fn try_successor_with_budget(
+        &self,
+        additions: impl IntoIterator<Item = OreConsequence>,
+        ordering: &OreOrderingAdapter,
+        context: &IndexedCoefficientContext,
+        limits: InvolutiveLimits,
+        geometry_limits: CompletionGeometryLimits,
+        work: &mut InvolutiveWorkBudget,
+    ) -> Result<Self, InvolutiveError> {
+        ordering.require_action(&self.action)?;
+        ordering.require_arity("Janet predecessor", self.arity)?;
+        let next_epoch = self.epoch.try_successor(limits)?;
+        check_limit(
+            "Janet basis rows",
+            self.elements.len(),
+            limits.max_basis_rows,
+        )?;
+        let remaining = limits.max_basis_rows - self.elements.len();
+        let mut pending = Vec::new();
+        for consequence in additions {
+            consequence.try_validate(ordering, context, limits)?;
+            try_push_bounded(
+                &mut pending,
+                consequence,
+                "successor Janet additions",
+                remaining,
+            )?;
+        }
+        let total = checked_add("Janet basis rows", self.elements.len(), pending.len())?;
+        preflight_basis_shape(total, self.arity, limits)?;
+        preflight_basis_coefficient_payload(
+            self.elements
+                .iter()
+                .map(JanetBasisElement::consequence)
+                .chain(pending.iter()),
+            limits,
+        )?;
+
+        // No predecessor Arc is cloned until the complete successor shape and
+        // every new consequence have passed their resource/action checks.
+        let mut retained = try_vec("successor Janet basis rows", total)?;
+        retained.extend(
+            self.elements
+                .iter()
+                .map(|element| Arc::clone(&element.consequence)),
+        );
+        retained.extend(pending.into_iter().map(Arc::new));
+        build_epoch(
+            next_epoch,
+            Some(self.epoch.clone()),
+            retained,
+            ordering,
+            context,
+            limits,
+            geometry_limits,
+            work,
+        )
+    }
+
+    pub(crate) fn epoch(&self) -> &EpochId {
+        &self.epoch
+    }
+
+    pub(crate) fn predecessor(&self) -> Option<&EpochId> {
+        self.predecessor.as_ref()
+    }
+
+    pub(crate) fn arity(&self) -> usize {
+        self.arity
+    }
+
+    pub(crate) fn elements(&self) -> &[JanetBasisElement] {
+        &self.elements
+    }
+
+    pub(crate) fn prolongations(&self) -> &[JanetProlongation] {
+        &self.prolongations
+    }
+
+    pub(crate) fn leading_ideal(&self) -> &LeadingIdeal {
+        &self.leading_ideal
+    }
+
+    pub(crate) fn uncovered_partition(&self) -> &UncoveredPartition {
+        &self.uncovered
+    }
+
+    pub(crate) fn pure_power_coverage(&self) -> &PurePowerCoverage {
+        &self.pure_power_coverage
+    }
+
+    pub(crate) fn try_uncovered_cardinality(
+        &self,
+        max_points: usize,
+    ) -> Result<LatticeCardinality, InvolutiveError> {
+        Ok(self.uncovered.try_cardinality(max_points)?)
+    }
+
+    pub(super) fn require_ordering(
+        &self,
+        ordering: &OreOrderingAdapter,
+    ) -> Result<(), InvolutiveError> {
+        ordering.require_action(&self.action)
+    }
+
+    pub(crate) fn try_janet_divisor(
+        &self,
+        target: &ForwardShift,
+    ) -> Result<Option<usize>, InvolutiveError> {
+        if target.arity() != self.arity {
+            return Err(InvolutiveError::WrongArity {
+                object: "Janet divisibility target",
+                expected: self.arity,
+                actual: target.arity(),
+            });
+        }
+        Ok(self.elements.iter().find_map(|element| {
+            element
+                .multiplicative
+                .janet_divides(&element.leading_shift, target)
+                .then_some(element.ordinal)
+        }))
+    }
+
+    pub(crate) fn require_current(
+        &self,
+        prolongation: &JanetProlongation,
+    ) -> Result<(), InvolutiveError> {
+        if prolongation.epoch == self.epoch {
+            Ok(())
+        } else {
+            Err(InvolutiveError::StaleEpoch {
+                expected: self.epoch.clone(),
+                actual: prolongation.epoch.clone(),
+            })
+        }
+    }
+
+    pub(crate) fn try_apply_prolongation(
+        &self,
+        prolongation: &JanetProlongation,
+        ordering: &OreOrderingAdapter,
+        context: &IndexedCoefficientContext,
+        limits: InvolutiveLimits,
+    ) -> Result<OreConsequence, InvolutiveError> {
+        let mut work = InvolutiveWorkBudget::default();
+        self.try_apply_prolongation_with_budget(prolongation, ordering, context, limits, &mut work)
+    }
+
+    pub(super) fn try_apply_prolongation_with_budget(
+        &self,
+        prolongation: &JanetProlongation,
+        ordering: &OreOrderingAdapter,
+        context: &IndexedCoefficientContext,
+        limits: InvolutiveLimits,
+        work: &mut InvolutiveWorkBudget,
+    ) -> Result<OreConsequence, InvolutiveError> {
+        ordering.require_action(&self.action)?;
+        self.require_current(prolongation)?;
+        let element = self.elements.get(prolongation.basis_ordinal).ok_or(
+            InvolutiveError::InvalidProlongation {
+                detail: "basis ordinal is outside the current epoch",
+            },
+        )?;
+        if element
+            .multiplicative
+            .is_multiplicative(prolongation.variable)?
+        {
+            return Err(InvolutiveError::InvalidProlongation {
+                detail: "requested variable is multiplicative in the current epoch",
+            });
+        }
+        let unit = ForwardShift::try_unit(self.arity, prolongation.variable, limits)?;
+        let expected = element.leading_shift.try_checked_add(&unit, limits)?;
+        if expected != prolongation.target_leading_shift {
+            return Err(InvolutiveError::InvalidProlongation {
+                detail: "target leading shift does not match its basis row and variable",
+            });
+        }
+        OreConsequence::try_zero(ordering, context, limits)?.try_left_axpy_with_budget(
+            &context.one(),
+            &unit,
+            element.consequence(),
+            ordering,
+            context,
+            limits,
+            work,
+        )
+    }
+
+    pub(super) fn try_replacement_successor(
+        &self,
+        replacements: Vec<OreConsequence>,
+        ordering: &OreOrderingAdapter,
+        context: &IndexedCoefficientContext,
+        limits: InvolutiveLimits,
+        geometry_limits: CompletionGeometryLimits,
+        work: &mut InvolutiveWorkBudget,
+    ) -> Result<Self, InvolutiveError> {
+        self.require_ordering(ordering)?;
+        let next_epoch = self.epoch.try_successor(limits)?;
+        preflight_basis_shape(replacements.len(), self.arity, limits)?;
+        for consequence in &replacements {
+            consequence.try_validate(ordering, context, limits)?;
+        }
+        preflight_basis_coefficient_payload(replacements.iter(), limits)?;
+        let mut retained = try_vec("replacement Janet basis rows", replacements.len())?;
+        for consequence in replacements {
+            retained.push(Arc::new(consequence));
+        }
+        build_epoch(
+            next_epoch,
+            Some(self.epoch.clone()),
+            retained,
+            ordering,
+            context,
+            limits,
+            geometry_limits,
+            work,
+        )
+    }
+}
+
+struct RankedConsequence {
+    leading_shift: ForwardShift,
+    leading_key: ShiftComplexityKey,
+    consequence: Arc<OreConsequence>,
+}
+
+fn build_epoch(
+    epoch: EpochId,
+    predecessor: Option<EpochId>,
+    consequences: Vec<Arc<OreConsequence>>,
+    ordering: &OreOrderingAdapter,
+    context: &IndexedCoefficientContext,
+    limits: InvolutiveLimits,
+    geometry_limits: CompletionGeometryLimits,
+    work: &mut InvolutiveWorkBudget,
+) -> Result<JanetBasisEpoch, InvolutiveError> {
+    let arity = ordering.arity();
+    if context.index_count() != arity {
+        return Err(InvolutiveError::WrongArity {
+            object: "Janet indexed coefficient context",
+            expected: arity,
+            actual: context.index_count(),
+        });
+    }
+    preflight_basis_shape(consequences.len(), arity, limits)?;
+
+    // Callers authenticate untrusted additions once before this sealed
+    // boundary. Existing immutable epoch rows are already authenticated.
+    // Preserve their Arcs on the monic fast path and allocate a replacement
+    // only when exact projective normalization is required.
+    let mut normalized = try_vec("monic Janet basis rows", consequences.len())?;
+    let mut coefficient_census = super::CoefficientPayloadCensus::default();
+    for consequence in consequences {
+        let consequence = if let Some(monic) =
+            consequence.try_monic_copy_sealed(ordering, context, limits, work)?
+        {
+            Arc::new(monic)
+        } else {
+            consequence
+        };
+        let next_census = coefficient_census.try_add(consequence.coefficient_census())?;
+        preflight_basis_coefficient_census(next_census, limits)?;
+        normalized.push(consequence);
+        coefficient_census = next_census;
+    }
+
+    let mut ranked = try_vec("ranked Janet basis rows", normalized.len())?;
+    for consequence in normalized {
+        let Some((leading, key)) = consequence.row().try_leading_term(ordering)? else {
+            return Err(InvolutiveError::ZeroBasisRow);
+        };
+        ranked.push(RankedConsequence {
+            leading_shift: leading.shift().clone(),
+            leading_key: key,
+            consequence,
+        });
+    }
+    ranked.sort_unstable_by(|left, right| left.leading_key.cmp(&right.leading_key));
+    if ranked
+        .windows(2)
+        .any(|pair| pair[0].leading_shift == pair[1].leading_shift)
+    {
+        return Err(InvolutiveError::DuplicateLeadingShift);
+    }
+
+    let masks = compute_multiplicative_masks(&ranked, ordering.variable_sequence(), limits)?;
+    let mut elements = try_vec("immutable Janet basis elements", ranked.len())?;
+    for (ordinal, (ranked, bits)) in ranked.into_iter().zip(masks).enumerate() {
+        elements.push(JanetBasisElement {
+            ordinal,
+            leading_shift: ranked.leading_shift,
+            leading_key: ranked.leading_key,
+            multiplicative: JanetMultiplicativeMask {
+                bits: Arc::new(bits),
+            },
+            consequence: ranked.consequence,
+        });
+    }
+
+    let prolongations = build_prolongation_queue(&epoch, &elements, ordering, limits)?;
+    let pure_power_coverage = build_pure_power_coverage(arity, &elements)?;
+    let mut generators = try_vec("Janet leading-ideal generators", elements.len())?;
+    for element in &elements {
+        generators.push(LatticePoint::try_new(
+            element.leading_shift.values().iter().copied(),
+        )?);
+    }
+    let leading_ideal = LeadingIdeal::try_new(arity, generators, geometry_limits)?;
+    let uncovered = leading_ideal.uncovered_partition()?;
+    debug_assert_eq!(
+        pure_power_coverage.is_complete(),
+        uncovered.is_finite(),
+        "pure-power criterion and exact monomial complement disagree",
+    );
+    Ok(JanetBasisEpoch {
+        epoch,
+        predecessor,
+        action: ordering.identity().clone(),
+        arity,
+        elements: elements.into_boxed_slice(),
+        prolongations,
+        leading_ideal,
+        uncovered,
+        pure_power_coverage,
+    })
+}
+
+pub(super) fn preflight_basis_coefficient_payload<'a>(
+    consequences: impl IntoIterator<Item = &'a OreConsequence>,
+    limits: InvolutiveLimits,
+) -> Result<(), InvolutiveError> {
+    let mut coefficient_census = super::CoefficientPayloadCensus::default();
+    for consequence in consequences {
+        coefficient_census = coefficient_census.try_add(consequence.coefficient_census())?;
+    }
+    preflight_basis_coefficient_census(coefficient_census, limits)
+}
+
+pub(super) fn preflight_basis_coefficient_census(
+    coefficient_census: super::CoefficientPayloadCensus,
+    limits: InvolutiveLimits,
+) -> Result<(), InvolutiveError> {
+    check_limit(
+        "Janet basis coefficient terms",
+        coefficient_census.terms(),
+        limits.max_basis_coefficient_terms,
+    )?;
+    check_limit(
+        "Janet basis coefficient exponent cells",
+        coefficient_census.exponent_cells(),
+        limits.max_basis_coefficient_exponent_cells,
+    )?;
+    check_limit(
+        "Janet basis coefficient retained bytes",
+        coefficient_census.retained_bytes(),
+        limits.max_basis_coefficient_retained_bytes,
+    )
+}
+
+fn compute_multiplicative_masks(
+    ranked: &[RankedConsequence],
+    variable_sequence: &[usize],
+    limits: InvolutiveLimits,
+) -> Result<Vec<Vec<bool>>, InvolutiveError> {
+    let arity = variable_sequence.len();
+    preflight_mask_shape(ranked.len(), arity, limits)?;
+    let mut masks = try_vec("Janet multiplicative masks", ranked.len())?;
+    for _ in ranked {
+        let mut bits = try_vec("Janet multiplicative-mask bits", arity)?;
+        bits.resize(arity, false);
+        masks.push(bits);
+    }
+
+    // One deterministic full lexicographic order makes every equal-prefix
+    // class contiguous for every Janet variable. Each class is then scanned
+    // once to obtain its maximum, replacing the former rows² * arity² search.
+    let prefix_order = try_lexicographic_leader_order(ranked, variable_sequence)?;
+    for (sequence_position, &variable) in variable_sequence.iter().enumerate() {
+        let prefix = &variable_sequence[..sequence_position];
+        let mut start = 0usize;
+        while start < prefix_order.len() {
+            let mut end = start + 1;
+            while end < prefix_order.len()
+                && equal_prefix(
+                    &ranked[prefix_order[start]].leading_shift,
+                    &ranked[prefix_order[end]].leading_shift,
+                    prefix,
+                )
+            {
+                end += 1;
+            }
+            let maximum = prefix_order[start..end]
+                .iter()
+                .map(|&ordinal| ranked[ordinal].leading_shift.values()[variable])
+                .max()
+                .ok_or(InvolutiveError::Invariant {
+                    detail: "a Janet prefix class did not contain its first monomial",
+                })?;
+            for &ordinal in &prefix_order[start..end] {
+                masks[ordinal][variable] =
+                    ranked[ordinal].leading_shift.values()[variable] == maximum;
+            }
+            start = end;
+        }
+    }
+    Ok(masks)
+}
+
+pub(super) fn preflight_basis_shape(
+    rows: usize,
+    arity: usize,
+    limits: InvolutiveLimits,
+) -> Result<(), InvolutiveError> {
+    check_limit("Janet basis rows", rows, limits.max_basis_rows)?;
+    let coordinate_cells = checked_mul("Janet basis coordinate cells", rows, arity)?;
+    check_limit(
+        "Janet basis coordinate cells",
+        coordinate_cells,
+        limits.max_basis_coordinate_cells,
+    )?;
+    preflight_mask_shape(rows, arity, limits)
+}
+
+fn preflight_mask_shape(
+    rows: usize,
+    arity: usize,
+    limits: InvolutiveLimits,
+) -> Result<(), InvolutiveError> {
+    let cells = checked_mul("Janet multiplicative-mask cells", rows, arity)?;
+    check_limit(
+        "Janet multiplicative-mask cells",
+        cells,
+        limits.max_basis_coordinate_cells,
+    )?;
+
+    let prefix_width = checked_mul(
+        "Janet mask prefix comparisons",
+        arity,
+        arity.saturating_sub(1),
+    )? / 2;
+    let prefix_comparisons = checked_mul(
+        "Janet mask prefix comparisons",
+        rows.saturating_sub(1),
+        prefix_width,
+    )?;
+    check_limit(
+        "Janet mask prefix comparisons",
+        prefix_comparisons,
+        limits.max_mask_prefix_comparisons,
+    )?;
+
+    let sort_work =
+        checked_sort_coordinate_work("Janet mask sort coordinate comparisons", rows, arity)?;
+    check_limit(
+        "Janet mask sort coordinate comparisons",
+        sort_work,
+        limits.max_mask_sort_coordinate_comparisons,
+    )?;
+
+    let payload_bytes = checked_mul(
+        "Janet mask retained bytes",
+        cells,
+        std::mem::size_of::<bool>(),
+    )?;
+    let row_bytes = checked_mul(
+        "Janet mask retained bytes",
+        rows,
+        std::mem::size_of::<Vec<bool>>(),
+    )?;
+    let retained_bytes = checked_add("Janet mask retained bytes", payload_bytes, row_bytes)?;
+    check_limit(
+        "Janet mask retained bytes",
+        retained_bytes,
+        limits.max_mask_retained_bytes,
+    )
+}
+
+fn try_lexicographic_leader_order(
+    ranked: &[RankedConsequence],
+    variable_sequence: &[usize],
+) -> Result<Vec<usize>, InvolutiveError> {
+    let mut order = try_vec("Janet grouped-prefix order", ranked.len())?;
+    order.extend(0..ranked.len());
+    let mut scratch = try_vec("Janet grouped-prefix merge scratch", ranked.len())?;
+    scratch.resize(ranked.len(), 0);
+
+    let mut width = 1usize;
+    while width < order.len() {
+        let mut left = 0usize;
+        while left < order.len() {
+            let middle = left.saturating_add(width).min(order.len());
+            let right = middle.saturating_add(width).min(order.len());
+            let mut first = left;
+            let mut second = middle;
+            for output in left..right {
+                let choose_first = second == right
+                    || (first < middle
+                        && compare_leaders(order[first], order[second], ranked, variable_sequence)
+                            != std::cmp::Ordering::Greater);
+                scratch[output] = if choose_first {
+                    let selected = order[first];
+                    first += 1;
+                    selected
+                } else {
+                    let selected = order[second];
+                    second += 1;
+                    selected
+                };
+            }
+            left = right;
+        }
+        std::mem::swap(&mut order, &mut scratch);
+        width = width.saturating_mul(2);
+    }
+    Ok(order)
+}
+
+fn compare_leaders(
+    left: usize,
+    right: usize,
+    ranked: &[RankedConsequence],
+    variable_sequence: &[usize],
+) -> std::cmp::Ordering {
+    for &variable in variable_sequence {
+        let comparison = ranked[left].leading_shift.values()[variable]
+            .cmp(&ranked[right].leading_shift.values()[variable]);
+        if comparison != std::cmp::Ordering::Equal {
+            return comparison;
+        }
+    }
+    left.cmp(&right)
+}
+
+fn equal_prefix(left: &ForwardShift, right: &ForwardShift, prefix: &[usize]) -> bool {
+    prefix
+        .iter()
+        .all(|&variable| left.values()[variable] == right.values()[variable])
+}
+
+fn build_prolongation_queue(
+    epoch: &EpochId,
+    elements: &[JanetBasisElement],
+    ordering: &OreOrderingAdapter,
+    limits: InvolutiveLimits,
+) -> Result<Box<[JanetProlongation]>, InvolutiveError> {
+    let mut obligation_count = 0usize;
+    for element in elements {
+        for &variable in ordering.variable_sequence() {
+            if !element.multiplicative.bits()[variable] {
+                obligation_count = checked_add("Janet prolongations", obligation_count, 1)?;
+            }
+        }
+    }
+    check_limit(
+        "Janet prolongations",
+        obligation_count,
+        limits.max_prolongations,
+    )?;
+    let payload_cells = checked_mul(
+        "Janet prolongation coordinate cells",
+        checked_mul(
+            "Janet prolongation coordinate cells",
+            obligation_count,
+            ordering.arity(),
+        )?,
+        2,
+    )?;
+    check_limit(
+        "Janet prolongation coordinate cells",
+        payload_cells,
+        limits.max_prolongation_coordinate_cells,
+    )?;
+    let shift_bytes = checked_mul(
+        "Janet prolongation retained bytes",
+        checked_mul(
+            "Janet prolongation retained bytes",
+            obligation_count,
+            ordering.arity(),
+        )?,
+        checked_add(
+            "Janet prolongation retained bytes",
+            std::mem::size_of::<u64>(),
+            std::mem::size_of::<i128>(),
+        )?,
+    )?;
+    let struct_bytes = checked_mul(
+        "Janet prolongation retained bytes",
+        obligation_count,
+        std::mem::size_of::<JanetProlongation>(),
+    )?;
+    let retained_bytes = checked_add(
+        "Janet prolongation retained bytes",
+        shift_bytes,
+        struct_bytes,
+    )?;
+    check_limit(
+        "Janet prolongation retained bytes",
+        retained_bytes,
+        limits.max_prolongation_retained_bytes,
+    )?;
+
+    let mut queue = try_vec("Janet prolongations", obligation_count)?;
+    for element in elements {
+        for &variable in ordering.variable_sequence() {
+            if element.multiplicative.bits()[variable] {
+                continue;
+            }
+            let target_leading_shift = element.leading_shift.try_increment(variable, limits)?;
+            let target_key = ordering.try_key(&target_leading_shift)?;
+            queue.push(JanetProlongation {
+                epoch: epoch.clone(),
+                basis_ordinal: element.ordinal,
+                variable,
+                target_leading_shift,
+                target_key,
+            });
+        }
+    }
+    queue.sort_unstable_by(|left, right| {
+        left.target_key
+            .cmp(&right.target_key)
+            .then_with(|| left.basis_ordinal.cmp(&right.basis_ordinal))
+            .then_with(|| left.variable.cmp(&right.variable))
+    });
+    Ok(queue.into_boxed_slice())
+}
+
+fn build_pure_power_coverage(
+    arity: usize,
+    elements: &[JanetBasisElement],
+) -> Result<PurePowerCoverage, InvolutiveError> {
+    let mut exponents = try_vec("Janet pure-power coverage", arity)?;
+    exponents.resize(arity, None);
+    if elements
+        .iter()
+        .any(|element| element.leading_shift.is_zero())
+    {
+        exponents.fill(Some(0));
+        return Ok(PurePowerCoverage {
+            exponents: exponents.into_boxed_slice(),
+        });
+    }
+    for position in 0..arity {
+        exponents[position] = elements
+            .iter()
+            .filter(|element| element.leading_shift.is_pure_power(position))
+            .map(|element| element.leading_shift.values()[position])
+            .min();
+    }
+    Ok(PurePowerCoverage {
+        exponents: exponents.into_boxed_slice(),
+    })
+}

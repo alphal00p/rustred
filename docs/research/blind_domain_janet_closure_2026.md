@@ -5,6 +5,10 @@ experiment and an implementation architecture. It is **not** evidence that the
 three-loop `K = 6` family is already closed, and it is not authorization to
 start the deferred Stage-2 six-loop campaign.
 
+The companion [Janet/Ore proposal integration seam](janet_ore_integration_seam_2026.md)
+records the reviewed authority boundary for connecting these obligations to
+RustRed's requested-domain, modular-discovery, and exact-replay pipeline.
+
 ## Executive conclusion
 
 The best-supported next closure engine for RustRed is a hybrid of two ideas:
@@ -351,9 +355,15 @@ and include held-out witnesses such as
 [0, 1, 3, 2, 3, 0]
 ```
 
-The production terminal/factorization predecessor must be installed first, so
-the experiment does not rediscover the three already closed factorized K6
-orbits.
+Install the production terminal/factorization predecessor first so scalar
+corner images are removed before Janet scheduling.  This does **not** close the
+corresponding dotted and numerator lattices: the 2026-09-02 pre-Janet release
+baseline still left the first two sector orbits with 59 and 58 unbounded boxes
+after 190 exact owners and 4,096 requested tasks.  Consequently the production
+driver must derive its Janet targets from the live exact uncovered partition
+and may skip an orbit only when that ledger is actually compiler-closed.  The
+four-line ray above remains the first focused diagnostic, while the release
+harness covers all six registered sector representatives.
 
 The experiment has four phases:
 
@@ -368,6 +378,35 @@ The experiment has four phases:
    rows from the nine ordinary K6 sources.
 4. **Certificate.** Require zero pending prolongations and a pure shift power
    for each free coordinate on every reachable guard branch.
+
+### Orbit-three ingress measurement (2026-09-02)
+
+The first frozen release diagnostic lifted the nine completed ordinary sources
+for sector representative `[0,1,1,1,1,0]`.  The head
+`[1,1,1,1,1,1]` occurred twice, for source rows `ordinary-ibp:1:2` and
+`ordinary-ibp:2:1`; both lifted rows had eleven terms.  This exposed an initial
+input-normalization obstruction in the first Janet prototype, not a surviving
+standard pair or evidence that a ray had escaped involutive completion.
+
+Deterministic same-head Ore elimination is now implemented before Janet masks
+or obligations are built.  It cancels coincident leaders over the exact
+Symbolica-backed rational-function field, preserves source-module provenance
+and localization guards, and consumes the completion's cumulative work
+budget.  On orbit three, exact lift plus preprocessing took 0.002095 seconds;
+preprocessing alone took 0.000194 seconds.  All nine input rows were retained
+with nine distinct heads after one equal-head elimination produced the lower
+head `[0,2,1,1,0,2]`.
+
+The preprocessing census was: one nonzero remainder, no zero remainder, no
+cascading collision, maximum collision-chain length one, maximum head-class
+size two, 25 sort comparisons over 137,050 bounded payload visits, 23 pivot-head
+comparisons over 138 coordinates, and 26 pivot insertion moves.  Its shared
+work ledger recorded one normal-form step, one divisor visit, and 30 exact
+coefficient operations.  Equal-head ingress is therefore no longer the K6
+blocker.  The remaining question is whether full completion can exhaust the
+Janet queue within practical coefficient and divisor-search resources; the
+companion release study records those measurements without treating a bounded
+stop as complement evidence.
 
 Record at least:
 

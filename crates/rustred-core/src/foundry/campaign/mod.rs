@@ -8,6 +8,8 @@
 mod autonomous;
 mod config;
 mod error;
+#[allow(dead_code)] // Proposal-only research lane; owner/artifact wiring is intentionally absent.
+pub(crate) mod involutive_seed;
 mod k6_resource;
 mod k6_wave;
 mod model;
@@ -48,5 +50,7 @@ pub use run::{run_foundry_campaign, run_foundry_campaign_with_progress};
 #[cfg(test)]
 pub(crate) use preset_k6::source_safe_k6_closure_carrier_for_test;
 
+#[cfg(test)]
+mod support_tests;
 #[cfg(test)]
 mod tests;

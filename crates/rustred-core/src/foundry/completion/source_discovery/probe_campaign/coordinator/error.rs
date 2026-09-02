@@ -59,6 +59,10 @@ pub(crate) enum ProbeCoordinatorFailure {
         resource: &'static str,
         requested: usize,
     },
+    UnmatchedRequestedSupportScope {
+        support_domains: usize,
+        declared_scopes: usize,
+    },
     Cover(ExactOwnerCoverDeltaError),
     BoundaryPlan(BoundarySimplexPlanError),
     Probe(CampaignError),
@@ -147,6 +151,13 @@ impl fmt::Display for ProbeCoordinatorFailure {
             } => write!(
                 formatter,
                 "could not reserve {requested} entries for probe coordinator {resource}"
+            ),
+            Self::UnmatchedRequestedSupportScope {
+                support_domains,
+                declared_scopes,
+            } => write!(
+                formatter,
+                "explicit requested support has {support_domains} semantic domains, but none match the stable scope and sector of the {declared_scopes} freshly planned requested scopes"
             ),
             Self::Cover(error) => error.fmt(formatter),
             Self::BoundaryPlan(error) => error.fmt(formatter),

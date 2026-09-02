@@ -438,9 +438,18 @@ pub(crate) fn try_plan_requested_domains<'a>(
         });
     }
 
+    let mut declared_scopes = Vec::new();
+    try_reserve_exact(
+        &mut declared_scopes,
+        pending_scopes.len(),
+        "retained requested semantic scopes",
+    )?;
+    declared_scopes.extend(pending_scopes.iter().map(|scope| scope.key.clone()));
+
     Ok(RequestedDomainPlan {
         epoch_identity,
         epoch_ordinal,
+        declared_scopes: declared_scopes.into_boxed_slice(),
         input_scope_count: pending_scopes.len(),
         requested_domain_count: requested_domains,
         fully_covered_domain_count: fully_covered_domains,

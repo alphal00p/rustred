@@ -1158,6 +1158,8 @@ into Stage 2.
 - [Dual-obstruction source-discovery proposal](docs/research/dual_obstruction_source_discovery_2026.md)
 - [Vakint K6 oracle and terminal-budget audit](docs/research/vakint_k6_oracle.md)
 - [Blind-domain-guided Janet closure synthesis](docs/research/blind_domain_janet_closure_2026.md)
+- [Janet/Ore proposal integration seam](docs/research/janet_ore_integration_seam_2026.md)
+- [K6 Janet/Ore bounded release study](docs/research/k6_janet_ore_release_study_2026-09-02.md)
 - [Audited factorized product-angular owner design](docs/research/factorized_product_angular_owner_2026.md)
 - [Sector-local coordinate charts as a K6 search preconditioner](docs/research/sector_local_coordinate_chart_2026.md)
 - [Audited K6 boundary-walk observations](docs/research/k6_boundary_walk_2026.md)

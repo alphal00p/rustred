@@ -1,22 +1,29 @@
 //! Proposal-only K6 requested-domain resolution.
 //!
 //! External anchors and autonomous uncovered-box leaders meet at this small
-//! value boundary. Both become the same planner-owned [`RequestedDomain`]
+//! value boundary. Both become the same planner-owned
+//! [`RequestedDomain`](crate::foundry::completion::source_discovery::leader_walk::RequestedDomain)
 //! values; neither path can carry a source row, coefficient, solved rule, or
 //! closure claim into the exact compiler.
 
 use std::collections::BTreeSet;
 
-use crate::foundry::completion::source_discovery::leader_walk::{
-    LeaderWalkLimits, RequestedDomain,
-};
+#[cfg(test)]
+use crate::foundry::completion::LatticePoint;
+use crate::foundry::completion::source_discovery::leader_walk::LeaderWalkLimits;
+#[cfg(test)]
+use crate::foundry::completion::source_discovery::leader_walk::RequestedDomain;
 use crate::foundry::completion::stratum::ImmutableOwnerSnapshot;
-use crate::foundry::completion::{LatticePoint, SectorChart, UncoveredPartition};
+use crate::foundry::completion::{SectorChart, UncoveredPartition};
 use crate::sector::{CoordinatePriority, Mask};
 
 use super::{
     FoundryCampaignConfig, FoundryCampaignError, FoundryCampaignSetupStage, FoundrySearchProvenance,
 };
+
+/// Stable semantic scope shared by explicit K6 requested-domain plans and any
+/// detached support sidecar intended for those plans.
+pub(crate) const K6_REQUESTED_DOMAIN_SCOPE_KEY: &str = "rustred.k6.requested-domains.v1";
 
 /// Canonical proposal geometry detached from any planner epoch.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -26,13 +33,14 @@ pub(crate) struct K6RequestedDomainSpec {
 }
 
 impl K6RequestedDomainSpec {
-    fn new(point: Box<[u64]>, symbolic_axes: Box<[usize]>) -> Self {
+    pub(super) fn new(point: Box<[u64]>, symbolic_axes: Box<[usize]>) -> Self {
         Self {
             point,
             symbolic_axes,
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn materialize(&self) -> Result<RequestedDomain, FoundryCampaignError> {
         let point = LatticePoint::try_new(self.point.iter().copied()).map_err(|error| {
             FoundryCampaignError::setup(FoundryCampaignSetupStage::RequestedDomains, error)
@@ -53,13 +61,11 @@ impl K6RequestedDomainSpec {
             })
     }
 
-    #[cfg(test)]
-    pub(crate) fn point(&self) -> &[u64] {
+    pub(super) fn point(&self) -> &[u64] {
         &self.point
     }
 
-    #[cfg(test)]
-    pub(crate) fn symbolic_axes(&self) -> &[usize] {
+    pub(super) fn symbolic_axes(&self) -> &[usize] {
         &self.symbolic_axes
     }
 }

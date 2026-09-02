@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::foundry::completion::source_discovery::{
-    ExactOwnerCoverDeltaError, InteriorReplayRunError, SourceDiscoveryError,
+    CampaignError, ExactOwnerCoverDeltaError, InteriorReplayRunError, SourceDiscoveryError,
 };
 use crate::foundry::completion::stratum::StratumRegistryError;
 use crate::identity::TranslatedSourceError;
@@ -30,6 +30,7 @@ pub(crate) enum ProbeCampaignError {
     },
     StaleParentGeometry,
     SourceDiscovery(SourceDiscoveryError),
+    InitialRequestCampaign(CampaignError),
     SourceTranslation(TranslatedSourceError),
     Sector(sector::Error),
     Stratum(StratumRegistryError),
@@ -81,6 +82,7 @@ impl fmt::Display for ProbeCampaignError {
             Self::StaleParentGeometry => formatter
                 .write_str("the planned task parent box is absent from the bound ledger geometry"),
             Self::SourceDiscovery(error) => error.fmt(formatter),
+            Self::InitialRequestCampaign(error) => error.fmt(formatter),
             Self::SourceTranslation(error) => error.fmt(formatter),
             Self::Sector(error) => error.fmt(formatter),
             Self::Stratum(error) => error.fmt(formatter),
@@ -119,6 +121,7 @@ impl std::error::Error for ProbeCampaignError {
             Self::LeaderPlan(error) => Some(error),
             Self::SourceScope(error) | Self::SourceTranslation(error) => Some(error),
             Self::SourceDiscovery(error) => Some(error),
+            Self::InitialRequestCampaign(error) => Some(error),
             Self::Sector(error) => Some(error),
             Self::Stratum(error) => Some(error),
             Self::Replay(error) => Some(error),

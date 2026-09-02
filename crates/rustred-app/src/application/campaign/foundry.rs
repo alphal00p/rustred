@@ -272,6 +272,8 @@ struct FoundryCampaignCensusOutputV1 {
     scheduler_replayed: usize,
     scheduler_support_did_not_lift: usize,
     scheduler_sampled_dual: usize,
+    requested_support_assisted: usize,
+    requested_support_fallback: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -897,6 +899,8 @@ fn census_output(census: FoundryCampaignCensus) -> FoundryCampaignCensusOutputV1
         scheduler_replayed: census.scheduler_replayed(),
         scheduler_support_did_not_lift: census.scheduler_support_did_not_lift(),
         scheduler_sampled_dual: census.scheduler_sampled_dual(),
+        requested_support_assisted: census.requested_support_assisted(),
+        requested_support_fallback: census.requested_support_fallback(),
     }
 }
 

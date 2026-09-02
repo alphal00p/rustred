@@ -15,6 +15,14 @@ use super::{
 
 const CENSUS: &str = "scalar census";
 
+/// Proposal-only route taken by one requested-domain task. The route affects
+/// scalar telemetry only and carries no support, source, or owner authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RequestedSupportRoute {
+    Assisted,
+    OrdinaryFallback,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct CompactProbeEvidence {
     pub(super) scheduler_budget_stops: usize,
@@ -108,6 +116,7 @@ pub(super) fn try_reserve_evaluated_task(
     baseline: ProbeCoordinatorCensus,
     requested_report: usize,
     invalidated_tickets: usize,
+    requested_support_route: Option<RequestedSupportRoute>,
 ) -> Result<CompactTaskReservation, ProbeCoordinatorFailure> {
     let evidence = try_compact_census(evaluated.census())?;
     let possible: &[CompactTaskKind] = match evaluated.replay_disposition() {
@@ -133,6 +142,7 @@ pub(super) fn try_reserve_evaluated_task(
         invalidated_tickets,
         evidence,
         possible,
+        requested_support_route,
     )
 }
 
@@ -150,6 +160,7 @@ pub(super) fn try_reserve_compact_result(
         invalidated_tickets,
         compact.evidence,
         &[kind],
+        None,
     )?;
     Ok(reservation.finish_action(compact.action))
 }
@@ -353,6 +364,7 @@ fn try_reserve_kinds(
     invalidated_tickets: usize,
     evidence: CompactProbeEvidence,
     possible: &[CompactTaskKind],
+    requested_support_route: Option<RequestedSupportRoute>,
 ) -> Result<CompactTaskReservation, ProbeCoordinatorFailure> {
     let mut reserved = [None; CompactTaskKind::COUNT];
     for &kind in possible {
@@ -362,6 +374,7 @@ fn try_reserve_kinds(
             invalidated_tickets,
             evidence,
             kind,
+            requested_support_route,
         )?);
     }
     Ok(CompactTaskReservation {
@@ -376,9 +389,19 @@ fn try_updated_census(
     invalidated_tickets: usize,
     evidence: CompactProbeEvidence,
     kind: CompactTaskKind,
+    requested_support_route: Option<RequestedSupportRoute>,
 ) -> Result<ProbeCoordinatorCensus, ProbeCoordinatorFailure> {
     let mut updated = baseline;
     updated.task_reports = requested_report;
+    match requested_support_route {
+        Some(RequestedSupportRoute::Assisted) => {
+            try_increment(&mut updated.requested_support_assisted, CENSUS)?;
+        }
+        Some(RequestedSupportRoute::OrdinaryFallback) => {
+            try_increment(&mut updated.requested_support_fallback, CENSUS)?;
+        }
+        None => {}
+    }
     match kind {
         CompactTaskKind::NoProposal => try_increment(&mut updated.no_proposal, CENSUS)?,
         CompactTaskKind::Duplicate => try_increment(&mut updated.duplicate, CENSUS)?,

@@ -2,7 +2,8 @@ use crate::foundry::completion::frame::admission::{
     ExactOwnerCoverObstructionKind, ExactOwnerCoverStatus,
 };
 use crate::foundry::completion::source_discovery::leader_walk::{
-    LeaderWalkLimits, RequestedDomainScopePartition, try_plan_requested_domains,
+    LeaderWalkLimits, RequestedDomainPlan, RequestedDomainScopePartition,
+    try_plan_requested_domains,
 };
 use crate::foundry::completion::source_discovery::scheduler::{
     ProbeLocalRejectionCategory, ProbeLocalRejectionSummary, ProbeLocalStage,
@@ -12,7 +13,8 @@ use crate::foundry::completion::source_discovery::{
     ExactOwnerLedgerCoverStatus, ProbeCampaignAdapter, ProbeCampaignLimits, ProbeCoordinatorCensus,
     ProbeCoordinatorConfig, ProbeCoordinatorLimits, ProbeCoordinatorNeedsRefinementReason,
     ProbeCoordinatorOperationalReason, ProbeCoordinatorStop, ProbeCoordinatorTaskLocation,
-    ProbeCoordinatorTaskLocationKind, RequestedProbeCoordinatorStop, TaskRelativeModularProbe,
+    ProbeCoordinatorTaskLocationKind, RequestedDomainSupportUnion, RequestedProbeCoordinatorStop,
+    TaskRelativeModularProbe,
 };
 
 use crate::foundry::artifact::FULL_RANK_ORBITS;
@@ -23,7 +25,8 @@ use super::preset_k6::{
     try_new_k6_full_rank_ledger_with_profile_and_ordering,
 };
 use super::requested::{
-    K6RequestedDomainSpec, try_resolve_autonomous_k6_shells, try_resolve_external_k6_domains,
+    K6_REQUESTED_DOMAIN_SCOPE_KEY, K6RequestedDomainSpec, try_resolve_autonomous_k6_shells,
+    try_resolve_external_k6_domains,
 };
 use super::{
     FoundryCampaignCensus, FoundryCampaignConfig, FoundryCampaignCoverageObstruction,
@@ -477,28 +480,47 @@ fn try_run_requested_phase<'inputs, 'sources, 'family>(
     specs: &[K6RequestedDomainSpec],
     limits: LeaderWalkLimits,
 ) -> Result<RequestedProbeCoordinatorStop, FoundryCampaignError> {
+    let plan = try_build_fresh_requested_plan(ledger, specs, None, limits)?;
+    Ok(coordinator.try_run_requested_plan(&plan, ledger))
+}
+
+/// Explicit one-shot campaign seam for an already generated involutive
+/// support sidecar.
+///
+/// The caller chooses when the potentially expensive Janet/Ore program runs.
+/// This function only clones the current uncovered partition, creates a fresh
+/// opaque requested plan at the live ledger revision, and immediately consumes
+/// the detached support through the normal exact replay transaction. It is not
+/// called by the default K6 fixed-point loop, and Janet exhaustion is never
+/// interpreted as compiler closure here.
+#[allow(dead_code)] // Activated explicitly only after a measured one-shot seed run.
+pub(crate) fn try_run_requested_phase_with_support<'inputs, 'sources, 'family>(
+    coordinator: &mut BoundaryProbeCoordinator<'inputs, 'sources, 'family>,
+    ledger: &mut CanonicalExactOwnerLedger,
+    specs: &[K6RequestedDomainSpec],
+    support: &RequestedDomainSupportUnion,
+    limits: LeaderWalkLimits,
+) -> Result<RequestedProbeCoordinatorStop, FoundryCampaignError> {
+    let plan = try_build_fresh_requested_plan(ledger, specs, Some(support), limits)?;
+    Ok(coordinator.try_run_requested_plan_with_support(&plan, ledger, support))
+}
+
+fn try_build_fresh_requested_plan(
+    ledger: &CanonicalExactOwnerLedger,
+    specs: &[K6RequestedDomainSpec],
+    support: Option<&RequestedDomainSupportUnion>,
+    limits: LeaderWalkLimits,
+) -> Result<RequestedDomainPlan, FoundryCampaignError> {
     let partition = ledger.try_clone_uncovered_partition().map_err(|error| {
         FoundryCampaignError::Execution {
             message: error.to_string(),
         }
     })?;
-    let mut requests = Vec::new();
-    requests
-        .try_reserve_exact(specs.len())
-        .map_err(|_| FoundryCampaignError::Setup {
-            stage: FoundryCampaignSetupStage::RequestedDomains,
-            message: format!(
-                "could not reserve {} canonical requested domains",
-                specs.len()
-            ),
-        })?;
-    for spec in specs {
-        requests.push(spec.materialize()?);
-    }
-    let plan = try_plan_requested_domains(
+    let requests = try_materialize_requested_domains(ledger.sector(), specs, support, limits)?;
+    try_plan_requested_domains(
         ledger.revision().get(),
         [RequestedDomainScopePartition::new(
-            "rustred.k6.requested-domains.v1",
+            K6_REQUESTED_DOMAIN_SCOPE_KEY,
             ledger.sector(),
             &partition,
             &requests,
@@ -507,8 +529,154 @@ fn try_run_requested_phase<'inputs, 'sources, 'family>(
     )
     .map_err(|error| {
         FoundryCampaignError::setup(FoundryCampaignSetupStage::RequestedDomains, error)
+    })
+}
+
+#[derive(Clone, Copy)]
+struct RequestedDomainCandidate<'a> {
+    point: &'a [u64],
+    symbolic_axes: &'a [usize],
+    origin_rank: u8,
+    origin_ordinal: usize,
+}
+
+/// Canonically union explicit campaign chronology with every semantic domain
+/// carried by one Janet/Ore support sidecar. Explicit requests keep their
+/// original first-occurrence order; support-only requests follow the sidecar's
+/// canonical order. No support proposal can consequently remain invisible
+/// merely because the caller omitted a duplicate request list.
+pub(super) fn try_materialize_requested_domains(
+    sector: &crate::sector::Mask,
+    specs: &[K6RequestedDomainSpec],
+    support: Option<&RequestedDomainSupportUnion>,
+    limits: LeaderWalkLimits,
+) -> Result<
+    Vec<crate::foundry::completion::source_discovery::leader_walk::RequestedDomain>,
+    FoundryCampaignError,
+> {
+    let support_domains = support.map_or(0, |support| support.proposals().len());
+    let raw_domains = specs.len().checked_add(support_domains).ok_or(
+        FoundryCampaignError::ResourceCountOverflow {
+            stage: FoundryCampaignSetupStage::RequestedDomains,
+            resource: "combined explicit and supported K6 requested domains",
+        },
+    )?;
+    if raw_domains > limits.max_tasks {
+        return Err(FoundryCampaignError::ResourceLimit {
+            stage: FoundryCampaignSetupStage::RequestedDomains,
+            resource: "combined explicit and supported K6 requested domains",
+            requested: raw_domains,
+            limit: limits.max_tasks,
+        });
+    }
+
+    let mut coordinate_cells = 0usize;
+    for spec in specs {
+        coordinate_cells = coordinate_cells
+            .checked_add(spec.retained_coordinate_cells()?)
+            .ok_or(FoundryCampaignError::ResourceCountOverflow {
+                stage: FoundryCampaignSetupStage::RequestedDomains,
+                resource: "combined explicit and supported K6 requested-domain coordinate cells",
+            })?;
+    }
+    if let Some(support) = support {
+        for proposal in support.proposals() {
+            let domain = proposal.domain();
+            if domain.stable_scope_key() != K6_REQUESTED_DOMAIN_SCOPE_KEY
+                || domain.sector() != sector
+            {
+                return Err(FoundryCampaignError::Invariant {
+                    detail: "a K6 requested-support proposal belongs to a foreign stable scope or sector",
+                });
+            }
+            let cells = domain
+                .point()
+                .len()
+                .checked_add(domain.symbolic_axes().len())
+                .ok_or(FoundryCampaignError::ResourceCountOverflow {
+                    stage: FoundryCampaignSetupStage::RequestedDomains,
+                    resource: "combined explicit and supported K6 requested-domain coordinate cells",
+                })?;
+            coordinate_cells = coordinate_cells.checked_add(cells).ok_or(
+                FoundryCampaignError::ResourceCountOverflow {
+                    stage: FoundryCampaignSetupStage::RequestedDomains,
+                    resource: "combined explicit and supported K6 requested-domain coordinate cells",
+                },
+            )?;
+        }
+    }
+    if coordinate_cells > limits.max_task_coordinate_cells {
+        return Err(FoundryCampaignError::ResourceLimit {
+            stage: FoundryCampaignSetupStage::RequestedDomains,
+            resource: "combined explicit and supported K6 requested-domain coordinate cells",
+            requested: coordinate_cells,
+            limit: limits.max_task_coordinate_cells,
+        });
+    }
+
+    let mut candidates = Vec::new();
+    candidates.try_reserve_exact(raw_domains).map_err(|_| {
+        FoundryCampaignError::Setup {
+            stage: FoundryCampaignSetupStage::RequestedDomains,
+            message: format!(
+                "could not reserve {raw_domains} combined explicit and supported K6 requested domains"
+            ),
+        }
     })?;
-    Ok(coordinator.try_run_requested_plan(&plan, ledger))
+    candidates.extend(specs.iter().enumerate().map(|(origin_ordinal, spec)| {
+        RequestedDomainCandidate {
+            point: spec.point(),
+            symbolic_axes: spec.symbolic_axes(),
+            origin_rank: 0,
+            origin_ordinal,
+        }
+    }));
+    if let Some(support) = support {
+        candidates.extend(support.proposals().iter().enumerate().map(
+            |(origin_ordinal, proposal)| RequestedDomainCandidate {
+                point: proposal.domain().point(),
+                symbolic_axes: proposal.domain().symbolic_axes(),
+                origin_rank: 1,
+                origin_ordinal,
+            },
+        ));
+    }
+    candidates.sort_unstable_by(|left, right| {
+        left.point
+            .cmp(right.point)
+            .then_with(|| left.symbolic_axes.cmp(right.symbolic_axes))
+            .then_with(|| left.origin_rank.cmp(&right.origin_rank))
+            .then_with(|| left.origin_ordinal.cmp(&right.origin_ordinal))
+    });
+    candidates.dedup_by(|left, right| {
+        left.point == right.point && left.symbolic_axes == right.symbolic_axes
+    });
+    candidates.sort_unstable_by_key(|candidate| (candidate.origin_rank, candidate.origin_ordinal));
+
+    let mut requests = Vec::new();
+    requests
+        .try_reserve_exact(candidates.len())
+        .map_err(|_| FoundryCampaignError::Setup {
+            stage: FoundryCampaignSetupStage::RequestedDomains,
+            message: format!(
+                "could not reserve {} canonical requested domains",
+                candidates.len()
+            ),
+        })?;
+    for candidate in candidates {
+        let point =
+            crate::foundry::completion::LatticePoint::try_new(candidate.point.iter().copied())
+                .map_err(|error| {
+                    FoundryCampaignError::setup(FoundryCampaignSetupStage::RequestedDomains, error)
+                })?;
+        requests.push(
+            crate::foundry::completion::source_discovery::leader_walk::RequestedDomain::new(
+                point,
+                candidate.symbolic_axes.iter().copied(),
+            ),
+        );
+    }
+    Ok(requests)
 }
 
 fn validate_and_observe_owner_change(
@@ -785,6 +953,8 @@ fn detach_census(census: ProbeCoordinatorCensus) -> FoundryCampaignCensus {
         scheduler_replayed: census.scheduler_replayed(),
         scheduler_support_did_not_lift: census.scheduler_support_did_not_lift(),
         scheduler_sampled_dual: census.scheduler_sampled_dual(),
+        requested_support_assisted: census.requested_support_assisted(),
+        requested_support_fallback: census.requested_support_fallback(),
     }
 }
 

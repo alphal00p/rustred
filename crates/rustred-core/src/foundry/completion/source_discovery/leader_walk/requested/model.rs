@@ -226,6 +226,7 @@ impl RequestedDomainTask {
 pub(crate) struct RequestedDomainPlan {
     pub(super) epoch_identity: LeaderWalkGeometryEpochIdentity,
     pub(super) epoch_ordinal: u64,
+    pub(super) declared_scopes: Box<[LeaderWalkScopeKey]>,
     pub(super) input_scope_count: usize,
     pub(super) requested_domain_count: usize,
     pub(super) fully_covered_domain_count: usize,
@@ -239,6 +240,15 @@ impl RequestedDomainPlan {
 
     pub(crate) const fn input_scope_count(&self) -> usize {
         self.input_scope_count
+    }
+
+    /// Whether this plan was constructed from the exact stable scope and
+    /// sector. This remains available when every request in that scope was
+    /// already covered and therefore produced no residual task.
+    pub(crate) fn declares_scope(&self, stable_scope_key: &str, sector: &Mask) -> bool {
+        self.declared_scopes
+            .iter()
+            .any(|scope| scope.stable_scope_key() == stable_scope_key && scope.sector() == sector)
     }
 
     pub(crate) const fn requested_domain_count(&self) -> usize {

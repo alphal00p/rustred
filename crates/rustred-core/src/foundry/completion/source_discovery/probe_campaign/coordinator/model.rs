@@ -256,6 +256,8 @@ pub(crate) struct ProbeCoordinatorCensus {
     pub(super) scheduler_replayed: usize,
     pub(super) scheduler_support_did_not_lift: usize,
     pub(super) scheduler_sampled_dual: usize,
+    pub(super) requested_support_assisted: usize,
+    pub(super) requested_support_fallback: usize,
 }
 
 macro_rules! census_accessors {
@@ -290,6 +292,8 @@ impl ProbeCoordinatorCensus {
         scheduler_replayed,
         scheduler_support_did_not_lift,
         scheduler_sampled_dual,
+        requested_support_assisted,
+        requested_support_fallback,
     );
 
     pub(crate) const fn first_scheduler_rejection(self) -> Option<ProbeLocalRejectionSummary> {
@@ -648,6 +652,8 @@ impl BoundaryProbeCoordinator<'_, '_, '_> {
             scheduler_replayed: 0,
             scheduler_support_did_not_lift: 0,
             scheduler_sampled_dual: 0,
+            requested_support_assisted: 0,
+            requested_support_fallback: 0,
         }
     }
 

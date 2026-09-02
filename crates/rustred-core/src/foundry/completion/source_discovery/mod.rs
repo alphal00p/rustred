@@ -22,6 +22,7 @@ mod obstruction_block;
 mod owner_bundle;
 mod probe_campaign;
 mod promotion;
+mod requested_domain_support;
 mod residual;
 pub(crate) mod scheduler;
 mod sector_closure;
@@ -113,6 +114,15 @@ pub(crate) use promotion::{
     AdmittedExactRuleCandidate, ExactRuleCellGuardObstruction, ExactRuleCellPromotionDisposition,
     ExactRuleCellPromotionError, ExactRuleCellPromotionLimits, try_promote_replayed_rule_cell,
     try_promote_replayed_rule_cell_on_partition,
+};
+#[allow(unused_imports)] // Proposal-only involutive ingress; campaign wiring remains explicit.
+pub(crate) use requested_domain_support::{
+    RequestedDomainSemanticKey, RequestedDomainSupportBatchPreflight,
+    RequestedDomainSupportBatchShape, RequestedDomainSupportCensus, RequestedDomainSupportError,
+    RequestedDomainSupportLimits, RequestedDomainSupportProposal, RequestedDomainSupportUnion,
+    RequestedDomainSupportUnionCensus, RequestedSupportProposalOrigin,
+    RequestedSupportProposalProvenance, RequestedSupportProposalProvenanceInput,
+    try_preflight_requested_domain_support_batch, try_union_requested_domain_support,
 };
 #[allow(unused_imports)] // Used by the staged K6 rank-three publication wave.
 pub(crate) use sector_closure::{

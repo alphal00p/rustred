@@ -25,6 +25,7 @@ mod limits;
 mod model;
 mod run;
 mod schedule;
+mod support;
 
 pub(crate) use error::ProbeCoordinatorFailure;
 pub(crate) use limits::ProbeCoordinatorLimits;
@@ -39,5 +40,7 @@ pub(crate) use model::{
     TaskRelativeModularProbe,
 };
 
+#[cfg(test)]
+mod support_tests;
 #[cfg(test)]
 mod tests;

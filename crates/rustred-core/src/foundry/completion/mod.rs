@@ -21,6 +21,8 @@ mod error;
 mod family_campaign;
 pub(crate) mod frame;
 pub(crate) mod guard;
+#[allow(dead_code, unused_imports)]
+pub(crate) mod involutive;
 mod limits;
 mod model;
 mod region;

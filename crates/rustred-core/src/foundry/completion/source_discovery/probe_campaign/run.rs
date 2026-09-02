@@ -1,6 +1,9 @@
+use crate::foundry::completion::source_discovery::leader_walk::RequestedDomainTask;
 use crate::foundry::completion::source_discovery::{
-    CampaignModularProbe, CanonicalExactOwnerLedger, ExactExecutableOwnerProposal,
-    InteriorReplayRunDisposition, OrdinarySourceIncidenceIndex, try_run_interior_replay_task,
+    AccumulatedSourceRequests, CampaignModularProbe, CanonicalExactOwnerLedger,
+    ExactExecutableOwnerProposal, InitialParentSourceProposal, InteriorReplayRunDisposition,
+    OrdinarySourceIncidenceIndex, RequestedDomainSupportProposal, try_run_interior_replay_task,
+    try_run_interior_replay_task_with_initial_parent_proposal,
 };
 use crate::foundry::completion::stratum::{
     CampaignStratumAnchor, DecoratedStratum, MaximalStratumAnchor,
@@ -158,6 +161,76 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
         ))
     }
 
+    /// Evaluate one bound requested-domain task with detached canonical
+    /// parent support. The support proposal has no source or owner authority:
+    /// this method first requires its semantic domain to match the original
+    /// request, then regenerates an [`super::super::InitialParentSourceProposal`]
+    /// through this adapter's trusted ordinary-source incidence index before
+    /// entering the existing modular and exact-replay path.
+    ///
+    /// The explicit support-aware requested coordinator selects this path
+    /// only after a fresh plan and exact semantic-domain lookup. Ordinary
+    /// requested tasks without matching detached support retain the existing
+    /// evaluation path.
+    pub(crate) fn try_evaluate_requested_task_with_parent_support(
+        &self,
+        binding: ProbeCampaignTaskBinding<'_, RequestedDomainTask>,
+        ledger: &CanonicalExactOwnerLedger,
+        support: &RequestedDomainSupportProposal,
+        probes: impl IntoIterator<Item = CampaignModularProbe>,
+    ) -> Result<ProbeCampaignEvaluatedTask, ProbeCampaignError> {
+        binding.task.validate_in_plan(binding.plan)?;
+        ledger.try_require_current_snapshot(&binding.ledger_snapshot)?;
+        self.validate_task_scope(binding.task, ledger)?;
+        let task_key = binding.task.key();
+        let support_key = support.domain();
+        if support_key.stable_scope_key() != task_key.stable_scope_key()
+            || support_key.sector() != task_key.sector()
+            || support_key.point() != task_key.requested_domain_lower()
+            || support_key.symbolic_axes() != task_key.symbolic_axes()
+        {
+            return Err(ProbeCampaignError::Scope {
+                detail: "parent-support proposal and requested task have different semantic domains",
+            });
+        }
+        let initial_parent_proposal = self
+            .incidence
+            .try_nominate_initial_parent_support(
+                self.completed,
+                support.parent_support(),
+                self.limits.replay.scheduler.source_discovery,
+            )
+            .map_err(ProbeCampaignError::SourceDiscovery)?;
+        let (bootstrap, anchor) = self.try_build_anchor_with_initial_parent_proposal(
+            binding.task,
+            &initial_parent_proposal,
+        )?;
+        let replay = try_run_interior_replay_task_with_initial_parent_proposal(
+            self.generator,
+            self.completed,
+            binding.task.target_shift().clone(),
+            anchor,
+            ledger.predecessor_snapshot().clone(),
+            ledger.ordering(),
+            initial_parent_proposal,
+            probes,
+            self.limits.replay,
+        )?;
+        let exact_obstructions = exact_obstruction_count(&replay);
+        check_limit(
+            EXACT_OBSTRUCTIONS,
+            exact_obstructions,
+            self.limits.max_retained_exact_obstructions,
+        )?;
+        let census = ProbeCampaignCensus::new(bootstrap, &replay, exact_obstructions);
+        Ok(ProbeCampaignEvaluatedTask::new(
+            binding.task.canonical_ordinal(),
+            binding.ledger_snapshot,
+            census,
+            replay,
+        ))
+    }
+
     /// Revalidate and transactionally apply one evaluated task. The opaque
     /// snapshot join prevents delayed worker results from crossing any owner
     /// mutation, including a change that left the geometric cover equal.
@@ -249,22 +322,61 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
         &self,
         task: &Task,
     ) -> Result<(ProbeCampaignBootstrapCensus, CampaignStratumAnchor), ProbeCampaignError> {
+        self.try_build_anchor_from_source_frame(task, None)
+    }
+
+    /// Build the epoch-zero anchor from the exact canonical request frame
+    /// that the scheduler will regenerate. This prevents detached support
+    /// from widening source geometry after a bootstrap-only anchor has
+    /// already been fixed.
+    fn try_build_anchor_with_initial_parent_proposal<Task: ProbeCampaignPlannedTask>(
+        &self,
+        task: &Task,
+        proposal: &InitialParentSourceProposal,
+    ) -> Result<(ProbeCampaignBootstrapCensus, CampaignStratumAnchor), ProbeCampaignError> {
+        self.try_build_anchor_from_source_frame(task, Some(proposal))
+    }
+
+    fn try_build_anchor_from_source_frame<Task: ProbeCampaignPlannedTask>(
+        &self,
+        task: &Task,
+        initial_parent_proposal: Option<&InitialParentSourceProposal>,
+    ) -> Result<(ProbeCampaignBootstrapCensus, CampaignStratumAnchor), ProbeCampaignError> {
+        let has_additional_initial_requests = initial_parent_proposal.is_some();
         let discovery = self.limits.replay.scheduler.source_discovery;
         let nominations = self
             .incidence
             .try_nominate_target_unit(task.target_shift(), discovery)
             .map_err(ProbeCampaignError::SourceDiscovery)?;
+        let merged_requests = initial_parent_proposal
+            .map(|proposal| {
+                AccumulatedSourceRequests::try_new(
+                    self.incidence.arity(),
+                    nominations
+                        .requests()
+                        .iter()
+                        .cloned()
+                        .chain(proposal.requests().iter().cloned()),
+                    self.limits.replay.scheduler.campaign,
+                )
+            })
+            .transpose()
+            .map_err(ProbeCampaignError::InitialRequestCampaign)?;
+        let frame_requests = match &merged_requests {
+            Some(requests) => requests.requests(),
+            None => nominations.requests(),
+        };
         let selected = self
             .generator
             .translate_selected_completed_source_rows(
                 self.completed,
-                nominations.requests().iter().cloned(),
+                frame_requests.iter().cloned(),
                 self.limits.replay.scheduler.campaign.translated_sources,
             )
             .map_err(ProbeCampaignError::SourceTranslation)?;
-        if selected.requests() != nominations.requests() {
+        if selected.requests() != frame_requests {
             return Err(ProbeCampaignError::Invariant {
-                detail: "bootstrap translation changed the canonical request set",
+                detail: "anchor-frame translation changed the canonical request set",
             });
         }
         if selected.family_fingerprint() != self.incidence.family_fingerprint()
@@ -400,7 +512,14 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
             self.limits.replay.scheduler.campaign.stratum,
         )
         .map_err(ProbeCampaignError::Stratum)?;
-        let anchor = if restricted {
+        let anchor = if restricted || has_additional_initial_requests {
+            // A support-assisted anchor is maximal for the exact merged
+            // epoch-zero frame, but is intentionally fixed as a campaign
+            // restriction. Canonical replay first authenticates its
+            // target-unit bootstrap before rebuilding that same merged frame;
+            // the restricted lane permits the smaller exact anchor through
+            // both materializations without misrepresenting it as maximal for
+            // the bootstrap-only intermediate frame.
             CampaignStratumAnchor::try_restricted(
                 stratum,
                 self.limits.replay.scheduler.campaign.stratum,
@@ -415,7 +534,7 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
             nominations.raw_incidence_visits(),
             nominations.unique_before_existing_exclusion(),
             nominations.excluded_existing_requests(),
-            nominations.requests().len(),
+            frame_requests.len(),
             selected.len(),
             physical_shift_occurrences,
             physical_shifts.len(),
@@ -474,7 +593,8 @@ fn checked_mul(
 
 fn logical_sort_work(count: usize) -> Result<usize, ProbeCampaignError> {
     let normalized = count.max(2);
-    let levels = usize::BITS as usize - normalized.saturating_sub(1).leading_zeros() as usize;
+    // `normalized >= 2`, so this exact subtraction cannot underflow.
+    let levels = usize::BITS as usize - (normalized - 1).leading_zeros() as usize;
     checked_mul(PHYSICAL_SHIFT_SORT_WORK, count, levels)
 }
 

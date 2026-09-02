@@ -14,6 +14,7 @@ use crate::foundry::completion::source_discovery::cover_delta::{
 use crate::foundry::completion::source_discovery::leader_walk::{
     RequestedDomainPlan, RequestedDomainTask,
 };
+use crate::foundry::completion::source_discovery::requested_domain_support::RequestedDomainSupportUnion;
 use crate::sector::Mask;
 
 use super::super::ProbeCampaignAdapter;
@@ -289,6 +290,15 @@ impl<'inputs, 'sources, 'family> BoundaryProbeCoordinator<'inputs, 'sources, 'fa
         plan: &RequestedDomainPlan,
         ledger: &mut CanonicalExactOwnerLedger,
     ) -> RequestedProbeCoordinatorStop {
+        self.try_run_requested_plan_with_optional_support(plan, ledger, None)
+    }
+
+    pub(super) fn try_run_requested_plan_with_optional_support(
+        &mut self,
+        plan: &RequestedDomainPlan,
+        ledger: &mut CanonicalExactOwnerLedger,
+        support: Option<&RequestedDomainSupportUnion>,
+    ) -> RequestedProbeCoordinatorStop {
         if !self
             .bound_ledger
             .same_ledger_as(&ledger.snapshot_identity())
@@ -324,11 +334,12 @@ impl<'inputs, 'sources, 'family> BoundaryProbeCoordinator<'inputs, 'sources, 'fa
             ledger.revision().get(),
             plan,
             |plan, task, baseline_census, requested_report, invalidated_tickets| {
-                try_execute_coordinated_task(
+                super::support::try_execute_requested_task(
                     config,
                     adapter,
                     plan,
                     task,
+                    support,
                     ledger,
                     &snapshot_identity,
                     baseline_census,
@@ -360,6 +371,34 @@ fn try_execute_coordinated_task<Task: CoordinatedProbeTask>(
     let binding = adapter.try_bind_task(plan, task, ledger)?;
     let probes = try_materialize_probes(config, adapter, task)?;
     let evaluated = adapter.try_evaluate_task(binding, ledger, probes)?;
+    try_commit_coordinated_evaluation(
+        adapter,
+        evaluated,
+        ledger,
+        before,
+        baseline_census,
+        requested_report,
+        invalidated_tickets,
+        expected_probes_per_task,
+        None,
+    )
+}
+
+/// Shared post-evaluation transaction. Both ordinary and support-assisted
+/// paths reserve every fallible census state before this function performs the
+/// sole exact-ledger mutation.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn try_commit_coordinated_evaluation(
+    adapter: &ProbeCampaignAdapter<'_, '_, '_>,
+    evaluated: super::super::ProbeCampaignEvaluatedTask,
+    ledger: &mut CanonicalExactOwnerLedger,
+    before: ExactOwnerCoverSnapshot,
+    baseline_census: ProbeCoordinatorCensus,
+    requested_report: usize,
+    invalidated_tickets: usize,
+    expected_probes_per_task: usize,
+    requested_support_route: Option<super::compact::RequestedSupportRoute>,
+) -> Result<CompactTaskCommit, ProbeCoordinatorFailure> {
     // Every fallible replay/census join and every possible scalar counter
     // update is checked while the exact ledger is still immutable. Serial
     // application below is the transaction's sole mutation boundary.
@@ -368,6 +407,7 @@ fn try_execute_coordinated_task<Task: CoordinatedProbeTask>(
         baseline_census,
         requested_report,
         invalidated_tickets,
+        requested_support_route,
     )?;
     if reservation.declared_probes() != expected_probes_per_task {
         return Err(ProbeCoordinatorFailure::Invariant {
@@ -1148,7 +1188,7 @@ fn failed_public(
     ProbeCoordinatorStop::Failed(ProbeCoordinatorFailureStop { census, failure })
 }
 
-fn requested_failed_public(
+pub(super) fn requested_failed_public(
     census: ProbeCoordinatorCensus,
     failure: ProbeCoordinatorFailure,
 ) -> RequestedProbeCoordinatorStop {

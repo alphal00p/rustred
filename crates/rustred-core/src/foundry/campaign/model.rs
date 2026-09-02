@@ -343,6 +343,8 @@ pub struct FoundryCampaignCensus {
     pub(crate) scheduler_replayed: usize,
     pub(crate) scheduler_support_did_not_lift: usize,
     pub(crate) scheduler_sampled_dual: usize,
+    pub(crate) requested_support_assisted: usize,
+    pub(crate) requested_support_fallback: usize,
 }
 
 macro_rules! census_accessors {
@@ -377,6 +379,8 @@ impl FoundryCampaignCensus {
         scheduler_replayed,
         scheduler_support_did_not_lift,
         scheduler_sampled_dual,
+        requested_support_assisted,
+        requested_support_fallback,
     );
 
     /// First rejection encountered in deterministic campaign chronology.
