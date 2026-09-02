@@ -1,4 +1,5 @@
 use crate::foundry::completion::source_discovery::cover_delta::ExactOwnerCoverSnapshot;
+use crate::foundry::completion::source_discovery::scheduler::ProbeLocalRejectionSummary;
 use crate::foundry::completion::source_discovery::{
     ExactExecutableOwnerProposal, InteriorReplayRunDisposition,
 };
@@ -18,6 +19,7 @@ const CENSUS: &str = "scalar census";
 pub(super) struct CompactProbeEvidence {
     pub(super) scheduler_budget_stops: usize,
     pub(super) scheduler_rejections: usize,
+    pub(super) first_scheduler_rejection: Option<ProbeLocalRejectionSummary>,
     pub(super) scheduler_stalls: usize,
     pub(super) scheduler_exact_lift_errors: usize,
     pub(super) canonical_replayed: usize,
@@ -203,6 +205,7 @@ fn try_compact_census(
     let mut evidence = CompactProbeEvidence {
         scheduler_budget_stops: scheduler.budget_stop(),
         scheduler_rejections: scheduler.rejected(),
+        first_scheduler_rejection: census.first_scheduler_rejection(),
         scheduler_stalls: scheduler.stalled(),
         scheduler_exact_lift_errors: scheduler.exact_lift_error(),
         canonical_replayed: attempts.replayed(),
@@ -216,6 +219,11 @@ fn try_compact_census(
         scheduler_sampled_dual: scheduler.sampled_dual(),
     };
     evidence.declared_probes = try_scheduler_outcome_total(evidence)?;
+    if (evidence.scheduler_rejections == 0) != evidence.first_scheduler_rejection.is_none() {
+        return Err(ProbeCoordinatorFailure::Invariant {
+            detail: "scheduler rejection count and detached first-rejection diagnostic disagree",
+        });
+    }
     Ok(evidence)
 }
 
@@ -407,6 +415,9 @@ fn try_updated_census(
         evidence.scheduler_rejections,
         CENSUS,
     )?;
+    if updated.first_scheduler_rejection.is_none() {
+        updated.first_scheduler_rejection = evidence.first_scheduler_rejection;
+    }
     try_add(
         &mut updated.scheduler_stalls,
         evidence.scheduler_stalls,
@@ -478,6 +489,7 @@ pub(super) fn operational_reason(
                 scheduler_budget_stops: evidence.scheduler_budget_stops,
                 scheduler_rejections: evidence.scheduler_rejections,
                 scheduler_exact_lift_errors: evidence.scheduler_exact_lift_errors,
+                terminal_scheduler_rejection: evidence.first_scheduler_rejection,
             },
         );
     }

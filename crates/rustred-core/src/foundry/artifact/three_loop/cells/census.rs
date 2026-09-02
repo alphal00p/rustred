@@ -656,7 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn finite_k6_census_reports_current_coverage_without_promoting_corners() {
+    fn finite_k6_census_reports_current_coverage_with_only_declared_master_corners() {
         let census = K6ReachabilityCensus::try_new().unwrap();
         assert_exact_carrier_regions(&census);
         assert_eq!(census.roots.len(), 115);
@@ -801,6 +801,7 @@ mod tests {
             BTreeMap::from([
                 (ReachabilityTerminalKind::ZeroSector, 1),
                 (ReachabilityTerminalKind::Factorization, 26),
+                (ReachabilityTerminalKind::Master, 3),
             ])
         );
 
@@ -808,9 +809,9 @@ mod tests {
         assert_eq!(statistics.submitted_roots(), 115);
         assert_eq!(statistics.canonical_roots(), 44);
         assert_eq!(statistics.discovered_nodes(), 89);
-        assert_eq!(statistics.terminal_nodes(), 27);
+        assert_eq!(statistics.terminal_nodes(), 30);
         assert_eq!(statistics.rule_applications(), 53);
-        assert_eq!(statistics.uncovered_nodes(), 9);
+        assert_eq!(statistics.uncovered_nodes(), 6);
 
         for (powers, kind) in [
             ([1, 1, 1, 1, 1, 2], K6CellKind::Top),
@@ -1072,7 +1073,7 @@ mod tests {
         // The one-dot/deeper-numerator ray is disjoint from the existing
         // N=-1 mixed-numerator boundary.  At its first target all children
         // were already present: the scalar numerator endpoint, the decorated
-        // path endpoint, and the still-unresolved scalar four-line corner.
+        // path endpoint, and the explicitly declared scalar four-line master.
         // The new owner therefore shrinks this finite frontier without
         // manufacturing another obligation.
         let ReachabilityDisposition::Rule(dotted_negative_bulk) = disposition(
@@ -1109,7 +1110,8 @@ mod tests {
         );
         assert!(matches!(
             disposition(&census, &first, FOUR_LINE_CORNER),
-            ReachabilityDisposition::Uncovered
+            ReachabilityDisposition::Terminal(terminal)
+                if terminal.kind() == ReachabilityTerminalKind::Master
         ));
 
         // The opposite inactive-pair bulk removes the deeper B frontier
@@ -1338,7 +1340,8 @@ mod tests {
         ));
         assert!(matches!(
             disposition(&census, &first, FOUR_LINE_CORNER),
-            ReachabilityDisposition::Uncovered
+            ReachabilityDisposition::Terminal(terminal)
+                if terminal.kind() == ReachabilityTerminalKind::Master
         ));
 
         // The two opposite-inactive-numerator endpoints share one exact
@@ -1656,16 +1659,19 @@ mod tests {
             [0, 0, 1, 0, 1, 1]
         );
 
-        // Scalar graph corners are obligations, never assumed masters.
-        // The additional representatives pin the distinct deeper-dot and
-        // inactive-numerator holes exposed by this bounded root set.
-        for powers in [
-            TOP_CORNER,
-            FIVE_LINE_CORNER,
-            FOUR_LINE_CORNER,
-            [0, 1, 1, 2, 4, 0],
-            [0, 1, 1, 2, 5, 0],
-        ] {
+        // Exactly the three manifest scalar corners are intentional finite
+        // numerical masters. This does not promote any surrounding dotted
+        // sector or manufacture a parametric closure claim.
+        for powers in [TOP_CORNER, FIVE_LINE_CORNER, FOUR_LINE_CORNER] {
+            assert!(matches!(
+                disposition(&census, &first, powers),
+                ReachabilityDisposition::Terminal(terminal)
+                    if terminal.kind() == ReachabilityTerminalKind::Master
+            ));
+        }
+        // The distinct deeper-dot and inactive-numerator holes exposed by
+        // this bounded root set remain explicit obligations.
+        for powers in [[0, 1, 1, 2, 4, 0], [0, 1, 1, 2, 5, 0]] {
             assert!(matches!(
                 disposition(&census, &first, powers),
                 ReachabilityDisposition::Uncovered
@@ -1679,13 +1685,10 @@ mod tests {
             [
                 [0, -1, 1, 2, 2, 1],
                 [0, -2, 2, 2, 1, 1],
-                [0, 1, 1, 1, 1, 0],
                 [0, 1, 1, 2, 4, 0],
                 [0, 1, 1, 2, 5, 0],
                 [0, 1, 2, 3, 3, 0],
                 [0, 1, 3, 2, 3, 0],
-                FIVE_LINE_CORNER,
-                TOP_CORNER,
             ]
             .map(|powers| powers.to_vec())
         );
@@ -1694,7 +1697,9 @@ mod tests {
             if let ReachabilityDisposition::Terminal(terminal) = node.disposition() {
                 assert!(matches!(
                     terminal.kind(),
-                    ReachabilityTerminalKind::ZeroSector | ReachabilityTerminalKind::Factorization
+                    ReachabilityTerminalKind::ZeroSector
+                        | ReachabilityTerminalKind::Factorization
+                        | ReachabilityTerminalKind::Master
                 ));
             }
         }
@@ -1806,7 +1811,11 @@ mod tests {
             census,
             [0, 0, 1, 1, 1, 1],
             &[[0, -1, 1, 2, 2, 1], [0, -2, 2, 2, 1, 1]],
-            (7, 20, 42),
+            // One unit is charged for every cover/partition intersection
+            // probe, including disjoint and fully-contained fast paths; the
+            // remaining units are the six-axis traversals of intersecting
+            // boxes.
+            (7, 20, 107),
         );
         assert_guard_blind_carrier_complement(
             census,
@@ -1817,7 +1826,7 @@ mod tests {
                 [0, 1, 2, 3, 3, 0],
                 [0, 1, 3, 2, 3, 0],
             ],
-            (19, 32, 114),
+            (19, 32, 445),
         );
     }
 

@@ -82,6 +82,13 @@ pub(super) fn build_proof_domain(
     plan: &PhysicalFramePlan,
     circuit: &ExactTargetCircuit,
 ) -> Result<SectorInteriorDomain, ExactCircuitLoweringError> {
+    if !circuit.fixed_indices().is_empty() {
+        let stratum = circuit.residual_terms()[0].descent().domain();
+        return Ok(SectorInteriorDomain::try_new(
+            stratum.sector().clone(),
+            stratum.bounds().iter().copied(),
+        )?);
+    }
     let count = circuit.residual_terms().len().checked_add(1).ok_or(
         ExactCircuitLoweringError::ResourceCountOverflow {
             resource: "proof-domain shifts",

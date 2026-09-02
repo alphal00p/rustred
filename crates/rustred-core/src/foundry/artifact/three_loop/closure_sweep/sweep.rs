@@ -3,6 +3,7 @@
 use std::fmt;
 use std::sync::Arc;
 
+use crate::foundry::campaign::source_safe_k6_closure_carrier_for_test;
 use crate::foundry::completion::frame::admission::{
     ExactCircuitOuterExtensionWitness, ExactCircuitOwnerCover, ExactCircuitOwnerCoverError,
     ExactCircuitOwnerInput, ExactCircuitSemanticDag, ExactOwnerCoverStatus,
@@ -12,10 +13,11 @@ use crate::foundry::completion::frame::exact::{
 };
 use crate::foundry::completion::frame::modular::ModularTargetQuery;
 use crate::foundry::completion::frame::{OneSidedChartFrame, exact_circuit_content_equal};
+use crate::foundry::completion::source_discovery::ProbeCampaignLimits;
 use crate::foundry::completion::stratum::{
     DecoratedStratum, ImmutableOwnerSnapshot, StratumRegistryError, TargetColumnPartition,
 };
-use crate::identity::{ParametricIbpConfig, ParametricIbpGenerator};
+use crate::identity::{IntegralShift, ParametricIbpConfig, ParametricIbpGenerator};
 use crate::sector::{Error as SectorError, Mask, OrderingPolicy, SectorMonotoneDomain};
 
 use super::super::{canonical_family, derive_k6_terminal_authority};
@@ -120,8 +122,7 @@ fn sweep_sector_with_root_authority(
     let (owners, finite_terminals) = if installed_k6_root {
         let authority = derive_k6_terminal_authority()?;
         let finite_terminals = authority
-            .parent_terminals()
-            .iter()
+            .master_terminals()
             .filter(|key| Mask::try_from_indices(key.powers()).is_ok_and(|mask| mask == sector))
             .cloned()
             .collect();
@@ -262,10 +263,23 @@ fn sweep_sector_with_root_authority(
             ExactCircuitOwnerInput::new(&semantic_input_partitions[partition], extension)
         })
         .collect::<Vec<_>>();
-    let compiled = ExactCircuitOwnerCover::try_compile(
+    let campaign_limits = ProbeCampaignLimits::default();
+    let zero_shift = IntegralShift::try_new(std::iter::repeat_n(0, sector.arity()))?;
+    let zero_sources = generator.translate_completed_source_rows(
+        &completed,
+        [zero_shift],
+        campaign_limits
+            .replay
+            .scheduler
+            .source_discovery
+            .translation,
+    )?;
+    let closure_carrier = source_safe_k6_closure_carrier_for_test(&zero_sources, &sector)?;
+    let compiled = ExactCircuitOwnerCover::try_compile_with_carrier(
         &context,
         owner_inputs,
         finite_terminals,
+        &closure_carrier,
         owner_cover_limits(),
     );
     let cover = cover_telemetry(compiled, sector.arity(), semantic_owner_inputs)?;

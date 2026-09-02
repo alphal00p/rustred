@@ -25,6 +25,7 @@ pub(super) fn replay_exact_circuit<'frame>(
     context: &IndexedCoefficientContext,
     hit: &ModularHit<'frame>,
     partition: &TargetColumnPartition<'frame>,
+    fixed_indices: &[(usize, i64)],
     reduced: ReducedExactCircuit,
     limits: ExactCircuitLimits,
 ) -> Result<ExactCircuitLift, ExactCircuitError> {
@@ -78,7 +79,13 @@ pub(super) fn replay_exact_circuit<'frame>(
             )?;
             budget.charge()?;
             let multiplier = context.bind_sealed(contribution.coefficient())?;
-            let source_coefficient = context.bind_sealed(source_coefficient)?;
+            let (source_coefficient, _denominator_guard) = context
+                .specialize_fixed_indices_sealed(
+                    source_coefficient,
+                    fixed_indices,
+                    limits.indexed_algebra,
+                )?;
+            let source_coefficient = context.bind_sealed(&source_coefficient)?;
             let product = context.mul_bound_with_limits(
                 multiplier,
                 source_coefficient,
@@ -180,7 +187,14 @@ pub(super) fn replay_exact_circuit<'frame>(
         )?;
     }
 
-    let guards = collect_guards(context, plan, &reduced, &residual_terms, limits)?;
+    let guards = collect_guards(
+        context,
+        plan,
+        fixed_indices,
+        &reduced,
+        &residual_terms,
+        limits,
+    )?;
     let replay = ExactCircuitReplayWitness::new(
         reduced.source_combination.len(),
         source_terms,
@@ -198,6 +212,7 @@ pub(super) fn replay_exact_circuit<'frame>(
         plan.identity_owner(),
         hit.sample_fingerprint().clone(),
         partition.stratum_id().clone(),
+        fixed_indices.to_vec(),
         partition.snapshot_id().clone(),
         hit.diagnostics().clone(),
         partition.target_column(),
@@ -213,6 +228,7 @@ pub(super) fn replay_exact_circuit<'frame>(
 fn collect_guards(
     context: &IndexedCoefficientContext,
     plan: &PhysicalFramePlan,
+    fixed_indices: &[(usize, i64)],
     reduced: &ReducedExactCircuit,
     residual_terms: &[ExactCircuitTerm],
     limits: ExactCircuitLimits,
@@ -254,8 +270,13 @@ fn collect_guards(
             for condition_source in condition.sources() {
                 condition_sources.push(clone_condition_source(condition_source)?);
             }
+            let polynomial = context.specialize_fixed_polynomial_sealed(
+                condition.polynomial(),
+                fixed_indices,
+                limits.indexed_algebra,
+            )?;
             collector.insert(
-                condition.polynomial().clone(),
+                polynomial,
                 ExactCircuitGuardOrigin::SourceCondition {
                     frame_row_ordinal: frame_row,
                     source_instance: source_instance.clone(),
@@ -275,9 +296,13 @@ fn collect_guards(
             });
         }
         for ((_, coefficient), &physical_column) in source.terms().iter().zip(structural_columns) {
-            let coefficient = context.bind_sealed(coefficient)?;
+            let (_coefficient, denominator_guard) = context.specialize_fixed_indices_sealed(
+                coefficient,
+                fixed_indices,
+                limits.indexed_algebra,
+            )?;
             collector.insert(
-                context.denominator_condition_from_bound(coefficient)?,
+                denominator_guard,
                 ExactCircuitGuardOrigin::SourceCoefficientDenominator {
                     frame_row_ordinal: frame_row,
                     source_instance: source_instance.clone(),

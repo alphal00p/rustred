@@ -53,6 +53,11 @@ pub(super) fn append_exact_circuit(
     circuit: &ExactTargetCircuit,
 ) -> Result<(), StratumRegistryError> {
     output.text(circuit.stratum_id().as_str())?;
+    output.count(circuit.fixed_indices().len())?;
+    for &(position, value) in circuit.fixed_indices() {
+        output.usize(position)?;
+        output.i64(value)?;
+    }
     output.text(circuit.owner_snapshot_id().as_str())?;
     output.usize(circuit.target_column())?;
     append_integral_shift(output, circuit.target_shift())?;

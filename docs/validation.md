@@ -96,7 +96,7 @@ guards, descends to the same two children, and routes all four raw placements.
 Depths zero and one both retain typed target-absent witnesses. A fourth complete
 depth-two projection validates the selected repeated-edge ray
 `[0,1,1,1,N,0]`, `N >= 3`: 50 source contributions, 358 source terms, eight
-RHS terms, 32 guards, and 367 replay keys. Schema-V3 exact replay costs are
+RHS terms, 32 guards, and 367 replay keys. Schema-V4 exact replay costs are
 1078 at free index one and 1080 at held-out indices two and eight. A symbolic
 leading-in-`d` coefficient test proves that every specialized guard remains a
 nonzero polynomial in `d` for every positive free index; concrete exceptional
@@ -106,14 +106,14 @@ placements. A complete depth-three search next retains 84 translations and all
 `[0,1,2,2,3,0]`; independently retranslating and reprojecting that generated
 selection derives one `S4` orbit of `[0,1,2,2,N,0]`, structurally `N >= 3`.
 The resulting cell uses 13 source contributions, 90 source terms, five RHS terms, seven
-guards, 96 replay keys, and 275 exact schema-V3 operations at each of the
+guards, 96 replay keys, and 275 exact schema-V4 operations at each of the
 checked free indices one, two, and eight. Exact source/projection replay,
 strict descent, orbit non-overclaim, and a uniform symbolic guard proof are all
 pinned. Concrete endpoint tests delimit the i64 application cell to
 `3 <= N <= i64::MAX - 1` and reject the overflowing final endpoint. The
 first complementary-orbit point `[0,1,2,3,2,0]` is independently derived from
 the complete depth-three span: 46 selected rows, 310 source terms, four RHS
-terms, 22 guards, 315 replay keys, and 939 exact schema-V3 concrete operations.
+terms, 22 guards, 315 replay keys, and 939 exact schema-V4 concrete operations.
 Depths zero through two retain typed target absence, and exact singleton and
 16/8 orbit tests reject neighboring-ray ownership. The rest of the
 complementary mixed-dot ray, the descendant `[0,1,1,2,N,0]`, other numerator
@@ -261,24 +261,13 @@ and grants no cover authority until the free indices are retained symbolically,
 all guards and faces are proved, and an executable owner strictly shrinks the
 exact infinite complement.
 
-The separate cold closed-block product-moment suite executes the path and star
-`K1^3` factorizations and the `K3 x K1` factorization without re-entering the
-parent K6 reducer. It authenticates the installed signed routing and lower
-dependencies, uses Symbolica sparse-polynomial operations for routed
-numerators and radial `(D+1)^r`, and retains the iterative angular guards.
-Eighteen focused tests cover the scalar corners, odd zero, rank-two and
-rank-four moments, `q^2/D^2 = (d/2)T`, shared radial memoization,
-deterministic process-local provenance, both K3 active dots, routed K3-product
-numerators, signed mixed products, the two installed K3-product master
-embeddings, typed rejection of multiple correlated blocks, and caller limits.
-They also pin symmetric aggregate K3/K1 request accounting, one shared
-coefficient budget across outer and native Symbolica phases, pre-allocation
-state-key limits, and typed rejection of a K3 `i64::MAX` root-boundary input.
-The persistent path witnesses
-`[-2,-6,1,-2,3,3]` and `[-4,-6,7,0,3,3]` are pinned to one authenticated
-terminal with exact coefficients, guard sets, and native supports `3,886` and
-`4,396`. This suite validates a bounded non-owning action only; it does not
-install a `RuleCell` or discharge the infinite product-sector covers.
+The earlier executable product-moment prototype has been removed. Its nested
+evaluation constructed fresh dependency reducers, so it did not share the
+root reducer's memoization or request budget and could not serve as sound
+viability evidence. The mathematical design remains in
+`docs/research/factorized_product_angular_owner_2026.md`; implementation is
+deferred until an autonomous K6 installer can persist and authenticate the
+owner and execute it through one shared reducer state.
 
 A separate seven-test matcher-seed portfolio derives all five frozen Vakint
 three-loop roots from the complete K6 contraction plan and applies their exact
@@ -432,32 +421,31 @@ the independently generated terminal data. Alternate routings are tests of
 Vakint's existing matcher and simultaneous witness, not permission for RustRed
 to rematch a topology.
 
-Existing Vakint input-matching and inline expected-expression tests can be
-used without FORM. The current RustRed-mode tests use invalid FORM paths and
-establish exact frozen dot/indexed outputs, valid topology relabeling, scalar
-and odd-rank behavior, the rank-four typed frontier, exact numeric mass and
-nonunit-power retention, malformed-routing rejection, and nonsymbolic-
-dimension rejection. Separate compatibility tests establish that the default
-builder equals the existing FORM path. That compatibility obligation applies
-to Vakint's public API/defaults and existing FORM-backed methods, not to the
-RustRed artifact format: Vakint must reject every obsolete artifact schema and
-must not migrate, dual-decode, or fall back from it. These existing gates
-establish a bounded rank-two multi-loop bridge only. That bridge is frozen
-during Stage 1 and does not establish scalar-IBP correctness.
+Existing Vakint input-matching and inline expected-expression tests can be used
+without FORM. Tensor-bearing RustRed tests explicitly select FeynKit and use an
+invalid FORM path; scalar-only tests skip tensor preprocessing. Separate
+compatibility tests retain the historical FORM-backed modes and public syntax.
+Alternative FeynKit/RustRed spellings are covered only as additive inputs:
+paired regression cases must retain the old Vakint spelling and prove identical
+results rather than replacing the old case in place.
+That compatibility obligation applies to Vakint's public API/defaults and
+existing FORM-backed methods, not to the RustRed artifact format: Vakint must
+reject every obsolete artifact schema and must not migrate, dual-decode, or
+fall back from it.
 
 The detailed tensor, routing, convention, and vertical-oracle contract lives in
 [`tensor.md`](tensor.md).
 
-### FORM tensor prepass and scalar oracle
+### FeynKit tensor prepass and FORM scalar oracles
 
 FORM is forbidden from RustRed and from the functional Vakint RustRed
 **scalar** backend. That backend now passes nontrivial one- and two-loop scalar
 tests with an invalid FORM path, exact raw-master comparisons against MATAD,
 and substituted-result comparisons against Vakint's existing expectations.
-Stage 1 nevertheless retains
-Vakint's existing FORM tensor prepass, so a tensor-bearing end-to-end test may
-run that prepass before entering the FORM-free RustRed scalar tail. Such a
-complete tensor-bearing chain is not claimed to be FORM-free.
+The active tensor-bearing Stage 1 lane explicitly uses FeynKit's native tensor
+prepass before the RustRed scalar tail and must pass with an invalid FORM path.
+Existing FORM-backed tensor and scalar modes remain separately selected,
+backward-compatible oracle lanes.
 
 Vakint's existing AlphaLoop and MATAD reductions may run with a pinned FORM in
 segregated oracle coverage through three loops. An oracle-regeneration job
@@ -473,9 +461,11 @@ constants contain only about 26--50 digits; generic four-loop 20,000-digit
 terminal data therefore require regenerated master data or AMFlow rather than
 an unsupported precision claim.
 
-A directory named `form5` is not assumed to contain a FORM executable. Oracle
-availability is checked explicitly, and its absence neither blocks pure-Rust
-tests nor permits a fallback in the new mode.
+The historical directory named `form5` contains an unrelated React package.
+The official FORM source is checked out reference-only as `form5-hep`; its
+locally installed `form` and `tform` binaries report FORM 5.0.1. Oracle
+availability and version are checked explicitly, and their absence neither
+blocks pure-Rust tests nor permits a fallback in the new mode.
 
 ## Algebra and boundary tests
 
@@ -506,6 +496,14 @@ Speedup is meaningful only when enough independent work is ready. Memory
 admission is checked against concurrent predecessor/trial/successor state and
 opaque Symbolica headroom; exceeding a declared limit produces a resumable
 resource result, not a larger post-hoc budget or a master.
+
+Vakint scalar-backend timing begins only after three-loop parity is green and
+uses optimized release builds. Report cold artifact load/authentication
+separately from warm repeated reduction, compare identical routed scalar input
+batches and requested Laurent precision across RustRed, AlphaLoop, and MATAD,
+and retain CPU profiles plus peak RSS. FORM process startup is reported rather
+than silently amortized; RustRed startup is likewise not hidden inside its
+steady-state number.
 
 ## Repository gates
 

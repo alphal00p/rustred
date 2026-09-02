@@ -10,6 +10,8 @@ from ._rustred import (
     ClosingArtifactReductionResult,
     DeriveResult,
     ExactMasterCoefficient,
+    FoundryCampaignRunResult,
+    FoundryWaveCampaignRunResult,
     RustRedCoordinatorPoisonedError,
     RustRedDerivationError,
     RustRedError,
@@ -29,6 +31,8 @@ from ._rustred import (
     generate_closing_artifact,
     inspect_closing_artifact,
     reduce_with_closing_artifact,
+    run_foundry_campaign,
+    run_foundry_wave_campaign,
 )
 
 
@@ -64,6 +68,8 @@ __all__ = [
     "ClosingFamily",
     "DeriveResult",
     "ExactMasterCoefficient",
+    "FoundryCampaignRunResult",
+    "FoundryWaveCampaignRunResult",
     "InputFormat",
     "RelationSelection",
     "RustRedCoordinatorPoisonedError",
@@ -85,4 +91,6 @@ __all__ = [
     "generate_closing_artifact",
     "inspect_closing_artifact",
     "reduce_with_closing_artifact",
+    "run_foundry_campaign",
+    "run_foundry_wave_campaign",
 ]

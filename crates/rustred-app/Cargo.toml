@@ -24,4 +24,7 @@ path = "../../examples/rust/two_loop_single_mass_vacuum.rs"
 rustred = { path = "../rustred-core" }
 serde = { version = "1", features = ["derive"] }
 symbolica.workspace = true
+tabled = { version = "0.21", default-features = false, features = ["ansi", "std"] }
+crossterm = "0.28"
+ratatui = { version = "0.29", default-features = false, features = ["crossterm"] }
 toml = "1"

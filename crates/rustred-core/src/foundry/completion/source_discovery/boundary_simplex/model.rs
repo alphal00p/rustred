@@ -275,6 +275,24 @@ impl BoundarySimplexTask {
         self.lattice_target.as_slice()
     }
 
+    /// Canonical coefficient-evaluation anchor for this face proposal.
+    ///
+    /// The lattice target parameterizes the pivot shift, not the coefficient
+    /// sample. Complementary face axes evaluate the base index at the sector
+    /// corner (chart zero); each remaining symbolic axis uses the first
+    /// interior chart point. Task-relative probe offsets may move only those
+    /// symbolic coordinates. This canonical origin reproduces the established
+    /// K=6 mixed-dot-ray sample without coupling the sample to the pivot size.
+    pub(crate) fn base_probe_chart_origin(&self) -> impl ExactSizeIterator<Item = u64> + '_ {
+        self.lattice_target.iter().enumerate().map(|(position, _)| {
+            if self.key.remaining_axes().binary_search(&position).is_ok() {
+                1
+            } else {
+                0
+            }
+        })
+    }
+
     pub(crate) const fn target_shift(&self) -> &IntegralShift {
         &self.target_shift
     }

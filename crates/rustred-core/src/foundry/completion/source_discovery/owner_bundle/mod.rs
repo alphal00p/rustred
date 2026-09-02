@@ -24,7 +24,7 @@ pub(crate) use limits::ExactExecutableOwnerLimits;
 pub(crate) use model::{
     ExactExecutableCandidateObstruction, ExactExecutableOwnerCover,
     ExactExecutableOwnerObstruction, ExactExecutableOwnerProposal, ExactExecutableOwnerSelection,
-    ExactSemanticExecutableOwner, UnpublishedCanonicalOwnerProposal,
+    ExactOwnerContentOrderKey, ExactSemanticExecutableOwner, UnpublishedCanonicalOwnerProposal,
 };
 
 #[cfg(test)]

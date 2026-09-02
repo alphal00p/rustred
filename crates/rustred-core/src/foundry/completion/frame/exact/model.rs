@@ -249,9 +249,11 @@ impl ExactCircuitReplayWitness {
 /// column partition is not promoted into completion or stratum authority.
 #[derive(Clone, Debug)]
 pub(crate) struct ExactTargetCircuit {
+    identity: ExactTargetCircuitIdentity,
     plan_identity: PhysicalFramePlanIdentity,
     sample: Arc<ModularSampleFingerprint>,
     stratum_id: DecoratedStratumId,
+    fixed_indices: Box<[(usize, i64)]>,
     owner_snapshot_id: ImmutableOwnerSnapshotId,
     modular_diagnostics: ModularRankDiagnostics,
     target_column: usize,
@@ -263,6 +265,26 @@ pub(crate) struct ExactTargetCircuit {
     replay: ExactCircuitReplayWitness,
 }
 
+/// Unforgeable in-memory linkage between one exact circuit and proof values
+/// reconstructed from that precise circuit. Structural circuit equality does
+/// not confer this authority.
+#[derive(Clone, Debug)]
+pub(crate) struct ExactTargetCircuitIdentity(Arc<()>);
+
+impl ExactTargetCircuitIdentity {
+    pub(crate) fn belongs_to(&self, circuit: &ExactTargetCircuit) -> bool {
+        Arc::ptr_eq(&self.0, &circuit.identity.0)
+    }
+}
+
+impl PartialEq for ExactTargetCircuitIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for ExactTargetCircuitIdentity {}
+
 // The live-plan token is an in-memory admission seal, not mathematical
 // payload. Structural equality is used by deterministic campaign regressions
 // and therefore deliberately excludes `plan_identity`; authority checks use
@@ -271,6 +293,7 @@ impl PartialEq for ExactTargetCircuit {
     fn eq(&self, other: &Self) -> bool {
         self.sample == other.sample
             && self.stratum_id == other.stratum_id
+            && self.fixed_indices == other.fixed_indices
             && self.owner_snapshot_id == other.owner_snapshot_id
             && self.modular_diagnostics == other.modular_diagnostics
             && self.target_column == other.target_column
@@ -286,6 +309,10 @@ impl PartialEq for ExactTargetCircuit {
 impl Eq for ExactTargetCircuit {}
 
 impl ExactTargetCircuit {
+    pub(crate) fn identity_owner(&self) -> ExactTargetCircuitIdentity {
+        self.identity.clone()
+    }
+
     pub(crate) fn is_bound_to(&self, plan: &PhysicalFramePlan) -> bool {
         self.plan_identity.belongs_to(plan)
     }
@@ -304,6 +331,12 @@ impl ExactTargetCircuit {
 
     pub(crate) const fn stratum_id(&self) -> &DecoratedStratumId {
         &self.stratum_id
+    }
+
+    /// Canonical singleton coordinates of the stratum quotient in which this
+    /// circuit was exactly reduced and replayed.
+    pub(crate) fn fixed_indices(&self) -> &[(usize, i64)] {
+        &self.fixed_indices
     }
 
     pub(crate) const fn owner_snapshot_id(&self) -> &ImmutableOwnerSnapshotId {
@@ -355,6 +388,7 @@ impl ExactTargetCircuit {
         plan_identity: PhysicalFramePlanIdentity,
         sample: Arc<ModularSampleFingerprint>,
         stratum_id: DecoratedStratumId,
+        fixed_indices: Vec<(usize, i64)>,
         owner_snapshot_id: ImmutableOwnerSnapshotId,
         modular_diagnostics: ModularRankDiagnostics,
         target_column: usize,
@@ -366,9 +400,11 @@ impl ExactTargetCircuit {
         replay: ExactCircuitReplayWitness,
     ) -> Self {
         Self {
+            identity: ExactTargetCircuitIdentity(Arc::new(())),
             plan_identity,
             sample,
             stratum_id,
+            fixed_indices: fixed_indices.into_boxed_slice(),
             owner_snapshot_id,
             modular_diagnostics,
             target_column,

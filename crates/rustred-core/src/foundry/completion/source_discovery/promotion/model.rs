@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use crate::foundry::cell::RuleCell;
+use crate::foundry::cell::{RuleCell, RuleCellGuardDomainSplit};
 use crate::foundry::completion::frame::admission::ExactGuardRefinement;
-use crate::foundry::completion::frame::exact::ExactTargetCircuit;
+use crate::foundry::completion::frame::exact::{ClearedExactCircuit, ExactTargetCircuit};
 use crate::foundry::completion::source_discovery::FreshTaskEpoch;
 use crate::foundry::completion::stratum::GuardBranchIdentity;
 
@@ -15,8 +15,10 @@ use crate::foundry::completion::stratum::GuardBranchIdentity;
 pub(crate) struct AdmittedExactRuleCandidate {
     epoch: Arc<FreshTaskEpoch>,
     circuit: Arc<ExactTargetCircuit>,
-    cell: RuleCell,
+    cleared: Arc<ClearedExactCircuit>,
+    cell: Arc<RuleCell>,
     guard_refinement: ExactGuardRefinement,
+    guard_domain_split: Option<RuleCellGuardDomainSplit>,
 }
 
 impl AdmittedExactRuleCandidate {
@@ -28,9 +30,19 @@ impl AdmittedExactRuleCandidate {
         &self.circuit
     }
 
+    pub(crate) fn cleared(&self) -> &Arc<ClearedExactCircuit> {
+        &self.cleared
+    }
+
     /// Borrow the executable payload without allowing it to outlive the
     /// exact epoch/circuit authority retained by this candidate.
-    pub(crate) const fn cell(&self) -> &RuleCell {
+    pub(crate) fn cell(&self) -> &RuleCell {
+        self.cell.as_ref()
+    }
+
+    /// Retain the exact executable payload without copying or rebuilding its
+    /// authenticated source views and rule evidence.
+    pub(crate) const fn cell_owner(&self) -> &Arc<RuleCell> {
         &self.cell
     }
 
@@ -38,17 +50,25 @@ impl AdmittedExactRuleCandidate {
         &self.guard_refinement
     }
 
+    pub(crate) const fn guard_domain_split(&self) -> Option<&RuleCellGuardDomainSplit> {
+        self.guard_domain_split.as_ref()
+    }
+
     pub(super) fn new(
         epoch: Arc<FreshTaskEpoch>,
         circuit: Arc<ExactTargetCircuit>,
-        cell: RuleCell,
+        cleared: Arc<ClearedExactCircuit>,
+        cell: Arc<RuleCell>,
         guard_refinement: ExactGuardRefinement,
+        guard_domain_split: Option<RuleCellGuardDomainSplit>,
     ) -> Self {
         Self {
             epoch,
             circuit,
+            cleared,
             cell,
             guard_refinement,
+            guard_domain_split,
         }
     }
 }
@@ -75,6 +95,7 @@ pub(crate) enum ExactRuleCellPromotionDisposition {
     BlockedByKnownZero {
         epoch: Arc<FreshTaskEpoch>,
         circuit: Arc<ExactTargetCircuit>,
+        cleared: Arc<ClearedExactCircuit>,
         required_predicate_ordinal: usize,
         first_circuit_guard_ordinal: usize,
         zero_branch: GuardBranchIdentity,
@@ -82,6 +103,7 @@ pub(crate) enum ExactRuleCellPromotionDisposition {
     NeedsGuardedStratum {
         epoch: Arc<FreshTaskEpoch>,
         circuit: Arc<ExactTargetCircuit>,
+        cleared: Arc<ClearedExactCircuit>,
         refinement: ExactGuardRefinement,
         obstruction: ExactRuleCellGuardObstruction,
     },
@@ -91,6 +113,7 @@ pub(crate) enum ExactRuleCellPromotionDisposition {
     AnchorOnGuardWall {
         epoch: Arc<FreshTaskEpoch>,
         circuit: Arc<ExactTargetCircuit>,
+        cleared: Arc<ClearedExactCircuit>,
         refinement: ExactGuardRefinement,
         guard_ordinal: usize,
     },

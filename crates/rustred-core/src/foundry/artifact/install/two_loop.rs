@@ -76,6 +76,7 @@ pub(super) fn validate(
         schema: candidate.schema,
         algorithm_id: candidate.algorithm_id,
         arity: candidate.arity,
+        ordering: candidate.ordering,
         supported_root_power_bounds: candidate.supported_root_power_bounds,
         family_fingerprint: candidate.family.fingerprint_owner(),
         family: candidate.family,

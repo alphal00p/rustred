@@ -251,7 +251,9 @@ pub(super) fn compile_roots_only_output(
             ordinal,
             family,
             declared_power_sector: render_mask(&key.sector)?,
-            ordering: ordering.stable_id(),
+            ordering: ordering
+                .static_stable_id()
+                .expect("roots-only campaign currently fixes the static natural ordering"),
         });
     }
     bound.finish()?;
@@ -260,7 +262,9 @@ pub(super) fn compile_roots_only_output(
         schema: CAMPAIGN_OUTPUT_SCHEMA,
         status: "ok",
         scope: "roots_only",
-        ordering: ordering.stable_id(),
+        ordering: ordering
+            .static_stable_id()
+            .expect("roots-only campaign currently fixes the static natural ordering"),
         producer: ProducerOutputV1::current(),
         counts: CampaignCountsOutputV1 {
             roots: root_outputs.len(),

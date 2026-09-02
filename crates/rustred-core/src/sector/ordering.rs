@@ -2,56 +2,26 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::sync::Arc;
 
-use super::error::{Error, try_copy_string, try_reserve_exact};
+use super::error::{Error, try_reserve_exact};
 use super::mask::Mask;
 
-#[cfg(test)]
 mod coordinate_priority;
+mod policy;
 
-#[cfg(test)]
-pub(crate) use coordinate_priority::{
+pub use coordinate_priority::{
     CoordinatePriority, CoordinatePriorityError, CoordinatePriorityLimits,
 };
-
-/// Stable identifier of RustRed's first deterministic integral order.
-pub(super) const RUSTRED_UNSHIFTED_ORDER_V1_ID: &str = "rustred.unshifted-sector-order.v1";
 #[cfg(test)]
-const TEST_ONLY_DISTINCT_ORDER_ID: &str = "rustred.test-only-distinct-sector-order";
-
-/// Persisted choice of integral-ordering semantics.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum OrderingPolicy {
-    #[default]
-    RustRedUnshiftedV1,
-    /// Test-only distinct identity with the same arithmetic order. It exists
-    /// solely to exercise exact owner-ordering rejection and cannot enter a
-    /// production build or persisted artifact.
-    #[cfg(test)]
-    TestOnlyDistinct,
-}
+pub(super) use policy::RUSTRED_UNSHIFTED_ORDER_V1_ID;
+pub use policy::{
+    CoordinatePriorityOrderingV1, MAX_PACKED_ORDERING_PRIORITY_ARITY, OrderingPolicy,
+    OrderingPolicyStableId,
+};
 
 impl OrderingPolicy {
-    pub fn try_from_stable_id(id: &str) -> Result<Self, Error> {
-        match id {
-            RUSTRED_UNSHIFTED_ORDER_V1_ID => Ok(Self::RustRedUnshiftedV1),
-            #[cfg(test)]
-            TEST_ONLY_DISTINCT_ORDER_ID => Ok(Self::TestOnlyDistinct),
-            _ => Err(Error::UnknownOrderingPolicy {
-                id: try_copy_string(id, "ordering policy identifier")?,
-            }),
-        }
-    }
-
-    pub const fn stable_id(self) -> &'static str {
-        match self {
-            Self::RustRedUnshiftedV1 => RUSTRED_UNSHIFTED_ORDER_V1_ID,
-            #[cfg(test)]
-            Self::TestOnlyDistinct => TEST_ONLY_DISTINCT_ORDER_ID,
-        }
-    }
-
     /// Build an exact, injective complexity key from unshifted indices.
     pub fn complexity_key(self, indices: &[i64]) -> Result<ComplexityKey, Error> {
+        self.require_arity(indices.len())?;
         let sector = Mask::try_from_indices(indices)?;
         let mut dots = 0_u128;
         let mut numerators = 0_u128;
@@ -134,7 +104,7 @@ impl OrderingPolicy {
 }
 
 /// Exact strict total-order key. Field declaration order is the policy.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ComplexityKey {
     policy: OrderingPolicy,
     arity: usize,
@@ -147,6 +117,31 @@ pub struct ComplexityKey {
     // is derived from an i64 and therefore fits u64; only aggregate sums widen
     // to u128.
     index_excess: Arc<Vec<u64>>,
+}
+
+impl PartialOrd for ComplexityKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ComplexityKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.policy
+            .cmp(&other.policy)
+            .then_with(|| self.arity.cmp(&other.arity))
+            .then_with(|| self.propagators.cmp(&other.propagators))
+            .then_with(|| self.sector.cmp(&other.sector))
+            .then_with(|| self.corner_distance.cmp(&other.corner_distance))
+            .then_with(|| self.dots.cmp(&other.dots))
+            .then_with(|| self.numerators.cmp(&other.numerators))
+            .then_with(|| {
+                self.policy.compare_coordinate_slices(
+                    self.index_excess.as_slice(),
+                    other.index_excess.as_slice(),
+                )
+            })
+    }
 }
 
 impl ComplexityKey {
@@ -283,10 +278,11 @@ fn first_differing_component(
         return Some(ComplexityComponent::NumeratorPower);
     }
     source
-        .index_excess
-        .iter()
-        .zip(target.index_excess.iter())
-        .position(|(left, right)| left != right)
+        .policy
+        .first_differing_coordinate(
+            source.index_excess.as_slice(),
+            target.index_excess.as_slice(),
+        )
         .map(|position| ComplexityComponent::IndexExcess { position })
 }
 

@@ -292,6 +292,29 @@ fn arbitrary_box_construction_and_cover_limits_fail_closed() {
             .len(),
         1
     );
+
+    // Fast-path intersection probes are still part of the pairwise
+    // cover-by-partition work and must consume the same hard work budget.
+    let mut limits = CompletionGeometryLimits::default();
+    limits.max_split_operations = 0;
+    let disjoint = BoxCover::try_new(1, [lattice_box([2], [Some(2)])], limits).unwrap();
+    assert_eq!(
+        disjoint.uncovered_within(lattice_box([0], [Some(0)])),
+        Err(CompletionGeometryError::ResourceLimit {
+            resource: "structural-box split operations",
+            requested: 1,
+            limit: 0,
+        })
+    );
+    let containing = BoxCover::try_new(1, [lattice_box([0], [Some(2)])], limits).unwrap();
+    assert_eq!(
+        containing.uncovered_within(lattice_box([1], [Some(1)])),
+        Err(CompletionGeometryError::ResourceLimit {
+            resource: "structural-box split operations",
+            requested: 1,
+            limit: 0,
+        })
+    );
 }
 
 #[test]

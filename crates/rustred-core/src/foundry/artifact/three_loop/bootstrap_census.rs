@@ -353,7 +353,7 @@ fn run_k6_probe_local_bootstrap_census()
         derive_k6_terminal_authority()?,
         limits.campaign.stratum,
     )?;
-    assert_eq!(owners.owner_count(), 32);
+    assert_eq!(owners.owner_count(), 35);
 
     let target = IntegralShift::try_new([0; 6])?;
     let mut census = Vec::new();

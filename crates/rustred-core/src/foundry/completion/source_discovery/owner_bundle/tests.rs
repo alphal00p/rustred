@@ -4,7 +4,7 @@ use crate::family::IntegralKey;
 use crate::foundry::artifact::{
     ClosedArtifact, derive_one_loop_unit_mass_tadpole, derive_two_loop_unit_mass_sunset,
 };
-use crate::foundry::completion::CompletionGeometryError;
+use crate::foundry::completion::LatticeBox;
 use crate::foundry::completion::frame::admission::{
     ExactCircuitOwnerCoverError, ExactOwnerCoverObstructionKind, ExactOwnerCoverStatus,
 };
@@ -34,6 +34,38 @@ use super::{
 };
 
 const PRIME: u64 = 1_000_000_007;
+const TADPOLE_CLOSURE_UPPER: u64 = 11;
+
+fn tadpole_closure_carrier() -> LatticeBox {
+    // The translated two-row discovery frame contains the physical +2
+    // column, so its exact executable application region intentionally stops
+    // before the i64::MAX representability fringe. Closure fixtures must name
+    // a supported finite carrier rather than mint I(i64::MAX) as a terminal.
+    LatticeBox::try_new([0], [Some(TADPOLE_CLOSURE_UPPER)]).unwrap()
+}
+
+fn compile_tadpole_cover(
+    context: &crate::algebra::IndexedCoefficientContext,
+    owners: Vec<Arc<super::ExactSemanticExecutableOwner>>,
+    terminals: Vec<IntegralKey>,
+    limits: ExactExecutableOwnerLimits,
+) -> Result<ExactExecutableOwnerCover, ExactExecutableOwnerError> {
+    ExactExecutableOwnerCover::try_compile_with_carrier(
+        context,
+        owners,
+        terminals,
+        &tadpole_closure_carrier(),
+        limits,
+    )
+}
+
+fn tadpole_staged_closure_carriers() -> [(Mask, OrderingPolicy, LatticeBox); 1] {
+    [(
+        Mask::try_new([true]).unwrap(),
+        OrderingPolicy::default(),
+        tadpole_closure_carrier(),
+    )]
+}
 
 fn complete_ordinary(generator: &ParametricIbpGenerator<'_>) -> CompletedIbpSourceRows {
     let prepared = generator.prepare_ordinary_ibp().unwrap();
@@ -258,7 +290,7 @@ fn published_tadpole_layer(
         panic!("the tadpole layer candidate must compile")
     };
     assert!(obstructions.is_empty());
-    let cover = ExactExecutableOwnerCover::try_compile(
+    let cover = compile_tadpole_cover(
         generator.context(),
         vec![owner],
         vec![IntegralKey::try_new([1]).unwrap()],
@@ -306,7 +338,7 @@ fn canonical_batch_compiles_to_a_pointer_paired_closed_executable_owner() {
     ));
 
     let terminal = IntegralKey::try_new([1]).unwrap();
-    let cover = ExactExecutableOwnerCover::try_compile(
+    let cover = compile_tadpole_cover(
         generator.context(),
         vec![owner.clone()],
         vec![terminal.clone()],
@@ -357,18 +389,43 @@ fn canonical_batch_compiles_to_a_pointer_paired_closed_executable_owner() {
 }
 
 #[test]
-fn executable_owner_exact_content_key_has_a_hard_prepublication_byte_limit() {
+fn full_machine_carrier_keeps_the_unrepresentable_tadpole_fringe_incomplete() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let owner = compiled_tadpole_owner(&artifact, &generator, &completed, 1, [2, 3]);
+    let cover = ExactExecutableOwnerCover::try_compile(
+        generator.context(),
+        vec![owner],
+        vec![IntegralKey::try_new([1]).unwrap()],
+        ExactExecutableOwnerLimits::default(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        cover.proof_cover().status(),
+        ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::FiniteTerminalOwnership)
+    );
+    assert_eq!(cover.proof_cover().missing_terminals().len(), 1);
+    assert_eq!(
+        cover.proof_cover().missing_terminals()[0].coordinates(),
+        &[i64::MAX as u64 - 1]
+    );
+}
+
+#[test]
+fn executable_owner_canonical_encoding_has_a_hard_prepublication_byte_limit() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let completed = complete_ordinary(&generator);
     let batch = canonical_tadpole_batch(&artifact, &generator, &completed, 1, [2, 3]);
     let mut limits = ExactExecutableOwnerLimits::default();
-    limits.max_owner_content_order_bytes = 0;
+    limits.max_owner_encoded_content_bytes = 0;
     assert!(matches!(
         try_compile_canonical_executable_owner(generator.context(), batch, limits),
         Err(ExactExecutableOwnerError::ContentOrder(
             StratumRegistryError::ResourceLimit {
-                resource: "exact executable owner canonical order bytes",
+                resource: "exact executable owner canonical encoded bytes",
                 limit: 0,
                 ..
             }
@@ -388,7 +445,7 @@ fn failed_whole_cover_recompute_leaves_the_published_pairing_untouched() {
     assert!(!Arc::ptr_eq(first.semantic(), duplicate.semantic()));
 
     assert!(matches!(
-        ExactExecutableOwnerCover::try_compile(
+        compile_tadpole_cover(
             generator.context(),
             vec![first.clone(), duplicate.clone()],
             vec![IntegralKey::try_new([1]).unwrap()],
@@ -399,7 +456,7 @@ fn failed_whole_cover_recompute_leaves_the_published_pairing_untouched() {
         ))
     ));
 
-    let mut cover = ExactExecutableOwnerCover::try_compile(
+    let mut cover = compile_tadpole_cover(
         generator.context(),
         vec![first.clone()],
         vec![IntegralKey::try_new([1]).unwrap()],
@@ -515,8 +572,12 @@ fn cover_insert_rejects_structural_duplicates_from_an_independent_authority() {
         [2, 3],
         foreign,
     );
-    assert!(super::compare_exact_owner_group_content(&owner, &foreign_duplicate).is_eq());
-    let mut cover = ExactExecutableOwnerCover::try_compile(
+    assert!(
+        super::compare_exact_owner_group_content(&owner, &foreign_duplicate)
+            .unwrap()
+            .is_eq()
+    );
+    let mut cover = compile_tadpole_cover(
         generator.context(),
         vec![owner.clone()],
         vec![IntegralKey::try_new([1]).unwrap()],
@@ -563,7 +624,7 @@ fn paired_owner_cover_is_deterministic_under_reversed_group_input() {
     );
 
     let compile = |owners| {
-        ExactExecutableOwnerCover::try_compile(
+        compile_tadpole_cover(
             generator.context(),
             owners,
             vec![IntegralKey::try_new([1]).unwrap()],
@@ -611,14 +672,14 @@ fn executable_terminal_sidecar_uses_the_proof_covers_canonical_order() {
     let first = IntegralKey::try_new([1]).unwrap();
     let second = IntegralKey::try_new([2]).unwrap();
 
-    let forward = ExactExecutableOwnerCover::try_compile(
+    let forward = compile_tadpole_cover(
         generator.context(),
         vec![owner.clone()],
         vec![first.clone(), second.clone()],
         ExactExecutableOwnerLimits::default(),
     )
     .unwrap();
-    let reversed = ExactExecutableOwnerCover::try_compile(
+    let reversed = compile_tadpole_cover(
         generator.context(),
         vec![owner],
         vec![second.clone(), first.clone()],
@@ -639,7 +700,7 @@ fn executable_terminal_sidecar_uses_the_proof_covers_canonical_order() {
 }
 
 #[test]
-fn guard_wall_retries_use_distinct_anchors_in_canonical_coordinate_order() {
+fn retry_anchors_use_distinct_canonical_coordinates() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let completed = complete_ordinary(&generator);
@@ -650,49 +711,23 @@ fn guard_wall_retries_use_distinct_anchors_in_canonical_coordinate_order() {
         CampaignModularProbe::try_new(PRIME, [25], [3], campaign).unwrap(),
         CampaignModularProbe::try_new(PRIME, [30], [2], campaign).unwrap(),
     ];
-    let mut batch =
-        canonical_tadpole_batch_from_probes(&artifact, &generator, &completed, 1, probes);
+    let batch = canonical_tadpole_batch_from_probes(&artifact, &generator, &completed, 1, probes);
     assert_eq!(batch.candidates().len(), 1);
     assert_eq!(batch.candidates()[0].anchor(), &[2]);
     assert_eq!(batch.candidates()[0].supporting_probes().len(), 4);
-    let second = generator
-        .context()
-        .sub(
-            &generator.context().index(0).unwrap(),
-            &generator.context().integer(2),
-        )
-        .unwrap();
-    let fourth = generator
-        .context()
-        .sub(
-            &generator.context().index(0).unwrap(),
-            &generator.context().integer(4),
-        )
-        .unwrap();
-    let guard = generator.context().mul(&second, &fourth).unwrap();
-    batch.replace_first_candidate_guard_polynomial_for_test(
-        generator
-            .context()
-            .numerator_condition_with_limits(&guard, Default::default())
-            .unwrap(),
-    );
-
-    let mut limits = ExactExecutableOwnerLimits::default();
-    limits.max_promotion_attempts = 2;
-    let ExactExecutableOwnerProposal::Incomplete(incomplete) =
-        try_compile_canonical_executable_owner(generator.context(), batch, limits).unwrap()
-    else {
-        panic!("the interior guard roots must remain an explicit incomplete proposal")
-    };
-    assert_eq!(incomplete.obstructions().len(), 1);
-    assert!(matches!(
-        incomplete.obstructions()[0].obstruction(),
-        super::ExactExecutableOwnerObstruction::NeedsGuardedStratum { .. }
-    ));
+    let retries = super::compile::try_canonical_retry_anchors(
+        batch.epoch(),
+        &batch.candidates()[0],
+        ExactExecutableOwnerLimits::default(),
+    )
+    .unwrap();
+    // Probe coordinates are sector-chart coordinates; the active tadpole
+    // chart maps them to physical powers by adding one.
+    assert_eq!(retries, [Box::<[i64]>::from([3]), Box::from([4])]);
 }
 
 #[test]
-fn duplicate_retry_anchors_do_not_turn_wall_exhaustion_into_a_budget_error() {
+fn duplicate_supporting_probes_yield_one_retry_anchor() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let completed = complete_ordinary(&generator);
@@ -702,97 +737,17 @@ fn duplicate_retry_anchors_do_not_turn_wall_exhaustion_into_a_budget_error() {
         CampaignModularProbe::try_new(PRIME, [20], [2], campaign).unwrap(),
         CampaignModularProbe::try_new(PRIME, [25], [2], campaign).unwrap(),
     ];
-    let mut batch =
-        canonical_tadpole_batch_from_probes(&artifact, &generator, &completed, 1, probes);
-    let second = generator
-        .context()
-        .sub(
-            &generator.context().index(0).unwrap(),
-            &generator.context().integer(2),
-        )
-        .unwrap();
-    let third = generator
-        .context()
-        .sub(
-            &generator.context().index(0).unwrap(),
-            &generator.context().integer(3),
-        )
-        .unwrap();
-    let guard = generator.context().mul(&second, &third).unwrap();
-    batch.replace_first_candidate_guard_polynomial_for_test(
-        generator
-            .context()
-            .numerator_condition_with_limits(&guard, Default::default())
-            .unwrap(),
-    );
-
-    let mut limits = ExactExecutableOwnerLimits::default();
-    limits.max_promotion_attempts = 2;
-    let ExactExecutableOwnerProposal::Incomplete(incomplete) =
-        try_compile_canonical_executable_owner(generator.context(), batch, limits).unwrap()
-    else {
-        panic!("exhausted distinct wall anchors must remain an incomplete proposal")
-    };
-    assert_eq!(incomplete.obstructions().len(), 1);
-    assert!(matches!(
-        incomplete.obstructions()[0].obstruction(),
-        super::ExactExecutableOwnerObstruction::AnchorOnGuardWall { .. }
-    ));
-}
-
-#[test]
-fn partially_obstructed_batch_publishes_only_the_admitted_exact_candidate() {
-    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
-    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
-    let completed = complete_ordinary(&generator);
-    let mut batch = canonical_tadpole_batch(&artifact, &generator, &completed, 1, [2, 3]);
-    let guard = generator
-        .context()
-        .sub(
-            &generator.context().index(0).unwrap(),
-            &generator.context().one(),
-        )
-        .unwrap();
-    let obstructed_circuit = batch.append_guard_modified_first_candidate_for_test(
-        generator
-            .context()
-            .numerator_condition_with_limits(&guard, Default::default())
-            .unwrap(),
-    );
-
-    let ExactExecutableOwnerProposal::Compiled {
-        owner,
-        obstructions,
-    } = try_compile_canonical_executable_owner(
-        generator.context(),
-        batch,
-        ExactExecutableOwnerLimits::default(),
-    )
-    .unwrap()
-    else {
-        panic!("one total candidate must remain publishable")
-    };
-    assert_eq!(owner.executable_candidates().len(), 1);
-    assert_eq!(owner.semantic().candidates().len(), 1);
-    assert!(Arc::ptr_eq(
-        owner.semantic().candidates()[0].circuit(),
-        owner.executable_candidates()[0].circuit(),
-    ));
-    assert_eq!(obstructions.len(), 1);
-    assert!(Arc::ptr_eq(obstructions[0].circuit(), &obstructed_circuit,));
-    assert!(matches!(
-        obstructions[0].obstruction(),
-        super::ExactExecutableOwnerObstruction::NeedsGuardedStratum { .. }
-    ));
-
-    let cover = ExactExecutableOwnerCover::try_compile(
-        generator.context(),
-        vec![owner],
-        vec![IntegralKey::try_new([1]).unwrap()],
+    let batch = canonical_tadpole_batch_from_probes(&artifact, &generator, &completed, 1, probes);
+    assert_eq!(batch.candidates().len(), 1);
+    assert_eq!(batch.candidates()[0].anchor(), &[2]);
+    assert_eq!(batch.candidates()[0].supporting_probes().len(), 3);
+    let retries = super::compile::try_canonical_retry_anchors(
+        batch.epoch(),
+        &batch.candidates()[0],
         ExactExecutableOwnerLimits::default(),
     )
     .unwrap();
-    assert_eq!(cover.proof_cover().status(), ExactOwnerCoverStatus::Closed);
+    assert_eq!(retries, [Box::<[i64]>::from([3])]);
 }
 
 #[test]
@@ -801,7 +756,7 @@ fn missing_finite_terminal_remains_explicitly_incomplete_through_pairing() {
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let completed = complete_ordinary(&generator);
     let owner = compiled_tadpole_owner(&artifact, &generator, &completed, 1, [2, 3]);
-    let cover = ExactExecutableOwnerCover::try_compile(
+    let cover = compile_tadpole_cover(
         generator.context(),
         vec![owner],
         Vec::new(),
@@ -836,19 +791,24 @@ fn closed_seal_consumes_the_cover_without_losing_retained_authority() {
     let weak_epoch = Arc::downgrade(&retained_epoch);
     let weak_semantic = Arc::downgrade(owner.semantic());
     let weak_circuit = Arc::downgrade(&retained_circuit);
+    let retained_cell = owner.executable_candidates()[0].cell_owner().clone();
+    let weak_cell = Arc::downgrade(&retained_cell);
     let owner_address = Arc::as_ptr(&owner);
     let circuit_address = Arc::as_ptr(&retained_circuit);
-    let cell_address = owner.executable_candidates()[0].cell() as *const _;
+    let cell_address = Arc::as_ptr(&retained_cell);
     let predecessor_id = retained_epoch.fixed_snapshot_id().as_str().to_owned();
 
-    let cover = ExactExecutableOwnerCover::try_compile(
+    let closure_carrier = LatticeBox::try_new([0], [Some(11)]).unwrap();
+    let cover = ExactExecutableOwnerCover::try_compile_with_carrier(
         generator.context(),
         vec![owner.clone()],
         vec![IntegralKey::try_new([1]).unwrap()],
+        &closure_carrier,
         ExactExecutableOwnerLimits::default(),
     )
     .unwrap();
     drop(retained_circuit);
+    drop(retained_cell);
     drop(retained_epoch);
     drop(owner);
 
@@ -890,6 +850,10 @@ fn closed_seal_consumes_the_cover_without_losing_retained_authority() {
         ),
         circuit_address
     );
+    assert_eq!(
+        Arc::as_ptr(sealed.executable_cover().owners()[0].executable_candidates()[0].cell_owner()),
+        cell_address
+    );
 
     let ExactExecutableOwnerSelection::Descending { cell, .. } = sealed
         .executable_cover()
@@ -907,6 +871,65 @@ fn closed_seal_consumes_the_cover_without_losing_retained_authority() {
     assert!(weak_epoch.upgrade().is_some());
     assert!(weak_semantic.upgrade().is_some());
     assert!(weak_circuit.upgrade().is_some());
+    assert!(weak_cell.upgrade().is_some());
+}
+
+#[test]
+fn published_layer_identity_and_domain_retain_the_exact_finite_carrier() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let predecessor = ImmutableOwnerSnapshot::try_empty(
+        artifact.family_fingerprint(),
+        artifact.context_fingerprint(),
+        1,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let owner = compiled_tadpole_owner_with_predecessor(
+        &artifact,
+        &generator,
+        &completed,
+        1,
+        [2, 3],
+        predecessor.clone(),
+    );
+    let publish = |upper| {
+        let carrier = LatticeBox::try_new([0], [Some(upper)]).unwrap();
+        let cover = ExactExecutableOwnerCover::try_compile_with_carrier(
+            generator.context(),
+            vec![owner.clone()],
+            vec![IntegralKey::try_new([1]).unwrap()],
+            &carrier,
+            ExactExecutableOwnerLimits::default(),
+        )
+        .unwrap();
+        let sealed = ClosedExactExecutableOwnerCover::try_seal(cover).unwrap();
+        ClosedSectorLayer::try_publish(sealed, StratumRegistryLimits::default()).unwrap()
+    };
+
+    let first = publish(11);
+    let second = publish(12);
+    assert_eq!(first.proven_domain().bounds(), [InteriorBounds::new(1, 12)]);
+    assert_eq!(
+        second.proven_domain().bounds(),
+        [InteriorBounds::new(1, 13)]
+    );
+    assert_ne!(
+        first.content_id(),
+        second.content_id(),
+        "distinct closure carriers must not share a published layer identity"
+    );
+
+    let extended = predecessor
+        .try_extend_with_closed_layers(vec![first], StratumRegistryLimits::default())
+        .unwrap();
+    assert!(extended.solved_owner_matches_layer(0));
+    assert!(
+        extended
+            .try_verify(StratumRegistryLimits::default())
+            .unwrap()
+    );
 }
 
 #[test]
@@ -915,7 +938,7 @@ fn closed_seal_rejects_a_finite_cover_without_explicit_terminal_ownership() {
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let completed = complete_ordinary(&generator);
     let owner = compiled_tadpole_owner(&artifact, &generator, &completed, 1, [2, 3]);
-    let cover = ExactExecutableOwnerCover::try_compile(
+    let cover = compile_tadpole_cover(
         generator.context(),
         vec![owner],
         Vec::new(),
@@ -938,7 +961,7 @@ fn closed_seal_rechecks_the_exact_predecessor_scope_of_every_owner() {
     let completed = complete_ordinary(&generator);
     let first_owner = compiled_tadpole_owner(&artifact, &generator, &completed, 1, [2, 3]);
     let second_owner = compiled_tadpole_owner(&artifact, &generator, &completed, 2, [3, 4]);
-    let mut cover = ExactExecutableOwnerCover::try_compile(
+    let mut cover = compile_tadpole_cover(
         generator.context(),
         vec![first_owner, second_owner],
         vec![IntegralKey::try_new([1]).unwrap()],
@@ -1014,7 +1037,7 @@ fn closed_tadpole_layer_extends_one_exact_predecessor_transactionally() {
         layer
             .content_id()
             .as_str()
-            .contains("closed-sector-layer-content.v1")
+            .contains("closed-sector-layer-content.v2")
     );
     let recomputed = layer
         .try_recompute_content_id(StratumRegistryLimits::default())
@@ -1392,7 +1415,10 @@ fn staged_coordinator_seals_and_publishes_only_a_complete_consumed_wave() {
             .unwrap()
     );
 
-    let StagedSectorClosureOutcome::Closed(wave) = coordinator.try_finish().unwrap() else {
+    let StagedSectorClosureOutcome::Closed(wave) = coordinator
+        .try_finish_with_closure_carriers(tadpole_staged_closure_carriers())
+        .unwrap()
+    else {
         panic!("the exact tadpole recurrence plus its explicit corner must close")
     };
     assert!(wave.predecessor().same_authority_as(&predecessor));
@@ -1466,12 +1492,12 @@ fn staged_proof_equivalent_owner_selection_is_arrival_order_independent() {
             .anchor(),
         "the regression needs distinct executable replay witnesses",
     );
-    let full_order = super::compare_exact_owner_group_content(&first, &second);
+    let full_order = super::compare_exact_owner_group_content(&first, &second).unwrap();
     assert!(!full_order.is_eq());
     let expected_key = if full_order.is_lt() {
-        first.content_order_key().to_vec()
+        first.content_order_key()
     } else {
-        second.content_order_key().to_vec()
+        second.content_order_key()
     };
 
     let publish = |earlier: Arc<super::ExactSemanticExecutableOwner>,
@@ -1495,7 +1521,10 @@ fn staged_proof_equivalent_owner_selection_is_arrival_order_independent() {
                 )
                 .unwrap()
         );
-        let StagedSectorClosureOutcome::Closed(wave) = coordinator.try_finish().unwrap() else {
+        let StagedSectorClosureOutcome::Closed(wave) = coordinator
+            .try_finish_with_closure_carriers(tadpole_staged_closure_carriers())
+            .unwrap()
+        else {
             panic!("the canonical retained representative must still close")
         };
         wave
@@ -1518,6 +1547,164 @@ fn staged_proof_equivalent_owner_selection_is_arrival_order_independent() {
         reversed.layers()[0].content_id()
     );
     assert_eq!(forward.successor().id(), reversed.successor().id());
+}
+
+#[test]
+fn compact_owner_key_collision_uses_exact_fallback_and_stable_replacement() {
+    let artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        Arc::clone(&artifact),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let sector = Mask::try_new([true]).unwrap();
+    let first = compiled_tadpole_owner_with_predecessor(
+        &artifact,
+        &generator,
+        &completed,
+        1,
+        [2, 3],
+        predecessor.clone(),
+    );
+    let mut second = compiled_tadpole_owner_with_predecessor(
+        &artifact,
+        &generator,
+        &completed,
+        1,
+        [17, 19],
+        predecessor.clone(),
+    );
+    assert_eq!(
+        first.content_order_key().encoded_len(),
+        second.content_order_key().encoded_len(),
+        "fixed-width probe values should give equal exact encoding lengths",
+    );
+    Arc::get_mut(&mut second)
+        .unwrap()
+        .replace_content_order_key_for_test(first.content_order_key());
+
+    let exact_order = super::compare_exact_owner_group_content(&first, &second).unwrap();
+    assert!(
+        !exact_order.is_eq(),
+        "distinct exact encodings must not merge"
+    );
+    assert_eq!(
+        super::compare_exact_owner_group_content(&second, &first).unwrap(),
+        exact_order.reverse()
+    );
+    let retained_key_bytes = first.content_order_key().retained_bytes();
+    let insert_pair = |earlier: Arc<super::ExactSemanticExecutableOwner>,
+                       later: Arc<super::ExactSemanticExecutableOwner>| {
+        let mut coordinator = StagedSectorClosureCoordinator::try_new(
+            generator.context(),
+            predecessor.clone(),
+            [(sector.clone(), OrderingPolicy::default())],
+            StagedSectorClosureLimits::default(),
+        )
+        .unwrap();
+        assert!(coordinator.try_insert_owner(earlier).unwrap());
+        let replaced = coordinator.try_insert_owner(later).unwrap();
+        assert_eq!(coordinator.owner_count(), 1);
+        assert_eq!(coordinator.owner_content_key_bytes(), retained_key_bytes);
+        replaced
+    };
+
+    let forward_replaced = insert_pair(first.clone(), second.clone());
+    let reversed_replaced = insert_pair(second, first);
+    assert_eq!(forward_replaced, exact_order.is_gt());
+    assert_eq!(reversed_replaced, exact_order.is_lt());
+}
+
+#[test]
+fn collision_fallback_failure_propagates_through_both_replacement_boundaries() {
+    let artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        Arc::clone(&artifact),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let sector = Mask::try_new([true]).unwrap();
+    let mut first = compiled_tadpole_owner_with_predecessor(
+        &artifact,
+        &generator,
+        &completed,
+        1,
+        [2, 3],
+        predecessor.clone(),
+    );
+    let mut second = compiled_tadpole_owner_with_predecessor(
+        &artifact,
+        &generator,
+        &completed,
+        1,
+        [17, 19],
+        predecessor.clone(),
+    );
+    let impossible_key = first.content_order_key().with_encoded_len_for_test(0);
+    Arc::get_mut(&mut first)
+        .unwrap()
+        .replace_content_order_key_for_test(impossible_key);
+    Arc::get_mut(&mut second)
+        .unwrap()
+        .replace_content_order_key_for_test(impossible_key);
+
+    assert!(matches!(
+        super::compare_exact_owner_group_content(&first, &second),
+        Err(StratumRegistryError::ResourceLimit {
+            resource: "exact executable owner collision-fallback canonical bytes",
+            limit: 0,
+            ..
+        })
+    ));
+
+    let mut cover = compile_tadpole_cover(
+        generator.context(),
+        vec![first.clone()],
+        vec![IntegralKey::try_new([1]).unwrap()],
+        ExactExecutableOwnerLimits::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        cover.try_insert(
+            generator.context(),
+            second.clone(),
+            ExactExecutableOwnerLimits::default(),
+        ),
+        Err(ExactExecutableOwnerError::ContentOrder(
+            StratumRegistryError::ResourceLimit {
+                resource: "exact executable owner collision-fallback canonical bytes",
+                limit: 0,
+                ..
+            }
+        ))
+    ));
+    assert!(Arc::ptr_eq(&cover.owners()[0], &first));
+
+    let mut coordinator = StagedSectorClosureCoordinator::try_new(
+        generator.context(),
+        predecessor,
+        [(sector, OrderingPolicy::default())],
+        StagedSectorClosureLimits::default(),
+    )
+    .unwrap();
+    assert!(coordinator.try_insert_owner(first.clone()).unwrap());
+    let retained_key_bytes = coordinator.owner_content_key_bytes();
+    assert!(matches!(
+        coordinator.try_insert_owner(second),
+        Err(StagedSectorClosureError::Registry(
+            StratumRegistryError::ResourceLimit {
+                resource: "exact executable owner collision-fallback canonical bytes",
+                limit: 0,
+                ..
+            }
+        ))
+    ));
+    assert_eq!(coordinator.owner_count(), 1);
+    assert_eq!(coordinator.owner_content_key_bytes(), retained_key_bytes);
 }
 
 #[test]
@@ -1555,9 +1742,13 @@ fn staged_owner_terminal_and_pairing_envelopes_reject_transactionally() {
         [3, 4],
         predecessor.clone(),
     );
+    assert!(
+        first.content_order_key().retained_bytes() < first.content_order_key().encoded_len(),
+        "staged accounting must charge the compact resident key, not its canonical replay",
+    );
 
     let mut limits = StagedSectorClosureLimits::default();
-    limits.max_staged_owner_content_order_bytes = first.content_order_key().len() - 1;
+    limits.max_staged_owner_content_key_bytes = first.content_order_key().retained_bytes() - 1;
     let mut bytes_limited = StagedSectorClosureCoordinator::try_new(
         generator.context(),
         predecessor.clone(),
@@ -1568,12 +1759,12 @@ fn staged_owner_terminal_and_pairing_envelopes_reject_transactionally() {
     assert!(matches!(
         bytes_limited.try_insert_owner(first.clone()),
         Err(StagedSectorClosureError::ResourceLimit {
-            resource: "staged sector-closure owner canonical content bytes",
+            resource: "staged sector-closure retained owner content-key bytes",
             ..
         })
     ));
     assert_eq!(bytes_limited.owner_count(), 0);
-    assert_eq!(bytes_limited.owner_content_order_bytes(), 0);
+    assert_eq!(bytes_limited.owner_content_key_bytes(), 0);
 
     let mut limits = StagedSectorClosureLimits::default();
     limits.max_owner_order_comparisons = 0;
@@ -1585,7 +1776,7 @@ fn staged_owner_terminal_and_pairing_envelopes_reject_transactionally() {
     )
     .unwrap();
     assert!(comparison_limited.try_insert_owner(first.clone()).unwrap());
-    let retained_bytes = comparison_limited.owner_content_order_bytes();
+    let retained_bytes = comparison_limited.owner_content_key_bytes();
     assert!(matches!(
         comparison_limited.try_insert_owner(proof_equivalent),
         Err(StagedSectorClosureError::ResourceLimit {
@@ -1595,10 +1786,7 @@ fn staged_owner_terminal_and_pairing_envelopes_reject_transactionally() {
         })
     ));
     assert_eq!(comparison_limited.owner_count(), 1);
-    assert_eq!(
-        comparison_limited.owner_content_order_bytes(),
-        retained_bytes
-    );
+    assert_eq!(comparison_limited.owner_content_key_bytes(), retained_bytes);
     assert_eq!(comparison_limited.owner_order_comparisons(), 0);
 
     let mut limits = StagedSectorClosureLimits::default();
@@ -1646,7 +1834,7 @@ fn staged_owner_terminal_and_pairing_envelopes_reject_transactionally() {
             .unwrap()
     );
     assert!(matches!(
-        pairing_limited.try_finish(),
+        pairing_limited.try_finish_with_closure_carriers(tadpole_staged_closure_carriers()),
         Err(StagedSectorClosureError::ResourceLimit {
             resource: "staged sector-closure compiled pairing probes",
             requested: 4,
@@ -1676,7 +1864,7 @@ fn staged_compiled_work_envelope_accepts_its_exact_census_boundary() {
         [2, 3],
         predecessor.clone(),
     );
-    let baseline = ExactExecutableOwnerCover::try_compile(
+    let baseline = compile_tadpole_cover(
         generator.context(),
         vec![owner.clone()],
         vec![terminal.clone()],
@@ -1700,7 +1888,11 @@ fn staged_compiled_work_envelope_accepts_its_exact_census_boundary() {
         proof.compiled_uncovered_box_coordinate_cells();
     limits.max_compiled_split_operations = proof.compiled_split_operation_count();
 
-    let mut insufficient = limits;
+    // Isolate the finite-point census failure. Tightening every other census
+    // simultaneously changes the structural normalization path when the
+    // point budget reaches zero and would test a different resource first.
+    let mut insufficient = StagedSectorClosureLimits::default();
+    insufficient.max_compiled_pairing_probes = 1;
     insufficient.max_compiled_finite_complement_points = proof.finite_complement_point_count() - 1;
     let mut rejected = StagedSectorClosureCoordinator::try_new(
         generator.context(),
@@ -1715,20 +1907,17 @@ fn staged_compiled_work_envelope_accepts_its_exact_census_boundary() {
             .try_insert_terminal(&sector, OrderingPolicy::default(), terminal.clone(),)
             .unwrap()
     );
-    let rejection = rejected.try_finish().unwrap_err();
-    assert!(
-        matches!(
-            rejection,
-            StagedSectorClosureError::Executable(ExactExecutableOwnerError::Cover(
-                ExactCircuitOwnerCoverError::Geometry(CompletionGeometryError::ResourceLimit {
-                    resource: "finite uncovered lattice points",
-                    requested: 1,
-                    limit: 0,
-                })
-            ))
-        ),
-        "unexpected compiled-work rejection: {rejection:?}",
-    );
+    let rejection = rejected
+        .try_finish_with_closure_carriers(tadpole_staged_closure_carriers())
+        .unwrap_err();
+    assert!(matches!(
+        rejection,
+        StagedSectorClosureError::ResourceLimit {
+            resource: "staged sector-closure finite complement points",
+            requested: 1,
+            limit: 0,
+        }
+    ));
     assert_eq!(predecessor.closed_layer_count(), 0);
 
     let mut coordinator = StagedSectorClosureCoordinator::try_new(
@@ -1744,7 +1933,10 @@ fn staged_compiled_work_envelope_accepts_its_exact_census_boundary() {
             .try_insert_terminal(&sector, OrderingPolicy::default(), terminal)
             .unwrap()
     );
-    let StagedSectorClosureOutcome::Closed(wave) = coordinator.try_finish().unwrap() else {
+    let StagedSectorClosureOutcome::Closed(wave) = coordinator
+        .try_finish_with_closure_carriers(tadpole_staged_closure_carriers())
+        .unwrap()
+    else {
         panic!("the exact aggregate census boundary must admit its closed cover")
     };
     assert_eq!(wave.layers().len(), 1);

@@ -23,9 +23,9 @@ use super::{canonical_family, derive_k6_terminal_authority};
 const ZERO: [i64; 6] = [0, 0, 0, 1, 1, 1];
 const PATH: [i64; 6] = [0, 0, 1, 0, 1, 1];
 const STAR: [i64; 6] = [0, 0, 1, 1, 0, 1];
-const ROOT_OWNER_COUNT: usize = 32;
+const ROOT_OWNER_COUNT: usize = 35;
 const EVENTUAL_WAVE_LAYER_COUNT: usize = 2;
-const EVENTUAL_SUCCESSOR_OWNER_COUNT: usize = 34;
+const EVENTUAL_SUCCESSOR_OWNER_COUNT: usize = 37;
 const PATH_ORBIT_SIZE: usize = 12;
 const STAR_ORBIT_SIZE: usize = 4;
 
@@ -45,7 +45,7 @@ fn corner_domain(indices: [i64; 6]) -> SectorInteriorDomain {
 }
 
 #[test]
-fn rank_three_frontier_is_one_atomic_nonfinite_wave_on_the_shared_root_authority() {
+fn rank_three_frontier_is_one_atomic_owner_free_wave_on_the_shared_root_authority() {
     let authority = derive_k6_terminal_authority().unwrap();
     let family = canonical_family().unwrap();
     let generator =
@@ -135,8 +135,8 @@ fn rank_three_frontier_is_one_atomic_nonfinite_wave_on_the_shared_root_authority
     assert_eq!(stops[0].evidence().sector(), &path);
     assert_eq!(stops[1].evidence().sector(), &star);
     for stop in &*stops {
-        let StagedSectorClosureStop::NonFinite(evidence) = stop else {
-            panic!("an owner-free sector orthant must stop as nonfinite")
+        let StagedSectorClosureStop::NoExecutableOwners(evidence) = stop else {
+            panic!("an owner-free sector must report that it has no executable owners")
         };
         assert_eq!(evidence.owner_count(), 0);
         assert_eq!(evidence.terminal_count(), 1);

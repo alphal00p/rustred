@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-#[cfg(test)]
-use crate::foundry::completion::frame::admission::compare_exact_circuit_content;
 use crate::foundry::completion::frame::exact::{ExactCircuitSupportDidNotLift, ExactTargetCircuit};
 use crate::foundry::completion::frame::modular::ModularRankDiagnostics;
 
@@ -206,47 +204,6 @@ impl CanonicalReplayBatch {
 
     pub(crate) const fn telemetry(&self) -> CanonicalReplayTelemetry {
         self.telemetry
-    }
-
-    #[cfg(test)]
-    pub(crate) fn replace_first_candidate_guard_polynomial_for_test(
-        &mut self,
-        polynomial: crate::algebra::IndexedPolynomial,
-    ) {
-        let candidate = self
-            .candidates
-            .first_mut()
-            .expect("the test replay batch must contain a candidate");
-        Arc::get_mut(&mut candidate.circuit)
-            .expect("the test replay batch must uniquely own its exact circuit")
-            .replace_first_guard_polynomial_for_test(polynomial);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn append_guard_modified_first_candidate_for_test(
-        &mut self,
-        polynomial: crate::algebra::IndexedPolynomial,
-    ) -> Arc<ExactTargetCircuit> {
-        let source = self
-            .candidates
-            .first()
-            .expect("the test replay batch must contain a candidate");
-        let mut circuit = source.circuit.as_ref().clone();
-        circuit.replace_first_guard_polynomial_for_test(polynomial);
-        let circuit = Arc::new(circuit);
-        let duplicate = CanonicalRebasedCandidate::new(
-            circuit.clone(),
-            source.anchor.clone(),
-            source.primary_probe.clone(),
-            source.supporting_probes.to_vec(),
-        );
-        let mut candidates = Vec::from(std::mem::take(&mut self.candidates));
-        candidates.push(duplicate);
-        candidates.sort_unstable_by(|left, right| {
-            compare_exact_circuit_content(left.circuit(), right.circuit())
-        });
-        self.candidates = candidates.into_boxed_slice();
-        circuit
     }
 
     pub(super) fn new(

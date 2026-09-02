@@ -335,6 +335,7 @@ fn sector_budget_cause(error: &sector::Error) -> Option<ProbeLocalBudgetCause> {
         | sector::Error::InactiveLineActivation { .. }
         | sector::Error::TargetSectorCellOutOfRange { .. }
         | sector::Error::UnknownOrderingPolicy { .. }
+        | sector::Error::OrderingPriorityArityLimit { .. }
         | sector::Error::NotStrictDescent => None,
     }
 }

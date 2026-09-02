@@ -113,7 +113,7 @@ impl std::error::Error for CoordinatePriorityError {}
 /// considered first. The vector is a bijection of `0..arity`; retaining the
 /// complete vector makes equality, transport, persistence, and tie-breaking
 /// exact rather than dependent on a lossy hash or portfolio ordinal.
-#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CoordinatePriority {
     rank_by_slot: Vec<usize>,
 }
@@ -222,6 +222,19 @@ impl CoordinatePriority {
 
     pub fn rank_by_slot(&self) -> &[usize] {
         &self.rank_by_slot
+    }
+
+    /// Whether this descriptor retains the ambient coordinate order.
+    ///
+    /// Discovery schedulers use this exact predicate to preserve their
+    /// established canonical chronology byte-for-byte for the natural
+    /// priority. A descriptor changes persisted proof ordering only when it
+    /// is explicitly embedded in an [`super::OrderingPolicy`].
+    pub fn is_natural(&self) -> bool {
+        self.rank_by_slot
+            .iter()
+            .enumerate()
+            .all(|(slot, &rank)| slot == rank)
     }
 
     /// Materialize the exact full-vector identity through a bounded,

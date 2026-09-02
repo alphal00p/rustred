@@ -9,11 +9,14 @@ use pyo3::types::{PyAnyMethods, PyBool, PyBytes};
 use rustred_app::{
     AppError, AppErrorKind, CampaignPlanRequest, CampaignPreflightRequest,
     ClosingArtifactGenerateRequest, ClosingArtifactInspectRequest, ClosingArtifactReduceRequest,
-    ClosingFamilySelector, DeriveRequest, InputFormat, RelationSelection,
-    campaign_plan as app_campaign_plan, campaign_preflight as app_campaign_preflight,
+    ClosingFamilySelector, DeriveRequest, FoundryCampaignRunRequest, FoundryWaveCampaignRunRequest,
+    InputFormat, RelationSelection, campaign_plan as app_campaign_plan,
+    campaign_preflight as app_campaign_preflight,
     closing_artifact_generate as app_closing_artifact_generate,
     closing_artifact_inspect as app_closing_artifact_inspect,
     closing_artifact_reduce as app_closing_artifact_reduce, derive as app_derive,
+    foundry_campaign_run as app_foundry_campaign_run,
+    foundry_wave_campaign_run as app_foundry_wave_campaign_run,
 };
 
 use crate::coordinator::{CoordinatorError, process_coordinator};
@@ -107,6 +110,87 @@ canonical_result!(
     "ClosingArtifactInspectionResult",
     PyClosingArtifactInspectionResult
 );
+
+/// Deterministic diagnostic state from one bounded foundry experiment.
+///
+/// Measurements are deliberately separate from the semantic report so that
+/// callers can compare report bytes across runs and worker configurations.
+#[pyclass(frozen, module = "rustred", name = "FoundryCampaignRunResult")]
+#[derive(Debug)]
+pub struct PyFoundryCampaignRunResult {
+    schema: &'static str,
+    measurements_schema: &'static str,
+    report_toml: String,
+    measurements_toml: String,
+}
+
+/// Deterministic detached state from one full-rank atomic-wave experiment.
+#[pyclass(frozen, module = "rustred", name = "FoundryWaveCampaignRunResult")]
+#[derive(Debug)]
+pub struct PyFoundryWaveCampaignRunResult {
+    schema: &'static str,
+    measurements_schema: &'static str,
+    report_toml: String,
+    measurements_toml: String,
+}
+
+#[pymethods]
+impl PyFoundryWaveCampaignRunResult {
+    #[getter]
+    fn schema(&self) -> &'static str {
+        self.schema
+    }
+
+    #[getter]
+    fn measurements_schema(&self) -> &'static str {
+        self.measurements_schema
+    }
+
+    fn to_toml(&self) -> &str {
+        &self.report_toml
+    }
+
+    fn measurements_to_toml(&self) -> &str {
+        &self.measurements_toml
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "FoundryWaveCampaignRunResult(schema={:?}, measurements_schema={:?})",
+            self.schema, self.measurements_schema
+        )
+    }
+}
+
+#[pymethods]
+impl PyFoundryCampaignRunResult {
+    #[getter]
+    fn schema(&self) -> &'static str {
+        self.schema
+    }
+
+    #[getter]
+    fn measurements_schema(&self) -> &'static str {
+        self.measurements_schema
+    }
+
+    /// Return the deterministic, newline-terminated campaign report.
+    fn to_toml(&self) -> &str {
+        &self.report_toml
+    }
+
+    /// Return the nonsemantic wall-clock measurement sidecar.
+    fn measurements_to_toml(&self) -> &str {
+        &self.measurements_toml
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "FoundryCampaignRunResult(schema={:?}, measurements_schema={:?})",
+            self.schema, self.measurements_schema
+        )
+    }
+}
 
 #[pyclass(frozen, module = "rustred", name = "ClosingArtifactGenerationResult")]
 #[derive(Debug)]
@@ -323,6 +407,50 @@ fn campaign_preflight(
         result.status(),
         result.into_toml(),
     ))
+}
+
+#[pyfunction]
+#[pyo3(signature = (config), text_signature = "(config)")]
+fn run_foundry_campaign(py: Python<'_>, config: &str) -> PyResult<PyFoundryCampaignRunResult> {
+    let request = FoundryCampaignRunRequest {
+        config: bounded_owned_input("foundry campaign configuration", config)?,
+    };
+    let result = py
+        .detach(move || execute(move || app_foundry_campaign_run(request)))
+        .map_err(map_coordinator_error)?;
+    let result = result.map_err(map_app_error)?;
+    Ok(PyFoundryCampaignRunResult {
+        schema: result.schema(),
+        measurements_schema: result.measurements_schema(),
+        report_toml: result.to_toml().to_owned(),
+        measurements_toml: result.measurements_to_toml().to_owned(),
+    })
+}
+
+#[pyfunction]
+#[pyo3(
+    signature = (config, *, n_cores = PythonInteger(1)),
+    text_signature = "(config, *, n_cores=1)"
+)]
+fn run_foundry_wave_campaign(
+    py: Python<'_>,
+    config: &str,
+    n_cores: PythonInteger,
+) -> PyResult<PyFoundryWaveCampaignRunResult> {
+    let request = FoundryWaveCampaignRunRequest {
+        config: bounded_owned_input("foundry wave campaign configuration", config)?,
+        sibling_worker_count: positive_core_count("foundry wave campaign n_cores", n_cores.0)?,
+    };
+    let result = py
+        .detach(move || execute(move || app_foundry_wave_campaign_run(request)))
+        .map_err(map_coordinator_error)?;
+    let result = result.map_err(map_app_error)?;
+    Ok(PyFoundryWaveCampaignRunResult {
+        schema: result.schema(),
+        measurements_schema: result.measurements_schema(),
+        report_toml: result.to_toml().to_owned(),
+        measurements_toml: result.measurements_to_toml().to_owned(),
+    })
 }
 
 #[pyfunction]
@@ -639,6 +767,8 @@ fn _rustred(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyDeriveResult>()?;
     module.add_class::<PyCampaignPlanResult>()?;
     module.add_class::<PyCampaignPreflightResult>()?;
+    module.add_class::<PyFoundryCampaignRunResult>()?;
+    module.add_class::<PyFoundryWaveCampaignRunResult>()?;
     module.add_class::<PyClosingArtifactGenerationResult>()?;
     module.add_class::<PyClosingArtifactInspectionResult>()?;
     module.add_class::<PyExactMasterCoefficient>()?;
@@ -646,6 +776,8 @@ fn _rustred(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(derive, module)?)?;
     module.add_function(wrap_pyfunction!(campaign_plan, module)?)?;
     module.add_function(wrap_pyfunction!(campaign_preflight, module)?)?;
+    module.add_function(wrap_pyfunction!(run_foundry_campaign, module)?)?;
+    module.add_function(wrap_pyfunction!(run_foundry_wave_campaign, module)?)?;
     module.add_function(wrap_pyfunction!(generate_closing_artifact, module)?)?;
     module.add_function(wrap_pyfunction!(inspect_closing_artifact, module)?)?;
     module.add_function(wrap_pyfunction!(reduce_with_closing_artifact, module)?)?;

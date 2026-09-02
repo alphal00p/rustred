@@ -8,12 +8,19 @@ use super::{
     SourceDiscoveryLimits,
 };
 
-const SUPPORT_ENTRIES: &str = "source-discovery obstruction support entries";
-const INCIDENCE_VISITS: &str = "source-discovery inverse-incidence visits";
-const CANDIDATE_COORDINATES: &str = "source-discovery candidate coordinate cells";
-const RAW_REQUESTS: &str = "source-discovery raw translated-source requests";
-const UNIQUE_REQUESTS: &str = "source-discovery unique translated-source requests";
+pub(super) const SUPPORT_ENTRIES: &str = "source-discovery obstruction support entries";
+pub(super) const INCIDENCE_VISITS: &str = "source-discovery inverse-incidence visits";
+pub(super) const CANDIDATE_COORDINATES: &str = "source-discovery candidate coordinate cells";
+pub(super) const RAW_REQUESTS: &str = "source-discovery raw translated-source requests";
+pub(super) const UNIQUE_REQUESTS: &str = "source-discovery unique translated-source requests";
 const EXISTING_REQUESTS: &str = "source-discovery existing translated-source requests";
+
+pub(super) struct StructuralRequestCensus {
+    pub(super) requests: Vec<TranslatedSourceRequest>,
+    pub(super) raw_incidence_visits: usize,
+    pub(super) unique_before_existing_exclusion: usize,
+    pub(super) excluded_existing_requests: usize,
+}
 
 impl OrdinarySourceIncidenceIndex<'_> {
     /// Nominate every declared ordinary-source translation touching one raw
@@ -100,13 +107,30 @@ impl OrdinarySourceIncidenceIndex<'_> {
     }
 }
 
-fn nominate(
+pub(super) fn nominate(
     incidence: &OrdinarySourceIncidenceIndex<'_>,
     origin: IncidentNominationOrigin,
     support: &[&IntegralShift],
     existing: &[TranslatedSourceRequest],
     limits: SourceDiscoveryLimits,
 ) -> Result<IncidentTranslationNominations, SourceDiscoveryError> {
+    let census = nominate_requests(incidence, support, existing, limits)?;
+    Ok(IncidentTranslationNominations::from_parts(
+        incidence.identity_owner(),
+        origin,
+        census.requests,
+        census.raw_incidence_visits,
+        census.unique_before_existing_exclusion,
+        census.excluded_existing_requests,
+    ))
+}
+
+pub(super) fn nominate_requests(
+    incidence: &OrdinarySourceIncidenceIndex<'_>,
+    support: &[&IntegralShift],
+    existing: &[TranslatedSourceRequest],
+    limits: SourceDiscoveryLimits,
+) -> Result<StructuralRequestCensus, SourceDiscoveryError> {
     if support.is_empty() {
         return Err(SourceDiscoveryError::Invariant {
             detail: "inverse-incidence nomination received empty support",
@@ -199,14 +223,12 @@ fn nominate(
     }
     requests.retain(|request| existing.binary_search(request).is_err());
     let excluded_existing_requests = unique_before_existing_exclusion - requests.len();
-    Ok(IncidentTranslationNominations::from_parts(
-        incidence.identity_owner(),
-        origin,
+    Ok(StructuralRequestCensus {
         requests,
-        raw_count,
+        raw_incidence_visits: raw_count,
         unique_before_existing_exclusion,
         excluded_existing_requests,
-    ))
+    })
 }
 
 #[cfg(test)]
@@ -336,7 +358,7 @@ pub(super) fn checked_add(
         .ok_or(SourceDiscoveryError::ResourceCountOverflow { resource })
 }
 
-fn checked_mul(
+pub(super) fn checked_mul(
     resource: &'static str,
     left: usize,
     right: usize,

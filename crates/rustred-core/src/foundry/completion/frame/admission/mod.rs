@@ -28,6 +28,8 @@ pub(crate) use owner_cover::{
     ExactCircuitOwnerId, ExactCircuitOwnerInput, ExactFinitePointOwner, ExactFiniteTerminalOwner,
     ExactOwnerCoverObstructionKind, ExactOwnerCoverSelection, ExactOwnerCoverStatus,
 };
+pub(crate) use refine::try_refine_cleared_exact_circuit_guards;
+#[cfg(test)]
 pub(crate) use refine::try_refine_exact_circuit_guards;
 pub(crate) use semantic::{ExactCircuitSemanticDag, ExactCircuitSemanticError};
 #[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.

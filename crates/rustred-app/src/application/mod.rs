@@ -1,4 +1,6 @@
 mod campaign {
+    pub(super) mod foundry;
+    pub(super) mod foundry_wave;
     pub(super) mod plan;
     pub(super) mod preflight;
 }
@@ -17,6 +19,11 @@ pub use options::{
     ClosingFamilySelector, InputFormat, ParseClosingFamilySelectorError, ParseInputFormatError,
     ParseRelationSelectionError, RelationSelection,
 };
+pub use rustred::foundry::campaign::{
+    FoundryCampaignCensus, FoundryCampaignCoverageObstruction, FoundryCampaignCoverageStatus,
+    FoundryCampaignNeedsRefinementReason, FoundryCampaignOperationalLimit, FoundryCampaignProgress,
+    FoundryCampaignSnapshot, FoundryCampaignStop, FoundryCampaignTaskLocation,
+};
 
 /// Maximum UTF-8 source payload accepted by every in-process application API.
 pub const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -26,6 +33,17 @@ pub const MAX_OUTPUT_BYTES: usize = 256 * 1024 * 1024;
 pub const MAX_CLOSING_RULE_APPLICATIONS: usize = 1_000_000;
 /// Early ingress ceiling aligned with core durable-artifact load defaults.
 pub const MAX_CLOSING_ARTIFACT_BYTES: usize = 256 * 1024 * 1024;
+/// Application ingress ceiling for one bounded foundry probe program.
+pub const MAX_FOUNDRY_CAMPAIGN_PROBES: usize = 4_096;
+/// Schema of the optional, nonsemantic foundry timing sidecar.
+pub const FOUNDRY_CAMPAIGN_MEASUREMENTS_SCHEMA: &str =
+    "rustred.foundry-campaign-measurements.toml.v1";
+/// Deterministic report schema for a transactional full-rank wave campaign.
+pub const FOUNDRY_WAVE_CAMPAIGN_REPORT_SCHEMA: &str =
+    "rustred.foundry-wave-campaign-report.toml.v1";
+/// Nonsemantic timing sidecar for a transactional full-rank wave campaign.
+pub const FOUNDRY_WAVE_CAMPAIGN_MEASUREMENTS_SCHEMA: &str =
+    "rustred.foundry-wave-campaign-measurements.toml.v1";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeriveRequest {
@@ -118,6 +136,168 @@ impl CampaignPreflightRequest {
             n_cores,
             max_memory_bytes,
         }
+    }
+}
+
+/// Owned versioned TOML request for one bounded diagnostic foundry campaign.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FoundryCampaignRunRequest {
+    pub config: String,
+}
+
+/// Owned request for one proof-retaining transactional full-rank itinerary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FoundryWaveCampaignRunRequest {
+    pub config: String,
+    pub sibling_worker_count: usize,
+}
+
+impl FoundryWaveCampaignRunRequest {
+    pub fn new(config: impl Into<String>, sibling_worker_count: usize) -> Self {
+        Self {
+            config: config.into(),
+            sibling_worker_count,
+        }
+    }
+}
+
+impl FoundryCampaignRunRequest {
+    pub fn new(config: impl Into<String>) -> Self {
+        Self {
+            config: config.into(),
+        }
+    }
+}
+
+/// Deterministic campaign telemetry and its separate nonsemantic timings.
+///
+/// The report is diagnostic state, not a closing artifact. Timings are kept
+/// in a distinct document so repeated runs remain byte-comparable through
+/// [`Self::to_toml`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FoundryCampaignRunResult {
+    report_toml: String,
+    measurements_toml: String,
+    stop: FoundryCampaignStop,
+    census: FoundryCampaignCensus,
+    snapshot: FoundryCampaignSnapshot,
+    maximum_dimension: usize,
+    task_report_ceiling: usize,
+}
+
+impl FoundryCampaignRunResult {
+    pub(crate) fn new(
+        report_toml: String,
+        measurements_toml: String,
+        stop: FoundryCampaignStop,
+        census: FoundryCampaignCensus,
+        snapshot: FoundryCampaignSnapshot,
+        maximum_dimension: usize,
+        task_report_ceiling: usize,
+    ) -> Self {
+        Self {
+            report_toml,
+            measurements_toml,
+            stop,
+            census,
+            snapshot,
+            maximum_dimension,
+            task_report_ceiling,
+        }
+    }
+
+    pub const fn schema(&self) -> &'static str {
+        rustred::foundry::campaign::FOUNDRY_CAMPAIGN_REPORT_SCHEMA
+    }
+
+    pub const fn measurements_schema(&self) -> &'static str {
+        FOUNDRY_CAMPAIGN_MEASUREMENTS_SCHEMA
+    }
+
+    /// Return the deterministic, newline-terminated diagnostic report.
+    pub fn to_toml(&self) -> &str {
+        &self.report_toml
+    }
+
+    /// Return the newline-terminated nonsemantic measurement sidecar.
+    pub fn measurements_to_toml(&self) -> &str {
+        &self.measurements_toml
+    }
+
+    /// Typed terminal reason for this bounded campaign run.
+    pub const fn stop(&self) -> FoundryCampaignStop {
+        self.stop
+    }
+
+    /// Final allocation-free cumulative scheduler census.
+    pub const fn census(&self) -> FoundryCampaignCensus {
+        self.census
+    }
+
+    /// Final detached exact-ledger snapshot.
+    pub const fn snapshot(&self) -> &FoundryCampaignSnapshot {
+        &self.snapshot
+    }
+
+    /// Maximum chart dimension of the exact campaign ledger.
+    pub const fn maximum_dimension(&self) -> usize {
+        self.maximum_dimension
+    }
+
+    /// Configured operational ceiling for cumulative task reports.
+    pub const fn task_report_ceiling(&self) -> usize {
+        self.task_report_ceiling
+    }
+
+    pub fn into_toml(self) -> String {
+        self.report_toml
+    }
+
+    pub fn into_parts(self) -> (String, String) {
+        (self.report_toml, self.measurements_toml)
+    }
+}
+
+/// Deterministic detached telemetry for a transactional full-rank itinerary.
+///
+/// Even when every same-rank wave publishes, this result is not a closing
+/// artifact and deliberately exposes no live owner or publication authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FoundryWaveCampaignRunResult {
+    report_toml: String,
+    measurements_toml: String,
+}
+
+impl FoundryWaveCampaignRunResult {
+    pub(crate) fn new(report_toml: String, measurements_toml: String) -> Self {
+        Self {
+            report_toml,
+            measurements_toml,
+        }
+    }
+
+    pub const fn schema(&self) -> &'static str {
+        FOUNDRY_WAVE_CAMPAIGN_REPORT_SCHEMA
+    }
+
+    pub const fn measurements_schema(&self) -> &'static str {
+        FOUNDRY_WAVE_CAMPAIGN_MEASUREMENTS_SCHEMA
+    }
+
+    pub fn to_toml(&self) -> &str {
+        &self.report_toml
+    }
+
+    pub fn measurements_to_toml(&self) -> &str {
+        &self.measurements_toml
+    }
+
+    pub fn into_toml(self) -> String {
+        self.report_toml
+    }
+
+    pub fn into_parts(self) -> (String, String) {
+        (self.report_toml, self.measurements_toml)
     }
 }
 
@@ -356,6 +536,51 @@ pub fn campaign_preflight(
         ));
     }
     campaign::preflight::preflight_request(request)
+}
+
+/// Run a bounded diagnostic foundry campaign from strict versioned TOML.
+///
+/// A successful call may report mathematically incomplete coverage. It never
+/// publishes or represents a closing artifact.
+///
+/// # Panics
+///
+/// This function follows the panic contract documented on [`derive()`].
+pub fn foundry_campaign_run(
+    request: FoundryCampaignRunRequest,
+) -> Result<FoundryCampaignRunResult, AppError> {
+    validate_ingress("foundry campaign configuration", &request.config)?;
+    campaign::foundry::run_request(request)
+}
+
+/// Run a bounded campaign while observing each committed owner-set change.
+///
+/// Progress callbacks carry only detached scalar telemetry and never expose
+/// live-ledger or artifact-publication authority. Callback frequency is a
+/// semantic property of the campaign; frontends should throttle presentation
+/// independently when revisions arrive rapidly.
+pub fn foundry_campaign_run_with_progress(
+    request: FoundryCampaignRunRequest,
+    observe: impl FnMut(FoundryCampaignProgress),
+) -> Result<FoundryCampaignRunResult, AppError> {
+    validate_ingress("foundry campaign configuration", &request.config)?;
+    campaign::foundry::run_request_with_progress(request, observe)
+}
+
+/// Run the configured full-rank sectors in atomic same-rank waves.
+///
+/// This is a bounded diagnostic. A successful return may be incomplete, and
+/// even a fully published frontier is not serialized as a closing artifact.
+pub fn foundry_wave_campaign_run(
+    request: FoundryWaveCampaignRunRequest,
+) -> Result<FoundryWaveCampaignRunResult, AppError> {
+    validate_ingress("foundry wave campaign configuration", &request.config)?;
+    if request.sibling_worker_count == 0 {
+        return Err(AppError::input(
+            "foundry wave campaign sibling_worker_count must be a positive integer",
+        ));
+    }
+    campaign::foundry_wave::run_request(request)
 }
 
 /// Generate and seal one selected closing artifact for this operation.

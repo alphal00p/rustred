@@ -7,7 +7,7 @@ use crate::foundry::parametric::{
     ParametricGuardOrigin, ParametricRule, ParametricRuleError, replay_rule_at_concrete_assignment,
 };
 use crate::foundry::search::{
-    ReachabilityTerminalProvider, SectorSearchDiamond, SectorSearchLimits,
+    ReachabilityTerminalKind, ReachabilityTerminalProvider, SectorSearchDiamond, SectorSearchLimits,
 };
 use crate::sector::InteriorBounds;
 
@@ -561,7 +561,10 @@ fn canonical_children_route_to_existing_owners_or_the_preexisting_corner() {
             .unwrap(),
         Some(vec![0, 0, 1, -1, 1, 1])
     );
-    assert!(terminals.classify(&key(&FOUR_LINE_SECTOR)).is_none());
+    assert!(matches!(
+        terminals.classify(&key(&FOUR_LINE_SECTOR)),
+        Some(terminal) if terminal.kind() == ReachabilityTerminalKind::Master
+    ));
 }
 
 fn search(depth: usize) -> SectorSearchDiamond {

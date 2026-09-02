@@ -1,6 +1,6 @@
 //! Deterministic guarded owner covers built from replayed exact circuits.
 //!
-//! A semantic DAG owns an infinite orthant only when every abstract guard
+//! A semantic DAG owns an exact box/cylinder only when every abstract guard
 //! branch selects an exact circuit, or exact locus analysis proves one ordered
 //! candidate applicable throughout it, and every retained right-hand side is
 //! rechecked to descend in the common sector order. Partial DAGs may still own

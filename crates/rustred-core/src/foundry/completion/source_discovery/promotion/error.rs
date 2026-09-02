@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::foundry::cell::RuleCellError;
 use crate::foundry::completion::frame::admission::ExactGuardRefinementError;
-use crate::foundry::completion::frame::exact::ExactCircuitLoweringError;
+use crate::foundry::completion::frame::exact::{ClearedCircuitError, ExactCircuitLoweringError};
 use crate::foundry::completion::source_discovery::CampaignError;
 
 /// Hard rejection or bounded cold-path failure during exact promotion.
@@ -23,6 +23,7 @@ pub(crate) enum ExactRuleCellPromotionError {
     },
     Partition(CampaignError),
     GuardRefinement(ExactGuardRefinementError),
+    Clearing(ClearedCircuitError),
     Lowering(ExactCircuitLoweringError),
     Cell(RuleCellError),
 }
@@ -59,6 +60,7 @@ impl fmt::Display for ExactRuleCellPromotionError {
             }
             Self::Partition(error) => write!(formatter, "epoch partition rebuild failed: {error}"),
             Self::GuardRefinement(error) => error.fmt(formatter),
+            Self::Clearing(error) => error.fmt(formatter),
             Self::Lowering(error) => error.fmt(formatter),
             Self::Cell(error) => error.fmt(formatter),
         }
@@ -70,6 +72,7 @@ impl std::error::Error for ExactRuleCellPromotionError {
         match self {
             Self::Partition(error) => Some(error),
             Self::GuardRefinement(error) => Some(error),
+            Self::Clearing(error) => Some(error),
             Self::Lowering(error) => Some(error),
             Self::Cell(error) => Some(error),
             _ => None,
@@ -86,6 +89,12 @@ impl From<CampaignError> for ExactRuleCellPromotionError {
 impl From<ExactGuardRefinementError> for ExactRuleCellPromotionError {
     fn from(value: ExactGuardRefinementError) -> Self {
         Self::GuardRefinement(value)
+    }
+}
+
+impl From<ClearedCircuitError> for ExactRuleCellPromotionError {
+    fn from(value: ClearedCircuitError) -> Self {
+        Self::Clearing(value)
     }
 }
 

@@ -2,8 +2,10 @@ use std::io::Write;
 use std::process::{Command, Output, Stdio};
 
 use rustred_app::{
-    AppErrorKind, CampaignPlanRequest, CampaignPreflightRequest, DeriveRequest, InputFormat,
+    AppErrorKind, CampaignPlanRequest, CampaignPreflightRequest, DeriveRequest,
+    FoundryCampaignRunRequest, FoundryCampaignStop, FoundryWaveCampaignRunRequest, InputFormat,
     MAX_INPUT_BYTES, RelationSelection, campaign_plan, campaign_preflight, derive,
+    foundry_campaign_run, foundry_campaign_run_with_progress, foundry_wave_campaign_run,
 };
 
 const ONE_LOOP: &str = r#"
@@ -54,6 +56,13 @@ opaque_native_reserve = "0B"
 [minimum_runnable_task.transient_excluding_output]
 visible_logical = "40B"
 opaque_native_reserve = "0B"
+"#;
+
+const FOUNDRY_CAMPAIGN: &str = r#"schema = "rustred.foundry-campaign-config.toml.v2"
+preset = "three-loop-unit-mass-vacuum-k6-orbit-0"
+mode = "autonomous"
+max_task_reports = 1
+max_reported_uncovered_boxes = 1
 "#;
 
 fn rustred(arguments: &[&str], input: &str) -> Output {
@@ -196,6 +205,22 @@ fn public_application_limits_fail_before_semantic_work() {
     assert_eq!(oversized_error.kind(), AppErrorKind::Limit);
     assert!(oversized_error.message().contains("application limit"));
 
+    let oversized_campaign = "x".repeat(MAX_INPUT_BYTES + 1);
+    let campaign_error =
+        foundry_campaign_run(FoundryCampaignRunRequest::new(oversized_campaign)).unwrap_err();
+    assert_eq!(campaign_error.kind(), AppErrorKind::Limit);
+    assert!(
+        campaign_error
+            .message()
+            .contains("foundry campaign configuration")
+    );
+
+    let zero_wave_workers =
+        foundry_wave_campaign_run(FoundryWaveCampaignRunRequest::new(FOUNDRY_CAMPAIGN, 0))
+            .unwrap_err();
+    assert_eq!(zero_wave_workers.kind(), AppErrorKind::Input);
+    assert!(zero_wave_workers.message().contains("positive integer"));
+
     let core_count_error = derive(DeriveRequest {
         source: ONE_LOOP.to_owned(),
         input_format: InputFormat::Symbolica,
@@ -229,4 +254,31 @@ fn public_application_limits_fail_before_semantic_work() {
         relation_error.to_string(),
         "invalid relation selection \"laporta\"; expected all, ordinary, or li"
     );
+}
+
+#[test]
+fn public_foundry_progress_is_revision_complete_scalar_telemetry() {
+    let mut progress = Vec::new();
+    let result = foundry_campaign_run_with_progress(
+        FoundryCampaignRunRequest::new(FOUNDRY_CAMPAIGN),
+        |event| progress.push(event),
+    )
+    .expect("run cap-one foundry campaign with progress");
+    assert_eq!(progress.len(), 1);
+    let event = &progress[0];
+    assert_eq!(event.revision(), 1);
+    assert_eq!(event.snapshot().owner_count(), 1);
+    assert_eq!(event.census().strict_geometric_shrink(), 1);
+    assert_eq!(event.task_report_ceiling(), 1);
+    assert_eq!(event.maximum_dimension(), 6);
+    let location = event.location().expect("committing task location");
+    assert!(location.effective_dimension() <= location.parent_free_dimension());
+    assert!(location.parent_free_dimension() <= event.maximum_dimension());
+    assert_eq!(result.snapshot(), event.snapshot());
+    assert_eq!(result.task_report_ceiling(), 1);
+    assert_eq!(result.maximum_dimension(), 6);
+    assert!(matches!(
+        result.stop(),
+        FoundryCampaignStop::OperationallyBounded { .. }
+    ));
 }

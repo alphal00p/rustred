@@ -8,7 +8,7 @@ use crate::foundry::completion::frame::exact::{
 use crate::foundry::completion::frame::modular::{
     ModularKernelError, ModularRankDiagnostics, ModularTargetQuery,
 };
-use crate::foundry::completion::stratum::{ImmutableOwnerSnapshot, MaximalStratumAnchor};
+use crate::foundry::completion::stratum::{CampaignStratumAnchor, ImmutableOwnerSnapshot};
 use crate::identity::{CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator};
 use crate::sector::OrderingPolicy;
 
@@ -61,13 +61,14 @@ pub(crate) fn try_canonicalize_replayed_probes(
     generator: &ParametricIbpGenerator<'_>,
     completed: &CompletedIbpSourceRows,
     target: IntegralShift,
-    maximal_anchor: MaximalStratumAnchor,
+    stratum_anchor: impl Into<CampaignStratumAnchor>,
     owners: ImmutableOwnerSnapshot,
     ordering: OrderingPolicy,
     report: &ProbeLocalSchedulerReport,
     limits: CanonicalReplayLimits,
 ) -> Result<CanonicalReplayDisposition, CanonicalReplayError> {
-    validate_task(generator, completed, &target, &maximal_anchor, &owners)?;
+    let stratum_anchor = stratum_anchor.into();
+    validate_task(generator, completed, &target, &stratum_anchor, &owners)?;
     let arity = target.len();
     let mut nominations = try_vec(NOMINATIONS, 0)?;
     let mut nomination_request_occurrences = 0usize;
@@ -83,7 +84,7 @@ pub(crate) fn try_canonicalize_replayed_probes(
             report_ordinal,
             generator,
             &target,
-            &maximal_anchor,
+            &stratum_anchor,
             &owners,
             ordering,
             epoch,
@@ -189,7 +190,7 @@ pub(crate) fn try_canonicalize_replayed_probes(
     );
     let union = AccumulatedSourceRequests::try_new(arity, submitted_union, limits.campaign)?;
 
-    let mut epochs = GrowingTaskEpochState::new(target, maximal_anchor, owners, ordering);
+    let mut epochs = GrowingTaskEpochState::new(target, stratum_anchor, owners, ordering);
     let bootstrap_epoch = epochs.try_next(
         generator,
         completed,
@@ -416,7 +417,7 @@ fn validate_task(
     generator: &ParametricIbpGenerator<'_>,
     completed: &CompletedIbpSourceRows,
     target: &IntegralShift,
-    anchor: &MaximalStratumAnchor,
+    anchor: &CampaignStratumAnchor,
     owners: &ImmutableOwnerSnapshot,
 ) -> Result<(), CanonicalReplayError> {
     if !completed.is_complete_ordinary() {
@@ -427,7 +428,7 @@ fn validate_task(
     let arity = generator.context().index_count();
     if target.len() != arity || anchor.arity() != arity || owners.arity() != arity {
         return Err(CanonicalReplayError::WrongTaskScope {
-            detail: "target, maximal stratum, owner snapshot, and indexed context have different arities",
+            detail: "target, campaign stratum, owner snapshot, and indexed context have different arities",
         });
     }
     if anchor.context_fingerprint() != generator.context().fingerprint()
@@ -435,7 +436,7 @@ fn validate_task(
         || owners.family_fingerprint() != anchor.family_fingerprint()
     {
         return Err(CanonicalReplayError::WrongTaskScope {
-            detail: "generator, maximal stratum, and owner snapshot have different identities",
+            detail: "generator, campaign stratum, and owner snapshot have different identities",
         });
     }
     Ok(())
@@ -446,7 +447,7 @@ fn validate_nomination(
     nomination: usize,
     generator: &ParametricIbpGenerator<'_>,
     target: &IntegralShift,
-    anchor: &MaximalStratumAnchor,
+    anchor: &CampaignStratumAnchor,
     owners: &ImmutableOwnerSnapshot,
     ordering: OrderingPolicy,
     epoch: &FreshTaskEpoch,
@@ -661,6 +662,15 @@ fn diagnostic_entries(diagnostics: &ModularRankDiagnostics) -> Result<usize, Can
 
 fn exact_payload_cells(circuit: &ExactTargetCircuit) -> Result<usize, CanonicalReplayError> {
     let mut total = circuit.sample_fingerprint().point().len();
+    total = checked_add(
+        RETAINED_EXACT_PAYLOAD_CELLS,
+        total,
+        checked_mul(
+            RETAINED_EXACT_PAYLOAD_CELLS,
+            circuit.fixed_indices().len(),
+            2,
+        )?,
+    )?;
     total = checked_add(
         RETAINED_EXACT_PAYLOAD_CELLS,
         total,

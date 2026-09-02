@@ -250,7 +250,7 @@ fn append_shift_complexity_key(
     output: &mut BoundedContentHasher,
     key: &ShiftComplexityKey,
 ) -> Result<(), StratumRegistryError> {
-    output.text(key.policy().stable_id())?;
+    output.text(&key.policy().stable_id())?;
     output.usize(key.arity())?;
     append_mask(output, key.sector())?;
     output.i128(key.corner_distance_offset())?;
@@ -267,7 +267,7 @@ pub(super) fn append_shift_descent(
     output: &mut BoundedContentHasher,
     witness: &ShiftStrictDescentWitness,
 ) -> Result<(), StratumRegistryError> {
-    output.text(witness.policy().stable_id())?;
+    output.text(&witness.policy().stable_id())?;
     append_interior_domain(output, witness.domain())?;
     append_shift_complexity_key(output, witness.source())?;
     append_shift_complexity_key(output, witness.target())?;
@@ -278,7 +278,7 @@ pub(super) fn append_monotone_descent(
     output: &mut BoundedContentHasher,
     witness: &SectorMonotoneShiftDescentWitness,
 ) -> Result<(), StratumRegistryError> {
-    output.text(witness.policy().stable_id())?;
+    output.text(&witness.policy().stable_id())?;
     append_monotone_domain(output, witness.domain())?;
     append_shift_complexity_key(output, witness.pivot())?;
     append_shift_complexity_key(output, witness.target())?;
@@ -316,6 +316,44 @@ fn append_owner_witness(
         ImmutableOwnerKind::Master => 2,
         ImmutableOwnerKind::SolvedRewriteSector => 3,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, OrderingPolicy};
+
+    use super::super::encoder::BoundedContentHasher;
+    use super::append_shift_complexity_key;
+
+    fn encoded_shift_key(policy: OrderingPolicy) -> Box<[u8]> {
+        let key = policy
+            .shift_complexity_key(&Mask::try_new([true; 6]).unwrap(), &[1, 0, 0, 0, 0, 0])
+            .unwrap();
+        let mut output = BoundedContentHasher::exact(4_096, "ordering semantic test");
+        append_shift_complexity_key(&mut output, &key).unwrap();
+        output.finish_exact()
+    }
+
+    #[test]
+    fn canonical_owner_encoding_commits_the_full_coordinate_priority_identity() {
+        let priority = CoordinatePriority::try_new(
+            6,
+            &[5, 3, 4, 2, 0, 1],
+            CoordinatePriorityLimits::default(),
+        )
+        .unwrap();
+        let custom = OrderingPolicy::try_with_coordinate_priority(&priority).unwrap();
+        let first = encoded_shift_key(custom);
+        let second = encoded_shift_key(custom);
+        let natural = encoded_shift_key(OrderingPolicy::RustRedUnshiftedV1);
+        assert_eq!(first, second);
+        assert_ne!(first, natural);
+        assert!(
+            first
+                .windows(custom.stable_id().len())
+                .any(|window| { window == custom.stable_id().as_str().as_bytes() })
+        );
+    }
 }
 
 pub(super) fn append_proper_subsector_owner(

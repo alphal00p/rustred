@@ -210,7 +210,7 @@ children back. Separately, `foundry::artifact` generates and verifies the
 canonical `K = 1` and `K = 3` closures and seals them for `reduction`; the
 reusable primitives are topology-neutral, while these first complete
 partition verifiers are registered family manifests rather than a generic
-closure search. Its schema-v3 codec owns deterministic semantic bytes and
+closure search. Its schema-v4 codec owns deterministic semantic bytes and
 one-time bounded untrusted loading. It reconstructs tagged complete-ordinary
 source plans under explicit family/generator/rule policies, compares retained
 semantics exactly, and authenticates replay before exposing a sealed owner.
@@ -304,11 +304,11 @@ Vakint integration is developed in the GammaLoop repository on its own
 RustRed supplies reusable mathematical services. The additive scalar RustRed
 backend now ships and consumes the sealed `K = 1` and `K = 3` artifacts for the
 registered one- and two-loop families. It provides a FORM-free scalar tail
-while deliberately retaining Vakint's existing FORM tensor prepass.
-Tensor-bearing end-to-end tests may therefore execute FORM before entering
-that tail; separate invalid-FORM-path scalar tests prove that the backend itself
-has no FORM dependency or fallback. Existing FORM-backed scalar methods remain
-compatibility oracles in segregated coverage.
+after FeynKit's FORM-less tensor prepass. Tensor-bearing end-to-end RustRed
+tests explicitly select FeynKit and use an invalid FORM path, proving that the
+whole active lane has no FORM dependency or fallback. Existing FORM-backed
+tensor and scalar methods remain backward-compatible oracles in segregated
+coverage.
 
 ## Stage 1 artifact and reduction owners
 

@@ -27,19 +27,44 @@ pub enum ArtifactError {
     IntegralKey(IntegralKeyError),
     Ordering(sector::Error),
     ZeroAnalysis(sector::zero::Error),
-    UnsupportedSchema { actual: u32 },
+    UnsupportedSchema {
+        actual: u32,
+    },
     WrongFamily,
     WrongCoefficientContext,
-    WrongArity { expected: usize, actual: usize },
+    WrongArity {
+        expected: usize,
+        actual: usize,
+    },
     InvalidMasterManifest,
+    InvalidDeclaredMasterManifest {
+        detail: &'static str,
+    },
     InvalidZeroTerminal,
-    InvalidFactorization { detail: &'static str },
+    InvalidFactorization {
+        detail: &'static str,
+    },
     InvalidCanonicalizer,
+    InvalidOrderingAuthority {
+        detail: &'static str,
+        ordinal: usize,
+    },
     UnsupportedClosureShape,
-    InvalidRuleShape { detail: &'static str },
-    InvalidDescentWitness { right_hand_side_ordinal: usize },
-    UnprovedGuardApplicability { guard_ordinal: usize },
-    InvalidReplayEvidence { detail: &'static str },
+    InvalidClosurePublication {
+        detail: &'static str,
+    },
+    InvalidRuleShape {
+        detail: &'static str,
+    },
+    InvalidDescentWitness {
+        right_hand_side_ordinal: usize,
+    },
+    UnprovedGuardApplicability {
+        guard_ordinal: usize,
+    },
+    InvalidReplayEvidence {
+        detail: &'static str,
+    },
 }
 
 impl fmt::Display for ArtifactError {
@@ -75,6 +100,9 @@ impl fmt::Display for ArtifactError {
             Self::InvalidMasterManifest => {
                 formatter.write_str("artifact master-terminal manifest is invalid")
             }
+            Self::InvalidDeclaredMasterManifest { detail } => {
+                write!(formatter, "invalid declared-master manifest: {detail}")
+            }
             Self::InvalidZeroTerminal => {
                 formatter.write_str("artifact zero-sector terminal is invalid or unproved")
             }
@@ -84,8 +112,17 @@ impl fmt::Display for ArtifactError {
             Self::InvalidCanonicalizer => {
                 formatter.write_str("artifact canonicalizer has a foreign arity or ordering")
             }
+            Self::InvalidOrderingAuthority { detail, ordinal } => {
+                write!(
+                    formatter,
+                    "artifact ordering authority mismatch at {ordinal}: {detail}"
+                )
+            }
             Self::UnsupportedClosureShape => formatter
                 .write_str("no installed closure verifier supports this artifact candidate shape"),
+            Self::InvalidClosurePublication { detail } => {
+                write!(formatter, "invalid closing-artifact publication: {detail}")
+            }
             Self::InvalidRuleShape { detail } => {
                 write!(formatter, "invalid closing rule: {detail}")
             }

@@ -108,10 +108,13 @@ fn artifact_validation_error_kind(error: &ArtifactError) -> AppErrorKind {
         | ArtifactError::WrongCoefficientContext
         | ArtifactError::WrongArity { .. }
         | ArtifactError::InvalidMasterManifest
+        | ArtifactError::InvalidDeclaredMasterManifest { .. }
         | ArtifactError::InvalidZeroTerminal
         | ArtifactError::InvalidFactorization { .. }
         | ArtifactError::InvalidCanonicalizer
+        | ArtifactError::InvalidOrderingAuthority { .. }
         | ArtifactError::UnsupportedClosureShape
+        | ArtifactError::InvalidClosurePublication { .. }
         | ArtifactError::InvalidRuleShape { .. }
         | ArtifactError::InvalidDescentWitness { .. }
         | ArtifactError::UnprovedGuardApplicability { .. }

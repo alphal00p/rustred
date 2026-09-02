@@ -1,4 +1,7 @@
-use crate::foundry::completion::source_discovery::scheduler::ProbeLocalRunCensus;
+use crate::foundry::completion::source_discovery::scheduler::{
+    ProbeLocalBudgetCause, ProbeLocalBudgetScope, ProbeLocalBudgetStop, ProbeLocalRejectionSummary,
+    ProbeLocalRunCensus, ProbeLocalStage,
+};
 use crate::foundry::completion::source_discovery::{
     CanonicalReplayTelemetry, ExactExecutableOwnerProposal,
 };
@@ -70,6 +73,56 @@ pub(crate) struct InteriorReplayAttemptCensus {
     no_modular_hit: usize,
     query_rejected: usize,
     support_did_not_lift: usize,
+}
+
+/// Ordinal-stable, epoch-payload-free description of one scheduler budget
+/// stop.
+///
+/// The scheduler's physical epoch and request accumulator are deliberately
+/// dropped at the streaming boundary. This compact value retains the exact
+/// bounded resource and stage needed by an outer research driver to resume
+/// with one named limit widened; it carries no algebraic or closure authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct InteriorReplayBudgetStopSummary {
+    probe_ordinal: usize,
+    epoch_ordinal: usize,
+    stage: ProbeLocalStage,
+    cause: ProbeLocalBudgetCause,
+}
+
+impl InteriorReplayBudgetStopSummary {
+    pub(crate) const fn probe_ordinal(&self) -> usize {
+        self.probe_ordinal
+    }
+
+    pub(crate) const fn epoch_ordinal(&self) -> usize {
+        self.epoch_ordinal
+    }
+
+    pub(crate) const fn stage(&self) -> ProbeLocalStage {
+        self.stage
+    }
+
+    pub(crate) const fn scope(&self) -> ProbeLocalBudgetScope {
+        self.cause.scope()
+    }
+
+    pub(crate) const fn resource(&self) -> &'static str {
+        self.cause.resource()
+    }
+
+    pub(crate) const fn cause(&self) -> &ProbeLocalBudgetCause {
+        &self.cause
+    }
+
+    pub(super) fn from_stop(stop: &ProbeLocalBudgetStop) -> Self {
+        Self {
+            probe_ordinal: stop.probe_ordinal(),
+            epoch_ordinal: stop.epoch_ordinal(),
+            stage: stop.stage(),
+            cause: stop.cause().clone(),
+        }
+    }
 }
 
 impl InteriorReplayAttemptCensus {
@@ -280,6 +333,8 @@ pub(crate) enum InteriorReplayRunDisposition {
 pub(crate) struct InteriorReplayTaskReport {
     scheduler: ProbeLocalRunCensus,
     scheduler_outcomes: InteriorReplaySchedulerOutcomeCensus,
+    budget_stops: Box<[InteriorReplayBudgetStopSummary]>,
+    first_scheduler_rejection: Option<ProbeLocalRejectionSummary>,
     replay: Option<CanonicalReplayTelemetry>,
     canonical_attempts: InteriorReplayAttemptCensus,
     disposition: InteriorReplayRunDisposition,
@@ -291,6 +346,12 @@ impl InteriorReplayTaskReport {
     }
     pub(crate) const fn scheduler_outcomes(&self) -> InteriorReplaySchedulerOutcomeCensus {
         self.scheduler_outcomes
+    }
+    pub(crate) fn budget_stops(&self) -> &[InteriorReplayBudgetStopSummary] {
+        &self.budget_stops
+    }
+    pub(crate) const fn first_scheduler_rejection(&self) -> Option<ProbeLocalRejectionSummary> {
+        self.first_scheduler_rejection
     }
     pub(crate) const fn replay(&self) -> Option<CanonicalReplayTelemetry> {
         self.replay
@@ -309,6 +370,8 @@ impl InteriorReplayTaskReport {
     pub(super) const fn new(
         scheduler: ProbeLocalRunCensus,
         scheduler_outcomes: InteriorReplaySchedulerOutcomeCensus,
+        budget_stops: Box<[InteriorReplayBudgetStopSummary]>,
+        first_scheduler_rejection: Option<ProbeLocalRejectionSummary>,
         replay: Option<CanonicalReplayTelemetry>,
         canonical_attempts: InteriorReplayAttemptCensus,
         disposition: InteriorReplayRunDisposition,
@@ -316,6 +379,8 @@ impl InteriorReplayTaskReport {
         Self {
             scheduler,
             scheduler_outcomes,
+            budget_stops,
+            first_scheduler_rejection,
             replay,
             canonical_attempts,
             disposition,

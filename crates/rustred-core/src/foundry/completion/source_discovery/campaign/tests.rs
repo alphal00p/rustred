@@ -1,10 +1,12 @@
+use std::sync::Arc;
+
 use crate::algebra::CoefficientContext;
 use crate::family::{AffineDenominator, IntegralFamily};
 use crate::foundry::artifact::derive_one_loop_unit_mass_tadpole;
 use crate::foundry::completion::frame::modular::ModularTargetQuery;
 use crate::foundry::completion::stratum::{
     DecoratedStratum, GuardBranch, GuardBranchIdentity, ImmutableOwnerSnapshot,
-    MaximalStratumAnchor, StratumRegistryError, StratumRegistryLimits,
+    MaximalStratumAnchor, StratumRegistryError, StratumRegistryLimits, TargetColumnPartition,
 };
 use crate::identity::{
     CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator, TranslatedSourceLimits,
@@ -323,6 +325,87 @@ fn augmented_epochs_rebuild_all_plan_local_ordinals_and_can_hit() {
     assert_eq!(first_evidence.telemetry().forbidden_columns(), 1);
     assert_eq!(first_evidence.telemetry().forbidden_rank(), 1);
     assert_eq!(first_evidence.telemetry().augmented_rank(), 2);
+}
+
+#[test]
+fn repeated_epoch_partitions_reuse_verified_snapshot_identity_and_routes() {
+    let artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let limits = CampaignLimits::default();
+    let requests =
+        AccumulatedSourceRequests::try_new(1, [request(0, 0), request(0, 1)], limits).unwrap();
+    let target = IntegralShift::try_new([1]).unwrap();
+    let (stratum, _) = fixed_tadpole_inputs(&artifact, 1, &[vec![0], vec![1], vec![2]]);
+    let owners = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        Arc::clone(&artifact),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let epoch = FreshTaskEpoch::try_new(
+        0,
+        &generator,
+        &completed,
+        requests,
+        target,
+        stratum,
+        owners,
+        OrderingPolicy::default(),
+        limits,
+    )
+    .unwrap();
+
+    let cold = TargetColumnPartition::try_new(
+        epoch.plan(),
+        epoch.target_column(),
+        epoch.fixed_stratum().clone(),
+        epoch.predecessor_snapshot().clone(),
+        epoch.fixed_ordering(),
+        limits.stratum,
+    )
+    .unwrap();
+    ImmutableOwnerSnapshot::reset_cold_replay_counters_for_test();
+    let first = epoch.try_partition(limits.stratum).unwrap();
+    let second = epoch.try_partition(limits.stratum).unwrap();
+    assert_eq!(cold.snapshot_id(), first.snapshot_id());
+    assert_eq!(cold.allowed_columns(), first.allowed_columns());
+    assert_eq!(cold.forbidden_columns(), first.forbidden_columns());
+    assert_eq!(cold.forbidden_descriptors(), first.forbidden_descriptors());
+    assert_eq!(first.snapshot_id(), second.snapshot_id());
+    assert_eq!(first.allowed_columns(), second.allowed_columns());
+    assert_eq!(first.forbidden_columns(), second.forbidden_columns());
+    assert_eq!(
+        first.forbidden_descriptors(),
+        second.forbidden_descriptors()
+    );
+    let hot = ImmutableOwnerSnapshot::cold_replay_counters_for_test();
+    assert_eq!(hot.identity_rebuilds(), 0);
+    assert_eq!(hot.route_replays(), 0);
+
+    let mut route_limited = limits.stratum;
+    route_limited.max_owner_routes = epoch
+        .predecessor_snapshot()
+        .route_count()
+        .checked_sub(1)
+        .expect("the installed tadpole artifact must expose an owner route");
+    let error = epoch.try_partition(route_limited).unwrap_err();
+    assert_eq!(
+        error.budget_exhaustion().unwrap().resource(),
+        "immutable owner symmetry routes"
+    );
+    let rejected = ImmutableOwnerSnapshot::cold_replay_counters_for_test();
+    assert_eq!(rejected.identity_rebuilds(), 0);
+    assert_eq!(rejected.route_replays(), 0);
+
+    assert!(
+        epoch
+            .predecessor_snapshot()
+            .try_verify(limits.stratum)
+            .unwrap()
+    );
+    let cold = ImmutableOwnerSnapshot::cold_replay_counters_for_test();
+    assert_eq!(cold.identity_rebuilds(), 1);
+    assert_eq!(cold.route_replays(), 1);
 }
 
 #[test]

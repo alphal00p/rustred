@@ -13,8 +13,8 @@ use crate::identity::{CompletedIbpSourceRows, IntegralShift, ParametricIbpGenera
 use crate::sector::{Mask, OrderingPolicy, SectorMonotoneDomain};
 
 use super::{
-    ExactRuleCellGuardObstruction, ExactRuleCellPromotionDisposition, ExactRuleCellPromotionError,
-    ExactRuleCellPromotionLimits, try_promote_replayed_rule_cell,
+    ExactRuleCellPromotionDisposition, ExactRuleCellPromotionError, ExactRuleCellPromotionLimits,
+    try_promote_replayed_rule_cell,
 };
 
 const PRIME: u64 = 1_000_000_007;
@@ -170,6 +170,10 @@ fn scheduler_owned_replay_promotes_to_one_sealed_executable_candidate() {
     assert!(Arc::ptr_eq(candidate.epoch(), &epoch));
     assert!(Arc::ptr_eq(candidate.circuit(), &circuit));
     assert_eq!(
+        Arc::as_ptr(candidate.cell_owner()),
+        candidate.cell() as *const _
+    );
+    assert_eq!(
         candidate.guard_refinement().parent_stratum_id(),
         circuit.stratum_id()
     );
@@ -212,25 +216,30 @@ fn nonempty_owner_snapshot_rejoins_a_retained_proper_subsector_witness() {
         ExactRuleCellPromotionLimits::default(),
     )
     .unwrap();
-    let ExactRuleCellPromotionDisposition::NeedsGuardedStratum {
-        epoch: retained_epoch,
-        circuit: retained_circuit,
-        obstruction,
-        ..
-    } = outcome
-    else {
-        panic!("the boundary fixture's pivot guard must split at its interior root")
+    let ExactRuleCellPromotionDisposition::Admitted(candidate) = outcome else {
+        panic!("the endpoint guard root must publish its one rectangular complement")
     };
-    assert!(Arc::ptr_eq(&retained_epoch, &epoch));
-    assert!(Arc::ptr_eq(&retained_circuit, &circuit));
+    assert!(Arc::ptr_eq(candidate.epoch(), &epoch));
+    assert!(Arc::ptr_eq(candidate.circuit(), &circuit));
+    let split = candidate
+        .guard_domain_split()
+        .expect("the genuine final-target guard must retain split evidence");
     assert_eq!(
-        obstruction,
-        ExactRuleCellGuardObstruction::IntegerRoot {
-            guard_ordinal: 0,
-            position: 0,
-            value: 1,
-        }
+        (split.guard_ordinal(), split.position(), split.value()),
+        (0, 0, 1)
     );
+    assert_eq!(
+        split.admitted_domain(),
+        candidate.cell().application_domain()
+    );
+    assert_eq!(split.admitted_domain().bounds()[0].lower(), 2);
+    assert_eq!(
+        split.admitted_domain().bounds()[0].upper(),
+        epoch.fixed_stratum().domain().bounds()[0].upper()
+    );
+    assert_eq!(split.exceptional_domain().bounds()[0].lower(), 1);
+    assert_eq!(split.exceptional_domain().bounds()[0].upper(), 1);
+    assert!(split.deferred_guard_free_domain().is_none());
 }
 
 #[test]
@@ -253,17 +262,16 @@ fn structurally_equal_fresh_epoch_cannot_reinterpret_old_physical_ordinals() {
 }
 
 #[test]
-fn guard_wall_requires_semantic_routing_and_never_claims_box_ownership() {
+fn elimination_path_guard_is_pruned_before_rule_cell_ownership() {
     let (context, epoch, circuit) = replayed_tadpole();
     let mut circuit = Arc::try_unwrap(circuit).unwrap();
     let guard = context
         .sub(&context.index(0).unwrap(), &context.one())
         .unwrap();
-    circuit.replace_first_guard_polynomial_for_test(
-        context
-            .numerator_condition_with_limits(&guard, Default::default())
-            .unwrap(),
-    );
+    let injected_guard = context
+        .numerator_condition_with_limits(&guard, Default::default())
+        .unwrap();
+    circuit.replace_first_guard_polynomial_for_test(injected_guard.clone());
     let circuit = Arc::new(circuit);
 
     let outcome = try_promote_replayed_rule_cell(
@@ -274,30 +282,27 @@ fn guard_wall_requires_semantic_routing_and_never_claims_box_ownership() {
         ExactRuleCellPromotionLimits::default(),
     )
     .unwrap();
-    let ExactRuleCellPromotionDisposition::NeedsGuardedStratum {
-        epoch: retained_epoch,
-        circuit: retained_circuit,
-        refinement,
-        obstruction,
-    } = outcome
-    else {
-        panic!("a root inside the carrier box must not produce an ordinary RuleCell owner")
+    let ExactRuleCellPromotionDisposition::Admitted(candidate) = outcome else {
+        panic!("an elimination-path guard absent from the cleared consequence must be pruned")
     };
-    assert!(Arc::ptr_eq(&retained_epoch, &epoch));
-    assert!(Arc::ptr_eq(&retained_circuit, &circuit));
-    assert!(!refinement.exceptional_strata().is_empty());
-    assert_eq!(
-        obstruction,
-        ExactRuleCellGuardObstruction::IntegerRoot {
-            guard_ordinal: 0,
-            position: 0,
-            value: 1,
-        }
+    assert!(Arc::ptr_eq(candidate.epoch(), &epoch));
+    assert!(Arc::ptr_eq(candidate.circuit(), &circuit));
+    assert!(candidate.cleared().is_bound_to(&circuit));
+    let telemetry = candidate.cleared().guard_telemetry();
+    assert_eq!(telemetry.before_unique(), circuit.nonzero_guards().len());
+    assert!(telemetry.after_unique() < telemetry.before_unique());
+    assert!(
+        candidate
+            .cleared()
+            .semantic_guards()
+            .iter()
+            .all(|guard| guard.polynomial() != &injected_guard),
+        "the synthetic reducer-pivot guard must not survive semantic minimization"
     );
 }
 
 #[test]
-fn replay_anchor_on_guard_wall_is_retryable_and_retains_exact_authority() {
+fn replay_anchor_on_pruned_elimination_guard_is_directly_admitted() {
     let (context, epoch, circuit) = replayed_tadpole();
     let mut circuit = Arc::try_unwrap(circuit).unwrap();
     let guard = context
@@ -318,17 +323,10 @@ fn replay_anchor_on_guard_wall_is_retryable_and_retains_exact_authority() {
         ExactRuleCellPromotionLimits::default(),
     )
     .unwrap();
-    let ExactRuleCellPromotionDisposition::AnchorOnGuardWall {
-        epoch: retained_epoch,
-        circuit: retained_circuit,
-        refinement,
-        guard_ordinal,
-    } = outcome
-    else {
-        panic!("a valid exact identity must remain retryable at another anchor")
+    let ExactRuleCellPromotionDisposition::Admitted(candidate) = outcome else {
+        panic!("a pruned elimination-path wall must not reject the replay anchor")
     };
-    assert!(Arc::ptr_eq(&retained_epoch, &epoch));
-    assert!(Arc::ptr_eq(&retained_circuit, &circuit));
-    assert_eq!(refinement.parent_stratum_id(), circuit.stratum_id());
-    assert_eq!(guard_ordinal, 0);
+    assert!(Arc::ptr_eq(candidate.epoch(), &epoch));
+    assert!(Arc::ptr_eq(candidate.circuit(), &circuit));
+    assert!(candidate.cleared().is_bound_to(&circuit));
 }

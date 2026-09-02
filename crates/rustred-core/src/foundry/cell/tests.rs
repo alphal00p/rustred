@@ -7,7 +7,12 @@ use crate::sector::{InteriorBounds, Mask, OrderingPolicy, SectorMonotoneDomain};
 use super::{
     FixedIndexRestriction, RuleCell, RuleCellDomainProof, RuleCellLimits, SourceViewBatch,
 };
-use super::{RuleCellError, build::validate_guard_on_bounds};
+use super::{
+    RuleCellError,
+    build::{
+        try_fixed_pairs, try_rhs_shifts, try_single_guard_domain_split, validate_guard_on_bounds,
+    },
+};
 
 fn sunset_family() -> IntegralFamily {
     let base = CoefficientContext::new(["d"]);
@@ -79,6 +84,44 @@ fn generated_rule_retains_sources_and_separate_application_proof() {
         &rhs,
     )
     .unwrap();
+
+    // All collection limits are enforced before guard iteration or vector
+    // construction at the split boundary.
+    assert!(!rule.nonzero_guards().is_empty());
+    let guard_limit = rule.nonzero_guards().len() - 1;
+    assert_eq!(
+        try_single_guard_domain_split(
+            generator.context(),
+            &rule,
+            &application,
+            &[],
+            RuleCellLimits {
+                max_guards: guard_limit,
+                ..Default::default()
+            },
+        ),
+        Err(RuleCellError::ResourceLimit {
+            resource: "rule guards",
+            requested: rule.nonzero_guards().len(),
+            limit: guard_limit,
+        })
+    );
+    assert_eq!(
+        try_rhs_shifts(&rule, rule.right_hand_side().len() - 1),
+        Err(RuleCellError::ResourceLimit {
+            resource: "rule RHS shifts",
+            requested: rule.right_hand_side().len(),
+            limit: rule.right_hand_side().len() - 1,
+        })
+    );
+    assert_eq!(
+        try_fixed_pairs(&[FixedIndexRestriction::new(0, 1)], 0),
+        Err(RuleCellError::ResourceLimit {
+            resource: "fixed restrictions",
+            requested: 1,
+            limit: 0,
+        })
+    );
     let cell = RuleCell::try_refined(
         generator.context(),
         rule,
@@ -222,12 +265,70 @@ fn guard_domains_are_proved_exactly_or_rejected_before_cell_installation() {
     )
     .unwrap();
 
-    let multivariate = guard(context.add(&context.mul(&d, &n0).unwrap(), &n1).unwrap());
+    // The simultaneous equations n0 = 0 and n1 = 0 each factor
+    // univariately, so their common locus is proven outside this box.
+    let separable_multivariate = guard(context.add(&context.mul(&d, &n0).unwrap(), &n1).unwrap());
+    validate_guard_on_bounds(
+        &context,
+        11,
+        &separable_multivariate,
+        &[InteriorBounds::new(1, 4), InteriorBounds::new(1, 4)],
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+
+    // A factored coefficient equation supplies only a conservative cover of
+    // this parameter-dependent guard's simultaneous zero locus. On
+    // D=[1,2]x[-1,0], the locus is {(1,0)}, not either whole endpoint
+    // hyperplane, so the executable cell layer must fail closed instead of
+    // carving away valid points.
+    let conservative_endpoint_cover = guard(
+        context
+            .add(
+                &context.mul(&d, &context.sub(&n0, &one).unwrap()).unwrap(),
+                &n1,
+            )
+            .unwrap(),
+    );
+    assert_eq!(
+        validate_guard_on_bounds(
+            &context,
+            12,
+            &conservative_endpoint_cover,
+            &[InteriorBounds::new(1, 2), InteriorBounds::new(-1, 0)],
+            Default::default(),
+            Default::default(),
+        ),
+        Err(RuleCellError::UnsupportedMultivariateGuardLocus { ordinal: 12 })
+    );
+
+    // Symbolica factors n1*(n0-1). The n1=0 hyperplane misses the carrier,
+    // while the genuine n0=1 endpoint remains an exact exceptional cell.
+    let factored_endpoint = guard(context.mul(&n1, &context.sub(&n0, &one).unwrap()).unwrap());
+    assert_eq!(
+        validate_guard_on_bounds(
+            &context,
+            12,
+            &factored_endpoint,
+            &[InteriorBounds::new(1, 4), InteriorBounds::new(1, 4)],
+            Default::default(),
+            Default::default(),
+        ),
+        Err(RuleCellError::GuardVanishesInApplicationDomain {
+            ordinal: 12,
+            position: 0,
+            value: 1,
+        })
+    );
+
+    // A genuinely coupled irreducible factor remains typed unsupported.
+    let coupled_multivariate = guard(context.add(&context.mul(&n0, &n1).unwrap(), &one).unwrap());
     assert_eq!(
         validate_guard_on_bounds(
             &context,
             11,
-            &multivariate,
+            &coupled_multivariate,
             &[InteriorBounds::new(1, 4), InteriorBounds::new(1, 4)],
             Default::default(),
             Default::default(),

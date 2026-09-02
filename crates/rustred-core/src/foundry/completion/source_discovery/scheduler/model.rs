@@ -430,6 +430,17 @@ impl ProbeLocalOutcome {
             _ => None,
         }
     }
+
+    /// Detach a rejection without retaining its error payload or any physical
+    /// probe/epoch ordinal.
+    pub(crate) const fn rejection_summary(&self) -> Option<super::ProbeLocalRejectionSummary> {
+        match self {
+            Self::Rejected { stage, error, .. } => Some(
+                super::ProbeLocalRejectionSummary::from_rejection(*stage, error),
+            ),
+            _ => None,
+        }
+    }
 }
 
 /// Ordered result for one declared modular probe.

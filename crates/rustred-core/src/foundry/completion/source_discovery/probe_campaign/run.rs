@@ -2,9 +2,11 @@ use crate::foundry::completion::source_discovery::{
     CampaignModularProbe, CanonicalExactOwnerLedger, ExactExecutableOwnerProposal,
     InteriorReplayRunDisposition, OrdinarySourceIncidenceIndex, try_run_interior_replay_task,
 };
-use crate::foundry::completion::stratum::{DecoratedStratum, MaximalStratumAnchor};
+use crate::foundry::completion::stratum::{
+    CampaignStratumAnchor, DecoratedStratum, MaximalStratumAnchor,
+};
 use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
-use crate::sector::SectorMonotoneDomain;
+use crate::sector::{InteriorBounds, SectorMonotoneDomain};
 
 use super::{
     ProbeCampaignBootstrapCensus, ProbeCampaignCensus, ProbeCampaignError,
@@ -23,6 +25,7 @@ const EXACT_OBSTRUCTIONS: &str = "retained exact candidate obstructions";
 pub(crate) struct ProbeCampaignAdapter<'inputs, 'sources, 'family> {
     generator: &'inputs ParametricIbpGenerator<'family>,
     completed: &'inputs CompletedIbpSourceRows,
+    zero_sources: &'sources crate::identity::TranslatedSourceBatch,
     incidence: OrdinarySourceIncidenceIndex<'sources>,
     limits: ProbeCampaignLimits,
 }
@@ -70,9 +73,20 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
         Ok(Self {
             generator,
             completed,
+            zero_sources,
             incidence,
             limits,
         })
+    }
+
+    /// Rebind the same immutable ordinary module to a different bounded
+    /// resource envelope. This is used by adaptive research drivers that
+    /// widen only the exact resource named by a typed resumable stop.
+    pub(crate) fn try_with_limits(
+        &self,
+        limits: ProbeCampaignLimits,
+    ) -> Result<Self, ProbeCampaignError> {
+        Self::try_new(self.generator, self.completed, self.zero_sources, limits)
     }
 
     /// Bind one plan task to the exact current ledger revision and require its
@@ -227,7 +241,7 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
     fn try_build_anchor<Task: ProbeCampaignPlannedTask>(
         &self,
         task: &Task,
-    ) -> Result<(ProbeCampaignBootstrapCensus, MaximalStratumAnchor), ProbeCampaignError> {
+    ) -> Result<(ProbeCampaignBootstrapCensus, CampaignStratumAnchor), ProbeCampaignError> {
         let discovery = self.limits.replay.scheduler.source_discovery;
         let nominations = self
             .incidence
@@ -309,12 +323,69 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
             self.limits.max_bootstrap_distinct_physical_shifts,
         )?;
 
-        let domain = SectorMonotoneDomain::try_maximal_for_rule(
+        let maximal_domain = SectorMonotoneDomain::try_maximal_for_rule(
             task.sector().clone(),
             task.target_shift().values(),
             &physical_shifts,
         )
         .map_err(ProbeCampaignError::Sector)?;
+        let (domain, restricted) = match task.restricted_symbolic_axes() {
+            None => (maximal_domain, false),
+            Some(symbolic_axes) => {
+                let fixed_indices = task.restricted_fixed_indices();
+                if fixed_indices.is_some_and(|indices| indices.len() != self.incidence.arity()) {
+                    return Err(ProbeCampaignError::Invariant {
+                        detail: "restricted task fixed-index vector has the wrong arity",
+                    });
+                }
+                if symbolic_axes.windows(2).any(|pair| pair[0] >= pair[1])
+                    || symbolic_axes
+                        .last()
+                        .is_some_and(|&position| position >= self.incidence.arity())
+                {
+                    return Err(ProbeCampaignError::Invariant {
+                        detail: "boundary task symbolic axes are not canonical in-range positions",
+                    });
+                }
+                if symbolic_axes.len() == self.incidence.arity() {
+                    (maximal_domain, false)
+                } else {
+                    let mut bounds = Vec::new();
+                    bounds
+                        .try_reserve_exact(self.incidence.arity())
+                        .map_err(|_| ProbeCampaignError::AllocationFailure {
+                            resource: "restricted bootstrap stratum bounds",
+                            requested: self.incidence.arity(),
+                        })?;
+                    for (position, (&maximal, index)) in maximal_domain
+                        .bounds()
+                        .iter()
+                        .zip(task.sector().corner_indices())
+                        .enumerate()
+                    {
+                        if symbolic_axes.binary_search(&position).is_ok() {
+                            bounds.push(maximal);
+                        } else {
+                            let index = fixed_indices.map_or(index, |indices| indices[position]);
+                            if !maximal.contains(index) {
+                                return Err(ProbeCampaignError::Scope {
+                                    detail: "boundary task fixed coordinate lies outside the bootstrap recurrence domain",
+                                });
+                            }
+                            bounds.push(InteriorBounds::new(index, index));
+                        }
+                    }
+                    let restricted_domain = SectorMonotoneDomain::try_new_for_rule(
+                        task.sector().clone(),
+                        bounds,
+                        task.target_shift().values(),
+                        &physical_shifts,
+                    )
+                    .map_err(ProbeCampaignError::Sector)?;
+                    (restricted_domain, true)
+                }
+            }
+        };
         let stratum = DecoratedStratum::try_guard_blind(
             self.incidence.family_fingerprint(),
             self.incidence.context_fingerprint(),
@@ -322,9 +393,17 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
             self.limits.replay.scheduler.campaign.stratum,
         )
         .map_err(ProbeCampaignError::Stratum)?;
-        let anchor =
+        let anchor = if restricted {
+            CampaignStratumAnchor::try_restricted(
+                stratum,
+                self.limits.replay.scheduler.campaign.stratum,
+            )
+            .map_err(ProbeCampaignError::Stratum)?
+        } else {
             MaximalStratumAnchor::try_new(stratum, self.limits.replay.scheduler.campaign.stratum)
-                .map_err(ProbeCampaignError::Stratum)?;
+                .map(CampaignStratumAnchor::from)
+                .map_err(ProbeCampaignError::Stratum)?
+        };
         let census = ProbeCampaignBootstrapCensus::new(
             nominations.raw_incidence_visits(),
             nominations.unique_before_existing_exclusion(),
@@ -337,6 +416,20 @@ impl<'inputs, 'sources, 'family> ProbeCampaignAdapter<'inputs, 'sources, 'family
             physical_shift_sort_work,
         );
         Ok((census, anchor))
+    }
+
+    /// Test-only view of the exact task-to-stratum adapter boundary.
+    ///
+    /// Production callers must go through task binding/evaluation so ledger
+    /// authority is rejoined.  Focused planner/replay regressions use this
+    /// seam to inspect the derived restricted stratum without weakening that
+    /// production transaction.
+    #[cfg(test)]
+    pub(crate) fn try_build_anchor_for_test<Task: ProbeCampaignPlannedTask>(
+        &self,
+        task: &Task,
+    ) -> Result<(ProbeCampaignBootstrapCensus, CampaignStratumAnchor), ProbeCampaignError> {
+        self.try_build_anchor(task)
     }
 }
 

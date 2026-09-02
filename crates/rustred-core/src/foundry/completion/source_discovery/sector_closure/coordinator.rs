@@ -6,6 +6,7 @@ use crate::foundry::completion::frame::admission::{
     ExactOwnerCoverObstructionKind, ExactOwnerCoverStatus,
 };
 use crate::foundry::completion::stratum::ImmutableOwnerSnapshot;
+use crate::foundry::completion::{LatticeBox, SectorChart};
 use crate::sector::{Mask, OrderingPolicy};
 
 use super::super::{
@@ -25,7 +26,7 @@ const STAGED_TERMINALS: &str = "staged sector-closure explicit terminals";
 const FRONTIER_COORDINATES: &str = "staged sector-closure frontier coordinate cells";
 const OWNER_COORDINATES: &str = "staged sector-closure owner coordinate cells";
 const OWNER_CANDIDATES: &str = "staged sector-closure owner candidate slots";
-const OWNER_CONTENT_BYTES: &str = "staged sector-closure owner canonical content bytes";
+const OWNER_CONTENT_KEY_BYTES: &str = "staged sector-closure retained owner content-key bytes";
 const OWNER_COMPARISONS: &str = "staged sector-closure owner order comparisons";
 const TERMINAL_COORDINATES: &str = "staged sector-closure terminal coordinate cells";
 const COMPILED_PAIRING_PROBES: &str = "staged sector-closure compiled pairing probes";
@@ -45,6 +46,212 @@ struct StagedSector {
     terminals: Vec<IntegralKey>,
 }
 
+#[derive(Debug)]
+struct StagedClosureCarrier {
+    key: StagedSectorKey,
+    carrier: LatticeBox,
+}
+
+/// Publish one already compiler-closed same-rank wave without rebuilding any
+/// exact owner cover.
+///
+/// Every input has already crossed [`ClosedExactExecutableOwnerCover::try_seal`].
+/// This boundary performs only bounded scope/census checks, computes each
+/// immutable layer identity once, and extends the predecessor after *all*
+/// layers have published successfully. A failure therefore exposes neither a
+/// partial successor nor a sibling sector as authority to another cover in
+/// the same wave.
+pub(crate) fn try_publish_sealed_sector_wave(
+    predecessor: ImmutableOwnerSnapshot,
+    mut covers: Vec<ClosedExactExecutableOwnerCover>,
+    limits: StagedSectorClosureLimits,
+) -> Result<ClosedSectorClosureWave, StagedSectorClosureError> {
+    if covers.is_empty() {
+        return Err(StagedSectorClosureError::EmptyFrontier);
+    }
+    if !predecessor.try_verify(limits.registry)? {
+        return Err(StagedSectorClosureError::InvalidPredecessor);
+    }
+    check_limit(STAGED_SECTORS, covers.len(), limits.max_sectors)?;
+
+    let mut frontier_coordinate_cells = 0usize;
+    let mut owner_count = 0usize;
+    let mut owner_coordinate_cells = 0usize;
+    let mut owner_candidate_slots = 0usize;
+    let mut owner_content_key_bytes = 0usize;
+    let mut terminal_count = 0usize;
+    let mut terminal_coordinate_cells = 0usize;
+    let mut pairing_probes = 0usize;
+    let mut compiled_work = CompiledWaveWork::default();
+    for (cover_ordinal, sealed) in covers.iter().enumerate() {
+        let cover = sealed.executable_cover();
+        let proof = cover.proof_cover();
+        if proof.family_fingerprint() != predecessor.family_fingerprint() {
+            return Err(StagedSectorClosureError::WrongSealedCoverFamily {
+                cover: cover_ordinal,
+            });
+        }
+        if proof.context_fingerprint() != predecessor.context_fingerprint() {
+            return Err(StagedSectorClosureError::WrongSealedCoverContext {
+                cover: cover_ordinal,
+            });
+        }
+        if proof.sector().arity() != predecessor.arity() {
+            return Err(StagedSectorClosureError::WrongSectorArity {
+                sector: cover_ordinal,
+                expected: predecessor.arity(),
+                actual: proof.sector().arity(),
+            });
+        }
+        if !sealed
+            .predecessor_snapshot()
+            .same_authority_as(&predecessor)
+        {
+            return Err(StagedSectorClosureError::WrongSealedCoverPredecessor {
+                cover: cover_ordinal,
+            });
+        }
+        frontier_coordinate_cells = checked_add(
+            FRONTIER_COORDINATES,
+            frontier_coordinate_cells,
+            proof.sector().arity(),
+        )?;
+        check_limit(
+            FRONTIER_COORDINATES,
+            frontier_coordinate_cells,
+            limits.max_frontier_coordinate_cells,
+        )?;
+        owner_count = checked_add(STAGED_OWNERS, owner_count, cover.owners().len())?;
+        check_limit(STAGED_OWNERS, owner_count, limits.max_staged_owners)?;
+        owner_coordinate_cells = checked_add(
+            OWNER_COORDINATES,
+            owner_coordinate_cells,
+            checked_mul(OWNER_COORDINATES, cover.owners().len(), predecessor.arity())?,
+        )?;
+        check_limit(
+            OWNER_COORDINATES,
+            owner_coordinate_cells,
+            limits.max_staged_owner_coordinate_cells,
+        )?;
+        for owner in cover.owners() {
+            owner_candidate_slots = checked_add(
+                OWNER_CANDIDATES,
+                owner_candidate_slots,
+                owner.executable_candidates().len(),
+            )?;
+            check_limit(
+                OWNER_CANDIDATES,
+                owner_candidate_slots,
+                limits.max_staged_owner_candidate_slots,
+            )?;
+            owner_content_key_bytes = checked_add(
+                OWNER_CONTENT_KEY_BYTES,
+                owner_content_key_bytes,
+                owner.content_order_key().retained_bytes(),
+            )?;
+            check_limit(
+                OWNER_CONTENT_KEY_BYTES,
+                owner_content_key_bytes,
+                limits.max_staged_owner_content_key_bytes,
+            )?;
+        }
+        terminal_count = checked_add(STAGED_TERMINALS, terminal_count, cover.terminals().len())?;
+        check_limit(
+            STAGED_TERMINALS,
+            terminal_count,
+            limits.max_staged_terminals,
+        )?;
+        terminal_coordinate_cells = checked_add(
+            TERMINAL_COORDINATES,
+            terminal_coordinate_cells,
+            checked_mul(
+                TERMINAL_COORDINATES,
+                cover.terminals().len(),
+                predecessor.arity(),
+            )?,
+        )?;
+        check_limit(
+            TERMINAL_COORDINATES,
+            terminal_coordinate_cells,
+            limits.max_staged_terminal_coordinate_cells,
+        )?;
+        pairing_probes = checked_add(
+            COMPILED_PAIRING_PROBES,
+            pairing_probes,
+            checked_mul(
+                COMPILED_PAIRING_PROBES,
+                cover.owners().len(),
+                cover.owners().len(),
+            )?,
+        )?;
+        check_limit(
+            COMPILED_PAIRING_PROBES,
+            pairing_probes,
+            limits.max_compiled_pairing_probes,
+        )?;
+        compiled_work.try_retain(cover, limits)?;
+    }
+    validate_same_active_count(
+        covers
+            .iter()
+            .enumerate()
+            .map(|(ordinal, cover)| (ordinal, cover.executable_cover().proof_cover().sector())),
+    )?;
+
+    covers.sort_unstable_by(|left, right| {
+        let left = left.executable_cover().proof_cover();
+        let right = right.executable_cover().proof_cover();
+        left.sector()
+            .cmp(right.sector())
+            .then_with(|| left.ordering().cmp(&right.ordering()))
+    });
+    if covers.windows(2).any(|pair| {
+        let left = pair[0].executable_cover().proof_cover();
+        let right = pair[1].executable_cover().proof_cover();
+        left.sector() == right.sector() && left.ordering() == right.ordering()
+    }) {
+        return Err(StagedSectorClosureError::DuplicateSector);
+    }
+
+    let mut layers = try_vec(covers.len(), STAGED_SECTORS)?;
+    for cover in covers {
+        layers.push(ClosedSectorLayer::try_publish(cover, limits.registry)?);
+    }
+    let extension_layers = try_clone_arcs(&layers, STAGED_SECTORS)?;
+    let successor = predecessor.try_extend_with_closed_layers(extension_layers, limits.registry)?;
+    Ok(ClosedSectorClosureWave::new(predecessor, successor, layers))
+}
+
+/// Validate the single invariant that makes a layer batch one transactional
+/// bottom-up wave. Kept separate so the sealed-cover publisher and focused
+/// metadata tests cannot drift to subtly different rank semantics.
+pub(super) fn validate_same_active_count<'sector>(
+    sectors: impl IntoIterator<Item = (usize, &'sector Mask)>,
+) -> Result<(), StagedSectorClosureError> {
+    let mut expected_active_count = None;
+    let mut found = false;
+    for (sector_ordinal, sector) in sectors {
+        found = true;
+        let active_count = sector.active_count();
+        if let Some(expected) = expected_active_count {
+            if active_count != expected {
+                return Err(StagedSectorClosureError::MixedFrontierActiveCount {
+                    sector: sector_ordinal,
+                    expected,
+                    actual: active_count,
+                });
+            }
+        } else {
+            expected_active_count = Some(active_count);
+        }
+    }
+    if found {
+        Ok(())
+    } else {
+        Err(StagedSectorClosureError::EmptyFrontier)
+    }
+}
+
 /// Topology-neutral coordinator for one complete same-active-count wave.
 ///
 /// All stages retain the same predecessor authority. Input order is erased at
@@ -61,7 +268,7 @@ pub(crate) struct StagedSectorClosureCoordinator {
     owner_count: usize,
     owner_coordinate_cells: usize,
     owner_candidate_slots: usize,
-    owner_content_order_bytes: usize,
+    owner_content_key_bytes: usize,
     owner_order_comparisons: usize,
     terminal_count: usize,
     terminal_coordinate_cells: usize,
@@ -144,7 +351,7 @@ impl StagedSectorClosureCoordinator {
             owner_count: 0,
             owner_coordinate_cells: 0,
             owner_candidate_slots: 0,
-            owner_content_order_bytes: 0,
+            owner_content_key_bytes: 0,
             owner_order_comparisons: 0,
             terminal_count: 0,
             terminal_coordinate_cells: 0,
@@ -176,8 +383,8 @@ impl StagedSectorClosureCoordinator {
         self.owner_candidate_slots
     }
 
-    pub(crate) const fn owner_content_order_bytes(&self) -> usize {
-        self.owner_content_order_bytes
+    pub(crate) const fn owner_content_key_bytes(&self) -> usize {
+        self.owner_content_key_bytes
     }
 
     pub(crate) const fn owner_order_comparisons(&self) -> usize {
@@ -199,6 +406,7 @@ impl StagedSectorClosureCoordinator {
     /// compiler status; this method never extends the predecessor snapshot.
     pub(crate) fn try_compile_single_sector_preview(
         self,
+        carrier: &LatticeBox,
     ) -> Result<ExactExecutableOwnerCover, StagedSectorClosureError> {
         let Self {
             context,
@@ -221,10 +429,11 @@ impl StagedSectorClosureCoordinator {
         }
         let mut compiled_work = CompiledWaveWork::default();
         let executable_limits = compiled_work.constrain(limits)?;
-        let cover = ExactExecutableOwnerCover::try_compile(
+        let cover = ExactExecutableOwnerCover::try_compile_with_carrier(
             &context,
             stage.owners,
             stage.terminals,
+            carrier,
             executable_limits,
         )?;
         compiled_work.try_retain(&cover, limits)?;
@@ -272,15 +481,15 @@ impl StagedSectorClosureCoordinator {
             owner_candidate_slots,
             self.limits.max_staged_owner_candidate_slots,
         )?;
-        let owner_content_order_bytes = checked_add(
-            OWNER_CONTENT_BYTES,
-            self.owner_content_order_bytes,
-            owner.content_order_key().len(),
+        let owner_content_key_bytes = checked_add(
+            OWNER_CONTENT_KEY_BYTES,
+            self.owner_content_key_bytes,
+            owner.content_order_key().retained_bytes(),
         )?;
         check_limit(
-            OWNER_CONTENT_BYTES,
-            owner_content_order_bytes,
-            self.limits.max_staged_owner_content_order_bytes,
+            OWNER_CONTENT_KEY_BYTES,
+            owner_content_key_bytes,
+            self.limits.max_staged_owner_content_key_bytes,
         )?;
         let stage = &mut self.stages[stage_ordinal];
         stage
@@ -294,7 +503,7 @@ impl StagedSectorClosureCoordinator {
         self.owner_count = requested;
         self.owner_coordinate_cells = owner_coordinate_cells;
         self.owner_candidate_slots = owner_candidate_slots;
-        self.owner_content_order_bytes = owner_content_order_bytes;
+        self.owner_content_key_bytes = owner_content_key_bytes;
         Ok(true)
     }
 
@@ -337,7 +546,7 @@ impl StagedSectorClosureCoordinator {
         if !compare_exact_owner_group_content(
             &owner,
             &self.stages[stage_ordinal].owners[existing_ordinal],
-        )
+        )?
         .is_lt()
         {
             return Ok(false);
@@ -345,9 +554,9 @@ impl StagedSectorClosureCoordinator {
         let existing_candidates = self.stages[stage_ordinal].owners[existing_ordinal]
             .executable_candidates()
             .len();
-        let existing_bytes = self.stages[stage_ordinal].owners[existing_ordinal]
+        let existing_key_bytes = self.stages[stage_ordinal].owners[existing_ordinal]
             .content_order_key()
-            .len();
+            .retained_bytes();
         let owner_candidate_slots = checked_replace(
             OWNER_CANDIDATES,
             self.owner_candidate_slots,
@@ -359,21 +568,21 @@ impl StagedSectorClosureCoordinator {
             owner_candidate_slots,
             self.limits.max_staged_owner_candidate_slots,
         )?;
-        let owner_content_order_bytes = checked_replace(
-            OWNER_CONTENT_BYTES,
-            self.owner_content_order_bytes,
-            existing_bytes,
-            owner.content_order_key().len(),
+        let owner_content_key_bytes = checked_replace(
+            OWNER_CONTENT_KEY_BYTES,
+            self.owner_content_key_bytes,
+            existing_key_bytes,
+            owner.content_order_key().retained_bytes(),
         )?;
         check_limit(
-            OWNER_CONTENT_BYTES,
-            owner_content_order_bytes,
-            self.limits.max_staged_owner_content_order_bytes,
+            OWNER_CONTENT_KEY_BYTES,
+            owner_content_key_bytes,
+            self.limits.max_staged_owner_content_key_bytes,
         )?;
 
         self.stages[stage_ordinal].owners[existing_ordinal] = owner;
         self.owner_candidate_slots = owner_candidate_slots;
-        self.owner_content_order_bytes = owner_content_order_bytes;
+        self.owner_content_key_bytes = owner_content_key_bytes;
         Ok(true)
     }
 
@@ -447,10 +656,42 @@ impl StagedSectorClosureCoordinator {
         Ok(true)
     }
 
-    /// Compile every staged sector. No cover is sealed if any normal stop is
-    /// present; successful publication extends the predecessor with the full
-    /// same-rank layer vector in one immutable transaction.
+    /// Compile every staged sector against its complete machine-index carrier.
+    ///
+    /// This convenience remains useful for exact diagnostics, but translated
+    /// source frames commonly stop short of a representability fringe. A
+    /// publication caller should normally use
+    /// [`Self::try_finish_with_closure_carriers`] and state the supported root
+    /// universe explicitly.
     pub(crate) fn try_finish(self) -> Result<StagedSectorClosureOutcome, StagedSectorClosureError> {
+        let mut carriers = try_vec(self.stages.len(), STAGED_SECTORS)?;
+        for stage in &self.stages {
+            carriers.push(StagedClosureCarrier {
+                key: stage.key.clone(),
+                carrier: SectorChart::new(stage.key.sector.clone()).carrier_box()?,
+            });
+        }
+        self.try_finish_with_prepared_carriers(carriers)
+    }
+
+    /// Compile and transactionally publish one wave relative to an explicit
+    /// finite carrier for every exact `(sector, ordering)` stage.
+    ///
+    /// Carrier input order is immaterial. Missing, duplicate, mismatched, or
+    /// non-origin-anchored carriers are rejected before any cover is compiled;
+    /// no uncovered representability fringe can be reclassified as a terminal.
+    pub(crate) fn try_finish_with_closure_carriers(
+        self,
+        closure_carriers: impl IntoIterator<Item = (Mask, OrderingPolicy, LatticeBox)>,
+    ) -> Result<StagedSectorClosureOutcome, StagedSectorClosureError> {
+        let carriers = prepare_closure_carriers(&self.stages, closure_carriers)?;
+        self.try_finish_with_prepared_carriers(carriers)
+    }
+
+    fn try_finish_with_prepared_carriers(
+        self,
+        carriers: Vec<StagedClosureCarrier>,
+    ) -> Result<StagedSectorClosureOutcome, StagedSectorClosureError> {
         let Self {
             context,
             predecessor,
@@ -463,9 +704,20 @@ impl StagedSectorClosureCoordinator {
         let mut covers = try_vec(stage_count, STAGED_SECTORS)?;
         let mut stops = try_vec(stage_count, STAGED_SECTORS)?;
         let mut compiled_work = CompiledWaveWork::default();
-        for stage in stages {
+        if stages.len() != carriers.len() {
+            return Err(StagedSectorClosureError::ClosureCarrierCountMismatch {
+                expected: stages.len(),
+                actual: carriers.len(),
+            });
+        }
+        for (stage, scoped_carrier) in stages.into_iter().zip(carriers) {
+            if stage.key != scoped_carrier.key {
+                return Err(StagedSectorClosureError::OwnerScope {
+                    detail: "prepared closure carrier differs from its staged sector",
+                });
+            }
             if stage.owners.is_empty() {
-                stops.push(StagedSectorClosureStop::NonFinite(
+                stops.push(StagedSectorClosureStop::NoExecutableOwners(
                     StagedSectorClosureStopEvidence::new(
                         &stage.key,
                         0,
@@ -478,10 +730,11 @@ impl StagedSectorClosureCoordinator {
                 continue;
             }
             let executable_limits = compiled_work.constrain(limits)?;
-            let cover = ExactExecutableOwnerCover::try_compile(
+            let cover = ExactExecutableOwnerCover::try_compile_with_carrier(
                 &context,
                 stage.owners,
                 stage.terminals,
+                &scoped_carrier.carrier,
                 executable_limits,
             )?;
             compiled_work.try_retain(&cover, limits)?;
@@ -550,6 +803,57 @@ impl StagedSectorClosureCoordinator {
             Ok(())
         }
     }
+}
+
+fn prepare_closure_carriers(
+    stages: &[StagedSector],
+    closure_carriers: impl IntoIterator<Item = (Mask, OrderingPolicy, LatticeBox)>,
+) -> Result<Vec<StagedClosureCarrier>, StagedSectorClosureError> {
+    let expected = stages.len();
+    let mut carriers = try_vec(expected, STAGED_SECTORS)?;
+    for (sector, ordering, carrier) in closure_carriers {
+        if carriers.len() == expected {
+            return Err(StagedSectorClosureError::ClosureCarrierCountMismatch {
+                expected,
+                actual: expected.saturating_add(1),
+            });
+        }
+        carriers.push(StagedClosureCarrier {
+            key: StagedSectorKey { sector, ordering },
+            carrier,
+        });
+    }
+    if carriers.len() != expected {
+        return Err(StagedSectorClosureError::ClosureCarrierCountMismatch {
+            expected,
+            actual: carriers.len(),
+        });
+    }
+    carriers.sort_unstable_by(|left, right| left.key.cmp(&right.key));
+    if carriers.windows(2).any(|pair| pair[0].key == pair[1].key) {
+        return Err(StagedSectorClosureError::DuplicateClosureCarrier);
+    }
+    for (ordinal, (stage, scoped)) in stages.iter().zip(&carriers).enumerate() {
+        if stage.key != scoped.key {
+            return Err(StagedSectorClosureError::ClosureCarrierScopeMismatch { carrier: ordinal });
+        }
+        let full = SectorChart::new(stage.key.sector.clone()).carrier_box()?;
+        if scoped.carrier.arity() != stage.key.sector.arity()
+            || scoped.carrier.lower().iter().any(|&lower| lower != 0)
+            || scoped
+                .carrier
+                .upper()
+                .iter()
+                .zip(full.upper())
+                .any(|(&upper, &full_upper)| match (upper, full_upper) {
+                    (Some(upper), Some(full_upper)) => upper > full_upper,
+                    _ => true,
+                })
+        {
+            return Err(StagedSectorClosureError::InvalidClosureCarrier { carrier: ordinal });
+        }
+    }
+    Ok(carriers)
 }
 
 fn stop_from_cover(
@@ -675,52 +979,45 @@ impl CompiledWaveWork {
         &self,
         limits: StagedSectorClosureLimits,
     ) -> Result<ExactExecutableOwnerLimits, StagedSectorClosureError> {
-        let mut executable = limits.executable;
-        executable.cover.max_finite_complement_points =
-            executable.cover.max_finite_complement_points.min(remaining(
-                COMPILED_FINITE_POINTS,
-                limits.max_compiled_finite_complement_points,
-                self.finite_points,
-            )?);
-        executable.cover.max_finite_complement_coordinate_cells = executable
-            .cover
-            .max_finite_complement_coordinate_cells
-            .min(remaining(
-                COMPILED_FINITE_COORDINATES,
-                limits.max_compiled_finite_complement_coordinate_cells,
-                self.finite_coordinate_cells,
-            )?);
-        executable.cover.max_point_owner_probes =
-            executable.cover.max_point_owner_probes.min(remaining(
-                COMPILED_POINT_PROBES,
-                limits.max_compiled_point_owner_probes,
-                self.point_owner_probes,
-            )?);
-        executable.cover.geometry.max_uncovered_boxes =
-            executable.cover.geometry.max_uncovered_boxes.min(remaining(
-                COMPILED_UNCOVERED_BOXES,
-                limits.max_compiled_uncovered_boxes,
-                self.uncovered_boxes,
-            )?);
-        executable.cover.geometry.max_uncovered_box_coordinate_cells = executable
-            .cover
-            .geometry
-            .max_uncovered_box_coordinate_cells
-            .min(remaining(
-                COMPILED_UNCOVERED_COORDINATES,
-                limits.max_compiled_uncovered_box_coordinate_cells,
-                self.uncovered_box_coordinate_cells,
-            )?);
-        executable.cover.geometry.max_split_operations = executable
-            .cover
-            .geometry
-            .max_split_operations
-            .min(remaining(
-                COMPILED_SPLITS,
-                limits.max_compiled_split_operations,
-                self.split_operations,
-            )?);
-        Ok(executable)
+        // The aggregate `max_compiled_*` fields bound retained proof census,
+        // not one compiler invocation's transient partition scratch. Feeding
+        // the remaining retained count back into geometry compilation can
+        // reject a cover whose final census is exactly on budget (for
+        // example, one retained uncovered box may require two temporary
+        // boxes while clipping to a finite carrier). Per-cover scratch remains
+        // governed by `limits.executable`; `try_retain` below enforces the
+        // aggregate envelope transactionally after compilation.
+        check_limit(
+            COMPILED_FINITE_POINTS,
+            self.finite_points,
+            limits.max_compiled_finite_complement_points,
+        )?;
+        check_limit(
+            COMPILED_FINITE_COORDINATES,
+            self.finite_coordinate_cells,
+            limits.max_compiled_finite_complement_coordinate_cells,
+        )?;
+        check_limit(
+            COMPILED_POINT_PROBES,
+            self.point_owner_probes,
+            limits.max_compiled_point_owner_probes,
+        )?;
+        check_limit(
+            COMPILED_UNCOVERED_BOXES,
+            self.uncovered_boxes,
+            limits.max_compiled_uncovered_boxes,
+        )?;
+        check_limit(
+            COMPILED_UNCOVERED_COORDINATES,
+            self.uncovered_box_coordinate_cells,
+            limits.max_compiled_uncovered_box_coordinate_cells,
+        )?;
+        check_limit(
+            COMPILED_SPLITS,
+            self.split_operations,
+            limits.max_compiled_split_operations,
+        )?;
+        Ok(limits.executable)
     }
 
     fn try_retain(
@@ -772,16 +1069,6 @@ impl CompiledWaveWork {
         )?;
         Ok(())
     }
-}
-
-fn remaining(
-    resource: &'static str,
-    limit: usize,
-    used: usize,
-) -> Result<usize, StagedSectorClosureError> {
-    limit
-        .checked_sub(used)
-        .ok_or(StagedSectorClosureError::ResourceCountOverflow { resource })
 }
 
 fn accumulate(

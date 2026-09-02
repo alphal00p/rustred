@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::algebra::IndexedCoefficientContext;
 use crate::family::IntegralKey;
+use crate::foundry::completion::LatticeBox;
 use crate::foundry::completion::frame::admission::{
     ExactCircuitOuterExtensionWitness, ExactCircuitOwnerCover, ExactCircuitOwnerInput,
     ExactCircuitSemanticDag, ExactOwnerCoverSelection, compare_exact_circuit_content,
@@ -13,7 +14,7 @@ use super::super::{
     AdmittedExactRuleCandidate, CanonicalRebasedCandidate, CanonicalReplayBatch,
     ExactRuleCellPromotionDisposition, FreshTaskEpoch, try_promote_replayed_rule_cell_on_partition,
 };
-use super::layer::try_build_owner_content_order_key;
+use super::layer::{try_build_owner_content_key, try_compare_owner_content_exact};
 use super::{
     ExactExecutableCandidateObstruction, ExactExecutableOwnerCover, ExactExecutableOwnerError,
     ExactExecutableOwnerLimits, ExactExecutableOwnerObstruction, ExactExecutableOwnerProposal,
@@ -64,7 +65,21 @@ pub(crate) fn try_compile_canonical_executable_owner(
             limits,
             &mut promotion_attempts,
         )? {
-            Ok(admitted) => executable.push(admitted),
+            Ok(admitted) => {
+                if let Some(split) = admitted.guard_domain_split() {
+                    obstructions.push(ExactExecutableCandidateObstruction::new(
+                        candidate_ordinal,
+                        admitted.epoch().clone(),
+                        admitted.circuit().clone(),
+                        admitted.cleared().clone(),
+                        ExactExecutableOwnerObstruction::ExceptionalGuardDomain {
+                            refinement: admitted.guard_refinement().clone(),
+                            split: split.clone(),
+                        },
+                    ));
+                }
+                executable.push(admitted);
+            }
             Err(obstruction) => obstructions.push(obstruction),
         }
     }
@@ -91,9 +106,9 @@ pub(crate) fn try_compile_canonical_executable_owner(
     circuits.extend(
         executable
             .iter()
-            .map(|candidate| candidate.circuit().clone()),
+            .map(|candidate| (candidate.circuit().clone(), candidate.cleared().clone())),
     );
-    let semantic = Arc::new(ExactCircuitSemanticDag::try_compile(
+    let semantic = Arc::new(ExactCircuitSemanticDag::try_compile_cleared(
         context,
         &partition,
         &circuits,
@@ -101,11 +116,11 @@ pub(crate) fn try_compile_canonical_executable_owner(
     )?);
     validate_candidate_pairing(&semantic, &executable)?;
     drop(partition);
-    let content_order_key = try_build_owner_content_order_key(
+    let content_order_key = try_build_owner_content_key(
         &epoch,
         &semantic,
         &executable,
-        limits.max_owner_content_order_bytes,
+        limits.max_owner_encoded_content_bytes,
     )?;
 
     Ok(ExactExecutableOwnerProposal::Compiled {
@@ -129,11 +144,33 @@ impl ExactExecutableOwnerCover {
         terminals: Vec<IntegralKey>,
         limits: ExactExecutableOwnerLimits,
     ) -> Result<Self, ExactExecutableOwnerError> {
+        Self::try_compile_in_carrier(context, owners, terminals, None, limits)
+    }
+
+    /// Compile a diagnostic preview relative to an explicit supported-root
+    /// carrier. The proof cover retains that carrier as part of its scope.
+    pub(crate) fn try_compile_with_carrier(
+        context: &IndexedCoefficientContext,
+        owners: Vec<Arc<ExactSemanticExecutableOwner>>,
+        terminals: Vec<IntegralKey>,
+        carrier: &LatticeBox,
+        limits: ExactExecutableOwnerLimits,
+    ) -> Result<Self, ExactExecutableOwnerError> {
+        Self::try_compile_in_carrier(context, owners, terminals, Some(carrier), limits)
+    }
+
+    fn try_compile_in_carrier(
+        context: &IndexedCoefficientContext,
+        owners: Vec<Arc<ExactSemanticExecutableOwner>>,
+        terminals: Vec<IntegralKey>,
+        carrier: Option<&LatticeBox>,
+        limits: ExactExecutableOwnerLimits,
+    ) -> Result<Self, ExactExecutableOwnerError> {
         if owners.is_empty() {
             return Err(ExactExecutableOwnerError::EmptyOwners);
         }
         check_limit(OWNER_GROUPS, owners.len(), limits.max_owners)?;
-        let proof_cover = compile_proof_cover(context, &owners, &terminals, limits)?;
+        let proof_cover = compile_proof_cover(context, &owners, &terminals, carrier, limits)?;
         let permutation = try_pairing_permutation(&proof_cover, &owners, limits)?;
         let mut ordered = try_vec(OWNER_GROUPS, owners.len())?;
         for source in permutation {
@@ -188,10 +225,10 @@ impl ExactExecutableOwnerCover {
             .owners
             .iter()
             .position(|existing| compare_exact_owner_proof_content(existing, &owner).is_eq());
-        if proof_equivalent.is_some_and(|ordinal| {
-            !compare_exact_owner_group_content(&owner, &self.owners[ordinal]).is_lt()
-        }) {
-            return Ok(false);
+        if let Some(ordinal) = proof_equivalent {
+            if !compare_exact_owner_group_content(&owner, &self.owners[ordinal])?.is_lt() {
+                return Ok(false);
+            }
         }
         let requested = if proof_equivalent.is_some() {
             self.owners.len()
@@ -210,7 +247,17 @@ impl ExactExecutableOwnerCover {
             self.terminals.len(),
         )?;
         terminals.extend(self.terminals.iter().cloned());
-        let replacement = Self::try_compile(context, owners, terminals, limits)?;
+        // Recompilation must preserve the exact universe against which this
+        // cover was proved. Falling back to the full machine carrier here can
+        // manufacture a representability-fringe obligation and silently
+        // change a bounded publication transaction into a different claim.
+        let replacement = Self::try_compile_with_carrier(
+            context,
+            owners,
+            terminals,
+            self.cover.closure_carrier(),
+            limits,
+        )?;
         *self = replacement;
         Ok(true)
     }
@@ -270,8 +317,13 @@ impl ExactExecutableOwnerCover {
 pub(crate) fn compare_exact_owner_group_content(
     left: &ExactSemanticExecutableOwner,
     right: &ExactSemanticExecutableOwner,
-) -> Ordering {
-    left.content_order_key().cmp(right.content_order_key())
+) -> Result<Ordering, crate::foundry::completion::stratum::StratumRegistryError> {
+    let compact = left.content_order_key().cmp(&right.content_order_key());
+    if compact.is_eq() {
+        try_compare_owner_content_exact(left, right)
+    } else {
+        Ok(compact)
+    }
 }
 
 /// Compare only the exact proof-cover identity of two executable groups.
@@ -364,6 +416,7 @@ fn try_promote_candidate(
             ExactRuleCellPromotionDisposition::BlockedByKnownZero {
                 epoch,
                 circuit,
+                cleared,
                 required_predicate_ordinal,
                 first_circuit_guard_ordinal,
                 zero_branch,
@@ -372,6 +425,7 @@ fn try_promote_candidate(
                     candidate_ordinal,
                     epoch,
                     circuit,
+                    cleared,
                     ExactExecutableOwnerObstruction::BlockedByKnownZero {
                         required_predicate_ordinal,
                         first_circuit_guard_ordinal,
@@ -382,6 +436,7 @@ fn try_promote_candidate(
             ExactRuleCellPromotionDisposition::NeedsGuardedStratum {
                 epoch,
                 circuit,
+                cleared,
                 refinement,
                 obstruction,
             } => {
@@ -389,6 +444,7 @@ fn try_promote_candidate(
                     candidate_ordinal,
                     epoch,
                     circuit,
+                    cleared,
                     ExactExecutableOwnerObstruction::NeedsGuardedStratum {
                         refinement,
                         obstruction,
@@ -398,6 +454,7 @@ fn try_promote_candidate(
             ExactRuleCellPromotionDisposition::AnchorOnGuardWall {
                 epoch: wall_epoch,
                 circuit: wall_circuit,
+                cleared: wall_cleared,
                 refinement,
                 guard_ordinal,
             } => {
@@ -411,6 +468,7 @@ fn try_promote_candidate(
                         candidate_ordinal,
                         wall_epoch,
                         wall_circuit,
+                        wall_cleared,
                         ExactExecutableOwnerObstruction::AnchorOnGuardWall {
                             refinement,
                             guard_ordinal,
@@ -435,7 +493,7 @@ fn try_promote_candidate(
 /// Derive retry authority only from exact chart anchors. Supporting probes are
 /// diagnostics: their modulus/base ordering must neither duplicate work nor
 /// choose which concrete anchor owns the promoted cell.
-fn try_canonical_retry_anchors(
+pub(super) fn try_canonical_retry_anchors(
     epoch: &FreshTaskEpoch,
     candidate: &CanonicalRebasedCandidate,
     limits: ExactExecutableOwnerLimits,
@@ -542,6 +600,7 @@ fn compile_proof_cover(
     context: &IndexedCoefficientContext,
     owners: &[Arc<ExactSemanticExecutableOwner>],
     terminals: &[IntegralKey],
+    carrier: Option<&LatticeBox>,
     limits: ExactExecutableOwnerLimits,
 ) -> Result<ExactCircuitOwnerCover, ExactExecutableOwnerError> {
     let mut partitions = try_vec(OWNER_GROUPS, owners.len())?;
@@ -562,12 +621,21 @@ fn compile_proof_cover(
     for (partition, extension) in partitions.iter().zip(extensions) {
         inputs.push(ExactCircuitOwnerInput::new(partition, extension));
     }
-    Ok(ExactCircuitOwnerCover::try_compile(
-        context,
-        inputs,
-        terminals.iter().cloned(),
-        limits.cover,
-    )?)
+    Ok(match carrier {
+        Some(carrier) => ExactCircuitOwnerCover::try_compile_with_carrier(
+            context,
+            inputs,
+            terminals.iter().cloned(),
+            carrier,
+            limits.cover,
+        )?,
+        None => ExactCircuitOwnerCover::try_compile(
+            context,
+            inputs,
+            terminals.iter().cloned(),
+            limits.cover,
+        )?,
+    })
 }
 
 fn try_pairing_permutation(

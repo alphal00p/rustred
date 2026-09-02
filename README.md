@@ -201,7 +201,7 @@ orbit onto the same two children using 17 selected rows and nine exact guards;
 derives the selected repeated-edge ray `J(0,1,1,1,N,0)` for `N >= 3`. Its
 pivot shift is `[0,0,0,0,2,0]`; exact elimination selects 50 source
 contributions containing 358 source terms and produces eight RHS terms, 32
-guards, and 367 replay keys. Schema-V3 replay takes 1078 exact operations at
+guards, and 367 replay keys. Schema-V4 replay takes 1078 exact operations at
 free index one and 1080 at held-out indices two and eight. A symbolic
 leading-coefficient proof establishes that none of the 32 specialized guards
 becomes the zero polynomial in `d` for any positive free index, while concrete
@@ -213,14 +213,14 @@ only that generated selection on a one-free-index face yields an algebraic
 recurrence for one `S4` orbit of `J(0,1,2,2,N,0)`, structurally `N >= 3`,
 with 13 source contributions, 90 source terms, five RHS terms, seven guards,
 96 replay keys, and 275 exact
-schema-V3 operations. The anchor free index one and held-out indices two and
+schema-V4 operations. The anchor free index one and held-out indices two and
 eight replay identically, and a symbolic leading-coefficient proof covers the
 complete positive ray. The concrete i64 rule cell owns
 `3 <= N <= i64::MAX - 1`; the final machine endpoint is rejected because an
 RHS shift would overflow. A separate complete depth-three projection closes the
 first point of the complementary orbit, `J(0,1,2,3,2,0)`: exact elimination
 selects 46 of 756 generated rows (310 source terms), producing four RHS terms,
-22 guards, 315 replay keys, and 939 exact schema-V3 operations. Depths zero
+22 guards, 315 replay keys, and 939 exact schema-V4 operations. Depths zero
 through two retain typed target-absent results, the fixed application box owns
 only this `S4` orbit point, and neighboring points remain explicitly unowned.
 The remaining complementary ray, the exposed descendant
@@ -236,15 +236,77 @@ bounded K6 misses are not such a proof: recurrence
 witnesses may sit on infinite uncovered strata and therefore cannot simply be
 declared masters. Vakint/MATAD may be used offline to diagnose their missing
 relations and to produce high-precision reference values; neither is part of
-the production RustRed scalar path.
+the production RustRed scalar path. FORM recurrences may inform seed points,
+coordinate orderings, and validation targets, but a production K6 artifact and
+its Python example must regenerate every identity with RustRed. Importing FORM
+recurrence right-hand sides is diagnostic-only and cannot publish an artifact
+or supply a claimed generation time.
+
+K6 closure is being driven in two distinct modes. The hinted mode may use
+reviewed external search metadata—currently itinerary, proof/proposal order,
+probe portfolio, and bounded resource choices—but RustRed still regenerates
+every identity and produces a standalone artifact containing no FORM payload.
+The autonomous mode receives no FORM-derived hints and must discover that
+search guidance itself. Both modes must satisfy the identical exact closure,
+replay, durable reload, and reduction gates; only the autonomous result closes
+the algorithmic Stage 1 objective.
+
+The strict V2 campaign schema makes this distinction structural rather than a
+relabelable provenance flag. An autonomous request contains only the preset and
+bounded report ceilings; RustRed chooses its proof order, discovery chronology,
+probe portfolio, and itinerary deterministically. For example:
+
+```toml
+schema = "rustred.foundry-campaign-config.toml.v2"
+preset = "three-loop-unit-mass-vacuum-k6-orbit-0"
+mode = "autonomous"
+max_task_reports = 512
+max_reported_uncovered_boxes = 64
+```
+
+An externally informed run instead requires a reviewed `[hints]` object. That
+object may choose only supported search inputs such as the itinerary, proof and
+proposal order, probe portfolio, and bounded resource choices:
+
+```toml
+schema = "rustred.foundry-campaign-config.toml.v2"
+preset = "three-loop-unit-mass-vacuum-k6-orbit-0"
+mode = "external-hints-only"
+max_task_reports = 512
+max_reported_uncovered_boxes = 64
+
+[hints]
+itinerary = "full-rank-atomic-waves"
+interior_margin = 2
+polynomial_degree_ceiling = 0
+ordering_policy = "rustred.unshifted-sector-order.v1;priority=rustred.coordinate-priority.v1;k=6;rank-by-slot=5,3,4,2,0,1"
+discovery_coordinate_priority = [5, 3, 4, 2, 0, 1]
+
+[[hints.probes]]
+modulus = 1000000007
+base_parameters = [37]
+chart_offsets = [0, 0, 0, 0, 0, 0]
+```
+
+Unknown fields are rejected, and neither variant has a representation for
+recurrence right-hand sides, coefficients, source rows, supports, or imported
+rules. `rustred campaign run` selects the autonomous single-sector itinerary;
+`rustred campaign run-waves --n-cores N` selects the autonomous full-rank wave
+itinerary. External hints state the same itinerary explicitly and are rejected
+at the wrong entry point. Single-sector reports remain diagnostic and carry
+`artifact_published = false`. Full-wave reports distinguish an exact in-memory
+`artifact_installed` result from `durable_artifact_published`: the latter stays
+false while durable K6 encoding remains typed unsupported. The corresponding
+Python functions are `rustred.run_foundry_campaign(config)` and
+`rustred.run_foundry_wave_campaign(config, n_cores=N)`.
 
 Live matcher comparison remains an integration gate, and no artifact is
 published before the complete rule fixed point closes.
 
-Tensor reduction is explicitly outside Stage 1. Vakint retains its existing
-FORM tensor prepass, while the new RustRed evaluation backend is FORM-free
-from scalar IBP application through master substitution. Existing experimental
-RustRed rank-two tensor code remains frozen. Four- through six-loop closure,
+Tensor-reducer development is explicitly outside Stage 1. Vakint's
+`vakint_rustred` branch is based on GammaLoop's `feynkit` branch and uses its
+native FORM-less tensor prepass before the RustRed scalar backend. Existing
+experimental RustRed rank-two tensor code remains frozen. Four- through six-loop closure,
 high-loop artifact production, and new tensor technology are deferred until
 explicit new guidance. Algorithm research, bounded K6 foundry experiments,
 and census-complete K10/K15/K21 scaling studies are active now; these studies
@@ -361,7 +423,7 @@ The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,
 authored recurrences, and milestone-log architecture have been deleted rather
 than migrated. Durable artifacts accept the current RustRed schema only: every
-obsolete version, including V1 and V2, is rejected and there is no migration
+obsolete version, including V1, V2, and V3, is rejected and there is no migration
 or dual decoder. Vakint likewise provides no compatibility layer for obsolete
 RustRed artifact schemas. This does not weaken Vakint's separate API/default
 and existing FORM-method compatibility contract.
@@ -565,15 +627,17 @@ reuses its pure-Rust master evaluations. It does not rematch graphs, regenerate
 artifacts, invoke FORM, or fall back to another scalar reducer.
 
 Vakint's public API conventions, defaults, and existing FORM-backed methods
-remain backward-compatible; obsolete RustRed artifact schemas deliberately do
-not. Tensor-bearing inputs continue through the existing FORM tensor prepass
-before the FORM-free RustRed scalar tail, so that whole tensor-bearing chain is
-not described as FORM-free. Dedicated invalid-FORM-path tests exercise
-nontrivial one- and two-loop scalar numerators and prove that the scalar backend
-itself has no FORM dependency. Broad raw-master and substituted-result tests
-agree with MATAD. The
-previously implemented optional, bounded `TensorReductionMode::RustRed`
-experiment remains frozen and is not an active Stage 1 dependency.
+remain backward-compatible. Legacy integral notation remains accepted, and
+any newer FeynKit/RustRed spelling is additive and tested against its legacy
+equivalent; obsolete RustRed artifact schemas deliberately do not remain
+compatible. Tensor-bearing RustRed acceptance inputs explicitly use the FORM-less
+FeynKit tensor prepass before the FORM-less RustRed scalar tail. Dedicated
+invalid-FORM-path tests must cover that complete stack, while AlphaLoop and
+MATAD remain offline comparison oracles executed with the separately built
+official FORM5 binary. Broad raw-master and substituted-result
+tests agree with MATAD through the previously validated two-loop baseline; the
+post-rebase acceptance matrix is being revalidated. RustRed's experimental
+tensor code is frozen and is not an active Stage 1 dependency.
 
 Production `K = 1` and `K = 3` artifacts are generated once, checked into and
 shipped with Vakint, and loaded rather than rediscovered during evaluation.

@@ -116,6 +116,21 @@ impl TranslatedSourceProvenance {
         }
         writer.write_str("]")
     }
+
+    #[cfg(test)]
+    pub(crate) fn replace_source_ordinal_for_artifact_test(&mut self, source_ordinal: usize) {
+        self.source_ordinal = source_ordinal;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_source_row_for_artifact_test(&mut self, source_row: RowId) {
+        self.source_row = source_row;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_offset_for_artifact_test(&mut self, offset: IntegralShift) {
+        self.offset = offset;
+    }
 }
 
 /// One immutable translated equation with explicit source provenance.

@@ -20,12 +20,14 @@ mod support;
 pub(crate) use error::InteriorReplayRunError;
 pub(crate) use limits::InteriorReplayRunLimits;
 pub(crate) use model::{
-    InteriorReplayAttemptCensus, InteriorReplayCandidateSupport, InteriorReplayRelativeResidual,
-    InteriorReplayRelativeSource, InteriorReplayRunDisposition,
+    InteriorReplayAttemptCensus, InteriorReplayBudgetStopSummary, InteriorReplayCandidateSupport,
+    InteriorReplayRelativeResidual, InteriorReplayRelativeSource, InteriorReplayRunDisposition,
     InteriorReplaySchedulerOutcomeCensus, InteriorReplaySupportCensus, InteriorReplaySupportSet,
     InteriorReplayTaskReport,
 };
-pub(crate) use run::try_run_interior_replay_task;
+pub(crate) use run::{
+    try_run_interior_replay_task, try_run_interior_replay_task_with_initial_parent_proposal,
+};
 pub(crate) use support::support_shapes_match;
 
 #[cfg(test)]

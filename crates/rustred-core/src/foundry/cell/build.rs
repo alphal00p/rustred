@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::algebra::indexed::IntegerZeroSetResolution;
+use crate::algebra::indexed::IntegerZeroLocusDomainResolution;
 use crate::algebra::{
     IndexedAlgebraLimits, IndexedCoefficientContext, IndexedGuardLimits, IndexedPolynomial,
 };
@@ -10,8 +10,45 @@ use crate::sector::{InteriorBounds, SectorInteriorDomain, SectorMonotoneDomain};
 
 use super::{
     FixedIndexRestriction, RuleCell, RuleCellDomainProof, RuleCellError, RuleCellGuard,
-    RuleCellLimits, RuleCellTerm, SourceViewBatch, SourceViewProvenance,
+    RuleCellGuardDomainSplit, RuleCellLimits, RuleCellTerm, SourceViewBatch,
+    SourceViewConstruction, SourceViewProvenance,
 };
+
+pub(super) fn try_fixed_pairs(
+    fixed: &[FixedIndexRestriction],
+    limit: usize,
+) -> Result<Vec<(usize, i64)>, RuleCellError> {
+    check_limit("fixed restrictions", fixed.len(), limit)?;
+    let mut pairs = Vec::new();
+    pairs
+        .try_reserve_exact(fixed.len())
+        .map_err(|_| RuleCellError::AllocationFailure {
+            resource: "fixed restriction pairs",
+            requested: fixed.len(),
+        })?;
+    pairs.extend(fixed.iter().map(|item| (item.position(), item.value())));
+    Ok(pairs)
+}
+
+pub(super) fn try_rhs_shifts<'a>(
+    rule: &'a ParametricRule,
+    limit: usize,
+) -> Result<Vec<&'a [i64]>, RuleCellError> {
+    let count = rule.right_hand_side().len();
+    check_limit("rule RHS shifts", count, limit)?;
+    let mut rhs = Vec::new();
+    rhs.try_reserve_exact(count)
+        .map_err(|_| RuleCellError::AllocationFailure {
+            resource: "rule RHS shifts",
+            requested: count,
+        })?;
+    rhs.extend(
+        rule.right_hand_side()
+            .iter()
+            .map(|term| term.shift().values()),
+    );
+    Ok(rhs)
+}
 
 impl SourceViewBatch {
     pub fn try_select(
@@ -90,11 +127,7 @@ impl RuleCell {
         {
             return Err(RuleCellError::ApplicationNotTightened);
         }
-        let rhs = rule
-            .right_hand_side()
-            .iter()
-            .map(|term| term.shift().values())
-            .collect::<Vec<_>>();
+        let rhs = try_rhs_shifts(&rule, limits.max_retained_terms)?;
         let domain = SectorMonotoneDomain::try_new_for_rule(
             application.sector().clone(),
             application.bounds().iter().copied(),
@@ -136,6 +169,151 @@ impl RuleCell {
     }
 }
 
+/// Split one exactly separable integer-root hyperplane before consuming the
+/// lowered rule/source payload. The admitted component is selected by the
+/// replay anchor. This bounded first implementation only admits an endpoint
+/// root, for which the complement is one rectangular component; an interior
+/// root remains typed unsupported until the owner cover can publish both
+/// guard-free components without overclaiming either one.
+pub(crate) fn try_single_guard_domain_split(
+    context: &IndexedCoefficientContext,
+    rule: &ParametricRule,
+    application_domain: &SectorMonotoneDomain,
+    fixed: &[FixedIndexRestriction],
+    limits: RuleCellLimits,
+) -> Result<Option<RuleCellGuardDomainSplit>, RuleCellError> {
+    if application_domain.arity() != context.index_count() {
+        return Err(RuleCellError::WrongApplicationArity {
+            expected: context.index_count(),
+            actual: application_domain.arity(),
+        });
+    }
+    check_limit(
+        "rule guards",
+        rule.nonzero_guards().len(),
+        limits.max_guards,
+    )?;
+    let coordinate_cells =
+        application_domain
+            .arity()
+            .checked_mul(3)
+            .ok_or(RuleCellError::ResourceCountOverflow {
+                resource: "guard split coordinate cells",
+            })?;
+    check_limit(
+        "guard split coordinate cells",
+        coordinate_cells,
+        limits.max_guard_split_coordinate_cells,
+    )?;
+    let fixed_pairs = try_fixed_pairs(fixed, limits.max_fixed_restrictions)?;
+    let mut selected = None;
+    for (ordinal, guard) in rule.nonzero_guards().iter().enumerate() {
+        let polynomial = context
+            .specialize_fixed_polynomial_sealed(
+                guard.polynomial(),
+                &fixed_pairs,
+                limits.indexed_algebra,
+            )
+            .map_err(|source| RuleCellError::GuardAlgebra { ordinal, source })?;
+        let system = context
+            .base_coefficient_system(&polynomial, limits.indexed_algebra, limits.guard_algebra)
+            .map_err(|source| RuleCellError::GuardAlgebra { ordinal, source })?;
+        match context
+            .integer_zero_locus_domain_resolution(
+                &system,
+                limits.guard_algebra,
+                |position, root| {
+                    root.to_i64()
+                        .is_some_and(|value| application_domain.bounds()[position].contains(value))
+                },
+            )
+            .map_err(|source| RuleCellError::GuardAlgebra { ordinal, source })?
+        {
+            IntegerZeroLocusDomainResolution::IdenticallyZero => {
+                return Err(RuleCellError::GuardIdenticallyZero { ordinal });
+            }
+            IntegerZeroLocusDomainResolution::MissesDomain => {}
+            IntegerZeroLocusDomainResolution::UnsupportedCoupled
+            | IntegerZeroLocusDomainResolution::IntersectsConservativeCover(_) => return Ok(None),
+            IntegerZeroLocusDomainResolution::IntersectsExactHyperplanes(roots) => {
+                if selected.is_some() || roots.len() != 1 {
+                    return Ok(None);
+                }
+                let root = &roots[0];
+                let Some(value) = root.root().to_i64() else {
+                    return Ok(None);
+                };
+                selected = Some((ordinal, root.index_position(), value));
+            }
+        }
+    }
+    let Some((guard_ordinal, position, value)) = selected else {
+        return Ok(None);
+    };
+    let anchor = rule.anchor().powers();
+    let Some(&anchor_value) = anchor.get(position) else {
+        return Err(RuleCellError::WrongApplicationArity {
+            expected: application_domain.arity(),
+            actual: anchor.len(),
+        });
+    };
+    if anchor_value == value {
+        return Ok(None);
+    }
+    let parent = application_domain.bounds()[position];
+    let mut admitted_bounds = application_domain.bounds().to_vec();
+    let mut exceptional_bounds = application_domain.bounds().to_vec();
+    exceptional_bounds[position] = InteriorBounds::new(value, value);
+    let deferred_bounds = if anchor_value < value {
+        let upper = value
+            .checked_sub(1)
+            .ok_or(RuleCellError::IndexOverflow { position })?;
+        admitted_bounds[position] = InteriorBounds::new(parent.lower(), upper);
+        value.checked_add(1).and_then(|lower| {
+            (lower <= parent.upper()).then(|| {
+                let mut bounds = application_domain.bounds().to_vec();
+                bounds[position] = InteriorBounds::new(lower, parent.upper());
+                bounds
+            })
+        })
+    } else {
+        let lower = value
+            .checked_add(1)
+            .ok_or(RuleCellError::IndexOverflow { position })?;
+        admitted_bounds[position] = InteriorBounds::new(lower, parent.upper());
+        value.checked_sub(1).and_then(|upper| {
+            (parent.lower() <= upper).then(|| {
+                let mut bounds = application_domain.bounds().to_vec();
+                bounds[position] = InteriorBounds::new(parent.lower(), upper);
+                bounds
+            })
+        })
+    };
+    if deferred_bounds.is_some() {
+        return Ok(None);
+    }
+    let rhs = try_rhs_shifts(rule, limits.max_retained_terms)?;
+    let build_domain = |bounds| {
+        SectorMonotoneDomain::try_new_for_rule(
+            application_domain.sector().clone(),
+            bounds,
+            rule.pivot().values(),
+            &rhs,
+        )
+        .map_err(RuleCellError::Sector)
+    };
+    let admitted = build_domain(admitted_bounds)?;
+    let exceptional = build_domain(exceptional_bounds)?;
+    Ok(Some(RuleCellGuardDomainSplit::from_parts(
+        guard_ordinal,
+        position,
+        value,
+        admitted,
+        exceptional,
+        None,
+    )))
+}
+
 fn build(
     context: &IndexedCoefficientContext,
     rule: ParametricRule,
@@ -161,6 +339,11 @@ fn build(
         limits.max_fixed_restrictions,
     )?;
     check_limit("pruned RHS terms", pruned.len(), limits.max_pruned_terms)?;
+    check_limit(
+        "rule guards",
+        rule.nonzero_guards().len(),
+        limits.max_guards,
+    )?;
     fixed.sort_unstable();
     for window in fixed.windows(2) {
         if window[0].position() == window[1].position() {
@@ -182,16 +365,35 @@ fn build(
             });
         }
     }
+    if let SourceViewConstruction::FixedIndexSpecialization(evidence) = sources.construction()
+        && evidence.fixed_restrictions() != fixed.as_slice()
+    {
+        let position = evidence
+            .fixed_restrictions()
+            .iter()
+            .zip(&fixed)
+            .find_map(|(source, cell)| (source != cell).then_some(source.position()))
+            .or_else(|| {
+                evidence
+                    .fixed_restrictions()
+                    .get(fixed.len())
+                    .map(|item| item.position())
+            })
+            .or_else(|| {
+                fixed
+                    .get(evidence.fixed_restrictions().len())
+                    .map(|item| item.position())
+            })
+            .unwrap_or(0);
+        return Err(RuleCellError::FixedRestrictionMismatch { position });
+    }
     pruned.sort_unstable();
     for window in pruned.windows(2) {
         if window[0] == window[1] {
             return Err(RuleCellError::DuplicatePrunedTerm { ordinal: window[0] });
         }
     }
-    let fixed_pairs = fixed
-        .iter()
-        .map(|item| (item.position(), item.value()))
-        .collect::<Vec<_>>();
+    let fixed_pairs = try_fixed_pairs(&fixed, limits.max_fixed_restrictions)?;
     let available = rule.right_hand_side().len();
     for &ordinal in &pruned {
         let term = rule
@@ -248,11 +450,6 @@ fn build(
             descent,
         });
     }
-    check_limit(
-        "rule guards",
-        rule.nonzero_guards().len(),
-        limits.max_guards,
-    )?;
     let mut guards = Vec::new();
     guards
         .try_reserve_exact(rule.nonzero_guards().len())
@@ -310,33 +507,40 @@ pub(super) fn validate_guard_on_bounds(
     let coefficient_system = context
         .base_coefficient_system(polynomial, limits, guard_limits)
         .map_err(|source| RuleCellError::GuardAlgebra { ordinal, source })?;
-    let integer_locus = match context
-        .univariate_integer_zero_set(&coefficient_system, guard_limits)
+    match context
+        .integer_zero_locus_domain_resolution(
+            &coefficient_system,
+            guard_limits,
+            |position, root| {
+                root.to_i64()
+                    .is_some_and(|value| bounds[position].contains(value))
+            },
+        )
         .map_err(|source| RuleCellError::GuardAlgebra { ordinal, source })?
     {
-        IntegerZeroSetResolution::IdenticallyZero => {
+        IntegerZeroLocusDomainResolution::IdenticallyZero => {
             return Err(RuleCellError::GuardIdenticallyZero { ordinal });
         }
-        IntegerZeroSetResolution::UnsupportedMultivariate => {
+        IntegerZeroLocusDomainResolution::MissesDomain => return Ok(()),
+        IntegerZeroLocusDomainResolution::UnsupportedCoupled
+        | IntegerZeroLocusDomainResolution::IntersectsConservativeCover(_) => {
             return Err(RuleCellError::UnsupportedMultivariateGuardLocus { ordinal });
         }
-        IntegerZeroSetResolution::Exact(locus) => locus,
-    };
-    if let Some(position) = integer_locus.index_position() {
-        let bounds = bounds[position];
-        for root in integer_locus.roots() {
-            if let Some(value) = root.to_i64()
-                && bounds.contains(value)
-            {
-                return Err(RuleCellError::GuardVanishesInApplicationDomain {
-                    ordinal,
-                    position,
-                    value,
-                });
-            }
+        IntegerZeroLocusDomainResolution::IntersectsExactHyperplanes(roots) => {
+            let Some(first) = roots.first() else {
+                return Err(RuleCellError::UnsupportedMultivariateGuardLocus { ordinal });
+            };
+            let position = first.index_position();
+            let Some(value) = first.root().to_i64() else {
+                return Err(RuleCellError::UnsupportedMultivariateGuardLocus { ordinal });
+            };
+            return Err(RuleCellError::GuardVanishesInApplicationDomain {
+                ordinal,
+                position,
+                value,
+            });
         }
     }
-    Ok(())
 }
 
 fn validate_bindings(

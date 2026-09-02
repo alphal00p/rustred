@@ -27,6 +27,9 @@ pub(crate) enum ExactCircuitOwnerCoverError {
     },
     DuplicateOwnerContent,
     DuplicateTerminal,
+    TerminalOutsideClosureCarrier {
+        terminal: usize,
+    },
     TerminalOverlapsDescendingOwner {
         terminal: usize,
         owner: usize,
@@ -84,6 +87,10 @@ impl fmt::Display for ExactCircuitOwnerCoverError {
             Self::DuplicateTerminal => {
                 formatter.write_str("duplicate explicit finite terminal is not admissible")
             }
+            Self::TerminalOutsideClosureCarrier { terminal } => write!(
+                formatter,
+                "explicit terminal {terminal} lies outside the exact closure carrier"
+            ),
             Self::TerminalOverlapsDescendingOwner { terminal, owner } => write!(
                 formatter,
                 "explicit terminal {terminal} overlaps descending owner {owner}"

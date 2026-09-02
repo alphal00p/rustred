@@ -2,10 +2,13 @@
 
 ## Status and purpose
 
-This note specifies and records the bounded K6 product-action falsifier. The
-cold, non-authoritative prototype now passes its path/star `K1^3` and
-`K3 x K1` scalar tests. It is not yet a closing K6 artifact, a persisted owner,
-a Vakint three-loop parity result, or a general tensor reducer.
+This note records a historical bounded K6 product-action falsifier. Its cold,
+non-authoritative prototype passed the path/star `K1^3` and `K3 x K1` scalar
+tests, but was subsequently removed from the active engine. It never became a
+closing K6 artifact, a persisted owner, a Vakint three-loop parity result, or a
+general tensor reducer. The retained replacement is the bounded non-owning
+multi-affine expansion service; ordinary regenerated-source discovery remains
+the only K6 closure authority.
 
 The motivating observation is that Vakint's registered graph roots and
 RustRed's denominator sectors are different quotients. The five Vakint roots
@@ -58,7 +61,7 @@ embeddings.
 
 The algorithm consumes only scalar `IntegralKey` values and emits lower scalar
 keys or typed masters. It has no open Lorentz indices and does not alter
-Vakint's frozen FORM tensor prepass.
+Vakint's independently owned FeynKit tensor prepass.
 
 ## Required corrections to the existing oracle
 
@@ -137,11 +140,9 @@ The first schema-free prototype is accepted only if all rows pass exactly:
 10. Synthetic products containing two correlated multi-loop blocks return an
     explicit unsupported disposition.
 
-The bounded prototype now passes the scalar rows above that are representable
-by its cold public surface, including the signed K3 mixed-product case, both
-K3 active dots, and both parent-master embeddings. An independent source audit
-is required before any artifact, persistence, or reducer integration. Domain
-promotion must still compile the exact preimage of every lower root and prove
-strict descent over an infinite procedural cover. Even a successful product
-owner closes only the factorized bottom wave; all remaining four-, five-, and
-six-line K6 obligations retain their ordinary exact closure gates.
+The removed bounded prototype passed the scalar rows above that were
+representable by its cold public surface, including the signed K3
+mixed-product case, both K3 active dots, and both parent-master embeddings.
+Those historical results supplied falsification evidence only. They confer no
+artifact, persistence, reducer, domain, or closure authority on the current
+engine.

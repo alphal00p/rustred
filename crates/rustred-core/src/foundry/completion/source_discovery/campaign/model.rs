@@ -5,8 +5,8 @@ use crate::foundry::completion::frame::modular::{
 };
 use crate::foundry::completion::frame::{PhysicalFramePlan, SelectedSourceFrame};
 use crate::foundry::completion::stratum::{
-    DecoratedStratum, ImmutableOwnerSnapshot, ImmutableOwnerSnapshotId, MaximalStratumAnchor,
-    MaximalStratumSequence, TargetColumnPartition,
+    CampaignStratumAnchor, CampaignStratumSequence, DecoratedStratum, ImmutableOwnerSnapshot,
+    ImmutableOwnerSnapshotId, TargetColumnPartition,
 };
 use crate::identity::{IntegralShift, TranslatedSourceRequest};
 use crate::sector::OrderingPolicy;
@@ -36,6 +36,11 @@ impl AccumulatedSourceRequests {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.requests.is_empty()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shares_storage_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.requests, &other.requests)
     }
 
     pub(super) fn from_canonical(arity: usize, requests: Vec<TranslatedSourceRequest>) -> Self {
@@ -142,13 +147,14 @@ pub(crate) enum CampaignRequestMerge {
 
 /// Stateful materialization boundary for one growing target task.
 ///
-/// The target, maximal-stratum proof sequence, immutable owners, and ordering
-/// are captured once. Epoch ordinals are derived internally, and every later
-/// request set must be a strict canonical superset of the preceding one.
+/// The target, maximal or exactly restricted stratum proof sequence, immutable
+/// owners, and ordering are captured once. Epoch ordinals are derived
+/// internally, and every later request set must be a strict canonical
+/// superset of the preceding one.
 #[derive(Debug)]
 pub(crate) struct GrowingTaskEpochState {
     target_shift: IntegralShift,
-    strata: MaximalStratumSequence,
+    strata: CampaignStratumSequence,
     owners: ImmutableOwnerSnapshot,
     ordering: OrderingPolicy,
     previous_requests: Option<AccumulatedSourceRequests>,
@@ -158,13 +164,13 @@ pub(crate) struct GrowingTaskEpochState {
 impl GrowingTaskEpochState {
     pub(crate) fn new(
         target_shift: IntegralShift,
-        stratum: MaximalStratumAnchor,
+        stratum: impl Into<CampaignStratumAnchor>,
         owners: ImmutableOwnerSnapshot,
         ordering: OrderingPolicy,
     ) -> Self {
         Self {
             target_shift,
-            strata: stratum.into_sequence(),
+            strata: stratum.into().into_sequence(),
             owners,
             ordering,
             previous_requests: None,
@@ -176,7 +182,7 @@ impl GrowingTaskEpochState {
         &self.target_shift
     }
 
-    pub(super) const fn strata_mut(&mut self) -> &mut MaximalStratumSequence {
+    pub(super) const fn strata_mut(&mut self) -> &mut CampaignStratumSequence {
         &mut self.strata
     }
 

@@ -9,6 +9,7 @@ use crate::sector;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ExactCircuitLoweringError {
     WrongPhysicalPlan,
+    ClearedCircuitMismatch,
     WrongContext,
     WrongAnchorArity {
         expected: usize,
@@ -64,6 +65,9 @@ impl fmt::Display for ExactCircuitLoweringError {
         match self {
             Self::WrongPhysicalPlan => {
                 formatter.write_str("exact circuit belongs to another physical plan")
+            }
+            Self::ClearedCircuitMismatch => {
+                formatter.write_str("fraction-free certificate belongs to another exact circuit")
             }
             Self::WrongContext => {
                 formatter.write_str("exact-circuit lowering uses another indexed context")

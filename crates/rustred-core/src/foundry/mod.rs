@@ -12,11 +12,14 @@
 //! elimination logic, and neither search certifies an infinite domain.
 //! [`artifact`] generates and seals the canonical unit-mass `K = 1` tadpole
 //! and `K = 3` sunset partitions, and [`crate::reduction`] applies either
-//! sealed owner through a topology-independent runtime. Three-loop `K = 6`
-//! closure remains an explicit Stage 1 frontier.
+//! sealed owner through a topology-independent runtime. A fully published
+//! three-loop `K = 6` wave campaign now has an in-memory installation seam;
+//! obtaining that complete wave chain and registering its durable grammar
+//! remain explicit Stage 1 frontiers.
 
 pub mod anchored;
 pub mod artifact;
+pub mod campaign;
 pub mod cell;
 // The completion engine remains crate-private while Stage 1 turns its exact
 // discovery evidence into published artifacts.  Compiling it in production

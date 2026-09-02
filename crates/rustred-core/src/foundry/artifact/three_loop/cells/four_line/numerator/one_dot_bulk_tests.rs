@@ -6,7 +6,7 @@ use crate::foundry::cell::{
 };
 use crate::foundry::parametric::{ParametricRule, replay_rule_at_concrete_assignment};
 use crate::foundry::search::{
-    ReachabilityTerminalProvider, SectorSearchDiamond, SectorSearchLimits,
+    ReachabilityTerminalKind, ReachabilityTerminalProvider, SectorSearchDiamond, SectorSearchLimits,
 };
 use crate::sector::InteriorBounds;
 
@@ -324,7 +324,10 @@ fn every_child_routes_to_installed_cells_or_the_existing_scalar_corner() {
                     .unwrap()
                     .is_none()
             );
-            assert!(terminals.classify(&key(&children[2])).is_none());
+            assert!(matches!(
+                terminals.classify(&key(&children[2])),
+                Some(terminal) if terminal.kind() == ReachabilityTerminalKind::Master
+            ));
         } else {
             assert!(
                 scalar_bulk

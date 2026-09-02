@@ -125,23 +125,23 @@ fn k6_revision_nine_compact_coordinator_reproduces_eighty_report_checkpoint() {
         }
     ));
     let location = stop.location().unwrap();
-    assert_eq!(location.ledger_revision(), 18);
-    assert_eq!(location.class_ordinal(), 0);
-    assert_eq!(location.effective_dimension(), 5);
-    assert_eq!(location.parent_free_dimension(), 5);
+    assert_eq!(location.ledger_revision(), 89);
+    assert_eq!(location.class_ordinal(), 2);
+    assert_eq!(location.effective_dimension(), 4);
+    assert_eq!(location.parent_free_dimension(), 4);
     assert_eq!(location.boundary_codimension(), 0);
-    assert_eq!(location.task_ordinal(), 1);
+    assert_eq!(location.task_ordinal(), 9);
 
     let census = stop.census();
-    assert_eq!(census.epochs_started(), 10);
-    assert_eq!(census.plans_built(), 20);
-    assert_eq!(census.classes_completed(), 10);
+    assert_eq!(census.epochs_started(), 81);
+    assert_eq!(census.plans_built(), 81);
+    assert_eq!(census.classes_completed(), 0);
     assert_eq!(census.task_reports(), MAX_REPORTS);
-    assert_eq!(census.no_proposal(), 33);
-    assert_eq!(census.duplicate(), 38);
+    assert_eq!(census.no_proposal(), 0);
+    assert_eq!(census.duplicate(), 0);
     assert_eq!(census.incomplete_proposal(), 0);
-    assert_eq!(census.changed_without_geometric_shrink(), 6);
-    assert_eq!(census.strict_geometric_shrink(), 3);
+    assert_eq!(census.changed_without_geometric_shrink(), 0);
+    assert_eq!(census.strict_geometric_shrink(), MAX_REPORTS);
     assert_eq!(census.compiler_closed(), 0);
     assert_eq!(
         census.no_proposal()
@@ -152,26 +152,29 @@ fn k6_revision_nine_compact_coordinator_reproduces_eighty_report_checkpoint() {
             + census.compiler_closed(),
         MAX_REPORTS,
     );
-    assert_eq!(census.invalidated_tickets(), 135);
+    assert_eq!(census.invalidated_tickets(), 6_666);
     assert_eq!(census.declared_probes(), MAX_REPORTS);
-    assert_eq!(census.scheduler_replayed(), 47);
-    assert_eq!(census.scheduler_support_did_not_lift(), 33);
+    assert_eq!(census.scheduler_replayed(), MAX_REPORTS);
+    assert_eq!(census.scheduler_support_did_not_lift(), 0);
     assert_eq!(census.scheduler_sampled_dual(), 0);
     assert_eq!(census.scheduler_budget_stops(), 0);
     assert_eq!(census.scheduler_rejections(), 0);
     assert_eq!(census.scheduler_stalls(), 0);
     assert_eq!(census.scheduler_exact_lift_errors(), 0);
-    assert_eq!(census.canonical_replayed(), 47);
+    assert_eq!(census.canonical_replayed(), MAX_REPORTS);
     assert_eq!(census.canonical_no_modular_hit(), 0);
     assert_eq!(census.canonical_query_rejections(), 0);
     assert_eq!(census.canonical_support_did_not_lift(), 0);
     assert_eq!(census.exact_obstructions(), 0);
 
+    // With the source-safe carrier, all eighty admitted probes replay exactly
+    // and shrink the cover. The report cap is therefore reached after eighty
+    // successive revisions rather than after boundary-overflow stalls.
     let snapshot = checkpoint.snapshot;
-    assert_eq!(snapshot.revision().get(), 18);
-    assert_eq!(snapshot.owner_count(), 18);
+    assert_eq!(snapshot.revision().get(), 89);
+    assert_eq!(snapshot.owner_count(), 89);
     assert_eq!(snapshot.terminal_count(), 1);
-    assert_eq!(snapshot.uncovered_box_count(), 39);
+    assert_eq!(snapshot.uncovered_box_count(), 346);
     assert!(!snapshot.uncovered_is_finite());
     assert_eq!(snapshot.missing_terminal_count(), 0);
     assert_eq!(snapshot.guard_incomplete_owner_count(), 0);
@@ -181,7 +184,17 @@ fn k6_revision_nine_compact_coordinator_reproduces_eighty_report_checkpoint() {
             ExactOwnerCoverObstructionKind::NonFinite,
         ))
     );
-    assert_eq!(checkpoint.free_dimension_histogram, [0, 0, 0, 17, 20, 2, 0],);
+    assert_eq!(
+        checkpoint.free_dimension_histogram,
+        [0, 0, 0, 302, 43, 1, 0],
+    );
+    assert_eq!(
+        checkpoint.dimension_five_boxes,
+        vec![(
+            vec![11, 11, 9, 0, 3, 1],
+            vec![None, None, None, Some(0), None, None],
+        )],
+    );
 }
 
 #[test]

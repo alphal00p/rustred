@@ -6,7 +6,7 @@ use crate::algebra::IndexedCoefficientContext;
 use crate::family::IntegralKey;
 use crate::foundry::completion::guard::decision::GuardDecisionEvaluationLimits;
 use crate::foundry::completion::stratum::{ImmutableOwnerSnapshotId, TargetColumnPartition};
-use crate::foundry::completion::{LatticePoint, SectorChart, UncoveredPartition};
+use crate::foundry::completion::{LatticeBox, LatticePoint, SectorChart, UncoveredPartition};
 use crate::sector::{Mask, OrderingPolicy};
 
 use super::super::semantic::{
@@ -44,11 +44,13 @@ impl ExactCircuitOwnerId {
 }
 
 /// One canonically ordered exact-rule region. A guard-total owner covers its
-/// entire leading orthant; a partial owner is usable only pointwise.
+/// complete exact box (an orthant is represented by all-unbounded uppers); a
+/// partial owner is usable only pointwise.
 #[derive(Debug)]
 pub(crate) struct ExactCircuitOwner {
     pub(super) id: ExactCircuitOwnerId,
     pub(super) leading: LatticePoint,
+    pub(super) region: LatticeBox,
     pub(super) semantic: Arc<ExactCircuitSemanticDag>,
     pub(super) guard_total: bool,
 }
@@ -60,6 +62,10 @@ impl ExactCircuitOwner {
 
     pub(crate) const fn leading(&self) -> &LatticePoint {
         &self.leading
+    }
+
+    pub(crate) const fn region(&self) -> &LatticeBox {
+        &self.region
     }
 
     pub(crate) const fn is_guard_total(&self) -> bool {
@@ -129,7 +135,8 @@ impl ExactFinitePointOwner {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ExactOwnerCoverObstructionKind {
-    /// Even guard-blind leading orthants leave an unbounded geometric residue.
+    /// Even the complete guard-blind owner-region union leaves an unbounded
+    /// geometric residue.
     NonFinite,
     /// Guard-blind geometry is finite, but at least one required unbounded
     /// region reaches a semantic `Incomplete` branch.
@@ -164,6 +171,8 @@ pub(crate) struct ExactCircuitOwnerCover {
     pub(super) sector: Mask,
     pub(super) ordering: OrderingPolicy,
     pub(super) owner_snapshot_id: ImmutableOwnerSnapshotId,
+    /// Finite root universe against which `status` and `uncovered` are exact.
+    pub(super) closure_carrier: LatticeBox,
     pub(super) owners: Box<[ExactCircuitOwner]>,
     pub(super) terminals: Box<[ExactFiniteTerminalOwner]>,
     pub(super) finite_point_owners: Box<[ExactFinitePointOwner]>,
@@ -202,6 +211,10 @@ impl ExactCircuitOwnerCover {
 
     pub(crate) const fn owner_snapshot_id(&self) -> &ImmutableOwnerSnapshotId {
         &self.owner_snapshot_id
+    }
+
+    pub(crate) const fn closure_carrier(&self) -> &LatticeBox {
+        &self.closure_carrier
     }
 
     pub(crate) fn owners(&self) -> &[ExactCircuitOwner] {
@@ -264,8 +277,11 @@ impl ExactCircuitOwnerCover {
             return Err(ExactCircuitOwnerCoverError::WrongContext);
         }
         let point = SectorChart::new(self.sector.clone()).to_lattice(target)?;
+        if !self.closure_carrier.contains(&point) {
+            return Ok(ExactOwnerCoverSelection::Incomplete);
+        }
         for owner in &self.owners {
-            if !orthant_contains(owner.leading(), &point) {
+            if !owner.region().contains(&point) {
                 continue;
             }
             match owner
@@ -289,13 +305,4 @@ impl ExactCircuitOwnerCover {
             Err(_) => Ok(ExactOwnerCoverSelection::Incomplete),
         }
     }
-}
-
-pub(super) fn orthant_contains(origin: &LatticePoint, point: &LatticePoint) -> bool {
-    origin.arity() == point.arity()
-        && origin
-            .coordinates()
-            .iter()
-            .zip(point.coordinates())
-            .all(|(&origin, &point)| origin <= point)
 }

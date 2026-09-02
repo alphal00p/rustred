@@ -18,7 +18,7 @@ use super::one_loop::derive_one_loop_unit_mass_tadpole;
 fn generated_tadpole_installs_one_exact_closed_partition() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
 
-    assert_eq!(artifact.schema(), ArtifactSchemaVersion::V3);
+    assert_eq!(artifact.schema(), ArtifactSchemaVersion::V4);
     assert_eq!(artifact.arity(), 1);
     assert_eq!(
         artifact.algorithm_id(),
@@ -97,6 +97,7 @@ fn installer_rejects_an_unregistered_closure_shape() {
     let ClosedArtifact {
         schema,
         arity,
+        ordering,
         supported_root_power_bounds,
         family,
         context,
@@ -112,6 +113,7 @@ fn installer_rejects_an_unregistered_closure_shape() {
             schema,
             algorithm_id: "unregistered-closure",
             arity,
+            ordering,
             supported_root_power_bounds,
             family,
             context,
@@ -126,6 +128,53 @@ fn installer_rejects_an_unregistered_closure_shape() {
             common_mass_homogeneity,
         }),
         Err(ArtifactError::UnsupportedClosureShape)
+    ));
+}
+
+#[test]
+fn installer_checks_every_direct_rule_against_one_explicit_ordering_authority() {
+    let mut artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    artifact.duplicate_first_rule_with_ordering_for_test(OrderingPolicy::TestOnlyDistinct);
+    let ClosedArtifact {
+        schema,
+        algorithm_id,
+        arity,
+        ordering,
+        supported_root_power_bounds,
+        family,
+        context,
+        source_relations,
+        rules,
+        rule_cells,
+        canonicalizer,
+        dependencies,
+        factorization_rules,
+        masters,
+        zero_sectors,
+        common_mass_homogeneity,
+        ..
+    } = artifact;
+
+    assert!(matches!(
+        install(ClosingArtifactCandidate {
+            schema,
+            algorithm_id,
+            arity,
+            ordering,
+            supported_root_power_bounds,
+            family,
+            context,
+            source_relations,
+            rules,
+            rule_cells,
+            canonicalizer,
+            dependencies,
+            factorization_rules,
+            masters,
+            zero_sectors,
+            common_mass_homogeneity,
+        }),
+        Err(ArtifactError::InvalidOrderingAuthority { ordinal: 1, .. })
     ));
 }
 
@@ -171,6 +220,7 @@ fn installer_checks_q_squared_minus_one_family_semantics_not_only_fingerprints()
             schema: ArtifactSchemaVersion::CURRENT,
             algorithm_id: "rustred.generated.one-loop-unit-mass-tadpole.v1",
             arity: 1,
+            ordering: OrderingPolicy::default(),
             supported_root_power_bounds: vec![crate::sector::InteriorBounds::new(
                 i64::MIN,
                 i64::MAX,

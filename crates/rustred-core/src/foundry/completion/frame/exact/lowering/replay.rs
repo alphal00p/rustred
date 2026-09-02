@@ -67,9 +67,14 @@ pub(super) fn independently_replay_full_span(
                     "selected source term disagrees with its physical CSR column",
                 ));
             }
+            let (coefficient, _denominator_guard) = context.specialize_fixed_indices_sealed(
+                coefficient,
+                circuit.fixed_indices(),
+                limits.parametric.indexed_algebra,
+            )?;
             let product = context.mul_with_limits(
                 contribution.coefficient(),
-                coefficient,
+                &coefficient,
                 limits.parametric.indexed_algebra.exact_algebra,
             )?;
             if let Some(accumulator) = replayed[physical_column].take() {

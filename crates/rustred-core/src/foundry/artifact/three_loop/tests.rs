@@ -74,7 +74,7 @@ pub(super) fn canonical_presentation(auxiliary_slots: &[usize]) -> FamilyPresent
 }
 
 #[test]
-fn pressure_family_owns_the_exact_nine_ordinary_sources() {
+fn campaign_family_owns_the_exact_nine_ordinary_sources() {
     let family = canonical_family().unwrap();
     assert_eq!(family.loop_count(), 3);
     assert_eq!(family.external_count(), 0);
@@ -298,7 +298,7 @@ fn auxiliary_isp_slots_are_inactive_in_the_maximal_physical_sector() {
 }
 
 #[test]
-fn sealed_terminal_authority_exactly_owns_zero_and_factorized_k6_regions() {
+fn sealed_terminal_authority_owns_exact_structural_and_declared_k6_terminals() {
     let authority = derive_k6_terminal_authority().unwrap();
     assert!(Arc::ptr_eq(
         &authority,
@@ -306,7 +306,7 @@ fn sealed_terminal_authority_exactly_owns_zero_and_factorized_k6_regions() {
     ));
     assert_eq!(
         authority.authority_id(),
-        "rustred.test.three-loop-k6-terminal-authority.v1"
+        "rustred.three-loop-unit-mass-vacuum-k6.terminal-authority.v1"
     );
     assert_eq!(authority.arity(), 6);
     assert_eq!(authority.family().denominator_count(), 6);
@@ -323,6 +323,8 @@ fn sealed_terminal_authority_exactly_owns_zero_and_factorized_k6_regions() {
         3
     );
     assert_eq!(authority.parent_terminals().len(), 3);
+    assert_eq!(authority.declared_master_manifest().terminals().len(), 3);
+    assert_eq!(authority.master_terminal_count(), 6);
     assert_eq!(
         authority
             .factorization_rules()

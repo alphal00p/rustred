@@ -79,8 +79,28 @@ fn oracle_disabled_k6_interior_replay_strictly_shrinks_the_exact_blind_orthant()
             ExactOwnerCoverObstructionKind::NonFinite,
         ))
     );
-    assert_eq!(first_delta.updated().uncovered_box_count(), 6);
+    let first_partition = first_ledger.try_clone_uncovered_partition().unwrap();
+    let arity = fixture.sector().arity();
+    // The source-safe carrier is inset below the remote upper endpoints of
+    // this exact owner.  Its complement therefore has one canonical low-side
+    // slab per axis, not the additional high-side fringe that belongs only to
+    // the larger machine carrier.  `None` remains contextual to the retained
+    // finite carrier here; it does not add a closure obligation beyond it.
+    assert_eq!(first_delta.updated().uncovered_box_count(), arity);
+    assert_eq!(first_partition.boxes().len(), arity);
+    for (pivot, cell) in first_partition.boxes().iter().enumerate() {
+        let mut expected_lower = vec![0; arity];
+        expected_lower[..pivot].fill(2);
+        let mut expected_upper = vec![None; arity];
+        expected_upper[pivot] = Some(1);
+        assert_eq!(cell.lower(), expected_lower);
+        assert_eq!(cell.upper(), expected_upper);
+    }
     assert!(!first_delta.updated().uncovered_is_finite());
+    assert_eq!(first_delta.updated().terminal_count(), 1);
+    assert_eq!(first_ledger.terminals().len(), 1);
+    let expected_terminal = fixture.sector().corner_indices().collect::<Vec<_>>();
+    assert_eq!(first_ledger.terminals()[0].powers(), expected_terminal);
     assert_eq!(first_delta.updated().missing_terminal_count(), 0);
     assert_eq!(first_delta.updated().guard_incomplete_owner_count(), 0);
 
@@ -104,7 +124,6 @@ fn oracle_disabled_k6_interior_replay_strictly_shrinks_the_exact_blind_orthant()
         .expect("the repeated exact K=6 cover must retain its proof owner");
     assert_eq!(first_summary, second_summary);
 
-    let first_partition = first_ledger.try_clone_uncovered_partition().unwrap();
     let second_partition = second_ledger.try_clone_uncovered_partition().unwrap();
     assert_eq!(first_partition.boxes(), second_partition.boxes());
     assert_eq!(

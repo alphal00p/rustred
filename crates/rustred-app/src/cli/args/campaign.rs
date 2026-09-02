@@ -5,8 +5,9 @@ use crate::{ClosingFamilySelector, InputFormat};
 
 use super::{
     ArgError, CampaignGenerateArgs, CampaignInspectArgs, CampaignPlanArgs, CampaignPreflightArgs,
-    CampaignReduceArgs, Command, StreamPath, next_utf8_value, next_value,
-    parse_nonnegative_integer, parse_positive_integer, reject_trailing, set_once,
+    CampaignReduceArgs, ColorPolicy, Command, FoundryCampaignRunArgs, FoundryWaveCampaignRunArgs,
+    StreamPath, next_utf8_value, next_value, parse_nonnegative_integer, parse_positive_integer,
+    reject_trailing, set_once,
 };
 
 pub(super) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -21,6 +22,8 @@ pub(super) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
         }
         "plan" => parse_plan(arguments),
         "preflight" => parse_preflight(arguments),
+        "run" => parse_run(arguments),
+        "run-waves" => parse_run_waves(arguments),
         "generate" => parse_generate(arguments),
         "inspect" => parse_inspect(arguments),
         "reduce" => parse_reduce(arguments),
@@ -29,6 +32,156 @@ pub(super) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
             subcommand,
         }),
     }
+}
+
+fn parse_run_waves(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
+    let mut config = None;
+    let mut output = None;
+    let mut measurements_output = None;
+    let mut n_cores = None;
+    let mut force = false;
+    let mut help = false;
+    let mut arguments = arguments.peekable();
+    while let Some(option) = arguments.next() {
+        let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
+        match option.as_str() {
+            "--help" | "-h" => set_flag(&mut help, "--help")?,
+            "--force" => set_flag(&mut force, "--force")?,
+            "--config" => set_once(
+                &mut config,
+                "--config",
+                StreamPath::parse(next_value(&mut arguments, "--config")?)?,
+            )?,
+            "--output" => set_once(
+                &mut output,
+                "--output",
+                StreamPath::parse(next_value(&mut arguments, "--output")?)?,
+            )?,
+            "--measurements-output" => set_once(
+                &mut measurements_output,
+                "--measurements-output",
+                StreamPath::parse(next_value(&mut arguments, "--measurements-output")?)?,
+            )?,
+            "--n-cores" => {
+                let value = next_utf8_value(&mut arguments, "--n-cores")?;
+                let parsed = parse_positive_integer("--n-cores", value)?;
+                set_once(&mut n_cores, "--n-cores", parsed)?;
+            }
+            _ if option.starts_with('-') => return Err(ArgError::UnknownOption(option)),
+            _ => return Err(ArgError::UnexpectedArgument(option)),
+        }
+    }
+    if help {
+        return Ok(Command::Help);
+    }
+    let config = config.ok_or(ArgError::MissingRequiredOption("--config"))?;
+    let output = output.ok_or(ArgError::MissingRequiredOption("--output"))?;
+    validate_run_paths(&config, &output, measurements_output.as_ref())?;
+    Ok(Command::FoundryWaveCampaignRun(
+        FoundryWaveCampaignRunArgs {
+            config,
+            output,
+            measurements_output,
+            n_cores: n_cores.unwrap_or(1),
+            force,
+        },
+    ))
+}
+
+fn parse_run(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
+    let mut config = None;
+    let mut output = None;
+    let mut measurements_output = None;
+    let mut color = None;
+    let mut no_progress = false;
+    let mut force = false;
+    let mut help = false;
+    let mut arguments = arguments.peekable();
+    while let Some(option) = arguments.next() {
+        let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
+        match option.as_str() {
+            "--help" | "-h" => set_flag(&mut help, "--help")?,
+            "--force" => set_flag(&mut force, "--force")?,
+            "--no-progress" => set_flag(&mut no_progress, "--no-progress")?,
+            "--color" => {
+                let value = next_utf8_value(&mut arguments, "--color")?;
+                let parsed = match value.as_str() {
+                    "auto" => ColorPolicy::Auto,
+                    "always" => ColorPolicy::Always,
+                    "never" => ColorPolicy::Never,
+                    _ => {
+                        return Err(ArgError::InvalidValue {
+                            option: "--color",
+                            value,
+                            expected: "auto, always, or never",
+                        });
+                    }
+                };
+                set_once(&mut color, "--color", parsed)?;
+            }
+            "--config" => set_once(
+                &mut config,
+                "--config",
+                StreamPath::parse(next_value(&mut arguments, "--config")?)?,
+            )?,
+            "--output" => set_once(
+                &mut output,
+                "--output",
+                StreamPath::parse(next_value(&mut arguments, "--output")?)?,
+            )?,
+            "--measurements-output" => set_once(
+                &mut measurements_output,
+                "--measurements-output",
+                StreamPath::parse(next_value(&mut arguments, "--measurements-output")?)?,
+            )?,
+            _ if option.starts_with('-') => return Err(ArgError::UnknownOption(option)),
+            _ => return Err(ArgError::UnexpectedArgument(option)),
+        }
+    }
+    if help {
+        return Ok(Command::Help);
+    }
+    let config = config.ok_or(ArgError::MissingRequiredOption("--config"))?;
+    let output = output.ok_or(ArgError::MissingRequiredOption("--output"))?;
+    validate_run_paths(&config, &output, measurements_output.as_ref())?;
+    Ok(Command::FoundryCampaignRun(FoundryCampaignRunArgs {
+        config,
+        output,
+        measurements_output,
+        no_progress,
+        color: color.unwrap_or_default(),
+        force,
+    }))
+}
+
+fn validate_run_paths(
+    config: &StreamPath,
+    output: &StreamPath,
+    measurements_output: Option<&StreamPath>,
+) -> Result<(), ArgError> {
+    if same_file(config, output) {
+        return Err(ArgError::InvalidCombination(
+            "--config and --output must not name the same stream or path",
+        ));
+    }
+    let Some(measurements_output) = measurements_output else {
+        return Ok(());
+    };
+    if output == measurements_output {
+        return Err(ArgError::InvalidCombination(
+            "--output and --measurements-output must not name the same stream or path",
+        ));
+    }
+    if same_file(config, measurements_output) {
+        return Err(ArgError::InvalidCombination(
+            "--config and --measurements-output must not name the same stream or path",
+        ));
+    }
+    Ok(())
+}
+
+fn same_file(left: &StreamPath, right: &StreamPath) -> bool {
+    matches!((left, right), (StreamPath::File(left), StreamPath::File(right)) if left == right)
 }
 
 fn parse_generate(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -337,4 +490,134 @@ fn parse_plan(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgE
         root_id,
         force,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn arguments(values: &[&str]) -> impl Iterator<Item = OsString> {
+        values
+            .iter()
+            .map(|value| OsString::from(*value))
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    #[test]
+    fn run_requires_explicit_config_and_report_destinations() {
+        assert_eq!(
+            parse(arguments(&["run"])),
+            Err(ArgError::MissingRequiredOption("--config"))
+        );
+        assert_eq!(
+            parse(arguments(&["run", "--config", "-"])),
+            Err(ArgError::MissingRequiredOption("--output"))
+        );
+        assert_eq!(
+            parse(arguments(&[
+                "run", "--config", "-", "--output", "-", "--force"
+            ])),
+            Ok(Command::FoundryCampaignRun(FoundryCampaignRunArgs {
+                config: StreamPath::Stdio,
+                output: StreamPath::Stdio,
+                measurements_output: None,
+                no_progress: false,
+                color: ColorPolicy::Auto,
+                force: true,
+            }))
+        );
+    }
+
+    #[test]
+    fn run_parses_progress_and_color_policy_once() {
+        assert_eq!(
+            parse(arguments(&[
+                "run",
+                "--config",
+                "config.toml",
+                "--output",
+                "report.toml",
+                "--no-progress",
+                "--color",
+                "never",
+            ])),
+            Ok(Command::FoundryCampaignRun(FoundryCampaignRunArgs {
+                config: StreamPath::File("config.toml".into()),
+                output: StreamPath::File("report.toml".into()),
+                measurements_output: None,
+                no_progress: true,
+                color: ColorPolicy::Never,
+                force: false,
+            }))
+        );
+        assert_eq!(
+            parse(arguments(&[
+                "run",
+                "--config",
+                "-",
+                "--output",
+                "report.toml",
+                "--color",
+                "rainbow",
+            ])),
+            Err(ArgError::InvalidValue {
+                option: "--color",
+                value: "rainbow".to_owned(),
+                expected: "auto, always, or never",
+            })
+        );
+        assert_eq!(
+            parse(arguments(&[
+                "run",
+                "--config",
+                "-",
+                "--output",
+                "report.toml",
+                "--no-progress",
+                "--no-progress",
+            ])),
+            Err(ArgError::DuplicateOption("--no-progress"))
+        );
+    }
+
+    #[test]
+    fn run_rejects_ambiguous_measurement_and_file_destinations() {
+        assert_eq!(
+            parse(arguments(&[
+                "run",
+                "--config",
+                "-",
+                "--output",
+                "-",
+                "--measurements-output",
+                "-",
+            ])),
+            Err(ArgError::InvalidCombination(
+                "--output and --measurements-output must not name the same stream or path"
+            ))
+        );
+        assert!(matches!(
+            parse(arguments(&[
+                "run",
+                "--config",
+                "campaign.toml",
+                "--output",
+                "campaign.toml",
+            ])),
+            Err(ArgError::InvalidCombination(_))
+        ));
+        assert!(matches!(
+            parse(arguments(&[
+                "run",
+                "--config",
+                "campaign.toml",
+                "--output",
+                "report.toml",
+                "--measurements-output",
+                "campaign.toml",
+            ])),
+            Err(ArgError::InvalidCombination(_))
+        ));
+    }
 }

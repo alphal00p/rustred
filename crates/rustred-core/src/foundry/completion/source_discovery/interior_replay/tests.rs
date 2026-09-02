@@ -232,3 +232,30 @@ fn coordinate_cap_is_checked_before_relative_support_allocation() {
         }
     ));
 }
+
+#[test]
+fn scheduler_budget_stop_survives_as_payload_free_resume_telemetry() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let mut limits = InteriorReplayRunLimits::default();
+    limits.scheduler.max_aggregate_epochs = 0;
+    let report = run_tadpole(&artifact, &generator, &completed, 1, limits).unwrap();
+
+    assert_eq!(report.scheduler_outcomes().budget_stop(), 2);
+    assert_eq!(report.budget_stops().len(), 2);
+    for (probe_ordinal, stop) in report.budget_stops().iter().enumerate() {
+        assert_eq!(stop.probe_ordinal(), probe_ordinal);
+        assert_eq!(stop.epoch_ordinal(), 0);
+        assert_eq!(stop.resource(), "probe-local aggregate fresh epochs");
+        assert_eq!(
+            stop.scope(),
+            super::super::scheduler::ProbeLocalBudgetScope::Aggregate
+        );
+        assert!(matches!(
+            stop.stage(),
+            super::super::scheduler::ProbeLocalStage::EpochAdmission
+                | super::super::scheduler::ProbeLocalStage::UnexecutedAggregateSuffix
+        ));
+    }
+}

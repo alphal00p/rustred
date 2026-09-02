@@ -415,11 +415,11 @@ fn try_direct_coverage(
     owner: &ImmutableOwner,
 ) -> Result<ImmutableOwnerRouteCoverage, StratumRegistryError> {
     match owner {
-        ImmutableOwner::ZeroSector { sector, .. }
-        | ImmutableOwner::SolvedRewriteSector { sector, .. } => {
+        ImmutableOwner::ZeroSector { sector, .. } => {
             Ok(ImmutableOwnerRouteCoverage::Sector(sector.clone()))
         }
-        ImmutableOwner::Factorization { domain, .. } => {
+        ImmutableOwner::Factorization { domain, .. }
+        | ImmutableOwner::SolvedRewriteSector { domain, .. } => {
             let mut bounds = Vec::new();
             try_reserve(
                 &mut bounds,
@@ -452,11 +452,11 @@ fn try_preimage_coverage(
         });
     }
     match owner {
-        ImmutableOwner::ZeroSector { sector, .. }
-        | ImmutableOwner::SolvedRewriteSector { sector, .. } => Ok(
-            ImmutableOwnerRouteCoverage::Sector(try_preimage_mask(sector, source_for_target)?),
-        ),
-        ImmutableOwner::Factorization { domain, .. } => {
+        ImmutableOwner::ZeroSector { sector, .. } => Ok(ImmutableOwnerRouteCoverage::Sector(
+            try_preimage_mask(sector, source_for_target)?,
+        )),
+        ImmutableOwner::Factorization { domain, .. }
+        | ImmutableOwner::SolvedRewriteSector { domain, .. } => {
             let raw_sector = try_preimage_mask(domain.sector(), source_for_target)?;
             let mut raw_bounds = try_empty_slots(arity, "owner-route factorization bounds")?;
             for (target, &source) in source_for_target.iter().enumerate() {
@@ -713,7 +713,15 @@ mod tests {
                 .unwrap(),
             },
             ImmutableOwner::SolvedRewriteSector {
-                sector: canonical_sector,
+                domain: SectorInteriorDomain::try_new(
+                    canonical_sector,
+                    [
+                        InteriorBounds::new(1, 6),
+                        InteriorBounds::new(1, 7),
+                        InteriorBounds::new(-2, 0),
+                    ],
+                )
+                .unwrap(),
                 ordering: OrderingPolicy::default(),
                 layer_ordinal: 0,
             },
@@ -730,6 +738,26 @@ mod tests {
             limits,
         )
         .unwrap();
+
+        let solved_domain = match &owners[1] {
+            ImmutableOwner::SolvedRewriteSector { domain, .. } => domain,
+            _ => unreachable!(),
+        };
+        let direct_solved = routes
+            .iter()
+            .find(|route| route.owner_ordinal() == 1 && route.sector() == solved_domain.sector())
+            .unwrap();
+        assert!(direct_solved.covers(&owners[1], OrderingPolicy::default(), solved_domain,));
+        let direct_outside = SectorInteriorDomain::try_new(
+            solved_domain.sector().clone(),
+            [
+                InteriorBounds::new(1, 6),
+                InteriorBounds::new(1, 7),
+                InteriorBounds::new(-3, 0),
+            ],
+        )
+        .unwrap();
+        assert!(!direct_solved.covers(&owners[1], OrderingPolicy::default(), &direct_outside,));
         let (index, buckets) = build_owner_route_index(&routes, limits).unwrap();
         assert!(
             verify_owner_routes(
@@ -805,5 +833,26 @@ mod tests {
         };
         assert_eq!(select(OrderingPolicy::default()), Some(1));
         assert_eq!(select(OrderingPolicy::TestOnlyDistinct), None);
+
+        let symmetry_outside = SectorInteriorDomain::try_new(
+            widened.sector().clone(),
+            widened.bounds().iter().enumerate().map(|(slot, &bounds)| {
+                if slot == 0 {
+                    InteriorBounds::new(-3, 0)
+                } else {
+                    bounds
+                }
+            }),
+        )
+        .unwrap();
+        let select_outside = |ordering| {
+            ordinals.iter().copied().find_map(|route_ordinal| {
+                let route = &routes[route_ordinal];
+                route
+                    .covers(&owners[route.owner_ordinal()], ordering, &symmetry_outside)
+                    .then_some(route.owner_ordinal())
+            })
+        };
+        assert_eq!(select_outside(OrderingPolicy::default()), None);
     }
 }

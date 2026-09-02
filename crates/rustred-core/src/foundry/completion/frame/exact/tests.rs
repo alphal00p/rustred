@@ -24,7 +24,8 @@ use super::cleared::{
 use super::{
     ExactCircuitError, ExactCircuitGuardOrigin, ExactCircuitLift, ExactCircuitLimits,
     ExactCircuitLoweringError, ExactCircuitLoweringLimits, ExactTargetCircuit, LoweredExactCircuit,
-    try_lift_exact_circuit, try_lower_exact_circuit,
+    try_lift_exact_circuit, try_lift_exact_circuit_over_complete_frame,
+    try_lower_cleared_exact_circuit, try_lower_exact_circuit,
 };
 
 const PRIME: u64 = 1_000_000_007;
@@ -187,7 +188,8 @@ fn assert_lossless_lowering(
                 }
                 | ParametricGuardOrigin::RuleCoefficientDenominator { shift } => Some(shift),
                 ParametricGuardOrigin::SourceCondition { .. }
-                | ParametricGuardOrigin::SourceCombinationDenominator { .. } => None,
+                | ParametricGuardOrigin::SourceCombinationDenominator { .. }
+                | ParametricGuardOrigin::FinalTargetCoefficient => None,
             };
             if let Some(shift) = shift {
                 assert_canonical_source_shift(shift);
@@ -618,6 +620,32 @@ fn exact_lift_replays_a_frame_bound_nonempty_partition_deterministically() {
     let cleared =
         try_clear_exact_circuit(&context, &plan, &circuit, ClearedCircuitLimits::default())
             .expect("the tadpole circuit must admit a fraction-free source replay");
+    let ExactCircuitLift::Replayed(second_circuit) = second else {
+        panic!("the repeated exact lift must replay")
+    };
+    assert_eq!(circuit, second_circuit);
+    assert!(!cleared.is_bound_to(&second_circuit));
+    let second_cleared = try_clear_exact_circuit(
+        &context,
+        &plan,
+        &second_circuit,
+        ClearedCircuitLimits::default(),
+    )
+    .expect("the repeated circuit must admit the same fraction-free replay");
+    assert_eq!(cleared, second_cleared);
+    assert!(second_cleared.is_bound_to(&second_circuit));
+    assert_eq!(
+        try_lower_cleared_exact_circuit(
+            &context,
+            &plan,
+            &second_circuit,
+            &cleared,
+            &[2],
+            ExactCircuitLoweringLimits::default(),
+        )
+        .unwrap_err(),
+        ExactCircuitLoweringError::ClearedCircuitMismatch
+    );
     assert_eq!(cleared.target_column(), target);
     assert!(!cleared.target_coefficient().is_zero());
     assert_eq!(
@@ -760,6 +788,18 @@ fn an_inconsistent_selected_support_returns_typed_inconclusive_evidence() {
     assert_eq!(miss.selected_source_instances().len(), 1);
     assert_eq!(miss.exact_forbidden_rank(), 0);
     assert_eq!(miss.exact_augmented_rank(), 0);
+
+    let ExactCircuitLift::Replayed(recovered) = try_lift_exact_circuit_over_complete_frame(
+        &context,
+        &hit,
+        &partition,
+        ExactCircuitLimits::default(),
+    )
+    .unwrap() else {
+        panic!("the complete exact frame must recover the target omitted by the selected minor")
+    };
+    assert_eq!(recovered.target_shift().values(), [2]);
+    assert!(!recovered.source_combination().is_empty());
 }
 
 #[test]

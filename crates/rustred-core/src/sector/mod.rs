@@ -24,9 +24,10 @@
 //! - `jComplexity`/`MakeOrderMatrix` motivate the named v1 complexity key.
 //!
 //! LiteRed permits caller-configurable (and even randomized) order matrices.
-//! RustRed instead persists one deterministic policy identifier and exact key
-//! display. Changing that identifier or serialized key invalidates discovered
-//! rules.
+//! RustRed instead persists an exact deterministic policy identity and key
+//! display. Its optional coordinate priority is a complete, versioned
+//! permutation—not a transient portfolio ordinal. Changing that identity or
+//! serialized key invalidates discovered rules.
 
 mod error;
 mod interior;
@@ -46,9 +47,11 @@ pub use monotone::{
     SectorMonotoneShiftDescentWitness, SectorMonotoneTargetCell, SectorMonotoneTargetCellKind,
     SectorMonotoneTargetCells, SectorMonotoneTargetPartition, SectorMonotoneTargetPartitionCensus,
 };
-pub use ordering::{ComplexityComponent, ComplexityKey, OrderingPolicy, StrictDescentWitness};
-#[cfg(test)]
-pub(crate) use ordering::{CoordinatePriority, CoordinatePriorityError, CoordinatePriorityLimits};
+pub use ordering::{
+    ComplexityComponent, ComplexityKey, CoordinatePriority, CoordinatePriorityError,
+    CoordinatePriorityLimits, CoordinatePriorityOrderingV1, MAX_PACKED_ORDERING_PRIORITY_ARITY,
+    OrderingPolicy, OrderingPolicyStableId, StrictDescentWitness,
+};
 pub use restriction::{
     CutConstraint, Exclusion, Pattern, PatternMismatch, PatternSlot, Restrictions,
 };

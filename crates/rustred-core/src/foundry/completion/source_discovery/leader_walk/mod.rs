@@ -22,6 +22,7 @@ mod error;
 mod limits;
 mod model;
 mod plan;
+mod requested;
 
 pub(crate) use error::LeaderWalkPlanError;
 #[allow(unused_imports)] // Proposal seam awaiting the algebraic execution driver.
@@ -33,6 +34,11 @@ pub(crate) use model::{
 };
 #[allow(unused_imports)] // Proposal seam awaiting the algebraic execution driver.
 pub(crate) use plan::try_plan_maximal_orthant_leader_walk;
+#[allow(unused_imports)] // Offline exact-anchor diagnostics consume this bounded plan.
+pub(crate) use requested::{
+    RequestedDomain, RequestedDomainPlan, RequestedDomainScopePartition, RequestedDomainTask,
+    RequestedDomainTaskKey, try_plan_requested_domains,
+};
 
 #[cfg(test)]
 mod tests;

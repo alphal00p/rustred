@@ -11,6 +11,7 @@
 //! predicates; [`DecoratedStratum`] only binds to guard proofs owned by later
 //! exact foundry layers.
 
+mod campaign;
 mod error;
 mod identity;
 mod limits;
@@ -27,7 +28,10 @@ pub(crate) use model::GuardPredicateAuthority;
 pub(crate) use model::{DecoratedStratum, DecoratedStratumId, GuardBranch, GuardBranchIdentity};
 #[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
 pub(crate) use owners::ImmutableOwnerKind;
-pub(crate) use owners::{ImmutableOwnerSnapshot, ImmutableOwnerSnapshotId, ImmutableOwnerWitness};
+pub(crate) use owners::{
+    ImmutableOwnerSnapshot, ImmutableOwnerSnapshotId, ImmutableOwnerWitness,
+    VerifiedImmutableOwnerSnapshot,
+};
 #[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
 pub(crate) use partition::ForbiddenColumnReason;
 pub(crate) use partition::{ProperSubsectorOwner, ProspectiveColumnKind, TargetColumnPartition};
@@ -82,3 +86,4 @@ fn try_reserve<T>(
 
 #[cfg(test)]
 mod tests;
+pub(crate) use campaign::{CampaignStratumAnchor, CampaignStratumSequence};

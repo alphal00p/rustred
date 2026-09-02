@@ -1,5 +1,6 @@
 use crate::algebra::IndexedCoefficientContext;
-use crate::foundry::completion::frame::exact::ExactTargetCircuit;
+use crate::algebra::IndexedPolynomial;
+use crate::foundry::completion::frame::exact::{ClearedExactCircuit, ExactTargetCircuit};
 use crate::foundry::completion::stratum::{
     DecoratedStratum, GuardBranch, GuardBranchIdentity, TargetColumnPartition,
 };
@@ -25,25 +26,65 @@ pub(crate) fn try_refine_exact_circuit_guards(
     partition: &TargetColumnPartition<'_>,
     limits: ExactGuardRefinementLimits,
 ) -> Result<ExactGuardRefinementOutcome, ExactGuardRefinementError> {
+    try_refine_guard_polynomials(
+        context,
+        circuit,
+        circuit
+            .nonzero_guards()
+            .iter()
+            .map(|guard| guard.polynomial()),
+        partition,
+        limits,
+    )
+}
+
+/// Refine only the source/family and final-target predicates certified by a
+/// fraction-free replay of this precise exact circuit.
+pub(crate) fn try_refine_cleared_exact_circuit_guards(
+    context: &IndexedCoefficientContext,
+    circuit: &ExactTargetCircuit,
+    cleared: &ClearedExactCircuit,
+    partition: &TargetColumnPartition<'_>,
+    limits: ExactGuardRefinementLimits,
+) -> Result<ExactGuardRefinementOutcome, ExactGuardRefinementError> {
+    if !cleared.is_bound_to(circuit) {
+        return Err(ExactGuardRefinementError::ClearedCircuitMismatch);
+    }
+    try_refine_guard_polynomials(
+        context,
+        circuit,
+        cleared
+            .semantic_guards()
+            .iter()
+            .map(|guard| guard.polynomial()),
+        partition,
+        limits,
+    )
+}
+
+fn try_refine_guard_polynomials<'guard>(
+    context: &IndexedCoefficientContext,
+    circuit: &ExactTargetCircuit,
+    guard_polynomials: impl ExactSizeIterator<Item = &'guard IndexedPolynomial>,
+    partition: &TargetColumnPartition<'_>,
+    limits: ExactGuardRefinementLimits,
+) -> Result<ExactGuardRefinementOutcome, ExactGuardRefinementError> {
     validate_join(context, circuit, partition)?;
-    check_limit(
-        CIRCUIT_GUARDS,
-        circuit.nonzero_guards().len(),
-        limits.max_circuit_guards,
-    )?;
+    let guard_count = guard_polynomials.len();
+    check_limit(CIRCUIT_GUARDS, guard_count, limits.max_circuit_guards)?;
     check_limit(
         GUARD_ORDINAL_REFERENCES,
-        circuit.nonzero_guards().len(),
+        guard_count,
         limits.max_guard_ordinal_references,
     )?;
 
     let mut grouped: Vec<(GuardBranchIdentity, Vec<usize>)> =
-        try_vec(UNIQUE_PREDICATES, circuit.nonzero_guards().len())?;
+        try_vec(UNIQUE_PREDICATES, guard_count)?;
     let mut circuit_guard_identity_bytes = 0usize;
-    for (guard_ordinal, guard) in circuit.nonzero_guards().iter().enumerate() {
+    for (guard_ordinal, polynomial) in guard_polynomials.enumerate() {
         let identity = try_circuit_guard_identity(
             context,
-            guard.polynomial(),
+            polynomial,
             &mut circuit_guard_identity_bytes,
             limits,
         )?;
@@ -157,6 +198,14 @@ fn validate_join(
     // cost without increasing authority.  This boundary therefore rejoins
     // only the circuit-dependent identities below.
     if circuit.stratum_id() != partition.stratum_id() {
+        return Err(ExactGuardRefinementError::CircuitStratumMismatch);
+    }
+    if !circuit
+        .fixed_indices()
+        .iter()
+        .copied()
+        .eq(partition.stratum().singleton_index_assignments())
+    {
         return Err(ExactGuardRefinementError::CircuitStratumMismatch);
     }
     if circuit.owner_snapshot_id() != partition.snapshot_id() {

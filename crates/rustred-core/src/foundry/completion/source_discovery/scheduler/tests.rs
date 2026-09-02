@@ -12,7 +12,7 @@ use crate::identity::{
 use crate::sector::{Mask, OrderingPolicy, SectorMonotoneDomain};
 
 use super::super::{
-    CampaignError, CampaignModularProbe, OrdinarySourceIncidenceIndex,
+    CampaignError, CampaignModularProbe, InitialParentSourceProposal, OrdinarySourceIncidenceIndex,
     SampledDeclaredModuleDualError, SourceDiscoveryLimits,
 };
 use super::{
@@ -90,6 +90,70 @@ fn tadpole_scheduler<'inputs, 'family>(
         limits,
     )
     .unwrap()
+}
+
+fn tadpole_initial_parent_proposal(
+    generator: &ParametricIbpGenerator<'_>,
+    completed: &CompletedIbpSourceRows,
+    support: &[IntegralShift],
+    limits: ProbeLocalSchedulerLimits,
+) -> InitialParentSourceProposal {
+    let zero_sources = generator
+        .translate_completed_source_rows(
+            completed,
+            [IntegralShift::try_new([0]).unwrap()],
+            limits.source_discovery.translation,
+        )
+        .unwrap();
+    OrdinarySourceIncidenceIndex::try_new(&zero_sources, limits.source_discovery)
+        .unwrap()
+        .try_nominate_initial_parent_support(completed, support, limits.source_discovery)
+        .unwrap()
+}
+
+fn tadpole_inputs_for_requests(
+    artifact: &ClosedArtifact,
+    generator: &ParametricIbpGenerator<'_>,
+    completed: &CompletedIbpSourceRows,
+    target: &IntegralShift,
+    requests: &[TranslatedSourceRequest],
+    limits: ProbeLocalSchedulerLimits,
+) -> (MaximalStratumAnchor, ImmutableOwnerSnapshot) {
+    let selected = generator
+        .translate_selected_completed_source_rows(
+            completed,
+            requests.iter().cloned(),
+            limits.source_discovery.translation,
+        )
+        .unwrap();
+    let physical = selected
+        .sources()
+        .iter()
+        .flat_map(|source| source.terms().keys())
+        .map(|shift| shift.values().to_vec())
+        .collect::<Vec<_>>();
+    let domain = SectorMonotoneDomain::try_maximal_for_rule(
+        Mask::try_new([true]).unwrap(),
+        target.values(),
+        &physical,
+    )
+    .unwrap();
+    let registry = StratumRegistryLimits::default();
+    let stratum = DecoratedStratum::try_guard_blind(
+        artifact.family_fingerprint(),
+        artifact.context_fingerprint(),
+        domain,
+        registry,
+    )
+    .unwrap();
+    let owners = ImmutableOwnerSnapshot::try_empty(
+        artifact.family_fingerprint(),
+        artifact.context_fingerprint(),
+        1,
+        registry,
+    )
+    .unwrap();
+    (maximal_anchor(stratum), owners)
 }
 
 fn one_loop_one_external(name: &str) -> IntegralFamily {
@@ -199,6 +263,153 @@ fn target_unit_bootstrap_hits_and_lifts_immediately() {
     assert_eq!(report.census().exact_lift_attempts(), 1);
     assert_eq!(report.census().retained_iteration_records(), 1);
     assert!(result.outcome().replayed().is_some());
+}
+
+#[test]
+fn initial_parent_requests_merge_deterministically_and_regenerate_in_each_fresh_probe_epoch() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let limits = ProbeLocalSchedulerLimits::default();
+    let target = IntegralShift::try_new([1]).unwrap();
+    let proposal = tadpole_initial_parent_proposal(
+        &generator,
+        &completed,
+        &[IntegralShift::try_new([2]).unwrap()],
+        limits,
+    );
+    let zero_sources = generator
+        .translate_completed_source_rows(
+            &completed,
+            [IntegralShift::try_new([0]).unwrap()],
+            limits.source_discovery.translation,
+        )
+        .unwrap();
+    let incidence =
+        OrdinarySourceIncidenceIndex::try_new(&zero_sources, limits.source_discovery).unwrap();
+    let bootstrap = incidence
+        .try_nominate_target_unit(&target, limits.source_discovery)
+        .unwrap();
+
+    let mut forward = bootstrap.requests().to_vec();
+    forward.extend(proposal.requests().iter().cloned());
+    forward.sort_unstable();
+    forward.dedup();
+    let mut reverse = proposal.requests().to_vec();
+    reverse.extend(bootstrap.requests().iter().cloned());
+    reverse.sort_unstable();
+    reverse.dedup();
+    assert_eq!(forward, reverse);
+    assert!(forward.len() > bootstrap.requests().len());
+
+    let (stratum, owners) =
+        tadpole_inputs_for_requests(&artifact, &generator, &completed, &target, &forward, limits);
+    let probes = [probe([37], [2], limits), probe([41], [3], limits)];
+    let report = ProbeLocalObstructionScheduler::try_new_with_initial_parent_proposal(
+        &generator,
+        &completed,
+        target,
+        stratum,
+        owners,
+        OrderingPolicy::default(),
+        proposal,
+        probes,
+        limits,
+    )
+    .unwrap()
+    .run()
+    .unwrap();
+
+    assert_eq!(report.probes().len(), 2);
+    for probe_report in report.probes() {
+        assert_eq!(probe_report.iterations()[0].epoch_ordinal(), 0);
+        assert_eq!(probe_report.iterations()[0].request_count(), forward.len());
+        assert_eq!(
+            probe_report.outcome().final_requests(),
+            Some(forward.as_slice())
+        );
+        let epoch = probe_report.outcome().epoch().unwrap();
+        let regenerated = epoch
+            .plan()
+            .source_instances()
+            .iter()
+            .map(|source| {
+                TranslatedSourceRequest::new(
+                    source.provenance().source_ordinal(),
+                    source.provenance().offset().clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(regenerated, forward);
+    }
+    let first_epoch = report.probes()[0].outcome().epoch().unwrap();
+    let second_epoch = report.probes()[1].outcome().epoch().unwrap();
+    assert!(!std::ptr::eq(first_epoch.plan(), second_epoch.plan()));
+    assert!(
+        first_epoch
+            .requests()
+            .shares_storage_with(second_epoch.requests())
+    );
+}
+
+#[test]
+fn initial_parent_requests_are_rejected_once_before_probes_under_a_tight_request_cap() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let defaults = ProbeLocalSchedulerLimits::default();
+    let target = IntegralShift::try_new([1]).unwrap();
+    let proposal = tadpole_initial_parent_proposal(
+        &generator,
+        &completed,
+        &[IntegralShift::try_new([2]).unwrap()],
+        defaults,
+    );
+    let zero_sources = generator
+        .translate_completed_source_rows(
+            &completed,
+            [IntegralShift::try_new([0]).unwrap()],
+            defaults.source_discovery.translation,
+        )
+        .unwrap();
+    let incidence =
+        OrdinarySourceIncidenceIndex::try_new(&zero_sources, defaults.source_discovery).unwrap();
+    let bootstrap = incidence
+        .try_nominate_target_unit(&target, defaults.source_discovery)
+        .unwrap();
+    let mut expected = bootstrap.requests().to_vec();
+    expected.extend(proposal.requests().iter().cloned());
+    expected.sort_unstable();
+    expected.dedup();
+    assert!(expected.len() > 1);
+
+    let (stratum, owners) = tadpole_inputs_for_requests(
+        &artifact, &generator, &completed, &target, &expected, defaults,
+    );
+    let mut tight = defaults;
+    tight.max_requests_per_probe = expected.len() - 1;
+    let error = ProbeLocalObstructionScheduler::try_new_with_initial_parent_proposal(
+        &generator,
+        &completed,
+        target,
+        stratum,
+        owners,
+        OrderingPolicy::default(),
+        proposal,
+        [probe([37], [2], tight), probe([41], [3], tight)],
+        tight,
+    )
+    .unwrap()
+    .run()
+    .unwrap_err();
+    assert_eq!(
+        error,
+        ProbeLocalSchedulerError::ResourceLimit {
+            resource: "probe-local requests per probe",
+            requested: expected.len(),
+            limit: expected.len() - 1,
+        }
+    );
 }
 
 #[test]
@@ -361,7 +572,13 @@ fn exhaustive_residual_census_can_feed_a_bounded_frontier_ranked_proposal_batch(
         report.probes()[0].iterations()[1].request_count() + 1,
         "an unselected cutter must remain eligible for a later fresh obstruction",
     );
-    assert!(report.probes()[0].outcome().sampled_dual().is_none());
+    assert_eq!(
+        report.probes()[0].outcome().kind(),
+        ProbeLocalOutcomeKind::SampledDual,
+        "a complete empty residual on the guard-blind fixture is admissible"
+    );
+    assert!(report.probes()[0].outcome().sampled_dual().is_some());
+    assert!(report.probes()[0].outcome().rejection_summary().is_none());
 }
 
 #[test]

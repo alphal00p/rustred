@@ -1,5 +1,7 @@
 use crate::family::{CoefficientLocation, IntegralKey};
-use crate::foundry::parametric::{ParametricGuardOrigin, ParametricRule};
+use crate::foundry::parametric::{
+    ParametricGuardOrigin, ParametricRule, ParametricRuleTermDescent,
+};
 use crate::identity::{IdentityConditionSource, RowId};
 
 use super::super::error::ArtifactPersistenceError;
@@ -275,6 +277,7 @@ fn encode_parametric_guard_origin(
             writer.usize(*source_ordinal, "guard source ordinal")?;
             encode_row_id(writer, row_id)
         }
+        ParametricGuardOrigin::FinalTargetCoefficient => writer.u8(6),
     }
 }
 
@@ -294,13 +297,22 @@ pub(super) fn encode_rule_snapshot(
         writer.i64(bounds.lower())?;
         writer.i64(bounds.upper())?;
     }
-    writer.string(rule.ordering().stable_id(), "rule ordering identifier")?;
+    writer.string(&rule.ordering().stable_id(), "rule ordering identifier")?;
     encode_i64_slice(&mut writer, rule.pivot().values())?;
     writer.usize(rule.right_hand_side().len(), "rule RHS terms")?;
     for term in rule.right_hand_side() {
         encode_i64_slice(&mut writer, term.shift().values())?;
         encode_indexed_coefficient(&mut writer, term.coefficient())?;
-        writer.u8(u8::from(term.descent().verify()))?;
+        match term.descent() {
+            ParametricRuleTermDescent::FixedSector(witness) => {
+                writer.u8(0)?;
+                writer.u8(u8::from(witness.verify()))?;
+            }
+            ParametricRuleTermDescent::SectorMonotone(witness) => {
+                writer.u8(1)?;
+                writer.u8(u8::from(witness.verify()))?;
+            }
+        }
     }
     writer.usize(
         rule.elimination_pivot_guards().len(),
@@ -392,7 +404,7 @@ pub(super) fn encode_rule_snapshot(
                 encode_i64_slice(&mut writer, dependency.shift().values())?;
                 let descent = dependency.descent();
                 writer.string(
-                    descent.policy().stable_id(),
+                    &descent.policy().stable_id(),
                     "sector-monotone ordering identifier",
                 )?;
                 writer.usize(descent.thresholds().len(), "sector-monotone thresholds")?;

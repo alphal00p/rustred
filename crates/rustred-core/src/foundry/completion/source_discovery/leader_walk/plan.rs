@@ -420,7 +420,7 @@ fn build_wave(
     Ok(LeaderWalkWave::new(depth, tasks))
 }
 
-fn chart_point_to_target_shift(
+pub(super) fn chart_point_to_target_shift(
     scope: &LeaderWalkScopeKey,
     coordinates: &[u64],
     max_arity: usize,

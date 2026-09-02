@@ -11,6 +11,7 @@ mod cover_delta;
 mod dual;
 mod error;
 mod incidence;
+mod initial_parent_proposal;
 mod interior_replay;
 pub(crate) mod interior_simplex;
 pub(crate) mod leader_walk;
@@ -50,7 +51,7 @@ pub(crate) use canonical_replay::{
 pub(crate) use cover_delta::{
     CanonicalExactOwnerLedger, ExactOwnerCoverDelta, ExactOwnerCoverDeltaError,
     ExactOwnerCoverDeltaKind, ExactOwnerCoverDeltaLimits, ExactOwnerCoverSnapshot,
-    ExactOwnerLedgerCoverStatus,
+    ExactOwnerLedgerCoverStatus, ExactOwnerLedgerSealError,
 };
 #[allow(unused_imports)]
 pub(crate) use dual::{
@@ -59,13 +60,18 @@ pub(crate) use dual::{
 };
 pub(crate) use error::SourceDiscoveryError;
 pub(crate) use incidence::OrdinarySourceIncidenceIndex;
+#[allow(unused_imports)] // Typed telemetry is consumed with the chart-proposal adapter.
+pub(crate) use initial_parent_proposal::{
+    InitialParentSourceProposal, InitialParentSourceProposalTelemetry,
+};
 #[allow(unused_imports)] // Consumed by the shared planned-probe campaign.
 pub(crate) use interior_replay::{
-    InteriorReplayAttemptCensus, InteriorReplayCandidateSupport, InteriorReplayRelativeResidual,
-    InteriorReplayRelativeSource, InteriorReplayRunDisposition, InteriorReplayRunError,
-    InteriorReplayRunLimits, InteriorReplaySchedulerOutcomeCensus, InteriorReplaySupportCensus,
-    InteriorReplaySupportSet, InteriorReplayTaskReport, support_shapes_match,
-    try_run_interior_replay_task,
+    InteriorReplayAttemptCensus, InteriorReplayBudgetStopSummary, InteriorReplayCandidateSupport,
+    InteriorReplayRelativeResidual, InteriorReplayRelativeSource, InteriorReplayRunDisposition,
+    InteriorReplayRunError, InteriorReplayRunLimits, InteriorReplaySchedulerOutcomeCensus,
+    InteriorReplaySupportCensus, InteriorReplaySupportSet, InteriorReplayTaskReport,
+    support_shapes_match, try_run_interior_replay_task,
+    try_run_interior_replay_task_with_initial_parent_proposal,
 };
 pub(crate) use limits::SourceDiscoveryLimits;
 pub(crate) use model::{
@@ -84,9 +90,9 @@ pub(crate) use owner_bundle::{
     ClosedExactExecutableOwnerCover, ClosedSectorLayer, ClosedSectorLayerContentId,
     ExactExecutableCandidateObstruction, ExactExecutableOwnerCover, ExactExecutableOwnerError,
     ExactExecutableOwnerLimits, ExactExecutableOwnerObstruction, ExactExecutableOwnerProposal,
-    ExactExecutableOwnerSelection, ExactSemanticExecutableOwner, UnpublishedCanonicalOwnerProposal,
-    compare_exact_owner_group_content, compare_exact_owner_proof_content,
-    try_compile_canonical_executable_owner,
+    ExactExecutableOwnerSelection, ExactOwnerContentOrderKey, ExactSemanticExecutableOwner,
+    UnpublishedCanonicalOwnerProposal, compare_exact_owner_group_content,
+    compare_exact_owner_proof_content, try_compile_canonical_executable_owner,
 };
 #[allow(unused_imports)] // Consumed by the shared planned-probe campaign.
 pub(crate) use probe_campaign::{
@@ -111,7 +117,7 @@ pub(crate) use promotion::{
 pub(crate) use sector_closure::{
     ClosedSectorClosureWave, StagedSectorClosureCoordinator, StagedSectorClosureError,
     StagedSectorClosureLimits, StagedSectorClosureOutcome, StagedSectorClosureStop,
-    StagedSectorClosureStopEvidence,
+    StagedSectorClosureStopEvidence, try_publish_sealed_sector_wave,
 };
 #[allow(unused_imports)] // Generic seed frame for the staged K6 discovery portfolio.
 pub(crate) use triangular_support::{TriangularSupportError, try_build_triangular_support_frame};

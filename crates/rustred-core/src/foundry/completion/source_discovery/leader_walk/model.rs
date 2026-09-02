@@ -154,7 +154,7 @@ impl LeaderWalkGeometryEpochIdentity {
         Self(Arc::new(()))
     }
 
-    fn belongs_to(&self, other: &Self) -> bool {
+    pub(super) fn belongs_to(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
 }

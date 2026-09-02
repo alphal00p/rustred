@@ -1,4 +1,4 @@
-//! Bounded Symbolica-native polynomial arithmetic for the prototype.
+//! Bounded Symbolica-native polynomial arithmetic for cleared replay.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 

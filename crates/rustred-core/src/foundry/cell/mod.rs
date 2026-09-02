@@ -14,12 +14,16 @@ mod limits;
 mod model;
 mod projection;
 
+pub(crate) use build::try_single_guard_domain_split;
+
 pub use error::RuleCellError;
 pub use limits::RuleCellLimits;
+pub(crate) use model::RuleCellGuardDomainSplit;
 pub use model::{
-    FixedIndexRestriction, ResidualProjectionEvidence, ResidualTermDisposition,
-    ResidualTermProjection, RuleCell, RuleCellDomainProof, RuleCellGuard, RuleCellTerm,
-    SourceViewBatch, SourceViewConstruction, SourceViewProvenance, SymmetrySourceProvenance,
+    FixedIndexRestriction, FixedIndexSpecializationEvidence, ResidualProjectionEvidence,
+    ResidualTermDisposition, ResidualTermProjection, RuleCell, RuleCellDomainProof, RuleCellGuard,
+    RuleCellTerm, SourceViewBatch, SourceViewConstruction, SourceViewProvenance,
+    SymmetrySourceProvenance,
 };
 
 #[cfg(test)]

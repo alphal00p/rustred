@@ -7,7 +7,11 @@
 //! cold foreign search chart only. It cannot replace the parent K6 family
 //! fingerprint, its complete contraction plan, or parent-source replay.
 
+#[cfg(test)]
+mod operator_transport_certificate;
 mod routing;
+mod support_only_parent_replay_falsifier;
+mod transport;
 
 use std::collections::BTreeSet;
 
@@ -43,11 +47,17 @@ const MISSING_STAR: [i64; ARITY] = [0, 0, 1, 1, 0, 1];
 struct MatcherSeedChart {
     /// Diagnostics only: no decision below depends on this name.
     diagnostic_label: &'static str,
+    parent_family_fingerprint: String,
     raw_corner: IntegralKey,
     canonical_corner: IntegralKey,
     routing: ExactMatcherChartRouting,
     raw_orbit_size: usize,
     completion: IspCompletion,
+    /// The complete nine-row ordinary source barrier is generated exactly
+    /// once when the foreign chart is compiled. Fixed-sample experiments may
+    /// select from this immutable chronology, but it never acquires parent
+    /// K6 authority.
+    ordinary: CompletedIbpSourceRows,
 }
 
 #[derive(Debug)]
@@ -86,14 +96,23 @@ impl MatcherSeedPortfolio {
                 .ok_or("a matcher seed is outside the complete K6 contraction plan")?;
 
             let (completion, routing) = try_route_and_complete(parent, witness)?;
+            let ordinary = {
+                let generator = ParametricIbpGenerator::try_new_with_config(
+                    completion.family(),
+                    ParametricIbpConfig::default(),
+                )?;
+                complete_ordinary(&generator)?
+            };
 
             charts.push(MatcherSeedChart {
                 diagnostic_label: witness.label,
+                parent_family_fingerprint: parent.fingerprint().to_owned(),
                 raw_corner,
                 canonical_corner,
                 routing,
                 raw_orbit_size: required.raw_sector_count(),
                 completion,
+                ordinary,
             });
         }
         charts.sort_unstable_by(|left, right| {
@@ -196,6 +215,8 @@ fn all_vakint_roots_compile_as_foreign_search_charts_inside_one_k6_plan() {
                 + chart.completion.appended_coordinate_ordinals().len(),
             ARITY
         );
+        assert!(chart.ordinary.is_complete_ordinary());
+        assert_eq!(chart.ordinary.source_row_count(), LOOP_COUNT * LOOP_COUNT);
         assert_ne!(
             chart.completion.family().fingerprint(),
             portfolio.parent_family_fingerprint,
@@ -590,10 +611,9 @@ fn matcher_root_seeding_does_not_install_foreign_rows_into_parent_authority() {
         let local_generator =
             ParametricIbpGenerator::try_new_with_config(local, ParametricIbpConfig::default())
                 .unwrap();
-        let local_completed = complete_ordinary(&local_generator).unwrap();
-        assert_eq!(local_completed.source_row_count(), 9);
+        assert_eq!(chart.ordinary.source_row_count(), 9);
         let local_sources = local_generator
-            .translate_completed_source_rows(&local_completed, [zero.clone()], limits.translation)
+            .translate_completed_source_rows(&chart.ordinary, [zero.clone()], limits.translation)
             .unwrap();
         assert_eq!(local_sources.family_fingerprint(), local.fingerprint());
         assert_ne!(local_sources.family_fingerprint(), parent.fingerprint());

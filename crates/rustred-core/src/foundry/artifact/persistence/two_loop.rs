@@ -29,7 +29,7 @@ pub(super) fn encode(
                 detail: "two-loop closure has no canonical symmetry owner",
             })?;
     header.string(
-        canonicalizer.ordering().stable_id(),
+        &canonicalizer.ordering().stable_id(),
         "canonical ordering identifier",
     )?;
     header.usize(canonicalizer.generator_count(), "canonical generators")?;
@@ -100,7 +100,7 @@ pub(super) fn encode(
 
     for cell in artifact.rule_cells() {
         let mut plan = writer.child();
-        encode_rule_cell_snapshot(&mut plan, cell)?;
+        encode_rule_cell_snapshot(&mut plan, cell.as_ref())?;
         let bytes = plan.finish();
         writer.charge_witness_payload(bytes.len())?;
         writer.u16(REGISTERED_RULE_CELL_PLAN)?;
@@ -211,6 +211,10 @@ fn encode_rule_cell_snapshot(
                     }
                 }
             }
+        }
+        SourceViewConstruction::FixedIndexSpecialization(evidence) => {
+            writer.u8(2)?;
+            encode_fixed_restrictions(writer, evidence.fixed_restrictions())?;
         }
     }
     Ok(())

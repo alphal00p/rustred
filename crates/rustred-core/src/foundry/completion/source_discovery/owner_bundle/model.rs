@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use crate::family::IntegralKey;
-use crate::foundry::cell::RuleCell;
+use crate::foundry::cell::{RuleCell, RuleCellGuardDomainSplit};
 use crate::foundry::completion::frame::admission::{
     ExactCircuitOwnerCover, ExactCircuitSemanticDag, ExactGuardRefinement,
 };
-use crate::foundry::completion::frame::exact::ExactTargetCircuit;
+use crate::foundry::completion::frame::exact::{ClearedExactCircuit, ExactTargetCircuit};
 use crate::foundry::completion::stratum::GuardBranchIdentity;
 
 use super::super::{
@@ -29,6 +29,13 @@ pub(crate) enum ExactExecutableOwnerObstruction {
         refinement: ExactGuardRefinement,
         guard_ordinal: usize,
     },
+    /// The replay owns one guard-free rectangular component. The exact root
+    /// singleton (and an optional second guard-free component) remain
+    /// explicit alternate-support work.
+    ExceptionalGuardDomain {
+        refinement: ExactGuardRefinement,
+        split: RuleCellGuardDomainSplit,
+    },
 }
 
 /// One exact candidate retained with the authority needed to revisit its
@@ -38,6 +45,7 @@ pub(crate) struct ExactExecutableCandidateObstruction {
     candidate_ordinal: usize,
     epoch: Arc<FreshTaskEpoch>,
     circuit: Arc<ExactTargetCircuit>,
+    cleared: Arc<ClearedExactCircuit>,
     obstruction: ExactExecutableOwnerObstruction,
 }
 
@@ -54,6 +62,10 @@ impl ExactExecutableCandidateObstruction {
         &self.circuit
     }
 
+    pub(crate) const fn cleared(&self) -> &Arc<ClearedExactCircuit> {
+        &self.cleared
+    }
+
     pub(crate) const fn obstruction(&self) -> &ExactExecutableOwnerObstruction {
         &self.obstruction
     }
@@ -62,12 +74,14 @@ impl ExactExecutableCandidateObstruction {
         candidate_ordinal: usize,
         epoch: Arc<FreshTaskEpoch>,
         circuit: Arc<ExactTargetCircuit>,
+        cleared: Arc<ClearedExactCircuit>,
         obstruction: ExactExecutableOwnerObstruction,
     ) -> Self {
         Self {
             candidate_ordinal,
             epoch,
             circuit,
+            cleared,
             obstruction,
         }
     }
@@ -111,6 +125,47 @@ pub(crate) enum ExactExecutableOwnerProposal {
     Incomplete(UnpublishedCanonicalOwnerProposal),
 }
 
+/// Compact resident order key for one complete canonical owner encoding.
+///
+/// The digest supplies a deterministic cold-path order and the encoded length
+/// bounds an exact replay when both compact fields coincide. A matching key is
+/// never itself treated as proof of equal owner content.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) struct ExactOwnerContentOrderKey {
+    digest: [u8; blake3::OUT_LEN],
+    encoded_len: usize,
+}
+
+impl ExactOwnerContentOrderKey {
+    pub(super) const fn from_digest_and_len(
+        digest: [u8; blake3::OUT_LEN],
+        encoded_len: usize,
+    ) -> Self {
+        Self {
+            digest,
+            encoded_len,
+        }
+    }
+
+    /// Exact canonical byte length committed by the digest.
+    pub(crate) const fn encoded_len(self) -> usize {
+        self.encoded_len
+    }
+
+    /// Actual fixed-size owner payload retained in memory for ordering.
+    pub(crate) const fn retained_bytes(self) -> usize {
+        std::mem::size_of::<Self>()
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn with_encoded_len_for_test(self, encoded_len: usize) -> Self {
+        Self {
+            digest: self.digest,
+            encoded_len,
+        }
+    }
+}
+
 /// One target owner whose exact semantic candidates remain positionally
 /// paired with their executable cells after canonical exact-content sorting.
 #[derive(Debug)]
@@ -118,7 +173,7 @@ pub(crate) struct ExactSemanticExecutableOwner {
     pub(super) epoch: Arc<FreshTaskEpoch>,
     pub(super) semantic: Arc<ExactCircuitSemanticDag>,
     pub(super) executable: Box<[AdmittedExactRuleCandidate]>,
-    pub(super) content_order_key: Box<[u8]>,
+    pub(super) content_order_key: ExactOwnerContentOrderKey,
 }
 
 impl ExactSemanticExecutableOwner {
@@ -134,10 +189,19 @@ impl ExactSemanticExecutableOwner {
         &self.executable
     }
 
-    /// Exact canonical structural bytes for every per-owner field committed
-    /// by published layer identity. Pointer authority is checked separately.
-    pub(crate) fn content_order_key(&self) -> &[u8] {
-        &self.content_order_key
+    /// Compact deterministic order key for the complete canonical owner
+    /// encoding. Equal digest/length pairs are never assumed equal: the
+    /// comparator re-encodes both owners and compares their exact bytes.
+    pub(crate) const fn content_order_key(&self) -> ExactOwnerContentOrderKey {
+        self.content_order_key
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_content_order_key_for_test(
+        &mut self,
+        content_order_key: ExactOwnerContentOrderKey,
+    ) {
+        self.content_order_key = content_order_key;
     }
 }
 

@@ -50,6 +50,26 @@ impl CompletedIbpSourceRows {
         self.relations.get(ordinal)
     }
 
+    pub(crate) fn family_fingerprint(&self) -> &str {
+        self.scope.family_fingerprint.as_str()
+    }
+
+    pub(crate) fn context_fingerprint(&self) -> &str {
+        self.scope.context_fingerprint.as_str()
+    }
+
+    /// Opaque in-memory identity of this sealed execution transcript.
+    ///
+    /// The token is an admission seal only; it carries no row content and is
+    /// unsuitable as a durable or mathematical fingerprint.
+    pub(crate) fn identity_owner(&self) -> std::sync::Arc<()> {
+        self.identity.clone()
+    }
+
+    pub(crate) fn owns_identity(&self, identity: &std::sync::Arc<()>) -> bool {
+        std::sync::Arc::ptr_eq(&self.identity, identity)
+    }
+
     /// Crate-test-only chronology mutant. Prepared-batch completion never
     /// permits this ordering in production.
     #[cfg(test)]
@@ -59,6 +79,20 @@ impl CompletedIbpSourceRows {
         }
         self.relations.swap(left, right);
         true
+    }
+
+    /// Crate-test-only scope mutant. Production completion always retains the
+    /// generator's authenticated family fingerprint.
+    #[cfg(test)]
+    pub(crate) fn replace_family_fingerprint_for_test(&mut self, fingerprint: &str) {
+        self.scope.family_fingerprint = std::sync::Arc::new(fingerprint.to_owned());
+    }
+
+    /// Crate-test-only scope mutant. Production completion always retains the
+    /// generator's authenticated indexed-coefficient fingerprint.
+    #[cfg(test)]
+    pub(crate) fn replace_context_fingerprint_for_test(&mut self, fingerprint: &str) {
+        self.scope.context_fingerprint = std::sync::Arc::new(fingerprint.to_owned());
     }
 }
 
@@ -134,6 +168,7 @@ impl PreparedIbpSourceBatch<'_, '_> {
             relations.push(row.relation);
         }
         Ok(CompletedIbpSourceRows {
+            identity: std::sync::Arc::new(()),
             scope: self.scope,
             layout,
             relations,

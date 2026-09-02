@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
+use crate::foundry::completion::LatticeBox;
 use crate::foundry::completion::stratum::{
     ImmutableOwnerSnapshot, StratumRegistryError, StratumRegistryLimits,
 };
-use crate::sector::{Mask, OrderingPolicy};
+use crate::sector::{InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain};
 
 use super::super::ClosedExactExecutableOwnerCover;
 use super::content::try_build_content_id;
@@ -41,6 +42,10 @@ impl ClosedSectorLayerContentId {
 #[derive(Debug)]
 pub(crate) struct ClosedSectorLayer {
     cover: ClosedExactExecutableOwnerCover,
+    /// Exact power-space image of the finite lattice carrier discharged by
+    /// `cover`.  A later immutable snapshot may advertise this rectangle, but
+    /// must never widen it to the whole sector.
+    proven_domain: SectorInteriorDomain,
     content_id: ClosedSectorLayerContentId,
 }
 
@@ -52,8 +57,13 @@ impl ClosedSectorLayer {
         cover: ClosedExactExecutableOwnerCover,
         limits: StratumRegistryLimits,
     ) -> Result<Arc<Self>, StratumRegistryError> {
+        let proven_domain = try_carrier_domain(&cover)?;
         let content_id = try_build_content_id(&cover, limits)?;
-        Ok(Arc::new(Self { cover, content_id }))
+        Ok(Arc::new(Self {
+            cover,
+            proven_domain,
+            content_id,
+        }))
     }
 
     pub(crate) fn family_fingerprint(&self) -> &str {
@@ -84,6 +94,13 @@ impl ClosedSectorLayer {
 
     pub(crate) const fn executable_cover(&self) -> &ClosedExactExecutableOwnerCover {
         &self.cover
+    }
+
+    /// Exact bounded sector interior on which this layer's cover was proved
+    /// total.  This is the bijective power-space image of
+    /// `proof_cover().closure_carrier()`.
+    pub(crate) const fn proven_domain(&self) -> &SectorInteriorDomain {
+        &self.proven_domain
     }
 
     pub(crate) const fn content_id(&self) -> &ClosedSectorLayerContentId {
@@ -120,5 +137,84 @@ impl ClosedSectorLayer {
         limits: StratumRegistryLimits,
     ) -> Result<ClosedSectorLayerContentId, StratumRegistryError> {
         try_build_content_id_with_first_cell_guard_for_test(&self.cover, limits, guard)
+    }
+}
+
+fn try_carrier_domain(
+    cover: &ClosedExactExecutableOwnerCover,
+) -> Result<SectorInteriorDomain, StratumRegistryError> {
+    let proof = cover.executable_cover().proof_cover();
+    try_carrier_domain_from_lattice(proof.sector(), proof.closure_carrier())
+}
+
+fn try_carrier_domain_from_lattice(
+    sector: &Mask,
+    carrier: &LatticeBox,
+) -> Result<SectorInteriorDomain, StratumRegistryError> {
+    if carrier.arity() != sector.arity() {
+        return Err(StratumRegistryError::Invariant {
+            detail: "closed-sector carrier and sector have different arities",
+        });
+    }
+
+    let mut bounds = Vec::new();
+    bounds.try_reserve_exact(sector.arity()).map_err(|_| {
+        StratumRegistryError::AllocationFailure {
+            resource: "closed-sector proven-domain bounds",
+            requested: sector.arity(),
+        }
+    })?;
+    for ((&lower, &upper), &active) in carrier
+        .lower()
+        .iter()
+        .zip(carrier.upper())
+        .zip(sector.active_bits())
+    {
+        let upper = upper.ok_or(StratumRegistryError::Invariant {
+            detail: "closed-sector proof carrier has an unbounded endpoint",
+        })?;
+        let (power_lower, power_upper) = if active {
+            (i128::from(lower) + 1, i128::from(upper) + 1)
+        } else {
+            (-i128::from(upper), -i128::from(lower))
+        };
+        let power_lower =
+            i64::try_from(power_lower).map_err(|_| StratumRegistryError::Invariant {
+                detail: "closed-sector carrier lower endpoint is not an i64 power",
+            })?;
+        let power_upper =
+            i64::try_from(power_upper).map_err(|_| StratumRegistryError::Invariant {
+                detail: "closed-sector carrier upper endpoint is not an i64 power",
+            })?;
+        bounds.push(InteriorBounds::new(power_lower, power_upper));
+    }
+    SectorInteriorDomain::try_new(sector.clone(), bounds).map_err(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finite_carrier_chart_is_bijective_at_active_and_inactive_endpoints() {
+        let sector = Mask::try_new([true, false]).unwrap();
+        let carrier = LatticeBox::try_new([2, 3], [Some(5), Some(1_u64 << 63)]).unwrap();
+        let domain = try_carrier_domain_from_lattice(&sector, &carrier).unwrap();
+        assert_eq!(
+            domain.bounds(),
+            [InteriorBounds::new(3, 6), InteriorBounds::new(i64::MIN, -3),]
+        );
+    }
+
+    #[test]
+    fn unbounded_carrier_cannot_be_published_as_finite_authority() {
+        let sector = Mask::try_new([true]).unwrap();
+        let carrier = LatticeBox::try_new([0], [None]).unwrap();
+        assert!(matches!(
+            try_carrier_domain_from_lattice(&sector, &carrier),
+            Err(StratumRegistryError::Invariant {
+                detail: "closed-sector proof carrier has an unbounded endpoint",
+            })
+        ));
     }
 }

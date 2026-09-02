@@ -1,13 +1,18 @@
-//! Bounded discovery prototype for fraction-free exact-circuit replay.
+//! Bounded fraction-free exact-circuit replay and semantic guard separation.
 //!
-//! This test-only layer separates guards intrinsic to the ordinary sources
-//! from guards introduced by one field-elimination path. It deliberately
-//! does not produce a rule, owner, artifact, or closure certificate.
+//! This layer proves a polynomial source consequence before promotion. It
+//! separates guards intrinsic to the ordinary sources and final target
+//! coefficient from guards introduced by one field-elimination path.
 
 mod budget;
 mod compile;
 mod model;
+#[cfg(test)]
 mod tests;
 
-pub(super) use compile::{try_clear_exact_circuit, try_compile_final_target_guard};
-pub(super) use model::{ClearedCircuitError, ClearedCircuitLimits, ClearedSemanticGuardOrigin};
+pub(crate) use compile::try_clear_exact_circuit;
+#[cfg(test)]
+pub(crate) use compile::try_compile_final_target_guard;
+pub(crate) use model::{
+    ClearedCircuitError, ClearedCircuitLimits, ClearedExactCircuit, ClearedSemanticGuardOrigin,
+};

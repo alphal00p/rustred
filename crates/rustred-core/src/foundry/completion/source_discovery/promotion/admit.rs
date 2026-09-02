@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
 use crate::algebra::IndexedCoefficientContext;
-use crate::foundry::cell::{RuleCell, RuleCellError};
+use crate::foundry::cell::{
+    FixedIndexRestriction, RuleCell, RuleCellError, try_single_guard_domain_split,
+};
 use crate::foundry::completion::frame::admission::{
-    ExactGuardRefinementOutcome, try_refine_exact_circuit_guards,
+    ExactGuardRefinementOutcome, try_refine_cleared_exact_circuit_guards,
 };
 use crate::foundry::completion::frame::exact::{
-    ExactCircuitLoweringError, ExactTargetCircuit, try_lower_exact_circuit,
+    ClearedExactCircuit, ExactCircuitLoweringError, ExactTargetCircuit, try_clear_exact_circuit,
+    try_lower_cleared_exact_circuit,
 };
 use crate::foundry::completion::source_discovery::FreshTaskEpoch;
 use crate::foundry::completion::stratum::TargetColumnPartition;
@@ -62,6 +65,14 @@ pub(crate) fn try_promote_replayed_rule_cell_on_partition(
     if circuit.stratum_id() != epoch.fixed_stratum().id() {
         return Err(ExactRuleCellPromotionError::StratumMismatch);
     }
+    if !circuit
+        .fixed_indices()
+        .iter()
+        .copied()
+        .eq(epoch.fixed_stratum().singleton_index_assignments())
+    {
+        return Err(ExactRuleCellPromotionError::StratumMismatch);
+    }
     if circuit.owner_snapshot_id() != epoch.fixed_snapshot_id() {
         return Err(ExactRuleCellPromotionError::OwnerSnapshotMismatch);
     }
@@ -82,9 +93,16 @@ pub(crate) fn try_promote_replayed_rule_cell_on_partition(
     }
 
     validate_exact_residual_owners(&epoch, &circuit, partition)?;
-    let refinement = match try_refine_exact_circuit_guards(
+    let cleared = Arc::new(try_clear_exact_circuit(
+        context,
+        epoch.plan(),
+        &circuit,
+        limits.clearing,
+    )?);
+    let refinement = match try_refine_cleared_exact_circuit_guards(
         context,
         &circuit,
+        &cleared,
         partition,
         limits.guard_refinement,
     )? {
@@ -97,6 +115,7 @@ pub(crate) fn try_promote_replayed_rule_cell_on_partition(
             return Ok(ExactRuleCellPromotionDisposition::BlockedByKnownZero {
                 epoch,
                 circuit,
+                cleared,
                 required_predicate_ordinal,
                 first_circuit_guard_ordinal,
                 zero_branch,
@@ -104,29 +123,56 @@ pub(crate) fn try_promote_replayed_rule_cell_on_partition(
         }
     };
 
-    let lowered =
-        match try_lower_exact_circuit(context, epoch.plan(), &circuit, anchor, limits.lowering) {
-            Ok(lowered) => lowered,
-            Err(ExactCircuitLoweringError::Parametric(
-                ParametricRuleError::GuardVanishedAtAnchor { guard_ordinal },
-            )) => {
-                return Ok(ExactRuleCellPromotionDisposition::AnchorOnGuardWall {
-                    epoch,
-                    circuit,
-                    refinement,
-                    guard_ordinal,
-                });
-            }
-            Err(error) => return Err(ExactRuleCellPromotionError::Lowering(error)),
-        };
-    validate_lowered_join(&epoch, &circuit, &lowered)?;
+    let lowered = match try_lower_cleared_exact_circuit(
+        context,
+        epoch.plan(),
+        &circuit,
+        &cleared,
+        anchor,
+        limits.lowering,
+    ) {
+        Ok(lowered) => lowered,
+        Err(ExactCircuitLoweringError::Parametric(
+            ParametricRuleError::GuardVanishedAtAnchor { guard_ordinal },
+        )) => {
+            return Ok(ExactRuleCellPromotionDisposition::AnchorOnGuardWall {
+                epoch,
+                circuit,
+                cleared,
+                refinement,
+                guard_ordinal,
+            });
+        }
+        Err(error) => return Err(ExactRuleCellPromotionError::Lowering(error)),
+    };
+    validate_lowered_join(&epoch, &circuit, &cleared, &lowered)?;
     let (rule, sources) = lowered.into_parts();
+    let fixed = circuit
+        .fixed_indices()
+        .iter()
+        .map(|&(position, value)| FixedIndexRestriction::new(position, value))
+        .collect::<Vec<_>>();
+    let guard_domain_split = try_single_guard_domain_split(
+        context,
+        &rule,
+        epoch.fixed_stratum().domain(),
+        &fixed,
+        limits.cell,
+    )
+    .map_err(ExactRuleCellPromotionError::Cell)?;
+    let application_domain = guard_domain_split
+        .as_ref()
+        .map_or_else(
+            || epoch.fixed_stratum().domain(),
+            |split| split.admitted_domain(),
+        )
+        .clone();
     let cell = match RuleCell::try_refined(
         context,
         rule,
         sources,
-        epoch.fixed_stratum().domain().clone(),
-        [],
+        application_domain,
+        fixed,
         [],
         limits.cell,
     ) {
@@ -139,6 +185,7 @@ pub(crate) fn try_promote_replayed_rule_cell_on_partition(
             return Ok(ExactRuleCellPromotionDisposition::NeedsGuardedStratum {
                 epoch,
                 circuit,
+                cleared,
                 refinement,
                 obstruction: ExactRuleCellGuardObstruction::IntegerRoot {
                     guard_ordinal: ordinal,
@@ -151,6 +198,7 @@ pub(crate) fn try_promote_replayed_rule_cell_on_partition(
             return Ok(ExactRuleCellPromotionDisposition::NeedsGuardedStratum {
                 epoch,
                 circuit,
+                cleared,
                 refinement,
                 obstruction: ExactRuleCellGuardObstruction::UnsupportedMultivariate {
                     guard_ordinal: ordinal,
@@ -160,7 +208,14 @@ pub(crate) fn try_promote_replayed_rule_cell_on_partition(
         Err(error) => return Err(ExactRuleCellPromotionError::Cell(error)),
     };
     Ok(ExactRuleCellPromotionDisposition::Admitted(
-        AdmittedExactRuleCandidate::new(epoch, circuit, cell, refinement),
+        AdmittedExactRuleCandidate::new(
+            epoch,
+            circuit,
+            cleared,
+            Arc::new(cell),
+            refinement,
+            guard_domain_split,
+        ),
     ))
 }
 
@@ -204,6 +259,7 @@ fn validate_exact_residual_owners(
 fn validate_lowered_join(
     epoch: &FreshTaskEpoch,
     circuit: &ExactTargetCircuit,
+    cleared: &ClearedExactCircuit,
     lowered: &crate::foundry::completion::frame::exact::LoweredExactCircuit,
 ) -> Result<(), ExactRuleCellPromotionError> {
     let rule = lowered.rule();
@@ -239,11 +295,11 @@ fn validate_lowered_join(
             });
         }
     }
-    if rule.nonzero_guards().len() != circuit.nonzero_guards().len()
+    if rule.nonzero_guards().len() != cleared.semantic_guards().len()
         || rule
             .nonzero_guards()
             .iter()
-            .zip(circuit.nonzero_guards())
+            .zip(cleared.semantic_guards())
             .any(|(lowered, exact)| lowered.polynomial() != exact.polynomial())
     {
         return Err(ExactRuleCellPromotionError::LoweredJoin {

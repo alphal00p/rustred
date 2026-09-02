@@ -63,11 +63,14 @@ pub(crate) const FULL_RANK_ORBITS: [SectorOrbit; 6] = [
 /// derived. The source blob identifies `crates/vakint/src/topologies.rs` at
 /// that revision. These values make drift reviewable; the local tests below
 /// authenticate the frozen snapshot's RustRed semantics, not a live checkout.
+#[cfg(test)]
 pub(crate) const VAKINT_SOURCE_REVISION: &str = "7d96a79602498c8c52cad067e3ea600af9a26e05";
+#[cfg(test)]
 pub(crate) const VAKINT_TOPOLOGIES_BLOB: &str = "7c79eb9d7e43b05b04f258ff40f4b54184017d8e";
 
 /// Test-only frozen integration snapshot. Powers are always assembled by
 /// stable propagator slot, never by dense position in a contracted graph.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct VakintClassWitness {
     pub(crate) label: &'static str,
@@ -76,6 +79,7 @@ pub(crate) struct VakintClassWitness {
     pub(crate) canonical_sector: [i64; 6],
 }
 
+#[cfg(test)]
 impl VakintClassWitness {
     pub(crate) fn powers_by_slot(self, powers: [i64; 6]) -> [i64; 6] {
         std::array::from_fn(|slot| {
@@ -88,6 +92,7 @@ impl VakintClassWitness {
     }
 }
 
+#[cfg(test)]
 pub(crate) const VAKINT_CLASSES: [VakintClassWitness; 5] = [
     VakintClassWitness {
         label: "I3L",

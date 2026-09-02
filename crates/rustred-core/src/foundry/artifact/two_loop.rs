@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use crate::algebra::CoefficientContext;
 use crate::family::{AffineDenominator, IntegralFamily, IntegralFamilyLimits, IntegralKey};
@@ -124,6 +125,7 @@ pub(super) fn derive_two_loop_unit_mass_sunset_with_limits(
         schema: ArtifactSchemaVersion::CURRENT,
         algorithm_id: ALGORITHM_ID,
         arity: 3,
+        ordering: OrderingPolicy::default(),
         // The recurrence is exact over the complete mathematical integer
         // lattice. Its fixed i64 representation needs one unit of headroom
         // at the public root because a top-cell child can transiently reach
@@ -139,7 +141,13 @@ pub(super) fn derive_two_loop_unit_mass_sunset_with_limits(
         context,
         source_relations: completed.into_relations(),
         rules: Vec::new(),
-        rule_cells: vec![top, pair_bulk, pair_boundary, corner_bulk, corner_endpoint],
+        rule_cells: vec![
+            Arc::new(top),
+            Arc::new(pair_bulk),
+            Arc::new(pair_boundary),
+            Arc::new(corner_bulk),
+            Arc::new(corner_endpoint),
+        ],
         canonicalizer: Some(canonicalizer),
         dependencies: vec![Box::new(dependency)],
         factorization_rules: vec![factorization],

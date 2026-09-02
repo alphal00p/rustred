@@ -5,7 +5,10 @@ use std::sync::{Arc, OnceLock};
 use crate::family::{IntegralFamily, IntegralKey};
 use crate::foundry::artifact::{
     FULL_RANK_ORBITS, canonical_three_loop_family, derive_k6_terminal_authority,
+    derive_k6_terminal_authority_with_ordering,
 };
+use crate::foundry::campaign::source_safe_k6_closure_carrier_for_test;
+use crate::foundry::completion::LatticeBox;
 use crate::foundry::completion::source_discovery::cover_delta::{
     CanonicalExactOwnerLedger, ExactOwnerCoverDeltaLimits,
 };
@@ -115,15 +118,72 @@ impl OracleDisabledK6Fixture {
     }
 
     pub(crate) fn new_ledger(&self) -> CanonicalExactOwnerLedger {
-        CanonicalExactOwnerLedger::try_new(
+        self.new_ledger_for_sector(&self.sector)
+    }
+
+    /// Build an oracle-disabled ledger for any canonical K=6 sector while
+    /// retaining the same terminal/factorization predecessor authority.
+    ///
+    /// The sector corner is an explicit finite terminal. This is the
+    /// intentional nonminimal-master policy used by the offline LHS itinerary;
+    /// it makes no claim that the surrounding positive-dimensional sector is
+    /// closed.
+    pub(crate) fn new_ledger_for_sector(&self, sector: &Mask) -> CanonicalExactOwnerLedger {
+        self.new_ledger_for_sector_with_ordering(sector, self.ordering)
+    }
+
+    pub(crate) fn new_ledger_for_sector_with_ordering(
+        &self,
+        sector: &Mask,
+        ordering: OrderingPolicy,
+    ) -> CanonicalExactOwnerLedger {
+        self.new_ledger_for_sector_with_ordering_and_predecessor(
+            sector,
+            ordering,
+            &self.predecessor,
+        )
+    }
+
+    /// Install one terminal/factorization predecessor whose symmetry
+    /// representatives use the exact policy of the surrounding owner ledger.
+    /// Callers should construct this once and cheaply clone it across a wave.
+    pub(crate) fn predecessor_for_ordering(
+        &self,
+        ordering: OrderingPolicy,
+    ) -> ImmutableOwnerSnapshot {
+        if ordering == self.ordering {
+            return self.predecessor.clone();
+        }
+        ImmutableOwnerSnapshot::try_from_terminal_authority(
+            Arc::new(derive_k6_terminal_authority_with_ordering(ordering).unwrap()),
+            Default::default(),
+        )
+        .unwrap()
+    }
+
+    pub(crate) fn new_ledger_for_sector_with_ordering_and_predecessor(
+        &self,
+        sector: &Mask,
+        ordering: OrderingPolicy,
+        predecessor: &ImmutableOwnerSnapshot,
+    ) -> CanonicalExactOwnerLedger {
+        CanonicalExactOwnerLedger::try_new_with_closure_carrier(
             self.generator.context(),
-            self.predecessor.clone(),
-            self.sector.clone(),
-            self.ordering,
-            [IntegralKey::try_new(self.sector.corner_indices()).unwrap()],
+            predecessor.clone(),
+            sector.clone(),
+            ordering,
+            [IntegralKey::try_new(sector.corner_indices()).unwrap()],
+            self.source_safe_closure_carrier(sector),
             ExactOwnerCoverDeltaLimits::default(),
         )
         .unwrap()
+    }
+
+    /// Exact finite carrier used by the production bounded K6 scheduler.
+    /// Tests that intentionally omit the fixture's corner terminal can still
+    /// share the same source-safe geometric scope through this accessor.
+    pub(crate) fn source_safe_closure_carrier(&self, sector: &Mask) -> LatticeBox {
+        source_safe_k6_closure_carrier_for_test(&self.zero_sources, sector).unwrap()
     }
 
     pub(crate) fn plan(

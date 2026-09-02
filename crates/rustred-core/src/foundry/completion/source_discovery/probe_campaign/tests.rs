@@ -3,8 +3,10 @@
 mod all_full_rank_orbits;
 mod boundary;
 mod k6;
+mod k6_alphaloop_lhs_diagnostic;
 mod k6_boundary_walk;
 mod k6_compact_boundary_walk;
+mod k6_line301_guard_diagnostic;
 
 use std::sync::Arc;
 
@@ -12,6 +14,7 @@ use crate::family::IntegralKey;
 use crate::foundry::artifact::{
     derive_one_loop_unit_mass_tadpole, derive_two_loop_unit_mass_sunset,
 };
+use crate::foundry::completion::LatticeBox;
 use crate::foundry::completion::source_discovery::cover_delta::{
     CanonicalExactOwnerLedger, ExactOwnerCoverDeltaError, ExactOwnerCoverDeltaKind,
     ExactOwnerCoverDeltaLimits,
@@ -134,12 +137,17 @@ fn one_loop_task_closes_only_through_the_exact_ledger_compiler() {
     )
     .unwrap();
     let sector = Mask::try_new([true]).unwrap();
-    let mut ledger = CanonicalExactOwnerLedger::try_new(
+    // The one-loop translated frame carries a physical +2 column, so its
+    // executable recurrence has an exact finite representability ceiling.
+    // Exercise genuine closure on an explicit supported-root carrier instead
+    // of declaring the isolated i64::MAX fringe integral terminal.
+    let mut ledger = CanonicalExactOwnerLedger::try_new_with_closure_carrier(
         generator.context(),
         predecessor,
         sector.clone(),
         OrderingPolicy::default(),
         [IntegralKey::try_new(sector.corner_indices()).unwrap()],
+        LatticeBox::try_new([0], [Some(11)]).unwrap(),
         ExactOwnerCoverDeltaLimits::default(),
     )
     .unwrap();

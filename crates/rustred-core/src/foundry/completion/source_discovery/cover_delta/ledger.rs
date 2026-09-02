@@ -2,12 +2,13 @@ use std::sync::Arc;
 
 use crate::algebra::IndexedCoefficientContext;
 use crate::family::IntegralKey;
-use crate::foundry::completion::UncoveredPartition;
 use crate::foundry::completion::stratum::ImmutableOwnerSnapshot;
+use crate::foundry::completion::{LatticeBox, SectorChart, UncoveredPartition};
 use crate::sector::{Mask, OrderingPolicy};
 
 use super::super::{
-    ExactExecutableOwnerCover, ExactSemanticExecutableOwner, StagedSectorClosureCoordinator,
+    ClosedExactExecutableOwnerCover, ExactExecutableOwnerCover, ExactSemanticExecutableOwner,
+    StagedSectorClosureCoordinator,
 };
 use super::geometry::{
     ExactPartitionDelta, try_clone_full_partition, try_clone_partition,
@@ -16,7 +17,8 @@ use super::geometry::{
 use super::{
     ExactOwnerCoverDelta, ExactOwnerCoverDeltaError, ExactOwnerCoverDeltaKind,
     ExactOwnerCoverDeltaLimits, ExactOwnerCoverSnapshot, ExactOwnerLedgerCoverStatus,
-    ExactOwnerLedgerRevision, ExactOwnerLedgerSnapshotIdentity, ExactProofOwnerSummary,
+    ExactOwnerLedgerRevision, ExactOwnerLedgerSealError, ExactOwnerLedgerSnapshotIdentity,
+    ExactProofOwnerSummary,
 };
 
 const RETAINED_TERMINALS: &str = "exact cover-delta retained terminals";
@@ -35,6 +37,8 @@ pub(crate) struct CanonicalExactOwnerLedger {
     predecessor: ImmutableOwnerSnapshot,
     sector: Mask,
     ordering: OrderingPolicy,
+    /// Exact finite root universe used by every preview compilation.
+    closure_carrier: LatticeBox,
     state: CanonicalLedgerState,
     identity: ExactOwnerLedgerSnapshotIdentity,
     limits: ExactOwnerCoverDeltaLimits,
@@ -49,6 +53,32 @@ impl CanonicalExactOwnerLedger {
         explicit_terminals: impl IntoIterator<Item = IntegralKey>,
         limits: ExactOwnerCoverDeltaLimits,
     ) -> Result<Self, ExactOwnerCoverDeltaError> {
+        let closure_carrier = SectorChart::new(sector.clone()).carrier_box()?;
+        Self::try_new_with_closure_carrier(
+            context,
+            predecessor,
+            sector,
+            ordering,
+            explicit_terminals,
+            closure_carrier,
+            limits,
+        )
+    }
+
+    /// Create a diagnostic ledger whose exact closure universe is the given
+    /// finite origin-anchored sector subbox. This carrier is retained and
+    /// supplied to every whole-cover recompile; it cannot drift between
+    /// ledger revisions.
+    pub(crate) fn try_new_with_closure_carrier(
+        context: &IndexedCoefficientContext,
+        predecessor: ImmutableOwnerSnapshot,
+        sector: Mask,
+        ordering: OrderingPolicy,
+        explicit_terminals: impl IntoIterator<Item = IntegralKey>,
+        closure_carrier: LatticeBox,
+        limits: ExactOwnerCoverDeltaLimits,
+    ) -> Result<Self, ExactOwnerCoverDeltaError> {
+        validate_closure_carrier(&sector, &closure_carrier)?;
         let mut coordinator = StagedSectorClosureCoordinator::try_new(
             context,
             predecessor.clone(),
@@ -78,6 +108,7 @@ impl CanonicalExactOwnerLedger {
             predecessor,
             sector,
             ordering,
+            closure_carrier,
             state: CanonicalLedgerState::OwnerFree {
                 terminals: terminals.into_boxed_slice(),
             },
@@ -96,6 +127,77 @@ impl CanonicalExactOwnerLedger {
 
     pub(crate) const fn ordering(&self) -> OrderingPolicy {
         self.ordering
+    }
+
+    pub(crate) const fn closure_carrier(&self) -> &LatticeBox {
+        &self.closure_carrier
+    }
+
+    /// Consume a compiler-closed ledger into the existing strong cover seal.
+    ///
+    /// The retained [`ExactExecutableOwnerCover`] is moved directly out of the
+    /// ledger. No owner compilation, outer extension, source replay, or CAS
+    /// work is repeated. The cheap scope joins below ensure that the moved
+    /// cover still describes this ledger's exact finite carrier and retained
+    /// predecessor authority before the ordinary closed-cover seal takes over.
+    pub(crate) fn try_into_closed_cover(
+        self,
+    ) -> Result<ClosedExactExecutableOwnerCover, ExactOwnerLedgerSealError> {
+        let Self {
+            context,
+            predecessor,
+            sector,
+            ordering,
+            closure_carrier,
+            state,
+            identity: _,
+            limits: _,
+        } = self;
+        let cover = match state {
+            CanonicalLedgerState::OwnerFree { .. } => {
+                return Err(ExactOwnerLedgerSealError::NotClosed {
+                    status: ExactOwnerLedgerCoverStatus::OwnerFree,
+                });
+            }
+            CanonicalLedgerState::Compiled(cover) => cover,
+        };
+        let proof = cover.proof_cover();
+        if !matches!(
+            proof.status(),
+            crate::foundry::completion::frame::admission::ExactOwnerCoverStatus::Closed
+        ) {
+            return Err(ExactOwnerLedgerSealError::NotClosed {
+                status: ExactOwnerLedgerCoverStatus::Compiled(proof.status()),
+            });
+        }
+        let first_predecessor = cover
+            .owners()
+            .first()
+            .map(|owner| owner.epoch().predecessor_snapshot());
+        let detail = if proof.family_fingerprint() != predecessor.family_fingerprint() {
+            Some("cover family differs from the retained predecessor")
+        } else if proof.context_fingerprint() != context.fingerprint()
+            || proof.context_fingerprint() != predecessor.context_fingerprint()
+        {
+            Some("cover coefficient context differs from the ledger scope")
+        } else if proof.sector() != &sector {
+            Some("cover sector differs from the ledger sector")
+        } else if proof.ordering() != ordering {
+            Some("cover ordering differs from the ledger ordering")
+        } else if proof.closure_carrier() != &closure_carrier {
+            Some("cover carrier differs from the ledger carrier")
+        } else if proof.owner_snapshot_id() != predecessor.id() {
+            Some("cover predecessor identity differs from the ledger predecessor")
+        } else if first_predecessor.is_none_or(|retained| !retained.same_authority_as(&predecessor))
+        {
+            Some("cover predecessor authority differs from the ledger predecessor")
+        } else {
+            None
+        };
+        if let Some(detail) = detail {
+            return Err(ExactOwnerLedgerSealError::ScopeMismatch { detail });
+        }
+        ClosedExactExecutableOwnerCover::try_seal(cover).map_err(Into::into)
     }
 
     pub(crate) fn owners(&self) -> &[Arc<ExactSemanticExecutableOwner>] {
@@ -263,7 +365,10 @@ impl CanonicalExactOwnerLedger {
             ));
         }
 
-        let updated_cover = coordinator.try_compile_single_sector_preview()?;
+        let updated_cover = coordinator.try_compile_single_sector_preview(&self.closure_carrier)?;
+        if updated_cover.proof_cover().closure_carrier() != &self.closure_carrier {
+            return Err(ExactOwnerCoverDeltaError::NonMonotoneExactCover);
+        }
         let partition_delta = match &self.state {
             CanonicalLedgerState::OwnerFree { .. } => try_compare_from_owner_free(
                 self.sector.arity(),
@@ -290,6 +395,32 @@ impl CanonicalExactOwnerLedger {
         self.identity = self.identity.at_revision(updated_revision);
         Ok(ExactOwnerCoverDelta::new(kind, baseline, updated))
     }
+}
+
+fn validate_closure_carrier(
+    sector: &Mask,
+    carrier: &LatticeBox,
+) -> Result<(), ExactOwnerCoverDeltaError> {
+    let full = SectorChart::new(sector.clone()).carrier_box()?;
+    if carrier.arity() != sector.arity()
+        || carrier.lower().iter().any(|&lower| lower != 0)
+        || carrier
+            .upper()
+            .iter()
+            .zip(full.upper())
+            .any(|(&upper, &full_upper)| match (upper, full_upper) {
+                (Some(upper), Some(full_upper)) => upper > full_upper,
+                _ => true,
+            })
+    {
+        return Err(
+            crate::foundry::completion::CompletionGeometryError::Invariant {
+                detail: "ledger closure carrier is not a finite origin-anchored sector subbox",
+            }
+            .into(),
+        );
+    }
+    Ok(())
 }
 
 fn snapshot_compiled(

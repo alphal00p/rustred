@@ -14,6 +14,29 @@ use super::super::value::{IndexedCoefficient, IndexedPolynomial};
 use super::{BoundIndexedCoefficient, IndexedCoefficientContext};
 
 impl IndexedCoefficientContext {
+    /// Parse one exact rational expression directly into this authenticated
+    /// indexed field.
+    ///
+    /// This is an untrusted-ingress operation intended for immutable external
+    /// artifact compilers and loaders.  Symbolica performs the expression to
+    /// rational-polynomial conversion on the context's exact variable map;
+    /// RustRed then authenticates the complete sparse result under `limits`
+    /// before attaching the context seal.  Callers must impose their own byte
+    /// limit on `expression` before parsing it.
+    pub fn parse_expression_with_limits(
+        &self,
+        expression: &str,
+        limits: ExactAlgebraLimits,
+    ) -> Result<IndexedCoefficient, IndexedAlgebraError> {
+        let atom = try_parse!(expression, default_namespace = "rustred")
+            .map_err(|error| IndexedAlgebraError::Symbolica(error.to_string()))?;
+        let raw = atom
+            .as_view()
+            .try_to_rational_polynomial(&Q, &Z, Some(self.variables.clone()))
+            .map_err(|error| IndexedAlgebraError::Symbolica(error.to_string()))?;
+        self.wrap_checked_with_limits(raw, limits)
+    }
+
     pub fn zero(&self) -> IndexedCoefficient {
         self.wrap_sealed(self.template.numerator.zero().into())
     }
@@ -210,7 +233,6 @@ impl IndexedCoefficientContext {
     /// variable map, sparse layout, exponent ceiling, and retained-term limit
     /// before sealing the result with this context identity.  Callers must
     /// still authenticate every native input before invoking Symbolica.
-    #[cfg(test)]
     pub(crate) fn admit_native_polynomial_result_with_limits(
         &self,
         raw: CoefficientPolynomial,

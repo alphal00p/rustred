@@ -1,4 +1,4 @@
-//! Exact factorization recipes for the test-only K=6 pressure family.
+//! Exact factorization recipes for the authenticated K=6 campaign family.
 
 use crate::family::IntegralFamily;
 use crate::foundry::artifact::ArtifactError;

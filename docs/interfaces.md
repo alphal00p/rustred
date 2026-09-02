@@ -67,13 +67,18 @@ obsolete facades are not retained for compatibility.
 
 ## Shared application API
 
-`rustred-app` currently exposes six transport-neutral operations:
+`rustred-app` exposes transport-neutral derivation, campaign, artifact, and
+reduction operations, including the two bounded foundry diagnostics:
 
 ```rust
 derive(DeriveRequest) -> Result<DeriveResult, AppError>
 campaign_plan(CampaignPlanRequest) -> Result<CampaignPlanResult, AppError>
 campaign_preflight(CampaignPreflightRequest)
     -> Result<CampaignPreflightResult, AppError>
+foundry_campaign_run(FoundryCampaignRunRequest)
+    -> Result<FoundryCampaignRunResult, AppError>
+foundry_wave_campaign_run(FoundryWaveCampaignRunRequest)
+    -> Result<FoundryWaveCampaignRunResult, AppError>
 closing_artifact_generate(ClosingArtifactGenerateRequest)
     -> Result<ClosingArtifactGenerateResult, AppError>
 closing_artifact_inspect(ClosingArtifactInspectRequest)
@@ -81,6 +86,20 @@ closing_artifact_inspect(ClosingArtifactInspectRequest)
 closing_artifact_reduce(ClosingArtifactReduceRequest)
     -> Result<ClosingArtifactReduceResult, AppError>
 ```
+
+The strict foundry-config V2 schema is a sum type with two construction paths.
+`mode = "autonomous"` accepts no caller-authored proof order, proposal order,
+probe portfolio, domain queue, or itinerary; the selected application entry
+point and RustRed preset derive that deterministic program. `mode =
+"external-hints-only"` requires a typed `[hints]` object and may choose only
+the supported non-authoritative itinerary, proof/proposal order, probe, and
+resource inputs. Unknown fields are rejected, and neither shape can represent
+an imported rule, recurrence RHS, coefficient, source row, or support. The
+report-only provenance ID is derived from the successful construction path,
+never accepted as a free label. RustRed derives and replays all identities
+itself. Single-sector results remain diagnostic-only; a successful full-wave
+result may install an in-memory artifact, while durable K6 publication remains
+a separate typed boundary.
 
 `derive` parses and lowers one family and emits selected raw parametric
 ordinary and/or LI relations. A concrete target in the input is validated and
@@ -110,6 +129,8 @@ The binary is `rustred`, supplied by `rustred-app`:
 rustred derive [OPTIONS]
 rustred campaign plan [OPTIONS]
 rustred campaign preflight [OPTIONS]
+rustred campaign run --config <PATH|-> --output <PATH|-> [OPTIONS]
+rustred campaign run-waves --config <PATH|-> --output <PATH|-> --n-cores <N> [OPTIONS]
 rustred campaign generate \
   --family <unit-mass-vacuum-k1|unit-mass-vacuum-k3> [OPTIONS]
 rustred campaign inspect --artifact <PATH|-> [OPTIONS]
@@ -122,6 +143,13 @@ accepts an optional root identifier. Campaign preflight requires a resource
 profile and an explicit positive memory limit. Input and output default to
 standard streams; file output requires `--force` to replace an existing file
 and is committed atomically.
+
+`campaign run` executes one bounded single-sector K6 diagnostic campaign.
+`campaign run-waves` executes the bounded full-rank atomic-wave itinerary and
+requires an explicit positive sibling-worker count. Both consume the strict
+V2 campaign configuration, produce diagnostic reports rather than durable K6
+artifact bytes, and distinguish autonomous requests from external search
+hints structurally. Neither command accepts or imports recurrence algebra.
 
 `campaign generate` writes binary durable bytes. Inspection and reduction read
 those bytes from a file or standard input and emit canonical TOML. Invalid
@@ -163,23 +191,13 @@ If an internal panic crosses that boundary, the coordinator is poisoned and
 later requests fail instead of reusing uncertain native state. A coordinator
 created before `fork()` is likewise rejected in the child.
 
-## Existing frozen Vakint tensor seam
+## Vakint tensor boundary
 
 Vakint/GammaLoop development lives in its separate repository on the
-`vakint_rustred` feature branch. An existing experimental boundary provides:
-
-```rust
-vakint
-    .tensor_reducer(&settings)
-    .mode(TensorReductionMode::RustRed(RustRedOptions::new()))
-    .reduce(input)
-```
-
-It reaches the bounded RustRed scalar/odd/rank-two projector for authenticated
-common-mass vacuum presentations. `TensorReductionMode::Form` remains the
-default. This experiment is frozen during Stage 1: it is not extended, made
-rank-generic, or used as the Stage 1 tensor path. Vakint retains its existing
-FORM tensor preprocessing and behavior.
+`vakint_rustred` feature branch, rebased onto `feynkit`. Tensor-bearing RustRed
+lanes explicitly select `TensorReductionMethod::FeynKit`; RustRed itself does
+not provide or extend the Stage 1 tensor reducer. Existing FORM-backed Vakint
+methods and syntax remain backward-compatible alternatives and oracle lanes.
 
 ## Active Stage 1 Vakint backend
 
@@ -202,10 +220,9 @@ requested, reports no FORM dependency, invokes no FORM scalar reduction, and
 never falls back internally. Unsupported graph classes remain unsupported so
 mixed orders can continue safely to their next configured method.
 
-Tensor-bearing inputs deliberately retain
-Vakint's unchanged FORM tensor prepass before this FORM-free scalar tail.
-Nontrivial invalid-FORM-path scalar tests and MATAD oracle comparisons pass
-through two loops.
+Tensor-bearing inputs use FeynKit's FORM-less tensor prepass before this
+FORM-less scalar tail. The complete lane is tested with an invalid FORM path;
+AlphaLoop/MATAD comparisons run separately with the pinned FORM 5 oracle.
 
 Production `K = 1` and `K = 3` artifacts are generated once by RustRed, checked
 into and shipped with Vakint, validated once when lazily loaded, and reused for
@@ -230,7 +247,8 @@ Vakint remains the user-facing steering and presentation layer. It owns:
 - backend choice, orchestration, normalization, existing master values, and
   result presentation; and
 - backward compatibility for its public API conventions, defaults, and all
-  existing FORM-backed modes, but not for obsolete RustRed artifact schemas.
+  existing FORM-backed modes and legacy integral notation, while accepting any
+  newer notation additively, but not for obsolete RustRed artifact schemas.
 
 RustRed owns or will own the reusable mathematical services:
 

@@ -1,9 +1,10 @@
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use crate::algebra::IndexedCoefficientContext;
 use crate::family::{IntegralFamily, IntegralKey};
 use crate::foundry::cell::{RuleCell, SourceViewConstruction};
-use crate::foundry::parametric::ParametricRule;
+use crate::foundry::parametric::{ParametricRule, ParametricRuleTermDescent};
 use crate::identity::ParametricRelation;
 use crate::sector::{InteriorBounds, OrderingPolicy, symmetry::Canonicalizer};
 
@@ -16,23 +17,25 @@ use super::model::{
 
 mod factorization;
 mod one_loop;
-#[cfg(test)]
 mod terminal;
+mod three_loop;
 mod two_loop;
 
-#[cfg(test)]
 pub(crate) use terminal::{TerminalAuthorityCandidate, install_terminal_authority};
+#[cfg(test)]
+pub(crate) use three_loop::authenticate_rule_cell_source_views as authenticate_k6_rule_cell_sources_for_test;
 
 pub(super) struct ClosingArtifactCandidate {
     pub schema: ArtifactSchemaVersion,
     pub algorithm_id: &'static str,
     pub arity: usize,
+    pub ordering: OrderingPolicy,
     pub supported_root_power_bounds: Box<[InteriorBounds]>,
     pub family: IntegralFamily,
     pub context: IndexedCoefficientContext,
     pub source_relations: Vec<ParametricRelation>,
     pub rules: Vec<ParametricRule>,
-    pub rule_cells: Vec<RuleCell>,
+    pub rule_cells: Vec<Arc<RuleCell>>,
     pub canonicalizer: Option<Canonicalizer>,
     pub dependencies: Vec<Box<ClosedArtifact>>,
     pub factorization_rules: Vec<FactorizationRule>,
@@ -44,7 +47,9 @@ pub(super) struct ClosingArtifactCandidate {
 /// Seal a candidate only after a registered closure verifier discharges its
 /// complete lattice partition. The candidate/runtime representation is
 /// generic; the registered verifiers currently recognize the generated
-/// one-loop tadpole and equal-mass two-loop sunset unit-mass partitions.
+/// one-loop tadpole and equal-mass two-loop sunset unit-mass partitions. K6
+/// installation has a separate consuming entry point because its verifier
+/// must also retain and authenticate the complete published wave chain.
 pub(super) fn install(
     mut candidate: ClosingArtifactCandidate,
 ) -> Result<ClosedArtifact, ArtifactError> {
@@ -67,6 +72,28 @@ pub(super) fn install(
     }
 }
 
+pub(super) fn install_published_k6(
+    mut candidate: ClosingArtifactCandidate,
+    waves: Box<[crate::foundry::completion::source_discovery::ClosedSectorClosureWave]>,
+) -> Result<ClosedArtifact, ArtifactError> {
+    three_loop::prepare(&mut candidate, &waves)?;
+    three_loop::authenticate_canonical_source_views(&candidate)?;
+    validate_generic_bindings(&candidate)?;
+    factorization::validate_and_compile(
+        factorization::InstallContext::new(
+            candidate.arity,
+            &candidate.family,
+            candidate.canonicalizer.as_ref(),
+            &candidate.dependencies,
+            &candidate.masters,
+            &candidate.zero_sectors,
+        ),
+        &mut candidate.factorization_rules,
+    )?;
+    drop(waves);
+    three_loop::seal(candidate)
+}
+
 fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(), ArtifactError> {
     validate_terminal_bindings(TerminalBindings {
         schema: candidate.schema,
@@ -77,7 +104,9 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
         parent_terminals: &candidate.masters,
         zero_sectors: &candidate.zero_sectors,
         require_parent_terminals: true,
+        expected_ordering: candidate.ordering,
     })?;
+    candidate.ordering.require_arity(candidate.arity)?;
     if candidate.supported_root_power_bounds.len() != candidate.arity
         || candidate
             .supported_root_power_bounds
@@ -94,7 +123,13 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
             return Err(ArtifactError::WrongFamily);
         }
     }
-    for rule in &candidate.rules {
+    for (ordinal, rule) in candidate.rules.iter().enumerate() {
+        if rule.ordering() != candidate.ordering {
+            return Err(ArtifactError::InvalidOrderingAuthority {
+                detail: "a direct rule uses a different ordering",
+                ordinal,
+            });
+        }
         if rule.family_fingerprint() != candidate.family.fingerprint() {
             return Err(ArtifactError::WrongFamily);
         }
@@ -107,8 +142,15 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
                 actual: rule.domain().arity(),
             });
         }
+        validate_rule_descent(rule)?;
     }
-    for cell in &candidate.rule_cells {
+    for (ordinal, cell) in candidate.rule_cells.iter().enumerate() {
+        if cell.rule().ordering() != candidate.ordering {
+            return Err(ArtifactError::InvalidOrderingAuthority {
+                detail: "a rule cell uses a different ordering",
+                ordinal,
+            });
+        }
         if cell.rule().family_fingerprint() != candidate.family.fingerprint() {
             return Err(ArtifactError::WrongFamily);
         }
@@ -126,6 +168,7 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
                 detail: "a rule cell has invalid sector-monotone descent evidence",
             });
         }
+        validate_rule_descent(cell.rule())?;
         if cell.sources().family_fingerprint() != candidate.family.fingerprint()
             || cell.sources().context_fingerprint() != candidate.context.fingerprint()
             || cell.sources().len() != cell.sources().provenance().len()
@@ -141,7 +184,7 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
             }
         }
         validate_source_view_construction(cell, candidate)?;
-        validate_cell_replay(cell)?;
+        validate_cell_replay(cell, &candidate.context)?;
     }
     Ok(())
 }
@@ -155,6 +198,7 @@ pub(super) struct TerminalBindings<'input> {
     pub(super) parent_terminals: &'input BTreeSet<IntegralKey>,
     pub(super) zero_sectors: &'input [ZeroSectorTerminal],
     pub(super) require_parent_terminals: bool,
+    pub(super) expected_ordering: OrderingPolicy,
 }
 
 pub(super) fn validate_terminal_bindings(
@@ -207,7 +251,7 @@ pub(super) fn validate_terminal_bindings(
     if let Some(canonicalizer) = bindings.canonicalizer {
         if canonicalizer.arity() != bindings.arity
             || canonicalizer.family_fingerprint() != bindings.family.fingerprint()
-            || canonicalizer.ordering() != OrderingPolicy::default()
+            || canonicalizer.ordering() != bindings.expected_ordering
         {
             return Err(ArtifactError::InvalidCanonicalizer);
         }
@@ -253,6 +297,15 @@ fn validate_source_view_construction(
     candidate: &ClosingArtifactCandidate,
 ) -> Result<(), ArtifactError> {
     let SourceViewConstruction::ResidualProjection(evidence) = cell.sources().construction() else {
+        if let SourceViewConstruction::FixedIndexSpecialization(evidence) =
+            cell.sources().construction()
+            && (evidence.fixed_restrictions().is_empty()
+                || evidence.fixed_restrictions() != cell.fixed_restrictions())
+        {
+            return Err(ArtifactError::InvalidReplayEvidence {
+                detail: "a fixed-index source specialization differs from its rule-cell quotient",
+            });
+        }
         return Ok(());
     };
     if evidence.original_relations().len() != cell.sources().len()
@@ -307,7 +360,10 @@ fn validate_source_view_construction(
     Ok(())
 }
 
-fn validate_cell_replay(cell: &RuleCell) -> Result<(), ArtifactError> {
+fn validate_cell_replay(
+    cell: &RuleCell,
+    context: &IndexedCoefficientContext,
+) -> Result<(), ArtifactError> {
     let rule = cell.rule();
     let replay = rule.replay();
     if replay.source_rows_used() == 0
@@ -354,5 +410,161 @@ fn validate_cell_replay(cell: &RuleCell) -> Result<(), ArtifactError> {
             detail: "a rule cell has incomplete concrete specialization replay",
         });
     }
+    if matches!(
+        cell.sources().construction(),
+        SourceViewConstruction::FixedIndexSpecialization(_)
+    ) {
+        replay_fixed_index_quotient(cell, context)?;
+    }
     Ok(())
+}
+
+fn validate_rule_descent(rule: &ParametricRule) -> Result<(), ArtifactError> {
+    let admission = rule.sector_monotone_admission();
+    if admission.is_some_and(|value| !value.verify()) {
+        return Err(ArtifactError::InvalidRuleShape {
+            detail: "a parametric rule has an invalid sector-monotone admission",
+        });
+    }
+    for (ordinal, term) in rule.right_hand_side().iter().enumerate() {
+        let valid = match term.descent() {
+            ParametricRuleTermDescent::FixedSector(witness) => {
+                witness.verify()
+                    && witness.policy() == rule.ordering()
+                    && witness.domain() == rule.domain()
+                    && shift_key_matches(witness.source(), rule.pivot().values())
+                    && shift_key_matches(witness.target(), term.shift().values())
+            }
+            ParametricRuleTermDescent::SectorMonotone(witness) => {
+                let Some(admission) = admission else {
+                    return Err(ArtifactError::InvalidRuleShape {
+                        detail: "a sector-monotone RHS witness has no owning admission",
+                    });
+                };
+                witness.verify()
+                    && witness.policy() == rule.ordering()
+                    && witness.domain() == admission.domain()
+                    && shift_key_matches(witness.pivot(), rule.pivot().values())
+                    && shift_key_matches(witness.target(), term.shift().values())
+                    && admission
+                        .dependencies()
+                        .get(ordinal)
+                        .is_some_and(|dependency| {
+                            dependency.right_hand_side_ordinal() == ordinal
+                                && dependency.pivot_shift() == rule.pivot()
+                                && dependency.shift() == term.shift()
+                                && dependency.descent() == witness
+                        })
+            }
+        };
+        if !valid {
+            return Err(ArtifactError::InvalidDescentWitness {
+                right_hand_side_ordinal: ordinal,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn shift_key_matches(key: &crate::sector::ShiftComplexityKey, shift: &[i64]) -> bool {
+    key.arity() == shift.len()
+        && shift
+            .iter()
+            .enumerate()
+            .all(|(position, &value)| key.shift_at(position) == Ok(value))
+}
+
+fn replay_fixed_index_quotient(
+    cell: &RuleCell,
+    context: &IndexedCoefficientContext,
+) -> Result<(), ArtifactError> {
+    let SourceViewConstruction::FixedIndexSpecialization(evidence) = cell.sources().construction()
+    else {
+        return Ok(());
+    };
+    let fixed = evidence
+        .fixed_restrictions()
+        .iter()
+        .map(|restriction| (restriction.position(), restriction.value()))
+        .collect::<Vec<_>>();
+    let limits = crate::foundry::cell::RuleCellLimits::default().indexed_algebra;
+    let mut actual = std::collections::BTreeMap::new();
+    for contribution in cell.rule().source_combination() {
+        let source = cell
+            .sources()
+            .relations()
+            .get(contribution.source_ordinal())
+            .ok_or(ArtifactError::InvalidReplayEvidence {
+                detail: "a fixed-index replay source ordinal is outside its immutable span",
+            })?;
+        for (shift, coefficient) in source.terms() {
+            let (coefficient, _denominator_guard) =
+                context.specialize_fixed_indices_sealed(coefficient, &fixed, limits)?;
+            let product = context.mul_with_limits(
+                contribution.coefficient(),
+                &coefficient,
+                limits.exact_algebra,
+            )?;
+            if product.is_zero() {
+                continue;
+            }
+            match actual.remove(shift) {
+                Some(previous) => {
+                    let sum = context.add_with_limits(&previous, &product, limits.exact_algebra)?;
+                    if !sum.is_zero() {
+                        actual.insert(shift.clone(), sum);
+                    }
+                }
+                None => {
+                    actual.insert(shift.clone(), product);
+                }
+            }
+        }
+    }
+
+    let mut expected = std::collections::BTreeMap::new();
+    expected.insert(cell.rule().pivot().clone(), context.one());
+    for term in cell.rule().right_hand_side() {
+        let coefficient = context.neg_with_limits(term.coefficient(), limits.exact_algebra)?;
+        if coefficient.is_zero() || expected.insert(term.shift().clone(), coefficient).is_some() {
+            return Err(ArtifactError::InvalidReplayEvidence {
+                detail: "a fixed-index rule has a zero or duplicate normalized shift",
+            });
+        }
+    }
+    if actual != expected {
+        return Err(ArtifactError::InvalidReplayEvidence {
+            detail: "a fixed-index source specialization does not replay its exact rule",
+        });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::foundry::artifact::derive_two_loop_unit_mass_sunset;
+    use crate::sector::{InteriorBounds, SectorInteriorDomain};
+
+    use super::validate_rule_descent;
+
+    #[test]
+    fn sector_monotone_descent_is_bound_to_the_larger_admission_domain() {
+        let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+        let mut rule = artifact.rule_cells()[0].rule().clone();
+        let admission = rule.sector_monotone_admission().unwrap().domain().clone();
+        rule.replace_rhs_descent_with_admission_for_artifact_test();
+        let mut narrowed = rule.domain().bounds().to_vec();
+        narrowed[0] = InteriorBounds::new(narrowed[0].lower(), narrowed[0].lower());
+        rule.replace_domain_for_artifact_test(
+            SectorInteriorDomain::try_new(rule.sector().clone(), narrowed).unwrap(),
+        );
+
+        assert_ne!(rule.domain().bounds(), admission.bounds());
+        assert!(rule.right_hand_side().iter().all(|term| {
+            term.descent()
+                .sector_monotone()
+                .is_some_and(|witness| witness.domain() == &admission)
+        }));
+        validate_rule_descent(&rule).unwrap();
+    }
 }

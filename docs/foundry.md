@@ -72,7 +72,7 @@ application cells, `S3` routing, Lee--Pomeransky zero proofs, a certified
 unimodular pinch factorization, and immutable lower-family feedback.
 `reduction::Reducer` applies either sealed owner.
 
-A deterministic schema-v3 codec persists exact family inputs, tagged source
+A deterministic schema-v4 codec persists exact family inputs, tagged source
 plans and semantic witnesses, rules/cells, symmetry and factorization data,
 masters, zero terminals, and homogeneity proofs. Bounded loading independently
 reconstructs and exactly compares the registered semantics once under the
@@ -143,7 +143,7 @@ routes all four raw placements. A fourth complete 28-offset/252-row projection
 derives the selected repeated-edge ray `J(0,1,1,1,N,0)` for structural targets
 `N >= 3`. Exact targeted elimination uses 50 source contributions containing
 358 source terms and yields eight RHS terms, 32 guards, and 367 replay keys.
-Schema-V3 replay records 1078 exact operations at free index one and 1080 at
+Schema-V4 replay records 1078 exact operations at free index one and 1080 at
 held-out indices two and eight. After the five fixed coordinates are
 specialized, every guard depends only on `d` and the positive free index. The
 uniform-sign coefficient of its leading `d` power proves that no guard becomes
@@ -170,7 +170,7 @@ search rather than from an authored source list. Exact corner elimination over
 generated rows with one free positive index, then performs a second exact
 elimination. The resulting algebraic recurrence covers one `S4` orbit of
 `J(0,1,2,2,N,0)` for structural `N >= 3`: 13 source contributions, 90 source
-terms, five RHS terms, seven guards, 96 replay keys, and 275 exact schema-V3
+terms, five RHS terms, seven guards, 96 replay keys, and 275 exact schema-V4
 replay operations. It replays at anchor free index one and held-out indices two and eight. A
 uniform-sign leading-in-`d` coefficient proves the guards remain nonzero
 polynomials in `d` on the whole positive ray. The concrete i64 cell owns
@@ -180,7 +180,7 @@ would overflow. Direct elimination of the full
 of being misreported as target absence. A separate complete depth-three
 projection derives exactly one point of the complementary `S4` orbit,
 `J(0,1,2,3,2,0)`: 46 selected contributions containing 310 source terms yield
-four RHS terms, 22 guards, 315 replay keys, and 939 exact schema-V3 concrete
+four RHS terms, 22 guards, 315 replay keys, and 939 exact schema-V4 concrete
 operations. Typed target absence through depth two, a fixed singleton domain,
 and the exact 16/8 orbit split rule out a neighboring-ray claim. The remaining
 complementary ray and the new child ray `J(0,1,1,2,N,0)` remain open.
@@ -775,12 +775,12 @@ primitives, but must not grow a parallel CAS.
 
 ## Artifact boundary
 
-The durable loader accepts the current schema-v3 format only. It rejects every
-obsolete version, including V1 and V2, with a typed schema error and
+The durable loader accepts the current schema-v4 format only. It rejects every
+obsolete version, including V1, V2, and V3, with a typed schema error and
 deliberately provides neither migration nor a dual decoder; RustRed artifact
 schemas have no backward-compatibility promise, including inside Vakint.
 Vakint's API/defaults and existing FORM methods retain their separate backward-
-compatibility obligation. Schema V3 records the semantics needed to load and
+compatibility obligation. Schema V4 records the semantics needed to load and
 apply the sealed `K = 1` and `K = 3` artifacts:
 
 - schema/algorithm identifiers and canonical bounded sparse binary Symbolica
@@ -812,7 +812,7 @@ repeat schema round trips or whole-artifact replay. Atomic filesystem
 publication remains an application-layer responsibility. The `K = 3`
 installer independently validates its complete five-cell projection,
 symmetry, factorization, and terminal layout at this cold boundary. No such
-authentication is repeated by recursive hot-path reduction. Schema v3 records
+authentication is repeated by recursive hot-path reduction. Schema v4 records
 the generic typed dependency-master product embeddings needed by `K3 x K1`;
 the future `K = 6` codec will extend the registered algorithm payload without
 changing those semantics.

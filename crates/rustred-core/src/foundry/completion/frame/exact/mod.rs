@@ -12,22 +12,27 @@ mod model;
 mod reduce;
 mod replay;
 
-#[cfg(test)]
-#[path = "cleared/mod.rs"]
 mod cleared;
+
+pub(crate) use cleared::{
+    ClearedCircuitError, ClearedCircuitLimits, ClearedExactCircuit, ClearedSemanticGuardOrigin,
+    try_clear_exact_circuit,
+};
 
 pub(crate) use error::ExactCircuitError;
 pub(crate) use limits::ExactCircuitLimits;
+#[cfg(test)]
+pub(crate) use lowering::try_lower_exact_circuit;
 pub(crate) use lowering::{
     ExactCircuitLoweringError, ExactCircuitLoweringLimits, ExactCircuitLoweringSeal,
-    LoweredExactCircuit, try_lower_exact_circuit,
+    LoweredExactCircuit, try_lower_cleared_exact_circuit,
 };
 pub(crate) use model::{
     ExactCircuitGuard, ExactCircuitGuardOrigin, ExactCircuitLift, ExactCircuitPivotGuard,
     ExactCircuitReplayWitness, ExactCircuitSupportDidNotLift, ExactCircuitTerm,
-    ExactFrameSourceContribution, ExactTargetCircuit,
+    ExactFrameSourceContribution, ExactTargetCircuit, ExactTargetCircuitIdentity,
 };
-pub(crate) use reduce::try_lift_exact_circuit;
+pub(crate) use reduce::{try_lift_exact_circuit, try_lift_exact_circuit_over_complete_frame};
 
 #[cfg(test)]
 mod tests;

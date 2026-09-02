@@ -14,6 +14,7 @@ use crate::foundry::completion::stratum::{
     DecoratedStratum, GuardBranch, GuardBranchIdentity, ImmutableOwnerSnapshot,
     StratumRegistryLimits, TargetColumnPartition,
 };
+use crate::foundry::completion::{LatticeBox, SectorChart, UncoveredPartition};
 use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use crate::sector::{InteriorBounds, Mask, OrderingPolicy, SectorMonotoneDomain};
 
@@ -25,6 +26,47 @@ use super::{
 };
 
 const PRIME: u64 = 1_000_000_007;
+
+#[test]
+fn carrier_normalization_preserves_large_symbolic_axes_materializes_singleton_tails_and_drops_the_exterior()
+ {
+    let chart = SectorChart::new(Mask::try_new([true, false]).unwrap());
+    let carrier = chart.carrier_box().unwrap();
+    let active_upper = carrier.upper()[0].unwrap();
+
+    let full = UncoveredPartition::new(vec![LatticeBox::try_new([0, 0], [None, None]).unwrap()], 7);
+    let full = super::compile::normalize_uncovered_to_carrier(full, &carrier, 1).unwrap();
+    assert_eq!(full.boxes().len(), 1);
+    assert_eq!(full.boxes()[0].upper(), [None, None]);
+    assert_eq!(full.split_operations(), 7);
+
+    let clipped_large = UncoveredPartition::new(
+        vec![LatticeBox::try_new([2, 0], [Some(u64::MAX), None]).unwrap()],
+        0,
+    );
+    let clipped_large =
+        super::compile::normalize_uncovered_to_carrier(clipped_large, &carrier, 1).unwrap();
+    assert_eq!(clipped_large.boxes()[0].upper(), [None, None]);
+
+    let singleton_tail = UncoveredPartition::new(
+        vec![LatticeBox::try_new([active_upper, 0], [None, Some(0)]).unwrap()],
+        0,
+    );
+    let singleton_tail =
+        super::compile::normalize_uncovered_to_carrier(singleton_tail, &carrier, 1).unwrap();
+    assert_eq!(singleton_tail.boxes().len(), 1);
+    assert_eq!(
+        singleton_tail.boxes()[0].upper(),
+        [Some(active_upper), Some(0)]
+    );
+
+    let exterior = UncoveredPartition::new(
+        vec![LatticeBox::try_new([active_upper + 1, 0], [None, Some(0)]).unwrap()],
+        0,
+    );
+    let exterior = super::compile::normalize_uncovered_to_carrier(exterior, &carrier, 1).unwrap();
+    assert!(exterior.is_empty());
+}
 
 fn complete_ordinary(generator: &ParametricIbpGenerator<'_>) -> CompletedIbpSourceRows {
     let prepared = generator.prepare_ordinary_ibp().unwrap();
@@ -659,8 +701,9 @@ fn owner_cover_resource_limits_fail_before_admission() {
     let (context, frame) = tadpole_frame();
     let partition = partition(&frame);
     let circuit = Arc::new(exact_circuit(&context, &frame, &partition));
-    let semantic = semantic(&context, &partition, circuit);
-    let extension = ExactCircuitOuterExtensionWitness::try_prove(&partition, semantic).unwrap();
+    let first_semantic = semantic(&context, &partition, circuit);
+    let extension =
+        ExactCircuitOuterExtensionWitness::try_prove(&partition, first_semantic).unwrap();
     let limits = ExactCircuitOwnerCoverLimits {
         max_owner_inputs: 0,
         ..Default::default()
@@ -676,6 +719,31 @@ fn owner_cover_resource_limits_fail_before_admission() {
             resource: "exact owner-cover semantic inputs",
             requested: 1,
             limit: 0,
+        })
+    ));
+
+    let semantic = semantic(
+        &context,
+        &partition,
+        Arc::new(exact_circuit(&context, &frame, &partition)),
+    );
+    let extension = ExactCircuitOuterExtensionWitness::try_prove(&partition, semantic).unwrap();
+    let endpoint_limits = ExactCircuitOwnerCoverLimits {
+        // One one-dimensional region retains one lower and one upper endpoint.
+        max_owner_coordinate_cells: 1,
+        ..Default::default()
+    };
+    assert!(matches!(
+        ExactCircuitOwnerCover::try_compile(
+            &context,
+            [ExactCircuitOwnerInput::new(&partition, extension)],
+            Vec::<IntegralKey>::new(),
+            endpoint_limits,
+        ),
+        Err(ExactCircuitOwnerCoverError::ResourceLimit {
+            resource: "exact owner-cover region endpoint cells",
+            requested: 2,
+            limit: 1,
         })
     ));
 }
@@ -818,7 +886,7 @@ fn canonical_k6_s4a_owner_reports_nonfinite_without_claiming_closure() {
 }
 
 #[test]
-fn bounded_and_predecorated_strata_cannot_authorize_infinite_rays() {
+fn bounded_strata_own_only_their_exact_box_and_predecorated_strata_still_refuse() {
     let (context, frame) = tadpole_frame();
     let target = frame
         .columns()
@@ -848,10 +916,86 @@ fn bounded_and_predecorated_strata_cannot_authorize_infinite_rays() {
         )
         .unwrap(),
     );
-    assert_eq!(
-        ExactCircuitOuterExtensionWitness::try_prove(&bounded, bounded_semantic).unwrap_err(),
-        ExactCircuitOuterExtensionError::TightenedCarrierDomain
-    );
+    let bounded_extension =
+        ExactCircuitOuterExtensionWitness::try_prove(&bounded, bounded_semantic.clone()).unwrap();
+    assert_eq!(bounded_extension.leading.coordinates(), [1]);
+    assert_eq!(bounded_extension.region.lower(), [1]);
+    assert_eq!(bounded_extension.region.upper(), [Some(10)]);
+    let bounded_cover = ExactCircuitOwnerCover::try_compile(
+        &context,
+        [ExactCircuitOwnerInput::new(&bounded, bounded_extension)],
+        [],
+        Default::default(),
+    )
+    .unwrap();
+    for power in [2, 11] {
+        assert!(matches!(
+            bounded_cover
+                .try_select_at(
+                    &context,
+                    &IntegralKey::try_new([power]).unwrap(),
+                    Default::default(),
+                )
+                .unwrap(),
+            ExactOwnerCoverSelection::Descending { .. }
+        ));
+    }
+    assert!(matches!(
+        bounded_cover
+            .try_select_at(
+                &context,
+                &IntegralKey::try_new([12]).unwrap(),
+                Default::default(),
+            )
+            .unwrap(),
+        ExactOwnerCoverSelection::Incomplete
+    ));
+
+    let carrier = LatticeBox::try_new([0], [Some(5)]).unwrap();
+    let bounded_extension =
+        ExactCircuitOuterExtensionWitness::try_prove(&bounded, bounded_semantic.clone()).unwrap();
+    assert!(matches!(
+        ExactCircuitOwnerCover::try_compile_with_carrier(
+            &context,
+            [ExactCircuitOwnerInput::new(&bounded, bounded_extension)],
+            [IntegralKey::try_new([12]).unwrap()],
+            &carrier,
+            Default::default(),
+        ),
+        Err(ExactCircuitOwnerCoverError::TerminalOutsideClosureCarrier { terminal: 0 })
+    ));
+    let bounded_extension =
+        ExactCircuitOuterExtensionWitness::try_prove(&bounded, bounded_semantic).unwrap();
+    let carrier_cover = ExactCircuitOwnerCover::try_compile_with_carrier(
+        &context,
+        [ExactCircuitOwnerInput::new(&bounded, bounded_extension)],
+        [IntegralKey::try_new([1]).unwrap()],
+        &carrier,
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(carrier_cover.status(), ExactOwnerCoverStatus::Closed);
+    assert_eq!(carrier_cover.closure_carrier(), &carrier);
+    assert!(matches!(
+        carrier_cover
+            .try_select_at(
+                &context,
+                &IntegralKey::try_new([6]).unwrap(),
+                Default::default(),
+            )
+            .unwrap(),
+        ExactOwnerCoverSelection::Descending { .. }
+    ));
+    assert!(matches!(
+        carrier_cover
+            .try_select_at(
+                &context,
+                &IntegralKey::try_new([7]).unwrap(),
+                Default::default(),
+            )
+            .unwrap(),
+        ExactOwnerCoverSelection::Incomplete
+    ));
 
     let maximal = SectorMonotoneDomain::try_maximal_for_rule(
         frame.sector().clone(),

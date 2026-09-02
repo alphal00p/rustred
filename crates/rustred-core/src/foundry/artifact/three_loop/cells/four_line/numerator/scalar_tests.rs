@@ -299,7 +299,7 @@ fn exact_rules_guards_replay_and_machine_endpoints_are_pinned() {
 }
 
 #[test]
-fn symmetry_and_canonical_descendants_keep_the_open_frontier_explicit() {
+fn symmetry_and_canonical_descendants_route_the_declared_scalar_master_exactly() {
     let (_context, endpoint, bulk) = derive_inactive_numerator_cells().unwrap();
     let family = canonical_family().unwrap();
     let canonicalizer = canonical_s4(&family).unwrap();
@@ -310,7 +310,10 @@ fn symmetry_and_canonical_descendants_keep_the_open_frontier_explicit() {
         endpoint_children,
         [vec![0, 1, 1, 1, 1, 0], vec![0, 0, 1, 0, 2, 1]]
     );
-    assert!(terminals.classify(&key(&endpoint_children[0])).is_none());
+    assert!(matches!(
+        terminals.classify(&key(&endpoint_children[0])),
+        Some(terminal) if terminal.kind() == ReachabilityTerminalKind::Master
+    ));
     assert!(matches!(
         terminals.classify(&key(&endpoint_children[1])),
         Some(terminal)

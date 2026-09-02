@@ -44,12 +44,14 @@ Development is divided into two hard-gated stages:
 - **Stage 1 is active:** close and publish single-scale vacuum parametric-IBP
   artifacts through three loops, implement their FORM-free scalar application
   in Vakint, and reproduce Vakint's end-to-end expectations through three
-  loops. Vakint continues to use its existing FORM tensor reduction before the
-  new scalar backend when tensor numerators are present.
+  loops. GammaLoop branch `vakint_rustred` is based on its `feynkit` branch;
+  tensor numerators use the collaborator-supplied, FORM-less FeynKit tensor
+  reducer before the RustRed scalar backend. The accepted Stage 1 stack must
+  therefore remain FORM-less end to end.
 - **Stage 2 artifact production is deferred and must not start without new
-  user guidance:** do not enhance tensor reduction, integrate speculative
-  collaborator tensor work, or publish four- through six-loop closure
-  artifacts. The current user direction does authorize deep algorithm
+  user guidance:** do not develop or enhance tensor reduction beyond consuming
+  the existing FeynKit implementation, and do not publish four- through
+  six-loop closure artifacts. The current user direction does authorize deep algorithm
   research and bounded, falsifiable studies over the complete four-, five-,
   and six-loop single-scale vacuum family manifests during Stage 1. These
   studies must freeze and authenticate their complete family census, report
@@ -60,11 +62,13 @@ Development is divided into two hard-gated stages:
   with independent research and adversarial viability audits. This permission
   does not authorize claiming or producing a four- through six-loop artifact.
 
-The existing experimental RustRed tensor service and GammaLoop
-`TensorReductionMode::RustRed` adapter are frozen. They may remain in their
-repositories, but Stage 1 must not extend, redesign, or make them part of the
-active acceptance path. Vakint's established `TensorReductionMode::Form`
-remains its tensor default and the Stage 1 tensor prepass.
+The existing experimental RustRed tensor service is frozen. The obsolete
+GammaLoop RustRed-tensor commits are excluded from the rebased
+`vakint_rustred` branch and are not part of the active acceptance path. Vakint's
+`TensorReductionMethod::FeynKit` is the Stage 1 tensor prepass. Existing
+FORM-backed scalar and tensor modes remain available for backward
+compatibility and as offline oracles, but the FeynKit-plus-RustRed acceptance
+lane must succeed with an invalid FORM executable path.
 
 ## Current evidence boundary
 
@@ -102,10 +106,12 @@ loads the `K = 1` and `K = 3` artifacts on branch `vakint_rustred`. Its opt-in
 FORM-free RustRed scalar backend reduces the registered one-loop tadpole,
 two-loop sunset, and pinch, maps typed terminals to the existing MATAD basis,
 restores a general common mass, and optionally applies Vakint's pure-Rust master
-values. Nontrivial scalar tests pass with an invalid FORM path, raw and
-substituted results agree with MATAD, the existing FORM tensor prepass remains
-unchanged, and the full applicable Vakint regression suite is green through
-two loops. Three-loop closure and adapter coverage remain open.
+values. Before the FeynKit rebase, nontrivial scalar tests passed with an
+invalid FORM path and raw and substituted results agreed with MATAD through two
+loops. The branch is now rebased onto `origin/feynkit` and compiles against the
+local RustRed crate; repairing and extending the post-rebase acceptance matrix
+is active work, so no post-rebase parity claim is made yet. Three-loop closure
+and adapter coverage remain open.
 
 The generic closing boundary has advanced beyond finite reachability probes.
 Frame-local modular supports are now admitted only after exact
@@ -308,26 +314,16 @@ Until that promotion and the remaining ordinary sector waves pass exact
 coverage, none of these actions grants a K6 artifact or Vakint three-loop
 parity claim.
 
-The bounded, schema-free `K1^N` product-moment prototype now implements the
-first half of that design for the path and star `K1^3` charts. It authenticates
-the installed signed singleton routing once, expands routed numerators with
-Symbolica's native exact sparse polynomials, evaluates angular incidences with
-an iterative bounded recurrence, preserves every radial power, and delegates
-`q_i^2 = D_i + 1` terms to the sealed one-loop reducer. The independent checks
-include `q^2/D^2 = (d/2) T`, rank-two and rank-four moments with their exact
-`d+R-2 != 0` guards, the known path/star coefficients, and both persistent
-path witnesses `[-2,-6,1,-2,3,3]` and `[-4,-6,7,0,3,3]`. Those witnesses now
-terminate deterministically in one authenticated product terminal after
-3,886 and 4,396 exact scalar monomials respectively. The same cold service now
-admits exactly one correlated closed block plus one or more independent
-one-loop blocks. For `K3 x K1` it integrates only the singleton loop, lowers
-the preserved two-loop Gram polynomial with Symbolica, and invokes the sealed
-K3 and K1 reducers. Exact scalar corners, both active dots, routed numerator
-sources, odd-zero, rank-two/rank-four moments, signed mixed products, and the
-two installed parent-master embeddings are pinned. This remains a non-owning
-feasibility result: it creates no `RuleCell`, cover, terminal, artifact,
-persistence payload, or reducer dispatch. Compiling its full domain and the
-four-, five-, and six-line ordinary waves remains open.
+An earlier bounded `K1^N`/`K3 x K1` product-moment executable prototype
+established useful path/star angular and radial identities, recorded in the
+research documents. It was deliberately removed after audit: it had no
+authenticated `RuleCell`/cover owner or persistence payload and created fresh
+dependency reducers, so its memoization and request budgets were not shared
+with the parent reduction. Any production revival must compile the complete
+domain once at install/load, retain an authenticated immutable program in the
+artifact, and execute through the parent reducer's dependency instances, memo
+table, and `ReductionRequest` limits. Historical feasibility numbers are
+research evidence only and cannot support a closure or performance claim.
 
 Vakint's matcher roots have now been tested in their strongest useful role as
 natural sector-local coordinate charts, not concatenated into a new
@@ -356,9 +352,11 @@ The complete 64-mask/11-orbit contraction plan remains authoritative.
 
 On the Vakint side, the shared multimethod harness now exercises 21 applicable
 historical tests comprising 27 concrete inputs through two loops, including
-nine inputs with the unchanged FORM tensor prepass. Eleven genuine three-loop
-oracle fixtures and five matcher-class fixtures are executable but honestly
-ignored until the certified K6 artifact and terminal catalog exist.
+nine tensor-bearing inputs. After the `feynkit` rebase those inputs must
+explicitly select the FeynKit prepass; the post-rebase matrix is currently
+being repaired and revalidated. Eleven genuine three-loop oracle fixtures and
+five matcher-class fixtures remain executable but honestly ignored until the
+certified K6 artifact and terminal catalog exist.
 
 The parallel high-loop research backlog is frozen in the
 [high-loop proposal experiments](docs/research/high_loop_proposal_experiments_2026.md): five
@@ -498,7 +496,7 @@ This exact cell selects 17 RREF rows, retains nine guards and the complete
 the selected repeated-edge ray `J(0,1,1,1,N,0)` for every structural target
 `N >= 3`. The pivot shift `[0,0,0,0,2,0]` is obtained from 50 selected source
 contributions (358 source terms) and has eight RHS terms, 32 exact guards, and
-367 replay keys. Schema-V3 replay uses 1078 exact operations at free index one
+367 replay keys. Schema-V4 replay uses 1078 exact operations at free index one
 and 1080 at held-out indices two and eight. After fixed-coordinate
 specialization, a uniform-sign leading-in-`d` coefficient proof shows that no
 guard is identically zero in `d` at any positive free index; individual
@@ -511,7 +509,7 @@ inequivalent placements of powers two and three. The adjacent target
 `J(0,1,1,2,3,0)` selects 17 generated source contributions containing 105
 terms; the opposite target `J(0,1,2,1,3,0)` selects 18 contributions containing
 113 terms. Each has two strictly descending children, nine guards, complete
-252-row residual-projection replay, and exact schema-V3 concrete replay. All
+252-row residual-projection replay, and exact schema-V4 concrete replay. All
 twelve ordered placements route into the two cells under the authenticated
 `S4` action. The remaining deeper mixed-dot points and all numerator faces
 remain open.
@@ -522,7 +520,7 @@ elimination selects 46 rows. Those generated rows are independently
 retranslated and reprojected on a one-free-index face, producing a guarded
 recurrence for one `S4` orbit of `J(0,1,2,2,N,0)`, structurally `N >= 3`.
 The parametric rule uses 13 source contributions containing 90 source terms, has five RHS
-terms, seven guards, 96 replay keys, and 275 exact schema-V3 replay operations.
+terms, seven guards, 96 replay keys, and 275 exact schema-V4 replay operations.
 The anchor free index one and held-out indices two and eight reproduce the same
 exact metrics; a uniform-sign leading-in-`d` proof establishes that no guard is identically zero
 for any positive free index. Its concrete i64 application box owns
@@ -885,8 +883,30 @@ universal terminal set must remain small enough to evaluate once at very high
 precision and ship, but it need not be minimal. At three loops, Vakint's MATAD
 mode is an authorized offline oracle for discovering exact relations missing
 from RustRed's current rule set and for producing high-precision reference
-values. Oracle output may guide and validate freshly replayed RustRed rules or
-terminal maps; FORM/MATAD never enters the production RustRed scalar path.
+values. Oracle output may guide RustRed seed points, sector waves, coordinate
+orderings, resource schedules, and validation targets. The production
+`K = 6` artifact, its CLI/Python example, and its claimed generation time must
+nevertheless come from identities independently generated and exactly replayed
+by RustRed: they must not import, translate, serialize, or package existing
+FORM recurrence right-hand sides. No FORM-recurrence importer currently
+remains: the only retained oracle fixture contains LHS/domain/order metadata,
+is test-only, and has no publication authority. FORM/MATAD never enters the
+production RustRed scalar path.
+
+K6 discovery is pursued through two independently reported campaigns. The
+`hinted` campaign may consume reviewed external metadata such as candidate
+integer seed points, coordinate orderings, domain itineraries, and resource
+wave schedules inferred from FORM/MATAD behavior. It may not consume a
+recurrence right-hand side, coefficient, reduction result, or pre-solved rule:
+RustRed regenerates and exactly replays every ordinary source identity. The
+`autonomous` campaign starts only from the family, graph/routing/symmetry data,
+zero and factorization authorities, and generic campaign limits; it must
+discover its own seeds, ordering, and itinerary. Both campaigns emit the same
+standalone artifact schema, and after generation neither artifact records or
+requires FORM hints. Both must independently pass closure, strict descent,
+serialization/reload, and representative reduction checks. The hinted lane is
+an earlier existence/debugging milestone, never a substitute for autonomous
+closure.
 
 The provisional direct-numerical-basis budget is green only for at most 100
 terminals whose largest measured auxiliary AMFlow system has dimension at
@@ -932,7 +952,11 @@ ordinary reduction.
 Expose closing-artifact generation, inspection/replay, and reduction through
 the Rust library, `campaign` CLI, and `import rustred` Python API. All three
 frontends call the same application services and produce the same deterministic
-semantics.
+semantics. Three-loop Python examples must steer both the standalone hinted and
+fully autonomous K6 campaigns, label their provenance accurately, write durable
+bytes only after genuine closure, reload them, and demonstrate reduction.
+Release-build Python measurements cover each entire generation boundary and
+never report diagnostic FORM-rule import time as artifact-generation time.
 
 ### Vakint scalar backend
 
@@ -960,12 +984,16 @@ Production artifacts are generated once, checked into and shipped with Vakint,
 and loaded once. A local path dependency may be used while co-developing; every
 pushed GammaLoop milestone pins the exact validated RustRed Git revision.
 
-“FORM-free RustRed backend” refers precisely to the scalar IBP application and
-master-substitution tail. For tensor-bearing inputs, Stage 1 intentionally runs
-Vakint's unchanged FORM tensor prepass first. Such a complete tensor-bearing
-evaluation is therefore not claimed to be FORM-free. Scalar or already
-tensor-reduced inputs can exercise the RustRed backend with an invalid FORM
-path to prove that the backend itself has no hidden FORM dependency.
+GammaLoop branch `vakint_rustred` is rebased onto `feynkit`, and tensor-bearing
+inputs in the active lane run the native FeynKit tensor prepass before the
+RustRed scalar IBP and master-substitution tail. The complete lane is therefore
+FORM-less. Tests explicitly select FeynKit and use an invalid FORM path so a
+default change cannot silently weaken this guarantee. AlphaLoop, MATAD, and
+the historical FORM tensor method remain unchanged backward-compatible oracle
+lanes, never fallbacks from RustRed. Vakint continues to accept every legacy
+public integral notation and API spelling supported before this branch; any
+newer notation used by FeynKit or RustRed is additive and must have regression
+coverage proving that the historical spelling still evaluates identically.
 
 ## Stage 1 milestones and acceptance
 
@@ -973,12 +1001,14 @@ path to prove that the backend itself has no hidden FORM dependency.
 2. Close and publish the one-loop artifact with the artifact/reducer spine.
 3. Close the two-loop family, cover its pinch, and expose Rust, CLI, and Python
    artifact/application APIs.
-4. In parallel with three-loop closure, integrate and validate Vakint RustRed
-   scalar reduction through two loops.
+4. In parallel with three-loop closure, rebase `vakint_rustred` onto `feynkit`
+   and validate the FeynKit-tensor-plus-RustRed-scalar stack through two loops.
 5. Close the `K = 6` family and prove coverage of all five registered
    three-loop graph classes.
 6. Pass all applicable single-scale Vakint acceptance tests through three
-   loops, update documentation, commit and push both repositories, then pause.
+   loops, then benchmark and profile optimized warm RustRed scalar reduction
+   against equivalent AlphaLoop/MATAD workloads. Address material regressions,
+   update documentation, commit and push both repositories, then pause.
 
 Acceptance requires:
 
@@ -1001,10 +1031,16 @@ Acceptance requires:
   a valid nonminimal terminal set is never rejected merely for differing from
   MATAD's preferred symbolic masters;
 - scalar RustRed-backend tests with an invalid FORM path;
-- tensor-bearing tests using the unchanged FORM tensor prepass followed by the
-  FORM-free RustRed scalar tail; and
+- tensor-bearing tests explicitly using the FORM-less FeynKit tensor prepass
+  followed by the FORM-less RustRed scalar tail, also with an invalid FORM
+  path;
+- release-build benchmarks that separate cold artifact load/validation from
+  warm memoized scalar reduction, compare identical input batches and output
+  precision against AlphaLoop/MATAD, and retain profiles identifying dominant
+  RustRed costs; and
 - unchanged Vakint public API conventions, defaults, and existing FORM-backed
-  behavior, together with a negative test that obsolete RustRed artifact
+  behavior, including paired legacy/new-notation regression inputs, together
+  with a negative test that obsolete RustRed artifact
   schemas are rejected rather than migrated, dual-decoded, or used through a
   fallback.
 
@@ -1014,10 +1050,12 @@ PySecDec comparisons are optional, non-gating corroboration.
 
 Stage 2 preserves the long-term ambition from the historical preamble, but no
 four- through six-loop artifact production or unbounded high-loop closure
-campaign may begin until the user provides the collaborator's tensor-reduction
-direction and explicit permission. During Stage 1, the winning IBP-foundry
-candidate may already be studied on the **complete authenticated** four-,
-five-, and six-loop single-scale vacuum manifests. Each study is bounded,
+campaign may begin without explicit user permission and the promised guidance
+on advanced rank-generic tensor technology. The already available FeynKit
+tensor reducer is part of Stage 1 and does not lift that gate. During Stage 1,
+the winning IBP-foundry candidate may already be studied on the **complete
+authenticated** four-, five-, and six-loop single-scale vacuum manifests. Each
+study is bounded,
 pre-registers its resource and promotion/kill gates, includes all hard and
 censored families in aggregate results, and reports only the strongest proved
 state (`Manifested`, `Probed`, `ModularCandidate`, `ExactReplayed`,
@@ -1025,8 +1063,8 @@ state (`Manifested`, `Probed`, `ModularCandidate`, `ExactReplayed`,
 bounded or sampled census is never described as closure. Stage 2 production
 includes:
 
-- integrating or replacing tensor reduction and making it generic in rank;
-- changing Vakint's tensor preprocessing away from FORM;
+- integrating or replacing tensor reduction beyond the current FeynKit
+  capability and proving the eventual implementation generic in rank;
 - closing four-, five-, and six-loop vacuum manifests;
 - high-loop-specific distributed-memory, reconstruction, and extreme
   efficiency work; and
@@ -1049,8 +1087,9 @@ architecture is documented and killed or retained explicitly.
 
 - Production RustRed and the Vakint RustRed scalar backend use only Rust plus
   GMP-enabled Symbolica. They never execute FORM, Mathematica, SymPy, or
-  another CAS. The explicitly retained Vakint FORM tensor prepass is an
-  external legacy stage, not a RustRed algebra provider.
+  another CAS. The active tensor-bearing Vakint acceptance lane uses FeynKit;
+  FORM-backed modes remain independent backward-compatible oracle lanes, not
+  RustRed algebra providers or fallbacks.
 - Search Symbolica's public API, Rustdoc, source, examples, and tests before
   implementing any algebraic primitive. RustRed owns physics meaning,
   authentication, guards, ordering, provenance, resource admission, and exact

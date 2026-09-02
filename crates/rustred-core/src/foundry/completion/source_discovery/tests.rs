@@ -6,7 +6,7 @@ use symbolica::domains::{Ring, RingOps};
 
 use crate::algebra::CoefficientContext;
 use crate::family::{AffineDenominator, IntegralFamily};
-use crate::foundry::artifact::canonical_three_loop_family;
+use crate::foundry::artifact::{canonical_three_loop_family, derive_two_loop_unit_mass_sunset};
 use crate::foundry::completion::frame::modular::{
     ModularKernelLimits, ModularPhysicalFrame, ModularRightObstruction,
     ModularSourceEvaluationError, ModularTargetQuery,
@@ -128,6 +128,369 @@ fn zero_offset_sources(
             TranslatedSourceLimits::default(),
         )
         .unwrap()
+}
+
+fn zero_offset_sources_with_arity(
+    generator: &ParametricIbpGenerator<'_>,
+    completed: &CompletedIbpSourceRows,
+    arity: usize,
+) -> TranslatedSourceBatch {
+    generator
+        .translate_completed_source_rows(
+            completed,
+            [IntegralShift::try_new(vec![0; arity]).unwrap()],
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap()
+}
+
+#[test]
+fn two_loop_initial_parent_proposal_exactly_matches_generic_support_nomination() {
+    let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let sources = zero_offset_sources_with_arity(&generator, &completed, 3);
+    let limits = SourceDiscoveryLimits::default();
+    let incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    let support = [
+        IntegralShift::try_new([0, 0, 0]).unwrap(),
+        IntegralShift::try_new([1, 0, 0]).unwrap(),
+    ];
+
+    let proposal = incidence
+        .try_nominate_initial_parent_support(&completed, &support, limits)
+        .unwrap();
+    let expected =
+        nominate_support_for_test(&incidence, &[&support[0], &support[1]], &[], limits).unwrap();
+    assert_eq!(proposal.requests(), expected.requests());
+    assert_eq!(proposal.family_fingerprint(), artifact.family_fingerprint());
+    assert_eq!(
+        proposal.context_fingerprint(),
+        artifact.context_fingerprint()
+    );
+    assert_eq!(proposal.telemetry().arity(), 3);
+    assert_eq!(proposal.telemetry().ordinary_source_rows(), 4);
+    assert_eq!(
+        proposal.telemetry().source_term_occurrences(),
+        incidence.term_occurrences()
+    );
+    assert_eq!(
+        proposal.telemetry().distinct_source_shifts(),
+        incidence.distinct_shift_count()
+    );
+    assert_eq!(proposal.telemetry().parent_support_entries(), 2);
+    assert_eq!(
+        proposal.telemetry().raw_incidence_visits(),
+        expected.raw_incidence_visits()
+    );
+    assert_eq!(
+        proposal.telemetry().unique_before_existing_exclusion(),
+        expected.unique_before_existing_exclusion()
+    );
+    assert_eq!(
+        proposal.telemetry().request_count(),
+        proposal.requests().len()
+    );
+    assert_eq!(
+        proposal.telemetry().request_coordinate_cells(),
+        3 * proposal.requests().len()
+    );
+}
+
+#[test]
+fn initial_parent_proposal_rejects_noncanonical_support_foreign_scope_and_tight_limits() {
+    let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let sources = zero_offset_sources_with_arity(&generator, &completed, 3);
+    let limits = SourceDiscoveryLimits::default();
+    let incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    let zero = IntegralShift::try_new([0, 0, 0]).unwrap();
+
+    assert!(matches!(
+        incidence.try_nominate_initial_parent_support(
+            &completed,
+            &[zero.clone(), zero.clone()],
+            limits,
+        ),
+        Err(SourceDiscoveryError::Invariant {
+            detail: "initial parent support is not canonical and unique",
+        })
+    ));
+    assert_eq!(
+        incidence
+            .try_nominate_initial_parent_support(
+                &completed,
+                &[IntegralShift::try_new([0, 0]).unwrap()],
+                limits,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::WrongArity {
+            object: "initial parent support shift",
+            expected: 3,
+            actual: 2,
+        }
+    );
+    let mut support_limited = limits;
+    support_limited.max_obstruction_support = 0;
+    assert_eq!(
+        incidence
+            .try_nominate_initial_parent_support(&completed, &[zero.clone()], support_limited)
+            .unwrap_err(),
+        SourceDiscoveryError::ResourceLimit {
+            resource: "source-discovery obstruction support entries",
+            requested: 1,
+            limit: 0,
+        }
+    );
+    let mut source_term_limited = limits;
+    source_term_limited.max_source_term_occurrences = incidence.term_occurrences() - 1;
+    assert_eq!(
+        incidence
+            .try_nominate_initial_parent_support(&completed, &[zero.clone()], source_term_limited,)
+            .unwrap_err(),
+        SourceDiscoveryError::ResourceLimit {
+            resource: "source-discovery ordinary term occurrences",
+            requested: incidence.term_occurrences(),
+            limit: incidence.term_occurrences() - 1,
+        }
+    );
+    let mut distinct_shift_limited = limits;
+    distinct_shift_limited.max_distinct_source_shifts = incidence.distinct_shift_count() - 1;
+    assert_eq!(
+        incidence
+            .try_nominate_initial_parent_support(
+                &completed,
+                &[zero.clone()],
+                distinct_shift_limited,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::ResourceLimit {
+            resource: "source-discovery distinct ordinary shifts",
+            requested: incidence.distinct_shift_count(),
+            limit: incidence.distinct_shift_count() - 1,
+        }
+    );
+
+    let proposal = incidence
+        .try_nominate_initial_parent_support(&completed, &[zero], limits)
+        .unwrap();
+    let mut tight = limits;
+    tight.max_unique_requests = proposal.telemetry().unique_before_existing_exclusion() - 1;
+    assert_eq!(
+        proposal
+            .try_verify_for_parent(
+                artifact.family_fingerprint(),
+                artifact.context_fingerprint(),
+                3,
+                &completed,
+                tight,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::ResourceLimit {
+            resource: "source-discovery unique translated-source requests",
+            requested: proposal.telemetry().unique_before_existing_exclusion(),
+            limit: proposal.telemetry().unique_before_existing_exclusion() - 1,
+        }
+    );
+    let mut tight_source_terms = limits;
+    tight_source_terms.max_source_term_occurrences =
+        proposal.telemetry().source_term_occurrences() - 1;
+    assert_eq!(
+        proposal
+            .try_verify_for_parent(
+                artifact.family_fingerprint(),
+                artifact.context_fingerprint(),
+                3,
+                &completed,
+                tight_source_terms,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::ResourceLimit {
+            resource: "source-discovery ordinary term occurrences",
+            requested: proposal.telemetry().source_term_occurrences(),
+            limit: proposal.telemetry().source_term_occurrences() - 1,
+        }
+    );
+    let mut tight_distinct_shifts = limits;
+    tight_distinct_shifts.max_distinct_source_shifts =
+        proposal.telemetry().distinct_source_shifts() - 1;
+    assert_eq!(
+        proposal
+            .try_verify_for_parent(
+                artifact.family_fingerprint(),
+                artifact.context_fingerprint(),
+                3,
+                &completed,
+                tight_distinct_shifts,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::ResourceLimit {
+            resource: "source-discovery distinct ordinary shifts",
+            requested: proposal.telemetry().distinct_source_shifts(),
+            limit: proposal.telemetry().distinct_source_shifts() - 1,
+        }
+    );
+    assert!(matches!(
+        proposal.try_verify_for_parent(
+            "foreign-family",
+            artifact.context_fingerprint(),
+            3,
+            &completed,
+            limits,
+        ),
+        Err(SourceDiscoveryError::ScopeMismatch {
+            detail: "initial parent proposal belongs to a different integral family",
+        })
+    ));
+}
+
+#[test]
+fn initial_parent_proposal_is_bound_to_one_exact_ordered_completed_chronology() {
+    let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let sources = zero_offset_sources_with_arity(&generator, &completed, 3);
+    let limits = SourceDiscoveryLimits::default();
+    let incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    let proposal = incidence
+        .try_nominate_initial_parent_support(
+            &completed,
+            &[IntegralShift::try_new([0, 0, 0]).unwrap()],
+            limits,
+        )
+        .unwrap();
+
+    let separately_completed_same_scope = complete_ordinary(&generator);
+    assert!(matches!(
+        proposal.try_verify_for_parent(
+            artifact.family_fingerprint(),
+            artifact.context_fingerprint(),
+            3,
+            &separately_completed_same_scope,
+            limits,
+        ),
+        Err(SourceDiscoveryError::ScopeMismatch {
+            detail: "initial parent proposal belongs to a different completed ordinary-source barrier",
+        })
+    ));
+
+    let mut reordered = completed;
+    assert!(reordered.swap_source_rows_for_test(0, 1));
+    assert!(matches!(
+        proposal.try_verify_for_parent(
+            artifact.family_fingerprint(),
+            artifact.context_fingerprint(),
+            3,
+            &reordered,
+            limits,
+        ),
+        Err(SourceDiscoveryError::ScopeMismatch {
+            detail: "initial parent proposal ordinary-source chronology changed",
+        })
+    ));
+}
+
+#[test]
+fn initial_parent_proposal_rejects_same_content_from_a_foreign_family_scope() {
+    let family = one_loop_vacuum("initial-parent-scope-owner");
+    let foreign_family = one_loop_vacuum("initial-parent-scope-foreign");
+    assert_ne!(family.fingerprint(), foreign_family.fingerprint());
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let mut foreign_completed = complete_ordinary(&generator);
+    foreign_completed.replace_family_fingerprint_for_test(foreign_family.fingerprint());
+    assert_ne!(
+        completed.family_fingerprint(),
+        foreign_completed.family_fingerprint()
+    );
+    assert_eq!(
+        completed.source_row_count(),
+        foreign_completed.source_row_count()
+    );
+    for ordinal in 0..completed.source_row_count() {
+        let left = completed.source_relation(ordinal).unwrap();
+        let right = foreign_completed.source_relation(ordinal).unwrap();
+        assert_eq!(left.row_id(), right.row_id());
+        assert_eq!(left.terms(), right.terms());
+        assert_eq!(left.nonzero_conditions(), right.nonzero_conditions());
+    }
+
+    let sources = zero_offset_sources_with_arity(&generator, &completed, 1);
+    let limits = SourceDiscoveryLimits::default();
+    let incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    assert!(!incidence.exactly_replays_completed(&foreign_completed));
+    let mut preflight_limited = limits;
+    preflight_limited.max_source_term_occurrences = incidence.term_occurrences() - 1;
+    assert_eq!(
+        incidence
+            .try_nominate_initial_parent_support(
+                &foreign_completed,
+                &[IntegralShift::try_new([0]).unwrap()],
+                preflight_limited,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::ResourceLimit {
+            resource: "source-discovery ordinary term occurrences",
+            requested: incidence.term_occurrences(),
+            limit: incidence.term_occurrences() - 1,
+        }
+    );
+    assert_eq!(
+        incidence
+            .try_nominate_initial_parent_support(
+                &foreign_completed,
+                &[IntegralShift::try_new([0]).unwrap()],
+                limits,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::CompletedSourceChronologyMismatch
+    );
+
+    let mut foreign_context = complete_ordinary(&generator);
+    foreign_context.replace_context_fingerprint_for_test("foreign-indexed-context");
+    assert!(!incidence.exactly_replays_completed(&foreign_context));
+    assert_eq!(
+        incidence
+            .try_nominate_initial_parent_support(
+                &foreign_context,
+                &[IntegralShift::try_new([0]).unwrap()],
+                limits,
+            )
+            .unwrap_err(),
+        SourceDiscoveryError::CompletedSourceChronologyMismatch
+    );
+}
+
+#[test]
+fn initial_parent_proposal_revalidates_the_bound_completed_scope() {
+    let family = one_loop_vacuum("initial-parent-bound-scope");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let mut completed = complete_ordinary(&generator);
+    let sources = zero_offset_sources_with_arity(&generator, &completed, 1);
+    let limits = SourceDiscoveryLimits::default();
+    let incidence = OrdinarySourceIncidenceIndex::try_new(&sources, limits).unwrap();
+    let proposal = incidence
+        .try_nominate_initial_parent_support(
+            &completed,
+            &[IntegralShift::try_new([0]).unwrap()],
+            limits,
+        )
+        .unwrap();
+
+    completed.replace_family_fingerprint_for_test("mutated-family-scope");
+    assert!(matches!(
+        proposal.try_verify_for_parent(
+            family.fingerprint(),
+            generator.context().fingerprint(),
+            1,
+            &completed,
+            limits,
+        ),
+        Err(SourceDiscoveryError::ScopeMismatch {
+            detail: "completed ordinary-source barrier belongs to a different integral family",
+        })
+    ));
 }
 
 #[test]

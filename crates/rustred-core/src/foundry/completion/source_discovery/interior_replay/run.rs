@@ -1,19 +1,20 @@
 use crate::foundry::completion::source_discovery::scheduler::{
     ProbeLocalObstructionScheduler, ProbeLocalOutcomeKind,
 };
-use crate::foundry::completion::stratum::{ImmutableOwnerSnapshot, MaximalStratumAnchor};
+use crate::foundry::completion::stratum::{CampaignStratumAnchor, ImmutableOwnerSnapshot};
 use crate::identity::{CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator};
 use crate::sector::OrderingPolicy;
 
 use super::super::{
     CampaignModularProbe, CanonicalRebaseAttemptOutcome, CanonicalReplayDisposition,
-    ExactExecutableOwnerProposal, try_canonicalize_replayed_probes,
+    ExactExecutableOwnerProposal, InitialParentSourceProposal, try_canonicalize_replayed_probes,
     try_compile_canonical_executable_owner,
 };
 use super::support::try_extract_support;
 use super::{
-    InteriorReplayAttemptCensus, InteriorReplayRunDisposition, InteriorReplayRunError,
-    InteriorReplayRunLimits, InteriorReplaySchedulerOutcomeCensus, InteriorReplayTaskReport,
+    InteriorReplayAttemptCensus, InteriorReplayBudgetStopSummary, InteriorReplayRunDisposition,
+    InteriorReplayRunError, InteriorReplayRunLimits, InteriorReplaySchedulerOutcomeCensus,
+    InteriorReplayTaskReport,
 };
 
 /// Run one independent target through scheduler, common-plan replay, and
@@ -24,25 +25,101 @@ pub(crate) fn try_run_interior_replay_task(
     generator: &ParametricIbpGenerator<'_>,
     completed: &CompletedIbpSourceRows,
     target: IntegralShift,
-    maximal_anchor: MaximalStratumAnchor,
+    stratum_anchor: impl Into<CampaignStratumAnchor>,
     owners: ImmutableOwnerSnapshot,
     ordering: OrderingPolicy,
     probes: impl IntoIterator<Item = CampaignModularProbe>,
     limits: InteriorReplayRunLimits,
 ) -> Result<InteriorReplayTaskReport, InteriorReplayRunError> {
-    let scheduler_report = ProbeLocalObstructionScheduler::try_new(
+    try_run_interior_replay_task_internal(
         generator,
         completed,
-        target.clone(),
-        maximal_anchor.clone(),
-        owners.clone(),
+        target,
+        stratum_anchor.into(),
+        owners,
         ordering,
+        None,
         probes,
-        limits.scheduler,
-    )?
-    .run()?;
+        limits,
+    )
+}
+
+/// As [`try_run_interior_replay_task`], with one authority-minimal parent
+/// request proposal injected independently into each probe's epoch zero.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn try_run_interior_replay_task_with_initial_parent_proposal(
+    generator: &ParametricIbpGenerator<'_>,
+    completed: &CompletedIbpSourceRows,
+    target: IntegralShift,
+    stratum_anchor: impl Into<CampaignStratumAnchor>,
+    owners: ImmutableOwnerSnapshot,
+    ordering: OrderingPolicy,
+    initial_parent_proposal: InitialParentSourceProposal,
+    probes: impl IntoIterator<Item = CampaignModularProbe>,
+    limits: InteriorReplayRunLimits,
+) -> Result<InteriorReplayTaskReport, InteriorReplayRunError> {
+    try_run_interior_replay_task_internal(
+        generator,
+        completed,
+        target,
+        stratum_anchor.into(),
+        owners,
+        ordering,
+        Some(initial_parent_proposal),
+        probes,
+        limits,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn try_run_interior_replay_task_internal(
+    generator: &ParametricIbpGenerator<'_>,
+    completed: &CompletedIbpSourceRows,
+    target: IntegralShift,
+    stratum_anchor: CampaignStratumAnchor,
+    owners: ImmutableOwnerSnapshot,
+    ordering: OrderingPolicy,
+    initial_parent_proposal: Option<InitialParentSourceProposal>,
+    probes: impl IntoIterator<Item = CampaignModularProbe>,
+    limits: InteriorReplayRunLimits,
+) -> Result<InteriorReplayTaskReport, InteriorReplayRunError> {
+    let scheduler = match initial_parent_proposal {
+        None => ProbeLocalObstructionScheduler::try_new(
+            generator,
+            completed,
+            target.clone(),
+            stratum_anchor.clone(),
+            owners.clone(),
+            ordering,
+            probes,
+            limits.scheduler,
+        ),
+        Some(proposal) => ProbeLocalObstructionScheduler::try_new_with_initial_parent_proposal(
+            generator,
+            completed,
+            target.clone(),
+            stratum_anchor.clone(),
+            owners.clone(),
+            ordering,
+            proposal,
+            probes,
+            limits.scheduler,
+        ),
+    }?;
+    let scheduler_report = scheduler.run()?;
     let scheduler = scheduler_report.census();
     let scheduler_outcomes = scheduler_outcome_census(&scheduler_report);
+    let budget_stops = scheduler_report
+        .probes()
+        .iter()
+        .filter_map(|probe| probe.outcome().budget_stop())
+        .map(InteriorReplayBudgetStopSummary::from_stop)
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    let first_scheduler_rejection = scheduler_report
+        .probes()
+        .iter()
+        .find_map(|probe| probe.outcome().rejection_summary());
 
     // This borrow is the critical streaming boundary: canonical replay
     // reconstructs a fresh common epoch before `scheduler_report` is dropped.
@@ -50,7 +127,7 @@ pub(crate) fn try_run_interior_replay_task(
         generator,
         completed,
         target.clone(),
-        maximal_anchor,
+        stratum_anchor,
         owners,
         ordering,
         &scheduler_report,
@@ -103,6 +180,8 @@ pub(crate) fn try_run_interior_replay_task(
     Ok(InteriorReplayTaskReport::new(
         scheduler,
         scheduler_outcomes,
+        budget_stops,
+        first_scheduler_rejection,
         replay,
         canonical_attempts,
         disposition,

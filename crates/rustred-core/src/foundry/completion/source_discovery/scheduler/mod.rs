@@ -20,6 +20,7 @@ mod limits;
 // suppress only that configuration's premature accessor/payload diagnostics.
 #[cfg_attr(test, allow(dead_code))]
 mod model;
+mod rejection;
 mod run;
 
 pub(crate) use error::ProbeLocalSchedulerError;
@@ -32,6 +33,7 @@ pub(crate) use model::{
     ProbeLocalProbeReport, ProbeLocalRejection, ProbeLocalRunCensus, ProbeLocalSchedulerReport,
     ProbeLocalStage, ProbeLocalStall, ProbeLocalStopContext,
 };
+pub(crate) use rejection::{ProbeLocalRejectionCategory, ProbeLocalRejectionSummary};
 #[allow(unused_imports)] // Production caller lands with the sector-layer orchestrator.
 pub(crate) use run::ProbeLocalObstructionScheduler;
 

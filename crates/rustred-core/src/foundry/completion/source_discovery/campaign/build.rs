@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use crate::algebra::IndexedCoefficientContext;
 use crate::foundry::completion::frame::SelectedSourceFrame;
 use crate::foundry::completion::stratum::{
-    DecoratedStratum, MaximalStratumSequence, StratumRegistryLimits, TargetColumnPartition,
+    DecoratedStratum, StratumRegistryLimits, TargetColumnPartition,
 };
 use crate::identity::{
     CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator, TranslatedSourceRequest,
@@ -345,15 +345,15 @@ impl FreshTaskEpoch {
         &self,
         limits: StratumRegistryLimits,
     ) -> Result<TargetColumnPartition<'_>, CampaignError> {
-        // `TargetColumnPartition::try_new` cold-verifies and reconstructs the
-        // retained stratum and owner snapshot once.  Rebuilding the stratum
-        // separately here would repeat the same complete identity scan for
-        // every promoted candidate.
-        TargetColumnPartition::try_new(
+        // The owner snapshot was installed once through a checked immutable
+        // constructor. Reuse that exact Arc-backed ID/route authority for
+        // every partition in this epoch; only an explicit cold audit should
+        // reconstruct the complete snapshot payload again.
+        TargetColumnPartition::try_new_with_verified_snapshot(
             self.plan(),
             self.target_column(),
             self.fixed_stratum().clone(),
-            self.owners().clone(),
+            self.owners().verified_clone(),
             self.ordering(),
             limits,
         )
@@ -581,7 +581,7 @@ impl GrowingTaskEpochState {
 
 enum EpochStratumInput<'state> {
     Fixed(DecoratedStratum),
-    Growing(&'state mut MaximalStratumSequence),
+    Growing(&'state mut crate::foundry::completion::stratum::CampaignStratumSequence),
 }
 
 impl EpochStratumInput<'_> {

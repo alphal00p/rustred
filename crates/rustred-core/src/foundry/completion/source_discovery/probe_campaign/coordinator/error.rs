@@ -11,6 +11,12 @@ use super::super::ProbeCampaignError;
 #[derive(Debug)]
 pub(crate) enum ProbeCoordinatorFailure {
     EmptyProbeProgram,
+    UnsupportedEvenModulus {
+        modulus: u64,
+    },
+    NonPrimeModulus {
+        modulus: u64,
+    },
     WrongProbeBaseParameterArity {
         probe_ordinal: usize,
         expected: usize,
@@ -21,9 +27,18 @@ pub(crate) enum ProbeCoordinatorFailure {
         expected: usize,
         actual: usize,
     },
+    WrongDiscoveryCoordinatePriorityArity {
+        expected: usize,
+        actual: usize,
+    },
     ProbeChartCoordinateOverflow {
         probe_ordinal: usize,
         coordinate: usize,
+    },
+    NonzeroRestrictedProbeOffset {
+        probe_ordinal: usize,
+        coordinate: usize,
+        offset: u64,
     },
     ZeroInteriorMargin,
     EmptyUncoveredPartition,
@@ -59,6 +74,14 @@ impl fmt::Display for ProbeCoordinatorFailure {
             Self::EmptyProbeProgram => {
                 formatter.write_str("probe coordinator fixed probe program is empty")
             }
+            Self::UnsupportedEvenModulus { modulus } => write!(
+                formatter,
+                "probe coordinator modulus {modulus} is even; this finite-field lane requires an odd prime"
+            ),
+            Self::NonPrimeModulus { modulus } => write!(
+                formatter,
+                "probe coordinator modulus {modulus} is not prime"
+            ),
             Self::WrongProbeBaseParameterArity {
                 probe_ordinal,
                 expected,
@@ -75,12 +98,24 @@ impl fmt::Display for ProbeCoordinatorFailure {
                 formatter,
                 "probe coordinator template {probe_ordinal} has {actual} chart offsets, expected {expected}"
             ),
+            Self::WrongDiscoveryCoordinatePriorityArity { expected, actual } => write!(
+                formatter,
+                "probe coordinator discovery coordinate priority has arity {actual}, expected {expected}"
+            ),
             Self::ProbeChartCoordinateOverflow {
                 probe_ordinal,
                 coordinate,
             } => write!(
                 formatter,
                 "probe coordinator template {probe_ordinal} overflowed task-relative chart coordinate {coordinate}"
+            ),
+            Self::NonzeroRestrictedProbeOffset {
+                probe_ordinal,
+                coordinate,
+                offset,
+            } => write!(
+                formatter,
+                "probe coordinator template {probe_ordinal} has nonzero offset {offset} on fixed boundary coordinate {coordinate}"
             ),
             Self::ZeroInteriorMargin => formatter
                 .write_str("probe coordinator positive-dimensional profile has zero margin"),

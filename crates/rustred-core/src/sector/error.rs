@@ -54,6 +54,10 @@ pub enum Error {
     UnknownOrderingPolicy {
         id: String,
     },
+    OrderingPriorityArityLimit {
+        actual: usize,
+        limit: usize,
+    },
     NotStrictDescent,
 }
 
@@ -128,6 +132,10 @@ impl fmt::Display for Error {
             Self::UnknownOrderingPolicy { id } => {
                 write!(formatter, "unknown integral-ordering policy {id:?}")
             }
+            Self::OrderingPriorityArityLimit { actual, limit } => write!(
+                formatter,
+                "integral-ordering coordinate priority has arity {actual}, but the exact packed policy limit is {limit}"
+            ),
             Self::NotStrictDescent => formatter.write_str(
                 "the proposed target is not strictly simpler under the named ordering policy",
             ),

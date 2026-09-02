@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::algebra::{CoefficientContext, IndexedCoefficientContext};
 use crate::foundry::artifact::{
     derive_k6_terminal_authority, derive_one_loop_unit_mass_tadpole,
-    fresh_k6_terminal_authority_for_test,
+    derive_two_loop_unit_mass_sunset, fresh_k6_terminal_authority_for_test,
 };
 use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use crate::sector::{
@@ -12,9 +12,10 @@ use crate::sector::{
 
 use super::super::frame::{OneSidedChartFrame, PhysicalFrameLimits, PhysicalFramePlan};
 use super::{
-    DecoratedStratum, ForbiddenColumnReason, GuardBranch, GuardBranchIdentity,
-    GuardPredicateAuthority, ImmutableOwnerKind, ImmutableOwnerSnapshot, ProspectiveColumnKind,
-    StratumRegistryError, StratumRegistryLimits, TargetColumnPartition,
+    CampaignStratumAnchor, DecoratedStratum, ForbiddenColumnReason, GuardBranch,
+    GuardBranchIdentity, GuardPredicateAuthority, ImmutableOwnerKind, ImmutableOwnerSnapshot,
+    MaximalStratumAnchor, ProspectiveColumnKind, StratumRegistryError, StratumRegistryLimits,
+    TargetColumnPartition,
 };
 
 fn complete_ordinary(generator: &ParametricIbpGenerator<'_>) -> CompletedIbpSourceRows {
@@ -41,6 +42,35 @@ fn one_loop_frame(degree: usize) -> (crate::foundry::artifact::ClosedArtifact, P
     (artifact, frame)
 }
 
+fn two_loop_frames(degrees: &[usize]) -> Vec<PhysicalFramePlan> {
+    let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let sector = Mask::try_new([true, true, true]).unwrap();
+    degrees
+        .iter()
+        .map(|&degree| {
+            OneSidedChartFrame::try_new(
+                &generator,
+                &completed,
+                sector.clone(),
+                degree,
+                PhysicalFrameLimits::default(),
+            )
+            .unwrap()
+            .into_plan()
+        })
+        .collect()
+}
+
+fn zero_shift_target(frame: &PhysicalFramePlan) -> usize {
+    frame
+        .columns()
+        .iter()
+        .position(|shift| shift.values().iter().all(|&value| value == 0))
+        .expect("ordinary vacuum frame must retain the zero integral shift")
+}
+
 fn maximal_stratum(frame: &PhysicalFramePlan, target: usize) -> DecoratedStratum {
     let physical_shifts = frame
         .columns()
@@ -60,6 +90,214 @@ fn maximal_stratum(frame: &PhysicalFramePlan, target: usize) -> DecoratedStratum
         StratumRegistryLimits::default(),
     )
     .unwrap()
+}
+
+#[test]
+fn restricted_campaign_sequence_materializes_then_shrinks_without_releasing_singletons_or_guards() {
+    let frames = two_loop_frames(&[0, 1]);
+    let first_target = zero_shift_target(&frames[0]);
+    let second_target = zero_shift_target(&frames[1]);
+    let first_maximal = maximal_stratum(&frames[0], first_target);
+    let second_maximal = maximal_stratum(&frames[1], second_target);
+    let shrinking_position = first_maximal
+        .domain()
+        .bounds()
+        .iter()
+        .zip(second_maximal.domain().bounds())
+        .position(|(&first, &second)| {
+            second.lower() > first.lower() || second.upper() < first.upper()
+        })
+        .expect("the degree-one frame must tighten a carrier endpoint");
+    let singleton_position = (0..first_maximal.domain().arity())
+        .find(|&position| position != shrinking_position)
+        .unwrap();
+    let mut initial_bounds = first_maximal.domain().bounds().to_vec();
+    initial_bounds[singleton_position] = InteriorBounds::new(1, 1);
+    let physical_shifts = frames[0]
+        .columns()
+        .iter()
+        .map(|shift| shift.values())
+        .collect::<Vec<_>>();
+    let initial_domain = SectorMonotoneDomain::try_new_for_rule(
+        frames[0].sector().clone(),
+        initial_bounds,
+        frames[0].columns()[first_target].values(),
+        &physical_shifts,
+    )
+    .unwrap();
+    let limits = StratumRegistryLimits::default();
+    let guard = GuardBranchIdentity::try_new("restricted", GuardBranch::NonZero, limits).unwrap();
+    let initial = DecoratedStratum::try_new(
+        frames[0].family_fingerprint(),
+        frames[0].context_fingerprint(),
+        initial_domain,
+        [guard.clone()],
+        limits,
+    )
+    .unwrap();
+    let mut sequence = CampaignStratumAnchor::try_restricted(initial.clone(), limits)
+        .unwrap()
+        .into_sequence();
+
+    assert_eq!(sequence.scope(), &initial);
+    let first = sequence
+        .try_materialize(&frames[0], first_target, limits)
+        .unwrap();
+    assert_eq!(first, initial);
+
+    let second = sequence
+        .try_materialize(&frames[1], second_target, limits)
+        .unwrap();
+    assert_eq!(second.guards(), &[guard]);
+    assert_eq!(
+        second.domain().bounds()[singleton_position],
+        InteriorBounds::new(1, 1)
+    );
+    assert!(
+        second.domain().bounds()[shrinking_position].lower()
+            > first.domain().bounds()[shrinking_position].lower()
+            || second.domain().bounds()[shrinking_position].upper()
+                < first.domain().bounds()[shrinking_position].upper()
+    );
+    for (&before, &after) in first.domain().bounds().iter().zip(second.domain().bounds()) {
+        assert!(before.lower() <= after.lower());
+        assert!(after.upper() <= before.upper());
+    }
+}
+
+#[test]
+fn restricted_campaign_empty_intersection_is_transactional_and_can_be_retried() {
+    let frames = two_loop_frames(&[0, 1]);
+    let first_target = zero_shift_target(&frames[0]);
+    let second_target = zero_shift_target(&frames[1]);
+    let first_maximal = maximal_stratum(&frames[0], first_target);
+    let second_maximal = maximal_stratum(&frames[1], second_target);
+    let (excluded_position, excluded_value) = first_maximal
+        .domain()
+        .bounds()
+        .iter()
+        .zip(second_maximal.domain().bounds())
+        .enumerate()
+        .find_map(|(position, (&first, &second))| {
+            if second.lower() > first.lower() {
+                Some((position, first.lower()))
+            } else if second.upper() < first.upper() {
+                Some((position, first.upper()))
+            } else {
+                None
+            }
+        })
+        .expect("the degree-one frame must exclude a degree-zero endpoint");
+    let mut initial_bounds = first_maximal.domain().bounds().to_vec();
+    for bound in &mut initial_bounds {
+        *bound = InteriorBounds::new(1, 1);
+    }
+    initial_bounds[excluded_position] = InteriorBounds::new(excluded_value, excluded_value);
+    let physical_shifts = frames[0]
+        .columns()
+        .iter()
+        .map(|shift| shift.values())
+        .collect::<Vec<_>>();
+    let initial_domain = SectorMonotoneDomain::try_new_for_rule(
+        frames[0].sector().clone(),
+        initial_bounds,
+        frames[0].columns()[first_target].values(),
+        &physical_shifts,
+    )
+    .unwrap();
+    let limits = StratumRegistryLimits::default();
+    let initial = DecoratedStratum::try_guard_blind(
+        frames[0].family_fingerprint(),
+        frames[0].context_fingerprint(),
+        initial_domain,
+        limits,
+    )
+    .unwrap();
+    let mut sequence = CampaignStratumAnchor::try_restricted(initial.clone(), limits)
+        .unwrap()
+        .into_sequence();
+    assert_eq!(
+        sequence
+            .try_materialize(&frames[0], first_target, limits)
+            .unwrap(),
+        initial
+    );
+
+    assert!(matches!(
+        sequence.try_materialize(&frames[1], second_target, limits),
+        Err(StratumRegistryError::Sector(_))
+    ));
+    assert_eq!(
+        sequence
+            .try_materialize(&frames[0], first_target, limits)
+            .unwrap(),
+        initial
+    );
+}
+
+#[test]
+fn campaign_maximal_lane_still_rejects_initial_mismatch_and_later_widening() {
+    let frames = two_loop_frames(&[0, 1]);
+    let first_target = zero_shift_target(&frames[0]);
+    let second_target = zero_shift_target(&frames[1]);
+    let limits = StratumRegistryLimits::default();
+
+    let first_maximal = maximal_stratum(&frames[0], first_target);
+    let mut tightened_bounds = first_maximal.domain().bounds().to_vec();
+    let position = tightened_bounds
+        .iter()
+        .position(|bounds| bounds.lower() < bounds.upper())
+        .unwrap();
+    tightened_bounds[position] = InteriorBounds::new(
+        tightened_bounds[position].lower(),
+        tightened_bounds[position].upper() - 1,
+    );
+    let physical_shifts = frames[0]
+        .columns()
+        .iter()
+        .map(|shift| shift.values())
+        .collect::<Vec<_>>();
+    let tightened_domain = SectorMonotoneDomain::try_new_for_rule(
+        frames[0].sector().clone(),
+        tightened_bounds,
+        frames[0].columns()[first_target].values(),
+        &physical_shifts,
+    )
+    .unwrap();
+    let tightened = DecoratedStratum::try_guard_blind(
+        frames[0].family_fingerprint(),
+        frames[0].context_fingerprint(),
+        tightened_domain,
+        limits,
+    )
+    .unwrap();
+    let mut mismatched =
+        CampaignStratumAnchor::from(MaximalStratumAnchor::try_new(tightened, limits).unwrap())
+            .into_sequence();
+    assert_eq!(
+        mismatched
+            .try_materialize(&frames[0], first_target, limits)
+            .unwrap_err(),
+        StratumRegistryError::InitialMaximalDomainMismatch
+    );
+
+    let second_maximal = maximal_stratum(&frames[1], second_target);
+    let mut sequence = CampaignStratumAnchor::from(
+        MaximalStratumAnchor::try_new(second_maximal.clone(), limits).unwrap(),
+    )
+    .into_sequence();
+    assert_eq!(
+        sequence
+            .try_materialize(&frames[1], second_target, limits)
+            .unwrap(),
+        second_maximal
+    );
+    assert_eq!(
+        sequence
+            .try_materialize(&frames[0], first_target, limits)
+            .unwrap_err(),
+        StratumRegistryError::NonMonotoneMaximalDomain
+    );
 }
 
 #[test]
@@ -317,7 +555,7 @@ fn terminal_authority_snapshot_retains_and_cheaply_rejoins_its_exact_owner() {
         StratumRegistryLimits::default(),
     )
     .unwrap();
-    assert_eq!(snapshot.owner_count(), 26 + 3 + 3);
+    assert_eq!(snapshot.owner_count(), 26 + 3 + 6);
     assert!(
         snapshot
             .try_verify(StratumRegistryLimits::default())
@@ -327,7 +565,7 @@ fn terminal_authority_snapshot_retains_and_cheaply_rejoins_its_exact_owner() {
         snapshot
             .id()
             .as_str()
-            .contains("rustred.test.three-loop-k6-terminal-authority.v1")
+            .contains("rustred.three-loop-unit-mass-vacuum-k6.terminal-authority.v1")
     );
 
     let zero = SectorInteriorDomain::try_new(

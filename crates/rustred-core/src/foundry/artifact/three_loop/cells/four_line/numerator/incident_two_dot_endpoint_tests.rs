@@ -464,7 +464,10 @@ fn exact_s4_partition_nonownership_and_child_routing_are_pinned() {
             if terminal.kind() == ReachabilityTerminalKind::Factorization
                 && terminal.owner_ordinal() == 2
     ));
-    assert!(terminals.classify(&key(&children[3])).is_none());
+    assert!(matches!(
+        terminals.classify(&key(&children[3])),
+        Some(terminal) if terminal.kind() == ReachabilityTerminalKind::Master
+    ));
     assert!(
         endpoint
             .assignment_for_target(&key(&children[3]))

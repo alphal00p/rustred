@@ -2,19 +2,21 @@ use std::collections::BTreeSet;
 
 use crate::algebra::IndexedCoefficientContext;
 use crate::family::{IntegralFamily, IntegralKey};
+use crate::sector::OrderingPolicy;
 use crate::sector::symmetry::Canonicalizer;
 
 use super::super::error::ArtifactError;
 use super::super::factorization::FactorizationRule;
 use super::super::model::{ArtifactSchemaVersion, ClosedArtifact, ZeroSectorTerminal};
-use super::super::terminal::ClosedTerminalAuthority;
+use super::super::{ClosedTerminalAuthority, DeclaredMasterManifest};
 use super::{TerminalBindings, factorization, validate_terminal_bindings};
 
 /// Untrusted construction payload for one locally complete terminal registry.
 ///
 /// The payload contains no ordinary rules and therefore cannot be confused
 /// with a closing artifact candidate. Installation proves only the listed
-/// zero, factorization, and typed parent-terminal regions.
+/// zero and factorization regions, and seals explicitly declared finite
+/// same-family master points as an intentional evaluation policy.
 pub(crate) struct TerminalAuthorityCandidate {
     pub(crate) schema: ArtifactSchemaVersion,
     pub(crate) authority_id: &'static str,
@@ -25,7 +27,11 @@ pub(crate) struct TerminalAuthorityCandidate {
     pub(crate) dependencies: Vec<Box<ClosedArtifact>>,
     pub(crate) factorization_rules: Vec<FactorizationRule>,
     pub(crate) parent_terminals: BTreeSet<IntegralKey>,
+    /// Deliberately selected same-family numerical-master points. Unlike
+    /// `parent_terminals`, these need not be factorization outputs.
+    pub(crate) declared_master_terminals: Vec<IntegralKey>,
     pub(crate) zero_sectors: Vec<ZeroSectorTerminal>,
+    pub(crate) expected_ordering: OrderingPolicy,
 }
 
 /// Seal terminal authority after one exact generic replay at this cold
@@ -48,6 +54,7 @@ pub(crate) fn install_terminal_authority(
         parent_terminals: &candidate.parent_terminals,
         zero_sectors: &candidate.zero_sectors,
         require_parent_terminals: false,
+        expected_ordering: candidate.expected_ordering,
     })?;
     factorization::validate_and_compile(
         factorization::InstallContext::new(
@@ -69,6 +76,25 @@ pub(crate) fn install_terminal_authority(
     if compiled_parent_terminals != candidate.parent_terminals {
         return Err(ArtifactError::InvalidMasterManifest);
     }
+    let declared_masters = install_declared_master_manifest(
+        candidate.arity,
+        &candidate.family,
+        &candidate.context,
+        candidate.canonicalizer.as_ref(),
+        &candidate.zero_sectors,
+        candidate.declared_master_terminals,
+    )?;
+    for parent in &candidate.parent_terminals {
+        let canonical_parent = match candidate.canonicalizer.as_ref() {
+            Some(canonicalizer) => canonicalizer.canonicalize(parent)?.canonical().clone(),
+            None => parent.clone(),
+        };
+        if declared_masters.terminals().contains(&canonical_parent) {
+            return Err(ArtifactError::InvalidDeclaredMasterManifest {
+                detail: "a declared master duplicates a factorization-image terminal",
+            });
+        }
+    }
     Ok(ClosedTerminalAuthority::from_validated_parts(
         candidate.authority_id,
         candidate.arity,
@@ -78,7 +104,72 @@ pub(crate) fn install_terminal_authority(
         candidate.dependencies,
         candidate.factorization_rules,
         candidate.parent_terminals,
+        declared_masters,
         candidate.zero_sectors,
+    ))
+}
+
+fn install_declared_master_manifest(
+    arity: usize,
+    family: &IntegralFamily,
+    context: &IndexedCoefficientContext,
+    canonicalizer: Option<&Canonicalizer>,
+    zero_sectors: &[ZeroSectorTerminal],
+    terminals: Vec<IntegralKey>,
+) -> Result<DeclaredMasterManifest, ArtifactError> {
+    if context.index_count() != arity {
+        return Err(ArtifactError::WrongArity {
+            expected: context.index_count(),
+            actual: arity,
+        });
+    }
+    if family.denominator_count() != arity
+        || !family
+            .coefficient_context()
+            .has_same_variable_map(context.base())
+    {
+        return Err(ArtifactError::WrongCoefficientContext);
+    }
+    if canonicalizer.is_some_and(|canonicalizer| {
+        canonicalizer.arity() != arity || canonicalizer.family_fingerprint() != family.fingerprint()
+    }) {
+        return Err(ArtifactError::InvalidCanonicalizer);
+    }
+
+    let mut canonical_terminals = BTreeSet::new();
+    for terminal in terminals {
+        if terminal.powers().len() != arity {
+            return Err(ArtifactError::WrongArity {
+                expected: arity,
+                actual: terminal.powers().len(),
+            });
+        }
+        let canonical = match canonicalizer {
+            Some(canonicalizer) => canonicalizer.canonicalize(&terminal)?.canonical().clone(),
+            None => terminal,
+        };
+        if zero_sectors.iter().any(|zero| {
+            zero.sector()
+                .active_bits()
+                .iter()
+                .zip(canonical.powers())
+                .all(|(&active, &power)| active == (power >= 1))
+        }) {
+            return Err(ArtifactError::InvalidDeclaredMasterManifest {
+                detail: "a declared master belongs to an authenticated zero sector",
+            });
+        }
+        if !canonical_terminals.insert(canonical) {
+            return Err(ArtifactError::InvalidDeclaredMasterManifest {
+                detail: "declared masters contain duplicate symmetry-orbit representatives",
+            });
+        }
+    }
+    Ok(DeclaredMasterManifest::from_validated_parts(
+        arity,
+        family.fingerprint_owner(),
+        context.fingerprint_owner(),
+        canonical_terminals,
     ))
 }
 
@@ -134,10 +225,12 @@ mod tests {
             dependencies: Vec::new(),
             factorization_rules: Vec::new(),
             parent_terminals: BTreeSet::new(),
+            declared_master_terminals: Vec::new(),
             zero_sectors: vec![ZeroSectorTerminal::new(
                 Mask::try_new([false]).unwrap(),
                 ZeroTerminalProof::ScalelessVacuumPolynomial,
             )],
+            expected_ordering: OrderingPolicy::default(),
         }
     }
 
@@ -164,6 +257,7 @@ mod tests {
         assert_eq!(authority.arity(), 1);
         assert_eq!(authority.zero_sectors().len(), 1);
         assert!(authority.parent_terminals().is_empty());
+        assert!(authority.declared_master_manifest().terminals().is_empty());
         assert!(authority.factorization_rules().is_empty());
     }
 

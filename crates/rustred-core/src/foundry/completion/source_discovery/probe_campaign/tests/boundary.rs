@@ -1,5 +1,8 @@
 //! Boundary-planner authentication at the shared probe-campaign seam.
 
+use crate::family::IntegralKey;
+use crate::foundry::cell::SourceViewConstruction;
+use crate::foundry::completion::frame::admission::ExactCircuitOuterExtensionWitness;
 use crate::foundry::completion::source_discovery::boundary_simplex::{
     BoundarySimplexLimits, BoundarySimplexPlan, BoundarySimplexPlanError,
     BoundarySimplexSamplingProfile, BoundarySimplexScopePartition,
@@ -9,6 +12,10 @@ use crate::foundry::completion::source_discovery::cover_delta::{
     CanonicalExactOwnerLedger, ExactOwnerCoverDeltaError, ExactOwnerCoverDeltaKind,
 };
 use crate::foundry::completion::source_discovery::test_fixtures::OracleDisabledK6Fixture;
+use crate::foundry::completion::source_discovery::{
+    ExactExecutableOwnerCover, ExactExecutableOwnerLimits, ExactExecutableOwnerProposal,
+    ExactExecutableOwnerSelection, InteriorReplayRunDisposition, try_run_interior_replay_task,
+};
 use crate::foundry::completion::{LatticeBox, LatticePoint, UncoveredPartition};
 use crate::sector::Mask;
 
@@ -109,7 +116,7 @@ fn boundary_task_executes_from_reversed_exact_parent_order_without_payload_cloni
         .try_run_task(
             binding,
             &mut ledger,
-            [probe(task.lattice_target().iter().copied(), limits)],
+            [probe(task.base_probe_chart_origin(), limits)],
         )
         .unwrap();
     assert_eq!(report.planned_ledger_revision().get(), 1);
@@ -120,7 +127,166 @@ fn boundary_task_executes_from_reversed_exact_parent_order_without_payload_cloni
     assert_eq!(applied.delta().baseline().revision().get(), 1);
     assert_eq!(applied.delta().baseline().uncovered_box_count(), 6);
     assert_eq!(applied.delta().updated().revision().get(), 2);
-    assert_eq!(applied.delta().updated().uncovered_box_count(), 5);
+    // The exact one-dimensional cylinder removes measure from the cover while
+    // preserving the complementary boundary faces as disjoint boxes.
+    assert_eq!(applied.delta().updated().uncovered_box_count(), 15);
+}
+
+#[test]
+fn k6_boundary_adapter_replays_the_exact_mixed_dot_ray_quotient_and_owner_region() {
+    let fixture = OracleDisabledK6Fixture::shared();
+    let (adapter, limits) = adapter();
+    let sector = Mask::try_new([false, true, true, true, true, false]).unwrap();
+    let parent = LatticeBox::try_new(
+        [0, 0, 1, 1, 0, 0],
+        [Some(0), Some(0), Some(1), Some(1), None, Some(0)],
+    )
+    .unwrap();
+    let partition = UncoveredPartition::new(vec![parent], 0);
+    let plan = try_plan_boundary_simplex_samples(
+        0,
+        [BoundarySimplexScopePartition::new(
+            "k6-mixed-dot-ray",
+            &sector,
+            &partition,
+        )],
+        1,
+        0,
+        BoundarySimplexSamplingProfile::Simplex {
+            interior_margin: 2,
+            polynomial_degree_ceiling: 0,
+        },
+        BoundarySimplexLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(plan.tasks().len(), 1);
+    let task = &plan.tasks()[0];
+    assert_eq!(task.key().remaining_axes(), &[4]);
+    assert_eq!(task.lattice_target(), &[0, 0, 1, 1, 2, 0]);
+    assert_eq!(task.target_shift().values(), &[0, 0, 1, 1, 2, 0]);
+    assert_eq!(
+        task.base_probe_chart_origin().collect::<Vec<_>>(),
+        [0, 0, 0, 0, 1, 0]
+    );
+
+    let (_, anchor) = adapter.try_build_anchor_for_test(task).unwrap();
+    let expected_fixed = [(0, 0), (1, 1), (2, 1), (3, 1), (5, 0)];
+    assert_eq!(
+        anchor
+            .initial()
+            .domain()
+            .bounds()
+            .iter()
+            .enumerate()
+            .filter_map(|(position, bounds)| {
+                (bounds.lower() == bounds.upper()).then_some((position, bounds.lower()))
+            })
+            .collect::<Vec<_>>(),
+        expected_fixed
+    );
+
+    let replay = try_run_interior_replay_task(
+        fixture.generator(),
+        fixture.completed(),
+        task.target_shift().clone(),
+        anchor,
+        fixture.predecessor().clone(),
+        fixture.new_ledger().ordering(),
+        [probe(task.base_probe_chart_origin(), limits)],
+        limits.replay,
+    )
+    .unwrap();
+    let InteriorReplayRunDisposition::OwnerProposal {
+        proposal:
+            ExactExecutableOwnerProposal::Compiled {
+                owner,
+                obstructions,
+            },
+        ..
+    } = replay.disposition()
+    else {
+        panic!("the automatic mixed-dot boundary replay must compile an exact owner")
+    };
+    assert!(obstructions.is_empty());
+    assert!(!owner.executable_candidates().is_empty());
+    for candidate in owner.executable_candidates() {
+        assert_eq!(candidate.circuit().fixed_indices(), expected_fixed);
+        let SourceViewConstruction::FixedIndexSpecialization(evidence) =
+            candidate.cell().sources().construction()
+        else {
+            panic!("the mixed-dot boundary rule must retain fixed-index specialization evidence")
+        };
+        assert_eq!(
+            evidence
+                .fixed_restrictions()
+                .iter()
+                .map(|restriction| (restriction.position(), restriction.value()))
+                .collect::<Vec<_>>(),
+            expected_fixed
+        );
+    }
+    let fixed_cells = owner
+        .executable_candidates()
+        .iter()
+        .map(|candidate| candidate.cell_owner().clone())
+        .collect::<Vec<_>>();
+    crate::foundry::artifact::authenticate_k6_rule_cell_sources_for_test(
+        fixture.generator(),
+        fixture.completed(),
+        &fixed_cells,
+    )
+    .unwrap();
+
+    let epoch = owner.executable_candidates()[0].epoch();
+    let target_partition = epoch
+        .try_partition(limits.replay.scheduler.campaign.stratum)
+        .unwrap();
+    let extension =
+        ExactCircuitOuterExtensionWitness::try_prove(&target_partition, owner.semantic().clone())
+            .unwrap();
+    assert_eq!(extension.region().lower(), [0, 0, 1, 1, 2, 0]);
+    assert_eq!(
+        extension.region().upper(),
+        [
+            Some(0),
+            Some(0),
+            Some(1),
+            Some(1),
+            Some(i64::MAX as u64 - 3),
+            Some(0)
+        ]
+    );
+
+    let cover = ExactExecutableOwnerCover::try_compile(
+        fixture.generator().context(),
+        vec![owner.clone()],
+        Vec::new(),
+        ExactExecutableOwnerLimits::default(),
+    )
+    .unwrap();
+    let maximal_owned = IntegralKey::try_new([0, 1, 2, 2, i64::MAX - 2, 0]).unwrap();
+    assert!(matches!(
+        cover
+            .try_select_at(
+                fixture.generator().context(),
+                &maximal_owned,
+                Default::default(),
+            )
+            .unwrap(),
+        ExactExecutableOwnerSelection::Descending { cell, .. }
+            if cell.assignment_for_target(&maximal_owned).unwrap().is_some()
+    ));
+    let beyond_executable = IntegralKey::try_new([0, 1, 2, 2, i64::MAX - 1, 0]).unwrap();
+    assert!(matches!(
+        cover
+            .try_select_at(
+                fixture.generator().context(),
+                &beyond_executable,
+                Default::default(),
+            )
+            .unwrap(),
+        ExactExecutableOwnerSelection::Incomplete
+    ));
 }
 
 #[test]
@@ -249,7 +415,7 @@ fn boundary_binding_rejects_foreign_ledger_and_every_owner_set_revision_change()
         adapter.try_run_task(
             foreign_binding,
             &mut foreign,
-            [probe(source_task.lattice_target().iter().copied(), limits)],
+            [probe(source_task.base_probe_chart_origin(), limits)],
         ),
         Err(ProbeCampaignError::CoverDelta(
             ExactOwnerCoverDeltaError::ForeignLedgerSnapshotIdentity,
@@ -276,7 +442,7 @@ fn boundary_binding_rejects_foreign_ledger_and_every_owner_set_revision_change()
         adapter.try_run_task(
             strict_binding,
             &mut strict,
-            [probe(strict_task.lattice_target().iter().copied(), limits)],
+            [probe(strict_task.base_probe_chart_origin(), limits)],
         ),
         Err(ProbeCampaignError::CoverDelta(
             ExactOwnerCoverDeltaError::StaleLedgerSnapshotIdentity { expected, actual },
@@ -304,10 +470,7 @@ fn boundary_binding_rejects_foreign_ledger_and_every_owner_set_revision_change()
         adapter.try_run_task(
             unchanged_binding,
             &mut unchanged_cover,
-            [probe(
-                unchanged_task.lattice_target().iter().copied(),
-                limits,
-            )],
+            [probe(unchanged_task.base_probe_chart_origin(), limits)],
         ),
         Err(ProbeCampaignError::CoverDelta(
             ExactOwnerCoverDeltaError::StaleLedgerSnapshotIdentity { expected, actual },

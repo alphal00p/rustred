@@ -18,13 +18,14 @@ use crate::sector::{Mask, OrderingPolicy, SectorMonotoneDomain};
 use super::super::{
     CampaignModularProbe, CanonicalReplayDisposition, CanonicalReplayLimits,
     ExactExecutableOwnerLimits, ExactExecutableOwnerProposal, OrdinarySourceIncidenceIndex,
-    SourceDiscoveryLimits, try_canonicalize_replayed_probes,
-    try_compile_canonical_executable_owner,
+    SourceDiscoveryLimits, StagedSectorClosureError, StagedSectorClosureLimits,
+    try_canonicalize_replayed_probes, try_compile_canonical_executable_owner,
+    try_publish_sealed_sector_wave,
 };
 use super::geometry::{ExactPartitionDelta, try_compare_from_owner_free, try_compare_partitions};
 use super::{
     CanonicalExactOwnerLedger, ExactOwnerCoverDeltaError, ExactOwnerCoverDeltaKind,
-    ExactOwnerCoverDeltaLimits, ExactOwnerLedgerCoverStatus,
+    ExactOwnerCoverDeltaLimits, ExactOwnerLedgerCoverStatus, ExactOwnerLedgerSealError,
 };
 
 mod k6;
@@ -188,13 +189,35 @@ fn tadpole_ledger(
     fixture: &TadpoleFixture,
     limits: ExactOwnerCoverDeltaLimits,
 ) -> CanonicalExactOwnerLedger {
-    CanonicalExactOwnerLedger::try_new(
+    // The endpoint recurrence is not executable at i64::MAX. Bind these
+    // closure tests to the same explicit supported-root carrier that a
+    // published artifact must expose instead of relying on the historical
+    // full-machine asymptote.
+    CanonicalExactOwnerLedger::try_new_with_closure_carrier(
         fixture.generator.context(),
         fixture.predecessor.clone(),
         Mask::try_new([true]).unwrap(),
         OrderingPolicy::default(),
         [IntegralKey::try_new([1]).unwrap()],
+        LatticeBox::try_new([0], [Some(11)]).unwrap(),
         limits,
+    )
+    .unwrap()
+}
+
+fn finite_tadpole_ledger(
+    fixture: &TadpoleFixture,
+    upper: u64,
+    terminals: impl IntoIterator<Item = IntegralKey>,
+) -> CanonicalExactOwnerLedger {
+    CanonicalExactOwnerLedger::try_new_with_closure_carrier(
+        fixture.generator.context(),
+        fixture.predecessor.clone(),
+        Mask::try_new([true]).unwrap(),
+        OrderingPolicy::default(),
+        terminals,
+        LatticeBox::try_new([0], [Some(upper)]).unwrap(),
+        ExactOwnerCoverDeltaLimits::default(),
     )
     .unwrap()
 }
@@ -268,6 +291,131 @@ fn one_loop_first_owner_strictly_shrinks_and_only_the_compiler_closes() {
             .predecessor_snapshot()
             .same_authority_as(&fixture.predecessor)
     );
+}
+
+#[test]
+fn consuming_closed_ledger_and_atomic_publication_preserve_the_finite_cover() {
+    let fixture = tadpole_fixture();
+    let expected_carrier = LatticeBox::try_new([0], [Some(11)]).unwrap();
+    let mut ledger = finite_tadpole_ledger(&fixture, 11, [IntegralKey::try_new([1]).unwrap()]);
+    assert_eq!(ledger.closure_carrier(), &expected_carrier);
+    let delta = ledger.try_apply_owner(fixture.first.clone()).unwrap();
+    assert!(delta.updated().status().is_compiler_closed());
+    let owner_address = Arc::as_ptr(&ledger.owners()[0]);
+    let cell_address = ledger.owners()[0].executable_candidates()[0].cell() as *const _;
+
+    let sealed = ledger.try_into_closed_cover().unwrap();
+    assert_eq!(
+        sealed.executable_cover().proof_cover().closure_carrier(),
+        &expected_carrier
+    );
+    assert_eq!(
+        Arc::as_ptr(&sealed.executable_cover().owners()[0]),
+        owner_address
+    );
+    assert_eq!(
+        sealed.executable_cover().owners()[0].executable_candidates()[0].cell() as *const _,
+        cell_address
+    );
+
+    let wave = try_publish_sealed_sector_wave(
+        fixture.predecessor.clone(),
+        vec![sealed],
+        StagedSectorClosureLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(wave.layers().len(), 1);
+    assert_eq!(
+        wave.layers()[0]
+            .executable_cover()
+            .executable_cover()
+            .proof_cover()
+            .closure_carrier(),
+        &expected_carrier
+    );
+    assert_eq!(
+        Arc::as_ptr(
+            &wave.layers()[0]
+                .executable_cover()
+                .executable_cover()
+                .owners()[0]
+        ),
+        owner_address
+    );
+    assert!(wave.predecessor().same_authority_as(&fixture.predecessor));
+    assert_eq!(wave.predecessor().closed_layer_count(), 0);
+    assert_eq!(wave.successor().closed_layer_count(), 1);
+    assert!(
+        wave.successor()
+            .try_verify(StratumRegistryLimits::default())
+            .unwrap()
+    );
+}
+
+#[test]
+fn consuming_ledger_rejects_owner_free_and_incomplete_compiler_states() {
+    let fixture = tadpole_fixture();
+    let owner_free = finite_tadpole_ledger(&fixture, 7, [IntegralKey::try_new([1]).unwrap()]);
+    assert!(matches!(
+        owner_free.try_into_closed_cover(),
+        Err(ExactOwnerLedgerSealError::NotClosed {
+            status: ExactOwnerLedgerCoverStatus::OwnerFree,
+        })
+    ));
+
+    let mut incomplete = finite_tadpole_ledger(&fixture, 7, []);
+    let delta = incomplete.try_apply_owner(fixture.first.clone()).unwrap();
+    assert!(!delta.updated().status().is_compiler_closed());
+    assert!(matches!(
+        incomplete.try_into_closed_cover(),
+        Err(ExactOwnerLedgerSealError::NotClosed {
+            status: ExactOwnerLedgerCoverStatus::Compiled(_),
+        })
+    ));
+}
+
+#[test]
+fn sealed_wave_publication_rejects_foreign_predecessors_and_duplicate_keys() {
+    let fixture = tadpole_fixture();
+    let close = || {
+        let mut ledger = finite_tadpole_ledger(&fixture, 13, [IntegralKey::try_new([1]).unwrap()]);
+        assert!(
+            ledger
+                .try_apply_owner(fixture.first.clone())
+                .unwrap()
+                .updated()
+                .status()
+                .is_compiler_closed()
+        );
+        ledger.try_into_closed_cover().unwrap()
+    };
+
+    let foreign_artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
+    let foreign = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        foreign_artifact,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    assert!(!foreign.same_authority_as(&fixture.predecessor));
+    assert!(matches!(
+        try_publish_sealed_sector_wave(
+            foreign,
+            vec![close()],
+            StagedSectorClosureLimits::default(),
+        ),
+        Err(StagedSectorClosureError::WrongSealedCoverPredecessor { cover: 0 })
+    ));
+    assert_eq!(fixture.predecessor.closed_layer_count(), 0);
+
+    assert!(matches!(
+        try_publish_sealed_sector_wave(
+            fixture.predecessor.clone(),
+            vec![close(), close()],
+            StagedSectorClosureLimits::default(),
+        ),
+        Err(StagedSectorClosureError::DuplicateSector)
+    ));
+    assert_eq!(fixture.predecessor.closed_layer_count(), 0);
 }
 
 #[test]

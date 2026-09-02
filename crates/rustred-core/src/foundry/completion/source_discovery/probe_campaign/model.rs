@@ -1,5 +1,6 @@
 use crate::foundry::completion::source_discovery::cover_delta::ExactOwnerLedgerRevision;
 use crate::foundry::completion::source_discovery::cover_delta::ExactOwnerLedgerSnapshotIdentity;
+use crate::foundry::completion::source_discovery::scheduler::ProbeLocalRejectionSummary;
 use crate::foundry::completion::source_discovery::scheduler::ProbeLocalRunCensus;
 use crate::foundry::completion::source_discovery::{
     CanonicalReplayTelemetry, ExactExecutableCandidateObstruction, ExactOwnerCoverDelta,
@@ -124,6 +125,7 @@ pub(crate) struct ProbeCampaignCensus {
     bootstrap: ProbeCampaignBootstrapCensus,
     scheduler: ProbeLocalRunCensus,
     scheduler_outcomes: InteriorReplaySchedulerOutcomeCensus,
+    first_scheduler_rejection: Option<ProbeLocalRejectionSummary>,
     replay: Option<CanonicalReplayTelemetry>,
     canonical_attempts: InteriorReplayAttemptCensus,
     support: Option<InteriorReplaySupportCensus>,
@@ -141,6 +143,10 @@ impl ProbeCampaignCensus {
 
     pub(crate) const fn scheduler_outcomes(self) -> InteriorReplaySchedulerOutcomeCensus {
         self.scheduler_outcomes
+    }
+
+    pub(crate) const fn first_scheduler_rejection(self) -> Option<ProbeLocalRejectionSummary> {
+        self.first_scheduler_rejection
     }
 
     pub(crate) const fn replay(self) -> Option<CanonicalReplayTelemetry> {
@@ -175,6 +181,7 @@ impl ProbeCampaignCensus {
             bootstrap,
             scheduler: replay.scheduler(),
             scheduler_outcomes: replay.scheduler_outcomes(),
+            first_scheduler_rejection: replay.first_scheduler_rejection(),
             replay: replay.replay(),
             canonical_attempts: replay.canonical_attempts(),
             support,
@@ -332,6 +339,12 @@ impl ProbeCampaignTaskReport {
 
     pub(crate) const fn census(&self) -> ProbeCampaignCensus {
         self.census
+    }
+
+    /// Exact typed budget stops retained without scheduler epoch payload.
+    /// These are operational resume hints only, never no-relation evidence.
+    pub(crate) fn budget_stops(&self) -> &[super::super::InteriorReplayBudgetStopSummary] {
+        self.replay.budget_stops()
     }
 
     pub(crate) fn outcome(&self) -> ProbeCampaignOutcome<'_> {

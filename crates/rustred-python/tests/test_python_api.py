@@ -89,6 +89,50 @@ id = "tadpole"
 integral = """{ONE_LOOP}"""
 '''
 
+FOUNDRY_CAMPAIGN = '''schema = "rustred.foundry-campaign-config.toml.v2"
+preset = "three-loop-unit-mass-vacuum-k6-orbit-0"
+mode = "autonomous"
+max_task_reports = 1
+max_reported_uncovered_boxes = 1
+'''
+
+FOUNDRY_HINTED_CAMPAIGN = '''schema = "rustred.foundry-campaign-config.toml.v2"
+preset = "three-loop-unit-mass-vacuum-k6-orbit-0"
+mode = "external-hints-only"
+max_task_reports = 1
+max_reported_uncovered_boxes = 1
+
+[hints]
+itinerary = "single-sector-fixed-point"
+interior_margin = 2
+polynomial_degree_ceiling = 0
+ordering_policy = "rustred.unshifted-sector-order.v1"
+
+[[hints.probes]]
+modulus = 1000000007
+base_parameters = [37]
+chart_offsets = [0, 0, 0, 0, 0, 0]
+'''
+
+FOUNDRY_WAVE_CAMPAIGN = '''schema = "rustred.foundry-campaign-config.toml.v2"
+preset = "three-loop-unit-mass-vacuum-k6-orbit-0"
+mode = "external-hints-only"
+max_task_reports = 1
+max_reported_uncovered_boxes = 1
+
+[hints]
+itinerary = "full-rank-atomic-waves"
+interior_margin = 2
+polynomial_degree_ceiling = 0
+ordering_policy = "rustred.unshifted-sector-order.v1;priority=rustred.coordinate-priority.v1;k=6;rank-by-slot=5,3,4,2,0,1"
+discovery_coordinate_priority = [5, 3, 4, 2, 0, 1]
+
+[[hints.probes]]
+modulus = 1000000007
+base_parameters = [37]
+chart_offsets = [0, 0, 0, 0, 0, 0]
+'''
+
 NON_VACUUM = r"""
 I(
   name(one_loop_two_externals),
@@ -359,6 +403,109 @@ class PythonApiTests(unittest.TestCase):
                 PROFILE,
             ),
         )
+
+        foundry = rustred.run_foundry_campaign(FOUNDRY_CAMPAIGN)
+        self.assertEqual(
+            foundry.schema,
+            "rustred.foundry-campaign-report.toml.v1",
+        )
+        self.assertEqual(
+            foundry.measurements_schema,
+            "rustred.foundry-campaign-measurements.toml.v1",
+        )
+        self.assertIn('publication = "diagnostic_only"', foundry.to_toml())
+        self.assertIn(
+            'semantic_report_schema = "rustred.foundry-campaign-report.toml.v1"',
+            foundry.measurements_to_toml(),
+        )
+        self.assertEqual(
+            foundry.to_toml(),
+            cli_toml(
+                [
+                    "campaign",
+                    "run",
+                    "--config",
+                    "-",
+                    "--output",
+                    "-",
+                    "--no-progress",
+                ],
+                FOUNDRY_CAMPAIGN,
+            ),
+        )
+        winner_ordering = (
+            "rustred.unshifted-sector-order.v1;"
+            "priority=rustred.coordinate-priority.v1;"
+            "k=6;rank-by-slot=5,3,4,2,0,1"
+        )
+        winner_campaign = FOUNDRY_HINTED_CAMPAIGN.replace(
+            'ordering_policy = "rustred.unshifted-sector-order.v1"',
+            f'ordering_policy = "{winner_ordering}"',
+        )
+        winner_foundry = rustred.run_foundry_campaign(winner_campaign)
+        winner_report = tomllib.loads(winner_foundry.to_toml())
+        self.assertEqual(
+            winner_report["configuration"]["ordering_policy"],
+            winner_ordering,
+        )
+        self.assertEqual(
+            winner_report["configuration"]["discovery_coordinate_priority"],
+            [5, 3, 4, 2, 0, 1],
+        )
+        self.assertEqual(
+            winner_foundry.to_toml(),
+            cli_toml(
+                [
+                    "campaign",
+                    "run",
+                    "--config",
+                    "-",
+                    "--output",
+                    "-",
+                    "--no-progress",
+                ],
+                winner_campaign,
+            ),
+        )
+        wave = rustred.run_foundry_wave_campaign(
+            FOUNDRY_WAVE_CAMPAIGN,
+            n_cores=1,
+        )
+        self.assertEqual(
+            wave.schema,
+            "rustred.foundry-wave-campaign-report.toml.v1",
+        )
+        self.assertEqual(
+            wave.measurements_schema,
+            "rustred.foundry-wave-campaign-measurements.toml.v1",
+        )
+        wave_report = tomllib.loads(wave.to_toml())
+        self.assertEqual(wave_report["itinerary"], "full-rank-atomic-waves")
+        self.assertEqual(
+            wave_report["search_provenance"],
+            "external-hints-only",
+        )
+        self.assertEqual(wave_report["outcome"], "incomplete")
+        self.assertFalse(wave_report["artifact_installed"])
+        self.assertFalse(wave_report["durable_artifact_published"])
+        self.assertEqual(
+            wave.to_toml(),
+            cli_toml(
+                [
+                    "campaign",
+                    "run-waves",
+                    "--config",
+                    "-",
+                    "--output",
+                    "-",
+                    "--n-cores",
+                    "1",
+                ],
+                FOUNDRY_WAVE_CAMPAIGN,
+            ),
+        )
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.run_foundry_wave_campaign(FOUNDRY_WAVE_CAMPAIGN, n_cores=0)
         for input_format in (
             rustred.InputFormat.TOML,
             rustred.InputFormat.AUTO,
@@ -382,6 +529,43 @@ class PythonApiTests(unittest.TestCase):
                         CAMPAIGN,
                     ),
                 )
+
+    def test_foundry_campaign_mode_firewall_is_typed_and_strict(self) -> None:
+        relabeled_hints = FOUNDRY_HINTED_CAMPAIGN.replace(
+            'mode = "external-hints-only"',
+            'mode = "autonomous"',
+        )
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.run_foundry_campaign(relabeled_hints)
+
+        missing_hints = FOUNDRY_CAMPAIGN.replace(
+            'mode = "autonomous"',
+            'mode = "external-hints-only"',
+        )
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.run_foundry_campaign(missing_hints)
+
+        flat_proof_order = FOUNDRY_CAMPAIGN.replace(
+            "max_task_reports = 1\n",
+            'max_task_reports = 1\nordering_policy = "rustred.unshifted-sector-order.v1"\n',
+        )
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.run_foundry_campaign(flat_proof_order)
+
+        forbidden_recurrence = FOUNDRY_HINTED_CAMPAIGN.replace(
+            'ordering_policy = "rustred.unshifted-sector-order.v1"\n',
+            'ordering_policy = "rustred.unshifted-sector-order.v1"\n'
+            'rhs_support = ["forbidden"]\n',
+        )
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.run_foundry_campaign(forbidden_recurrence)
+
+        obsolete_schema = FOUNDRY_CAMPAIGN.replace(
+            "rustred.foundry-campaign-config.toml.v2",
+            "rustred.foundry-campaign-config.toml.v1",
+        )
+        with self.assertRaises(rustred.RustRedSchemaError):
+            rustred.run_foundry_campaign(obsolete_schema)
 
     def test_closing_artifact_generation_inspection_and_reduction(self) -> None:
         generated = rustred.generate_closing_artifact(
@@ -475,8 +659,8 @@ class PythonApiTests(unittest.TestCase):
         self.assertEqual(selector, "unit-mass-vacuum-k3")
         generated = rustred.generate_closing_artifact(family=selector)
         document = tomllib.loads(generated.to_toml())
-        self.assertEqual(document["artifact"]["schema"], "rustred.closing-artifact.v3")
-        self.assertEqual(document["artifact"]["schema_version"], 3)
+        self.assertEqual(document["artifact"]["schema"], "rustred.closing-artifact.v4")
+        self.assertEqual(document["artifact"]["schema_version"], 4)
         self.assertEqual(document["family_selector"], "unit-mass-vacuum-k3")
         self.assertEqual(document["validation"]["source_rows"], 4)
         self.assertEqual(document["validation"]["guarded_rules"], 5)
@@ -500,6 +684,10 @@ class PythonApiTests(unittest.TestCase):
         generated = rustred.generate_closing_artifact()
         with self.assertRaises(rustred.RustRedInputError):
             rustred.inspect_closing_artifact(b"invalid artifact")
+        with self.assertRaises(rustred.RustRedSchemaError):
+            rustred.inspect_closing_artifact(
+                with_durable_schema(generated.artifact, 3)
+            )
         with self.assertRaises(rustred.RustRedSchemaError):
             rustred.inspect_closing_artifact(
                 with_durable_schema(generated.artifact, 2)
@@ -680,6 +868,7 @@ class PythonApiTests(unittest.TestCase):
             rustred.DeriveResult,
             rustred.CampaignPlanResult,
             rustred.CampaignPreflightResult,
+            rustred.FoundryCampaignRunResult,
         )
         exception_types = (
             rustred.RustRedError,
@@ -728,6 +917,10 @@ class PythonApiTests(unittest.TestCase):
         self.assertEqual(
             str(inspect.signature(rustred.campaign_preflight)),
             "(profile, *, n_cores=1, max_memory_bytes)",
+        )
+        self.assertEqual(
+            str(inspect.signature(rustred.run_foundry_campaign)),
+            "(config)",
         )
 
         self.assertEqual(

@@ -52,8 +52,43 @@ pub(crate) fn try_lift_exact_circuit<'frame>(
     let plan = partition.frame();
     validate_binding(context, hit, partition, plan)?;
     let selected = hit.diagnostics().augmented_independent_source_rows.as_ref();
-    validate_hit_shape(hit, plan, selected, limits)?;
+    validate_modular_hit_shape(hit, plan, limits)?;
+    try_lift_exact_circuit_with_selected_rows(context, hit, partition, selected, limits)
+}
+
+/// Bounded diagnostic fallback that asks Symbolica for an exact target pivot
+/// over every row in the already materialized physical frame.
+///
+/// This does not expand the translation universe and it does not turn a miss
+/// into negative evidence.  It is intentionally separate from the normal
+/// modular-minor lift so high-loop callers must opt into, and resource-bound,
+/// the potentially larger exact reduction.
+pub(crate) fn try_lift_exact_circuit_over_complete_frame<'frame>(
+    context: &IndexedCoefficientContext,
+    hit: &ModularHit<'frame>,
+    partition: &TargetColumnPartition<'frame>,
+    limits: ExactCircuitLimits,
+) -> Result<ExactCircuitLift, ExactCircuitError> {
+    let plan = partition.frame();
+    validate_binding(context, hit, partition, plan)?;
+    validate_modular_hit_shape(hit, plan, limits)?;
+    check_limit(SELECTED_ROWS, plan.row_count(), limits.max_selected_rows)?;
+    let mut selected = try_vec(SELECTED_ROWS, plan.row_count())?;
+    selected.extend(0..plan.row_count());
+    try_lift_exact_circuit_with_selected_rows(context, hit, partition, &selected, limits)
+}
+
+fn try_lift_exact_circuit_with_selected_rows<'frame>(
+    context: &IndexedCoefficientContext,
+    hit: &ModularHit<'frame>,
+    partition: &TargetColumnPartition<'frame>,
+    selected: &[usize],
+    limits: ExactCircuitLimits,
+) -> Result<ExactCircuitLift, ExactCircuitError> {
+    let plan = partition.frame();
+    validate_selected_rows(plan, selected, limits)?;
     preflight(context, plan, partition, selected, limits)?;
+    let fixed_indices = fixed_index_assignments(context, partition)?;
 
     let forbidden = partition.forbidden_columns();
     let projected_physical_columns = checked_add(PROJECTED_PHYSICAL_COLUMNS, forbidden.len(), 1)?;
@@ -116,6 +151,14 @@ pub(crate) fn try_lift_exact_circuit<'frame>(
                     detail: "selected source term differs from its physical column",
                 });
             }
+            let (coefficient, _denominator_guard) = context.specialize_fixed_indices_sealed(
+                coefficient,
+                &fixed_indices,
+                limits.indexed_algebra,
+            )?;
+            if coefficient.is_zero() {
+                continue;
+            }
             if physical_column == partition.target_column() {
                 if target_value.replace(coefficient.raw().clone()).is_some() {
                     return Err(ExactCircuitError::Invariant {
@@ -139,7 +182,7 @@ pub(crate) fn try_lift_exact_circuit<'frame>(
             "exact-circuit provenance column",
             checked_add(AUGMENTED_COLUMNS, projected_physical_columns, local_row)?,
         )?);
-        if values.len() != row_capacity || columns.windows(2).any(|pair| pair[0] >= pair[1]) {
+        if values.len() > row_capacity || columns.windows(2).any(|pair| pair[0] >= pair[1]) {
             return Err(ExactCircuitError::Invariant {
                 detail: "assembled exact projected row has invalid sparse ordering",
             });
@@ -404,7 +447,30 @@ pub(crate) fn try_lift_exact_circuit<'frame>(
         source_combination,
         pivot_guards,
     };
-    super::replay::replay_exact_circuit(context, hit, partition, reduced, limits)
+    super::replay::replay_exact_circuit(context, hit, partition, &fixed_indices, reduced, limits)
+}
+
+/// Canonical singleton coordinates of the exact decorated stratum.
+///
+/// These are semantic domain restrictions, not values sampled by the modular
+/// probe.  A maximal sector stratum therefore normally returns an empty list;
+/// only an explicitly tightened face/ray may enter the corresponding exact
+/// Symbolica quotient.
+pub(super) fn fixed_index_assignments(
+    context: &IndexedCoefficientContext,
+    partition: &TargetColumnPartition<'_>,
+) -> Result<Vec<(usize, i64)>, ExactCircuitError> {
+    if partition.stratum().domain().arity() != context.index_count() {
+        return Err(ExactCircuitError::Invariant {
+            detail: "decorated stratum arity differs from the indexed coefficient context",
+        });
+    }
+    let mut fixed = try_vec(
+        "exact-circuit fixed index assignments",
+        context.index_count(),
+    )?;
+    fixed.extend(partition.stratum().singleton_index_assignments());
+    Ok(fixed)
 }
 
 fn validate_binding(
@@ -437,8 +503,26 @@ fn validate_binding(
     Ok(())
 }
 
-fn validate_hit_shape(
+fn validate_modular_hit_shape(
     hit: &ModularHit<'_>,
+    plan: &PhysicalFramePlan,
+    limits: ExactCircuitLimits,
+) -> Result<(), ExactCircuitError> {
+    let diagnostics = hit.diagnostics();
+    let selected = diagnostics.augmented_independent_source_rows.as_ref();
+    if diagnostics.augmented_rank != diagnostics.forbidden_rank.saturating_add(1)
+        || selected.len() != diagnostics.augmented_rank
+    {
+        return Err(ExactCircuitError::InvalidModularHitRanks {
+            forbidden_rank: diagnostics.forbidden_rank,
+            augmented_rank: diagnostics.augmented_rank,
+            selected_rows: selected.len(),
+        });
+    }
+    validate_selected_rows(plan, selected, limits)
+}
+
+fn validate_selected_rows(
     plan: &PhysicalFramePlan,
     selected: &[usize],
     limits: ExactCircuitLimits,
@@ -449,16 +533,6 @@ fn validate_hit_shape(
         selected.len(),
         limits.max_source_combination_terms,
     )?;
-    let diagnostics = hit.diagnostics();
-    if diagnostics.augmented_rank != diagnostics.forbidden_rank.saturating_add(1)
-        || selected.len() != diagnostics.augmented_rank
-    {
-        return Err(ExactCircuitError::InvalidModularHitRanks {
-            forbidden_rank: diagnostics.forbidden_rank,
-            augmented_rank: diagnostics.augmented_rank,
-            selected_rows: selected.len(),
-        });
-    }
     if selected.windows(2).any(|pair| pair[0] >= pair[1]) {
         return Err(ExactCircuitError::SelectedSourceRowsNotStrictlyIncreasing);
     }

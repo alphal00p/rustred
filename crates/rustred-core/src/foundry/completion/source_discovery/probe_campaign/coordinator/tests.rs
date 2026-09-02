@@ -8,15 +8,18 @@ use crate::foundry::completion::frame::admission::{
 };
 use crate::foundry::completion::source_discovery::cover_delta::ExactOwnerCoverDeltaKind;
 use crate::foundry::completion::source_discovery::cover_delta::ExactOwnerLedgerCoverStatus;
+use crate::foundry::completion::source_discovery::scheduler::{
+    ProbeLocalRejection, ProbeLocalRejectionCategory, ProbeLocalRejectionSummary, ProbeLocalStage,
+};
 use crate::foundry::completion::source_discovery::test_fixtures::OracleDisabledK6Fixture;
 use crate::foundry::completion::source_discovery::{
-    CampaignLimits, CanonicalExactOwnerLedger, ExactOwnerCoverDeltaLimits, ProbeCampaignAdapter,
-    ProbeCampaignLimits,
+    CampaignError, CampaignLimits, CanonicalExactOwnerLedger, ExactOwnerCoverDeltaLimits,
+    ProbeCampaignAdapter, ProbeCampaignLimits,
 };
 use crate::foundry::completion::stratum::{ImmutableOwnerSnapshot, StratumRegistryLimits};
 use crate::foundry::completion::{LatticeBox, UncoveredPartition};
 use crate::identity::{IntegralShift, ParametricIbpGenerator};
-use crate::sector::{Mask, OrderingPolicy};
+use crate::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, OrderingPolicy};
 
 use super::compact::{
     CompactProbeEvidence, CompactTaskAction, CompactTaskResult, operational_reason,
@@ -27,9 +30,9 @@ use super::run::{ProbeCoordinatorDriveStop, try_drive_partition, upgrade_drive_s
 use super::schedule::try_build_class_schedule;
 use super::{
     BoundaryProbeCoordinator, ProbeCoordinatorCensus, ProbeCoordinatorConfig,
-    ProbeCoordinatorFailure, ProbeCoordinatorLimits, ProbeCoordinatorNeedsRefinementReason,
-    ProbeCoordinatorOperationalReason, ProbeCoordinatorOwnerMutation, ProbeCoordinatorStop,
-    TaskRelativeModularProbe,
+    ProbeCoordinatorFailure, ProbeCoordinatorFairCursor, ProbeCoordinatorLimits,
+    ProbeCoordinatorNeedsRefinementReason, ProbeCoordinatorOperationalReason,
+    ProbeCoordinatorOwnerMutation, ProbeCoordinatorStop, TaskRelativeModularProbe,
 };
 
 fn lattice_box(lower: &[u64], upper: &[Option<u64>]) -> LatticeBox {
@@ -52,6 +55,19 @@ fn config() -> ProbeCoordinatorConfig {
         ProbeCoordinatorLimits::default(),
     )
     .unwrap()
+}
+
+fn campaign_rejection_summary() -> ProbeLocalRejectionSummary {
+    ProbeLocalRejectionSummary::from_rejection(
+        ProbeLocalStage::EpochAdmission,
+        &ProbeLocalRejection::Campaign(CampaignError::EmptyAccumulatedRequests),
+    )
+}
+
+fn reversed_d2_config() -> ProbeCoordinatorConfig {
+    config().with_discovery_coordinate_priority(
+        CoordinatePriority::try_new(2, &[1, 0], CoordinatePriorityLimits::default()).unwrap(),
+    )
 }
 
 fn no_proposal() -> CompactTaskResult {
@@ -128,11 +144,13 @@ fn stable_pure_drive_is_uncertified_and_visits_every_task_canonically() {
     let (sector, partition) = single_d2_partition();
     let config = config();
     let mut census = ProbeCoordinatorCensus::default();
+    let mut fair_cursor = ProbeCoordinatorFairCursor::default();
     let mut visited = Vec::new();
     let stop = try_drive_partition(
         &config,
         "synthetic-pure-scope",
         &mut census,
+        &mut fair_cursor,
         7,
         &sector,
         &partition,
@@ -171,7 +189,112 @@ fn stable_pure_drive_is_uncertified_and_visits_every_task_canonically() {
 }
 
 #[test]
-fn owner_mutation_invalidates_the_plan_suffix_and_next_epoch_restarts() {
+fn discovery_priority_changes_only_execution_chronology_and_is_deterministic() {
+    let (sector, partition) = single_d2_partition();
+    let run = || {
+        let config = reversed_d2_config();
+        let mut census = ProbeCoordinatorCensus::default();
+        let mut fair_cursor = ProbeCoordinatorFairCursor::default();
+        let mut visited = Vec::new();
+        let stop = try_drive_partition(
+            &config,
+            "synthetic-prioritized-scope",
+            &mut census,
+            &mut fair_cursor,
+            7,
+            &sector,
+            &partition,
+            |plan, task, census, requested, invalidated| {
+                // The chronology retains indices into this exact plan, never
+                // task authority from a previous geometry epoch.
+                plan.validate_task(task).unwrap();
+                visited.push((plan.face_dimension(), task.canonical_ordinal()));
+                try_reserve_compact_result(census, requested, invalidated, no_proposal())
+            },
+        );
+        assert!(matches!(
+            stop,
+            ProbeCoordinatorDriveStop::StableProgramCompleted { .. }
+        ));
+        visited
+    };
+
+    let first = run();
+    let second = run();
+    assert_eq!(first, second);
+    assert_eq!(first, vec![(2, 0), (1, 1), (1, 0), (0, 0)]);
+}
+
+#[test]
+fn nonnatural_mutation_counts_execution_suffix_and_resumes_by_execution_rank() {
+    let (sector, partition) = single_d2_partition();
+    let config = reversed_d2_config();
+    let mut census = ProbeCoordinatorCensus::default();
+    let mut fair_cursor = ProbeCoordinatorFairCursor::default();
+    let mut first_visits = Vec::new();
+    let first = try_drive_partition(
+        &config,
+        "synthetic-prioritized-scope",
+        &mut census,
+        &mut fair_cursor,
+        7,
+        &sector,
+        &partition,
+        |plan, task, census, requested, invalidated| {
+            first_visits.push((plan.face_dimension(), task.canonical_ordinal()));
+            let compact = if first_visits.len() == 2 {
+                CompactTaskResult {
+                    action: CompactTaskAction::OwnerSetChanged {
+                        mutation: ProbeCoordinatorOwnerMutation::StrictGeometricShrink,
+                        before_revision: 7,
+                        after_revision: 8,
+                    },
+                    evidence: CompactProbeEvidence {
+                        declared_probes: 1,
+                        scheduler_replayed: 1,
+                        canonical_replayed: 1,
+                        ..CompactProbeEvidence::default()
+                    },
+                }
+            } else {
+                no_proposal()
+            };
+            try_reserve_compact_result(census, requested, invalidated, compact)
+        },
+    );
+    let ProbeCoordinatorDriveStop::OwnerSetChanged(changed) = first else {
+        panic!("the prioritized mutation must terminate its immutable epoch")
+    };
+    assert_eq!(first_visits, vec![(2, 0), (1, 1)]);
+    assert_eq!(changed.invalidated_tickets(), 1);
+
+    let mut second_visits = Vec::new();
+    let second = try_drive_partition(
+        &config,
+        "synthetic-prioritized-scope",
+        &mut census,
+        &mut fair_cursor,
+        8,
+        &sector,
+        &partition,
+        |plan, task, census, requested, invalidated| {
+            plan.validate_task(task).unwrap();
+            second_visits.push((plan.face_dimension(), task.canonical_ordinal()));
+            try_reserve_compact_result(census, requested, invalidated, no_proposal())
+        },
+    );
+    assert_eq!(second_visits, vec![(1, 0), (1, 1), (0, 0), (2, 0)]);
+    assert!(matches!(
+        second,
+        ProbeCoordinatorDriveStop::StableProgramCompleted {
+            ledger_revision: 8,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn owner_mutation_invalidates_the_plan_suffix_and_next_epoch_serves_its_fair_successor() {
     let (sector, partition) = single_d2_partition();
     for mutation in [
         ProbeCoordinatorOwnerMutation::StrictGeometricShrink,
@@ -179,11 +302,13 @@ fn owner_mutation_invalidates_the_plan_suffix_and_next_epoch_restarts() {
     ] {
         let config = config();
         let mut census = ProbeCoordinatorCensus::default();
+        let mut fair_cursor = ProbeCoordinatorFairCursor::default();
         let mut first_visits = Vec::new();
         let first = try_drive_partition(
             &config,
             "synthetic-pure-scope",
             &mut census,
+            &mut fair_cursor,
             7,
             &sector,
             &partition,
@@ -219,20 +344,21 @@ fn owner_mutation_invalidates_the_plan_suffix_and_next_epoch_restarts() {
         assert_eq!(changed.invalidated_tickets(), 1);
         assert_eq!(changed.census().invalidated_tickets(), 1);
 
-        let mut second_first = None;
+        let mut second_visits = Vec::new();
         let second = try_drive_partition(
             &config,
             "synthetic-pure-scope",
             &mut census,
+            &mut fair_cursor,
             8,
             &sector,
             &partition,
             |plan, task, census, requested, invalidated| {
-                second_first.get_or_insert((plan.face_dimension(), task.canonical_ordinal()));
+                second_visits.push((plan.face_dimension(), task.canonical_ordinal()));
                 try_reserve_compact_result(census, requested, invalidated, no_proposal())
             },
         );
-        assert_eq!(second_first, Some((2, 0)));
+        assert_eq!(second_visits, vec![(1, 1), (1, 0), (0, 0), (2, 0)]);
         assert!(matches!(
             second,
             ProbeCoordinatorDriveStop::StableProgramCompleted {
@@ -249,10 +375,12 @@ fn operational_refinement_failure_and_stable_stops_are_disjoint() {
 
     let operational_config = config();
     let mut operational_census = ProbeCoordinatorCensus::default();
+    let mut operational_cursor = ProbeCoordinatorFairCursor::default();
     let stop = try_drive_partition(
         &operational_config,
         "synthetic-pure-scope",
         &mut operational_census,
+        &mut operational_cursor,
         0,
         &sector,
         &partition,
@@ -286,10 +414,12 @@ fn operational_refinement_failure_and_stable_stops_are_disjoint() {
 
     let refinement_config = config();
     let mut refinement_census = ProbeCoordinatorCensus::default();
+    let mut refinement_cursor = ProbeCoordinatorFairCursor::default();
     let stop = try_drive_partition(
         &refinement_config,
         "synthetic-pure-scope",
         &mut refinement_census,
+        &mut refinement_cursor,
         0,
         &sector,
         &partition,
@@ -323,10 +453,12 @@ fn operational_refinement_failure_and_stable_stops_are_disjoint() {
 
     let failed_config = config();
     let mut failed_census = ProbeCoordinatorCensus::default();
+    let mut failed_cursor = ProbeCoordinatorFairCursor::default();
     let stop = try_drive_partition(
         &failed_config,
         "synthetic-pure-scope",
         &mut failed_census,
+        &mut failed_cursor,
         0,
         &sector,
         &partition,
@@ -371,6 +503,7 @@ fn compact_probe_census_joins_replay_exactly_and_classifies_every_scheduler_buck
         },
         CompactProbeEvidence {
             scheduler_rejections: 1,
+            first_scheduler_rejection: Some(campaign_rejection_summary()),
             ..CompactProbeEvidence::default()
         },
         CompactProbeEvidence {
@@ -388,6 +521,7 @@ fn compact_probe_census_joins_replay_exactly_and_classifies_every_scheduler_buck
         scheduler_sampled_dual: 1,
         scheduler_budget_stops: 1,
         scheduler_rejections: 1,
+        first_scheduler_rejection: Some(campaign_rejection_summary()),
         scheduler_stalls: 1,
         ..CompactProbeEvidence::default()
     };
@@ -412,6 +546,7 @@ fn compact_probe_census_joins_replay_exactly_and_classifies_every_scheduler_buck
         },
         CompactProbeEvidence {
             scheduler_rejections: 1,
+            first_scheduler_rejection: Some(campaign_rejection_summary()),
             ..CompactProbeEvidence::default()
         },
         CompactProbeEvidence {
@@ -421,6 +556,31 @@ fn compact_probe_census_joins_replay_exactly_and_classifies_every_scheduler_buck
     ] {
         assert!(operational_reason(as_result(evidence)).is_some());
     }
+
+    let summary = campaign_rejection_summary();
+    let rejection = CompactProbeEvidence {
+        declared_probes: 1,
+        scheduler_rejections: 1,
+        first_scheduler_rejection: Some(summary),
+        ..CompactProbeEvidence::default()
+    };
+    assert!(matches!(
+        operational_reason(as_result(rejection)),
+        Some(ProbeCoordinatorOperationalReason::IncompleteProbeExecution {
+            terminal_scheduler_rejection: Some(retained),
+            ..
+        }) if retained == summary
+    ));
+    let commit = try_reserve_compact_result(
+        ProbeCoordinatorCensus::default(),
+        1,
+        0,
+        as_result(rejection),
+    )
+    .unwrap();
+    assert_eq!(commit.census.scheduler_rejections(), 1);
+    assert_eq!(commit.census.first_scheduler_rejection(), Some(summary));
+    assert_eq!(summary.category(), ProbeLocalRejectionCategory::Campaign);
     for evidence in [
         CompactProbeEvidence {
             scheduler_stalls: 1,
@@ -590,7 +750,7 @@ fn exact_nonfinite_upgrade_requires_current_identity_and_preserves_nonmutating_o
 }
 
 #[test]
-fn production_stop_rejoins_live_identity_and_never_upgrades_owner_free_state() {
+fn production_stops_preserve_live_identity_and_never_upgrade_owner_free_state() {
     let artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let prepared = generator.prepare_ordinary_ibp().unwrap();
@@ -817,18 +977,17 @@ fn production_stop_rejoins_live_identity_and_never_upgrades_owner_free_state() {
 
     let mut coordinator =
         BoundaryProbeCoordinator::try_new(coordinator_config, make_adapter(), &ledger).unwrap();
-    let stop = coordinator.try_run_boundary_epoch(&mut ledger);
-    let ProbeCoordinatorStop::CompilerClosed {
-        ledger_snapshot,
-        exact,
-        ..
-    } = stop
+    let before = ledger.snapshot_identity();
+    let ProbeCoordinatorStop::OwnerSetChanged(changed) =
+        coordinator.try_run_boundary_epoch(&mut ledger)
     else {
-        panic!("the exact one-loop compiler must be the sole closure source")
+        panic!("the first exact proposal must commit as one owner-set transaction")
     };
-    ledger
-        .try_require_current_snapshot(&ledger_snapshot)
-        .unwrap();
-    assert_eq!(ledger.snapshot(), exact);
-    assert!(exact.status().is_compiler_closed());
+    assert_eq!(changed.before_revision(), before.revision().get());
+    assert_eq!(changed.after_revision(), before.revision().get() + 1);
+    assert_eq!(ledger.revision().get(), changed.after_revision());
+    let live = ledger.snapshot_identity();
+    assert!(live.same_ledger_as(&before));
+    ledger.try_require_current_snapshot(&live).unwrap();
+    assert!(!ledger.snapshot().status().is_compiler_closed());
 }

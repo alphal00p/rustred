@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+#[cfg(test)]
+use std::cell::Cell;
+
 use crate::family::IntegralKey;
 use crate::foundry::artifact::{
     ArtifactSchemaVersion, ClosedArtifact, ClosedTerminalAuthority, ZeroTerminalProof,
@@ -58,7 +61,10 @@ enum ImmutableOwner {
         key: IntegralKey,
     },
     SolvedRewriteSector {
-        sector: Mask,
+        /// Exact bounded power-space rectangle discharged by the retained
+        /// layer.  It must not be widened to the whole sector merely because
+        /// the layer's cover is closed on its finite carrier.
+        domain: SectorInteriorDomain,
         ordering: OrderingPolicy,
         layer_ordinal: usize,
     },
@@ -79,7 +85,7 @@ impl ImmutableOwner {
             Self::ZeroSector { sector, .. } => sector.arity(),
             Self::Factorization { domain, .. } => domain.arity(),
             Self::Master { key } => key.powers().len(),
-            Self::SolvedRewriteSector { sector, .. } => sector.arity(),
+            Self::SolvedRewriteSector { domain, .. } => domain.arity(),
         }
     }
 }
@@ -147,6 +153,68 @@ pub(crate) struct ImmutableOwnerSnapshot {
     closed_artifact: Option<Arc<ClosedArtifact>>,
     terminal_authority: Option<Arc<ClosedTerminalAuthority>>,
     closed_layers: Arc<[Arc<ClosedSectorLayer>]>,
+}
+
+/// Typed hot-path view of an immutable snapshot whose complete owner, route,
+/// sidecar, identity, and retained-authority payload was installed by one of
+/// [`ImmutableOwnerSnapshot`]'s checked constructors.
+///
+/// The wrapper cannot be assembled outside this module.  It owns only a cheap
+/// clone of the snapshot facade; all potentially large lookup payloads and the
+/// stable ID remain shared through their existing `Arc`s.  Explicit untrusted
+/// validation continues to use [`ImmutableOwnerSnapshot::try_verify`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct VerifiedImmutableOwnerSnapshot {
+    snapshot: ImmutableOwnerSnapshot,
+}
+
+impl VerifiedImmutableOwnerSnapshot {
+    pub(crate) const fn snapshot(&self) -> &ImmutableOwnerSnapshot {
+        &self.snapshot
+    }
+
+    /// Reapply the caller's resource policy to retained metadata in O(1)
+    /// without reconstructing routes or the identity byte stream.
+    pub(crate) fn try_preflight_limits(
+        &self,
+        limits: StratumRegistryLimits,
+    ) -> Result<(), StratumRegistryError> {
+        self.snapshot.try_preflight_retained_limits(limits)
+    }
+}
+
+impl std::ops::Deref for VerifiedImmutableOwnerSnapshot {
+    type Target = ImmutableOwnerSnapshot;
+
+    fn deref(&self) -> &Self::Target {
+        self.snapshot()
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static SNAPSHOT_ID_REBUILD_COUNT: Cell<usize> = const { Cell::new(0) };
+    static SNAPSHOT_ROUTE_REPLAY_COUNT: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Test-only accounting for complete cold snapshot replays.  Thread-local
+/// counters keep independently scheduled tests from perturbing one another.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ImmutableOwnerSnapshotColdReplayCounters {
+    identity_rebuilds: usize,
+    route_replays: usize,
+}
+
+#[cfg(test)]
+impl ImmutableOwnerSnapshotColdReplayCounters {
+    pub(crate) const fn identity_rebuilds(self) -> usize {
+        self.identity_rebuilds
+    }
+
+    pub(crate) const fn route_replays(self) -> usize {
+        self.route_replays
+    }
 }
 
 impl PartialEq for ImmutableOwnerSnapshot {
@@ -338,7 +406,7 @@ impl ImmutableOwnerSnapshot {
     ) -> Result<Self, StratumRegistryError> {
         let zero_sector_count = authority.zero_sectors().len();
         let factorization_count = authority.factorization_rules().len();
-        let master_count = authority.parent_terminals().len();
+        let master_count = authority.master_terminal_count();
         let owner_count = checked_add(
             "immutable owner regions",
             checked_add(
@@ -378,7 +446,7 @@ impl ImmutableOwnerSnapshot {
                 domain: rule.application_domain().clone(),
             });
         }
-        for master in authority.parent_terminals() {
+        for master in authority.master_terminals() {
             owners.push(ImmutableOwner::Master {
                 key: master.clone(),
             });
@@ -575,7 +643,7 @@ impl ImmutableOwnerSnapshot {
         for (_, layer) in indexed_layers {
             let layer_ordinal = closed_layers.len();
             owners.push(ImmutableOwner::SolvedRewriteSector {
-                sector: layer.sector().clone(),
+                domain: layer.proven_domain().clone(),
                 ordering: layer.ordering(),
                 layer_ordinal,
             });
@@ -641,6 +709,13 @@ impl ImmutableOwnerSnapshot {
         self.arity
     }
 
+    /// Exact ordering retained by the installed symmetry authority, when the
+    /// snapshot owns one. Campaign constructors use this to reject a ledger
+    /// proof policy that differs from its predecessor's canonical routes.
+    pub(crate) fn canonicalizer_ordering(&self) -> Option<OrderingPolicy> {
+        self.canonicalizer_authority().map(Canonicalizer::ordering)
+    }
+
     pub(crate) fn owner_count(&self) -> usize {
         self.owners.len()
     }
@@ -664,6 +739,31 @@ impl ImmutableOwnerSnapshot {
 
     pub(crate) const fn id(&self) -> &ImmutableOwnerSnapshotId {
         &self.id
+    }
+
+    /// Mint the unforgeable discovery hot-path view of this already installed
+    /// snapshot. Every production `ImmutableOwnerSnapshot` originates at a
+    /// checked constructor above; no owner/route/identity field is mutable
+    /// after that boundary. The clone therefore reuses the exact retained Arc
+    /// payload instead of replaying it.
+    pub(crate) fn verified_clone(&self) -> VerifiedImmutableOwnerSnapshot {
+        VerifiedImmutableOwnerSnapshot {
+            snapshot: self.clone(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reset_cold_replay_counters_for_test() {
+        SNAPSHOT_ID_REBUILD_COUNT.with(|count| count.set(0));
+        SNAPSHOT_ROUTE_REPLAY_COUNT.with(|count| count.set(0));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cold_replay_counters_for_test() -> ImmutableOwnerSnapshotColdReplayCounters {
+        ImmutableOwnerSnapshotColdReplayCounters {
+            identity_rebuilds: SNAPSHOT_ID_REBUILD_COUNT.with(Cell::get),
+            route_replays: SNAPSHOT_ROUTE_REPLAY_COUNT.with(Cell::get),
+        }
     }
 
     /// Return whether two structurally equal snapshots retain the same
@@ -826,24 +926,12 @@ impl ImmutableOwnerSnapshot {
         &self,
         limits: StratumRegistryLimits,
     ) -> Result<bool, StratumRegistryError> {
-        check_limit(
-            "immutable owner regions",
-            self.owners.len(),
-            limits.max_owner_regions,
-        )?;
-        let cells = checked_mul(
-            "immutable owner coordinate cells",
-            self.owners.len(),
-            self.arity,
-        )?;
-        check_limit(
-            "immutable owner coordinate cells",
-            cells,
-            limits.max_owner_coordinate_cells,
-        )?;
+        self.try_preflight_retained_limits(limits)?;
         if self.owners.iter().any(|owner| owner.arity() != self.arity) {
             return Ok(false);
         }
+        #[cfg(test)]
+        SNAPSHOT_ROUTE_REPLAY_COUNT.with(|count| count.set(count.get() + 1));
         if !verify_owner_routes(
             &self.owners,
             &self.routes,
@@ -872,6 +960,61 @@ impl ImmutableOwnerSnapshot {
             && source_counts_match(&self.source, &self.owners)
             && self.source_authority_matches()
             && self.closed_layers_match(limits)?)
+    }
+
+    fn try_preflight_retained_limits(
+        &self,
+        limits: StratumRegistryLimits,
+    ) -> Result<(), StratumRegistryError> {
+        check_limit(
+            "immutable owner regions",
+            self.owners.len(),
+            limits.max_owner_regions,
+        )?;
+        let cells = checked_mul(
+            "immutable owner coordinate cells",
+            self.owners.len(),
+            self.arity,
+        )?;
+        check_limit(
+            "immutable owner coordinate cells",
+            cells,
+            limits.max_owner_coordinate_cells,
+        )?;
+        check_limit(
+            "immutable owner symmetry routes",
+            self.routes.len(),
+            limits.max_owner_routes,
+        )?;
+        let route_coordinate_cells = checked_mul(
+            "immutable owner symmetry-route coordinate cells",
+            checked_mul(
+                "immutable owner symmetry-route coordinate cells",
+                self.routes.len(),
+                self.arity,
+            )?,
+            3,
+        )?;
+        check_limit(
+            "immutable owner symmetry-route coordinate cells",
+            route_coordinate_cells,
+            limits.max_owner_route_coordinate_cells,
+        )?;
+        check_limit(
+            "immutable owner route-ordinal index",
+            self.route_index.len(),
+            limits.max_owner_routes,
+        )?;
+        check_limit(
+            "immutable owner route-sector buckets",
+            self.route_buckets.len(),
+            limits.max_owner_routes,
+        )?;
+        check_limit(
+            "immutable owner identity bytes",
+            self.id.as_str().len(),
+            limits.max_owner_identity_bytes,
+        )
     }
 
     /// Rejoin the cheap snapshot payload to its strongly owned installed
@@ -920,7 +1063,7 @@ impl ImmutableOwnerSnapshot {
                     && self.arity == authority.arity()
                     && *zero_sector_count == authority.zero_sectors().len()
                     && *factorization_count == authority.factorization_rules().len()
-                    && *master_count == authority.parent_terminals().len()
+                    && *master_count == authority.master_terminal_count()
                     && authority_payload_matches(&self.owners, authority)
             }
             _ => false,
@@ -946,7 +1089,7 @@ impl ImmutableOwnerSnapshot {
             .enumerate()
         {
             let ImmutableOwner::SolvedRewriteSector {
-                sector,
+                domain,
                 ordering,
                 layer_ordinal: owner_layer_ordinal,
             } = owner
@@ -956,7 +1099,7 @@ impl ImmutableOwnerSnapshot {
             if *owner_layer_ordinal != layer_ordinal
                 || layer.family_fingerprint() != self.family_fingerprint()
                 || layer.context_fingerprint() != self.context_fingerprint()
-                || layer.sector() != sector
+                || layer.proven_domain() != domain
                 || layer.ordering() != *ordering
             {
                 return Ok(false);
@@ -1068,12 +1211,12 @@ impl ImmutableOwnerSnapshot {
             matches!(
                 owner,
                 ImmutableOwner::SolvedRewriteSector {
-                    sector,
+                    domain,
                     ordering,
                     layer_ordinal: owner_layer,
                 } if *owner_layer == layer_ordinal
                     && self.closed_layers.get(layer_ordinal).is_some_and(|layer|
-                        layer.sector() == sector && layer.ordering() == *ordering)
+                        layer.proven_domain() == domain && layer.ordering() == *ordering)
             )
         })
     }
@@ -1170,6 +1313,13 @@ fn authority_payload_matches(
     owners: &[ImmutableOwner],
     authority: &ClosedTerminalAuthority,
 ) -> bool {
+    let declared = authority.declared_master_manifest();
+    if declared.arity() != authority.arity()
+        || declared.family_fingerprint() != authority.family_fingerprint()
+        || declared.context_fingerprint() != authority.context_fingerprint()
+    {
+        return false;
+    }
     let mut owners = owners.iter();
     for terminal in authority.zero_sectors() {
         if !matches!(
@@ -1191,7 +1341,7 @@ fn authority_payload_matches(
             return false;
         }
     }
-    for terminal in authority.parent_terminals() {
+    for terminal in authority.master_terminals() {
         if !matches!(
             owners.next(),
             Some(ImmutableOwner::Master { key }) if key == terminal
@@ -1333,11 +1483,13 @@ fn build_snapshot_id(
     closed_layers: &[Arc<ClosedSectorLayer>],
     limits: StratumRegistryLimits,
 ) -> Result<ImmutableOwnerSnapshotId, StratumRegistryError> {
+    #[cfg(test)]
+    SNAPSHOT_ID_REBUILD_COUNT.with(|count| count.set(count.get() + 1));
     let mut stable = BoundedIdentityBuilder::new(
         limits.max_owner_identity_bytes,
         "immutable owner identity bytes",
     );
-    stable.push("rustred.immutable-owner-snapshot.v4:")?;
+    stable.push("rustred.immutable-owner-snapshot.v5:")?;
     stable.push_usize(family.len())?;
     stable.push("#")?;
     stable.push(family)?;
@@ -1465,7 +1617,7 @@ fn append_owner_identity(
             }
         }
         ImmutableOwner::SolvedRewriteSector {
-            sector,
+            domain,
             ordering,
             layer_ordinal,
         } => {
@@ -1476,9 +1628,18 @@ fn append_owner_identity(
                         detail: "solved owner points outside the retained closed-sector layers",
                     })?;
             stable.push("solved-sector:")?;
-            append_mask(stable, sector.active_bits())?;
+            append_mask(stable, domain.sector().active_bits())?;
             stable.push(":")?;
-            stable.push(ordering.stable_id())?;
+            for (position, bounds) in domain.bounds().iter().enumerate() {
+                if position != 0 {
+                    stable.push(",")?;
+                }
+                stable.push_i64(bounds.lower())?;
+                stable.push("..")?;
+                stable.push_i64(bounds.upper())?;
+            }
+            stable.push(":")?;
+            stable.push(&ordering.stable_id())?;
             stable.push(":")?;
             stable.push_usize(*layer_ordinal)?;
             stable.push(":")?;
@@ -1709,7 +1870,7 @@ mod tests {
             .unwrap_err(),
             StratumRegistryError::ResourceLimit {
                 resource: "immutable owner identity bytes",
-                requested: "rustred.immutable-owner-snapshot.v4:".len(),
+                requested: "rustred.immutable-owner-snapshot.v5:".len(),
                 limit: 0,
             }
         );
@@ -1731,6 +1892,62 @@ mod tests {
             &authority
         ));
         drop(authority);
+        assert!(
+            snapshot
+                .try_verify(StratumRegistryLimits::default())
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn declared_master_points_and_only_their_exact_symmetry_images_are_routed() {
+        let authority = derive_k6_terminal_authority().unwrap();
+        let snapshot = super::ImmutableOwnerSnapshot::try_from_terminal_authority(
+            Arc::clone(&authority),
+            StratumRegistryLimits::default(),
+        )
+        .unwrap();
+        let parent = Mask::try_new([true; 6]).unwrap();
+        let ordering = OrderingPolicy::default();
+
+        for representative in authority.declared_master_manifest().terminals() {
+            let orbit = authority
+                .canonicalizer()
+                .unwrap()
+                .orbit(representative)
+                .unwrap();
+            for image in orbit.images() {
+                assert!(
+                    snapshot
+                        .authenticates_explicit_terminal(image.integral())
+                        .unwrap(),
+                    "declared symmetry image was not authenticated: {:?}",
+                    image.integral().powers()
+                );
+                let sector = Mask::try_from_indices(image.integral().powers()).unwrap();
+                if sector != parent {
+                    let point = SectorInteriorDomain::try_new(
+                        sector.clone(),
+                        image
+                            .integral()
+                            .powers()
+                            .iter()
+                            .map(|&power| InteriorBounds::new(power, power)),
+                    )
+                    .unwrap();
+                    let witness = snapshot.owner_for(&parent, ordering, &point).unwrap();
+                    assert_eq!(witness.kind(), super::ImmutableOwnerKind::Master);
+                    assert!(snapshot.verifies_witness(&parent, ordering, &point, witness));
+                }
+            }
+        }
+
+        let arbitrary_uncovered = IntegralKey::try_new([0, 2, 1, 1, 1, 0]).unwrap();
+        assert!(
+            !snapshot
+                .authenticates_explicit_terminal(&arbitrary_uncovered)
+                .unwrap()
+        );
         assert!(
             snapshot
                 .try_verify(StratumRegistryLimits::default())

@@ -12,6 +12,20 @@ use super::super::ArtifactError;
 /// Authenticate two exact momentum maps whose induced denominator
 /// permutations generate the complete order-24 `S4` edge action.
 pub(crate) fn canonical_s4(family: &IntegralFamily) -> Result<Canonicalizer, ArtifactError> {
+    canonical_s4_with_ordering(family, OrderingPolicy::default())
+}
+
+/// Authenticate the complete order-24 `S4` edge action while selecting orbit
+/// representatives with the caller's persisted ordering policy.
+///
+/// A coordinate-priority policy need not be invariant under `S4`. Reusing a
+/// default-order canonicalizer with a custom-order owner would therefore
+/// break the reducer chain `parent > raw child >= canonical child`, despite
+/// using the same exact symmetry group.
+pub(crate) fn canonical_s4_with_ordering(
+    family: &IntegralFamily,
+    ordering: OrderingPolicy,
+) -> Result<Canonicalizer, ArtifactError> {
     let coefficients = family.coefficient_context();
     let generators = [
         // Exchange the distinguished vertex with vertex 1.
@@ -26,7 +40,7 @@ pub(crate) fn canonical_s4(family: &IntegralFamily) -> Result<Canonicalizer, Art
     })
     .collect::<Result<Vec<_>, ArtifactError>>()?;
     Ok(Canonicalizer::try_new(
-        OrderingPolicy::default(),
+        ordering,
         generators,
         CanonicalizationLimits::default(),
     )?)

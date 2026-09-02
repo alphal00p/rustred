@@ -7,9 +7,9 @@ use crate::identity::{
 use super::nominate::{check_limit, checked_add, try_vec};
 use super::{SourceDiscoveryError, SourceDiscoveryLimits};
 
-const SOURCE_ROWS: &str = "source-discovery ordinary source rows";
-const SOURCE_TERMS: &str = "source-discovery ordinary term occurrences";
-const DISTINCT_SHIFTS: &str = "source-discovery distinct ordinary shifts";
+pub(super) const SOURCE_ROWS: &str = "source-discovery ordinary source rows";
+pub(super) const SOURCE_TERMS: &str = "source-discovery ordinary term occurrences";
+pub(super) const DISTINCT_SHIFTS: &str = "source-discovery distinct ordinary shifts";
 
 /// Borrowed exact support index for one complete ordinary source module.
 ///
@@ -148,6 +148,8 @@ impl<'sources> OrdinarySourceIncidenceIndex<'sources> {
     /// digest is introduced and the scan is never repeated in the task path.
     pub(crate) fn exactly_replays_completed(&self, completed: &CompletedIbpSourceRows) -> bool {
         completed.is_complete_ordinary()
+            && self.family_fingerprint() == completed.family_fingerprint()
+            && self.context_fingerprint() == completed.context_fingerprint()
             && self.source_count() == completed.source_row_count()
             && self
                 .sources()

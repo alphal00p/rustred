@@ -96,6 +96,30 @@ pub(crate) fn write_output(
     }
 }
 
+/// Validate deterministic output policy before expensive semantic work or any
+/// write. Atomic installation still repeats these checks to close races.
+pub(crate) fn preflight_output_destination(
+    destination: &StreamPath,
+    force: bool,
+) -> Result<(), CliError> {
+    let StreamPath::File(path) = destination else {
+        return Ok(());
+    };
+    if path.file_name().is_none() {
+        return Err(CliError::OutputIo(format!(
+            "output path {} has no file name",
+            path.display()
+        )));
+    }
+    if !force && path.exists() {
+        return Err(CliError::OutputIo(format!(
+            "output {} already exists; use --force to replace it",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
 fn write_file_atomically(path: &Path, contents: &[u8], force: bool) -> Result<(), CliError> {
     if path.file_name().is_none() {
         return Err(CliError::OutputIo(format!(

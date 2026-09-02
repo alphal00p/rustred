@@ -168,6 +168,158 @@ internal order as
 [n1,n2,n3,n4,n5,n6] -> [n1,n3,n2,n4,n6,n5].
 ```
 
+This executable map was rechecked with FORM 5 using pairwise-distinct sentinel
+powers: AlphaLoop receives `A=[R1,R3,R2,R4,R6,R5]`, hence
+`R=[A1,A3,A2,A4,A6,A5]`. A separately natural identity-momentum labeling of
+the same Mercedes graph gives `R=[A1,A2,A3,A6,A4,A5]`; it is not the Vakint
+matcher route. The two labelings differ by the authenticated K4 edge action
+`[R1,R3,R2,R5,R4,R6]`. The offline Rust diagnostic proves both denominator
+maps and canonicalizes the complete sector, chart point, and symbolic-axis
+domain through the same routing witness. It never attaches an oracle point to
+a canonical ledger by slot convention alone.
+
+The bounded LHS-only diagnostic freezes the 55 first-occurrence patterns in
+FORM chronology. Authenticated routing reduces these to 27 distinct canonical
+rectangular domains while retaining every source-line alias. Each pattern
+denotes a rectangular pivot domain: symbolic axes extend upward from their
+threshold and literal axes remain fixed. Every fresh pass intersects that full
+domain with the exact uncovered partition and schedules every nonempty
+residual; covering only its minimal point is not sufficient. Residual lower
+endpoints remain geometry only: every residual retries the original requested
+recurrence shift, preventing a finite machine-carrier fringe from silently
+becoming a near-`i64::MAX` translation. Modular probes sample the base domain
+(corner on fixed axes and a positive interior offset only when residual extent
+permits it). A derived rule may validly cover a larger domain only after
+RustRed regenerates it from the nine ordinary IBPs and passes exact Symbolica
+solve, replay, guard, descent, and cover admission.
+
+The authenticated K4 sector stabilizers carry the 55 rectangular domains to a
+geometric union whose complement consists only of authenticated finite
+terminals in all five canonical sectors. This proves that the target itinerary
+is sufficient modulo symmetry; it does **not** prove that RustRed has derived
+or admitted the corresponding owners.
+
+#### Frozen natural-order release census (non-closure evidence)
+
+On 2026-09-02 the already-built optimized test binary scanned the 27 unique
+domains with one modular probe each. Three workers ran concurrently, so the
+wall times below include contention but exclude compilation. Each individual
+process had a 45-second cap. The ordering was RustRed's natural default; this
+is diagnostic evidence, not a closing artifact.
+
+| domain | FORM line aliases | typed outcome | wall ms |
+| ---: | --- | --- | ---: |
+| 0 | 301,313,325,337,349,361 | guarded: integer root `g2`, axis 2, value 1; `7/7/7` required/split/exceptional | 3,189 |
+| 1 | 373,382,391 | no replay; proposal budget stop | 6,255 |
+| 2 | 400 | no replay; proposal budget stop | 6,657 |
+| 3 | 416 | no replay; proposal budget stop | 5,275 |
+| 4 | 432 | no replay; proposal budget stop | 5,035 |
+| 5 | 441,459 | operational timeout | >45,000 |
+| 6 | 474,486 | no replay; proposal budget stop | 6,428 |
+| 7 | 498,513 | no replay; proposal budget stop | 5,445 |
+| 8 | 525 | no replay; proposal budget stop | 5,338 |
+| 9 | 537 | no replay; proposal budget stop | 5,353 |
+| 10 | 564 | no replay; proposal budget stop | 5,238 |
+| 11 | 582 | no replay; proposal budget stop | 5,153 |
+| 12 | 591,601,611,622,631,640,651,660 | no replay; proposal budget stop | 5,423 |
+| 13 | 669 | no replay; proposal budget stop | 5,104 |
+| 14 | 677 | guarded: integer root `g13`, axis 1, value 1; `17/17/17` | 283 |
+| 15 | 688 | one strict geometric shrink; old residual-shift seam then failed at machine fringe | 281 |
+| 16 | 697 | guarded: unsupported multivariate `g15`; `14/14/14` | 296 |
+| 17 | 702 | no replay; proposal budget stop | 5,853 |
+| 18 | 712 | guarded: integer root `g6`, axis 1, value 1; `11/11/11` | 54 |
+| 19 | 721 | one strict geometric shrink; old residual-shift seam then failed at machine fringe | 305 |
+| 20 | 730 | one strict geometric shrink, then no replay/query rejected on the residual | 4,121 |
+| 21 | 743 | no replay; proposal budget stop | 5,845 |
+| 22 | 751,770,789,808 | no replay; proposal budget stop | 6,242 |
+| 23 | 827,851,863,875 | no replay; proposal budget stop | 7,715 |
+| 24 | 839 | no replay; proposal budget stop | 7,919 |
+| 25 | 887 | no replay; proposal budget stop | 6,080 |
+| 26 | 914,933,952,971,988,1005 | no replay; proposal budget stop | 6,790 |
+
+The census therefore contains four exact guard-obstructed domains, three
+domains with an admitted first owner, nineteen typed one-epoch budget stops,
+and one bounded runtime blow-up. All completed attempts nominated and
+translated 90 ordinary-source requests. No observed obstruction was a default
+ordering strict-descent failure. In particular, this table is explicit
+**non-closure status**: zero unique domains closed in this independent,
+terminal-only-predecessor scan. The next comparable scan must use persisted
+coordinate priority `[5,3,4,2,0,1]`; source/proposal budgets should be widened
+only for the nineteen typed budget stops, and domain 5 must remain separately
+bounded and profiled.
+
+#### Policy-coherent winning-priority release census (non-closure evidence)
+
+The 720-permutation diagnostic selects persisted coordinate priority
+`[5,3,4,2,0,1]`. This priority is not invariant under the authenticated `S4`
+action. A first scan incorrectly canonicalized targets and terminal authority
+with the natural policy before admitting owners with the winner policy; its
+apparently favorable 9-owner result is invalid and is intentionally not
+retained as evidence. The corrected diagnostic binds target routing, terminal
+representatives, owner ledgers, exact descent, and eventual reduction to the
+same persisted policy. An executable regression exhibits a key whose natural
+and winner canonical representatives differ and verifies the winner-policy
+`raw >= canonical` witness for all 55 LHS targets. The semantic alias census
+remains 55 raw targets and 27 canonical domains.
+
+| domains | FORM line aliases | policy-coherent typed outcome |
+| --- | --- | --- |
+| 0, 5, 14, 16 | 301–361; 441,459; 677; 697 | exact candidate found; unsupported multivariate guard |
+| 18, 19 | 712; 721 | exact candidate found; integer-root guard |
+| 15 | 688 | one exact strict shrink (`1 -> 8` boxes), then duplicate on the artificial finite carrier fringe |
+| 1,6,7,9,12,13,17,21–26 | 373–391; 474,486; 498,513; 537; 591–660; 669; 702; 743–1005 | budget stop in aggregate residual-candidate work (13 domains) |
+| 3,10,11 | 416; 564; 582 | budget stop in aggregate residual source-term work (3 domains) |
+| 2,20 | 400; 730 | budget stop in aggregate obstruction-block candidate work (2 domains) |
+| 4,8 | 432; 525 | budget stop in aggregate obstruction-block source-term work (2 domains) |
+
+All twenty budget stops retain exact probe ordinal, epoch, scheduler stage,
+scope, named resource, requested amount, and configured limit after the live
+scheduler epoch is dropped. They are resumable operational outcomes, never
+no-relation evidence. The observed requested counts exceed the default limits
+only modestly on the first stop: residual candidates need roughly
+`100,162..111,149` versus `100,000`; residual source terms roughly
+`1,000,283..1,006,337` versus `1,000,000`; obstruction-block candidates
+`100,297..102,129` versus `100,000`; and obstruction-block source terms
+`1,001,823..1,012,314` versus `1,000,000`. Domain 5 is the expensive outlier:
+its exact guarded candidate takes about 27 seconds alone in the optimized
+one-probe build, excluding compilation, and remains separately bounded.
+The exact policy-coherent per-domain elapsed milliseconds, in canonical
+domain order `0..=26`, were
+`[7415,4761,4438,4283,4319,27590,5136,4915,5382,4991,4927,4665,5092,4870,256,446,471,5016,219,437,4659,5078,5594,5166,5257,5585,6144]`.
+Domain 15's entry includes both its 209 ms first admission and the deterministic
+duplicate retry. These are wall measurements of one optimized process per
+selected range, not semantic artifact bytes.
+
+The corrected census therefore has one admitted first owner, six exact
+guard-obstructed domains, and twenty typed budget stops. It has no
+strict-descent failure, hard planner failure, or exact-support lift failure.
+This is explicit **non-closure status**: zero requested domains close in the
+independent terminal-only ledgers. The next pass widens only the named resource
+that stopped each domain, deterministically, and returns at its first changed
+semantic outcome. The fixed-point driver must then preserve guard obligations,
+publish admitted owners, distinguish artificial finite-carrier endpoints from
+genuine open complements, and inherit immutable lower-wave authority.
+
+A bounded follow-up widened exactly one named resource for one representative
+of each stop class. This was intentionally stopped as soon as the scheduler
+named a different resource, rather than turning the diagnostic into an
+unbounded global-budget ratchet:
+
+| domain | first typed stop and adaptive change | next typed stop | elapsed |
+| --- | --- | --- | ---: |
+| 1 | residual candidates `111149/100000 -> 200000` | residual source terms `1128712/1000000` | 9.45 s |
+| 2 | obstruction-block candidates `102129/100000 -> 200000` | obstruction-block source terms `1039725/1000000` | 8.77 s |
+| 3 | residual source terms `1000283/1000000 -> 2000000` | prospective classification `1000283/1000000` | 8.48 s |
+| 4 | obstruction-block source terms `1012314/1000000 -> 2000000` | obstruction-block signatures `4049256/4000000` | 8.60 s |
+
+All four retries replayed the same requested domain against the same immutable
+nine-IBP module and exact ledger snapshot. None produced an owner proposal.
+This shows that naive one-dimensional budget growth merely exposes the next
+coupled work envelope; it is not a closure strategy. The production direction
+is instead a public, deterministic seed/wave itinerary with structural guard
+splitting and alternate-support replay. Adaptive limits remain typed censored
+stops for bounded experiments, not evidence that no recurrence exists.
+
 The path representative has a guard-free loop-routing identity that removes
 one inactive numerator by expanding a fixed affine combination of denominator
 lowering operators and the common mass. At numerator rank `N` its direct
@@ -200,13 +352,17 @@ on the two oracle-negative inputs. MATAD loses these expressions in its
 three-loop partial-fraction/mass-pattern prepass before its top-family reducer;
 the zeros are therefore a preprocessing defect, not zero-integral evidence.
 
-This trace is diagnostic only. No FORM rule, support, coefficient, topology
-name, or pivot may enter production RustRed. The oracle-free regression starts
-from the family, its nine regenerated ordinary IBPs, graph/routing compiler,
-zero sectors, and immutable lower owners. It must rediscover and replay the
-interior rule, subtract its exact owned box, then let the exposed face and ray
-choose the next sources. Repeating the run with every oracle fixture disabled
-is mandatory.
+This trace is diagnostic only. No FORM recurrence right-hand side,
+coefficient, solved rule, or reduction result may enter a publishable RustRed
+artifact. One separately labelled hinted campaign may use seed, ordering, and
+domain-itinerary metadata extracted from the trace, but it must regenerate all
+nine ordinary IBPs and every promoted identity inside RustRed. The autonomous
+regression starts from the family, those regenerated ordinary sources,
+graph/routing compiler, zero sectors, and immutable lower owners. It must
+rediscover and replay the interior rule, subtract its exact owned box, then let
+the exposed face and ray choose the next sources. Repeating the run with every
+oracle hint fixture disabled is mandatory. Both campaigns must serialize the
+same standalone artifact format with no hint payload or FORM dependency.
 
 There is an important interpolation trap. At the boundary point `z=-1`, all
 terms proportional to `z+1` disappear, so a single triple-negative endpoint
@@ -373,23 +529,31 @@ renormalization scale are exact in this use case.
 
 ### Executable and command-line limits
 
-The local `FOR_REFERENCE_ONLY_DO_NOT_PUSH/form5` directory is a
-React/JavaScript form library, not the FORM computer-algebra executable.
-During this audit the available FORM executable was:
+The local `FOR_REFERENCE_ONLY_DO_NOT_PUSH/form5` directory is an unrelated
+React/JavaScript form library. The official HEP FORM repository is instead
+checked out at `FOR_REFERENCE_ONLY_DO_NOT_PUSH/form5-hep`; the optimized build
+with FLINT, GMP, MPFR, zlib, and zstd installs:
 
 ```text
-/nix/store/b72akpm5kyfzks88x9c1hlpwlw8v48lm-form-4.3.1/bin/form
+<rustred-checkout>/FOR_REFERENCE_ONLY_DO_NOT_PUSH/form5-hep/install/bin/form
 ```
 
-That host-specific Nix path reports FORM 4.3. A current oracle test can be run
+It reports FORM 5.0.1 (`v5.0.1-30-gc9e09c3`). A current oracle test can be run
 from the GammaLoop root with:
 
 ```bash
-FORM_PATH=/nix/store/b72akpm5kyfzks88x9c1hlpwlw8v48lm-form-4.3.1/bin/form \
+FORM_PATH=<rustred-checkout>/FOR_REFERENCE_ONLY_DO_NOT_PUSH/form5-hep/install/bin/form \
   cargo test -p vakint --no-default-features \
   --test integral_alphaloop_vs_matad_tests \
   test_integrate_3l_no_numerator -- --nocapture
 ```
+
+The local build passed the upstream scalar and TFORM suites with
+`OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1`: both ran 542 tests with zero
+failures; the scalar suite had seven platform omissions, and TFORM had two
+documented pending threaded cases plus two omissions. Limiting BLAS workers is
+required on the 384-core host because one upstream memory-cap test otherwise
+allows OpenBLAS to exhaust its virtual-memory allowance before FORM runs.
 
 Vakint has no dedicated CLI accepting an arbitrary `I3L` expression. The
 appropriate nine-point and ray-depth oracle is a table-driven Rust test or

@@ -23,9 +23,9 @@ struct PendingSource<'source> {
 
 /// Reconstruct and replay one canonical fraction-free source consequence.
 ///
-/// This function is intentionally available only in test builds. Successful
-/// reconstruction proves the displayed polynomial identity and its guard
-/// provenance, but never completion or applicability on an integer fibre.
+/// Successful reconstruction proves the displayed polynomial identity and
+/// its guard provenance, but never completion or applicability on an integer
+/// fibre.
 pub(crate) fn try_clear_exact_circuit(
     context: &IndexedCoefficientContext,
     plan: &PhysicalFramePlan,
@@ -61,8 +61,13 @@ pub(crate) fn try_clear_exact_circuit(
 
         let mut row_denominator = one.clone();
         for coefficient in source.terms().values() {
+            let (coefficient, _) = context.specialize_fixed_indices(
+                coefficient,
+                circuit.fixed_indices(),
+                limits.fixed_index_specialization,
+            )?;
             let denominator =
-                context.denominator_condition_with_limits(coefficient, limits.exact_algebra)?;
+                context.denominator_condition_with_limits(&coefficient, limits.exact_algebra)?;
             row_denominator = budget.polynomial_lcm(&row_denominator, &denominator)?;
         }
         let row_denominator_coefficient = budget.as_coefficient(&row_denominator)?;
@@ -124,7 +129,12 @@ pub(crate) fn try_clear_exact_circuit(
                 detail: "a cleared source has invalid physical CSR bounds",
             })?;
         for ((_, coefficient), &physical_column) in source.source.terms().iter().zip(structural) {
-            let row_polynomial = budget.mul(&row_denominator, coefficient)?;
+            let (coefficient, _) = context.specialize_fixed_indices(
+                coefficient,
+                circuit.fixed_indices(),
+                limits.fixed_index_specialization,
+            )?;
+            let row_polynomial = budget.mul(&row_denominator, &coefficient)?;
             budget.require_polynomial(&row_polynomial)?;
             let contribution = budget.mul(&cofactor_value, &row_polynomial)?;
             budget.require_polynomial(&contribution)?;
@@ -219,8 +229,13 @@ pub(crate) fn try_clear_exact_circuit(
             )?;
             let mut condition_sources = try_vec(CONDITION_SOURCES, condition.sources().len())?;
             condition_sources.extend(condition.sources().iter().cloned());
+            let polynomial = context.specialize_fixed_polynomial(
+                condition.polynomial(),
+                circuit.fixed_indices(),
+                limits.fixed_index_specialization,
+            )?;
             guards.insert(
-                condition.polynomial().clone(),
+                polynomial,
                 ClearedSemanticGuardOrigin::SourceOrFamily(
                     ExactCircuitGuardOrigin::SourceCondition {
                         frame_row_ordinal: source.frame_row_ordinal,
@@ -237,8 +252,11 @@ pub(crate) fn try_clear_exact_circuit(
                 detail: "a semantic source has invalid physical CSR bounds",
             })?;
         for ((_, coefficient), &physical_column) in source.source.terms().iter().zip(structural) {
-            let denominator =
-                context.denominator_condition_with_limits(coefficient, limits.exact_algebra)?;
+            let (_, denominator) = context.specialize_fixed_indices(
+                coefficient,
+                circuit.fixed_indices(),
+                limits.fixed_index_specialization,
+            )?;
             guards.insert(
                 denominator,
                 ClearedSemanticGuardOrigin::SourceOrFamily(
@@ -277,6 +295,7 @@ pub(crate) fn try_clear_exact_circuit(
     };
 
     Ok(ClearedExactCircuit {
+        circuit_identity: circuit.identity_owner(),
         target_column: circuit.target_column(),
         target_coefficient,
         source_cofactors: source_cofactors.into_boxed_slice(),
@@ -427,7 +446,14 @@ impl<'context, 'budget> SemanticGuardCollector<'context, 'budget> {
         self.context
             .validate_polynomial_with_limits(&polynomial, self.limits.exact_algebra)?;
         if polynomial.is_zero() {
-            return Err(ClearedCircuitError::ZeroFinalTargetCoefficient);
+            return Err(match origin {
+                ClearedSemanticGuardOrigin::SourceOrFamily(_) => {
+                    ClearedCircuitError::ZeroSourceOrFamilyGuard
+                }
+                ClearedSemanticGuardOrigin::FinalTargetCoefficient => {
+                    ClearedCircuitError::ZeroFinalTargetCoefficient
+                }
+            });
         }
         if polynomial.is_nonzero_constant() {
             return Ok(());

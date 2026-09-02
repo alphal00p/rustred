@@ -38,7 +38,7 @@ pub use limits::ParametricRuleLimits;
 pub use model::{
     ConcreteSpecializationReplayWitness, ParametricExactReplayWitness, ParametricGuardOrigin,
     ParametricNonZeroGuard, ParametricReducerPivotGuard, ParametricRule, ParametricRuleTerm,
-    ParametricSourceRowContribution,
+    ParametricRuleTermDescent, ParametricSourceRowContribution,
 };
 
 #[cfg(test)]

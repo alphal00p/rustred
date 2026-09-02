@@ -177,8 +177,8 @@ impl<'artifact> Reducer<'artifact> {
                         self.cache_insert(key, expansion)?;
                         continue;
                     }
-                    begin_expansion(&mut active, &key)?;
                     let selected = self.select_first_rule(&key)?;
+                    begin_expansion(&mut active, &key)?;
                     request.record_rule_application(self.limits.max_rule_applications)?;
                     let application = self.apply_selected_rule(&key, selected)?;
                     self.statistics.record_rule_application();
@@ -339,7 +339,8 @@ impl<'artifact> Reducer<'artifact> {
         &self,
         target: &IntegralKey,
     ) -> Result<SelectedRule<'_>, ReductionError> {
-        for cell in self.artifact.rule_cells() {
+        for cell_owner in self.artifact.rule_cells() {
+            let cell = cell_owner.as_ref();
             let Some(assignment) = cell.assignment_for_target(target)? else {
                 continue;
             };

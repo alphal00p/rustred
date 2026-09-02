@@ -11,6 +11,7 @@ pub(crate) enum ExactGuardRefinementError {
     CircuitOwnerSnapshotMismatch,
     CircuitTargetMismatch,
     CircuitTargetShiftMismatch,
+    ClearedCircuitMismatch,
     Stratum(StratumRegistryError),
     ResourceCountOverflow {
         resource: &'static str,
@@ -45,6 +46,9 @@ impl fmt::Display for ExactGuardRefinementError {
             Self::CircuitTargetShiftMismatch => formatter.write_str(
                 "exact circuit target shift differs from the target partition's physical column",
             ),
+            Self::ClearedCircuitMismatch => {
+                formatter.write_str("semantic guard certificate belongs to another exact circuit")
+            }
             Self::Stratum(error) => write!(formatter, "guard stratum construction failed: {error}"),
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} overflowed usize")

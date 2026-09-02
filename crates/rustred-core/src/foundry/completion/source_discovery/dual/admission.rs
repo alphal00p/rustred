@@ -490,22 +490,34 @@ fn validate_materialized_rows(
     {
         return Err(SampledDeclaredModuleDualError::MaterializedSourceChronologyMismatch);
     }
-    for (request, instance) in epoch
-        .requests()
-        .requests()
-        .iter()
-        .zip(epoch.plan().source_instances())
-    {
+    // Selected frames deliberately reorder their physical rows by translation
+    // radius and sector-oriented offset. Reconstruct the canonical request
+    // chronology from that sealed physical permutation instead of zipping it
+    // positionally with the independently offset-major accumulator.
+    let mut materialized = try_vec(DUAL_REQUESTS, epoch.plan().source_instances().len())
+        .map_err(SampledDeclaredModuleDualError::Retention)?;
+    for (row, instance) in epoch.plan().source_instances().iter().enumerate() {
         let provenance = instance.provenance();
-        let Some(source) = incidence.sources().get(request.source_ordinal()) else {
+        let Some(source) = incidence.sources().get(provenance.source_ordinal()) else {
             return Err(SampledDeclaredModuleDualError::MaterializedSourceChronologyMismatch);
         };
-        if provenance.source_ordinal() != request.source_ordinal()
-            || provenance.offset() != request.offset()
-            || provenance.source_row() != source.row_id()
+        if provenance.source_row() != source.row_id()
+            || epoch
+                .plan()
+                .source_for_row(row)
+                .map(|source| source.provenance())
+                != Some(provenance)
         {
             return Err(SampledDeclaredModuleDualError::MaterializedSourceChronologyMismatch);
         }
+        materialized.push(TranslatedSourceRequest::new(
+            provenance.source_ordinal(),
+            provenance.offset().clone(),
+        ));
+    }
+    materialized.sort_unstable();
+    if materialized.as_slice() != epoch.requests().requests() {
+        return Err(SampledDeclaredModuleDualError::MaterializedSourceChronologyMismatch);
     }
     Ok(())
 }

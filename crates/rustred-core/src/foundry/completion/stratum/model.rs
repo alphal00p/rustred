@@ -266,6 +266,20 @@ impl DecoratedStratum {
         &self.domain
     }
 
+    /// Canonical singleton coordinates carried by this exact domain.
+    ///
+    /// This intentionally exposes no sampled point: non-singleton axes stay
+    /// symbolic throughout modular discovery and exact replay.
+    pub(crate) fn singleton_index_assignments(&self) -> impl Iterator<Item = (usize, i64)> + '_ {
+        self.domain
+            .bounds()
+            .iter()
+            .enumerate()
+            .filter_map(|(position, bounds)| {
+                (bounds.lower() == bounds.upper()).then_some((position, bounds.lower()))
+            })
+    }
+
     pub(crate) fn guards(&self) -> &[GuardBranchIdentity] {
         &self.guards
     }

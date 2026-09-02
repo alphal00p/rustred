@@ -1,31 +1,44 @@
-//! Proof-backed zero and product terminals for bounded K=6 discovery.
+//! Proof-backed structural terminals and intentional finite masters for
+//! bounded K=6 discovery.
 //!
-//! These terminals discharge only their exact concrete domains. In
-//! particular, none of the unresolved scalar graph corners is promoted to a
-//! master while the three-loop fixed point remains open.
+//! Zero and product terminals discharge their exact structural domains. The
+//! separately installed declared-master manifest discharges only three
+//! symmetry-canonical irreducible scalar corners, never their arbitrary-power
+//! sectors.
 
 use std::collections::BTreeSet;
+#[cfg(test)]
 use std::sync::Arc;
 
-use crate::algebra::IndexedCoefficientContext;
 use crate::family::IntegralKey;
-use crate::foundry::artifact::{ArtifactError, ClosedTerminalAuthority};
+use crate::foundry::artifact::ArtifactError;
+use crate::sector::Mask;
+use crate::sector::symmetry::Canonicalizer;
+
+#[cfg(test)]
+use crate::algebra::IndexedCoefficientContext;
+#[cfg(test)]
+use crate::foundry::artifact::ClosedTerminalAuthority;
+#[cfg(test)]
 use crate::foundry::search::{
     ReachabilityTerminal, ReachabilityTerminalKind, ReachabilityTerminalProvider,
 };
-use crate::sector::symmetry::Canonicalizer;
-use crate::sector::{Mask, SectorInteriorDomain};
+#[cfg(test)]
+use crate::sector::SectorInteriorDomain;
 
 use super::manifest::ZERO_ORBITS;
+#[cfg(test)]
 use super::terminal_authority::derive_k6_terminal_authority;
 
 /// Exact terminal owner shared by the K=6 cell foundry and bounded reachability
 /// census.
+#[cfg(test)]
 pub(crate) struct K6ReachabilityTerminals {
     authority: Arc<ClosedTerminalAuthority>,
     zero_sectors: Box<[Mask]>,
 }
 
+#[cfg(test)]
 impl K6ReachabilityTerminals {
     pub(crate) fn try_new() -> Result<Self, ArtifactError> {
         let authority = derive_k6_terminal_authority()?;
@@ -63,6 +76,7 @@ impl K6ReachabilityTerminals {
     }
 }
 
+#[cfg(test)]
 impl ReachabilityTerminalProvider for K6ReachabilityTerminals {
     fn classify(&self, target: &IntegralKey) -> Option<ReachabilityTerminal> {
         if target.powers().len() != self.authority.arity() {
@@ -84,6 +98,14 @@ impl ReachabilityTerminalProvider for K6ReachabilityTerminals {
             .position(|rule| domain_contains(rule.application_domain(), target))
             .map(|ordinal| {
                 ReachabilityTerminal::new(ReachabilityTerminalKind::Factorization, ordinal)
+            })
+            .or_else(|| {
+                self.authority
+                    .master_terminals()
+                    .position(|master| master == target)
+                    .map(|ordinal| {
+                        ReachabilityTerminal::new(ReachabilityTerminalKind::Master, ordinal)
+                    })
             })
     }
 }
@@ -114,6 +136,7 @@ pub(crate) fn exact_zero_sectors(
         .map(|sectors| sectors.into_iter().flatten().collect())
 }
 
+#[cfg(test)]
 fn same_sector(sector: &Mask, target: &IntegralKey) -> bool {
     sector
         .active_bits()
@@ -122,6 +145,7 @@ fn same_sector(sector: &Mask, target: &IntegralKey) -> bool {
         .all(|(&active, &power)| active == (power >= 1))
 }
 
+#[cfg(test)]
 fn domain_contains(domain: &SectorInteriorDomain, target: &IntegralKey) -> bool {
     domain
         .bounds()
@@ -133,7 +157,7 @@ fn domain_contains(domain: &SectorInteriorDomain, target: &IntegralKey) -> bool 
 #[cfg(test)]
 mod tests {
     use crate::family::IntegralKey;
-    use crate::foundry::search::ReachabilityTerminalProvider;
+    use crate::foundry::search::{ReachabilityTerminalKind, ReachabilityTerminalProvider};
 
     use super::K6ReachabilityTerminals;
 
@@ -144,5 +168,16 @@ mod tests {
             let short = IntegralKey::try_new(powers).unwrap();
             assert!(terminals.classify(&short).is_none());
         }
+    }
+
+    #[test]
+    fn declared_k6_master_corner_is_an_exact_reachability_terminal_only() {
+        let terminals = K6ReachabilityTerminals::try_new().unwrap();
+        let declared = IntegralKey::try_new([0, 1, 1, 1, 1, 0]).unwrap();
+        let classified = terminals.classify(&declared).unwrap();
+        assert_eq!(classified.kind(), ReachabilityTerminalKind::Master);
+
+        let dotted = IntegralKey::try_new([0, 2, 1, 1, 1, 0]).unwrap();
+        assert!(terminals.classify(&dotted).is_none());
     }
 }

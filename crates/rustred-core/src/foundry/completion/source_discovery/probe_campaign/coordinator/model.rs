@@ -1,7 +1,10 @@
 use crate::foundry::completion::source_discovery::cover_delta::{
     ExactOwnerCoverSnapshot, ExactOwnerLedgerCoverStatus, ExactOwnerLedgerSnapshotIdentity,
 };
+use crate::foundry::completion::source_discovery::scheduler::ProbeLocalRejectionSummary;
 use crate::foundry::completion::source_discovery::{CampaignLimits, CampaignModularProbe};
+use crate::sector::CoordinatePriority;
+use symbolica::prelude::Integer;
 
 use super::super::super::boundary_simplex::BoundarySimplexSamplingProfile;
 use super::{ProbeCoordinatorFailure, ProbeCoordinatorLimits};
@@ -19,6 +22,7 @@ pub(crate) struct ProbeCoordinatorConfig {
     probes: Box<[TaskRelativeModularProbe]>,
     interior_margin: u64,
     polynomial_degree_ceiling: usize,
+    discovery_coordinate_priority: Option<CoordinatePriority>,
     limits: ProbeCoordinatorLimits,
 }
 
@@ -60,8 +64,22 @@ impl ProbeCoordinatorConfig {
             probes: retained.into_boxed_slice(),
             interior_margin,
             polynomial_degree_ceiling,
+            discovery_coordinate_priority: None,
             limits,
         })
+    }
+
+    /// Add a proposal-only coordinate chronology.
+    ///
+    /// Natural priority is normalized to the allocation-free canonical path.
+    /// A nonnatural priority is validated against the bound family arity when
+    /// the coordinator is constructed.
+    pub(crate) fn with_discovery_coordinate_priority(
+        mut self,
+        priority: CoordinatePriority,
+    ) -> Self {
+        self.discovery_coordinate_priority = (!priority.is_natural()).then_some(priority);
+        self
     }
 
     pub(crate) fn probes(&self) -> &[TaskRelativeModularProbe] {
@@ -80,17 +98,22 @@ impl ProbeCoordinatorConfig {
         self.polynomial_degree_ceiling
     }
 
+    pub(crate) const fn discovery_coordinate_priority(&self) -> Option<&CoordinatePriority> {
+        self.discovery_coordinate_priority.as_ref()
+    }
+
     pub(crate) const fn limits(&self) -> ProbeCoordinatorLimits {
         self.limits
     }
 }
 
-/// One immutable modular sample relative to every canonical task target.
+/// One immutable modular sample relative to every canonical task.
 ///
-/// `chart_offsets` are nonnegative chart-space displacements.  A concrete
-/// `CampaignModularProbe` is materialized as `task.lattice_target + offset`,
-/// with checked `u64` arithmetic.  No topology name, loop count, sector, or
-/// family-specific dispatch enters this value.
+/// `chart_offsets` are nonnegative chart-space displacements from the task's
+/// canonical base-index sample. On a restricted boundary face, fixed axes use
+/// chart zero and require zero offset; only remaining symbolic axes use the
+/// first interior chart point plus the supplied offset. No topology name,
+/// loop count, sector, or family-specific dispatch enters this value.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct TaskRelativeModularProbe {
     template: CampaignModularProbe,
@@ -103,6 +126,14 @@ impl TaskRelativeModularProbe {
         chart_offsets: impl IntoIterator<Item = u64>,
         limits: CampaignLimits,
     ) -> Result<Self, ProbeCoordinatorFailure> {
+        if modulus.is_multiple_of(2) {
+            return Err(ProbeCoordinatorFailure::UnsupportedEvenModulus { modulus });
+        }
+        // Symbolica's deterministic u64 primality path is the canonical
+        // finite-field admission check used by the downstream scheduler.
+        if modulus == u64::MAX || !Integer::from(modulus).is_prime(0) {
+            return Err(ProbeCoordinatorFailure::NonPrimeModulus { modulus });
+        }
         Ok(Self {
             template: CampaignModularProbe::try_new(
                 modulus,
@@ -213,6 +244,7 @@ pub(crate) struct ProbeCoordinatorCensus {
     pub(super) invalidated_tickets: usize,
     pub(super) scheduler_budget_stops: usize,
     pub(super) scheduler_rejections: usize,
+    pub(super) first_scheduler_rejection: Option<ProbeLocalRejectionSummary>,
     pub(super) scheduler_stalls: usize,
     pub(super) scheduler_exact_lift_errors: usize,
     pub(super) canonical_replayed: usize,
@@ -259,6 +291,10 @@ impl ProbeCoordinatorCensus {
         scheduler_support_did_not_lift,
         scheduler_sampled_dual,
     );
+
+    pub(crate) const fn first_scheduler_rejection(self) -> Option<ProbeLocalRejectionSummary> {
+        self.first_scheduler_rejection
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -269,6 +305,47 @@ pub(crate) struct ProbeCoordinatorTaskLocation {
     pub(super) parent_free_dimension: usize,
     pub(super) boundary_codimension: usize,
     pub(super) task_ordinal: usize,
+}
+
+/// Deterministic ordinal next-service position across replanning epochs.
+///
+/// This retains only canonical scalar ordinals, never a task, plan, geometry
+/// identity, or ledger authority. Every epoch normalizes it against the newly
+/// rebuilt class and task counts before use. Consequently it is fair for a
+/// stable/reindex-preserving plan, but it cannot certify visitation of an
+/// external fixed target itinerary when partition mutations renumber tasks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ProbeCoordinatorFairCursor {
+    class_ordinal: usize,
+    task_ordinal: usize,
+}
+
+impl ProbeCoordinatorFairCursor {
+    pub(crate) fn class_start(self, class_count: usize) -> usize {
+        self.class_ordinal % class_count
+    }
+
+    pub(crate) fn task_start(self, task_count: usize) -> usize {
+        self.task_ordinal % task_count
+    }
+
+    pub(crate) fn advance_after(
+        &mut self,
+        class_ordinal: usize,
+        task_ordinal: usize,
+        task_count: usize,
+        class_count: usize,
+    ) {
+        debug_assert!(task_ordinal < task_count);
+        debug_assert!(class_ordinal < class_count);
+        if task_ordinal + 1 < task_count {
+            self.class_ordinal = class_ordinal;
+            self.task_ordinal = task_ordinal + 1;
+        } else {
+            self.class_ordinal = (class_ordinal + 1) % class_count;
+            self.task_ordinal = 0;
+        }
+    }
 }
 
 impl ProbeCoordinatorTaskLocation {
@@ -361,6 +438,7 @@ pub(crate) enum ProbeCoordinatorOperationalReason {
         scheduler_budget_stops: usize,
         scheduler_rejections: usize,
         scheduler_exact_lift_errors: usize,
+        terminal_scheduler_rejection: Option<ProbeLocalRejectionSummary>,
     },
 }
 
@@ -480,6 +558,7 @@ pub(crate) struct BoundaryProbeCoordinator<'inputs, 'sources, 'family> {
     pub(super) bound_ledger: ExactOwnerLedgerSnapshotIdentity,
     pub(super) planner_scope_key: Box<str>,
     pub(super) census: ProbeCoordinatorCensus,
+    pub(super) fair_cursor: ProbeCoordinatorFairCursor,
 }
 
 impl BoundaryProbeCoordinator<'_, '_, '_> {
@@ -498,6 +577,7 @@ impl BoundaryProbeCoordinator<'_, '_, '_> {
             invalidated_tickets: 0,
             scheduler_budget_stops: 0,
             scheduler_rejections: 0,
+            first_scheduler_rejection: None,
             scheduler_stalls: 0,
             scheduler_exact_lift_errors: 0,
             canonical_replayed: 0,

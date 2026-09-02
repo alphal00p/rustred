@@ -1,10 +1,63 @@
+use std::sync::Arc;
+
 use crate::family::IntegralKey;
 use crate::reduction::Reducer;
+use crate::sector::{CoordinatePriority, CoordinatePriorityLimits, OrderingPolicy};
 
 use super::error::{ArtifactError, ArtifactPersistenceError};
+use super::install::{ClosingArtifactCandidate, install};
 use super::model::{ClosedArtifact, ZeroTerminalProof};
 use super::persistence::ArtifactLoadLimits;
 use super::two_loop::derive_two_loop_unit_mass_sunset;
+
+fn nondefault_three_axis_ordering() -> OrderingPolicy {
+    let priority =
+        CoordinatePriority::try_new(3, &[2, 0, 1], CoordinatePriorityLimits::default()).unwrap();
+    OrderingPolicy::try_with_coordinate_priority(&priority).unwrap()
+}
+
+fn reinstall_with_ordering(
+    artifact: ClosedArtifact,
+    ordering_override: Option<OrderingPolicy>,
+) -> Result<ClosedArtifact, ArtifactError> {
+    let ClosedArtifact {
+        schema,
+        algorithm_id,
+        arity,
+        ordering,
+        supported_root_power_bounds,
+        family,
+        context,
+        source_relations,
+        rules,
+        rule_cells,
+        canonicalizer,
+        dependencies,
+        factorization_rules,
+        masters,
+        zero_sectors,
+        common_mass_homogeneity,
+        ..
+    } = artifact;
+    install(ClosingArtifactCandidate {
+        schema,
+        algorithm_id,
+        arity,
+        ordering: ordering_override.unwrap_or(ordering),
+        supported_root_power_bounds,
+        family,
+        context,
+        source_relations,
+        rules,
+        rule_cells,
+        canonicalizer,
+        dependencies,
+        factorization_rules,
+        masters,
+        zero_sectors,
+        common_mass_homogeneity,
+    })
+}
 
 #[test]
 fn generated_sunset_installs_the_exact_five_cell_closed_partition() {
@@ -45,6 +98,81 @@ fn generated_sunset_installs_the_exact_five_cell_closed_partition() {
             .powers(),
         [0, 1, 1]
     );
+}
+
+#[test]
+fn artifact_installation_preserves_shared_rule_cell_allocations() {
+    let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+    let ClosedArtifact {
+        schema,
+        algorithm_id,
+        arity,
+        ordering,
+        supported_root_power_bounds,
+        family,
+        context,
+        source_relations,
+        rules,
+        rule_cells,
+        canonicalizer,
+        dependencies,
+        factorization_rules,
+        masters,
+        zero_sectors,
+        common_mass_homogeneity,
+        ..
+    } = artifact;
+    let retained = rule_cells.clone();
+
+    let reinstalled = install(ClosingArtifactCandidate {
+        schema,
+        algorithm_id,
+        arity,
+        ordering,
+        supported_root_power_bounds,
+        family,
+        context,
+        source_relations,
+        rules,
+        rule_cells,
+        canonicalizer,
+        dependencies,
+        factorization_rules,
+        masters,
+        zero_sectors,
+        common_mass_homogeneity,
+    })
+    .unwrap();
+
+    assert_eq!(retained.len(), reinstalled.rule_cells().len());
+    assert!(
+        retained
+            .iter()
+            .zip(reinstalled.rule_cells())
+            .all(|(before, after)| Arc::ptr_eq(before, after)),
+        "the closing installer must retain immutable RuleCell allocations without rebuilding",
+    );
+}
+
+#[test]
+fn installer_checks_every_rule_cell_against_the_explicit_ordering_authority() {
+    let mut artifact = derive_two_loop_unit_mass_sunset().unwrap();
+    artifact.replace_cell_rule_ordering_for_test(0, nondefault_three_axis_ordering());
+    assert!(matches!(
+        reinstall_with_ordering(artifact, None),
+        Err(ArtifactError::InvalidOrderingAuthority { ordinal: 0, .. })
+    ));
+}
+
+#[test]
+fn installer_rejects_a_canonicalizer_with_a_different_ordering_authority() {
+    let custom = nondefault_three_axis_ordering();
+    let mut artifact = derive_two_loop_unit_mass_sunset().unwrap();
+    artifact.replace_all_cell_rule_orderings_for_test(custom);
+    assert!(matches!(
+        reinstall_with_ordering(artifact, Some(custom)),
+        Err(ArtifactError::InvalidCanonicalizer)
+    ));
 }
 
 #[test]

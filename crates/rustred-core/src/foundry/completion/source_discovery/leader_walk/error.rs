@@ -20,6 +20,22 @@ pub(crate) enum LeaderWalkPlanError {
         expected: usize,
         actual: usize,
     },
+    EmptyRequestedDomainSchedule,
+    WrongRequestedDomainArity {
+        canonical_scope_ordinal: usize,
+        request_ordinal: usize,
+        expected: usize,
+        actual: usize,
+    },
+    DuplicateRequestedDomain {
+        canonical_scope_ordinal: usize,
+        first_request_ordinal: usize,
+        duplicate_request_ordinal: usize,
+    },
+    InvalidRequestedDomainSymbolicAxes {
+        canonical_scope_ordinal: usize,
+        request_ordinal: usize,
+    },
     NoUnboundedGeometry,
     LeaderCoordinateOverflow {
         canonical_scope_ordinal: usize,
@@ -74,6 +90,32 @@ impl fmt::Display for LeaderWalkPlanError {
             } => write!(
                 formatter,
                 "leader-walk input scope {input_scope_ordinal} box {box_ordinal} has arity {actual}, expected {expected}"
+            ),
+            Self::EmptyRequestedDomainSchedule => formatter
+                .write_str("a requested-domain walk requires at least one requested domain"),
+            Self::WrongRequestedDomainArity {
+                canonical_scope_ordinal,
+                request_ordinal,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "requested-domain scope {canonical_scope_ordinal} request {request_ordinal} has arity {actual}, expected {expected}"
+            ),
+            Self::DuplicateRequestedDomain {
+                canonical_scope_ordinal,
+                first_request_ordinal,
+                duplicate_request_ordinal,
+            } => write!(
+                formatter,
+                "requested-domain scope {canonical_scope_ordinal} request {duplicate_request_ordinal} duplicates request {first_request_ordinal}"
+            ),
+            Self::InvalidRequestedDomainSymbolicAxes {
+                canonical_scope_ordinal,
+                request_ordinal,
+            } => write!(
+                formatter,
+                "requested-domain scope {canonical_scope_ordinal} request {request_ordinal} has noncanonical or out-of-range symbolic axes"
             ),
             Self::NoUnboundedGeometry => formatter.write_str(
                 "the frozen uncovered partitions contain no unbounded box; finite points require the exact finite-complement path",

@@ -6,7 +6,7 @@ use crate::family::{IntegralFamily, IntegralKey};
 use crate::foundry::cell::RuleCell;
 use crate::foundry::parametric::ParametricRule;
 use crate::identity::ParametricRelation;
-use crate::sector::{InteriorBounds, Mask, symmetry::Canonicalizer};
+use crate::sector::{InteriorBounds, Mask, OrderingPolicy, symmetry::Canonicalizer};
 
 use super::error::ArtifactPersistenceError;
 use super::factorization::FactorizationRule;
@@ -14,21 +14,21 @@ use super::factorization::FactorizationRule;
 /// Stable schema identity of an installed closing artifact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ArtifactSchemaVersion {
-    V3,
+    V4,
 }
 
 impl ArtifactSchemaVersion {
-    pub const CURRENT: Self = Self::V3;
+    pub const CURRENT: Self = Self::V4;
 
     pub const fn as_u32(self) -> u32 {
         match self {
-            Self::V3 => 3,
+            Self::V4 => 4,
         }
     }
 
     pub const fn stable_id(self) -> &'static str {
         match self {
-            Self::V3 => "rustred.closing-artifact.v3",
+            Self::V4 => "rustred.closing-artifact.v4",
         }
     }
 }
@@ -142,21 +142,23 @@ impl ArtifactValidationWitness {
 /// The runtime owner is independent of loop count and topology. Its ordered
 /// rules, exact master keys, and proof-backed zero sectors are installed only
 /// after one closure-specific verifier has discharged the whole lattice
-/// partition. Registered verifiers currently accept the generated unit-mass
-/// `K = 1` tadpole and `K = 3` sunset families; unsupported candidate shapes
-/// never become this sealed type.
+/// partition. Registered verifiers accept the generated unit-mass `K = 1`
+/// tadpole and `K = 3` sunset families, plus a `K = 6` campaign only after all
+/// six proof-bearing full-rank sector waves publish; unsupported candidate
+/// shapes never become this sealed type.
 #[derive(Debug)]
 pub struct ClosedArtifact {
     pub(super) schema: ArtifactSchemaVersion,
     pub(super) algorithm_id: &'static str,
     pub(super) arity: usize,
+    pub(super) ordering: OrderingPolicy,
     pub(super) supported_root_power_bounds: Box<[InteriorBounds]>,
     pub(super) family: IntegralFamily,
     pub(super) family_fingerprint: Arc<String>,
     pub(super) context: IndexedCoefficientContext,
     pub(super) source_relations: Vec<ParametricRelation>,
     pub(super) rules: Vec<ParametricRule>,
-    pub(super) rule_cells: Vec<RuleCell>,
+    pub(super) rule_cells: Vec<Arc<RuleCell>>,
     pub(super) canonicalizer: Option<Canonicalizer>,
     pub(super) dependencies: Vec<Box<ClosedArtifact>>,
     pub(super) factorization_rules: Vec<FactorizationRule>,
@@ -177,6 +179,12 @@ impl ClosedArtifact {
 
     pub fn arity(&self) -> usize {
         self.arity
+    }
+
+    /// Single persisted ordering authority shared by every rule, rule cell,
+    /// and canonicalizer in this artifact.
+    pub fn ordering(&self) -> OrderingPolicy {
+        self.ordering
     }
 
     /// Certified rectangular machine-index domain accepted at the public
@@ -214,10 +222,12 @@ impl ClosedArtifact {
         &self.rules
     }
 
-    /// Proof-bearing exceptional/application cells in deterministic
+    /// Shared proof-bearing exceptional/application cells in deterministic
     /// first-applicable order. Each cell retains its translated source span,
-    /// exact guard domain, and any coefficient-dead boundary pruning.
-    pub fn rule_cells(&self) -> &[RuleCell] {
+    /// exact guard domain, and any coefficient-dead boundary pruning. Cloning
+    /// one returned [`Arc`] shares that immutable proof payload without
+    /// rebuilding it.
+    pub fn rule_cells(&self) -> &[Arc<RuleCell>] {
         &self.rule_cells
     }
 
@@ -317,6 +327,33 @@ impl ClosedArtifact {
     }
 
     #[cfg(test)]
+    pub(crate) fn duplicate_first_rule_with_ordering_for_test(&mut self, ordering: OrderingPolicy) {
+        let mut rule = self.rules[0].clone();
+        rule.replace_ordering_for_artifact_test(ordering);
+        self.rules.push(rule);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_cell_rule_ordering_for_test(
+        &mut self,
+        ordinal: usize,
+        ordering: OrderingPolicy,
+    ) {
+        Arc::get_mut(&mut self.rule_cells[ordinal])
+            .expect("test-only RuleCell mutation requires unique artifact ownership")
+            .replace_rule_ordering_for_artifact_test(ordering);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_all_cell_rule_orderings_for_test(&mut self, ordering: OrderingPolicy) {
+        for cell in &mut self.rule_cells {
+            Arc::get_mut(cell)
+                .expect("test-only RuleCell mutation requires unique artifact ownership")
+                .replace_rule_ordering_for_artifact_test(ordering);
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn replace_first_raw_rule_guard_for_test(
         &mut self,
         polynomial: crate::algebra::IndexedPolynomial,
@@ -329,8 +366,10 @@ impl ClosedArtifact {
         &mut self,
         polynomial: crate::algebra::IndexedPolynomial,
     ) {
-        self.rule_cells[0].replace_first_guard_polynomial_for_test(polynomial.clone());
-        let mut raw = self.rule_cells[0].rule().clone();
+        let cell = Arc::get_mut(&mut self.rule_cells[0])
+            .expect("test-only RuleCell mutation requires unique artifact ownership");
+        cell.replace_first_guard_polynomial_for_test(polynomial.clone());
+        let mut raw = cell.rule().clone();
         raw.replace_first_guard_polynomial_for_test(polynomial);
         self.rules.push(raw);
     }

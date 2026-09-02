@@ -1,13 +1,15 @@
-//! Test-only fraction-free proof values and resource policy.
+//! Fraction-free proof values and resource policy.
 
 use std::fmt;
 
-use crate::algebra::{ExactAlgebraLimits, IndexedAlgebraError, IndexedPolynomial};
+use crate::algebra::{
+    ExactAlgebraLimits, IndexedAlgebraError, IndexedAlgebraLimits, IndexedPolynomial,
+};
 use crate::foundry::completion::frame::SourceInstanceId;
 
-use super::super::ExactCircuitGuardOrigin;
+use super::super::{ExactCircuitGuardOrigin, ExactTargetCircuit, ExactTargetCircuitIdentity};
 
-/// Explicit bounds for the discovery-only fraction-free reconstruction.
+/// Explicit bounds for fraction-free reconstruction at promotion.
 ///
 /// Symbolica's native multivariate GCD has no scratch-memory callback. The
 /// pair-work cap is therefore a conservative ingress envelope. Every native
@@ -18,6 +20,7 @@ use super::super::ExactCircuitGuardOrigin;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ClearedCircuitLimits {
     pub(super) exact_algebra: ExactAlgebraLimits,
+    pub(super) fixed_index_specialization: IndexedAlgebraLimits,
     pub(super) max_source_contributions: usize,
     pub(super) max_source_terms: usize,
     pub(super) max_physical_columns: usize,
@@ -34,6 +37,7 @@ impl Default for ClearedCircuitLimits {
     fn default() -> Self {
         Self {
             exact_algebra: ExactAlgebraLimits::default(),
+            fixed_index_specialization: IndexedAlgebraLimits::default(),
             max_source_contributions: 65_536,
             max_source_terms: 16_000_000,
             max_physical_columns: 4_000_000,
@@ -55,7 +59,7 @@ impl ClearedCircuitLimits {
     }
 }
 
-/// Typed failure at the test-only fraction-free reconstruction boundary.
+/// Typed failure at the fraction-free reconstruction boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ClearedCircuitError {
     WrongContext,
@@ -79,6 +83,7 @@ pub(crate) enum ClearedCircuitError {
     },
     NonExactPolynomialDivision,
     RationalCoefficientSurvivedClearing,
+    ZeroSourceOrFamilyGuard,
     ZeroFinalTargetCoefficient,
     ReplayMismatch {
         physical_column: usize,
@@ -122,6 +127,9 @@ impl fmt::Display for ClearedCircuitError {
             }
             Self::RationalCoefficientSurvivedClearing => formatter
                 .write_str("fraction-free source replay retained a rational physical coefficient"),
+            Self::ZeroSourceOrFamilyGuard => formatter.write_str(
+                "a source or family condition is identically zero on the circuit's fixed stratum",
+            ),
             Self::ZeroFinalTargetCoefficient => {
                 formatter.write_str("the cleared final target coefficient is zero")
             }
@@ -252,8 +260,9 @@ impl ClearedPhysicalTerm {
 }
 
 /// A replayed polynomial consequence, with no ownership authority.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(crate) struct ClearedExactCircuit {
+    pub(super) circuit_identity: ExactTargetCircuitIdentity,
     pub(super) target_column: usize,
     pub(super) target_coefficient: IndexedPolynomial,
     pub(super) source_cofactors: Box<[ClearedSourceCofactor]>,
@@ -265,7 +274,31 @@ pub(crate) struct ClearedExactCircuit {
     pub(super) retained_polynomial_terms: usize,
 }
 
+// The identity token is authority, not mathematical content.  As for
+// `ExactTargetCircuit`, deterministic reconstruction compares the complete
+// structural certificate while binding is checked separately through
+// `is_bound_to`.
+impl PartialEq for ClearedExactCircuit {
+    fn eq(&self, other: &Self) -> bool {
+        self.target_column == other.target_column
+            && self.target_coefficient == other.target_coefficient
+            && self.source_cofactors == other.source_cofactors
+            && self.physical_terms == other.physical_terms
+            && self.semantic_guards == other.semantic_guards
+            && self.guard_telemetry == other.guard_telemetry
+            && self.exact_operations == other.exact_operations
+            && self.gcd_term_pairs == other.gcd_term_pairs
+            && self.retained_polynomial_terms == other.retained_polynomial_terms
+    }
+}
+
+impl Eq for ClearedExactCircuit {}
+
 impl ClearedExactCircuit {
+    pub(crate) fn is_bound_to(&self, circuit: &ExactTargetCircuit) -> bool {
+        self.circuit_identity.belongs_to(circuit)
+    }
+
     pub(crate) const fn target_column(&self) -> usize {
         self.target_column
     }

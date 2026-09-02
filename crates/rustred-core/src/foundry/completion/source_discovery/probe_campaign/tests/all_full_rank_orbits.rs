@@ -33,12 +33,13 @@ fn every_typed_k6_full_rank_orbit_has_an_obstruction_free_first_exact_shrink() {
 
     for orbit in FULL_RANK_ORBITS {
         let sector = Mask::try_from_indices(&orbit.representative).unwrap();
-        let mut ledger = CanonicalExactOwnerLedger::try_new(
+        let mut ledger = CanonicalExactOwnerLedger::try_new_with_closure_carrier(
             fixture.generator().context(),
             fixture.predecessor().clone(),
             sector.clone(),
             OrderingPolicy::default(),
             std::iter::empty::<IntegralKey>(),
+            fixture.source_safe_closure_carrier(&sector),
             ExactOwnerCoverDeltaLimits::default(),
         )
         .unwrap();

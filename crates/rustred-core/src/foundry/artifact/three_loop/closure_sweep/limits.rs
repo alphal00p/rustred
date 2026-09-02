@@ -18,7 +18,7 @@ const MAX_FRAME_ROWS: usize = 252;
 const MAX_FRAME_ENTRIES: usize = 4_096;
 const MAX_OWNER_INPUTS: usize = 1_024;
 const MAX_UNCOVERED_BOXES: usize = 262_144;
-const K6_ROOT_OWNER_REGIONS: usize = 32;
+const K6_ROOT_OWNER_REGIONS: usize = 35;
 const K6_GROUP_ORDER: usize = 24;
 const K6_ROOT_ROUTE_UPPER: usize = K6_ROOT_OWNER_REGIONS * (K6_GROUP_ORDER + 1);
 
@@ -157,8 +157,8 @@ pub(super) fn owner_cover_limits() -> ExactCircuitOwnerCoverLimits {
             max_requested_generators: MAX_OWNER_INPUTS,
             max_requested_generator_coordinate_cells: MAX_OWNER_INPUTS * 6,
             max_minimal_generators: MAX_OWNER_INPUTS,
-            max_requested_boxes: 0,
-            max_requested_box_coordinate_cells: 0,
+            max_requested_boxes: MAX_OWNER_INPUTS,
+            max_requested_box_coordinate_cells: MAX_OWNER_INPUTS * 6 * 2,
             max_uncovered_boxes: MAX_UNCOVERED_BOXES,
             max_uncovered_box_coordinate_cells: MAX_UNCOVERED_BOXES * 6,
             max_split_operations: 4_194_304,

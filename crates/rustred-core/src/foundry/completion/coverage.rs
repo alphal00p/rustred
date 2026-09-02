@@ -277,6 +277,11 @@ fn subtract_orthant(
     arity: usize,
     limits: CompletionGeometryLimits,
 ) -> Result<(), CompletionGeometryError> {
+    // Charge every attempted subtraction, including the disjoint and fully
+    // contained fast paths.  Otherwise a cover with many boxes can perform
+    // O(cover x uncovered) intersection probes without consuming the work
+    // budget at all.
+    charge_split_work("leading-orthant split operations", split_operations, limits)?;
     if !cell.intersects_orthant(origin) {
         push_box(output, cell, arity, limits)?;
         return Ok(());
@@ -287,12 +292,7 @@ fn subtract_orthant(
 
     let mut intersection = cell;
     for (position, &threshold) in origin.coordinates().iter().enumerate() {
-        *split_operations = checked_add("leading-orthant split operations", *split_operations, 1)?;
-        check_limit(
-            "leading-orthant split operations",
-            *split_operations,
-            limits.max_split_operations,
-        )?;
+        charge_split_work("leading-orthant split operations", split_operations, limits)?;
         if intersection.lower()[position] < threshold {
             let upper = threshold
                 .checked_sub(1)
@@ -317,6 +317,10 @@ fn subtract_box(
     arity: usize,
     limits: CompletionGeometryLimits,
 ) -> Result<(), CompletionGeometryError> {
+    // The pairwise intersection probe is real work even when it discovers a
+    // disjoint or fully covered box.  Charge it before either fast return so
+    // the configured limit bounds the complete cover x partition traversal.
+    charge_split_work("structural-box split operations", split_operations, limits)?;
     if !cell.intersects_box(cover) {
         push_box(output, cell, arity, limits)?;
         return Ok(());
@@ -327,12 +331,7 @@ fn subtract_box(
 
     let mut intersection = cell;
     for position in 0..arity {
-        *split_operations = checked_add("structural-box split operations", *split_operations, 1)?;
-        check_limit(
-            "structural-box split operations",
-            *split_operations,
-            limits.max_split_operations,
-        )?;
+        charge_split_work("structural-box split operations", split_operations, limits)?;
 
         let lower = intersection.lower()[position].max(cover.lower()[position]);
         let upper = min_upper(intersection.upper()[position], cover.upper()[position]);
@@ -366,6 +365,15 @@ fn subtract_box(
         }
     }
     Ok(())
+}
+
+fn charge_split_work(
+    resource: &'static str,
+    split_operations: &mut usize,
+    limits: CompletionGeometryLimits,
+) -> Result<(), CompletionGeometryError> {
+    *split_operations = checked_add(resource, *split_operations, 1)?;
+    check_limit(resource, *split_operations, limits.max_split_operations)
 }
 
 fn min_upper(left: Option<u64>, right: Option<u64>) -> Option<u64> {

@@ -2,7 +2,9 @@ use crate::foundry::completion::frame::PhysicalFramePlan;
 use crate::foundry::parametric::{ParametricGuardOrigin, ParametricNonZeroGuard};
 use crate::identity::{IdentityConditionSource, IndexShift, ParametricRelation};
 
-use super::super::{ExactCircuitGuardOrigin, ExactTargetCircuit};
+use super::super::{
+    ClearedExactCircuit, ClearedSemanticGuardOrigin, ExactCircuitGuardOrigin, ExactTargetCircuit,
+};
 use super::resource::{
     GUARD_COORDINATES, GUARD_ORIGINS, GUARD_SOURCES, check_limit, checked_add, try_vec,
 };
@@ -31,6 +33,47 @@ pub(super) fn compile_guards(
                 origin_ordinal,
                 origin,
             )?);
+        }
+        guards.push(ParametricNonZeroGuard::from_replayed_exact_parts(
+            seal,
+            guard.polynomial().clone(),
+            origins,
+        ));
+    }
+    Ok(guards)
+}
+
+pub(super) fn compile_cleared_guards(
+    seal: &ExactCircuitLoweringSeal,
+    plan: &PhysicalFramePlan,
+    circuit: &ExactTargetCircuit,
+    cleared: &ClearedExactCircuit,
+    selected_rows: &[usize],
+    relations: &[ParametricRelation],
+    source_shift_columns: &[IndexShift],
+) -> Result<Vec<ParametricNonZeroGuard>, ExactCircuitLoweringError> {
+    if !cleared.is_bound_to(circuit) {
+        return Err(ExactCircuitLoweringError::ClearedCircuitMismatch);
+    }
+    let mut guards = try_vec("nonzero guards", cleared.semantic_guards().len())?;
+    for (guard_ordinal, guard) in cleared.semantic_guards().iter().enumerate() {
+        let mut origins = try_vec(GUARD_ORIGINS, guard.origins().len())?;
+        for (origin_ordinal, origin) in guard.origins().iter().enumerate() {
+            origins.push(match origin {
+                ClearedSemanticGuardOrigin::SourceOrFamily(exact) => map_guard_origin(
+                    plan,
+                    circuit,
+                    selected_rows,
+                    relations,
+                    source_shift_columns,
+                    guard_ordinal,
+                    origin_ordinal,
+                    exact,
+                )?,
+                ClearedSemanticGuardOrigin::FinalTargetCoefficient => {
+                    ParametricGuardOrigin::FinalTargetCoefficient
+                }
+            });
         }
         guards.push(ParametricNonZeroGuard::from_replayed_exact_parts(
             seal,
@@ -294,6 +337,62 @@ pub(super) fn preflight_guards(
         limits.parametric.max_guard_provenance_index_cells,
     )?;
     Ok(())
+}
+
+pub(super) fn preflight_cleared_guards(
+    cleared: &ClearedExactCircuit,
+    limits: ExactCircuitLoweringLimits,
+) -> Result<(), ExactCircuitLoweringError> {
+    check_limit(
+        "nonzero guards",
+        cleared.semantic_guards().len(),
+        limits.parametric.max_rule_guards,
+    )?;
+    let mut origins = 0usize;
+    let mut sources = 0usize;
+    let mut coordinate_cells = 0usize;
+    for guard in cleared.semantic_guards() {
+        origins = checked_add(GUARD_ORIGINS, origins, guard.origins().len())?;
+        for origin in guard.origins() {
+            if let ClearedSemanticGuardOrigin::SourceOrFamily(
+                ExactCircuitGuardOrigin::SourceCondition {
+                    condition_sources, ..
+                },
+            ) = origin
+            {
+                sources = checked_add(GUARD_SOURCES, sources, condition_sources.len())?;
+                for source in condition_sources.iter() {
+                    coordinate_cells = checked_add(
+                        GUARD_COORDINATES,
+                        coordinate_cells,
+                        source_coordinate_cells(source),
+                    )?;
+                }
+            }
+        }
+    }
+    check_limit(GUARD_ORIGINS, origins, limits.max_guard_origins)?;
+    check_limit(
+        "parametric rule guard origins",
+        origins,
+        limits.parametric.max_guard_origins,
+    )?;
+    check_limit(GUARD_SOURCES, sources, limits.max_guard_condition_sources)?;
+    check_limit(
+        "parametric guard provenance sources",
+        sources,
+        limits.parametric.max_guard_provenance_sources,
+    )?;
+    check_limit(
+        GUARD_COORDINATES,
+        coordinate_cells,
+        limits.max_guard_provenance_coordinate_cells,
+    )?;
+    check_limit(
+        "parametric guard provenance index cells",
+        coordinate_cells,
+        limits.parametric.max_guard_provenance_index_cells,
+    )
 }
 
 fn source_coordinate_cells(source: &IdentityConditionSource) -> usize {

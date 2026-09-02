@@ -1,12 +1,14 @@
 use crate::algebra::IndexedCoefficientContext;
-use crate::foundry::cell::SourceViewBatch;
+use crate::foundry::cell::{FixedIndexRestriction, SourceViewBatch};
 use crate::foundry::parametric::{
     ParametricRule, ParametricRuleTerm, SectorMonotoneDependency, SectorMonotoneTargetAdmission,
     verify_concrete_specialization_replay,
 };
 
-use super::super::ExactTargetCircuit;
-use super::guards::{compile_guards, preflight_guards};
+use super::super::{ClearedExactCircuit, ExactTargetCircuit};
+use super::guards::{
+    compile_cleared_guards, compile_guards, preflight_cleared_guards, preflight_guards,
+};
 use super::join::{build_proof_domain, validate_plan_and_circuit};
 use super::preflight::{preflight_circuit_payload, preflight_source_view_and_rule};
 use super::replay::independently_replay_full_span;
@@ -35,9 +37,39 @@ pub(crate) fn try_lower_exact_circuit(
     anchor: &[i64],
     limits: ExactCircuitLoweringLimits,
 ) -> Result<LoweredExactCircuit, ExactCircuitLoweringError> {
+    try_lower_exact_circuit_with_guards(context, plan, circuit, None, anchor, limits)
+}
+
+/// Lower through a fraction-free certificate, so executable applicability
+/// retains only source/family predicates and the final target coefficient.
+pub(crate) fn try_lower_cleared_exact_circuit(
+    context: &IndexedCoefficientContext,
+    plan: &PhysicalFramePlan,
+    circuit: &ExactTargetCircuit,
+    cleared: &ClearedExactCircuit,
+    anchor: &[i64],
+    limits: ExactCircuitLoweringLimits,
+) -> Result<LoweredExactCircuit, ExactCircuitLoweringError> {
+    if !cleared.is_bound_to(circuit) {
+        return Err(ExactCircuitLoweringError::ClearedCircuitMismatch);
+    }
+    try_lower_exact_circuit_with_guards(context, plan, circuit, Some(cleared), anchor, limits)
+}
+
+fn try_lower_exact_circuit_with_guards(
+    context: &IndexedCoefficientContext,
+    plan: &PhysicalFramePlan,
+    circuit: &ExactTargetCircuit,
+    cleared: Option<&ClearedExactCircuit>,
+    anchor: &[i64],
+    limits: ExactCircuitLoweringLimits,
+) -> Result<LoweredExactCircuit, ExactCircuitLoweringError> {
     validate_plan_and_circuit(context, plan, circuit)?;
     preflight_circuit_payload(context, circuit, limits)?;
-    preflight_guards(circuit, limits)?;
+    match cleared {
+        Some(cleared) => preflight_cleared_guards(cleared, limits)?,
+        None => preflight_guards(circuit, limits)?,
+    }
     let seal = ExactCircuitLoweringSeal::new();
 
     let selected_rows = collect_selected_rows(plan, circuit, limits)?;
@@ -52,13 +84,30 @@ pub(crate) fn try_lower_exact_circuit(
         &source_shift_columns,
         limits,
     )?;
-    let sources = SourceViewBatch::try_from_exact_lowered_parts(
-        &seal,
-        plan.family_fingerprint_owner(),
-        plan.context_fingerprint_owner(),
-        relations,
-        provenance,
-    )?;
+    let sources = if circuit.fixed_indices().is_empty() {
+        SourceViewBatch::try_from_exact_lowered_parts(
+            &seal,
+            plan.family_fingerprint_owner(),
+            plan.context_fingerprint_owner(),
+            relations,
+            provenance,
+        )?
+    } else {
+        let fixed = circuit
+            .fixed_indices()
+            .iter()
+            .map(|&(position, value)| FixedIndexRestriction::new(position, value))
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        SourceViewBatch::try_from_exact_fixed_specialization_parts(
+            &seal,
+            plan.family_fingerprint_owner(),
+            plan.context_fingerprint_owner(),
+            relations,
+            provenance,
+            fixed,
+        )?
+    };
 
     let pivot = canonical_source_shift(
         plan,
@@ -84,13 +133,11 @@ pub(crate) fn try_lower_exact_circuit(
             term.coefficient(),
             limits.parametric.indexed_algebra.exact_algebra,
         )?;
-        let descent =
-            ordering.prove_shift_strict_descent(&proof_domain, pivot.values(), shift.values())?;
         right_hand_side.push(ParametricRuleTerm::from_exact_lowering(
             &seal,
             shift.clone(),
             coefficient,
-            descent,
+            term.descent().clone(),
         ));
         dependencies.push(SectorMonotoneDependency::from_exact_lowering(
             &seal,
@@ -124,14 +171,25 @@ pub(crate) fn try_lower_exact_circuit(
         sources.relations(),
         &source_shift_columns,
     )?;
-    let nonzero_guards = compile_guards(
-        &seal,
-        plan,
-        circuit,
-        &selected_rows,
-        sources.relations(),
-        &source_shift_columns,
-    )?;
+    let nonzero_guards = match cleared {
+        Some(cleared) => compile_cleared_guards(
+            &seal,
+            plan,
+            circuit,
+            cleared,
+            &selected_rows,
+            sources.relations(),
+            &source_shift_columns,
+        )?,
+        None => compile_guards(
+            &seal,
+            plan,
+            circuit,
+            &selected_rows,
+            sources.relations(),
+            &source_shift_columns,
+        )?,
+    };
     let replay = independently_replay_full_span(
         &seal,
         context,

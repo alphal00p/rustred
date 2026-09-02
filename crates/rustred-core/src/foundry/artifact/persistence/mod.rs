@@ -1,6 +1,7 @@
 //! Deterministic durable ownership for sealed closing artifacts.
 //!
-//! Schema v3 persists exact family constructor inputs, tagged derivation
+//! Schema v4 persists exact family constructor inputs, one explicit ordering
+//! authority, tagged derivation
 //! plans with complete semantic witnesses, rule plans, and terminals. Loading
 //! first bounds every byte-level shape, independently regenerates the tagged
 //! canonical ordinary source plan, compares the full retained semantics, then
@@ -86,6 +87,14 @@ fn encode_into_writer(
             actual: artifact.schema().as_u32(),
         });
     }
+    if !matches!(
+        artifact.algorithm_id(),
+        ONE_LOOP_ALGORITHM_ID | TWO_LOOP_ALGORITHM_ID
+    ) {
+        return Err(ArtifactPersistenceError::UnsupportedFeature {
+            detail: "schema-v4 has no registered durable rule-cell grammar for this closing algorithm",
+        });
+    }
     output.raw(MAGIC)?;
     output.u32(artifact.schema().as_u32())?;
     output.u32(SECTION_COUNT)?;
@@ -95,6 +104,10 @@ fn encode_into_writer(
     metadata.usize(artifact.arity(), "artifact arity")?;
     metadata.string(artifact.family_fingerprint(), "family fingerprint")?;
     metadata.string(artifact.context_fingerprint(), "context fingerprint")?;
+    metadata.string(
+        artifact.ordering().stable_id().as_str(),
+        "artifact ordering identifier",
+    )?;
     write_section(output, METADATA_SECTION, metadata)?;
 
     let mut family = output.child();
@@ -120,11 +133,11 @@ fn encode_into_writer(
     } else {
         rules.usize(artifact.rules().len(), "artifact rules")?;
         for rule in artifact.rules() {
-            // Schema-v3 derivation plan: deterministic first-descending
+            // Schema-v4 derivation plan: deterministic first-descending
             // interior rule from the independently regenerated source set.
             let mut plan = rules.child();
             encode_integral_key(&mut plan, rule.anchor())?;
-            plan.string(rule.ordering().stable_id(), "rule ordering identifier")?;
+            plan.string(&rule.ordering().stable_id(), "rule ordering identifier")?;
             let snapshot = encode_rule_snapshot(rule, &rules)?;
             rules.charge_witness_payload(snapshot.len())?;
             plan.bytes(&snapshot, "rule snapshot bytes")?;
@@ -212,10 +225,14 @@ pub(super) fn decode(
     }
     let expected_family_fingerprint = decode_owned_string(&mut metadata, "family fingerprint")?;
     let expected_context_fingerprint = decode_owned_string(&mut metadata, "context fingerprint")?;
+    let ordering =
+        OrderingPolicy::try_from_stable_id(metadata.string("artifact ordering identifier")?)
+            .map_err(ArtifactError::from)?;
+    ordering.require_arity(arity).map_err(ArtifactError::from)?;
     metadata.finish()?;
 
     if algorithm_id == TWO_LOOP_ALGORITHM_ID {
-        // K=3 schema-v3 owns complete cell/projection/factorization snapshots,
+        // K=3 schema-v4 owns complete cell/projection/factorization snapshots,
         // including its installer-compiled typed master-product embeddings.
         // At this untrusted boundary only, regenerate the registered exact
         // foundry plan and compare its complete deterministic encoding. The
@@ -229,6 +246,7 @@ pub(super) fn decode(
         .map_err(ArtifactPersistenceError::from)?;
         if artifact.family_fingerprint() != expected_family_fingerprint
             || artifact.context_fingerprint() != expected_context_fingerprint
+            || artifact.ordering() != ordering
         {
             return Err(ArtifactPersistenceError::SemanticMismatch {
                 field: "two-loop metadata witness",
@@ -320,6 +338,7 @@ pub(super) fn decode(
         schema: ArtifactSchemaVersion::CURRENT,
         algorithm_id,
         arity,
+        ordering,
         supported_root_power_bounds: vec![crate::sector::InteriorBounds::new(i64::MIN, i64::MAX)]
             .into_boxed_slice(),
         family,
@@ -708,5 +727,17 @@ mod aggregate_budget_tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn unregistered_k6_rule_cell_grammar_fails_before_emitting_v4_bytes() {
+        let mut artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+        artifact.algorithm_id = super::super::three_loop::ALGORITHM_ID;
+        assert_eq!(
+            encode(&artifact).unwrap_err(),
+            ArtifactPersistenceError::UnsupportedFeature {
+                detail: "schema-v4 has no registered durable rule-cell grammar for this closing algorithm",
+            }
+        );
     }
 }

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext};
 use crate::family::IntegralFamily;
 
@@ -56,6 +58,7 @@ pub struct IbpSourceRow {
 /// A single validated ordered IBP source barrier accepted by LI preparation.
 #[derive(Debug)]
 pub struct CompletedIbpSourceRows {
+    pub(super) identity: Arc<()>,
     pub(super) scope: IbpSourceScope,
     pub(super) layout: IbpSourceLayout,
     pub(super) relations: Vec<ParametricRelation>,

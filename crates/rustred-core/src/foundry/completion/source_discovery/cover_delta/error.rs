@@ -2,8 +2,53 @@ use std::fmt;
 
 use crate::foundry::completion::CompletionGeometryError;
 
-use super::super::StagedSectorClosureError;
-use super::ExactOwnerLedgerRevision;
+use super::super::{ExactExecutableOwnerError, StagedSectorClosureError};
+use super::{ExactOwnerLedgerCoverStatus, ExactOwnerLedgerRevision};
+
+/// Failure to consume one exact owner ledger into publication authority.
+///
+/// Ordinary discovery may leave a ledger owner-free or with an incomplete
+/// compiler verdict. Neither state is an error while searching, but both must
+/// be rejected explicitly at the consuming publication boundary.
+#[derive(Debug)]
+pub(crate) enum ExactOwnerLedgerSealError {
+    NotClosed { status: ExactOwnerLedgerCoverStatus },
+    ScopeMismatch { detail: &'static str },
+    Executable(ExactExecutableOwnerError),
+}
+
+impl fmt::Display for ExactOwnerLedgerSealError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotClosed { status } => write!(
+                formatter,
+                "an exact owner ledger with status {status:?} cannot be sealed for publication"
+            ),
+            Self::ScopeMismatch { detail } => {
+                write!(
+                    formatter,
+                    "exact owner-ledger closure scope mismatch: {detail}"
+                )
+            }
+            Self::Executable(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for ExactOwnerLedgerSealError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Executable(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<ExactExecutableOwnerError> for ExactOwnerLedgerSealError {
+    fn from(value: ExactExecutableOwnerError) -> Self {
+        Self::Executable(value)
+    }
+}
 
 /// Hard failure while staging or exactly comparing one canonical proposal.
 #[derive(Debug)]

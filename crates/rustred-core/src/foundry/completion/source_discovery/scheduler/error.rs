@@ -3,7 +3,7 @@ use std::fmt;
 use crate::foundry::completion::stratum::StratumRegistryError;
 use crate::identity::TranslatedSourceError;
 
-use super::super::SourceDiscoveryError;
+use super::super::{CampaignError, SourceDiscoveryError};
 
 /// Admission or shared immutable-source failures for an outer probe schedule.
 /// Probe-local sampling, exact-lift, and budget outcomes are retained in the
@@ -59,6 +59,7 @@ pub(crate) enum ProbeLocalSchedulerError {
     Shift(TranslatedSourceError),
     SourceTranslation(TranslatedSourceError),
     SourceModule(SourceDiscoveryError),
+    InitialRequestCampaign(CampaignError),
     Invariant {
         detail: &'static str,
     },
@@ -150,6 +151,10 @@ impl fmt::Display for ProbeLocalSchedulerError {
                     "probe-local source-module admission failed: {error}"
                 )
             }
+            Self::InitialRequestCampaign(error) => write!(
+                formatter,
+                "probe-local shared initial-request admission failed: {error}"
+            ),
             Self::Invariant { detail } => {
                 write!(
                     formatter,
@@ -166,6 +171,7 @@ impl std::error::Error for ProbeLocalSchedulerError {
             Self::Stratum(error) => Some(error),
             Self::Shift(error) | Self::SourceTranslation(error) => Some(error),
             Self::SourceModule(error) => Some(error),
+            Self::InitialRequestCampaign(error) => Some(error),
             _ => None,
         }
     }

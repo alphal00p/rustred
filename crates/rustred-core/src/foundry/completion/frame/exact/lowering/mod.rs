@@ -15,6 +15,8 @@ mod replay;
 mod resource;
 mod source;
 
+pub(crate) use compile::try_lower_cleared_exact_circuit;
+#[cfg(test)]
 pub(crate) use compile::try_lower_exact_circuit;
 pub(crate) use error::ExactCircuitLoweringError;
 pub(crate) use limits::ExactCircuitLoweringLimits;

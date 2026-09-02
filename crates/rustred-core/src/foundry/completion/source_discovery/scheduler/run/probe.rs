@@ -3,9 +3,11 @@
 mod outcome;
 mod proposal;
 
-use crate::foundry::completion::frame::exact::{ExactCircuitLift, try_lift_exact_circuit};
+use crate::foundry::completion::frame::exact::{
+    ExactCircuitLift, try_lift_exact_circuit, try_lift_exact_circuit_over_complete_frame,
+};
 use crate::foundry::completion::frame::modular::ModularTargetQuery;
-use crate::foundry::completion::stratum::{ImmutableOwnerSnapshot, MaximalStratumAnchor};
+use crate::foundry::completion::stratum::{CampaignStratumAnchor, ImmutableOwnerSnapshot};
 use crate::identity::{
     CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator, TranslatedSourceRequest,
 };
@@ -52,8 +54,9 @@ pub(super) fn run_single_probe(
     generator: &ParametricIbpGenerator<'_>,
     completed: &CompletedIbpSourceRows,
     incidence: &OrdinarySourceIncidenceIndex<'_>,
+    shared_initial_requests: Option<&AccumulatedSourceRequests>,
     target_shift: &IntegralShift,
-    stratum: &MaximalStratumAnchor,
+    stratum: &CampaignStratumAnchor,
     owners: &ImmutableOwnerSnapshot,
     ordering: OrderingPolicy,
     limits: ProbeLocalSchedulerLimits,
@@ -63,57 +66,65 @@ pub(super) fn run_single_probe(
         ProbeRowEvaluationCache::try_new(incidence, completed, limits.source_discovery)
             .map_err(ProbeLocalSchedulerError::SourceModule)?;
     let mut admitted_cache_telemetry = row_cache.telemetry();
-    // Recompute this structural bootstrap for every probe. Even though its raw
-    // identities are deterministic, no request accumulator crosses this
-    // boundary.
-    let bootstrap = match incidence.try_nominate_target_unit(target_shift, limits.source_discovery)
-    {
-        Ok(bootstrap) => bootstrap,
-        Err(error) => {
-            let outcome = source_stop_or_rejection(
-                probe_ordinal,
-                0,
-                ProbeLocalStage::BootstrapNomination,
-                ProbeLocalStopContext::BeforeBootstrap,
-                error,
-            );
-            return Ok(finish_probe(probe_ordinal, probe, Vec::new(), outcome));
+    let mut requests = match shared_initial_requests {
+        // This immutable Arc-backed seed was canonicalized and bounded once by
+        // the scheduler. Cloning it creates independent logical probe state
+        // without multiplying request storage.
+        Some(requests) => requests.clone(),
+        None => {
+            // Preserve the legacy no-proposal path: nominate, accumulate, and
+            // report every bootstrap failure locally to this probe.
+            let bootstrap =
+                match incidence.try_nominate_target_unit(target_shift, limits.source_discovery) {
+                    Ok(bootstrap) => bootstrap,
+                    Err(error) => {
+                        let outcome = source_stop_or_rejection(
+                            probe_ordinal,
+                            0,
+                            ProbeLocalStage::BootstrapNomination,
+                            ProbeLocalStopContext::BeforeBootstrap,
+                            error,
+                        );
+                        return Ok(finish_probe(probe_ordinal, probe, Vec::new(), outcome));
+                    }
+                };
+            let requests = match AccumulatedSourceRequests::try_new(
+                incidence.arity(),
+                bootstrap.requests().iter().cloned(),
+                limits.campaign,
+            ) {
+                Ok(requests) => requests,
+                Err(error) => {
+                    let outcome = campaign_stop_or_rejection(
+                        probe_ordinal,
+                        0,
+                        ProbeLocalStage::BootstrapAccumulation,
+                        ProbeLocalStopContext::BeforeBootstrap,
+                        error,
+                    );
+                    return Ok(finish_probe(probe_ordinal, probe, Vec::new(), outcome));
+                }
+            };
+            if let Err(cause) = verify_probe_requests(&requests, limits) {
+                let stop = ProbeLocalBudgetStop::new(
+                    probe_ordinal,
+                    0,
+                    ProbeLocalStage::BootstrapAccumulation,
+                    cause,
+                );
+                return Ok(finish_probe(
+                    probe_ordinal,
+                    probe,
+                    Vec::new(),
+                    ProbeLocalOutcome::BudgetStop {
+                        context: ProbeLocalStopContext::Requests(requests),
+                        stop,
+                    },
+                ));
+            }
+            requests
         }
     };
-    let mut requests = match AccumulatedSourceRequests::try_new(
-        incidence.arity(),
-        bootstrap.requests().iter().cloned(),
-        limits.campaign,
-    ) {
-        Ok(requests) => requests,
-        Err(error) => {
-            let outcome = campaign_stop_or_rejection(
-                probe_ordinal,
-                0,
-                ProbeLocalStage::BootstrapAccumulation,
-                ProbeLocalStopContext::BeforeBootstrap,
-                error,
-            );
-            return Ok(finish_probe(probe_ordinal, probe, Vec::new(), outcome));
-        }
-    };
-    if let Err(cause) = verify_probe_requests(&requests, limits) {
-        let stop = ProbeLocalBudgetStop::new(
-            probe_ordinal,
-            0,
-            ProbeLocalStage::BootstrapAccumulation,
-            cause,
-        );
-        return Ok(finish_probe(
-            probe_ordinal,
-            probe,
-            Vec::new(),
-            ProbeLocalOutcome::BudgetStop {
-                context: ProbeLocalStopContext::Requests(requests),
-                stop,
-            },
-        ));
-    }
     let mut epochs = GrowingTaskEpochState::new(
         target_shift.clone(),
         stratum.clone(),
@@ -353,6 +364,39 @@ pub(super) fn run_single_probe(
                     query.partition(),
                     limits.exact_circuit,
                 );
+                let exact = match exact {
+                    Ok(ExactCircuitLift::ModularSupportDidNotLift(inconclusive))
+                        if query.partition().frame().row_count()
+                            <= limits.max_complete_frame_exact_fallback_rows =>
+                    {
+                        if let Err(cause) = budget.try_admit_exact(limits) {
+                            drop(query);
+                            let stop = ProbeLocalBudgetStop::new(
+                                probe_ordinal,
+                                epoch_ordinal,
+                                ProbeLocalStage::ExactLift,
+                                cause,
+                            );
+                            return Ok(finish_probe(
+                                probe_ordinal,
+                                probe,
+                                records,
+                                ProbeLocalOutcome::BudgetStop {
+                                    context: ProbeLocalStopContext::Epoch(epoch),
+                                    stop,
+                                },
+                            ));
+                        }
+                        drop(inconclusive);
+                        try_lift_exact_circuit_over_complete_frame(
+                            generator.context(),
+                            hit,
+                            query.partition(),
+                            limits.exact_circuit,
+                        )
+                    }
+                    exact => exact,
+                };
                 drop(query);
                 let outcome = match exact {
                     Ok(ExactCircuitLift::Replayed(circuit)) => {
@@ -1042,6 +1086,32 @@ fn translated_source_term_work(
             .map_err(RequestSourceTermWorkError::Budget)?;
     }
     Ok(work)
+}
+
+pub(super) fn verify_shared_initial_requests(
+    requests: &AccumulatedSourceRequests,
+    limits: ProbeLocalSchedulerLimits,
+) -> Result<(), ProbeLocalSchedulerError> {
+    if requests.len() > limits.max_requests_per_probe {
+        return Err(ProbeLocalSchedulerError::ResourceLimit {
+            resource: REQUESTS_PER_PROBE,
+            requested: requests.len(),
+            limit: limits.max_requests_per_probe,
+        });
+    }
+    let cells = requests.arity().checked_mul(requests.len()).ok_or(
+        ProbeLocalSchedulerError::ResourceCountOverflow {
+            resource: REQUEST_COORDINATES_PER_PROBE,
+        },
+    )?;
+    if cells > limits.max_request_coordinate_cells_per_probe {
+        return Err(ProbeLocalSchedulerError::ResourceLimit {
+            resource: REQUEST_COORDINATES_PER_PROBE,
+            requested: cells,
+            limit: limits.max_request_coordinate_cells_per_probe,
+        });
+    }
+    Ok(())
 }
 
 fn verify_probe_requests(

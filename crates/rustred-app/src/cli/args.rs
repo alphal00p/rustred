@@ -77,6 +77,33 @@ pub(crate) struct CampaignReduceArgs {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FoundryCampaignRunArgs {
+    pub(crate) config: StreamPath,
+    pub(crate) output: StreamPath,
+    pub(crate) measurements_output: Option<StreamPath>,
+    pub(crate) no_progress: bool,
+    pub(crate) color: ColorPolicy,
+    pub(crate) force: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FoundryWaveCampaignRunArgs {
+    pub(crate) config: StreamPath,
+    pub(crate) output: StreamPath,
+    pub(crate) measurements_output: Option<StreamPath>,
+    pub(crate) n_cores: usize,
+    pub(crate) force: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ColorPolicy {
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Command {
     Derive(DeriveArgs),
     CampaignPlan(CampaignPlanArgs),
@@ -84,6 +111,8 @@ pub(crate) enum Command {
     CampaignGenerate(CampaignGenerateArgs),
     CampaignInspect(CampaignInspectArgs),
     CampaignReduce(CampaignReduceArgs),
+    FoundryCampaignRun(FoundryCampaignRunArgs),
+    FoundryWaveCampaignRun(FoundryWaveCampaignRunArgs),
     Help,
     Version,
 }
@@ -109,6 +138,7 @@ pub enum ArgError {
         expected: &'static str,
     },
     EmptyPath,
+    InvalidCombination(&'static str),
 }
 
 impl fmt::Display for ArgError {
@@ -122,7 +152,7 @@ impl fmt::Display for ArgError {
             }
             Self::MissingSubcommand(command) => write!(
                 formatter,
-                "missing {command} subcommand; expected `plan`, `preflight`, `generate`, `inspect`, or `reduce`"
+                "missing {command} subcommand; expected `plan`, `preflight`, `run`, `run-waves`, `generate`, `inspect`, or `reduce`"
             ),
             Self::UnknownCommand(command) => write!(formatter, "unknown command {command:?}"),
             Self::UnknownSubcommand {
@@ -130,7 +160,7 @@ impl fmt::Display for ArgError {
                 subcommand,
             } => write!(
                 formatter,
-                "unknown {command} subcommand {subcommand:?}; expected `plan`, `preflight`, `generate`, `inspect`, or `reduce`"
+                "unknown {command} subcommand {subcommand:?}; expected `plan`, `preflight`, `run`, `run-waves`, `generate`, `inspect`, or `reduce`"
             ),
             Self::UnknownOption(option) => write!(formatter, "unknown option {option:?}"),
             Self::DuplicateOption(option) => {
@@ -152,6 +182,7 @@ impl fmt::Display for ArgError {
                 "invalid value {value:?} for {option}; expected {expected}"
             ),
             Self::EmptyPath => formatter.write_str("an input or output path cannot be empty"),
+            Self::InvalidCombination(detail) => formatter.write_str(detail),
         }
     }
 }
@@ -250,6 +281,8 @@ USAGE:
     rustred derive [OPTIONS]
     rustred campaign plan [OPTIONS]
     rustred campaign preflight [OPTIONS]
+    rustred campaign run [OPTIONS]
+    rustred campaign run-waves [OPTIONS]
     rustred campaign generate [OPTIONS]
     rustred campaign inspect [OPTIONS]
     rustred campaign reduce [OPTIONS]
@@ -275,6 +308,23 @@ CAMPAIGN PREFLIGHT OPTIONS:
     --n-cores <COUNT>            Requested execution-width ceiling [default: 1]
     --max-memory <SIZE>          Operational memory limit (B/KiB/MiB/GiB/TiB)
     --force                      Atomically replace an existing output file
+
+FOUNDRY CAMPAIGN RUN OPTIONS:
+    --config <PATH|->            Read strict versioned campaign TOML from PATH or stdin
+    --output <PATH|->            Write deterministic diagnostic TOML to PATH or stdout
+    --measurements-output <PATH|->
+                                 Optionally write nonsemantic timing TOML separately
+    --no-progress                Disable the interactive stderr dashboard
+    --color <WHEN>               auto, always, or never [default: auto]
+    --force                      Atomically replace existing output files
+
+FOUNDRY WAVE CAMPAIGN RUN OPTIONS:
+    --config <PATH|->            Read strict versioned campaign TOML from PATH or stdin
+    --output <PATH|->            Write deterministic diagnostic TOML to PATH or stdout
+    --measurements-output <PATH|->
+                                 Optionally write nonsemantic timing TOML separately
+    --n-cores <COUNT>            Sibling workers within one atomic wave [default: 1]
+    --force                      Atomically replace existing output files
 
 CAMPAIGN GENERATE OPTIONS:
     --family <SELECTOR>          unit-mass-vacuum-k1 or unit-mass-vacuum-k3
@@ -308,6 +358,18 @@ rules. It deliberately has no --n-cores or --max-memory option.
 `campaign preflight` checks a topology-neutral physical resource profile and
 reports a ready width or typed memory-capacity pause. It never starts a frontier
 or constructs a worker pool.
+
+`campaign run` executes one bounded foundry diagnostic. Its deterministic
+report is not a closing artifact; optional timings are emitted only through the
+separate measurement sidecar. On a terminal, its stderr dashboard is refreshed
+in place; `cap ETA` estimates only time to the configured task ceiling, never
+time to mathematical closure. Redirected stderr is quiet by default. The V2
+configuration uses disjoint `autonomous` and `external-hints-only` modes;
+autonomous requests cannot carry caller-authored search hints.
+
+`campaign run-waves` executes the `full-rank-atomic-waves` itinerary. Its
+successful result can still be incomplete and never constitutes a closing
+artifact; same-rank siblings publish only as a complete atomic wave.
 
 `campaign generate` writes a deterministic durable artifact encoding.
 `campaign inspect` loads and authenticates durable artifact bytes once, then

@@ -19,6 +19,7 @@ pub enum RuleCellError {
         relations: usize,
         provenance: usize,
     },
+    EmptyFixedIndexSpecialization,
     ForeignFamily,
     ForeignContext,
     SourceReplayMismatch {
@@ -119,6 +120,8 @@ impl fmt::Display for RuleCellError {
                 formatter,
                 "exact source view has {relations} relations but {provenance} provenance records"
             ),
+            Self::EmptyFixedIndexSpecialization => formatter
+                .write_str("a fixed-index source specialization needs at least one coordinate"),
             Self::ForeignFamily => {
                 formatter.write_str("rule cell sources belong to another family")
             }

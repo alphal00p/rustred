@@ -28,6 +28,7 @@ pub(crate) fn compare_exact_circuit_content(
     left.stratum_id()
         .as_str()
         .cmp(right.stratum_id().as_str())
+        .then_with(|| left.fixed_indices().cmp(right.fixed_indices()))
         .then_with(|| {
             left.owner_snapshot_id()
                 .as_str()

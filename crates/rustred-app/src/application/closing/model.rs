@@ -21,6 +21,7 @@ pub(super) struct ArtifactSummaryOutputV1 {
     pub(super) schema_version: u32,
     pub(super) algorithm_id: &'static str,
     pub(super) arity: usize,
+    pub(super) ordering: String,
     pub(super) family_fingerprint: String,
     pub(super) coefficient_context_fingerprint: String,
     pub(super) common_mass_homogeneity: Option<&'static str>,

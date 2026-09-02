@@ -286,7 +286,7 @@ fn run_walk(report_cap: usize) -> WalkResult {
                     let sibling = plan.tasks().get(task_ordinal + 1).map(|next| {
                         (
                             adapter.try_bind_task(&plan, next, &ledger).unwrap(),
-                            next.lattice_target().to_vec(),
+                            next.base_probe_chart_origin().collect::<Vec<_>>(),
                         )
                     });
                     let binding = adapter.try_bind_task(&plan, task, &ledger).unwrap();
@@ -297,7 +297,7 @@ fn run_walk(report_cap: usize) -> WalkResult {
                         .try_run_task(
                             binding,
                             &mut ledger,
-                            [probe(task.lattice_target().iter().copied(), limits)],
+                            [probe(task.base_probe_chart_origin(), limits)],
                         )
                         .unwrap();
                     let census = report.census();
@@ -334,8 +334,22 @@ fn run_walk(report_cap: usize) -> WalkResult {
                         continue;
                     }
 
-                    assert_eq!(after.revision().get(), before.revision().get() + 1);
-                    assert_eq!(after.owner_count(), before.owner_count() + 1);
+                    assert_eq!(
+                        after.revision().get(),
+                        before
+                            .revision()
+                            .get()
+                            .checked_add(1)
+                            .expect("a successful campaign mutation cannot overflow its revision"),
+                    );
+                    assert!(
+                        after.owner_count() == before.owner_count()
+                            || after.owner_count()
+                                == before.owner_count().checked_add(1).expect(
+                                    "a successful campaign mutation cannot overflow its owner count"
+                                ),
+                        "a canonical-min replacement retains the owner count, while a new proof owner increments it"
+                    );
                     assert!(matches!(
                         outcome,
                         RecordedOutcome::ChangedWithoutGeometricShrink
@@ -402,7 +416,10 @@ fn run_walk(report_cap: usize) -> WalkResult {
 
 fn assert_canonical_schedule_prefix(result: &WalkResult) {
     for snapshot in &result.snapshots {
-        assert_eq!(snapshot.owner_count, snapshot.revision as usize);
+        assert!(
+            u64::try_from(snapshot.owner_count).unwrap() <= snapshot.revision,
+            "proof-equivalent canonical-min replacements may advance the revision without increasing the owner count"
+        );
         let maximal_dimension = *snapshot.present_parent_dimensions.first().unwrap();
         let mut expected_classes = Vec::new();
         for effective_dimension in (0..=maximal_dimension).rev() {
@@ -454,23 +471,35 @@ fn free_dimension_histogram(partition: &UncoveredPartition) -> [usize; 7] {
 }
 
 fn assert_exact_eighty_report_checkpoint(result: &WalkResult) {
+    let snapshot = result.ledger.snapshot();
+    let partition = result.ledger.try_clone_uncovered_partition().unwrap();
     assert_eq!(result.stop_reason, StopReason::ReportCap);
     assert_eq!(result.tasks.len(), MAX_REPORTS);
     assert_eq!(result.outcomes.total(), MAX_REPORTS);
-    assert_eq!(result.plans.len(), 20);
-    assert_eq!(result.snapshots.len(), 10);
-    assert_eq!(result.stale_siblings_rejected, 9);
+    assert_eq!(result.plans.len(), 81);
+    assert_eq!(result.snapshots.len(), 81);
+    assert_eq!(result.stale_siblings_rejected, 79);
     assert_eq!(
         result.outcomes,
         OutcomeHistogram {
-            no_replayed_nominations: 33,
+            no_replayed_nominations: 0,
             no_rebased_circuits: 0,
             incomplete_proposal: 0,
-            duplicate: 38,
-            changed_without_geometric_shrink: 6,
-            strict_geometric_shrink: 3,
+            duplicate: 0,
+            changed_without_geometric_shrink: 0,
+            strict_geometric_shrink: 80,
             closed: 0,
         }
+    );
+    // The production source-safe carrier removes only the machine-boundary
+    // representability fringe. Every admitted probe must therefore retain
+    // exact algebra and shrink geometry; an incomplete proposal here would be
+    // a real algebraic obstruction, not an expected boundary artifact.
+    assert!(
+        result
+            .tasks
+            .iter()
+            .all(|record| record.census.exact_obstructions() == 0)
     );
     assert_eq!(
         result.snapshots.first(),
@@ -484,10 +513,10 @@ fn assert_exact_eighty_report_checkpoint(result: &WalkResult) {
     assert_eq!(
         result.snapshots.last(),
         Some(&SnapshotRecord {
-            revision: 18,
-            owner_count: 18,
-            uncovered_box_count: 39,
-            present_parent_dimensions: vec![5, 4, 3],
+            revision: 89,
+            owner_count: 89,
+            uncovered_box_count: 340,
+            present_parent_dimensions: vec![4, 3],
         })
     );
     assert_eq!(
@@ -496,28 +525,20 @@ fn assert_exact_eighty_report_checkpoint(result: &WalkResult) {
             .iter()
             .filter(|record| record.parent_free_dimension == 4)
             .count(),
-        2
+        77
     );
     assert_eq!(
         result
             .tasks
             .iter()
-            .filter(|record| record.parent_free_dimension == 3)
+            .filter(|record| record.parent_free_dimension == 5)
             .count(),
-        0
+        3
     );
-    assert!(
-        result
-            .tasks
-            .iter()
-            .all(|record| record.census.exact_obstructions() == 0)
-    );
-
-    let snapshot = result.ledger.snapshot();
-    assert_eq!(snapshot.revision().get(), 18);
-    assert_eq!(snapshot.owner_count(), 18);
+    assert_eq!(snapshot.revision().get(), 89);
+    assert_eq!(snapshot.owner_count(), 89);
     assert_eq!(snapshot.terminal_count(), 1);
-    assert_eq!(snapshot.uncovered_box_count(), 39);
+    assert_eq!(snapshot.uncovered_box_count(), 340);
     assert!(!snapshot.uncovered_is_finite());
     assert_eq!(snapshot.missing_terminal_count(), 0);
     assert_eq!(snapshot.guard_incomplete_owner_count(), 0);
@@ -527,10 +548,9 @@ fn assert_exact_eighty_report_checkpoint(result: &WalkResult) {
             ExactOwnerCoverObstructionKind::NonFinite,
         ))
     );
-    let partition = result.ledger.try_clone_uncovered_partition().unwrap();
     assert_eq!(
         free_dimension_histogram(&partition),
-        [0, 0, 0, 17, 20, 2, 0]
+        [0, 0, 0, 308, 32, 0, 0]
     );
 }
 

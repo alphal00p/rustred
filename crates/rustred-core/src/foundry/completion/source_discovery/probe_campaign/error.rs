@@ -9,12 +9,14 @@ use crate::sector;
 
 use super::super::boundary_simplex::BoundarySimplexPlanError;
 use super::super::interior_simplex::InteriorSimplexPlanError;
+use super::super::leader_walk::LeaderWalkPlanError;
 
 /// Hard failure of one plan-to-ledger semantic transaction.
 #[derive(Debug)]
 pub(crate) enum ProbeCampaignError {
     InteriorPlan(InteriorSimplexPlanError),
     BoundaryPlan(BoundarySimplexPlanError),
+    LeaderPlan(LeaderWalkPlanError),
     SourceScope(TranslatedSourceError),
     WrongSourceLayout {
         actual: &'static str,
@@ -54,6 +56,9 @@ impl fmt::Display for ProbeCampaignError {
             }
             Self::BoundaryPlan(error) => {
                 write!(formatter, "invalid boundary-simplex probe plan: {error}")
+            }
+            Self::LeaderPlan(error) => {
+                write!(formatter, "invalid leader-walk probe plan: {error}")
             }
             Self::SourceScope(error) => {
                 write!(formatter, "invalid completed source scope: {error}")
@@ -103,6 +108,7 @@ impl std::error::Error for ProbeCampaignError {
         match self {
             Self::InteriorPlan(error) => Some(error),
             Self::BoundaryPlan(error) => Some(error),
+            Self::LeaderPlan(error) => Some(error),
             Self::SourceScope(error) | Self::SourceTranslation(error) => Some(error),
             Self::SourceDiscovery(error) => Some(error),
             Self::Sector(error) => Some(error),

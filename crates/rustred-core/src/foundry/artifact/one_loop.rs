@@ -86,6 +86,7 @@ pub(super) fn derive_one_loop_unit_mass_tadpole_with_limits(
         schema: ArtifactSchemaVersion::CURRENT,
         algorithm_id: ALGORITHM_ID,
         arity: 1,
+        ordering: OrderingPolicy::default(),
         supported_root_power_bounds: vec![InteriorBounds::new(i64::MIN, i64::MAX)]
             .into_boxed_slice(),
         family,

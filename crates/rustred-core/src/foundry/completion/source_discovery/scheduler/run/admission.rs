@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 
 use symbolica::prelude::Integer;
 
-use crate::foundry::completion::stratum::{ImmutableOwnerSnapshot, MaximalStratumAnchor};
+use crate::foundry::completion::stratum::{CampaignStratumAnchor, ImmutableOwnerSnapshot};
 use crate::identity::{CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator};
 
 use super::super::super::CampaignModularProbe;
@@ -22,7 +22,7 @@ pub(super) fn validate_fixed_task(
     generator: &ParametricIbpGenerator<'_>,
     completed: &CompletedIbpSourceRows,
     target_shift: &IntegralShift,
-    stratum: &MaximalStratumAnchor,
+    stratum: &CampaignStratumAnchor,
     owners: &ImmutableOwnerSnapshot,
     limits: ProbeLocalSchedulerLimits,
 ) -> Result<(), ProbeLocalSchedulerError> {
@@ -63,7 +63,7 @@ pub(super) fn validate_fixed_task(
         Ok(true) => {}
         Ok(false) => {
             return Err(ProbeLocalSchedulerError::Invariant {
-                detail: "maximal decorated-stratum anchor failed cold verification",
+                detail: "campaign decorated-stratum anchor failed cold verification",
             });
         }
         Err(error) => return Err(ProbeLocalSchedulerError::Stratum(error)),
@@ -82,7 +82,7 @@ pub(super) fn validate_fixed_task(
 
 pub(super) fn admit_probes(
     generator: &ParametricIbpGenerator<'_>,
-    stratum: &MaximalStratumAnchor,
+    stratum: &CampaignStratumAnchor,
     probes: impl IntoIterator<Item = CampaignModularProbe>,
     limits: ProbeLocalSchedulerLimits,
 ) -> Result<Vec<CampaignModularProbe>, ProbeLocalSchedulerError> {

@@ -30,6 +30,7 @@ pub(crate) mod stratum;
 pub(crate) use chart::SectorChart;
 #[allow(unused_imports)] // Consumed by the staged owner-cover publisher.
 pub(crate) use coverage::BoxCover;
+#[allow(unused_imports)] // Retained specialized antichain lane and geometry regressions.
 pub(crate) use coverage::LeadingIdeal;
 pub(crate) use error::CompletionGeometryError;
 #[allow(unused_imports)] // First topology-generic family-closure planning slice.

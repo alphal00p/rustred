@@ -13,13 +13,13 @@ pub(crate) fn canonical_family() -> Result<IntegralFamily, ArtifactError> {
     let context = CoefficientContext::try_new(["d"])?;
     let dimension = context
         .parameter("d")
-        .expect("the authenticated pressure-fixture context contains d");
+        .ok_or(ArtifactError::WrongCoefficientContext)?;
     let zero = context.zero();
     let one = context.one();
     let minus_one = context.integer(-1);
     let minus_two = context.integer(-2);
     Ok(IntegralFamily::new_with_limits(
-        "rustred-three-loop-unit-mass-k4-pressure-v1",
+        "rustred-three-loop-unit-mass-vacuum-k6-v1",
         vec!["k1".to_owned(), "k2".to_owned(), "k3".to_owned()],
         Vec::new(),
         context,

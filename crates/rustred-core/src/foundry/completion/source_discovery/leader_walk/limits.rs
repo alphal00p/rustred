@@ -16,7 +16,9 @@ pub(crate) struct LeaderWalkLimits {
     pub(crate) max_selected_free_axis_cells: usize,
     /// Aggregate over the lower-corner and depth-one waves.
     pub(crate) max_tasks: usize,
-    /// Retained leader plus target-shift coordinates across both waves.
+    /// Retained task-coordinate payload. The ordinary two-wave plan retains a
+    /// leader plus target shift; requested-face tasks additionally retain
+    /// fixed powers and their symbolic-axis list.
     pub(crate) max_task_coordinate_cells: usize,
 }
 

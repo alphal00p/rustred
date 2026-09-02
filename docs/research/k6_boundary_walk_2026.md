@@ -83,6 +83,117 @@ exhausted at one stable snapshot.
 
 ## Durable deterministic checkpoint
 
+### Fresh-ledger CLI ordering controls (2026-09-02)
+
+The later public `campaign run` boundary was also exercised from a fresh
+owner-free orbit-zero ledger with an optimized release binary.  Unlike the
+older revision-nine checkpoint above, this coordinator replans after every
+admission and each report in these prefixes committed one newly replayed
+owner.  These are transient search measurements, not artifact-generation
+times.  In particular, the executable preceded the final aggregate exact-
+guard preflight hardening, so any eventual closing result must be regenerated
+and replayed with the hardened binary before it can be certified.
+
+| proof ordering | proposal priority | cap | core time | exact owners | exact strict shrinks | final boxes | terminal task `(class,r,d,c,task)` |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| natural | natural | 512 | 83.416 s | 512 | 512 | 2,015 | `(4,3,4,1,29)` |
+| natural | `[5,3,4,2,0,1]` | 512 | 84.959 s | 512 | 512 | 1,952 | `(4,3,4,1,1302)` |
+| `[5,3,4,2,0,1]` | `[5,3,4,2,0,1]` | 512 | 84.122 s | 512 | 512 | 1,981 | `(4,3,4,1,785)` |
+
+All three prefixes stopped only at the request for report 513.  They recorded
+zero duplicate, no-proposal, incomplete-proposal, modular-hit, support-lift,
+canonical-query, exact-obstruction, and guard-incomplete outcomes.  Coverage
+remained `Incomplete(NonFinite)`, no artifact was published, and all three
+reports retained one explicit terminal.  The externally selected priority
+therefore improves this particular box-count proxy by only about 3.1 percent
+over the strict no-hint control and does not move the terminal task to a lower
+effective dimension at this cap.  Changing only the ordering is not yet a
+closure breakthrough.
+
+The distinction between the first and latter two rows is an audit boundary,
+not algebraic authority.  The first row is the autonomous control.  The latter
+rows are external-hints-only runs: the six-coordinate priority may have been
+inferred from FORM behavior, but RustRed regenerated every ordinary IBP,
+coefficient, guard, replay witness, and owner.  No FORM right-hand side,
+coefficient, solved rule, or reduction result entered the campaign.  Both
+lanes remain subject to the identical zero-uncovered, strict-descent,
+serialization/reload, and representative-reduction gates.
+
+### Four-probe replay of the first long-run rejection
+
+A release-build external-hints-only replay used the coherent proof and
+proposal priority `[5,3,4,2,0,1]`, margin two, degree zero, and the four
+declared probes `(1000000007,37)`, `(1000000007,31)`,
+`(1000000009,37)`, and `(1000000009,31)`. The executable SHA-256 was
+`5bb1d994ab97deeac269d24fabb8ae589c983d409333339d41b72bf6a47fa18b`.
+It reproduced 736 exact owners and strict geometric shrinks, then rejected all
+four probes at the same stable location
+`(revision=736,class=4,r=3,d=4,c=1,task=1371)`. Core time was 222.589 s; the
+residual cover had 2,773 boxes, remained non-finite, and published no
+artifact.
+
+This excluded an isolated failure of the original `(1000000007,37)` sample,
+but that binary retained only the aggregate rejection count. The subsequent
+typed replay below resolved the ambiguity; no task was skipped toward a false
+exhaustion claim.
+
+The subsequent typed release replay used executable SHA-256
+`4e13d343637bff05fc52e4037e3a2f09c48ab737922a83acb5762026c2659942`
+and one probe. It again stopped after the same 736 strict shrinks at the same
+task in 174.838 s. The retained rejection is
+`source-discovery / obstruction-nomination / shift-overflow`. The blocker is
+therefore not a finite-field singularity or an ordering-dependent modular
+sample: iterative inverse-incidence nomination has reached an unrepresentable
+machine-carrier translation. More prime sweeps could not address this failure.
+
+The corrected carrier now derives the complete componentwise expansion
+envelope from the same scheduler limit used by the probe adapter. For the nine
+ordinary K6 rows, the repeatable physical stencil is `q-s in [-2,2]^6` and the
+one-shot request suffix is `-s in [-1,1]^6`. A 4,096-epoch probe can materialize
+residual translations at physical depth 4,097, so the exact envelope is
+`[-8194,8194]^6`. The largest source-safe chart endpoints are therefore
+`9223372036854767613` on active axes and `9223372036854767614` on inactive
+axes. Endpoint maximality and every bounded physical/request prefix are
+regression-tested.
+
+### Post-fix hinted and autonomous report-737 replays
+
+The optimized executable SHA-256 was
+`123b647d007ae75c1b60d312bb770620d949d0e8605461936f55702394bf736d`.
+Both replays used one thread, `(1000000007,37)`, margin two, degree zero, and a
+strict V2 configuration. The external-hints-only run used proof/proposal order
+`[5,3,4,2,0,1]`; the autonomous document contained only the preset and report
+ceilings, so RustRed derived its natural ordering and probe program internally.
+
+| lane | core time | exact owners/shrinks | scheduler rejections | boxes | stop after report 737 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| external hints only | 182.644 s | 737 | 0 | 2,776 | report cap at `(revision=737,class=4,r=3,d=4,c=1,task=1293)` |
+| autonomous | 176.256 s | 737 | 0 | 2,753 | report cap at `(revision=737,class=4,r=3,d=4,c=1,task=254)` |
+
+Thus the former revision-736 shift overflow is gone in both claim-bearing
+paths. Every report replayed canonically and strictly shrank the exact cover;
+neither run reported a budget stop, stall, exact-lift error, or sampled dual.
+Both covers remain non-finite, neither compiler closed, and neither run
+published an artifact. These are deterministic progress measurements, not a
+K6 closure or scaling claim.
+
+The campaign input firewall is now structural rather than a caller-selected
+label. Autonomous callers cannot supply an ordering, probe, seed, or domain;
+external hints occupy a separate typed object that cannot represent a FORM
+right-hand side, coefficient, source row, support, solved rule, or reduction.
+Both paths discard search provenance before the same proof-wave and artifact
+installer. The installer independently regenerates the canonical nine-row
+ordinary module and rejoins every direct, fixed-index, and residual-projection
+source view before generic replay/descent validation.
+
+The next practical closure seam is a production-neutral requested-domain
+phase followed by the existing generic boundary complement. The hinted lane
+will accept only canonicalizable `anchor_powers + symbolic_axes` search
+metadata; the autonomous lane will derive leader domains and select an
+ordering through a deterministic internal portfolio, then restart the proof
+campaign from a fresh root. The current 55 AlphaLoop LHS entries and their 27
+canonical domains remain test-only diagnostics until that typed seam exists.
+
 Commit `ac68736` preserves a bounded, oracle-disabled regression that rebuilds
 the authenticated revision-nine ledger by executing ordinary-source probes,
 then performs two independent 80-report boundary walks. Both walks reproduce
@@ -332,10 +443,15 @@ K6 family. Four-, five-, and six-line irreducible waves must still close under
 ordinary/translated source discovery with the new immutable lower feedback,
 and artifact publication still requires zero uncovered branches everywhere.
 
-## Product-moment prototype result
+## Historical product-moment prototype result (removed)
 
-The bounded `K1^N` prototype described above is now executable for the path
-and star `K1^3` charts. It is deliberately schema-free and non-owning. Its
+This section preserves measurements from a prototype that has since been
+deleted from the active engine. It is historical research evidence only. The
+current code retains the bounded non-owning multi-affine expansion primitive,
+not the product-moment compiler, owner, or evaluator described below.
+
+The bounded `K1^N` prototype described above was executable for the path and
+star `K1^3` charts. It was deliberately schema-free and non-owning. Its
 compiler binds the installed terminal authority, factorization rule, signed
 singleton loop rows, exact parent slots, three sealed one-loop dependencies,
 normalization, raw master embedding, and process-local capability. Evaluation

@@ -80,6 +80,23 @@ pub struct SourceViewBatch {
 pub enum SourceViewConstruction {
     Direct,
     ResidualProjection(ResidualProjectionEvidence),
+    /// The immutable translated rows remain unmodified, but every algebraic
+    /// replay is evaluated in this exact singleton-coordinate quotient.
+    FixedIndexSpecialization(FixedIndexSpecializationEvidence),
+}
+
+/// Exact, topology-neutral quotient attached to an otherwise immutable source
+/// span.  No raw source term or condition is deleted or renumbered: consumers
+/// specialize it with Symbolica at the proof boundary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FixedIndexSpecializationEvidence {
+    pub(super) fixed: Box<[FixedIndexRestriction]>,
+}
+
+impl FixedIndexSpecializationEvidence {
+    pub fn fixed_restrictions(&self) -> &[FixedIndexRestriction] {
+        &self.fixed
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -167,6 +184,41 @@ impl SourceViewBatch {
         })
     }
 
+    pub(crate) fn try_from_exact_fixed_specialization_parts(
+        _seal: &ExactCircuitLoweringSeal,
+        family_fingerprint: Arc<String>,
+        context_fingerprint: Arc<String>,
+        relations: Vec<ParametricRelation>,
+        provenance: Vec<SourceViewProvenance>,
+        fixed: Box<[FixedIndexRestriction]>,
+    ) -> Result<Self, super::RuleCellError> {
+        if relations.len() != provenance.len() {
+            return Err(super::RuleCellError::SourceProvenanceCountMismatch {
+                relations: relations.len(),
+                provenance: provenance.len(),
+            });
+        }
+        if fixed.is_empty() {
+            return Err(super::RuleCellError::EmptyFixedIndexSpecialization);
+        }
+        for window in fixed.windows(2) {
+            if window[0].position() >= window[1].position() {
+                return Err(super::RuleCellError::DuplicateFixedPosition {
+                    position: window[1].position(),
+                });
+            }
+        }
+        Ok(Self {
+            family_fingerprint,
+            context_fingerprint,
+            relations,
+            provenance,
+            construction: SourceViewConstruction::FixedIndexSpecialization(
+                FixedIndexSpecializationEvidence { fixed },
+            ),
+        })
+    }
+
     pub fn family_fingerprint(&self) -> &str {
         self.family_fingerprint.as_str()
     }
@@ -187,6 +239,69 @@ impl SourceViewBatch {
     }
     pub(crate) fn relations(&self) -> &[ParametricRelation] {
         &self.relations
+    }
+
+    #[cfg(test)]
+    fn replace_translated_source_ordinal_for_artifact_test(
+        &mut self,
+        ordinal: usize,
+        source_ordinal: usize,
+    ) {
+        self.provenance[ordinal]
+            .translated
+            .replace_source_ordinal_for_artifact_test(source_ordinal);
+    }
+
+    #[cfg(test)]
+    fn replace_translated_source_row_for_artifact_test(
+        &mut self,
+        ordinal: usize,
+        source_row: crate::identity::RowId,
+    ) {
+        self.provenance[ordinal]
+            .translated
+            .replace_source_row_for_artifact_test(source_row);
+    }
+
+    #[cfg(test)]
+    fn replace_translated_source_offset_for_artifact_test(
+        &mut self,
+        ordinal: usize,
+        offset: crate::identity::IntegralShift,
+    ) {
+        self.provenance[ordinal]
+            .translated
+            .replace_offset_for_artifact_test(offset);
+    }
+
+    #[cfg(test)]
+    fn replace_source_relation_for_artifact_test(
+        &mut self,
+        ordinal: usize,
+        relation: ParametricRelation,
+    ) {
+        self.relations[ordinal] = relation;
+    }
+
+    #[cfg(test)]
+    fn replace_residual_original_relation_for_artifact_test(
+        &mut self,
+        ordinal: usize,
+        relation: ParametricRelation,
+    ) {
+        let SourceViewConstruction::ResidualProjection(evidence) = &mut self.construction else {
+            panic!("test-only residual mutation requires a residual source projection");
+        };
+        evidence.original_relations[ordinal] = relation;
+    }
+
+    #[cfg(test)]
+    fn attach_unregistered_symmetry_for_artifact_test(
+        &mut self,
+        ordinal: usize,
+        group_element: usize,
+    ) {
+        self.provenance[ordinal].symmetry = Some(SymmetrySourceProvenance::new(group_element));
     }
 }
 
@@ -225,6 +340,72 @@ impl RuleCellGuard {
     }
     pub fn polynomial(&self) -> &IndexedPolynomial {
         &self.polynomial
+    }
+}
+
+/// Exact rectangular decomposition around one separable integer guard root.
+///
+/// The admitted component is the unique guard-free component containing the
+/// replay anchor. The singleton root is mandatory alternate-support work. The
+/// optional deferred component is reserved for a future bounded multi-cell
+/// extension; the current builder admits only endpoint roots and leaves an
+/// interior root fail-closed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RuleCellGuardDomainSplit {
+    guard_ordinal: usize,
+    position: usize,
+    value: i64,
+    admitted: SectorMonotoneDomain,
+    exceptional: SectorMonotoneDomain,
+    deferred_guard_free: Option<SectorMonotoneDomain>,
+}
+
+impl RuleCellGuardDomainSplit {
+    #[cfg(test)]
+    pub(crate) const fn guard_ordinal(&self) -> usize {
+        self.guard_ordinal
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn position(&self) -> usize {
+        self.position
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn value(&self) -> i64 {
+        self.value
+    }
+
+    pub(crate) const fn admitted_domain(&self) -> &SectorMonotoneDomain {
+        &self.admitted
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn exceptional_domain(&self) -> &SectorMonotoneDomain {
+        &self.exceptional
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn deferred_guard_free_domain(&self) -> Option<&SectorMonotoneDomain> {
+        self.deferred_guard_free.as_ref()
+    }
+
+    pub(super) fn from_parts(
+        guard_ordinal: usize,
+        position: usize,
+        value: i64,
+        admitted: SectorMonotoneDomain,
+        exceptional: SectorMonotoneDomain,
+        deferred_guard_free: Option<SectorMonotoneDomain>,
+    ) -> Self {
+        Self {
+            guard_ordinal,
+            position,
+            value,
+            admitted,
+            exceptional,
+            deferred_guard_free,
+        }
     }
 }
 
@@ -279,6 +460,74 @@ impl RuleCell {
         polynomial: IndexedPolynomial,
     ) {
         self.guards[0].polynomial = polynomial;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_rule_ordering_for_artifact_test(
+        &mut self,
+        ordering: crate::sector::OrderingPolicy,
+    ) {
+        self.rule.replace_ordering_for_artifact_test(ordering);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_translated_source_ordinal_for_artifact_test(
+        &mut self,
+        ordinal: usize,
+        source_ordinal: usize,
+    ) {
+        self.sources
+            .replace_translated_source_ordinal_for_artifact_test(ordinal, source_ordinal);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_translated_source_row_for_artifact_test(
+        &mut self,
+        ordinal: usize,
+        source_row: crate::identity::RowId,
+    ) {
+        self.sources
+            .replace_translated_source_row_for_artifact_test(ordinal, source_row);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_translated_source_offset_for_artifact_test(
+        &mut self,
+        ordinal: usize,
+        offset: crate::identity::IntegralShift,
+    ) {
+        self.sources
+            .replace_translated_source_offset_for_artifact_test(ordinal, offset);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_source_relation_for_artifact_test(
+        &mut self,
+        ordinal: usize,
+        relation: ParametricRelation,
+    ) {
+        self.sources
+            .replace_source_relation_for_artifact_test(ordinal, relation);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_residual_original_relation_for_artifact_test(
+        &mut self,
+        ordinal: usize,
+        relation: ParametricRelation,
+    ) {
+        self.sources
+            .replace_residual_original_relation_for_artifact_test(ordinal, relation);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn attach_unregistered_source_symmetry_for_artifact_test(
+        &mut self,
+        ordinal: usize,
+        group_element: usize,
+    ) {
+        self.sources
+            .attach_unregistered_symmetry_for_artifact_test(ordinal, group_element);
     }
     pub fn assignment_for_target(
         &self,

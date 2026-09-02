@@ -154,7 +154,11 @@ pub(super) const EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP: [ExpectedSectorSweepTeleme
         exact_support_did_not_lift: 0,
         semantic_owner_inputs: 7,
         cover: ExpectedSweepCoverTelemetry::Compiled {
-            guard_total_owners: 3,
+            // Symbolica-backed separable-locus replay proves every retained
+            // full-rank owner guard-total on its exact region. The residual
+            // five-dimensional box is therefore geometric, not a hidden
+            // guard-incomplete branch.
+            guard_total_owners: 7,
             status: ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite),
             uncovered_boxes: 1,
             uncovered_free_dimension_histogram: [0, 0, 0, 0, 0, 1, 0],

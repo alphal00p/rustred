@@ -9,9 +9,9 @@ enum CanonicalOutput {
 
 /// Self-delimiting canonical encoder with a hard byte envelope.
 ///
-/// Published layer identity streams directly into BLAKE3. The owner-ordering
-/// constructor instead retains the exact bounded byte stream so lexicographic
-/// comparison is a genuine structural total order rather than a digest order.
+/// Published layer identity and compact owner-order keys stream directly into
+/// BLAKE3. Exact bytes are materialized only on the cold collision fallback,
+/// where digest equality is never treated as structural equality.
 pub(super) struct BoundedContentHasher {
     output: CanonicalOutput,
     bytes: usize,
@@ -21,11 +21,15 @@ pub(super) struct BoundedContentHasher {
 
 impl BoundedContentHasher {
     pub(super) fn new(limit: usize) -> Self {
+        Self::digest(limit, LAYER_RESOURCE)
+    }
+
+    pub(super) fn digest(limit: usize, resource: &'static str) -> Self {
         Self {
             output: CanonicalOutput::Digest(blake3::Hasher::new()),
             bytes: 0,
             limit,
-            resource: LAYER_RESOURCE,
+            resource,
         }
     }
 
@@ -119,10 +123,17 @@ impl BoundedContentHasher {
             unreachable!("digest output is fixed by the canonical encoder constructor")
         };
         format!(
-            "rustred.closed-sector-layer-content.v1:{}:{}",
+            "rustred.closed-sector-layer-content.v2:{}:{}",
             hasher.finalize().to_hex(),
             self.bytes
         )
+    }
+
+    pub(super) fn finish_digest(self) -> ([u8; blake3::OUT_LEN], usize) {
+        let CanonicalOutput::Digest(hasher) = self.output else {
+            unreachable!("digest output is fixed by the canonical encoder constructor")
+        };
+        (*hasher.finalize().as_bytes(), self.bytes)
     }
 
     pub(super) fn finish_exact(self) -> Box<[u8]> {

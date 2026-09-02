@@ -11,7 +11,7 @@ mod error;
 mod limits;
 mod model;
 
-pub(crate) use coordinator::StagedSectorClosureCoordinator;
+pub(crate) use coordinator::{StagedSectorClosureCoordinator, try_publish_sealed_sector_wave};
 pub(crate) use error::StagedSectorClosureError;
 pub(crate) use limits::StagedSectorClosureLimits;
 pub(crate) use model::{

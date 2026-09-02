@@ -4,7 +4,10 @@ use crate::algebra::{IndexedCoefficient, IndexedPolynomial};
 use crate::family::IntegralKey;
 use crate::foundry::completion::frame::exact::ExactCircuitLoweringSeal;
 use crate::identity::{IdentityConditionSource, IndexShift, RowId};
-use crate::sector::{Mask, OrderingPolicy, SectorInteriorDomain, ShiftStrictDescentWitness};
+use crate::sector::{
+    Mask, OrderingPolicy, SectorInteriorDomain, SectorMonotoneShiftDescentWitness,
+    ShiftStrictDescentWitness,
+};
 
 use super::boundary::SectorMonotoneTargetAdmission;
 
@@ -13,7 +16,55 @@ use super::boundary::SectorMonotoneTargetAdmission;
 pub struct ParametricRuleTerm {
     shift: IndexShift,
     coefficient: IndexedCoefficient,
-    descent: ShiftStrictDescentWitness,
+    descent: ParametricRuleTermDescent,
+}
+
+/// The exact ordering authority carried by one RHS term.
+///
+/// Ordinary identities retain a uniform same-sector witness.  A rule proved
+/// only on a boundary face/ray instead retains the stronger piecewise witness
+/// that classifies every point as same-sector descent or proper-subsector
+/// descent.  The latter is required for terms that are always pinched on the
+/// declared quotient and therefore have no meaningful same-sector cell.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ParametricRuleTermDescent {
+    FixedSector(ShiftStrictDescentWitness),
+    SectorMonotone(SectorMonotoneShiftDescentWitness),
+}
+
+impl ParametricRuleTermDescent {
+    pub fn verify(&self) -> bool {
+        match self {
+            Self::FixedSector(witness) => witness.verify(),
+            Self::SectorMonotone(witness) => witness.verify(),
+        }
+    }
+
+    pub fn fixed_sector(&self) -> Option<&ShiftStrictDescentWitness> {
+        match self {
+            Self::FixedSector(witness) => Some(witness),
+            Self::SectorMonotone(_) => None,
+        }
+    }
+
+    pub fn sector_monotone(&self) -> Option<&SectorMonotoneShiftDescentWitness> {
+        match self {
+            Self::FixedSector(_) => None,
+            Self::SectorMonotone(witness) => Some(witness),
+        }
+    }
+}
+
+impl From<ShiftStrictDescentWitness> for ParametricRuleTermDescent {
+    fn from(value: ShiftStrictDescentWitness) -> Self {
+        Self::FixedSector(value)
+    }
+}
+
+impl From<SectorMonotoneShiftDescentWitness> for ParametricRuleTermDescent {
+    fn from(value: SectorMonotoneShiftDescentWitness) -> Self {
+        Self::SectorMonotone(value)
+    }
 }
 
 impl ParametricRuleTerm {
@@ -27,9 +78,9 @@ impl ParametricRuleTerm {
         &self.coefficient
     }
 
-    /// Structural proof that this shift is below the pivot everywhere in the
-    /// returned fixed-sector interior.
-    pub fn descent(&self) -> &ShiftStrictDescentWitness {
+    /// Structural proof that this shift is below the pivot throughout the
+    /// rule's ordinary interior or piecewise parent-sector domain.
+    pub fn descent(&self) -> &ParametricRuleTermDescent {
         &self.descent
     }
 }
@@ -102,6 +153,9 @@ pub enum ParametricGuardOrigin {
         source_ordinal: usize,
         row_id: RowId,
     },
+    /// The coefficient of the target in a fully replayed fraction-free
+    /// ordinary-source consequence.
+    FinalTargetCoefficient,
 }
 
 /// One deduplicated parametric nonzero guard with complete retained origins.
@@ -364,6 +418,32 @@ impl ParametricRule {
         self.sector_monotone_admission.as_ref()
     }
 
+    #[cfg(test)]
+    pub(crate) fn replace_ordering_for_artifact_test(&mut self, ordering: OrderingPolicy) {
+        self.ordering = ordering;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_domain_for_artifact_test(&mut self, domain: SectorInteriorDomain) {
+        self.domain = domain;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_rhs_descent_with_admission_for_artifact_test(&mut self) {
+        let admission = self
+            .sector_monotone_admission
+            .as_ref()
+            .expect("test rule must own a sector-monotone admission");
+        assert_eq!(self.right_hand_side.len(), admission.dependencies().len());
+        for (term, dependency) in self
+            .right_hand_side
+            .iter_mut()
+            .zip(admission.dependencies())
+        {
+            term.descent = ParametricRuleTermDescent::SectorMonotone(dependency.descent().clone());
+        }
+    }
+
     pub fn anchor(&self) -> &IntegralKey {
         self.concrete_replay.anchor()
     }
@@ -373,12 +453,12 @@ impl ParametricRuleTerm {
     pub(super) fn new(
         shift: IndexShift,
         coefficient: IndexedCoefficient,
-        descent: ShiftStrictDescentWitness,
+        descent: impl Into<ParametricRuleTermDescent>,
     ) -> Self {
         Self {
             shift,
             coefficient,
-            descent,
+            descent: descent.into(),
         }
     }
 
@@ -386,7 +466,7 @@ impl ParametricRuleTerm {
         _seal: &ExactCircuitLoweringSeal,
         shift: IndexShift,
         coefficient: IndexedCoefficient,
-        descent: ShiftStrictDescentWitness,
+        descent: SectorMonotoneShiftDescentWitness,
     ) -> Self {
         Self::new(shift, coefficient, descent)
     }

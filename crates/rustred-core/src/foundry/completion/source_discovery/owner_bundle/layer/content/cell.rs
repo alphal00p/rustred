@@ -2,7 +2,9 @@ use crate::foundry::cell::{
     ResidualTermDisposition, RuleCell, RuleCellDomainProof, SourceViewBatch, SourceViewConstruction,
 };
 use crate::foundry::completion::stratum::StratumRegistryError;
-use crate::foundry::parametric::{ParametricGuardOrigin, ParametricRule};
+use crate::foundry::parametric::{
+    ParametricGuardOrigin, ParametricRule, ParametricRuleTermDescent,
+};
 
 use super::algebra::{
     append_coefficient, append_identity_condition_source, append_index_shift, append_integral_key,
@@ -69,14 +71,23 @@ fn append_parametric_rule(
     output.text(rule.family_fingerprint())?;
     output.text(rule.context_fingerprint())?;
     append_interior_domain(output, rule.domain())?;
-    output.text(rule.ordering().stable_id())?;
+    output.text(&rule.ordering().stable_id())?;
     append_index_shift(output, rule.pivot())?;
 
     output.count(rule.right_hand_side().len())?;
     for term in rule.right_hand_side() {
         append_index_shift(output, term.shift())?;
         append_coefficient(output, term.coefficient())?;
-        append_shift_descent(output, term.descent())?;
+        match term.descent() {
+            ParametricRuleTermDescent::FixedSector(witness) => {
+                output.tag(0)?;
+                append_shift_descent(output, witness)?;
+            }
+            ParametricRuleTermDescent::SectorMonotone(witness) => {
+                output.tag(1)?;
+                append_monotone_descent(output, witness)?;
+            }
+        }
     }
 
     output.count(rule.elimination_pivot_guards().len())?;
@@ -204,6 +215,7 @@ fn append_parametric_guard_origin(
             output.usize(*source_ordinal)?;
             output.text(&row_id.stable_string())
         }
+        ParametricGuardOrigin::FinalTargetCoefficient => output.tag(6),
     }
 }
 
@@ -268,6 +280,14 @@ fn append_source_batch(
             output.count(evidence.stabilizer_group_elements().len())?;
             for &group in evidence.stabilizer_group_elements() {
                 output.usize(group)?;
+            }
+        }
+        SourceViewConstruction::FixedIndexSpecialization(evidence) => {
+            output.tag(2)?;
+            output.count(evidence.fixed_restrictions().len())?;
+            for fixed in evidence.fixed_restrictions() {
+                output.usize(fixed.position())?;
+                output.i64(fixed.value())?;
             }
         }
     }

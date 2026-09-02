@@ -112,7 +112,8 @@ pub(super) fn generate_request(
                     .rule_cells()
                     .iter()
                     .enumerate()
-                    .map(|(index, cell)| {
+                    .map(|(index, cell_owner)| {
+                        let cell = cell_owner.as_ref();
                         let rule = cell.rule();
                         ClosingRuleOutputV1 {
                             ordinal: artifact.rules().len() + index,
@@ -317,6 +318,7 @@ fn artifact_summary(artifact: &ClosedArtifact) -> ArtifactSummaryOutputV1 {
         schema_version: artifact.schema().as_u32(),
         algorithm_id: artifact.algorithm_id(),
         arity: artifact.arity(),
+        ordering: artifact.ordering().stable_id().as_str().to_owned(),
         family_fingerprint: artifact.family_fingerprint().to_owned(),
         coefficient_context_fingerprint: artifact.context_fingerprint().to_owned(),
         common_mass_homogeneity: artifact

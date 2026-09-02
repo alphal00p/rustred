@@ -68,6 +68,12 @@ pub(crate) struct ProbeLocalSchedulerLimits {
     pub(crate) max_aggregate_merge_request_work: usize,
     pub(crate) max_retained_iteration_records: usize,
     pub(crate) max_exact_lift_attempts: usize,
+    /// Opt-in ceiling for a second exact Symbolica reduction over every row
+    /// of an already materialized frame when the modularly selected minor is
+    /// specialization-only. Zero disables the fallback. This never expands
+    /// the request universe and remains independently bounded by
+    /// [`ExactCircuitLimits`].
+    pub(crate) max_complete_frame_exact_fallback_rows: usize,
 }
 
 impl Default for ProbeLocalSchedulerLimits {
@@ -112,6 +118,7 @@ impl Default for ProbeLocalSchedulerLimits {
             max_aggregate_merge_request_work: 128_000_000,
             max_retained_iteration_records: 16_384,
             max_exact_lift_attempts: 4_096,
+            max_complete_frame_exact_fallback_rows: 0,
         }
     }
 }

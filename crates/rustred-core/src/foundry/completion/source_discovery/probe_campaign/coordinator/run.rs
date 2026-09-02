@@ -14,6 +14,7 @@ use crate::foundry::completion::source_discovery::cover_delta::{
 use crate::sector::Mask;
 
 use super::super::ProbeCampaignAdapter;
+use super::chronology::DiscoveryTaskChronology;
 use super::compact::{
     CompactTaskAction, CompactTaskCommit, operational_reason, search_refinement_reason,
     try_increment, try_reserve_evaluated_task, validate_live_effect,
@@ -21,7 +22,7 @@ use super::compact::{
 use super::schedule::try_build_class_schedule;
 use super::{
     BoundaryProbeCoordinator, ProbeCoordinatorCensus, ProbeCoordinatorFailure,
-    ProbeCoordinatorFailureStop, ProbeCoordinatorNeedsRefinement,
+    ProbeCoordinatorFailureStop, ProbeCoordinatorFairCursor, ProbeCoordinatorNeedsRefinement,
     ProbeCoordinatorNeedsRefinementReason, ProbeCoordinatorOperationalReason,
     ProbeCoordinatorOperationalStop, ProbeCoordinatorOwnerSetChanged, ProbeCoordinatorStop,
     ProbeCoordinatorTaskLocation,
@@ -67,6 +68,16 @@ impl<'inputs, 'sources, 'family> BoundaryProbeCoordinator<'inputs, 'sources, 'fa
     ) -> Result<Self, ProbeCoordinatorFailure> {
         adapter.validate_ledger_scope(ledger)?;
         validate_probe_program(&config, &adapter)?;
+        if let Some(priority) = config.discovery_coordinate_priority()
+            && priority.arity() != adapter.probe_chart_arity()
+        {
+            return Err(
+                ProbeCoordinatorFailure::WrongDiscoveryCoordinatePriorityArity {
+                    expected: adapter.probe_chart_arity(),
+                    actual: priority.arity(),
+                },
+            );
+        }
         let planner_scope_key = try_build_planner_scope_key(&config, ledger)?;
         Ok(Self {
             config,
@@ -74,6 +85,7 @@ impl<'inputs, 'sources, 'family> BoundaryProbeCoordinator<'inputs, 'sources, 'fa
             bound_ledger: ledger.snapshot_identity(),
             planner_scope_key,
             census: Self::empty_census(),
+            fair_cursor: ProbeCoordinatorFairCursor::default(),
         })
     }
 
@@ -127,6 +139,7 @@ impl<'inputs, 'sources, 'family> BoundaryProbeCoordinator<'inputs, 'sources, 'fa
             config,
             planner_scope_key,
             &mut self.census,
+            &mut self.fair_cursor,
             revision,
             &sector,
             &partition,
@@ -249,7 +262,7 @@ fn try_build_planner_scope_key(
         ":",
         ordering_length.as_str(),
         "#",
-        ordering,
+        ordering.as_str(),
     ];
     let mut requested = 0usize;
     for piece in pieces {
@@ -301,18 +314,33 @@ fn try_materialize_probes(
                 resource: PROBE_COORDINATES,
                 requested: task.lattice_target().len(),
             })?;
-        for (coordinate, (&target, &offset)) in task
-            .lattice_target()
-            .iter()
+        for (coordinate, (origin, &offset)) in task
+            .base_probe_chart_origin()
             .zip(template.chart_offsets())
             .enumerate()
         {
-            chart_coordinates.push(target.checked_add(offset).ok_or(
-                ProbeCoordinatorFailure::ProbeChartCoordinateOverflow {
-                    probe_ordinal,
-                    coordinate,
-                },
-            )?);
+            if task
+                .key()
+                .remaining_axes()
+                .binary_search(&coordinate)
+                .is_err()
+            {
+                if offset != 0 {
+                    return Err(ProbeCoordinatorFailure::NonzeroRestrictedProbeOffset {
+                        probe_ordinal,
+                        coordinate,
+                        offset,
+                    });
+                }
+                chart_coordinates.push(0);
+            } else {
+                chart_coordinates.push(origin.checked_add(offset).ok_or(
+                    ProbeCoordinatorFailure::ProbeChartCoordinateOverflow {
+                        probe_ordinal,
+                        coordinate,
+                    },
+                )?);
+            }
         }
         probes.push(CampaignModularProbe::try_new(
             template.modulus(),
@@ -328,6 +356,7 @@ pub(super) fn try_drive_partition<F>(
     config: &super::ProbeCoordinatorConfig,
     planner_scope_key: &str,
     census: &mut ProbeCoordinatorCensus,
+    fair_cursor: &mut ProbeCoordinatorFairCursor,
     ledger_revision: u64,
     sector: &Mask,
     partition: &UncoveredPartition,
@@ -369,8 +398,20 @@ where
     };
     census.epochs_started = requested_epoch;
     let mut epoch_completed_tasks = 0usize;
+    let class_count = schedule.classes().len();
+    if class_count == 0 {
+        return failed(
+            *census,
+            ProbeCoordinatorFailure::Invariant {
+                detail: "nonempty uncovered partition produced no boundary service class",
+            },
+        );
+    }
+    let class_start = fair_cursor.class_start(class_count);
 
-    for class in schedule.classes() {
+    for class_offset in 0..class_count {
+        let class_ordinal = (class_start + class_offset) % class_count;
+        let class = &schedule.classes()[class_ordinal];
         let requested_plan = match census.plans_built.checked_add(1) {
             Some(requested) => requested,
             None => {
@@ -418,8 +459,37 @@ where
             );
         }
         census.plans_built = requested_plan;
+        let task_count = plan.tasks().len();
+        if task_count == 0 {
+            return failed(
+                *census,
+                ProbeCoordinatorFailure::Invariant {
+                    detail: "boundary service class produced an empty task plan",
+                },
+            );
+        }
+        let chronology =
+            match DiscoveryTaskChronology::try_new(&plan, config.discovery_coordinate_priority()) {
+                Ok(chronology) => chronology,
+                Err(error) => return failed(*census, error),
+            };
+        let task_start = if class_offset == 0 {
+            fair_cursor.task_start(task_count)
+        } else {
+            0
+        };
 
-        for task in plan.tasks() {
+        for task_offset in 0..task_count {
+            let execution_rank = (task_start + task_offset) % task_count;
+            let Some(task_index) = chronology.canonical_task_index(execution_rank) else {
+                return failed(
+                    *census,
+                    ProbeCoordinatorFailure::Invariant {
+                        detail: "discovery chronology omitted an execution rank",
+                    },
+                );
+            };
+            let task = &plan.tasks()[task_index];
             let location = ProbeCoordinatorTaskLocation {
                 ledger_revision,
                 class_ordinal: class.canonical_ordinal(),
@@ -464,7 +534,7 @@ where
             // The possible plan suffix is computed before task evaluation so
             // its cumulative counter can be reserved before any owner
             // application. It is committed only for a non-closing mutation.
-            let next_task_ordinal = match task.canonical_ordinal().checked_add(1) {
+            let next_task_offset = match task_offset.checked_add(1) {
                 Some(ordinal) => ordinal,
                 None => {
                     return failed(
@@ -475,13 +545,13 @@ where
                     );
                 }
             };
-            let invalidated_tickets = match plan.tasks().len().checked_sub(next_task_ordinal) {
+            let invalidated_tickets = match task_count.checked_sub(next_task_offset) {
                 Some(count) => count,
                 None => {
                     return failed(
                         *census,
                         ProbeCoordinatorFailure::Invariant {
-                            detail: "canonical task ordinal exceeded its owning plan",
+                            detail: "task execution rank exceeded its owning plan",
                         },
                     );
                 }
@@ -535,6 +605,12 @@ where
                     before_revision,
                     after_revision,
                 } => {
+                    fair_cursor.advance_after(
+                        class_ordinal,
+                        execution_rank,
+                        task_count,
+                        class_count,
+                    );
                     return ProbeCoordinatorDriveStop::OwnerSetChanged(
                         ProbeCoordinatorOwnerSetChanged {
                             census: *census,

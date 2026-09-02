@@ -8,19 +8,18 @@ use crate::foundry::completion::frame::admission::semantic::ExactCircuitSemantic
 use crate::foundry::completion::stratum::{
     DecoratedStratumId, ImmutableOwnerSnapshotId, TargetColumnPartition,
 };
-use crate::foundry::completion::{CompletionGeometryError, LatticePoint};
+use crate::foundry::completion::{CompletionGeometryError, LatticeBox, LatticePoint};
 use crate::sector::{Error as SectorError, Mask, OrderingPolicy, SectorMonotoneDomain};
 
-/// Opaque evidence that the finite carrier domain was only a discovery
-/// envelope and that every retained exact candidate remains same-sector and
-/// descending on the resulting infinite orthant.
+/// Opaque evidence for the exact target region owned by one replayed stratum.
 ///
-/// Construction rejects tightened domains and every pre-existing decorated
-/// guard branch. Exact circuit guards remain handled by the semantic DAG. The
-/// leading origin is tightened until every RHS stays in the same sector, so
-/// no lower-sector owner is extrapolated beyond its finite proof domain.
-/// This witness alone grants no ownership: semantic guard totality is proved
-/// separately by the owner-cover compiler.
+/// A maximal carrier whose recurrence remains globally same-sector may extend
+/// to a leading orthant only along axes on which its executable application
+/// domain reaches the corresponding `i64` target carrier. A tightened face/ray
+/// follows the same rule, producing an exact cylinder box. Fixed, otherwise
+/// tightened, or representability-limited axes remain bounded. Exact circuit
+/// guards are handled separately by the semantic DAG; this witness alone
+/// grants no ownership.
 #[derive(Debug)]
 pub(crate) struct ExactCircuitOuterExtensionWitness<'frame> {
     /// The exact physical plan against which the partition, semantic DAG,
@@ -36,10 +35,15 @@ pub(crate) struct ExactCircuitOuterExtensionWitness<'frame> {
     pub(super) owner_snapshot_id: ImmutableOwnerSnapshotId,
     pub(super) target_column: usize,
     pub(super) leading: LatticePoint,
+    pub(super) region: LatticeBox,
     pub(super) semantic: Arc<ExactCircuitSemanticDag>,
 }
 
 impl<'frame> ExactCircuitOuterExtensionWitness<'frame> {
+    pub(crate) const fn region(&self) -> &LatticeBox {
+        &self.region
+    }
+
     pub(crate) fn try_prove(
         partition: &TargetColumnPartition<'frame>,
         semantic: Arc<ExactCircuitSemanticDag>,
@@ -77,40 +81,20 @@ impl<'frame> ExactCircuitOuterExtensionWitness<'frame> {
             pivot,
             &frame_shifts,
         )?;
-        if &maximal != partition.stratum().domain() {
-            return Err(ExactCircuitOuterExtensionError::TightenedCarrierDomain);
-        }
         if semantic.candidates().is_empty() {
             return Err(ExactCircuitOuterExtensionError::EmptySemanticDag);
         }
 
         let arity = partition.frame().sector().arity();
-        let mut leading = Vec::new();
-        leading.try_reserve_exact(arity).map_err(|_| {
+        let mut fixed = Vec::new();
+        fixed.try_reserve_exact(arity).map_err(|_| {
             ExactCircuitOuterExtensionError::AllocationFailure {
-                resource: "outer-extension leading coordinates",
+                resource: "outer-extension fixed quotient coordinates",
                 requested: arity,
             }
         })?;
-        for (position, ((&bounds, &pivot), &active)) in partition
-            .stratum()
-            .domain()
-            .bounds()
-            .iter()
-            .zip(pivot)
-            .zip(partition.frame().sector().active_bits())
-            .enumerate()
-        {
-            let target_boundary = if active {
-                i128::from(bounds.lower()) + i128::from(pivot) - 1
-            } else {
-                -(i128::from(bounds.upper()) + i128::from(pivot))
-            };
-            let coordinate = u64::try_from(target_boundary)
-                .map_err(|_| ExactCircuitOuterExtensionError::InvalidTargetBoundary { position })?;
-            leading.push(coordinate);
-        }
-
+        fixed.extend(partition.stratum().singleton_index_assignments());
+        let globally_extended = &maximal == partition.stratum().domain() && fixed.is_empty();
         for (candidate_ordinal, candidate) in semantic.candidates().iter().enumerate() {
             let circuit = candidate.circuit();
             if circuit.stratum_id() != partition.stratum_id()
@@ -123,28 +107,55 @@ impl<'frame> ExactCircuitOuterExtensionWitness<'frame> {
                     detail: "semantic circuit differs from its target partition",
                 });
             }
+            if circuit.fixed_indices() != fixed.as_slice() {
+                return Err(ExactCircuitOuterExtensionError::CandidateJoin {
+                    candidate: candidate_ordinal,
+                    detail: "semantic circuit fixed quotient differs from the partition singleton coordinates",
+                });
+            }
             for (term_ordinal, term) in circuit.residual_terms().iter().enumerate() {
                 let descent = term.descent();
                 if !descent.verify()
                     || descent.policy() != partition.ordering()
-                    || descent.domain().sector() != partition.frame().sector()
+                    || descent.domain() != partition.stratum().domain()
                     || !key_matches_shift(descent.pivot(), pivot)
                     || !key_matches_shift(descent.target(), term.shift().values())
-                    || descent.target() >= descent.pivot()
                 {
                     return Err(ExactCircuitOuterExtensionError::InvalidGlobalDescent {
                         candidate: candidate_ordinal,
                         term: term_ordinal,
                     });
                 }
-                tighten_same_sector_origin(
-                    &mut leading,
-                    partition.frame().sector(),
-                    pivot,
-                    term.shift().values(),
-                )?;
             }
         }
+
+        let (mut leading, upper) = target_region_from_stratum(
+            partition.stratum().domain(),
+            &maximal,
+            partition.frame().sector(),
+            pivot,
+            &fixed,
+        )?;
+        if globally_extended {
+            for (candidate_ordinal, candidate) in semantic.candidates().iter().enumerate() {
+                for (term_ordinal, term) in candidate.circuit().residual_terms().iter().enumerate()
+                {
+                    if term.descent().target() >= term.descent().pivot() {
+                        return Err(ExactCircuitOuterExtensionError::InvalidGlobalDescent {
+                            candidate: candidate_ordinal,
+                            term: term_ordinal,
+                        });
+                    }
+                    tighten_same_sector_origin(
+                        &mut leading,
+                        partition.frame().sector(),
+                        pivot,
+                        term.shift().values(),
+                    )?;
+                }
+            }
+        }
+        let region = LatticeBox::try_new(leading.iter().copied(), upper.iter().copied())?;
 
         Ok(Self {
             plan: partition.frame(),
@@ -156,6 +167,7 @@ impl<'frame> ExactCircuitOuterExtensionWitness<'frame> {
             owner_snapshot_id: partition.snapshot_id().clone(),
             target_column: partition.target_column(),
             leading: LatticePoint::try_new(leading)?,
+            region,
             semantic,
         })
     }
@@ -168,7 +180,6 @@ pub(crate) enum ExactCircuitOuterExtensionError {
     PreexistingStratumPredicates {
         count: usize,
     },
-    TightenedCarrierDomain,
     EmptySemanticDag,
     CandidateJoin {
         candidate: usize,
@@ -201,9 +212,6 @@ impl fmt::Display for ExactCircuitOuterExtensionError {
                 formatter,
                 "outer-extension proof cannot extrapolate {count} pre-existing stratum predicates"
             ),
-            Self::TightenedCarrierDomain => formatter.write_str(
-                "outer-extension proof requires the reconstructed maximal finite carrier domain",
-            ),
             Self::EmptySemanticDag => {
                 formatter.write_str("outer-extension proof has no exact semantic candidate")
             }
@@ -230,6 +238,75 @@ impl fmt::Display for ExactCircuitOuterExtensionError {
             ),
         }
     }
+}
+
+fn target_region_from_stratum(
+    domain: &SectorMonotoneDomain,
+    maximal: &SectorMonotoneDomain,
+    sector: &Mask,
+    pivot: &[i64],
+    fixed: &[(usize, i64)],
+) -> Result<(Vec<u64>, Vec<Option<u64>>), ExactCircuitOuterExtensionError> {
+    let arity = sector.arity();
+    let mut lower = Vec::new();
+    lower.try_reserve_exact(arity).map_err(|_| {
+        ExactCircuitOuterExtensionError::AllocationFailure {
+            resource: "outer-extension lower coordinates",
+            requested: arity,
+        }
+    })?;
+    let mut upper = Vec::new();
+    upper.try_reserve_exact(arity).map_err(|_| {
+        ExactCircuitOuterExtensionError::AllocationFailure {
+            resource: "outer-extension upper coordinates",
+            requested: arity,
+        }
+    })?;
+    for (position, (((&bounds, &maximal), &pivot), &active)) in domain
+        .bounds()
+        .iter()
+        .zip(maximal.bounds())
+        .zip(pivot)
+        .zip(sector.active_bits())
+        .enumerate()
+    {
+        let fixed_position = fixed
+            .binary_search_by_key(&position, |&(fixed_position, _)| fixed_position)
+            .is_ok();
+        let integral_target_lower = i128::from(bounds.lower()) + i128::from(pivot);
+        let integral_target_upper = i128::from(bounds.upper()) + i128::from(pivot);
+        let (target_lower, target_upper, outward_reaches_carrier) = if active {
+            (
+                integral_target_lower - 1,
+                integral_target_upper - 1,
+                !fixed_position
+                    && bounds.upper() == maximal.upper()
+                    && integral_target_upper == i128::from(i64::MAX),
+            )
+        } else {
+            (
+                -integral_target_upper,
+                -integral_target_lower,
+                !fixed_position
+                    && bounds.lower() == maximal.lower()
+                    && integral_target_lower == i128::from(i64::MIN),
+            )
+        };
+        lower
+            .push(u64::try_from(target_lower).map_err(|_| {
+                ExactCircuitOuterExtensionError::InvalidTargetBoundary { position }
+            })?);
+        upper.push(if outward_reaches_carrier {
+            None
+        } else {
+            Some(
+                u64::try_from(target_upper).map_err(|_| {
+                    ExactCircuitOuterExtensionError::InvalidTargetBoundary { position }
+                })?,
+            )
+        });
+    }
+    Ok((lower, upper))
 }
 
 impl std::error::Error for ExactCircuitOuterExtensionError {

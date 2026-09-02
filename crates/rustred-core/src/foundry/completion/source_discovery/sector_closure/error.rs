@@ -1,6 +1,7 @@
 use std::fmt;
 
 use super::super::ExactExecutableOwnerError;
+use crate::foundry::completion::CompletionGeometryError;
 use crate::foundry::completion::stratum::StratumRegistryError;
 use crate::sector::Error as SectorError;
 
@@ -11,6 +12,15 @@ pub(crate) enum StagedSectorClosureError {
     EmptyFrontier,
     InvalidPredecessor,
     WrongPredecessorContext,
+    WrongSealedCoverFamily {
+        cover: usize,
+    },
+    WrongSealedCoverContext {
+        cover: usize,
+    },
+    WrongSealedCoverPredecessor {
+        cover: usize,
+    },
     WrongSectorArity {
         sector: usize,
         expected: usize,
@@ -22,6 +32,17 @@ pub(crate) enum StagedSectorClosureError {
         actual: usize,
     },
     DuplicateSector,
+    ClosureCarrierCountMismatch {
+        expected: usize,
+        actual: usize,
+    },
+    DuplicateClosureCarrier,
+    ClosureCarrierScopeMismatch {
+        carrier: usize,
+    },
+    InvalidClosureCarrier {
+        carrier: usize,
+    },
     PreviewRequiresSingleSector {
         actual: usize,
     },
@@ -45,6 +66,7 @@ pub(crate) enum StagedSectorClosureError {
         requested: usize,
     },
     Sector(SectorError),
+    Geometry(CompletionGeometryError),
     Executable(ExactExecutableOwnerError),
     Registry(StratumRegistryError),
 }
@@ -58,6 +80,18 @@ impl fmt::Display for StagedSectorClosureError {
             }
             Self::WrongPredecessorContext => formatter
                 .write_str("the staged closure context differs from its predecessor snapshot"),
+            Self::WrongSealedCoverFamily { cover } => write!(
+                formatter,
+                "sealed cover {cover} belongs to another integral family"
+            ),
+            Self::WrongSealedCoverContext { cover } => write!(
+                formatter,
+                "sealed cover {cover} belongs to another coefficient context"
+            ),
+            Self::WrongSealedCoverPredecessor { cover } => write!(
+                formatter,
+                "sealed cover {cover} was proved against another predecessor authority"
+            ),
             Self::WrongSectorArity {
                 sector,
                 expected,
@@ -77,6 +111,20 @@ impl fmt::Display for StagedSectorClosureError {
             Self::DuplicateSector => {
                 formatter.write_str("a staged closure wave repeats one sector and ordering")
             }
+            Self::ClosureCarrierCountMismatch { expected, actual } => write!(
+                formatter,
+                "a staged closure wave has {actual} closure carriers, expected {expected}"
+            ),
+            Self::DuplicateClosureCarrier => formatter
+                .write_str("a staged closure wave repeats one closure-carrier sector and ordering"),
+            Self::ClosureCarrierScopeMismatch { carrier } => write!(
+                formatter,
+                "staged closure carrier {carrier} does not match its exact sector and ordering"
+            ),
+            Self::InvalidClosureCarrier { carrier } => write!(
+                formatter,
+                "staged closure carrier {carrier} is not a finite origin-anchored subbox of its sector"
+            ),
             Self::PreviewRequiresSingleSector { actual } => write!(
                 formatter,
                 "an exact cover preview requires one staged sector, found {actual}"
@@ -118,6 +166,7 @@ impl fmt::Display for StagedSectorClosureError {
                 "could not reserve {requested} entries for {resource}"
             ),
             Self::Sector(error) => error.fmt(formatter),
+            Self::Geometry(error) => error.fmt(formatter),
             Self::Executable(error) => error.fmt(formatter),
             Self::Registry(error) => error.fmt(formatter),
         }
@@ -128,6 +177,7 @@ impl std::error::Error for StagedSectorClosureError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Sector(error) => Some(error),
+            Self::Geometry(error) => Some(error),
             Self::Executable(error) => Some(error),
             Self::Registry(error) => Some(error),
             _ => None,
@@ -138,6 +188,12 @@ impl std::error::Error for StagedSectorClosureError {
 impl From<SectorError> for StagedSectorClosureError {
     fn from(value: SectorError) -> Self {
         Self::Sector(value)
+    }
+}
+
+impl From<CompletionGeometryError> for StagedSectorClosureError {
+    fn from(value: CompletionGeometryError) -> Self {
+        Self::Geometry(value)
     }
 }
 

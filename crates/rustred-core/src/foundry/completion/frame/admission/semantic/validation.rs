@@ -89,6 +89,16 @@ pub(super) fn validate_candidate(
     if circuit.stratum_id() != partition.stratum_id() {
         return Err(fail("decorated stratum identity differs"));
     }
+    if !circuit
+        .fixed_indices()
+        .iter()
+        .copied()
+        .eq(partition.stratum().singleton_index_assignments())
+    {
+        return Err(fail(
+            "exact quotient coordinates differ from the decorated stratum",
+        ));
+    }
     if circuit.owner_snapshot_id() != partition.snapshot_id() {
         return Err(fail("immutable owner snapshot identity differs"));
     }

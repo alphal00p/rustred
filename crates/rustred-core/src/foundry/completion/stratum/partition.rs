@@ -6,8 +6,8 @@ use crate::sector::{
 use super::super::frame::PhysicalFramePlan;
 use super::{
     DecoratedStratum, DecoratedStratumId, ImmutableOwnerSnapshot, ImmutableOwnerSnapshotId,
-    ImmutableOwnerWitness, StratumRegistryError, StratumRegistryLimits, check_limit, checked_add,
-    checked_mul, try_reserve,
+    ImmutableOwnerWitness, StratumRegistryError, StratumRegistryLimits,
+    VerifiedImmutableOwnerSnapshot, check_limit, checked_add, checked_mul, try_reserve,
 };
 
 /// Why one non-target physical column cannot enter the allowed RHS block.
@@ -103,7 +103,7 @@ impl AllowedColumnDescriptor {
 pub(crate) struct TargetColumnPartition<'frame> {
     frame: &'frame PhysicalFramePlan,
     stratum: DecoratedStratum,
-    owners: ImmutableOwnerSnapshot,
+    owners: VerifiedImmutableOwnerSnapshot,
     target_column: usize,
     ordering: OrderingPolicy,
     allowed: Box<[AllowedColumnDescriptor]>,
@@ -131,7 +131,46 @@ impl<'frame> TargetColumnPartition<'frame> {
                 detail: "incoming immutable owner snapshot failed cold verification",
             });
         }
-        validate_scope(frame, &stratum, &owners, target_column, limits)?;
+        Self::try_new_after_validation(
+            frame,
+            target_column,
+            stratum,
+            owners.verified_clone(),
+            ordering,
+            limits,
+        )
+    }
+
+    /// Build against an already installed immutable owner snapshot without
+    /// replaying its complete route table and identity. The typed wrapper can
+    /// only be minted by the checked snapshot implementation; all stratum,
+    /// frame-scope, descent, owner-lookup, and resource checks remain exact.
+    pub(crate) fn try_new_with_verified_snapshot(
+        frame: &'frame PhysicalFramePlan,
+        target_column: usize,
+        stratum: DecoratedStratum,
+        owners: VerifiedImmutableOwnerSnapshot,
+        ordering: OrderingPolicy,
+        limits: StratumRegistryLimits,
+    ) -> Result<Self, StratumRegistryError> {
+        if !stratum.try_verify(limits)? {
+            return Err(StratumRegistryError::Invariant {
+                detail: "incoming decorated stratum failed cold verification",
+            });
+        }
+        owners.try_preflight_limits(limits)?;
+        Self::try_new_after_validation(frame, target_column, stratum, owners, ordering, limits)
+    }
+
+    fn try_new_after_validation(
+        frame: &'frame PhysicalFramePlan,
+        target_column: usize,
+        stratum: DecoratedStratum,
+        owners: VerifiedImmutableOwnerSnapshot,
+        ordering: OrderingPolicy,
+        limits: StratumRegistryLimits,
+    ) -> Result<Self, StratumRegistryError> {
+        validate_scope(frame, &stratum, owners.snapshot(), target_column, limits)?;
         let pivot = frame.columns()[target_column].values();
         validate_pivot(ordering, stratum.domain(), pivot)?;
 
@@ -320,7 +359,7 @@ impl<'frame> TargetColumnPartition<'frame> {
     }
 
     pub(crate) const fn snapshot_id(&self) -> &ImmutableOwnerSnapshotId {
-        self.owners.id()
+        self.owners.snapshot().id()
     }
 
     pub(crate) const fn ordering(&self) -> OrderingPolicy {
@@ -454,7 +493,7 @@ impl<'frame> TargetColumnPartition<'frame> {
             self.frame,
             self.target_column,
             self.stratum.clone(),
-            self.owners.clone(),
+            self.owners.snapshot().clone(),
             self.ordering,
             self.limits,
         )?;

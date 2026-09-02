@@ -4,7 +4,7 @@ use std::collections::{BTreeSet, HashSet};
 use super::super::ordering::RUSTRED_UNSHIFTED_ORDER_V1_ID;
 use super::super::{
     ComplexityComponent, CoordinatePriority, CoordinatePriorityError, CoordinatePriorityLimits,
-    Error, OrderingPolicy,
+    Error, Mask, OrderingPolicy, SectorInteriorDomain,
 };
 use super::support::all_indices;
 
@@ -13,7 +13,7 @@ fn complexity_key_is_injective_strict_and_has_stable_id_and_display() {
     let policy = OrderingPolicy::RustRedUnshiftedV1;
     assert_eq!(policy.stable_id(), RUSTRED_UNSHIFTED_ORDER_V1_ID);
     assert_eq!(
-        OrderingPolicy::try_from_stable_id(policy.stable_id()).unwrap(),
+        OrderingPolicy::try_from_stable_id(&policy.stable_id()).unwrap(),
         policy
     );
     assert!(matches!(
@@ -216,6 +216,108 @@ fn malformed_coordinate_priorities_and_unbounded_requests_fail_closed() {
             resource: "stable identity bytes",
             requested: 53,
             limit: 52,
+        })
+    );
+}
+
+#[test]
+fn coordinate_priority_policy_round_trips_and_proves_the_reversed_tie_break() {
+    let limits = CoordinatePriorityLimits::default();
+    let winner = CoordinatePriority::try_new(6, &[5, 3, 4, 2, 0, 1], limits).unwrap();
+    let policy = OrderingPolicy::try_with_coordinate_priority(&winner).unwrap();
+    let stable = "rustred.unshifted-sector-order.v1;priority=rustred.coordinate-priority.v1;k=6;rank-by-slot=5,3,4,2,0,1";
+    assert_eq!(policy.stable_id(), stable);
+    assert_eq!(OrderingPolicy::try_from_stable_id(stable).unwrap(), policy);
+    assert_eq!(
+        policy
+            .try_coordinate_priority()
+            .unwrap()
+            .unwrap()
+            .rank_by_slot(),
+        winner.rank_by_slot()
+    );
+
+    // All components before per-coordinate excess agree. Natural v1 sees
+    // slot zero first; the custom policy sees slot one before slot zero.
+    let slot_zero_dot = [2, 1, 1, 1, 1, 1];
+    let slot_one_dot = [1, 2, 1, 1, 1, 1];
+    assert_eq!(
+        OrderingPolicy::RustRedUnshiftedV1
+            .compare(&slot_zero_dot, &slot_one_dot)
+            .unwrap(),
+        Ordering::Greater
+    );
+    assert_eq!(
+        policy.compare(&slot_zero_dot, &slot_one_dot).unwrap(),
+        Ordering::Less
+    );
+    let witness = policy
+        .prove_strict_descent(&slot_one_dot, &slot_zero_dot)
+        .unwrap();
+    assert_eq!(
+        witness.decisive_component(),
+        ComplexityComponent::IndexExcess { position: 1 }
+    );
+    assert!(witness.verify());
+
+    let sector = Mask::try_new([true; 6]).unwrap();
+    let source_shift = [0, 1, 0, 0, 0, 0];
+    let target_shift = [1, 0, 0, 0, 0, 0];
+    let domain =
+        SectorInteriorDomain::try_maximal_for_shifts(sector, &[source_shift, target_shift])
+            .unwrap();
+    let shift_witness = policy
+        .prove_shift_strict_descent(&domain, &source_shift, &target_shift)
+        .unwrap();
+    assert_eq!(
+        shift_witness.decisive_component(),
+        ComplexityComponent::IndexExcess { position: 1 }
+    );
+    assert!(shift_witness.verify());
+}
+
+#[test]
+fn coordinate_priority_policy_has_one_canonical_identity_and_checked_arity() {
+    let limits = CoordinatePriorityLimits::default();
+    let natural = CoordinatePriority::try_natural(6, limits).unwrap();
+    assert_eq!(
+        OrderingPolicy::try_with_coordinate_priority(&natural).unwrap(),
+        OrderingPolicy::RustRedUnshiftedV1
+    );
+    assert_eq!(
+        OrderingPolicy::try_with_coordinate_priority(&natural)
+            .unwrap()
+            .stable_id(),
+        RUSTRED_UNSHIFTED_ORDER_V1_ID
+    );
+    assert!(matches!(
+        OrderingPolicy::try_from_stable_id(
+            "rustred.unshifted-sector-order.v1;priority=rustred.coordinate-priority.v1;k=6;rank-by-slot=0,1,2,3,4,5"
+        ),
+        Err(Error::UnknownOrderingPolicy { .. })
+    ));
+
+    let changed = CoordinatePriority::try_new(6, &[5, 3, 4, 2, 0, 1], limits).unwrap();
+    let policy = OrderingPolicy::try_with_coordinate_priority(&changed).unwrap();
+    assert_eq!(
+        policy.complexity_key(&[1; 5]),
+        Err(Error::WrongArity {
+            expected: 6,
+            actual: 5,
+        })
+    );
+
+    let too_wide = CoordinatePriority::try_new(
+        35,
+        &(0..35).rev().collect::<Vec<_>>(),
+        CoordinatePriorityLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        OrderingPolicy::try_with_coordinate_priority(&too_wide),
+        Err(Error::OrderingPriorityArityLimit {
+            actual: 35,
+            limit: 34,
         })
     );
 }

@@ -1,4 +1,4 @@
-//! Exact active-edge momentum rank for the test-only K=6 pressure family.
+//! Exact active-edge momentum rank for the authenticated K=6 campaign family.
 
 use crate::algebra::matrix::{
     SymbolicaCoefficientMatrixError, SymbolicaCoefficientMatrixLimits, rank_of_coefficient_matrix,

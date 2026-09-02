@@ -13,7 +13,7 @@ use super::{ComplexityComponent, Mask, OrderingPolicy, SectorInteriorDomain};
 /// candidate. This key retains precisely the remaining signed offsets, in the
 /// v1 comparison order: corner distance, dots, numerators, then coordinate
 /// excess.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ShiftComplexityKey {
     policy: OrderingPolicy,
     arity: usize,
@@ -22,6 +22,33 @@ pub struct ShiftComplexityKey {
     dot_offset: i128,
     numerator_offset: i128,
     index_excess_offsets: Arc<Vec<i128>>,
+}
+
+impl PartialOrd for ShiftComplexityKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ShiftComplexityKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.policy
+            .cmp(&other.policy)
+            .then_with(|| self.arity.cmp(&other.arity))
+            .then_with(|| self.sector.cmp(&other.sector))
+            .then_with(|| {
+                self.corner_distance_offset
+                    .cmp(&other.corner_distance_offset)
+            })
+            .then_with(|| self.dot_offset.cmp(&other.dot_offset))
+            .then_with(|| self.numerator_offset.cmp(&other.numerator_offset))
+            .then_with(|| {
+                self.policy.compare_coordinate_slices(
+                    self.index_excess_offsets.as_slice(),
+                    other.index_excess_offsets.as_slice(),
+                )
+            })
+    }
 }
 
 impl ShiftComplexityKey {
@@ -207,6 +234,7 @@ impl OrderingPolicy {
         sector: &Mask,
         shift: &[i64],
     ) -> Result<ShiftComplexityKey, Error> {
+        self.require_arity(sector.arity())?;
         if shift.len() != sector.arity() {
             return Err(Error::WrongArity {
                 expected: sector.arity(),
@@ -335,9 +363,10 @@ fn first_differing_component(
         return Some(ComplexityComponent::NumeratorPower);
     }
     source
-        .index_excess_offsets
-        .iter()
-        .zip(target.index_excess_offsets.iter())
-        .position(|(left, right)| left != right)
+        .policy
+        .first_differing_coordinate(
+            source.index_excess_offsets.as_slice(),
+            target.index_excess_offsets.as_slice(),
+        )
         .map(|position| ComplexityComponent::IndexExcess { position })
 }

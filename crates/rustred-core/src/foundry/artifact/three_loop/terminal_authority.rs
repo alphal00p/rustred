@@ -1,8 +1,9 @@
-//! Production-sealed terminal authority for the test-only K=6 pressure family.
+//! Production-sealed terminal authority for the K=6 campaign family.
 //!
 //! This fixture deliberately proves no ordinary-rule closure. It owns only
-//! exact zero sectors, compiled lower-family factorizations, and the typed
-//! parent-family terminals reached by those factorizations.
+//! exact zero sectors, compiled lower-family factorizations, the typed
+//! parent-family terminals reached by those factorizations, and a small
+//! intentional manifest of provisional same-family numerical masters.
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, OnceLock};
@@ -16,12 +17,13 @@ use crate::foundry::artifact::one_loop::derive_one_loop_unit_mass_tadpole;
 use crate::foundry::artifact::two_loop::derive_two_loop_unit_mass_sunset;
 use crate::foundry::artifact::{ArtifactError, ClosedTerminalAuthority};
 use crate::identity::{ParametricIbpConfig, ParametricIbpGenerator};
+use crate::sector::OrderingPolicy;
 
 use super::factorization::factorization_rules;
 use super::terminals::exact_zero_sectors;
-use super::{canonical_family, canonical_s4};
+use super::{FULL_RANK_ORBITS, canonical_family, canonical_s4, canonical_s4_with_ordering};
 
-const AUTHORITY_ID: &str = "rustred.test.three-loop-k6-terminal-authority.v1";
+const AUTHORITY_ID: &str = "rustred.three-loop-unit-mass-vacuum-k6.terminal-authority.v1";
 static AUTHORITY: OnceLock<Result<Arc<ClosedTerminalAuthority>, ArtifactError>> = OnceLock::new();
 
 /// Install the K=6 terminal registry through the same exact generic proof
@@ -48,9 +50,28 @@ fn build_k6_terminal_authority() -> Result<Arc<ClosedTerminalAuthority>, Artifac
     install_terminal_authority(k6_candidate()?).map(Arc::new)
 }
 
+/// Install an uncached K6 terminal registry under the exact ordering used by
+/// an executable rule owner.  This keeps symmetry representatives,
+/// factorization embeddings, and recurrence descent coherent.
+pub(crate) fn derive_k6_terminal_authority_with_ordering(
+    ordering: OrderingPolicy,
+) -> Result<ClosedTerminalAuthority, ArtifactError> {
+    install_terminal_authority(k6_candidate_with_ordering(ordering)?)
+}
+
 fn k6_candidate() -> Result<TerminalAuthorityCandidate, ArtifactError> {
+    k6_candidate_with_ordering(OrderingPolicy::default())
+}
+
+fn k6_candidate_with_ordering(
+    ordering: OrderingPolicy,
+) -> Result<TerminalAuthorityCandidate, ArtifactError> {
     let family = canonical_family()?;
-    let canonicalizer = canonical_s4(&family)?;
+    let canonicalizer = if ordering == OrderingPolicy::default() {
+        canonical_s4(&family)?
+    } else {
+        canonical_s4_with_ordering(&family, ordering)?
+    };
     let generator =
         ParametricIbpGenerator::try_new_with_config(&family, ParametricIbpConfig::default())?;
     let context = generator.context().clone();
@@ -72,11 +93,27 @@ fn k6_candidate() -> Result<TerminalAuthorityCandidate, ArtifactError> {
         Box::new(derive_one_loop_unit_mass_tadpole()?),
     ];
     let factorization_rules = factorization_rules(&family)?;
-    let parent_terminals = BTreeSet::from([
+    let parent_terminals = [
         IntegralKey::try_new([0, 0, 1, 0, 1, 1])?,
         IntegralKey::try_new([0, 0, 1, 1, 0, 1])?,
         IntegralKey::try_new([0, 0, 1, 1, 1, 1])?,
-    ]);
+    ]
+    .into_iter()
+    .map(|terminal| {
+        canonicalizer
+            .canonicalize(&terminal)
+            .map(|canonical| canonical.canonical().clone())
+            .map_err(ArtifactError::from)
+    })
+    .collect::<Result<BTreeSet<_>, _>>()?;
+    // The first three full-rank orbit corners are exact factorization images.
+    // The remaining irreducible corners are an explicit, provisional
+    // numerical-master policy: only these finite scalar points terminate,
+    // never their arbitrary-power sectors.
+    let declared_master_terminals = FULL_RANK_ORBITS[3..]
+        .iter()
+        .map(|orbit| IntegralKey::try_new(orbit.representative))
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(TerminalAuthorityCandidate {
         schema: ArtifactSchemaVersion::CURRENT,
@@ -88,7 +125,9 @@ fn k6_candidate() -> Result<TerminalAuthorityCandidate, ArtifactError> {
         dependencies,
         factorization_rules,
         parent_terminals,
+        declared_master_terminals,
         zero_sectors,
+        expected_ordering: ordering,
     })
 }
 
@@ -100,8 +139,59 @@ mod tests {
 
     use super::k6_candidate;
 
+    fn winner_ordering() -> crate::sector::OrderingPolicy {
+        let priority =
+            crate::sector::CoordinatePriority::try_new(6, &[5, 3, 4, 2, 0, 1], Default::default())
+                .unwrap();
+        crate::sector::OrderingPolicy::try_with_coordinate_priority(&priority).unwrap()
+    }
+
     #[test]
-    fn k6_terminal_manifest_is_exactly_the_compiled_factorization_image() {
+    fn custom_ordering_coherently_remaps_all_k6_terminal_orbits() {
+        let authority = super::derive_k6_terminal_authority_with_ordering(winner_ordering())
+            .expect("winner-order K6 terminal authority must install");
+        assert_eq!(authority.master_terminal_count(), 6);
+        assert_eq!(
+            authority.canonicalizer().unwrap().ordering(),
+            winner_ordering()
+        );
+
+        // Five terminal cells left unmatched by the executable FORM geometry,
+        // transported from AlphaLoop slots into RustRed's family slots.
+        let alpha_source_for_rust_target = [0, 2, 1, 3, 5, 4];
+        let alpha = [
+            [0, 0, 1, 0, 1, 1],
+            [0, 0, 1, 1, 1, 1],
+            [0, 1, 1, 1, 0, 1],
+            [0, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 1],
+        ];
+        for powers in alpha {
+            let rust = std::array::from_fn::<_, 6, _>(|target| {
+                powers[alpha_source_for_rust_target[target]]
+            });
+            let key = IntegralKey::try_new(rust).unwrap();
+            let canonical = authority
+                .canonicalizer()
+                .unwrap()
+                .canonicalize(&key)
+                .unwrap()
+                .canonical()
+                .clone();
+            let classified = authority
+                .master_terminals()
+                .any(|master| master == &canonical)
+                || authority.factorization_rules().iter().any(|rule| {
+                    rule.application_domain()
+                        .contains(canonical.powers())
+                        .unwrap()
+                });
+            assert!(classified, "unclassified FORM terminal alias {rust:?}");
+        }
+    }
+
+    #[test]
+    fn k6_factorization_manifest_remains_exactly_the_compiled_image() {
         let mut extra = k6_candidate().unwrap();
         extra
             .parent_terminals
@@ -121,5 +211,110 @@ mod tests {
             install_terminal_authority(missing),
             Err(ArtifactError::InvalidFactorization { .. })
         ));
+    }
+
+    #[test]
+    fn k6_declared_manifest_is_the_three_nonfactorizing_full_rank_corners() {
+        let authority = install_terminal_authority(k6_candidate().unwrap()).unwrap();
+        assert_eq!(
+            authority
+                .declared_master_manifest()
+                .terminals()
+                .iter()
+                .map(|terminal| terminal.powers())
+                .collect::<Vec<_>>(),
+            [
+                &[0, 1, 1, 1, 1, 0][..],
+                &[0, 1, 1, 1, 1, 1][..],
+                &[1, 1, 1, 1, 1, 1][..],
+            ]
+        );
+        assert_eq!(authority.parent_terminals().len(), 3);
+        assert_eq!(authority.master_terminal_count(), 6);
+    }
+
+    #[test]
+    fn declared_manifest_rejects_bad_bindings_and_orbit_duplicates() {
+        let mut wrong_arity = k6_candidate().unwrap();
+        wrong_arity
+            .declared_master_terminals
+            .push(IntegralKey::try_new([1]).unwrap());
+        assert_eq!(
+            install_terminal_authority(wrong_arity).unwrap_err(),
+            ArtifactError::WrongArity {
+                expected: 6,
+                actual: 1,
+            }
+        );
+
+        let mut zero = k6_candidate().unwrap();
+        zero.declared_master_terminals
+            .push(IntegralKey::try_new([0; 6]).unwrap());
+        assert_eq!(
+            install_terminal_authority(zero).unwrap_err(),
+            ArtifactError::InvalidDeclaredMasterManifest {
+                detail: "a declared master belongs to an authenticated zero sector",
+            }
+        );
+
+        let mut factorization_duplicate = k6_candidate().unwrap();
+        factorization_duplicate
+            .declared_master_terminals
+            .push(IntegralKey::try_new([0, 0, 1, 0, 1, 1]).unwrap());
+        assert_eq!(
+            install_terminal_authority(factorization_duplicate).unwrap_err(),
+            ArtifactError::InvalidDeclaredMasterManifest {
+                detail: "a declared master duplicates a factorization-image terminal",
+            }
+        );
+
+        let mut orbit_duplicate = k6_candidate().unwrap();
+        let representative = orbit_duplicate.declared_master_terminals[0].clone();
+        let image = orbit_duplicate
+            .canonicalizer
+            .as_ref()
+            .unwrap()
+            .orbit(&representative)
+            .unwrap()
+            .images()
+            .iter()
+            .find(|image| image.integral() != &representative)
+            .unwrap()
+            .integral()
+            .clone();
+        orbit_duplicate.declared_master_terminals.push(image);
+        assert_eq!(
+            install_terminal_authority(orbit_duplicate).unwrap_err(),
+            ArtifactError::InvalidDeclaredMasterManifest {
+                detail: "declared masters contain duplicate symmetry-orbit representatives",
+            }
+        );
+    }
+
+    #[test]
+    fn declared_manifest_installation_is_representative_and_order_deterministic() {
+        let mut first = k6_candidate().unwrap();
+        first.declared_master_terminals.reverse();
+
+        let mut second = k6_candidate().unwrap();
+        let canonicalizer = second.canonicalizer.as_ref().unwrap();
+        for terminal in &mut second.declared_master_terminals {
+            let image = canonicalizer
+                .orbit(terminal)
+                .unwrap()
+                .images()
+                .last()
+                .unwrap()
+                .integral()
+                .clone();
+            *terminal = image;
+        }
+
+        let first = install_terminal_authority(first).unwrap();
+        let second = install_terminal_authority(second).unwrap();
+        assert_eq!(
+            first.declared_master_manifest(),
+            second.declared_master_manifest()
+        );
     }
 }

@@ -75,6 +75,9 @@ impl StagedSectorClosureStopEvidence {
 /// Normal exact reason why a staged sector cannot enter the wave.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum StagedSectorClosureStop {
+    /// The staged sector has no executable rewrite owner. Explicit point
+    /// terminals alone do not constitute a solved rewrite layer.
+    NoExecutableOwners(StagedSectorClosureStopEvidence),
     NonFinite(StagedSectorClosureStopEvidence),
     GuardIncomplete(StagedSectorClosureStopEvidence),
     FiniteTerminalOwnership(StagedSectorClosureStopEvidence),
@@ -83,7 +86,8 @@ pub(crate) enum StagedSectorClosureStop {
 impl StagedSectorClosureStop {
     pub(crate) const fn evidence(&self) -> &StagedSectorClosureStopEvidence {
         match self {
-            Self::NonFinite(evidence)
+            Self::NoExecutableOwners(evidence)
+            | Self::NonFinite(evidence)
             | Self::GuardIncomplete(evidence)
             | Self::FiniteTerminalOwnership(evidence) => evidence,
         }
