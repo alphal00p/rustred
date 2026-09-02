@@ -48,19 +48,22 @@ Development is divided into two hard-gated stages:
   tensor numerators use the collaborator-supplied, FORM-less FeynKit tensor
   reducer before the RustRed scalar backend. The accepted Stage 1 stack must
   therefore remain FORM-less end to end.
-- **Stage 2 artifact production is deferred and must not start without new
-  user guidance:** do not develop or enhance tensor reduction beyond consuming
-  the existing FeynKit implementation, and do not publish four- through
-  six-loop closure artifacts. The current user direction does authorize deep algorithm
-  research and bounded, falsifiable studies over the complete four-, five-,
-  and six-loop single-scale vacuum family manifests during Stage 1. These
+- **Stage 2 is now explicitly authorized after Stage 1 is complete (2026-09-02):**
+  finish the Stage 1 K6 artifact and Vakint through-three-loop acceptance gate
+  first, then continue directly into advanced tensor integration, four- through
+  six-loop closure production, and the required high-loop execution
+  infrastructure. Deep algorithm research and bounded, falsifiable studies
+  over the complete four-, five-, and six-loop single-scale vacuum family
+  manifests remain authorized during Stage 1. These
   studies must freeze and authenticate their complete family census, report
   every censored or unresolved member, and keep modular discovery evidence
   distinct from exact closure authority. LiteRed2 is a
   correctness baseline rather than an architecture target: candidate methods
   must be judged creatively against the eventual six-loop scaling problem,
   with independent research and adversarial viability audits. This permission
-  does not authorize claiming or producing a four- through six-loop artifact.
+  does not authorize claiming a four- through six-loop artifact before its
+  exact publication gates pass; it no longer requires another permission step
+  once Stage 1 is complete.
 
 The existing experimental RustRed tensor service is frozen. The obsolete
 GammaLoop RustRed-tensor commits are excluded from the rebased
@@ -1015,7 +1018,8 @@ coverage proving that the historical spelling still evaluates identically.
 6. Pass all applicable single-scale Vakint acceptance tests through three
    loops, then benchmark and profile optimized warm RustRed scalar reduction
    against equivalent AlphaLoop/MATAD workloads. Address material regressions,
-   update documentation, commit and push both repositories, then pause.
+   update documentation, commit and push both repositories, then begin the
+   already-authorized Stage 2 work.
 
 Acceptance requires:
 
@@ -1053,13 +1057,16 @@ Acceptance requires:
 
 PySecDec comparisons are optional, non-gating corroboration.
 
-## Stage 2 production — deferred; complete-family scaling studies authorized
+## Stage 2 production — authorized after the Stage 1 gate
 
-Stage 2 preserves the long-term ambition from the historical preamble, but no
-four- through six-loop artifact production or unbounded high-loop closure
-campaign may begin without explicit user permission and the promised guidance
-on advanced rank-generic tensor technology. The already available FeynKit
-tensor reducer is part of Stage 1 and does not lift that gate. During Stage 1,
+Stage 2 preserves the long-term ambition from the historical preamble and is
+now explicitly authorized to begin immediately after the complete Stage 1
+acceptance gate. No further permission pause is required. The already
+available FeynKit tensor reducer remains the Stage 1 tensor path; Stage 2 may
+integrate the collaborator's advanced rank-generic tensor technology once its
+concrete implementation is available, or continue with independently audited
+Rust-plus-Symbolica work that does not duplicate an unavailable CAS primitive.
+During Stage 1,
 the winning IBP-foundry candidate may already be studied on the **complete
 authenticated** four-, five-, and six-loop single-scale vacuum manifests. Each
 study is bounded,
@@ -1130,8 +1137,9 @@ architecture is documented and killed or retained explicitly.
 
 Do not claim Stage 1 complete until all three artifacts cover the frozen
 through-three-loop manifest and the Vakint RustRed scalar backend reproduces
-the applicable acceptance suite. At that point, pause; do not roll directly
-into Stage 2.
+the applicable acceptance suite. Once that gate passes, record and push the
+milestone, then proceed directly into Stage 2 without pausing for another
+authorization.
 
 ## Stable project documentation
 
@@ -1160,6 +1168,8 @@ into Stage 2.
 - [Blind-domain-guided Janet closure synthesis](docs/research/blind_domain_janet_closure_2026.md)
 - [Janet/Ore proposal integration seam](docs/research/janet_ore_integration_seam_2026.md)
 - [K6 Janet/Ore bounded release study](docs/research/k6_janet_ore_release_study_2026-09-02.md)
+- [K6 Janet incremental-epoch and copy-on-write audit](docs/research/k6_janet_incremental_epoch_audit_2026-09-02.md)
+- [K6 Janet modular scheduling and fraction-free replay design](docs/research/k6_janet_modular_fraction_free_design_2026-09-02.md)
 - [Audited factorized product-angular owner design](docs/research/factorized_product_angular_owner_2026.md)
 - [Sector-local coordinate charts as a K6 search preconditioner](docs/research/sector_local_coordinate_chart_2026.md)
 - [Audited K6 boundary-walk observations](docs/research/k6_boundary_walk_2026.md)

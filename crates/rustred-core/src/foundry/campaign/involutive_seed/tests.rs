@@ -18,7 +18,7 @@ use crate::foundry::completion::{
     CompletionGeometryError, CompletionGeometryLimits, LatticeCardinality,
 };
 use crate::identity::{CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator};
-use crate::sector::{Mask, OrderingPolicy};
+use crate::sector::{CoordinatePriority, Mask, OrderingPolicy};
 
 use super::super::requested::K6_REQUESTED_DOMAIN_SCOPE_KEY;
 use super::run::try_convert_basis_leaders_for_test;
@@ -305,6 +305,8 @@ fn report_exhaustively_contains_only_support_diagnostics_and_scalar_census() {
             autoreduction_passes: 1,
             autoreduction_normal_form_steps: 0,
             autoreduction_dropped_rows: 0,
+            autoreduction_shared_rows: 1,
+            autoreduction_materialized_rows: 0,
             proposed_support_domains: 1,
             unique_support_domains: 1,
             raw_support_entries: 1,
@@ -317,10 +319,14 @@ fn report_exhaustively_contains_only_support_diagnostics_and_scalar_census() {
             retained_bytes: 0,
         },
         work: InvolutiveSeedWorkCensus {
+            divisor_index_build_operations: 0,
+            divisor_index_query_operations: 0,
             normal_form_steps: 0,
             normal_form_divisor_visits: 0,
             normal_form_trace_bytes: 0,
             autoreduction_passes: 1,
+            autoreduction_shared_rows: 1,
+            autoreduction_materialized_rows: 0,
             completion_iterations: 0,
             exact_coefficient_operations: 0,
         },
@@ -361,6 +367,8 @@ fn report_exhaustively_contains_only_support_diagnostics_and_scalar_census() {
         autoreduction_passes,
         autoreduction_normal_form_steps,
         autoreduction_dropped_rows,
+        autoreduction_shared_rows,
+        autoreduction_materialized_rows,
         proposed_support_domains,
         unique_support_domains,
         raw_support_entries,
@@ -373,10 +381,14 @@ fn report_exhaustively_contains_only_support_diagnostics_and_scalar_census() {
         retained_bytes,
     } = localization;
     let InvolutiveSeedWorkCensus {
+        divisor_index_build_operations,
+        divisor_index_query_operations,
         normal_form_steps,
         normal_form_divisor_visits,
         normal_form_trace_bytes,
         autoreduction_passes: cumulative_autoreduction_passes,
+        autoreduction_shared_rows: cumulative_autoreduction_shared_rows,
+        autoreduction_materialized_rows: cumulative_autoreduction_materialized_rows,
         completion_iterations,
         exact_coefficient_operations,
     } = work;
@@ -393,14 +405,18 @@ fn report_exhaustively_contains_only_support_diagnostics_and_scalar_census() {
     );
     assert_eq!(
         (
+            divisor_index_build_operations,
+            divisor_index_query_operations,
             normal_form_steps,
             normal_form_divisor_visits,
             normal_form_trace_bytes,
             cumulative_autoreduction_passes,
+            cumulative_autoreduction_shared_rows,
+            cumulative_autoreduction_materialized_rows,
             completion_iterations,
             exact_coefficient_operations,
         ),
-        (0, 0, 0, 1, 0, 0)
+        (0, 0, 0, 0, 0, 1, 1, 0, 0, 0)
     );
     assert_eq!(
         (
@@ -431,12 +447,14 @@ fn report_exhaustively_contains_only_support_diagnostics_and_scalar_census() {
             autoreduction_passes,
             autoreduction_normal_form_steps,
             autoreduction_dropped_rows,
+            autoreduction_shared_rows,
+            autoreduction_materialized_rows,
             proposed_support_domains,
             unique_support_domains,
             raw_support_entries,
             unique_support_entries,
         ),
-        (1, 0, 0, 1, 1, 1, 1)
+        (1, 0, 0, 1, 0, 1, 1, 1, 1)
     );
 }
 
@@ -774,6 +792,8 @@ struct K6SeedHarnessManifestEntry {
 
 const K6_BASELINE_DIVISOR_VISITS: usize = 262_144;
 const K6_DIAGNOSTIC_TIER_ENV: &str = "RUSTRED_K6_JANET_DIAGNOSTIC_TIER";
+const K6_DIAGNOSTIC_ORDERING_ENV: &str = "RUSTRED_K6_JANET_RANK_BY_SLOT";
+const K6_AUTONOMOUS_WINNER_RANK_BY_SLOT: [usize; 6] = [5, 3, 4, 2, 0, 1];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum K6JanetDiagnosticTier {
@@ -845,6 +865,42 @@ fn try_parse_k6_u16(name: &'static str, value: &str) -> Result<u16, String> {
     u16::try_from(parsed).map_err(|_| format!("{name}={value:?} exceeds u16"))
 }
 
+fn try_parse_k6_diagnostic_ordering(value: Option<&str>) -> Result<OrderingPolicy, String> {
+    let Some(value) = value else {
+        return Ok(OrderingPolicy::default());
+    };
+    let ranks = match value {
+        "natural" => return Ok(OrderingPolicy::default()),
+        "autonomous-winner" => K6_AUTONOMOUS_WINNER_RANK_BY_SLOT.to_vec(),
+        _ => {
+            let fields = value.split(',').collect::<Vec<_>>();
+            if fields.len() != 6 {
+                return Err(format!(
+                    "{K6_DIAGNOSTIC_ORDERING_ENV}={value:?} must be natural, autonomous-winner, or six comma-separated ranks"
+                ));
+            }
+            fields
+                .into_iter()
+                .map(|field| try_parse_k6_usize(K6_DIAGNOSTIC_ORDERING_ENV, field))
+                .collect::<Result<Vec<_>, _>>()?
+        }
+    };
+    let priority = CoordinatePriority::try_new(6, &ranks, Default::default())
+        .map_err(|error| format!("invalid {K6_DIAGNOSTIC_ORDERING_ENV}={value:?}: {error}"))?;
+    OrderingPolicy::try_with_coordinate_priority(&priority)
+        .map_err(|error| format!("invalid {K6_DIAGNOSTIC_ORDERING_ENV}={value:?}: {error}"))
+}
+
+fn try_k6_diagnostic_ordering_from_environment() -> Result<OrderingPolicy, String> {
+    match std::env::var(K6_DIAGNOSTIC_ORDERING_ENV) {
+        Ok(value) => try_parse_k6_diagnostic_ordering(Some(value.as_str())),
+        Err(std::env::VarError::NotPresent) => try_parse_k6_diagnostic_ordering(None),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            Err(format!("{K6_DIAGNOSTIC_ORDERING_ENV} is not valid UTF-8"))
+        }
+    }
+}
+
 fn try_k6_env_usize(name: &'static str, current: usize) -> Result<usize, String> {
     match std::env::var(name) {
         Ok(value) => try_parse_k6_usize(name, value.as_str()),
@@ -895,8 +951,37 @@ fn k6_release_diagnostic_tiers_are_explicit_and_bounded() {
     assert!(try_parse_k6_u64("TEST", &(u64::MAX as u128 + 1).to_string()).is_err());
     assert!(try_parse_k6_u16("TEST", &(u16::MAX as u128 + 1).to_string()).is_err());
 
+    assert_eq!(
+        try_parse_k6_diagnostic_ordering(None).unwrap(),
+        OrderingPolicy::default()
+    );
+    assert_eq!(
+        try_parse_k6_diagnostic_ordering(Some("natural")).unwrap(),
+        OrderingPolicy::default()
+    );
+    let autonomous = try_parse_k6_diagnostic_ordering(Some("autonomous-winner")).unwrap();
+    assert_eq!(
+        autonomous
+            .try_coordinate_priority()
+            .unwrap()
+            .unwrap()
+            .rank_by_slot(),
+        K6_AUTONOMOUS_WINNER_RANK_BY_SLOT
+    );
+    assert_eq!(
+        try_parse_k6_diagnostic_ordering(Some("5,3,4,2,0,1")).unwrap(),
+        autonomous
+    );
+    assert!(try_parse_k6_diagnostic_ordering(Some("0,1,2")).is_err());
+    assert!(try_parse_k6_diagnostic_ordering(Some("0,1,2,3,4,4")).is_err());
+
     let study = k6_release_study_profile();
     let involutive = study.involutive();
+    assert_eq!(involutive.max_divisor_index_retained_bytes, 536_870_912);
+    assert_eq!(involutive.max_divisor_index_build_scratch_bytes, 67_108_864);
+    assert_eq!(involutive.max_divisor_index_scratch_bytes, 1_048_576);
+    assert_eq!(involutive.max_divisor_index_build_operations, 1_000_000_000);
+    assert_eq!(involutive.max_divisor_index_query_operations, 4_000_000_000);
     assert_eq!(involutive.max_normal_form_divisor_visits, 67_108_864);
     assert_eq!(involutive.max_completion_iterations, 16_384);
     assert_eq!(involutive.max_epoch, 4_096);
@@ -1172,12 +1257,14 @@ fn try_run_release_k6_seed_bounded_profile(
     try_run_release_k6_seed_profile(
         orbit_index,
         k6_release_baseline_profile(K6_BASELINE_DIVISOR_VISITS),
+        OrderingPolicy::default(),
     )
 }
 
 fn try_run_release_k6_seed_profile(
     orbit_index: usize,
     profile: InvolutiveSeedLimits,
+    ordering: OrderingPolicy,
 ) -> Result<InvolutiveSeedReport, InvolutiveSeedError> {
     assert_k6_seed_harness_manifest();
     let expected = K6_SEED_HARNESS_MANIFEST
@@ -1190,7 +1277,7 @@ fn try_run_release_k6_seed_profile(
     let program = InvolutiveSeedProgram::try_new(
         K6_REQUESTED_DOMAIN_SCOPE_KEY,
         sector,
-        OrderingPolicy::default(),
+        ordering,
         inputs.completed(),
         involutive,
     )
@@ -1226,6 +1313,11 @@ fn k6_release_baseline_profile(max_normal_form_divisor_visits: usize) -> Involut
         max_mask_prefix_comparisons: 65_536,
         max_mask_sort_coordinate_comparisons: 65_536,
         max_mask_retained_bytes: 1_048_576,
+        max_divisor_index_retained_bytes: 8_388_608,
+        max_divisor_index_build_scratch_bytes: 1_048_576,
+        max_divisor_index_scratch_bytes: 1_048_576,
+        max_divisor_index_build_operations: 67_108_864,
+        max_divisor_index_query_operations: 1_000_000_000,
         max_prolongations: 768,
         max_prolongation_coordinate_cells: 4_608,
         max_prolongation_retained_bytes: 1_048_576,
@@ -1242,6 +1334,10 @@ fn k6_release_baseline_profile(max_normal_form_divisor_visits: usize) -> Involut
         max_normal_form_trace_bytes: 8_388_608,
         max_completion_iterations: 256,
         max_autoreduction_passes: 64,
+        // Both counters are cumulative across every successor autoreduction in
+        // the campaign, rather than per pass or per epoch.
+        max_autoreduction_shared_rows: 1_000_000_000,
+        max_autoreduction_materialized_rows: 1_000_000_000,
         max_exact_coefficient_operations: 1_048_576,
         indexed_algebra: Default::default(),
     };
@@ -1317,6 +1413,11 @@ fn k6_release_study_profile() -> InvolutiveSeedLimits {
     involutive.max_mask_prefix_comparisons = 16_777_216;
     involutive.max_mask_sort_coordinate_comparisons = 16_777_216;
     involutive.max_mask_retained_bytes = 67_108_864;
+    involutive.max_divisor_index_retained_bytes = 536_870_912;
+    involutive.max_divisor_index_build_scratch_bytes = 67_108_864;
+    involutive.max_divisor_index_scratch_bytes = 1_048_576;
+    involutive.max_divisor_index_build_operations = 1_000_000_000;
+    involutive.max_divisor_index_query_operations = 4_000_000_000;
     involutive.max_prolongations = 24_576;
     involutive.max_prolongation_coordinate_cells = 147_456;
     involutive.max_prolongation_retained_bytes = 268_435_456;
@@ -1397,6 +1498,26 @@ fn try_k6_release_diagnostic_profile(
     }
 
     let involutive = &mut profile.chart_lift.involutive;
+    usize_override!(
+        "MAX_DIVISOR_INDEX_RETAINED_BYTES",
+        involutive.max_divisor_index_retained_bytes
+    );
+    usize_override!(
+        "MAX_DIVISOR_INDEX_BUILD_SCRATCH_BYTES",
+        involutive.max_divisor_index_build_scratch_bytes
+    );
+    usize_override!(
+        "MAX_DIVISOR_INDEX_SCRATCH_BYTES",
+        involutive.max_divisor_index_scratch_bytes
+    );
+    usize_override!(
+        "MAX_DIVISOR_INDEX_BUILD_OPERATIONS",
+        involutive.max_divisor_index_build_operations
+    );
+    usize_override!(
+        "MAX_DIVISOR_INDEX_QUERY_OPERATIONS",
+        involutive.max_divisor_index_query_operations
+    );
     usize_override!(
         "MAX_DIVISOR_VISITS",
         involutive.max_normal_form_divisor_visits
@@ -1679,7 +1800,7 @@ fn print_k6_seed_success(mode: &str, orbit_index: usize, report: &InvolutiveSeed
     let localization = report.localization();
     let work = report.work();
     println!(
-        "k6-involutive-seed mode={mode} orbit_index={orbit_index} status={:?} initial_retained_rows={} initial_equal_head_eliminations={} initial_zero_remainders={} initial_nonzero_remainders={} initial_cascading_collisions={} initial_max_collision_chain={} initial_max_head_class={} basis_rows={} basis_revision={} prolongations={} zero_remainders={} nonzero_remainders={} complement={:?} pure_power_complete={} guards={} guard_terms={} guard_exponent_cells={} guard_retained_bytes={} work_normal_form_steps={} work_divisor_visits={} work_trace_bytes={} work_autoreduction_passes={} work_completion_iterations={} work_exact_coefficient_operations={} proposed_support_domains={} unique_support_domains={} raw_support_entries={} unique_support_entries={}",
+        "k6-involutive-seed mode={mode} orbit_index={orbit_index} status={:?} initial_retained_rows={} initial_equal_head_eliminations={} initial_zero_remainders={} initial_nonzero_remainders={} initial_cascading_collisions={} initial_max_collision_chain={} initial_max_head_class={} basis_rows={} basis_revision={} prolongations={} zero_remainders={} nonzero_remainders={} complement={:?} pure_power_complete={} guards={} guard_terms={} guard_exponent_cells={} guard_retained_bytes={} work_divisor_index_build_operations={} work_divisor_index_query_operations={} work_normal_form_steps={} work_divisor_visits={} work_trace_bytes={} work_autoreduction_passes={} work_autoreduction_shared_rows={} work_autoreduction_materialized_rows={} work_completion_iterations={} work_exact_coefficient_operations={} proposed_support_domains={} unique_support_domains={} raw_support_entries={} unique_support_entries={}",
         report.status(),
         census.initial_retained_rows(),
         census.initial_equal_head_eliminations(),
@@ -1699,10 +1820,14 @@ fn print_k6_seed_success(mode: &str, orbit_index: usize, report: &InvolutiveSeed
         localization.terms(),
         localization.exponent_cells(),
         localization.retained_bytes(),
+        work.divisor_index_build_operations(),
+        work.divisor_index_query_operations(),
         work.normal_form_steps(),
         work.normal_form_divisor_visits(),
         work.normal_form_trace_bytes(),
         work.autoreduction_passes(),
+        work.autoreduction_shared_rows(),
+        work.autoreduction_materialized_rows(),
         work.completion_iterations(),
         work.exact_coefficient_operations(),
         census.proposed_support_domains(),
@@ -1722,12 +1847,15 @@ fn run_diagnostic_k6_seed_harness(orbit_index: usize) {
     let tier = K6JanetDiagnosticTier::from_environment();
     let profile = try_k6_release_diagnostic_profile(tier)
         .unwrap_or_else(|error| panic!("invalid K6 Janet diagnostic envelope: {error}"));
+    let ordering = try_k6_diagnostic_ordering_from_environment()
+        .unwrap_or_else(|error| panic!("invalid K6 Janet diagnostic ordering: {error}"));
     println!(
-        "k6-involutive-seed-envelope mode=diagnostic_bounded orbit_index={orbit_index} tier={} profile={profile:?}",
+        "k6-involutive-seed-envelope mode=diagnostic_bounded orbit_index={orbit_index} tier={} ordering={} profile={profile:?}",
         tier.label(),
+        ordering.stable_id(),
     );
     crate::foundry::completion::involutive::diagnostics::begin();
-    let outcome = try_run_release_k6_seed_profile(orbit_index, profile);
+    let outcome = try_run_release_k6_seed_profile(orbit_index, profile, ordering);
     let checkpoint = crate::foundry::completion::involutive::diagnostics::take();
     match outcome {
         Ok(report) => print_k6_seed_success("diagnostic_bounded", orbit_index, &report),

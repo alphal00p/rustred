@@ -322,12 +322,15 @@ published before the complete rule fixed point closes.
 Tensor-reducer development is explicitly outside Stage 1. Vakint's
 `vakint_rustred` branch is based on GammaLoop's `feynkit` branch and uses its
 native FORM-less tensor prepass before the RustRed scalar backend. Existing
-experimental RustRed rank-two tensor code remains frozen. Four- through six-loop closure,
-high-loop artifact production, and new tensor technology are deferred until
-explicit new guidance. Algorithm research, bounded K6 foundry experiments,
-and census-complete K10/K15/K21 scaling studies are active now; these studies
-do not authorize high-loop artifact production or extreme execution
-infrastructure. LiteRed2 is the correctness control, while modular
+experimental RustRed rank-two tensor code remains frozen through Stage 1.
+After the complete through-three-loop artifact and Vakint acceptance gate is
+recorded and pushed, Stage 2 is authorized to proceed directly with four-
+through six-loop closure, the required high-loop execution infrastructure,
+and integration of the collaborator's advanced rank-generic tensor technology
+when it is available. Algorithm research, bounded K6 foundry experiments, and
+census-complete K10/K15/K21 scaling studies remain active during Stage 1;
+none is described as production closure before the exact publication gates
+pass. LiteRed2 is the correctness control, while modular
 target-separation, exact lattice-stratum completion, seedless syzygy sources,
 generating-function operators, and decorated graph/minor reuse are evaluated
 as possible routes beyond its scaling. See [`GOAL.md`](GOAL.md) for the

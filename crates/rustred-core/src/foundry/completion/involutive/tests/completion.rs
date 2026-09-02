@@ -111,6 +111,68 @@ fn autoreduction_reduces_lower_terms_and_small_closed_example_reaches_fixed_poin
         CompletionGeometryLimits::default(),
     )
     .unwrap();
+    let reducible_ordinal = initial
+        .elements()
+        .iter()
+        .position(|element| element.leading_shift() == &e2_squared)
+        .unwrap();
+    let divisor_ordinal = initial
+        .elements()
+        .iter()
+        .position(|element| element.leading_shift() == &e1)
+        .unwrap();
+    let original_reducible =
+        std::sync::Arc::clone(initial.elements()[reducible_ordinal].consequence_handle());
+    let original_divisor =
+        std::sync::Arc::clone(initial.elements()[divisor_ordinal].consequence_handle());
+
+    // Differential oracle for the former eager path: identity-copy the row,
+    // then run the ordinary owned normal form with the same self exclusion.
+    let mut oracle_work = super::super::limits::InvolutiveWorkBudget::default();
+    let eager_copy = original_reducible
+        .try_copy_sealed(&ordering_2d, &context_2d, limits, &mut oracle_work)
+        .unwrap();
+    let eager_normal_form = super::super::normal_form::try_janet_normal_form_excluding(
+        eager_copy,
+        &initial,
+        Some(reducible_ordinal),
+        &ordering_2d,
+        &context_2d,
+        limits,
+        &mut oracle_work,
+    )
+    .unwrap();
+    let mut borrowed_work = super::super::limits::InvolutiveWorkBudget::default();
+    let borrowed_normal_form =
+        super::super::normal_form::try_janet_autoreduction_normal_form_excluding(
+            &original_reducible,
+            &initial,
+            reducible_ordinal,
+            &ordering_2d,
+            &context_2d,
+            limits,
+            &mut borrowed_work,
+        )
+        .unwrap();
+    let super::super::normal_form::JanetAutoreductionNormalForm::Materialized(borrowed_normal_form) =
+        borrowed_normal_form
+    else {
+        panic!("the excluded lower-term divisor must force materialization");
+    };
+    assert_eq!(borrowed_normal_form, eager_normal_form);
+    assert_eq!(
+        borrowed_work.census().normal_form_divisor_visits(),
+        oracle_work.census().normal_form_divisor_visits(),
+    );
+    assert_eq!(
+        borrowed_work.census().divisor_index_query_operations(),
+        oracle_work.census().divisor_index_query_operations(),
+    );
+    assert_eq!(
+        borrowed_work.census().exact_coefficient_operations(),
+        oracle_work.census().exact_coefficient_operations(),
+    );
+    let eager_remainder = eager_normal_form.into_remainder();
     let autoreduced = try_autoreduce_epoch(
         initial,
         &ordering_2d,
@@ -128,9 +190,31 @@ fn autoreduction_reduces_lower_terms_and_small_closed_example_reaches_fixed_poin
         .unwrap();
     assert_eq!(reduced.consequence().row().terms().len(), 1);
     assert_eq!(reduced.consequence().row().terms()[0].shift(), &e2_squared);
+    assert_eq!(reduced.consequence(), &eager_remainder);
+    assert!(!std::sync::Arc::ptr_eq(
+        reduced.consequence_handle(),
+        &original_reducible,
+    ));
+    let retained_divisor = autoreduced
+        .epoch()
+        .elements()
+        .iter()
+        .find(|element| element.leading_shift() == &e1)
+        .unwrap();
+    assert!(std::sync::Arc::ptr_eq(
+        retained_divisor.consequence_handle(),
+        &original_divisor,
+    ));
     assert_eq!(autoreduced.census().normal_form_steps(), 1);
     assert_eq!(autoreduced.census().dropped_rows(), 0);
     assert_eq!(autoreduced.census().passes(), 2);
+    assert_eq!(autoreduced.census().materialized_rows(), 1);
+    assert_eq!(autoreduced.census().shared_rows(), 3);
+    assert_eq!(
+        autoreduced.work_census().autoreduction_materialized_rows(),
+        1
+    );
+    assert_eq!(autoreduced.work_census().autoreduction_shared_rows(), 3);
     assert_eq!(autoreduced.epoch().epoch().revision(), 1);
 
     let complete_basis = epoch(&[&[1, 0], &[0, 1]], &context_2d, &ordering_2d, limits);
@@ -147,6 +231,319 @@ fn autoreduction_reduces_lower_terms_and_small_closed_example_reaches_fixed_poin
     assert_eq!(proposal.census().inserted_remainders(), 0);
     assert_eq!(proposal.census().autoreduction().passes(), 1);
     assert_eq!(proposal.epoch().epoch().revision(), 0);
+}
+
+#[test]
+fn cow_autoreduction_hands_off_a_nonconstant_multistep_selection_exactly() {
+    let limits = InvolutiveLimits::default();
+    let context = context(2);
+    let ordering = active_ordering(2, limits);
+    let zero = shift(&[0, 0], limits);
+    let e1 = shift(&[1, 0], limits);
+    let e1_squared = shift(&[2, 0], limits);
+    let irreducible_leader = shift(&[0, 3], limits);
+    let n = context.index(0).unwrap();
+    let n_plus_one = context.add(&n, &context.one()).unwrap();
+
+    // In this Janet epoch E1 is multiplicative for the divisor.  The
+    // irreducible degree-three leader keeps the subject in the basis while
+    // its E1^2 and E1 lower terms reproduce the two translated cancellations
+    // from `two_step_nonconstant_fixture`.
+    let divisor = OreConsequence::try_from_source(
+        0,
+        OreRow::try_new(
+            &ordering,
+            [(e1.clone(), n.clone()), (zero.clone(), context.one())],
+            &context,
+            limits,
+        )
+        .unwrap(),
+        &ordering,
+        &context,
+        limits,
+    )
+    .unwrap();
+    let subject = OreConsequence::try_from_source(
+        1,
+        OreRow::try_new(
+            &ordering,
+            [
+                (irreducible_leader.clone(), context.one()),
+                (e1_squared.clone(), n_plus_one.clone()),
+                (e1.clone(), n_plus_one),
+                (zero.clone(), context.one()),
+            ],
+            &context,
+            limits,
+        )
+        .unwrap(),
+        &ordering,
+        &context,
+        limits,
+    )
+    .unwrap();
+    let basis = JanetBasisEpoch::try_initial(
+        [divisor, subject],
+        &ordering,
+        &context,
+        limits,
+        CompletionGeometryLimits::default(),
+    )
+    .unwrap();
+    let subject_ordinal = basis
+        .elements()
+        .iter()
+        .position(|element| element.leading_shift() == &irreducible_leader)
+        .unwrap();
+    let subject = std::sync::Arc::clone(basis.elements()[subject_ordinal].consequence_handle());
+
+    // This is the former eager ownership boundary, retained as a test oracle;
+    // the production COW path must produce the identical complete normal form
+    // while handing its borrowed first selection to the owned reducer once.
+    let mut eager_work = super::super::limits::InvolutiveWorkBudget::default();
+    let eager_copy = subject
+        .try_copy_sealed(&ordering, &context, limits, &mut eager_work)
+        .unwrap();
+    let eager = super::super::normal_form::try_janet_normal_form_excluding(
+        eager_copy,
+        &basis,
+        Some(subject_ordinal),
+        &ordering,
+        &context,
+        limits,
+        &mut eager_work,
+    )
+    .unwrap();
+    let mut cow_work = super::super::limits::InvolutiveWorkBudget::default();
+    let cow = super::super::normal_form::try_janet_autoreduction_normal_form_excluding(
+        &subject,
+        &basis,
+        subject_ordinal,
+        &ordering,
+        &context,
+        limits,
+        &mut cow_work,
+    )
+    .unwrap();
+    let super::super::normal_form::JanetAutoreductionNormalForm::Materialized(cow) = cow else {
+        panic!("two lower-term cancellations must materialize the subject");
+    };
+
+    assert_eq!(cow, eager);
+    assert_eq!(cow.steps().len(), 2);
+    assert_eq!(cow.steps()[0].target_shift(), &e1_squared);
+    assert_eq!(cow.steps()[1].target_shift(), &e1);
+    assert_eq!(cow.remainder().row().terms().len(), 1);
+    assert_eq!(
+        cow.remainder().row().terms()[0].shift(),
+        &irreducible_leader
+    );
+    assert_eq!(cow.remainder().required_nonzero_guards().len(), 2);
+    let provenance = cow.remainder().provenance().terms();
+    assert_eq!(provenance.len(), 3);
+    assert_eq!(provenance[0].source_ordinal(), 0);
+    assert_eq!(provenance[0].left_shift(), &zero);
+    assert_eq!(provenance[0].left_coefficient(), &context.integer(-1));
+    assert_eq!(provenance[1].source_ordinal(), 0);
+    assert_eq!(provenance[1].left_shift(), &e1);
+    assert_eq!(provenance[1].left_coefficient(), &context.integer(-1));
+    assert_eq!(provenance[2].source_ordinal(), 1);
+    assert_eq!(provenance[2].left_shift(), &zero);
+    assert_eq!(provenance[2].left_coefficient(), &context.one());
+    assert_eq!(
+        cow_work.census().normal_form_divisor_visits(),
+        eager_work.census().normal_form_divisor_visits(),
+    );
+    assert_eq!(
+        cow_work.census().divisor_index_query_operations(),
+        eager_work.census().divisor_index_query_operations(),
+    );
+    assert_eq!(
+        cow_work.census().exact_coefficient_operations(),
+        eager_work.census().exact_coefficient_operations(),
+    );
+    assert_eq!(
+        cow_work.census().normal_form_steps(),
+        eager_work.census().normal_form_steps(),
+    );
+    assert_eq!(
+        cow_work.census().normal_form_trace_bytes(),
+        eager_work.census().normal_form_trace_bytes(),
+    );
+}
+
+#[test]
+fn stable_autoreduction_shares_every_sealed_row_without_exact_payload_work() {
+    let limits = InvolutiveLimits::default();
+    let context = context(2);
+    let ordering = active_ordering(2, limits);
+    let initial = epoch(&[&[1, 0], &[0, 1]], &context, &ordering, limits);
+    let handles = initial
+        .elements()
+        .iter()
+        .map(|element| {
+            (
+                element.leading_shift().clone(),
+                std::sync::Arc::clone(element.consequence_handle()),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let autoreduced = try_autoreduce_epoch(
+        initial,
+        &ordering,
+        &context,
+        limits,
+        CompletionGeometryLimits::default(),
+    )
+    .unwrap();
+
+    assert_eq!(autoreduced.epoch().epoch().revision(), 0);
+    assert_eq!(autoreduced.census().passes(), 1);
+    assert_eq!(autoreduced.census().shared_rows(), handles.len());
+    assert_eq!(autoreduced.census().materialized_rows(), 0);
+    assert_eq!(
+        autoreduced.work_census().autoreduction_shared_rows(),
+        handles.len()
+    );
+    assert_eq!(
+        autoreduced.work_census().autoreduction_materialized_rows(),
+        0
+    );
+    assert_eq!(autoreduced.work_census().exact_coefficient_operations(), 0);
+    for (leading_shift, handle) in handles {
+        let retained = autoreduced
+            .epoch()
+            .elements()
+            .iter()
+            .find(|element| element.leading_shift() == &leading_shift)
+            .unwrap();
+        assert!(std::sync::Arc::ptr_eq(
+            retained.consequence_handle(),
+            &handle,
+        ));
+    }
+}
+
+#[test]
+fn autoreduction_sharing_and_materialization_caps_are_cumulative_and_precede_copying() {
+    let defaults = InvolutiveLimits::default();
+    let context = context(2);
+    let ordering = active_ordering(2, defaults);
+
+    let make_stable = || epoch(&[&[1, 0], &[0, 1]], &context, &ordering, defaults);
+    let stable_baseline = try_autoreduce_epoch(
+        make_stable(),
+        &ordering,
+        &context,
+        defaults,
+        CompletionGeometryLimits::default(),
+    )
+    .unwrap();
+    let shared_rows = stable_baseline.census().shared_rows();
+    assert_eq!(shared_rows, 2);
+    let shared_one_below = InvolutiveLimits {
+        max_autoreduction_shared_rows: shared_rows - 1,
+        ..defaults
+    };
+    super::super::diagnostics::begin();
+    assert_eq!(
+        try_autoreduce_epoch(
+            make_stable(),
+            &ordering,
+            &context,
+            shared_one_below,
+            CompletionGeometryLimits::default(),
+        ),
+        Err(InvolutiveError::ResourceLimit {
+            resource: "Janet autoreduction shared rows",
+            requested: shared_rows,
+            limit: shared_rows - 1,
+        })
+    );
+    let shared_stop = super::super::diagnostics::take().unwrap();
+    assert_eq!(
+        shared_stop
+            .work_at_last_checkpoint
+            .autoreduction_shared_rows(),
+        shared_rows - 1,
+    );
+    assert_eq!(
+        shared_stop
+            .work_at_last_checkpoint
+            .exact_coefficient_operations(),
+        0,
+    );
+
+    let make_reducible = || {
+        let e1 = shift(&[1, 0], defaults);
+        let e2_squared = shift(&[0, 2], defaults);
+        let reducible = OreConsequence::try_from_source(
+            0,
+            OreRow::try_new(
+                &ordering,
+                [(e2_squared, context.one()), (e1.clone(), context.one())],
+                &context,
+                defaults,
+            )
+            .unwrap(),
+            &ordering,
+            &context,
+            defaults,
+        )
+        .unwrap();
+        let divisor = monomial_consequence(1, &[1, 0], &ordering, &context, defaults);
+        JanetBasisEpoch::try_initial(
+            [reducible, divisor],
+            &ordering,
+            &context,
+            defaults,
+            CompletionGeometryLimits::default(),
+        )
+        .unwrap()
+    };
+    let materialized_baseline = try_autoreduce_epoch(
+        make_reducible(),
+        &ordering,
+        &context,
+        defaults,
+        CompletionGeometryLimits::default(),
+    )
+    .unwrap();
+    let materialized_rows = materialized_baseline.census().materialized_rows();
+    assert_eq!(materialized_rows, 1);
+    let materialized_one_below = InvolutiveLimits {
+        max_autoreduction_materialized_rows: materialized_rows - 1,
+        ..defaults
+    };
+    super::super::diagnostics::begin();
+    assert_eq!(
+        try_autoreduce_epoch(
+            make_reducible(),
+            &ordering,
+            &context,
+            materialized_one_below,
+            CompletionGeometryLimits::default(),
+        ),
+        Err(InvolutiveError::ResourceLimit {
+            resource: "Janet autoreduction materialized rows",
+            requested: materialized_rows,
+            limit: materialized_rows - 1,
+        })
+    );
+    let materialized_stop = super::super::diagnostics::take().unwrap();
+    assert_eq!(
+        materialized_stop
+            .work_at_last_checkpoint
+            .autoreduction_materialized_rows(),
+        materialized_rows - 1,
+    );
+    assert_eq!(
+        materialized_stop
+            .work_at_last_checkpoint
+            .exact_coefficient_operations(),
+        0,
+    );
 }
 
 #[test]

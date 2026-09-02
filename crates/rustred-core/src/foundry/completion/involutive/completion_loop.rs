@@ -5,7 +5,8 @@ use super::error::checked_add;
 use super::initial::try_preprocess_initial_basis_with_budget;
 use super::limits::{InvolutiveWorkBudget, InvolutiveWorkCensus};
 use super::normal_form::{
-    try_copy_basis_consequences, try_janet_normal_form_excluding, try_janet_normal_form_with_budget,
+    JanetAutoreductionNormalForm, try_janet_autoreduction_normal_form_excluding,
+    try_janet_normal_form_with_budget,
 };
 use super::{
     BlindDomainSchedule, InvolutiveError, InvolutiveLimits, JanetBasisEpoch,
@@ -18,6 +19,8 @@ pub(crate) struct JanetAutoreductionCensus {
     passes: usize,
     normal_form_steps: usize,
     dropped_rows: usize,
+    shared_rows: usize,
+    materialized_rows: usize,
 }
 
 impl JanetAutoreductionCensus {
@@ -33,6 +36,14 @@ impl JanetAutoreductionCensus {
         self.dropped_rows
     }
 
+    pub(crate) const fn shared_rows(self) -> usize {
+        self.shared_rows
+    }
+
+    pub(crate) const fn materialized_rows(self) -> usize {
+        self.materialized_rows
+    }
+
     fn try_accumulate(&mut self, right: Self) -> Result<(), InvolutiveError> {
         self.passes = checked_add("Janet autoreduction census", self.passes, right.passes)?;
         self.normal_form_steps = checked_add(
@@ -44,6 +55,16 @@ impl JanetAutoreductionCensus {
             "Janet autoreduction census",
             self.dropped_rows,
             right.dropped_rows,
+        )?;
+        self.shared_rows = checked_add(
+            "Janet autoreduction census",
+            self.shared_rows,
+            right.shared_rows,
+        )?;
+        self.materialized_rows = checked_add(
+            "Janet autoreduction census",
+            self.materialized_rows,
+            right.materialized_rows,
         )?;
         Ok(())
     }
@@ -209,39 +230,50 @@ fn try_autoreduce_epoch_with_budget(
         super::diagnostics::record_autoreduction_pass(&epoch, requested_passes, work.census());
         work.charge_autoreduction_pass(limits)?;
 
-        let copied = try_copy_basis_consequences(&epoch, ordering, context, limits, work)?;
         let mut replacements = Vec::new();
-        replacements.try_reserve_exact(copied.len()).map_err(|_| {
-            InvolutiveError::AllocationFailure {
+        replacements
+            .try_reserve_exact(epoch.elements().len())
+            .map_err(|_| InvolutiveError::AllocationFailure {
                 resource: "Janet autoreduction output rows",
-                requested: copied.len(),
-            }
-        })?;
+                requested: epoch.elements().len(),
+            })?;
         let mut changed = false;
         let mut pass_steps = 0usize;
         let mut pass_dropped = 0usize;
-        for (ordinal, original) in copied.into_iter().enumerate() {
-            let normal_form = try_janet_normal_form_excluding(
-                original,
-                &epoch,
-                Some(ordinal),
-                ordering,
-                context,
-                limits,
-                work,
+        let mut pass_shared = 0usize;
+        let mut pass_materialized = 0usize;
+        for ordinal in 0..epoch.elements().len() {
+            let original = epoch.elements()[ordinal].consequence_handle();
+            let normal_form = try_janet_autoreduction_normal_form_excluding(
+                original, &epoch, ordinal, ordering, context, limits, work,
             )?;
-            let (remainder, steps) = normal_form.into_parts();
-            localization = localization.try_union(remainder.localization_witness(), limits)?;
-            pass_steps = checked_add("Janet autoreduction census", pass_steps, steps)?;
-            if remainder.is_zero() {
-                pass_dropped = checked_add("Janet autoreduction census", pass_dropped, 1)?;
-                changed = true;
-                continue;
+            match normal_form {
+                JanetAutoreductionNormalForm::Shared(remainder) => {
+                    pass_shared = checked_add("Janet autoreduction census", pass_shared, 1)?;
+                    localization =
+                        localization.try_union(remainder.localization_witness(), limits)?;
+                    replacements.push(remainder);
+                }
+                JanetAutoreductionNormalForm::Materialized(normal_form) => {
+                    pass_materialized =
+                        checked_add("Janet autoreduction census", pass_materialized, 1)?;
+                    let (remainder, steps) = normal_form.into_parts();
+                    localization =
+                        localization.try_union(remainder.localization_witness(), limits)?;
+                    pass_steps = checked_add("Janet autoreduction census", pass_steps, steps)?;
+                    if remainder.is_zero() {
+                        pass_dropped = checked_add("Janet autoreduction census", pass_dropped, 1)?;
+                        changed = true;
+                        continue;
+                    }
+                    if &remainder != original.as_ref() {
+                        changed = true;
+                        replacements.push(std::sync::Arc::new(remainder));
+                    } else {
+                        replacements.push(std::sync::Arc::clone(original));
+                    }
+                }
             }
-            if &remainder != epoch.elements()[ordinal].consequence() {
-                changed = true;
-            }
-            replacements.push(remainder);
         }
 
         census.passes = requested_passes;
@@ -254,6 +286,16 @@ fn try_autoreduce_epoch_with_budget(
             "Janet autoreduction census",
             census.dropped_rows,
             pass_dropped,
+        )?;
+        census.shared_rows = checked_add(
+            "Janet autoreduction census",
+            census.shared_rows,
+            pass_shared,
+        )?;
+        census.materialized_rows = checked_add(
+            "Janet autoreduction census",
+            census.materialized_rows,
+            pass_materialized,
         )?;
         if !changed {
             return Ok(JanetAutoreduction {

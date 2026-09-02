@@ -37,6 +37,11 @@ pub(crate) struct InvolutiveLimits {
     pub(crate) max_mask_prefix_comparisons: usize,
     pub(crate) max_mask_sort_coordinate_comparisons: usize,
     pub(crate) max_mask_retained_bytes: usize,
+    pub(crate) max_divisor_index_retained_bytes: usize,
+    pub(crate) max_divisor_index_build_scratch_bytes: usize,
+    pub(crate) max_divisor_index_scratch_bytes: usize,
+    pub(crate) max_divisor_index_build_operations: usize,
+    pub(crate) max_divisor_index_query_operations: usize,
     pub(crate) max_prolongations: usize,
     pub(crate) max_prolongation_coordinate_cells: usize,
     pub(crate) max_prolongation_retained_bytes: usize,
@@ -53,6 +58,15 @@ pub(crate) struct InvolutiveLimits {
     pub(crate) max_normal_form_trace_bytes: usize,
     pub(crate) max_completion_iterations: usize,
     pub(crate) max_autoreduction_passes: usize,
+    /// Cumulative rows whose sealed exact payload is shared unchanged by an
+    /// autoreduction scan in one completion calculation.
+    pub(crate) max_autoreduction_shared_rows: usize,
+    /// Cumulative rows admitted for materialization after autoreduction has
+    /// selected a first exact cancellation in one completion calculation.
+    /// Every admission is a completed materialization on a successful run;
+    /// an errored run's diagnostic census can retain an admission whose
+    /// subsequent bounded copy or reduction failed.
+    pub(crate) max_autoreduction_materialized_rows: usize,
     pub(crate) max_exact_coefficient_operations: usize,
     pub(crate) indexed_algebra: IndexedAlgebraLimits,
 }
@@ -89,6 +103,11 @@ impl Default for InvolutiveLimits {
             max_mask_prefix_comparisons: 1_000_000_000,
             max_mask_sort_coordinate_comparisons: 1_000_000_000,
             max_mask_retained_bytes: 536_870_912,
+            max_divisor_index_retained_bytes: 1_073_741_824,
+            max_divisor_index_build_scratch_bytes: 536_870_912,
+            max_divisor_index_scratch_bytes: 536_870_912,
+            max_divisor_index_build_operations: 1_000_000_000,
+            max_divisor_index_query_operations: 1_000_000_000,
             max_prolongations: 16_000_000,
             max_prolongation_coordinate_cells: 64_000_000,
             max_prolongation_retained_bytes: 1_073_741_824,
@@ -105,6 +124,8 @@ impl Default for InvolutiveLimits {
             max_normal_form_trace_bytes: 536_870_912,
             max_completion_iterations: 1_000_000,
             max_autoreduction_passes: 4_096,
+            max_autoreduction_shared_rows: 1_000_000_000,
+            max_autoreduction_materialized_rows: 1_000_000_000,
             max_exact_coefficient_operations: 1_000_000_000,
             indexed_algebra: IndexedAlgebraLimits::default(),
         }
@@ -114,15 +135,27 @@ impl Default for InvolutiveLimits {
 /// Cumulative logical work charged by one completion calculation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct InvolutiveWorkCensus {
+    divisor_index_build_operations: usize,
+    divisor_index_query_operations: usize,
     normal_form_steps: usize,
     normal_form_divisor_visits: usize,
     normal_form_trace_bytes: usize,
     autoreduction_passes: usize,
+    autoreduction_shared_rows: usize,
+    autoreduction_materialized_rows: usize,
     completion_iterations: usize,
     exact_coefficient_operations: usize,
 }
 
 impl InvolutiveWorkCensus {
+    pub(crate) const fn divisor_index_build_operations(self) -> usize {
+        self.divisor_index_build_operations
+    }
+
+    pub(crate) const fn divisor_index_query_operations(self) -> usize {
+        self.divisor_index_query_operations
+    }
+
     pub(crate) const fn normal_form_steps(self) -> usize {
         self.normal_form_steps
     }
@@ -137,6 +170,17 @@ impl InvolutiveWorkCensus {
 
     pub(crate) const fn autoreduction_passes(self) -> usize {
         self.autoreduction_passes
+    }
+
+    pub(crate) const fn autoreduction_shared_rows(self) -> usize {
+        self.autoreduction_shared_rows
+    }
+
+    pub(crate) const fn autoreduction_materialized_rows(self) -> usize {
+        // This is an admission ledger: successful calculations materialize
+        // every admitted row, while failed calculations can stop after this
+        // counter was charged and before the bounded copy completes.
+        self.autoreduction_materialized_rows
     }
 
     pub(crate) const fn completion_iterations(self) -> usize {
@@ -159,6 +203,36 @@ impl InvolutiveWorkBudget {
         self.census
     }
 
+    pub(super) fn charge_divisor_index_build_operations(
+        &mut self,
+        amount: usize,
+        limits: InvolutiveLimits,
+    ) -> Result<(), InvolutiveError> {
+        let result = charge(
+            "Janet divisor index build operations",
+            &mut self.census.divisor_index_build_operations,
+            amount,
+            limits.max_divisor_index_build_operations,
+        );
+        self.record_typed_stop(&result);
+        result
+    }
+
+    pub(super) fn charge_divisor_index_query_operations(
+        &mut self,
+        amount: usize,
+        limits: InvolutiveLimits,
+    ) -> Result<(), InvolutiveError> {
+        let result = charge(
+            "Janet divisor index query operations",
+            &mut self.census.divisor_index_query_operations,
+            amount,
+            limits.max_divisor_index_query_operations,
+        );
+        self.record_typed_stop(&result);
+        result
+    }
+
     pub(super) fn charge_normal_form_step(
         &mut self,
         limits: InvolutiveLimits,
@@ -177,10 +251,18 @@ impl InvolutiveWorkBudget {
         &mut self,
         limits: InvolutiveLimits,
     ) -> Result<(), InvolutiveError> {
+        self.charge_divisor_visits(1, limits)
+    }
+
+    pub(super) fn charge_divisor_visits(
+        &mut self,
+        amount: usize,
+        limits: InvolutiveLimits,
+    ) -> Result<(), InvolutiveError> {
         let result = charge(
             "Janet normal-form divisor visits",
             &mut self.census.normal_form_divisor_visits,
-            1,
+            amount,
             limits.max_normal_form_divisor_visits,
         );
         self.record_typed_stop(&result);
@@ -211,6 +293,34 @@ impl InvolutiveWorkBudget {
             &mut self.census.autoreduction_passes,
             1,
             limits.max_autoreduction_passes,
+        );
+        self.record_typed_stop(&result);
+        result
+    }
+
+    pub(super) fn charge_autoreduction_shared_row(
+        &mut self,
+        limits: InvolutiveLimits,
+    ) -> Result<(), InvolutiveError> {
+        let result = charge(
+            "Janet autoreduction shared rows",
+            &mut self.census.autoreduction_shared_rows,
+            1,
+            limits.max_autoreduction_shared_rows,
+        );
+        self.record_typed_stop(&result);
+        result
+    }
+
+    pub(super) fn charge_autoreduction_materialized_row(
+        &mut self,
+        limits: InvolutiveLimits,
+    ) -> Result<(), InvolutiveError> {
+        let result = charge(
+            "Janet autoreduction materialized rows",
+            &mut self.census.autoreduction_materialized_rows,
+            1,
+            limits.max_autoreduction_materialized_rows,
         );
         self.record_typed_stop(&result);
         result

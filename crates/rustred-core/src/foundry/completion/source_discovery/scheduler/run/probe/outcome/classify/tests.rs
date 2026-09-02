@@ -159,3 +159,48 @@ fn nested_non_resource_failure_remains_rejected() {
         }
     ));
 }
+
+#[test]
+fn native_exact_algebra_failures_are_not_resumable_budget_stops() {
+    for (case, exact_error) in [
+        (
+            "native panic",
+            ExactAlgebraError::NativePanic {
+                operation: "testing native panic classification",
+            },
+        ),
+        (
+            "non-exact polynomial division",
+            ExactAlgebraError::NonExactPolynomialDivision {
+                operation: "testing exact quotient classification",
+            },
+        ),
+    ] {
+        assert_eq!(exact_algebra_budget_cause(&exact_error), None, "{case}");
+
+        let campaign_error =
+            CampaignError::TranslatedSources(TranslatedSourceError::RequestTranslation {
+                canonical_request_ordinal: 2,
+                source_ordinal: 3,
+                error: ParametricRelationError::IdentityCondition(
+                    IdentityConditionError::Coefficient(IndexedAlgebraError::ExactAlgebra(
+                        exact_error,
+                    )),
+                ),
+            });
+        assert_eq!(campaign_budget_cause(&campaign_error), None, "{case}");
+        assert!(
+            matches!(
+                campaign_stop_or_rejection(
+                    4,
+                    5,
+                    ProbeLocalStage::EpochBuild,
+                    ProbeLocalStopContext::BeforeBootstrap,
+                    campaign_error,
+                ),
+                ProbeLocalOutcome::Rejected { .. }
+            ),
+            "{case} must remain a hard rejection rather than a resumable budget stop"
+        );
+    }
+}

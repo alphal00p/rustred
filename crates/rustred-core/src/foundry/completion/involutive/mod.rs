@@ -10,6 +10,7 @@ mod chart_lift;
 mod completion_loop;
 #[cfg(test)]
 pub(crate) mod diagnostics;
+mod divisor_index;
 mod error;
 mod initial;
 mod janet;

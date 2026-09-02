@@ -470,7 +470,8 @@ map exists, and high-precision evaluated terminal data become versioned
 fixtures; production RustRed never copies authored oracle recurrence tables.
 MATAD's ten shipped three-loop master tables contain about 20,095--20,100
 decimal digits, so a 20,000-digit request leaves only about 95--100 guard
-digits. Four-loop artifact production remains deferred. FMFT is a possible
+digits. Four-loop artifact production begins only after the complete Stage 1
+gate. FMFT is a possible
 offline exact-reduction oracle, but most currently shipped Vakint FMFT
 constants contain only about 26--50 digits; generic four-loop 20,000-digit
 terminal data therefore require regenerated master data or AMFlow rather than
@@ -542,8 +543,9 @@ The Stage 1 acceptance gate requires the three artifacts to cover all eight
 Vakint graph classes through three loops, with no reachable uncovered branch,
 and requires the RustRed scalar backend to reproduce every applicable
 through-three-loop Vakint expectation without changing existing defaults. Once
-that passes, development pauses. Four- through six-loop artifact-production
-acceptance gates and new tensor technology require explicit Stage 2
-authorization. Bounded complete-manifest K10/K15/K21 studies are already
-authorized in Stage 1, but must remain behind the research note's explicit
-falsification and promotion gates and cannot publish closure artifacts.
+that passes, the milestone is recorded and pushed and the already-authorized
+Stage 2 begins. Four- through six-loop artifact production and advanced tensor
+integration retain their own exact acceptance gates. Bounded complete-manifest
+K10/K15/K21 studies remain authorized during Stage 1, but stay behind the
+research note's explicit falsification and promotion gates and cannot be
+described as closure artifacts before those gates pass.

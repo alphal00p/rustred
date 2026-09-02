@@ -28,7 +28,11 @@ impl fmt::Display for ExactAlgebraOperation {
     }
 }
 
-/// Typed failures produced before panic-prone Symbolica arithmetic is called.
+/// Typed failures from RustRed's checked exact-algebra boundary.
+///
+/// Admission failures occur before native entry. Native Symbolica panics are
+/// contained where the checked operation can do so safely, and every
+/// successful native result is authenticated before it leaves the boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExactAlgebraError {
     VariableMapMismatch {
@@ -68,6 +72,12 @@ pub enum ExactAlgebraError {
     },
     ResourceCountOverflow {
         resource: &'static str,
+    },
+    NativePanic {
+        operation: &'static str,
+    },
+    NonExactPolynomialDivision {
+        operation: &'static str,
     },
 }
 
@@ -128,6 +138,13 @@ impl fmt::Display for ExactAlgebraError {
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} count overflowed usize")
             }
+            Self::NativePanic { operation } => {
+                write!(formatter, "Symbolica panicked while {operation}")
+            }
+            Self::NonExactPolynomialDivision { operation } => write!(
+                formatter,
+                "Symbolica found no exact polynomial quotient while {operation}"
+            ),
         }
     }
 }

@@ -1,11 +1,20 @@
-use std::sync::Arc;
+use std::{
+    borrow::Cow,
+    panic::{AssertUnwindSafe, catch_unwind},
+    sync::Arc,
+};
 
 use symbolica::prelude::{IntegerRing, MultivariatePolynomial, PolyVariable};
 
 use super::{
-    Coefficient, ExactAlgebraError, ExactAlgebraLimits, ExactAlgebraOperation,
-    validation::{check_exact_resource_limit, validate_coefficient_on_map},
+    Coefficient, CoefficientPolynomialPart, ExactAlgebraError, ExactAlgebraLimits,
+    ExactAlgebraOperation,
+    validation::{
+        check_exact_resource_limit, validate_coefficient_on_map, validate_polynomial_on_map,
+    },
 };
+
+const SUM_DENOMINATOR_GCD_TERM_PAIRS: &str = "exact sum denominator GCD term pairs";
 
 pub(crate) fn checked_coefficient_add_on_map(
     left: &Coefficient,
@@ -227,33 +236,234 @@ fn trusted_coefficient_sum_on_map(
             limits,
         )?;
     } else {
-        preflight_cross_sum_degrees(left, right, operation, limits)?;
-        let left_terms = checked_term_product(
-            left.numerator.nterms(),
-            right.denominator.nterms(),
-            "exact addition numerator terms",
-        )?;
-        let right_terms = checked_term_product(
-            right.numerator.nterms(),
-            left.denominator.nterms(),
-            "exact addition numerator terms",
-        )?;
-        preflight_sum_terms(
-            left_terms,
-            right_terms,
-            "exact addition numerator terms",
-            limits,
-        )?;
-        preflight_product_terms(
-            left.denominator.nterms(),
-            right.denominator.nterms(),
-            "exact addition denominator terms",
-            limits,
-        )?;
+        preflight_unequal_denominator_sum(left, right, variables, operation, limits)?;
     }
-    let result = if subtract { left - right } else { left + right };
+    let native_operation = if subtract {
+        "performing exact rational-polynomial subtraction"
+    } else {
+        "performing exact rational-polynomial addition"
+    };
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if subtract { left - right } else { left + right }
+    }))
+    .map_err(|_| ExactAlgebraError::NativePanic {
+        operation: native_operation,
+    })?;
     validate_coefficient_on_map(&result, variables, limits)?;
     Ok(result)
+}
+
+/// Preserve the allocation-free legacy preflight for the overwhelmingly
+/// common case where its conservative projection is already admitted. Only a
+/// projection failure that a shared denominator factor can lower pays for a
+/// native denominator GCD and exact quotients.
+fn preflight_unequal_denominator_sum(
+    left: &Coefficient,
+    right: &Coefficient,
+    variables: &Arc<Vec<PolyVariable>>,
+    operation: ExactAlgebraOperation,
+    limits: ExactAlgebraLimits,
+) -> Result<bool, ExactAlgebraError> {
+    match preflight_unreduced_denominator_sum(left, right, operation, limits) {
+        Ok(()) => Ok(false),
+        Err(error) if sum_projection_may_shrink_after_denominator_gcd(&error, operation) => {
+            preflight_reduced_denominator_sum(left, right, variables, operation, limits)?;
+            Ok(true)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn preflight_unreduced_denominator_sum(
+    left: &Coefficient,
+    right: &Coefficient,
+    operation: ExactAlgebraOperation,
+    limits: ExactAlgebraLimits,
+) -> Result<(), ExactAlgebraError> {
+    preflight_cross_sum_degrees(left, right, operation, limits)?;
+    let left_terms = checked_term_product(
+        left.numerator.nterms(),
+        right.denominator.nterms(),
+        "exact addition numerator terms",
+    )?;
+    let right_terms = checked_term_product(
+        right.numerator.nterms(),
+        left.denominator.nterms(),
+        "exact addition numerator terms",
+    )?;
+    preflight_sum_terms(
+        left_terms,
+        right_terms,
+        "exact addition numerator terms",
+        limits,
+    )?;
+    preflight_product_terms(
+        left.denominator.nterms(),
+        right.denominator.nterms(),
+        "exact addition denominator terms",
+        limits,
+    )
+}
+
+fn sum_projection_may_shrink_after_denominator_gcd(
+    error: &ExactAlgebraError,
+    operation: ExactAlgebraOperation,
+) -> bool {
+    match error {
+        ExactAlgebraError::ExponentLimit {
+            operation: failed_operation,
+            ..
+        }
+        | ExactAlgebraError::ExponentArithmeticOverflow {
+            operation: failed_operation,
+            ..
+        } => *failed_operation == operation,
+        ExactAlgebraError::ResourceLimit { resource, .. }
+        | ExactAlgebraError::ResourceCountOverflow { resource } => matches!(
+            *resource,
+            "exact addition numerator terms" | "exact addition denominator terms"
+        ),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+pub(super) fn sum_uses_denominator_gcd_fallback_for_test(
+    left: &Coefficient,
+    right: &Coefficient,
+    variables: &Arc<Vec<PolyVariable>>,
+    operation: ExactAlgebraOperation,
+    limits: ExactAlgebraLimits,
+) -> Result<bool, ExactAlgebraError> {
+    validate_binary_inputs(left, right, variables, limits)?;
+    if left.denominator == right.denominator {
+        return Ok(false);
+    }
+    preflight_unequal_denominator_sum(left, right, variables, operation, limits)
+}
+
+/// Match Symbolica's public rational-polynomial addition algorithm closely
+/// enough to admit the same denominator-GCD reduction before projecting
+/// numerator and denominator product support.
+///
+/// The GCD itself remains a native Symbolica operation. The input Cartesian
+/// term-pair count is a simple admission gate before native entry; it neither
+/// estimates nor bounds Symbolica's GCD work or scratch memory. Exact quotient
+/// outputs and the final rational result are authenticated independently.
+fn preflight_reduced_denominator_sum(
+    left: &Coefficient,
+    right: &Coefficient,
+    variables: &Arc<Vec<PolyVariable>>,
+    operation: ExactAlgebraOperation,
+    limits: ExactAlgebraLimits,
+) -> Result<(), ExactAlgebraError> {
+    let gcd_term_pairs = checked_term_product(
+        left.denominator.nterms(),
+        right.denominator.nterms(),
+        SUM_DENOMINATOR_GCD_TERM_PAIRS,
+    )?;
+    check_exact_resource_limit(
+        SUM_DENOMINATOR_GCD_TERM_PAIRS,
+        gcd_term_pairs,
+        limits.max_term_operations,
+    )?;
+
+    let denominator_gcd = catch_unwind(AssertUnwindSafe(|| {
+        left.denominator.gcd(&right.denominator)
+    }))
+    .map_err(|_| ExactAlgebraError::NativePanic {
+        operation: "computing an exact sum denominator GCD",
+    })?;
+    validate_polynomial_on_map(
+        &denominator_gcd,
+        variables,
+        CoefficientPolynomialPart::Denominator,
+        limits,
+    )?;
+
+    let (left_reduced, right_reduced) = if denominator_gcd.is_one() {
+        (
+            Cow::Borrowed(&left.denominator),
+            Cow::Borrowed(&right.denominator),
+        )
+    } else {
+        (
+            Cow::Owned(exact_denominator_quotient(
+                &left.denominator,
+                &denominator_gcd,
+                variables,
+                limits,
+                "dividing the left exact sum denominator by its GCD",
+            )?),
+            Cow::Owned(exact_denominator_quotient(
+                &right.denominator,
+                &denominator_gcd,
+                variables,
+                limits,
+                "dividing the right exact sum denominator by its GCD",
+            )?),
+        )
+    };
+
+    // Symbolica forms N_left * (D_right / gcd) and
+    // N_right * (D_left / gcd). Addition cannot increase the degree beyond
+    // the maximum degree of those two products.
+    preflight_product_degrees(&left.numerator, &right_reduced, operation, limits)?;
+    preflight_product_degrees(&right.numerator, &left_reduced, operation, limits)?;
+    let left_terms = checked_term_product(
+        left.numerator.nterms(),
+        right_reduced.nterms(),
+        "exact addition numerator terms",
+    )?;
+    let right_terms = checked_term_product(
+        right.numerator.nterms(),
+        left_reduced.nterms(),
+        "exact addition numerator terms",
+    )?;
+    preflight_sum_terms(
+        left_terms,
+        right_terms,
+        "exact addition numerator terms",
+        limits,
+    )?;
+
+    // Use the same algebraically equivalent denominator product selected by
+    // Symbolica: prefer small * large over medium * medium when that choice
+    // is visible from retained support sizes.
+    let (denominator_left, denominator_right) = if left.denominator.nterms()
+        > right.denominator.nterms()
+        && left.denominator.nterms() > left_reduced.nterms()
+    {
+        (right_reduced.as_ref(), &left.denominator)
+    } else {
+        (left_reduced.as_ref(), &right.denominator)
+    };
+    preflight_product_degrees(denominator_left, denominator_right, operation, limits)?;
+    preflight_product_terms(
+        denominator_left.nterms(),
+        denominator_right.nterms(),
+        "exact addition denominator terms",
+        limits,
+    )
+}
+
+fn exact_denominator_quotient(
+    denominator: &MultivariatePolynomial<IntegerRing, u16>,
+    gcd: &MultivariatePolynomial<IntegerRing, u16>,
+    variables: &Arc<Vec<PolyVariable>>,
+    limits: ExactAlgebraLimits,
+    operation: &'static str,
+) -> Result<MultivariatePolynomial<IntegerRing, u16>, ExactAlgebraError> {
+    let quotient = catch_unwind(AssertUnwindSafe(|| denominator.try_div(gcd)))
+        .map_err(|_| ExactAlgebraError::NativePanic { operation })?
+        .ok_or(ExactAlgebraError::NonExactPolynomialDivision { operation })?;
+    validate_polynomial_on_map(
+        &quotient,
+        variables,
+        CoefficientPolynomialPart::Denominator,
+        limits,
+    )?;
+    Ok(quotient)
 }
 
 fn validate_binary_inputs(

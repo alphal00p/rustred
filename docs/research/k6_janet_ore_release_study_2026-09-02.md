@@ -285,3 +285,47 @@ These are implementation hypotheses, not closure claims. Their success gate is
 unchanged: deterministic Janet queue exhaustion, finite pure-power coverage on
 every live guard branch, exact regenerated-source replay, and eventual cold
 artifact compilation with no uncovered positive-dimensional branch.
+
+## Indexed natural-order raised-visit follow-up — 2026-09-02
+
+Two further serial release runs isolate the immutable Janet-divisor index under
+the natural variable order. The historical logical divisor-visit envelope was
+raised so it would remain a compatibility census rather than the first stop.
+Those logical visits reproduce how many basis entries the removed flat scan
+would have inspected; they are not physical index probes. The index's own build
+and query-operation counters record the work actually performed by lookup.
+
+| Orbit | Wall (s) | Max RSS (KiB) | Terminal exact-add projection | Basis rows / revision | Iterations / NF steps | Historical logical visits | Index build / query operations | Exact operations | Janet queue exhausted? | Complement / rays |
+|---:|---:|---:|---|---|---|---:|---:|---:|---|---|
+| 4 | 206.83 | 789,516 | 17,105,235 / 16,777,216 | 84 / 110 | 3,677 / 37,310 | 165,049,549 | 268,522 / 114,892,390 | 8,221,428 | No | Not reached |
+| 5 | 2,808.29 | 1,720,032 | 20,845,452 / 16,777,216 | 110 / 182 | 4,753 / 103,514 | 988,486,132 | 602,063 / 578,403,529 | 65,159,239 | No | Not reached |
+
+Both runs stopped at the exact-addition resource preflight before exhausting
+the Janet queue. Consequently neither run reached complement construction,
+reported a residual-ray count, or produced closure evidence. The requested
+term counts are conservative preflight projections, not measured canonical
+Symbolica output sizes or peak scratch allocations: native rational-polynomial
+addition can reduce denominator cross-products by GCD before materializing the
+sum. The exact interpretation and the proposed GCD-aware/fraction-free remedy
+are documented in the
+[modular scheduling and fraction-free exact replay design](k6_janet_modular_fraction_free_design_2026-09-02.md).
+
+The index removes the growing term-by-basis scan from the wall-time path, but
+these deeper runs show that lookup alone is insufficient. Orbit five reaches
+almost one billion historical scan-equivalent visits while performing about
+578 million bounded index operations, yet its 46.8-minute wall time, 1.64 GiB
+maximum RSS, 65.2 million exact-operation census, and 183 complete epoch
+generations expose exact coefficient arithmetic and repeated epoch work as the
+remaining dominant obstruction. These measurements predate the subsequent
+copy-on-write autoreduction slice, so unchanged rows were still rematerialized
+and successor metadata was still rebuilt wholesale. The ownership and
+incremental-rebuild separation is analyzed in the
+[incremental-epoch and copy-on-write audit](k6_janet_incremental_epoch_audit_2026-09-02.md).
+
+The code milestone following these measurements implements indexed
+copy-on-write autoreduction and a GCD-aware fallback for conservative exact
+sum projections. The next grounded comparison is a release run of that
+combined implementation under the same natural order and limits, followed by
+modular-guided or fraction-free replay if exact work remains dominant. Until
+one of those runs actually exhausts the queue and constructs the complement,
+there is no K6 closure claim.

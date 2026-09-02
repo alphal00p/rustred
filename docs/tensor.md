@@ -73,9 +73,11 @@ After parity is green, optimized benchmarks separate cold artifact
 load/validation from warm scalar reduction and profile equivalent RustRed,
 AlphaLoop, and MATAD workloads. Debug timings are not performance evidence.
 
-## Deferred work
+## Stage 2 work
 
-Stage 2 may revisit advanced rank-generic tensor technology only after explicit
-user guidance. No Stage 1 work should duplicate FeynKit, grow the frozen
-RustRed tensor experiment, or allow tensor concerns to delay autonomous K6
-parametric-IBP closure.
+Stage 2 is authorized immediately after the complete Stage 1 gate. No Stage 1
+work should duplicate FeynKit, grow the frozen RustRed tensor experiment, or
+allow tensor concerns to delay autonomous K6 parametric-IBP closure. Once that
+gate passes, RustRed may integrate the collaborator's advanced rank-generic
+tensor technology when available and must validate it independently against
+the established Vakint lanes.

@@ -1,6 +1,45 @@
 use super::super::super::{CompletionGeometryLimits, LatticeCardinality};
+use super::super::limits::InvolutiveWorkBudget;
 use super::super::*;
 use super::support::*;
+
+fn flat_janet_divisor(
+    basis: &JanetBasisEpoch,
+    target: &ForwardShift,
+    excluded: Option<usize>,
+) -> Option<usize> {
+    basis.elements().iter().find_map(|element| {
+        (excluded != Some(element.ordinal())
+            && element
+                .multiplicative()
+                .janet_divides(element.leading_shift(), target))
+        .then_some(element.ordinal())
+    })
+}
+
+fn assert_index_matches_flat(
+    basis: &JanetBasisEpoch,
+    targets: impl IntoIterator<Item = ForwardShift>,
+    limits: InvolutiveLimits,
+) -> InvolutiveWorkCensus {
+    let mut scratch = basis.try_divisor_scratch(limits).unwrap();
+    let mut work = InvolutiveWorkBudget::default();
+    for target in targets {
+        for excluded in std::iter::once(None).chain((0..basis.elements().len()).map(Some)) {
+            let expected = flat_janet_divisor(basis, &target, excluded);
+            let actual = basis
+                .try_janet_divisor_with_scratch(&target, excluded, &mut scratch, limits, &mut work)
+                .unwrap();
+            assert_eq!(
+                actual,
+                expected,
+                "target={:?} excluded={excluded:?}",
+                target.values()
+            );
+        }
+    }
+    work.census()
+}
 
 #[test]
 fn basis_admission_is_exactly_monic_and_preserves_guarded_source_replay() {
@@ -425,25 +464,277 @@ fn masks_and_janet_divisibility_match_the_quadratic_definition() {
         assert_eq!(element.multiplicative().bits(), expected);
     }
 
-    for x0 in 0..=3 {
-        for x1 in 0..=3 {
-            for x2 in 0..=3 {
-                let target = shift(&[x0, x1, x2], limits);
-                let oracle = basis.elements().iter().find_map(|element| {
-                    let leader = element.leading_shift().values();
-                    leader
-                        .iter()
-                        .zip(target.values())
-                        .zip(element.multiplicative().bits())
-                        .all(|((&left, &right), &multiplicative)| {
-                            left <= right && (left == right || multiplicative)
-                        })
-                        .then_some(element.ordinal())
-                });
-                assert_eq!(basis.try_janet_divisor(&target).unwrap(), oracle);
-            }
+    let targets = (0..=3).flat_map(|x0| {
+        (0..=3).flat_map(move |x1| (0..=3).map(move |x2| shift(&[x0, x1, x2], limits)))
+    });
+    let census = assert_index_matches_flat(&basis, targets, limits);
+    assert!(census.divisor_index_query_operations() > 0);
+    assert_eq!(census.normal_form_divisor_visits(), 0);
+}
+
+#[test]
+fn indexed_division_matches_flat_oracle_on_deterministic_random_bases() {
+    let limits = InvolutiveLimits::default();
+    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+    let mut next = || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+
+    for arity in 1..=6 {
+        let row_count = arity + 4;
+        let context = context(arity);
+        let ordering = active_ordering(arity, limits);
+        let mut leaders = std::collections::BTreeSet::new();
+        for axis in 0..arity {
+            let mut pure_power = vec![0; arity];
+            pure_power[axis] = 5;
+            leaders.insert(pure_power);
         }
+        while leaders.len() < row_count {
+            leaders.insert((0..arity).map(|_| next() % 6).collect::<Vec<_>>());
+        }
+        let leader_slices = leaders.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        let basis = epoch(&leader_slices, &context, &ordering, limits);
+        let targets = (0..32)
+            .map(|_| shift(&(0..arity).map(|_| next() % 9).collect::<Vec<_>>(), limits))
+            .collect::<Vec<_>>();
+        assert_index_matches_flat(&basis, targets, limits);
     }
+}
+
+#[test]
+fn k6_like_masks_preserve_lowest_ordinal_with_every_exclusion() {
+    let limits = InvolutiveLimits::default();
+    let context = context(6);
+    let ordering = active_ordering(6, limits);
+    let leaders: &[&[u64]] = &[
+        &[0, 2, 1, 1, 0, 2],
+        &[1, 1, 1, 0, 1, 1],
+        &[1, 1, 1, 1, 0, 1],
+        &[1, 1, 1, 1, 1, 1],
+        &[1, 1, 2, 1, 1, 1],
+        &[1, 2, 1, 1, 1, 1],
+        &[2, 1, 1, 1, 0, 0],
+        &[2, 1, 1, 1, 1, 0],
+        &[2, 1, 1, 2, 0, 0],
+    ];
+    let forward = epoch(leaders, &context, &ordering, limits);
+    let mut reversed = leaders.to_vec();
+    reversed.reverse();
+    let reversed = epoch(&reversed, &context, &ordering, limits);
+    let targets = (0..512)
+        .map(|ordinal| {
+            shift(
+                &[
+                    ordinal % 4,
+                    (ordinal / 4) % 4,
+                    (ordinal / 16) % 4,
+                    (ordinal / 64) % 4,
+                    (ordinal / 256) % 2,
+                    (ordinal / 128) % 4,
+                ],
+                limits,
+            )
+        })
+        .collect::<Vec<_>>();
+    let forward_census = assert_index_matches_flat(&forward, targets.clone(), limits);
+    let reversed_census = assert_index_matches_flat(&reversed, targets, limits);
+    assert_eq!(
+        forward_census.divisor_index_query_operations(),
+        reversed_census.divisor_index_query_operations()
+    );
+    assert_eq!(
+        forward_census.normal_form_divisor_visits(),
+        reversed_census.normal_form_divisor_visits()
+    );
+}
+
+#[test]
+fn divisor_index_construction_scratch_and_query_caps_are_exact_one_below() {
+    let defaults = InvolutiveLimits::default();
+    let context = context(3);
+    let ordering = active_ordering(3, defaults);
+    let leaders: &[&[u64]] = &[&[0, 0, 3], &[0, 2, 1], &[1, 0, 2], &[1, 1, 0], &[2, 0, 0]];
+    let build = |limits: InvolutiveLimits| {
+        let consequences = leaders.iter().enumerate().map(|(ordinal, powers)| {
+            monomial_consequence(ordinal, powers, &ordering, &context, limits)
+        });
+        let mut work = InvolutiveWorkBudget::default();
+        let epoch = JanetBasisEpoch::try_initial_with_budget(
+            consequences,
+            &ordering,
+            &context,
+            limits,
+            CompletionGeometryLimits::default(),
+            &mut work,
+        )?;
+        Ok::<_, InvolutiveError>((epoch, work.census()))
+    };
+    let (basis, build_census) = build(defaults).unwrap();
+    let build_operations = build_census.divisor_index_build_operations();
+    assert!(build_operations > 0);
+    let build_cap = InvolutiveLimits {
+        max_divisor_index_build_operations: build_operations - 1,
+        ..defaults
+    };
+    assert_eq!(
+        build(build_cap),
+        Err(InvolutiveError::ResourceLimit {
+            resource: "Janet divisor index build operations",
+            requested: build_operations,
+            limit: build_operations - 1,
+        })
+    );
+
+    let build_scratch_bytes = 2 * leaders.len() * std::mem::size_of::<(u64, usize)>();
+    let build_scratch_cap = InvolutiveLimits {
+        max_divisor_index_build_scratch_bytes: build_scratch_bytes - 1,
+        ..defaults
+    };
+    assert_eq!(
+        build(build_scratch_cap),
+        Err(InvolutiveError::ResourceLimit {
+            resource: "Janet divisor index build scratch bytes",
+            requested: build_scratch_bytes,
+            limit: build_scratch_bytes - 1,
+        })
+    );
+
+    let retained_bytes = basis.divisor_index_retained_bytes();
+    let retained_cap = InvolutiveLimits {
+        max_divisor_index_retained_bytes: retained_bytes - 1,
+        ..defaults
+    };
+    assert_eq!(
+        build(retained_cap),
+        Err(InvolutiveError::ResourceLimit {
+            resource: "Janet divisor index retained bytes",
+            requested: retained_bytes,
+            limit: retained_bytes - 1,
+        })
+    );
+
+    let scratch = basis.try_divisor_scratch(defaults).unwrap();
+    let scratch_bytes = scratch.retained_bytes();
+    let scratch_cap = InvolutiveLimits {
+        max_divisor_index_scratch_bytes: scratch_bytes - 1,
+        ..defaults
+    };
+    assert_eq!(
+        basis.try_divisor_scratch(scratch_cap),
+        Err(InvolutiveError::ResourceLimit {
+            resource: "Janet divisor index scratch bytes",
+            requested: scratch_bytes,
+            limit: scratch_bytes - 1,
+        })
+    );
+
+    let targets = [shift(&[3, 2, 3], defaults), shift(&[2, 4, 1], defaults)];
+    let mut scratch = basis.try_divisor_scratch(defaults).unwrap();
+    let mut query_work = InvolutiveWorkBudget::default();
+    for target in &targets {
+        basis
+            .try_janet_divisor_with_scratch(target, None, &mut scratch, defaults, &mut query_work)
+            .unwrap();
+    }
+    let query_operations = query_work.census().divisor_index_query_operations();
+    assert!(query_operations > 0);
+    let query_cap = InvolutiveLimits {
+        max_divisor_index_query_operations: query_operations - 1,
+        ..defaults
+    };
+    let mut scratch = basis.try_divisor_scratch(query_cap).unwrap();
+    let mut query_work = InvolutiveWorkBudget::default();
+    basis
+        .try_janet_divisor_with_scratch(&targets[0], None, &mut scratch, query_cap, &mut query_work)
+        .unwrap();
+    assert_eq!(
+        basis.try_janet_divisor_with_scratch(
+            &targets[1],
+            None,
+            &mut scratch,
+            query_cap,
+            &mut query_work,
+        ),
+        Err(InvolutiveError::ResourceLimit {
+            resource: "Janet divisor index query operations",
+            requested: query_operations,
+            limit: query_operations - 1,
+        })
+    );
+}
+
+#[test]
+fn divisor_index_rejects_wrong_targets_foreign_scratch_and_bad_exclusions() {
+    let limits = InvolutiveLimits::default();
+    let context = context(2);
+    let ordering = active_ordering(2, limits);
+    let basis = epoch(&[&[2, 0], &[0, 3]], &context, &ordering, limits);
+    assert_eq!(
+        basis.try_janet_divisor(&shift(&[1], limits)),
+        Err(InvolutiveError::WrongArity {
+            object: "Janet divisibility target",
+            expected: 2,
+            actual: 1,
+        })
+    );
+
+    let mut old_scratch = basis.try_divisor_scratch(limits).unwrap();
+    let successor = basis
+        .try_successor(
+            [monomial_consequence(
+                2,
+                &[1, 3],
+                &ordering,
+                &context,
+                limits,
+            )],
+            &ordering,
+            &context,
+            limits,
+            CompletionGeometryLimits::default(),
+        )
+        .unwrap();
+    let target = shift(&[2, 3], limits);
+    let mut work = InvolutiveWorkBudget::default();
+    assert_eq!(
+        successor.try_janet_divisor_with_scratch(
+            &target,
+            None,
+            &mut old_scratch,
+            limits,
+            &mut work,
+        ),
+        Err(InvolutiveError::StaleEpoch {
+            expected: successor.epoch().clone(),
+            actual: basis.epoch().clone(),
+        })
+    );
+
+    let mut scratch = successor.try_divisor_scratch(limits).unwrap();
+    assert_eq!(
+        successor.try_janet_divisor_with_scratch(
+            &target,
+            Some(successor.elements().len()),
+            &mut scratch,
+            limits,
+            &mut work,
+        ),
+        Err(InvolutiveError::InvalidProlongation {
+            detail: "excluded Janet divisor is outside the current epoch",
+        })
+    );
+
+    let no_candidate = shift(&[0, 0], limits);
+    assert_eq!(
+        successor
+            .try_janet_divisor_with_scratch(&no_candidate, None, &mut scratch, limits, &mut work,)
+            .unwrap(),
+        None
+    );
 }
 
 #[test]

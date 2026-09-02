@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::algebra::{IndexedCoefficientContext, IndexedPolynomial};
 use crate::sector::ShiftComplexityKey;
 
-use super::error::{check_limit, checked_add, checked_mul, try_push_bounded, try_vec};
+use super::error::{check_limit, checked_add, checked_mul, try_push_bounded};
 use super::limits::InvolutiveWorkBudget;
 use super::{
     ForwardShift, InvolutiveError, InvolutiveLimits, JanetBasisElement, JanetBasisEpoch,
@@ -76,6 +76,16 @@ impl JanetNormalForm {
     }
 }
 
+/// Autoreduction-specific ownership result from one frozen-epoch normal form.
+///
+/// An irreducible sealed row keeps its existing allocation. A row is copied
+/// through the exact Ore boundary only after the borrowed indexed scan has
+/// selected its first real cancellation.
+pub(super) enum JanetAutoreductionNormalForm {
+    Shared(Arc<OreConsequence>),
+    Materialized(JanetNormalForm),
+}
+
 /// Compute a complete term-wise Janet normal form over the exact indexed
 /// rational-function field.
 ///
@@ -106,7 +116,7 @@ pub(super) fn try_janet_normal_form_with_budget(
 }
 
 pub(super) fn try_janet_normal_form_excluding(
-    mut subject: OreConsequence,
+    subject: OreConsequence,
     basis: &JanetBasisEpoch,
     excluded_divisor: Option<usize>,
     ordering: &OreOrderingAdapter,
@@ -114,6 +124,90 @@ pub(super) fn try_janet_normal_form_excluding(
     limits: InvolutiveLimits,
     work: &mut InvolutiveWorkBudget,
 ) -> Result<JanetNormalForm, InvolutiveError> {
+    validate_normal_form_request(&subject, basis, excluded_divisor, ordering, context, limits)?;
+    let divisor_scratch = basis.try_divisor_scratch(limits)?;
+    try_reduce_owned_normal_form(
+        subject,
+        basis,
+        excluded_divisor,
+        ordering,
+        context,
+        limits,
+        work,
+        None,
+        divisor_scratch,
+        0,
+    )
+}
+
+/// Scan one sealed epoch row by reference and materialize it only if an exact
+/// cancellation is actually available after applying the requested exclusion.
+///
+/// The first selection, its historical logical divisor visits, and the index
+/// scratch state are passed directly into the ordinary reduction loop. They
+/// are therefore neither queried nor charged a second time.
+pub(super) fn try_janet_autoreduction_normal_form_excluding(
+    subject: &Arc<OreConsequence>,
+    basis: &JanetBasisEpoch,
+    excluded_divisor: usize,
+    ordering: &OreOrderingAdapter,
+    context: &IndexedCoefficientContext,
+    limits: InvolutiveLimits,
+    work: &mut InvolutiveWorkBudget,
+) -> Result<JanetAutoreductionNormalForm, InvolutiveError> {
+    let excluded_divisor = Some(excluded_divisor);
+    validate_normal_form_request(
+        subject.as_ref(),
+        basis,
+        excluded_divisor,
+        ordering,
+        context,
+        limits,
+    )?;
+    let mut divisor_visits = 0usize;
+    let mut divisor_scratch = basis.try_divisor_scratch(limits)?;
+    let first = try_select_reduction(
+        subject.as_ref(),
+        basis,
+        excluded_divisor,
+        ordering,
+        limits,
+        &mut divisor_visits,
+        &mut divisor_scratch,
+        work,
+    )?;
+    let Some(first) = first else {
+        work.charge_autoreduction_shared_row(limits)?;
+        return Ok(JanetAutoreductionNormalForm::Shared(Arc::clone(subject)));
+    };
+
+    // Admit materialization before allocating or applying the identity AXPY,
+    // so a tight cumulative cap cannot leave an unpublished partial row.
+    work.charge_autoreduction_materialized_row(limits)?;
+    let owned = subject.try_copy_sealed(ordering, context, limits, work)?;
+    let normal_form = try_reduce_owned_normal_form(
+        owned,
+        basis,
+        excluded_divisor,
+        ordering,
+        context,
+        limits,
+        work,
+        Some(first),
+        divisor_scratch,
+        divisor_visits,
+    )?;
+    Ok(JanetAutoreductionNormalForm::Materialized(normal_form))
+}
+
+fn validate_normal_form_request(
+    subject: &OreConsequence,
+    basis: &JanetBasisEpoch,
+    excluded_divisor: Option<usize>,
+    ordering: &OreOrderingAdapter,
+    context: &IndexedCoefficientContext,
+    limits: InvolutiveLimits,
+) -> Result<(), InvolutiveError> {
     basis.require_ordering(ordering)?;
     subject.try_validate(ordering, context, limits)?;
     if excluded_divisor.is_some_and(|ordinal| ordinal >= basis.elements().len()) {
@@ -121,23 +215,42 @@ pub(super) fn try_janet_normal_form_excluding(
             detail: "excluded Janet divisor is outside the current epoch",
         });
     }
+    Ok(())
+}
 
+#[allow(clippy::too_many_arguments)]
+fn try_reduce_owned_normal_form<'basis>(
+    mut subject: OreConsequence,
+    basis: &'basis JanetBasisEpoch,
+    excluded_divisor: Option<usize>,
+    ordering: &OreOrderingAdapter,
+    context: &IndexedCoefficientContext,
+    limits: InvolutiveLimits,
+    work: &mut InvolutiveWorkBudget,
+    mut first_selection: Option<SelectedReduction<'basis>>,
+    mut divisor_scratch: super::divisor_index::JanetDivisorScratch,
+    mut divisor_visits: usize,
+) -> Result<JanetNormalForm, InvolutiveError> {
     let mut steps = Vec::new();
-    let mut divisor_visits = 0usize;
     let mut trace_bytes = 0usize;
     let mut previous_target: Option<ShiftComplexityKey> = None;
 
     loop {
-        let Some(selected) = try_select_reduction(
-            &subject,
-            basis,
-            excluded_divisor,
-            ordering,
-            limits,
-            &mut divisor_visits,
-            work,
-        )?
-        else {
+        let selected = if let Some(selected) = first_selection.take() {
+            Some(selected)
+        } else {
+            try_select_reduction(
+                &subject,
+                basis,
+                excluded_divisor,
+                ordering,
+                limits,
+                &mut divisor_visits,
+                &mut divisor_scratch,
+                work,
+            )?
+        };
+        let Some(selected) = selected else {
             break;
         };
         if previous_target
@@ -234,30 +347,49 @@ fn try_select_reduction<'a>(
     ordering: &OreOrderingAdapter,
     limits: InvolutiveLimits,
     divisor_visits: &mut usize,
+    divisor_scratch: &mut super::divisor_index::JanetDivisorScratch,
     work: &mut InvolutiveWorkBudget,
 ) -> Result<Option<SelectedReduction<'a>>, InvolutiveError> {
     let mut selected: Option<SelectedReduction<'a>> = None;
     for term in subject.row().terms() {
-        let mut divisor = None;
-        for element in basis.elements() {
-            *divisor_visits = checked_add("Janet normal-form divisor visits", *divisor_visits, 1)?;
-            work.charge_divisor_visit(limits)?;
-            check_limit(
-                "Janet normal-form divisor visits",
-                *divisor_visits,
-                limits.max_normal_form_divisor_visits,
-            )?;
-            if excluded_divisor == Some(element.ordinal()) {
-                continue;
-            }
-            if element
-                .multiplicative()
-                .janet_divides(element.leading_shift(), term.shift())
-            {
-                divisor = Some(element);
-                break;
-            }
-        }
+        let divisor = basis.try_janet_divisor_with_scratch(
+            term.shift(),
+            excluded_divisor,
+            divisor_scratch,
+            limits,
+            work,
+        )?;
+        // Preserve the historical flat-scan work contract without performing
+        // that scan: a hit at ordinal `o` visited `o + 1` rows, while a miss
+        // visited the complete epoch (including an excluded row).
+        let logical_visits = if let Some(ordinal) = divisor {
+            checked_add("Janet normal-form divisor visits", ordinal, 1)?
+        } else {
+            basis.elements().len()
+        };
+        *divisor_visits = checked_add(
+            "Janet normal-form divisor visits",
+            *divisor_visits,
+            logical_visits,
+        )?;
+        work.charge_divisor_visits(logical_visits, limits)?;
+        check_limit(
+            "Janet normal-form divisor visits",
+            *divisor_visits,
+            limits.max_normal_form_divisor_visits,
+        )?;
+        let divisor = if let Some(ordinal) = divisor {
+            Some(
+                basis
+                    .elements()
+                    .get(ordinal)
+                    .ok_or(InvolutiveError::Invariant {
+                        detail: "Janet divisor ordinal disappeared from its immutable epoch",
+                    })?,
+            )
+        } else {
+            None
+        };
         let Some(divisor) = divisor else {
             continue;
         };
@@ -292,25 +424,4 @@ fn step_retained_bytes(step: &JanetReductionStep) -> Result<usize, InvolutiveErr
         std::mem::size_of::<JanetReductionStep>(),
         shift_bytes,
     )
-}
-
-/// Copy every exact row/provenance/guard payload through the bounded Ore
-/// arithmetic boundary before attempting autoreduction.
-pub(super) fn try_copy_basis_consequences(
-    basis: &JanetBasisEpoch,
-    ordering: &OreOrderingAdapter,
-    context: &IndexedCoefficientContext,
-    limits: InvolutiveLimits,
-    work: &mut InvolutiveWorkBudget,
-) -> Result<Vec<OreConsequence>, InvolutiveError> {
-    basis.require_ordering(ordering)?;
-    let mut copied = try_vec("Janet autoreduction input rows", basis.elements().len())?;
-    for element in basis.elements() {
-        copied.push(
-            element
-                .consequence()
-                .try_copy_sealed(ordering, context, limits, work)?,
-        );
-    }
-    Ok(copied)
 }

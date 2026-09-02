@@ -884,9 +884,9 @@ reducer restores a target-to-master coefficient by
 dimension or establish closure by itself.
 
 Four- through six-loop artifact closure and extreme parallel execution belong
-to Stage 2 and must not start without explicit new guidance. Stage 1 does
-include bounded research into reconstruction and completion algorithms whose
-scaling models target those later families. Such work must pass stated K6
-falsification gates before it becomes production architecture. All algorithms
-remain topology- and loop-count-generic and share the same exact proof and
-publication path.
+to Stage 2, which is authorized to start after the complete Stage 1 gate is
+recorded and pushed. Stage 1 includes bounded research into reconstruction and
+completion algorithms whose scaling models target those later families. Such
+work must pass stated K6 falsification gates before it becomes production
+architecture. All algorithms remain topology- and loop-count-generic and
+share the same exact proof and publication path.

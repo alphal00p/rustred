@@ -35,9 +35,10 @@ themselves. Relevant primary sources include:
 
 The architecture below is a RustRed proposal assembled from those results,
 the LiteRed2 baseline, bounded measurements, and independent adversarial
-audits. Stage 1 authorizes bounded high-loop studies only. It does not
-authorize production of four- through six-loop artifacts until the active
-three-loop/Vakint goal is complete and the user opens Stage 2.
+audits. Stage 1 authorizes bounded high-loop studies only. Production of four-
+through six-loop artifacts starts after the active three-loop/Vakint goal is
+complete; Stage 2 is now already authorized and needs no further permission
+pause.
 
 The direct baseline references are Lee's original
 [LiteRed presentation](https://arxiv.org/abs/1212.2685) and

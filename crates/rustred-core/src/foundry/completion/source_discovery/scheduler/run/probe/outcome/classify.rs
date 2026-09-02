@@ -244,7 +244,9 @@ fn exact_algebra_budget_cause(error: &ExactAlgebraError) -> Option<ProbeLocalBud
         | ExactAlgebraError::ZeroCoefficient { .. }
         | ExactAlgebraError::NonCanonicalMonomialOrder { .. }
         | ExactAlgebraError::ZeroDenominator
-        | ExactAlgebraError::DivisionByZero => None,
+        | ExactAlgebraError::DivisionByZero
+        | ExactAlgebraError::NativePanic { .. }
+        | ExactAlgebraError::NonExactPolynomialDivision { .. } => None,
     }
 }
 

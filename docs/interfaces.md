@@ -281,8 +281,9 @@ Vakint does not duplicate the rule engine. Defects in Vakint matching are
 fixed and tested in that matcher rather than bypassed by a second topology
 table.
 
-The existing tensor API remains available at its evidenced bounded frontier,
-but extension or replacement of tensor reduction belongs to Stage 2.
+The existing tensor API remains available at its evidenced bounded frontier.
+Extension or replacement of tensor reduction belongs to the already-authorized
+Stage 2 and begins only after the complete Stage 1 gate.
 
 ## Stage 1 fine-grained surfaces
 

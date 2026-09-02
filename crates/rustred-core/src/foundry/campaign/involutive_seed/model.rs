@@ -178,6 +178,8 @@ pub(crate) struct InvolutiveSeedCensus {
     pub(super) autoreduction_passes: usize,
     pub(super) autoreduction_normal_form_steps: usize,
     pub(super) autoreduction_dropped_rows: usize,
+    pub(super) autoreduction_shared_rows: usize,
+    pub(super) autoreduction_materialized_rows: usize,
     pub(super) proposed_support_domains: usize,
     pub(super) unique_support_domains: usize,
     pub(super) raw_support_entries: usize,
@@ -217,15 +219,27 @@ impl InvolutiveSeedLocalizationCensus {
 /// and prolongation in the single bounded proposal calculation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct InvolutiveSeedWorkCensus {
+    pub(super) divisor_index_build_operations: usize,
+    pub(super) divisor_index_query_operations: usize,
     pub(super) normal_form_steps: usize,
     pub(super) normal_form_divisor_visits: usize,
     pub(super) normal_form_trace_bytes: usize,
     pub(super) autoreduction_passes: usize,
+    pub(super) autoreduction_shared_rows: usize,
+    pub(super) autoreduction_materialized_rows: usize,
     pub(super) completion_iterations: usize,
     pub(super) exact_coefficient_operations: usize,
 }
 
 impl InvolutiveSeedWorkCensus {
+    pub(crate) const fn divisor_index_build_operations(self) -> usize {
+        self.divisor_index_build_operations
+    }
+
+    pub(crate) const fn divisor_index_query_operations(self) -> usize {
+        self.divisor_index_query_operations
+    }
+
     pub(crate) const fn normal_form_steps(self) -> usize {
         self.normal_form_steps
     }
@@ -240,6 +254,14 @@ impl InvolutiveSeedWorkCensus {
 
     pub(crate) const fn autoreduction_passes(self) -> usize {
         self.autoreduction_passes
+    }
+
+    pub(crate) const fn autoreduction_shared_rows(self) -> usize {
+        self.autoreduction_shared_rows
+    }
+
+    pub(crate) const fn autoreduction_materialized_rows(self) -> usize {
+        self.autoreduction_materialized_rows
     }
 
     pub(crate) const fn completion_iterations(self) -> usize {
@@ -318,6 +340,14 @@ impl InvolutiveSeedCensus {
 
     pub(crate) const fn autoreduction_dropped_rows(self) -> usize {
         self.autoreduction_dropped_rows
+    }
+
+    pub(crate) const fn autoreduction_shared_rows(self) -> usize {
+        self.autoreduction_shared_rows
+    }
+
+    pub(crate) const fn autoreduction_materialized_rows(self) -> usize {
+        self.autoreduction_materialized_rows
     }
 
     pub(crate) const fn proposed_support_domains(self) -> usize {

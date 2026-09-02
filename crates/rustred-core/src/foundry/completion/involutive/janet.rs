@@ -6,6 +6,7 @@ use crate::sector::ShiftComplexityKey;
 use super::super::{
     CompletionGeometryLimits, LatticeCardinality, LatticePoint, LeadingIdeal, UncoveredPartition,
 };
+use super::divisor_index::{JanetDivisorIndex, JanetDivisorScratch};
 use super::error::{
     check_limit, checked_add, checked_mul, checked_sort_coordinate_work, try_push_bounded, try_vec,
 };
@@ -145,6 +146,15 @@ impl JanetBasisElement {
     pub(crate) fn consequence(&self) -> &OreConsequence {
         self.consequence.as_ref()
     }
+
+    /// Stable sealed payload handle shared by immutable basis revisions.
+    ///
+    /// Epoch-local masks, ordinals, and divisor metadata are deliberately not
+    /// part of this allocation. Sharing the handle therefore cannot make an
+    /// old prolongation current in a successor epoch.
+    pub(super) fn consequence_handle(&self) -> &Arc<OreConsequence> {
+        &self.consequence
+    }
 }
 
 /// One mandatory nonmultiplicative prolongation tied to its source epoch.
@@ -210,6 +220,7 @@ pub(crate) struct JanetBasisEpoch {
     action: OreActionIdentity,
     arity: usize,
     elements: Box<[JanetBasisElement]>,
+    divisor_index: JanetDivisorIndex,
     prolongations: Box<[JanetProlongation]>,
     leading_ideal: LeadingIdeal,
     uncovered: UncoveredPartition,
@@ -419,19 +430,58 @@ impl JanetBasisEpoch {
         &self,
         target: &ForwardShift,
     ) -> Result<Option<usize>, InvolutiveError> {
-        if target.arity() != self.arity {
-            return Err(InvolutiveError::WrongArity {
-                object: "Janet divisibility target",
-                expected: self.arity,
-                actual: target.arity(),
-            });
-        }
-        Ok(self.elements.iter().find_map(|element| {
-            element
+        let limits = InvolutiveLimits::default();
+        let mut work = InvolutiveWorkBudget::default();
+        let mut scratch = self.divisor_index.try_scratch(limits)?;
+        self.try_janet_divisor_with_scratch(target, None, &mut scratch, limits, &mut work)
+    }
+
+    pub(super) fn try_divisor_scratch(
+        &self,
+        limits: InvolutiveLimits,
+    ) -> Result<JanetDivisorScratch, InvolutiveError> {
+        self.divisor_index.try_scratch(limits)
+    }
+
+    pub(super) fn try_janet_divisor_with_scratch(
+        &self,
+        target: &ForwardShift,
+        excluded_ordinal: Option<usize>,
+        scratch: &mut JanetDivisorScratch,
+        limits: InvolutiveLimits,
+        work: &mut InvolutiveWorkBudget,
+    ) -> Result<Option<usize>, InvolutiveError> {
+        let selected = self.divisor_index.try_first_divisor(
+            &self.epoch,
+            target,
+            excluded_ordinal,
+            scratch,
+            limits,
+            work,
+        )?;
+        let Some(ordinal) = selected else {
+            return Ok(None);
+        };
+        let element = self
+            .elements
+            .get(ordinal)
+            .ok_or(InvolutiveError::Invariant {
+                detail: "Janet divisor index returned an ordinal outside the basis",
+            })?;
+        if excluded_ordinal == Some(ordinal)
+            || !element
                 .multiplicative
                 .janet_divides(&element.leading_shift, target)
-                .then_some(element.ordinal)
-        }))
+        {
+            return Err(InvolutiveError::Invariant {
+                detail: "Janet divisor index returned a nondivisor",
+            });
+        }
+        Ok(Some(ordinal))
+    }
+
+    pub(crate) fn divisor_index_retained_bytes(&self) -> usize {
+        self.divisor_index.retained_bytes()
     }
 
     pub(crate) fn require_current(
@@ -502,7 +552,7 @@ impl JanetBasisEpoch {
 
     pub(super) fn try_replacement_successor(
         &self,
-        replacements: Vec<OreConsequence>,
+        replacements: Vec<Arc<OreConsequence>>,
         ordering: &OreOrderingAdapter,
         context: &IndexedCoefficientContext,
         limits: InvolutiveLimits,
@@ -515,15 +565,11 @@ impl JanetBasisEpoch {
         for consequence in &replacements {
             consequence.try_validate(ordering, context, limits)?;
         }
-        preflight_basis_coefficient_payload(replacements.iter(), limits)?;
-        let mut retained = try_vec("replacement Janet basis rows", replacements.len())?;
-        for consequence in replacements {
-            retained.push(Arc::new(consequence));
-        }
+        preflight_basis_coefficient_payload(replacements.iter().map(Arc::as_ref), limits)?;
         build_epoch(
             next_epoch,
             Some(self.epoch.clone()),
-            retained,
+            replacements,
             ordering,
             context,
             limits,
@@ -612,6 +658,7 @@ fn build_epoch(
         });
     }
 
+    let divisor_index = JanetDivisorIndex::try_new(&epoch, arity, &elements, limits, work)?;
     let prolongations = build_prolongation_queue(&epoch, &elements, ordering, limits)?;
     let pure_power_coverage = build_pure_power_coverage(arity, &elements)?;
     let mut generators = try_vec("Janet leading-ideal generators", elements.len())?;
@@ -633,6 +680,7 @@ fn build_epoch(
         action: ordering.identity().clone(),
         arity,
         elements: elements.into_boxed_slice(),
+        divisor_index,
         prolongations,
         leading_ideal,
         uncovered,
