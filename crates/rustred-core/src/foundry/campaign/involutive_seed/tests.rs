@@ -1897,9 +1897,13 @@ fn run_diagnostic_k6_seed_harness(orbit_index: usize) {
         Err(error) if is_expected_bounded_k6_stop(&error) => {
             let checkpoint = checkpoint.expect("an active K6 diagnostic must retain a checkpoint");
             println!(
-                "k6-involutive-seed mode=diagnostic_bounded orbit_index={orbit_index} tier={} divisor_visit_limit={} status=typed_stop stop={error:?} checkpoint={checkpoint:?} complement=not_reached rays=not_reached resource_stop_accepted=true",
+                "k6-involutive-seed mode=diagnostic_bounded orbit_index={orbit_index} tier={} divisor_visit_limit={} status=typed_stop stop={error:?} checkpoint={checkpoint:?} coefficient_payload_attempts={} coefficient_payload_attempts_by_site={:?} last_coefficient_payload={:?} peak_coefficient_payload={:?} complement=not_reached rays=not_reached resource_stop_accepted=true",
                 tier.label(),
                 profile.involutive().max_normal_form_divisor_visits,
+                checkpoint.coefficient_payload_attempts,
+                checkpoint.coefficient_payload_attempts_by_site,
+                checkpoint.last_coefficient_payload,
+                checkpoint.peak_coefficient_payload,
             );
         }
         Err(error) => panic!(

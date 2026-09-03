@@ -6,39 +6,53 @@ use symbolica::domains::finite_field::FiniteFieldElement;
 use crate::algebra::IndexedCoefficient;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(super) struct CoeffNodeId(u32);
+pub(super) struct CoeffNodeId(u64);
 
 impl CoeffNodeId {
-    pub(super) fn try_new(value: usize) -> Option<Self> {
-        u32::try_from(value).ok().map(Self)
+    pub(super) fn try_new(value: usize, incarnation: u32) -> Option<Self> {
+        let ordinal = u32::try_from(value).ok()?;
+        Some(Self((u64::from(incarnation) << 32) | u64::from(ordinal)))
     }
 
     pub(super) const fn ordinal(self) -> u32 {
-        self.0
+        self.0 as u32
     }
 
     pub(super) const fn as_usize(self) -> usize {
-        self.0 as usize
+        self.ordinal() as usize
+    }
+
+    pub(super) const fn incarnation(self) -> u32 {
+        (self.0 >> 32) as u32
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(super) struct PhysicalDeltaId(u32);
+pub(super) struct PhysicalDeltaId(u64);
 
 impl PhysicalDeltaId {
-    pub(super) fn try_new(value: usize) -> Option<Self> {
-        u32::try_from(value).ok().map(Self)
+    pub(super) fn try_new(value: usize, incarnation: u32) -> Option<Self> {
+        let ordinal = u32::try_from(value).ok()?;
+        Some(Self((u64::from(incarnation) << 32) | u64::from(ordinal)))
     }
 
     pub(super) const fn as_usize(self) -> usize {
-        self.0 as usize
+        self.ordinal() as usize
+    }
+
+    pub(super) const fn ordinal(self) -> u32 {
+        self.0 as u32
+    }
+
+    pub(super) const fn incarnation(self) -> u32 {
+        (self.0 >> 32) as u32
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(super) struct ProbeDeltaId(u32);
+pub(super) struct AccumulatedDeltaId(u32);
 
-impl ProbeDeltaId {
+impl AccumulatedDeltaId {
     pub(super) fn try_new(value: usize) -> Option<Self> {
         u32::try_from(value).ok().map(Self)
     }
@@ -125,7 +139,7 @@ pub(super) enum CoeffNode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct EvaluationKey {
     pub(super) node: CoeffNodeId,
-    pub(super) translation: ProbeDeltaId,
+    pub(super) translation: AccumulatedDeltaId,
 }
 
 /// Whether a zero image was established structurally or merely sampled.
@@ -134,6 +148,33 @@ pub(super) enum ModularZeroEvidence {
     KnownZero,
     SampledZero,
     Nonzero,
+}
+
+/// Semantic position of one query in a consumed modular batch.
+///
+/// ELC1 batches have one canonical layout: every guard precedes every
+/// coefficient root.  Keeping the role beside the owned root prevents a raw
+/// positional image from being reinterpreted under another layout.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ModularQueryRole {
+    Guard,
+    Coefficient,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ModularEvaluationQuery {
+    pub(super) role: ModularQueryRole,
+    pub(super) root: CoeffRef,
+}
+
+impl ModularEvaluationQuery {
+    pub(super) fn root(&self) -> &CoeffRef {
+        &self.root
+    }
+
+    pub(super) const fn role(&self) -> ModularQueryRole {
+        self.role
+    }
 }
 
 /// One scalar image from a single independent modular probe.
@@ -214,6 +255,9 @@ pub(super) struct ModularProbeCensus {
     pub(super) delta_compositions: usize,
     pub(super) delta_coordinate_operations: usize,
     pub(super) evaluation_steps: usize,
+    pub(super) evaluation_frame_pushes: usize,
+    pub(super) peak_live_evaluation_frames: usize,
+    pub(super) peak_live_evaluation_values: usize,
     pub(super) cache_hits: usize,
     pub(super) exact_leaf_evaluations: usize,
     pub(super) exact_leaf_terms_evaluated: usize,
@@ -231,6 +275,18 @@ impl ModularProbeCensus {
 
     pub(super) const fn evaluation_steps(self) -> usize {
         self.evaluation_steps
+    }
+
+    pub(super) const fn evaluation_frame_pushes(self) -> usize {
+        self.evaluation_frame_pushes
+    }
+
+    pub(super) const fn peak_live_evaluation_frames(self) -> usize {
+        self.peak_live_evaluation_frames
+    }
+
+    pub(super) const fn peak_live_evaluation_values(self) -> usize {
+        self.peak_live_evaluation_values
     }
 
     pub(super) const fn delta_coordinate_operations(self) -> usize {
@@ -262,7 +318,9 @@ impl ModularProbeCensus {
 pub(super) struct ModularEvaluationBatch {
     pub(super) identity: Arc<ModularProbeIdentity>,
     pub(super) dag_owner: DagOwner,
-    pub(super) queries: Box<[CoeffRef]>,
+    pub(super) context_fingerprint: Arc<String>,
+    pub(super) queries: Box<[ModularEvaluationQuery]>,
+    pub(super) guard_count: usize,
     pub(super) images: Box<[ModularImage]>,
     pub(super) census: ModularProbeCensus,
 }
@@ -279,12 +337,24 @@ impl ModularEvaluationBatch {
     /// The exact ordered coefficient references corresponding one-to-one to
     /// [`Self::images`].  Retaining these references prevents positional
     /// images from being accidentally reinterpreted as another query batch.
-    pub(super) fn queries(&self) -> &[CoeffRef] {
+    pub(super) fn queries(&self) -> &[ModularEvaluationQuery] {
         &self.queries
+    }
+
+    pub(super) const fn guard_count(&self) -> usize {
+        self.guard_count
+    }
+
+    pub(super) fn owns_context(&self, context: &crate::algebra::IndexedCoefficientContext) -> bool {
+        context.owns_fingerprint(&self.context_fingerprint)
     }
 
     pub(super) fn owns_dag(&self, dag: &super::arena::ModularCoefficientDag) -> bool {
         self.dag_owner.belongs_to(dag.owner())
+            && self
+                .queries
+                .iter()
+                .all(|query| dag.raw(&query.root).is_ok())
     }
 
     pub(super) const fn census(&self) -> ModularProbeCensus {

@@ -9,6 +9,13 @@ use super::model::CoeffNodeId;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ModularGuideError {
     WrongDagOwner,
+    StaleDagReference {
+        resource: &'static str,
+        ordinal: u32,
+    },
+    InvalidArenaCheckpoint {
+        detail: &'static str,
+    },
     WrongIndexedContext,
     WrongPointArity {
         expected: usize,
@@ -21,13 +28,25 @@ pub(super) enum ModularGuideError {
     UnsupportedModulus {
         modulus: u64,
     },
+    InconsistentProbeIdentity,
+    InconsistentBatchQueryLayout,
     StructurallyZeroInverse,
+    KnownZeroCannotBeCertified,
     SingularExactLeaf {
         node: CoeffNodeId,
     },
     SingularInverse {
         node: CoeffNodeId,
     },
+    ExactZeroInverse {
+        node: CoeffNodeId,
+    },
+    InvalidExcludedDivisor {
+        ordinal: usize,
+        basis_rows: usize,
+    },
+    SampledZeroMonicLeader,
+    SampledZeroLocalizationGuard,
     RejectedProbe,
     ResourceCountOverflow {
         resource: &'static str,
@@ -58,6 +77,13 @@ impl fmt::Display for ModularGuideError {
             Self::WrongDagOwner => {
                 formatter.write_str("coefficient reference belongs to another modular DAG")
             }
+            Self::StaleDagReference { resource, ordinal } => write!(
+                formatter,
+                "{resource} ordinal {ordinal} names a rolled-back or absent DAG slot"
+            ),
+            Self::InvalidArenaCheckpoint { detail } => {
+                write!(formatter, "invalid modular DAG checkpoint: {detail}")
+            }
             Self::WrongIndexedContext => {
                 formatter.write_str("modular DAG and probe belong to different indexed contexts")
             }
@@ -73,8 +99,17 @@ impl fmt::Display for ModularGuideError {
                 formatter,
                 "modular guide modulus {modulus} is not an admitted odd prime"
             ),
+            Self::InconsistentProbeIdentity => formatter.write_str(
+                "the supplied modular probe identity does not match its canonical point residues",
+            ),
+            Self::InconsistentBatchQueryLayout => formatter.write_str(
+                "the consumed modular batch does not match the complete ordered tagged query layout",
+            ),
             Self::StructurallyZeroInverse => {
                 formatter.write_str("a structurally zero coefficient cannot be inverted")
+            }
+            Self::KnownZeroCannotBeCertified => {
+                formatter.write_str("a known-zero coefficient cannot receive a nonzero certificate")
             }
             Self::SingularExactLeaf { node } => write!(
                 formatter,
@@ -86,6 +121,22 @@ impl fmt::Display for ModularGuideError {
                 "modular inverse at DAG node {} has a zero sampled operand",
                 node.ordinal()
             ),
+            Self::ExactZeroInverse { node } => write!(
+                formatter,
+                "exact materialization found a zero inverse operand at DAG node {}",
+                node.ordinal()
+            ),
+            Self::InvalidExcludedDivisor {
+                ordinal,
+                basis_rows,
+            } => write!(
+                formatter,
+                "excluded modular Janet divisor {ordinal} is outside the frozen {basis_rows}-row epoch"
+            ),
+            Self::SampledZeroMonicLeader => formatter
+                .write_str("the greatest structural Ore term vanished in this modular probe"),
+            Self::SampledZeroLocalizationGuard => formatter
+                .write_str("an exact nonzero localization guard vanished in this modular probe"),
             Self::RejectedProbe => formatter.write_str("modular probe was already rejected"),
             Self::ResourceCountOverflow { resource } => {
                 write!(

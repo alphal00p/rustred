@@ -382,3 +382,44 @@ next scalable comparison therefore needs bounded whole-trace modular
 scheduling and exact replay, not another blind cap escalation. This run also
 did not exhaust the Janet queue, so complement and residual rays remain not
 reached.
+
+## Attributed payload follow-up — 2026-09-03
+
+A later frozen release test executable, SHA-256
+`8700d10972a82bec98812d3ccf326879c1c0b5992405f5fee2154bbc9bf1be7d`,
+repeated natural-order orbit 4 with the corrected seven-variable cell ratio,
+a raised one-billion historical logical-visit cap, and a deliberate
+1,048,576-term per-consequence stop. The test-only diagnostic observer was
+independently audited before the run: ordinary attempts add no heap allocation
+or second polynomial traversal, and exact denominator-reuse inspection is
+claimed only once for the first failing payload.
+
+| Wall (s) | User / system (s) | Max RSS (KiB) | Basis / revision | Attempts / NF steps | Logical visits | Index queries | Exact operations |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 101.33 | 100.21 / 0.40 | 433,156 | 83 / 108 | 3,579 / 35,720 | 152,382,806 | 106,777,948 | 6,687,228 |
+
+The first rejected normal-form cancellation retained 802 rational
+coefficients and 1,826,367 numerator-plus-denominator terms:
+
+| Component | Coefficients | Numerator terms | Denominator terms | Approximate retained payload |
+|---|---:|---:|---:|---:|
+| physical row | 187 | 649,437 | 43,335 | 31.9 MiB |
+| source provenance | 615 | 1,007,770 | 125,825 | 49.7 MiB |
+
+The largest single coefficient contained 21,569 terms. In the bounded exact
+denominator sample, 131 of 256 tracked nonunit instances matched an earlier
+representative and 125 were distinct; 545 further instances were deliberately
+outside the exact-tracking budget.
+
+This separates the earlier aggregate stop: expanded provenance is the largest
+component, physical-row numerators are also substantial, and denominators are
+secondary. Fraction-free denominator control remains a useful comparison but
+cannot be the primary cure. The next primary falsifier is therefore a
+persistent exact-expression DAG whose support is certified by rigorous
+one-sided finite-field nonzero witnesses and exact Symbolica fallback for
+sampled zeros. Its independent requirements and go/no-go gates are recorded
+in the
+[exact-lazy audit](k6_exact_lazy_support_certificate_audit_2026-09-03.md).
+
+This bounded run did not exhaust the queue and did not construct a complement
+or K6 artifact.

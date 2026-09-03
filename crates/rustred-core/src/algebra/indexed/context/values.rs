@@ -98,6 +98,21 @@ impl IndexedCoefficientContext {
         })
     }
 
+    /// Regard one already sealed indexed polynomial as a denominator-one
+    /// coefficient in the same indexed field.
+    ///
+    /// This is a structural conversion through Symbolica's native
+    /// polynomial-to-rational-polynomial representation. It is intentionally
+    /// restricted to in-process owners that have already authenticated the
+    /// polynomial; no parsing, expansion, or second payload scan is needed.
+    pub(crate) fn coefficient_from_polynomial_sealed(
+        &self,
+        value: &IndexedPolynomial,
+    ) -> Result<IndexedCoefficient, IndexedAlgebraError> {
+        self.validate_polynomial_context(value)?;
+        Ok(self.wrap_sealed(value.raw.clone().into()))
+    }
+
     /// Return the canonical primitive associate of one authenticated nonzero
     /// integer polynomial.
     ///

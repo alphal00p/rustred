@@ -353,13 +353,16 @@ pub(super) fn build_lifted_source(
     if row.is_zero() {
         return Err(OrdinaryChartLiftError::EmptySourceRelation { source_ordinal });
     }
-    let mut consequence = OreConsequence::try_from_left_shifted_source(
-        source_ordinal,
-        left_shift.clone(),
-        row,
-        ordering,
-        context,
-        limits,
+    let mut consequence = super::super::with_coefficient_diagnostic_site!(
+        ChartLiftSource,
+        OreConsequence::try_from_left_shifted_source(
+            source_ordinal,
+            left_shift.clone(),
+            row,
+            ordering,
+            context,
+            limits,
+        )
     )?;
     let mut guards = try_vec(
         "translated ordinary localization guards",

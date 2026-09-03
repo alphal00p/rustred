@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::mem::size_of;
 use std::sync::Arc;
 
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext};
@@ -11,11 +12,23 @@ use super::model::{
     CoeffNode, CoeffNodeId, CoeffRef, DagOwner, ExactLeaf, ExactLeafId, ExactLeafKey,
     PhysicalDeltaId, RawCoeffRef,
 };
+use super::payload::{CoefficientPayloadWeight, try_coefficient_payload_weight};
 
 const DAG_NODES: &str = "modular coefficient DAG nodes";
+const TOTAL_DAG_NODES: &str = "total modular coefficient DAG nodes created";
 const EXACT_LEAVES: &str = "modular coefficient exact leaves";
+const EXACT_LEAF_TERMS: &str = "modular coefficient exact-leaf terms";
+const EXACT_LEAF_EXPONENT_CELLS: &str = "modular coefficient exact-leaf exponent cells";
+const EXACT_LEAF_BYTES: &str = "modular coefficient exact-leaf retained bytes";
+const TOTAL_EXACT_LEAF_TERMS: &str = "total modular coefficient exact-leaf terms ingressed";
+const TOTAL_EXACT_LEAF_EXPONENT_CELLS: &str =
+    "total modular coefficient exact-leaf exponent cells ingressed";
+const TOTAL_EXACT_LEAF_BYTES: &str = "total modular coefficient exact-leaf bytes ingressed";
 const PHYSICAL_DELTAS: &str = "modular coefficient physical deltas";
+const TOTAL_PHYSICAL_DELTAS: &str = "total modular coefficient physical deltas created";
 const PHYSICAL_DELTA_CELLS: &str = "modular coefficient physical-delta coordinate cells";
+const TOTAL_PHYSICAL_DELTA_COORDINATE_OPERATIONS: &str =
+    "total modular physical-delta coordinate operations";
 
 /// Field-independent, hash-consed coefficient-expression storage.
 ///
@@ -30,10 +43,23 @@ pub(super) struct ModularCoefficientDag {
     index_count: usize,
     limits: ModularGuideLimits,
     nodes: Vec<CoeffNode>,
+    node_incarnations: Vec<u32>,
+    next_node_incarnation: u64,
+    total_nodes_created: usize,
     node_lookup: HashMap<CoeffNode, CoeffNodeId>,
     exact_leaves: Vec<ExactLeaf>,
     exact_leaf_lookup: HashMap<ExactLeafKey, ExactLeafId>,
+    exact_leaf_terms: usize,
+    exact_leaf_exponent_cells: usize,
+    exact_leaf_retained_bytes: usize,
+    total_exact_leaf_terms_ingressed: usize,
+    total_exact_leaf_exponent_cells_ingressed: usize,
+    total_exact_leaf_bytes_ingressed: usize,
     deltas: Vec<Arc<Vec<i64>>>,
+    delta_incarnations: Vec<u32>,
+    next_delta_incarnation: u64,
+    total_physical_deltas_created: usize,
+    total_physical_delta_coordinate_operations: usize,
     delta_lookup: HashMap<Arc<Vec<i64>>, PhysicalDeltaId>,
     delta_coordinate_cells: usize,
 }
@@ -44,7 +70,13 @@ impl ModularCoefficientDag {
         limits: ModularGuideLimits,
     ) -> Result<Self, ModularGuideError> {
         check_limit(DAG_NODES, 2, limits.max_nodes)?;
+        check_limit(TOTAL_DAG_NODES, 2, limits.max_total_nodes_created)?;
         check_limit(PHYSICAL_DELTAS, 1, limits.max_physical_deltas)?;
+        check_limit(
+            TOTAL_PHYSICAL_DELTAS,
+            1,
+            limits.max_total_physical_deltas_created,
+        )?;
         check_limit(
             PHYSICAL_DELTA_CELLS,
             context.index_count(),
@@ -55,10 +87,13 @@ impl ModularCoefficientDag {
         reserve_vec(&mut nodes, 2, DAG_NODES)?;
         let mut node_lookup = HashMap::new();
         reserve_map(&mut node_lookup, 2, DAG_NODES)?;
-        let zero_id = CoeffNodeId::try_new(0).expect("zero is representable as a DAG node ID");
-        let one_id = CoeffNodeId::try_new(1).expect("one is representable as a DAG node ID");
+        let zero_id = CoeffNodeId::try_new(0, 0).expect("zero is representable as a DAG node ID");
+        let one_id = CoeffNodeId::try_new(1, 1).expect("one is representable as a DAG node ID");
         nodes.push(CoeffNode::Zero);
         nodes.push(CoeffNode::One);
+        let mut node_incarnations = Vec::new();
+        reserve_vec(&mut node_incarnations, 2, DAG_NODES)?;
+        node_incarnations.extend([zero_id.incarnation(), one_id.incarnation()]);
         node_lookup.insert(CoeffNode::Zero, zero_id);
         node_lookup.insert(CoeffNode::One, one_id);
 
@@ -67,10 +102,13 @@ impl ModularCoefficientDag {
         zero_delta.resize(context.index_count(), 0);
         let zero_delta = Arc::new(zero_delta);
         let zero_delta_id =
-            PhysicalDeltaId::try_new(0).expect("zero is representable as a physical-delta ID");
+            PhysicalDeltaId::try_new(0, 0).expect("zero is representable as a physical-delta ID");
         let mut deltas = Vec::new();
         reserve_vec(&mut deltas, 1, PHYSICAL_DELTAS)?;
         deltas.push(Arc::clone(&zero_delta));
+        let mut delta_incarnations = Vec::new();
+        reserve_vec(&mut delta_incarnations, 1, PHYSICAL_DELTAS)?;
+        delta_incarnations.push(zero_delta_id.incarnation());
         let mut delta_lookup = HashMap::new();
         reserve_map(&mut delta_lookup, 1, PHYSICAL_DELTAS)?;
         delta_lookup.insert(zero_delta, zero_delta_id);
@@ -81,10 +119,23 @@ impl ModularCoefficientDag {
             index_count: context.index_count(),
             limits,
             nodes,
+            node_incarnations,
+            next_node_incarnation: 2,
+            total_nodes_created: 2,
             node_lookup,
             exact_leaves: Vec::new(),
             exact_leaf_lookup: HashMap::new(),
+            exact_leaf_terms: 0,
+            exact_leaf_exponent_cells: 0,
+            exact_leaf_retained_bytes: 0,
+            total_exact_leaf_terms_ingressed: 0,
+            total_exact_leaf_exponent_cells_ingressed: 0,
+            total_exact_leaf_bytes_ingressed: 0,
             deltas,
+            delta_incarnations,
+            next_delta_incarnation: 1,
+            total_physical_deltas_created: 1,
+            total_physical_delta_coordinate_operations: 0,
             delta_lookup,
             delta_coordinate_cells: context.index_count(),
         })
@@ -92,14 +143,14 @@ impl ModularCoefficientDag {
 
     pub(super) fn zero(&self) -> CoeffRef {
         self.wrap(RawCoeffRef {
-            node: CoeffNodeId::try_new(0).expect("zero DAG node ID is fixed"),
+            node: CoeffNodeId::try_new(0, 0).expect("zero DAG node ID is fixed"),
             translation: self.zero_delta_id(),
         })
     }
 
     pub(super) fn one(&self) -> CoeffRef {
         self.wrap(RawCoeffRef {
-            node: CoeffNodeId::try_new(1).expect("one DAG node ID is fixed"),
+            node: CoeffNodeId::try_new(1, 1).expect("one DAG node ID is fixed"),
             translation: self.zero_delta_id(),
         })
     }
@@ -119,6 +170,43 @@ impl ModularCoefficientDag {
         if *coefficient == context.one() {
             return Ok(self.one());
         }
+        let weight = exact_leaf_weight(&coefficient)?;
+        let requested_total_leaf_terms = checked_add(
+            TOTAL_EXACT_LEAF_TERMS,
+            self.total_exact_leaf_terms_ingressed,
+            weight.terms,
+        )?;
+        let requested_total_leaf_exponent_cells = checked_add(
+            TOTAL_EXACT_LEAF_EXPONENT_CELLS,
+            self.total_exact_leaf_exponent_cells_ingressed,
+            weight.exponent_cells,
+        )?;
+        let requested_total_leaf_bytes = checked_add(
+            TOTAL_EXACT_LEAF_BYTES,
+            self.total_exact_leaf_bytes_ingressed,
+            weight.bytes,
+        )?;
+        check_limit(
+            TOTAL_EXACT_LEAF_TERMS,
+            requested_total_leaf_terms,
+            self.limits.max_total_exact_leaf_terms_ingressed,
+        )?;
+        check_limit(
+            TOTAL_EXACT_LEAF_EXPONENT_CELLS,
+            requested_total_leaf_exponent_cells,
+            self.limits.max_total_exact_leaf_exponent_cells_ingressed,
+        )?;
+        check_limit(
+            TOTAL_EXACT_LEAF_BYTES,
+            requested_total_leaf_bytes,
+            self.limits.max_total_exact_leaf_bytes_ingressed,
+        )?;
+        // Ingress hashing/equality scans happen below, so their conservative
+        // payload charge is monotone even for an already-interned leaf or a
+        // later allocation failure.
+        self.total_exact_leaf_terms_ingressed = requested_total_leaf_terms;
+        self.total_exact_leaf_exponent_cells_ingressed = requested_total_leaf_exponent_cells;
+        self.total_exact_leaf_bytes_ingressed = requested_total_leaf_bytes;
         let key = ExactLeafKey(Arc::clone(&coefficient));
         if let Some(&leaf_id) = self.exact_leaf_lookup.get(&key) {
             let node = self
@@ -138,13 +226,47 @@ impl ModularCoefficientDag {
         check_limit(EXACT_LEAVES, requested_leaves, self.limits.max_exact_leaves)?;
         let requested_nodes = checked_add(DAG_NODES, self.nodes.len(), 1)?;
         check_limit(DAG_NODES, requested_nodes, self.limits.max_nodes)?;
+        let requested_total_nodes = checked_add(TOTAL_DAG_NODES, self.total_nodes_created, 1)?;
+        check_limit(
+            TOTAL_DAG_NODES,
+            requested_total_nodes,
+            self.limits.max_total_nodes_created,
+        )?;
+        let requested_leaf_terms =
+            checked_add(EXACT_LEAF_TERMS, self.exact_leaf_terms, weight.terms)?;
+        let requested_leaf_exponent_cells = checked_add(
+            EXACT_LEAF_EXPONENT_CELLS,
+            self.exact_leaf_exponent_cells,
+            weight.exponent_cells,
+        )?;
+        let requested_leaf_bytes = checked_add(
+            EXACT_LEAF_BYTES,
+            self.exact_leaf_retained_bytes,
+            weight.bytes,
+        )?;
+        check_limit(
+            EXACT_LEAF_TERMS,
+            requested_leaf_terms,
+            self.limits.max_exact_leaf_terms,
+        )?;
+        check_limit(
+            EXACT_LEAF_EXPONENT_CELLS,
+            requested_leaf_exponent_cells,
+            self.limits.max_exact_leaf_exponent_cells,
+        )?;
+        check_limit(
+            EXACT_LEAF_BYTES,
+            requested_leaf_bytes,
+            self.limits.max_exact_leaf_retained_bytes,
+        )?;
         let leaf_id = ExactLeafId::try_new(self.exact_leaves.len()).ok_or(
             ModularGuideError::IdentifierNotRepresentable {
                 resource: "modular coefficient exact-leaf identifier",
                 value: self.exact_leaves.len(),
             },
         )?;
-        let node_id = CoeffNodeId::try_new(self.nodes.len()).ok_or(
+        let node_incarnation = self.try_issue_node_incarnation()?;
+        let node_id = CoeffNodeId::try_new(self.nodes.len(), node_incarnation).ok_or(
             ModularGuideError::IdentifierNotRepresentable {
                 resource: "modular coefficient DAG node identifier",
                 value: self.nodes.len(),
@@ -155,11 +277,17 @@ impl ModularCoefficientDag {
         reserve_vec(&mut self.exact_leaves, 1, EXACT_LEAVES)?;
         reserve_map(&mut self.exact_leaf_lookup, 1, EXACT_LEAVES)?;
         reserve_vec(&mut self.nodes, 1, DAG_NODES)?;
+        reserve_vec(&mut self.node_incarnations, 1, DAG_NODES)?;
         reserve_map(&mut self.node_lookup, 1, DAG_NODES)?;
         self.exact_leaf_lookup.insert(key, leaf_id);
         self.exact_leaves.push(coefficient);
         self.node_lookup.insert(node.clone(), node_id);
         self.nodes.push(node);
+        self.node_incarnations.push(node_incarnation);
+        self.total_nodes_created = requested_total_nodes;
+        self.exact_leaf_terms = requested_leaf_terms;
+        self.exact_leaf_exponent_cells = requested_leaf_exponent_cells;
+        self.exact_leaf_retained_bytes = requested_leaf_bytes;
         Ok(self.wrap(RawCoeffRef {
             node: node_id,
             translation: self.zero_delta_id(),
@@ -208,10 +336,13 @@ impl ModularCoefficientDag {
     ) -> Result<CoeffRef, ModularGuideError> {
         let checkpoint = self.checkpoint();
         let result = self.try_sub_inner(left, right);
-        if result.is_err() {
-            self.rollback(checkpoint);
+        match result {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.try_rollback(checkpoint)?;
+                Err(error)
+            }
         }
-        result
     }
 
     fn try_sub_inner(
@@ -270,10 +401,13 @@ impl ModularCoefficientDag {
     ) -> Result<CoeffRef, ModularGuideError> {
         let checkpoint = self.checkpoint();
         let result = self.try_div_inner(numerator, denominator);
-        if result.is_err() {
-            self.rollback(checkpoint);
+        match result {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.try_rollback(checkpoint)?;
+                Err(error)
+            }
         }
-        result
     }
 
     fn try_div_inner(
@@ -335,6 +469,29 @@ impl ModularCoefficientDag {
         self.exact_leaves.len()
     }
 
+    #[cfg(test)]
+    pub(super) const fn exact_leaf_payload_census(&self) -> (usize, usize, usize) {
+        (
+            self.exact_leaf_terms,
+            self.exact_leaf_exponent_cells,
+            self.exact_leaf_retained_bytes,
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) const fn cumulative_creation_census(
+        &self,
+    ) -> (usize, usize, usize, usize, usize, usize) {
+        (
+            self.total_nodes_created,
+            self.total_physical_deltas_created,
+            self.total_physical_delta_coordinate_operations,
+            self.total_exact_leaf_terms_ingressed,
+            self.total_exact_leaf_exponent_cells_ingressed,
+            self.total_exact_leaf_bytes_ingressed,
+        )
+    }
+
     pub(super) fn physical_delta_count(&self) -> usize {
         self.deltas.len()
     }
@@ -360,6 +517,12 @@ impl ModularCoefficientDag {
     }
 
     pub(super) fn node(&self, id: CoeffNodeId) -> Result<&CoeffNode, ModularGuideError> {
+        if self.node_incarnations.get(id.as_usize()).copied() != Some(id.incarnation()) {
+            return Err(ModularGuideError::StaleDagReference {
+                resource: "coefficient node",
+                ordinal: id.ordinal(),
+            });
+        }
         self.nodes
             .get(id.as_usize())
             .ok_or(ModularGuideError::Invariant {
@@ -376,6 +539,12 @@ impl ModularCoefficientDag {
     }
 
     pub(super) fn delta(&self, id: PhysicalDeltaId) -> Result<&[i64], ModularGuideError> {
+        if self.delta_incarnations.get(id.as_usize()).copied() != Some(id.incarnation()) {
+            return Err(ModularGuideError::StaleDagReference {
+                resource: "physical translation",
+                ordinal: id.ordinal(),
+            });
+        }
         self.deltas
             .get(id.as_usize())
             .map(|values| values.as_slice())
@@ -405,7 +574,7 @@ impl ModularCoefficientDag {
     }
 
     fn zero_delta_id(&self) -> PhysicalDeltaId {
-        PhysicalDeltaId::try_new(0).expect("zero physical-delta ID is fixed")
+        PhysicalDeltaId::try_new(0, 0).expect("zero physical-delta ID is fixed")
     }
 
     fn is_zero_raw(&self, value: RawCoeffRef) -> bool {
@@ -425,16 +594,26 @@ impl ModularCoefficientDag {
         }
         let requested = checked_add(DAG_NODES, self.nodes.len(), 1)?;
         check_limit(DAG_NODES, requested, self.limits.max_nodes)?;
-        let id = CoeffNodeId::try_new(self.nodes.len()).ok_or(
+        let requested_total = checked_add(TOTAL_DAG_NODES, self.total_nodes_created, 1)?;
+        check_limit(
+            TOTAL_DAG_NODES,
+            requested_total,
+            self.limits.max_total_nodes_created,
+        )?;
+        let incarnation = self.try_issue_node_incarnation()?;
+        let id = CoeffNodeId::try_new(self.nodes.len(), incarnation).ok_or(
             ModularGuideError::IdentifierNotRepresentable {
                 resource: "modular coefficient DAG node identifier",
                 value: self.nodes.len(),
             },
         )?;
         reserve_vec(&mut self.nodes, 1, DAG_NODES)?;
+        reserve_vec(&mut self.node_incarnations, 1, DAG_NODES)?;
         reserve_map(&mut self.node_lookup, 1, DAG_NODES)?;
         self.node_lookup.insert(node.clone(), id);
         self.nodes.push(node);
+        self.node_incarnations.push(incarnation);
+        self.total_nodes_created = requested_total;
         Ok(self.wrap(RawCoeffRef {
             node: id,
             translation: self.zero_delta_id(),
@@ -486,6 +665,19 @@ impl ModularCoefficientDag {
         right: &[i64],
     ) -> Result<PhysicalDeltaId, ModularGuideError> {
         self.require_translation_arity(right)?;
+        let requested_total_coordinate_operations = checked_add(
+            TOTAL_PHYSICAL_DELTA_COORDINATE_OPERATIONS,
+            self.total_physical_delta_coordinate_operations,
+            self.index_count,
+        )?;
+        check_limit(
+            TOTAL_PHYSICAL_DELTA_COORDINATE_OPERATIONS,
+            requested_total_coordinate_operations,
+            self.limits.max_total_physical_delta_coordinate_operations,
+        )?;
+        // This charge is monotone even if coordinate arithmetic or a later
+        // allocation fails: the attempted composition work was consumed.
+        self.total_physical_delta_coordinate_operations = requested_total_coordinate_operations;
         let left = self.delta(left)?;
         let mut result = Vec::new();
         reserve_vec(&mut result, self.index_count, PHYSICAL_DELTA_CELLS)?;
@@ -514,6 +706,13 @@ impl ModularCoefficientDag {
             requested_deltas,
             self.limits.max_physical_deltas,
         )?;
+        let requested_total_deltas =
+            checked_add(TOTAL_PHYSICAL_DELTAS, self.total_physical_deltas_created, 1)?;
+        check_limit(
+            TOTAL_PHYSICAL_DELTAS,
+            requested_total_deltas,
+            self.limits.max_total_physical_deltas_created,
+        )?;
         let requested_cells = checked_add(
             PHYSICAL_DELTA_CELLS,
             self.delta_coordinate_cells,
@@ -524,17 +723,21 @@ impl ModularCoefficientDag {
             requested_cells,
             self.limits.max_physical_delta_coordinate_cells,
         )?;
-        let id = PhysicalDeltaId::try_new(self.deltas.len()).ok_or(
+        let incarnation = self.try_issue_delta_incarnation()?;
+        let id = PhysicalDeltaId::try_new(self.deltas.len(), incarnation).ok_or(
             ModularGuideError::IdentifierNotRepresentable {
                 resource: "modular physical-delta identifier",
                 value: self.deltas.len(),
             },
         )?;
         reserve_vec(&mut self.deltas, 1, PHYSICAL_DELTAS)?;
+        reserve_vec(&mut self.delta_incarnations, 1, PHYSICAL_DELTAS)?;
         reserve_map(&mut self.delta_lookup, 1, PHYSICAL_DELTAS)?;
         let result = Arc::new(result);
         self.delta_lookup.insert(Arc::clone(&result), id);
         self.deltas.push(result);
+        self.delta_incarnations.push(incarnation);
+        self.total_physical_deltas_created = requested_total_deltas;
         self.delta_coordinate_cells = requested_cells;
         Ok(id)
     }
@@ -550,31 +753,133 @@ impl ModularCoefficientDag {
         }
     }
 
-    fn checkpoint(&self) -> ArenaCheckpoint {
+    pub(super) fn checkpoint(&self) -> ArenaCheckpoint {
         ArenaCheckpoint {
+            owner: self.owner.clone(),
             node_count: self.nodes.len(),
+            node_boundary: self
+                .live_node_id(self.nodes.len() - 1)
+                .expect("a modular DAG always retains zero and one"),
+            exact_leaf_count: self.exact_leaves.len(),
+            exact_leaf_terms: self.exact_leaf_terms,
+            exact_leaf_exponent_cells: self.exact_leaf_exponent_cells,
+            exact_leaf_retained_bytes: self.exact_leaf_retained_bytes,
             delta_count: self.deltas.len(),
+            delta_boundary: self
+                .live_delta_id(self.deltas.len() - 1)
+                .expect("a modular DAG always retains the zero translation"),
             delta_coordinate_cells: self.delta_coordinate_cells,
         }
     }
 
-    fn rollback(&mut self, checkpoint: ArenaCheckpoint) {
+    pub(super) fn try_rollback(
+        &mut self,
+        checkpoint: ArenaCheckpoint,
+    ) -> Result<(), ModularGuideError> {
+        if !checkpoint.owner.belongs_to(&self.owner) {
+            return Err(ModularGuideError::WrongDagOwner);
+        }
+        if checkpoint.node_count < 2
+            || checkpoint.node_count > self.nodes.len()
+            || checkpoint.exact_leaf_count > self.exact_leaves.len()
+            || checkpoint.delta_count == 0
+            || checkpoint.delta_count > self.deltas.len()
+        {
+            return Err(ModularGuideError::InvalidArenaCheckpoint {
+                detail: "retained counts are outside the current arena prefix",
+            });
+        }
+        if self.live_node_id(checkpoint.node_count - 1) != Some(checkpoint.node_boundary) {
+            return Err(ModularGuideError::InvalidArenaCheckpoint {
+                detail: "coefficient-node prefix incarnation has changed",
+            });
+        }
+        if self.live_delta_id(checkpoint.delta_count - 1) != Some(checkpoint.delta_boundary) {
+            return Err(ModularGuideError::InvalidArenaCheckpoint {
+                detail: "physical-delta prefix incarnation has changed",
+            });
+        }
+        if checkpoint.exact_leaf_terms > self.exact_leaf_terms
+            || checkpoint.exact_leaf_exponent_cells > self.exact_leaf_exponent_cells
+            || checkpoint.exact_leaf_retained_bytes > self.exact_leaf_retained_bytes
+            || checkpoint.delta_coordinate_cells > self.delta_coordinate_cells
+        {
+            return Err(ModularGuideError::InvalidArenaCheckpoint {
+                detail: "retained payload census is not a current-prefix lower bound",
+            });
+        }
         while self.nodes.len() > checkpoint.node_count {
             let node = self.nodes.pop().expect("checkpoint bounds node rollback");
             self.node_lookup.remove(&node);
         }
+        self.node_incarnations.truncate(checkpoint.node_count);
+        while self.exact_leaves.len() > checkpoint.exact_leaf_count {
+            let leaf = self
+                .exact_leaves
+                .pop()
+                .expect("checkpoint bounds exact-leaf rollback");
+            self.exact_leaf_lookup.remove(&ExactLeafKey(leaf));
+        }
+        self.exact_leaf_terms = checkpoint.exact_leaf_terms;
+        self.exact_leaf_exponent_cells = checkpoint.exact_leaf_exponent_cells;
+        self.exact_leaf_retained_bytes = checkpoint.exact_leaf_retained_bytes;
         while self.deltas.len() > checkpoint.delta_count {
             let delta = self.deltas.pop().expect("checkpoint bounds delta rollback");
             self.delta_lookup.remove(&delta);
         }
+        self.delta_incarnations.truncate(checkpoint.delta_count);
         self.delta_coordinate_cells = checkpoint.delta_coordinate_cells;
+        Ok(())
+    }
+
+    fn live_node_id(&self, ordinal: usize) -> Option<CoeffNodeId> {
+        CoeffNodeId::try_new(ordinal, *self.node_incarnations.get(ordinal)?)
+    }
+
+    fn live_delta_id(&self, ordinal: usize) -> Option<PhysicalDeltaId> {
+        PhysicalDeltaId::try_new(ordinal, *self.delta_incarnations.get(ordinal)?)
+    }
+
+    fn try_issue_node_incarnation(&mut self) -> Result<u32, ModularGuideError> {
+        let incarnation = u32::try_from(self.next_node_incarnation).map_err(|_| {
+            ModularGuideError::ResourceCountOverflow {
+                resource: "modular coefficient node incarnation",
+            }
+        })?;
+        self.next_node_incarnation = self.next_node_incarnation.checked_add(1).ok_or(
+            ModularGuideError::ResourceCountOverflow {
+                resource: "modular coefficient node incarnation",
+            },
+        )?;
+        Ok(incarnation)
+    }
+
+    fn try_issue_delta_incarnation(&mut self) -> Result<u32, ModularGuideError> {
+        let incarnation = u32::try_from(self.next_delta_incarnation).map_err(|_| {
+            ModularGuideError::ResourceCountOverflow {
+                resource: "modular physical-translation incarnation",
+            }
+        })?;
+        self.next_delta_incarnation = self.next_delta_incarnation.checked_add(1).ok_or(
+            ModularGuideError::ResourceCountOverflow {
+                resource: "modular physical-translation incarnation",
+            },
+        )?;
+        Ok(incarnation)
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-struct ArenaCheckpoint {
+#[derive(Debug)]
+pub(super) struct ArenaCheckpoint {
+    owner: DagOwner,
     node_count: usize,
+    node_boundary: CoeffNodeId,
+    exact_leaf_count: usize,
+    exact_leaf_terms: usize,
+    exact_leaf_exponent_cells: usize,
+    exact_leaf_retained_bytes: usize,
     delta_count: usize,
+    delta_boundary: PhysicalDeltaId,
     delta_coordinate_cells: usize,
 }
 
@@ -584,4 +889,25 @@ fn canonical_pair(left: RawCoeffRef, right: RawCoeffRef) -> (RawCoeffRef, RawCoe
     } else {
         (right, left)
     }
+}
+
+fn exact_leaf_weight(
+    coefficient: &IndexedCoefficient,
+) -> Result<CoefficientPayloadWeight, ModularGuideError> {
+    let payload = try_coefficient_payload_weight(coefficient)?;
+    let bytes = [
+        payload.bytes,
+        size_of::<ExactLeaf>(),
+        size_of::<ExactLeafKey>(),
+        size_of::<ExactLeafId>(),
+    ]
+    .into_iter()
+    .try_fold(0usize, |total, value| {
+        checked_add(EXACT_LEAF_BYTES, total, value)
+    })?;
+    Ok(CoefficientPayloadWeight {
+        terms: payload.terms,
+        exponent_cells: payload.exponent_cells,
+        bytes,
+    })
 }

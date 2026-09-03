@@ -12,10 +12,11 @@ use super::arena::ModularCoefficientDag;
 use super::error::{check_limit, checked_add, checked_mul, reserve_map, reserve_vec};
 use super::limits::ModularGuideLimits;
 use super::model::{
-    CoeffNode, CoeffNodeId, CoeffRef, DagOwner, EvaluationKey, ModularEvaluationBatch,
-    ModularImage, ModularProbeCensus, ModularProbeIdentity, ModularZeroEvidence, PhysicalDeltaId,
-    ProbeDeltaId, RawCoeffRef,
+    AccumulatedDeltaId, CoeffNode, CoeffNodeId, CoeffRef, DagOwner, EvaluationKey,
+    ModularEvaluationBatch, ModularEvaluationQuery, ModularImage, ModularProbeCensus,
+    ModularProbeIdentity, ModularQueryRole, ModularZeroEvidence, PhysicalDeltaId, RawCoeffRef,
 };
+use super::postorder::{BinaryOperation, PostorderFrame, UnaryOperation};
 
 const PROBE_POINT_COORDINATES: &str = "modular guide probe point coordinates";
 const PROBE_DELTAS: &str = "modular guide accumulated deltas";
@@ -28,9 +29,39 @@ const PROBE_QUERIES: &str = "modular guide probe queries";
 const DELTA_COMPOSITIONS: &str = "modular guide delta compositions";
 const DELTA_COORDINATE_OPERATIONS: &str = "modular guide delta-coordinate operations";
 const EVALUATION_STEPS: &str = "modular guide evaluation steps";
+const EVALUATION_FRAME_PUSHES: &str = "modular guide evaluation frame pushes";
+const LIVE_EVALUATION_FRAMES: &str = "modular guide live evaluation frames";
+const LIVE_EVALUATION_VALUES: &str = "modular guide live evaluation values";
 const EXACT_LEAF_EVALUATIONS: &str = "modular guide exact-leaf evaluations";
 const EXACT_LEAF_TERMS: &str = "modular guide exact-leaf terms evaluated";
 const EXACT_LEAF_EXPONENT_CELLS: &str = "modular guide exact-leaf exponent cells evaluated";
+
+/// A rejected consumed probe.  It deliberately carries no scalar image, but
+/// retains all work charged before the rejection so a higher-level cumulative
+/// budget cannot erase singular or exhausted attempts.
+#[derive(Debug)]
+pub(super) struct RejectedProbeReport {
+    error: ModularGuideError,
+    census: ModularProbeCensus,
+}
+
+impl RejectedProbeReport {
+    pub(super) const fn new(error: ModularGuideError, census: ModularProbeCensus) -> Self {
+        Self { error, census }
+    }
+
+    pub(super) const fn error(&self) -> &ModularGuideError {
+        &self.error
+    }
+
+    pub(super) const fn census(&self) -> ModularProbeCensus {
+        self.census
+    }
+
+    pub(super) fn into_error(self) -> ModularGuideError {
+        self.error
+    }
+}
 
 /// One independent finite-field lane.
 ///
@@ -48,9 +79,9 @@ pub(super) struct ModularProbe {
     field: Zp64,
     base_point: Arc<Vec<FiniteFieldElement<u64>>>,
     accumulated_deltas: Vec<Arc<Vec<i64>>>,
-    accumulated_delta_lookup: HashMap<Arc<Vec<i64>>, ProbeDeltaId>,
+    accumulated_delta_lookup: HashMap<Arc<Vec<i64>>, AccumulatedDeltaId>,
     accumulated_delta_cells: usize,
-    translated_points: HashMap<ProbeDeltaId, Arc<Vec<FiniteFieldElement<u64>>>>,
+    translated_points: HashMap<AccumulatedDeltaId, Arc<Vec<FiniteFieldElement<u64>>>>,
     translated_point_cells: usize,
     value_cache: HashMap<EvaluationKey, FiniteFieldElement<u64>>,
     census: ModularProbeCensus,
@@ -135,7 +166,7 @@ impl ModularProbe {
         reserve_vec(&mut zero_delta, context.index_count(), PROBE_DELTA_CELLS)?;
         zero_delta.resize(context.index_count(), 0);
         let zero_delta = Arc::new(zero_delta);
-        let zero_id = ProbeDeltaId::try_new(0).expect("zero probe delta ID is fixed");
+        let zero_id = AccumulatedDeltaId::try_new(0).expect("zero accumulated delta ID is fixed");
         let mut accumulated_deltas = Vec::new();
         reserve_vec(&mut accumulated_deltas, 1, PROBE_DELTAS)?;
         accumulated_deltas.push(Arc::clone(&zero_delta));
@@ -179,6 +210,155 @@ impl ModularProbe {
         dag: &ModularCoefficientDag,
         coefficients: &[CoeffRef],
     ) -> Result<ModularEvaluationBatch, ModularGuideError> {
+        if let Err(error) = check_limit(
+            BATCH_IMAGES,
+            coefficients.len(),
+            self.limits.max_probe_batch_images,
+        ) {
+            self.reject();
+            return Err(error);
+        }
+        if let Err(error) = check_limit(
+            PROBE_QUERIES,
+            coefficients.len(),
+            self.limits.max_probe_queries,
+        ) {
+            self.reject();
+            return Err(error);
+        }
+        let mut queries = Vec::new();
+        if let Err(error) = reserve_vec(&mut queries, coefficients.len(), BATCH_IMAGES) {
+            self.reject();
+            return Err(error);
+        }
+        queries.extend(
+            coefficients
+                .iter()
+                .cloned()
+                .map(|root| ModularEvaluationQuery {
+                    role: ModularQueryRole::Coefficient,
+                    root,
+                }),
+        );
+        let images = self.try_evaluate_retained_batch(dag, coefficients)?;
+        Ok(ModularEvaluationBatch {
+            identity: Arc::clone(&self.identity),
+            dag_owner: self.dag_owner.clone(),
+            context_fingerprint: Arc::clone(&self.context_fingerprint),
+            queries: queries.into_boxed_slice(),
+            guard_count: 0,
+            images,
+            census: self.census,
+        })
+    }
+
+    /// Consume one probe in the theorem-bearing ELC1 layout.
+    ///
+    /// Guards are evaluated first and must all have nonzero images.  Only then
+    /// is the complete coefficient batch evaluated.  Any zero guard,
+    /// singularity, stale/foreign root, allocation failure, or resource stop
+    /// rejects the lane and returns census only; no prefix image escapes.
+    pub(super) fn try_evaluate_guarded_batch(
+        mut self,
+        dag: &ModularCoefficientDag,
+        guards: &[CoeffRef],
+        coefficients: &[CoeffRef],
+    ) -> Result<ModularEvaluationBatch, RejectedProbeReport> {
+        let total = match checked_add(BATCH_IMAGES, guards.len(), coefficients.len()) {
+            Ok(total) => total,
+            Err(error) => return Err(self.into_rejected_report(error)),
+        };
+        if let Err(error) = check_limit(BATCH_IMAGES, total, self.limits.max_probe_batch_images) {
+            return Err(self.into_rejected_report(error));
+        }
+        let requested_queries = match checked_add(PROBE_QUERIES, self.census.queries, total) {
+            Ok(requested) => requested,
+            Err(error) => return Err(self.into_rejected_report(error)),
+        };
+        if let Err(error) = check_limit(
+            PROBE_QUERIES,
+            requested_queries,
+            self.limits.max_probe_queries,
+        ) {
+            return Err(self.into_rejected_report(error));
+        }
+
+        let mut queries = Vec::new();
+        if let Err(error) = reserve_vec(&mut queries, total, BATCH_IMAGES) {
+            return Err(self.into_rejected_report(error));
+        }
+        queries.extend(guards.iter().cloned().map(|root| ModularEvaluationQuery {
+            role: ModularQueryRole::Guard,
+            root,
+        }));
+        queries.extend(
+            coefficients
+                .iter()
+                .cloned()
+                .map(|root| ModularEvaluationQuery {
+                    role: ModularQueryRole::Coefficient,
+                    root,
+                }),
+        );
+
+        let guard_images = match self.try_evaluate_retained_batch(dag, guards) {
+            Ok(images) => images,
+            Err(error) => return Err(self.into_rejected_report(error)),
+        };
+        if guard_images
+            .iter()
+            .any(|image| image.zero_evidence() != ModularZeroEvidence::Nonzero)
+        {
+            return Err(self.into_rejected_report(ModularGuideError::SampledZeroLocalizationGuard));
+        }
+        let coefficient_images = match self.try_evaluate_retained_batch(dag, coefficients) {
+            Ok(images) => images,
+            Err(error) => return Err(self.into_rejected_report(error)),
+        };
+
+        let mut images = Vec::new();
+        if let Err(error) = reserve_vec(&mut images, total, BATCH_IMAGES) {
+            return Err(self.into_rejected_report(error));
+        }
+        images.extend(guard_images);
+        images.extend(coefficient_images);
+        Ok(ModularEvaluationBatch {
+            identity: Arc::clone(&self.identity),
+            dag_owner: self.dag_owner.clone(),
+            context_fingerprint: Arc::clone(&self.context_fingerprint),
+            queries: queries.into_boxed_slice(),
+            guard_count: guards.len(),
+            images: images.into_boxed_slice(),
+            census: self.census,
+        })
+    }
+
+    /// Evaluate one complete batch while retaining this lane's cache for a
+    /// later modular Ore operation.
+    ///
+    /// This boundary is private to proposal-only modular guidance. Any
+    /// failure poisons the whole probe and drops its caches; callers must not
+    /// release an earlier partial trace if a later batch fails.
+    pub(super) fn try_evaluate_retained_batch(
+        &mut self,
+        dag: &ModularCoefficientDag,
+        coefficients: &[CoeffRef],
+    ) -> Result<Box<[ModularImage]>, ModularGuideError> {
+        let result = self.try_evaluate_retained_batch_inner(dag, coefficients);
+        if result.is_err() {
+            self.reject();
+        }
+        result
+    }
+
+    fn try_evaluate_retained_batch_inner(
+        &mut self,
+        dag: &ModularCoefficientDag,
+        coefficients: &[CoeffRef],
+    ) -> Result<Box<[ModularImage]>, ModularGuideError> {
+        if self.rejected {
+            return Err(ModularGuideError::RejectedProbe);
+        }
         check_limit(
             BATCH_IMAGES,
             coefficients.len(),
@@ -187,21 +367,19 @@ impl ModularProbe {
         if !self.dag_owner.belongs_to(dag.owner()) {
             return Err(ModularGuideError::WrongDagOwner);
         }
-        let mut queries = Vec::new();
-        reserve_vec(&mut queries, coefficients.len(), BATCH_IMAGES)?;
-        queries.extend(coefficients.iter().cloned());
+        let requested_queries =
+            checked_add(PROBE_QUERIES, self.census.queries, coefficients.len())?;
+        check_limit(
+            PROBE_QUERIES,
+            requested_queries,
+            self.limits.max_probe_queries,
+        )?;
         let mut images = Vec::new();
         reserve_vec(&mut images, coefficients.len(), BATCH_IMAGES)?;
         for coefficient in coefficients {
             images.push(self.try_evaluate(dag, coefficient)?);
         }
-        Ok(ModularEvaluationBatch {
-            identity: Arc::clone(&self.identity),
-            dag_owner: self.dag_owner.clone(),
-            queries: queries.into_boxed_slice(),
-            images: images.into_boxed_slice(),
-            census: self.census,
-        })
+        Ok(images.into_boxed_slice())
     }
 
     fn try_evaluate(
@@ -230,6 +408,10 @@ impl ModularProbe {
 
     pub(super) fn identity(&self) -> &ModularProbeIdentity {
         &self.identity
+    }
+
+    pub(super) fn identity_owner(&self) -> Arc<ModularProbeIdentity> {
+        Arc::clone(&self.identity)
     }
 
     pub(super) fn census(&self) -> ModularProbeCensus {
@@ -263,7 +445,7 @@ impl ModularProbe {
             });
         }
         let raw = dag.raw(coefficient)?;
-        let value = self.try_evaluate_raw(dag, raw, self.zero_delta_id(), 0)?;
+        let value = self.try_evaluate_raw(dag, raw, self.zero_delta_id())?;
         let zero_evidence = if dag.is_known_zero(coefficient)? {
             ModularZeroEvidence::KnownZero
         } else if self.field.is_zero(&value) {
@@ -278,140 +460,312 @@ impl ModularProbe {
         &mut self,
         dag: &ModularCoefficientDag,
         reference: RawCoeffRef,
-        inherited: ProbeDeltaId,
-        depth: usize,
+        inherited: AccumulatedDeltaId,
     ) -> Result<FiniteFieldElement<u64>, ModularGuideError> {
-        if depth > self.limits.max_probe_evaluation_depth {
-            return Err(ModularGuideError::ResourceLimit {
-                resource: "modular guide evaluation depth",
-                requested: depth,
-                limit: self.limits.max_probe_evaluation_depth,
+        let mut frames = Vec::new();
+        let mut values = Vec::new();
+        self.try_push_frame(
+            &mut frames,
+            PostorderFrame::Enter {
+                reference,
+                inherited,
+            },
+        )?;
+
+        while let Some(frame) = frames.pop() {
+            match frame {
+                PostorderFrame::Enter {
+                    reference,
+                    inherited,
+                } => {
+                    let translation =
+                        self.try_compose_delta(dag, inherited, reference.translation)?;
+                    let key = EvaluationKey {
+                        node: reference.node,
+                        translation,
+                    };
+                    if let Some(&value) = self.value_cache.get(&key) {
+                        self.census.cache_hits = self.census.cache_hits.checked_add(1).ok_or(
+                            ModularGuideError::ResourceCountOverflow {
+                                resource: "modular guide cache hits",
+                            },
+                        )?;
+                        self.try_push_value(&mut values, value)?;
+                        continue;
+                    }
+                    charge(
+                        EVALUATION_STEPS,
+                        &mut self.census.evaluation_steps,
+                        1,
+                        self.limits.max_probe_evaluation_steps,
+                    )?;
+                    match dag.node(reference.node)?.clone() {
+                        CoeffNode::Zero => {
+                            let value = self.field.zero();
+                            self.try_finish_value(key, value, &mut values)?;
+                        }
+                        CoeffNode::One => {
+                            let value = self.field.one();
+                            self.try_finish_value(key, value, &mut values)?;
+                        }
+                        CoeffNode::ExactLeaf(leaf_id) => {
+                            let value =
+                                self.try_evaluate_leaf(dag, reference.node, leaf_id, translation)?;
+                            self.try_finish_value(key, value, &mut values)?;
+                        }
+                        CoeffNode::Neg(child) => {
+                            self.try_push_frame(
+                                &mut frames,
+                                PostorderFrame::FinishUnary {
+                                    key,
+                                    operation: UnaryOperation::Neg,
+                                },
+                            )?;
+                            self.try_push_frame(
+                                &mut frames,
+                                PostorderFrame::Enter {
+                                    reference: child,
+                                    inherited: translation,
+                                },
+                            )?;
+                        }
+                        CoeffNode::Inv(child) => {
+                            self.try_push_frame(
+                                &mut frames,
+                                PostorderFrame::FinishUnary {
+                                    key,
+                                    operation: UnaryOperation::Inv,
+                                },
+                            )?;
+                            self.try_push_frame(
+                                &mut frames,
+                                PostorderFrame::Enter {
+                                    reference: child,
+                                    inherited: translation,
+                                },
+                            )?;
+                        }
+                        CoeffNode::Add(left, right) => {
+                            self.try_push_frame(
+                                &mut frames,
+                                PostorderFrame::AfterLeft {
+                                    key,
+                                    right,
+                                    inherited: translation,
+                                    operation: BinaryOperation::Add,
+                                },
+                            )?;
+                            self.try_push_frame(
+                                &mut frames,
+                                PostorderFrame::Enter {
+                                    reference: left,
+                                    inherited: translation,
+                                },
+                            )?;
+                        }
+                        CoeffNode::Mul(left, right) => {
+                            self.try_push_frame(
+                                &mut frames,
+                                PostorderFrame::AfterLeft {
+                                    key,
+                                    right,
+                                    inherited: translation,
+                                    operation: BinaryOperation::Mul,
+                                },
+                            )?;
+                            self.try_push_frame(
+                                &mut frames,
+                                PostorderFrame::Enter {
+                                    reference: left,
+                                    inherited: translation,
+                                },
+                            )?;
+                        }
+                    }
+                }
+                PostorderFrame::FinishUnary { key, operation } => {
+                    let child = values.pop().ok_or(ModularGuideError::Invariant {
+                        detail: "iterative modular unary operation has no child value",
+                    })?;
+                    let value = match operation {
+                        UnaryOperation::Neg => self.field.neg(&child),
+                        UnaryOperation::Inv => {
+                            if self.field.is_zero(&child) {
+                                return Err(ModularGuideError::SingularInverse { node: key.node });
+                            }
+                            self.field.inv(&child)
+                        }
+                    };
+                    self.try_finish_value(key, value, &mut values)?;
+                }
+                PostorderFrame::AfterLeft {
+                    key,
+                    right,
+                    inherited,
+                    operation,
+                } => {
+                    if values.is_empty() {
+                        return Err(ModularGuideError::Invariant {
+                            detail: "iterative modular binary operation has no left value",
+                        });
+                    }
+                    self.try_push_frame(
+                        &mut frames,
+                        PostorderFrame::FinishBinary { key, operation },
+                    )?;
+                    self.try_push_frame(
+                        &mut frames,
+                        PostorderFrame::Enter {
+                            reference: right,
+                            inherited,
+                        },
+                    )?;
+                }
+                PostorderFrame::FinishBinary { key, operation } => {
+                    let right = values.pop().ok_or(ModularGuideError::Invariant {
+                        detail: "iterative modular binary operation has no right value",
+                    })?;
+                    let left = values.pop().ok_or(ModularGuideError::Invariant {
+                        detail: "iterative modular binary operation lost its left value",
+                    })?;
+                    let value = match operation {
+                        BinaryOperation::Add => self.field.add(&left, &right),
+                        BinaryOperation::Mul => self.field.mul(&left, &right),
+                    };
+                    self.try_finish_value(key, value, &mut values)?;
+                }
+            }
+        }
+
+        if values.len() != 1 {
+            return Err(ModularGuideError::Invariant {
+                detail: "iterative modular evaluation did not produce exactly one root value",
             });
         }
-        let translation = self.try_compose_delta(dag, inherited, reference.translation)?;
-        self.try_evaluate_node(dag, reference.node, translation, depth)
+        values.pop().ok_or(ModularGuideError::Invariant {
+            detail: "iterative modular evaluation lost its root value",
+        })
     }
 
-    fn try_evaluate_node(
+    fn try_evaluate_leaf(
         &mut self,
         dag: &ModularCoefficientDag,
         node_id: CoeffNodeId,
-        translation: ProbeDeltaId,
-        depth: usize,
+        leaf_id: super::model::ExactLeafId,
+        translation: AccumulatedDeltaId,
     ) -> Result<FiniteFieldElement<u64>, ModularGuideError> {
-        let key = EvaluationKey {
-            node: node_id,
-            translation,
-        };
-        if let Some(&value) = self.value_cache.get(&key) {
-            self.census.cache_hits = self.census.cache_hits.checked_add(1).ok_or(
-                ModularGuideError::ResourceCountOverflow {
-                    resource: "modular guide cache hits",
-                },
-            )?;
-            return Ok(value);
-        }
         charge(
-            EVALUATION_STEPS,
-            &mut self.census.evaluation_steps,
+            EXACT_LEAF_EVALUATIONS,
+            &mut self.census.exact_leaf_evaluations,
             1,
-            self.limits.max_probe_evaluation_steps,
+            self.limits.max_probe_exact_leaf_evaluations,
         )?;
-        let node = dag.node(node_id)?.clone();
-        let next_depth = depth
-            .checked_add(1)
+        let leaf = dag.exact_leaf(leaf_id)?;
+        let leaf_terms = leaf
+            .raw()
+            .numerator
+            .coefficients
+            .len()
+            .checked_add(leaf.raw().denominator.coefficients.len())
             .ok_or(ModularGuideError::ResourceCountOverflow {
-                resource: "modular guide evaluation depth",
+                resource: EXACT_LEAF_TERMS,
             })?;
-        let value = match node {
-            CoeffNode::Zero => self.field.zero(),
-            CoeffNode::One => self.field.one(),
-            CoeffNode::ExactLeaf(leaf_id) => {
-                charge(
-                    EXACT_LEAF_EVALUATIONS,
-                    &mut self.census.exact_leaf_evaluations,
-                    1,
-                    self.limits.max_probe_exact_leaf_evaluations,
-                )?;
-                let leaf = dag.exact_leaf(leaf_id)?;
-                let leaf_terms = leaf
-                    .raw()
-                    .numerator
-                    .coefficients
-                    .len()
-                    .checked_add(leaf.raw().denominator.coefficients.len())
-                    .ok_or(ModularGuideError::ResourceCountOverflow {
-                        resource: EXACT_LEAF_TERMS,
-                    })?;
-                charge(
-                    EXACT_LEAF_TERMS,
-                    &mut self.census.exact_leaf_terms_evaluated,
-                    leaf_terms,
-                    self.limits.max_probe_exact_leaf_terms_evaluated,
-                )?;
-                let exponent_cells = leaf
-                    .raw()
-                    .numerator
-                    .exponents
-                    .len()
-                    .checked_add(leaf.raw().denominator.exponents.len())
-                    .ok_or(ModularGuideError::ResourceCountOverflow {
-                        resource: EXACT_LEAF_EXPONENT_CELLS,
-                    })?;
-                charge(
-                    EXACT_LEAF_EXPONENT_CELLS,
-                    &mut self.census.exact_leaf_exponent_cells_evaluated,
-                    exponent_cells,
-                    self.limits.max_probe_exact_leaf_exponent_cells_evaluated,
-                )?;
-                let point = self.try_translated_point(translation)?;
-                let numerator = leaf.raw().numerator.evaluate_with_coeff_map(
-                    |value| value.to_finite_field(&self.field),
-                    point.as_slice(),
-                    &self.field,
-                );
-                let denominator = leaf.raw().denominator.evaluate_with_coeff_map(
-                    |value| value.to_finite_field(&self.field),
-                    point.as_slice(),
-                    &self.field,
-                );
-                if self.field.is_zero(&denominator) {
-                    return Err(ModularGuideError::SingularExactLeaf { node: node_id });
-                }
-                self.field.div(&numerator, &denominator)
-            }
-            CoeffNode::Neg(child) => {
-                let child = self.try_evaluate_raw(dag, child, translation, next_depth)?;
-                self.field.neg(&child)
-            }
-            CoeffNode::Add(left, right) => {
-                let left = self.try_evaluate_raw(dag, left, translation, next_depth)?;
-                let right = self.try_evaluate_raw(dag, right, translation, next_depth)?;
-                self.field.add(&left, &right)
-            }
-            CoeffNode::Mul(left, right) => {
-                let left = self.try_evaluate_raw(dag, left, translation, next_depth)?;
-                let right = self.try_evaluate_raw(dag, right, translation, next_depth)?;
-                self.field.mul(&left, &right)
-            }
-            CoeffNode::Inv(child) => {
-                let child = self.try_evaluate_raw(dag, child, translation, next_depth)?;
-                if self.field.is_zero(&child) {
-                    return Err(ModularGuideError::SingularInverse { node: node_id });
-                }
-                self.field.inv(&child)
-            }
-        };
+        charge(
+            EXACT_LEAF_TERMS,
+            &mut self.census.exact_leaf_terms_evaluated,
+            leaf_terms,
+            self.limits.max_probe_exact_leaf_terms_evaluated,
+        )?;
+        let exponent_cells = leaf
+            .raw()
+            .numerator
+            .exponents
+            .len()
+            .checked_add(leaf.raw().denominator.exponents.len())
+            .ok_or(ModularGuideError::ResourceCountOverflow {
+                resource: EXACT_LEAF_EXPONENT_CELLS,
+            })?;
+        charge(
+            EXACT_LEAF_EXPONENT_CELLS,
+            &mut self.census.exact_leaf_exponent_cells_evaluated,
+            exponent_cells,
+            self.limits.max_probe_exact_leaf_exponent_cells_evaluated,
+        )?;
+        let point = self.try_translated_point(translation)?;
+        let numerator = leaf.raw().numerator.evaluate_with_coeff_map(
+            |value| value.to_finite_field(&self.field),
+            point.as_slice(),
+            &self.field,
+        );
+        let denominator = leaf.raw().denominator.evaluate_with_coeff_map(
+            |value| value.to_finite_field(&self.field),
+            point.as_slice(),
+            &self.field,
+        );
+        if self.field.is_zero(&denominator) {
+            return Err(ModularGuideError::SingularExactLeaf { node: node_id });
+        }
+        Ok(self.field.div(&numerator, &denominator))
+    }
+
+    fn try_finish_value(
+        &mut self,
+        key: EvaluationKey,
+        value: FiniteFieldElement<u64>,
+        values: &mut Vec<FiniteFieldElement<u64>>,
+    ) -> Result<(), ModularGuideError> {
         self.try_cache_value(key, value)?;
-        Ok(value)
+        self.try_push_value(values, value)
+    }
+
+    fn try_push_frame(
+        &mut self,
+        frames: &mut Vec<PostorderFrame>,
+        frame: PostorderFrame,
+    ) -> Result<(), ModularGuideError> {
+        charge(
+            EVALUATION_FRAME_PUSHES,
+            &mut self.census.evaluation_frame_pushes,
+            1,
+            self.limits.max_probe_evaluation_frame_pushes,
+        )?;
+        let requested = checked_add(LIVE_EVALUATION_FRAMES, frames.len(), 1)?;
+        check_limit(
+            LIVE_EVALUATION_FRAMES,
+            requested,
+            self.limits.max_probe_live_evaluation_frames,
+        )?;
+        reserve_vec(frames, 1, LIVE_EVALUATION_FRAMES)?;
+        frames.push(frame);
+        self.census.peak_live_evaluation_frames =
+            self.census.peak_live_evaluation_frames.max(requested);
+        Ok(())
+    }
+
+    fn try_push_value(
+        &mut self,
+        values: &mut Vec<FiniteFieldElement<u64>>,
+        value: FiniteFieldElement<u64>,
+    ) -> Result<(), ModularGuideError> {
+        let requested = checked_add(LIVE_EVALUATION_VALUES, values.len(), 1)?;
+        check_limit(
+            LIVE_EVALUATION_VALUES,
+            requested,
+            self.limits.max_probe_live_evaluation_values,
+        )?;
+        reserve_vec(values, 1, LIVE_EVALUATION_VALUES)?;
+        values.push(value);
+        self.census.peak_live_evaluation_values =
+            self.census.peak_live_evaluation_values.max(requested);
+        Ok(())
     }
 
     fn try_compose_delta(
         &mut self,
         dag: &ModularCoefficientDag,
-        inherited: ProbeDeltaId,
+        inherited: AccumulatedDeltaId,
         added: PhysicalDeltaId,
-    ) -> Result<ProbeDeltaId, ModularGuideError> {
+    ) -> Result<AccumulatedDeltaId, ModularGuideError> {
         let added = dag.delta(added)?;
         if added.iter().all(|&value| value == 0) {
             return Ok(inherited);
@@ -470,7 +824,7 @@ impl ModularProbe {
             requested_cells,
             self.limits.max_probe_accumulated_delta_coordinate_cells,
         )?;
-        let id = ProbeDeltaId::try_new(self.accumulated_deltas.len()).ok_or(
+        let id = AccumulatedDeltaId::try_new(self.accumulated_deltas.len()).ok_or(
             ModularGuideError::IdentifierNotRepresentable {
                 resource: "modular guide accumulated-delta identifier",
                 value: self.accumulated_deltas.len(),
@@ -488,7 +842,7 @@ impl ModularProbe {
 
     fn try_translated_point(
         &mut self,
-        translation: ProbeDeltaId,
+        translation: AccumulatedDeltaId,
     ) -> Result<Arc<Vec<FiniteFieldElement<u64>>>, ModularGuideError> {
         if let Some(point) = self.translated_points.get(&translation) {
             return Ok(Arc::clone(point));
@@ -558,11 +912,11 @@ impl ModularProbe {
         Ok(())
     }
 
-    fn zero_delta_id(&self) -> ProbeDeltaId {
-        ProbeDeltaId::try_new(0).expect("zero probe delta ID is fixed")
+    fn zero_delta_id(&self) -> AccumulatedDeltaId {
+        AccumulatedDeltaId::try_new(0).expect("zero accumulated delta ID is fixed")
     }
 
-    fn reject(&mut self) {
+    pub(super) fn reject(&mut self) {
         self.rejected = true;
         drop(std::mem::take(&mut self.value_cache));
         drop(std::mem::take(&mut self.translated_points));
@@ -570,6 +924,12 @@ impl ModularProbe {
         drop(std::mem::take(&mut self.accumulated_deltas));
         self.accumulated_delta_cells = 0;
         self.translated_point_cells = 0;
+    }
+
+    fn into_rejected_report(mut self, error: ModularGuideError) -> RejectedProbeReport {
+        let census = self.census;
+        self.reject();
+        RejectedProbeReport::new(error, census)
     }
 }
 

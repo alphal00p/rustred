@@ -352,14 +352,17 @@ pub(super) fn try_preprocess_initial_basis_with_budget(
                 context.bind_sealed(&quotient)?,
                 limits.indexed_algebra.exact_algebra,
             )?;
-            subject = subject.try_left_axpy_sealed(
-                &multiplier,
-                &operator_zero,
-                pivot,
-                ordering,
-                context,
-                limits,
-                work,
+            subject = super::with_coefficient_diagnostic_site!(
+                InitialHeadReduction,
+                subject.try_left_axpy_sealed(
+                    &multiplier,
+                    &operator_zero,
+                    pivot,
+                    ordering,
+                    context,
+                    limits,
+                    work,
+                )
             )?;
             subject = subject
                 .try_require_nonzero_guard(required_nonzero, context, limits)?

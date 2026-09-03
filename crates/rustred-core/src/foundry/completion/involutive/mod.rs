@@ -19,7 +19,28 @@ mod modular;
 mod normal_form;
 mod ordering;
 mod ore;
+mod projective;
 mod shift;
+
+/// Compile exact coefficient call-site attribution only into the test-owned
+/// diagnostic harness. Production expansion is precisely the wrapped
+/// expression and has no observer branch or payload.
+macro_rules! with_coefficient_diagnostic_site {
+    ($site:ident, $expression:expr) => {{
+        #[cfg(test)]
+        {
+            crate::foundry::completion::involutive::diagnostics::with_coefficient_site(
+                crate::foundry::completion::involutive::diagnostics::JanetDiagnosticCoefficientSite::$site,
+                || $expression,
+            )
+        }
+        #[cfg(not(test))]
+        {
+            $expression
+        }
+    }};
+}
+pub(super) use with_coefficient_diagnostic_site;
 
 pub(crate) use blind::{BlindDomainEntry, BlindDomainSchedule};
 pub(crate) use chart_lift::{

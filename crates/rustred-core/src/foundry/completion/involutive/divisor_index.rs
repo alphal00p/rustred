@@ -1,9 +1,50 @@
 use super::error::{check_limit, checked_add, checked_mul, checked_sort_coordinate_work, try_vec};
+use super::janet::{EpochId, JanetMultiplicativeMask};
 use super::limits::InvolutiveWorkBudget;
-use super::{EpochId, ForwardShift, InvolutiveError, InvolutiveLimits, JanetBasisElement};
+use super::{ForwardShift, InvolutiveError, InvolutiveLimits};
 
 const POSTING_WORD_BITS: usize = u64::BITS as usize;
 const NO_POSTING: usize = usize::MAX;
+
+/// Borrowed, coefficient-free geometry for one sealed Janet basis ordinal.
+///
+/// The view deliberately carries no [`super::OreConsequence`] handle.  Both
+/// exact consequence epochs and future exact-support circuit epochs can feed
+/// this same boundary without teaching the divisor index about coefficient
+/// ownership.  Construction alone grants no trust: [`JanetDivisorIndex`]
+/// checks canonical ordinals and both arities while building its postings.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct JanetMonomialView<'a> {
+    ordinal: usize,
+    leading_shift: &'a ForwardShift,
+    multiplicative: &'a JanetMultiplicativeMask,
+}
+
+impl<'a> JanetMonomialView<'a> {
+    pub(super) const fn new(
+        ordinal: usize,
+        leading_shift: &'a ForwardShift,
+        multiplicative: &'a JanetMultiplicativeMask,
+    ) -> Self {
+        Self {
+            ordinal,
+            leading_shift,
+            multiplicative,
+        }
+    }
+
+    const fn ordinal(self) -> usize {
+        self.ordinal
+    }
+
+    const fn leading_shift(self) -> &'a ForwardShift {
+        self.leading_shift
+    }
+
+    const fn multiplicative(self) -> &'a JanetMultiplicativeMask {
+        self.multiplicative
+    }
+}
 
 /// Immutable coordinate postings for exact Janet-divisor lookup.
 ///
@@ -47,14 +88,27 @@ pub(super) struct JanetDivisorScratch {
 }
 
 impl JanetDivisorIndex {
-    pub(super) fn try_new(
+    /// Seal coordinate postings from a replayable coefficient-free geometry
+    /// owner.
+    ///
+    /// `monomials` must describe every ordinal in `0..element_count`.  A
+    /// cloneable borrowed iterator, rather than an intermediate descriptor
+    /// allocation, keeps the established exact epoch's retained bytes and work
+    /// trajectory unchanged while replaying one immutable snapshot for every
+    /// coordinate.
+    pub(super) fn try_new_from_geometry<'a>(
         epoch: &EpochId,
         arity: usize,
-        elements: &[JanetBasisElement],
+        element_count: usize,
+        monomials: impl ExactSizeIterator<Item = JanetMonomialView<'a>> + Clone,
         limits: InvolutiveLimits,
         work: &mut InvolutiveWorkBudget,
     ) -> Result<Self, InvolutiveError> {
-        let element_count = elements.len();
+        if monomials.len() != element_count {
+            return Err(InvolutiveError::Invariant {
+                detail: "Janet divisor index geometry omitted a basis ordinal",
+            });
+        }
         let word_count = element_count.div_ceil(POSTING_WORD_BITS);
         let build_scratch_bytes = checked_mul(
             "Janet divisor index build scratch bytes",
@@ -92,32 +146,44 @@ impl JanetDivisorIndex {
                 try_vec("Janet divisor index multiplicative pairs", element_count)?;
             let mut nonmultiplicative =
                 try_vec("Janet divisor index nonmultiplicative pairs", element_count)?;
-            for (ordinal, element) in elements.iter().enumerate() {
-                if element.ordinal() != ordinal {
+            let mut observed = 0usize;
+            for (ordinal, monomial) in monomials.clone().enumerate() {
+                if ordinal >= element_count {
+                    return Err(InvolutiveError::Invariant {
+                        detail: "Janet divisor index geometry exceeded its sealed shape",
+                    });
+                }
+                if monomial.ordinal() != ordinal {
                     return Err(InvolutiveError::Invariant {
                         detail: "Janet divisor index saw a noncanonical basis ordinal",
                     });
                 }
-                if element.leading_shift().arity() != arity {
+                if monomial.leading_shift().arity() != arity {
                     return Err(InvolutiveError::WrongArity {
                         object: "Janet divisor index element",
                         expected: arity,
-                        actual: element.leading_shift().arity(),
+                        actual: monomial.leading_shift().arity(),
                     });
                 }
-                if element.multiplicative().bits().len() != arity {
+                if monomial.multiplicative().bits().len() != arity {
                     return Err(InvolutiveError::WrongArity {
                         object: "Janet divisor index mask",
                         expected: arity,
-                        actual: element.multiplicative().bits().len(),
+                        actual: monomial.multiplicative().bits().len(),
                     });
                 }
-                let entry = (element.leading_shift().values()[coordinate], ordinal);
-                if element.multiplicative().bits()[coordinate] {
+                let entry = (monomial.leading_shift().values()[coordinate], ordinal);
+                if monomial.multiplicative().bits()[coordinate] {
                     multiplicative.push(entry);
                 } else {
                     nonmultiplicative.push(entry);
                 }
+                observed += 1;
+            }
+            if observed != element_count {
+                return Err(InvolutiveError::Invariant {
+                    detail: "Janet divisor index geometry omitted a basis ordinal",
+                });
             }
 
             sort_pairs(&mut multiplicative, limits, work)?;

@@ -6,7 +6,7 @@ use crate::sector::ShiftComplexityKey;
 use super::super::{
     CompletionGeometryLimits, LatticeCardinality, LatticePoint, LeadingIdeal, UncoveredPartition,
 };
-use super::divisor_index::{JanetDivisorIndex, JanetDivisorScratch};
+use super::divisor_index::{JanetDivisorIndex, JanetDivisorScratch, JanetMonomialView};
 use super::error::{
     check_limit, checked_add, checked_mul, checked_sort_coordinate_work, try_push_bounded, try_vec,
 };
@@ -46,7 +46,12 @@ pub(crate) struct EpochId {
 }
 
 impl EpochId {
-    fn fresh_initial() -> Self {
+    /// Start one private immutable Janet lineage.
+    ///
+    /// Parent-private visibility lets a coefficient-free exact-support epoch
+    /// preserve the same staleness discipline without exposing identities
+    /// outside involutive completion.
+    pub(super) fn fresh_initial() -> Self {
         Self {
             instance: BasisInstanceIdentity::fresh(),
             revision: 0,
@@ -61,7 +66,7 @@ impl EpochId {
         self.instance.belongs_to(&other.instance)
     }
 
-    fn try_successor(&self, limits: InvolutiveLimits) -> Result<Self, InvolutiveError> {
+    pub(super) fn try_successor(&self, limits: InvolutiveLimits) -> Result<Self, InvolutiveError> {
         let next = self
             .revision
             .checked_add(1)
@@ -88,6 +93,18 @@ pub(crate) struct JanetMultiplicativeMask {
 }
 
 impl JanetMultiplicativeMask {
+    /// Seal the bounded output of the shared Janet mask constructor.
+    ///
+    /// The divisor-index boundary still verifies the resulting arity.  Keeping
+    /// this constructor parent-private lets an exact-support epoch reuse the
+    /// mask algorithm without exposing mutable or unauthenticated masks to
+    /// callers outside involutive completion.
+    pub(super) fn from_sealed_bits(bits: Vec<bool>) -> Self {
+        Self {
+            bits: Arc::new(bits),
+        }
+    }
+
     pub(crate) fn bits(&self) -> &[bool] {
         self.bits.as_slice()
     }
@@ -154,6 +171,10 @@ impl JanetBasisElement {
     /// old prolongation current in a successor epoch.
     pub(super) fn consequence_handle(&self) -> &Arc<OreConsequence> {
         &self.consequence
+    }
+
+    fn monomial_view(&self) -> JanetMonomialView<'_> {
+        JanetMonomialView::new(self.ordinal, &self.leading_shift, &self.multiplicative)
     }
 }
 
@@ -509,14 +530,27 @@ impl JanetBasisEpoch {
                 detail: "target leading shift does not match its basis row and variable",
             });
         }
-        OreConsequence::try_zero(ordering, context, limits)?.try_left_axpy_with_budget(
-            &context.one(),
-            &unit,
-            element.consequence(),
-            ordering,
-            context,
-            limits,
-            work,
+        let accumulator = OreConsequence::try_zero(ordering, context, limits)?;
+        let multiplier = context.one();
+        // Preserve the public sealed-boundary validation order, but keep
+        // those input censuses outside the diagnostic construction site: a
+        // prolongation attempt denotes only its newly materialized result.
+        accumulator.try_validate(ordering, context, limits)?;
+        element
+            .consequence()
+            .try_validate(ordering, context, limits)?;
+        context.validate_with_limits(&multiplier, limits.indexed_algebra.exact_algebra)?;
+        super::with_coefficient_diagnostic_site!(
+            Prolongation,
+            accumulator.try_left_axpy_sealed(
+                &multiplier,
+                &unit,
+                element.consequence(),
+                ordering,
+                context,
+                limits,
+                work,
+            )
         )
     }
 
@@ -637,6 +671,11 @@ impl JanetDivisionEpoch {
 
     fn divisor_index_retained_bytes(&self) -> usize {
         self.divisor_index.retained_bytes()
+    }
+
+    #[cfg(test)]
+    pub(super) fn divisor_index(&self) -> &JanetDivisorIndex {
+        &self.divisor_index
     }
 
     fn try_addition_successor_after_sealed(
@@ -846,21 +885,31 @@ fn build_division_epoch(
         return Err(InvolutiveError::DuplicateLeadingShift);
     }
 
-    let masks = compute_multiplicative_masks(&ranked, ordering.variable_sequence(), limits)?;
+    let masks = try_compute_multiplicative_masks_from_geometry(
+        ranked.len(),
+        |ordinal| ranked.get(ordinal).map(|row| &row.leading_shift),
+        ordering.variable_sequence(),
+        limits,
+    )?;
     let mut elements = try_vec("immutable Janet basis elements", ranked.len())?;
     for (ordinal, (ranked, bits)) in ranked.into_iter().zip(masks).enumerate() {
         elements.push(JanetBasisElement {
             ordinal,
             leading_shift: ranked.leading_shift,
             leading_key: ranked.leading_key,
-            multiplicative: JanetMultiplicativeMask {
-                bits: Arc::new(bits),
-            },
+            multiplicative: JanetMultiplicativeMask::from_sealed_bits(bits),
             consequence: ranked.consequence,
         });
     }
 
-    let divisor_index = JanetDivisorIndex::try_new(&epoch, arity, &elements, limits, work)?;
+    let divisor_index = JanetDivisorIndex::try_new_from_geometry(
+        &epoch,
+        arity,
+        elements.len(),
+        elements.iter().map(JanetBasisElement::monomial_view),
+        limits,
+        work,
+    )?;
     Ok(JanetDivisionEpoch {
         epoch,
         sealed_predecessor,
@@ -917,15 +966,21 @@ pub(super) fn preflight_basis_coefficient_census(
     )
 }
 
-fn compute_multiplicative_masks(
-    ranked: &[RankedConsequence],
+/// Compute Janet multiplicative masks from sealed leading-monomial geometry.
+///
+/// No coefficient row is observed here.  The callback form avoids allocating
+/// or cloning an intermediate leader array for the existing exact epoch while
+/// allowing a future exact-support epoch to use this identical implementation.
+pub(super) fn try_compute_multiplicative_masks_from_geometry<'a>(
+    leader_count: usize,
+    leader_at: impl Fn(usize) -> Option<&'a ForwardShift>,
     variable_sequence: &[usize],
     limits: InvolutiveLimits,
 ) -> Result<Vec<Vec<bool>>, InvolutiveError> {
     let arity = variable_sequence.len();
-    preflight_mask_shape(ranked.len(), arity, limits)?;
-    let mut masks = try_vec("Janet multiplicative masks", ranked.len())?;
-    for _ in ranked {
+    preflight_mask_shape(leader_count, arity, limits)?;
+    let mut masks = try_vec("Janet multiplicative masks", leader_count)?;
+    for _ in 0..leader_count {
         let mut bits = try_vec("Janet multiplicative-mask bits", arity)?;
         bits.resize(arity, false);
         masks.push(bits);
@@ -934,31 +989,33 @@ fn compute_multiplicative_masks(
     // One deterministic full lexicographic order makes every equal-prefix
     // class contiguous for every Janet variable. Each class is then scanned
     // once to obtain its maximum, replacing the former rows² * arity² search.
-    let prefix_order = try_lexicographic_leader_order(ranked, variable_sequence)?;
+    let prefix_order = try_lexicographic_leader_order(leader_count, &leader_at, variable_sequence)?;
     for (sequence_position, &variable) in variable_sequence.iter().enumerate() {
         let prefix = &variable_sequence[..sequence_position];
         let mut start = 0usize;
         while start < prefix_order.len() {
             let mut end = start + 1;
-            while end < prefix_order.len()
-                && equal_prefix(
-                    &ranked[prefix_order[start]].leading_shift,
-                    &ranked[prefix_order[end]].leading_shift,
-                    prefix,
-                )
-            {
+            while end < prefix_order.len() {
+                let first = try_geometry_leader(prefix_order[start], arity, &leader_at)?;
+                let candidate = try_geometry_leader(prefix_order[end], arity, &leader_at)?;
+                if !equal_prefix(first, candidate, prefix) {
+                    break;
+                }
                 end += 1;
             }
-            let maximum = prefix_order[start..end]
-                .iter()
-                .map(|&ordinal| ranked[ordinal].leading_shift.values()[variable])
-                .max()
+            let first = *prefix_order[start..end]
+                .first()
                 .ok_or(InvolutiveError::Invariant {
                     detail: "a Janet prefix class did not contain its first monomial",
                 })?;
+            let mut maximum = try_geometry_leader(first, arity, &leader_at)?.values()[variable];
+            for &ordinal in &prefix_order[start + 1..end] {
+                maximum = maximum
+                    .max(try_geometry_leader(ordinal, arity, &leader_at)?.values()[variable]);
+            }
             for &ordinal in &prefix_order[start..end] {
                 masks[ordinal][variable] =
-                    ranked[ordinal].leading_shift.values()[variable] == maximum;
+                    try_geometry_leader(ordinal, arity, &leader_at)?.values()[variable] == maximum;
             }
             start = end;
         }
@@ -1035,14 +1092,15 @@ fn preflight_mask_shape(
     )
 }
 
-fn try_lexicographic_leader_order(
-    ranked: &[RankedConsequence],
+fn try_lexicographic_leader_order<'a>(
+    leader_count: usize,
+    leader_at: &impl Fn(usize) -> Option<&'a ForwardShift>,
     variable_sequence: &[usize],
 ) -> Result<Vec<usize>, InvolutiveError> {
-    let mut order = try_vec("Janet grouped-prefix order", ranked.len())?;
-    order.extend(0..ranked.len());
-    let mut scratch = try_vec("Janet grouped-prefix merge scratch", ranked.len())?;
-    scratch.resize(ranked.len(), 0);
+    let mut order = try_vec("Janet grouped-prefix order", leader_count)?;
+    order.extend(0..leader_count);
+    let mut scratch = try_vec("Janet grouped-prefix merge scratch", leader_count)?;
+    scratch.resize(leader_count, 0);
 
     let mut width = 1usize;
     while width < order.len() {
@@ -1055,8 +1113,13 @@ fn try_lexicographic_leader_order(
             for output in left..right {
                 let choose_first = second == right
                     || (first < middle
-                        && compare_leaders(order[first], order[second], ranked, variable_sequence)
-                            != std::cmp::Ordering::Greater);
+                        && compare_geometry_leaders(
+                            order[first],
+                            order[second],
+                            variable_sequence.len(),
+                            leader_at,
+                            variable_sequence,
+                        )? != std::cmp::Ordering::Greater);
                 scratch[output] = if choose_first {
                     let selected = order[first];
                     first += 1;
@@ -1075,20 +1138,40 @@ fn try_lexicographic_leader_order(
     Ok(order)
 }
 
-fn compare_leaders(
+fn compare_geometry_leaders<'a>(
     left: usize,
     right: usize,
-    ranked: &[RankedConsequence],
+    arity: usize,
+    leader_at: &impl Fn(usize) -> Option<&'a ForwardShift>,
     variable_sequence: &[usize],
-) -> std::cmp::Ordering {
+) -> Result<std::cmp::Ordering, InvolutiveError> {
+    let left_leader = try_geometry_leader(left, arity, leader_at)?;
+    let right_leader = try_geometry_leader(right, arity, leader_at)?;
     for &variable in variable_sequence {
-        let comparison = ranked[left].leading_shift.values()[variable]
-            .cmp(&ranked[right].leading_shift.values()[variable]);
+        let comparison = left_leader.values()[variable].cmp(&right_leader.values()[variable]);
         if comparison != std::cmp::Ordering::Equal {
-            return comparison;
+            return Ok(comparison);
         }
     }
-    left.cmp(&right)
+    Ok(left.cmp(&right))
+}
+
+fn try_geometry_leader<'a>(
+    ordinal: usize,
+    arity: usize,
+    leader_at: &impl Fn(usize) -> Option<&'a ForwardShift>,
+) -> Result<&'a ForwardShift, InvolutiveError> {
+    let leader = leader_at(ordinal).ok_or(InvolutiveError::Invariant {
+        detail: "Janet mask geometry omitted a leader ordinal",
+    })?;
+    if leader.arity() != arity {
+        return Err(InvolutiveError::WrongArity {
+            object: "Janet mask geometry leader",
+            expected: arity,
+            actual: leader.arity(),
+        });
+    }
+    Ok(leader)
 }
 
 fn equal_prefix(left: &ForwardShift, right: &ForwardShift, prefix: &[usize]) -> bool {

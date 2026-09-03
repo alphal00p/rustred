@@ -38,6 +38,40 @@ impl LocalizationWitness {
         self.census
     }
 
+    /// Fallibly clone one already-validated frozen witness without cloning
+    /// polynomial payloads. Only the bounded Arc pointer slice is rebuilt.
+    pub(in crate::foundry::completion::involutive) fn try_clone_bounded(
+        &self,
+        limits: InvolutiveLimits,
+    ) -> Result<Self, InvolutiveError> {
+        check_limit(
+            "Ore localization guards",
+            self.guards.len(),
+            limits.max_localization_guards,
+        )?;
+        check_limit(
+            "Ore localization guard terms",
+            self.census.terms,
+            limits.max_localization_guard_terms,
+        )?;
+        check_limit(
+            "Ore localization guard exponent cells",
+            self.census.exponent_cells,
+            limits.max_localization_guard_exponent_cells,
+        )?;
+        check_limit(
+            "Ore localization guard retained bytes",
+            self.census.retained_bytes,
+            limits.max_localization_guard_retained_bytes,
+        )?;
+        let mut guards = try_vec("cloned Ore localization guards", self.guards.len())?;
+        guards.extend(self.guards.iter().cloned());
+        Ok(Self {
+            guards: guards.into_boxed_slice(),
+            census: self.census,
+        })
+    }
+
     pub(crate) fn try_union(
         &self,
         other: &Self,
@@ -47,7 +81,7 @@ impl LocalizationWitness {
             .try_merge_canonical_arcs(other.guards.iter().cloned(), limits)
     }
 
-    pub(super) fn try_merge_polynomials(
+    pub(in crate::foundry::completion::involutive) fn try_merge_polynomials(
         self,
         guards: Vec<IndexedPolynomial>,
         context: &IndexedCoefficientContext,
@@ -170,7 +204,7 @@ impl LocalizationWitness {
         })
     }
 
-    pub(super) fn try_validate(
+    pub(in crate::foundry::completion::involutive) fn try_validate(
         &self,
         context: &IndexedCoefficientContext,
         limits: InvolutiveLimits,

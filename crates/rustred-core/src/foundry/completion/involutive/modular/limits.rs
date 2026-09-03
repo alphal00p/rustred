@@ -1,3 +1,5 @@
+use crate::algebra::IndexedAlgebraLimits;
+
 /// Retained-shape and cumulative-work envelope for modular coefficient
 /// guidance.  These limits are deliberately independent of exact Janet work:
 /// exhausting a guide budget rejects that probe and leaves exact authority
@@ -5,9 +7,18 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ModularGuideLimits {
     pub(super) max_nodes: usize,
+    pub(super) max_total_nodes_created: usize,
     pub(super) max_exact_leaves: usize,
+    pub(super) max_exact_leaf_terms: usize,
+    pub(super) max_exact_leaf_exponent_cells: usize,
+    pub(super) max_exact_leaf_retained_bytes: usize,
+    pub(super) max_total_exact_leaf_terms_ingressed: usize,
+    pub(super) max_total_exact_leaf_exponent_cells_ingressed: usize,
+    pub(super) max_total_exact_leaf_bytes_ingressed: usize,
     pub(super) max_physical_deltas: usize,
+    pub(super) max_total_physical_deltas_created: usize,
     pub(super) max_physical_delta_coordinate_cells: usize,
+    pub(super) max_total_physical_delta_coordinate_operations: usize,
     pub(super) max_absolute_physical_translation: u64,
     pub(super) max_probe_point_coordinates: usize,
     pub(super) max_probe_retained_point_coordinate_cells: usize,
@@ -21,19 +32,46 @@ pub(super) struct ModularGuideLimits {
     pub(super) max_probe_delta_compositions: usize,
     pub(super) max_probe_delta_coordinate_operations: usize,
     pub(super) max_probe_evaluation_steps: usize,
-    pub(super) max_probe_evaluation_depth: usize,
+    pub(super) max_probe_evaluation_frame_pushes: usize,
+    pub(super) max_probe_live_evaluation_frames: usize,
+    pub(super) max_probe_live_evaluation_values: usize,
     pub(super) max_probe_exact_leaf_evaluations: usize,
     pub(super) max_probe_exact_leaf_terms_evaluated: usize,
     pub(super) max_probe_exact_leaf_exponent_cells_evaluated: usize,
+    pub(super) max_problem_basis_rows: usize,
+    pub(super) max_problem_row_terms: usize,
+    pub(super) max_problem_guard_references: usize,
+    pub(super) max_live_row_terms: usize,
+    pub(super) max_live_guard_references: usize,
+    pub(super) max_axpy_input_terms: usize,
+    pub(super) max_total_axpy_transformed_terms: usize,
+    pub(super) max_total_monic_transformed_terms: usize,
+    pub(super) max_total_shift_coordinate_operations: usize,
+    pub(super) max_total_sampled_term_observations: usize,
+    pub(super) max_normal_form_steps: usize,
+    pub(super) max_normal_form_divisor_visits: usize,
+    pub(super) max_divisor_index_query_operations: usize,
+    pub(super) max_trace_steps: usize,
+    pub(super) max_trace_shift_coordinate_cells: usize,
+    pub(super) max_trace_bytes: usize,
 }
 
 impl Default for ModularGuideLimits {
     fn default() -> Self {
         Self {
             max_nodes: 1_000_000,
+            max_total_nodes_created: 100_000_000,
             max_exact_leaves: 1_000_000,
+            max_exact_leaf_terms: 64_000_000,
+            max_exact_leaf_exponent_cells: 1_000_000_000,
+            max_exact_leaf_retained_bytes: 2_147_483_648,
+            max_total_exact_leaf_terms_ingressed: 1_000_000_000,
+            max_total_exact_leaf_exponent_cells_ingressed: 16_000_000_000,
+            max_total_exact_leaf_bytes_ingressed: 8_589_934_592,
             max_physical_deltas: 1_000_000,
+            max_total_physical_deltas_created: 100_000_000,
             max_physical_delta_coordinate_cells: 64_000_000,
+            max_total_physical_delta_coordinate_operations: 8_000_000_000,
             max_absolute_physical_translation: i64::MAX as u64,
             max_probe_point_coordinates: 8_192,
             max_probe_retained_point_coordinate_cells: 24_576,
@@ -47,13 +85,87 @@ impl Default for ModularGuideLimits {
             max_probe_delta_compositions: 100_000_000,
             max_probe_delta_coordinate_operations: 8_000_000_000,
             max_probe_evaluation_steps: 100_000_000,
-            // Evaluation is recursive over an acyclic, earlier-node-only DAG.
-            // This hard cap rejects adversarial depth before the Rust stack is
-            // exposed to an unbounded caller-shaped chain.
-            max_probe_evaluation_depth: 256,
+            max_probe_evaluation_frame_pushes: 400_000_000,
+            max_probe_live_evaluation_frames: 16_000_000,
+            max_probe_live_evaluation_values: 16_000_000,
             max_probe_exact_leaf_evaluations: 16_000_000,
             max_probe_exact_leaf_terms_evaluated: 1_000_000_000,
             max_probe_exact_leaf_exponent_cells_evaluated: 16_000_000_000,
+            max_problem_basis_rows: 1_000_000,
+            max_problem_row_terms: 64_000_000,
+            max_problem_guard_references: 16_000_000,
+            max_live_row_terms: 16_000_000,
+            max_live_guard_references: 16_000_000,
+            max_axpy_input_terms: 32_000_000,
+            max_total_axpy_transformed_terms: 1_000_000_000,
+            max_total_monic_transformed_terms: 64_000_000,
+            max_total_shift_coordinate_operations: 16_000_000_000,
+            max_total_sampled_term_observations: 1_000_000_000,
+            max_normal_form_steps: 16_000_000,
+            max_normal_form_divisor_visits: 8_000_000_000,
+            max_divisor_index_query_operations: 8_000_000_000,
+            max_trace_steps: 16_000_000,
+            max_trace_shift_coordinate_cells: 1_000_000_000,
+            max_trace_bytes: 2_147_483_648,
+        }
+    }
+}
+
+/// Independent envelope for a caller-owned sequence of deliberately cold
+/// exact fallbacks through Symbolica-owned indexed arithmetic. Traversal,
+/// operations, cache-entry payload, and returned-output charges are cumulative
+/// across that budget; live stack/delta caps additionally bound each attempt.
+/// Returning a small root therefore cannot excuse either an enormous
+/// transient memo table or repeated budget resets within one campaign.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ExactMaterializerLimits {
+    pub(super) indexed_algebra: IndexedAlgebraLimits,
+    pub(super) max_attempts: usize,
+    pub(super) max_batch_roots: usize,
+    pub(super) max_accumulated_deltas: usize,
+    pub(super) max_accumulated_delta_coordinate_cells: usize,
+    pub(super) max_absolute_physical_translation: u64,
+    pub(super) max_delta_compositions: usize,
+    pub(super) max_delta_coordinate_operations: usize,
+    pub(super) max_traversal_steps: usize,
+    pub(super) max_frame_pushes: usize,
+    pub(super) max_live_frames: usize,
+    pub(super) max_live_values: usize,
+    pub(super) max_cached_values: usize,
+    pub(super) max_exact_operations: usize,
+    pub(super) max_retained_terms: usize,
+    pub(super) max_retained_exponent_cells: usize,
+    pub(super) max_retained_bytes: usize,
+    pub(super) max_output_terms: usize,
+    pub(super) max_output_exponent_cells: usize,
+    pub(super) max_output_retained_bytes: usize,
+    pub(super) max_output_values: usize,
+}
+
+impl Default for ExactMaterializerLimits {
+    fn default() -> Self {
+        Self {
+            indexed_algebra: IndexedAlgebraLimits::default(),
+            max_attempts: 1_000_000,
+            max_batch_roots: 16_000_000,
+            max_accumulated_deltas: 1_000_000,
+            max_accumulated_delta_coordinate_cells: 64_000_000,
+            max_absolute_physical_translation: i64::MAX as u64,
+            max_delta_compositions: 100_000_000,
+            max_delta_coordinate_operations: 8_000_000_000,
+            max_traversal_steps: 100_000_000,
+            max_frame_pushes: 400_000_000,
+            max_live_frames: 16_000_000,
+            max_live_values: 16_000_000,
+            max_cached_values: 16_000_000,
+            max_exact_operations: 100_000_000,
+            max_retained_terms: 64_000_000,
+            max_retained_exponent_cells: 1_000_000_000,
+            max_retained_bytes: 2_147_483_648,
+            max_output_terms: 4_000_000,
+            max_output_exponent_cells: 64_000_000,
+            max_output_retained_bytes: 1_073_741_824,
+            max_output_values: 16_000_000,
         }
     }
 }

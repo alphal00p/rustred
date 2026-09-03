@@ -56,14 +56,17 @@ impl OreConsequence {
             limits.indexed_algebra.exact_algebra,
         )?;
         let operator_zero = ForwardShift::try_zero(self.row.arity, limits)?;
-        let normalized = Self::try_zero(ordering, context, limits)?.try_left_axpy_sealed(
-            &inverse,
-            &operator_zero,
-            self,
-            ordering,
-            context,
-            limits,
-            work,
+        let normalized = super::super::with_coefficient_diagnostic_site!(
+            MonicNormalization,
+            Self::try_zero(ordering, context, limits)?.try_left_axpy_sealed(
+                &inverse,
+                &operator_zero,
+                self,
+                ordering,
+                context,
+                limits,
+                work,
+            )
         )?;
         let (normalized_leading, normalized_leading_key) = normalized
             .row
@@ -102,14 +105,20 @@ impl OreConsequence {
         limits: InvolutiveLimits,
     ) -> Result<Self, InvolutiveError> {
         let mut work = InvolutiveWorkBudget::default();
-        self.try_left_axpy_with_budget(
-            multiplier,
-            operator_shift,
-            source,
-            ordering,
-            context,
-            limits,
-            &mut work,
+        self.try_validate(ordering, context, limits)?;
+        source.try_validate(ordering, context, limits)?;
+        context.validate_with_limits(multiplier, limits.indexed_algebra.exact_algebra)?;
+        super::super::with_coefficient_diagnostic_site!(
+            DirectAxpy,
+            self.try_left_axpy_sealed(
+                multiplier,
+                operator_shift,
+                source,
+                ordering,
+                context,
+                limits,
+                &mut work,
+            )
         )
     }
 
@@ -354,14 +363,17 @@ impl OreConsequence {
         work: &mut InvolutiveWorkBudget,
     ) -> Result<Self, InvolutiveError> {
         let zero = ForwardShift::try_zero(ordering.arity(), limits)?;
-        Self::try_zero(ordering, context, limits)?.try_left_axpy_sealed(
-            &context.one(),
-            &zero,
-            self,
-            ordering,
-            context,
-            limits,
-            work,
+        super::super::with_coefficient_diagnostic_site!(
+            AutoreductionMaterialization,
+            Self::try_zero(ordering, context, limits)?.try_left_axpy_sealed(
+                &context.one(),
+                &zero,
+                self,
+                ordering,
+                context,
+                limits,
+                work,
+            )
         )
     }
 }

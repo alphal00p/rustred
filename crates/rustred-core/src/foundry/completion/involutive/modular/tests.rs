@@ -89,7 +89,12 @@ fn arena_hash_conses_nodes_and_composes_physical_translations() {
         .unwrap();
     assert!(batch.owns_dag(&dag));
     assert!(!batch.owns_dag(&other));
-    assert_eq!(batch.queries(), std::slice::from_ref(&xy));
+    assert_eq!(batch.queries().len(), 1);
+    assert_eq!(batch.queries()[0].root(), &xy);
+    assert_eq!(
+        batch.queries()[0].role(),
+        super::model::ModularQueryRole::Coefficient
+    );
     let wrong_owner_probe =
         ModularProbe::try_new(&dag, &context, 1, PRIME_A, &[2, 3], limits).unwrap();
     assert_eq!(

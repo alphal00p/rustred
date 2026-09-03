@@ -29,3 +29,22 @@ fn multi_guard_ingress_is_canonical_and_input_order_independent() {
     assert_eq!(forward, reverse);
     assert_eq!(forward.consequence().required_nonzero_guards().len(), 2);
 }
+
+#[test]
+fn real_chart_lift_construction_is_attributed_to_its_named_diagnostic_site() {
+    let limits = OrdinaryChartLiftLimits::default();
+    let context = context("ordinary-chart-lift-diagnostic", 2);
+    let ordering = ordering(&[true, false], limits.involutive);
+    let relation = build_mixed_relation(&context, false);
+
+    crate::foundry::completion::involutive::diagnostics::begin();
+    lift_relation(&relation, 0, &ordering, &context, limits).unwrap();
+    let checkpoint = crate::foundry::completion::involutive::diagnostics::take().unwrap();
+    assert_eq!(checkpoint.coefficient_payload_attempts, 1);
+    assert_eq!(
+        checkpoint
+            .coefficient_payload_attempts_by_site
+            .chart_lift_source,
+        1
+    );
+}

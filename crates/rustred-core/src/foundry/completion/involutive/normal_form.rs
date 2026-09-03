@@ -334,14 +334,17 @@ fn try_reduce_owned_normal_form<'basis>(
         let target_key = selected.target_key.clone();
         let divisor_ordinal = selected.divisor.ordinal();
         let divisor = selected.divisor.consequence();
-        subject = subject.try_left_axpy_sealed(
-            &multiplier,
-            &operator_shift,
-            divisor,
-            ordering,
-            context,
-            limits,
-            work,
+        subject = super::with_coefficient_diagnostic_site!(
+            NormalFormCancellation,
+            subject.try_left_axpy_sealed(
+                &multiplier,
+                &operator_shift,
+                divisor,
+                ordering,
+                context,
+                limits,
+                work,
+            )
         )?;
         let step = JanetReductionStep {
             divisor_ordinal,
