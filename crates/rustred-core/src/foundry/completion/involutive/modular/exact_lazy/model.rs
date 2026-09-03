@@ -1,7 +1,8 @@
 use super::super::super::ForwardShift;
+use super::arena::ExactLazyCommitReceipt;
 use super::{
     ClassifiedLazyOreRow, ExactLazyError, ExactLazyOwner, ExactLazyTransaction, ExactNonzeroProof,
-    LazyCoeff,
+    GuardLineageRef, LazyCoeff, SourceDerivationRef,
 };
 
 /// One exact source-module term retained without expanding future AXPYs.
@@ -30,7 +31,7 @@ impl ImportedSourceTerm {
             });
         }
         transaction.require_lazy_coefficient(&left_coefficient)?;
-        if !nonzero.owns(transaction.owner(), &left_coefficient) {
+        if !nonzero.owns_live(transaction, &left_coefficient) {
             return Err(ExactLazyError::InvalidProof {
                 detail: "an imported source proof does not authenticate its coefficient root",
             });
@@ -64,12 +65,13 @@ impl ImportedSourceTerm {
 #[derive(Debug)]
 pub(super) struct ImportedSourceDerivation {
     owner: ExactLazyOwner,
-    terms: Box<[ImportedSourceTerm]>,
+    root: SourceDerivationRef,
+    source_term_count: usize,
 }
 
 impl ImportedSourceDerivation {
     pub(super) fn try_new(
-        transaction: &ExactLazyTransaction<'_, '_>,
+        transaction: &mut ExactLazyTransaction<'_, '_>,
         terms: Vec<ImportedSourceTerm>,
     ) -> Result<Self, ExactLazyError> {
         let mut previous: Option<(usize, &ForwardShift)> = None;
@@ -82,19 +84,38 @@ impl ImportedSourceDerivation {
             }
             transaction.require_source_ordinal(term.source_ordinal)?;
             transaction.require_lazy_coefficient(&term.left_coefficient)?;
-            if !term
-                .nonzero
-                .owns(transaction.owner(), &term.left_coefficient)
-            {
+            if !term.nonzero.owns_live(transaction, &term.left_coefficient) {
                 return Err(ExactLazyError::InvalidProof {
                     detail: "imported source term has a foreign or root-mismatched proof",
                 });
             }
             previous = Some(key);
         }
+        let mut root = transaction.zero_derivation();
+        for term in terms {
+            // Exactly encode c E^delta P_source: the shift applies to the
+            // source row once, while c remains the left AXPY multiplier.
+            let source = transaction.try_source_derivation(term.source_ordinal)?;
+            root = transaction.try_left_axpy_derivation(
+                &root,
+                &term.left_coefficient,
+                &term.left_shift,
+                &source,
+            )?;
+        }
+        Self::try_from_lineage(transaction, root)
+    }
+
+    pub(super) fn try_from_lineage(
+        transaction: &ExactLazyTransaction<'_, '_>,
+        root: SourceDerivationRef,
+    ) -> Result<Self, ExactLazyError> {
+        transaction.require_derivation(&root)?;
+        let source_term_count = root.logical_source_terms();
         Ok(Self {
             owner: transaction.owner().clone(),
-            terms: terms.into_boxed_slice(),
+            root,
+            source_term_count,
         })
     }
 
@@ -102,50 +123,12 @@ impl ImportedSourceDerivation {
         &self.owner
     }
 
-    pub(super) fn terms(&self) -> &[ImportedSourceTerm] {
-        &self.terms
-    }
-}
-
-/// Exact guard descriptor. ELC1 ingress currently needs only authenticated
-/// denominator-one polynomial guards; denominator-of DAG roots are introduced
-/// by cancellation.
-#[derive(Debug)]
-pub(super) enum ExactGuardDescriptor {
-    Polynomial {
-        coefficient: LazyCoeff,
-        nonzero: ExactNonzeroProof,
-    },
-}
-
-impl ExactGuardDescriptor {
-    pub(super) fn try_polynomial(
-        transaction: &ExactLazyTransaction<'_, '_>,
-        coefficient: LazyCoeff,
-        nonzero: ExactNonzeroProof,
-    ) -> Result<Self, ExactLazyError> {
-        transaction.require_lazy_coefficient(&coefficient)?;
-        if !nonzero.owns(transaction.owner(), &coefficient) {
-            return Err(ExactLazyError::InvalidProof {
-                detail: "an exact guard proof does not authenticate its polynomial root",
-            });
-        }
-        Ok(Self::Polynomial {
-            coefficient,
-            nonzero,
-        })
+    pub(super) fn root(&self) -> &SourceDerivationRef {
+        &self.root
     }
 
-    pub(super) fn coefficient(&self) -> &LazyCoeff {
-        match self {
-            Self::Polynomial { coefficient, .. } => coefficient,
-        }
-    }
-
-    pub(super) fn nonzero_proof(&self) -> &ExactNonzeroProof {
-        match self {
-            Self::Polynomial { nonzero, .. } => nonzero,
-        }
+    pub(super) const fn source_term_count(&self) -> usize {
+        self.source_term_count
     }
 }
 
@@ -153,28 +136,32 @@ impl ExactGuardDescriptor {
 #[derive(Debug)]
 pub(super) struct ImportedGuardLineage {
     owner: ExactLazyOwner,
-    descriptors: Box<[ExactGuardDescriptor]>,
+    root: GuardLineageRef,
+    descriptor_count: usize,
 }
 
 impl ImportedGuardLineage {
     pub(super) fn try_new(
-        transaction: &ExactLazyTransaction<'_, '_>,
-        descriptors: Vec<ExactGuardDescriptor>,
+        transaction: &mut ExactLazyTransaction<'_, '_>,
+        descriptors: Vec<GuardLineageRef>,
     ) -> Result<Self, ExactLazyError> {
-        for descriptor in &descriptors {
-            transaction.require_lazy_coefficient(descriptor.coefficient())?;
-            if !descriptor
-                .nonzero_proof()
-                .owns(transaction.owner(), descriptor.coefficient())
-            {
-                return Err(ExactLazyError::InvalidProof {
-                    detail: "an imported guard has a foreign or root-mismatched proof",
-                });
-            }
+        let mut root = transaction.empty_guards();
+        for descriptor in descriptors {
+            root = transaction.try_union_guards(&root, &descriptor)?;
         }
+        Self::try_from_lineage(transaction, root)
+    }
+
+    pub(super) fn try_from_lineage(
+        transaction: &ExactLazyTransaction<'_, '_>,
+        root: GuardLineageRef,
+    ) -> Result<Self, ExactLazyError> {
+        transaction.require_guard_lineage(&root)?;
+        let descriptor_count = root.logical_descriptors();
         Ok(Self {
             owner: transaction.owner().clone(),
-            descriptors: descriptors.into_boxed_slice(),
+            root,
+            descriptor_count,
         })
     }
 
@@ -182,8 +169,12 @@ impl ImportedGuardLineage {
         &self.owner
     }
 
-    pub(super) fn descriptors(&self) -> &[ExactGuardDescriptor] {
-        &self.descriptors
+    pub(super) fn root(&self) -> &GuardLineageRef {
+        &self.root
+    }
+
+    pub(super) const fn descriptor_count(&self) -> usize {
+        self.descriptor_count
     }
 }
 
@@ -224,6 +215,7 @@ impl ExactLazyPayloadCensus {
 #[derive(Debug)]
 pub(super) struct ExactLazyConsequence {
     owner: ExactLazyOwner,
+    commit_receipt: ExactLazyCommitReceipt,
     row: ClassifiedLazyOreRow,
     derivation: ImportedSourceDerivation,
     guards: ImportedGuardLineage,
@@ -245,15 +237,16 @@ impl ExactLazyConsequence {
         {
             return Err(ExactLazyError::WrongSessionOwner);
         }
-        if row.terms().len() != census.physical_terms
-            || derivation.terms().len() != census.provenance_terms
-            || guards.descriptors().len() != census.guard_descriptors
+        let live_terms = row.try_terms_in_transaction(transaction)?;
+        if live_terms.len() != census.physical_terms
+            || derivation.source_term_count() != census.provenance_terms
+            || guards.descriptor_count() != census.guard_descriptors
         {
             return Err(ExactLazyError::InvalidSupport {
                 detail: "exact-lazy payload census disagrees with imported payload",
             });
         }
-        for term in row.terms() {
+        for term in live_terms {
             if term.shift().arity() != owner.arity() {
                 return Err(ExactLazyError::WrongArity {
                     object: "admitted exact-lazy Ore term",
@@ -262,41 +255,20 @@ impl ExactLazyConsequence {
                 });
             }
             transaction.require_lazy_coefficient(term.coefficient())?;
-            if !term.nonzero_proof().owns(owner, term.coefficient()) {
+            if !term
+                .nonzero_proof()
+                .owns_live(transaction, term.coefficient())
+            {
                 return Err(ExactLazyError::InvalidProof {
                     detail: "admitted Ore term has a foreign or root-mismatched proof",
                 });
             }
         }
-        for term in derivation.terms() {
-            transaction.require_source_ordinal(term.source_ordinal())?;
-            if term.left_shift().arity() != owner.arity() {
-                return Err(ExactLazyError::WrongArity {
-                    object: "admitted exact-lazy provenance shift",
-                    expected: owner.arity(),
-                    actual: term.left_shift().arity(),
-                });
-            }
-            transaction.require_lazy_coefficient(term.left_coefficient())?;
-            if !term.nonzero_proof().owns(owner, term.left_coefficient()) {
-                return Err(ExactLazyError::InvalidProof {
-                    detail: "admitted provenance term has a foreign or root-mismatched proof",
-                });
-            }
-        }
-        for descriptor in guards.descriptors() {
-            transaction.require_lazy_coefficient(descriptor.coefficient())?;
-            if !descriptor
-                .nonzero_proof()
-                .owns(owner, descriptor.coefficient())
-            {
-                return Err(ExactLazyError::InvalidProof {
-                    detail: "admitted guard has a foreign or root-mismatched proof",
-                });
-            }
-        }
+        transaction.require_derivation(derivation.root())?;
+        transaction.require_guard_lineage(guards.root())?;
         Ok(Self {
             owner: owner.clone(),
+            commit_receipt: transaction.pending_commit_receipt(),
             row,
             derivation,
             guards,
@@ -322,5 +294,35 @@ impl ExactLazyConsequence {
 
     pub(super) const fn census(&self) -> ExactLazyPayloadCensus {
         self.census
+    }
+
+    /// Recheck every retained arena root before this consequence enters a new
+    /// mutation boundary. This catches a complete value which escaped an
+    /// aborted transaction even when some of its coefficient roots happen to
+    /// lie below the old committed floor.
+    pub(super) fn try_validate_live(
+        &self,
+        session: &super::ExactLazySession<'_>,
+    ) -> Result<(), ExactLazyError> {
+        if !self.owner.belongs_to(session.owner()) {
+            return Err(ExactLazyError::WrongSessionOwner);
+        }
+        if !self.commit_receipt.owns_committed(session.owner()) {
+            return Err(ExactLazyError::InvalidProof {
+                detail: "exact-lazy consequence did not cross its transaction commit boundary",
+            });
+        }
+        let terms = self.row.try_terms_live(session)?;
+        session.require_derivation(self.derivation.root())?;
+        session.require_guard_lineage(self.guards.root())?;
+        if terms.len() != self.census.physical_terms()
+            || self.derivation.source_term_count() != self.census.provenance_terms()
+            || self.guards.descriptor_count() != self.census.guard_descriptors()
+        {
+            return Err(ExactLazyError::InvalidSupport {
+                detail: "live exact-lazy payload disagrees with its minted census",
+            });
+        }
+        Ok(())
     }
 }

@@ -9,10 +9,19 @@ use super::super::ModularGuideError;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ExactLazyError {
     WrongSessionOwner,
+    WrongCompletionLedger,
     WrongIndexedContext,
     WrongOreAction,
     WrongSourceModule,
     WrongLimitsContract,
+    WrongNormalFormMode {
+        expected: &'static str,
+        actual: &'static str,
+    },
+    FrozenDivisorOutOfRange {
+        ordinal: usize,
+        divisor_count: usize,
+    },
     WrongArity {
         object: &'static str,
         expected: usize,
@@ -49,6 +58,9 @@ impl fmt::Display for ExactLazyError {
             Self::WrongSessionOwner => {
                 formatter.write_str("value belongs to another exact-lazy session")
             }
+            Self::WrongCompletionLedger => {
+                formatter.write_str("operation supplied another exact-lazy completion ledger")
+            }
             Self::WrongIndexedContext => {
                 formatter.write_str("exact-lazy session belongs to another indexed context")
             }
@@ -60,6 +72,17 @@ impl fmt::Display for ExactLazyError {
             }
             Self::WrongLimitsContract => formatter
                 .write_str("exact-lazy operation supplied a different immutable limit contract"),
+            Self::WrongNormalFormMode { expected, actual } => write!(
+                formatter,
+                "exact-lazy normal-form mode is {actual}, expected {expected}"
+            ),
+            Self::FrozenDivisorOutOfRange {
+                ordinal,
+                divisor_count,
+            } => write!(
+                formatter,
+                "frozen Janet divisor ordinal {ordinal} is outside {divisor_count} retained rows"
+            ),
             Self::WrongArity {
                 object,
                 expected,

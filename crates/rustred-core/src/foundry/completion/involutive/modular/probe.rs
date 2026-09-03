@@ -13,8 +13,8 @@ use super::error::{check_limit, checked_add, checked_mul, reserve_map, reserve_v
 use super::limits::ModularGuideLimits;
 use super::model::{
     AccumulatedDeltaId, CoeffNode, CoeffNodeId, CoeffRef, DagOwner, EvaluationKey,
-    ModularEvaluationBatch, ModularEvaluationQuery, ModularImage, ModularProbeCensus,
-    ModularProbeIdentity, ModularQueryRole, ModularZeroEvidence, PhysicalDeltaId, RawCoeffRef,
+    ModularGuardQuery, ModularProbeCensus, ModularProbeIdentity, ModularQueryRole,
+    ModularZeroEvidence, PhysicalDeltaId, RawCoeffRef,
 };
 use super::postorder::{BinaryOperation, PostorderFrame, UnaryOperation};
 
@@ -35,6 +35,128 @@ const LIVE_EVALUATION_VALUES: &str = "modular guide live evaluation values";
 const EXACT_LEAF_EVALUATIONS: &str = "modular guide exact-leaf evaluations";
 const EXACT_LEAF_TERMS: &str = "modular guide exact-leaf terms evaluated";
 const EXACT_LEAF_EXPONENT_CELLS: &str = "modular guide exact-leaf exponent cells evaluated";
+
+/// One evaluator-minted query position. Its fields are private to this
+/// module, so theorem-bearing descendants cannot synthesize or reorder a
+/// supposedly consumed layout.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ModularEvaluationQuery {
+    role: ModularQueryRole,
+    root: CoeffRef,
+}
+
+impl ModularEvaluationQuery {
+    pub(super) fn root(&self) -> &CoeffRef {
+        &self.root
+    }
+
+    pub(super) const fn role(&self) -> ModularQueryRole {
+        self.role
+    }
+}
+
+/// One scalar image minted only by the evaluator after traversing its exact
+/// DAG root. No constructor is visible outside this module, so certificate
+/// issuance never trusts caller-supplied zero evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ModularImage {
+    value: FiniteFieldElement<u64>,
+    zero_evidence: ModularZeroEvidence,
+}
+
+impl ModularImage {
+    fn new(value: FiniteFieldElement<u64>, zero_evidence: ModularZeroEvidence) -> Self {
+        Self {
+            value,
+            zero_evidence,
+        }
+    }
+
+    pub(super) const fn value(&self) -> &FiniteFieldElement<u64> {
+        &self.value
+    }
+
+    pub(super) const fn zero_evidence(&self) -> ModularZeroEvidence {
+        self.zero_evidence
+    }
+}
+
+/// Complete evaluator output. All authority-bearing fields are private to
+/// the evaluator. Certificate issuance can inspect and consume a genuine
+/// value, but no sibling or descendant can construct one from raw residues.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct ModularEvaluationBatch {
+    identity: Arc<ModularProbeIdentity>,
+    dag_owner: DagOwner,
+    context_fingerprint: Arc<String>,
+    queries: Box<[ModularEvaluationQuery]>,
+    guard_count: usize,
+    images: Box<[ModularImage]>,
+    census: ModularProbeCensus,
+}
+
+/// Consuming payload available only after a genuine batch has crossed the
+/// evaluator boundary. It cannot be converted back into a batch.
+pub(super) struct ModularEvaluationBatchParts {
+    pub(super) identity: Arc<ModularProbeIdentity>,
+    pub(super) dag_owner: DagOwner,
+    pub(super) context_fingerprint: Arc<String>,
+    pub(super) queries: Box<[ModularEvaluationQuery]>,
+    pub(super) guard_count: usize,
+    pub(super) images: Box<[ModularImage]>,
+    pub(super) census: ModularProbeCensus,
+}
+
+impl ModularEvaluationBatch {
+    pub(super) fn identity(&self) -> &ModularProbeIdentity {
+        &self.identity
+    }
+
+    pub(super) fn images(&self) -> &[ModularImage] {
+        &self.images
+    }
+
+    /// Ordered references corresponding one-to-one to [`Self::images`].
+    pub(super) fn queries(&self) -> &[ModularEvaluationQuery] {
+        &self.queries
+    }
+
+    pub(super) const fn guard_count(&self) -> usize {
+        self.guard_count
+    }
+
+    pub(super) fn owns_context(&self, context: &IndexedCoefficientContext) -> bool {
+        context.owns_fingerprint(&self.context_fingerprint)
+    }
+
+    pub(super) fn owns_dag(&self, dag: &ModularCoefficientDag) -> bool {
+        self.belongs_to_dag_owner(dag)
+            && self
+                .queries
+                .iter()
+                .all(|query| dag.raw(query.root()).is_ok())
+    }
+
+    pub(super) fn belongs_to_dag_owner(&self, dag: &ModularCoefficientDag) -> bool {
+        self.dag_owner.belongs_to(dag.owner())
+    }
+
+    pub(super) const fn census(&self) -> ModularProbeCensus {
+        self.census
+    }
+
+    pub(super) fn into_parts(self) -> ModularEvaluationBatchParts {
+        ModularEvaluationBatchParts {
+            identity: self.identity,
+            dag_owner: self.dag_owner,
+            context_fingerprint: self.context_fingerprint,
+            queries: self.queries,
+            guard_count: self.guard_count,
+            images: self.images,
+            census: self.census,
+        }
+    }
+}
 
 /// A rejected consumed probe.  It deliberately carries no scalar image, but
 /// retains all work charged before the rejection so a higher-level cumulative
@@ -259,9 +381,29 @@ impl ModularProbe {
     /// singularity, stale/foreign root, allocation failure, or resource stop
     /// rejects the lane and returns census only; no prefix image escapes.
     pub(super) fn try_evaluate_guarded_batch(
-        mut self,
+        self,
         dag: &ModularCoefficientDag,
         guards: &[CoeffRef],
+        coefficients: &[CoeffRef],
+    ) -> Result<ModularEvaluationBatch, RejectedProbeReport> {
+        let mut typed_guards = Vec::new();
+        if let Err(error) = reserve_vec(&mut typed_guards, guards.len(), BATCH_IMAGES) {
+            return Err(self.into_rejected_report(error));
+        }
+        typed_guards.extend(guards.iter().cloned().map(ModularGuardQuery::Nonzero));
+        self.try_evaluate_typed_guarded_batch(dag, &typed_guards, coefficients)
+    }
+
+    /// Consume one probe against typed point-admissibility guards.
+    ///
+    /// A `Nonzero` guard rejects a zero image. A `Defined` guard permits a
+    /// zero image but still traverses the complete rational DAG, so any pole,
+    /// exact-leaf denominator zero, or singular inverse rejects the lane.
+    /// Every guard precedes every coefficient in the released tagged layout.
+    pub(super) fn try_evaluate_typed_guarded_batch(
+        mut self,
+        dag: &ModularCoefficientDag,
+        guards: &[ModularGuardQuery],
         coefficients: &[CoeffRef],
     ) -> Result<ModularEvaluationBatch, RejectedProbeReport> {
         let total = match checked_add(BATCH_IMAGES, guards.len(), coefficients.len()) {
@@ -287,9 +429,9 @@ impl ModularProbe {
         if let Err(error) = reserve_vec(&mut queries, total, BATCH_IMAGES) {
             return Err(self.into_rejected_report(error));
         }
-        queries.extend(guards.iter().cloned().map(|root| ModularEvaluationQuery {
-            role: ModularQueryRole::Guard,
-            root,
+        queries.extend(guards.iter().map(|guard| ModularEvaluationQuery {
+            role: guard.role(),
+            root: guard.root().clone(),
         }));
         queries.extend(
             coefficients
@@ -301,14 +443,18 @@ impl ModularProbe {
                 }),
         );
 
-        let guard_images = match self.try_evaluate_retained_batch(dag, guards) {
+        let mut guard_roots = Vec::new();
+        if let Err(error) = reserve_vec(&mut guard_roots, guards.len(), BATCH_IMAGES) {
+            return Err(self.into_rejected_report(error));
+        }
+        guard_roots.extend(guards.iter().map(|guard| guard.root().clone()));
+        let guard_images = match self.try_evaluate_retained_batch(dag, &guard_roots) {
             Ok(images) => images,
             Err(error) => return Err(self.into_rejected_report(error)),
         };
-        if guard_images
-            .iter()
-            .any(|image| image.zero_evidence() != ModularZeroEvidence::Nonzero)
-        {
+        if guard_images.iter().zip(guards).any(|(image, guard)| {
+            guard.requires_nonzero() && image.zero_evidence() != ModularZeroEvidence::Nonzero
+        }) {
             return Err(self.into_rejected_report(ModularGuideError::SampledZeroLocalizationGuard));
         }
         let coefficient_images = match self.try_evaluate_retained_batch(dag, coefficients) {

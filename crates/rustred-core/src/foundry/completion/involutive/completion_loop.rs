@@ -508,7 +508,12 @@ fn try_complete_janet_proposal_with_budget(
                 1,
             )?;
         }
-        let priority = blind.try_rank_prolongation_ordinals(&epoch, ordering, limits)?;
+        let priority = blind.try_rank_prolongation_ordinals(
+            epoch.division(),
+            epoch.prolongations(),
+            ordering,
+            limits,
+        )?;
         let mut inserted = None;
         for ordinal in priority.into_vec() {
             let requested_iterations = checked_add(

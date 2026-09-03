@@ -5,4 +5,5 @@ mod initial;
 mod janet;
 mod limits;
 mod ore;
+mod selection;
 mod support;

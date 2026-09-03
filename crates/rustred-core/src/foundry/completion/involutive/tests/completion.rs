@@ -426,7 +426,7 @@ fn stable_autoreduction_shares_every_sealed_row_without_exact_payload_work() {
 }
 
 #[test]
-fn division_only_successor_seals_to_the_public_full_epoch() {
+fn division_only_successor_seals_to_the_same_public_geometry_in_a_distinct_sibling_snapshot() {
     let limits = InvolutiveLimits::default();
     let context = context(2);
     let ordering = active_ordering(2, limits);
@@ -468,7 +468,39 @@ fn division_only_successor_seals_to_the_public_full_epoch() {
     let deferred = division
         .try_seal(&ordering, limits, CompletionGeometryLimits::default())
         .unwrap();
-    assert_eq!(deferred, full);
+    assert_eq!(deferred.epoch().revision(), full.epoch().revision());
+    assert!(deferred.epoch().same_instance(full.epoch()));
+    assert_ne!(deferred.epoch(), full.epoch());
+    assert_eq!(deferred.predecessor(), full.predecessor());
+    assert_eq!(deferred.elements(), full.elements());
+    assert_eq!(
+        deferred
+            .prolongations()
+            .iter()
+            .map(|prolongation| (
+                prolongation.basis_ordinal(),
+                prolongation.variable(),
+                prolongation.target_leading_shift(),
+                prolongation.target_key(),
+            ))
+            .collect::<Vec<_>>(),
+        full.prolongations()
+            .iter()
+            .map(|prolongation| (
+                prolongation.basis_ordinal(),
+                prolongation.variable(),
+                prolongation.target_leading_shift(),
+                prolongation.target_key(),
+            ))
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(deferred.leading_ideal(), full.leading_ideal());
+    assert_eq!(deferred.uncovered_partition(), full.uncovered_partition());
+    assert_eq!(deferred.pure_power_coverage(), full.pure_power_coverage());
+    assert_eq!(
+        deferred.divisor_index_retained_bytes(),
+        full.divisor_index_retained_bytes()
+    );
 }
 
 #[test]

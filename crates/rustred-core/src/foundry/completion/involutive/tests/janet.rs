@@ -314,6 +314,110 @@ fn janet_masks_queues_and_epochs_are_deterministic_and_stale_safe() {
 }
 
 #[test]
+fn persistent_sibling_epochs_have_distinct_snapshot_identity_at_equal_depth() {
+    let limits = InvolutiveLimits::default();
+    let context = context(2);
+    let ordering = active_ordering(2, limits);
+    let base = epoch(&[&[2, 0], &[0, 3]], &context, &ordering, limits);
+    let left = base
+        .try_successor(
+            [monomial_consequence(
+                30,
+                &[1, 3],
+                &ordering,
+                &context,
+                limits,
+            )],
+            &ordering,
+            &context,
+            limits,
+            CompletionGeometryLimits::default(),
+        )
+        .unwrap();
+    let unrelated = epoch(&[&[1, 0], &[0, 1]], &context, &ordering, limits);
+    let right = base
+        .try_successor(
+            [monomial_consequence(
+                40,
+                &[1, 3],
+                &ordering,
+                &context,
+                limits,
+            )],
+            &ordering,
+            &context,
+            limits,
+            CompletionGeometryLimits::default(),
+        )
+        .unwrap();
+
+    assert_eq!(left.epoch().revision(), 1);
+    assert_eq!(right.epoch().revision(), 1);
+    assert_eq!(unrelated.epoch().revision(), 0);
+    assert!(left.epoch().same_instance(right.epoch()));
+    assert_ne!(left.epoch(), right.epoch());
+    assert_eq!(left.epoch(), &left.epoch().clone());
+    assert_eq!(left.predecessor(), Some(base.epoch()));
+    assert_eq!(right.predecessor(), Some(base.epoch()));
+
+    let geometry = |basis: &JanetBasisEpoch| {
+        basis
+            .elements()
+            .iter()
+            .map(|element| {
+                (
+                    element.leading_shift().clone(),
+                    element.multiplicative().clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(geometry(&left), geometry(&right));
+    let source_ordinal = |basis: &JanetBasisEpoch| {
+        basis
+            .elements()
+            .iter()
+            .find(|element| element.leading_shift().values() == [1, 3])
+            .expect("the sibling-specific row must remain present")
+            .consequence()
+            .provenance()
+            .terms()[0]
+            .source_ordinal()
+    };
+    assert_eq!(source_ordinal(&left), 30);
+    assert_eq!(source_ordinal(&right), 40);
+
+    let left_obligation = left
+        .prolongations()
+        .first()
+        .expect("left sibling must retain a Janet obligation")
+        .clone();
+    assert_eq!(
+        right.require_current(&left_obligation),
+        Err(InvolutiveError::StaleEpoch {
+            expected: right.epoch().clone(),
+            actual: left.epoch().clone(),
+        })
+    );
+
+    let blind =
+        BlindDomainSchedule::try_from_partition(right.uncovered_partition(), &ordering, limits)
+            .unwrap();
+    assert_eq!(
+        blind.try_rank_prolongation_ordinals(
+            right.division(),
+            left.prolongations(),
+            &ordering,
+            limits,
+        ),
+        Err(InvolutiveError::StaleEpoch {
+            expected: right.epoch().clone(),
+            actual: left.epoch().clone(),
+        })
+    );
+}
+
+#[test]
 fn pure_powers_characterize_the_finite_monomial_complement() {
     let limits = InvolutiveLimits::default();
     let context = context(2);
@@ -362,7 +466,12 @@ fn blind_priority_is_residual_driven_and_never_drops_on_truncation() {
     let candidates = epoch(&[&[2, 0], &[1, 2], &[0, 3]], &context, &ordering, limits);
     assert_eq!(candidates.prolongations().len(), 2);
     let ranked = schedule
-        .try_rank_prolongation_ordinals(&candidates, &ordering, limits)
+        .try_rank_prolongation_ordinals(
+            candidates.division(),
+            candidates.prolongations(),
+            &ordering,
+            limits,
+        )
         .unwrap();
     assert_eq!(ranked.len(), candidates.prolongations().len());
     let mut ranked_permutation = ranked.to_vec();
@@ -388,7 +497,12 @@ fn blind_priority_is_residual_driven_and_never_drops_on_truncation() {
     assert!(truncated.is_truncated());
     assert!(!truncated.has_complete_priority_view());
     let truncated_ranked = truncated
-        .try_rank_prolongation_ordinals(&candidates, &ordering, truncated_limits)
+        .try_rank_prolongation_ordinals(
+            candidates.division(),
+            candidates.prolongations(),
+            &ordering,
+            truncated_limits,
+        )
         .unwrap();
     assert_eq!(truncated_ranked.len(), candidates.prolongations().len());
     let mut truncated_permutation = truncated_ranked.to_vec();
@@ -786,11 +900,21 @@ fn blind_schedule_rejects_a_foreign_ore_action_and_truncation_keeps_the_true_pre
         limits,
     );
     assert_eq!(
-        full.try_rank_prolongation_ordinals(&foreign_basis, &foreign_ordering, limits),
+        full.try_rank_prolongation_ordinals(
+            foreign_basis.division(),
+            foreign_basis.prolongations(),
+            &foreign_ordering,
+            limits,
+        ),
         Err(InvolutiveError::ForeignOreAction)
     );
     assert_eq!(
-        full.try_rank_prolongation_ordinals(&foreign_basis, &ordering, limits),
+        full.try_rank_prolongation_ordinals(
+            foreign_basis.division(),
+            foreign_basis.prolongations(),
+            &ordering,
+            limits,
+        ),
         Err(InvolutiveError::ForeignOreAction)
     );
 }

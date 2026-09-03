@@ -38,11 +38,42 @@ impl PartialEq for BasisInstanceIdentity {
 
 impl Eq for BasisInstanceIdentity {}
 
-/// Opaque basis-instance identity plus its monotone immutable revision.
+/// Opaque identity of one immutable snapshot within a basis lineage.
+///
+/// Revision depth alone is not a snapshot identity: two persistent successors
+/// may legitimately fork from the same predecessor at the same depth.  This
+/// token prevents their scratch, selections, and prolongations from being
+/// accepted interchangeably while leaving revision numbers deterministic.
+#[derive(Clone, Debug)]
+struct BasisSnapshotIdentity(Arc<u64>);
+
+impl BasisSnapshotIdentity {
+    fn fresh(revision: u64) -> Self {
+        Self(Arc::new(revision))
+    }
+
+    fn belongs_to(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
+    fn revision(&self) -> u64 {
+        *self.0
+    }
+}
+
+impl PartialEq for BasisSnapshotIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        self.belongs_to(other)
+    }
+}
+
+impl Eq for BasisSnapshotIdentity {}
+
+/// Opaque basis-instance and snapshot identities plus immutable depth.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct EpochId {
     instance: BasisInstanceIdentity,
-    revision: u64,
+    snapshot: BasisSnapshotIdentity,
 }
 
 impl EpochId {
@@ -54,12 +85,12 @@ impl EpochId {
     pub(super) fn fresh_initial() -> Self {
         Self {
             instance: BasisInstanceIdentity::fresh(),
-            revision: 0,
+            snapshot: BasisSnapshotIdentity::fresh(0),
         }
     }
 
-    pub(crate) const fn revision(&self) -> u64 {
-        self.revision
+    pub(crate) fn revision(&self) -> u64 {
+        self.snapshot.revision()
     }
 
     pub(crate) fn same_instance(&self, other: &Self) -> bool {
@@ -67,12 +98,12 @@ impl EpochId {
     }
 
     pub(super) fn try_successor(&self, limits: InvolutiveLimits) -> Result<Self, InvolutiveError> {
-        let next = self
-            .revision
-            .checked_add(1)
-            .ok_or(InvolutiveError::ResourceCountOverflow {
-                resource: "Janet epoch",
-            })?;
+        let next =
+            self.revision()
+                .checked_add(1)
+                .ok_or(InvolutiveError::ResourceCountOverflow {
+                    resource: "Janet epoch",
+                })?;
         if next > limits.max_epoch {
             return Err(InvolutiveError::EpochLimit {
                 requested: next,
@@ -81,7 +112,7 @@ impl EpochId {
         }
         Ok(Self {
             instance: self.instance.clone(),
-            revision: next,
+            snapshot: BasisSnapshotIdentity::fresh(next),
         })
     }
 }
@@ -249,6 +280,303 @@ pub(super) struct JanetDivisionEpoch {
     arity: usize,
     elements: Box<[JanetBasisElement]>,
     divisor_index: JanetDivisorIndex,
+}
+
+/// Internal authority for coefficient-free Janet division geometry.
+///
+/// The marker is visible throughout `involutive` so the exact-lazy sibling can
+/// implement the geometry seam, but code outside this completion engine cannot
+/// provide an unauthenticated implementation.
+pub(in crate::foundry::completion::involutive) mod geometry_authority {
+    pub(in crate::foundry::completion::involutive) trait Sealed {}
+}
+
+/// Immutable, coefficient-free Janet division geometry.
+///
+/// The epoch carries an opaque lineage owner, a per-snapshot generation, and
+/// deterministic revision depth.  The action owns the frozen localization and
+/// source-module authority.  Implementors expose only canonical leading
+/// monomials, multiplicative masks, and the index built from that same sealed
+/// snapshot; coefficient rows remain behind their concrete epoch boundary.
+pub(super) trait JanetDivisionGeometry: geometry_authority::Sealed {
+    fn geometry_epoch(&self) -> &EpochId;
+
+    fn geometry_action(&self) -> &OreActionIdentity;
+
+    fn geometry_arity(&self) -> usize;
+
+    fn geometry_element_count(&self) -> usize;
+
+    fn geometry_monomial(&self, ordinal: usize) -> Option<JanetMonomialView<'_>>;
+
+    fn geometry_divisor_index(&self) -> &JanetDivisorIndex;
+
+    fn require_geometry_ordering(
+        &self,
+        ordering: &OreOrderingAdapter,
+    ) -> Result<(), InvolutiveError> {
+        ordering.require_action(self.geometry_action())?;
+        ordering.require_arity("Janet division geometry", self.geometry_arity())?;
+        self.geometry_divisor_index().require_geometry_binding(
+            self.geometry_epoch(),
+            self.geometry_arity(),
+            self.geometry_element_count(),
+        )
+    }
+
+    fn try_geometry_divisor_scratch(
+        &self,
+        limits: InvolutiveLimits,
+    ) -> Result<JanetDivisorScratch, InvolutiveError> {
+        self.geometry_divisor_index().require_geometry_binding(
+            self.geometry_epoch(),
+            self.geometry_arity(),
+            self.geometry_element_count(),
+        )?;
+        self.geometry_divisor_index().try_scratch(limits)
+    }
+
+    fn require_geometry_query_environment(
+        &self,
+        excluded_ordinal: Option<usize>,
+        scratch: &JanetDivisorScratch,
+    ) -> Result<(), InvolutiveError> {
+        self.geometry_divisor_index().require_geometry_binding(
+            self.geometry_epoch(),
+            self.geometry_arity(),
+            self.geometry_element_count(),
+        )?;
+        self.geometry_divisor_index().require_query_environment(
+            self.geometry_epoch(),
+            excluded_ordinal,
+            scratch,
+        )
+    }
+
+    /// Authenticate one completion obligation against this exact immutable
+    /// geometry before a scheduler may inspect or rank it.
+    fn require_geometry_prolongation(
+        &self,
+        prolongation: &JanetProlongation,
+        ordering: &OreOrderingAdapter,
+    ) -> Result<(), InvolutiveError> {
+        self.require_geometry_ordering(ordering)?;
+        if prolongation.epoch() != self.geometry_epoch() {
+            return Err(InvolutiveError::StaleEpoch {
+                expected: self.geometry_epoch().clone(),
+                actual: prolongation.epoch().clone(),
+            });
+        }
+        ordering.require_arity(
+            "Janet prolongation",
+            prolongation.target_leading_shift().arity(),
+        )?;
+        let source = self.geometry_monomial(prolongation.basis_ordinal()).ok_or(
+            InvolutiveError::InvalidProlongation {
+                detail: "basis ordinal is outside the bound division geometry",
+            },
+        )?;
+        if source.ordinal() != prolongation.basis_ordinal() {
+            return Err(InvolutiveError::Invariant {
+                detail: "bound Janet geometry returned a noncanonical basis ordinal",
+            });
+        }
+        if source.leading_shift().arity() != self.geometry_arity() {
+            return Err(InvolutiveError::WrongArity {
+                object: "bound Janet geometry leader",
+                expected: self.geometry_arity(),
+                actual: source.leading_shift().arity(),
+            });
+        }
+        if source.multiplicative().bits().len() != self.geometry_arity() {
+            return Err(InvolutiveError::WrongArity {
+                object: "bound Janet geometry mask",
+                expected: self.geometry_arity(),
+                actual: source.multiplicative().bits().len(),
+            });
+        }
+        let variable = prolongation.variable();
+        if variable >= self.geometry_arity() {
+            return Err(InvolutiveError::InvalidProlongation {
+                detail: "variable is outside the bound division geometry",
+            });
+        }
+        if source.multiplicative().is_multiplicative(variable)? {
+            return Err(InvolutiveError::InvalidProlongation {
+                detail: "requested variable is multiplicative in the bound division geometry",
+            });
+        }
+        if !is_unit_prolongation(
+            source.leading_shift(),
+            prolongation.target_leading_shift(),
+            variable,
+        ) {
+            return Err(InvolutiveError::InvalidProlongation {
+                detail: "target leading shift does not match its bound basis row and variable",
+            });
+        }
+        if ordering.try_key(prolongation.target_leading_shift())? != *prolongation.target_key() {
+            return Err(InvolutiveError::InvalidProlongation {
+                detail: "target ordering key does not match the bound prolongation shift",
+            });
+        }
+        Ok(())
+    }
+
+    fn try_geometry_janet_divisor_with_scratch(
+        &self,
+        target: &ForwardShift,
+        excluded_ordinal: Option<usize>,
+        scratch: &mut JanetDivisorScratch,
+        limits: InvolutiveLimits,
+        work: &mut InvolutiveWorkBudget,
+    ) -> Result<Option<usize>, InvolutiveError> {
+        self.geometry_divisor_index().require_geometry_binding(
+            self.geometry_epoch(),
+            self.geometry_arity(),
+            self.geometry_element_count(),
+        )?;
+        let selected = self.geometry_divisor_index().try_first_divisor(
+            self.geometry_epoch(),
+            target,
+            excluded_ordinal,
+            scratch,
+            limits,
+            work,
+        )?;
+        let Some(ordinal) = selected else {
+            return Ok(None);
+        };
+        let monomial = self
+            .geometry_monomial(ordinal)
+            .ok_or(InvolutiveError::Invariant {
+                detail: "Janet divisor index returned an ordinal outside the geometry",
+            })?;
+        if monomial.ordinal() != ordinal {
+            return Err(InvolutiveError::Invariant {
+                detail: "Janet divisor geometry returned a noncanonical basis ordinal",
+            });
+        }
+        if excluded_ordinal == Some(ordinal)
+            || !monomial
+                .multiplicative()
+                .janet_divides(monomial.leading_shift(), target)
+        {
+            return Err(InvolutiveError::Invariant {
+                detail: "Janet divisor index returned a nondivisor",
+            });
+        }
+        Ok(Some(ordinal))
+    }
+}
+
+impl geometry_authority::Sealed for JanetDivisionEpoch {}
+
+impl JanetDivisionGeometry for JanetDivisionEpoch {
+    fn geometry_epoch(&self) -> &EpochId {
+        &self.epoch
+    }
+
+    fn geometry_action(&self) -> &OreActionIdentity {
+        &self.action
+    }
+
+    fn geometry_arity(&self) -> usize {
+        self.arity
+    }
+
+    fn geometry_element_count(&self) -> usize {
+        self.elements.len()
+    }
+
+    fn geometry_monomial(&self, ordinal: usize) -> Option<JanetMonomialView<'_>> {
+        self.elements
+            .get(ordinal)
+            .map(JanetBasisElement::monomial_view)
+    }
+
+    fn geometry_divisor_index(&self) -> &JanetDivisorIndex {
+        &self.divisor_index
+    }
+}
+
+fn is_unit_prolongation(source: &ForwardShift, target: &ForwardShift, variable: usize) -> bool {
+    source.arity() == target.arity()
+        && source.values().iter().zip(target.values()).enumerate().all(
+            |(position, (&source, &target))| {
+                if position == variable {
+                    source.checked_add(1) == Some(target)
+                } else {
+                    source == target
+                }
+            },
+        )
+}
+
+/// Completion-only geometry sealed from a coefficient-free division epoch.
+///
+/// This value carries no coefficient row and grants no closure or artifact
+/// authority.  Its obligations are epoch-bound scheduling geometry; its exact
+/// complement is only the complement of the supplied leading monomial ideal.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct JanetCompletionGeometry {
+    epoch: EpochId,
+    action: OreActionIdentity,
+    arity: usize,
+    prolongations: Box<[JanetProlongation]>,
+    leading_ideal: LeadingIdeal,
+    uncovered: UncoveredPartition,
+    pure_power_coverage: PurePowerCoverage,
+}
+
+impl JanetCompletionGeometry {
+    pub(super) fn epoch(&self) -> &EpochId {
+        &self.epoch
+    }
+
+    pub(super) fn action(&self) -> &OreActionIdentity {
+        &self.action
+    }
+
+    pub(super) const fn arity(&self) -> usize {
+        self.arity
+    }
+
+    pub(super) fn prolongations(&self) -> &[JanetProlongation] {
+        &self.prolongations
+    }
+
+    pub(super) fn leading_ideal(&self) -> &LeadingIdeal {
+        &self.leading_ideal
+    }
+
+    pub(super) fn uncovered_partition(&self) -> &UncoveredPartition {
+        &self.uncovered
+    }
+
+    pub(super) fn pure_power_coverage(&self) -> &PurePowerCoverage {
+        &self.pure_power_coverage
+    }
+
+    pub(super) fn into_parts(
+        self,
+    ) -> (
+        Box<[JanetProlongation]>,
+        LeadingIdeal,
+        UncoveredPartition,
+        PurePowerCoverage,
+    ) {
+        let Self {
+            epoch: _,
+            action: _,
+            arity: _,
+            prolongations,
+            leading_ideal,
+            uncovered,
+            pure_power_coverage,
+        } = self;
+        (prolongations, leading_ideal, uncovered, pure_power_coverage)
+    }
 }
 
 /// Immutable complete basis view, exact leading complement, and mandatory
@@ -622,14 +950,22 @@ impl JanetDivisionEpoch {
         &self,
         ordering: &OreOrderingAdapter,
     ) -> Result<(), InvolutiveError> {
-        ordering.require_action(&self.action)
+        self.require_geometry_ordering(ordering)
     }
 
     pub(super) fn try_divisor_scratch(
         &self,
         limits: InvolutiveLimits,
     ) -> Result<JanetDivisorScratch, InvolutiveError> {
-        self.divisor_index.try_scratch(limits)
+        self.try_geometry_divisor_scratch(limits)
+    }
+
+    pub(super) fn require_divisor_query_environment(
+        &self,
+        excluded_ordinal: Option<usize>,
+        scratch: &JanetDivisorScratch,
+    ) -> Result<(), InvolutiveError> {
+        self.require_geometry_query_environment(excluded_ordinal, scratch)
     }
 
     pub(super) fn try_janet_divisor_with_scratch(
@@ -640,33 +976,13 @@ impl JanetDivisionEpoch {
         limits: InvolutiveLimits,
         work: &mut InvolutiveWorkBudget,
     ) -> Result<Option<usize>, InvolutiveError> {
-        let selected = self.divisor_index.try_first_divisor(
-            &self.epoch,
+        self.try_geometry_janet_divisor_with_scratch(
             target,
             excluded_ordinal,
             scratch,
             limits,
             work,
-        )?;
-        let Some(ordinal) = selected else {
-            return Ok(None);
-        };
-        let element = self
-            .elements
-            .get(ordinal)
-            .ok_or(InvolutiveError::Invariant {
-                detail: "Janet divisor index returned an ordinal outside the basis",
-            })?;
-        if excluded_ordinal == Some(ordinal)
-            || !element
-                .multiplicative
-                .janet_divides(&element.leading_shift, target)
-        {
-            return Err(InvolutiveError::Invariant {
-                detail: "Janet divisor index returned a nondivisor",
-            });
-        }
-        Ok(Some(ordinal))
+        )
     }
 
     fn divisor_index_retained_bytes(&self) -> usize {
@@ -769,26 +1085,11 @@ impl JanetDivisionEpoch {
         limits: InvolutiveLimits,
         geometry_limits: CompletionGeometryLimits,
     ) -> Result<JanetBasisEpoch, InvolutiveError> {
-        self.require_ordering(ordering)?;
         // This is the sole retention boundary for completion-only state. Its
         // queue and geometry limits therefore remain exact without charging
         // transient division epochs for allocations they never perform.
-        let prolongations =
-            build_prolongation_queue(&self.epoch, &self.elements, ordering, limits)?;
-        let pure_power_coverage = build_pure_power_coverage(self.arity, &self.elements)?;
-        let mut generators = try_vec("Janet leading-ideal generators", self.elements.len())?;
-        for element in &self.elements {
-            generators.push(LatticePoint::try_new(
-                element.leading_shift.values().iter().copied(),
-            )?);
-        }
-        let leading_ideal = LeadingIdeal::try_new(self.arity, generators, geometry_limits)?;
-        let uncovered = leading_ideal.uncovered_partition()?;
-        debug_assert_eq!(
-            pure_power_coverage.is_complete(),
-            uncovered.is_finite(),
-            "pure-power criterion and exact monomial complement disagree",
-        );
+        let geometry = try_build_completion_geometry(&self, ordering, limits, geometry_limits)?;
+        let (prolongations, leading_ideal, uncovered, pure_power_coverage) = geometry.into_parts();
         Ok(JanetBasisEpoch {
             division: self,
             prolongations,
@@ -1180,16 +1481,54 @@ fn equal_prefix(left: &ForwardShift, right: &ForwardShift, prefix: &[usize]) -> 
         .all(|&variable| left.values()[variable] == right.values()[variable])
 }
 
+pub(super) fn try_build_completion_geometry(
+    division: &(impl JanetDivisionGeometry + ?Sized),
+    ordering: &OreOrderingAdapter,
+    limits: InvolutiveLimits,
+    geometry_limits: CompletionGeometryLimits,
+) -> Result<JanetCompletionGeometry, InvolutiveError> {
+    division.require_geometry_ordering(ordering)?;
+    let prolongations = build_prolongation_queue(division, ordering, limits)?;
+    let pure_power_coverage = build_pure_power_coverage(division)?;
+    let mut generators = try_vec(
+        "Janet leading-ideal generators",
+        division.geometry_element_count(),
+    )?;
+    for ordinal in 0..division.geometry_element_count() {
+        let monomial = try_geometry_monomial(division, ordinal)?;
+        generators.push(LatticePoint::try_new(
+            monomial.leading_shift().values().iter().copied(),
+        )?);
+    }
+    let leading_ideal =
+        LeadingIdeal::try_new(division.geometry_arity(), generators, geometry_limits)?;
+    let uncovered = leading_ideal.uncovered_partition()?;
+    debug_assert_eq!(
+        pure_power_coverage.is_complete(),
+        uncovered.is_finite(),
+        "pure-power criterion and exact monomial complement disagree",
+    );
+    Ok(JanetCompletionGeometry {
+        epoch: division.geometry_epoch().clone(),
+        action: division.geometry_action().clone(),
+        arity: division.geometry_arity(),
+        prolongations,
+        leading_ideal,
+        uncovered,
+        pure_power_coverage,
+    })
+}
+
 fn build_prolongation_queue(
-    epoch: &EpochId,
-    elements: &[JanetBasisElement],
+    division: &(impl JanetDivisionGeometry + ?Sized),
     ordering: &OreOrderingAdapter,
     limits: InvolutiveLimits,
 ) -> Result<Box<[JanetProlongation]>, InvolutiveError> {
     let mut obligation_count = 0usize;
-    for element in elements {
+    for ordinal in 0..division.geometry_element_count() {
+        let monomial = try_geometry_monomial(division, ordinal)?;
         for &variable in ordering.variable_sequence() {
-            if !element.multiplicative.bits()[variable] {
+            if !monomial.multiplicative().bits()[variable] {
                 obligation_count = checked_add("Janet prolongations", obligation_count, 1)?;
             }
         }
@@ -1243,16 +1582,17 @@ fn build_prolongation_queue(
     )?;
 
     let mut queue = try_vec("Janet prolongations", obligation_count)?;
-    for element in elements {
+    for ordinal in 0..division.geometry_element_count() {
+        let monomial = try_geometry_monomial(division, ordinal)?;
         for &variable in ordering.variable_sequence() {
-            if element.multiplicative.bits()[variable] {
+            if monomial.multiplicative().bits()[variable] {
                 continue;
             }
-            let target_leading_shift = element.leading_shift.try_increment(variable, limits)?;
+            let target_leading_shift = monomial.leading_shift().try_increment(variable, limits)?;
             let target_key = ordering.try_key(&target_leading_shift)?;
             queue.push(JanetProlongation {
-                epoch: epoch.clone(),
-                basis_ordinal: element.ordinal,
+                epoch: division.geometry_epoch().clone(),
+                basis_ordinal: monomial.ordinal(),
                 variable,
                 target_leading_shift,
                 target_key,
@@ -1269,28 +1609,73 @@ fn build_prolongation_queue(
 }
 
 fn build_pure_power_coverage(
-    arity: usize,
-    elements: &[JanetBasisElement],
+    division: &(impl JanetDivisionGeometry + ?Sized),
 ) -> Result<PurePowerCoverage, InvolutiveError> {
+    let arity = division.geometry_arity();
     let mut exponents = try_vec("Janet pure-power coverage", arity)?;
     exponents.resize(arity, None);
-    if elements
-        .iter()
-        .any(|element| element.leading_shift.is_zero())
-    {
+    let mut contains_zero = false;
+    for ordinal in 0..division.geometry_element_count() {
+        if try_geometry_monomial(division, ordinal)?
+            .leading_shift()
+            .is_zero()
+        {
+            contains_zero = true;
+            break;
+        }
+    }
+    if contains_zero {
         exponents.fill(Some(0));
         return Ok(PurePowerCoverage {
             exponents: exponents.into_boxed_slice(),
         });
     }
     for position in 0..arity {
-        exponents[position] = elements
-            .iter()
-            .filter(|element| element.leading_shift.is_pure_power(position))
-            .map(|element| element.leading_shift.values()[position])
-            .min();
+        let mut minimum = None;
+        for ordinal in 0..division.geometry_element_count() {
+            let leading_shift = try_geometry_monomial(division, ordinal)?.leading_shift();
+            if leading_shift.is_pure_power(position) {
+                minimum = Some(
+                    minimum.map_or(leading_shift.values()[position], |current: u64| {
+                        current.min(leading_shift.values()[position])
+                    }),
+                );
+            }
+        }
+        exponents[position] = minimum;
     }
     Ok(PurePowerCoverage {
         exponents: exponents.into_boxed_slice(),
     })
+}
+
+fn try_geometry_monomial(
+    division: &(impl JanetDivisionGeometry + ?Sized),
+    ordinal: usize,
+) -> Result<JanetMonomialView<'_>, InvolutiveError> {
+    let monomial = division
+        .geometry_monomial(ordinal)
+        .ok_or(InvolutiveError::Invariant {
+            detail: "Janet coefficient-free geometry omitted a basis ordinal",
+        })?;
+    if monomial.ordinal() != ordinal {
+        return Err(InvolutiveError::Invariant {
+            detail: "Janet coefficient-free geometry returned a noncanonical basis ordinal",
+        });
+    }
+    if monomial.leading_shift().arity() != division.geometry_arity() {
+        return Err(InvolutiveError::WrongArity {
+            object: "Janet coefficient-free geometry leader",
+            expected: division.geometry_arity(),
+            actual: monomial.leading_shift().arity(),
+        });
+    }
+    if monomial.multiplicative().bits().len() != division.geometry_arity() {
+        return Err(InvolutiveError::WrongArity {
+            object: "Janet coefficient-free geometry mask",
+            expected: division.geometry_arity(),
+            actual: monomial.multiplicative().bits().len(),
+        });
+    }
+    Ok(monomial)
 }

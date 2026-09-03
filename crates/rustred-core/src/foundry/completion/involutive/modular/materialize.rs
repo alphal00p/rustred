@@ -125,7 +125,7 @@ impl ExactMaterializationCensus {
 
 /// One root-bound exact coefficient and the cumulative budget snapshot at the
 /// point it was produced.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct ExactMaterialization {
     dag_owner: DagOwner,
     context_fingerprint: Arc<String>,

@@ -6,9 +6,10 @@ use crate::sector::ShiftComplexityKey;
 use super::error::{check_limit, checked_add, checked_mul, try_push_bounded};
 use super::janet::JanetDivisionEpoch;
 use super::limits::InvolutiveWorkBudget;
+use super::selection::{JanetReductionSelection, try_select_janet_reduction};
 use super::{
-    ForwardShift, InvolutiveError, InvolutiveLimits, JanetBasisElement, JanetBasisEpoch,
-    OreConsequence, OreOrderingAdapter,
+    ForwardShift, InvolutiveError, InvolutiveLimits, JanetBasisEpoch, OreConsequence,
+    OreOrderingAdapter,
 };
 
 /// One exact left-Ore cancellation in a deterministic Janet normal form.
@@ -261,15 +262,15 @@ fn validate_normal_form_request(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn try_reduce_owned_normal_form<'basis>(
+fn try_reduce_owned_normal_form(
     mut subject: OreConsequence,
-    basis: &'basis JanetDivisionEpoch,
+    basis: &JanetDivisionEpoch,
     excluded_divisor: Option<usize>,
     ordering: &OreOrderingAdapter,
     context: &IndexedCoefficientContext,
     limits: InvolutiveLimits,
     work: &mut InvolutiveWorkBudget,
-    mut first_selection: Option<SelectedReduction<'basis>>,
+    mut first_selection: Option<JanetReductionSelection>,
     mut divisor_scratch: super::divisor_index::JanetDivisorScratch,
     mut divisor_visits: usize,
 ) -> Result<JanetNormalForm, InvolutiveError> {
@@ -297,22 +298,39 @@ fn try_reduce_owned_normal_form<'basis>(
         };
         if previous_target
             .as_ref()
-            .is_some_and(|previous| selected.target_key >= *previous)
+            .is_some_and(|previous| selected.target_key() >= previous)
         {
             return Err(InvolutiveError::Invariant {
                 detail: "Janet normal-form reduction target did not strictly decrease",
             });
         }
 
+        if selected.epoch() != basis.epoch() {
+            return Err(InvolutiveError::StaleEpoch {
+                expected: basis.epoch().clone(),
+                actual: selected.epoch().clone(),
+            });
+        }
+        let divisor =
+            basis
+                .elements()
+                .get(selected.divisor_ordinal())
+                .ok_or(InvolutiveError::Invariant {
+                    detail: "selected Janet divisor disappeared from its immutable epoch",
+                })?;
+        if divisor.leading_shift() != selected.divisor_leading_shift() {
+            return Err(InvolutiveError::Invariant {
+                detail: "selected Janet divisor leader changed inside its immutable epoch",
+            });
+        }
         let operator_shift = selected
-            .target_shift
-            .try_checked_sub(selected.divisor.leading_shift(), limits)?;
+            .target_shift()
+            .try_checked_sub(divisor.leading_shift(), limits)?;
         work.charge_exact_coefficient_operations(1, limits)?;
-        let divisor_coefficient = selected
-            .divisor
+        let divisor_coefficient = divisor
             .consequence()
             .row()
-            .coefficient(selected.divisor.leading_shift())
+            .coefficient(divisor.leading_shift())
             .ok_or(InvolutiveError::Invariant {
                 detail: "a Janet basis leader is absent from its own canonical row",
             })?;
@@ -322,7 +340,7 @@ fn try_reduce_owned_normal_form<'basis>(
             });
         }
         let multiplier = context.neg_bound_with_limits(
-            context.bind_sealed(subject.row().coefficient(&selected.target_shift).ok_or(
+            context.bind_sealed(subject.row().coefficient(selected.target_shift()).ok_or(
                 InvolutiveError::Invariant {
                     detail: "a selected Janet reduction term disappeared before cancellation",
                 },
@@ -330,10 +348,10 @@ fn try_reduce_owned_normal_form<'basis>(
             limits.indexed_algebra.exact_algebra,
         )?;
 
-        let target_shift = selected.target_shift;
-        let target_key = selected.target_key.clone();
-        let divisor_ordinal = selected.divisor.ordinal();
-        let divisor = selected.divisor.consequence();
+        let target_shift = selected.target_shift().clone();
+        let target_key = selected.target_key().clone();
+        let divisor_ordinal = selected.divisor_ordinal();
+        let divisor = divisor.consequence();
         subject = super::with_coefficient_diagnostic_site!(
             NormalFormCancellation,
             subject.try_left_axpy_sealed(
@@ -379,78 +397,26 @@ fn try_reduce_owned_normal_form<'basis>(
     })
 }
 
-struct SelectedReduction<'a> {
-    target_shift: ForwardShift,
-    divisor: &'a JanetBasisElement,
-    target_key: ShiftComplexityKey,
-}
-
-fn try_select_reduction<'a>(
+fn try_select_reduction(
     subject: &OreConsequence,
-    basis: &'a JanetDivisionEpoch,
+    basis: &JanetDivisionEpoch,
     excluded_divisor: Option<usize>,
     ordering: &OreOrderingAdapter,
     limits: InvolutiveLimits,
     divisor_visits: &mut usize,
     divisor_scratch: &mut super::divisor_index::JanetDivisorScratch,
     work: &mut InvolutiveWorkBudget,
-) -> Result<Option<SelectedReduction<'a>>, InvolutiveError> {
-    let mut selected: Option<SelectedReduction<'a>> = None;
-    for term in subject.row().terms() {
-        let divisor = basis.try_janet_divisor_with_scratch(
-            term.shift(),
-            excluded_divisor,
-            divisor_scratch,
-            limits,
-            work,
-        )?;
-        // Preserve the historical flat-scan work contract without performing
-        // that scan: a hit at ordinal `o` visited `o + 1` rows, while a miss
-        // visited the complete epoch (including an excluded row).
-        let logical_visits = if let Some(ordinal) = divisor {
-            checked_add("Janet normal-form divisor visits", ordinal, 1)?
-        } else {
-            basis.elements().len()
-        };
-        *divisor_visits = checked_add(
-            "Janet normal-form divisor visits",
-            *divisor_visits,
-            logical_visits,
-        )?;
-        work.charge_divisor_visits(logical_visits, limits)?;
-        check_limit(
-            "Janet normal-form divisor visits",
-            *divisor_visits,
-            limits.max_normal_form_divisor_visits,
-        )?;
-        let divisor = if let Some(ordinal) = divisor {
-            Some(
-                basis
-                    .elements()
-                    .get(ordinal)
-                    .ok_or(InvolutiveError::Invariant {
-                        detail: "Janet divisor ordinal disappeared from its immutable epoch",
-                    })?,
-            )
-        } else {
-            None
-        };
-        let Some(divisor) = divisor else {
-            continue;
-        };
-        let target_key = ordering.try_key(term.shift())?;
-        if selected
-            .as_ref()
-            .is_none_or(|current| target_key > current.target_key)
-        {
-            selected = Some(SelectedReduction {
-                target_shift: term.shift().clone(),
-                divisor,
-                target_key,
-            });
-        }
-    }
-    Ok(selected)
+) -> Result<Option<JanetReductionSelection>, InvolutiveError> {
+    try_select_janet_reduction(
+        basis,
+        subject.row().terms().iter().map(|term| term.shift()),
+        excluded_divisor,
+        ordering,
+        limits,
+        divisor_visits,
+        divisor_scratch,
+        work,
+    )
 }
 
 fn step_retained_bytes(step: &JanetReductionStep) -> Result<usize, InvolutiveError> {

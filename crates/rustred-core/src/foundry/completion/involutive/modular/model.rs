@@ -1,8 +1,6 @@
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use symbolica::domains::finite_field::FiniteFieldElement;
-
 use crate::algebra::IndexedCoefficient;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -157,47 +155,42 @@ pub(super) enum ModularZeroEvidence {
 /// positional image from being reinterpreted under another layout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ModularQueryRole {
+    /// A localization polynomial whose image must be nonzero.
     Guard,
+    /// A rational coefficient which must be defined at the point, but whose
+    /// numerator is allowed to vanish there.
+    DefinedGuard,
     Coefficient,
 }
 
+/// Typed probe-point admissibility condition.
+///
+/// `Nonzero` is used for an exact polynomial localization condition.
+/// `Defined` is used for `DenominatorOf(c)`: evaluating `c` already checks
+/// every exact-leaf denominator and inverse on its path, while a zero value of
+/// `c` itself is admissible and must not reject the point.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct ModularEvaluationQuery {
-    pub(super) role: ModularQueryRole,
-    pub(super) root: CoeffRef,
+pub(super) enum ModularGuardQuery {
+    Nonzero(CoeffRef),
+    Defined(CoeffRef),
 }
 
-impl ModularEvaluationQuery {
+impl ModularGuardQuery {
     pub(super) fn root(&self) -> &CoeffRef {
-        &self.root
-    }
-
-    pub(super) const fn role(&self) -> ModularQueryRole {
-        self.role
-    }
-}
-
-/// One scalar image from a single independent modular probe.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct ModularImage {
-    value: FiniteFieldElement<u64>,
-    zero_evidence: ModularZeroEvidence,
-}
-
-impl ModularImage {
-    pub(super) fn new(value: FiniteFieldElement<u64>, zero_evidence: ModularZeroEvidence) -> Self {
-        Self {
-            value,
-            zero_evidence,
+        match self {
+            Self::Nonzero(root) | Self::Defined(root) => root,
         }
     }
 
-    pub(super) const fn value(&self) -> &FiniteFieldElement<u64> {
-        &self.value
+    pub(super) const fn role(&self) -> ModularQueryRole {
+        match self {
+            Self::Nonzero(_) => ModularQueryRole::Guard,
+            Self::Defined(_) => ModularQueryRole::DefinedGuard,
+        }
     }
 
-    pub(super) const fn zero_evidence(&self) -> ModularZeroEvidence {
-        self.zero_evidence
+    pub(super) const fn requires_nonzero(&self) -> bool {
+        matches!(self, Self::Nonzero(_))
     }
 }
 
@@ -307,58 +300,6 @@ impl ModularProbeCensus {
 
     pub(super) const fn exact_leaf_exponent_cells_evaluated(self) -> usize {
         self.exact_leaf_exponent_cells_evaluated
-    }
-}
-
-/// A complete, successfully evaluated coefficient batch from one consumed
-/// probe. No scalar image crosses the module boundary before every requested
-/// coefficient has succeeded; on any singularity or resource stop the partial
-/// buffer is dropped with the rejected probe.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) struct ModularEvaluationBatch {
-    pub(super) identity: Arc<ModularProbeIdentity>,
-    pub(super) dag_owner: DagOwner,
-    pub(super) context_fingerprint: Arc<String>,
-    pub(super) queries: Box<[ModularEvaluationQuery]>,
-    pub(super) guard_count: usize,
-    pub(super) images: Box<[ModularImage]>,
-    pub(super) census: ModularProbeCensus,
-}
-
-impl ModularEvaluationBatch {
-    pub(super) fn identity(&self) -> &ModularProbeIdentity {
-        &self.identity
-    }
-
-    pub(super) fn images(&self) -> &[ModularImage] {
-        &self.images
-    }
-
-    /// The exact ordered coefficient references corresponding one-to-one to
-    /// [`Self::images`].  Retaining these references prevents positional
-    /// images from being accidentally reinterpreted as another query batch.
-    pub(super) fn queries(&self) -> &[ModularEvaluationQuery] {
-        &self.queries
-    }
-
-    pub(super) const fn guard_count(&self) -> usize {
-        self.guard_count
-    }
-
-    pub(super) fn owns_context(&self, context: &crate::algebra::IndexedCoefficientContext) -> bool {
-        context.owns_fingerprint(&self.context_fingerprint)
-    }
-
-    pub(super) fn owns_dag(&self, dag: &super::arena::ModularCoefficientDag) -> bool {
-        self.dag_owner.belongs_to(dag.owner())
-            && self
-                .queries
-                .iter()
-                .all(|query| dag.raw(&query.root).is_ok())
-    }
-
-    pub(super) const fn census(&self) -> ModularProbeCensus {
-        self.census
     }
 }
 

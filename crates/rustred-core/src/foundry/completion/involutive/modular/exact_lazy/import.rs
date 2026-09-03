@@ -5,11 +5,85 @@ use crate::algebra::IndexedCoefficientContext;
 use super::super::super::{OreConsequence, OreOrderingAdapter};
 use super::error::try_vec;
 use super::{
-    ClassifiedLazyOreRow, ExactGuardDescriptor, ExactIngressNonzero, ExactLazyConsequence,
-    ExactLazyError, ExactLazyLimits, ExactLazyPayloadCensus, ExactLazySession,
-    ExactLazyTransaction, ExactNonzeroProof, ImportedGuardLineage, ImportedSourceDerivation,
-    ImportedSourceTerm, LazyOreTerm,
+    ClassifiedLazyOreRow, ExactIngressNonzero, ExactLazyConsequence, ExactLazyError,
+    ExactLazyLimits, ExactLazyPayloadCensus, ExactLazySession, ExactLazyTransaction,
+    ExactNonzeroProof, ImportedGuardLineage, ImportedSourceDerivation, ImportedSourceTerm,
+    LazyOreTerm,
 };
+
+/// Unforgeable authority that the complete exact consequence, rather than a
+/// caller-selected term subset, crossed the ingress loop in this module.
+pub(super) struct ExactIngressRowSeal {
+    _private: (),
+}
+
+/// Fully validated, session-bound plan for one exact consequence import.
+///
+/// Frozen epochs preflight every plan before opening their single mutation
+/// transaction. The opaque owner binding prevents replay in another lazy
+/// generation.
+pub(super) struct ExactConsequenceImportPlan<'consequence> {
+    owner: super::ExactLazyOwner,
+    consequence: &'consequence OreConsequence,
+    census: ExactLazyPayloadCensus,
+}
+
+impl ExactConsequenceImportPlan<'_> {
+    pub(super) const fn census(&self) -> ExactLazyPayloadCensus {
+        self.census
+    }
+}
+
+pub(super) fn try_plan_exact_consequence_import<'consequence>(
+    session: &ExactLazySession<'_>,
+    consequence: &'consequence OreConsequence,
+    ordering: &OreOrderingAdapter,
+    context: &IndexedCoefficientContext,
+    limits: ExactLazyLimits,
+) -> Result<ExactConsequenceImportPlan<'consequence>, ExactLazyError> {
+    session.require_binding(ordering, context, limits)?;
+    consequence.try_validate(ordering, context, limits.exact)?;
+    for source in consequence.provenance().terms() {
+        ordering.require_source_ordinal(source.source_ordinal())?;
+        session.source_relation(source.source_ordinal())?;
+    }
+    Ok(ExactConsequenceImportPlan {
+        owner: session.owner().clone(),
+        consequence,
+        census: ExactLazyPayloadCensus::new(
+            consequence.row().terms().len(),
+            consequence.provenance().terms().len(),
+            consequence.required_nonzero_guards().len(),
+        ),
+    })
+}
+
+pub(super) fn try_build_planned_exact_consequence(
+    transaction: &mut ExactLazyTransaction<'_, '_>,
+    plan: &ExactConsequenceImportPlan<'_>,
+    ordering: &OreOrderingAdapter,
+    context: &IndexedCoefficientContext,
+    limits: ExactLazyLimits,
+) -> Result<ExactLazyConsequence, ExactLazyError> {
+    if !plan.owner.belongs_to(transaction.owner()) {
+        return Err(ExactLazyError::WrongSessionOwner);
+    }
+    transaction.owner().require_ordering(ordering)?;
+    if transaction.owner().limits() != limits {
+        return Err(ExactLazyError::WrongLimitsContract);
+    }
+    let census = plan.census;
+    let (row, derivation, guards) = try_build_imported_parts(
+        transaction,
+        plan.consequence,
+        ordering,
+        context,
+        census.physical_terms(),
+        census.provenance_terms(),
+        census.guard_descriptors(),
+    )?;
+    ExactLazyConsequence::try_new(transaction, row, derivation, guards, census)
+}
 
 /// Import one completely authenticated exact consequence into an ELC1
 /// coefficient generation.
@@ -25,37 +99,13 @@ pub(super) fn try_import_exact_consequence(
     context: &IndexedCoefficientContext,
     limits: ExactLazyLimits,
 ) -> Result<ExactLazyConsequence, ExactLazyError> {
-    session.require_binding(ordering, context, limits)?;
-    consequence.try_validate(ordering, context, limits.exact)?;
-    for source in consequence.provenance().terms() {
-        ordering.require_source_ordinal(source.source_ordinal())?;
-        session.source_relation(source.source_ordinal())?;
-    }
-
-    let physical_terms = consequence.row().terms().len();
-    let provenance_terms = consequence.provenance().terms().len();
-    let guard_descriptors = consequence.required_nonzero_guards().len();
-    session.try_charge_import_attempt(physical_terms, provenance_terms, guard_descriptors)?;
-
-    let mut transaction = session.try_begin_transaction()?;
-    let built = try_build_imported_parts(
-        &mut transaction,
-        consequence,
-        ordering,
-        context,
-        physical_terms,
-        provenance_terms,
-        guard_descriptors,
-    );
+    let plan = try_plan_exact_consequence_import(session, consequence, ordering, context, limits)?;
+    let census = plan.census();
+    let mut transaction = session.try_begin_import_batch_transaction(&[census])?;
+    let built =
+        try_build_planned_exact_consequence(&mut transaction, &plan, ordering, context, limits);
     match built {
-        Ok((row, derivation, guards)) => {
-            let imported = ExactLazyConsequence::try_new(
-                &transaction,
-                row,
-                derivation,
-                guards,
-                ExactLazyPayloadCensus::new(physical_terms, provenance_terms, guard_descriptors),
-            )?;
+        Ok(imported) => {
             transaction.try_commit()?;
             Ok(imported)
         }
@@ -93,7 +143,11 @@ fn try_build_imported_parts(
             ExactNonzeroProof::ExactIngress(proof),
         )?);
     }
-    let physical = ClassifiedLazyOreRow::try_from_exact_ingress(transaction, physical)?;
+    let physical = ClassifiedLazyOreRow::try_from_exact_ingress(
+        transaction,
+        physical,
+        ExactIngressRowSeal { _private: () },
+    )?;
 
     let mut provenance = try_vec("imported exact-lazy source-module terms", provenance_count)?;
     for term in consequence.provenance().terms() {
@@ -121,21 +175,10 @@ fn try_build_imported_parts(
 
     let mut guards = try_vec("imported exact-lazy guard descriptors", guard_count)?;
     for guard in consequence.required_nonzero_guards() {
-        // Use the indexed context's existing sealed polynomial-to-rational
-        // conversion. ELC1 must not implement another CAS representation.
-        let coefficient = context.coefficient_from_polynomial_sealed(guard)?;
-        let (root, proof) =
-            ExactIngressNonzero::try_ingress(transaction, context, Arc::new(coefficient))?;
-        guards.push(ExactGuardDescriptor::try_polynomial(
-            transaction,
-            root,
-            ExactNonzeroProof::ExactIngress(proof),
-        )?);
+        guards.push(transaction.try_polynomial_guard(context, guard)?);
     }
 
-    Ok((
-        physical,
-        ImportedSourceDerivation::try_new(transaction, provenance)?,
-        ImportedGuardLineage::try_new(transaction, guards)?,
-    ))
+    let provenance = ImportedSourceDerivation::try_new(transaction, provenance)?;
+    let guards = ImportedGuardLineage::try_new(transaction, guards)?;
+    Ok((physical, provenance, guards))
 }

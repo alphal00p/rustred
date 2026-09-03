@@ -11,10 +11,42 @@ use crate::foundry::completion::involutive::{
 };
 
 use super::census::coefficient_payload_census;
+use super::guard_domain::{LocalizationDomainBudget, try_require_principal_open_coverage};
 use super::guards::try_canonical_nonzero_guard;
 use super::model::{ConsequenceProvenance, OreConsequence, OreProvenanceTerm, OreRow, OreTerm};
 
 impl OreConsequence {
+    /// Replace replay's syntactic guard set by an independently authenticated
+    /// lazy witness only after a bounded exact principal-open proof.
+    ///
+    /// The proof obligation is deliberately one-way: every replay-required
+    /// irreducible factor must occur in `authenticated_lazy`. Additional
+    /// historic lazy guards are conservative restrictions and remain part of
+    /// the returned authority. No unchecked witness-replacement seam exists.
+    pub(in crate::foundry::completion::involutive) fn try_restrict_to_authenticated_localization(
+        self,
+        authenticated_lazy: super::guards::LocalizationWitness,
+        context: &IndexedCoefficientContext,
+        limits: InvolutiveLimits,
+        budget: &mut LocalizationDomainBudget,
+    ) -> Result<Self, InvolutiveError> {
+        self.localization.try_validate(context, limits)?;
+        authenticated_lazy.try_validate(context, limits)?;
+        try_require_principal_open_coverage(
+            context,
+            authenticated_lazy.guards(),
+            self.localization.guards(),
+            limits.indexed_algebra.exact_algebra,
+            budget,
+        )?;
+        Ok(Self {
+            row: self.row,
+            provenance: self.provenance,
+            localization: authenticated_lazy,
+            coefficient_census: self.coefficient_census,
+        })
+    }
+
     /// Return a projectively normalized copy whose current Ore leader is one.
     ///
     /// Janet epochs retain this invariant at their single construction

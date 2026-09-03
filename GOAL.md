@@ -1170,6 +1170,7 @@ authorization.
 - [K6 Janet/Ore bounded release study](docs/research/k6_janet_ore_release_study_2026-09-02.md)
 - [K6 Janet incremental-epoch and copy-on-write audit](docs/research/k6_janet_incremental_epoch_audit_2026-09-02.md)
 - [K6 Janet modular scheduling and fraction-free replay design](docs/research/k6_janet_modular_fraction_free_design_2026-09-02.md)
+- [Exact-lazy persistent Janet completion design](docs/research/k6_exact_lazy_persistent_completion_design_2026-09-03.md)
 - [Audited factorized product-angular owner design](docs/research/factorized_product_angular_owner_2026.md)
 - [Sector-local coordinate charts as a K6 search preconditioner](docs/research/sector_local_coordinate_chart_2026.md)
 - [Audited K6 boundary-walk observations](docs/research/k6_boundary_walk_2026.md)

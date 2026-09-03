@@ -20,6 +20,7 @@ mod normal_form;
 mod ordering;
 mod ore;
 mod projective;
+mod selection;
 mod shift;
 
 /// Compile exact coefficient call-site attribution only into the test-owned
@@ -69,6 +70,7 @@ pub(crate) use ore::{
     CoefficientPayloadCensus, ConsequenceProvenance, LocalizationGuardCensus, LocalizationWitness,
     OreConsequence, OreProvenanceTerm, OreRow, OreTerm,
 };
+use ore::{LocalizationDomainBudget, LocalizationDomainCensus, LocalizationDomainLimits};
 pub(crate) use shift::ForwardShift;
 
 #[cfg(test)]

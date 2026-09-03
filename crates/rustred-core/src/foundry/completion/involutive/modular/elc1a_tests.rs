@@ -3,9 +3,10 @@ use std::sync::Arc;
 use crate::algebra::{CoefficientContext, IndexedCoefficient, IndexedCoefficientContext};
 
 use super::{
-    ExactMaterializationBudget, ExactMaterializerLimits, ModularCoefficientDag, ModularGuideError,
-    ModularGuideLimits, ModularProbe, NonzeroCertification, try_certify_batch,
-    try_issue_support_certificates, try_materialize_exact, try_materialize_exact_batch,
+    ExactMaterializationBudget, ExactMaterializerLimits, ModularCoefficientDag, ModularGuardQuery,
+    ModularGuideError, ModularGuideLimits, ModularProbe, NonzeroCertification, try_certify_batch,
+    try_certify_typed_batch, try_issue_support_certificates, try_materialize_exact,
+    try_materialize_exact_batch,
 };
 
 const PRIME: u64 = 998_244_353;
@@ -242,6 +243,67 @@ fn guard_zero_and_later_singularity_reject_whole_batch_with_census_only() {
     ));
     assert_eq!(singular_rejection.census().queries(), 2);
     assert!(singular_rejection.census().evaluation_steps() >= 2);
+}
+
+#[test]
+fn typed_defined_guards_accept_zero_but_layouts_remain_globally_unique() {
+    let (_, context) = make_context("elc1a-typed-defined-guard");
+    let limits = ModularGuideLimits::default();
+    let mut dag = ModularCoefficientDag::try_new(&context, limits).unwrap();
+    let n = leaf(&mut dag, &context, context.index(0).unwrap());
+    let one = dag.one();
+    let n_plus_one = dag.try_add(&n, &one).unwrap();
+
+    let defined = try_certify_typed_batch(
+        &dag,
+        &context,
+        &[ModularGuardQuery::Defined(n.clone())],
+        std::slice::from_ref(&n_plus_one),
+        0,
+        PRIME,
+        &[0],
+        limits,
+    )
+    .unwrap();
+    assert_eq!(defined.census().queries(), 2);
+    assert!(matches!(
+        &defined.outcomes()[0],
+        NonzeroCertification::Certified(_)
+    ));
+
+    let nonzero = try_certify_typed_batch(
+        &dag,
+        &context,
+        &[ModularGuardQuery::Nonzero(n.clone())],
+        std::slice::from_ref(&n_plus_one),
+        1,
+        PRIME,
+        &[0],
+        limits,
+    )
+    .unwrap_err();
+    assert_eq!(
+        nonzero.error(),
+        &ModularGuideError::SampledZeroLocalizationGuard
+    );
+    assert_eq!(nonzero.census().queries(), 1);
+
+    let duplicate = try_certify_typed_batch(
+        &dag,
+        &context,
+        &[ModularGuardQuery::Defined(n.clone())],
+        std::slice::from_ref(&n),
+        2,
+        PRIME,
+        &[2],
+        limits,
+    )
+    .unwrap_err();
+    assert_eq!(
+        duplicate.error(),
+        &ModularGuideError::InconsistentBatchQueryLayout
+    );
+    assert_eq!(duplicate.census().queries(), 2);
 }
 
 #[test]

@@ -4,8 +4,9 @@ use crate::sector::ShiftComplexityKey;
 
 use super::super::{LatticeBox, UncoveredPartition};
 use super::error::{check_limit, checked_add, checked_mul, checked_sort_coordinate_work, try_vec};
+use super::janet::JanetDivisionGeometry;
 use super::{
-    ForwardShift, InvolutiveError, InvolutiveLimits, JanetBasisEpoch, OreActionIdentity,
+    ForwardShift, InvolutiveError, InvolutiveLimits, JanetProlongation, OreActionIdentity,
     OreOrderingAdapter,
 };
 
@@ -153,16 +154,19 @@ impl BlindDomainSchedule {
 
     /// Return every input ordinal in deterministic blind-first order.
     /// Candidates missed by a retained/truncated box prefix remain present.
-    pub(crate) fn try_rank_prolongation_ordinals(
+    pub(super) fn try_rank_prolongation_ordinals(
         &self,
-        basis: &JanetBasisEpoch,
+        division: &(impl JanetDivisionGeometry + ?Sized),
+        prolongations: &[JanetProlongation],
         ordering: &OreOrderingAdapter,
         limits: InvolutiveLimits,
     ) -> Result<Box<[usize]>, InvolutiveError> {
         ordering.require_action(&self.action)?;
-        basis.require_ordering(ordering)?;
-        let prolongations = basis.prolongations();
+        division.require_geometry_ordering(ordering)?;
         ordering.require_arity("blind-domain schedule", self.arity)?;
+        for prolongation in prolongations {
+            division.require_geometry_prolongation(prolongation, ordering)?;
+        }
         check_limit(
             "blind-domain priority candidates",
             prolongations.len(),
@@ -214,11 +218,6 @@ impl BlindDomainSchedule {
         )?;
         let mut ranked = try_vec("blind-domain prioritized candidates", prolongations.len())?;
         for (ordinal, prolongation) in prolongations.iter().enumerate() {
-            basis.require_current(prolongation)?;
-            ordering.require_arity(
-                "blind-domain prolongation",
-                prolongation.target_leading_shift().arity(),
-            )?;
             let first_intersection = self.entries.iter().position(|entry| {
                 entry.intersects_upward_orthant(prolongation.target_leading_shift())
             });

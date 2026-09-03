@@ -23,7 +23,8 @@ mod work;
 use arena::ModularCoefficientDag;
 use certificate::{
     CertifiedNonzero, CertifiedSupportBatch, NonzeroCertification, SampledZeroUnresolved,
-    try_certify_batch, try_issue_support_certificates,
+    try_certify_batch, try_certify_typed_batch, try_issue_support_certificates,
+    try_issue_typed_support_certificates,
 };
 use error::ModularGuideError;
 use limits::{ExactMaterializerLimits, ModularGuideLimits};
@@ -32,14 +33,14 @@ use materialize::{
     ExactMaterializationCensus, try_materialize_exact, try_materialize_exact_batch,
 };
 use model::{
-    CoeffRef, ModularImage, ModularProbeCensus, ModularProbeIdentity, ModularQueryRole,
+    CoeffRef, ModularGuardQuery, ModularProbeCensus, ModularProbeIdentity, ModularQueryRole,
     ModularZeroEvidence,
 };
 use normal_form::{
     ModularFrozenNormalFormProblem, ModularNonzeroEvidence, ModularNormalFormProposal,
     ModularNormalFormTraceIdentity, ModularReductionTraceStep,
 };
-use probe::{ModularProbe, RejectedProbeReport};
+use probe::{ModularImage, ModularProbe, RejectedProbeReport};
 use work::ModularNormalFormCensus;
 
 #[cfg(test)]

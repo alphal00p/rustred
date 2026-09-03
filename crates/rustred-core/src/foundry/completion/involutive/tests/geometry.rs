@@ -5,11 +5,116 @@ use crate::sector::{Mask, OrderingPolicy};
 use super::super::super::CompletionGeometryLimits;
 use super::super::divisor_index::{JanetDivisorIndex, JanetMonomialView};
 use super::super::janet::{
-    JanetDivisionEpoch, JanetMultiplicativeMask, try_compute_multiplicative_masks_from_geometry,
+    EpochId, JanetDivisionEpoch, JanetDivisionGeometry, JanetMultiplicativeMask,
+    geometry_authority, try_build_completion_geometry,
+    try_compute_multiplicative_masks_from_geometry,
 };
 use super::super::limits::InvolutiveWorkBudget;
+use super::super::selection::try_select_janet_reduction;
 use super::super::*;
 use super::support::*;
+
+#[derive(Clone)]
+struct DetachedJanetMonomial {
+    ordinal: usize,
+    leading_shift: ForwardShift,
+    multiplicative: JanetMultiplicativeMask,
+}
+
+struct DetachedJanetGeometry {
+    epoch: EpochId,
+    action: OreActionIdentity,
+    arity: usize,
+    monomials: Box<[DetachedJanetMonomial]>,
+    divisor_index: JanetDivisorIndex,
+}
+
+impl DetachedJanetGeometry {
+    fn try_from_exact(
+        division: &JanetDivisionEpoch,
+        limits: InvolutiveLimits,
+        work: &mut InvolutiveWorkBudget,
+    ) -> Result<Self, InvolutiveError> {
+        let epoch = division.geometry_epoch().clone();
+        let action = division.geometry_action().clone();
+        let arity = division.geometry_arity();
+        let mut monomials = Vec::new();
+        monomials
+            .try_reserve_exact(division.geometry_element_count())
+            .map_err(|_| InvolutiveError::AllocationFailure {
+                resource: "detached Janet test monomials",
+                requested: division.geometry_element_count(),
+            })?;
+        for ordinal in 0..division.geometry_element_count() {
+            let monomial =
+                division
+                    .geometry_monomial(ordinal)
+                    .ok_or(InvolutiveError::Invariant {
+                        detail: "exact epoch omitted a detached Janet test monomial",
+                    })?;
+            monomials.push(DetachedJanetMonomial {
+                ordinal: monomial.ordinal(),
+                leading_shift: monomial.leading_shift().clone(),
+                multiplicative: monomial.multiplicative().clone(),
+            });
+        }
+        let divisor_index = JanetDivisorIndex::try_new_from_geometry(
+            &epoch,
+            arity,
+            monomials.len(),
+            monomials.iter().map(|monomial| {
+                JanetMonomialView::new(
+                    monomial.ordinal,
+                    &monomial.leading_shift,
+                    &monomial.multiplicative,
+                )
+            }),
+            limits,
+            work,
+        )?;
+        Ok(Self {
+            epoch,
+            action,
+            arity,
+            monomials: monomials.into_boxed_slice(),
+            divisor_index,
+        })
+    }
+}
+
+impl geometry_authority::Sealed for DetachedJanetGeometry {}
+
+impl JanetDivisionGeometry for DetachedJanetGeometry {
+    fn geometry_epoch(&self) -> &EpochId {
+        &self.epoch
+    }
+
+    fn geometry_action(&self) -> &OreActionIdentity {
+        &self.action
+    }
+
+    fn geometry_arity(&self) -> usize {
+        self.arity
+    }
+
+    fn geometry_element_count(&self) -> usize {
+        self.monomials.len()
+    }
+
+    fn geometry_monomial(&self, ordinal: usize) -> Option<JanetMonomialView<'_>> {
+        self.monomials.get(ordinal).map(|monomial| {
+            JanetMonomialView::new(
+                monomial.ordinal,
+                &monomial.leading_shift,
+                &monomial.multiplicative,
+            )
+        })
+    }
+
+    fn geometry_divisor_index(&self) -> &JanetDivisorIndex {
+        &self.divisor_index
+    }
+}
 
 fn complete_ordinary(generator: &ParametricIbpGenerator<'_>) -> CompletedIbpSourceRows {
     let prepared = generator.prepare_ordinary_ibp().unwrap();
@@ -146,6 +251,48 @@ fn assert_geometry_path_matches_exact_epoch(
         basis.divisor_index_retained_bytes()
     );
 
+    let mut detached_build_work = InvolutiveWorkBudget::default();
+    let detached =
+        DetachedJanetGeometry::try_from_exact(division, limits, &mut detached_build_work).unwrap();
+    assert_eq!(detached.divisor_index, exact_geometry_index);
+    assert_eq!(detached_build_work.census(), exact_geometry_work.census());
+
+    let detached_completion = try_build_completion_geometry(
+        &detached,
+        ordering,
+        limits,
+        CompletionGeometryLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(detached_completion.epoch(), basis.epoch());
+    assert!(detached_completion.action().belongs_to(ordering.identity()));
+    assert_eq!(detached_completion.arity(), basis.arity());
+    assert_eq!(detached_completion.prolongations(), basis.prolongations());
+    assert_eq!(detached_completion.leading_ideal(), basis.leading_ideal());
+    assert_eq!(
+        detached_completion.uncovered_partition(),
+        basis.uncovered_partition()
+    );
+    assert_eq!(
+        detached_completion.pure_power_coverage(),
+        basis.pure_power_coverage()
+    );
+    let blind =
+        BlindDomainSchedule::try_from_partition(basis.uncovered_partition(), ordering, limits)
+            .unwrap();
+    let exact_priority = blind
+        .try_rank_prolongation_ordinals(division, basis.prolongations(), ordering, limits)
+        .unwrap();
+    let detached_priority = blind
+        .try_rank_prolongation_ordinals(
+            &detached,
+            detached_completion.prolongations(),
+            ordering,
+            limits,
+        )
+        .unwrap();
+    assert_eq!(detached_priority, exact_priority);
+
     let mut epoch_scratch = basis.try_divisor_scratch(limits).unwrap();
     let mut exact_geometry_scratch = exact_geometry_index.try_scratch(limits).unwrap();
     let mut independent_geometry_scratch = independent_geometry_index.try_scratch(limits).unwrap();
@@ -202,6 +349,40 @@ fn assert_geometry_path_matches_exact_epoch(
         exact_geometry_query_work.census(),
         independent_geometry_query_work.census()
     );
+
+    for excluded in std::iter::once(None).chain((0..elements.len()).map(Some)) {
+        let mut epoch_scratch = basis.try_divisor_scratch(limits).unwrap();
+        let mut detached_scratch = detached.try_geometry_divisor_scratch(limits).unwrap();
+        let mut epoch_visits = 0;
+        let mut detached_visits = 0;
+        let mut epoch_work = InvolutiveWorkBudget::default();
+        let mut detached_work = InvolutiveWorkBudget::default();
+        let exact = try_select_janet_reduction(
+            division,
+            targets.iter(),
+            excluded,
+            ordering,
+            limits,
+            &mut epoch_visits,
+            &mut epoch_scratch,
+            &mut epoch_work,
+        )
+        .unwrap();
+        let coefficient_free = try_select_janet_reduction(
+            &detached,
+            targets.iter(),
+            excluded,
+            ordering,
+            limits,
+            &mut detached_visits,
+            &mut detached_scratch,
+            &mut detached_work,
+        )
+        .unwrap();
+        assert_eq!(coefficient_free, exact);
+        assert_eq!(detached_visits, epoch_visits);
+        assert_eq!(detached_work.census(), epoch_work.census());
+    }
 }
 
 #[test]
@@ -255,6 +436,20 @@ fn coefficient_free_geometry_matches_generated_k3_sunset_epoch() {
         CompletionGeometryLimits::default(),
     )
     .unwrap();
+
+    // Stable generated K=3 completion-geometry census. This pins the exact
+    // ELC0 queue/complement trajectory while the coefficient owner changes.
+    assert_eq!(
+        (
+            basis.elements().len(),
+            basis.epoch().revision(),
+            basis.prolongations().len(),
+            basis.uncovered_partition().boxes().len(),
+            basis.uncovered_partition().is_finite(),
+            basis.pure_power_coverage().is_complete(),
+        ),
+        (4, 0, 5, 3, false, false),
+    );
 
     let mut targets = basis
         .elements()

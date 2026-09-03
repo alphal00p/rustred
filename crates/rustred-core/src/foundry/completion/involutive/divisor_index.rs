@@ -33,15 +33,15 @@ impl<'a> JanetMonomialView<'a> {
         }
     }
 
-    const fn ordinal(self) -> usize {
+    pub(super) const fn ordinal(self) -> usize {
         self.ordinal
     }
 
-    const fn leading_shift(self) -> &'a ForwardShift {
+    pub(super) const fn leading_shift(self) -> &'a ForwardShift {
         self.leading_shift
     }
 
-    const fn multiplicative(self) -> &'a JanetMultiplicativeMask {
+    pub(super) const fn multiplicative(self) -> &'a JanetMultiplicativeMask {
         self.multiplicative
     }
 }
@@ -282,36 +282,12 @@ impl JanetDivisorIndex {
         limits: InvolutiveLimits,
         work: &mut InvolutiveWorkBudget,
     ) -> Result<Option<usize>, InvolutiveError> {
-        if &self.epoch != current_epoch {
-            return Err(InvolutiveError::StaleEpoch {
-                expected: current_epoch.clone(),
-                actual: self.epoch.clone(),
-            });
-        }
-        if scratch.epoch != self.epoch {
-            return Err(InvolutiveError::StaleEpoch {
-                expected: self.epoch.clone(),
-                actual: scratch.epoch.clone(),
-            });
-        }
+        self.require_query_environment(current_epoch, excluded_ordinal, scratch)?;
         if target.arity() != self.arity {
             return Err(InvolutiveError::WrongArity {
                 object: "Janet divisibility target",
                 expected: self.arity,
                 actual: target.arity(),
-            });
-        }
-        if excluded_ordinal.is_some_and(|ordinal| ordinal >= self.element_count) {
-            return Err(InvolutiveError::InvalidProlongation {
-                detail: "excluded Janet divisor is outside the current epoch",
-            });
-        }
-        if scratch.candidates.len() != self.word_count
-            || scratch.multiplicative_postings.len() != self.arity
-            || scratch.nonmultiplicative_postings.len() != self.arity
-        {
-            return Err(InvolutiveError::Invariant {
-                detail: "Janet divisor query scratch has a malformed sealed shape",
             });
         }
 
@@ -401,12 +377,82 @@ impl JanetDivisorIndex {
         }
         Ok(None)
     }
+
+    /// Validate query-owned state independently of a target monomial.
+    ///
+    /// The shared selector calls this before walking support so an empty row
+    /// cannot bypass epoch, exclusion, or sealed-scratch checks. Direct index
+    /// queries retain the same checks through [`Self::try_first_divisor`].
+    pub(super) fn require_query_environment(
+        &self,
+        current_epoch: &EpochId,
+        excluded_ordinal: Option<usize>,
+        scratch: &JanetDivisorScratch,
+    ) -> Result<(), InvolutiveError> {
+        if &self.epoch != current_epoch {
+            return Err(InvolutiveError::StaleEpoch {
+                expected: current_epoch.clone(),
+                actual: self.epoch.clone(),
+            });
+        }
+        if scratch.epoch != self.epoch {
+            return Err(InvolutiveError::StaleEpoch {
+                expected: self.epoch.clone(),
+                actual: scratch.epoch.clone(),
+            });
+        }
+        if excluded_ordinal.is_some_and(|ordinal| ordinal >= self.element_count) {
+            return Err(InvolutiveError::InvalidProlongation {
+                detail: "excluded Janet divisor is outside the current epoch",
+            });
+        }
+        if scratch.candidates.len() != self.word_count
+            || scratch.multiplicative_postings.len() != self.arity
+            || scratch.nonmultiplicative_postings.len() != self.arity
+        {
+            return Err(InvolutiveError::Invariant {
+                detail: "Janet divisor query scratch has a malformed sealed shape",
+            });
+        }
+        Ok(())
+    }
+
+    /// Bind this index to the complete coefficient-free geometry that owns it.
+    ///
+    /// The epoch comparison carries both the opaque lineage owner and the
+    /// immutable snapshot generation.  Shape checks keep a future sibling
+    /// epoch from pairing an otherwise valid index with a different monomial
+    /// table before any support-dependent work is attempted.
+    pub(super) fn require_geometry_binding(
+        &self,
+        current_epoch: &EpochId,
+        arity: usize,
+        element_count: usize,
+    ) -> Result<(), InvolutiveError> {
+        if &self.epoch != current_epoch {
+            return Err(InvolutiveError::StaleEpoch {
+                expected: current_epoch.clone(),
+                actual: self.epoch.clone(),
+            });
+        }
+        if self.arity != arity || self.element_count != element_count {
+            return Err(InvolutiveError::Invariant {
+                detail: "Janet divisor index and coefficient-free geometry disagree on shape",
+            });
+        }
+        Ok(())
+    }
 }
 
 impl JanetDivisorScratch {
     #[cfg(test)]
     pub(super) fn retained_bytes(&self) -> usize {
         self.retained_bytes
+    }
+
+    #[cfg(test)]
+    pub(super) fn corrupt_sealed_shape_for_test(&mut self) {
+        self.candidates.pop();
     }
 }
 

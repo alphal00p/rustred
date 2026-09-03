@@ -139,7 +139,12 @@ fn aggregate_mask_queue_and_blind_priority_caps_reject_before_retention() {
         ..defaults
     };
     assert_eq!(
-        schedule.try_rank_prolongation_ordinals(&candidates, &ordering, candidate_cap,),
+        schedule.try_rank_prolongation_ordinals(
+            candidates.division(),
+            candidates.prolongations(),
+            &ordering,
+            candidate_cap,
+        ),
         Err(InvolutiveError::ResourceLimit {
             resource: "blind-domain priority candidates",
             requested: 2,
@@ -151,7 +156,12 @@ fn aggregate_mask_queue_and_blind_priority_caps_reject_before_retention() {
         ..defaults
     };
     assert_eq!(
-        schedule.try_rank_prolongation_ordinals(&candidates, &ordering, intersection_cap,),
+        schedule.try_rank_prolongation_ordinals(
+            candidates.division(),
+            candidates.prolongations(),
+            &ordering,
+            intersection_cap,
+        ),
         Err(InvolutiveError::ResourceLimit {
             resource: "blind-domain priority intersection cells",
             requested: 8,
@@ -163,7 +173,12 @@ fn aggregate_mask_queue_and_blind_priority_caps_reject_before_retention() {
         ..defaults
     };
     assert_eq!(
-        schedule.try_rank_prolongation_ordinals(&candidates, &ordering, priority_sort_cap,),
+        schedule.try_rank_prolongation_ordinals(
+            candidates.division(),
+            candidates.prolongations(),
+            &ordering,
+            priority_sort_cap,
+        ),
         Err(InvolutiveError::ResourceLimit {
             resource: "blind-domain priority sort coordinate comparisons",
             requested: 4,
@@ -175,7 +190,12 @@ fn aggregate_mask_queue_and_blind_priority_caps_reject_before_retention() {
         ..defaults
     };
     let retained_bytes = match schedule
-        .try_rank_prolongation_ordinals(&candidates, &ordering, retained_probe)
+        .try_rank_prolongation_ordinals(
+            candidates.division(),
+            candidates.prolongations(),
+            &ordering,
+            retained_probe,
+        )
         .unwrap_err()
     {
         InvolutiveError::ResourceLimit {
@@ -190,7 +210,12 @@ fn aggregate_mask_queue_and_blind_priority_caps_reject_before_retention() {
         ..defaults
     };
     assert_eq!(
-        schedule.try_rank_prolongation_ordinals(&candidates, &ordering, retained_cap,),
+        schedule.try_rank_prolongation_ordinals(
+            candidates.division(),
+            candidates.prolongations(),
+            &ordering,
+            retained_cap,
+        ),
         Err(InvolutiveError::ResourceLimit {
             resource: "blind-domain priority retained bytes",
             requested: retained_bytes,

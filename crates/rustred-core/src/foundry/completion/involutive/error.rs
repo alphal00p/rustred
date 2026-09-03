@@ -64,6 +64,13 @@ pub(crate) enum InvolutiveError {
         resource: &'static str,
         requested: usize,
     },
+    NativePolynomialPanic {
+        operation: &'static str,
+    },
+    NonExactPolynomialDivision {
+        operation: &'static str,
+    },
+    LocalizationDomainMismatch,
     Algebra(IndexedAlgebraError),
     Ordering(sector::Error),
     Geometry(CompletionGeometryError),
@@ -131,13 +138,22 @@ impl fmt::Display for InvolutiveError {
             }
             Self::ForeignOreAction => formatter
                 .write_str("Ore data belongs to a different sector action or ranking instance"),
+            Self::StaleEpoch { expected, actual }
+                if expected.same_instance(actual) && expected.revision() == actual.revision() =>
+            {
+                write!(
+                    formatter,
+                    "Janet object belongs to a sibling immutable snapshot at revision {}",
+                    actual.revision(),
+                )
+            }
             Self::StaleEpoch { expected, actual } => write!(
                 formatter,
-                "prolongation belongs to {} Janet basis revision {}, current revision is {}",
+                "Janet object belongs to {} basis revision {}, current revision is {}",
                 if expected.same_instance(actual) {
-                    "the same"
+                    "the same Janet"
                 } else {
-                    "a foreign"
+                    "a foreign Janet"
                 },
                 actual.revision(),
                 expected.revision(),
@@ -169,6 +185,15 @@ impl fmt::Display for InvolutiveError {
             } => write!(
                 formatter,
                 "could not reserve {requested} entries for {resource}"
+            ),
+            Self::NativePolynomialPanic { operation } => {
+                write!(formatter, "Symbolica panicked while {operation}")
+            }
+            Self::NonExactPolynomialDivision { operation } => {
+                write!(formatter, "{operation} was not an exact polynomial division")
+            }
+            Self::LocalizationDomainMismatch => formatter.write_str(
+                "the authenticated lazy localization does not imply every replay-required nonzero condition",
             ),
             Self::Algebra(error) => error.fmt(formatter),
             Self::Ordering(error) => error.fmt(formatter),
