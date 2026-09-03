@@ -4,6 +4,7 @@ use crate::algebra::{IndexedCoefficientContext, IndexedPolynomial};
 use crate::sector::ShiftComplexityKey;
 
 use super::error::{check_limit, checked_add, checked_mul, try_push_bounded};
+use super::janet::JanetDivisionEpoch;
 use super::limits::InvolutiveWorkBudget;
 use super::{
     ForwardShift, InvolutiveError, InvolutiveLimits, JanetBasisElement, JanetBasisEpoch,
@@ -124,6 +125,26 @@ pub(super) fn try_janet_normal_form_excluding(
     limits: InvolutiveLimits,
     work: &mut InvolutiveWorkBudget,
 ) -> Result<JanetNormalForm, InvolutiveError> {
+    try_janet_normal_form_on_division_excluding(
+        subject,
+        basis.division(),
+        excluded_divisor,
+        ordering,
+        context,
+        limits,
+        work,
+    )
+}
+
+fn try_janet_normal_form_on_division_excluding(
+    subject: OreConsequence,
+    basis: &JanetDivisionEpoch,
+    excluded_divisor: Option<usize>,
+    ordering: &OreOrderingAdapter,
+    context: &IndexedCoefficientContext,
+    limits: InvolutiveLimits,
+    work: &mut InvolutiveWorkBudget,
+) -> Result<JanetNormalForm, InvolutiveError> {
     validate_normal_form_request(&subject, basis, excluded_divisor, ordering, context, limits)?;
     let divisor_scratch = basis.try_divisor_scratch(limits)?;
     try_reduce_owned_normal_form(
@@ -146,9 +167,9 @@ pub(super) fn try_janet_normal_form_excluding(
 /// The first selection, its historical logical divisor visits, and the index
 /// scratch state are passed directly into the ordinary reduction loop. They
 /// are therefore neither queried nor charged a second time.
-pub(super) fn try_janet_autoreduction_normal_form_excluding(
+pub(super) fn try_janet_autoreduction_normal_form_on_division_excluding(
     subject: &Arc<OreConsequence>,
-    basis: &JanetBasisEpoch,
+    basis: &JanetDivisionEpoch,
     excluded_divisor: usize,
     ordering: &OreOrderingAdapter,
     context: &IndexedCoefficientContext,
@@ -200,9 +221,30 @@ pub(super) fn try_janet_autoreduction_normal_form_excluding(
     Ok(JanetAutoreductionNormalForm::Materialized(normal_form))
 }
 
+#[cfg(test)]
+pub(super) fn try_janet_autoreduction_normal_form_excluding(
+    subject: &Arc<OreConsequence>,
+    basis: &JanetBasisEpoch,
+    excluded_divisor: usize,
+    ordering: &OreOrderingAdapter,
+    context: &IndexedCoefficientContext,
+    limits: InvolutiveLimits,
+    work: &mut InvolutiveWorkBudget,
+) -> Result<JanetAutoreductionNormalForm, InvolutiveError> {
+    try_janet_autoreduction_normal_form_on_division_excluding(
+        subject,
+        basis.division(),
+        excluded_divisor,
+        ordering,
+        context,
+        limits,
+        work,
+    )
+}
+
 fn validate_normal_form_request(
     subject: &OreConsequence,
-    basis: &JanetBasisEpoch,
+    basis: &JanetDivisionEpoch,
     excluded_divisor: Option<usize>,
     ordering: &OreOrderingAdapter,
     context: &IndexedCoefficientContext,
@@ -221,7 +263,7 @@ fn validate_normal_form_request(
 #[allow(clippy::too_many_arguments)]
 fn try_reduce_owned_normal_form<'basis>(
     mut subject: OreConsequence,
-    basis: &'basis JanetBasisEpoch,
+    basis: &'basis JanetDivisionEpoch,
     excluded_divisor: Option<usize>,
     ordering: &OreOrderingAdapter,
     context: &IndexedCoefficientContext,
@@ -342,7 +384,7 @@ struct SelectedReduction<'a> {
 
 fn try_select_reduction<'a>(
     subject: &OreConsequence,
-    basis: &'a JanetBasisEpoch,
+    basis: &'a JanetDivisionEpoch,
     excluded_divisor: Option<usize>,
     ordering: &OreOrderingAdapter,
     limits: InvolutiveLimits,

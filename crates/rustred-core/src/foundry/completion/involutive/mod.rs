@@ -15,6 +15,7 @@ mod error;
 mod initial;
 mod janet;
 mod limits;
+mod modular;
 mod normal_form;
 mod ordering;
 mod ore;

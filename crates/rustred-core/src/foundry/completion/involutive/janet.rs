@@ -212,15 +212,29 @@ impl PurePowerCoverage {
     }
 }
 
-/// Immutable basis, exact leading complement, and mandatory Janet queue.
+/// Immutable Janet division data needed by exact normal forms.
+///
+/// This deliberately excludes completion-only geometry and obligations. A
+/// changed synchronous autoreduction pass can therefore construct its next
+/// divisor epoch without paying for data that cannot be observed before the
+/// autoreduction fixed point.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct JanetBasisEpoch {
+pub(super) struct JanetDivisionEpoch {
     epoch: EpochId,
-    predecessor: Option<EpochId>,
+    /// Last complete epoch observable through [`JanetBasisEpoch`]. Hidden
+    /// division-only revisions preserve this ancestor until they are sealed.
+    sealed_predecessor: Option<EpochId>,
     action: OreActionIdentity,
     arity: usize,
     elements: Box<[JanetBasisElement]>,
     divisor_index: JanetDivisorIndex,
+}
+
+/// Immutable complete basis view, exact leading complement, and mandatory
+/// Janet queue.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct JanetBasisEpoch {
+    division: JanetDivisionEpoch,
     prolongations: Box<[JanetProlongation]>,
     leading_ideal: LeadingIdeal,
     uncovered: UncoveredPartition,
@@ -330,70 +344,45 @@ impl JanetBasisEpoch {
         geometry_limits: CompletionGeometryLimits,
         work: &mut InvolutiveWorkBudget,
     ) -> Result<Self, InvolutiveError> {
-        ordering.require_action(&self.action)?;
-        ordering.require_arity("Janet predecessor", self.arity)?;
-        let next_epoch = self.epoch.try_successor(limits)?;
-        check_limit(
-            "Janet basis rows",
-            self.elements.len(),
-            limits.max_basis_rows,
-        )?;
-        let remaining = limits.max_basis_rows - self.elements.len();
-        let mut pending = Vec::new();
-        for consequence in additions {
-            consequence.try_validate(ordering, context, limits)?;
-            try_push_bounded(
-                &mut pending,
-                consequence,
-                "successor Janet additions",
-                remaining,
-            )?;
-        }
-        let total = checked_add("Janet basis rows", self.elements.len(), pending.len())?;
-        preflight_basis_shape(total, self.arity, limits)?;
-        preflight_basis_coefficient_payload(
-            self.elements
-                .iter()
-                .map(JanetBasisElement::consequence)
-                .chain(pending.iter()),
-            limits,
-        )?;
+        self.try_division_successor_with_budget(additions, ordering, context, limits, work)?
+            .try_seal(ordering, limits, geometry_limits)
+    }
 
-        // No predecessor Arc is cloned until the complete successor shape and
-        // every new consequence have passed their resource/action checks.
-        let mut retained = try_vec("successor Janet basis rows", total)?;
-        retained.extend(
-            self.elements
-                .iter()
-                .map(|element| Arc::clone(&element.consequence)),
-        );
-        retained.extend(pending.into_iter().map(Arc::new));
-        build_epoch(
-            next_epoch,
-            Some(self.epoch.clone()),
-            retained,
-            ordering,
-            context,
-            limits,
-            geometry_limits,
-            work,
-        )
+    /// Construct only the division layer of an addition successor.
+    ///
+    /// Completion invokes this immediately before synchronous autoreduction;
+    /// its queue and complement are intentionally deferred until that
+    /// autoreduction reaches a fixed point.
+    pub(super) fn try_division_successor_with_budget(
+        &self,
+        additions: impl IntoIterator<Item = OreConsequence>,
+        ordering: &OreOrderingAdapter,
+        context: &IndexedCoefficientContext,
+        limits: InvolutiveLimits,
+        work: &mut InvolutiveWorkBudget,
+    ) -> Result<JanetDivisionEpoch, InvolutiveError> {
+        self.division
+            .try_addition_successor_after_sealed(additions, ordering, context, limits, work)
     }
 
     pub(crate) fn epoch(&self) -> &EpochId {
-        &self.epoch
+        self.division.epoch()
     }
 
+    /// Last complete basis epoch in the observable lineage.
+    ///
+    /// Its revision need not be adjacent: synchronous autoreduction may have
+    /// traversed division-only revisions before this epoch was sealed.
     pub(crate) fn predecessor(&self) -> Option<&EpochId> {
-        self.predecessor.as_ref()
+        self.division.predecessor()
     }
 
     pub(crate) fn arity(&self) -> usize {
-        self.arity
+        self.division.arity()
     }
 
     pub(crate) fn elements(&self) -> &[JanetBasisElement] {
-        &self.elements
+        self.division.elements()
     }
 
     pub(crate) fn prolongations(&self) -> &[JanetProlongation] {
@@ -423,7 +412,7 @@ impl JanetBasisEpoch {
         &self,
         ordering: &OreOrderingAdapter,
     ) -> Result<(), InvolutiveError> {
-        ordering.require_action(&self.action)
+        self.division.require_ordering(ordering)
     }
 
     pub(crate) fn try_janet_divisor(
@@ -432,8 +421,174 @@ impl JanetBasisEpoch {
     ) -> Result<Option<usize>, InvolutiveError> {
         let limits = InvolutiveLimits::default();
         let mut work = InvolutiveWorkBudget::default();
-        let mut scratch = self.divisor_index.try_scratch(limits)?;
-        self.try_janet_divisor_with_scratch(target, None, &mut scratch, limits, &mut work)
+        let mut scratch = self.division.try_divisor_scratch(limits)?;
+        self.division
+            .try_janet_divisor_with_scratch(target, None, &mut scratch, limits, &mut work)
+    }
+
+    pub(super) fn try_divisor_scratch(
+        &self,
+        limits: InvolutiveLimits,
+    ) -> Result<JanetDivisorScratch, InvolutiveError> {
+        self.division.try_divisor_scratch(limits)
+    }
+
+    pub(super) fn try_janet_divisor_with_scratch(
+        &self,
+        target: &ForwardShift,
+        excluded_ordinal: Option<usize>,
+        scratch: &mut JanetDivisorScratch,
+        limits: InvolutiveLimits,
+        work: &mut InvolutiveWorkBudget,
+    ) -> Result<Option<usize>, InvolutiveError> {
+        self.division.try_janet_divisor_with_scratch(
+            target,
+            excluded_ordinal,
+            scratch,
+            limits,
+            work,
+        )
+    }
+
+    pub(crate) fn divisor_index_retained_bytes(&self) -> usize {
+        self.division.divisor_index_retained_bytes()
+    }
+
+    pub(crate) fn require_current(
+        &self,
+        prolongation: &JanetProlongation,
+    ) -> Result<(), InvolutiveError> {
+        if &prolongation.epoch == self.epoch() {
+            Ok(())
+        } else {
+            Err(InvolutiveError::StaleEpoch {
+                expected: self.epoch().clone(),
+                actual: prolongation.epoch.clone(),
+            })
+        }
+    }
+
+    pub(crate) fn try_apply_prolongation(
+        &self,
+        prolongation: &JanetProlongation,
+        ordering: &OreOrderingAdapter,
+        context: &IndexedCoefficientContext,
+        limits: InvolutiveLimits,
+    ) -> Result<OreConsequence, InvolutiveError> {
+        let mut work = InvolutiveWorkBudget::default();
+        self.try_apply_prolongation_with_budget(prolongation, ordering, context, limits, &mut work)
+    }
+
+    pub(super) fn try_apply_prolongation_with_budget(
+        &self,
+        prolongation: &JanetProlongation,
+        ordering: &OreOrderingAdapter,
+        context: &IndexedCoefficientContext,
+        limits: InvolutiveLimits,
+        work: &mut InvolutiveWorkBudget,
+    ) -> Result<OreConsequence, InvolutiveError> {
+        self.require_ordering(ordering)?;
+        self.require_current(prolongation)?;
+        let element = self.elements().get(prolongation.basis_ordinal).ok_or(
+            InvolutiveError::InvalidProlongation {
+                detail: "basis ordinal is outside the current epoch",
+            },
+        )?;
+        if element
+            .multiplicative
+            .is_multiplicative(prolongation.variable)?
+        {
+            return Err(InvolutiveError::InvalidProlongation {
+                detail: "requested variable is multiplicative in the current epoch",
+            });
+        }
+        let unit = ForwardShift::try_unit(self.arity(), prolongation.variable, limits)?;
+        let expected = element.leading_shift.try_checked_add(&unit, limits)?;
+        if expected != prolongation.target_leading_shift {
+            return Err(InvolutiveError::InvalidProlongation {
+                detail: "target leading shift does not match its basis row and variable",
+            });
+        }
+        OreConsequence::try_zero(ordering, context, limits)?.try_left_axpy_with_budget(
+            &context.one(),
+            &unit,
+            element.consequence(),
+            ordering,
+            context,
+            limits,
+            work,
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) fn try_replacement_successor(
+        &self,
+        replacements: Vec<Arc<OreConsequence>>,
+        ordering: &OreOrderingAdapter,
+        context: &IndexedCoefficientContext,
+        limits: InvolutiveLimits,
+        geometry_limits: CompletionGeometryLimits,
+        work: &mut InvolutiveWorkBudget,
+    ) -> Result<Self, InvolutiveError> {
+        self.try_replacement_division_successor(replacements, ordering, context, limits, work)?
+            .try_seal(ordering, limits, geometry_limits)
+    }
+
+    pub(super) fn try_replacement_division_successor(
+        &self,
+        replacements: Vec<Arc<OreConsequence>>,
+        ordering: &OreOrderingAdapter,
+        context: &IndexedCoefficientContext,
+        limits: InvolutiveLimits,
+        work: &mut InvolutiveWorkBudget,
+    ) -> Result<JanetDivisionEpoch, InvolutiveError> {
+        self.division.require_ordering(ordering)?;
+        let next_epoch = self.epoch().try_successor(limits)?;
+        preflight_replacement_rows(
+            replacements.as_slice(),
+            self.arity(),
+            ordering,
+            context,
+            limits,
+        )?;
+        build_division_epoch(
+            next_epoch,
+            Some(self.epoch().clone()),
+            replacements,
+            ordering,
+            context,
+            limits,
+            work,
+        )
+    }
+
+    pub(super) fn division(&self) -> &JanetDivisionEpoch {
+        &self.division
+    }
+}
+
+impl JanetDivisionEpoch {
+    pub(super) fn epoch(&self) -> &EpochId {
+        &self.epoch
+    }
+
+    fn predecessor(&self) -> Option<&EpochId> {
+        self.sealed_predecessor.as_ref()
+    }
+
+    pub(super) fn arity(&self) -> usize {
+        self.arity
+    }
+
+    pub(super) fn elements(&self) -> &[JanetBasisElement] {
+        &self.elements
+    }
+
+    pub(super) fn require_ordering(
+        &self,
+        ordering: &OreOrderingAdapter,
+    ) -> Result<(), InvolutiveError> {
+        ordering.require_action(&self.action)
     }
 
     pub(super) fn try_divisor_scratch(
@@ -480,69 +635,60 @@ impl JanetBasisEpoch {
         Ok(Some(ordinal))
     }
 
-    pub(crate) fn divisor_index_retained_bytes(&self) -> usize {
+    fn divisor_index_retained_bytes(&self) -> usize {
         self.divisor_index.retained_bytes()
     }
 
-    pub(crate) fn require_current(
+    fn try_addition_successor_after_sealed(
         &self,
-        prolongation: &JanetProlongation,
-    ) -> Result<(), InvolutiveError> {
-        if prolongation.epoch == self.epoch {
-            Ok(())
-        } else {
-            Err(InvolutiveError::StaleEpoch {
-                expected: self.epoch.clone(),
-                actual: prolongation.epoch.clone(),
-            })
-        }
-    }
-
-    pub(crate) fn try_apply_prolongation(
-        &self,
-        prolongation: &JanetProlongation,
-        ordering: &OreOrderingAdapter,
-        context: &IndexedCoefficientContext,
-        limits: InvolutiveLimits,
-    ) -> Result<OreConsequence, InvolutiveError> {
-        let mut work = InvolutiveWorkBudget::default();
-        self.try_apply_prolongation_with_budget(prolongation, ordering, context, limits, &mut work)
-    }
-
-    pub(super) fn try_apply_prolongation_with_budget(
-        &self,
-        prolongation: &JanetProlongation,
+        additions: impl IntoIterator<Item = OreConsequence>,
         ordering: &OreOrderingAdapter,
         context: &IndexedCoefficientContext,
         limits: InvolutiveLimits,
         work: &mut InvolutiveWorkBudget,
-    ) -> Result<OreConsequence, InvolutiveError> {
-        ordering.require_action(&self.action)?;
-        self.require_current(prolongation)?;
-        let element = self.elements.get(prolongation.basis_ordinal).ok_or(
-            InvolutiveError::InvalidProlongation {
-                detail: "basis ordinal is outside the current epoch",
-            },
+    ) -> Result<Self, InvolutiveError> {
+        self.require_ordering(ordering)?;
+        ordering.require_arity("Janet predecessor", self.arity)?;
+        let next_epoch = self.epoch.try_successor(limits)?;
+        check_limit(
+            "Janet basis rows",
+            self.elements.len(),
+            limits.max_basis_rows,
         )?;
-        if element
-            .multiplicative
-            .is_multiplicative(prolongation.variable)?
-        {
-            return Err(InvolutiveError::InvalidProlongation {
-                detail: "requested variable is multiplicative in the current epoch",
-            });
+        let remaining = limits.max_basis_rows - self.elements.len();
+        let mut pending = Vec::new();
+        for consequence in additions {
+            consequence.try_validate(ordering, context, limits)?;
+            try_push_bounded(
+                &mut pending,
+                consequence,
+                "successor Janet additions",
+                remaining,
+            )?;
         }
-        let unit = ForwardShift::try_unit(self.arity, prolongation.variable, limits)?;
-        let expected = element.leading_shift.try_checked_add(&unit, limits)?;
-        if expected != prolongation.target_leading_shift {
-            return Err(InvolutiveError::InvalidProlongation {
-                detail: "target leading shift does not match its basis row and variable",
-            });
-        }
-        OreConsequence::try_zero(ordering, context, limits)?.try_left_axpy_with_budget(
-            &context.one(),
-            &unit,
-            element.consequence(),
+        let total = checked_add("Janet basis rows", self.elements.len(), pending.len())?;
+        preflight_basis_shape(total, self.arity, limits)?;
+        preflight_basis_coefficient_payload(
+            self.elements
+                .iter()
+                .map(JanetBasisElement::consequence)
+                .chain(pending.iter()),
+            limits,
+        )?;
+
+        // No predecessor Arc is cloned until the complete successor shape and
+        // every new consequence have passed their resource/action checks.
+        let mut retained = try_vec("successor Janet basis rows", total)?;
+        retained.extend(
+            self.elements
+                .iter()
+                .map(|element| Arc::clone(&element.consequence)),
+        );
+        retained.extend(pending.into_iter().map(Arc::new));
+        build_division_epoch(
+            next_epoch,
+            Some(self.epoch.clone()),
+            retained,
             ordering,
             context,
             limits,
@@ -556,26 +702,61 @@ impl JanetBasisEpoch {
         ordering: &OreOrderingAdapter,
         context: &IndexedCoefficientContext,
         limits: InvolutiveLimits,
-        geometry_limits: CompletionGeometryLimits,
         work: &mut InvolutiveWorkBudget,
     ) -> Result<Self, InvolutiveError> {
         self.require_ordering(ordering)?;
         let next_epoch = self.epoch.try_successor(limits)?;
-        preflight_basis_shape(replacements.len(), self.arity, limits)?;
-        for consequence in &replacements {
-            consequence.try_validate(ordering, context, limits)?;
-        }
-        preflight_basis_coefficient_payload(replacements.iter().map(Arc::as_ref), limits)?;
-        build_epoch(
+        preflight_replacement_rows(
+            replacements.as_slice(),
+            self.arity,
+            ordering,
+            context,
+            limits,
+        )?;
+        build_division_epoch(
             next_epoch,
-            Some(self.epoch.clone()),
+            self.sealed_predecessor.clone(),
             replacements,
             ordering,
             context,
             limits,
-            geometry_limits,
             work,
         )
+    }
+
+    pub(super) fn try_seal(
+        self,
+        ordering: &OreOrderingAdapter,
+        limits: InvolutiveLimits,
+        geometry_limits: CompletionGeometryLimits,
+    ) -> Result<JanetBasisEpoch, InvolutiveError> {
+        self.require_ordering(ordering)?;
+        // This is the sole retention boundary for completion-only state. Its
+        // queue and geometry limits therefore remain exact without charging
+        // transient division epochs for allocations they never perform.
+        let prolongations =
+            build_prolongation_queue(&self.epoch, &self.elements, ordering, limits)?;
+        let pure_power_coverage = build_pure_power_coverage(self.arity, &self.elements)?;
+        let mut generators = try_vec("Janet leading-ideal generators", self.elements.len())?;
+        for element in &self.elements {
+            generators.push(LatticePoint::try_new(
+                element.leading_shift.values().iter().copied(),
+            )?);
+        }
+        let leading_ideal = LeadingIdeal::try_new(self.arity, generators, geometry_limits)?;
+        let uncovered = leading_ideal.uncovered_partition()?;
+        debug_assert_eq!(
+            pure_power_coverage.is_complete(),
+            uncovered.is_finite(),
+            "pure-power criterion and exact monomial complement disagree",
+        );
+        Ok(JanetBasisEpoch {
+            division: self,
+            prolongations,
+            leading_ideal,
+            uncovered,
+            pure_power_coverage,
+        })
     }
 }
 
@@ -587,7 +768,7 @@ struct RankedConsequence {
 
 fn build_epoch(
     epoch: EpochId,
-    predecessor: Option<EpochId>,
+    sealed_predecessor: Option<EpochId>,
     consequences: Vec<Arc<OreConsequence>>,
     ordering: &OreOrderingAdapter,
     context: &IndexedCoefficientContext,
@@ -595,6 +776,27 @@ fn build_epoch(
     geometry_limits: CompletionGeometryLimits,
     work: &mut InvolutiveWorkBudget,
 ) -> Result<JanetBasisEpoch, InvolutiveError> {
+    build_division_epoch(
+        epoch,
+        sealed_predecessor,
+        consequences,
+        ordering,
+        context,
+        limits,
+        work,
+    )?
+    .try_seal(ordering, limits, geometry_limits)
+}
+
+fn build_division_epoch(
+    epoch: EpochId,
+    sealed_predecessor: Option<EpochId>,
+    consequences: Vec<Arc<OreConsequence>>,
+    ordering: &OreOrderingAdapter,
+    context: &IndexedCoefficientContext,
+    limits: InvolutiveLimits,
+    work: &mut InvolutiveWorkBudget,
+) -> Result<JanetDivisionEpoch, InvolutiveError> {
     let arity = ordering.arity();
     if context.index_count() != arity {
         return Err(InvolutiveError::WrongArity {
@@ -659,32 +861,13 @@ fn build_epoch(
     }
 
     let divisor_index = JanetDivisorIndex::try_new(&epoch, arity, &elements, limits, work)?;
-    let prolongations = build_prolongation_queue(&epoch, &elements, ordering, limits)?;
-    let pure_power_coverage = build_pure_power_coverage(arity, &elements)?;
-    let mut generators = try_vec("Janet leading-ideal generators", elements.len())?;
-    for element in &elements {
-        generators.push(LatticePoint::try_new(
-            element.leading_shift.values().iter().copied(),
-        )?);
-    }
-    let leading_ideal = LeadingIdeal::try_new(arity, generators, geometry_limits)?;
-    let uncovered = leading_ideal.uncovered_partition()?;
-    debug_assert_eq!(
-        pure_power_coverage.is_complete(),
-        uncovered.is_finite(),
-        "pure-power criterion and exact monomial complement disagree",
-    );
-    Ok(JanetBasisEpoch {
+    Ok(JanetDivisionEpoch {
         epoch,
-        predecessor,
+        sealed_predecessor,
         action: ordering.identity().clone(),
         arity,
         elements: elements.into_boxed_slice(),
         divisor_index,
-        prolongations,
-        leading_ideal,
-        uncovered,
-        pure_power_coverage,
     })
 }
 
@@ -697,6 +880,20 @@ pub(super) fn preflight_basis_coefficient_payload<'a>(
         coefficient_census = coefficient_census.try_add(consequence.coefficient_census())?;
     }
     preflight_basis_coefficient_census(coefficient_census, limits)
+}
+
+fn preflight_replacement_rows(
+    replacements: &[Arc<OreConsequence>],
+    arity: usize,
+    ordering: &OreOrderingAdapter,
+    context: &IndexedCoefficientContext,
+    limits: InvolutiveLimits,
+) -> Result<(), InvolutiveError> {
+    preflight_basis_shape(replacements.len(), arity, limits)?;
+    for consequence in replacements {
+        consequence.try_validate(ordering, context, limits)?;
+    }
+    preflight_basis_coefficient_payload(replacements.iter().map(Arc::as_ref), limits)
 }
 
 pub(super) fn preflight_basis_coefficient_census(

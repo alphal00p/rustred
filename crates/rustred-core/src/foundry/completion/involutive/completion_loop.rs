@@ -3,9 +3,10 @@ use crate::algebra::IndexedCoefficientContext;
 use super::super::CompletionGeometryLimits;
 use super::error::checked_add;
 use super::initial::try_preprocess_initial_basis_with_budget;
+use super::janet::JanetDivisionEpoch;
 use super::limits::{InvolutiveWorkBudget, InvolutiveWorkCensus};
 use super::normal_form::{
-    JanetAutoreductionNormalForm, try_janet_autoreduction_normal_form_excluding,
+    JanetAutoreductionNormalForm, try_janet_autoreduction_normal_form_on_division_excluding,
     try_janet_normal_form_with_budget,
 };
 use super::{
@@ -188,11 +189,13 @@ impl JanetCompletionProposal {
 }
 
 /// Deterministically autoreduce every row against the other rows of the same
-/// frozen epoch, rebuilding masks and obligations after every changed pass.
+/// frozen epoch, rebuilding only division metadata after every changed pass.
 ///
 /// Each pass is synchronous: all remainders are computed against one
 /// immutable epoch. That makes results independent of allocation order and
-/// prevents a partially rebuilt basis from influencing later rows.
+/// prevents a partially rebuilt basis from influencing later rows. Completion
+/// obligations and exact complement geometry are sealed only after a stable
+/// pass.
 pub(crate) fn try_autoreduce_epoch(
     epoch: JanetBasisEpoch,
     ordering: &OreOrderingAdapter,
@@ -214,38 +217,127 @@ pub(crate) fn try_autoreduce_epoch(
 }
 
 fn try_autoreduce_epoch_with_budget(
-    mut epoch: JanetBasisEpoch,
+    epoch: JanetBasisEpoch,
     ordering: &OreOrderingAdapter,
     context: &IndexedCoefficientContext,
     limits: InvolutiveLimits,
     geometry_limits: CompletionGeometryLimits,
     work: &mut InvolutiveWorkBudget,
 ) -> Result<JanetAutoreduction, InvolutiveError> {
-    epoch.require_ordering(ordering)?;
+    try_autoreduce_state_with_budget(
+        AutoreductionEpoch::Complete(epoch),
+        ordering,
+        context,
+        limits,
+        geometry_limits,
+        work,
+    )
+}
+
+fn try_autoreduce_division_epoch_with_budget(
+    epoch: JanetDivisionEpoch,
+    ordering: &OreOrderingAdapter,
+    context: &IndexedCoefficientContext,
+    limits: InvolutiveLimits,
+    geometry_limits: CompletionGeometryLimits,
+    work: &mut InvolutiveWorkBudget,
+) -> Result<JanetAutoreduction, InvolutiveError> {
+    try_autoreduce_state_with_budget(
+        AutoreductionEpoch::Division(epoch),
+        ordering,
+        context,
+        limits,
+        geometry_limits,
+        work,
+    )
+}
+
+enum AutoreductionEpoch {
+    Complete(JanetBasisEpoch),
+    Division(JanetDivisionEpoch),
+}
+
+impl AutoreductionEpoch {
+    fn division(&self) -> &JanetDivisionEpoch {
+        match self {
+            Self::Complete(epoch) => epoch.division(),
+            Self::Division(epoch) => epoch,
+        }
+    }
+
+    fn try_into_complete(
+        self,
+        ordering: &OreOrderingAdapter,
+        limits: InvolutiveLimits,
+        geometry_limits: CompletionGeometryLimits,
+    ) -> Result<JanetBasisEpoch, InvolutiveError> {
+        match self {
+            Self::Complete(epoch) => Ok(epoch),
+            Self::Division(epoch) => epoch.try_seal(ordering, limits, geometry_limits),
+        }
+    }
+
+    fn try_replacement_successor(
+        &self,
+        replacements: Vec<std::sync::Arc<OreConsequence>>,
+        ordering: &OreOrderingAdapter,
+        context: &IndexedCoefficientContext,
+        limits: InvolutiveLimits,
+        work: &mut InvolutiveWorkBudget,
+    ) -> Result<JanetDivisionEpoch, InvolutiveError> {
+        match self {
+            Self::Complete(epoch) => epoch.try_replacement_division_successor(
+                replacements,
+                ordering,
+                context,
+                limits,
+                work,
+            ),
+            Self::Division(epoch) => {
+                epoch.try_replacement_successor(replacements, ordering, context, limits, work)
+            }
+        }
+    }
+}
+
+fn try_autoreduce_state_with_budget(
+    mut epoch: AutoreductionEpoch,
+    ordering: &OreOrderingAdapter,
+    context: &IndexedCoefficientContext,
+    limits: InvolutiveLimits,
+    geometry_limits: CompletionGeometryLimits,
+    work: &mut InvolutiveWorkBudget,
+) -> Result<JanetAutoreduction, InvolutiveError> {
+    epoch.division().require_ordering(ordering)?;
     let mut census = JanetAutoreductionCensus::default();
-    let mut localization = epoch_localization_witness(&epoch, limits)?;
+    let mut localization = division_localization_witness(epoch.division(), limits)?;
     loop {
         let requested_passes = checked_add("Janet autoreduction passes", census.passes, 1)?;
         #[cfg(test)]
-        super::diagnostics::record_autoreduction_pass(&epoch, requested_passes, work.census());
+        super::diagnostics::record_autoreduction_division_pass(
+            epoch.division(),
+            requested_passes,
+            work.census(),
+        );
         work.charge_autoreduction_pass(limits)?;
 
+        let division = epoch.division();
         let mut replacements = Vec::new();
         replacements
-            .try_reserve_exact(epoch.elements().len())
+            .try_reserve_exact(division.elements().len())
             .map_err(|_| InvolutiveError::AllocationFailure {
                 resource: "Janet autoreduction output rows",
-                requested: epoch.elements().len(),
+                requested: division.elements().len(),
             })?;
         let mut changed = false;
         let mut pass_steps = 0usize;
         let mut pass_dropped = 0usize;
         let mut pass_shared = 0usize;
         let mut pass_materialized = 0usize;
-        for ordinal in 0..epoch.elements().len() {
-            let original = epoch.elements()[ordinal].consequence_handle();
-            let normal_form = try_janet_autoreduction_normal_form_excluding(
-                original, &epoch, ordinal, ordering, context, limits, work,
+        for ordinal in 0..division.elements().len() {
+            let original = division.elements()[ordinal].consequence_handle();
+            let normal_form = try_janet_autoreduction_normal_form_on_division_excluding(
+                original, division, ordinal, ordering, context, limits, work,
             )?;
             match normal_form {
                 JanetAutoreductionNormalForm::Shared(remainder) => {
@@ -298,6 +390,7 @@ fn try_autoreduce_epoch_with_budget(
             pass_materialized,
         )?;
         if !changed {
+            let epoch = epoch.try_into_complete(ordering, limits, geometry_limits)?;
             return Ok(JanetAutoreduction {
                 epoch,
                 census,
@@ -305,14 +398,13 @@ fn try_autoreduce_epoch_with_budget(
                 work: InvolutiveWorkCensus::default(),
             });
         }
-        epoch = epoch.try_replacement_successor(
+        epoch = AutoreductionEpoch::Division(epoch.try_replacement_successor(
             replacements,
             ordering,
             context,
             limits,
-            geometry_limits,
             work,
-        )?;
+        )?);
     }
 }
 
@@ -466,17 +558,16 @@ fn try_complete_janet_proposal_with_budget(
                 work: work.census(),
             });
         };
-        let successor = epoch.try_successor_with_budget(
+        let successor = epoch.try_division_successor_with_budget(
             [remainder],
             ordering,
             context,
             limits,
-            geometry_limits,
             work,
         )?;
         #[cfg(test)]
-        super::diagnostics::record_completion_autoreduction(&successor, work.census());
-        let autoreduced = try_autoreduce_epoch_with_budget(
+        super::diagnostics::record_completion_division_autoreduction(&successor, work.census());
+        let autoreduced = try_autoreduce_division_epoch_with_budget(
             successor,
             ordering,
             context,
@@ -495,6 +586,13 @@ fn try_complete_janet_proposal_with_budget(
 
 fn epoch_localization_witness(
     epoch: &JanetBasisEpoch,
+    limits: InvolutiveLimits,
+) -> Result<LocalizationWitness, InvolutiveError> {
+    division_localization_witness(epoch.division(), limits)
+}
+
+fn division_localization_witness(
+    epoch: &JanetDivisionEpoch,
     limits: InvolutiveLimits,
 ) -> Result<LocalizationWitness, InvolutiveError> {
     let mut localization = LocalizationWitness::default();

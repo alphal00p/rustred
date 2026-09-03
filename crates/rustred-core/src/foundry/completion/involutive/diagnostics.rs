@@ -6,6 +6,7 @@
 
 use std::cell::RefCell;
 
+use super::janet::JanetDivisionEpoch;
 use super::{InvolutiveWorkCensus, JanetBasisEpoch, JanetInitialReductionCensus};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,13 +82,13 @@ pub(super) fn record_initial_basis(
     });
 }
 
-pub(super) fn record_autoreduction_pass(
-    epoch: &JanetBasisEpoch,
+pub(super) fn record_autoreduction_division_pass(
+    epoch: &JanetDivisionEpoch,
     pass: usize,
     work: InvolutiveWorkCensus,
 ) {
     update(|checkpoint| {
-        checkpoint.current_basis = Some(basis(epoch));
+        checkpoint.current_basis = Some(division_basis(epoch));
         checkpoint.autoreduction_pass = Some(pass);
         checkpoint.work_at_last_checkpoint = work;
     });
@@ -102,10 +103,13 @@ pub(super) fn record_completion_epoch(epoch: &JanetBasisEpoch, work: InvolutiveW
     });
 }
 
-pub(super) fn record_completion_autoreduction(epoch: &JanetBasisEpoch, work: InvolutiveWorkCensus) {
+pub(super) fn record_completion_division_autoreduction(
+    epoch: &JanetDivisionEpoch,
+    work: InvolutiveWorkCensus,
+) {
     update(|checkpoint| {
         checkpoint.phase = JanetDiagnosticPhase::CompletionAutoreduction;
-        checkpoint.current_basis = Some(basis(epoch));
+        checkpoint.current_basis = Some(division_basis(epoch));
         checkpoint.autoreduction_pass = None;
         checkpoint.work_at_last_checkpoint = work;
     });
@@ -116,6 +120,10 @@ pub(super) fn record_work_at_typed_stop(work: InvolutiveWorkCensus) {
 }
 
 fn basis(epoch: &JanetBasisEpoch) -> JanetDiagnosticBasis {
+    division_basis(epoch.division())
+}
+
+fn division_basis(epoch: &JanetDivisionEpoch) -> JanetDiagnosticBasis {
     JanetDiagnosticBasis {
         rows: epoch.elements().len(),
         revision: epoch.epoch().revision(),

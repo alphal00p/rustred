@@ -329,3 +329,56 @@ combined implementation under the same natural order and limits, followed by
 modular-guided or fraction-free replay if exact work remains dominant. Until
 one of those runs actually exhausts the queue and constructs the complement,
 there is no K6 closure claim.
+
+## Indexed copy-on-write and GCD-aware natural-order follow-up — 2026-09-02
+
+A clean detached worktree at RustRed commit `86df172` was compiled in release
+mode, and the resulting library-test executable was copied before any
+concurrent source work could replace it. Its SHA-256 was
+`d866f1785938691a1bce70f62787b7fa8b999b7114537305074c94bbcdc1bc4f`.
+The five-line orbit 4 diagnostic then ran serially under the natural order,
+the `study` profile, and a raised one-billion historical logical-visit cap.
+Compilation is excluded from the measurement.
+
+| Wall (s) | User / system (s) | Max RSS (KiB) | Typed stop | Basis rows / revision | Iterations / NF steps | Historical logical visits | Index build / query operations | Exact operations | Shared / materialized autoreduction rows |
+|---:|---:|---:|---|---|---|---:|---:|---:|---:|
+| 794.26 | 781.84 / 7.11 | 1,770,948 | consequence coefficient exponent cells 57,804,810 / 50,331,648 | 88 / 118 | 4,097 / 44,168 | 220,676,435 | 308,096 / 149,329,259 | 9,990,032 | 5,589 / 286 |
+
+The denominator-GCD fallback therefore admitted the earlier rejected
+17,105,235-term cross-sum projection and advanced the exact trajectory by four
+basis rows and eight revisions. Copy-on-write shared 95.1% of scanned
+autoreduction rows. Nevertheless, wall time increased by a factor of 3.84 and
+peak RSS by 2.24 while exact-operation count increased by only 21.5%, which
+confirms that the admitted coefficient arithmetic is entering a superlinear
+support-growth regime.
+
+The new stop also exposed a diagnostic-envelope error rather than an
+independent exponent pathology. A K6 coefficient uses seven polynomial
+variables—`d` and six indices—and Symbolica stores one dense exponent vector
+per monomial. The request is therefore exactly 8,257,830 polynomial terms,
+still below the intended 8,388,608-term limit. The cell cap had incorrectly
+been set to six rather than seven times that term limit. Consistent K6 study
+caps are 58,720,256 consequence cells, 234,881,024 basis cells, and 29,360,128
+guard cells. Correcting those values is justified for the next diagnostic but
+does not cure the measured coefficient swell. The queue again did not exhaust;
+the complement and residual-ray census were not reached.
+
+The same immutable executable then ran orbit 4 with the autonomously selected
+coordinate priority `5,3,4,2,0,1` and otherwise identical limits. It followed
+a markedly different trajectory:
+
+| Wall (s) | User / system (s) | Max RSS (KiB) | Typed stop | Basis rows / revision | Iterations / NF steps | Historical logical visits | Index build / query operations | Exact operations | Shared / materialized autoreduction rows |
+|---:|---:|---:|---|---|---|---:|---:|---:|---:|
+| 2,489.84 | 2,464.23 / 6.99 | 909,372 | logical divisor visits 1,000,000,067 / 1,000,000,000 | 100 / 141 | 5,232 / 139,945 | 999,999,967 at the last checkpoint | 412,382 / 678,519,600 | 57,112,322 | 7,239 / 494 |
+
+This order avoided the natural trajectory's coefficient-payload stop, reached
+12 more basis rows and 23 more revisions, and used about half its peak memory.
+It also needed 3.13 times the wall time, 5.72 times the exact-operation census,
+and 4.53 times the historical logical divisor work before reaching the raised
+visit cap. The result proves that ordering is a first-class performance input;
+it does not identify a closing order. Raising the visit cap again would make a
+multi-hour exact run plausible without changing the growth mechanism. The
+next scalable comparison therefore needs bounded whole-trace modular
+scheduling and exact replay, not another blind cap escalation. This run also
+did not exhaust the Janet queue, so complement and residual rays remain not
+reached.

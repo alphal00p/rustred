@@ -794,6 +794,9 @@ const K6_BASELINE_DIVISOR_VISITS: usize = 262_144;
 const K6_DIAGNOSTIC_TIER_ENV: &str = "RUSTRED_K6_JANET_DIAGNOSTIC_TIER";
 const K6_DIAGNOSTIC_ORDERING_ENV: &str = "RUSTRED_K6_JANET_RANK_BY_SLOT";
 const K6_AUTONOMOUS_WINNER_RANK_BY_SLOT: [usize; 6] = [5, 3, 4, 2, 0, 1];
+// The unit-mass K6 coefficient map retains d followed by the six indices.
+// Symbolica stores one dense exponent cell per mapped variable and monomial.
+const K6_STUDY_COEFFICIENT_VARIABLES: usize = 1 + 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum K6JanetDiagnosticTier {
@@ -990,6 +993,38 @@ fn k6_release_diagnostic_tiers_are_explicit_and_bounded() {
     assert_eq!(involutive.max_autoreduction_passes, 4_096);
     assert_eq!(involutive.max_exact_coefficient_operations, 1_000_000_000);
     assert_eq!(involutive.max_consequence_coefficient_terms, 8_388_608);
+    assert_eq!(
+        involutive.max_consequence_coefficient_exponent_cells,
+        58_720_256
+    );
+    assert_eq!(
+        involutive.max_consequence_coefficient_exponent_cells,
+        involutive.max_consequence_coefficient_terms * K6_STUDY_COEFFICIENT_VARIABLES
+    );
+    assert_eq!(
+        involutive.max_consequence_coefficient_retained_bytes,
+        1_073_741_824
+    );
+    assert_eq!(involutive.max_localization_guard_terms, 4_194_304);
+    assert_eq!(involutive.max_localization_guard_exponent_cells, 29_360_128);
+    assert_eq!(
+        involutive.max_localization_guard_exponent_cells,
+        involutive.max_localization_guard_terms * K6_STUDY_COEFFICIENT_VARIABLES
+    );
+    assert_eq!(
+        involutive.max_localization_guard_retained_bytes,
+        536_870_912
+    );
+    assert_eq!(involutive.max_basis_coefficient_terms, 33_554_432);
+    assert_eq!(involutive.max_basis_coefficient_exponent_cells, 234_881_024);
+    assert_eq!(
+        involutive.max_basis_coefficient_exponent_cells,
+        involutive.max_basis_coefficient_terms * K6_STUDY_COEFFICIENT_VARIABLES
+    );
+    assert_eq!(
+        involutive.max_basis_coefficient_retained_bytes,
+        2_147_483_648
+    );
     assert_eq!(
         involutive
             .indexed_algebra
@@ -1395,16 +1430,16 @@ fn k6_release_study_profile() -> InvolutiveSeedLimits {
     involutive.max_provenance_terms = 262_144;
     involutive.max_axpy_input_terms = 1_048_576;
     involutive.max_consequence_coefficient_terms = 8_388_608;
-    involutive.max_consequence_coefficient_exponent_cells = 50_331_648;
+    involutive.max_consequence_coefficient_exponent_cells = 58_720_256;
     involutive.max_consequence_coefficient_retained_bytes = 1_073_741_824;
     involutive.max_localization_guards = 65_536;
     involutive.max_localization_guard_terms = 4_194_304;
-    involutive.max_localization_guard_exponent_cells = 25_165_824;
+    involutive.max_localization_guard_exponent_cells = 29_360_128;
     involutive.max_localization_guard_retained_bytes = 536_870_912;
     involutive.max_basis_rows = 4_096;
     involutive.max_basis_coordinate_cells = 24_576;
     involutive.max_basis_coefficient_terms = 33_554_432;
-    involutive.max_basis_coefficient_exponent_cells = 201_326_592;
+    involutive.max_basis_coefficient_exponent_cells = 234_881_024;
     involutive.max_basis_coefficient_retained_bytes = 2_147_483_648;
     // Initial pivot admission conservatively couples its lookup bound to the
     // full NF-step budget, even though this K6 ingress has only nine rows.

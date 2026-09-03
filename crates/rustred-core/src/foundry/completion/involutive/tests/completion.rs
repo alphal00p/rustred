@@ -426,6 +426,123 @@ fn stable_autoreduction_shares_every_sealed_row_without_exact_payload_work() {
 }
 
 #[test]
+fn division_only_successor_seals_to_the_public_full_epoch() {
+    let limits = InvolutiveLimits::default();
+    let context = context(2);
+    let ordering = active_ordering(2, limits);
+    let initial = epoch(&[&[2, 0], &[0, 2]], &context, &ordering, limits);
+    let replacements = initial
+        .elements()
+        .iter()
+        .map(|element| std::sync::Arc::clone(element.consequence_handle()))
+        .collect::<Vec<_>>();
+
+    let mut full_work = super::super::limits::InvolutiveWorkBudget::default();
+    let full = initial
+        .try_replacement_successor(
+            replacements.clone(),
+            &ordering,
+            &context,
+            limits,
+            CompletionGeometryLimits::default(),
+            &mut full_work,
+        )
+        .unwrap();
+
+    let mut deferred_work = super::super::limits::InvolutiveWorkBudget::default();
+    let division = initial
+        .try_replacement_division_successor(
+            replacements,
+            &ordering,
+            &context,
+            limits,
+            &mut deferred_work,
+        )
+        .unwrap();
+
+    // Building the division layer performs exactly the same monic, ranking,
+    // mask, and indexed-divisor work as the eager full successor.  Queue and
+    // complement construction have no work-ledger side effects and happen
+    // only at this explicit seal.
+    assert_eq!(deferred_work.census(), full_work.census());
+    let deferred = division
+        .try_seal(&ordering, limits, CompletionGeometryLimits::default())
+        .unwrap();
+    assert_eq!(deferred, full);
+}
+
+#[test]
+fn hidden_division_revisions_preserve_the_last_sealed_predecessor_and_staleness() {
+    let limits = InvolutiveLimits::default();
+    let context = context(2);
+    let ordering = active_ordering(2, limits);
+    let initial = epoch(&[&[2, 0], &[0, 2]], &context, &ordering, limits);
+    let initial_id = initial.epoch().clone();
+    let stale_prolongation = initial.prolongations()[0].clone();
+    let mut stale_scratch = initial.try_divisor_scratch(limits).unwrap();
+
+    let first_replacements = initial
+        .elements()
+        .iter()
+        .map(|element| std::sync::Arc::clone(element.consequence_handle()))
+        .collect::<Vec<_>>();
+    let mut work = super::super::limits::InvolutiveWorkBudget::default();
+    let first_hidden = initial
+        .try_replacement_division_successor(
+            first_replacements,
+            &ordering,
+            &context,
+            limits,
+            &mut work,
+        )
+        .unwrap();
+    assert_eq!(first_hidden.epoch().revision(), 1);
+
+    let second_replacements = first_hidden
+        .elements()
+        .iter()
+        .map(|element| std::sync::Arc::clone(element.consequence_handle()))
+        .collect::<Vec<_>>();
+    let second_hidden = first_hidden
+        .try_replacement_successor(second_replacements, &ordering, &context, limits, &mut work)
+        .unwrap();
+    let sealed = second_hidden
+        .try_seal(&ordering, limits, CompletionGeometryLimits::default())
+        .unwrap();
+
+    assert_eq!(sealed.epoch().revision(), 2);
+    assert_eq!(sealed.predecessor(), Some(&initial_id));
+    assert_eq!(
+        sealed.require_current(&stale_prolongation),
+        Err(InvolutiveError::StaleEpoch {
+            expected: sealed.epoch().clone(),
+            actual: initial_id.clone(),
+        })
+    );
+    assert!(
+        sealed
+            .prolongations()
+            .iter()
+            .all(|prolongation| sealed.require_current(prolongation).is_ok())
+    );
+
+    let mut query_work = super::super::limits::InvolutiveWorkBudget::default();
+    assert_eq!(
+        sealed.try_janet_divisor_with_scratch(
+            &shift(&[2, 0], limits),
+            None,
+            &mut stale_scratch,
+            limits,
+            &mut query_work,
+        ),
+        Err(InvolutiveError::StaleEpoch {
+            expected: sealed.epoch().clone(),
+            actual: initial_id,
+        })
+    );
+}
+
+#[test]
 fn autoreduction_sharing_and_materialization_caps_are_cumulative_and_precede_copying() {
     let defaults = InvolutiveLimits::default();
     let context = context(2);
