@@ -32,6 +32,38 @@ Also never escalate commands but find workaround if sanbox is being hit.
 
 ## Authority and staged assignment
 
+### Gregor/SpIReD implementation directive (2026-09-08)
+
+The authoritative implementation program is recorded in
+[`GREGOR_INPUT_PLAN.md`](GREGOR_INPUT_PLAN.md). It incorporates Gregor Kälin's
+case-directed SpIReD strategy into both stages below and supersedes the current
+obstruction-guided search front end wherever the two conflict. Gregor is a
+RustRed author.
+
+The immediate priority is a dedicated, automatically selected single-scale
+vacuum lane which closes K6 without FORM-derived rules or hidden hints, while
+retaining a topology-generic architecture and the existing exact replay,
+strict-descent, guard, owner-cover, and immutable-artifact authority. The first
+materializer uses pruned exact Symbolica algebra. RustRed must not implement its
+own rational-polynomial reconstruction; a reconstruction materializer is added
+only when Symbolica exposes the required public API. Janet/Ore remains an
+explicit optional or hybrid backend and must impose no work or memory overhead
+on a pure SpIReD run.
+
+Stage 1 still ends only after K1, K3, and K6 are autonomously closed and the
+FeynKit-plus-RustRed Vakint acceptance lane passes through three loops. Stage 2
+then applies the same design to the complete K10, K15, and K21 vacuum manifests,
+adds exact affine-integer cases if K6 did not already require them, and adopts
+the collaborator's tensor technology and Symbolica reconstruction when those
+become available. Reproducible Section 4.5 workloads are a release-performance
+target: the initial exact-materialization implementation aims for at most three
+times Gregor's matched SpIReD wall time, and the later Symbolica-reconstruction
+lane aims to beat it. Opaque or domain-specific rows are not replaced by
+lookalike RustRed fixtures.
+
+The confidential working notes are available locally as `./notes-spired.pdf`.
+That file is ignored by Git and must never be committed or pushed.
+
 The preamble above records the long-term scientific motivation verbatim. The
 latest approved plan in this section supersedes its sequencing and defines the
 only active assignment for the primary Codex agent (`/root`). The primary

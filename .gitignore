@@ -9,6 +9,7 @@ result-*
 *.profdata
 .DS_Store
 /FOR_REFERENCE_ONLY_DO_NOT_PUSH/
+/notes-spired.pdf
 /.venv/
 **/__pycache__/
 /crates/rustred-python/python/rustred/_rustred*.so

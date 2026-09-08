@@ -7,6 +7,14 @@ family represented in Vakint through three loops, publishes the resulting
 one-off artifacts, and applies them through a FORM-free scalar Vakint backend.
 Loop count and topology are input data, never production dispatch keys.
 
+The active implementation program is the
+[Gregor/SpIReD input plan](GREGOR_INPUT_PLAN.md). It adds a case-directed,
+incremental sparse search front end, with an aggressively optimized
+single-scale-vacuum lane, while preserving the existing exact replay, descent,
+coverage, publication, and reduction authority. The local working notes
+`notes-spired.pdf` are intentionally ignored and are never distributed with
+the repository.
+
 ## Current capability
 
 The currently evidenced core can:

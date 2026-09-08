@@ -1,6 +1,7 @@
 [package]
 name = "rustred-app"
 version.workspace = true
+authors.workspace = true
 edition = "2024"
 rust-version = "1.89"
 description = "Shared application and CLI frontend for RustRed"

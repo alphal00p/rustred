@@ -4,6 +4,10 @@ build-backend = "maturin"
 
 [project]
 name = "rustred"
+authors = [
+    { name = "Valentin Hirschi", email = "valentin.hirschi@gmail.com" },
+    { name = "Gregor Kälin" },
+]
 description = "Pure-Rust, Symbolica-native parametric IBP tools"
 readme = "crates/rustred-python/README.md"
 requires-python = ">=3.11"

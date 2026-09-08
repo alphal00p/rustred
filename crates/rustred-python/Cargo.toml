@@ -1,6 +1,7 @@
 [package]
 name = "rustred-python"
 version.workspace = true
+authors.workspace = true
 edition = "2024"
 rust-version = "1.89"
 description = "Python adapter for the RustRed application API"

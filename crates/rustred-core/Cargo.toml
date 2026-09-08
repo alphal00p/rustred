@@ -1,6 +1,7 @@
 [package]
 name = "rustred"
 version.workspace = true
+authors.workspace = true
 edition = "2024"
 rust-version = "1.89"
 description = "Pure-Rust, Symbolica-native parametric IBP tools"
