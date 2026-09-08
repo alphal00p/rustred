@@ -90,7 +90,7 @@ pub(super) fn checked_indexed_mul(
         .ok_or(IndexedAlgebraError::ResourceCountOverflow { resource })
 }
 
-pub(super) fn ceil_log2(value: usize) -> usize {
+pub(crate) fn ceil_log2(value: usize) -> usize {
     if value <= 1 {
         0
     } else {
@@ -98,7 +98,7 @@ pub(super) fn ceil_log2(value: usize) -> usize {
     }
 }
 
-pub(super) fn integer_magnitude_bits(value: &Integer) -> u64 {
+pub(crate) fn integer_magnitude_bits(value: &Integer) -> u64 {
     match value {
         Integer::Single(value) => {
             let magnitude = value.unsigned_abs();

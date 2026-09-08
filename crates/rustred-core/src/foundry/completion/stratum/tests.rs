@@ -5,17 +5,22 @@ use crate::foundry::artifact::{
     derive_k6_terminal_authority, derive_one_loop_unit_mass_tadpole,
     derive_two_loop_unit_mass_sunset, fresh_k6_terminal_authority_for_test,
 };
-use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
+use crate::identity::{
+    CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator, TranslatedSourceLimits,
+    TranslatedSourceRequest,
+};
 use crate::sector::{
     InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain, SectorMonotoneDomain,
 };
 
-use super::super::frame::{OneSidedChartFrame, PhysicalFrameLimits, PhysicalFramePlan};
+use super::super::frame::{
+    OneSidedChartFrame, PhysicalFrameLimits, PhysicalFramePlan, SelectedSourceFrame,
+};
 use super::{
     CampaignStratumAnchor, DecoratedStratum, ForbiddenColumnReason, GuardBranch,
     GuardBranchIdentity, GuardPredicateAuthority, ImmutableOwnerKind, ImmutableOwnerSnapshot,
-    MaximalStratumAnchor, ProspectiveColumnKind, StratumRegistryError, StratumRegistryLimits,
-    TargetColumnPartition,
+    MaximalStratumAnchor, ProspectiveColumnClassifier, ProspectiveColumnKind, StratumRegistryError,
+    StratumRegistryLimits, TargetColumnPartition,
 };
 
 fn complete_ordinary(generator: &ParametricIbpGenerator<'_>) -> CompletedIbpSourceRows {
@@ -852,6 +857,318 @@ fn every_one_loop_physical_column_gets_exactly_one_target_local_role() {
     }
     assert!(saw_allowed);
     assert!(saw_forbidden);
+}
+
+#[test]
+fn frame_independent_prospective_classifier_matches_partition_semantics() {
+    let (_, frame) = one_loop_frame(2);
+    let limits = StratumRegistryLimits::default();
+    let ordering = OrderingPolicy::default();
+
+    for target in 0..frame.columns().len() {
+        let stratum = maximal_stratum(&frame, target);
+        let owners = ImmutableOwnerSnapshot::try_empty(
+            frame.family_fingerprint(),
+            frame.context_fingerprint(),
+            frame.sector().arity(),
+            limits,
+        )
+        .unwrap();
+        let partition = TargetColumnPartition::try_new(
+            &frame,
+            target,
+            stratum.clone(),
+            owners.clone(),
+            ordering,
+            limits,
+        )
+        .unwrap();
+        let classifier = ProspectiveColumnClassifier::try_new_with_verified_snapshot(
+            stratum,
+            frame.columns()[target].clone(),
+            owners.verified_clone(),
+            ordering,
+            limits,
+        )
+        .unwrap();
+
+        assert_eq!(classifier.target_shift(), &frame.columns()[target]);
+        assert_eq!(classifier.ordering(), ordering);
+        assert_eq!(classifier.stratum().id(), partition.stratum_id());
+        for value in -4..=4 {
+            let candidate = [value];
+            assert_eq!(
+                classifier.try_classify_shift(&candidate),
+                partition.try_classify_prospective_shift(&candidate),
+                "prospective role differs for target {target} and shift {candidate:?}",
+            );
+        }
+    }
+}
+
+#[test]
+fn multidimensional_classifier_matches_materialized_roles_with_owner_and_ordering_variants() {
+    let frames = two_loop_frames(&[1]);
+    let frame = &frames[0];
+    let limits = StratumRegistryLimits::default();
+    let closed = Arc::new(derive_two_loop_unit_mass_sunset().unwrap());
+    let closed_owners = ImmutableOwnerSnapshot::try_from_closed_artifact(closed, limits).unwrap();
+
+    for (owners, ordering) in [
+        (closed_owners, OrderingPolicy::default()),
+        (
+            ImmutableOwnerSnapshot::try_empty(
+                frame.family_fingerprint(),
+                frame.context_fingerprint(),
+                frame.sector().arity(),
+                limits,
+            )
+            .unwrap(),
+            OrderingPolicy::TestOnlyDistinct,
+        ),
+    ] {
+        for target in 0..frame.columns().len() {
+            let stratum = maximal_stratum(frame, target);
+            let partition = TargetColumnPartition::try_new(
+                frame,
+                target,
+                stratum.clone(),
+                owners.clone(),
+                ordering,
+                limits,
+            )
+            .unwrap();
+            let classifier = ProspectiveColumnClassifier::try_new_with_verified_snapshot(
+                stratum,
+                frame.columns()[target].clone(),
+                owners.verified_clone(),
+                ordering,
+                limits,
+            )
+            .unwrap();
+            for (column, shift) in frame.columns().iter().enumerate() {
+                let expected = if column == target {
+                    ProspectiveColumnKind::Target
+                } else if partition.is_allowed(column) {
+                    ProspectiveColumnKind::Allowed
+                } else {
+                    assert!(partition.forbidden_columns().contains(&column));
+                    ProspectiveColumnKind::Forbidden
+                };
+                assert_eq!(
+                    classifier.try_classify_shift(shift.values()).unwrap(),
+                    expected
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn prospective_roles_match_a_fresh_cumulatively_refined_carrier() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let sector = Mask::try_new([true]).unwrap();
+    let target = IntegralShift::try_new([0]).unwrap();
+    let limits = StratumRegistryLimits::default();
+
+    // The negative request exposes {-1, 0}; the extreme positive request adds
+    // a shift that tightens the common active carrier to the singleton n=1.
+    // The -1 column is therefore classified once on a wide individual domain
+    // but replayed below on the cumulatively refined common domain.
+    let requests = [
+        TranslatedSourceRequest::new(0, IntegralShift::try_new([-1]).unwrap()),
+        TranslatedSourceRequest::new(0, IntegralShift::try_new([i64::MAX - 2]).unwrap()),
+    ];
+    let selected = generator
+        .translate_selected_completed_source_rows(
+            &completed,
+            requests,
+            TranslatedSourceLimits::default(),
+        )
+        .unwrap();
+    let frame =
+        SelectedSourceFrame::try_new(selected, sector.clone(), PhysicalFrameLimits::default())
+            .unwrap()
+            .into_plan();
+    let target_column = frame
+        .columns()
+        .iter()
+        .position(|shift| shift == &target)
+        .unwrap();
+
+    let initial_domain =
+        SectorMonotoneDomain::try_maximal_for_rule(sector, target.values(), &[vec![-1], vec![0]])
+            .unwrap();
+    assert_eq!(initial_domain.bounds()[0], InteriorBounds::new(1, i64::MAX));
+    let initial = DecoratedStratum::try_guard_blind(
+        frame.family_fingerprint(),
+        frame.context_fingerprint(),
+        initial_domain,
+        limits,
+    )
+    .unwrap();
+    let owners =
+        ImmutableOwnerSnapshot::try_from_closed_artifact(Arc::new(artifact), limits).unwrap();
+    let prospective = ProspectiveColumnClassifier::try_new(
+        initial.clone(),
+        target.clone(),
+        owners.clone(),
+        OrderingPolicy::default(),
+        limits,
+    )
+    .unwrap();
+    let cached_roles = frame
+        .columns()
+        .iter()
+        .map(|shift| prospective.try_classify_shift(shift.values()).unwrap())
+        .collect::<Vec<_>>();
+    let negative_column = frame
+        .columns()
+        .iter()
+        .position(|shift| shift.values() == [-1])
+        .unwrap();
+    assert_eq!(
+        cached_roles[negative_column],
+        ProspectiveColumnKind::Allowed,
+        "the adversarial column must exercise an owned pinched descent",
+    );
+
+    let mut sequence = CampaignStratumAnchor::try_restricted(initial, limits)
+        .unwrap()
+        .into_sequence();
+    let refined = sequence
+        .try_materialize(&frame, target_column, limits)
+        .unwrap();
+    assert_eq!(refined.domain().bounds()[0], InteriorBounds::new(1, 1));
+    let fresh = TargetColumnPartition::try_new(
+        &frame,
+        target_column,
+        refined,
+        owners,
+        OrderingPolicy::default(),
+        limits,
+    )
+    .unwrap();
+    assert!(fresh.is_allowed(negative_column));
+
+    for (column, cached) in cached_roles.into_iter().enumerate() {
+        let replayed = if column == target_column {
+            ProspectiveColumnKind::Target
+        } else if fresh.is_allowed(column) {
+            ProspectiveColumnKind::Allowed
+        } else {
+            ProspectiveColumnKind::Forbidden
+        };
+        assert_eq!(cached, replayed, "role drift for column {column}");
+    }
+}
+
+#[test]
+fn empty_owner_fast_path_does_not_retain_proper_subsector_witnesses() {
+    let frames = two_loop_frames(&[1]);
+    let frame = &frames[0];
+    let target = zero_shift_target(frame);
+    let stratum = maximal_stratum(frame, target);
+    let owners = ImmutableOwnerSnapshot::try_empty(
+        frame.family_fingerprint(),
+        frame.context_fingerprint(),
+        frame.sector().arity(),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let reference = TargetColumnPartition::try_new(
+        frame,
+        target,
+        stratum.clone(),
+        owners.clone(),
+        OrderingPolicy::default(),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let unowned = reference
+        .forbidden_descriptors()
+        .iter()
+        .find(|descriptor| {
+            matches!(
+                descriptor.reason(),
+                ForbiddenColumnReason::UnownedProperSubsector { .. }
+            )
+        })
+        .expect("the empty lower owner must reject a two-loop subsector image")
+        .column();
+    let limits = StratumRegistryLimits {
+        max_retained_owner_witnesses: 0,
+        ..StratumRegistryLimits::default()
+    };
+    let classifier = ProspectiveColumnClassifier::try_new_with_verified_snapshot(
+        stratum,
+        frame.columns()[target].clone(),
+        owners.verified_clone(),
+        OrderingPolicy::default(),
+        limits,
+    )
+    .unwrap();
+    assert_eq!(
+        classifier
+            .try_classify_shift(frame.columns()[unowned].values())
+            .unwrap(),
+        ProspectiveColumnKind::Forbidden
+    );
+}
+
+#[test]
+fn materialized_partition_rejects_owner_canonicalizer_ordering_mismatch() {
+    let frames = two_loop_frames(&[0]);
+    let frame = &frames[0];
+    let target = zero_shift_target(frame);
+    let owners = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        Arc::new(derive_two_loop_unit_mass_sunset().unwrap()),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        TargetColumnPartition::try_new(
+            frame,
+            target,
+            maximal_stratum(frame, target),
+            owners,
+            OrderingPolicy::TestOnlyDistinct,
+            StratumRegistryLimits::default(),
+        )
+        .unwrap_err(),
+        StratumRegistryError::WrongOwnerRouteCanonicalizer
+    );
+}
+
+#[test]
+fn prospective_classifier_rejects_wrong_target_arity_before_streaming() {
+    let (_, frame) = one_loop_frame(1);
+    let target = zero_shift_target(&frame);
+    let stratum = maximal_stratum(&frame, target);
+    let owners = ImmutableOwnerSnapshot::try_empty(
+        frame.family_fingerprint(),
+        frame.context_fingerprint(),
+        frame.sector().arity(),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let error = ProspectiveColumnClassifier::try_new(
+        stratum,
+        IntegralShift::try_new([0, 0]).unwrap(),
+        owners,
+        OrderingPolicy::default(),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap_err();
+    assert_eq!(
+        error,
+        StratumRegistryError::Sector(crate::sector::Error::WrongArity {
+            expected: 1,
+            actual: 2,
+        })
+    );
 }
 
 #[test]

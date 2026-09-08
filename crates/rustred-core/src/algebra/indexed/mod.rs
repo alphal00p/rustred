@@ -23,6 +23,7 @@ pub(crate) use base_coefficients::IntegerZeroSetResolution;
 pub use context::IndexedCoefficientContext;
 pub use error::IndexedAlgebraError;
 pub use limits::{IndexedAlgebraLimits, IndexedContextLimits};
+pub(crate) use limits::{ceil_log2, integer_magnitude_bits};
 pub use value::{IndexedCoefficient, IndexedPolynomial};
 
 #[cfg(test)]

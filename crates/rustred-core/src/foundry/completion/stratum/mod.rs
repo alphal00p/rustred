@@ -19,6 +19,7 @@ mod maximal;
 mod model;
 mod owners;
 mod partition;
+mod prospective;
 
 pub(crate) use error::StratumRegistryError;
 pub(crate) use limits::StratumRegistryLimits;
@@ -34,7 +35,10 @@ pub(crate) use owners::{
 };
 #[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
 pub(crate) use partition::ForbiddenColumnReason;
-pub(crate) use partition::{ProperSubsectorOwner, ProspectiveColumnKind, TargetColumnPartition};
+pub(crate) use partition::{ProperSubsectorOwner, TargetColumnPartition};
+pub(crate) use prospective::{
+    ProspectiveClassificationCost, ProspectiveColumnClassifier, ProspectiveColumnKind,
+};
 
 fn checked_add(
     resource: &'static str,

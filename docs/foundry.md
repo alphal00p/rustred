@@ -551,20 +551,70 @@ lowering relations and supply high-precision reference values. Such oracle
 data guides discovery and validation only; installed RustRed rules still need
 fresh exact source replay and the scalar runtime remains FORM-free.
 
+### SpIReD target-search boundary
+
+The first private SpIReD execution slice is now implemented as a
+proposal-to-authority pipeline for one immutable coordinate case and one
+modular probe.  A fair signed-L1 scheduler emits translated ordinary sources
+in complete depth shells.  Shifted coefficients are evaluated directly at
+`c(n+s)` over a checked Symbolica prime field, while a frame-independent exact
+classifier assigns stable target, allowed, and forbidden roles to every
+structural shift.  Two incremental Symbolica sparse reducers then test the
+forbidden block with and without the logical target.  Only the direct
+dependency support of a rank hit is retained.
+
+That finite-field hit remains proposal evidence.  RustRed rebuilds a fresh
+selected-source epoch from the nominated requests, repeats the modular query
+at the same raw chart probe, materializes the compact circuit with exact
+Symbolica rational-polynomial arithmetic, and replays every contributing
+ordinary source.  The established promotion boundary then rejoins the exact
+plan, stratum, lower-owner snapshot, target, guards, and ordering before it may
+produce an executable `RuleCell`; every residual term receives a fresh strict-
+descent proof.  The scheduler-driven K1 regression reaches this admitted-cell
+boundary without a caller-selected source request.  A separate no-rule K1
+terminal authority authenticates only the scaleless sector and explicit
+master `I(1)`; against that authority, the discovered cell compiles into one
+semantic/executable owner, strictly shrinks a bounded carrier to the empty
+complement, and publishes one transactional sector wave.  This is an
+end-to-end bounded integration proof, not yet a full-carrier K1 artifact, and
+it is not evidence of K3 or K6 closure.
+
+Guarded coordinate strata now require an exact predicate catalog and an exact
+probe witness.  RustRed specializes each indexed guard through Symbolica,
+checks its zero/nonzero branch before streaming, proves that a numeric base
+sample avoids an accidental nonzero-guard root, and rejects primes which erase
+that retained nonzero value.  Stale stratum, base-point, or index-point joins
+fail before any modular row is consumed.  Exceptional-case recursion,
+independent-probe control, complete target/case scheduling, full-carrier
+owner-ledger publication, and an empty-complement proof remain campaign work.
+The current target runner also stops at its first modular rank gain.  If that
+compact support does not lift exactly, it reports a typed inconclusive result
+rather than continuing to a later support; resumable probes and a bounded
+post-hit comparison window are required before K6 production runs.  Guard
+catalog limits presently bound counts, source terms, and predicate identities,
+but the recursive scheduler must additionally cap their aggregate retained
+coefficient-system payload.
+Likewise, structural role classification is currently local to one probe;
+the production K6 portfolio must share one deterministic, case-local exact
+role/ID ledger while keeping only residues and Symbolica reducer state local
+to each worker.  Pure SpIReD execution constructs no Janet/Ore state.
+
 The foundry will be an offline service. Ordinary Vakint evaluation will load
 precomputed closed artifacts; it will not rerun the search. The implementation
 must remain generic in topology and loop count. A specialized high-throughput
 lane may be selected only from proved family properties such as vacuum
 kinematics, common nonzero mass, and valid unit-mass homogeneity. Stage 1 uses
-exact methods through three loops. Bounded algorithm experiments are now
-explicitly driven by eventual six-loop scaling: LiteRed-style translated
-diamonds remain the control, while exact lattice-stratum completion and a
-modular target-separation scout are the first proposed replacements. Four-
-through six-loop artifact production and an extreme-efficiency campaign remain
-deferred. The hypotheses, kill criteria, and primary sources are recorded in
+exact methods through three loops and requires autonomous K6 closure before
+Vakint acceptance can finish.  Stage 2 then applies the same architecture to
+K10, K15, and K21, with high-loop scaling treated as an active objective rather
+than inferred from bounded reachability.  LiteRed-style translated diamonds
+remain a control, while the SpIReD target-separation stream is the primary new
+search front end and Janet/Ore is an optional, explicitly bounded complement.
+The hypotheses, kill criteria, and primary sources are recorded in
 the [breakthrough research note](research/parametric_ibp_breakthrough.md),
 the [2026 literature synthesis](research/parametric_ibp_literature_2026.md),
-and the [finite-frame candidate study](research/finite_frame_breakthrough_2026.md).
+the [finite-frame candidate study](research/finite_frame_breakthrough_2026.md),
+and the [Gregor/SpIReD implementation plan](../GREGOR_INPUT_PLAN.md).
 
 ## Input and output contract
 

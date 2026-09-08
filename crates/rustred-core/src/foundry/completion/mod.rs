@@ -27,6 +27,9 @@ mod limits;
 mod model;
 mod region;
 pub(crate) mod source_discovery;
+#[allow(dead_code, unused_imports)]
+// Targeted depth-wise completion foundation; execution wiring follows.
+pub(crate) mod spired;
 pub(crate) mod stratum;
 
 pub(crate) use chart::SectorChart;

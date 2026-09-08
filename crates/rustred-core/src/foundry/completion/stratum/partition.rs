@@ -6,8 +6,10 @@ use crate::sector::{
 use super::super::frame::PhysicalFramePlan;
 use super::{
     DecoratedStratum, DecoratedStratumId, ImmutableOwnerSnapshot, ImmutableOwnerSnapshotId,
-    ImmutableOwnerWitness, StratumRegistryError, StratumRegistryLimits,
-    VerifiedImmutableOwnerSnapshot, check_limit, checked_add, checked_mul, try_reserve,
+    ImmutableOwnerWitness, ProspectiveColumnKind, StratumRegistryError, StratumRegistryLimits,
+    VerifiedImmutableOwnerSnapshot, check_limit, checked_add, checked_mul,
+    prospective::{try_classify_prospective_shift, try_validate_pivot},
+    try_reserve,
 };
 
 /// Why one non-target physical column cannot enter the allowed RHS block.
@@ -28,17 +30,6 @@ pub(crate) enum ForbiddenColumnReason {
 pub(crate) struct ForbiddenColumnDescriptor {
     column: usize,
     reason: ForbiddenColumnReason,
-}
-
-/// Prospective role of an exact shift after the current semantic domain is
-/// monotonically refined to represent it. This is a checked scheduling
-/// classification only; it does not add the shift to the physical plan or
-/// mint a retained descent/owner witness.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ProspectiveColumnKind {
-    Target,
-    Allowed,
-    Forbidden,
 }
 
 impl ForbiddenColumnDescriptor {
@@ -171,8 +162,13 @@ impl<'frame> TargetColumnPartition<'frame> {
         limits: StratumRegistryLimits,
     ) -> Result<Self, StratumRegistryError> {
         validate_scope(frame, &stratum, owners.snapshot(), target_column, limits)?;
+        if let Some(snapshot_ordering) = owners.canonicalizer_ordering()
+            && snapshot_ordering != ordering
+        {
+            return Err(StratumRegistryError::WrongOwnerRouteCanonicalizer);
+        }
         let pivot = frame.columns()[target_column].values();
-        validate_pivot(ordering, stratum.domain(), pivot)?;
+        try_validate_pivot(ordering, stratum.domain(), pivot)?;
 
         let non_target_columns =
             frame
@@ -408,76 +404,16 @@ impl<'frame> TargetColumnPartition<'frame> {
         &self,
         shift: &[i64],
     ) -> Result<ProspectiveColumnKind, StratumRegistryError> {
-        if shift.len() != self.frame.sector().arity() {
-            return Err(StratumRegistryError::Sector(SectorError::WrongArity {
-                expected: self.frame.sector().arity(),
-                actual: shift.len(),
-            }));
-        }
         let pivot = self.frame.columns()[self.target_column].values();
-        if shift == pivot {
-            return Ok(ProspectiveColumnKind::Target);
-        }
-        let prospective_domain = self
-            .stratum
-            .domain()
-            .try_refine_for_additional_rhs_shift(pivot, shift)?;
-        let descent = match self.ordering.prove_sector_monotone_shift_descent(
-            &prospective_domain,
+        Ok(try_classify_prospective_shift(
+            &self.stratum,
+            &self.owners,
             pivot,
+            self.ordering,
+            self.limits,
             shift,
-        ) {
-            Ok(descent) => descent,
-            Err(SectorError::NotStrictDescent | SectorError::InactiveLineActivation { .. }) => {
-                return Ok(ProspectiveColumnKind::Forbidden);
-            }
-            Err(error) => return Err(StratumRegistryError::Sector(error)),
-        };
-        let census = descent.target_sector_partition_census()?;
-        check_limit(
-            "prospective target-sector cells",
-            census.cell_count(),
-            self.limits.max_target_sector_cells,
-        )?;
-        check_limit(
-            "prospective retained owner witnesses",
-            census.proper_subsector_cell_count(),
-            self.limits.max_retained_owner_witnesses,
-        )?;
-
-        let partition = descent.try_target_sector_partition()?;
-        let proper_count = partition.proper_subsector_cell_count();
-        if proper_count != 0 && self.owners.route_count() == 0 {
-            return Ok(ProspectiveColumnKind::Forbidden);
-        }
-        let mut owner_probes = 0usize;
-        for cell_ordinal in 0..proper_count {
-            let cell = partition.cell(cell_ordinal)?;
-            if cell.kind() != SectorMonotoneTargetCellKind::ProperSubsector {
-                return Err(StratumRegistryError::Invariant {
-                    detail: "prospective proper-subsector prefix contains a same-sector cell",
-                });
-            }
-            owner_probes = checked_add(
-                "prospective immutable-owner probes",
-                owner_probes,
-                self.owners
-                    .route_candidates_for_sector(cell.target_domain().sector()),
-            )?;
-            check_limit(
-                "prospective immutable-owner probes",
-                owner_probes,
-                self.limits.max_owner_probes,
-            )?;
-            if self
-                .owners
-                .owner_for(self.frame.sector(), self.ordering, cell.target_domain())
-                .is_none()
-            {
-                return Ok(ProspectiveColumnKind::Forbidden);
-            }
-        }
-        Ok(ProspectiveColumnKind::Allowed)
+        )?
+        .kind())
     }
 
     /// Cold-path reconstruction of the complete registry and all retained
@@ -643,20 +579,6 @@ fn validate_scope(
         }
     }
     Ok(())
-}
-
-fn validate_pivot(
-    ordering: OrderingPolicy,
-    domain: &crate::sector::SectorMonotoneDomain,
-    pivot: &[i64],
-) -> Result<(), StratumRegistryError> {
-    match ordering.prove_sector_monotone_shift_descent(domain, pivot, pivot) {
-        Err(SectorError::NotStrictDescent) => Ok(()),
-        Err(error) => Err(StratumRegistryError::Sector(error)),
-        Ok(_) => Err(StratumRegistryError::Invariant {
-            detail: "an ordering proved one shift strictly below itself",
-        }),
-    }
 }
 
 fn push_forbidden(

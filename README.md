@@ -43,6 +43,15 @@ The currently evidenced core can:
 - analyze requested zero sectors using generic Symanzik/rank evidence; and
 - provide deterministic core-owned campaign execution and memory-preflight
   primitives, with roots-only composition in the application layer;
+- drive one private SpIReD target lane from fair signed-L1 source scheduling
+  through direct `c(n+s)` finite-field evaluation, incremental Symbolica rank
+  separation, compact dependency tracing, fresh exact replay, and strict
+  `RuleCell` promotion; exact indexed-guard witnesses now admit zero/nonzero
+  branches and reject stale probes or unlucky primes before streaming; the
+  scheduler-driven K1 regression additionally compiles its admitted cell into
+  an executable owner and publishes a closed bounded wave against a separate
+  no-rule terminal authority, while recursive multi-case closure and complete
+  artifact publication remain in progress;
 - rebase independent modular hits onto one fresh canonical exact epoch,
   promote only globally applicable candidates into guarded executable cells,
   pair those cells with their exact semantic circuits, and transactionally
@@ -705,6 +714,7 @@ Stable design documents are:
 - [finite-frame breakthrough candidates](docs/research/finite_frame_breakthrough_2026.md);
 - [high-loop proposal experiments and falsification gates](docs/research/high_loop_proposal_experiments_2026.md);
 - [Symbolica finite-frame feasibility audit](docs/research/symbolica_finite_frame_feasibility.md);
+- [Symbolica API audit for the SpIReD execution lane](docs/research/symbolica_spired_api_audit.md);
 - [nonminimal-terminal viability audit](docs/research/nonminimal_terminal_viability_audit_2026.md);
 - [independent six-loop candidate shootout](docs/research/six_loop_candidate_shootout_2026.md);
 - [independent six-loop closure scaling audit](docs/research/six_loop_scaling_audit_2026.md);

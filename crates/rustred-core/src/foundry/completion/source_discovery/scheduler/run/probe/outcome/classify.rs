@@ -312,6 +312,7 @@ fn stratum_budget_cause(error: &StratumRegistryError) -> Option<ProbeLocalBudget
         | StratumRegistryError::DuplicateClosedSectorOwner { .. }
         | StratumRegistryError::TargetColumnOutOfRange { .. }
         | StratumRegistryError::UncoveredPhysicalShift { .. }
+        | StratumRegistryError::UncoveredProspectiveTarget
         | StratumRegistryError::InitialMaximalDomainMismatch
         | StratumRegistryError::NonMonotoneMaximalDomain
         | StratumRegistryError::Invariant { .. } => None,

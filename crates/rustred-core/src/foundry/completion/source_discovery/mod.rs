@@ -94,6 +94,7 @@ pub(crate) use owner_bundle::{
     ExactExecutableOwnerSelection, ExactOwnerContentOrderKey, ExactSemanticExecutableOwner,
     UnpublishedCanonicalOwnerProposal, compare_exact_owner_group_content,
     compare_exact_owner_proof_content, try_compile_canonical_executable_owner,
+    try_compile_single_canonical_probe_executable_owner,
 };
 #[allow(unused_imports)] // Consumed by the shared planned-probe campaign.
 pub(crate) use probe_campaign::{

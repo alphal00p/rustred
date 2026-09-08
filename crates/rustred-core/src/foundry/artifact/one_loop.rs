@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::sync::{Arc, OnceLock};
 
 use crate::algebra::CoefficientContext;
 use crate::family::{AffineDenominator, IntegralFamily, IntegralFamilyLimits, IntegralKey};
@@ -6,14 +7,89 @@ use crate::foundry::parametric::{ParametricRuleLimits, derive_sector_interior_ru
 use crate::identity::{ParametricIbpConfig, ParametricIbpGenerator};
 use crate::sector::{InteriorBounds, Mask, OrderingPolicy};
 
+use super::ClosedTerminalAuthority;
 use super::error::ArtifactError;
-use super::install::{ClosingArtifactCandidate, install};
+use super::install::{
+    ClosingArtifactCandidate, TerminalAuthorityCandidate, install, install_terminal_authority,
+};
 use super::model::{
     ArtifactSchemaVersion, ClosedArtifact, CommonMassHomogeneityProof, ZeroSectorTerminal,
     ZeroTerminalProof,
 };
 
 pub(super) const ALGORITHM_ID: &str = "rustred.generated.one-loop-unit-mass-tadpole.v1";
+
+/// Install only the proof-backed K=1 terminal policy used by completion.
+///
+/// This authority declares the scaleless zero sector and the intentional
+/// numerical master `I(1)`. It contains no ordinary recurrence and therefore
+/// cannot serve as a closing-rule oracle for a discovery campaign.
+#[allow(dead_code)] // Consumed by the next production SpIReD campaign slice.
+pub(crate) fn derive_one_loop_unit_mass_tadpole_terminal_authority()
+-> Result<Arc<ClosedTerminalAuthority>, ArtifactError> {
+    static TERMINAL_AUTHORITY: OnceLock<Arc<ClosedTerminalAuthority>> = OnceLock::new();
+    if let Some(authority) = TERMINAL_AUTHORITY.get() {
+        return Ok(Arc::clone(authority));
+    }
+    let built = build_terminal_authority()?;
+    Ok(Arc::clone(TERMINAL_AUTHORITY.get_or_init(|| built)))
+}
+
+fn build_terminal_authority() -> Result<Arc<ClosedTerminalAuthority>, ArtifactError> {
+    let family = canonical_family_with_limits(IntegralFamilyLimits::default())?;
+    let generator = ParametricIbpGenerator::try_new_with_config(&family, Default::default())?;
+    let context = generator.context().clone();
+    drop(generator);
+    let zero_sector = Mask::try_from_indices(&[0])?;
+    install_terminal_authority(TerminalAuthorityCandidate {
+        schema: ArtifactSchemaVersion::CURRENT,
+        authority_id: "rustred.one-loop-unit-mass-tadpole.terminal-authority.v1",
+        arity: 1,
+        family,
+        context,
+        canonicalizer: None,
+        dependencies: Vec::new(),
+        factorization_rules: Vec::new(),
+        parent_terminals: BTreeSet::new(),
+        declared_master_terminals: vec![IntegralKey::try_new([1])?],
+        zero_sectors: vec![ZeroSectorTerminal::new(
+            zero_sector,
+            ZeroTerminalProof::ScalelessVacuumPolynomial,
+        )],
+        expected_ordering: OrderingPolicy::default(),
+    })
+    .map(Arc::new)
+}
+
+fn canonical_family_with_limits(
+    family_limits: IntegralFamilyLimits,
+) -> Result<IntegralFamily, ArtifactError> {
+    // The family is genuinely unit mass and therefore lives over Q(d).
+    // Common-scale dependence is restored later as a typed homogeneity power,
+    // without smuggling an unused mass symbol into this coefficient map.
+    let base = CoefficientContext::try_new(["d"])?;
+    let dimension = base
+        .parameter("d")
+        .expect("the just-authenticated coefficient context contains d");
+    let one = base.one();
+    let minus_one = base
+        .try_neg(&one, Default::default())
+        .map_err(crate::family::IntegralFamilyError::from)?;
+    let zero = base.zero();
+    IntegralFamily::new_with_limits(
+        "rustred-one-loop-unit-mass-tadpole-v1",
+        vec!["k".to_owned()],
+        Vec::new(),
+        base,
+        dimension,
+        // Vakint's authenticated vacuum convention is q^2-m^2.
+        vec![AffineDenominator::new(minus_one, vec![one])],
+        Vec::new(),
+        vec![zero],
+        family_limits,
+    )
+    .map_err(Into::into)
+}
 
 /// Generate the sole ordinary IBP source and seal the genuinely closed
 /// one-loop, unit-common-mass tadpole family.
@@ -34,30 +110,7 @@ pub(super) fn derive_one_loop_unit_mass_tadpole_with_limits(
     source_generation: ParametricIbpConfig,
     rule_derivation: ParametricRuleLimits,
 ) -> Result<ClosedArtifact, ArtifactError> {
-    // The artifact is genuinely unit mass and therefore lives over Q(d).
-    // Common-scale dependence is restored later as a typed homogeneity power,
-    // without smuggling an unused mass symbol into this coefficient map.
-    let base = CoefficientContext::try_new(["d"])?;
-    let dimension = base
-        .parameter("d")
-        .expect("the just-authenticated coefficient context contains d");
-    let one = base.one();
-    let minus_one = base
-        .try_neg(&one, Default::default())
-        .map_err(crate::family::IntegralFamilyError::from)?;
-    let zero = base.zero();
-    let family = IntegralFamily::new_with_limits(
-        "rustred-one-loop-unit-mass-tadpole-v1",
-        vec!["k".to_owned()],
-        Vec::new(),
-        base,
-        dimension,
-        // Vakint's authenticated vacuum convention is q^2-m^2.
-        vec![AffineDenominator::new(minus_one, vec![one])],
-        Vec::new(),
-        vec![zero],
-        family_limits,
-    )?;
+    let family = canonical_family_with_limits(family_limits)?;
     let generator = ParametricIbpGenerator::try_new_with_config(&family, source_generation)?;
     let batch = generator.prepare_ordinary_ibp()?;
     let mut rows = Vec::new();

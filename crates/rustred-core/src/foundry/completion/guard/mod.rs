@@ -13,10 +13,16 @@ pub(crate) mod decision;
 mod error;
 mod limits;
 mod model;
+mod probe;
 
 pub(crate) use error::CoefficientIdealGuardError;
 pub(crate) use limits::CoefficientIdealGuardLimits;
 pub(crate) use model::CoefficientIdealGuardAtom;
+#[allow(unused_imports)] // Catalog construction is consumed by recursive case scheduling next.
+pub(crate) use probe::{
+    ExactGuardPredicateCatalog, ExactGuardPredicateCatalogLimits, ExactGuardProbeError,
+    ExactGuardProbeLimits, ExactGuardProbeWitness,
+};
 
 #[cfg(test)]
 mod tests;

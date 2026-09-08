@@ -134,6 +134,107 @@ pub(crate) fn try_compile_canonical_executable_owner(
     })
 }
 
+/// Compile one already admitted exact candidate into the ordinary semantic
+/// executable-owner representation.
+///
+/// Targeted streaming performs exact replay and RuleCell promotion before it
+/// reaches this boundary, unlike canonical multi-probe replay which supplies
+/// an unpromoted [`CanonicalReplayBatch`].  Requiring a singleton here is
+/// deliberate: combining independently promoted candidates needs the
+/// canonical common-epoch rebase (including deterministic duplicate and
+/// anchor selection) and must not be reconstructed from weaker post-promotion
+/// evidence.  The singleton still crosses the same partition rebuild,
+/// fraction-free semantic compilation, pointer-pairing, and bounded content
+/// identity steps as a canonical replay owner.
+pub(crate) fn try_compile_single_canonical_probe_executable_owner(
+    context: &IndexedCoefficientContext,
+    admitted: AdmittedExactRuleCandidate,
+    limits: ExactExecutableOwnerLimits,
+) -> Result<ExactExecutableOwnerProposal, ExactExecutableOwnerError> {
+    check_limit(OWNER_CANDIDATES, 1, limits.max_candidates_per_owner)?;
+
+    let epoch = admitted.epoch().clone();
+    if context.fingerprint() != epoch.plan().context_fingerprint() {
+        return Err(ExactExecutableOwnerError::WrongContext);
+    }
+    if !admitted.circuit().is_bound_to(epoch.plan()) {
+        return Err(ExactExecutableOwnerError::AuthorityMismatch {
+            candidate: 0,
+            detail: "admitted exact circuit belongs to another physical plan",
+        });
+    }
+    if !admitted.cleared().is_bound_to(admitted.circuit()) {
+        return Err(ExactExecutableOwnerError::AuthorityMismatch {
+            candidate: 0,
+            detail: "admitted fraction-free certificate belongs to another exact circuit",
+        });
+    }
+    if admitted.circuit().target_column() != epoch.target_column()
+        || admitted.circuit().target_shift() != epoch.target_shift()
+        || admitted.circuit().stratum_id() != epoch.fixed_stratum().id()
+        || admitted.circuit().owner_snapshot_id() != epoch.fixed_snapshot_id()
+    {
+        return Err(ExactExecutableOwnerError::AuthorityMismatch {
+            candidate: 0,
+            detail: "admitted exact circuit no longer matches its retained epoch scope",
+        });
+    }
+    if !admitted.cell().indexed_context_matches(context)
+        || admitted.cell().rule().family_fingerprint() != epoch.plan().family_fingerprint()
+        || admitted.cell().rule().ordering() != epoch.fixed_ordering()
+    {
+        return Err(ExactExecutableOwnerError::AuthorityMismatch {
+            candidate: 0,
+            detail: "admitted executable RuleCell no longer matches its retained epoch scope",
+        });
+    }
+
+    let mut obstructions = try_vec(
+        OWNER_CANDIDATES,
+        usize::from(admitted.guard_domain_split().is_some()),
+    )?;
+    if let Some(split) = admitted.guard_domain_split() {
+        obstructions.push(ExactExecutableCandidateObstruction::new(
+            0,
+            epoch.clone(),
+            admitted.circuit().clone(),
+            admitted.cleared().clone(),
+            ExactExecutableOwnerObstruction::ExceptionalGuardDomain {
+                refinement: admitted.guard_refinement().clone(),
+                split: split.clone(),
+            },
+        ));
+    }
+
+    let partition = epoch.try_partition(limits.promotion.partition)?;
+    let circuits = [(admitted.circuit().clone(), admitted.cleared().clone())];
+    let semantic = Arc::new(ExactCircuitSemanticDag::try_compile_cleared(
+        context,
+        &partition,
+        &circuits,
+        limits.semantic,
+    )?);
+    let executable = [admitted];
+    validate_candidate_pairing(&semantic, &executable)?;
+    drop(partition);
+    let content_order_key = try_build_owner_content_key(
+        &epoch,
+        &semantic,
+        &executable,
+        limits.max_owner_encoded_content_bytes,
+    )?;
+
+    Ok(ExactExecutableOwnerProposal::Compiled {
+        owner: Arc::new(ExactSemanticExecutableOwner {
+            epoch,
+            semantic,
+            executable: Box::new(executable),
+            content_order_key,
+        }),
+        obstructions: obstructions.into_boxed_slice(),
+    })
+}
+
 impl ExactExecutableOwnerCover {
     /// Build a zero-cell executable cover only when the installed predecessor
     /// itself proves complete ownership of this exact campaign carrier.

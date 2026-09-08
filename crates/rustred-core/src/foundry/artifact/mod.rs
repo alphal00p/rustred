@@ -50,6 +50,8 @@ pub(crate) use multi_affine_expansion::{
     MultiAffineNumeratorExpansionLimits, MultiAffineNumeratorFactor,
     try_expand_multi_affine_numerator,
 };
+#[allow(unused_imports)] // Used by the next production SpIReD campaign slice.
+pub(crate) use one_loop::derive_one_loop_unit_mass_tadpole_terminal_authority;
 pub(crate) use terminal::{ClosedTerminalAuthority, DeclaredMasterManifest};
 
 pub(crate) use three_loop::{

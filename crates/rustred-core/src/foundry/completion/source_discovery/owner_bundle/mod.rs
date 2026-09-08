@@ -16,7 +16,7 @@ mod model;
 pub(crate) use closed::ClosedExactExecutableOwnerCover;
 pub(crate) use compile::{
     compare_exact_owner_group_content, compare_exact_owner_proof_content,
-    try_compile_canonical_executable_owner,
+    try_compile_canonical_executable_owner, try_compile_single_canonical_probe_executable_owner,
 };
 pub(crate) use error::ExactExecutableOwnerError;
 pub(crate) use layer::{ClosedSectorLayer, ClosedSectorLayerContentId};

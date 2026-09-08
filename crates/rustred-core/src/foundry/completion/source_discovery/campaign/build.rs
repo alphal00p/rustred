@@ -212,6 +212,30 @@ impl CampaignModularProbe {
         }
         Ok(Self::from_parts(modulus, base, chart))
     }
+
+    /// Recover the exact integral-index point represented by this retained raw
+    /// chart probe, authenticated against one immutable coordinate stratum.
+    ///
+    /// This is the shared chart-to-index boundary used by both fresh physical
+    /// replay and streaming discovery: active coordinates map as `n=x+1`, while
+    /// inactive coordinates map as `n=-x`. Callers must retain this raw probe
+    /// rather than attempting to reconstruct it from finite-field residues.
+    pub(crate) fn try_index_anchor_for_stratum(
+        &self,
+        stratum: &DecoratedStratum,
+    ) -> Result<Box<[i64]>, CampaignError> {
+        validate_probe_in_fixed_stratum(stratum, self)?;
+        let mut anchor = try_vec(EXACT_PROBE_ANCHOR_COORDINATES, stratum.domain().arity())?;
+        for (position, (&coordinate, &active)) in self
+            .chart_coordinates()
+            .iter()
+            .zip(stratum.domain().sector().active_bits())
+            .enumerate()
+        {
+            anchor.push(try_exact_probe_index(position, active, coordinate)?);
+        }
+        Ok(anchor.into_boxed_slice())
+    }
 }
 
 impl FreshTaskEpoch {
@@ -366,20 +390,7 @@ impl FreshTaskEpoch {
         &self,
         probe: &CampaignModularProbe,
     ) -> Result<Box<[i64]>, CampaignError> {
-        validate_probe_in_fixed_stratum(self.fixed_stratum(), probe)?;
-        let mut anchor = try_vec(
-            EXACT_PROBE_ANCHOR_COORDINATES,
-            self.fixed_stratum().domain().arity(),
-        )?;
-        for (position, (&coordinate, &active)) in probe
-            .chart_coordinates()
-            .iter()
-            .zip(self.fixed_stratum().domain().sector().active_bits())
-            .enumerate()
-        {
-            anchor.push(try_exact_probe_index(position, active, coordinate)?);
-        }
-        Ok(anchor.into_boxed_slice())
+        probe.try_index_anchor_for_stratum(self.fixed_stratum())
     }
 
     /// Rebuild the exact target partition on this plan, resample from the

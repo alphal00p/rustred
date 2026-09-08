@@ -6,6 +6,10 @@ use crate::foundry::artifact::{ClosedArtifact, derive_one_loop_unit_mass_tadpole
 use crate::foundry::completion::source_discovery::scheduler::{
     ProbeLocalObstructionScheduler, ProbeLocalOutcome, ProbeLocalSchedulerLimits,
 };
+use crate::foundry::completion::source_discovery::{
+    ExactExecutableOwnerObstruction, ExactExecutableOwnerProposal,
+    try_compile_single_canonical_probe_executable_owner,
+};
 use crate::foundry::completion::stratum::{
     DecoratedStratum, ImmutableOwnerSnapshot, MaximalStratumAnchor, StratumRegistryLimits,
 };
@@ -240,6 +244,48 @@ fn nonempty_owner_snapshot_rejoins_a_retained_proper_subsector_witness() {
     assert_eq!(split.exceptional_domain().bounds()[0].lower(), 1);
     assert_eq!(split.exceptional_domain().bounds()[0].upper(), 1);
     assert!(split.deferred_guard_free_domain().is_none());
+
+    let expected_split = split.clone();
+    let expected_refinement = candidate.guard_refinement().clone();
+    let retained_cell = Arc::as_ptr(candidate.cell_owner());
+    let ExactExecutableOwnerProposal::Compiled {
+        owner,
+        obstructions,
+    } = try_compile_single_canonical_probe_executable_owner(
+        &context,
+        candidate,
+        Default::default(),
+    )
+    .unwrap()
+    else {
+        panic!("the admitted guard-free component must compile to an executable owner")
+    };
+    assert_eq!(owner.executable_candidates().len(), 1);
+    assert!(Arc::ptr_eq(owner.epoch(), &epoch));
+    assert!(Arc::ptr_eq(
+        owner.executable_candidates()[0].circuit(),
+        &circuit,
+    ));
+    assert_eq!(
+        Arc::as_ptr(owner.executable_candidates()[0].cell_owner()),
+        retained_cell,
+    );
+    assert_eq!(obstructions.len(), 1);
+    let obstruction = &obstructions[0];
+    assert_eq!(obstruction.candidate_ordinal(), 0);
+    assert!(Arc::ptr_eq(obstruction.epoch(), &epoch));
+    assert!(Arc::ptr_eq(obstruction.circuit(), &circuit));
+    assert!(Arc::ptr_eq(
+        obstruction.cleared(),
+        owner.executable_candidates()[0].cleared(),
+    ));
+    let ExactExecutableOwnerObstruction::ExceptionalGuardDomain { refinement, split } =
+        obstruction.obstruction()
+    else {
+        panic!("the singleton compiler must preserve the exceptional-domain obligation")
+    };
+    assert_eq!(refinement, &expected_refinement);
+    assert_eq!(split, &expected_split);
 }
 
 #[test]
