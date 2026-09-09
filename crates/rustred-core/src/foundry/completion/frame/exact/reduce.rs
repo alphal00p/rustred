@@ -473,7 +473,7 @@ pub(super) fn fixed_index_assignments(
     Ok(fixed)
 }
 
-fn validate_binding(
+pub(super) fn validate_binding(
     context: &IndexedCoefficientContext,
     hit: &ModularHit<'_>,
     partition: &TargetColumnPartition<'_>,
@@ -522,7 +522,7 @@ fn validate_modular_hit_shape(
     validate_selected_rows(plan, selected, limits)
 }
 
-fn validate_selected_rows(
+pub(super) fn validate_selected_rows(
     plan: &PhysicalFramePlan,
     selected: &[usize],
     limits: ExactCircuitLimits,
@@ -547,7 +547,7 @@ fn validate_selected_rows(
     Ok(())
 }
 
-fn preflight(
+pub(super) fn preflight(
     context: &IndexedCoefficientContext,
     plan: &PhysicalFramePlan,
     partition: &TargetColumnPartition<'_>,
@@ -765,7 +765,7 @@ fn validate_complete_reducer(
     Ok(())
 }
 
-fn call_native<T>(
+pub(super) fn call_native<T>(
     operation: &'static str,
     callback: impl FnOnce() -> T,
 ) -> Result<T, ExactCircuitError> {

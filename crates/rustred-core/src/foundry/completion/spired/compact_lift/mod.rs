@@ -14,7 +14,7 @@ mod run;
 pub(crate) use error::SpiredCompactLiftError;
 pub(crate) use limits::SpiredCompactLiftLimits;
 pub(crate) use model::{SpiredCompactLift, SpiredReplayedCompactLift};
-pub(crate) use run::try_lift_spired_compact_support;
+pub(crate) use run::{try_lift_spired_compact_support, try_lift_spired_rooted_compact_support};
 
 pub(crate) use authority::{SpiredRuleCellAuthorityError, try_promote_spired_replayed_rule_cell};
 

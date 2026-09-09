@@ -8,7 +8,8 @@
 
 use crate::algebra::IndexedCoefficientContext;
 use crate::foundry::completion::frame::exact::{
-    ExactCircuitError, ExactCircuitLift, ExactCircuitLimits, try_lift_exact_circuit,
+    ExactCircuitError, ExactCircuitLift, ExactCircuitLimits, RootedExactCircuitLift,
+    try_lift_exact_circuit, try_lift_rooted_exact_circuit,
 };
 use crate::foundry::completion::frame::modular::ModularHit;
 use crate::foundry::completion::stratum::TargetColumnPartition;
@@ -27,6 +28,23 @@ pub(crate) trait TargetRuleMaterializer {
         partition: &TargetColumnPartition<'frame>,
         limits: ExactCircuitLimits,
     ) -> Result<ExactCircuitLift, ExactCircuitError>;
+
+    /// Recover a relation which is constrained to use one designated later
+    /// source row after all of its retained predecessors.
+    ///
+    /// This is the exact counterpart of the post-hit GPLU trace.  The trace
+    /// itself remains scheduling evidence: implementations must cancel the
+    /// forbidden block exactly, prove a nonzero target coefficient, and pass
+    /// the common full-source replay before returning authority.
+    fn try_materialize_rooted<'frame>(
+        &self,
+        context: &IndexedCoefficientContext,
+        hit: &ModularHit<'frame>,
+        partition: &TargetColumnPartition<'frame>,
+        predecessor_rows: &[usize],
+        root_frame_row: usize,
+        limits: ExactCircuitLimits,
+    ) -> Result<RootedExactCircuitLift, ExactCircuitError>;
 }
 
 /// Exact Symbolica materialization over the independent support selected by
@@ -47,5 +65,24 @@ impl TargetRuleMaterializer for PrunedExactMaterializer {
         limits: ExactCircuitLimits,
     ) -> Result<ExactCircuitLift, ExactCircuitError> {
         try_lift_exact_circuit(context, hit, partition, limits)
+    }
+
+    fn try_materialize_rooted<'frame>(
+        &self,
+        context: &IndexedCoefficientContext,
+        hit: &ModularHit<'frame>,
+        partition: &TargetColumnPartition<'frame>,
+        predecessor_rows: &[usize],
+        root_frame_row: usize,
+        limits: ExactCircuitLimits,
+    ) -> Result<RootedExactCircuitLift, ExactCircuitError> {
+        try_lift_rooted_exact_circuit(
+            context,
+            hit,
+            partition,
+            predecessor_rows,
+            root_frame_row,
+            limits,
+        )
     }
 }

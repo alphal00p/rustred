@@ -11,6 +11,7 @@ mod lowering;
 mod model;
 mod reduce;
 mod replay;
+pub(crate) mod rooted;
 
 mod cleared;
 
@@ -33,6 +34,9 @@ pub(crate) use model::{
     ExactFrameSourceContribution, ExactTargetCircuit, ExactTargetCircuitIdentity,
 };
 pub(crate) use reduce::{try_lift_exact_circuit, try_lift_exact_circuit_over_complete_frame};
+pub(crate) use rooted::{
+    RootedExactCircuitLift, RootedExactCircuitMiss, try_lift_rooted_exact_circuit,
+};
 
 #[cfg(test)]
 mod tests;

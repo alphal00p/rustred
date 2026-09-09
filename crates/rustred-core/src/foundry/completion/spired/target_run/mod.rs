@@ -9,11 +9,17 @@ mod error;
 mod limits;
 mod model;
 mod run;
+mod tape;
 
 pub(crate) use error::{SpiredTargetRunError, SpiredTargetRunErrorCause, SpiredTargetRunStage};
 pub(crate) use limits::SpiredTargetRunLimits;
-pub(crate) use model::{SpiredTargetRunCensus, SpiredTargetRunOutcome, SpiredTargetRunReport};
-pub(crate) use run::{try_run_spired_guarded_target, try_run_spired_target};
+pub(crate) use model::{
+    SpiredAlternativeExhaustion, SpiredKnownZeroPromotionRejection, SpiredTargetRunCensus,
+    SpiredTargetRunOutcome, SpiredTargetRunReport,
+};
+pub(crate) use run::{
+    SpiredTargetRunWorkspace, try_run_spired_guarded_target, try_run_spired_target,
+};
 
 #[cfg(test)]
 mod tests;

@@ -52,7 +52,9 @@ pub(crate) use canonical_replay::{
 pub(crate) use cover_delta::{
     CanonicalExactOwnerLedger, ExactOwnerCoverDelta, ExactOwnerCoverDeltaError,
     ExactOwnerCoverDeltaKind, ExactOwnerCoverDeltaLimits, ExactOwnerCoverSnapshot,
-    ExactOwnerLedgerCoverStatus, ExactOwnerLedgerSealError,
+    ExactOwnerLedgerCoverStatus, ExactOwnerLedgerPreparedMutation, ExactOwnerLedgerSealError,
+    ExactOwnerLedgerSnapshotIdentity, ExactOwnerLedgerValidatedMutation, ExactTerminalCoverDelta,
+    ExactTerminalCoverDeltaKind,
 };
 #[allow(unused_imports)]
 pub(crate) use dual::{

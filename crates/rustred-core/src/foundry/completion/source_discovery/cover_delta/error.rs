@@ -56,6 +56,8 @@ pub(crate) enum ExactOwnerCoverDeltaError {
     Staging(StagedSectorClosureError),
     Geometry(CompletionGeometryError),
     NonMonotoneExactCover,
+    TerminalOutsideClosureCarrier,
+    TerminalChangedUncoveredGeometry,
     ForeignLedgerSnapshotIdentity,
     StaleLedgerSnapshotIdentity {
         expected: ExactOwnerLedgerRevision,
@@ -82,8 +84,12 @@ impl fmt::Display for ExactOwnerCoverDeltaError {
             Self::Staging(error) => error.fmt(formatter),
             Self::Geometry(error) => error.fmt(formatter),
             Self::NonMonotoneExactCover => formatter.write_str(
-                "adding a canonical exact owner enlarged the compiler's uncovered box union",
+                "a canonical ledger proposal enlarged the compiler's uncovered box union",
             ),
+            Self::TerminalOutsideClosureCarrier => formatter
+                .write_str("an explicit terminal lies outside the exact ledger closure carrier"),
+            Self::TerminalChangedUncoveredGeometry => formatter
+                .write_str("adding an explicit terminal changed the compiled uncovered geometry"),
             Self::ForeignLedgerSnapshotIdentity => formatter.write_str(
                 "the exact owner-ledger snapshot identity belongs to another ledger authority",
             ),

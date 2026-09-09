@@ -70,6 +70,8 @@ pub(crate) use three_loop::canonical_family as canonical_three_loop_family;
 #[cfg(test)]
 pub(crate) use install::authenticate_k6_rule_cell_sources_for_test;
 #[cfg(test)]
+pub(crate) use install::{TerminalAuthorityCandidate, install_terminal_authority};
+#[cfg(test)]
 pub(crate) use terminal::k6_product_reducer_fixture;
 #[cfg(test)]
 pub(crate) use three_loop::alphaloop_lhs_diagnostic::{

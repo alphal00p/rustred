@@ -11,6 +11,13 @@ use crate::foundry::completion::stratum::StratumRegistryError;
 /// outcomes in [`super::SpiredCompactLift`], not errors.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SpiredCompactLiftError {
+    Invariant {
+        detail: &'static str,
+    },
+    AllocationFailure {
+        resource: &'static str,
+        requested: usize,
+    },
     Stratum(StratumRegistryError),
     Campaign(CampaignError),
     Exact(ExactCircuitError),
@@ -19,6 +26,19 @@ pub(crate) enum SpiredCompactLiftError {
 impl fmt::Display for SpiredCompactLiftError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Invariant { detail } => {
+                write!(
+                    formatter,
+                    "SpIRed compact-support invariant failed: {detail}"
+                )
+            }
+            Self::AllocationFailure {
+                resource,
+                requested,
+            } => write!(
+                formatter,
+                "could not allocate {requested} entries for {resource}"
+            ),
             Self::Stratum(error) => write!(
                 formatter,
                 "SpIRed compact-support stratum anchor failed: {error}"
@@ -35,6 +55,7 @@ impl fmt::Display for SpiredCompactLiftError {
 impl std::error::Error for SpiredCompactLiftError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::Invariant { .. } | Self::AllocationFailure { .. } => None,
             Self::Stratum(error) => Some(error),
             Self::Campaign(error) => Some(error),
             Self::Exact(error) => Some(error),

@@ -18,7 +18,7 @@ use super::{
     ExactOwnerCoverDelta, ExactOwnerCoverDeltaError, ExactOwnerCoverDeltaKind,
     ExactOwnerCoverDeltaLimits, ExactOwnerCoverSnapshot, ExactOwnerLedgerCoverStatus,
     ExactOwnerLedgerRevision, ExactOwnerLedgerSealError, ExactOwnerLedgerSnapshotIdentity,
-    ExactProofOwnerSummary,
+    ExactProofOwnerSummary, ExactTerminalCoverDelta, ExactTerminalCoverDeltaKind,
 };
 
 const RETAINED_TERMINALS: &str = "exact cover-delta retained terminals";
@@ -27,6 +27,50 @@ const RETAINED_TERMINALS: &str = "exact cover-delta retained terminals";
 enum CanonicalLedgerState {
     OwnerFree { terminals: Box<[IntegralKey]> },
     Compiled(ExactExecutableOwnerCover),
+}
+
+/// Complete fallible preparation of one exact owner-ledger mutation.
+///
+/// The token owns the prospective compiled state and is bound to one opaque
+/// ledger identity at one monotonic revision. It grants no owner authority on
+/// its own. A case driver may prepare its guard-zero children separately,
+/// validate both mutations, and only then perform their infallible commits.
+#[derive(Debug)]
+pub(crate) struct ExactOwnerLedgerPreparedMutation {
+    expected_identity: ExactOwnerLedgerSnapshotIdentity,
+    committed_revision: ExactOwnerLedgerRevision,
+    updated_state: Option<CanonicalLedgerState>,
+    delta: ExactOwnerCoverDelta,
+}
+
+impl ExactOwnerLedgerPreparedMutation {
+    pub(crate) const fn delta(&self) -> ExactOwnerCoverDelta {
+        self.delta
+    }
+}
+
+/// Exclusive proof that a prepared owner mutation still targets its live
+/// ledger epoch.
+///
+/// The mutable borrow prevents revision drift after validation. Every
+/// fallible allocation, compilation, comparison, and authority check already
+/// happened during preparation, so [`Self::commit`] cannot fail.
+#[derive(Debug)]
+pub(crate) struct ExactOwnerLedgerValidatedMutation<'ledger> {
+    ledger: &'ledger mut CanonicalExactOwnerLedger,
+    prepared: ExactOwnerLedgerPreparedMutation,
+}
+
+impl ExactOwnerLedgerValidatedMutation<'_> {
+    pub(crate) fn commit(self) -> ExactOwnerCoverDelta {
+        let Self { ledger, prepared } = self;
+        debug_assert!(
+            ledger
+                .identity
+                .same_snapshot_as(&prepared.expected_identity)
+        );
+        ledger.install_prepared_owner_mutation(prepared)
+    }
 }
 
 /// One topology-neutral, canonical owner ledger for a fixed sector and exact
@@ -88,6 +132,10 @@ impl CanonicalExactOwnerLedger {
         let mut terminals = Vec::new();
         for terminal in explicit_terminals {
             if coordinator.try_insert_terminal(&sector, ordering, terminal.clone())? {
+                let point = SectorChart::new(sector.clone()).to_lattice(&terminal)?;
+                if !closure_carrier.contains(&point) {
+                    return Err(ExactOwnerCoverDeltaError::TerminalOutsideClosureCarrier);
+                }
                 let requested = terminals.len().checked_add(1).ok_or(
                     ExactOwnerCoverDeltaError::ResourceCountOverflow {
                         resource: RETAINED_TERMINALS,
@@ -228,6 +276,14 @@ impl CanonicalExactOwnerLedger {
         }
     }
 
+    /// Test exact retained-terminal membership without assuming any particular
+    /// storage order. Owner-free ledgers currently retain power-lexicographic
+    /// order, whereas compiled covers canonically retain sector-chart order;
+    /// those orders differ as soon as an inactive coordinate is present.
+    pub(crate) fn has_explicit_terminal(&self, target: &IntegralKey) -> bool {
+        contains_explicit_terminal(self.terminals(), target)
+    }
+
     pub(crate) const fn revision(&self) -> ExactOwnerLedgerRevision {
         self.identity.revision()
     }
@@ -345,14 +401,19 @@ impl CanonicalExactOwnerLedger {
         }
     }
 
-    /// Stage, exactly compile, and compare one already canonical executable
-    /// owner. The ledger is replaced only after every scope, resource,
-    /// compiler, and exact box-union check succeeds.
-    pub(crate) fn try_apply_owner(
-        &mut self,
+    /// Prepare one already canonical executable owner without mutating the
+    /// live ledger.
+    ///
+    /// This performs every fallible allocation, scope/authority check, whole-
+    /// cover compilation, exact geometry comparison, and revision preflight.
+    /// The returned token is valid only for this exact ledger identity and
+    /// revision.
+    pub(crate) fn try_prepare_owner_mutation(
+        &self,
         proposal: Arc<ExactSemanticExecutableOwner>,
-    ) -> Result<ExactOwnerCoverDelta, ExactOwnerCoverDeltaError> {
+    ) -> Result<ExactOwnerLedgerPreparedMutation, ExactOwnerCoverDeltaError> {
         let baseline = self.snapshot();
+        let expected_identity = self.snapshot_identity();
         let mut coordinator = StagedSectorClosureCoordinator::try_new(
             &self.context,
             self.predecessor.clone(),
@@ -372,11 +433,16 @@ impl CanonicalExactOwnerLedger {
             debug_assert!(inserted, "the retained owner set is canonical and unique");
         }
         if !coordinator.try_insert_owner(proposal)? {
-            return Ok(ExactOwnerCoverDelta::new(
-                ExactOwnerCoverDeltaKind::Duplicate,
-                baseline,
-                baseline,
-            ));
+            return Ok(ExactOwnerLedgerPreparedMutation {
+                expected_identity,
+                committed_revision: self.revision(),
+                updated_state: None,
+                delta: ExactOwnerCoverDelta::new(
+                    ExactOwnerCoverDeltaKind::Duplicate,
+                    baseline,
+                    baseline,
+                ),
+            });
         }
 
         let updated_cover = coordinator.try_compile_single_sector_preview(&self.closure_carrier)?;
@@ -405,9 +471,243 @@ impl CanonicalExactOwnerLedger {
             ExactPartitionDelta::Equal => ExactOwnerCoverDeltaKind::ChangedWithoutGeometricShrink,
             ExactPartitionDelta::StrictSubset => ExactOwnerCoverDeltaKind::StrictGeometricShrink,
         };
-        self.state = CanonicalLedgerState::Compiled(updated_cover);
+        Ok(ExactOwnerLedgerPreparedMutation {
+            expected_identity,
+            committed_revision: updated_revision,
+            updated_state: Some(CanonicalLedgerState::Compiled(updated_cover)),
+            delta: ExactOwnerCoverDelta::new(kind, baseline, updated),
+        })
+    }
+
+    /// Bind a completely prepared owner mutation to an exclusive live-ledger
+    /// epoch. A foreign or stale token is rejected before any live mutation.
+    pub(crate) fn try_validate_prepared_owner_mutation(
+        &mut self,
+        prepared: ExactOwnerLedgerPreparedMutation,
+    ) -> Result<ExactOwnerLedgerValidatedMutation<'_>, ExactOwnerCoverDeltaError> {
+        self.try_require_current_snapshot(&prepared.expected_identity)?;
+        Ok(ExactOwnerLedgerValidatedMutation {
+            ledger: self,
+            prepared,
+        })
+    }
+
+    /// Stage, validate, and commit one owner mutation in a convenience call.
+    ///
+    /// Compound owner/guard-child transactions should retain the exclusive
+    /// validated token and commit it only after validating the case-worklist
+    /// mutation as well.
+    pub(crate) fn try_apply_owner(
+        &mut self,
+        proposal: Arc<ExactSemanticExecutableOwner>,
+    ) -> Result<ExactOwnerCoverDelta, ExactOwnerCoverDeltaError> {
+        let prepared = self.try_prepare_owner_mutation(proposal)?;
+        Ok(self
+            .try_validate_prepared_owner_mutation(prepared)?
+            .commit())
+    }
+
+    fn install_prepared_owner_mutation(
+        &mut self,
+        prepared: ExactOwnerLedgerPreparedMutation,
+    ) -> ExactOwnerCoverDelta {
+        let ExactOwnerLedgerPreparedMutation {
+            expected_identity: _,
+            committed_revision,
+            updated_state,
+            delta,
+        } = prepared;
+        debug_assert_eq!(delta.baseline(), self.snapshot());
+        match updated_state {
+            Some(state) => {
+                debug_assert_ne!(committed_revision, self.revision());
+                self.state = state;
+                self.identity = self.identity.at_revision(committed_revision);
+            }
+            None => {
+                debug_assert_eq!(committed_revision, self.revision());
+                debug_assert_eq!(delta.baseline(), delta.updated());
+            }
+        }
+        debug_assert_eq!(delta.updated(), self.snapshot());
+        delta
+    }
+
+    /// Transactionally retain one exact, explicitly policy-authorized finite
+    /// terminal.
+    ///
+    /// The key is never inferred from a bounded miss or finite search window.
+    /// The existing staged coordinator authenticates its sector and retained
+    /// predecessor authority; the exact sector chart authenticates closure-
+    /// carrier membership. If this ledger already has executable owners, the
+    /// whole cover is recompiled before anything is committed. A genuinely
+    /// owner-free ledger retains the terminal for its first owner compile but
+    /// deliberately remains owner-free: this narrow API does not manufacture
+    /// a terminal-only closure proof.
+    pub(crate) fn try_apply_explicit_terminal(
+        &mut self,
+        terminal: IntegralKey,
+    ) -> Result<ExactTerminalCoverDelta, ExactOwnerCoverDeltaError> {
+        let baseline = self.snapshot();
+        if self.has_explicit_terminal(&terminal) {
+            return Ok(ExactTerminalCoverDelta::new(
+                ExactTerminalCoverDeltaKind::Duplicate,
+                baseline,
+                baseline,
+            ));
+        }
+        let updated_revision = self
+            .revision()
+            .checked_next()
+            .ok_or(ExactOwnerCoverDeltaError::LedgerRevisionOverflow)?;
+
+        let mut coordinator = StagedSectorClosureCoordinator::try_new(
+            &self.context,
+            self.predecessor.clone(),
+            [(self.sector.clone(), self.ordering)],
+            self.limits.staged,
+        )?;
+        for retained in self.terminals() {
+            let inserted =
+                coordinator.try_insert_terminal(&self.sector, self.ordering, retained.clone())?;
+            debug_assert!(
+                inserted,
+                "the retained terminal set is canonical and unique"
+            );
+        }
+        for owner in self.owners() {
+            let inserted = coordinator.try_insert_owner(owner.clone())?;
+            debug_assert!(inserted, "the retained owner set is canonical and unique");
+        }
+        if !coordinator.try_insert_terminal(&self.sector, self.ordering, terminal.clone())? {
+            return Ok(ExactTerminalCoverDelta::new(
+                ExactTerminalCoverDeltaKind::Duplicate,
+                baseline,
+                baseline,
+            ));
+        }
+
+        let point = SectorChart::new(self.sector.clone()).to_lattice(&terminal)?;
+        if !self.closure_carrier.contains(&point) {
+            return Err(ExactOwnerCoverDeltaError::TerminalOutsideClosureCarrier);
+        }
+
+        let updated_state = match &self.state {
+            CanonicalLedgerState::OwnerFree { terminals } => {
+                let terminals = try_clone_terminals_with(terminals, terminal)?;
+                CanonicalLedgerState::OwnerFree { terminals }
+            }
+            CanonicalLedgerState::Compiled(current) => {
+                let updated_cover =
+                    coordinator.try_compile_single_sector_preview(&self.closure_carrier)?;
+                if updated_cover.proof_cover().closure_carrier() != &self.closure_carrier {
+                    return Err(ExactOwnerCoverDeltaError::NonMonotoneExactCover);
+                }
+                let partition_delta = try_compare_partitions(
+                    current.proof_cover().uncovered_partition(),
+                    updated_cover.proof_cover().uncovered_partition(),
+                    self.sector.arity(),
+                    self.limits,
+                )?;
+                if partition_delta != ExactPartitionDelta::Equal {
+                    return Err(ExactOwnerCoverDeltaError::TerminalChangedUncoveredGeometry);
+                }
+                CanonicalLedgerState::Compiled(updated_cover)
+            }
+        };
+        let updated = match &updated_state {
+            CanonicalLedgerState::OwnerFree { terminals } => ExactOwnerCoverSnapshot::new(
+                updated_revision,
+                ExactOwnerLedgerCoverStatus::OwnerFree,
+                0,
+                terminals.len(),
+                1,
+                false,
+                0,
+                0,
+            ),
+            CanonicalLedgerState::Compiled(cover) => snapshot_compiled(cover, updated_revision),
+        };
+        self.state = updated_state;
         self.identity = self.identity.at_revision(updated_revision);
-        Ok(ExactOwnerCoverDelta::new(kind, baseline, updated))
+        Ok(ExactTerminalCoverDelta::new(
+            ExactTerminalCoverDeltaKind::Inserted,
+            baseline,
+            updated,
+        ))
+    }
+}
+
+fn try_clone_terminals_with(
+    terminals: &[IntegralKey],
+    terminal: IntegralKey,
+) -> Result<Box<[IntegralKey]>, ExactOwnerCoverDeltaError> {
+    let requested =
+        terminals
+            .len()
+            .checked_add(1)
+            .ok_or(ExactOwnerCoverDeltaError::ResourceCountOverflow {
+                resource: RETAINED_TERMINALS,
+            })?;
+    let mut retained = Vec::new();
+    retained.try_reserve_exact(requested).map_err(|_| {
+        ExactOwnerCoverDeltaError::AllocationFailure {
+            resource: RETAINED_TERMINALS,
+            requested,
+        }
+    })?;
+    retained.extend(terminals.iter().cloned());
+    retained.push(terminal);
+    retained.sort_unstable_by(|left, right| left.powers().cmp(right.powers()));
+    Ok(retained.into_boxed_slice())
+}
+
+fn contains_explicit_terminal(terminals: &[IntegralKey], target: &IntegralKey) -> bool {
+    terminals.iter().any(|terminal| terminal == target)
+}
+
+#[cfg(test)]
+mod terminal_membership_tests {
+    use crate::family::IntegralKey;
+
+    use super::contains_explicit_terminal;
+
+    #[test]
+    fn inactive_lattice_order_does_not_need_integral_key_sorting() {
+        // For an inactive coordinate, chart order 0, 1, 2 maps to powers
+        // 0, -1, -2 and is therefore the reverse of IntegralKey order.
+        let terminals = [
+            IntegralKey::try_new([0]).unwrap(),
+            IntegralKey::try_new([-1]).unwrap(),
+            IntegralKey::try_new([-2]).unwrap(),
+        ];
+        assert!(terminals.windows(2).any(|pair| pair[0] > pair[1]));
+        for terminal in &terminals {
+            assert!(contains_explicit_terminal(&terminals, terminal));
+        }
+        assert!(!contains_explicit_terminal(
+            &terminals,
+            &IntegralKey::try_new([-3]).unwrap(),
+        ));
+    }
+
+    #[test]
+    fn mixed_sector_lattice_order_does_not_need_integral_key_sorting() {
+        // These are in chart order for sector [active, inactive]:
+        // (0,0), (0,1), (1,0). They are not power-lexicographic.
+        let terminals = [
+            IntegralKey::try_new([1, 0]).unwrap(),
+            IntegralKey::try_new([1, -1]).unwrap(),
+            IntegralKey::try_new([2, 0]).unwrap(),
+        ];
+        assert!(terminals.windows(2).any(|pair| pair[0] > pair[1]));
+        for terminal in &terminals {
+            assert!(contains_explicit_terminal(&terminals, terminal));
+        }
+        assert!(!contains_explicit_terminal(
+            &terminals,
+            &IntegralKey::try_new([2, -1]).unwrap(),
+        ));
     }
 }
 

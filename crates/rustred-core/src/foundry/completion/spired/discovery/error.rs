@@ -4,7 +4,9 @@ use crate::foundry::completion::guard::ExactGuardProbeError;
 use crate::foundry::completion::source_discovery::CampaignError;
 use crate::foundry::completion::stratum::StratumRegistryError;
 
-use super::super::{DirectShiftedSourceError, SpiredModularError};
+use super::super::{
+    DirectShiftedSourceError, SpiredModularError, SpiredStructuralPreparationError,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SpiredStreamingError {
@@ -15,6 +17,16 @@ pub(crate) enum SpiredStreamingError {
     },
     Poisoned,
     DuplicateTargetTerm,
+    PreparedPlanScopeMismatch,
+    PreparedPlanChronology {
+        expected_row: usize,
+        actual_row: usize,
+    },
+    PreparedTermCountMismatch {
+        row: usize,
+        planned: usize,
+        evaluated: usize,
+    },
     ForbiddenColumnIdNotRepresentable {
         forbidden_columns: usize,
     },
@@ -33,6 +45,7 @@ pub(crate) enum SpiredStreamingError {
     Probe(CampaignError),
     GuardProbe(ExactGuardProbeError),
     Evaluation(DirectShiftedSourceError),
+    StructuralPreparation(SpiredStructuralPreparationError),
     Classification(StratumRegistryError),
     Modular(SpiredModularError),
     Invariant {
@@ -58,6 +71,24 @@ impl fmt::Display for SpiredStreamingError {
             }
             Self::DuplicateTargetTerm => formatter.write_str(
                 "one translated ordinary source contains the target structural shift twice",
+            ),
+            Self::PreparedPlanScopeMismatch => formatter.write_str(
+                "prepared structural rows belong to a different exact case/source/owner scope",
+            ),
+            Self::PreparedPlanChronology {
+                expected_row,
+                actual_row,
+            } => write!(
+                formatter,
+                "prepared structural row {actual_row} is out of order; probe expects row {expected_row}"
+            ),
+            Self::PreparedTermCountMismatch {
+                row,
+                planned,
+                evaluated,
+            } => write!(
+                formatter,
+                "prepared row {row} has {planned} structural roles but coefficient evaluation returned {evaluated} residues"
             ),
             Self::ForbiddenColumnIdNotRepresentable { forbidden_columns } => write!(
                 formatter,
@@ -94,6 +125,9 @@ impl fmt::Display for SpiredStreamingError {
             Self::Evaluation(error) => {
                 write!(formatter, "shifted-source evaluation failed: {error}")
             }
+            Self::StructuralPreparation(error) => {
+                write!(formatter, "shared structural preparation failed: {error}")
+            }
             Self::Classification(error) => {
                 write!(
                     formatter,
@@ -116,6 +150,7 @@ impl std::error::Error for SpiredStreamingError {
             Self::Probe(error) => Some(error),
             Self::GuardProbe(error) => Some(error),
             Self::Evaluation(error) => Some(error),
+            Self::StructuralPreparation(error) => Some(error),
             Self::Classification(error) => Some(error),
             Self::Modular(error) => Some(error),
             _ => None,
@@ -138,6 +173,12 @@ impl From<ExactGuardProbeError> for SpiredStreamingError {
 impl From<DirectShiftedSourceError> for SpiredStreamingError {
     fn from(error: DirectShiftedSourceError) -> Self {
         Self::Evaluation(error)
+    }
+}
+
+impl From<SpiredStructuralPreparationError> for SpiredStreamingError {
+    fn from(error: SpiredStructuralPreparationError) -> Self {
+        Self::StructuralPreparation(error)
     }
 }
 

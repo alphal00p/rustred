@@ -50,6 +50,39 @@ only when Symbolica exposes the required public API. Janet/Ore remains an
 explicit optional or hybrid backend and must impose no work or memory overhead
 on a pure SpIReD run.
 
+The production convergence driver must follow Gregor's equality-case chronology:
+its outer queue contains only canonical affine integer equalities, beginning
+with `C=true`; exact rule guards enqueue the overlapping cases `C & g_i=0`;
+and generic-first subsumption happens before nonzero predicates are introduced.
+Disjoint first-zero predicates belong to the separate owner-cover compiler, not
+to discovery identities. Within one case, ordinary sources are translated in
+fair signed-L1 shells. A modular GPLU hit retains both its canonical support
+identity and its dependency-topological row schedule, and the compact exact
+Symbolica rerun must preserve the latter. Equality rank bounds exceptional
+branch depth but not source-search depth; a bounded miss is never terminal or
+closure authority.
+
+For each coordinate case the normal logical target is the canonical zero-shift
+`I(n)`. A pivot shifted tangent to the case is recovered at that target by an
+opposite source translation, so fair source-shell enumeration—not a finite
+walk over concrete targets—is the systematic discovery mechanism. Any
+depth-wide inactive-axis tightening is provisional search geometry; published
+bulk and boundary obligations are recomputed from the winning exact circuit.
+
+The case driver must also turn coefficient-checked inactive-line activation
+faces into equality obligations: a term that is descending in a vacuum
+sector's symbolic interior is not forbidden everywhere merely because it can
+enter a supersector at finitely many boundary values.  If the first exact
+pivot is unusable, the all-row stream continues and a later dependency is
+materialized with an exact root-constrained Symbolica solve; replaying the
+ordinary first pivot is not an adequate post-hit search.
+
+The equality-only worklist, exact guard-to-case bridge, and ordered modular
+trace now exist as isolated checked primitives. Wiring them into the
+autonomous production driver, replacing the older bounded leader-target loop,
+is the immediate implementation milestone; this paragraph states required
+behavior, not a completed K6 claim.
+
 Stage 1 still ends only after K1, K3, and K6 are autonomously closed and the
 FeynKit-plus-RustRed Vakint acceptance lane passes through three loops. Stage 2
 then applies the same design to the complete K10, K15, and K21 vacuum manifests,

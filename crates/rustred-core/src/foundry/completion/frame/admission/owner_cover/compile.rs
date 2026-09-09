@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use crate::algebra::{IndexedCoefficientContext, IndexedGuardLimits};
+use crate::algebra::IndexedCoefficientContext;
 use crate::family::IntegralKey;
 use crate::foundry::completion::frame::admission::semantic::compare_exact_circuit_content;
 use crate::foundry::completion::{
@@ -28,6 +28,15 @@ const TERMINAL_COORDINATE_CELLS: &str = "exact owner-cover terminal-coordinate c
 const FINITE_POINTS: &str = "exact owner-cover finite complement points";
 const FINITE_POINT_COORDINATE_CELLS: &str = "exact owner-cover finite-complement coordinate cells";
 const POINT_OWNER_PROBES: &str = "exact owner-cover finite point-owner probes";
+const GUARD_COVER_CANDIDATES: &str = "exact owner-cover guard-coverage candidates";
+const GUARD_COVER_ATOMS: &str = "exact owner-cover guard-coverage atoms";
+const GUARD_COVER_HYPERPLANES: &str = "exact owner-cover guard-coverage hyperplanes";
+const GUARD_COVER_HYPERPLANE_COORDINATE_CELLS: &str =
+    "exact owner-cover guard-coverage hyperplane coordinate cells";
+const GUARD_COVER_BOXES: &str = "exact owner-cover guard-coverage boxes";
+const GUARD_COVER_BOX_COORDINATE_CELLS: &str =
+    "exact owner-cover guard-coverage box coordinate cells";
+const GUARD_COVER_SPLIT_OPERATIONS: &str = "exact owner-cover guard-coverage split operations";
 
 struct PreparedOwner {
     input_ordinal: usize,
@@ -167,12 +176,13 @@ impl ExactCircuitOwnerCover {
                 });
             }
         }
-        let uncovered = uncovered_for_owners(
-            carrier,
-            arity,
-            owners.iter().filter(|owner| owner.guard_total),
-            limits,
-        )?;
+        // Geometric authority comes from exact candidate-applicability boxes,
+        // not from the coarse `guard_total` compatibility bit.  This lets
+        // several individually partial candidates close each other's exact
+        // coordinate walls without sampling or claiming a coupled locus.
+        let applicable_boxes =
+            exact_guard_applicability_boxes(context, &mut owners, carrier, &sector, limits)?;
+        let uncovered = uncovered_for_boxes(carrier, arity, applicable_boxes, limits)?;
         let (mut compiled_uncovered_boxes, mut compiled_uncovered_box_coordinate_cells) =
             partition_storage(&uncovered, arity)?;
         let mut compiled_split_operations = uncovered.split_operations();
@@ -392,14 +402,10 @@ fn prepare_owner(
         coordinate_cells,
         limits.max_owner_coordinate_cells,
     )?;
-    let guard_total = guard_total_on_region(
-        context,
-        &outer.semantic,
-        &outer.region,
-        partition.frame().sector(),
-        input_ordinal,
-        limits.guard_locus,
-    )?;
+    // Cheap compatibility seed. Exact separable analysis below upgrades this
+    // bit when one candidate is proved applicable on the complete region.
+    // Coverage itself never consults the bit.
+    let guard_total = outer.semantic.guard_dag().is_abstractly_total();
     Ok(PreparedOwner {
         input_ordinal,
         family_fingerprint: Arc::new(partition.frame().family_fingerprint().to_owned()),
@@ -414,89 +420,286 @@ fn prepare_owner(
     })
 }
 
-fn guard_total_on_region(
+/// Build a sound under-approximation of the points on which at least one
+/// semantic candidate is applicable.
+///
+/// Every admitted box is obtained by subtracting the complete exact integer
+/// zero hyperplanes of every guard from that candidate's owner region.  A
+/// candidate with an identically-zero, coupled, or merely conservative guard
+/// contributes no box at all.  This is intentionally stricter than pointwise
+/// execution: unsupported positive-dimensional loci remain uncovered until a
+/// later exact case owner resolves them.
+fn exact_guard_applicability_boxes(
     context: &IndexedCoefficientContext,
-    semantic: &super::super::ExactCircuitSemanticDag,
-    region: &crate::foundry::completion::LatticeBox,
+    owners: &mut [ExactCircuitOwner],
+    carrier: &LatticeBox,
     sector: &Mask,
-    owner: usize,
-    limits: IndexedGuardLimits,
-) -> Result<bool, ExactCircuitOwnerCoverError> {
-    if semantic.guard_dag().is_abstractly_total() {
-        return Ok(true);
+    limits: ExactCircuitOwnerCoverLimits,
+) -> Result<Vec<LatticeBox>, ExactCircuitOwnerCoverError> {
+    if sector.arity() != context.index_count() || carrier.arity() != sector.arity() {
+        return Err(ExactCircuitOwnerCoverError::Invariant(
+            "guard-coverage context, sector, and carrier arities differ",
+        ));
     }
-    for (candidate_ordinal, candidate) in semantic.candidates().iter().enumerate() {
-        let mut everywhere_applicable = true;
-        for (guard_ordinal, atom) in candidate.guard_atoms().iter().enumerate() {
-            let misses_region = context
-                .integer_zero_locus_misses_domain(
-                    atom.coefficient_system(),
-                    limits,
-                    |position, root| integer_root_belongs_to_region(position, root, region, sector),
-                )
-                .map_err(|error| ExactCircuitOwnerCoverError::GuardLocus {
-                    owner,
-                    candidate: candidate_ordinal,
-                    guard: guard_ordinal,
-                    error,
+    // Complete structural preflight before entering Symbolica factorization.
+    let mut candidate_count = 0usize;
+    let mut atom_count = 0usize;
+    for owner in owners.iter() {
+        candidate_count = checked_add(
+            GUARD_COVER_CANDIDATES,
+            candidate_count,
+            owner.semantic().candidates().len(),
+        )?;
+        atom_count = owner
+            .semantic()
+            .candidates()
+            .iter()
+            .try_fold(atom_count, |count, candidate| {
+                checked_add(GUARD_COVER_ATOMS, count, candidate.guard_atoms().len())
+            })?;
+    }
+    check_limit(
+        GUARD_COVER_CANDIDATES,
+        candidate_count,
+        limits.max_guard_cover_candidates,
+    )?;
+    check_limit(GUARD_COVER_ATOMS, atom_count, limits.max_guard_cover_atoms)?;
+
+    let mut boxes = try_vec(
+        candidate_count.min(limits.max_guard_cover_boxes),
+        GUARD_COVER_BOXES,
+    )?;
+    let mut hyperplane_count = 0usize;
+    let mut hyperplane_coordinate_cells = 0usize;
+    let mut split_operations = 0usize;
+    let mut coordinate_cells = 0usize;
+
+    for (owner_ordinal, owner) in owners.iter_mut().enumerate() {
+        if !owner.region().intersects_box(carrier) {
+            continue;
+        }
+        if owner.guard_total {
+            let requested = checked_add(GUARD_COVER_BOXES, boxes.len(), 1)?;
+            check_limit(GUARD_COVER_BOXES, requested, limits.max_guard_cover_boxes)?;
+            let added_coordinate_cells =
+                checked_mul(GUARD_COVER_BOX_COORDINATE_CELLS, owner.region().arity(), 2)?;
+            coordinate_cells = checked_add(
+                GUARD_COVER_BOX_COORDINATE_CELLS,
+                coordinate_cells,
+                added_coordinate_cells,
+            )?;
+            check_limit(
+                GUARD_COVER_BOX_COORDINATE_CELLS,
+                coordinate_cells,
+                limits.max_guard_cover_box_coordinate_cells,
+            )?;
+            boxes.try_reserve_exact(1).map_err(|_| {
+                ExactCircuitOwnerCoverError::AllocationFailure {
+                    resource: GUARD_COVER_BOXES,
+                    requested,
+                }
+            })?;
+            boxes.push(owner.region().try_clone_fallible()?);
+            continue;
+        }
+        let mut has_total_candidate = owner.guard_total;
+        for (candidate_ordinal, candidate) in owner.semantic().candidates().iter().enumerate() {
+            let mut hyperplanes = try_vec(candidate.guard_atoms().len(), GUARD_COVER_HYPERPLANES)?;
+            let mut supported = true;
+            for (guard_ordinal, atom) in candidate.guard_atoms().iter().enumerate() {
+                let resolution = context
+                    .integer_zero_locus_domain_resolution(
+                        atom.coefficient_system(),
+                        limits.guard_locus,
+                        |position, root| {
+                            integer_root_lattice_coordinate(position, root, sector).is_some_and(
+                                |coordinate| {
+                                    coordinate_belongs_to_box(position, coordinate, owner.region())
+                                        && coordinate_belongs_to_box(position, coordinate, carrier)
+                                },
+                            )
+                        },
+                    )
+                    .map_err(|error| ExactCircuitOwnerCoverError::GuardLocus {
+                        owner: owner_ordinal,
+                        candidate: candidate_ordinal,
+                        guard: guard_ordinal,
+                        error,
+                    })?;
+                let roots = match resolution {
+                    crate::algebra::indexed::IntegerZeroLocusDomainResolution::MissesDomain => {
+                        continue;
+                    }
+                    crate::algebra::indexed::IntegerZeroLocusDomainResolution::IntersectsExactHyperplanes(
+                        roots,
+                    ) => roots,
+                    crate::algebra::indexed::IntegerZeroLocusDomainResolution::IdenticallyZero
+                    | crate::algebra::indexed::IntegerZeroLocusDomainResolution::IntersectsConservativeCover(_)
+                    | crate::algebra::indexed::IntegerZeroLocusDomainResolution::UnsupportedCoupled => {
+                        supported = false;
+                        break;
+                    }
+                };
+                hyperplane_count =
+                    checked_add(GUARD_COVER_HYPERPLANES, hyperplane_count, roots.len())?;
+                check_limit(
+                    GUARD_COVER_HYPERPLANES,
+                    hyperplane_count,
+                    limits.max_guard_cover_hyperplanes,
+                )?;
+                let added_hyperplane_coordinate_cells = checked_mul(
+                    GUARD_COVER_HYPERPLANE_COORDINATE_CELLS,
+                    checked_mul(
+                        GUARD_COVER_HYPERPLANE_COORDINATE_CELLS,
+                        roots.len(),
+                        sector.arity(),
+                    )?,
+                    2,
+                )?;
+                hyperplane_coordinate_cells = checked_add(
+                    GUARD_COVER_HYPERPLANE_COORDINATE_CELLS,
+                    hyperplane_coordinate_cells,
+                    added_hyperplane_coordinate_cells,
+                )?;
+                check_limit(
+                    GUARD_COVER_HYPERPLANE_COORDINATE_CELLS,
+                    hyperplane_coordinate_cells,
+                    limits.max_guard_cover_hyperplane_coordinate_cells,
+                )?;
+                let requested_hyperplanes =
+                    checked_add(GUARD_COVER_HYPERPLANES, hyperplanes.len(), roots.len())?;
+                hyperplanes.try_reserve_exact(roots.len()).map_err(|_| {
+                    ExactCircuitOwnerCoverError::AllocationFailure {
+                        resource: GUARD_COVER_HYPERPLANES,
+                        requested: requested_hyperplanes,
+                    }
                 })?;
-            if !misses_region {
-                everywhere_applicable = false;
-                break;
+                for root in roots.iter() {
+                    let Some(coordinate) =
+                        integer_root_lattice_coordinate(root.index_position(), root.root(), sector)
+                    else {
+                        return Err(ExactCircuitOwnerCoverError::Invariant(
+                            "guard-locus resolver retained a root outside the sector chart",
+                        ));
+                    };
+                    if !coordinate_belongs_to_box(root.index_position(), coordinate, owner.region())
+                        || !coordinate_belongs_to_box(root.index_position(), coordinate, carrier)
+                    {
+                        return Err(ExactCircuitOwnerCoverError::Invariant(
+                            "guard-locus resolver retained a root outside its filtered domain",
+                        ));
+                    }
+                    hyperplanes.push(hyperplane_box(
+                        owner.region(),
+                        root.index_position(),
+                        coordinate,
+                    )?);
+                }
+            }
+            if !supported {
+                continue;
+            }
+
+            hyperplanes.sort_unstable();
+            hyperplanes.dedup();
+            if hyperplanes.is_empty() {
+                has_total_candidate = true;
+            }
+            let candidate_partition =
+                BoxCover::try_new(sector.arity(), hyperplanes, limits.geometry)?
+                    .uncovered_within(owner.region().try_clone_fallible()?)?;
+            split_operations = checked_add(
+                GUARD_COVER_SPLIT_OPERATIONS,
+                split_operations,
+                candidate_partition.split_operations(),
+            )?;
+            check_limit(
+                GUARD_COVER_SPLIT_OPERATIONS,
+                split_operations,
+                limits.max_guard_cover_split_operations,
+            )?;
+
+            let requested = checked_add(
+                GUARD_COVER_BOXES,
+                boxes.len(),
+                candidate_partition.boxes().len(),
+            )?;
+            check_limit(GUARD_COVER_BOXES, requested, limits.max_guard_cover_boxes)?;
+            let added_coordinate_cells = checked_mul(
+                GUARD_COVER_BOX_COORDINATE_CELLS,
+                checked_mul(
+                    GUARD_COVER_BOX_COORDINATE_CELLS,
+                    candidate_partition.boxes().len(),
+                    sector.arity(),
+                )?,
+                2,
+            )?;
+            coordinate_cells = checked_add(
+                GUARD_COVER_BOX_COORDINATE_CELLS,
+                coordinate_cells,
+                added_coordinate_cells,
+            )?;
+            check_limit(
+                GUARD_COVER_BOX_COORDINATE_CELLS,
+                coordinate_cells,
+                limits.max_guard_cover_box_coordinate_cells,
+            )?;
+            boxes
+                .try_reserve_exact(candidate_partition.boxes().len())
+                .map_err(|_| ExactCircuitOwnerCoverError::AllocationFailure {
+                    resource: GUARD_COVER_BOXES,
+                    requested,
+                })?;
+            for cell in candidate_partition.boxes() {
+                boxes.push(cell.try_clone_fallible()?);
             }
         }
-        if everywhere_applicable {
-            return Ok(true);
-        }
+        owner.guard_total = has_total_candidate;
     }
-    // Deliberately conservative: several individually partial candidates may
-    // jointly cover an orthant (for example guards `n` and `n - 1`). Proving
-    // the integer-emptiness of every reachable Incomplete-path conjunction is
-    // a separate exact-locus extension. Until then this returns `false`, so
-    // such a region remains a typed GuardIncomplete obstruction and can never
-    // acquire closure authority from sampling.
-    Ok(false)
+    Ok(boxes)
 }
 
-fn integer_root_belongs_to_region(
-    position: usize,
-    root: &symbolica::prelude::Integer,
-    region: &crate::foundry::completion::LatticeBox,
-    sector: &Mask,
-) -> bool {
-    let Some((&lower, &upper)) = region
+fn coordinate_belongs_to_box(position: usize, coordinate: u64, region: &LatticeBox) -> bool {
+    region
         .lower()
         .get(position)
         .zip(region.upper().get(position))
-    else {
-        // A malformed domain callback must never mint a nonvanishing proof.
-        return true;
-    };
-    let Some(&active) = sector.active_bits().get(position) else {
-        return true;
-    };
-    let Some(root) = root.to_i64() else {
-        // The exact completion lattice can be unbounded even though runtime
-        // integral keys use i64. Retain a possible out-of-range exceptional
-        // root rather than silently certifying a mathematical ray.
-        return true;
-    };
-    let coordinate = if active {
-        if root < 1 {
-            return false;
-        }
-        u64::try_from(i128::from(root) - 1).ok()
+        .is_some_and(|(&lower, &upper)| {
+            coordinate >= lower && upper.is_none_or(|upper| coordinate <= upper)
+        })
+}
+
+fn integer_root_lattice_coordinate(
+    position: usize,
+    root: &symbolica::prelude::Integer,
+    sector: &Mask,
+) -> Option<u64> {
+    let active = *sector.active_bits().get(position)?;
+    let root = root.to_i64()?;
+    if active {
+        (root >= 1).then(|| (root - 1) as u64)
     } else {
-        if root > 0 {
-            return false;
-        }
-        u64::try_from(-i128::from(root)).ok()
+        (root <= 0).then(|| root.unsigned_abs())
+    }
+}
+
+fn hyperplane_box(
+    region: &LatticeBox,
+    position: usize,
+    coordinate: u64,
+) -> Result<LatticeBox, ExactCircuitOwnerCoverError> {
+    let mut lower = try_vec(region.arity(), "guard hyperplane lower endpoints")?;
+    lower.extend_from_slice(region.lower());
+    let mut upper = try_vec(region.arity(), "guard hyperplane upper endpoints")?;
+    upper.extend_from_slice(region.upper());
+    let Some(lower_coordinate) = lower.get_mut(position) else {
+        return Err(ExactCircuitOwnerCoverError::Invariant(
+            "guard hyperplane coordinate lies outside its owner region",
+        ));
     };
-    let Some(coordinate) = coordinate else {
-        // As above, conversion uncertainty withholds the certificate.
-        return true;
-    };
-    coordinate >= lower && upper.is_none_or(|upper| coordinate <= upper)
+    *lower_coordinate = coordinate;
+    upper[position] = Some(coordinate);
+    Ok(LatticeBox::try_from_preallocated(lower, upper)?)
 }
 
 fn effective_partial_owners(
@@ -627,6 +830,21 @@ fn uncovered_for_owners<'a>(
         }
         boxes.push(owner.region().try_clone_fallible()?);
     }
+    let abstract_partition =
+        BoxCover::try_new(arity, boxes, limits.geometry)?.uncovered_partition()?;
+    normalize_uncovered_to_carrier(
+        abstract_partition,
+        carrier,
+        limits.max_finite_complement_points.max(1),
+    )
+}
+
+fn uncovered_for_boxes(
+    carrier: &LatticeBox,
+    arity: usize,
+    boxes: Vec<LatticeBox>,
+    limits: ExactCircuitOwnerCoverLimits,
+) -> Result<UncoveredPartition, ExactCircuitOwnerCoverError> {
     let abstract_partition =
         BoxCover::try_new(arity, boxes, limits.geometry)?.uncovered_partition()?;
     normalize_uncovered_to_carrier(

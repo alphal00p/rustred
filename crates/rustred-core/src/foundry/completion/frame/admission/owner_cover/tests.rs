@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::algebra::{CoefficientContext, IndexedCoefficientContext};
+use crate::algebra::{CoefficientContext, IndexedCoefficientContext, IndexedPolynomial};
 use crate::family::{AffineDenominator, IntegralFamily, IntegralKey};
 use crate::foundry::completion::frame::exact::{
     ExactCircuitLift, ExactCircuitLimits, ExactTargetCircuit, try_lift_exact_circuit,
@@ -14,7 +14,7 @@ use crate::foundry::completion::stratum::{
     DecoratedStratum, GuardBranch, GuardBranchIdentity, ImmutableOwnerSnapshot,
     StratumRegistryLimits, TargetColumnPartition,
 };
-use crate::foundry::completion::{LatticeBox, SectorChart, UncoveredPartition};
+use crate::foundry::completion::{LatticeBox, LatticePoint, SectorChart, UncoveredPartition};
 use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use crate::sector::{InteriorBounds, Mask, OrderingPolicy, SectorMonotoneDomain};
 
@@ -106,6 +106,46 @@ fn tadpole_frame_at_degree(degree: usize) -> (IndexedCoefficientContext, Physica
 
 fn tadpole_frame() -> (IndexedCoefficientContext, PhysicalFramePlan) {
     tadpole_frame_at_degree(0)
+}
+
+fn two_loop_frame() -> (IndexedCoefficientContext, PhysicalFramePlan) {
+    let base = CoefficientContext::new(["d"]);
+    let zero = base.zero();
+    let one = base.one();
+    let family = IntegralFamily::new(
+        "owner-cover-double-tadpole",
+        vec!["k1".to_owned(), "k2".to_owned()],
+        Vec::new(),
+        base.clone(),
+        base.parameter("d").unwrap(),
+        vec![
+            AffineDenominator::new(
+                base.integer(-1),
+                vec![one.clone(), zero.clone(), zero.clone()],
+            ),
+            AffineDenominator::new(base.integer(-1), vec![zero.clone(), zero.clone(), one]),
+            AffineDenominator::new(
+                base.integer(-1),
+                vec![base.one(), base.integer(2), base.one()],
+            ),
+        ],
+        Vec::new(),
+        vec![zero.clone(), zero.clone(), zero],
+    )
+    .unwrap();
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let context = generator.context().clone();
+    let completed = complete_ordinary(&generator);
+    let frame = OneSidedChartFrame::try_new(
+        &generator,
+        &completed,
+        Mask::try_new([true, true, true]).unwrap(),
+        0,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap()
+    .into_plan();
+    (context, frame)
 }
 
 fn k6_s4a_frame() -> (IndexedCoefficientContext, PhysicalFramePlan) {
@@ -227,8 +267,15 @@ fn exact_circuit(
     frame: &PhysicalFramePlan,
     partition: &TargetColumnPartition<'_>,
 ) -> ExactTargetCircuit {
+    let index_values = vec![2; frame.sector().arity()];
     let sample = frame
-        .try_modular_sample(context, PRIME, &[37], &[2], ModularKernelLimits::default())
+        .try_modular_sample(
+            context,
+            PRIME,
+            &[37],
+            &index_values,
+            ModularKernelLimits::default(),
+        )
         .unwrap();
     let ModularTargetQuery::Hit(hit) = sample
         .query_target(
@@ -290,6 +337,28 @@ fn semantic_with_extra_roots(
     circuit: Arc<ExactTargetCircuit>,
     roots: &[i64],
 ) -> Arc<ExactCircuitSemanticDag> {
+    let guard_sets = roots
+        .iter()
+        .map(|&root| {
+            let guard = context
+                .sub(&context.index(0).unwrap(), &context.integer(root))
+                .unwrap();
+            vec![
+                context
+                    .numerator_condition_with_limits(&guard, Default::default())
+                    .unwrap(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    semantic_with_extra_guard_sets(context, partition, circuit, &guard_sets)
+}
+
+fn semantic_with_extra_guard_sets(
+    context: &IndexedCoefficientContext,
+    partition: &TargetColumnPartition<'_>,
+    circuit: Arc<ExactTargetCircuit>,
+    guard_sets: &[Vec<IndexedPolynomial>],
+) -> Arc<ExactCircuitSemanticDag> {
     let baseline = ExactCircuitSemanticDag::try_compile(
         context,
         partition,
@@ -300,21 +369,18 @@ fn semantic_with_extra_roots(
     assert_eq!(baseline.candidates().len(), 1);
 
     let mut candidates = Vec::new();
-    for &root in roots {
-        let guard = context
-            .sub(&context.index(0).unwrap(), &context.integer(root))
-            .unwrap();
-        let polynomial = context
-            .numerator_condition_with_limits(&guard, Default::default())
-            .unwrap();
-        let atom = CoefficientIdealGuardAtom::try_from_pulled_back(
-            context,
-            polynomial,
-            CoefficientIdealGuardLimits::default(),
-        )
-        .unwrap();
+    for guards in guard_sets {
         let mut atoms = baseline.candidates()[0].guard_atoms().to_vec();
-        atoms.push(atom);
+        for guard in guards {
+            atoms.push(
+                CoefficientIdealGuardAtom::try_from_pulled_back(
+                    context,
+                    guard.clone(),
+                    CoefficientIdealGuardLimits::default(),
+                )
+                .unwrap(),
+            );
+        }
         candidates.push((circuit.clone(), atoms));
     }
     Arc::new(
@@ -515,10 +581,15 @@ fn partial_owners_are_used_pointwise_and_incomplete_points_may_be_terminals() {
     )
     .unwrap();
     assert_eq!(selected_cover.status(), ExactOwnerCoverStatus::Closed);
-    assert_eq!(selected_cover.finite_point_owners().len(), 1);
-    let point_owner = &selected_cover.finite_point_owners()[0];
-    assert_eq!(point_owner.point().coordinates(), [1]);
-    assert!(Arc::ptr_eq(point_owner.circuit(), &first_circuit));
+    assert!(selected_cover.finite_point_owners().is_empty());
+    let selected = IntegralKey::try_new([2]).unwrap();
+    assert!(matches!(
+        selected_cover
+            .try_select_at(&context, &selected, Default::default())
+            .unwrap(),
+        ExactOwnerCoverSelection::Descending { candidate, .. }
+            if Arc::ptr_eq(candidate.circuit(), &first_circuit)
+    ));
 
     // On the wall at I(2), the partial DAG returns Incomplete. That exact
     // point may therefore be declared terminal even though its orthant
@@ -658,7 +729,7 @@ fn total_owner_dominance_removes_partial_obligations_and_input_order_is_stable()
 }
 
 #[test]
-fn jointly_exhaustive_partial_candidates_remain_a_typed_guard_obstruction() {
+fn jointly_exhaustive_partial_candidates_close_by_exact_box_union() {
     let (context, frame) = tadpole_frame();
     let partition = partition(&frame);
     let circuit = Arc::new(exact_circuit(&context, &frame, &partition));
@@ -670,18 +741,17 @@ fn jointly_exhaustive_partial_candidates_remain_a_typed_guard_obstruction() {
             &partition,
             ExactCircuitOuterExtensionWitness::try_prove(&partition, semantic).unwrap(),
         )],
-        Vec::<IntegralKey>::new(),
+        [IntegralKey::try_new([1]).unwrap()],
         Default::default(),
     )
     .unwrap();
-    assert_eq!(
-        cover.status(),
-        ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::GuardIncomplete)
-    );
-    assert_eq!(cover.guard_incomplete_owners(), [cover.owners()[0].id()]);
+    assert_eq!(cover.status(), ExactOwnerCoverStatus::Closed);
+    assert!(cover.guard_incomplete_owners().is_empty());
+    assert!(!cover.owners()[0].is_guard_total());
 
-    // The candidates are in fact jointly exhaustive on these exact points,
-    // but bounded observations and this finite sample confer no closure.
+    // Closure comes from the symbolic union `(n != 2) union (n != 3)`, not
+    // from these canary observations. Each exact root wall of one candidate
+    // lies in the other candidate's admitted boxes.
     for power in 2..=8 {
         assert!(matches!(
             cover
@@ -694,6 +764,163 @@ fn jointly_exhaustive_partial_candidates_remain_a_typed_guard_obstruction() {
             ExactOwnerCoverSelection::Descending { .. }
         ));
     }
+}
+
+#[test]
+fn one_candidate_with_two_exact_roots_leaves_only_finite_guard_walls() {
+    let (context, frame) = tadpole_frame();
+    let partition = partition(&frame);
+    let circuit = Arc::new(exact_circuit(&context, &frame, &partition));
+    let n = context.index(0).unwrap();
+    let guard = context
+        .mul(
+            &context.sub(&n, &context.integer(2)).unwrap(),
+            &context.sub(&n, &context.integer(4)).unwrap(),
+        )
+        .unwrap();
+    let polynomial = context
+        .numerator_condition_with_limits(&guard, Default::default())
+        .unwrap();
+    let semantic =
+        semantic_with_extra_guard_sets(&context, &partition, circuit, &[vec![polynomial]]);
+    let cover = ExactCircuitOwnerCover::try_compile(
+        &context,
+        [ExactCircuitOwnerInput::new(
+            &partition,
+            ExactCircuitOuterExtensionWitness::try_prove(&partition, semantic).unwrap(),
+        )],
+        [
+            IntegralKey::try_new([1]).unwrap(),
+            IntegralKey::try_new([2]).unwrap(),
+            IntegralKey::try_new([4]).unwrap(),
+        ],
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(cover.status(), ExactOwnerCoverStatus::Closed);
+    assert_eq!(cover.finite_complement_point_count(), 3);
+    assert!(!cover.owners()[0].is_guard_total());
+    assert!(matches!(
+        cover
+            .try_select_at(
+                &context,
+                &IntegralKey::try_new([3]).unwrap(),
+                Default::default(),
+            )
+            .unwrap(),
+        ExactOwnerCoverSelection::Descending { .. }
+    ));
+}
+
+#[test]
+fn exact_guard_boxes_split_multiple_axes_without_sampling() {
+    let (context, frame) = two_loop_frame();
+    let partition = partition_at(&frame, target_with_shift(&frame, &[1, 0, 0]));
+    let circuit = Arc::new(exact_circuit(&context, &frame, &partition));
+    let baseline = semantic(&context, &partition, circuit.clone());
+    let baseline_cover = ExactCircuitOwnerCover::try_compile(
+        &context,
+        [ExactCircuitOwnerInput::new(
+            &partition,
+            ExactCircuitOuterExtensionWitness::try_prove(&partition, baseline).unwrap(),
+        )],
+        Vec::<IntegralKey>::new(),
+        Default::default(),
+    )
+    .unwrap();
+    assert!(baseline_cover.owners()[0].is_guard_total());
+    let leading = baseline_cover.owners()[0].leading().coordinates();
+    let leading_point = LatticePoint::try_new(leading.iter().copied()).unwrap();
+    let leading_integral = SectorChart::new(frame.sector().clone())
+        .to_integral(&leading_point)
+        .unwrap();
+
+    let mut extra = Vec::new();
+    for position in 0..2 {
+        let guard = context
+            .sub(
+                &context.index(position).unwrap(),
+                &context.integer(leading_integral.powers()[position]),
+            )
+            .unwrap();
+        extra.push(
+            context
+                .numerator_condition_with_limits(&guard, Default::default())
+                .unwrap(),
+        );
+    }
+    let semantic = semantic_with_extra_guard_sets(&context, &partition, circuit, &[extra]);
+    let upper = leading
+        .iter()
+        .map(|&coordinate| Some(coordinate + 2))
+        .collect::<Vec<_>>();
+    let carrier = LatticeBox::try_new([0, 0, 0], upper).unwrap();
+    let cover = ExactCircuitOwnerCover::try_compile_with_carrier(
+        &context,
+        [ExactCircuitOwnerInput::new(
+            &partition,
+            ExactCircuitOuterExtensionWitness::try_prove(&partition, semantic).unwrap(),
+        )],
+        Vec::<IntegralKey>::new(),
+        &carrier,
+        Default::default(),
+    )
+    .unwrap();
+
+    let wall = LatticePoint::try_new([leading[0], leading[1] + 1, leading[2]]).unwrap();
+    let off_walls = LatticePoint::try_new([leading[0] + 1, leading[1] + 1, leading[2]]).unwrap();
+    assert!(
+        cover
+            .uncovered_partition()
+            .boxes()
+            .iter()
+            .any(|cell| cell.contains(&wall))
+    );
+    assert!(
+        !cover
+            .uncovered_partition()
+            .boxes()
+            .iter()
+            .any(|cell| cell.contains(&off_walls))
+    );
+}
+
+#[test]
+fn coupled_guard_candidate_contributes_no_geometric_ownership() {
+    let (context, frame) = two_loop_frame();
+    let partition = partition_at(&frame, target_with_shift(&frame, &[1, 0, 0]));
+    let circuit = Arc::new(exact_circuit(&context, &frame, &partition));
+    let coupled = context
+        .add(
+            &context
+                .mul(&context.index(0).unwrap(), &context.index(1).unwrap())
+                .unwrap(),
+            &context.one(),
+        )
+        .unwrap();
+    let coupled = context
+        .numerator_condition_with_limits(&coupled, Default::default())
+        .unwrap();
+    let semantic = semantic_with_extra_guard_sets(&context, &partition, circuit, &[vec![coupled]]);
+    let cover = ExactCircuitOwnerCover::try_compile(
+        &context,
+        [ExactCircuitOwnerInput::new(
+            &partition,
+            ExactCircuitOuterExtensionWitness::try_prove(&partition, semantic).unwrap(),
+        )],
+        Vec::<IntegralKey>::new(),
+        Default::default(),
+    )
+    .unwrap();
+    let leading = cover.owners()[0].leading();
+    assert!(
+        cover
+            .uncovered_partition()
+            .boxes()
+            .iter()
+            .any(|cell| cell.contains(leading))
+    );
+    assert!(!cover.owners()[0].is_guard_total());
 }
 
 #[test]
@@ -722,12 +949,13 @@ fn owner_cover_resource_limits_fail_before_admission() {
         })
     ));
 
-    let semantic = semantic(
+    let endpoint_semantic = semantic(
         &context,
         &partition,
         Arc::new(exact_circuit(&context, &frame, &partition)),
     );
-    let extension = ExactCircuitOuterExtensionWitness::try_prove(&partition, semantic).unwrap();
+    let extension =
+        ExactCircuitOuterExtensionWitness::try_prove(&partition, endpoint_semantic).unwrap();
     let endpoint_limits = ExactCircuitOwnerCoverLimits {
         // One one-dimensional region retains one lower and one upper endpoint.
         max_owner_coordinate_cells: 1,
@@ -745,6 +973,57 @@ fn owner_cover_resource_limits_fail_before_admission() {
             requested: 2,
             limit: 1,
         })
+    ));
+
+    let guard_preflight_semantic = semantic(
+        &context,
+        &partition,
+        Arc::new(exact_circuit(&context, &frame, &partition)),
+    );
+    let extension =
+        ExactCircuitOuterExtensionWitness::try_prove(&partition, guard_preflight_semantic).unwrap();
+    let guard_preflight_limits = ExactCircuitOwnerCoverLimits {
+        max_guard_cover_candidates: 0,
+        ..Default::default()
+    };
+    assert!(matches!(
+        ExactCircuitOwnerCover::try_compile(
+            &context,
+            [ExactCircuitOwnerInput::new(&partition, extension)],
+            Vec::<IntegralKey>::new(),
+            guard_preflight_limits,
+        ),
+        Err(ExactCircuitOwnerCoverError::ResourceLimit {
+            resource: "exact owner-cover guard-coverage candidates",
+            requested: 1,
+            limit: 0,
+        })
+    ));
+
+    let guarded_semantic = semantic_with_extra_roots(
+        &context,
+        &partition,
+        Arc::new(exact_circuit(&context, &frame, &partition)),
+        &[2],
+    );
+    let extension =
+        ExactCircuitOuterExtensionWitness::try_prove(&partition, guarded_semantic).unwrap();
+    let hyperplane_coordinate_limits = ExactCircuitOwnerCoverLimits {
+        max_guard_cover_hyperplane_coordinate_cells: 0,
+        ..Default::default()
+    };
+    assert!(matches!(
+        ExactCircuitOwnerCover::try_compile(
+            &context,
+            [ExactCircuitOwnerInput::new(&partition, extension)],
+            Vec::<IntegralKey>::new(),
+            hyperplane_coordinate_limits,
+        ),
+        Err(ExactCircuitOwnerCoverError::ResourceLimit {
+            resource: "exact owner-cover guard-coverage hyperplane coordinate cells",
+            requested,
+            limit: 0,
+        }) if requested > 0
     ));
 }
 

@@ -23,6 +23,17 @@ pub(crate) enum PhysicalFrameError {
         expected: usize,
         actual: usize,
     },
+    WrongExplicitSourceOrderLength {
+        expected: usize,
+        actual: usize,
+    },
+    ExplicitSourceOrderRequestAbsent {
+        position: usize,
+    },
+    DuplicateExplicitSourceOrderRequest {
+        first_position: usize,
+        second_position: usize,
+    },
     DegreeNotRepresentable {
         degree: usize,
     },
@@ -78,6 +89,21 @@ impl fmt::Display for PhysicalFrameError {
             } => write!(
                 formatter,
                 "physical-frame source row {row} has term-shift arity {actual}, expected {expected}"
+            ),
+            Self::WrongExplicitSourceOrderLength { expected, actual } => write!(
+                formatter,
+                "physical-frame explicit source order has {actual} requests, expected {expected}"
+            ),
+            Self::ExplicitSourceOrderRequestAbsent { position } => write!(
+                formatter,
+                "physical-frame explicit source-order request at position {position} is absent from the canonical selected batch"
+            ),
+            Self::DuplicateExplicitSourceOrderRequest {
+                first_position,
+                second_position,
+            } => write!(
+                formatter,
+                "physical-frame explicit source order repeats one request at positions {first_position} and {second_position}"
             ),
             Self::DegreeNotRepresentable { degree } => write!(
                 formatter,

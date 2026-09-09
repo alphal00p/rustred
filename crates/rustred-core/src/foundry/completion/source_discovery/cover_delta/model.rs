@@ -111,6 +111,63 @@ pub(crate) struct ExactOwnerCoverDelta {
     updated: ExactOwnerCoverSnapshot,
 }
 
+/// Exact semantic effect of explicitly retaining one already authenticated
+/// finite terminal in a live ledger.
+///
+/// This is deliberately distinct from an owner delta: a terminal does not
+/// acquire authority from bounded search and does not geometrically cover an
+/// infinite region. `Inserted` means only that the caller-supplied exact key
+/// survived the existing predecessor/coordinator/compiler checks and changed
+/// the retained terminal set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExactTerminalCoverDeltaKind {
+    /// The exact terminal key was already retained.
+    Duplicate,
+    /// The exact terminal key was transactionally added.
+    Inserted,
+}
+
+/// Structural before/after telemetry for one explicit-terminal transaction.
+///
+/// Closure remains authoritative only through `updated().status()`. This
+/// value cannot authorize a terminal, delayed task, or publication.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ExactTerminalCoverDelta {
+    kind: ExactTerminalCoverDeltaKind,
+    baseline: ExactOwnerCoverSnapshot,
+    updated: ExactOwnerCoverSnapshot,
+}
+
+impl ExactTerminalCoverDelta {
+    pub(crate) const fn kind(self) -> ExactTerminalCoverDeltaKind {
+        self.kind
+    }
+
+    pub(crate) const fn baseline(self) -> ExactOwnerCoverSnapshot {
+        self.baseline
+    }
+
+    pub(crate) const fn updated(self) -> ExactOwnerCoverSnapshot {
+        self.updated
+    }
+
+    pub(crate) const fn transitioned_to_compiler_closed(self) -> bool {
+        !self.baseline.status().is_compiler_closed() && self.updated.status().is_compiler_closed()
+    }
+
+    pub(super) const fn new(
+        kind: ExactTerminalCoverDeltaKind,
+        baseline: ExactOwnerCoverSnapshot,
+        updated: ExactOwnerCoverSnapshot,
+    ) -> Self {
+        Self {
+            kind,
+            baseline,
+            updated,
+        }
+    }
+}
+
 impl ExactOwnerCoverDelta {
     pub(crate) const fn kind(self) -> ExactOwnerCoverDeltaKind {
         self.kind

@@ -8,15 +8,17 @@ use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
 use crate::identity::TranslatedSourceRequest;
 
 use super::limits::{
-    FORBIDDEN_COLUMNS, NEW_COLUMN_POSITIONS, REDUCER_DENSE_SCAN_WORK, REDUCER_ENTRIES,
+    DEPENDENCY_ORDER_REQUESTS, FORBIDDEN_COLUMNS, HIT_REQUEST_SHIFT_COMPONENTS, HIT_TRACE_EDGES,
+    NEW_COLUMN_POSITIONS, POST_HIT_ROWS, REDUCER_DENSE_SCAN_WORK, REDUCER_ENTRIES,
     REDUCER_SCRATCH_CELLS, REQUEST_SHIFT_COMPONENTS, RETAINED_NONZEROS, ROW_COLUMNS,
     ROW_STRUCTURAL_TERMS, ROW_VALUES, ROWS, STRUCTURAL_TERMS, SUPPORT_REQUESTS, TRACE_EDGES,
     TRACE_NODES, TRACE_SHIFT_COMPONENTS, TRACE_WORKSPACE, check_limit, checked_add, checked_u32,
     maximum_native_row_growth, try_reserve, try_vec,
 };
 use super::{
-    SpiredForbiddenTerm, SpiredModularError, SpiredModularHit, SpiredModularLimits,
-    SpiredModularRow,
+    SpiredDependencyTrace, SpiredDependencyTraceNode, SpiredForbiddenTerm, SpiredModularError,
+    SpiredModularHit, SpiredModularLimits, SpiredModularRow, SpiredModularStreamOutcome,
+    SpiredPostHitCandidate,
 };
 
 #[derive(Debug)]
@@ -74,7 +76,9 @@ pub(crate) struct SpiredModularKernel<Column> {
     trace_edges: usize,
     retained_request_shift_components: usize,
     poisoned: bool,
-    hit: bool,
+    /// Augmented-basis ordinal of the immutable first target-producing row.
+    first_target_basis_row: Option<usize>,
+    post_hit_rows_consumed: usize,
 }
 
 impl<Column: Ord + Clone> SpiredModularKernel<Column> {
@@ -96,9 +100,10 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
         let modulus = field.get_prime();
         let (forbidden, augmented) = catch_unwind(AssertUnwindSafe(|| {
             let forbidden = SparseRowReducer::new(0, field.clone(), LuLMode::Pattern);
-            // The target exists from construction and is always the last
-            // logical column of this reducer.
-            let augmented = SparseRowReducer::new(1, field.clone(), LuLMode::Pattern);
+            // The target exists from construction. A permanent all-zero
+            // sentinel follows it, ensuring the augmented reducer never
+            // becomes full and keeps emitting post-hit L-pattern rows.
+            let augmented = SparseRowReducer::new(2, field.clone(), LuLMode::Pattern);
             (forbidden, augmented)
         }))
         .map_err(|_| SpiredModularError::NativePanic {
@@ -119,7 +124,8 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
             trace_edges: 0,
             retained_request_shift_components: 0,
             poisoned: false,
-            hit: false,
+            first_target_basis_row: None,
+            post_hit_rows_consumed: 0,
         })
     }
 
@@ -152,7 +158,11 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
     }
 
     pub(crate) const fn has_hit(&self) -> bool {
-        self.hit
+        self.first_target_basis_row.is_some()
+    }
+
+    pub(crate) const fn post_hit_rows_consumed(&self) -> usize {
+        self.post_hit_rows_consumed
     }
 
     pub(crate) const fn is_poisoned(&self) -> bool {
@@ -166,7 +176,7 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
     /// across calls; the method inserts only the missing set and returns its
     /// cardinality. All missing columns are inserted into each Symbolica
     /// reducer in one `add_cols` call, so old pivots move together and the
-    /// augmented target remains last. Claiming a late column through this API
+    /// augmented target and its trailing sentinel move together. Claiming a late column through this API
     /// is sound only when the sealed coordinator has established its complete
     /// historical structural-zero property. Ordinary streamed rows retain the
     /// independent dynamic-registration fallback.
@@ -177,7 +187,7 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
         if self.poisoned {
             return Err(SpiredModularError::Poisoned);
         }
-        if self.hit {
+        if self.has_hit() {
             return Err(SpiredModularError::AlreadyHit);
         }
         check_limit(
@@ -220,7 +230,7 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
             self.limits.max_forbidden_columns,
         )?;
         checked_u32(FORBIDDEN_COLUMNS, next_forbidden_columns)?;
-        let augmented_columns = checked_add(FORBIDDEN_COLUMNS, next_forbidden_columns, 1)?;
+        let augmented_columns = checked_add(FORBIDDEN_COLUMNS, next_forbidden_columns, 2)?;
         checked_u32(FORBIDDEN_COLUMNS, augmented_columns)?;
         let reducer_width = checked_add(
             REDUCER_SCRATCH_CELLS,
@@ -293,14 +303,46 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
     /// checked target-rank gain.
     pub(crate) fn try_push_row(
         &mut self,
-        mut row: SpiredModularRow<Column>,
+        row: SpiredModularRow<Column>,
     ) -> Result<Option<SpiredModularHit>, SpiredModularError> {
         if self.poisoned {
             return Err(SpiredModularError::Poisoned);
         }
-        if self.hit {
+        if self.has_hit() {
             return Err(SpiredModularError::AlreadyHit);
         }
+        match self.try_push_row_continuing(row)? {
+            SpiredModularStreamOutcome::Pending => Ok(None),
+            SpiredModularStreamOutcome::FirstHit(hit) => Ok(Some(hit)),
+            SpiredModularStreamOutcome::PostHitCandidate(_) => {
+                self.poison();
+                Err(SpiredModularError::Invariant {
+                    detail: "pre-hit row unexpectedly produced a post-hit candidate",
+                })
+            }
+        }
+    }
+
+    /// Admit one row while retaining the first target pivot and, afterwards,
+    /// search a bounded continuation window for a dependency-root candidate.
+    ///
+    /// Returned candidates are modular proposals only. This method performs
+    /// no exact materialization and grants no rule authority.
+    pub(crate) fn try_push_row_continuing(
+        &mut self,
+        mut row: SpiredModularRow<Column>,
+    ) -> Result<SpiredModularStreamOutcome, SpiredModularError> {
+        if self.poisoned {
+            return Err(SpiredModularError::Poisoned);
+        }
+        let was_hit = self.has_hit();
+        let next_post_hit_rows = if was_hit {
+            let next = checked_add(POST_HIT_ROWS, self.post_hit_rows_consumed, 1)?;
+            check_limit(POST_HIT_ROWS, next, self.limits.max_post_hit_rows)?;
+            next
+        } else {
+            self.post_hit_rows_consumed
+        };
 
         let row_ordinal = self.rows_consumed;
         let next_rows = checked_add(ROWS, self.rows_consumed, 1)?;
@@ -377,7 +419,7 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
             self.limits.max_forbidden_columns,
         )?;
         checked_u32(FORBIDDEN_COLUMNS, next_forbidden_columns)?;
-        let augmented_columns = checked_add(FORBIDDEN_COLUMNS, next_forbidden_columns, 1)?;
+        let augmented_columns = checked_add(FORBIDDEN_COLUMNS, next_forbidden_columns, 2)?;
         checked_u32(FORBIDDEN_COLUMNS, augmented_columns)?;
 
         let reducer_width = checked_add(
@@ -419,6 +461,17 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
 
         let forbidden_before = self.forbidden_rank();
         let augmented_before = self.augmented_rank();
+        let augmented_l_rows_before = self
+            .augmented
+            .as_ref()
+            .ok_or(SpiredModularError::Poisoned)?
+            .l()
+            .nrows() as usize;
+        if augmented_before >= augmented_columns {
+            return Err(SpiredModularError::Invariant {
+                detail: "augmented reducer consumed its permanent zero sentinel",
+            });
+        }
         let current_native_entries = self.native_entry_count()?;
         let forbidden_growth = maximum_native_row_growth(
             REDUCER_ENTRIES,
@@ -496,7 +549,8 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
             let insertion = catch_unwind(AssertUnwindSafe(|| {
                 // Positions are relative to the old forbidden ordering. The
                 // same positions insert immediately before the augmented
-                // target, including repeated end positions.
+                // target and its zero sentinel, including repeated end
+                // positions.
                 forbidden.add_cols(&insertion_positions);
                 augmented.add_cols(&insertion_positions);
             }));
@@ -539,24 +593,40 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
         self.structural_terms = next_structural;
         self.retained_nonzeros = next_nonzeros;
         self.reducer_dense_scan_work = next_dense_scan_work;
+        self.post_hit_rows_consumed = next_post_hit_rows;
 
         let forbidden_after = self.forbidden_rank();
         let augmented_after = self.augmented_rank();
-        if let Err(error) = validate_rank_step(
-            forbidden_before,
-            augmented_before,
-            forbidden_after,
-            augmented_after,
-            forbidden_pivot,
-            augmented_pivot,
-            target_column,
-        ) {
+        let rank_validation = if was_hit {
+            validate_post_hit_rank_step(
+                forbidden_before,
+                augmented_before,
+                forbidden_after,
+                augmented_after,
+                forbidden_pivot,
+                augmented_pivot,
+                target_column,
+            )
+        } else {
+            validate_rank_step(
+                forbidden_before,
+                augmented_before,
+                forbidden_after,
+                augmented_after,
+                forbidden_pivot,
+                augmented_pivot,
+                target_column,
+            )
+        };
+        if let Err(error) = rank_validation {
             self.poison();
             return Err(error);
         }
 
+        let source = row.source;
         let trace_root = if augmented_pivot.is_some() {
-            match self.capture_trace_node(row.source, augmented_before) {
+            match self.capture_trace_node(source.clone(), augmented_before, augmented_l_rows_before)
+            {
                 Ok(root) => Some(root),
                 Err(error) => {
                     self.poison();
@@ -570,9 +640,56 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
             return Err(error);
         }
 
+        if was_hit {
+            if forbidden_pivot.is_some() || row_nonzeros == 0 {
+                return Ok(SpiredModularStreamOutcome::Pending);
+            }
+            let direct_dependencies = match self
+                .capture_dependent_dependencies(augmented_before, augmented_l_rows_before)
+            {
+                Ok(dependencies) => dependencies,
+                Err(error) => {
+                    self.poison();
+                    return Err(error);
+                }
+            };
+            let first_target =
+                self.first_target_basis_row
+                    .ok_or(SpiredModularError::Invariant {
+                        detail: "post-hit stream lost its first target basis row",
+                    })?;
+            let reaches_target = match self.dependencies_reach(first_target, &direct_dependencies) {
+                Ok(reaches) => reaches,
+                Err(error) => {
+                    self.poison();
+                    return Err(error);
+                }
+            };
+            if !reaches_target {
+                return Ok(SpiredModularStreamOutcome::Pending);
+            }
+            let dependency_trace = match self.build_virtual_root_trace(source, &direct_dependencies)
+            {
+                Ok(trace) => trace,
+                Err(error) => {
+                    self.poison();
+                    return Err(error);
+                }
+            };
+            return Ok(SpiredModularStreamOutcome::PostHitCandidate(
+                SpiredPostHitCandidate {
+                    rows_consumed: self.rows_consumed,
+                    forbidden_rank: self.forbidden_rank(),
+                    augmented_rank: self.augmented_rank(),
+                    target_logical_column: target_column,
+                    dependency_trace,
+                },
+            ));
+        }
+
         let hit_now = augmented_after == forbidden_after + 1;
         if !hit_now {
-            return Ok(None);
+            return Ok(SpiredModularStreamOutcome::Pending);
         }
         let root = match trace_root {
             Some(root) => root,
@@ -590,8 +707,8 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
                 return Err(error);
             }
         };
-        self.hit = true;
-        Ok(Some(hit))
+        self.first_target_basis_row = Some(root);
+        Ok(SpiredModularStreamOutcome::FirstHit(hit))
     }
 
     fn check_dimensions(&self) -> Result<(), SpiredModularError> {
@@ -608,9 +725,9 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
                 detail: "forbidden reducer width disagrees with its structural registry",
             });
         }
-        if augmented.u().ncols() as usize != self.forbidden_columns.len() + 1 {
+        if augmented.u().ncols() as usize != self.forbidden_columns.len() + 2 {
             return Err(SpiredModularError::Invariant {
-                detail: "augmented reducer did not retain the target as its last column",
+                detail: "augmented reducer did not retain target-plus-sentinel layout",
             });
         }
         Ok(())
@@ -620,6 +737,7 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
         &mut self,
         source: TranslatedSourceRequest,
         prior_augmented_rank: usize,
+        prior_l_rows: usize,
     ) -> Result<usize, SpiredModularError> {
         if self.trace_nodes.len() != prior_augmented_rank {
             return Err(SpiredModularError::Invariant {
@@ -631,6 +749,11 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
             .as_ref()
             .ok_or(SpiredModularError::Poisoned)?
             .l();
+        if lower.nrows() as usize != prior_l_rows + 1 {
+            return Err(SpiredModularError::Invariant {
+                detail: "accepted augmented row did not append exactly one L-pattern row",
+            });
+        }
         let row = (lower.nrows() as usize)
             .checked_sub(1)
             .ok_or(SpiredModularError::Invariant {
@@ -654,12 +777,12 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
             .ok_or(SpiredModularError::Invariant {
                 detail: "L-pattern row range is invalid",
             })?;
-        let mut dependencies = try_vec(TRACE_EDGES, pattern.len())?;
+        let mut dependency_count = 0usize;
         let mut diagonal_count = 0usize;
         for &raw in pattern {
             let dependency = raw as usize;
             if dependency < prior_augmented_rank {
-                dependencies.push(dependency);
+                dependency_count = checked_add(TRACE_EDGES, dependency_count, 1)?;
             } else if dependency == prior_augmented_rank {
                 diagonal_count = checked_add(TRACE_EDGES, diagonal_count, 1)?;
             } else {
@@ -673,15 +796,9 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
                 detail: "accepted augmented L-pattern row lacks one diagonal entry",
             });
         }
-        dependencies.sort_unstable();
-        if dependencies.windows(2).any(|pair| pair[0] == pair[1]) {
-            return Err(SpiredModularError::Invariant {
-                detail: "augmented L-pattern repeats a direct dependency",
-            });
-        }
         let next_nodes = checked_add(TRACE_NODES, self.trace_nodes.len(), 1)?;
         check_limit(TRACE_NODES, next_nodes, self.limits.max_trace_nodes)?;
-        let next_edges = checked_add(TRACE_EDGES, self.trace_edges, dependencies.len())?;
+        let next_edges = checked_add(TRACE_EDGES, self.trace_edges, dependency_count)?;
         check_limit(TRACE_EDGES, next_edges, self.limits.max_trace_edges)?;
         let next_shift_components = checked_add(
             TRACE_SHIFT_COMPONENTS,
@@ -693,6 +810,19 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
             next_shift_components,
             self.limits.max_retained_request_shift_components,
         )?;
+        let mut dependencies = try_vec(TRACE_EDGES, dependency_count)?;
+        for &raw in pattern {
+            let dependency = raw as usize;
+            if dependency < prior_augmented_rank {
+                dependencies.push(dependency);
+            }
+        }
+        dependencies.sort_unstable();
+        if dependencies.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(SpiredModularError::Invariant {
+                detail: "augmented L-pattern repeats a direct dependency",
+            });
+        }
         try_reserve(&mut self.trace_nodes, 1, TRACE_NODES)?;
         let root = self.trace_nodes.len();
         self.trace_nodes.push(TraceNode {
@@ -702,6 +832,274 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
         self.trace_edges = next_edges;
         self.retained_request_shift_components = next_shift_components;
         Ok(root)
+    }
+
+    /// Read the direct GPLU predecessors of one dependent augmented row.
+    /// The permanent zero sentinel guarantees Symbolica did not take its
+    /// full-rank early return for a nonzero row.
+    fn capture_dependent_dependencies(
+        &self,
+        prior_augmented_rank: usize,
+        prior_l_rows: usize,
+    ) -> Result<Box<[usize]>, SpiredModularError> {
+        if self.trace_nodes.len() != prior_augmented_rank {
+            return Err(SpiredModularError::Invariant {
+                detail: "dependent augmented row and basis trace rank diverged",
+            });
+        }
+        let lower = self
+            .augmented
+            .as_ref()
+            .ok_or(SpiredModularError::Poisoned)?
+            .l();
+        if lower.nrows() as usize != prior_l_rows + 1 {
+            return Err(SpiredModularError::Invariant {
+                detail: "dependent augmented row did not append exactly one L-pattern row",
+            });
+        }
+        let row = prior_l_rows;
+        let start = *lower
+            .row_ptrs()
+            .get(row)
+            .ok_or(SpiredModularError::Invariant {
+                detail: "dependent L-pattern row start is absent",
+            })?;
+        let end = *lower
+            .row_ptrs()
+            .get(row + 1)
+            .ok_or(SpiredModularError::Invariant {
+                detail: "dependent L-pattern row end is absent",
+            })?;
+        let pattern = lower
+            .col_idcs()
+            .get(start..end)
+            .ok_or(SpiredModularError::Invariant {
+                detail: "dependent L-pattern row range is invalid",
+            })?;
+        let mut dependencies = try_vec(HIT_TRACE_EDGES, pattern.len())?;
+        for &raw in pattern {
+            let dependency = raw as usize;
+            if dependency >= prior_augmented_rank {
+                return Err(SpiredModularError::Invariant {
+                    detail: "dependent L-pattern references a non-basis row",
+                });
+            }
+            dependencies.push(dependency);
+        }
+        dependencies.sort_unstable();
+        if dependencies.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(SpiredModularError::Invariant {
+                detail: "dependent augmented L-pattern repeats a direct predecessor",
+            });
+        }
+        Ok(dependencies.into_boxed_slice())
+    }
+
+    fn dependencies_reach(
+        &self,
+        target: usize,
+        roots: &[usize],
+    ) -> Result<bool, SpiredModularError> {
+        if target >= self.trace_nodes.len() {
+            return Err(SpiredModularError::Invariant {
+                detail: "first target row escaped the augmented basis trace",
+            });
+        }
+        let mut visited = try_vec(TRACE_WORKSPACE, self.trace_nodes.len())?;
+        visited.resize(self.trace_nodes.len(), false);
+        let mut stack = try_vec(TRACE_WORKSPACE, roots.len())?;
+        for &root in roots.iter().rev() {
+            let scheduled = visited.get_mut(root).ok_or(SpiredModularError::Invariant {
+                detail: "dependent root references a missing augmented basis row",
+            })?;
+            if !*scheduled {
+                *scheduled = true;
+                stack.push(root);
+            }
+        }
+        while let Some(node) = stack.pop() {
+            if node == target {
+                return Ok(true);
+            }
+            let trace = self
+                .trace_nodes
+                .get(node)
+                .ok_or(SpiredModularError::Invariant {
+                    detail: "dependency reachability visited a missing basis row",
+                })?;
+            for &dependency in trace.direct_dependencies.iter().rev() {
+                if dependency >= node {
+                    return Err(SpiredModularError::Invariant {
+                        detail: "dependency reachability found a non-acyclic trace edge",
+                    });
+                }
+                let scheduled =
+                    visited
+                        .get_mut(dependency)
+                        .ok_or(SpiredModularError::Invariant {
+                            detail: "dependency reachability escaped the trace arena",
+                        })?;
+                if !*scheduled {
+                    *scheduled = true;
+                    stack.push(dependency);
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    /// Compact the transitive basis closure and append `source` as a virtual,
+    /// dependency-topological root. The dependent row is never inserted into
+    /// the basis trace arena itself.
+    fn build_virtual_root_trace(
+        &self,
+        source: TranslatedSourceRequest,
+        root_dependencies: &[usize],
+    ) -> Result<SpiredDependencyTrace, SpiredModularError> {
+        let mut visited = try_vec(TRACE_WORKSPACE, self.trace_nodes.len())?;
+        visited.resize(self.trace_nodes.len(), false);
+        let mut stack = try_vec(TRACE_WORKSPACE, root_dependencies.len())?;
+        for &root in root_dependencies.iter().rev() {
+            let scheduled = visited.get_mut(root).ok_or(SpiredModularError::Invariant {
+                detail: "virtual root references a missing augmented basis row",
+            })?;
+            if !*scheduled {
+                *scheduled = true;
+                stack.push(root);
+            }
+        }
+        while let Some(node) = stack.pop() {
+            let trace = self
+                .trace_nodes
+                .get(node)
+                .ok_or(SpiredModularError::Invariant {
+                    detail: "virtual-root DFS visited a missing basis row",
+                })?;
+            for &dependency in trace.direct_dependencies.iter().rev() {
+                if dependency >= node {
+                    return Err(SpiredModularError::Invariant {
+                        detail: "virtual-root dependency trace is not strictly acyclic",
+                    });
+                }
+                let scheduled =
+                    visited
+                        .get_mut(dependency)
+                        .ok_or(SpiredModularError::Invariant {
+                            detail: "virtual-root DFS escaped the trace arena",
+                        })?;
+                if !*scheduled {
+                    *scheduled = true;
+                    stack.push(dependency);
+                }
+            }
+        }
+
+        let basis_support = visited.iter().filter(|&&included| included).count();
+        let support_count = checked_add(SUPPORT_REQUESTS, basis_support, 1)?;
+        check_limit(
+            SUPPORT_REQUESTS,
+            support_count,
+            self.limits.max_support_requests,
+        )?;
+        check_limit(
+            DEPENDENCY_ORDER_REQUESTS,
+            support_count,
+            self.limits.max_dependency_order_requests,
+        )?;
+        let trace_edges = visited.iter().zip(&self.trace_nodes).try_fold(
+            root_dependencies.len(),
+            |total, (&included, trace)| {
+                if included {
+                    checked_add(HIT_TRACE_EDGES, total, trace.direct_dependencies.len())
+                } else {
+                    Ok(total)
+                }
+            },
+        )?;
+        check_limit(
+            HIT_TRACE_EDGES,
+            trace_edges,
+            self.limits.max_hit_trace_edges,
+        )?;
+        let shift_components = visited.iter().zip(&self.trace_nodes).try_fold(
+            source.offset().len(),
+            |total, (&included, trace)| {
+                if included {
+                    checked_add(
+                        HIT_REQUEST_SHIFT_COMPONENTS,
+                        total,
+                        trace.source.offset().len(),
+                    )
+                } else {
+                    Ok(total)
+                }
+            },
+        )?;
+        check_limit(
+            HIT_REQUEST_SHIFT_COMPONENTS,
+            shift_components,
+            self.limits.max_hit_request_shift_components,
+        )?;
+
+        let mut compact_ordinals = try_vec(TRACE_WORKSPACE, self.trace_nodes.len())?;
+        compact_ordinals.resize(self.trace_nodes.len(), None);
+        let mut nodes = try_vec(TRACE_NODES, support_count)?;
+        for (original, (&included, trace)) in visited.iter().zip(&self.trace_nodes).enumerate() {
+            if !included {
+                continue;
+            }
+            let compact = nodes.len();
+            let mut direct = try_vec(HIT_TRACE_EDGES, trace.direct_dependencies.len())?;
+            for &predecessor in trace.direct_dependencies.iter() {
+                let mapped = compact_ordinals
+                    .get(predecessor)
+                    .and_then(|ordinal| *ordinal)
+                    .ok_or(SpiredModularError::Invariant {
+                        detail: "virtual-root compaction omitted a basis predecessor",
+                    })?;
+                if mapped >= compact {
+                    return Err(SpiredModularError::Invariant {
+                        detail: "virtual-root compact trace is not topologically ordered",
+                    });
+                }
+                direct.push(mapped);
+            }
+            *compact_ordinals
+                .get_mut(original)
+                .ok_or(SpiredModularError::Invariant {
+                    detail: "virtual-root compact ordinal escaped its workspace",
+                })? = Some(compact);
+            nodes.push(SpiredDependencyTraceNode {
+                source: trace.source.clone(),
+                direct_predecessors: direct.into_boxed_slice(),
+            });
+        }
+        let root = nodes.len();
+        let mut compact_root_dependencies = try_vec(HIT_TRACE_EDGES, root_dependencies.len())?;
+        for &predecessor in root_dependencies {
+            compact_root_dependencies.push(
+                compact_ordinals
+                    .get(predecessor)
+                    .and_then(|ordinal| *ordinal)
+                    .ok_or(SpiredModularError::Invariant {
+                        detail: "virtual root lost one direct predecessor during compaction",
+                    })?,
+            );
+        }
+        nodes.push(SpiredDependencyTraceNode {
+            source,
+            direct_predecessors: compact_root_dependencies.into_boxed_slice(),
+        });
+        if nodes.len() != support_count {
+            return Err(SpiredModularError::Invariant {
+                detail: "virtual-root trace cardinality changed during compaction",
+            });
+        }
+        Ok(SpiredDependencyTrace {
+            nodes: nodes.into_boxed_slice(),
+            root,
+            edge_count: trace_edges,
+        })
     }
 
     fn build_hit(
@@ -720,20 +1118,6 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
             root_node.direct_dependencies.len(),
             self.limits.max_support_requests,
         )?;
-        let mut direct = try_vec(SUPPORT_REQUESTS, root_node.direct_dependencies.len())?;
-        for &dependency in root_node.direct_dependencies.iter() {
-            direct.push(
-                self.trace_nodes
-                    .get(dependency)
-                    .ok_or(SpiredModularError::Invariant {
-                        detail: "direct dependency is outside the trace arena",
-                    })?
-                    .source
-                    .clone(),
-            );
-        }
-        direct.sort_unstable();
-        direct.dedup();
 
         let mut visited = try_vec(TRACE_WORKSPACE, self.trace_nodes.len())?;
         visited.resize(self.trace_nodes.len(), false);
@@ -742,10 +1126,7 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
             detail: "target trace root is outside the DFS workspace",
         })? = true;
         stack.push(root);
-        let mut support = try_vec(
-            SUPPORT_REQUESTS,
-            usize::min(self.trace_nodes.len(), self.limits.max_support_requests),
-        )?;
+        let mut support_count = 0usize;
         while let Some(node) = stack.pop() {
             let trace = self
                 .trace_nodes
@@ -753,13 +1134,13 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
                 .ok_or(SpiredModularError::Invariant {
                     detail: "DFS trace node is absent",
                 })?;
-            let next_support = checked_add(SUPPORT_REQUESTS, support.len(), 1)?;
+            let next_support = checked_add(SUPPORT_REQUESTS, support_count, 1)?;
             check_limit(
                 SUPPORT_REQUESTS,
                 next_support,
                 self.limits.max_support_requests,
             )?;
-            support.push(trace.source.clone());
+            support_count = next_support;
             for &dependency in trace.direct_dependencies.iter().rev() {
                 if dependency >= node {
                     return Err(SpiredModularError::Invariant {
@@ -778,8 +1159,181 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
                 }
             }
         }
+
+        check_limit(
+            DEPENDENCY_ORDER_REQUESTS,
+            support_count,
+            self.limits.max_dependency_order_requests,
+        )?;
+        let support_shift_components = visited.iter().zip(&self.trace_nodes).try_fold(
+            0usize,
+            |total, (&included, trace)| {
+                if included {
+                    checked_add(
+                        HIT_REQUEST_SHIFT_COMPONENTS,
+                        total,
+                        trace.source.offset().len(),
+                    )
+                } else {
+                    Ok(total)
+                }
+            },
+        )?;
+        let direct_shift_components =
+            root_node
+                .direct_dependencies
+                .iter()
+                .try_fold(0usize, |total, &dependency| {
+                    let trace =
+                        self.trace_nodes
+                            .get(dependency)
+                            .ok_or(SpiredModularError::Invariant {
+                                detail: "direct dependency is outside the trace arena",
+                            })?;
+                    checked_add(
+                        HIT_REQUEST_SHIFT_COMPONENTS,
+                        total,
+                        trace.source.offset().len(),
+                    )
+                })?;
+        let hit_shift_components = checked_add(
+            HIT_REQUEST_SHIFT_COMPONENTS,
+            direct_shift_components,
+            checked_add(
+                HIT_REQUEST_SHIFT_COMPONENTS,
+                support_shift_components,
+                checked_add(
+                    HIT_REQUEST_SHIFT_COMPONENTS,
+                    support_shift_components,
+                    support_shift_components,
+                )?,
+            )?,
+        )?;
+        check_limit(
+            HIT_REQUEST_SHIFT_COMPONENTS,
+            hit_shift_components,
+            self.limits.max_hit_request_shift_components,
+        )?;
+
+        let mut dependency_order = try_vec(DEPENDENCY_ORDER_REQUESTS, support_count)?;
+        for (&included, trace) in visited.iter().zip(&self.trace_nodes) {
+            if included {
+                dependency_order.push(trace.source.clone());
+            }
+        }
+        if dependency_order.len() != support_count
+            || dependency_order.last() != Some(&root_node.source)
+        {
+            return Err(SpiredModularError::Invariant {
+                detail: "dependency-topological support lost its root chronology",
+            });
+        }
+
+        let hit_trace_edges = visited.iter().zip(&self.trace_nodes).try_fold(
+            0usize,
+            |total, (&included, trace)| {
+                if included {
+                    checked_add(HIT_TRACE_EDGES, total, trace.direct_dependencies.len())
+                } else {
+                    Ok(total)
+                }
+            },
+        )?;
+        check_limit(
+            HIT_TRACE_EDGES,
+            hit_trace_edges,
+            self.limits.max_hit_trace_edges,
+        )?;
+
+        let mut compact_ordinals = try_vec(TRACE_WORKSPACE, self.trace_nodes.len())?;
+        compact_ordinals.resize(self.trace_nodes.len(), None);
+        let mut dependency_trace_nodes = try_vec(TRACE_NODES, support_count)?;
+        for (original_ordinal, (&included, trace)) in
+            visited.iter().zip(&self.trace_nodes).enumerate()
+        {
+            if !included {
+                continue;
+            }
+            let compact_ordinal = dependency_trace_nodes.len();
+            let mut direct_predecessors =
+                try_vec(HIT_TRACE_EDGES, trace.direct_dependencies.len())?;
+            for &original_predecessor in trace.direct_dependencies.iter() {
+                let compact_predecessor = compact_ordinals
+                    .get(original_predecessor)
+                    .and_then(|ordinal| *ordinal)
+                    .ok_or(SpiredModularError::Invariant {
+                        detail: "compact dependency trace omitted a direct predecessor",
+                    })?;
+                if compact_predecessor >= compact_ordinal {
+                    return Err(SpiredModularError::Invariant {
+                        detail: "compact dependency trace is not topologically ordered",
+                    });
+                }
+                direct_predecessors.push(compact_predecessor);
+            }
+            *compact_ordinals
+                .get_mut(original_ordinal)
+                .ok_or(SpiredModularError::Invariant {
+                    detail: "compact dependency ordinal escaped its trace workspace",
+                })? = Some(compact_ordinal);
+            dependency_trace_nodes.push(SpiredDependencyTraceNode {
+                source: trace.source.clone(),
+                direct_predecessors: direct_predecessors.into_boxed_slice(),
+            });
+        }
+        let compact_root = compact_ordinals
+            .get(root)
+            .and_then(|ordinal| *ordinal)
+            .ok_or(SpiredModularError::Invariant {
+                detail: "compact dependency trace omitted its target root",
+            })?;
+        if compact_root.checked_add(1) != Some(dependency_trace_nodes.len())
+            || dependency_trace_nodes
+                .iter()
+                .map(SpiredDependencyTraceNode::source)
+                .ne(dependency_order.iter())
+        {
+            return Err(SpiredModularError::Invariant {
+                detail: "compact dependency trace and topological projection disagree",
+            });
+        }
+        let dependency_trace = SpiredDependencyTrace {
+            nodes: dependency_trace_nodes.into_boxed_slice(),
+            root: compact_root,
+            edge_count: hit_trace_edges,
+        };
+
+        let mut support = try_vec(SUPPORT_REQUESTS, support_count)?;
+        support.extend(dependency_order.iter().cloned());
         support.sort_unstable();
-        support.dedup();
+        if support.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(SpiredModularError::Invariant {
+                detail: "dependency trace maps distinct nodes to one source request",
+            });
+        }
+
+        let mut direct = try_vec(SUPPORT_REQUESTS, root_node.direct_dependencies.len())?;
+        for &dependency in root_node.direct_dependencies.iter() {
+            direct.push(
+                self.trace_nodes
+                    .get(dependency)
+                    .ok_or(SpiredModularError::Invariant {
+                        detail: "direct dependency is outside the trace arena",
+                    })?
+                    .source
+                    .clone(),
+            );
+        }
+        direct.sort_unstable();
+        if direct.windows(2).any(|pair| pair[0] == pair[1])
+            || direct
+                .iter()
+                .any(|dependency| support.binary_search(dependency).is_err())
+        {
+            return Err(SpiredModularError::Invariant {
+                detail: "direct dependency is not a unique member of canonical support",
+            });
+        }
         Ok(SpiredModularHit {
             rows_consumed: self.rows_consumed,
             forbidden_rank: self.forbidden_rank(),
@@ -787,6 +1341,8 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
             target_logical_column,
             direct_dependencies: direct.into_boxed_slice(),
             support: support.into_boxed_slice(),
+            dependency_order: dependency_order.into_boxed_slice(),
+            dependency_trace,
         })
     }
 
@@ -829,7 +1385,8 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
 
     fn poison(&mut self) {
         self.poisoned = true;
-        self.hit = false;
+        self.first_target_basis_row = None;
+        self.post_hit_rows_consumed = 0;
         drop(self.forbidden.take());
         drop(self.augmented.take());
         drop(std::mem::take(&mut self.forbidden_columns));
@@ -854,6 +1411,45 @@ impl<Column: Ord + Clone> SpiredModularKernel<Column> {
     fn trace_node_count(&self) -> usize {
         self.trace_nodes.len()
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_post_hit_rank_step(
+    forbidden_before: usize,
+    augmented_before: usize,
+    forbidden_after: usize,
+    augmented_after: usize,
+    forbidden_pivot: Option<u32>,
+    augmented_pivot: Option<u32>,
+    target_column: usize,
+) -> Result<(), SpiredModularError> {
+    let forbidden_gain = usize::from(forbidden_pivot.is_some());
+    let augmented_gain = usize::from(augmented_pivot.is_some());
+    if forbidden_after != forbidden_before + forbidden_gain
+        || augmented_after != augmented_before + augmented_gain
+    {
+        return Err(SpiredModularError::Invariant {
+            detail: "Symbolica post-hit pivot result disagrees with the observed rank change",
+        });
+    }
+    if augmented_before != forbidden_before + 1 || augmented_after != forbidden_after + 1 {
+        return Err(SpiredModularError::Invariant {
+            detail: "post-hit stream did not preserve the first target-rank delta",
+        });
+    }
+    if forbidden_pivot.is_some() != augmented_pivot.is_some() {
+        return Err(SpiredModularError::Invariant {
+            detail: "post-hit synchronized reducers disagreed on row dependence",
+        });
+    }
+    if let (Some(forbidden), Some(augmented)) = (forbidden_pivot, augmented_pivot) {
+        if forbidden != augmented || augmented as usize >= target_column {
+            return Err(SpiredModularError::Invariant {
+                detail: "post-hit synchronized reducers chose different forbidden pivots",
+            });
+        }
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

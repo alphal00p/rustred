@@ -167,15 +167,32 @@ pub(crate) fn try_promote_replayed_rule_cell_on_partition(
             |split| split.admitted_domain(),
         )
         .clone();
-    let cell = match RuleCell::try_refined(
-        context,
-        rule,
-        sources,
-        application_domain,
-        fixed,
-        [],
-        limits.cell,
-    ) {
+    let cell = match if guard_domain_split.is_some() {
+        RuleCell::try_refined(
+            context,
+            rule,
+            sources,
+            application_domain,
+            fixed,
+            [],
+            limits.cell,
+        )
+    } else {
+        // Exact replay already established the identity and descent.  When a
+        // separable guard wall crosses the retained box, keep the complete
+        // rule and let semantic routing evaluate its guards pointwise.  The
+        // owner-cover compiler separately subtracts every exact wall before
+        // granting geometric ownership.
+        RuleCell::try_refined_replay_authorized_pointwise_guards(
+            context,
+            rule,
+            sources,
+            application_domain,
+            fixed,
+            [],
+            limits.cell,
+        )
+    } {
         Ok(cell) => cell,
         Err(RuleCellError::GuardVanishesInApplicationDomain {
             ordinal,

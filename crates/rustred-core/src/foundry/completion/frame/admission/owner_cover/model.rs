@@ -43,9 +43,13 @@ impl ExactCircuitOwnerId {
     }
 }
 
-/// One canonically ordered exact-rule region. A guard-total owner covers its
-/// complete exact box (an orthant is represented by all-unbounded uppers); a
-/// partial owner is usable only pointwise.
+/// One canonically ordered exact-rule region.
+///
+/// `guard_total` is compatibility telemetry: it records that at least one
+/// candidate is applicable throughout the region's intersection with the
+/// retained closure carrier. Actual geometric coverage is compiled from the
+/// exact union of every candidate's guard-free boxes, so this bit is never
+/// closure authority.
 #[derive(Debug)]
 pub(crate) struct ExactCircuitOwner {
     pub(super) id: ExactCircuitOwnerId,

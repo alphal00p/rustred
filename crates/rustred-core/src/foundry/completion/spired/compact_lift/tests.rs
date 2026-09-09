@@ -90,6 +90,28 @@ fn k1_streaming_support_replays_and_promotes_with_strict_descent_authority() {
         .expect("the real shifted evaluator/classifier/kernel must find K=1 support");
     assert_eq!(hit.support(), std::slice::from_ref(&request));
 
+    let mut zero_exact_rows = SpiredCompactLiftLimits::default();
+    zero_exact_rows.exact.max_selected_rows = 0;
+    let budgeted = try_lift_spired_compact_support(
+        &case,
+        &generator,
+        &completed,
+        &hit,
+        streaming.probe(),
+        zero_exact_rows,
+    )
+    .unwrap();
+    assert!(matches!(
+        &budgeted,
+        SpiredCompactLift::ExactSupportBudgetExceeded {
+            requested_rows: 1,
+            limit: 0,
+            ..
+        }
+    ));
+    assert!(budgeted.epoch().is_none());
+    assert!(budgeted.circuit().is_none());
+
     let lifted = try_lift_spired_compact_support(
         &case,
         &generator,
@@ -106,6 +128,20 @@ fn k1_streaming_support_replays_and_promotes_with_strict_descent_authority() {
     let circuit = replayed.circuit().clone();
     assert_eq!(replayed.probe(), &probe);
     assert_eq!(epoch.requests().requests(), std::slice::from_ref(&request));
+    assert_eq!(hit.dependency_order(), std::slice::from_ref(&request));
+    assert_eq!(hit.dependency_trace().nodes().len(), 1);
+    assert_eq!(
+        epoch
+            .plan()
+            .source_instances()
+            .iter()
+            .map(|instance| TranslatedSourceRequest::new(
+                instance.provenance().source_ordinal(),
+                instance.provenance().offset().clone(),
+            ))
+            .collect::<Vec<_>>(),
+        hit.dependency_order()
+    );
     assert!(circuit.is_bound_to(epoch.plan()));
     assert_eq!(circuit.target_shift(), &target);
     assert!(!circuit.source_combination().is_empty());

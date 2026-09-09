@@ -10,7 +10,7 @@ use crate::identity::{IntegralShift, TranslatedSourceRequest};
 
 use super::{
     FORBIDDEN_COLUMNS, SpiredForbiddenTerm, SpiredModularError, SpiredModularKernel,
-    SpiredModularLimits, SpiredModularRow,
+    SpiredModularLimits, SpiredModularRow, SpiredModularStreamOutcome,
 };
 
 const PRIME: u64 = 101;
@@ -171,7 +171,7 @@ fn dynamic_columns_insert_before_pivots_and_the_logical_target() {
 }
 
 #[test]
-fn simultaneous_column_insertions_use_old_positions_and_keep_target_last() {
+fn simultaneous_column_insertions_use_old_positions_and_keep_target_before_sentinel() {
     let mut kernel = SpiredModularKernel::try_new(PRIME, SpiredModularLimits::default()).unwrap();
     kernel
         .try_push_row(row(0, [term(30, 1), term(10, 1)], 0))
@@ -332,15 +332,15 @@ fn existing_column_fast_path_does_not_clone_the_registry() {
 #[test]
 fn dense_scan_work_charges_each_row_at_its_actual_streamed_width() {
     let limits = SpiredModularLimits {
-        max_reducer_scratch_cells: 11,
-        max_reducer_dense_scan_work: 14,
+        max_reducer_scratch_cells: 12,
+        max_reducer_dense_scan_work: 16,
         ..SpiredModularLimits::default()
     };
     let mut kernel = SpiredModularKernel::try_new(PRIME, limits).unwrap();
-    // Width 1 + 2 = 3.
+    // Width 1 + 3 = 4 (the augmented width includes target + sentinel).
     kernel.try_push_row(row(0, [term(0, 1)], 0)).unwrap();
-    // Four late structural-zero columns widen the reducers to 5 + 6 = 11.
-    // The cumulative charge is 3 + 11 = 14, not 2 * 11.
+    // Four late structural-zero columns widen the reducers to 5 + 7 = 12.
+    // The cumulative charge is 4 + 12 = 16, not 2 * 12.
     kernel
         .try_push_row(row(1, [term(1, 0), term(2, 0), term(3, 0), term(4, 0)], 0))
         .unwrap();
@@ -349,8 +349,8 @@ fn dense_scan_work_charges_each_row_at_its_actual_streamed_width() {
         kernel.try_push_row(row(2, [term(4, 0)], 0)).unwrap_err(),
         SpiredModularError::ResourceLimit {
             resource: super::REDUCER_DENSE_SCAN_WORK,
-            requested: 25,
-            limit: 14,
+            requested: 28,
+            limit: 16,
         }
     );
     assert!(!kernel.is_poisoned());
@@ -565,7 +565,150 @@ fn dfs_keeps_transitive_dependencies_and_prunes_unrelated_rows() {
         .unwrap();
     assert_eq!(hit.direct_dependencies(), &[request(1)]);
     assert_eq!(hit.support(), &[request(0), request(1), request(3)]);
+    assert_eq!(
+        hit.dependency_order(),
+        &[request(0), request(1), request(3)]
+    );
+    let trace = hit.dependency_trace();
+    assert_eq!(trace.root(), 2);
+    assert_eq!(trace.edge_count(), 2);
+    assert_eq!(trace.nodes().len(), 3);
+    assert_eq!(trace.nodes()[0].source(), &request(0));
+    assert!(trace.nodes()[0].direct_predecessors().is_empty());
+    assert_eq!(trace.nodes()[1].source(), &request(1));
+    assert_eq!(trace.nodes()[1].direct_predecessors(), &[0]);
+    assert_eq!(trace.nodes()[2].source(), &request(3));
+    assert_eq!(trace.nodes()[2].direct_predecessors(), &[1]);
     assert!(!hit.support().contains(&request(2)));
+}
+
+#[test]
+fn dependency_trace_preserves_gplu_topology_separately_from_canonical_support() {
+    let mut kernel = SpiredModularKernel::try_new(PRIME, SpiredModularLimits::default()).unwrap();
+    kernel.try_push_row(row(9, [term(0, 1)], 0)).unwrap();
+    kernel.try_push_row(row(8, [term(1, 1)], 0)).unwrap();
+    kernel
+        .try_push_row(row(4, [term(0, 1), term(2, 1)], 0))
+        .unwrap();
+    kernel
+        .try_push_row(row(3, [term(1, 1), term(3, 1)], 0))
+        .unwrap();
+    let hit = kernel
+        .try_push_row(row(1, [term(2, 1), term(3, 1)], 1))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        hit.support(),
+        &[request(1), request(3), request(4), request(8), request(9)]
+    );
+    assert_eq!(
+        hit.dependency_order(),
+        &[request(9), request(8), request(4), request(3), request(1)]
+    );
+    assert_eq!(hit.direct_dependencies(), &[request(3), request(4)]);
+    let trace = hit.dependency_trace();
+    assert_eq!(trace.root(), 4);
+    assert_eq!(trace.edge_count(), 4);
+    assert_eq!(
+        trace
+            .nodes()
+            .iter()
+            .map(|node| node.source().source_ordinal())
+            .collect::<Vec<_>>(),
+        [9, 8, 4, 3, 1]
+    );
+    assert!(trace.nodes()[0].direct_predecessors().is_empty());
+    assert!(trace.nodes()[1].direct_predecessors().is_empty());
+    assert_eq!(trace.nodes()[2].direct_predecessors(), &[0]);
+    assert_eq!(trace.nodes()[3].direct_predecessors(), &[1]);
+    assert_eq!(trace.nodes()[4].direct_predecessors(), &[2, 3]);
+}
+
+#[test]
+fn dependency_trace_output_caps_fail_closed_after_a_hit() {
+    let limits = SpiredModularLimits {
+        max_dependency_order_requests: 2,
+        ..SpiredModularLimits::default()
+    };
+    let mut kernel = SpiredModularKernel::try_new(PRIME, limits).unwrap();
+    kernel.try_push_row(row(9, [term(0, 1)], 0)).unwrap();
+    kernel
+        .try_push_row(row(4, [term(0, 1), term(1, 1)], 0))
+        .unwrap();
+    assert_eq!(
+        kernel.try_push_row(row(1, [term(1, 1)], 1)).unwrap_err(),
+        SpiredModularError::ResourceLimit {
+            resource: super::DEPENDENCY_ORDER_REQUESTS,
+            requested: 3,
+            limit: 2,
+        }
+    );
+    assert!(kernel.is_poisoned());
+    assert_eq!(kernel.trace_node_count(), 0);
+
+    let limits = SpiredModularLimits {
+        max_hit_trace_edges: 1,
+        ..SpiredModularLimits::default()
+    };
+    let mut kernel = SpiredModularKernel::try_new(PRIME, limits).unwrap();
+    kernel.try_push_row(row(9, [term(0, 1)], 0)).unwrap();
+    kernel
+        .try_push_row(row(4, [term(0, 1), term(1, 1)], 0))
+        .unwrap();
+    assert_eq!(
+        kernel.try_push_row(row(1, [term(1, 1)], 1)).unwrap_err(),
+        SpiredModularError::ResourceLimit {
+            resource: super::HIT_TRACE_EDGES,
+            requested: 2,
+            limit: 1,
+        }
+    );
+    assert!(kernel.is_poisoned());
+    assert_eq!(kernel.trace_node_count(), 0);
+
+    let limits = SpiredModularLimits {
+        // Direct owns one request, while canonical support, dependency order,
+        // and the request-bearing DAG each own all three: ten components.
+        max_hit_request_shift_components: 9,
+        ..SpiredModularLimits::default()
+    };
+    let mut kernel = SpiredModularKernel::try_new(PRIME, limits).unwrap();
+    kernel.try_push_row(row(9, [term(0, 1)], 0)).unwrap();
+    kernel
+        .try_push_row(row(4, [term(0, 1), term(1, 1)], 0))
+        .unwrap();
+    assert_eq!(
+        kernel.try_push_row(row(1, [term(1, 1)], 1)).unwrap_err(),
+        SpiredModularError::ResourceLimit {
+            resource: super::HIT_REQUEST_SHIFT_COMPONENTS,
+            requested: 10,
+            limit: 9,
+        }
+    );
+    assert!(kernel.is_poisoned());
+}
+
+#[test]
+fn aggregate_trace_edge_cap_precedes_dependency_retention() {
+    let limits = SpiredModularLimits {
+        max_trace_edges: 0,
+        ..SpiredModularLimits::default()
+    };
+    let mut kernel = SpiredModularKernel::try_new(PRIME, limits).unwrap();
+    kernel.try_push_row(row(9, [term(0, 1)], 0)).unwrap();
+    assert_eq!(
+        kernel
+            .try_push_row(row(4, [term(0, 1), term(1, 1)], 0))
+            .unwrap_err(),
+        SpiredModularError::ResourceLimit {
+            resource: super::TRACE_EDGES,
+            requested: 1,
+            limit: 0,
+        }
+    );
+    assert!(kernel.is_poisoned());
+    assert_eq!(kernel.trace_node_count(), 0);
 }
 
 #[test]
@@ -763,7 +906,7 @@ fn malformed_inputs_and_exhaustion_fail_closed() {
             .unwrap_err(),
         SpiredModularError::ResourceLimit {
             resource: super::REDUCER_ENTRIES,
-            requested: 5,
+            requested: 6,
             limit: 0,
         }
     );
@@ -777,4 +920,139 @@ fn malformed_inputs_and_exhaustion_fail_closed() {
         closed.try_push_row(row(1, [], 0)).unwrap_err(),
         SpiredModularError::AlreadyHit
     );
+}
+
+#[test]
+fn post_hit_stream_skips_unrelated_dependence_then_emits_a_later_root_trace() {
+    let mut kernel = SpiredModularKernel::try_new(PRIME, SpiredModularLimits::default()).unwrap();
+    assert!(matches!(
+        kernel
+            .try_push_row_continuing(row(0, [term(0, 1)], 0))
+            .unwrap(),
+        SpiredModularStreamOutcome::Pending
+    ));
+    let first = kernel
+        .try_push_row_continuing(row(1, [term(0, 1)], 1))
+        .unwrap();
+    assert!(matches!(first, SpiredModularStreamOutcome::FirstHit(_)));
+    assert_eq!(kernel.post_hit_rows_consumed(), 0);
+
+    // This row is dependent in both systems but its augmented dependency
+    // closure never touches the target-producing basis row.
+    assert!(matches!(
+        kernel
+            .try_push_row_continuing(row(2, [term(0, 2)], 0))
+            .unwrap(),
+        SpiredModularStreamOutcome::Pending
+    ));
+    assert_eq!(kernel.post_hit_rows_consumed(), 1);
+
+    // The later row closes through all prior S rows and the immutable first
+    // target pivot. It, not the first hit, is the designated trace root.
+    let candidate = match kernel
+        .try_push_row_continuing(row(3, [term(0, 3)], 1))
+        .unwrap()
+    {
+        SpiredModularStreamOutcome::PostHitCandidate(candidate) => candidate,
+        other => panic!("expected a later post-hit candidate, got {other:?}"),
+    };
+    assert_eq!(candidate.rows_consumed(), 4);
+    assert_eq!(candidate.forbidden_rank(), 1);
+    assert_eq!(candidate.augmented_rank(), 2);
+    assert_eq!(candidate.target_logical_column(), 1);
+    assert_eq!(candidate.root_source(), &request(3));
+    let trace = candidate.dependency_trace();
+    assert_eq!(trace.root(), trace.nodes().len() - 1);
+    assert_eq!(
+        trace
+            .nodes()
+            .iter()
+            .map(|node| node.source().source_ordinal())
+            .collect::<Vec<_>>(),
+        [0, 1, 3]
+    );
+    assert!(trace.nodes()[0].direct_predecessors().is_empty());
+    assert_eq!(trace.nodes()[1].direct_predecessors(), &[0]);
+    assert_eq!(trace.nodes()[2].direct_predecessors(), &[0, 1]);
+    assert_eq!(trace.edge_count(), 3);
+    assert_eq!(kernel.post_hit_rows_consumed(), 2);
+}
+
+#[test]
+fn zero_sentinel_keeps_post_hit_trace_alive_when_forbidden_block_is_full() {
+    let mut kernel = SpiredModularKernel::try_new(PRIME, SpiredModularLimits::default()).unwrap();
+    kernel
+        .try_push_row_continuing(row(0, [term(7, 1)], 0))
+        .unwrap();
+    assert_eq!(kernel.forbidden_rank(), kernel.forbidden_columns().len());
+    assert!(matches!(
+        kernel
+            .try_push_row_continuing(row(1, [term(7, 1)], 1))
+            .unwrap(),
+        SpiredModularStreamOutcome::FirstHit(_)
+    ));
+    assert!(matches!(
+        kernel
+            .try_push_row_continuing(row(2, [term(7, 4)], 1))
+            .unwrap(),
+        SpiredModularStreamOutcome::PostHitCandidate(_)
+    ));
+    assert!(!kernel.is_poisoned());
+}
+
+#[test]
+fn post_hit_window_limit_precedes_mutation_and_candidate_output_failure_poisons() {
+    let limits = SpiredModularLimits {
+        max_post_hit_rows: 1,
+        ..SpiredModularLimits::default()
+    };
+    let mut kernel = SpiredModularKernel::try_new(PRIME, limits).unwrap();
+    kernel
+        .try_push_row_continuing(row(0, [term(0, 1)], 0))
+        .unwrap();
+    kernel
+        .try_push_row_continuing(row(1, [term(0, 1)], 1))
+        .unwrap();
+    kernel
+        .try_push_row_continuing(row(2, [term(0, 2)], 0))
+        .unwrap();
+    assert_eq!(kernel.rows_consumed(), 3);
+    assert_eq!(
+        kernel
+            .try_push_row_continuing(row(3, [term(0, 3)], 1))
+            .unwrap_err(),
+        SpiredModularError::ResourceLimit {
+            resource: super::POST_HIT_ROWS,
+            requested: 2,
+            limit: 1,
+        }
+    );
+    assert_eq!(kernel.rows_consumed(), 3);
+    assert_eq!(kernel.post_hit_rows_consumed(), 1);
+    assert!(!kernel.is_poisoned());
+
+    let limits = SpiredModularLimits {
+        max_hit_trace_edges: 2,
+        ..SpiredModularLimits::default()
+    };
+    let mut kernel = SpiredModularKernel::try_new(PRIME, limits).unwrap();
+    kernel
+        .try_push_row_continuing(row(0, [term(0, 1)], 0))
+        .unwrap();
+    kernel
+        .try_push_row_continuing(row(1, [term(0, 1)], 1))
+        .unwrap();
+    assert_eq!(
+        kernel
+            .try_push_row_continuing(row(2, [term(0, 3)], 1))
+            .unwrap_err(),
+        SpiredModularError::ResourceLimit {
+            resource: super::HIT_TRACE_EDGES,
+            requested: 3,
+            limit: 2,
+        }
+    );
+    assert!(kernel.is_poisoned());
+    assert_eq!(kernel.rows_consumed(), 0);
+    assert_eq!(kernel.post_hit_rows_consumed(), 0);
 }

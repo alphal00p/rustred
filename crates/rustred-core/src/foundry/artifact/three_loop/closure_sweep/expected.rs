@@ -72,9 +72,9 @@ pub(super) const EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP: [ExpectedSectorSweepTeleme
         cover: ExpectedSweepCoverTelemetry::Compiled {
             guard_total_owners: 1,
             status: ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite),
-            uncovered_boxes: 3,
-            uncovered_free_dimension_histogram: [0, 0, 0, 0, 0, 3, 0],
-            maximum_uncovered_free_dimension: 5,
+            uncovered_boxes: 14,
+            uncovered_free_dimension_histogram: [0, 0, 0, 3, 11, 0, 0],
+            maximum_uncovered_free_dimension: 4,
             maximum_uncovered_varying_dimension: 5,
             missing_terminal_points: 0,
             guard_incomplete_owners: 0,
@@ -93,10 +93,10 @@ pub(super) const EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP: [ExpectedSectorSweepTeleme
         cover: ExpectedSweepCoverTelemetry::Compiled {
             guard_total_owners: 0,
             status: ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite),
-            uncovered_boxes: 1,
-            uncovered_free_dimension_histogram: [0, 0, 0, 0, 0, 0, 1],
-            maximum_uncovered_free_dimension: 6,
-            maximum_uncovered_varying_dimension: 6,
+            uncovered_boxes: 8,
+            uncovered_free_dimension_histogram: [0, 0, 0, 0, 5, 3, 0],
+            maximum_uncovered_free_dimension: 5,
+            maximum_uncovered_varying_dimension: 5,
             missing_terminal_points: 0,
             guard_incomplete_owners: 0,
         },
@@ -114,10 +114,10 @@ pub(super) const EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP: [ExpectedSectorSweepTeleme
         cover: ExpectedSweepCoverTelemetry::Compiled {
             guard_total_owners: 0,
             status: ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite),
-            uncovered_boxes: 1,
-            uncovered_free_dimension_histogram: [0, 0, 0, 0, 0, 0, 1],
-            maximum_uncovered_free_dimension: 6,
-            maximum_uncovered_varying_dimension: 6,
+            uncovered_boxes: 5,
+            uncovered_free_dimension_histogram: [0, 0, 0, 0, 2, 3, 0],
+            maximum_uncovered_free_dimension: 5,
+            maximum_uncovered_varying_dimension: 5,
             missing_terminal_points: 0,
             guard_incomplete_owners: 0,
         },
@@ -135,8 +135,8 @@ pub(super) const EXPECTED_FULL_RANK_DEGREE_ONE_SWEEP: [ExpectedSectorSweepTeleme
         cover: ExpectedSweepCoverTelemetry::Compiled {
             guard_total_owners: 1,
             status: ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite),
-            uncovered_boxes: 2,
-            uncovered_free_dimension_histogram: [0, 0, 0, 0, 0, 2, 0],
+            uncovered_boxes: 4,
+            uncovered_free_dimension_histogram: [0, 0, 0, 0, 3, 1, 0],
             maximum_uncovered_free_dimension: 5,
             maximum_uncovered_varying_dimension: 5,
             missing_terminal_points: 0,
@@ -189,8 +189,8 @@ pub(super) const EXPECTED_RANK_THREE_ROOT_AUTHORITY_DEGREE_ONE_SWEEP:
         cover: ExpectedSweepCoverTelemetry::Compiled {
             guard_total_owners: 4,
             status: ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite),
-            uncovered_boxes: 10,
-            uncovered_free_dimension_histogram: [0, 0, 0, 1, 8, 1, 0],
+            uncovered_boxes: 17,
+            uncovered_free_dimension_histogram: [0, 0, 1, 8, 7, 1, 0],
             maximum_uncovered_free_dimension: 5,
             maximum_uncovered_varying_dimension: 5,
             missing_terminal_points: 0,
@@ -210,9 +210,9 @@ pub(super) const EXPECTED_RANK_THREE_ROOT_AUTHORITY_DEGREE_ONE_SWEEP:
         cover: ExpectedSweepCoverTelemetry::Compiled {
             guard_total_owners: 12,
             status: ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite),
-            uncovered_boxes: 4,
-            uncovered_free_dimension_histogram: [0, 0, 0, 0, 1, 3, 0],
-            maximum_uncovered_free_dimension: 5,
+            uncovered_boxes: 21,
+            uncovered_free_dimension_histogram: [0, 0, 1, 10, 10, 0, 0],
+            maximum_uncovered_free_dimension: 4,
             maximum_uncovered_varying_dimension: 5,
             missing_terminal_points: 0,
             guard_incomplete_owners: 0,
@@ -280,10 +280,10 @@ pub(super) fn assert_expected_mixed_s4a_sweep(actual: &SectorSweepTelemetry) {
                 *status,
                 ExactOwnerCoverStatus::Incomplete(ExactOwnerCoverObstructionKind::NonFinite)
             );
-            assert_eq!(*uncovered_boxes, 3);
+            assert_eq!(*uncovered_boxes, 8);
             assert_eq!(
                 uncovered_free_dimension_histogram.as_ref(),
-                [0, 0, 0, 0, 0, 3, 0]
+                [0, 0, 0, 3, 3, 2, 0]
             );
             assert_eq!(*maximum_uncovered_free_dimension, 5);
             assert_eq!(*maximum_uncovered_varying_dimension, 5);

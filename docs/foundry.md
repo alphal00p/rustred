@@ -559,9 +559,11 @@ modular probe.  A fair signed-L1 scheduler emits translated ordinary sources
 in complete depth shells.  Shifted coefficients are evaluated directly at
 `c(n+s)` over a checked Symbolica prime field, while a frame-independent exact
 classifier assigns stable target, allowed, and forbidden roles to every
-structural shift.  Two incremental Symbolica sparse reducers then test the
-forbidden block with and without the logical target.  Only the direct
-dependency support of a rank hit is retained.
+structural shift. Two incremental Symbolica sparse reducers then test the
+forbidden block with and without the logical target. A rank hit retains the
+transitive ancestor support, its dependency-topological row order, a compact
+direct-edge DAG, and a separate root-direct sidecar; unrelated streamed rows
+are discarded.
 
 That finite-field hit remains proposal evidence.  RustRed rebuilds a fresh
 selected-source epoch from the nominated requests, repeats the modular query
@@ -584,20 +586,27 @@ probe witness.  RustRed specializes each indexed guard through Symbolica,
 checks its zero/nonzero branch before streaming, proves that a numeric base
 sample avoids an accidental nonzero-guard root, and rejects primes which erase
 that retained nonzero value.  Stale stratum, base-point, or index-point joins
-fail before any modular row is consumed.  Exceptional-case recursion,
-independent-probe control, complete target/case scheduling, full-carrier
-owner-ledger publication, and an empty-complement proof remain campaign work.
-The current target runner also stops at its first modular rank gain.  If that
-compact support does not lift exactly, it reports a typed inconclusive result
-rather than continuing to a later support; resumable probes and a bounded
-post-hit comparison window are required before K6 production runs.  Guard
-catalog limits presently bound counts, source terms, and predicate identities,
-but the recursive scheduler must additionally cap their aggregate retained
-coefficient-system payload.
-Likewise, structural role classification is currently local to one probe;
-the production K6 portfolio must share one deterministic, case-local exact
-role/ID ledger while keeping only residues and Symbolica reducer state local
-to each worker.  Pure SpIReD execution constructs no Janet/Ore state.
+fail before any modular row is consumed. Exceptional-case recursion, complete
+target/case scheduling, full-carrier owner-ledger publication, and an empty-
+complement proof remain campaign work. The target runner now retains exact
+rejections and explores a bounded, canonical source-exclusion frontier when a
+modular hit does not lift or its required guard is known zero. Exhausting that
+bounded frontier is still only a typed inconclusive result, and independent
+probes remain necessary. A reusable target workspace performs exact source
+validation and structural role classification once for its immutable case,
+then replays the same deterministic role/ID tape into probe-local residues and
+Symbolica reducers. Guard catalog limits presently bound counts, source terms,
+and predicate identities, but the recursive scheduler must additionally cap
+their aggregate retained coefficient-system payload. Pure SpIReD execution
+constructs no Janet/Ore state.
+
+That source-exclusion frontier is deliberately not presented as a complete
+post-hit search. Every child omits at least one row of a rejected support, so
+it cannot find a cleaner relation which retains the full support and adds a
+later row, or another dependency in the same row span. Production convergence
+also needs a bounded continuation of the original all-row stream (or an
+equivalent target-nullspace/back-substitution portfolio); failure of the
+current exclusion-only portfolio remains typed incompleteness.
 
 The foundry will be an offline service. Ordinary Vakint evaluation will load
 precomputed closed artifacts; it will not rerun the search. The implementation
@@ -698,6 +707,195 @@ requested roots
   -> future immutable solved-dependency feedback
   -> repeat until every reachable residual is discharged
 ```
+
+### SpIReD convergence chronology
+
+The fair, potentially unbounded walk is over **translated ordinary source
+relations for one exact symbolic case**.  It is not a bounded walk over two or
+three concrete target integrals.  A target portfolio may nominate a convenient
+pivot representative, but source offsets are still enumerated in complete
+signed-L1 shells until exact authority is found or an explicit resource pause
+is returned.  Corner and depth-one target nominations are therefore an
+optimization only; exhausting them is never a fixed-point or master
+certificate.
+
+In the normal coordinate lane the logical target is the zero-shift `I(n)` on
+the current case domain. If a finite seeded system instead contains a usable
+pivot `I(n+a)`, satisfying the same equalities means that `a` is tangent to the
+case. Translating that complete witness by `-a` produces the zero-shift target,
+and fair source-shell enumeration eventually visits this translation. This is
+why concrete target walking is unnecessary for eventual discovery even though
+alternative representatives can still change fill and runtime dramatically.
+
+After a modular hit, the compact support has two deliberately distinct views.
+Its canonical sorted set is used for identity, duplicate rejection, and
+source-exclusion branches. Its GPLU ancestor DAG supplies a dependency-
+topological row order for the compact exact rerun. Sorting that second view by
+request identity discards the successful triangular elimination schedule and
+can reintroduce exactly the symbolic fill and expression swell that modular
+pruning was meant to avoid. Neither view carries algebraic authority; exact
+source regeneration and zero-residual replay remain mandatory.
+
+For a canonical affine case `A n = b`, recentering requires a saturated integer
+chart `n=n0+B t`, all ambient source translations, and translation before
+substitution.  An eligible shifted pivot is then represented by an integer
+tangent displacement generated by `B`, so fair source translation encounters
+the recentered version of any finite witness. Target portfolios can still
+improve sparsity. Eventual discovery requires a finite-support exact witness
+in the localized translated-IBP module, admissibly oriented with exact guard
+and boundary authority, for every unresolved positive-dimensional case.
+Finite module rank motivates but does not by itself prove those conditions,
+and they cannot be inferred solely from a finite numerical master count. A
+finite search limit can only pause the case. Terminal eligibility is decided
+from exact integer-slice cardinality: sector bounds can make a lower-rank
+affine slice finite too.
+
+Probe choice must be fair as well. A nonzero exact target minor can vanish at
+one unlucky prime or evaluation point, so one modular reducer cannot be kept
+forever merely while source depth grows. The production chronology diagonally
+interleaves increasing source shells with a deterministic sequence of
+independent primes and points, after first racing a small likely-fast
+portfolio. If a finite exact witness exists, some finite shell contains it and
+some specialization preserves its nonzero minor. Exact compact replay rejects
+spurious modular ranks; exhaustion of any bounded depth/probe rectangle is
+still only resumable incompleteness.
+
+Algebraically, translated ordinary IBPs generate a left ideal in a rational
+double-shift algebra. The fair search is therefore an exact semi-decision
+procedure when the ideal localized to each positive-dimensional equality case
+contains a finitely supported, strictly orientable canonical-target relation.
+A finite standard-monomial staircase would establish the relevant zero-
+dimensional behavior more directly; finite master count alone is only
+supporting evidence until the sector, guard, and boundary joins are included.
+At a finite full-rank leaf RustRed can instead retain the concrete lattice point
+as a nonminimal terminal, without asserting that it is irreducible.
+
+Gregor's prepared input is also not necessarily the raw list of ordinary IBP
+derivatives. A sector- and ordering-local exact sparse RREF may remove
+dependent source rows and clear coefficient denominators once before any
+translations are streamed. RustRed should expose that as an optional
+Symbolica-backed preconditioner with a retained transformation to the original
+generated sources, so cold replay remains authoritative. Likewise,
+translation-equivalent fixed-coordinate cases may later share one source
+stream, while their exact specialization, guards, and ownership remain
+separate. Both are performance optimizations; neither proves closure.
+
+There is a second reason to preserve more than the first GPLU hit.  If the
+first exactly replayed rule is unusable, a later input row can become
+dependent in the augmented modular system through the already retained target
+pivot.  Its `L` pattern identifies a new compact circuit which may retain all
+rows of the first support and add the later row.  Replaying the selected frame
+with the ordinary first-pivot materializer would nevertheless reproduce the
+old rule.  The post-hit lane consequently needs a root-constrained exact
+Symbolica reduction: eliminate forbidden columns while retaining exact
+source-provenance columns, force the later row into the combination, then
+compute and require a nonzero exact target coefficient before normalization.
+The resulting full relation still passes regenerated-source replay, guards,
+strict descent, and owner compilation.  No finite-field elimination
+coefficient crosses that boundary.
+
+The production coordinate-case lane must start with the unconstrained sector
+case. An exact rule owns its all-required-nonzero part. Its discovery children
+are the overlapping, equality-only cases `C & g_i = 0`, not the disjoint
+first-zero owner fragments. A coordinate-linear zero equation is converted to
+an exact singleton coordinate before the next modular search, so both modular
+evaluation and compact Symbolica replay use the same quotient. Cases are
+canonicalized and scheduled most-generic-first; a pending weaker case subsumes
+its stricter children, and fixed-coordinate translations may be grouped.
+
+An inactive-axis bulk tightened for all rows through the current source depth
+is a modular-search envelope, not an owner-domain claim. As depth grows it can
+move inward. Once an exact compact circuit wins, the driver recomputes the
+weakest safe bulk from only that circuit's retained shifts, replays there, and
+turns only its genuinely activating finite slices into equality cases. Keeping
+the depth-wide provisional boundary would make an implementation heuristic
+part of the artifact and multiply exceptional branches unnecessarily.
+
+That provisional envelope must also remain a distinct runtime type. It is not
+a `SpiredCoordinateCaseObligation`: tightening an inequality endpoint does not
+increase equality rank and must never enter generic-case subsumption, terminal
+eligibility, or durable case identity.
+
+Concrete uncovered integrals are therefore **anchors**, not new family
+generators and not one-point completion tasks. When several misses lie on,
+say, `n_3=0, n_5=1` with the other powers unbounded, the driver must enqueue
+the weakest exact case `C=(n_3=0)&(n_5=1)` supported by the complement, then
+seek one symbolic rule for that whole case. Enqueuing each observed integer
+tuple separately immediately produces a full-rank case, for which a pivot need
+not exist, and can chase infinitely many points along the same ray. Adding
+those tuples as extra "input topologies" changes neither the nine ordinary K6
+IBP generators nor their translated module; it only duplicates targets. A new
+source identity is useful only when it is an independently valid relation
+(for example a symmetry or a proved syzygy), and it still has to replay in the
+same exact module authority.
+
+The owner compiler is a separate layer. It retains nonzero predicates and may
+partition the same exceptional complement into disjoint first-zero domains for
+deterministic lookup. Conflating that coverage representation with discovery
+would suppress Gregor's generic-case subsumption and create unnecessary
+branches. Every nonredundant discovery child fixes one additional coordinate.
+If all exceptional factors stay coordinate-linear, the case rank therefore
+increases strictly and recursion has depth at most `K`; fully fixed leaves may
+be retained only through the explicit finite, nonminimal terminal policy.
+
+More generally, the equality-lattice rank is the case-recursion termination
+measure. An inconsistent zero child is empty; a zero predicate already
+entailed by the parent makes that candidate unusable on the parent and search
+continues; every remaining primitive affine-linear zero child raises the
+saturated rank. Together with a fair source-translation stream and the
+existence of an admissibly oriented finite-support exact witness with complete
+guard and boundary authority for each positive-dimensional case, this gives
+the conditional systematic closure argument. It does not give a finite
+search-depth bound, and it never promotes a modular miss to a terminal. At
+full equality rank the exact sector slice is finite and may be named
+explicitly as a nonminimal terminal basis.
+
+Coupled linear equalities require the deferred exact affine chart
+`n = n0 + B t`.  Translation must precede this substitution.  A nonlinear
+exceptional factor, an affine branch without that service, a bounded source
+search miss, or an exhausted target portfolio is typed incompleteness.  None
+may be converted into a terminal or owner.  The exact owner compiler remains
+the independent final authority: an empty case queue is useful scheduler state
+but is not by itself a closure proof.
+
+Term roles are case-local as well.  In particular, an inactive-line raising
+shift may enter a supersector only on finitely many boundary faces.  It is not
+forbidden on the whole symbolic case if its exact coefficient vanishes on each
+activating face; otherwise the rule can own only the interior and those faces
+must re-enter the case queue.  Production SpIReD therefore needs a
+coefficient-aware face restriction after modular discovery.  The current
+whole-stratum `InactiveLineActivation -> forbidden` classification remains a
+sound bounded fallback, but it can miss precisely the cancellation illustrated
+in Gregor's notes.
+
+An exactly replayed circuit can still be a poor rule for its case. A guard
+locus unsupported by the current geometry, an activation face that is not
+discharged, or an anchor on a guard wall must ultimately reject that candidate
+rather than establish closure. The current target runner already resumes after
+known-zero promotion, while other valid guarded or anchor dispositions still
+return to its caller. The production equality-case coordinator must either
+consume them exactly or resume later pivots within explicit budgets; only an
+admitted owner, an explicitly authorized finite terminal, or a typed resource
+pause may retire the case.
+
+At present the equality-only worklist, guard-to-case bridge, and ordered GPLU
+trace are checked primitives but have not yet replaced the older bounded
+leader-target coordinator. The chronology in this section is the immediate
+production wiring requirement, not a claim that an autonomous K6 campaign is
+already closed.
+
+For the present K6 pressure case, the intended first complete trajectory is
+concrete. The root search seeks a bulk rule for a path/star representative with
+three inactive powers left symbolic. In the interior its raising shifts remain
+descending. Exact denominator and activation tests then expose, rather than
+sample, the successive faces `z=0`, a two-coordinate face, and finally a
+one-coordinate ray. Each face is solved by the same translated-source
+procedure with the already published lower faces frozen. The last finite
+corner can be discharged by the authenticated `K1^3` factorization or retained
+as an explicit finite terminal. This bulk-to-face itinerary is a hypothesis to
+execute and verify, not topology-specific code: its cases must be derived from
+exact coefficients and the live K6 complement, and any coupled guard forces
+the generic affine-case service rather than a K6 exception.
 
 Restrictions and analytic zero proofs remain distinct. A cut or user pattern
 may exclude a sector without proving that its integral is zero. Likewise, a

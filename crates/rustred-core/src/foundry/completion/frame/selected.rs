@@ -26,6 +26,31 @@ impl SelectedSourceFrame {
         sector: Mask,
         limits: PhysicalFrameLimits,
     ) -> Result<Self, PhysicalFrameError> {
+        Self::try_new_with_optional_request_order(selected, sector, None, limits)
+    }
+
+    /// Build the same exact selected-source frame while honoring one explicit
+    /// physical row chronology.
+    ///
+    /// `request_order` must be an exact permutation of the batch's canonical
+    /// request identity. It changes only elimination scheduling: the selected
+    /// request owner remains canonical, and common physical assembly validates
+    /// the resulting source permutation again.
+    pub(crate) fn try_new_with_request_order(
+        selected: SelectedTranslatedSourceBatch,
+        sector: Mask,
+        request_order: &[crate::identity::TranslatedSourceRequest],
+        limits: PhysicalFrameLimits,
+    ) -> Result<Self, PhysicalFrameError> {
+        Self::try_new_with_optional_request_order(selected, sector, Some(request_order), limits)
+    }
+
+    fn try_new_with_optional_request_order(
+        selected: SelectedTranslatedSourceBatch,
+        sector: Mask,
+        request_order: Option<&[crate::identity::TranslatedSourceRequest]>,
+        limits: PhysicalFrameLimits,
+    ) -> Result<Self, PhysicalFrameError> {
         if selected.is_empty() || selected.requests().len() != selected.sources().len() {
             return Err(PhysicalFrameError::Invariant {
                 detail: "selected translated-source owner is empty or not request-complete",
@@ -62,7 +87,6 @@ impl SelectedSourceFrame {
         }
 
         let mut radii = try_vec("physical-frame selected-source radii", selected.len())?;
-        let mut physical_source_indices = try_vec(SOURCE_INSTANCES, selected.len())?;
         for (source_index, (request, source)) in selected
             .requests()
             .iter()
@@ -89,25 +113,32 @@ impl SelectedSourceFrame {
                 });
             }
             radii.push(total_translation_degree(request.offset())?);
-            physical_source_indices.push(source_index);
         }
 
-        physical_source_indices.sort_unstable_by(|&left, &right| {
-            radii[left]
-                .cmp(&radii[right])
-                .then_with(|| {
-                    sector_oriented_offset_order(
-                        &sector,
-                        selected.requests()[left].offset().values(),
-                        selected.requests()[right].offset().values(),
-                    )
-                })
-                .then_with(|| {
-                    selected.requests()[left]
-                        .source_ordinal()
-                        .cmp(&selected.requests()[right].source_ordinal())
-                })
-        });
+        let physical_source_indices = match request_order {
+            Some(order) => try_explicit_source_order(&selected, order)?,
+            None => {
+                let mut order = try_vec(SOURCE_INSTANCES, selected.len())?;
+                order.extend(0..selected.len());
+                order.sort_unstable_by(|&left, &right| {
+                    radii[left]
+                        .cmp(&radii[right])
+                        .then_with(|| {
+                            sector_oriented_offset_order(
+                                &sector,
+                                selected.requests()[left].offset().values(),
+                                selected.requests()[right].offset().values(),
+                            )
+                        })
+                        .then_with(|| {
+                            selected.requests()[left]
+                                .source_ordinal()
+                                .cmp(&selected.requests()[right].source_ordinal())
+                        })
+                });
+                order
+            }
+        };
 
         let (
             family_fingerprint,
@@ -130,6 +161,46 @@ impl SelectedSourceFrame {
         )?;
         Ok(Self::from_parts(plan, completed_source_row_count))
     }
+}
+
+fn try_explicit_source_order(
+    selected: &SelectedTranslatedSourceBatch,
+    requested: &[crate::identity::TranslatedSourceRequest],
+) -> Result<Vec<usize>, PhysicalFrameError> {
+    if requested.len() != selected.len() {
+        return Err(PhysicalFrameError::WrongExplicitSourceOrderLength {
+            expected: selected.len(),
+            actual: requested.len(),
+        });
+    }
+    let mut first_positions = try_vec(SOURCE_INSTANCES, selected.len())?;
+    first_positions.resize(selected.len(), None);
+    let mut order = try_vec(SOURCE_INSTANCES, selected.len())?;
+    for (position, request) in requested.iter().enumerate() {
+        let source_index = selected
+            .requests()
+            .binary_search(request)
+            .map_err(|_| PhysicalFrameError::ExplicitSourceOrderRequestAbsent { position })?;
+        let first = first_positions
+            .get_mut(source_index)
+            .ok_or(PhysicalFrameError::Invariant {
+                detail: "explicit source order escaped the selected request index",
+            })?;
+        if let Some(first_position) = *first {
+            return Err(PhysicalFrameError::DuplicateExplicitSourceOrderRequest {
+                first_position,
+                second_position: position,
+            });
+        }
+        *first = Some(position);
+        order.push(source_index);
+    }
+    if first_positions.iter().any(Option::is_none) {
+        return Err(PhysicalFrameError::Invariant {
+            detail: "explicit source order omitted a canonical selected request",
+        });
+    }
+    Ok(order)
 }
 
 fn sector_oriented_offset_order(sector: &Mask, left: &[i64], right: &[i64]) -> Ordering {

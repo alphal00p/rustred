@@ -51,6 +51,10 @@ pub use run::{run_foundry_campaign, run_foundry_campaign_with_progress};
 pub(crate) use preset_k6::source_safe_k6_closure_carrier_for_test;
 
 #[cfg(test)]
+mod k6_spired_root_diagnostic;
+#[cfg(test)]
+mod k6_spired_serial_diagnostic;
+#[cfg(test)]
 mod support_tests;
 #[cfg(test)]
 mod tests;

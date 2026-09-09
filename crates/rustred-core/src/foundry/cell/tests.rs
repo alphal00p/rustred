@@ -11,6 +11,7 @@ use super::{
     RuleCellError,
     build::{
         try_fixed_pairs, try_rhs_shifts, try_single_guard_domain_split, validate_guard_on_bounds,
+        validate_pointwise_guard_on_bounds,
     },
 };
 
@@ -238,6 +239,17 @@ fn guard_domains_are_proved_exactly_or_rejected_before_cell_installation() {
             value: 1,
         })
     );
+    assert_eq!(
+        validate_pointwise_guard_on_bounds(
+            &context,
+            7,
+            &root_at_one,
+            &[InteriorBounds::new(1, 4), InteriorBounds::new(1, 4)],
+            Default::default(),
+            Default::default(),
+        ),
+        Ok(true)
+    );
     validate_guard_on_bounds(
         &context,
         7,
@@ -302,6 +314,17 @@ fn guard_domains_are_proved_exactly_or_rejected_before_cell_installation() {
         ),
         Err(RuleCellError::UnsupportedMultivariateGuardLocus { ordinal: 12 })
     );
+    assert_eq!(
+        validate_pointwise_guard_on_bounds(
+            &context,
+            12,
+            &conservative_endpoint_cover,
+            &[InteriorBounds::new(1, 2), InteriorBounds::new(-1, 0)],
+            Default::default(),
+            Default::default(),
+        ),
+        Err(RuleCellError::UnsupportedMultivariateGuardLocus { ordinal: 12 })
+    );
 
     // Symbolica factors n1*(n0-1). The n1=0 hyperplane misses the carrier,
     // while the genuine n0=1 endpoint remains an exact exceptional cell.
@@ -326,6 +349,17 @@ fn guard_domains_are_proved_exactly_or_rejected_before_cell_installation() {
     let coupled_multivariate = guard(context.add(&context.mul(&n0, &n1).unwrap(), &one).unwrap());
     assert_eq!(
         validate_guard_on_bounds(
+            &context,
+            11,
+            &coupled_multivariate,
+            &[InteriorBounds::new(1, 4), InteriorBounds::new(1, 4)],
+            Default::default(),
+            Default::default(),
+        ),
+        Err(RuleCellError::UnsupportedMultivariateGuardLocus { ordinal: 11 })
+    );
+    assert_eq!(
+        validate_pointwise_guard_on_bounds(
             &context,
             11,
             &coupled_multivariate,

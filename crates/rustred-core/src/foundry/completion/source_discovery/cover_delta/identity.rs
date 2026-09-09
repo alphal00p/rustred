@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 /// Monotonic mutation revision of one canonical exact-owner ledger.
 ///
-/// Revision zero is the owner-free state. A revision advances exactly once
-/// after a proposal has transactionally changed the retained canonical owner
-/// set, regardless of whether that change also shrank the exact cover.
+/// Revision zero is the initially constructed state. A revision advances
+/// exactly once after a proposal has transactionally changed the retained
+/// canonical owner or explicit-terminal set, regardless of whether that
+/// change also shrank the exact geometric cover.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct ExactOwnerLedgerRevision(u64);
 

@@ -272,6 +272,9 @@ fn physical_frame_budget_cause(error: &PhysicalFrameError) -> Option<ProbeLocalB
         | PhysicalFrameError::WrongSectorArity { .. }
         | PhysicalFrameError::WrongSourceOffsetArity { .. }
         | PhysicalFrameError::WrongSourceTermArity { .. }
+        | PhysicalFrameError::WrongExplicitSourceOrderLength { .. }
+        | PhysicalFrameError::ExplicitSourceOrderRequestAbsent { .. }
+        | PhysicalFrameError::DuplicateExplicitSourceOrderRequest { .. }
         | PhysicalFrameError::DegreeNotRepresentable { .. }
         | PhysicalFrameError::ZeroSourceTerm { .. }
         | PhysicalFrameError::Invariant { .. } => None,

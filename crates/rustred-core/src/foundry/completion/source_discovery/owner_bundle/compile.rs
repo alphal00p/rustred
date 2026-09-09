@@ -730,6 +730,15 @@ fn validate_candidate_pairing(
                 "semantic sorting detached an executable cell from its exact circuit",
             ));
         }
+        if matches!(
+            executable.cell().guard_domain_proof(),
+            crate::foundry::cell::RuleCellGuardDomainProof::ReplayAuthorizedPointwiseExactCoordinateLoci
+        ) && executable.cell().guards().is_empty()
+        {
+            return Err(ExactExecutableOwnerError::PairingInvariant(
+                "a pointwise-guarded executable cell retained no exact guards",
+            ));
+        }
     }
     Ok(())
 }

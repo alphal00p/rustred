@@ -28,6 +28,10 @@ pub(crate) enum SpiredTargetRunErrorCause {
         requested: usize,
         limit: usize,
     },
+    AllocationFailure {
+        resource: &'static str,
+        requested: usize,
+    },
 }
 
 /// Typed failure with the exact progress reached before the rejected step.
@@ -90,6 +94,13 @@ impl fmt::Display for SpiredTargetRunError {
                 formatter,
                 "{resource} requires {requested}, exceeding the configured limit {limit}"
             ),
+            SpiredTargetRunErrorCause::AllocationFailure {
+                resource,
+                requested,
+            } => write!(
+                formatter,
+                "could not reserve {requested} entries for {resource}"
+            ),
         }
     }
 }
@@ -102,7 +113,8 @@ impl std::error::Error for SpiredTargetRunError {
             SpiredTargetRunErrorCause::CompactLift(error) => Some(error),
             SpiredTargetRunErrorCause::RuleCellPromotion(error) => Some(error),
             SpiredTargetRunErrorCause::ResourceCountOverflow { .. }
-            | SpiredTargetRunErrorCause::ResourceLimit { .. } => None,
+            | SpiredTargetRunErrorCause::ResourceLimit { .. }
+            | SpiredTargetRunErrorCause::AllocationFailure { .. } => None,
         }
     }
 }

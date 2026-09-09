@@ -427,6 +427,88 @@ fn selected_full_chart_is_exactly_the_rectangular_physical_plan() {
 }
 
 #[test]
+fn selected_explicit_request_order_is_a_validated_scheduling_only_permutation() {
+    let family = one_loop_tadpole("physical-frame-explicit-source-order");
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let completed = complete_ordinary(&generator);
+    let sector = Mask::try_new([true]).unwrap();
+    let request =
+        |offset| TranslatedSourceRequest::new(0, IntegralShift::try_new([offset]).unwrap());
+    let canonical_requests = [request(-1), request(0), request(1)];
+    let translate = || {
+        generator
+            .translate_selected_completed_source_rows(
+                &completed,
+                canonical_requests.iter().cloned(),
+                TranslatedSourceLimits::default(),
+            )
+            .unwrap()
+    };
+    let explicit = [request(1), request(-1), request(0)];
+    let frame = SelectedSourceFrame::try_new_with_request_order(
+        translate(),
+        sector.clone(),
+        &explicit,
+        PhysicalFrameLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        frame
+            .plan()
+            .source_instances()
+            .iter()
+            .map(|instance| instance.provenance().offset().values()[0])
+            .collect::<Vec<_>>(),
+        [1, -1, 0]
+    );
+    for (row, expected) in explicit.iter().enumerate() {
+        assert_eq!(
+            frame
+                .plan()
+                .source_for_row(row)
+                .unwrap()
+                .provenance()
+                .offset(),
+            expected.offset()
+        );
+    }
+
+    assert_eq!(
+        SelectedSourceFrame::try_new_with_request_order(
+            translate(),
+            sector.clone(),
+            &explicit[..2],
+            PhysicalFrameLimits::default(),
+        ),
+        Err(PhysicalFrameError::WrongExplicitSourceOrderLength {
+            expected: 3,
+            actual: 2,
+        })
+    );
+    assert_eq!(
+        SelectedSourceFrame::try_new_with_request_order(
+            translate(),
+            sector.clone(),
+            &[request(1), request(-1), request(2)],
+            PhysicalFrameLimits::default(),
+        ),
+        Err(PhysicalFrameError::ExplicitSourceOrderRequestAbsent { position: 2 })
+    );
+    assert_eq!(
+        SelectedSourceFrame::try_new_with_request_order(
+            translate(),
+            sector,
+            &[request(1), request(1), request(0)],
+            PhysicalFrameLimits::default(),
+        ),
+        Err(PhysicalFrameError::DuplicateExplicitSourceOrderRequest {
+            first_position: 0,
+            second_position: 1,
+        })
+    );
+}
+
+#[test]
 fn selected_sparse_plan_keeps_signed_identity_and_only_exact_source_columns() {
     let family = one_loop_family_with_one_external("physical-frame-selected-sparse");
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();

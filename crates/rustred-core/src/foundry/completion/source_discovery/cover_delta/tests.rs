@@ -1,19 +1,28 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use crate::family::IntegralKey;
+use crate::algebra::CoefficientContext;
+use crate::family::{AffineDenominator, IntegralFamily, IntegralKey};
 use crate::foundry::artifact::{
-    ClosedArtifact, derive_one_loop_unit_mass_tadpole, derive_two_loop_unit_mass_sunset,
+    ArtifactSchemaVersion, ClosedArtifact, TerminalAuthorityCandidate,
+    derive_one_loop_unit_mass_tadpole, derive_two_loop_unit_mass_sunset,
+    install_terminal_authority,
 };
-use crate::foundry::completion::frame::admission::ExactOwnerCoverStatus;
+use crate::foundry::completion::frame::admission::{
+    ExactOwnerCoverObstructionKind, ExactOwnerCoverStatus,
+};
 use crate::foundry::completion::source_discovery::scheduler::{
     ProbeLocalObstructionScheduler, ProbeLocalSchedulerLimits,
+};
+use crate::foundry::completion::spired::{
+    SpiredCoordinateCaseObligation, SpiredCoordinateCaseWorklist,
 };
 use crate::foundry::completion::stratum::{
     DecoratedStratum, ImmutableOwnerSnapshot, MaximalStratumAnchor, StratumRegistryLimits,
 };
 use crate::foundry::completion::{LatticeBox, UncoveredPartition};
 use crate::identity::{CompletedIbpSourceRows, IntegralShift, ParametricIbpGenerator};
-use crate::sector::{Mask, OrderingPolicy, SectorMonotoneDomain};
+use crate::sector::{InteriorBounds, Mask, OrderingPolicy, SectorMonotoneDomain};
 
 use super::super::{
     CampaignModularProbe, CanonicalReplayDisposition, CanonicalReplayLimits,
@@ -26,6 +35,7 @@ use super::geometry::{ExactPartitionDelta, try_compare_from_owner_free, try_comp
 use super::{
     CanonicalExactOwnerLedger, ExactOwnerCoverDeltaError, ExactOwnerCoverDeltaKind,
     ExactOwnerCoverDeltaLimits, ExactOwnerLedgerCoverStatus, ExactOwnerLedgerSealError,
+    ExactTerminalCoverDeltaKind,
 };
 
 mod k6;
@@ -222,6 +232,59 @@ fn finite_tadpole_ledger(
     .unwrap()
 }
 
+fn try_dotted_terminal_owner_free_ledger(
+    explicit_terminals: impl IntoIterator<Item = IntegralKey>,
+) -> Result<CanonicalExactOwnerLedger, ExactOwnerCoverDeltaError> {
+    let coefficients = CoefficientContext::try_new(["d"]).unwrap();
+    let dimension = coefficients.parameter("d").unwrap();
+    let one = coefficients.one();
+    let minus_one = coefficients.integer(-1);
+    let zero = coefficients.zero();
+    let family = IntegralFamily::new(
+        "cover-delta-dotted-terminal-carrier-test",
+        vec!["k".to_owned()],
+        Vec::new(),
+        coefficients,
+        dimension,
+        vec![AffineDenominator::new(minus_one, vec![one])],
+        Vec::new(),
+        vec![zero],
+    )
+    .unwrap();
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let context = generator.context().clone();
+    drop(generator);
+    let authority = install_terminal_authority(TerminalAuthorityCandidate {
+        schema: ArtifactSchemaVersion::CURRENT,
+        authority_id: "rustred.test.cover-delta-dotted-terminal-authority.v1",
+        arity: 1,
+        family,
+        context: context.clone(),
+        canonicalizer: None,
+        dependencies: Vec::new(),
+        factorization_rules: Vec::new(),
+        parent_terminals: BTreeSet::new(),
+        declared_master_terminals: vec![IntegralKey::try_new([2]).unwrap()],
+        zero_sectors: Vec::new(),
+        expected_ordering: OrderingPolicy::default(),
+    })
+    .unwrap();
+    let predecessor = ImmutableOwnerSnapshot::try_from_terminal_authority(
+        Arc::new(authority),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    CanonicalExactOwnerLedger::try_new_with_closure_carrier(
+        &context,
+        predecessor,
+        Mask::try_new([true]).unwrap(),
+        OrderingPolicy::default(),
+        explicit_terminals,
+        LatticeBox::try_new([0], [Some(0)]).unwrap(),
+        ExactOwnerCoverDeltaLimits::default(),
+    )
+}
+
 #[test]
 fn one_loop_first_owner_strictly_shrinks_and_only_the_compiler_closes() {
     let fixture = tadpole_fixture();
@@ -247,6 +310,7 @@ fn one_loop_first_owner_strictly_shrinks_and_only_the_compiler_closes() {
     let owner_free = ledger.try_clone_uncovered_partition().unwrap();
     assert_eq!(owner_free.boxes().len(), 1);
     assert_eq!(owner_free.boxes()[0].free_dimension(), 1);
+    assert!(ledger.has_exact_uncovered_box(&[0], &[None]));
 
     let delta = ledger.try_apply_owner(fixture.first.clone()).unwrap();
     assert_eq!(ledger.snapshot(), delta.updated());
@@ -291,6 +355,251 @@ fn one_loop_first_owner_strictly_shrinks_and_only_the_compiler_closes() {
             .predecessor_snapshot()
             .same_authority_as(&fixture.predecessor)
     );
+}
+
+#[test]
+fn prepared_owner_mutation_rejects_foreign_and_stale_ledgers_without_mutation() {
+    let fixture = tadpole_fixture();
+    let mut ledger = tadpole_ledger(&fixture, ExactOwnerCoverDeltaLimits::default());
+    let mut foreign = tadpole_ledger(&fixture, ExactOwnerCoverDeltaLimits::default());
+    let foreign_before = foreign.snapshot();
+    let foreign_identity = foreign.snapshot_identity();
+
+    let foreign_token = ledger
+        .try_prepare_owner_mutation(fixture.first.clone())
+        .unwrap();
+    assert!(matches!(
+        foreign.try_validate_prepared_owner_mutation(foreign_token),
+        Err(ExactOwnerCoverDeltaError::ForeignLedgerSnapshotIdentity)
+    ));
+    assert_eq!(foreign.snapshot(), foreign_before);
+    assert!(foreign_identity.same_snapshot_as(&foreign.snapshot_identity()));
+
+    let stale = ledger
+        .try_prepare_owner_mutation(fixture.first.clone())
+        .unwrap();
+    let current = ledger
+        .try_prepare_owner_mutation(fixture.first.clone())
+        .unwrap();
+    let committed = ledger
+        .try_validate_prepared_owner_mutation(current)
+        .unwrap()
+        .commit();
+    assert_eq!(
+        committed.kind(),
+        ExactOwnerCoverDeltaKind::StrictGeometricShrink
+    );
+    let after_commit = ledger.snapshot();
+    let after_commit_identity = ledger.snapshot_identity();
+    assert!(matches!(
+        ledger.try_validate_prepared_owner_mutation(stale),
+        Err(ExactOwnerCoverDeltaError::StaleLedgerSnapshotIdentity {
+            expected,
+            actual,
+        }) if expected.get() == 1 && actual.get() == 0
+    ));
+    assert_eq!(ledger.snapshot(), after_commit);
+    assert!(after_commit_identity.same_snapshot_as(&ledger.snapshot_identity()));
+}
+
+#[test]
+fn owner_preparation_failure_rolls_back_the_exact_ledger_epoch() {
+    let fixture = tadpole_fixture();
+    let mut limits = ExactOwnerCoverDeltaLimits::default();
+    limits.max_comparison_box_inputs = 1;
+    let ledger = tadpole_ledger(&fixture, limits);
+    let baseline = ledger.snapshot();
+    let identity = ledger.snapshot_identity();
+
+    assert!(matches!(
+        ledger.try_prepare_owner_mutation(fixture.first),
+        Err(ExactOwnerCoverDeltaError::ResourceLimit {
+            resource: "exact cover-delta comparison box inputs",
+            requested: 2,
+            limit: 1,
+        })
+    ));
+    assert_eq!(ledger.snapshot(), baseline);
+    assert!(identity.same_snapshot_as(&ledger.snapshot_identity()));
+    assert!(ledger.owners().is_empty());
+}
+
+#[test]
+fn validated_owner_and_guard_child_mutations_commit_without_a_fallible_gap() {
+    let fixture = tadpole_fixture();
+    let mut ledger = tadpole_ledger(&fixture, ExactOwnerCoverDeltaLimits::default());
+    let mut worklist = SpiredCoordinateCaseWorklist::new(Default::default());
+
+    // This fixed coordinate face stands for a materialized guard-zero child.
+    // The worklist deliberately stores only its equality geometry; predicate
+    // chronology remains in the exact owner-domain authority.
+    let child_rhs: [&[i64]; 0] = [];
+    let child_domain = SectorMonotoneDomain::try_new_for_rule(
+        Mask::try_new([true]).unwrap(),
+        [InteriorBounds::new(1, 1)],
+        &[0],
+        &child_rhs,
+    )
+    .unwrap();
+    let child = SpiredCoordinateCaseObligation::try_new_root(
+        DecoratedStratum::try_guard_blind(
+            fixture.predecessor.family_fingerprint(),
+            fixture.predecessor.context_fingerprint(),
+            child_domain,
+            StratumRegistryLimits::default(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+
+    let prepared_children = worklist.try_prepare_enqueue_batch([child]).unwrap();
+    let prospective_children = prepared_children.prospective_census();
+    let prepared_owner = ledger
+        .try_prepare_owner_mutation(fixture.first.clone())
+        .unwrap();
+    let prospective_owner = prepared_owner.delta().updated();
+    assert_eq!(worklist.len(), 0);
+    assert_eq!(ledger.revision().get(), 0);
+
+    // Both exclusive epoch joins coexist. From here onward neither live
+    // object can drift, and both commits are allocation-free and infallible.
+    let validated_children = worklist
+        .try_validate_prepared_enqueue_batch(prepared_children)
+        .unwrap();
+    let validated_owner = ledger
+        .try_validate_prepared_owner_mutation(prepared_owner)
+        .unwrap();
+    let owner_delta = validated_owner.commit();
+    validated_children.commit();
+
+    assert_eq!(owner_delta.updated(), prospective_owner);
+    assert_eq!(ledger.snapshot(), prospective_owner);
+    assert_eq!(ledger.revision().get(), 1);
+    assert_eq!(worklist.census(), prospective_children);
+    assert_eq!(worklist.len(), 1);
+}
+
+#[test]
+fn explicit_terminal_is_retained_transactionally_without_owner_free_closure() {
+    let fixture = tadpole_fixture();
+    let mut ledger = finite_tadpole_ledger(&fixture, 7, []);
+    let baseline_identity = ledger.snapshot_identity();
+    let terminal = IntegralKey::try_new([1]).unwrap();
+
+    let inserted = ledger
+        .try_apply_explicit_terminal(terminal.clone())
+        .unwrap();
+    assert_eq!(inserted.kind(), ExactTerminalCoverDeltaKind::Inserted);
+    assert_eq!(inserted.baseline().revision().get(), 0);
+    assert_eq!(inserted.updated().revision().get(), 1);
+    assert_eq!(inserted.updated().terminal_count(), 1);
+    assert_eq!(
+        inserted.updated().status(),
+        ExactOwnerLedgerCoverStatus::OwnerFree
+    );
+    assert!(!inserted.transitioned_to_compiler_closed());
+    assert!(ledger.has_explicit_terminal(&terminal));
+    assert!(matches!(
+        ledger.try_require_current_snapshot(&baseline_identity),
+        Err(ExactOwnerCoverDeltaError::StaleLedgerSnapshotIdentity {
+            expected,
+            actual,
+        }) if expected.get() == 1 && actual.get() == 0
+    ));
+
+    let committed_identity = ledger.snapshot_identity();
+    let duplicate = ledger.try_apply_explicit_terminal(terminal).unwrap();
+    assert_eq!(duplicate.kind(), ExactTerminalCoverDeltaKind::Duplicate);
+    assert_eq!(duplicate.baseline(), duplicate.updated());
+    assert_eq!(ledger.revision().get(), 1);
+    assert!(committed_identity.same_snapshot_as(&ledger.snapshot_identity()));
+
+    let first_owner = ledger.try_apply_owner(fixture.first.clone()).unwrap();
+    assert_eq!(first_owner.updated().revision().get(), 2);
+    assert!(first_owner.updated().status().is_compiler_closed());
+}
+
+#[test]
+fn explicit_terminal_recompiles_an_incomplete_cover_and_can_close_it() {
+    let fixture = tadpole_fixture();
+    let mut ledger = finite_tadpole_ledger(&fixture, 7, []);
+    let owner = ledger.try_apply_owner(fixture.first.clone()).unwrap();
+    assert_eq!(owner.updated().revision().get(), 1);
+    assert_eq!(
+        owner.updated().status(),
+        ExactOwnerLedgerCoverStatus::Compiled(ExactOwnerCoverStatus::Incomplete(
+            ExactOwnerCoverObstructionKind::FiniteTerminalOwnership,
+        ))
+    );
+    assert_eq!(owner.updated().missing_terminal_count(), 1);
+    let uncovered_before = ledger.try_clone_uncovered_partition().unwrap();
+
+    let terminal = ledger
+        .try_apply_explicit_terminal(IntegralKey::try_new([1]).unwrap())
+        .unwrap();
+    assert_eq!(terminal.kind(), ExactTerminalCoverDeltaKind::Inserted);
+    assert_eq!(terminal.baseline().revision().get(), 1);
+    assert_eq!(terminal.updated().revision().get(), 2);
+    assert_eq!(terminal.updated().terminal_count(), 1);
+    assert_eq!(terminal.updated().missing_terminal_count(), 0);
+    assert!(terminal.transitioned_to_compiler_closed());
+    assert_eq!(
+        terminal.updated().status(),
+        ExactOwnerLedgerCoverStatus::Compiled(ExactOwnerCoverStatus::Closed)
+    );
+    assert_eq!(
+        ledger.try_clone_uncovered_partition().unwrap().boxes(),
+        uncovered_before.boxes()
+    );
+}
+
+#[test]
+fn explicit_terminal_rejects_wrong_sector_and_outside_carrier_transactionally() {
+    let mut ledger = try_dotted_terminal_owner_free_ledger([]).unwrap();
+    let initial = ledger.snapshot();
+    let initial_identity = ledger.snapshot_identity();
+
+    assert!(matches!(
+        ledger.try_apply_explicit_terminal(IntegralKey::try_new([0]).unwrap()),
+        Err(ExactOwnerCoverDeltaError::Staging(
+            StagedSectorClosureError::TerminalOutsideSector
+        ))
+    ));
+    assert_eq!(ledger.snapshot(), initial);
+    assert!(initial_identity.same_snapshot_as(&ledger.snapshot_identity()));
+
+    assert!(matches!(
+        ledger.try_apply_explicit_terminal(IntegralKey::try_new([2]).unwrap()),
+        Err(ExactOwnerCoverDeltaError::TerminalOutsideClosureCarrier)
+    ));
+    assert_eq!(ledger.snapshot(), initial);
+    assert!(ledger.terminals().is_empty());
+    assert!(initial_identity.same_snapshot_as(&ledger.snapshot_identity()));
+}
+
+#[test]
+fn initial_explicit_terminal_outside_carrier_is_rejected_at_constructor_ingress() {
+    assert!(matches!(
+        try_dotted_terminal_owner_free_ledger([IntegralKey::try_new([2]).unwrap()]),
+        Err(ExactOwnerCoverDeltaError::TerminalOutsideClosureCarrier)
+    ));
+}
+
+#[test]
+fn explicit_terminal_revision_overflow_is_transactional() {
+    let fixture = tadpole_fixture();
+    let mut ledger = finite_tadpole_ledger(&fixture, 7, []);
+    ledger.force_revision_overflow_boundary_for_test();
+    let baseline = ledger.snapshot();
+    let baseline_identity = ledger.snapshot_identity();
+
+    assert!(matches!(
+        ledger.try_apply_explicit_terminal(IntegralKey::try_new([1]).unwrap()),
+        Err(ExactOwnerCoverDeltaError::LedgerRevisionOverflow)
+    ));
+    assert_eq!(ledger.snapshot(), baseline);
+    assert!(ledger.terminals().is_empty());
+    assert!(baseline_identity.same_snapshot_as(&ledger.snapshot_identity()));
 }
 
 #[test]

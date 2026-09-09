@@ -6,7 +6,7 @@ use crate::algebra::IndexedCoefficientContext;
 use crate::identity::{CompletedIbpSourceRows, ParametricRelation, TranslatedSourceRequest};
 
 use super::backend::{ShiftedCoefficientBackend, SparseExactPolynomialBackend};
-use super::{DirectShiftedSourceError, ShiftedModularSourceBuffer};
+use super::{DirectShiftedSourceError, ShiftedModularResidueBuffer, ShiftedModularSourceBuffer};
 
 const SOURCE_ROWS: &str = "ordinary source rows";
 const POINT_COORDINATES: &str = "modular point coordinates";
@@ -18,6 +18,38 @@ const CORPUS_SCALAR_OUTPUTS: &str = "source-corpus scalar outputs";
 const CORPUS_POLYNOMIAL_TERMS: &str = "source-corpus polynomial terms";
 const SHIFT_COORDINATES: &str = "shifted structural coordinates";
 const SCALAR_SCRATCH: &str = "modular scalar scratch";
+
+/// Deterministic work authenticated while sealing one exact source corpus.
+///
+/// This census counts exact payload inspection, not modular-point work. A
+/// case-local structural preparation owns one validated corpus and any number
+/// of probe-local evaluators can be constructed from it without walking the
+/// exact coefficients again.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DirectShiftedSourceCorpusCensus {
+    source_rows: usize,
+    scalar_outputs: usize,
+    polynomial_terms: usize,
+    source_terms: usize,
+}
+
+impl DirectShiftedSourceCorpusCensus {
+    pub(crate) const fn source_rows(self) -> usize {
+        self.source_rows
+    }
+
+    pub(crate) const fn scalar_outputs(self) -> usize {
+        self.scalar_outputs
+    }
+
+    pub(crate) const fn polynomial_terms(self) -> usize {
+        self.polynomial_terms
+    }
+
+    pub(crate) const fn source_terms(self) -> usize {
+        self.source_terms
+    }
+}
 
 /// Bounded work policy for one immutable ordinary-source evaluator.
 ///
@@ -58,6 +90,52 @@ impl Default for DirectShiftedSourceLimits {
     }
 }
 
+/// One exact ordinary-source corpus validated independently of a modular
+/// point.
+///
+/// The token borrows the original Symbolica-backed coefficients; it neither
+/// clones nor wraps their algebra. Its sole purpose is to move all expensive
+/// exact scope and resource checks to the immutable case-preparation boundary.
+#[derive(Debug)]
+pub(crate) struct ValidatedDirectShiftedSources<'context, 'sources> {
+    context: &'context IndexedCoefficientContext,
+    sources: &'sources CompletedIbpSourceRows,
+    limits: DirectShiftedSourceLimits,
+    census: DirectShiftedSourceCorpusCensus,
+}
+
+impl<'context, 'sources> ValidatedDirectShiftedSources<'context, 'sources> {
+    pub(crate) fn try_new(
+        context: &'context IndexedCoefficientContext,
+        sources: &'sources CompletedIbpSourceRows,
+        limits: DirectShiftedSourceLimits,
+    ) -> Result<Self, DirectShiftedSourceError> {
+        let census = validate_source_corpus(context, sources, limits)?;
+        Ok(Self {
+            context,
+            sources,
+            limits,
+            census,
+        })
+    }
+
+    pub(crate) const fn context(&self) -> &'context IndexedCoefficientContext {
+        self.context
+    }
+
+    pub(crate) const fn sources(&self) -> &'sources CompletedIbpSourceRows {
+        self.sources
+    }
+
+    pub(crate) const fn limits(&self) -> DirectShiftedSourceLimits {
+        self.limits
+    }
+
+    pub(crate) const fn census(&self) -> DirectShiftedSourceCorpusCensus {
+        self.census
+    }
+}
+
 /// One modular point bound to immutable complete ordinary source rows.
 ///
 /// The point stores base-parameter residues followed by unshifted integral
@@ -84,91 +162,59 @@ impl<'context, 'sources> DirectShiftedSourceEvaluator<'context, 'sources> {
         index_residues: &[u64],
         limits: DirectShiftedSourceLimits,
     ) -> Result<Self, DirectShiftedSourceError> {
-        // Reject malformed caller-controlled arithmetic and point inputs before
-        // walking the potentially large immutable source corpus.
-        validate_prime(modulus)?;
-        let expected_base = context.base().parameter_names().len();
-        if base_parameter_residues.len() != expected_base {
-            return Err(DirectShiftedSourceError::WrongBaseParameterArity {
-                expected: expected_base,
-                actual: base_parameter_residues.len(),
-            });
-        }
-        let arity = context.index_count();
-        if index_residues.len() != arity {
-            return Err(DirectShiftedSourceError::WrongIndexPointArity {
-                expected: arity,
-                actual: index_residues.len(),
-            });
-        }
-        let point_count = checked_add(POINT_COORDINATES, expected_base, arity)?;
-        check_limit(POINT_COORDINATES, point_count, limits.max_point_coordinates)?;
-        for (coordinate, &residue) in base_parameter_residues
-            .iter()
-            .chain(index_residues)
-            .enumerate()
-        {
-            if residue >= modulus {
-                return Err(DirectShiftedSourceError::NonCanonicalPointResidue {
-                    coordinate,
-                    residue,
-                    modulus,
-                });
-            }
-        }
-
-        if !sources.is_complete_ordinary() {
-            return Err(DirectShiftedSourceError::IncompleteOrdinarySourceLayout {
-                actual: sources.layout_name(),
-            });
-        }
-        if sources.source_row_count() == 0 {
-            return Err(DirectShiftedSourceError::EmptySourceRows);
-        }
-        if sources.context_fingerprint() != context.fingerprint() {
-            return Err(DirectShiftedSourceError::CompletedSourceContextMismatch);
-        }
-        check_limit(
-            SOURCE_ROWS,
-            sources.source_row_count(),
-            limits.max_source_rows,
+        // Preserve the legacy diagnostic order: malformed probe arithmetic is
+        // rejected before walking a potentially large exact corpus.
+        validate_probe_point(
+            context,
+            modulus,
+            base_parameter_residues,
+            index_residues,
+            limits,
         )?;
+        let validated = ValidatedDirectShiftedSources::try_new(context, sources, limits)?;
+        Self::try_new_from_validated_after_point_check(
+            &validated,
+            modulus,
+            base_parameter_residues,
+            index_residues,
+        )
+    }
 
-        let mut corpus_scalar_outputs = 0usize;
-        let mut corpus_polynomial_terms = 0usize;
-        for (source_ordinal, source) in sources.relations().iter().enumerate() {
-            if source.family_fingerprint_owner().as_str() != sources.family_fingerprint() {
-                return Err(DirectShiftedSourceError::RelationFamilyMismatch { source_ordinal });
-            }
-            source.validate_context(context).map_err(|_| {
-                DirectShiftedSourceError::RelationContextMismatch { source_ordinal }
-            })?;
-            if source.terms().is_empty() {
-                return Err(DirectShiftedSourceError::EmptySourceRelation { source_ordinal });
-            }
-            let work = validate_source_payload(context, source_ordinal, source, limits)?;
-            corpus_scalar_outputs = checked_add(
-                CORPUS_SCALAR_OUTPUTS,
-                corpus_scalar_outputs,
-                work.scalar_outputs,
-            )?;
-            check_limit(
-                CORPUS_SCALAR_OUTPUTS,
-                corpus_scalar_outputs,
-                limits.max_corpus_scalar_outputs,
-            )?;
-            corpus_polynomial_terms = checked_add(
-                CORPUS_POLYNOMIAL_TERMS,
-                corpus_polynomial_terms,
-                work.polynomial_terms,
-            )?;
-            check_limit(
-                CORPUS_POLYNOMIAL_TERMS,
-                corpus_polynomial_terms,
-                limits.max_corpus_polynomial_terms,
-            )?;
-        }
+    /// Bind one modular point to a case-local exact corpus which has already
+    /// passed all source scope and payload checks.
+    pub(crate) fn try_new_from_validated(
+        validated: &ValidatedDirectShiftedSources<'context, 'sources>,
+        modulus: u64,
+        base_parameter_residues: &[u64],
+        index_residues: &[u64],
+    ) -> Result<Self, DirectShiftedSourceError> {
+        validate_probe_point(
+            validated.context,
+            modulus,
+            base_parameter_residues,
+            index_residues,
+            validated.limits,
+        )?;
+        Self::try_new_from_validated_after_point_check(
+            validated,
+            modulus,
+            base_parameter_residues,
+            index_residues,
+        )
+    }
 
+    fn try_new_from_validated_after_point_check(
+        validated: &ValidatedDirectShiftedSources<'context, 'sources>,
+        modulus: u64,
+        base_parameter_residues: &[u64],
+        index_residues: &[u64],
+    ) -> Result<Self, DirectShiftedSourceError> {
+        let context = validated.context;
+        let sources = validated.sources;
+        let limits = validated.limits;
+        let expected_base = context.base().parameter_names().len();
+        let arity = context.index_count();
+        let point_count = checked_add(POINT_COORDINATES, expected_base, arity)?;
         let field = Zp64::new(modulus);
         let mut base_point = try_vec(POINT_COORDINATES, point_count)?;
         base_point.extend(
@@ -240,8 +286,115 @@ impl<'context, 'sources> DirectShiftedSourceEvaluator<'context, 'sources> {
             });
         }
 
-        // Shift the modular index point first. Integer-to-field conversion is
-        // exact for all i64 offsets and never forms an overflowing machine n+s.
+        output.try_prepare_residues(source.terms().len())?;
+        let term_count = self.try_evaluate_coefficients(request, output.residues_mut())?;
+
+        // Structural coordinates are retained only by this compatibility
+        // path. Prepared SpIRed rows call `try_evaluate_residues` and share
+        // their exact role plan across every modular probe.
+        let coordinate_count = checked_mul(SHIFT_COORDINATES, term_count, arity)?;
+        check_limit(
+            SHIFT_COORDINATES,
+            coordinate_count,
+            self.limits.max_shift_coordinate_cells_per_source,
+        )?;
+        output.try_prepare_coordinates(arity, coordinate_count)?;
+        for (term_ordinal, source_shift) in source.terms().keys().enumerate() {
+            for (position, (&offset, &term)) in request
+                .offset()
+                .values()
+                .iter()
+                .zip(source_shift.values())
+                .enumerate()
+            {
+                let shifted = offset.checked_add(term).ok_or(
+                    DirectShiftedSourceError::StructuralShiftOverflow {
+                        term_ordinal,
+                        position,
+                        offset,
+                        source_shift: term,
+                    },
+                )?;
+                output.push_coordinate(shifted);
+            }
+        }
+        if output.coordinate_count() != coordinate_count {
+            return Err(DirectShiftedSourceError::Invariant {
+                detail: "shifted structural row changed its preflighted coordinate count",
+            });
+        }
+        Ok(())
+    }
+
+    /// Evaluate only exact coefficient residues for a structurally prepared
+    /// row. The output contains one entry per source term, including zeros.
+    pub(crate) fn try_evaluate_residues(
+        &mut self,
+        request: &TranslatedSourceRequest,
+        output: &mut ShiftedModularResidueBuffer,
+    ) -> Result<(), DirectShiftedSourceError> {
+        output.clear();
+        self.scalar_scratch.clear();
+        let result = self.try_evaluate_residues_inner(request, output);
+        if result.is_err() {
+            output.clear();
+            self.scalar_scratch.clear();
+        }
+        result
+    }
+
+    fn try_evaluate_residues_inner(
+        &mut self,
+        request: &TranslatedSourceRequest,
+        output: &mut ShiftedModularResidueBuffer,
+    ) -> Result<(), DirectShiftedSourceError> {
+        let source_ordinal = request.source_ordinal();
+        let source = self.sources.source_relation(source_ordinal).ok_or(
+            DirectShiftedSourceError::SourceOrdinalOutOfRange {
+                source_ordinal,
+                source_count: self.sources.source_row_count(),
+            },
+        )?;
+        if request.offset().len() != self.context.index_count() {
+            return Err(DirectShiftedSourceError::WrongOffsetArity {
+                expected: self.context.index_count(),
+                actual: request.offset().len(),
+            });
+        }
+        let term_count = source.terms().len();
+        output.try_prepare(term_count)?;
+        let actual = self.try_evaluate_coefficients(request, output.residues_mut())?;
+        if actual != term_count || output.len() != term_count {
+            return Err(DirectShiftedSourceError::Invariant {
+                detail: "prepared coefficient evaluation changed the source term count",
+            });
+        }
+        Ok(())
+    }
+
+    /// Shift the modular point, reject singular conditions/denominators, and
+    /// append one canonical residue for every exact source term.
+    fn try_evaluate_coefficients(
+        &mut self,
+        request: &TranslatedSourceRequest,
+        output: &mut Vec<u64>,
+    ) -> Result<usize, DirectShiftedSourceError> {
+        output.clear();
+        let source_ordinal = request.source_ordinal();
+        let source = self.sources.source_relation(source_ordinal).ok_or(
+            DirectShiftedSourceError::SourceOrdinalOutOfRange {
+                source_ordinal,
+                source_count: self.sources.source_row_count(),
+            },
+        )?;
+        let arity = self.context.index_count();
+        if request.offset().len() != arity {
+            return Err(DirectShiftedSourceError::WrongOffsetArity {
+                expected: arity,
+                actual: request.offset().len(),
+            });
+        }
+
         self.shifted_point.copy_from_slice(&self.base_point);
         let base_count = self.context.base().parameter_names().len();
         for (position, &offset) in request.offset().values().iter().enumerate() {
@@ -252,8 +405,7 @@ impl<'context, 'sources> DirectShiftedSourceEvaluator<'context, 'sources> {
                 .add(&self.base_point[point_position], &translated);
         }
 
-        // Reject a singular sample before evaluating term coefficients or
-        // allocating/materializing the term-sized structural row.
+        // Reject a singular sample before allocating any structural row.
         let condition_count = source.nonzero_conditions().len();
         try_reserve_total(&mut self.scalar_scratch, condition_count, SCALAR_SCRATCH)?;
         self.backend.try_evaluate_conditions(
@@ -306,48 +458,22 @@ impl<'context, 'sources> DirectShiftedSourceEvaluator<'context, 'sources> {
             });
         }
 
-        let coordinate_count = checked_mul(SHIFT_COORDINATES, term_count, arity)?;
-        check_limit(
-            SHIFT_COORDINATES,
-            coordinate_count,
-            self.limits.max_shift_coordinate_cells_per_source,
-        )?;
-        output.try_prepare(arity, coordinate_count, term_count)?;
-        for (term_ordinal, source_shift) in source.terms().keys().enumerate() {
-            for (position, (&offset, &term)) in request
-                .offset()
-                .values()
-                .iter()
-                .zip(source_shift.values())
-                .enumerate()
-            {
-                let shifted = offset.checked_add(term).ok_or(
-                    DirectShiftedSourceError::StructuralShiftOverflow {
-                        term_ordinal,
-                        position,
-                        offset,
-                        source_shift: term,
-                    },
-                )?;
-                output.push_coordinate(shifted);
+        output.try_reserve_exact(term_count).map_err(|_| {
+            DirectShiftedSourceError::AllocationFailure {
+                resource: "modular source residues",
+                requested: term_count,
             }
-        }
-        if output.coordinate_count() != coordinate_count {
-            return Err(DirectShiftedSourceError::Invariant {
-                detail: "shifted structural row changed its preflighted coordinate count",
-            });
-        }
-
+        })?;
         for pair in self.scalar_scratch.chunks_exact(2) {
             let value = self.field.div(&pair[0], &pair[1]);
-            output.push_residue(self.field.from_element(&value));
+            output.push(self.field.from_element(&value));
         }
         if output.len() != term_count {
             return Err(DirectShiftedSourceError::Invariant {
                 detail: "direct coefficient evaluation changed the source term count",
             });
         }
-        Ok(())
+        Ok(term_count)
     }
 
     #[cfg(test)]
@@ -373,6 +499,112 @@ impl<'context, 'sources> DirectShiftedSourceEvaluator<'context, 'sources> {
 struct SourcePayloadWork {
     scalar_outputs: usize,
     polynomial_terms: usize,
+}
+
+fn validate_source_corpus(
+    context: &IndexedCoefficientContext,
+    sources: &CompletedIbpSourceRows,
+    limits: DirectShiftedSourceLimits,
+) -> Result<DirectShiftedSourceCorpusCensus, DirectShiftedSourceError> {
+    if !sources.is_complete_ordinary() {
+        return Err(DirectShiftedSourceError::IncompleteOrdinarySourceLayout {
+            actual: sources.layout_name(),
+        });
+    }
+    if sources.source_row_count() == 0 {
+        return Err(DirectShiftedSourceError::EmptySourceRows);
+    }
+    if sources.context_fingerprint() != context.fingerprint() {
+        return Err(DirectShiftedSourceError::CompletedSourceContextMismatch);
+    }
+    check_limit(
+        SOURCE_ROWS,
+        sources.source_row_count(),
+        limits.max_source_rows,
+    )?;
+
+    let mut corpus_scalar_outputs = 0usize;
+    let mut corpus_polynomial_terms = 0usize;
+    let mut corpus_source_terms = 0usize;
+    for (source_ordinal, source) in sources.relations().iter().enumerate() {
+        if source.family_fingerprint_owner().as_str() != sources.family_fingerprint() {
+            return Err(DirectShiftedSourceError::RelationFamilyMismatch { source_ordinal });
+        }
+        source
+            .validate_context(context)
+            .map_err(|_| DirectShiftedSourceError::RelationContextMismatch { source_ordinal })?;
+        if source.terms().is_empty() {
+            return Err(DirectShiftedSourceError::EmptySourceRelation { source_ordinal });
+        }
+        let work = validate_source_payload(context, source_ordinal, source, limits)?;
+        corpus_scalar_outputs = checked_add(
+            CORPUS_SCALAR_OUTPUTS,
+            corpus_scalar_outputs,
+            work.scalar_outputs,
+        )?;
+        check_limit(
+            CORPUS_SCALAR_OUTPUTS,
+            corpus_scalar_outputs,
+            limits.max_corpus_scalar_outputs,
+        )?;
+        corpus_polynomial_terms = checked_add(
+            CORPUS_POLYNOMIAL_TERMS,
+            corpus_polynomial_terms,
+            work.polynomial_terms,
+        )?;
+        check_limit(
+            CORPUS_POLYNOMIAL_TERMS,
+            corpus_polynomial_terms,
+            limits.max_corpus_polynomial_terms,
+        )?;
+        corpus_source_terms = checked_add(SOURCE_TERMS, corpus_source_terms, source.terms().len())?;
+    }
+    Ok(DirectShiftedSourceCorpusCensus {
+        source_rows: sources.source_row_count(),
+        scalar_outputs: corpus_scalar_outputs,
+        polynomial_terms: corpus_polynomial_terms,
+        source_terms: corpus_source_terms,
+    })
+}
+
+fn validate_probe_point(
+    context: &IndexedCoefficientContext,
+    modulus: u64,
+    base_parameter_residues: &[u64],
+    index_residues: &[u64],
+    limits: DirectShiftedSourceLimits,
+) -> Result<(), DirectShiftedSourceError> {
+    validate_prime(modulus)?;
+    let expected_base = context.base().parameter_names().len();
+    if base_parameter_residues.len() != expected_base {
+        return Err(DirectShiftedSourceError::WrongBaseParameterArity {
+            expected: expected_base,
+            actual: base_parameter_residues.len(),
+        });
+    }
+    let arity = context.index_count();
+    if index_residues.len() != arity {
+        return Err(DirectShiftedSourceError::WrongIndexPointArity {
+            expected: arity,
+            actual: index_residues.len(),
+        });
+    }
+    let point_count = checked_add(POINT_COORDINATES, expected_base, arity)?;
+    check_limit(POINT_COORDINATES, point_count, limits.max_point_coordinates)?;
+    for (coordinate, &residue) in base_parameter_residues
+        .iter()
+        .chain(index_residues)
+        .enumerate()
+    {
+        if residue >= modulus {
+            return Err(DirectShiftedSourceError::NonCanonicalPointResidue {
+                coordinate,
+                residue,
+                modulus,
+            });
+        }
+    }
+    Ok(())
 }
 
 fn validate_source_payload(

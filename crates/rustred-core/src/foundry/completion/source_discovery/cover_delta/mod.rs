@@ -16,11 +16,14 @@ mod summary;
 
 pub(crate) use error::{ExactOwnerCoverDeltaError, ExactOwnerLedgerSealError};
 pub(crate) use identity::{ExactOwnerLedgerRevision, ExactOwnerLedgerSnapshotIdentity};
-pub(crate) use ledger::CanonicalExactOwnerLedger;
+#[allow(unused_imports)] // Named by the forthcoming atomic SpIReD case driver.
+pub(crate) use ledger::{
+    CanonicalExactOwnerLedger, ExactOwnerLedgerPreparedMutation, ExactOwnerLedgerValidatedMutation,
+};
 pub(crate) use limits::ExactOwnerCoverDeltaLimits;
 pub(crate) use model::{
     ExactOwnerCoverDelta, ExactOwnerCoverDeltaKind, ExactOwnerCoverSnapshot,
-    ExactOwnerLedgerCoverStatus,
+    ExactOwnerLedgerCoverStatus, ExactTerminalCoverDelta, ExactTerminalCoverDeltaKind,
 };
 #[allow(unused_imports)] // Public audit view consumed by the staged campaign driver.
 pub(crate) use summary::{ExactProofOwnerDagCensus, ExactProofOwnerSummary};

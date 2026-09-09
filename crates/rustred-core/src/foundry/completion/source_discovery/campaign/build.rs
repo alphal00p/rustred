@@ -261,6 +261,7 @@ impl FreshTaskEpoch {
             generator,
             completed,
             requests,
+            None,
             target_shift,
             EpochStratumInput::Fixed(stratum),
             owners,
@@ -275,6 +276,7 @@ impl FreshTaskEpoch {
         generator: &ParametricIbpGenerator<'_>,
         completed: &CompletedIbpSourceRows,
         requests: AccumulatedSourceRequests,
+        physical_request_order: Option<&[TranslatedSourceRequest]>,
         target_shift: IntegralShift,
         stratum_input: EpochStratumInput<'_>,
         owners: crate::foundry::completion::stratum::ImmutableOwnerSnapshot,
@@ -323,11 +325,16 @@ impl FreshTaskEpoch {
             });
         }
         validate_fixed_scope(&selected, &requests, stratum_input.scope(), &owners)?;
-        let frame = SelectedSourceFrame::try_new(
-            selected,
-            stratum_input.scope().domain().sector().clone(),
-            limits.physical_frame,
-        )
+        let sector = stratum_input.scope().domain().sector().clone();
+        let frame = match physical_request_order {
+            Some(order) => SelectedSourceFrame::try_new_with_request_order(
+                selected,
+                sector,
+                order,
+                limits.physical_frame,
+            ),
+            None => SelectedSourceFrame::try_new(selected, sector, limits.physical_frame),
+        }
         .map_err(frame_error)?;
         let plan = frame.plan();
         let target_column = plan
@@ -562,6 +569,39 @@ impl GrowingTaskEpochState {
         requests: AccumulatedSourceRequests,
         limits: CampaignLimits,
     ) -> Result<FreshTaskEpoch, CampaignError> {
+        self.try_next_with_optional_request_order(generator, completed, requests, None, limits)
+    }
+
+    /// Materialize the next growing epoch while using an exact permutation of
+    /// the canonical request set as physical elimination chronology.
+    ///
+    /// This is a scheduling-only seam for compact SpIReD GPLU replay. The
+    /// retained [`AccumulatedSourceRequests`] identity remains canonical.
+    pub(crate) fn try_next_with_request_order(
+        &mut self,
+        generator: &ParametricIbpGenerator<'_>,
+        completed: &CompletedIbpSourceRows,
+        requests: AccumulatedSourceRequests,
+        physical_request_order: &[TranslatedSourceRequest],
+        limits: CampaignLimits,
+    ) -> Result<FreshTaskEpoch, CampaignError> {
+        self.try_next_with_optional_request_order(
+            generator,
+            completed,
+            requests,
+            Some(physical_request_order),
+            limits,
+        )
+    }
+
+    fn try_next_with_optional_request_order(
+        &mut self,
+        generator: &ParametricIbpGenerator<'_>,
+        completed: &CompletedIbpSourceRows,
+        requests: AccumulatedSourceRequests,
+        physical_request_order: Option<&[TranslatedSourceRequest]>,
+        limits: CampaignLimits,
+    ) -> Result<FreshTaskEpoch, CampaignError> {
         validate_growing_request_chronology(self.previous_requests(), &requests)?;
         let epoch_ordinal = self.next_epoch_ordinal();
         let next_epoch_ordinal =
@@ -579,6 +619,7 @@ impl GrowingTaskEpochState {
             generator,
             completed,
             requests,
+            physical_request_order,
             target_shift,
             EpochStratumInput::Growing(self.strata_mut()),
             owners,

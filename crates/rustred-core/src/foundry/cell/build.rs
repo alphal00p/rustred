@@ -10,8 +10,8 @@ use crate::sector::{InteriorBounds, SectorInteriorDomain, SectorMonotoneDomain};
 
 use super::{
     FixedIndexRestriction, RuleCell, RuleCellDomainProof, RuleCellError, RuleCellGuard,
-    RuleCellGuardDomainSplit, RuleCellLimits, RuleCellTerm, SourceViewBatch,
-    SourceViewConstruction, SourceViewProvenance,
+    RuleCellGuardDomainProof, RuleCellGuardDomainSplit, RuleCellLimits, RuleCellTerm,
+    SourceViewBatch, SourceViewConstruction, SourceViewProvenance,
 };
 
 pub(super) fn try_fixed_pairs(
@@ -140,6 +140,7 @@ impl RuleCell {
             sources,
             domain,
             RuleCellDomainProof::TightenedOriginalInterior,
+            GuardDomainPolicy::RequireGloballyNonzero,
             Vec::new(),
             Vec::new(),
             limits,
@@ -162,11 +163,48 @@ impl RuleCell {
             sources,
             application_domain,
             RuleCellDomainProof::ReprovedSectorMonotone,
+            GuardDomainPolicy::RequireGloballyNonzero,
             fixed.into_iter().collect(),
             pruned_rhs_ordinals.into_iter().collect(),
             limits,
         )
     }
+
+    /// Build an exact-replay cell whose separable coordinate guard walls are
+    /// retained for pointwise routing rather than rejected globally.
+    ///
+    /// This is intentionally crate-private.  The promotion pipeline may call
+    /// it only after regenerated-source replay, exact lowering, and strict
+    /// sector-monotone descent have succeeded.  Coupled or merely
+    /// conservative exceptional loci still fail closed.
+    pub(crate) fn try_refined_replay_authorized_pointwise_guards(
+        context: &IndexedCoefficientContext,
+        rule: ParametricRule,
+        sources: SourceViewBatch,
+        application_domain: SectorMonotoneDomain,
+        fixed: impl IntoIterator<Item = FixedIndexRestriction>,
+        pruned_rhs_ordinals: impl IntoIterator<Item = usize>,
+        limits: RuleCellLimits,
+    ) -> Result<Self, RuleCellError> {
+        validate_bindings(context, &rule, &sources)?;
+        build(
+            context,
+            rule,
+            sources,
+            application_domain,
+            RuleCellDomainProof::ReprovedSectorMonotone,
+            GuardDomainPolicy::PermitExactCoordinateLoci,
+            fixed.into_iter().collect(),
+            pruned_rhs_ordinals.into_iter().collect(),
+            limits,
+        )
+    }
+}
+
+#[derive(Clone, Copy)]
+enum GuardDomainPolicy {
+    RequireGloballyNonzero,
+    PermitExactCoordinateLoci,
 }
 
 /// Split one exactly separable integer-root hyperplane before consuming the
@@ -320,6 +358,7 @@ fn build(
     sources: SourceViewBatch,
     application_domain: SectorMonotoneDomain,
     domain_proof: RuleCellDomainProof,
+    guard_policy: GuardDomainPolicy,
     mut fixed: Vec<FixedIndexRestriction>,
     mut pruned: Vec<usize>,
     limits: RuleCellLimits,
@@ -457,6 +496,7 @@ fn build(
             resource: "rule guards",
             requested: rule.nonzero_guards().len(),
         })?;
+    let mut guard_domain_proof = RuleCellGuardDomainProof::GloballyNonzero;
     for (ordinal, guard) in rule.nonzero_guards().iter().enumerate() {
         let polynomial = context
             .specialize_fixed_polynomial_sealed(
@@ -465,14 +505,31 @@ fn build(
                 limits.indexed_algebra,
             )
             .map_err(|source| RuleCellError::GuardAlgebra { ordinal, source })?;
-        validate_guard_on_bounds(
-            context,
-            ordinal,
-            &polynomial,
-            application_domain.bounds(),
-            limits.indexed_algebra,
-            limits.guard_algebra,
-        )?;
+        let pointwise = match guard_policy {
+            GuardDomainPolicy::RequireGloballyNonzero => {
+                validate_guard_on_bounds(
+                    context,
+                    ordinal,
+                    &polynomial,
+                    application_domain.bounds(),
+                    limits.indexed_algebra,
+                    limits.guard_algebra,
+                )?;
+                false
+            }
+            GuardDomainPolicy::PermitExactCoordinateLoci => validate_pointwise_guard_on_bounds(
+                context,
+                ordinal,
+                &polynomial,
+                application_domain.bounds(),
+                limits.indexed_algebra,
+                limits.guard_algebra,
+            )?,
+        };
+        if pointwise {
+            guard_domain_proof =
+                RuleCellGuardDomainProof::ReplayAuthorizedPointwiseExactCoordinateLoci;
+        }
         guards.push(RuleCellGuard {
             source_guard_ordinal: ordinal,
             polynomial,
@@ -483,11 +540,60 @@ fn build(
         sources,
         application_domain,
         domain_proof,
+        guard_domain_proof,
         fixed.into_boxed_slice(),
         pruned.into_boxed_slice(),
         terms.into_boxed_slice(),
         guards.into_boxed_slice(),
     ))
+}
+
+/// Validate that a replayed guard is either globally nonzero or has an exact
+/// finite union of coordinate hyperplanes as its complete integer zero locus.
+/// The boolean reports whether pointwise routing is required.
+pub(super) fn validate_pointwise_guard_on_bounds(
+    context: &IndexedCoefficientContext,
+    ordinal: usize,
+    polynomial: &IndexedPolynomial,
+    bounds: &[InteriorBounds],
+    limits: IndexedAlgebraLimits,
+    guard_limits: IndexedGuardLimits,
+) -> Result<bool, RuleCellError> {
+    if bounds.len() != context.index_count() {
+        return Err(RuleCellError::WrongApplicationArity {
+            expected: context.index_count(),
+            actual: bounds.len(),
+        });
+    }
+    let coefficient_system = context
+        .base_coefficient_system(polynomial, limits, guard_limits)
+        .map_err(|source| RuleCellError::GuardAlgebra { ordinal, source })?;
+    match context
+        .integer_zero_locus_domain_resolution(
+            &coefficient_system,
+            guard_limits,
+            |position, root| {
+                root.to_i64()
+                    .is_some_and(|value| bounds[position].contains(value))
+            },
+        )
+        .map_err(|source| RuleCellError::GuardAlgebra { ordinal, source })?
+    {
+        IntegerZeroLocusDomainResolution::IdenticallyZero => {
+            Err(RuleCellError::GuardIdenticallyZero { ordinal })
+        }
+        IntegerZeroLocusDomainResolution::MissesDomain => Ok(false),
+        IntegerZeroLocusDomainResolution::IntersectsExactHyperplanes(roots) => {
+            if roots.is_empty() {
+                return Err(RuleCellError::UnsupportedMultivariateGuardLocus { ordinal });
+            }
+            Ok(true)
+        }
+        IntegerZeroLocusDomainResolution::IntersectsConservativeCover(_)
+        | IntegerZeroLocusDomainResolution::UnsupportedCoupled => {
+            Err(RuleCellError::UnsupportedMultivariateGuardLocus { ordinal })
+        }
+    }
 }
 
 pub(super) fn validate_guard_on_bounds(

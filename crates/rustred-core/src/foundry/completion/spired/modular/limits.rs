@@ -1,6 +1,7 @@
 use super::SpiredModularError;
 
 pub(super) const ROWS: &str = "streamed rows";
+pub(super) const POST_HIT_ROWS: &str = "post-hit streamed rows";
 pub(super) const REQUEST_SHIFT_COMPONENTS: &str = "request shift components";
 pub(super) const FORBIDDEN_COLUMNS: &str = "forbidden columns";
 pub(super) const ROW_STRUCTURAL_TERMS: &str = "row structural forbidden terms";
@@ -13,6 +14,10 @@ pub(super) const TRACE_NODES: &str = "dependency trace nodes";
 pub(super) const TRACE_EDGES: &str = "dependency trace edges";
 pub(super) const TRACE_SHIFT_COMPONENTS: &str = "retained dependency-trace shift components";
 pub(super) const SUPPORT_REQUESTS: &str = "canonical support requests";
+pub(super) const DEPENDENCY_ORDER_REQUESTS: &str = "dependency-topological support requests";
+pub(super) const HIT_REQUEST_SHIFT_COMPONENTS: &str =
+    "retained modular-hit request shift components";
+pub(super) const HIT_TRACE_EDGES: &str = "retained modular-hit dependency edges";
 pub(super) const NEW_COLUMN_POSITIONS: &str = "new forbidden-column positions";
 pub(super) const ROW_VALUES: &str = "streamed modular row values";
 pub(super) const ROW_COLUMNS: &str = "streamed modular row columns";
@@ -28,6 +33,9 @@ pub(super) const TRACE_WORKSPACE: &str = "dependency-trace workspace";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SpiredModularLimits {
     pub(crate) max_rows: usize,
+    /// Bounded comparison window after the first target pivot.  These rows
+    /// remain subject to every aggregate row, term, fill, and trace cap too.
+    pub(crate) max_post_hit_rows: usize,
     pub(crate) max_request_shift_components: usize,
     pub(crate) max_forbidden_columns: usize,
     pub(crate) max_structural_terms_per_row: usize,
@@ -44,24 +52,35 @@ pub(crate) struct SpiredModularLimits {
     pub(crate) max_trace_edges: usize,
     pub(crate) max_retained_request_shift_components: usize,
     pub(crate) max_support_requests: usize,
+    pub(crate) max_dependency_order_requests: usize,
+    pub(crate) max_hit_trace_edges: usize,
+    /// Aggregate shift-coordinate ownership in the hit's canonical support,
+    /// dependency order, request-bearing DAG, and direct-dependency sidecar.
+    pub(crate) max_hit_request_shift_components: usize,
 }
 
 impl Default for SpiredModularLimits {
     fn default() -> Self {
         Self {
             max_rows: 1_048_576,
+            max_post_hit_rows: 4_096,
             max_request_shift_components: 4_096,
             max_forbidden_columns: 1_048_576,
             max_structural_terms_per_row: 1_048_576,
             max_structural_terms: 67_108_864,
             max_retained_nonzeros: 67_108_864,
-            max_reducer_scratch_cells: 2_097_153,
+            // K forbidden columns plus K+2 augmented columns (target and a
+            // permanent structural-zero sentinel).
+            max_reducer_scratch_cells: 2_097_154,
             max_reducer_dense_scan_work: 67_108_864,
             max_reducer_entries: 134_217_728,
             max_trace_nodes: 1_048_576,
             max_trace_edges: 67_108_864,
             max_retained_request_shift_components: 67_108_864,
             max_support_requests: 1_048_576,
+            max_dependency_order_requests: 1_048_576,
+            max_hit_trace_edges: 67_108_864,
+            max_hit_request_shift_components: 67_108_864,
         }
     }
 }

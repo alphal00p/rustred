@@ -311,6 +311,19 @@ pub enum RuleCellDomainProof {
     ReprovedSectorMonotone,
 }
 
+/// How the retained nonzero guards were certified over the application box.
+///
+/// Ordinary artifact cells require every guard to miss the complete box.  An
+/// exact-replay promotion may instead retain a separable coordinate zero
+/// locus and rely on pointwise guard evaluation.  In that second mode the
+/// owner-cover compiler, rather than the rectangular cell alone, owns the
+/// proof that no guard wall is counted as covered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum RuleCellGuardDomainProof {
+    GloballyNonzero,
+    ReplayAuthorizedPointwiseExactCoordinateLoci,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuleCellTerm {
     pub(super) source_rhs_ordinal: usize,
@@ -326,8 +339,10 @@ impl RuleCellTerm {
     }
 }
 
-/// A retained source guard whose exceptional integer locus was proved disjoint
-/// from the owning cell's complete application domain during construction.
+/// A retained source guard. Ordinary cells prove its exceptional integer
+/// locus disjoint from the complete application box. Replay-authorized
+/// pointwise cells instead prove an exact separable coordinate locus; runtime
+/// selection still evaluates the same retained polynomial before use.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuleCellGuard {
     pub(super) source_guard_ordinal: usize,
@@ -416,6 +431,7 @@ pub struct RuleCell {
     proof_domain: SectorInteriorDomain,
     application_domain: SectorMonotoneDomain,
     domain_proof: RuleCellDomainProof,
+    guard_domain_proof: RuleCellGuardDomainProof,
     fixed: Box<[FixedIndexRestriction]>,
     pruned_rhs_ordinals: Box<[usize]>,
     terms: Box<[RuleCellTerm]>,
@@ -437,6 +453,9 @@ impl RuleCell {
     }
     pub const fn domain_proof(&self) -> RuleCellDomainProof {
         self.domain_proof
+    }
+    pub(crate) const fn guard_domain_proof(&self) -> RuleCellGuardDomainProof {
+        self.guard_domain_proof
     }
     pub fn fixed_restrictions(&self) -> &[FixedIndexRestriction] {
         &self.fixed
@@ -568,6 +587,7 @@ impl RuleCell {
         sources: SourceViewBatch,
         application_domain: SectorMonotoneDomain,
         domain_proof: RuleCellDomainProof,
+        guard_domain_proof: RuleCellGuardDomainProof,
         fixed: Box<[FixedIndexRestriction]>,
         pruned_rhs_ordinals: Box<[usize]>,
         terms: Box<[RuleCellTerm]>,
@@ -580,6 +600,7 @@ impl RuleCell {
             proof_domain,
             application_domain,
             domain_proof,
+            guard_domain_proof,
             fixed,
             pruned_rhs_ordinals,
             terms,

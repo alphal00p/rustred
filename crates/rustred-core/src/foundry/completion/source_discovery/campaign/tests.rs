@@ -538,6 +538,50 @@ fn growing_epochs_refresh_the_maximal_stratum_and_preserve_its_exact_guards() {
 }
 
 #[test]
+fn growing_epoch_keeps_canonical_identity_under_explicit_physical_request_order() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
+    let completed = complete_ordinary(&generator);
+    let limits = CampaignLimits::default();
+    let requests = AccumulatedSourceRequests::try_new(
+        1,
+        [request(0, 1), request(0, -1), request(0, 0)],
+        limits,
+    )
+    .unwrap();
+    let explicit_order = [request(0, 1), request(0, -1), request(0, 0)];
+    let (stratum, owners) =
+        fixed_tadpole_inputs(&artifact, 1, &[vec![-1], vec![0], vec![1], vec![2]]);
+    let mut epochs = GrowingTaskEpochState::new(
+        IntegralShift::try_new([1]).unwrap(),
+        maximal_anchor(stratum),
+        owners,
+        OrderingPolicy::default(),
+    );
+
+    let epoch = epochs
+        .try_next_with_request_order(&generator, &completed, requests, &explicit_order, limits)
+        .unwrap();
+
+    assert_eq!(
+        epoch.requests().requests(),
+        &[request(0, -1), request(0, 0), request(0, 1)]
+    );
+    assert_eq!(
+        epoch
+            .plan()
+            .source_instances()
+            .iter()
+            .map(|instance| TranslatedSourceRequest::new(
+                instance.provenance().source_ordinal(),
+                instance.provenance().offset().clone(),
+            ))
+            .collect::<Vec<_>>(),
+        explicit_order
+    );
+}
+
+#[test]
 fn growing_state_cannot_skip_initial_authentication_with_a_too_wide_anchor() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
