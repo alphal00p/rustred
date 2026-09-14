@@ -221,6 +221,7 @@ fn prepared_coordinates_stay_absolute_under_symbolic_and_numeric_seeding() {
             system.fixed(),
             &order,
             &[],
+            None,
         )
         .unwrap()
     };
@@ -304,6 +305,7 @@ fn incompatible_prepared_seeds_fail_before_even_an_empty_row_is_instantiated() {
                     system.fixed(),
                     &order,
                     &[],
+                    None,
                 ),
                 Err(SolverError::InvalidInput(_))
             ));

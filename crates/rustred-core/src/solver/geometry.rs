@@ -1,8 +1,9 @@
 //! Exact coordinate intersections for the sector case queue.
 //!
 //! This service never turns an affine or nonlinear equality into sampled
-//! coordinate faces. It handles only intersections that simplify to fixed
-//! coordinates, leaving the original exact conjunction on unsupported input.
+//! coordinate faces. A cold native exact ideal-normalization fallback can
+//! expose coordinates implied jointly by nonlinear equations. Intersections
+//! that still do not simplify to coordinates retain the original conjunction.
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -13,6 +14,8 @@ use symbolica::prelude::Integer;
 use crate::algebra::CoefficientPolynomial;
 
 use super::CoordinateCase;
+
+mod normalization;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GeometryError {
@@ -58,7 +61,9 @@ impl std::error::Error for GeometryError {}
 /// Thus a coupled equation encountered before `n1 = 1` can still simplify to
 /// a coordinate equation on a later pass. Contradictions, noninteger roots,
 /// and sector-incompatible roots give `None`; unsupported geometry is not an
-/// empty case. The empty conjunction leaves the parent unchanged.
+/// empty case. A genuinely nonlinear multi-equation conjunction that defeats
+/// substitution receives one exact native Groebner-basis normalization and
+/// one coordinate retry. The empty conjunction leaves the parent unchanged.
 pub(super) fn intersect<const N: usize>(
     parent: &CoordinateCase<N>,
     conjunction: &[CoefficientPolynomial],
@@ -70,7 +75,19 @@ pub(super) fn intersect<const N: usize>(
         return Ok(None);
     }
     catch_unwind(AssertUnwindSafe(|| {
-        intersect_native(parent, conjunction, indices, sector)
+        let result = intersect_native(parent, conjunction, indices, sector);
+        if let Err(GeometryError::UnsupportedGeometry { .. }) = &result
+            && let Some(normalized) = normalization::normalize(parent, conjunction, indices)?
+        {
+            // Deliberately call the primitive, not this entry point: no
+            // normalization recursion and no change to unsupported provenance.
+            match intersect_native(parent, &normalized, indices, sector) {
+                Err(GeometryError::UnsupportedGeometry { .. }) => result,
+                retry => retry,
+            }
+        } else {
+            result
+        }
     }))
     .map_err(|_| GeometryError::NativeAlgebra)?
 }

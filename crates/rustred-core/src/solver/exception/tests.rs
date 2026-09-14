@@ -8,7 +8,7 @@ fn candidate<const N: usize>(
     terms: &[([i16; N], &str)],
 ) -> RuleCandidate<N> {
     RuleCandidate {
-        case: CoordinateCase::generic(),
+        case: CoordinateCase::generic().into(),
         target: Integral::symbolic([0; N]).unwrap(),
         rhs: terms
             .iter()
@@ -184,7 +184,7 @@ fn an_already_specialized_fixed_case_retains_only_free_coordinate_equations() {
     let context = CoefficientContext::new(["d", "n0", "n1"]);
     // Restricting 1/(n0+n1-5) to n0=2 already produced this coefficient.
     let mut rule = candidate(&context, &[([0, -1], "1/(n1-3)")]);
-    rule.case = CoordinateCase::new([Some(2), None]).unwrap();
+    rule.case = CoordinateCase::new([Some(2), None]).unwrap().into();
     rule.target = rule.case.integral();
     rule.rhs[0].integral =
         Integral::new([Power::new(false, 1).unwrap(), Power::new(true, -1).unwrap()]);

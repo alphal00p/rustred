@@ -4,6 +4,11 @@ Date: 2026-09-14. Two additional supplied workloads now match the unchanged
 C++ reference using independently generated Rust rules. This is `solveSector`
 parity, not a certified family-closing artifact or complete PM-suite acceptance.
 
+Subsequent checkpoint: the previously failing full `fam1_12` and `fam1_111`
+runs now pass with integrated affine search and native joint-ideal normalization.
+See [the affine-case results](spired_affine_results.md). Their failure descriptions
+below are retained as historical evidence of what motivated that implementation.
+
 ## Exact results
 
 | Workload | Requested sectors | Exact sector rules | Concrete residuals |
@@ -96,7 +101,7 @@ split chiefly between 17.9 ms symbolic and 15.0 ms numerical search. These
 are separate observations from the initial correctness-run profile above;
 no samples are mixed to construct a faster total.
 
-## Full-manifest failures that guide the next slice
+## Historical full-manifest failures before affine integration
 
 The unchanged `fam1_12` attempt finishes 38/40 sectors and writes 963 rules.
 The missing sectors are `110000111` and `110011100`, whose C++ outputs have
@@ -114,14 +119,14 @@ but these partial outputs have not undergone the full native equation audit.
 The 20.31 s diagnostic exits with an error and no success summary; it is not
 comparable to the complete 105.43 s C++ run producing 10,333 rules.
 
-The tested standalone `AffineCase` service now supplies canonical integral
-charts, exact containment, integer-divisibility pruning, and tangent-target
-matching. It is **not yet connected to sector search**. In particular, a
-reference rule on `2*n5-2*n6=1` has an integer-empty domain and should be
-removed with an exact divisibility proof, not copied to meet a literal count.
-Cases with genuine congruences remain typed unsupported. Integration must
-translate ordinary sources before chart substitution and must not restrict
-all source translations to tangent directions.
+At that checkpoint, the standalone `AffineCase` service supplied canonical
+integral charts, exact containment, integer-divisibility pruning, and tangent
+matching, but was not connected to sector search. The planned integration had
+to translate sources before chart substitution, keep transverse source seeds,
+and omit the integer-empty `2*n5-2*n6=1` reference rule with an exact proof.
+That integration now passes the full comparisons described in the newer
+[affine report](spired_affine_results.md). Genuine congruence charts remain
+typed unsupported.
 
 ### The thirteenth sector needs joint polynomial normalization
 
@@ -138,17 +143,16 @@ The linear equation gives `b=8a-7`. Substitution gives
 `E2=2(a-1)(a-2)` and `E1=2(a-1)(204a²-433a+226)`.
 The second candidate `a=2,b=9` fails `E1` (value 352), leaving only
 `a=b=1`, exactly the coordinate conjunction in C++. This is an exact
-algebraic observation, not yet a capability of the running case queue.
+algebraic observation which, at that checkpoint, was not implemented by the queue.
 
-The existing geometry checks equations individually and cannot perform this
-joint normalization. The proposed generic cold-path cure is native Symbolica
-`GroebnerBasis::new` reduced-ideal normalization, then existing coordinate or
-affine case admission. Here the reduced basis should be `a-1,b-1`.
-No custom elimination or bounded integer enumeration is needed. The native
-result still needs implementation tests and end-to-end replay; this report
-does not claim that the fallback has been implemented or that the sector passes.
+The earlier geometry checked equations individually and could not perform
+joint normalization. Native Symbolica `GroebnerBasis::new` reduced-ideal
+normalization was identified as the generic cold-path cure, exposing `a-1,b-1`
+before coordinate admission without custom elimination or bounded enumeration.
+Its subsequent implementation tests and full-sector replay now pass; those
+results are recorded separately from this historical diagnostic.
 
-## Validation and local evidence
+## Validation and local evidence at that earlier checkpoint
 
 - 122 focused solver tests pass, including 12 affine-geometry and two new
   per-job configuration tests.

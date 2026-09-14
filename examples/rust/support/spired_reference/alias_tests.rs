@@ -15,7 +15,7 @@ fn fixture() -> (CoefficientContext, SourceSystem<1>, RuleCandidate<1>) {
     let s = context.parameter("s").unwrap();
     let t = context.parameter("t").unwrap();
     let candidate = RuleCandidate {
-        case: CoordinateCase::generic(),
+        case: CoordinateCase::generic().into(),
         target: Integral::symbolic([0]).unwrap(),
         rhs: vec![Term {
             integral: Integral::symbolic([-1]).unwrap(),

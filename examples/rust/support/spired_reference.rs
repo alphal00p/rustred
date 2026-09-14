@@ -2,9 +2,10 @@
 //!
 //! This example helper is an oracle for an already-generated Rust candidate.
 //! Reference rules never supply equations, seeds, or hints to the solver.
-//! `compare` checks coordinate patterns and exact RHS equations only.
+//! `compare` checks required case domains and exact RHS equations only.
 //! `compare_rule` additionally checks Positive/NonPositive annotations and exact
-//! coordinate applicability guards; unsupported non-coordinate guards are errors.
+//! applicability guards, including exact affine equality cases.
+//! `compare_sector_with_aliases` also checks the entire nonempty reference set.
 //! `compare_pre_rules` matches unrestricted linear-cut rules by their excluded
 //! coordinate axis and checks the entire pre-rule set, not just matching RHSs.
 
@@ -13,12 +14,16 @@ use std::error::Error;
 use std::io::{Error as IoError, ErrorKind};
 
 use rustred::algebra::Coefficient;
-use rustred::solver::{Integral, LinearCutRule, Power, RuleCandidate, SourceSystem};
+use rustred::solver::{Case, Integral, LinearCutRule, Power, RuleCandidate, SourceSystem};
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::parser::{ParseSettings, Token};
 use symbolica::prelude::{Integer, IntegerRing, PolyVariable, Q, Z};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+#[path = "spired_reference/domains.rs"]
+mod domains;
+pub use domains::{SectorComparison, compare_sector_with_aliases};
 
 fn invalid(message: impl Into<String>) -> Box<dyn Error> {
     Box::new(IoError::new(ErrorKind::InvalidData, message.into()))
@@ -36,7 +41,7 @@ pub struct CoefficientAlias<'a> {
     pub parameter: &'a str,
 }
 
-/// Compare one already-generated candidate against its unique coordinate case
+/// Compare one already-generated candidate against its unique required case
 /// in a SpIRed `.dat` rule list. This does not compare applicability guards.
 ///
 /// `n1`, ..., `nN` in the reference map directly to the source system's native
@@ -67,39 +72,27 @@ pub fn compare_with_aliases<const N: usize>(
     aliases: &[CoefficientAlias<'_>],
 ) -> Result<()> {
     if candidate.target != candidate.case.integral() {
-        return Err(invalid(
-            "candidate target is not its canonical coordinate case",
-        ));
+        return Err(invalid("candidate target is not its canonical case"));
     }
-    let body = reference
-        .trim()
-        .strip_prefix('{')
-        .and_then(|text| text.strip_suffix('}'))
-        .ok_or_else(|| invalid("expected a SpIRed rule list enclosed in braces"))?;
-    let mut matching = None;
-    for rule in split_top_level(body, ",")? {
-        let parts = split_top_level(rule, "->")?;
-        if parts.len() != 2 {
-            return Err(invalid(
-                "each reference rule must contain exactly one top-level ->",
-            ));
-        }
-        let fixed = parse_lhs::<N>(parts[0])?;
-        if &fixed == candidate.case.fixed() {
-            if matching.replace(parts[1]).is_some() {
-                return Err(invalid(
-                    "multiple reference rules match this coordinate case; guards are not compared",
-                ));
-            }
-        }
-    }
-    let rhs = matching.ok_or_else(|| {
-        invalid(format!(
-            "no reference rule matches coordinate case {:?}",
-            candidate.case.fixed()
-        ))
-    })?;
+    let entry = domains::matching_entry(reference, &candidate.case, system, None)?;
+    compare_rhs(
+        entry.rhs,
+        &parse_lhs(entry.lhs)?,
+        candidate,
+        system,
+        reference_mass_one,
+        aliases,
+    )
+}
 
+fn compare_rhs<const N: usize>(
+    rhs: &str,
+    reference_fixed: &[Option<i16>; N],
+    candidate: &RuleCandidate<N>,
+    system: &SourceSystem<N>,
+    reference_mass_one: Option<&str>,
+    aliases: &[CoefficientAlias<'_>],
+) -> Result<()> {
     let template = &system
         .rows()
         .iter()
@@ -176,7 +169,8 @@ pub fn compare_with_aliases<const N: usize>(
                 return Err(invalid("expected each RHS term as (coefficient)*int[...]"));
             }
             let integral = parse_integral::<N>(factors[1])?;
-            require_coordinate_pattern(&integral, candidate.case.fixed())?;
+            require_coordinate_pattern(&integral, reference_fixed)?;
+            let integral = specialize_reference_integral(integral, candidate.case.fixed())?;
             let mut token = Token::parse(factors[0], ParseSettings::polynomial())
                 .map_err(|error| invalid(format!("invalid reference coefficient: {error}")))?;
             if !aliases.is_empty() {
@@ -187,13 +181,6 @@ pub fn compare_with_aliases<const N: usize>(
                 .map_err(|error| invalid(format!("invalid reference coefficient: {error}")))?;
             let mut numerator = coefficient.numerator;
             let mut denominator = coefficient.denominator;
-            for (coordinate, fixed) in candidate.case.fixed().iter().enumerate() {
-                if let Some(value) = fixed {
-                    let variable = system.index_variables()[coordinate];
-                    numerator = numerator.replace(variable, &Integer::from(*value));
-                    denominator = denominator.replace(variable, &Integer::from(*value));
-                }
-            }
             if let Some(variable) = mass_position {
                 numerator = numerator.replace(variable, &Integer::from(1));
                 denominator = denominator.replace(variable, &Integer::from(1));
@@ -208,6 +195,7 @@ pub fn compare_with_aliases<const N: usize>(
                 IntegerRing,
                 u16,
             >>::from_num_den(numerator, denominator, &Z, true);
+            let coefficient = restrict_coefficient(coefficient, &candidate.case, system)?;
             add_term(&mut expected, integral, coefficient);
         }
     }
@@ -222,7 +210,11 @@ pub fn compare_with_aliases<const N: usize>(
                 "candidate coefficients do not use the supplied source variable map",
             ));
         }
-        add_term(&mut actual, term.integral, term.coefficient.clone());
+        add_term(
+            &mut actual,
+            term.integral,
+            restrict_coefficient(term.coefficient.clone(), &candidate.case, system)?,
+        );
     }
     expected.retain(|_, coefficient| !coefficient.is_zero());
     actual.retain(|_, coefficient| !coefficient.is_zero());
@@ -248,6 +240,72 @@ pub fn compare_with_aliases<const N: usize>(
         }
     }
     Ok(())
+}
+
+fn specialize_reference_integral<const N: usize>(
+    integral: Integral<N>,
+    fixed: &[Option<i16>; N],
+) -> Result<Integral<N>> {
+    let mut powers = *integral.powers();
+    for (axis, value) in fixed.iter().enumerate() {
+        if let Some(value) = value {
+            if powers[axis].is_symbolic() {
+                powers[axis] = Power::new(
+                    false,
+                    value
+                        .checked_add(powers[axis].value())
+                        .ok_or_else(|| invalid("reference integral specialization overflow"))?,
+                )?;
+            }
+        }
+    }
+    Ok(Integral::new(powers))
+}
+
+fn restrict_coefficient<const N: usize>(
+    coefficient: Coefficient,
+    case: &Case<N>,
+    system: &SourceSystem<N>,
+) -> Result<Coefficient> {
+    let variables = system
+        .rows()
+        .iter()
+        .flatten()
+        .next()
+        .ok_or_else(|| invalid("the source system has no coefficient variable map"))?
+        .coefficient
+        .variables();
+    // Native remapping removes an optional reference-only mass variable after
+    // specialization; it rejects any still-active variable absent from Rust.
+    let mut numerator = coefficient
+        .numerator
+        .rearrange_with_growth(variables)
+        .map_err(invalid)?;
+    let mut denominator = coefficient
+        .denominator
+        .rearrange_with_growth(variables)
+        .map_err(invalid)?;
+    if let Some(affine) = case.affine() {
+        numerator = affine.specialize(&numerator)?;
+        denominator = affine.specialize(&denominator)?;
+    } else {
+        for (axis, value) in case.fixed().iter().enumerate() {
+            if let Some(value) = value {
+                numerator =
+                    numerator.replace(system.index_variables()[axis], &Integer::from(*value));
+                denominator =
+                    denominator.replace(system.index_variables()[axis], &Integer::from(*value));
+            }
+        }
+    }
+    if denominator.is_zero() {
+        return Err(invalid("coefficient is undefined on its required case"));
+    }
+    Ok(<Coefficient as FromNumeratorAndDenominator<
+        IntegerRing,
+        IntegerRing,
+        u16,
+    >>::from_num_den(numerator, denominator, &Z, true))
 }
 
 fn compile_aliases<const N: usize>(
@@ -373,7 +431,7 @@ pub fn compare_pre_rules<const N: usize>(
         // exact comparator. Prepared sources are fixed at cut power one, but
         // their pre-rules are NOT: leave every coordinate symbolic here.
         let candidate = RuleCandidate {
-            case: CoordinateCase::generic(),
+            case: CoordinateCase::generic().into(),
             target: rule.target,
             rhs: rule.rhs.clone(),
             sources: Vec::new(),
@@ -437,14 +495,14 @@ fn pre_rule_axis<const N: usize>(lhs: &str) -> Result<usize> {
     Ok(*axis)
 }
 
-/// Compare an independently generated equation AND its exact coordinate domain
+/// Compare an independently generated equation AND its exact required domain
 /// against one SpIRed export. Unlike [`compare`], this requires the exported
 /// Positive/NonPositive annotations to agree and compares excluded faces.
 ///
-/// The supported guard grammar is a whole negation of nested AND/OR expressions
-/// whose atoms are `n_i == integer` (and Boolean constants). Coupled affine or
-/// nonlinear atoms fail explicitly. Native RustRed coordinate intersection owns
-/// fixed-coordinate substitution, sector pruning, and OR-face subsumption.
+/// Required conditions are polynomial-equality conjunctions. Excluded conditions
+/// are negated AND/OR expressions of polynomial equalities. Symbolica and shared
+/// RustRed geometry own exact normalization, sector pruning and subsumption;
+/// unsupported geometry still fails explicitly.
 pub fn compare_rule<const N: usize>(
     reference: &str,
     rule: &rustred::solver::SectorRule<N>,
@@ -468,117 +526,19 @@ pub fn compare_rule_with_aliases<const N: usize>(
     if !rule.candidate.case.is_in_sector(sector) {
         return Err(invalid("candidate case is outside the comparison sector"));
     }
-    compare_with_aliases(
-        reference,
+    if rule.candidate.target != rule.candidate.case.integral() {
+        return Err(invalid("candidate target is not its canonical case"));
+    }
+    let entry = domains::matching_entry(reference, &rule.candidate.case, system, Some(sector))?;
+    compare_rhs(
+        entry.rhs,
+        &parse_lhs(entry.lhs)?,
         &rule.candidate,
         system,
         reference_mass_one,
         aliases,
     )?;
-    let body = reference.trim();
-    let body = &body[1..body.len() - 1]; // compare checked the rule-list brackets.
-    let mut expected = None;
-    for entry in split_top_level(body, ",")? {
-        let parts = split_top_level(entry, "->")?;
-        if &parse_lhs::<N>(parts[0])? == rule.candidate.case.fixed() {
-            expected = Some(reference_exception_cases(parts[0], rule, system, sector)?);
-        }
-    }
-    let mut expected = expected.expect("RHS comparison found exactly one matching case");
-    let mut actual: Vec<_> = rule
-        .exceptional_cases(system.index_variables(), sector)?
-        .into_iter()
-        .map(|case| *case.fixed())
-        .collect();
-    expected.sort_unstable();
-    actual.sort_unstable();
-    if actual != expected {
-        return Err(invalid(format!(
-            "different exceptional coordinate faces: reference {expected:?}; candidate {actual:?}"
-        )));
-    }
-    Ok(())
-}
-
-fn reference_exception_cases<const N: usize>(
-    lhs: &str,
-    rule: &rustred::solver::SectorRule<N>,
-    system: &SourceSystem<N>,
-    sector: &[bool; N],
-) -> Result<Vec<[Option<i16>; N]>> {
-    use rustred::solver::{ExceptionalConditions, SearchStats, SectorRule};
-
-    let (arguments, suffix) = integral_arguments(lhs)?;
-    for (axis, argument) in split_top_level(arguments, ",")?.into_iter().enumerate() {
-        if rule.candidate.case.fixed()[axis].is_some() {
-            continue;
-        }
-        let text: String = argument.chars().filter(|c| !c.is_whitespace()).collect();
-        let expected = format!(
-            "n{}_?{}",
-            axis + 1,
-            if sector[axis] {
-                "Positive"
-            } else {
-                "NonPositive"
-            }
-        );
-        if text != expected {
-            return Err(invalid(format!(
-                "reference sector annotation {text} differs from expected {expected}"
-            )));
-        }
-    }
-    let conjunctions = if suffix.trim().is_empty() {
-        Vec::new()
-    } else {
-        let guard = suffix
-            .trim()
-            .strip_prefix("/;")
-            .map(str::trim)
-            .and_then(|guard| guard.strip_prefix('!'))
-            .map(str::trim)
-            .ok_or_else(|| {
-                invalid("expected a whole negated reference exception guard /;!(...)")
-            })?;
-        let inner = strip_guard_parentheses(guard)?;
-        if inner.len() == guard.len() {
-            return Err(invalid(
-                "reference exception guard must be wholly parenthesized",
-            ));
-        }
-        parse_coordinate_guard::<N>(inner)?
-    };
-    let template = &system.rows().iter().flatten().next().unwrap().coefficient;
-    let branches = conjunctions
-        .into_iter()
-        .map(|conjunction| {
-            conjunction
-                .into_iter()
-                .map(|(axis, value)| {
-                    let variable = template
-                        .variable(&template.variables()[system.index_variables()[axis]])
-                        .expect("validated source index variable");
-                    &variable + &template.constant(-value)
-                })
-                .collect()
-        })
-        .collect();
-    let expected = SectorRule {
-        candidate: RuleCandidate {
-            case: rule.candidate.case,
-            target: rule.candidate.target,
-            rhs: Vec::new(),
-            sources: Vec::new(),
-            stats: SearchStats::default(),
-        },
-        exceptions: ExceptionalConditions { branches },
-    };
-    Ok(expected
-        .exceptional_cases(system.index_variables(), sector)?
-        .into_iter()
-        .map(|case| *case.fixed())
-        .collect())
+    domains::compare_exceptions(&entry, rule, system, sector)
 }
 
 /// Structural Boolean parsing only; integer and polynomial operations remain
@@ -664,7 +624,7 @@ mod guard_tests {
         .unwrap();
         let rule = SectorRule {
             candidate: RuleCandidate {
-                case: CoordinateCase::generic(),
+                case: CoordinateCase::generic().into(),
                 target: Integral::symbolic([0; 2]).unwrap(),
                 rhs: vec![Term {
                     integral: Integral::symbolic([-1, 0]).unwrap(),
@@ -754,7 +714,7 @@ mod guard_tests {
     #[test]
     fn guards_are_intersected_with_fixed_coordinates_and_sector() {
         let (context, source, mut rule) = fixture();
-        rule.candidate.case = CoordinateCase::new([Some(2), None]).unwrap();
+        rule.candidate.case = CoordinateCase::new([Some(2), None]).unwrap().into();
         rule.candidate.target = rule.candidate.case.integral();
         rule.candidate.rhs[0].integral =
             Integral::new([Power::new(false, 1).unwrap(), Power::new(true, 0).unwrap()]);
@@ -1171,7 +1131,7 @@ mod tests {
         )
         .unwrap();
         let candidate = RuleCandidate {
-            case: CoordinateCase::generic(),
+            case: CoordinateCase::generic().into(),
             target: Integral::symbolic([0]).unwrap(),
             rhs: vec![Term {
                 integral: Integral::symbolic([-1]).unwrap(),
@@ -1222,7 +1182,7 @@ mod tests {
     #[test]
     fn fixed_coordinates_are_specialized_and_ambiguous_patterns_rejected() {
         let (source, mut candidate) = fixture();
-        candidate.case = CoordinateCase::new([Some(2)]).unwrap();
+        candidate.case = CoordinateCase::new([Some(2)]).unwrap().into();
         candidate.target = candidate.case.integral();
         candidate.rhs[0].integral = Integral::numeric([1]).unwrap();
         candidate.rhs[0].coefficient = source.rows()[0][0]

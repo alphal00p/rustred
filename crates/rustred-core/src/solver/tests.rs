@@ -188,6 +188,7 @@ fn numeric_sector_classification_tracks_activation_as_well_as_pinches() {
         &[None; 2],
         &order,
         &[[false, false]],
+        None,
     )
     .unwrap();
     assert_eq!(
@@ -203,6 +204,7 @@ fn numeric_sector_classification_tracks_activation_as_well_as_pinches() {
         &[None; 2],
         &order,
         &[[false, true]],
+        None,
     )
     .unwrap();
     assert!(vanished.is_empty());

@@ -67,7 +67,7 @@ sources or search hints. This diagnostic checks equations, not complete guards.
 
 [`spired_solve_sector.rs`](spired_solve_sector.rs) uses `SectorExecutor` to run
 `SectorSolver::solve_sector_with_observer`: each sector automatically follows the
-exceptional coordinate cases and then solves their fully fixed leaves with a
+exceptional coordinate and admitted affine cases and then solves their fully fixed leaves with a
 shared numerical system. Unlike the single-case example, it retains the
 symbolic common squared mass `m` so that a `vac3` benchmark matches the original
 C++ coefficient field.
@@ -189,9 +189,28 @@ cargo run --release --locked -p rustred --example spired-solve-sector -- \
   examples/rust/support/fam1_112_orderings.txt
 ```
 
-This is an input/diagnostic example, **not a claim that all three-loop PM
-sectors already pass**. The `fam1_12` and `fam1_111` references contain coupled
-exceptional faces such as `n5=n6` (C++ one-based notation), which the
-coordinate-only search currently rejects explicitly. Their full manifests
-must not be declared complete by skipping those sectors. `fam1_112` and the
-supplied ordering sweeps remain part of the outstanding acceptance scope.
+This `fam1_112` command is an input/diagnostic example, **not a claim that its
+436 selected sectors already pass**. It and the supplied ordering sweeps
+remain part of the outstanding acceptance scope.
+
+The full `fam1_12` and `fam1_111` manifests now pass, including their coupled
+exceptional faces. Reproduce them with the same driver:
+
+```sh
+cargo run --release --locked -p rustred --example spired-solve-sector -- \
+  fam1_12 all /tmp/rustred-fam1-12-new \
+  vendor/spired/examples/zeroSectors_1_12.dat \
+  vendor/spired/examples/nonZeroSectors_1_12.dat - unbounded 6
+cargo run --release --locked -p rustred --example spired-solve-sector -- \
+  fam1_111 all /tmp/rustred-fam1-111-new \
+  vendor/spired/examples/zeroSectors_1_111.dat \
+  vendor/spired/examples/neededSectors_1_111.dat - unbounded 6
+```
+
+Expected summaries are `sectors=40`, `rules=1104`, `finite_residuals=32` and
+`sectors=132`, `rules=10333`, `finite_residuals=26`. Optional reference paths
+replace `-` only for post-generation verification. Affine rule files include
+`required = ...` equalities; these constrain applicability without merging
+physical integral indices. One empty C++ `fam1_12` branch is deliberately
+absent, with an exact divisibility proof. See the
+[complete results](../../docs/spired_affine_results.md) for comparisons and limits.

@@ -42,13 +42,15 @@ See [`docs/spired_fam1_11_results.md`](docs/spired_fam1_11_results.md).
 Additional complete reference workloads now include `bc4PMRad1` (856 rules,
 16 residuals across 38 sectors) and selected `fam_cosmo` (15 rules and four
 residuals). Exact outputs agree serially and in the bounded executor. The
-full `fam1_12` and `fam1_111` attempts still fail explicitly, after completing
-38/40 and 119/132 sector jobs. The next implementation slice must propagate
-tested affine case geometry through search/queue/rule ownership and use native
-joint polynomial normalization for the extra finite conjunction. No incomplete
-output is a closed artifact. Per-job ordering inputs are implemented; the
-remaining PM fixtures and ordering sweeps remain mandatory. See
-[`docs/spired_additional_fixtures.md`](docs/spired_additional_fixtures.md).
+full `fam1_12` and `fam1_111` manifests now pass after affine search/queue
+integration and native joint polynomial normalization: 40 sectors with 1,104
+nonempty rules and 132 sectors with 10,333 rules, respectively. Exact guards,
+required domains, coefficients, and all 32/26 residual keys match the reference;
+serial and six-worker outputs agree. One C++ `fam1_12` rule is omitted because
+its required domain is proved integer-empty. The next scope is `fam1_112` and
+the supplied ordering studies, plus measured parallel scheduling improvements.
+These remain mandatory; source-port output is not a certified closing artifact.
+See [`docs/spired_affine_results.md`](docs/spired_affine_results.md).
 
 ## Preamble — user directive (verbatim)
 

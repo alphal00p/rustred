@@ -1,13 +1,15 @@
 use super::{Integral, Power, PowerError};
 
 mod affine;
+mod domain;
 pub use affine::{AffineCase, AffineGeometryError, AffineIntersection};
+pub use domain::Case;
 
 /// An equality case with some indices fixed and all other indices free.
 ///
 /// This is deliberately not an approximation to an affine or nonlinear case.
-/// Coupled equalities need their own exact representation before they can be
-/// passed to the sector solver.
+/// Coupled equalities are represented separately by [`AffineCase`] and share
+/// the sector queue through [`Case`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CoordinateCase<const N: usize> {
     fixed: [Option<i16>; N],

@@ -2,7 +2,7 @@
 
 Snapshot: 2026-09-14. This is a census of the supplied example inputs and
 reference output, not a claim that all examples have been ported. The complete
-`vac3`, `fam1_11`, `bc4PMRad1`, and selected `fam_cosmo` workloads now pass
+`vac3`, `fam1_11`, `fam1_12`, `fam1_111`, `bc4PMRad1`, and selected `fam_cosmo` workloads now pass
 exact Rust/C++ equation, guard, and residual checks. Reference source and binary data stay under ignored
 `vendor/spired/`; no confidential PDF or vendor source is reproduced here.
 See [the port status](spired_port.md) for implemented capabilities and measured
@@ -43,13 +43,15 @@ minimality.
 
 ## Exact manifest census
 
-The additional release attempts of `fam1_12` and `fam1_111` use their full
-unchanged requested manifests. They currently finish 38/40 and 119/132 sector
-jobs respectively, then return typed errors rather than a success summary.
-These partial outputs do not establish complete reference parity. Coupled
-equal-index cases need propagation through the search/queue; a standalone
-native affine-geometry service is implemented and tested but not yet wired
-into those consumers. `fam1_112` and the ordering sweeps remain outstanding.
+The current release runs of `fam1_12` and `fam1_111` complete their full
+unchanged requested manifests, 40 and 132 sector jobs respectively. Exact
+domain/guard/coefficient comparisons match 1,104 nonempty and 10,333 reference
+rules, with 32 and 26 exact residual keys. The single extra C++ `fam1_12`
+rule has a proved integer-empty required domain. Admitted affine cases now
+flow through search and the queue; native joint-ideal normalization resolves
+the extra finite polynomial conjunction. See the [affine results](spired_affine_results.md).
+`fam1_112` and the ordering sweeps remain outstanding; source-port acceptance
+does not establish a certified family-closing artifact.
 
 The active whitespace-separated manifests were parsed as Boolean coordinate
 rows. All rows have the expected width; all individual files are duplicate-free;
@@ -328,13 +330,14 @@ coordinate-only. The subsequent independent Rust generation and exact
 comparisons are recorded in [the PM result](spired_fam1_11_results.md).
 
 The already compared `vac3` output likewise has coordinate-only guards.
-The other supplied families have not been generated in this census, so their
-exceptional geometry is **unknown**, not “coordinate-only.” Three-loop PM
-orderings, noninteger offsets, or free multiscale kinematics can change that
-geometry. If an exact coupled equation appears, record it and implement the
-required affine-integer service; never replace it with guessed coordinate
-faces or sampled points. Full affine support remains part of the generic
-port objective even though the validated `fam1_11` run does not need it.
+Subsequent complete generations of `fam1_12` and `fam1_111` expose genuine
+coupled cases, now handled by the integrated native affine service. The former
+exports two required affine rule domains in Rust; the latter exports 53.
+`bc4PMRad1` and selected `fam_cosmo` also pass. The remaining `fam1_112` and
+ordering workloads must still be measured: different orderings or kinematics
+can expose unsupported geometry. Never substitute guessed coordinate faces or
+sampled points for an exact coupled case. General congruence charts and
+integer-sector inequality feasibility remain outside current admission.
 
 Likewise, the reference's residual master labels and bounded numerical search
 do not themselves establish a zero-uncovered RustRed closing artifact or
@@ -342,10 +345,10 @@ master minimality. Reference parity and artifact closure are separate checks.
 
 ## Output inventory and outstanding reference builds
 
-Existing executables in `vendor/spired/build-release/examples/` at this
-snapshot are `fam1_11`, `vac3`, and `vac4`. The remaining in-scope source
-files are present and readable, but their executable builds and reference
-runs are still outstanding. A `.p` build directory is not a built executable.
+Completed C++ builds and saved full reference runs now include `fam1_11`,
+`fam1_12`, `fam1_111`, `bc4PMRad1`, selected `fam_cosmo`, `vac3`, and `vac4`.
+The `fam1_112` and ordering-study builds/runs remain outstanding. A `.p` build
+directory alone is not a built executable.
 
 | Generator | Output produced by its active source |
 | --- | --- |
@@ -368,15 +371,17 @@ inspected without running Mathematica; compressed binary `.rules` and
 Input/build caveats:
 
 - All active in-scope source and manifest inputs are present. There is no
-  supplied one-loop fixture or saved output for the not-yet-built examples.
+  supplied one-loop fixture. Full `fam1_112` and ordering-study reference
+  outputs have not yet been generated.
 - `examples/meson.build` declares `fam1_112_test.cpp`, but that source file
   is absent. A clean reference build setup must explicitly account for this
   missing target; do not invent its intended workload.
 - Alternate `*_mat.dat` sector files and `vac.wl` are auxiliary reference
   data, not manifests selected by these active generators.
 - The `fam1_111` zero-sector export reads the local `zS` object after it has
-  been moved into the family. Check its eventual output before treating that
-  export as authoritative; the original input manifest is authoritative.
+  been moved into the family. The completed run confirms its incomplete output;
+  use the original 2,304-entry input manifest rather than treating that
+  export as authoritative.
 - `fam1_112`'s stats header has four column labels but its data rows have
   five fields: sector, elapsed milliseconds, residual count, rule count,
   leaf count. Parse the actual payload, not the header alone.

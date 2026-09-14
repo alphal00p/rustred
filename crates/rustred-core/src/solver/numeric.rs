@@ -153,6 +153,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     self.system.fixed(),
                     &self.order,
                     &self.config.zero_sectors,
+                    None,
                 )?;
                 stats.rows += 1;
                 let Some(leading) = row.first() else { continue };
@@ -165,7 +166,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     // reducer. Building a RHS must not erase its pivot there.
                     let (target, rhs) = canonicalize(row.clone(), &self.system.indices)?;
                     rules.push(RuleCandidate {
-                        case: cases[index],
+                        case: cases[index].into(),
                         target,
                         rhs,
                         sources: vec![source],
@@ -249,7 +250,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             for (target_id, exact) in solutions {
                 let (target, rhs) = canonicalize(exact, &self.system.indices)?;
                 rules.push(RuleCandidate {
-                    case: cases[modular_hits[target_id].0],
+                    case: cases[modular_hits[target_id].0].into(),
                     target,
                     rhs,
                     sources: sources.clone(),

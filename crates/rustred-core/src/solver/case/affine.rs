@@ -1,6 +1,7 @@
 //! Exact affine equality cases with integral, unit-pivot charts.
 //!
-//! This is a geometry primitive, not affine support in the search engine.
+//! The sector search shares these charts and restricts source coefficients
+//! after translation, without identifying distinct integral coordinates.
 //! Symbolica performs all elimination, normalization and substitutions. The
 //! admitted chart parametrizes the ambient integer affine lattice exactly;
 //! its free coordinates still obey the original sector inequalities. General
@@ -107,6 +108,10 @@ impl<const N: usize> AffineCase<N> {
         &self.face
     }
 
+    pub fn index_variables(&self) -> &[usize; N] {
+        &self.indices
+    }
+
     /// Canonical coupled equalities; fixed coordinates are in [`Self::face`].
     pub fn equations(&self) -> &[CoefficientPolynomial] {
         &self.equations
@@ -146,11 +151,20 @@ impl<const N: usize> AffineCase<N> {
                 "native polynomial coefficient and exponent arrays have inconsistent lengths",
             ));
         }
+        Ok(self.specialize_validated(polynomial))
+    }
+
+    /// Internal seeded-row path: the solver checks the immutable source and
+    /// chart maps once at case entry; no repeated boundary validation per term.
+    pub(crate) fn specialize_validated(
+        &self,
+        polynomial: &CoefficientPolynomial,
+    ) -> CoefficientPolynomial {
         let mut result = specialize_face(polynomial, &self.face, &self.indices);
         for (position, replacement) in &self.substitutions {
             result = result.replace_with_poly(*position, replacement);
         }
-        Ok(result)
+        result
     }
 
     /// Intersect further guard-zero equations after applying the parent chart.

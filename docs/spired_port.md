@@ -157,7 +157,7 @@ residuals and output payloads. See the
 [parallel measurements](spired_parallel_results.md) for both retained seven-pair
 benchmark batches, memory figures, host contention, and remaining scaling limits.
 
-## Per-job orderings and affine-geometry foundation (2026-09-14)
+## Per-job orderings and integrated affine cases (2026-09-14)
 
 `SectorExecutor::map_configured_with_observer` accepts a per-job configuration
 function, identified by the original manifest ordinal and sector. This permits
@@ -168,31 +168,93 @@ manifest order; callbacks and progress remain live and nondeterministic.
 The example driver accepts a final explicit ordering file, including the
 supplied 16 `fam1_112` overrides as checked input data outside the engine.
 
-The separate `AffineCase` API supplies the next geometry building block:
-intersect exact index equations, use native rational reduced elimination,
-prune proved integer-empty rows, and construct integral unit-pivot charts.
-`AffineIntersection` distinguishes an empty domain, a coordinate-only face,
-and a genuinely coupled case. Fractional charts and nonlinear equations return
-typed unsupported results. The service supplies exact containment and tangent
-target-shift tests; it does not implement a general integer-polyhedron solver.
+`Case<N>` now connects equality geometry to `solve_case`, the sector queue,
+rule guards, and the example's exact oracle comparison. Its coordinate variant
+stores the existing `CoordinateCase<N>` inline; its affine variant shares an
+immutable `AffineCase<N>` through `Arc`. Coordinate-only work retains its
+matrix-free fast path. The queue compares canonical constraints in the
+reference's order and removes a narrower pending domain only when exact
+containment proves it redundant. Fully fixed intersections return to the
+existing shared numerical search. An unsupported exceptional intersection is
+never interpreted as empty or covered.
 
-**This is not yet wired into `solve_case` or the sector queue.** A successful
-standalone geometry test is not a successful affine rule search. Integration
-must propagate the equations through queue identity, exact specialization,
-target matching, rule guards, and oracle validation. Ordinary sources must be
-shifted before chart substitution; only the accepted target's displacement
-must be tangent. Original physical integral axes must remain distinct.
+`AffineCase` uses native rational reduced elimination, exact integer
+divisibility checks, and integral unit-pivot charts. `AffineIntersection`
+distinguishes a proved-empty domain, a coordinate-only face, and a genuinely
+coupled case. For example, `n0=n1` leaves two distinct physical integral axes:
+`I(n0+1,n1)` and `I(n0,n1+1)` must not be merged merely because their base
+indices obey an equality. The chart restricts coefficients, not integral keys.
+
+Ordinary sources are translated **before** chart restriction. On `n0=n1`, a
+source coefficient `n0-n1` translated by `(s0,s1)` becomes `s0-s1`, so a
+transverse source can supply a necessary nonzero equation. Restricting first
+would incorrectly erase it. All ordinary source seeds therefore remain
+eligible; only a selected target displacement must satisfy the homogeneous
+tangency test `A*s=0`. This permits recentering the winning rule without
+changing its required affine domain. Search validates the immutable source and
+chart maps once at case entry, then uses native substitution without repeated
+per-term boundary checks.
+
+Admission is intentionally narrower than general integer-affine solving.
+Accepted canonical charts have integral coefficients and integer free
+coordinates. A surviving fractional chart returns typed
+`UnsupportedCongruence`, not an infeasibility claim. Fixed-coordinate signs are
+checked against the sector, but general coupled sector-inequality feasibility
+is not decided. Unsupported nonlinear equations also remain explicit errors.
+These conservative limits can leave work unfinished; they cannot establish
+closure by discarding feasible cases.
+
+### Cold exact normalization of joint exceptional equations
+
+Coordinate intersection now has a narrowly triggered native joint-ideal
+fallback. If multiple exceptional equations resist the ordinary coordinate
+path and at least one is nonlinear, Symbolica constructs an exact rational
+Gröbner basis. Native primitive normalization clears coefficient denominators,
+and the coordinate intersection is retried once. This is a cold guard-geometry
+operation, not another elimination kernel in the source-search hot path; it
+does not enumerate a bounded box of integer points.
+
+The motivating `fam1_111` conjunction contains two nonlinear equations in
+`a=n4`, `b=n14` together with `8*a-b-7=0`. Their joint ideal reduces to
+`a-1=0`, `b-1=0`; considering the equations separately had previously rejected
+that coordinate corner. The new exact normalization regression covers the
+actual conjunction, inconsistent ideals, rational content, nonprefix index
+maps, and remaining unsupported geometry. A nonlinear conjunction whose basis
+still requires a coupled affine admission is a known conservative limitation:
+the coordinate retry preserves the original unsupported equations rather than
+passing a transformed coupled basis into a second admission path.
+
+### Validation boundary for this integration
+
+The oracle helper now matches complete nonempty required-case sets, compares
+exact RHS coefficients after native restriction to each required domain, and
+compares exceptional domains by exact intersection and containment. It does
+not identify physical integral axes or specialize symbolic parameters.
+Proved integer-empty reference cases are counted explicitly rather than
+requiring a meaningless Rust rule. Reference files are read only after all
+requested sectors have independently run.
 
 The actual new C++ runs require this distinction: `fam1_12` has two feasible
 equal-index faces and also exports an integer-empty `2*n5-2*n6=1` branch;
 `fam1_111` has 83 coupled-domain rule LHSs across 12 sectors. Copying a sampled
 integer point or dropping those faces cannot meet the reference-port goal.
 
-The integrated focused suite passes 122 solver tests, including 12 affine
-geometry tests and two additional executor tests. All 29 example tests pass,
-covering the five new family constructors, explicit ordering input, and exact
-reference notation aliases. These correctness tests use the normal test
-profile; benchmark timings use only the separately built release executable.
+The integrated focused suite passes **142 solver tests and 39 example tests**;
+the workspace all-targets check also passes. Tests include transverse-source
+affine search with exact replay, preservation of physical columns, native-map
+rejection, affine queue/guard semantics, cold joint-ideal normalization, and
+whole-sector affine oracle comparisons. Separate agents have independently
+audited implementation and mathematical correctness. These correctness tests
+use the normal test profile; benchmark timings use only the separately built
+release executable.
+
+Full `fam1_12` and `fam1_111` release campaigns now pass at one and six workers:
+1,104 nonempty rules over 40 sectors and 10,333 rules over 132 sectors. Exact
+domains, coefficients, guards, and all 32/26 residual keys match C++.
+The earlier 38/40 and 119/132 runs are historical diagnostics, not the current
+acceptance status. See the [affine-case report](spired_affine_results.md) for
+release measurements and remaining scope, and the
+[additional-fixture report](spired_additional_fixtures.md) for earlier observations.
 
 ## Validation and current baseline
 
@@ -269,8 +331,8 @@ to the first run. All 12 example-comparator tests also passed in release mode,
 and `cargo check --locked --workspace` passed with an explicitly selected
 installed Python interpreter. The targeted Symbolica variable-map ownership
 migration regression passed as well. The subsequent linear-cut/ordering slice
-is described below; coupled affine cases and complete PM fixture coverage
-remain outstanding. `RuleCandidate` still
+is described below; affine search is now integrated as documented above, while
+complete PM fixture coverage still requires `fam1_112` and the ordering studies. `RuleCandidate` still
 does not claim unconditional applicability or publish artifacts; `SectorRule`
 adds its exact exceptional conditions, and `SectorSolution` explicitly retains
 bounded finite residuals without declaring certified master independence.
@@ -341,5 +403,6 @@ and guards over 40 sectors, and all 16 finite residual keys agree with C++ at
 give campaign medians 264.459 ms serial and 66.119 ms with six workers, versus
 739 ms and 131 ms for C++. See [the complete PM result](spired_fam1_11_results.md)
 for timing boundaries, independent audits, phase profiling, and remaining scope.
-This fixture requires only coordinate guards. Coupled affine handling remains
-a separate requirement of the generic all-PM reference port.
+This historical fixture checkpoint requires only coordinate guards and does
+not validate the subsequently integrated affine search. The latter is covered
+by the complete `fam1_12` and `fam1_111` release comparisons described above.

@@ -4,10 +4,10 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::time::{Duration, Instant};
 
-use super::geometry::{GeometryError, compare_cases, contains, intersect};
+use super::geometry::{GeometryError, compare_cases};
 use super::{
-    CoordinateCase, ExceptionError, ExceptionalConditions, Integral, RuleCandidate, SearchOptions,
-    SectorSolver, SolverError, extract_exceptions,
+    AffineGeometryError, Case, CoordinateCase, ExceptionError, ExceptionalConditions, Integral,
+    RuleCandidate, SearchOptions, SectorSolver, SolverError, extract_exceptions,
 };
 
 /// A solved equation together with the exact exceptional index conditions
@@ -19,25 +19,23 @@ pub struct SectorRule<const N: usize> {
 }
 
 impl<const N: usize> SectorRule<N> {
-    /// Exact coordinate intersections of the rule's case with its exceptional
+    /// Exact intersections of the rule's case with its exceptional
     /// branches, modulo sector signs. Broader faces subsume narrower ones.
-    /// Unsupported coupled/nonlinear geometry is an error, never an empty set.
+    /// Unsupported geometry is an error, never an empty set.
     pub fn exceptional_cases(
         &self,
         indices: &[usize; N],
         sector: &[bool; N],
-    ) -> Result<Vec<CoordinateCase<N>>, GeometryError> {
+    ) -> Result<Vec<Case<N>>, AffineGeometryError> {
         let mut cases = Vec::new();
         for branch in &self.exceptions.branches {
-            if let Some(case) = intersect(&self.candidate.case, branch, indices, sector)? {
-                if cases.iter().any(|other| contains(other, &case)) {
-                    continue;
+            if let Some(case) = self.candidate.case.intersect(branch, indices, sector)? {
+                if prune_subsumed(&mut cases, &case)? {
+                    cases.push(case);
                 }
-                cases.retain(|other| !contains(&case, other));
-                cases.push(case);
             }
         }
-        cases.sort_unstable_by(compare_cases);
+        cases.sort_unstable_by(Case::queue_cmp);
         Ok(cases)
     }
 }
@@ -93,7 +91,7 @@ pub struct SectorSolution<const N: usize> {
 /// are introduced when the default no-op observer is used.
 pub enum SectorEvent<'a, const N: usize> {
     CaseStarted {
-        case: CoordinateCase<N>,
+        case: Case<N>,
         pending: usize,
     },
     RuleFound {
@@ -108,19 +106,19 @@ pub enum SectorEvent<'a, const N: usize> {
 #[derive(Debug)]
 pub enum SectorSolveError<const N: usize> {
     Search {
-        case: CoordinateCase<N>,
+        case: Case<N>,
         source: SolverError,
     },
     Geometry {
-        case: CoordinateCase<N>,
-        source: GeometryError,
+        case: Case<N>,
+        source: AffineGeometryError,
     },
     Exceptions {
-        case: CoordinateCase<N>,
+        case: Case<N>,
         source: ExceptionError,
     },
     NonProgress {
-        case: CoordinateCase<N>,
+        case: Case<N>,
     },
     CaseBudget {
         solved: usize,
@@ -162,8 +160,8 @@ impl<const N: usize> SectorSolver<'_, N> {
     /// Port the reference's equality-case queue: solve the least constrained
     /// case, intersect each exact exceptional conjunction, remove subsumed
     /// work, then store the rule. Fully fixed cases share the later numerical
-    /// solve. Coupled/nonlinear geometry currently returns a typed error;
-    /// it is never replaced by sampled coordinate faces.
+    /// solve. Admitted affine cases retain their exact charts. Unsupported
+    /// geometry is never replaced by sampled coordinate faces.
     pub fn solve_sector_with_observer(
         &self,
         options: SectorSolveOptions,
@@ -179,7 +177,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         if initial.is_numerical() {
             numerical.push(initial);
         } else {
-            pending.push(initial);
+            pending.push(Case::from(initial));
         }
         let mut rules = Vec::new();
         let mut stats = SectorStats::default();
@@ -195,15 +193,15 @@ impl<const N: usize> SectorSolver<'_, N> {
             }
             let current = pending.remove(0);
             observe(SectorEvent::CaseStarted {
-                case: current,
+                case: current.clone(),
                 pending: pending.len(),
             });
-            let candidate = self
-                .solve_case(current, options.symbolic)
-                .map_err(|source| SectorSolveError::Search {
-                    case: current,
-                    source,
-                })?;
+            let candidate =
+                self.solve_case(current.clone(), options.symbolic)
+                    .map_err(|source| SectorSolveError::Search {
+                        case: current.clone(),
+                        source,
+                    })?;
             stats.symbolic_cases += 1;
             stats.symbolic_rows += candidate.stats.rows;
             stats.symbolic_search += candidate.stats.elapsed;
@@ -214,16 +212,12 @@ impl<const N: usize> SectorSolver<'_, N> {
             // Insert children before storing this rule, matching solveSector.
             // A newly discovered branch is not covered by that rule itself.
             for conjunction in &rule.exceptions.branches {
-                let child = intersect(
-                    &current,
-                    conjunction,
-                    &self.system.indices,
-                    self.order.sector(),
-                )
-                .map_err(|source| SectorSolveError::Geometry {
-                    case: current,
-                    source,
-                })?;
+                let child = current
+                    .intersect(conjunction, &self.system.indices, self.order.sector())
+                    .map_err(|source| SectorSolveError::Geometry {
+                        case: current.clone(),
+                        source,
+                    })?;
                 if let Some(child) = child {
                     if child == current {
                         return Err(SectorSolveError::NonProgress { case: current });
@@ -299,7 +293,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         let start = Instant::now();
         let exceptions = extract_exceptions(&candidate, &self.system.indices, self.order.sector())
             .map_err(|source| SectorSolveError::Exceptions {
-                case: candidate.case,
+                case: candidate.case.clone(),
                 source,
             })?;
         Ok((
@@ -313,29 +307,38 @@ impl<const N: usize> SectorSolver<'_, N> {
 
     fn enqueue(
         &self,
-        case: CoordinateCase<N>,
-        pending: &mut Vec<CoordinateCase<N>>,
+        case: Case<N>,
+        pending: &mut Vec<Case<N>>,
         numerical: &mut Vec<CoordinateCase<N>>,
         rules: &[SectorRule<N>],
     ) -> Result<bool, SectorSolveError<N>> {
-        if pending.iter().any(|queued| contains(queued, &case)) {
+        if !prune_subsumed(pending, &case).map_err(|source| SectorSolveError::Geometry {
+            case: case.clone(),
+            source,
+        })? {
             return Ok(false);
         }
-        pending.retain(|queued| !contains(&case, queued));
         for rule in rules {
             if self.rule_covers(rule, &case)? {
                 return Ok(false);
             }
         }
-        let queue = if case.is_numerical() {
-            numerical
-        } else {
-            pending
-        };
-        match queue.binary_search_by(|queued| compare_cases(queued, &case)) {
+        if case.is_numerical() {
+            // A full-rank affine system canonicalizes to a coordinate case.
+            // Preserve the existing shared numerical search input contract.
+            let fixed = *case.face();
+            return match numerical.binary_search_by(|queued| compare_cases(queued, &fixed)) {
+                Ok(_) => Ok(false),
+                Err(position) => {
+                    numerical.insert(position, fixed);
+                    Ok(true)
+                }
+            };
+        }
+        match pending.binary_search_by(|queued| queued.queue_cmp(&case)) {
             Ok(_) => Ok(false),
             Err(position) => {
-                queue.insert(position, case);
+                pending.insert(position, case);
                 Ok(true)
             }
         }
@@ -344,22 +347,36 @@ impl<const N: usize> SectorSolver<'_, N> {
     fn rule_covers(
         &self,
         rule: &SectorRule<N>,
-        case: &CoordinateCase<N>,
+        case: &Case<N>,
     ) -> Result<bool, SectorSolveError<N>> {
-        if !contains(&rule.candidate.case, case) {
+        if !rule
+            .candidate
+            .case
+            .contains(case)
+            .map_err(|source| SectorSolveError::Geometry {
+                case: case.clone(),
+                source,
+            })?
+        {
             return Ok(false);
         }
         for branch in &rule.exceptions.branches {
-            match intersect(case, branch, &self.system.indices, self.order.sector()) {
+            match case.intersect(branch, &self.system.indices, self.order.sector()) {
                 Ok(None) => (),
                 Ok(Some(_)) => return Ok(false),
                 // Failure to prove an exceptional intersection empty must
                 // never suppress pending work, even if the rule might apply.
-                Err(GeometryError::UnsupportedGeometry { .. })
-                | Err(GeometryError::CompactOverflow { .. }) => return Ok(false),
+                Err(AffineGeometryError::UnsupportedNonlinear { .. })
+                | Err(AffineGeometryError::UnsupportedCongruence { .. })
+                | Err(AffineGeometryError::Coordinate(GeometryError::UnsupportedGeometry {
+                    ..
+                }))
+                | Err(AffineGeometryError::Coordinate(GeometryError::CompactOverflow { .. })) => {
+                    return Ok(false);
+                }
                 Err(source) => {
                     return Err(SectorSolveError::Geometry {
-                        case: *case,
+                        case: case.clone(),
                         source,
                     });
                 }
@@ -367,6 +384,27 @@ impl<const N: usize> SectorSolver<'_, N> {
         }
         Ok(true)
     }
+}
+
+/// Drop narrower queued domains only when exact implication proves it safe.
+fn prune_subsumed<const N: usize>(
+    cases: &mut Vec<Case<N>>,
+    candidate: &Case<N>,
+) -> Result<bool, AffineGeometryError> {
+    for queued in cases.iter() {
+        if queued.contains(candidate)? {
+            return Ok(false);
+        }
+    }
+    let mut position = 0;
+    while position < cases.len() {
+        if candidate.contains(&cases[position])? {
+            cases.remove(position);
+        } else {
+            position += 1;
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(test)]

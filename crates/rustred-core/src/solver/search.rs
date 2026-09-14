@@ -10,8 +10,8 @@ use super::discovery::{Discovery, DiscoveryStats, exact_materialize};
 use super::instantiate::{canonicalize, instantiate};
 use super::precondition::precondition_with_variable_order;
 use super::{
-    CoordinateCase, ExactRow, Integral, IntegralOrder, PolynomialRow, Seed, Seeds, SolverError,
-    SourceSystem, Term,
+    Case, ExactRow, Integral, IntegralOrder, PolynomialRow, Seed, Seeds, SolverError, SourceSystem,
+    Term,
 };
 
 #[derive(Clone, Debug)]
@@ -82,7 +82,7 @@ pub struct SeedSource<const N: usize> {
 /// the immutable [`SourceSystem`]. This type cannot publish a closing artifact.
 #[derive(Debug)]
 pub struct RuleCandidate<const N: usize> {
-    pub case: CoordinateCase<N>,
+    pub case: Case<N>,
     pub target: Integral<N>,
     pub rhs: ExactRow<N>,
     pub sources: Vec<SeedSource<N>>,
@@ -156,9 +156,10 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
 
     pub fn solve_case(
         &self,
-        case: CoordinateCase<N>,
+        case: impl Into<Case<N>>,
         options: SearchOptions,
     ) -> Result<RuleCandidate<N>, SolverError> {
+        let case = case.into();
         if !case.is_in_sector(self.order.sector()) {
             return Err(SolverError::InvalidInput(
                 "case lies outside its sector".into(),
@@ -168,6 +169,23 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             if *removed && case.fixed()[i] != Some(1) {
                 return Err(SolverError::InvalidInput(
                     "removed linear deltas must be fixed to one".into(),
+                ));
+            }
+        }
+        if let Some(affine) = case.affine() {
+            if affine.index_variables() != self.system.index_variables()
+                || self
+                    .system
+                    .rows()
+                    .iter()
+                    .flatten()
+                    .next()
+                    .is_some_and(|term| {
+                        term.coefficient.variables() != affine.equations()[0].variables()
+                    })
+            {
+                return Err(SolverError::InvalidInput(
+                    "affine case and source system use different coefficient/index maps".into(),
                 ));
             }
         }
@@ -201,6 +219,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     self.system.fixed(),
                     &self.order,
                     &self.config.zero_sectors,
+                    case.affine(),
                 )?;
                 stats.rows += 1;
                 let Some(leading) = row.first() else { continue };
@@ -317,3 +336,6 @@ impl<const N: usize> Probe<N> {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod affine_tests;

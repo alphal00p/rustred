@@ -3,7 +3,9 @@ use symbolica::prelude::{Integer, IntegerRing, Z};
 
 use crate::algebra::{Coefficient, CoefficientPolynomial};
 
-use super::{ExactRow, Integral, IntegralOrder, PolynomialRow, Seed, SolverError, Term};
+use super::{
+    AffineCase, ExactRow, Integral, IntegralOrder, PolynomialRow, Seed, SolverError, Term,
+};
 
 pub(super) fn instantiate<const N: usize>(
     source: &PolynomialRow<N>,
@@ -12,6 +14,7 @@ pub(super) fn instantiate<const N: usize>(
     fixed: &[Option<i16>; N],
     order: &IntegralOrder<N>,
     zero_sectors: &[[bool; N]],
+    affine: Option<&AffineCase<N>>,
 ) -> Result<ExactRow<N>, SolverError> {
     // Prepared coordinates are absolute, and cannot be shifted or reopened
     // by a different case. Validate once even when this source row is empty.
@@ -56,6 +59,12 @@ pub(super) fn instantiate<const N: usize>(
                 polynomial =
                     polynomial.replace(*variable, &Integer::from(seed.integral[i].value()));
             }
+        }
+        // All ordinary source translations remain admissible. Restrict the
+        // shifted coefficients, never integral-key axes or the seed worklist.
+        // Applying the chart before translation would erase necessary rows.
+        if let Some(affine) = affine {
+            polynomial = affine.specialize_validated(&polynomial);
         }
         if !polynomial.is_zero() {
             row.push(Term {

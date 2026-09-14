@@ -213,6 +213,16 @@ fn write_rules<const N: usize>(path: &Path, solution: &SectorSolution<N>) -> std
     )?;
     for rule in &solution.rules {
         writeln!(output, "target = {}", rule.candidate.target)?;
+        if let Some(case) = rule.candidate.case.affine() {
+            write!(output, "required = ")?;
+            for (position, equation) in case.equations().iter().enumerate() {
+                if position != 0 {
+                    write!(output, " AND ")?;
+                }
+                write!(output, "({equation}) = 0")?;
+            }
+            writeln!(output)?;
+        }
         write!(output, "excluded = ")?;
         if rule.exceptions.branches.is_empty() {
             writeln!(output, "false")?;
@@ -506,6 +516,7 @@ fn run<const N: usize>(
     // Validation is deliberately outside the timed generation workload.
     let validation_start = Instant::now();
     let mut reference_rules = 0;
+    let mut reference_empty_rules = 0;
     if let Some(directory) = &args.reference {
         if !prepared.rules.is_empty() {
             let reference = fs::read_to_string(directory.join("preRules.dat"))?;
@@ -516,35 +527,20 @@ fn run<const N: usize>(
         for (label, solution) in &retained {
             let sector = parse_mask::<N>(label)?;
             let reference = fs::read_to_string(directory.join(format!("{label}.dat")))?;
-            let count = reference.matches("->").count();
-            if count != solution.rules.len() {
-                return Err(format!("sector {label}: Rust produced {} rules, reference has {count}; generated outputs retained", solution.rules.len()).into());
-            }
-            let mut cases = HashSet::new();
-            for rule in &solution.rules {
-                if !cases.insert(*rule.candidate.case.fixed()) {
-                    return Err(format!("sector {label}: duplicate Rust coordinate case").into());
-                }
-                let comparison = if args.oracle_aliases.is_empty() {
-                    spired_reference::compare_rule(&reference, rule, &sources, &sector, None)
-                } else {
-                    spired_reference::compare_rule_with_aliases(
-                        &reference,
-                        rule,
-                        &sources,
-                        &sector,
-                        None,
-                        args.oracle_aliases,
-                    )
-                };
-                comparison.map_err(|error| {
-                    format!("sector {label}, target {}: {error}", rule.candidate.target)
-                })?;
-                reference_rules += 1;
-            }
+            let comparison = spired_reference::compare_sector_with_aliases(
+                &reference,
+                &solution.rules,
+                &sources,
+                &sector,
+                None,
+                args.oracle_aliases,
+            )
+            .map_err(|error| format!("sector {label}: {error}"))?;
+            reference_rules += comparison.matched_rules;
+            reference_empty_rules += comparison.integer_empty_rules;
         }
         println!(
-            "reference_rule_matches={reference_rules}; exact symbolic parameters, coordinate guards, and sector signs; residuals NOT compared"
+            "reference_rule_matches={reference_rules}; reference_integer_empty_rules={reference_empty_rules}; exact symbolic parameters, required domains, guards, and sector signs; residuals NOT compared"
         );
     }
     let validation = validation_start.elapsed();
@@ -563,6 +559,10 @@ fn run<const N: usize>(
         process_start.elapsed().as_micros()
     );
     summary.write_all(report.as_bytes())?;
+    writeln!(
+        summary,
+        "reference_integer_empty_rules={reference_empty_rules}"
+    )?;
     summary.flush()?;
     print!("{report}");
     println!("output_directory={}", args.output.display());
