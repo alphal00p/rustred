@@ -1,8 +1,9 @@
 # Supplied SpIRed PM acceptance census and implementation recipes
 
-Snapshot: 2026-09-14. This is a read-only census of the supplied example inputs
-and previously saved reference output, not a claim that all examples have been
-ported or run. Reference source and binary data stay under ignored
+Snapshot: 2026-09-14. This is a census of the supplied example inputs and
+reference output, not a claim that all examples have been ported. The complete
+`vac3`, `fam1_11`, `bc4PMRad1`, and selected `fam_cosmo` workloads now pass
+exact Rust/C++ equation, guard, and residual checks. Reference source and binary data stay under ignored
 `vendor/spired/`; no confidential PDF or vendor source is reproduced here.
 See [the port status](spired_port.md) for implemented capabilities and measured
 Rust/C++ comparisons.
@@ -41,6 +42,14 @@ the numeric seed-depth bound, **not** a worker count or a proof of master
 minimality.
 
 ## Exact manifest census
+
+The additional release attempts of `fam1_12` and `fam1_111` use their full
+unchanged requested manifests. They currently finish 38/40 and 119/132 sector
+jobs respectively, then return typed errors rather than a success summary.
+These partial outputs do not establish complete reference parity. Coupled
+equal-index cases need propagation through the search/queue; a standalone
+native affine-geometry service is implemented and tested but not yet wired
+into those consumers. `fam1_112` and the ordering sweeps remain outstanding.
 
 The active whitespace-separated manifests were parsed as Boolean coordinate
 rows. All rows have the expected width; all individual files are duplicate-free;

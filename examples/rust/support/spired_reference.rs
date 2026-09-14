@@ -24,6 +24,18 @@ fn invalid(message: impl Into<String>) -> Box<dyn Error> {
     Box::new(IoError::new(ErrorKind::InvalidData, message.into()))
 }
 
+/// Explicit oracle notation for one already-declared symbolic parameter.
+///
+/// For example, SpIRed prints the independent invariant p² as `dot[p,p]`,
+/// while a Rust family may call it `s`. The reference must be a whole function
+/// call with identifier arguments; the destination must be a source scalar,
+/// never a numerical expression or integral index. No kinematics is evaluated.
+#[derive(Clone, Copy, Debug)]
+pub struct CoefficientAlias<'a> {
+    pub reference: &'a str,
+    pub parameter: &'a str,
+}
+
 /// Compare one already-generated candidate against its unique coordinate case
 /// in a SpIRed `.dat` rule list. This does not compare applicability guards.
 ///
@@ -40,6 +52,19 @@ pub fn compare<const N: usize>(
     candidate: &RuleCandidate<N>,
     system: &SourceSystem<N>,
     reference_mass_one: Option<&str>,
+) -> Result<()> {
+    compare_with_aliases(reference, candidate, system, reference_mass_one, &[])
+}
+
+/// As [`compare`], with explicit reference-function-to-scalar notation aliases.
+/// Aliases apply only to parsed RHS coefficient tokens, not integral patterns,
+/// guards, candidate coefficients, or family data.
+pub fn compare_with_aliases<const N: usize>(
+    reference: &str,
+    candidate: &RuleCandidate<N>,
+    system: &SourceSystem<N>,
+    reference_mass_one: Option<&str>,
+    aliases: &[CoefficientAlias<'_>],
 ) -> Result<()> {
     if candidate.target != candidate.case.integral() {
         return Err(invalid(
@@ -106,6 +131,7 @@ pub fn compare<const N: usize>(
         }
         variable_names.push(name);
     }
+    let aliases = compile_aliases(aliases, &variable_names, system.index_variables())?;
     let mut variables = native_variables.as_ref().clone();
     let mass_position = if let Some(name) = reference_mass_one {
         if !is_identifier(name) {
@@ -151,8 +177,11 @@ pub fn compare<const N: usize>(
             }
             let integral = parse_integral::<N>(factors[1])?;
             require_coordinate_pattern(&integral, candidate.case.fixed())?;
-            let token = Token::parse(factors[0], ParseSettings::polynomial())
+            let mut token = Token::parse(factors[0], ParseSettings::polynomial())
                 .map_err(|error| invalid(format!("invalid reference coefficient: {error}")))?;
+            if !aliases.is_empty() {
+                alias_coefficient_tokens(&mut token, &aliases);
+            }
             let coefficient: Coefficient = token
                 .to_rational_polynomial(&Q, &Z, &variables, &names)
                 .map_err(|error| invalid(format!("invalid reference coefficient: {error}")))?;
@@ -219,6 +248,70 @@ pub fn compare<const N: usize>(
         }
     }
     Ok(())
+}
+
+fn compile_aliases<const N: usize>(
+    aliases: &[CoefficientAlias<'_>],
+    variable_names: &[String],
+    indices: &[usize; N],
+) -> Result<Vec<(Token, Token)>> {
+    let mut compiled = Vec::with_capacity(aliases.len());
+    for alias in aliases {
+        let parameter = variable_names
+            .iter()
+            .position(|name| name == alias.parameter)
+            .filter(|position| !indices.contains(position))
+            .ok_or_else(|| {
+                invalid(format!(
+                    "oracle alias destination {} must be a declared scalar parameter",
+                    alias.parameter
+                ))
+            })?;
+        let token = Token::parse(alias.reference, ParseSettings::polynomial())
+            .map_err(|error| invalid(format!("invalid oracle alias: {error}")))?;
+        if !matches!(&token, Token::Fn(_, _, arguments)
+            if arguments.len() >= 2 && arguments.iter().all(|argument|
+                matches!(argument, Token::ID(name) if is_identifier(name))))
+        {
+            return Err(invalid(
+                "oracle alias must name a complete function call with identifier arguments",
+            ));
+        }
+        if compiled
+            .iter()
+            .any(|(previous, _)| same_alias_call(previous, &token))
+        {
+            return Err(invalid("duplicate oracle coefficient alias"));
+        }
+        compiled.push((token, Token::ID(variable_names[parameter].as_str().into())));
+    }
+    Ok(compiled)
+}
+
+/// Not algebra: rename exact function-call tokens in Symbolica's parsed tree.
+/// Native parsing handles brackets/whitespace and native polynomial conversion
+/// still owns all arithmetic, cancellation, and normalization. Whole-token
+/// equality prevents accidental replacement inside names or other functions.
+/// Symbolica's function token retains its input delimiter, which is syntax,
+/// not a distinction between `dot[p,p]` and `dot(p,p)`.
+fn alias_coefficient_tokens(token: &mut Token, aliases: &[(Token, Token)]) {
+    if let Some((_, replacement)) = aliases
+        .iter()
+        .find(|(reference, _)| same_alias_call(reference, token))
+    {
+        *token = replacement.clone();
+        return;
+    }
+    if let Token::Op(_, _, _, arguments) | Token::Fn(_, _, arguments) = token {
+        for argument in arguments {
+            alias_coefficient_tokens(argument, aliases);
+        }
+    }
+}
+
+fn same_alias_call(reference: &Token, candidate: &Token) -> bool {
+    matches!((reference, candidate),
+        (Token::Fn(false, _, left), Token::Fn(false, _, right)) if left == right)
 }
 
 /// Compare all independently generated linear-cut pre-rules with an export.
@@ -359,10 +452,29 @@ pub fn compare_rule<const N: usize>(
     sector: &[bool; N],
     reference_mass_one: Option<&str>,
 ) -> Result<()> {
+    compare_rule_with_aliases(reference, rule, system, sector, reference_mass_one, &[])
+}
+
+/// As [`compare_rule`], with explicit symbolic coefficient notation aliases.
+/// Coordinate guards retain their existing exact parser and are not rewritten.
+pub fn compare_rule_with_aliases<const N: usize>(
+    reference: &str,
+    rule: &rustred::solver::SectorRule<N>,
+    system: &SourceSystem<N>,
+    sector: &[bool; N],
+    reference_mass_one: Option<&str>,
+    aliases: &[CoefficientAlias<'_>],
+) -> Result<()> {
     if !rule.candidate.case.is_in_sector(sector) {
         return Err(invalid("candidate case is outside the comparison sector"));
     }
-    compare(reference, &rule.candidate, system, reference_mass_one)?;
+    compare_with_aliases(
+        reference,
+        &rule.candidate,
+        system,
+        reference_mass_one,
+        aliases,
+    )?;
     let body = reference.trim();
     let body = &body[1..body.len() - 1]; // compare checked the rule-list brackets.
     let mut expected = None;
@@ -899,6 +1011,10 @@ fn is_identifier(name: &str) -> bool {
         .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
+
+#[cfg(test)]
+#[path = "spired_reference/alias_tests.rs"]
+mod alias_tests;
 
 #[cfg(test)]
 mod pre_rule_tests {

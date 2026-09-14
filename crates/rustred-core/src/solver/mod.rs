@@ -22,7 +22,7 @@ mod sector;
 mod seed;
 mod source;
 
-pub use case::CoordinateCase;
+pub use case::{AffineCase, AffineGeometryError, AffineIntersection, CoordinateCase};
 pub use cuts::{LinearCutError, LinearCutPreparation, LinearCutRule, prepare_linear_cuts};
 pub use discovery::DiscoveryStats;
 pub use error::SolverError;

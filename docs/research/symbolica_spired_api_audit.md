@@ -77,6 +77,44 @@ and internal GCD reconstruction helpers do not constitute the awaited sparse
 multivariate rational-function reconstruction service. That backend remains
 deferred to Symbolica.
 
+## Affine equality and oracle-notation audit (2026-09-14)
+
+The new standalone `solver::AffineCase` geometry service was checked against
+the pinned public APIs, native implementations, and its Rust call sites, with
+an independent mathematical audit. It does not yet change sector search.
+
+- Numerica `Matrix<Q>::row_reduce(N)` computes reduced elimination in the
+  first `N` columns of `[A|b]`; residual constant rows detect inconsistency.
+  Coordinate-only intersections reuse the existing service without a matrix.
+- Native rational matrix `primitive_part` removes the rational content,
+  clearing denominators. Native `Integer::gcd` and `quot_rem` check whether
+  each resulting integer equation's coefficient gcd divides its constant.
+  This check is necessary, not a general integer-system feasibility solver.
+- Admission additionally requires an integral canonical unit-pivot chart.
+  Fractional charts return `UnsupportedCongruence`; rational consistency is
+  never presented as integer feasibility. General HNF/SNF and congruence-chart
+  construction remain absent, not independently reimplemented here.
+- Native polynomial `replace` and `replace_with_poly` apply the compiled
+  chart; native subtraction/zero tests establish equality implications.
+  Source coefficients must be translated **before** this substitution.
+  Only candidate target shifts must satisfy the homogeneous constraints;
+  ordinary source shifts and physical integral columns remain unrestricted.
+- Sector inequalities remain caller-owned. This primitive proves selected
+  empty cases but does not claim a general integer-polyhedron feasibility test.
+
+The reference-comparison helper also uses Symbolica's parser for explicit
+notation aliases such as `dot[p,p]` to the independent scalar `s`. Whole
+function-call tokens are renamed; the delimiter flag for `[]` versus `()` is
+syntax only. No algebra, kinematic substitution, index rewrite, or numerical
+specialization is performed by this adapter. Native polynomial conversion and
+rational-function arithmetic still perform all exact coefficient comparisons.
+The helper is invoked only after generation; reference equations never enter
+search. Native Atom replacement was also inspected, but this narrow token
+adapter avoids redundant global symbol registration and index remapping.
+
+No interpolation, rational reconstruction, or independent CAS arithmetic
+was introduced by either slice.
+
 ## Scope and pinned dependency
 
 This audit covers the public Rust API actually pinned by RustRed, with emphasis

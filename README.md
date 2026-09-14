@@ -36,6 +36,11 @@ The currently evidenced core can:
   and 16 residual keys at 1/2/4/6 workers. Release campaign medians are 264 ms
   serial and 66 ms with six workers, versus C++ 739 ms and 131 ms; see the
   [PM benchmark and validation report](docs/spired_fam1_11_results.md);
+- match all 856 `bc4PMRad1` rules and all 15 selected `fam_cosmo` rules,
+  including exact guards and residual keys. Repeated `bc4PMRad1` end-to-end
+  medians are 736 ms serial and 180 ms with six workers, versus C++ 1805 ms
+  and 272 ms. Coupled PM cases still need search integration; see the
+  [additional-fixture results](docs/spired_additional_fixtures.md);
 - compile compact, structured-text, and caller-owned Symbolica Atom family
   descriptions, authenticating every form at ingress;
 - build exact topology-neutral affine integral families;

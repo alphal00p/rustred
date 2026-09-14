@@ -64,6 +64,90 @@ fn executor_and_immutable_sources_are_send_sync() {
 }
 
 #[test]
+fn per_job_ordering_matches_standalone_search_and_keeps_original_ordinals() {
+    let sources = SourceSystem::<3>::from_family(&crate::solver::tests::sunset()).unwrap();
+    let sectors = [[true; 3], [true, false, true], [true; 3]];
+    let permutations = [Some([2, 1, 0]), None, Some([1, 0, 2])];
+    let census: Arc<[[bool; 3]]> = Arc::from([[false; 3]]);
+    let configure = |ordinal, sector| {
+        assert_eq!(sector, sectors[ordinal]);
+        SectorConfig {
+            permutation: permutations[ordinal],
+            zero_sectors: census.clone(),
+            ..Default::default()
+        }
+    };
+    let expected: Vec<_> = sectors
+        .iter()
+        .enumerate()
+        .map(|(ordinal, &sector)| {
+            let solver = SectorSolver::new(&sources, sector, configure(ordinal, sector)).unwrap();
+            signature(SectorCompleted {
+                ordinal,
+                sector,
+                preconditioning: Duration::ZERO,
+                solution: solver.solve_sector(SectorSolveOptions::default()).unwrap(),
+            })
+            .unwrap()
+        })
+        .collect();
+    for workers in [1, 2, 3] {
+        if workers > 1 && LicenseManager::max_threads(workers) < workers {
+            continue;
+        }
+        let calls = [
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+        ];
+        let actual = SectorExecutor::new(workers)
+            .unwrap()
+            .map_configured_with_observer(
+                &sources,
+                &sectors,
+                |ordinal, sector| {
+                    calls[ordinal].fetch_add(1, Ordering::SeqCst);
+                    configure(ordinal, sector)
+                },
+                SectorSolveOptions::default(),
+                |_, _, _| {},
+                signature,
+            )
+            .unwrap();
+        assert_eq!(actual, expected);
+        assert!(calls.iter().all(|count| count.load(Ordering::SeqCst) == 1));
+    }
+}
+
+#[test]
+fn per_job_invalid_ordering_is_a_manifest_ordered_preparation_error() {
+    let sources = trivial_sources();
+    let sectors = [[false; 3], [true; 3]];
+    let error = SectorExecutor::new(1)
+        .unwrap()
+        .map_configured_with_observer(
+            &sources,
+            &sectors,
+            |_, _| SectorConfig {
+                permutation: Some([0, 0, 1]),
+                ..Default::default()
+            },
+            SectorSolveOptions::default(),
+            |_, _, _| {},
+            signature,
+        )
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        SectorExecutionError::Prepare {
+            ordinal: 0,
+            source: SolverError::InvalidInput(_),
+            ..
+        }
+    ));
+}
+
+#[test]
 fn serial_executor_is_inline_reusable_and_retains_only_callback_values() {
     let sources = trivial_sources();
     let executor = SectorExecutor::new(1).unwrap();

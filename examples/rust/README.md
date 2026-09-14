@@ -88,8 +88,9 @@ inspect one sector, and replace the reference-directory argument with `-` to
 run without oracle comparison. The sector manifests contain only the same
 zero/nonzero sector input used by C++; no reference equations inform generation.
 The optional argument after the reference directory bounds symbolic seed depth;
-`unbounded` removes that diagnostic limit. A final worker count defaults to one.
-Numerical search uses depth three. For six workers, append `6` to the command
+`unbounded` removes that diagnostic limit. The next worker count defaults to one;
+an optional ordering-file path follows it. Numerical search uses depth three
+for vacuum inputs. For six workers, append `6` to the command
 above. Use a valid Symbolica license for multicore execution.
 
 The executor shares immutable source polynomials and the zero-sector census,
@@ -138,3 +139,59 @@ faces. The exact preliminary-rule, sector-rule, guard, and sign comparisons are
 separate from generation timing; residuals remain explicitly bounded-search
 residuals. `unbounded` removes the symbolic search-depth cap, not the numerical
 depth bound or the requirement for subsequent artifact certification.
+
+## Additional supplied reference families
+
+The same driver accepts `fam1_12`, `fam1_111`, `fam1_112`, `bc4PMRad1`, and
+`fam_cosmo`. Their family definitions are ordinary Rust example data; no
+topology-name dispatch or stored rule is introduced in the solver. See the
+[input census](../../docs/spired_pm_acceptance.md) for the exact workloads.
+
+For the two-loop example with a noninteger power offset, use:
+
+```sh
+cargo run --release --locked -p rustred --example spired-solve-sector -- \
+  bc4PMRad1 all /tmp/rustred-bc4pm-new \
+  vendor/spired/examples/bc4PM_Rad1_zeroSectors.dat \
+  vendor/spired/examples/bc4PM_Rad1_nonZeroSectors.dat - unbounded 6
+```
+
+Its first physical denominator power is `n0 + ep2`, while sector signs and
+seed crossings use the integer coordinate `n0`, as in the reference. The
+offset remains symbolic in source coefficients and is recorded in `family.txt`.
+There are no removed cuts.
+Expected summary: `sectors=38`, `rules=856`, and `finite_residuals=16`.
+
+The cosmology example keeps all three masses and the external square symbolic:
+
+```sh
+cargo run --release --locked -p rustred --example spired-solve-sector -- \
+  fam_cosmo 10101 /tmp/rustred-cosmo-new - - - unbounded 1
+```
+
+When its optional reference directory is supplied, the oracle comparison
+explicitly identifies the C++ notation `dot[p,p]` with the independent Rust
+parameter `s`. This is notation mapping, not a numerical substitution, and
+happens only after Rust generation. One selected sector uses one worker even
+if a larger sector-worker budget is requested.
+Expected summary: `sectors=1`, `rules=15`, and `finite_residuals=4`.
+The [additional-fixture report](../../docs/spired_additional_fixtures.md)
+records exact validation, repeated serial/parallel timings, and remaining gaps.
+
+The `fam1_112` reference requires 16 per-sector ordering overrides. Supply the
+checked input file as the final argument:
+
+```sh
+cargo run --release --locked -p rustred --example spired-solve-sector -- \
+  fam1_112 all /tmp/rustred-fam1-112-new \
+  vendor/spired/examples/zeroSectors_1_112.dat \
+  vendor/spired/examples/neededSectors_1_112.dat - unbounded 6 \
+  examples/rust/support/fam1_112_orderings.txt
+```
+
+This is an input/diagnostic example, **not a claim that all three-loop PM
+sectors already pass**. The `fam1_12` and `fam1_111` references contain coupled
+exceptional faces such as `n5=n6` (C++ one-based notation), which the
+coordinate-only search currently rejects explicitly. Their full manifests
+must not be declared complete by skipping those sectors. `fam1_112` and the
+supplied ordering sweeps remain part of the outstanding acceptance scope.

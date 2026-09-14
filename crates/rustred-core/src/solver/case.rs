@@ -1,5 +1,8 @@
 use super::{Integral, Power, PowerError};
 
+mod affine;
+pub use affine::{AffineCase, AffineGeometryError, AffineIntersection};
+
 /// An equality case with some indices fixed and all other indices free.
 ///
 /// This is deliberately not an approximation to an affine or nonlinear case.

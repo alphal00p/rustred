@@ -39,6 +39,17 @@ reproduces all 802 sector rules, two preliminary cut rules, and 16 residual keys
 the remaining supplied PM examples are still part of the active objective.
 See [`docs/spired_fam1_11_results.md`](docs/spired_fam1_11_results.md).
 
+Additional complete reference workloads now include `bc4PMRad1` (856 rules,
+16 residuals across 38 sectors) and selected `fam_cosmo` (15 rules and four
+residuals). Exact outputs agree serially and in the bounded executor. The
+full `fam1_12` and `fam1_111` attempts still fail explicitly, after completing
+38/40 and 119/132 sector jobs. The next implementation slice must propagate
+tested affine case geometry through search/queue/rule ownership and use native
+joint polynomial normalization for the extra finite conjunction. No incomplete
+output is a closed artifact. Per-job ordering inputs are implemented; the
+remaining PM fixtures and ordering sweeps remain mandatory. See
+[`docs/spired_additional_fixtures.md`](docs/spired_additional_fixtures.md).
+
 ## Preamble — user directive (verbatim)
 
 ````text

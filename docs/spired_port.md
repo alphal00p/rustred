@@ -157,6 +157,43 @@ residuals and output payloads. See the
 [parallel measurements](spired_parallel_results.md) for both retained seven-pair
 benchmark batches, memory figures, host contention, and remaining scaling limits.
 
+## Per-job orderings and affine-geometry foundation (2026-09-14)
+
+`SectorExecutor::map_configured_with_observer` accepts a per-job configuration
+function, identified by the original manifest ordinal and sector. This permits
+independent ordering choices, including repeated sector masks, while borrowing
+the same immutable `SourceSystem`. It does not mutate a shared ordering table
+or clone a source system per worker. Results and the selected failure retain
+manifest order; callbacks and progress remain live and nondeterministic.
+The example driver accepts a final explicit ordering file, including the
+supplied 16 `fam1_112` overrides as checked input data outside the engine.
+
+The separate `AffineCase` API supplies the next geometry building block:
+intersect exact index equations, use native rational reduced elimination,
+prune proved integer-empty rows, and construct integral unit-pivot charts.
+`AffineIntersection` distinguishes an empty domain, a coordinate-only face,
+and a genuinely coupled case. Fractional charts and nonlinear equations return
+typed unsupported results. The service supplies exact containment and tangent
+target-shift tests; it does not implement a general integer-polyhedron solver.
+
+**This is not yet wired into `solve_case` or the sector queue.** A successful
+standalone geometry test is not a successful affine rule search. Integration
+must propagate the equations through queue identity, exact specialization,
+target matching, rule guards, and oracle validation. Ordinary sources must be
+shifted before chart substitution; only the accepted target's displacement
+must be tangent. Original physical integral axes must remain distinct.
+
+The actual new C++ runs require this distinction: `fam1_12` has two feasible
+equal-index faces and also exports an integer-empty `2*n5-2*n6=1` branch;
+`fam1_111` has 83 coupled-domain rule LHSs across 12 sectors. Copying a sampled
+integer point or dropping those faces cannot meet the reference-port goal.
+
+The integrated focused suite passes 122 solver tests, including 12 affine
+geometry tests and two additional executor tests. All 29 example tests pass,
+covering the five new family constructors, explicit ordering input, and exact
+reference notation aliases. These correctness tests use the normal test
+profile; benchmark timings use only the separately built release executable.
+
 ## Validation and current baseline
 
 Each implementation slice gets independent audit and focused differential

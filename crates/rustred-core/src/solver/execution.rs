@@ -253,6 +253,39 @@ impl SectorExecutor {
         O: Fn(usize, [bool; N], SectorEvent<'_, N>) + Send + Sync,
         F: Fn(SectorCompleted<N>) -> Result<T, E> + Send + Sync,
     {
+        self.map_configured_with_observer(
+            sources,
+            sectors,
+            |_, _| config.clone(),
+            options,
+            observe,
+            consume,
+        )
+    }
+
+    /// Solve jobs with caller-supplied per-sector configuration. This supports
+    /// ordering portfolios and repeated sector masks without mutating shared
+    /// sources or a global ordering table. `configure` runs once on each job's
+    /// worker; its ordinal is the original manifest ordinal, not start order.
+    ///
+    /// The caller may share the zero-sector census through `Arc` as usual.
+    /// Configuration errors and result ordering obey [`Self::map_with_observer`].
+    pub fn map_configured_with_observer<const N: usize, T, E, C, O, F>(
+        &self,
+        sources: &SourceSystem<N>,
+        sectors: &[[bool; N]],
+        configure: C,
+        options: SectorSolveOptions,
+        observe: O,
+        consume: F,
+    ) -> Result<Vec<T>, SectorExecutionError<N, E>>
+    where
+        T: Send,
+        E: Send,
+        C: Fn(usize, [bool; N]) -> SectorConfig<N> + Send + Sync,
+        O: Fn(usize, [bool; N], SectorEvent<'_, N>) + Send + Sync,
+        F: Fn(SectorCompleted<N>) -> Result<T, E> + Send + Sync,
+    {
         let mut jobs: Vec<_> = (0..sectors.len()).collect();
         if self.scheduling == SectorScheduling::ActiveFirst {
             jobs.sort_unstable_by_key(|&ordinal| {
@@ -267,13 +300,11 @@ impl SectorExecutor {
             let sector = sectors[ordinal];
             let result = (|| {
                 let start = Instant::now();
-                let solver =
-                    SectorSolver::new(sources, sector, config.clone()).map_err(|source| {
-                        SectorExecutionError::Prepare {
-                            ordinal,
-                            sector,
-                            source,
-                        }
+                let solver = SectorSolver::new(sources, sector, configure(ordinal, sector))
+                    .map_err(|source| SectorExecutionError::Prepare {
+                        ordinal,
+                        sector,
+                        source,
                     })?;
                 let preconditioning = start.elapsed();
                 let solution = solver

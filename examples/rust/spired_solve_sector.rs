@@ -1,18 +1,21 @@
-//! End-to-end executable-reference sector benchmark with a symbolic mass.
+//! End-to-end executable-reference sector benchmark with exact parameters.
 //!
 //! Usage:
-//! spired-solve-sector <1|2|3|fam1_11> <sector-mask|all> <new-output-directory>
+//! spired-solve-sector <family> <sector-mask|all> <new-output-directory>
 //!   <zero-sectors-file|-> [nonzero-sectors-file|-] [reference-directory|-]
-//!   [symbolic-depth|unbounded] [workers]
+//!   [symbolic-depth|unbounded] [workers] [orderings-file|-]
 //!
 //! Manifest files contain whitespace-separated 0/1 entries, N per sector,
 //! exactly as the original SpIRed examples. `all` requires the nonzero manifest.
 //! Set RUSTRED_SPIRED_PROGRESS=1 for per-case progress. The default symbolic
 //! depth limit is three; it is diagnostic, and exhaustion returns an error.
-//! Numerical cases use depth three. Outputs are conditional source-port rules
+//! Families: vacuum 1/2/3, fam1_11/12/111/112, bc4PMRad1, fam_cosmo.
+//! PM numerical depth follows the original fixture; all other cases use three.
+//! Optional ordering lines are `sector-mask coordinate-priority...` (zero-based).
+//! Outputs are conditional source-port rules
 //! and finite search residuals, NOT certified family-closing artifacts.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -21,8 +24,8 @@ use std::time::{Duration, Instant};
 
 use rustred::family::IntegralFamily;
 use rustred::solver::{
-    Integral, SearchOptions, SectorConfig, SectorEvent, SectorExecutor, SectorSolution,
-    SectorSolveOptions, SectorStats, prepare_linear_cuts,
+    Integral, IntegralOrder, SearchOptions, SectorConfig, SectorEvent, SectorExecutor,
+    SectorSolution, SectorSolveOptions, SectorStats, prepare_linear_cuts,
 };
 
 #[path = "support/spired_families.rs"]
@@ -38,8 +41,10 @@ struct Arguments {
     zero_manifest: Option<PathBuf>,
     nonzero_manifest: Option<PathBuf>,
     reference: Option<PathBuf>,
+    oracle_aliases: &'static [spired_reference::CoefficientAlias<'static>],
     symbolic_depth: Option<u32>,
     workers: usize,
+    orderings: Option<PathBuf>,
 }
 
 /// Only compact summaries survive a sector task in ordinary generation.
@@ -108,6 +113,88 @@ fn writer(path: impl AsRef<Path>) -> std::io::Result<BufWriter<File>> {
     Ok(BufWriter::new(
         OpenOptions::new().write(true).create_new(true).open(path)?,
     ))
+}
+
+/// Explicit input data: `sector-mask coordinate-priority...`, one per line.
+fn read_orderings<const N: usize>(path: &Path) -> Result<BTreeMap<[bool; N], [usize; N]>> {
+    parse_orderings(&fs::read_to_string(path)?, &path.display().to_string())
+}
+
+fn parse_orderings<const N: usize>(
+    text: &str,
+    origin: &str,
+) -> Result<BTreeMap<[bool; N], [usize; N]>> {
+    let mut orderings = BTreeMap::new();
+    for (line, text) in text.lines().enumerate() {
+        let text = text.split('#').next().unwrap().trim();
+        if text.is_empty() {
+            continue;
+        }
+        let mut fields = text.split_whitespace();
+        let sector = parse_mask(fields.next().unwrap())?;
+        let permutation: [usize; N] = fields
+            .map(str::parse)
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .try_into()
+            .map_err(|_: Vec<usize>| {
+                format!(
+                    "{}:{}: expected {N} coordinate priorities",
+                    origin,
+                    line + 1
+                )
+            })?;
+        IntegralOrder::new(sector, [false; N]).with_permutation(permutation)?;
+        if orderings.insert(sector, permutation).is_some() {
+            return Err(format!(
+                "{}:{}: duplicate ordering for {}",
+                origin,
+                line + 1,
+                mask(&sector)
+            )
+            .into());
+        }
+    }
+    Ok(orderings)
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+
+    #[test]
+    fn all_reference_orderings_are_explicit_valid_input() {
+        let orderings =
+            parse_orderings::<15>(include_str!("support/fam1_112_orderings.txt"), "fixture")
+                .unwrap();
+        assert_eq!(orderings.len(), 16);
+        assert_eq!(
+            orderings[&parse_mask("111011010101101").unwrap()],
+            [0, 1, 2, 6, 3, 5, 14, 7, 9, 11, 8, 12, 10, 13, 4]
+        );
+        assert_eq!(
+            orderings[&parse_mask("111100101011111").unwrap()],
+            [0, 1, 2, 11, 12, 10, 7, 3, 13, 5, 8, 4, 14, 6, 9]
+        );
+    }
+
+    #[test]
+    fn ordering_parser_rejects_invalid_permutations_and_duplicates() {
+        for input in [
+            "111 0 0 2",
+            "111 0 1 3",
+            "111 0 1",
+            "11x 0 1 2",
+            "111 0 1 2\n111 2 1 0",
+        ] {
+            assert!(parse_orderings::<3>(input, "test").is_err(), "{input}");
+        }
+        assert_eq!(
+            parse_orderings::<3>("# comment\n111 2 0 1 # reverse\n", "test")
+                .unwrap()
+                .len(),
+            1
+        );
+    }
 }
 
 fn write_rules<const N: usize>(path: &Path, solution: &SectorSolution<N>) -> std::io::Result<()> {
@@ -193,6 +280,12 @@ fn run<const N: usize>(
     if sectors.is_empty() {
         return Err("the nonzero-sector manifest is empty".into());
     }
+    let orderings = args
+        .orderings
+        .as_deref()
+        .map(read_orderings::<N>)
+        .transpose()?
+        .unwrap_or_default();
     let worker_budget = args.workers.min(sectors.len());
     for sector in &sectors {
         if zero_sectors.contains(sector) {
@@ -244,6 +337,9 @@ fn run<const N: usize>(
         mask(&removed)
     )?;
     writeln!(metadata, "coordinates={:?}", family.coordinates())?;
+    for (axis, shift) in family.power_shifts().iter().enumerate() {
+        writeln!(metadata, "power_shift[{axis}]={shift}")?;
+    }
     for (row, entries) in family.external_gram().iter().enumerate() {
         for (column, value) in entries.iter().enumerate() {
             writeln!(metadata, "external_gram[{row},{column}]={value}")?;
@@ -262,6 +358,9 @@ fn run<const N: usize>(
     }
     for sector in &sectors {
         writeln!(metadata, "requested_sector={}", mask(sector))?;
+        if let Some(permutation) = orderings.get(sector) {
+            writeln!(metadata, "ordering.{}={permutation:?}", mask(sector))?;
+        }
     }
     for condition in sources.conditions() {
         writeln!(metadata, "source_nonzero_condition={condition}")?;
@@ -287,14 +386,18 @@ fn run<const N: usize>(
     let campaign_start = Instant::now();
     let executor = SectorExecutor::new(worker_budget)?;
     let pool_setup = campaign_start.elapsed();
-    let completed = executor.map_with_observer(
+    let config = SectorConfig {
+        deltas: removed,
+        removed_deltas: removed,
+        zero_sectors: zero_sectors.into(),
+        ..Default::default()
+    };
+    let completed = executor.map_configured_with_observer(
         &sources,
         &sectors,
-        &SectorConfig {
-            deltas: removed,
-            removed_deltas: removed,
-            zero_sectors: zero_sectors.into(),
-            ..Default::default()
+        |_, sector| SectorConfig {
+            permutation: orderings.get(&sector).copied(),
+            ..config.clone()
         },
         SectorSolveOptions {
             symbolic: SearchOptions {
@@ -422,9 +525,21 @@ fn run<const N: usize>(
                 if !cases.insert(*rule.candidate.case.fixed()) {
                     return Err(format!("sector {label}: duplicate Rust coordinate case").into());
                 }
-                spired_reference::compare_rule(&reference, rule, &sources, &sector, None).map_err(
-                    |error| format!("sector {label}, target {}: {error}", rule.candidate.target),
-                )?;
+                let comparison = if args.oracle_aliases.is_empty() {
+                    spired_reference::compare_rule(&reference, rule, &sources, &sector, None)
+                } else {
+                    spired_reference::compare_rule_with_aliases(
+                        &reference,
+                        rule,
+                        &sources,
+                        &sector,
+                        None,
+                        args.oracle_aliases,
+                    )
+                };
+                comparison.map_err(|error| {
+                    format!("sector {label}, target {}: {error}", rule.candidate.target)
+                })?;
                 reference_rules += 1;
             }
         }
@@ -457,8 +572,8 @@ fn run<const N: usize>(
 fn main() -> Result<()> {
     let start = Instant::now();
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    if !(4..=8).contains(&args.len()) {
-        return Err("usage: spired-solve-sector <1|2|3|fam1_11> <sector-mask|all> <new-output-dir> <zero-sectors-file|-> [nonzero-sectors-file|-] [reference-dir|-] [symbolic-depth|unbounded] [workers]".into());
+    if !(4..=9).contains(&args.len()) {
+        return Err("usage: spired-solve-sector <family> <sector-mask|all> <new-output-dir> <zero-sectors-file|-> [nonzero-sectors-file|-] [reference-dir|-] [symbolic-depth|unbounded] [workers] [orderings-file|-]".into());
     }
     let optional_path = |position: usize| {
         args.get(position)
@@ -471,11 +586,20 @@ fn main() -> Result<()> {
         zero_manifest: optional_path(3),
         nonzero_manifest: optional_path(4),
         reference: optional_path(5),
+        oracle_aliases: if args[0] == "fam_cosmo" {
+            &[spired_reference::CoefficientAlias {
+                reference: "dot[p,p]",
+                parameter: "s",
+            }]
+        } else {
+            &[]
+        },
         symbolic_depth: match args.get(6).map(String::as_str).unwrap_or("3") {
             "unbounded" => None,
             value => Some(value.parse()?),
         },
         workers: args.get(7).map(String::as_str).unwrap_or("1").parse()?,
+        orderings: optional_path(8),
     };
     if config.workers == 0 {
         return Err("workers must be nonzero".into());
@@ -518,6 +642,32 @@ fn main() -> Result<()> {
             config,
             start,
         ),
-        _ => Err("supported fixtures are vacuum 1, 2, 3, and fam1_11".into()),
+        "fam1_12" => run::<9>(
+            spired_families::fam1_12,
+            std::array::from_fn(|i| i < 2),
+            2,
+            config,
+            start,
+        ),
+        "fam1_111" => run::<15>(
+            spired_families::fam1_111,
+            std::array::from_fn(|i| i < 3),
+            2,
+            config,
+            start,
+        ),
+        "fam1_112" => run::<15>(
+            spired_families::fam1_112,
+            std::array::from_fn(|i| i < 3),
+            3,
+            config,
+            start,
+        ),
+        "bc4PMRad1" => run::<7>(spired_families::bc4pm_rad1, [false; 7], 3, config, start),
+        "fam_cosmo" => run::<5>(spired_families::fam_cosmo, [false; 5], 3, config, start),
+        _ => Err(
+            "supported fixtures are vacuum 1/2/3, fam1_11/12/111/112, bc4PMRad1, and fam_cosmo"
+                .into(),
+        ),
     }
 }
