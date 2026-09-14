@@ -2,6 +2,9 @@ use std::collections::BTreeMap;
 
 use crate::algebra::CoefficientContext;
 use crate::family::AffineDenominator;
+use crate::solver::{
+    CoordinateCase, IntegralOrder, SearchOptions, SectorConfig, SectorSolver, Seed,
+};
 
 use super::*;
 
@@ -190,4 +193,222 @@ fn vacuum_source_counts_are_unchanged_by_default_li_inclusion() {
     check::<1>(crate::solver::tests::tadpole(), 1);
     check::<3>(crate::solver::tests::sunset(), 4);
     check::<6>(crate::solver::tests::vac3(), 9);
+}
+
+fn prepared_fixture() -> SourceSystem<2> {
+    let context = CoefficientContext::new(["a", "b", "d"]);
+    SourceSystem::new_with_fixed(
+        vec![vec![Term {
+            integral: Integral::new([Power::new(false, 1).unwrap(), Power::new(true, 1).unwrap()]),
+            coefficient: context.coefficient_fixture("b^2+d").numerator,
+        }]],
+        [0, 1],
+        [Some(1), None],
+    )
+    .unwrap()
+}
+
+#[test]
+fn prepared_coordinates_stay_absolute_under_symbolic_and_numeric_seeding() {
+    let system = prepared_fixture();
+    let context = CoefficientContext::new(["a", "b", "d"]);
+    let order = IntegralOrder::new([true; 2], [true, false]);
+    let instantiate = |seed| {
+        super::super::instantiate::instantiate(
+            &system.rows()[0],
+            &seed,
+            system.index_variables(),
+            system.fixed(),
+            &order,
+            &[],
+        )
+        .unwrap()
+    };
+    let symbolic = instantiate(Seed {
+        integral: Integral::new([Power::new(false, 1).unwrap(), Power::new(true, -2).unwrap()]),
+        shifts: [0, -2],
+    });
+    assert_eq!(symbolic.len(), 1);
+    assert_eq!(
+        symbolic[0].integral,
+        Integral::new([Power::new(false, 1).unwrap(), Power::new(true, -1).unwrap(),])
+    );
+    assert_eq!(
+        symbolic[0].coefficient,
+        context.coefficient_fixture("(b-2)^2+d")
+    );
+
+    let numeric = instantiate(Seed {
+        integral: Integral::numeric([1, 3]).unwrap(),
+        shifts: [0; 2],
+    });
+    assert_eq!(numeric[0].integral, Integral::numeric([1, 4]).unwrap());
+    assert_eq!(numeric[0].coefficient, context.coefficient_fixture("9+d"));
+}
+
+#[test]
+fn prepared_sources_reject_inconsistent_term_patterns_and_unspecialized_coefficients() {
+    let context = CoefficientContext::new(["a", "b", "d"]);
+    let correct = prepared_fixture().rows()[0][0].clone();
+    let mut symbolic_fixed = correct.clone();
+    symbolic_fixed.integral = Integral::symbolic([1, 1]).unwrap();
+    let mut wrong_fixed = correct.clone();
+    wrong_fixed.integral =
+        Integral::new([Power::new(false, 2).unwrap(), Power::new(true, 1).unwrap()]);
+    let mut numeric_free = correct.clone();
+    numeric_free.integral = Integral::numeric([1, 1]).unwrap();
+    let mut unspecialized = correct.clone();
+    unspecialized.coefficient = context.coefficient_fixture("a+b").numerator;
+    for malformed in [symbolic_fixed, wrong_fixed, numeric_free, unspecialized] {
+        assert!(matches!(
+            SourceSystem::new_with_fixed(
+                vec![vec![correct.clone(), malformed]],
+                [0, 1],
+                [Some(1), None],
+            ),
+            Err(SolverError::InvalidInput(_))
+        ));
+    }
+    assert!(matches!(
+        SourceSystem::new(vec![vec![correct]], [0, 1]),
+        Err(SolverError::InvalidInput(_))
+    ));
+    assert!(SourceSystem::<2>::new_with_fixed(vec![Vec::new()], [0, 1], [Some(1), None]).is_err());
+}
+
+#[test]
+fn incompatible_prepared_seeds_fail_before_even_an_empty_row_is_instantiated() {
+    let system = prepared_fixture();
+    let order = IntegralOrder::new([true; 2], [true, false]);
+    let seeds = [
+        Seed {
+            integral: Integral::numeric([2, 1]).unwrap(),
+            shifts: [0; 2],
+        },
+        Seed {
+            integral: Integral::symbolic([0; 2]).unwrap(),
+            shifts: [0; 2],
+        },
+        Seed {
+            integral: Integral::numeric([1, 1]).unwrap(),
+            shifts: [1, 0],
+        },
+    ];
+    for seed in seeds {
+        for row in [&system.rows()[0], &Vec::new()] {
+            assert!(matches!(
+                super::super::instantiate::instantiate(
+                    row,
+                    &seed,
+                    system.index_variables(),
+                    system.fixed(),
+                    &order,
+                    &[],
+                ),
+                Err(SolverError::InvalidInput(_))
+            ));
+        }
+    }
+}
+
+#[test]
+fn prepared_replacement_preserves_metadata_even_when_every_row_vanishes() {
+    let context = CoefficientContext::new(["a", "b", "d"]);
+    let mut system = SourceSystem::<2>::new(
+        vec![vec![Term {
+            integral: Integral::symbolic([0; 2]).unwrap(),
+            coefficient: context.coefficient_fixture("a+b").numerator,
+        }]],
+        [0, 1],
+    )
+    .unwrap();
+    system.coefficient_priority = vec![1, 2, 0];
+    system.conditions = vec![context.coefficient_fixture("d").numerator];
+    let variables = system.variables.clone();
+    let prepared = prepared_fixture().rows;
+    let system = system
+        .replace_prepared_rows(prepared, [Some(1), None])
+        .unwrap();
+    assert_eq!(system.fixed(), &[Some(1), None]);
+    assert_eq!(system.coefficient_order(), &[1, 2, 0]);
+    assert_eq!(
+        system.conditions(),
+        &[context.coefficient_fixture("d").numerator]
+    );
+    assert!(Arc::ptr_eq(&variables, &system.variables));
+    let system = system
+        .replace_prepared_rows(vec![Vec::new(), Vec::new()], [Some(1), None])
+        .unwrap();
+    assert_eq!(system.rows().len(), 2);
+    assert!(system.rows().iter().all(Vec::is_empty));
+    assert_eq!(system.variable_count, 3);
+    assert_eq!(system.index_variables(), &[0, 1]);
+    assert_eq!(system.coefficient_order(), &[1, 2, 0]);
+    assert!(Arc::ptr_eq(&variables, &system.variables));
+    // Even after losing all terms, the original native variable map remains
+    // authoritative. A same-length but differently named map is not accepted.
+    let other = CoefficientContext::new(["x", "y", "z"]);
+    let foreign = vec![vec![Term {
+        integral: Integral::new([Power::new(false, 1).unwrap(), Power::new(true, 0).unwrap()]),
+        coefficient: other.coefficient_fixture("1").numerator,
+    }]];
+    assert!(matches!(
+        system.replace_prepared_rows(foreign, [Some(1), None]),
+        Err(SolverError::InvalidInput(_))
+    ));
+}
+
+#[test]
+fn fixed_source_is_only_reused_for_its_prepared_coordinate_case() {
+    let context = CoefficientContext::new(["a", "b"]);
+    let integral = |shift| {
+        Integral::new([
+            Power::new(false, 1).unwrap(),
+            Power::new(true, shift).unwrap(),
+        ])
+    };
+    let system = SourceSystem::new_with_fixed(
+        vec![vec![
+            Term {
+                integral: integral(0),
+                coefficient: context.coefficient_fixture("b").numerator,
+            },
+            Term {
+                integral: integral(-1),
+                coefficient: context.coefficient_fixture("-1").numerator,
+            },
+        ]],
+        [0, 1],
+        [Some(1), None],
+    )
+    .unwrap();
+    assert!(matches!(
+        SectorSolver::new(&system, [true; 2], SectorConfig::default()),
+        Err(SolverError::InvalidInput(_))
+    ));
+    let solver = SectorSolver::new(
+        &system,
+        [true; 2],
+        SectorConfig {
+            deltas: [true, false],
+            removed_deltas: [true, false],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let options = SearchOptions {
+        max_depth: Some(0),
+        ..Default::default()
+    };
+    assert!(matches!(
+        solver.solve_case(CoordinateCase::generic(), options),
+        Err(SolverError::InvalidInput(_))
+    ));
+    let rule = solver
+        .solve_case(CoordinateCase::new([Some(1), None]).unwrap(), options)
+        .unwrap();
+    assert_eq!(rule.target, integral(0));
+    assert_eq!(rule.rhs.len(), 1);
+    assert_eq!(rule.rhs[0].integral, integral(-1));
+    assert_eq!(rule.rhs[0].coefficient, context.coefficient_fixture("1/b"));
 }

@@ -1,8 +1,12 @@
+use std::sync::Arc;
+
+use symbolica::poly::PolyVariable;
+
 use crate::algebra::CoefficientPolynomial;
 use crate::family::IntegralFamily;
 use crate::identity::{ParametricIbpGenerator, ParametricRelation, RowId};
 
-use super::{Integral, PolynomialRow, SolverError, Term};
+use super::{Integral, PolynomialRow, Power, SolverError, Term};
 
 /// Immutable polynomial source templates shared by sector solvers.
 ///
@@ -14,6 +18,8 @@ pub struct SourceSystem<const N: usize> {
     pub(super) rows: Vec<PolynomialRow<N>>,
     pub(super) indices: [usize; N],
     pub(super) variable_count: usize,
+    variables: Arc<Vec<PolyVariable>>,
+    fixed: [Option<i16>; N],
     coefficient_priority: Vec<usize>,
     /// Conditions inherited from the family preparation, before denominator
     /// clearing. They are not rediscovered by scanning every seeded row.
@@ -22,12 +28,28 @@ pub struct SourceSystem<const N: usize> {
 
 impl<const N: usize> SourceSystem<N> {
     pub fn new(rows: Vec<PolynomialRow<N>>, indices: [usize; N]) -> Result<Self, SolverError> {
+        Self::new_with_fixed(rows, indices, [None; N])
+    }
+
+    /// Construct prepared sources with a common fixed-coordinate pattern.
+    ///
+    /// A fixed coordinate is an absolute numeric power in every term, not an
+    /// offset to add to a seed. Its coefficient variable must already have
+    /// been substituted. Every other coordinate remains a symbolic offset.
+    /// An entirely empty input cannot supply the native coefficient variable
+    /// map and is rejected; preparation of an existing system may yield zero
+    /// rows without losing that metadata.
+    pub fn new_with_fixed(
+        rows: Vec<PolynomialRow<N>>,
+        indices: [usize; N],
+        fixed: [Option<i16>; N],
+    ) -> Result<Self, SolverError> {
         let first = rows
             .iter()
             .flatten()
             .next()
             .ok_or_else(|| SolverError::InvalidInput("the source system is empty".into()))?;
-        let variables = first.coefficient.variables();
+        let variables = first.coefficient.variables().clone();
         let variable_count = variables.len();
         let mut seen = vec![false; variable_count];
         for position in indices {
@@ -38,18 +60,7 @@ impl<const N: usize> SourceSystem<N> {
             }
             seen[position] = true;
         }
-        for term in rows.iter().flatten() {
-            if term.coefficient.variables() != variables {
-                return Err(SolverError::InvalidInput(
-                    "source coefficients must share a variable map".into(),
-                ));
-            }
-            if term.integral.powers().iter().any(|p| !p.is_symbolic()) {
-                return Err(SolverError::InvalidInput(
-                    "source templates must have symbolic integral indices".into(),
-                ));
-            }
-        }
+        validate_prepared_rows(&rows, &indices, &variables, &fixed)?;
         let coefficient_priority = indices
             .iter()
             .copied()
@@ -59,6 +70,8 @@ impl<const N: usize> SourceSystem<N> {
             rows,
             indices,
             variable_count,
+            variables,
+            fixed,
             coefficient_priority,
             conditions: Vec::new(),
         })
@@ -159,6 +172,9 @@ impl<const N: usize> SourceSystem<N> {
     pub fn index_variables(&self) -> &[usize; N] {
         &self.indices
     }
+    pub fn fixed(&self) -> &[Option<i16>; N] {
+        &self.fixed
+    }
     pub fn conditions(&self) -> &[CoefficientPolynomial] {
         &self.conditions
     }
@@ -166,6 +182,57 @@ impl<const N: usize> SourceSystem<N> {
     pub(super) fn coefficient_order(&self) -> &[usize] {
         &self.coefficient_priority
     }
+
+    /// Replace sources after exact preparation without changing their native
+    /// variable map, ordering priority, or inherited nonzero conditions.
+    /// Empty prepared systems are valid and retain their original metadata.
+    pub(super) fn replace_prepared_rows(
+        mut self,
+        rows: Vec<PolynomialRow<N>>,
+        fixed: [Option<i16>; N],
+    ) -> Result<Self, SolverError> {
+        validate_prepared_rows(&rows, &self.indices, &self.variables, &fixed)?;
+        self.rows = rows;
+        self.fixed = fixed;
+        Ok(self)
+    }
+}
+
+fn validate_prepared_rows<const N: usize>(
+    rows: &[PolynomialRow<N>],
+    indices: &[usize; N],
+    variables: &Arc<Vec<PolyVariable>>,
+    fixed: &[Option<i16>; N],
+) -> Result<(), SolverError> {
+    for value in fixed.iter().flatten() {
+        Power::new(false, *value)?;
+    }
+    for term in rows.iter().flatten() {
+        if term.coefficient.variables() != variables {
+            return Err(SolverError::InvalidInput(
+                "source coefficients must share the original variable map".into(),
+            ));
+        }
+        for (axis, power) in term.integral.powers().iter().enumerate() {
+            if let Some(value) = fixed[axis] {
+                if power.is_symbolic() || power.value() != value {
+                    return Err(SolverError::InvalidInput(format!(
+                        "prepared source coordinate {axis} must have absolute numeric power {value}"
+                    )));
+                }
+                if term.coefficient.contains(indices[axis]) {
+                    return Err(SolverError::InvalidInput(format!(
+                        "prepared source coefficient still depends on fixed coordinate {axis}"
+                    )));
+                }
+            } else if !power.is_symbolic() {
+                return Err(SolverError::InvalidInput(format!(
+                    "free source coordinate {axis} must have a symbolic integral index"
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Adapter-only scheduling key. Rust external axis i maps to C++ p(i+1),
@@ -211,17 +278,6 @@ fn lower_relation<const N: usize>(
             conditions.push(polynomial.clone());
         }
     }
-    let Some((_, first)) = relation.terms().first_key_value() else {
-        return Ok(Vec::new());
-    };
-    let mut denominator = first.raw().denominator.one();
-    for coefficient in relation.terms().values() {
-        let d = &coefficient.raw().denominator;
-        let gcd = denominator.gcd(d);
-        denominator = &denominator
-            * &d.try_div_exact(&gcd)
-                .expect("native polynomial GCD divides the denominator");
-    }
     let mut row = Vec::with_capacity(relation.terms().len());
     for (shift, coefficient) in relation.terms() {
         let mut powers = [0_i16; N];
@@ -230,15 +286,12 @@ fn lower_relation<const N: usize>(
                 SolverError::InvalidInput("source shift exceeds compact range".into())
             })?;
         }
-        let scale = denominator
-            .try_div_exact(&coefficient.raw().denominator)
-            .expect("common denominator is exactly divisible");
         row.push(Term {
             integral: Integral::symbolic(powers)?,
-            coefficient: &coefficient.raw().numerator * &scale,
+            coefficient: coefficient.raw().clone(),
         });
     }
-    Ok(row)
+    super::row::clear_denominators(row)
 }
 
 #[cfg(test)]

@@ -2,6 +2,8 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::ops::Index;
 
+use super::SolverError;
+
 /// Failure to represent or apply a compact propagator power.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PowerError {
@@ -145,16 +147,51 @@ impl<const N: usize> fmt::Display for Integral<N> {
     }
 }
 
-/// The harder-first order of SpIRed's `intLessStatic`.
+/// The harder-first order of SpIRed's `intLessStatic` / `intLessDynamic`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IntegralOrder<const N: usize> {
     sector: [bool; N],
     deltas: [bool; N],
+    permutation: Option<[usize; N]>,
 }
 
 impl<const N: usize> IntegralOrder<N> {
     pub const fn new(sector: [bool; N], deltas: [bool; N]) -> Self {
-        Self { sector, deltas }
+        Self {
+            sector,
+            deltas,
+            permutation: None,
+        }
+    }
+
+    /// Set the coordinate order of the final denominator/numerator tie breaks.
+    ///
+    /// As in C++ `intLessDynamic`, this does not permute sector comparisons,
+    /// cut priorities, powers, or family coordinates. The identity permutation
+    /// is normalized to the static path, including when replacing an override.
+    pub fn with_permutation(mut self, permutation: [usize; N]) -> Result<Self, SolverError> {
+        let mut seen = [false; N];
+        let mut identity = true;
+        for (position, &index) in permutation.iter().enumerate() {
+            if index >= N {
+                return Err(SolverError::InvalidInput(format!(
+                    "ordering permutation position {position} names coordinate {index}, outside 0..{N}"
+                )));
+            }
+            if std::mem::replace(&mut seen[index], true) {
+                return Err(SolverError::InvalidInput(format!(
+                    "ordering permutation repeats coordinate {index} at position {position}"
+                )));
+            }
+            identity &= position == index;
+        }
+        self.permutation = (!identity).then_some(permutation);
+        Ok(self)
+    }
+
+    /// An explicit nonidentity tie-break permutation; `None` means identity.
+    pub const fn permutation(&self) -> Option<&[usize; N]> {
+        self.permutation.as_ref()
     }
 
     pub const fn sector(&self) -> &[bool; N] {
@@ -231,9 +268,25 @@ impl<const N: usize> IntegralOrder<N> {
             return aggregate;
         }
 
-        // After aggregate equality the numeric sectors agree coordinate-wise.
+        // Dispatch once, preserving the ordinary contiguous loop for the
+        // identity lane instead of testing for an override per coordinate.
+        match &self.permutation {
+            Some(permutation) => {
+                self.compare_coordinate_ties(left, right, permutation.iter().copied())
+            }
+            None => self.compare_coordinate_ties(left, right, 0..N),
+        }
+    }
+
+    fn compare_coordinate_ties(
+        &self,
+        left: &Integral<N>,
+        right: &Integral<N>,
+        coordinates: impl Iterator<Item = usize> + Clone,
+    ) -> Ordering {
+        // Aggregate equality implies that numeric sectors agree coordinate-wise.
         // Denominator ties use increasing power, numerator ties decreasing power.
-        for index in 0..N {
+        for index in coordinates.clone() {
             let is_denominator = if left[index].is_symbolic() {
                 self.sector[index]
             } else {
@@ -246,7 +299,7 @@ impl<const N: usize> IntegralOrder<N> {
                 }
             }
         }
-        for index in 0..N {
+        for index in coordinates {
             let is_numerator = if left[index].is_symbolic() {
                 !self.sector[index]
             } else {
@@ -262,6 +315,10 @@ impl<const N: usize> IntegralOrder<N> {
         Ordering::Equal
     }
 }
+
+#[cfg(test)]
+#[path = "index/permutation_tests.rs"]
+mod permutation_tests;
 
 #[cfg(test)]
 mod tests {

@@ -30,6 +30,12 @@ The currently evidenced core can:
   shared source data and deterministic aggregate output. All `vac3` equations
   and residuals agree at 1/2/4/6 workers; see the
   [parallel timing and memory measurements](docs/spired_parallel_results.md);
+- derive and remove independent linear-cut derivatives, retain exact parameter
+  conditions, and support reference-compatible ordering permutations. The full
+  two-loop PM `fam1_11` run matches all 802 sector rules, both preliminary rules,
+  and 16 residual keys at 1/2/4/6 workers. Release campaign medians are 264 ms
+  serial and 66 ms with six workers, versus C++ 739 ms and 131 ms; see the
+  [PM benchmark and validation report](docs/spired_fam1_11_results.md);
 - compile compact, structured-text, and caller-owned Symbolica Atom family
   descriptions, authenticating every form at ingress;
 - build exact topology-neutral affine integral families;

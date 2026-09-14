@@ -5,13 +5,15 @@
 //! `compare` checks coordinate patterns and exact RHS equations only.
 //! `compare_rule` additionally checks Positive/NonPositive annotations and exact
 //! coordinate applicability guards; unsupported non-coordinate guards are errors.
+//! `compare_pre_rules` matches unrestricted linear-cut rules by their excluded
+//! coordinate axis and checks the entire pre-rule set, not just matching RHSs.
 
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::io::{Error as IoError, ErrorKind};
 
 use rustred::algebra::Coefficient;
-use rustred::solver::{Integral, Power, RuleCandidate, SourceSystem};
+use rustred::solver::{Integral, LinearCutRule, Power, RuleCandidate, SourceSystem};
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::parser::{ParseSettings, Token};
 use symbolica::prelude::{Integer, IntegerRing, PolyVariable, Q, Z};
@@ -217,6 +219,129 @@ pub fn compare<const N: usize>(
         }
     }
     Ok(())
+}
+
+/// Compare all independently generated linear-cut pre-rules with an export.
+///
+/// Every target is the generic integral I(n), so rules are matched by their
+/// exact excluded face `n_i == 1`, not by their identical target pattern.
+/// The reference must use unrestricted index patterns and one such exclusion
+/// per rule. Missing, extra, or duplicate axes fail before RHS comparison.
+/// This is an oracle-only operation called after source/rule generation.
+pub fn compare_pre_rules<const N: usize>(
+    reference: &str,
+    rules: &[LinearCutRule<N>],
+    system: &SourceSystem<N>,
+) -> Result<()> {
+    use rustred::solver::{CoordinateCase, SearchStats};
+
+    let body = reference
+        .trim()
+        .strip_prefix('{')
+        .and_then(|text| text.strip_suffix('}'))
+        .ok_or_else(|| invalid("expected a SpIRed pre-rule list enclosed in braces"))?;
+    let mut expected = BTreeMap::new();
+    for entry in split_top_level(body, ",")? {
+        let parts = split_top_level(entry, "->")?;
+        if parts.len() != 2 {
+            return Err(invalid(
+                "each reference pre-rule must contain exactly one top-level ->",
+            ));
+        }
+        let axis = pre_rule_axis::<N>(parts[0])?;
+        if expected.insert(axis, entry).is_some() {
+            return Err(invalid(format!(
+                "duplicate reference pre-rule for cut coordinate {}",
+                axis + 1
+            )));
+        }
+    }
+    let mut actual = BTreeMap::new();
+    for rule in rules {
+        if rule.axis >= N {
+            return Err(invalid("candidate pre-rule cut coordinate is out of range"));
+        }
+        if actual.insert(rule.axis, rule).is_some() {
+            return Err(invalid(format!(
+                "duplicate candidate pre-rule for cut coordinate {}",
+                rule.axis + 1
+            )));
+        }
+    }
+    if actual.keys().ne(expected.keys()) {
+        return Err(invalid(format!(
+            "different pre-rule cut coordinates: reference {:?}; candidate {:?}",
+            expected.keys().collect::<Vec<_>>(),
+            actual.keys().collect::<Vec<_>>()
+        )));
+    }
+    for (axis, rule) in actual {
+        // This temporary candidate is only an adapter for the existing native
+        // exact comparator. Prepared sources are fixed at cut power one, but
+        // their pre-rules are NOT: leave every coordinate symbolic here.
+        let candidate = RuleCandidate {
+            case: CoordinateCase::generic(),
+            target: rule.target,
+            rhs: rule.rhs.clone(),
+            sources: Vec::new(),
+            stats: SearchStats::default(),
+        };
+        compare(
+            &format!("{{{}}}", expected[&axis]),
+            &candidate,
+            system,
+            None,
+        )?;
+    }
+    Ok(())
+}
+
+fn pre_rule_axis<const N: usize>(lhs: &str) -> Result<usize> {
+    let (arguments, suffix) = integral_arguments(lhs)?;
+    let arguments = split_top_level(arguments, ",")?;
+    if arguments.len() != N {
+        return Err(invalid(format!(
+            "expected {N} coordinates on the reference pre-rule LHS"
+        )));
+    }
+    for (axis, argument) in arguments.iter().enumerate() {
+        let compact: String = argument.chars().filter(|c| !c.is_whitespace()).collect();
+        if compact != format!("n{}_", axis + 1) {
+            return Err(invalid(
+                "reference pre-rule requires unrestricted symbolic coordinates n_i_",
+            ));
+        }
+    }
+    let guard = suffix
+        .trim()
+        .strip_prefix("/;")
+        .map(str::trim)
+        .and_then(|text| text.strip_prefix('!'))
+        .map(str::trim)
+        .ok_or_else(|| invalid("reference pre-rule requires the guard /;!(n_i==1)"))?;
+    let inner = strip_guard_parentheses(guard)?;
+    if inner.len() == guard.len() {
+        return Err(invalid(
+            "reference pre-rule exclusion must be wholly parenthesized",
+        ));
+    }
+    let branches = parse_coordinate_guard::<N>(inner)?;
+    let [branch] = branches.as_slice() else {
+        return Err(invalid(
+            "reference pre-rule requires one excluded coordinate face",
+        ));
+    };
+    let [(axis, value)] = branch.as_slice() else {
+        return Err(invalid(
+            "reference pre-rule exclusion must be exactly n_i==1",
+        ));
+    };
+    if value != &Integer::from(1) {
+        return Err(invalid(
+            "reference pre-rule must exclude cut power one, not another power",
+        ));
+    }
+    Ok(*axis)
 }
 
 /// Compare an independently generated equation AND its exact coordinate domain
@@ -773,6 +898,142 @@ fn is_identifier(name: &str) -> bool {
         .next()
         .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+#[cfg(test)]
+mod pre_rule_tests {
+    use super::*;
+    use rustred::algebra::CoefficientContext;
+    use rustred::solver::Term;
+
+    fn fixture() -> (SourceSystem<2>, Vec<LinearCutRule<2>>) {
+        // Coordinate variables have different names and a permuted map.
+        // Sources are fixed at both cuts; pre-rules must nevertheless remain
+        // generic and must NOT specialize their poles to those fixed values.
+        let context = CoefficientContext::try_new(["b", "d", "a"]).unwrap();
+        let source = SourceSystem::new_with_fixed(
+            vec![vec![Term {
+                integral: Integral::numeric([1, 1]).unwrap(),
+                coefficient: context.one().numerator,
+            }]],
+            [2, 0],
+            [Some(1), Some(1)],
+        )
+        .unwrap();
+        let a = context.parameter("a").unwrap();
+        let b = context.parameter("b").unwrap();
+        let rules = vec![
+            LinearCutRule {
+                axis: 0,
+                source_ordinal: 3,
+                target: Integral::symbolic([0, 0]).unwrap(),
+                rhs: vec![Term {
+                    integral: Integral::symbolic([-1, 0]).unwrap(),
+                    coefficient: &b / &(&a - &context.one()),
+                }],
+            },
+            LinearCutRule {
+                axis: 1,
+                source_ordinal: 1,
+                target: Integral::symbolic([0, 0]).unwrap(),
+                rhs: vec![Term {
+                    integral: Integral::symbolic([0, -1]).unwrap(),
+                    coefficient: &a / &(&b - &context.one()),
+                }],
+            },
+        ];
+        (source, rules)
+    }
+
+    fn entry(axis: usize, guard: &str, rhs: Option<&str>) -> String {
+        let rhs = rhs.unwrap_or(if axis == 0 {
+            "(n2/(n1-1))*int[-1+n1,0+n2]"
+        } else {
+            "(n1/(n2-1))*int[0+n1,-1+n2]"
+        });
+        format!("int[n1_,n2_]{guard}->{rhs}")
+    }
+
+    fn reference() -> String {
+        format!(
+            "{{{},{}}}",
+            entry(1, "/;!((n2==1))", None),
+            entry(0, "/;!((n1==1))", None)
+        )
+    }
+
+    #[test]
+    fn pre_rules_match_by_guard_axis_and_compare_native_generic_equations() {
+        let (source, rules) = fixture();
+        compare_pre_rules(&reference(), &rules, &source).unwrap();
+        let equivalent = reference().replace("n2/(n1-1)", "(n1*n2+n2)/(n1^2-1)");
+        compare_pre_rules(&equivalent, &rules, &source).unwrap();
+        compare_pre_rules("{}", &[], &source).unwrap();
+    }
+
+    #[test]
+    fn pre_rules_reject_wrong_or_missing_guards_even_when_rhs_is_zero() {
+        let (source, mut rules) = fixture();
+        rules.truncate(1);
+        rules[0].rhs.clear();
+        compare_pre_rules(
+            &format!("{{{}}}", entry(0, "/;!(n1==1)", Some("0"))),
+            &rules,
+            &source,
+        )
+        .unwrap();
+        for guard in [
+            "",
+            "/;!(n1==0)",
+            "/;!(n1==2)",
+            "/;!(n2==1)",
+            "/;!(False)",
+            "/;!((n1==1)||(n2==1))",
+            "/;!((n1==1)&&(n2==1))",
+            "/;n1!=1",
+        ] {
+            assert!(
+                compare_pre_rules(
+                    &format!("{{{}}}", entry(0, guard, Some("0"))),
+                    &rules,
+                    &source,
+                )
+                .is_err(),
+                "{guard}"
+            );
+        }
+    }
+
+    #[test]
+    fn pre_rules_reject_duplicate_missing_and_extra_axes_on_either_side() {
+        let (source, mut rules) = fixture();
+        let one = entry(0, "/;!(n1==1)", None);
+        for reference in [
+            "{}".to_owned(),
+            format!("{{{one}}}"),
+            format!("{{{one},{one}}}"),
+        ] {
+            assert!(compare_pre_rules(&reference, &rules, &source).is_err());
+        }
+        assert!(compare_pre_rules(&reference(), &rules[..1], &source).is_err());
+        rules[1].axis = 0;
+        assert!(compare_pre_rules(&reference(), &rules, &source).is_err());
+        rules[1].axis = 2;
+        assert!(compare_pre_rules(&reference(), &rules, &source).is_err());
+    }
+
+    #[test]
+    fn pre_rules_reject_rhs_changes_noncanonical_targets_and_restricted_patterns() {
+        let (source, mut rules) = fixture();
+        let changed = reference().replace("n2/(n1-1)", "(n2+1)/(n1-1)");
+        assert!(compare_pre_rules(&changed, &rules, &source).is_err());
+        for pattern in ["n1_?Positive", "n1_?NonPositive", "1"] {
+            let restricted = reference().replace("n1_", pattern);
+            assert!(compare_pre_rules(&restricted, &rules, &source).is_err());
+        }
+        rules[0].target = Integral::symbolic([1, 0]).unwrap();
+        assert!(compare_pre_rules(&reference(), &rules, &source).is_err());
+    }
 }
 
 #[cfg(test)]

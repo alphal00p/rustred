@@ -6,6 +6,7 @@
 //! result is not, by itself, a certified family-closing artifact.
 
 mod case;
+mod cuts;
 mod discovery;
 mod error;
 mod exception;
@@ -22,6 +23,7 @@ mod seed;
 mod source;
 
 pub use case::CoordinateCase;
+pub use cuts::{LinearCutError, LinearCutPreparation, LinearCutRule, prepare_linear_cuts};
 pub use discovery::DiscoveryStats;
 pub use error::SolverError;
 pub use exception::{ExceptionError, ExceptionalConditions, extract_exceptions};

@@ -150,6 +150,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     source,
                     &seed,
                     &self.system.indices,
+                    self.system.fixed(),
                     &self.order,
                     &self.config.zero_sectors,
                 )?;

@@ -30,6 +30,53 @@ scratch; this does not claim a new Gilbert--Peierls reachability kernel.
 Sparse multivariate rational-function reconstruction remains deferred to
 Symbolica rather than implemented in RustRed.
 
+## Linear-cut, fixed-source, and ordering audit (2026-09-14)
+
+This additional audit checked the actual local dependency pinned at
+`3805d02ed6de0ee3fd3011cdf584cc3972aff40e`: public exports/signatures, their
+implementations, and the new RustRed call sites. The following paths refer to
+that live tree, not the historical `77c1374` inventory below.
+
+| Required operation | Native service checked | RustRed responsibility |
+| --- | --- | --- |
+| Exact parameter/index rational functions | `RationalPolynomial<IntegerRing,u16>` in `vendor/symbolica/src/domains/rational_polynomial.rs` | Integral-key bookkeeping only; use native addition, multiplication, division, and normalization |
+| Translate a source or pre-rule by integer shifts | `MultivariatePolynomial::shift_var` in `src/poly/polynomial.rs` | Translate numerator and denominator together with the integral key |
+| Fix a removed cut to one | `MultivariatePolynomial::replace` | Specialize both numerator and denominator, reject a zero denominator, then request native GCD normalization |
+| Authenticate the simple cut pivot | Native `degree`, `contains`, `replace`, `is_zero` | Check the domain-specific shape `n_i × nonzero parameter polynomial`; retain its parameter condition |
+| Polynomial GCD and exact quotient | `MultivariatePolynomial::gcd` in `src/poly/gcd.rs`, `try_div_exact` in `src/poly/polynomial.rs` | Call native services; do not implement GCD or division algorithms |
+| Rebuild a rational coefficient | `FromNumeratorAndDenominator::from_num_den` | Disable redundant GCD only for an invertible integer translation; enable it after specialization |
+| Clear a row's denominators | Native GCD, exact quotient, and polynomial multiplication | A short shared adapter folds an LCD and scales the row while preserving caller-owned applicability conditions |
+| Ordering permutation | No algebraic operation required | Validate a coordinate bijection and change only the reference's final two tie-breaks |
+
+In particular, integer translation is a polynomial-ring automorphism and
+preserves coprimality. It is sound to rebuild its already-normalized numerator
+and denominator with `do_gcd=false`. Specialization is not an automorphism:
+it can introduce common factors or a zero denominator, so the cut frame checks
+the denominator and rebuilds with `do_gcd=true`. Native `replace` retains the
+variable map; the prepared-source boundary requires the fixed variable to be
+absent from coefficients, not deleted from their shared map.
+
+The audit found native integer `lcm`, but no public batch LCD-clearing method
+for a row of multivariate rational-polynomial coefficients. The row adapter
+therefore uses `gcd` and `try_div_exact` to fold `C ← C × (D/gcd(C,D))`, then
+scales each native numerator by `C/D`. It introduces no independent CAS
+representation or arithmetic kernel. Original family conditions and cut-pivot
+parameter conditions are retained before this operation.
+
+The existing topology-generic `IntegralFamily::derivative_contraction` and
+ordinary/LI generator supply the cut derivative identity; no additional
+symbolic differentiation implementation is needed. The initial admission is
+restricted to independent unshifted linear cuts with no noninteger power
+offsets when cut preparation is requested. Unsupported incidence or shifted
+geometry is reported explicitly. Noninteger offsets remain supported when no
+cuts are removed.
+
+No reconstruction, interpolation, CRT controller, or competing rational
+function framework was added by this slice. Public univariate interpolation
+and internal GCD reconstruction helpers do not constitute the awaited sparse
+multivariate rational-function reconstruction service. That backend remains
+deferred to Symbolica.
+
 ## Scope and pinned dependency
 
 This audit covers the public Rust API actually pinned by RustRed, with emphasis

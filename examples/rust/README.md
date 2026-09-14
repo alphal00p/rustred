@@ -107,3 +107,34 @@ guard, and sign comparison, which happens only after all sectors have been gener
 `RUSTRED_SPIRED_PROGRESS=1` for case-level diagnostics. These are source-port
 rules and finite bounded-search residuals, not certified family artifacts or
 a proof that the residual integrals are independent masters.
+
+## Linear-cut PM example
+
+The same executable accepts the supplied two-loop `fam1_11` family:
+
+```sh
+cargo run --release --locked -p rustred --example spired-solve-sector -- \
+  fam1_11 all /tmp/rustred-fam1-11-new \
+  vendor/spired/examples/zeroSectors_1_11.dat \
+  vendor/spired/examples/nonZeroSectors_1_11.dat \
+  vendor/spired/build-release/benchmarks/serial-artifacts unbounded 6
+```
+
+The family data live in [`support/spired_families.rs`](support/spired_families.rs),
+not in engine dispatch. It keeps `d,x` symbolic, generates ordinary and Lorentz
+identities, derives the two linear-cut preliminary rules, and then specializes
+the improved sources to cut powers one. It requests all 40 supplied nonzero
+sectors with the reference's numerical depth two. Replace the reference path
+with `-` for independent generation without comparison, and `6` with `1` for
+serial timing. Reference equations are first read after generation finishes.
+
+Expected output includes `reference_pre_rule_matches=2`,
+`reference_rule_matches=802`, `rules=802`, and `finite_residuals=16`.
+The [complete comparison](../../docs/spired_fam1_11_results.md) records repeated
+serial/multicore release timings and independent residual-key validation.
+
+`pre_rules.txt` records the additional cut rules and their excluded power-one
+faces. The exact preliminary-rule, sector-rule, guard, and sign comparisons are
+separate from generation timing; residuals remain explicitly bounded-search
+residuals. `unbounded` removes the symbolic search-depth cap, not the numerical
+depth bound or the requirement for subsequent artifact certification.

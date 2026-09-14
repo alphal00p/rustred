@@ -18,6 +18,9 @@ use super::{
 pub struct SectorConfig<const N: usize> {
     pub deltas: [bool; N],
     pub removed_deltas: [bool; N],
+    /// Coordinate priority for the final lexicographic tie-breaks only.
+    /// Sector and cut priority and aggregate degrees remain unchanged.
+    pub permutation: Option<[usize; N]>,
     /// Immutable family-wide zero-sector census, shared by sector workers.
     pub zero_sectors: Arc<[[bool; N]]>,
 }
@@ -27,6 +30,7 @@ impl<const N: usize> Default for SectorConfig<N> {
         Self {
             deltas: [false; N],
             removed_deltas: [false; N],
+            permutation: None,
             zero_sectors: Arc::from([]),
         }
     }
@@ -106,8 +110,16 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     "invalid delta sector/configuration".into(),
                 ));
             }
+            if system.fixed()[i].is_some_and(|value| value != 1 || !config.removed_deltas[i]) {
+                return Err(SolverError::InvalidInput(
+                    "prepared fixed sources require the matching removed delta at power one".into(),
+                ));
+            }
         }
-        let order = IntegralOrder::new(sector, config.deltas);
+        let mut order = IntegralOrder::new(sector, config.deltas);
+        if let Some(permutation) = config.permutation {
+            order = order.with_permutation(permutation)?;
+        }
         let mut rows = system.rows.clone();
         for row in &mut rows {
             row.retain(|term| !term.coefficient.is_zero());
@@ -186,6 +198,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     source,
                     &seed,
                     &self.system.indices,
+                    self.system.fixed(),
                     &self.order,
                     &self.config.zero_sectors,
                 )?;

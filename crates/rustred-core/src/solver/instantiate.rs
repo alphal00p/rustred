@@ -9,14 +9,35 @@ pub(super) fn instantiate<const N: usize>(
     source: &PolynomialRow<N>,
     seed: &Seed<N>,
     indices: &[usize; N],
+    fixed: &[Option<i16>; N],
     order: &IntegralOrder<N>,
     zero_sectors: &[[bool; N]],
 ) -> Result<ExactRow<N>, SolverError> {
+    // Prepared coordinates are absolute, and cannot be shifted or reopened
+    // by a different case. Validate once even when this source row is empty.
+    for (axis, value) in fixed.iter().enumerate() {
+        if let Some(value) = value {
+            if seed.integral[axis].is_symbolic()
+                || seed.integral[axis].value() != *value
+                || seed.shifts[axis] != 0
+            {
+                return Err(SolverError::InvalidInput(format!(
+                    "seed is incompatible with prepared coordinate {axis} fixed to {value}"
+                )));
+            }
+        }
+    }
     let mut row = Vec::with_capacity(source.len());
     for term in source {
         let mut powers = *seed.integral.powers();
-        for (power, offset) in powers.iter_mut().zip(term.integral.powers()) {
-            *power = power.shifted(offset.value())?;
+        for (axis, (power, offset)) in powers.iter_mut().zip(term.integral.powers()).enumerate() {
+            *power = if fixed[axis].is_some() {
+                // SourceSystem validated this numeric power before sector
+                // preconditioning. In particular, fixed 1 plus seed 1 is 1.
+                *offset
+            } else {
+                power.shifted(offset.value())?
+            };
         }
         let integral = Integral::new(powers);
         if vanishes_in_subsector(&integral, order, zero_sectors) {
@@ -24,6 +45,9 @@ pub(super) fn instantiate<const N: usize>(
         }
         let mut polynomial = term.coefficient.clone();
         for (i, variable) in indices.iter().enumerate() {
+            if fixed[i].is_some() {
+                continue;
+            }
             if seed.integral[i].is_symbolic() {
                 if seed.shifts[i] != 0 {
                     polynomial = polynomial.shift_var(*variable, &Integer::from(seed.shifts[i]));
@@ -91,7 +115,7 @@ pub(super) fn canonicalize<const N: usize>(
     Ok((target, rhs))
 }
 
-fn translate<const N: usize>(
+pub(super) fn translate<const N: usize>(
     coefficient: &Coefficient,
     indices: &[usize; N],
     shifts: &[i16; N],

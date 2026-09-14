@@ -5,6 +5,28 @@ use crate::family::{AffineDenominator, IntegralFamily};
 
 use super::*;
 
+#[test]
+fn sector_configuration_installs_and_validates_coordinate_priority() {
+    let system = SourceSystem::<3>::from_family(&sunset()).unwrap();
+    let config = SectorConfig {
+        permutation: Some([2, 0, 1]),
+        ..Default::default()
+    };
+    let solver = SectorSolver::new(&system, [true; 3], config).unwrap();
+    assert_eq!(solver.ordering().permutation(), Some(&[2, 0, 1]));
+    assert!(matches!(
+        SectorSolver::new(
+            &system,
+            [true; 3],
+            SectorConfig {
+                permutation: Some([2, 2, 1]),
+                ..Default::default()
+            }
+        ),
+        Err(SolverError::InvalidInput(_))
+    ));
+}
+
 /// Quadratic forms for test families only; the engine never dispatches on
 /// these loop counts or momentum routes.
 pub(super) fn vacuum(momenta: &[Vec<i64>]) -> IntegralFamily {
@@ -159,16 +181,30 @@ fn numeric_sector_classification_tracks_activation_as_well_as_pinches() {
         shifts: [0, 0],
     };
     let order = IntegralOrder::new([true, false], [false; 2]);
-    let row = super::instantiate::instantiate(&source, &seed, &[0, 1], &order, &[[false, false]])
-        .unwrap();
+    let row = super::instantiate::instantiate(
+        &source,
+        &seed,
+        &[0, 1],
+        &[None; 2],
+        &order,
+        &[[false, false]],
+    )
+    .unwrap();
     assert_eq!(
         row.len(),
         1,
         "the actual [false,true] sector is not the listed zero sector"
     );
     assert_eq!(row[0].integral, Integral::numeric([0, 1]).unwrap());
-    let vanished =
-        super::instantiate::instantiate(&source, &seed, &[0, 1], &order, &[[false, true]]).unwrap();
+    let vanished = super::instantiate::instantiate(
+        &source,
+        &seed,
+        &[0, 1],
+        &[None; 2],
+        &order,
+        &[[false, true]],
+    )
+    .unwrap();
     assert!(vanished.is_empty());
 }
 
@@ -210,6 +246,7 @@ fn vanished_cuts_are_zero_even_without_an_explicit_zero_sector_list() {
     let config = SectorConfig {
         deltas: [true],
         removed_deltas: [true],
+        permutation: None,
         zero_sectors: Vec::new().into(),
     };
     let solver = SectorSolver::new(&system, [true], config).unwrap();

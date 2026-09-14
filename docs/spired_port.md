@@ -8,6 +8,10 @@ scope is every supplied one- through three-loop (2–4PM) example, with equal or
 better release timing and identical or algebraically smaller rules. This is
 not satisfied by a fast single case, an incomplete sector, or a vacuum-only
 subset. Reference source and generated reference artifacts remain local.
+The [supplied-example census](spired_pm_acceptance.md) records all nine
+in-scope generators, their actual selected sectors, and their ordering/data
+requirements. No one-loop C++ generator is currently supplied; that missing
+reference must not be replaced by an invented benchmark claim.
 
 ## Why the existing notes-based search is not the reference algorithm
 
@@ -227,8 +231,9 @@ sector-sign comparison. Its equations and residual outputs are byte-identical
 to the first run. All 12 example-comparator tests also passed in release mode,
 and `cargo check --locked --workspace` passed with an explicitly selected
 installed Python interpreter. The targeted Symbolica variable-map ownership
-migration regression passed as well. Coupled affine cases, cut-derivative source preparation,
-and complete PM fixture coverage remain outstanding. `RuleCandidate` still
+migration regression passed as well. The subsequent linear-cut/ordering slice
+is described below; coupled affine cases and complete PM fixture coverage
+remain outstanding. `RuleCandidate` still
 does not claim unconditional applicability or publish artifacts; `SectorRule`
 adds its exact exceptional conditions, and `SectorSolution` explicitly retains
 bounded finite residuals without declaring certified master independence.
@@ -236,29 +241,68 @@ bounded finite residuals without declaring certified master independence.
 Keep user worktree changes intact. Every Git operation uses the requested
 ValentinHirschi name/email, and no reference-only material is committed or pushed.
 
-## Next source-preparation slice: removed linear cuts
+## Removed linear cuts, fixed sources, and ordering overrides (2026-09-14)
 
-The reference's `family::improveIBPs` pipeline must precede the PM sector
-benchmarks. For a simple linear cut `D_i = c k_a·u`, solve the ordinary identity
-`u·∂/∂k_a` for the raised cut, substitute positive cut shifts once throughout
-the ordinary/LI source frame (translating coefficients as well as integral
-keys), export the canonical pre-rule, then fix each removed cut index to one.
+`prepare_linear_cuts` now implements the once-per-family preparation needed
+before the PM sector benchmarks. For an admitted cut `D_i = c k_a·u`, it
+obtains the ordinary identity `u·∂/∂k_a`, solves for its raised cut, and
+substitutes positive cut shifts throughout the ordinary/LI frame. Both exact
+coefficients and integral coordinates are translated. It exports a
+`LinearCutRule` and then specializes that cut to power one in the prepared
+frame. Terms pinching a removed cut vanish. No reference rule or topology name
+is consulted by this preparation.
+
 The exported pre-rule is exceptional at `n_i=1`, not zero as one C++ comment
-suggests. Native division, `shift_var`, `replace`, GCD, and exact division are
-already available; no new CAS framework is needed.
+suggests. Its nonzero parameter pivot factor is retained before any coefficient
+cancellation. The improved frame instead lives at `n_i=1`; the two objects
+have different domains and must not inherit each other's guard. Native
+`shift_var`, `replace`, rational arithmetic, GCD, and exact division perform
+all coefficient operations; shared denominator clearing is a small row adapter
+over those services, not a new polynomial-arithmetic implementation.
 
-The structural change needed next is a common fixed-coordinate source
-pattern: improved C++ rows store numerical cut powers equal to one. Source
-admission and instantiation must distinguish these absolute fixed powers from
-symbolic shifts, validate the removed-cut mask, and never apply such a source
-to a free-cut case. Start with the reference's diagonal cut-derivative incidence
-and reject unsupported coupled cuts explicitly. Also retain existing noninteger
-power offsets when preparing the cut derivative: raw C++ `deltaReplRule` omits
-that shift, although none of the supplied removed-cut examples exercises it.
+Admission is deliberately bounded: each cut is a single unshifted
+loop–external scalar product, with diagonal nonzero cut-derivative incidence.
+Mixed, affine-shifted, quadratic, zero-self-incidence, or mutually coupled cuts
+produce `LinearCutError::Unsupported`. When a cut is requested, noninteger
+power offsets anywhere in the family are also explicitly deferred rather than
+silently copying the C++ `deltaReplRule` omission. An empty cut mask preserves
+ordinary noninteger-offset support, including the supplied `bc4PMRad1` case.
+These limits cover the supplied removed-cut PM family definitions; they are
+not a claim of arbitrary cut preparation.
+
+`SourceSystem::new_with_fixed` represents the common prepared-coordinate
+pattern. Its boundary validates the native variable map, absolute numeric
+powers, and absence of fixed-coordinate variables from coefficients. Replacing
+prepared rows preserves variables, coefficient priority, and inherited
+conditions even if every row vanishes. Instantiation retains fixed powers
+instead of adding them to seeds, and rejects reopening or shifting a prepared
+coordinate before processing even an empty source row. Sector construction
+requires the matching removed-cut mask; both symbolic and shared numerical
+searches use the same fixed-source contract.
+
+`IntegralOrder::with_permutation` and `SectorConfig::permutation` implement
+the C++ dynamic ordering override. Only the final denominator/numerator
+coordinate tie-breaks change; sector lexicographic order, cut priorities,
+total degree, and numerator degree do not. Identity normalizes to the static
+path. Ordering construction validates the permutation once; the static hot
+path has no per-coordinate optional-permutation branch. Six new focused tests
+and all five existing index tests passed in a standalone native Rust build,
+including 120,000 comparisons against all six three-coordinate permutations
+of the compiled C++ comparator. The same stored order is used for sector
+source sorting/preconditioning, modular and exact search, and numerical
+cutoffs.
 
 The first exact differential fixture uses `D0=k·u`, `D1=k·v`, `D2=-k²`,
 `u²=v²=1`, `u·v=γ`. Its pre-rule is
 `I(n) = -γ n1/(n0-1) I(n-e0+e1) + 2 n2/(n0-1) I(n-2e0+e2)`.
-Then compare both `fam1_11` pre-rules and the improved source frame before
-running its complete sector census. Coupled affine case support remains a
-separate required part of the all-PM reference-port objective.
+Added differential tests cover scaled cuts and Gram entries, the complete
+improved toy source frame, cancellation-resistant parameter guards, two
+independent cuts, unsupported admission, and no-cut/noninteger preservation.
+The complete `fam1_11` checkpoint now passes: both pre-rules, all 802 equations
+and guards over 40 sectors, and all 16 finite residual keys agree with C++ at
+1/2/4/6 workers. All 108 focused solver tests pass. Seven paired release runs
+give campaign medians 264.459 ms serial and 66.119 ms with six workers, versus
+739 ms and 131 ms for C++. See [the complete PM result](spired_fam1_11_results.md)
+for timing boundaries, independent audits, phase profiling, and remaining scope.
+This fixture requires only coordinate guards. Coupled affine handling remains
+a separate requirement of the generic all-PM reference port.

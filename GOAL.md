@@ -26,6 +26,19 @@ Compare release serial and multicore timings against the same C++ workload.
 All CAS remains native Symbolica/numerica after public API audits; rational
 polynomial reconstruction remains deferred until Symbolica provides it.
 
+The complete supplied-input census is in
+[`docs/spired_pm_acceptance.md`](docs/spired_pm_acceptance.md): PM fixtures also
+require linear-cut preparation and, for some inputs, final-coordinate ordering
+permutations. These are topology-generic solver capabilities; benchmark family
+data stay in examples. A successful reference sector run does not itself certify
+the older publication pipeline or the independence of numerical residuals.
+
+Validated reference-port checkpoints now include complete `vac3` and
+`fam1_11` workloads, including serial/multicore exact comparisons. The latter
+reproduces all 802 sector rules, two preliminary cut rules, and 16 residual keys;
+the remaining supplied PM examples are still part of the active objective.
+See [`docs/spired_fam1_11_results.md`](docs/spired_fam1_11_results.md).
+
 ## Preamble — user directive (verbatim)
 
 ````text

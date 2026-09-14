@@ -1,7 +1,7 @@
 //! End-to-end executable-reference sector benchmark with a symbolic mass.
 //!
 //! Usage:
-//! spired-solve-sector <1|2|3> <sector-mask|all> <new-output-directory>
+//! spired-solve-sector <1|2|3|fam1_11> <sector-mask|all> <new-output-directory>
 //!   <zero-sectors-file|-> [nonzero-sectors-file|-] [reference-directory|-]
 //!   [symbolic-depth|unbounded] [workers]
 //!
@@ -19,13 +19,14 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use rustred::algebra::CoefficientContext;
-use rustred::family::{AffineDenominator, IntegralFamily};
+use rustred::family::IntegralFamily;
 use rustred::solver::{
     Integral, SearchOptions, SectorConfig, SectorEvent, SectorExecutor, SectorSolution,
-    SectorSolveOptions, SectorStats, SourceSystem,
+    SectorSolveOptions, SectorStats, prepare_linear_cuts,
 };
 
+#[path = "support/spired_families.rs"]
+mod spired_families;
 #[path = "support/spired_reference.rs"]
 mod spired_reference;
 
@@ -117,7 +118,7 @@ fn write_rules<const N: usize>(path: &Path, solution: &SectorSolution<N>) -> std
     )?;
     writeln!(
         output,
-        "# Generic coefficient parameters d,m; denominators are q^2-m."
+        "# Family parameters and preparation conditions are recorded in family.txt."
     )?;
     writeln!(
         output,
@@ -166,7 +167,13 @@ fn write_rules<const N: usize>(path: &Path, solution: &SectorSolution<N>) -> std
     Ok(())
 }
 
-fn run<const N: usize>(momenta: &[&[i64]], args: Arguments, process_start: Instant) -> Result<()> {
+fn run<const N: usize>(
+    build_family: impl FnOnce() -> Result<IntegralFamily>,
+    removed: [bool; N],
+    numerical_depth: u32,
+    args: Arguments,
+    process_start: Instant,
+) -> Result<()> {
     let input_start = Instant::now();
     let zero_sectors = args
         .zero_manifest
@@ -202,48 +209,53 @@ fn run<const N: usize>(momenta: &[&[i64]], args: Arguments, process_start: Insta
     fs::create_dir_all(&args.output)?;
     let input_time = input_start.elapsed();
     let preparation_start = Instant::now();
-    let loops = momenta[0].len();
-    let coefficients = CoefficientContext::try_new(["d", "m"])?;
-    let mass = coefficients
-        .parameter("m")
-        .expect("declared common squared mass");
-    let denominators = momenta
-        .iter()
-        .map(|momentum| {
-            let row = (0..loops)
-                .flat_map(|i| {
-                    (i..loops).map(move |j| momentum[i] * momentum[j] * if i == j { 1 } else { 2 })
-                })
-                .map(|value| coefficients.integer(value))
-                .collect();
-            AffineDenominator::new(-mass.clone(), row)
-        })
-        .collect();
-    let family = IntegralFamily::new(
-        "spired-vacuum-sector",
-        (0..loops).map(|i| format!("k{i}")).collect(),
-        Vec::new(),
-        coefficients.clone(),
-        coefficients.parameter("d").unwrap(),
-        denominators,
-        Vec::new(),
-        vec![coefficients.zero(); N],
-    )?;
-    let sources = SourceSystem::<N>::from_family(&family)?;
+    let family = build_family()?;
+    let loops = family.loop_count();
+    let prepared = prepare_linear_cuts::<N>(&family, removed, true)?;
+    let sources = prepared.sources;
     let preparation = preparation_start.elapsed();
+    let mut pre_rules = writer(args.output.join("pre_rules.txt"))?;
+    for rule in &prepared.rules {
+        writeln!(
+            pre_rules,
+            "target={} excluded=n{}=1 source_ordinal={}",
+            rule.target, rule.axis, rule.source_ordinal
+        )?;
+        for term in &rule.rhs {
+            writeln!(pre_rules, "  ({}) * {}", term.coefficient, term.integral)?;
+        }
+    }
+    pre_rules.flush()?;
     let mut metadata = writer(args.output.join("family.txt"))?;
     writeln!(
         metadata,
-        "loops={loops}\nK={N}\nparameters=d,m\ndenominator=q^2-m\nordinary_sources={}",
+        "loops={loops}\nK={N}\nprepared_sources={}",
         sources.rows().len()
     )?;
     writeln!(
         metadata,
-        "symbolic_depth={:?}\nnumerical_depth=3\nworkers={worker_budget}\nrequested_workers={}\nschedule=active-first",
+        "symbolic_depth={:?}\nnumerical_depth={numerical_depth}\nworkers={worker_budget}\nrequested_workers={}\nschedule=active-first",
         args.symbolic_depth, args.workers
     )?;
-    for (axis, momentum) in momenta.iter().enumerate() {
-        writeln!(metadata, "q{axis}={momentum:?}")?;
+    writeln!(
+        metadata,
+        "parameters={:?}\nremoved_cuts={}",
+        family.coefficient_context().parameter_names(),
+        mask(&removed)
+    )?;
+    writeln!(metadata, "coordinates={:?}", family.coordinates())?;
+    for (row, entries) in family.external_gram().iter().enumerate() {
+        for (column, value) in entries.iter().enumerate() {
+            writeln!(metadata, "external_gram[{row},{column}]={value}")?;
+        }
+    }
+    for (axis, denominator) in family.denominators().iter().enumerate() {
+        writeln!(
+            metadata,
+            "D{axis}: constant={} coefficients={:?}",
+            denominator.constant(),
+            denominator.coefficients()
+        )?;
     }
     for sector in &zero_sectors {
         writeln!(metadata, "zero_sector={}", mask(sector))?;
@@ -279,6 +291,8 @@ fn run<const N: usize>(momenta: &[&[i64]], args: Arguments, process_start: Insta
         &sources,
         &sectors,
         &SectorConfig {
+            deltas: removed,
+            removed_deltas: removed,
             zero_sectors: zero_sectors.into(),
             ..Default::default()
         },
@@ -287,7 +301,7 @@ fn run<const N: usize>(momenta: &[&[i64]], args: Arguments, process_start: Insta
                 max_depth: args.symbolic_depth,
                 ..Default::default()
             },
-            numerical_depth: 3,
+            numerical_depth,
             max_symbolic_cases: None,
         },
         |_, sector, event| {
@@ -390,6 +404,12 @@ fn run<const N: usize>(momenta: &[&[i64]], args: Arguments, process_start: Insta
     let validation_start = Instant::now();
     let mut reference_rules = 0;
     if let Some(directory) = &args.reference {
+        if !prepared.rules.is_empty() {
+            let reference = fs::read_to_string(directory.join("preRules.dat"))?;
+            spired_reference::compare_pre_rules(&reference, &prepared.rules, &sources)
+                .map_err(|error| format!("preliminary cut rules: {error}"))?;
+            println!("reference_pre_rule_matches={}", prepared.rules.len());
+        }
         for (label, solution) in &retained {
             let sector = parse_mask::<N>(label)?;
             let reference = fs::read_to_string(directory.join(format!("{label}.dat")))?;
@@ -409,7 +429,7 @@ fn run<const N: usize>(momenta: &[&[i64]], args: Arguments, process_start: Insta
             }
         }
         println!(
-            "reference_rule_matches={reference_rules}; exact symbolic m, coordinate guards, and sector signs; residuals NOT compared"
+            "reference_rule_matches={reference_rules}; exact symbolic parameters, coordinate guards, and sector signs; residuals NOT compared"
         );
     }
     let validation = validation_start.elapsed();
@@ -438,7 +458,7 @@ fn main() -> Result<()> {
     let start = Instant::now();
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if !(4..=8).contains(&args.len()) {
-        return Err("usage: spired-solve-sector <1|2|3> <sector-mask|all> <new-output-dir> <zero-sectors-file|-> [nonzero-sectors-file|-] [reference-dir|-] [symbolic-depth|unbounded] [workers]".into());
+        return Err("usage: spired-solve-sector <1|2|3|fam1_11> <sector-mask|all> <new-output-dir> <zero-sectors-file|-> [nonzero-sectors-file|-] [reference-dir|-] [symbolic-depth|unbounded] [workers]".into());
     }
     let optional_path = |position: usize| {
         args.get(position)
@@ -461,20 +481,43 @@ fn main() -> Result<()> {
         return Err("workers must be nonzero".into());
     }
     match args[0].as_str() {
-        "1" => run::<1>(&[&[1]], config, start),
-        "2" => run::<3>(&[&[1, 0], &[0, 1], &[1, 1]], config, start),
-        "3" => run::<6>(
-            &[
-                &[1, 0, 0],
-                &[0, 1, 0],
-                &[0, 0, 1],
-                &[1, 1, 0],
-                &[1, 0, 1],
-                &[0, 1, -1],
-            ],
+        "1" => run::<1>(
+            || spired_families::vacuum(&[&[1]]),
+            [false; 1],
+            3,
             config,
             start,
         ),
-        _ => Err("supported fixture loop counts are 1, 2, and 3".into()),
+        "2" => run::<3>(
+            || spired_families::vacuum(&[&[1, 0], &[0, 1], &[1, 1]]),
+            [false; 3],
+            3,
+            config,
+            start,
+        ),
+        "3" => run::<6>(
+            || {
+                spired_families::vacuum(&[
+                    &[1, 0, 0],
+                    &[0, 1, 0],
+                    &[0, 0, 1],
+                    &[1, 1, 0],
+                    &[1, 0, 1],
+                    &[0, 1, -1],
+                ])
+            },
+            [false; 6],
+            3,
+            config,
+            start,
+        ),
+        "fam1_11" => run::<9>(
+            spired_families::fam1_11,
+            [true, true, false, false, false, false, false, false, false],
+            2,
+            config,
+            start,
+        ),
+        _ => Err("supported fixtures are vacuum 1, 2, 3, and fam1_11".into()),
     }
 }
