@@ -3,7 +3,7 @@
 //! Usage:
 //! spired-solve-sector <1|2|3> <sector-mask|all> <new-output-directory>
 //!   <zero-sectors-file|-> [nonzero-sectors-file|-] [reference-directory|-]
-//!   [symbolic-depth|unbounded]
+//!   [symbolic-depth|unbounded] [workers]
 //!
 //! Manifest files contain whitespace-separated 0/1 entries, N per sector,
 //! exactly as the original SpIRed examples. `all` requires the nonzero manifest.
@@ -22,14 +22,14 @@ use std::time::{Duration, Instant};
 use rustred::algebra::CoefficientContext;
 use rustred::family::{AffineDenominator, IntegralFamily};
 use rustred::solver::{
-    SearchOptions, SectorConfig, SectorEvent, SectorSolution, SectorSolveOptions, SectorSolver,
-    SourceSystem,
+    Integral, SearchOptions, SectorConfig, SectorEvent, SectorExecutor, SectorSolution,
+    SectorSolveOptions, SectorStats, SourceSystem,
 };
 
 #[path = "support/spired_reference.rs"]
 mod spired_reference;
 
-type Result<T> = std::result::Result<T, Box<dyn Error>>;
+type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
 struct Arguments {
     target: String,
@@ -38,6 +38,19 @@ struct Arguments {
     nonzero_manifest: Option<PathBuf>,
     reference: Option<PathBuf>,
     symbolic_depth: Option<u32>,
+    workers: usize,
+}
+
+/// Only compact summaries survive a sector task in ordinary generation.
+/// Full solutions are retained solely for explicitly requested oracle checks.
+struct Completed<const N: usize> {
+    label: String,
+    rules: usize,
+    residuals: Vec<Integral<N>>,
+    precondition: Duration,
+    stats: SectorStats,
+    write_time: Duration,
+    retained: Option<SectorSolution<N>>,
 }
 
 fn mask<const N: usize>(sector: &[bool; N]) -> String {
@@ -90,13 +103,13 @@ fn read_manifest<const N: usize>(path: &Path) -> Result<Vec<[bool; N]>> {
         .collect()
 }
 
-fn writer(path: impl AsRef<Path>) -> Result<BufWriter<File>> {
+fn writer(path: impl AsRef<Path>) -> std::io::Result<BufWriter<File>> {
     Ok(BufWriter::new(
         OpenOptions::new().write(true).create_new(true).open(path)?,
     ))
 }
 
-fn write_rules<const N: usize>(path: &Path, solution: &SectorSolution<N>) -> Result<()> {
+fn write_rules<const N: usize>(path: &Path, solution: &SectorSolution<N>) -> std::io::Result<()> {
     let mut output = writer(path)?;
     writeln!(
         output,
@@ -173,6 +186,7 @@ fn run<const N: usize>(momenta: &[&[i64]], args: Arguments, process_start: Insta
     if sectors.is_empty() {
         return Err("the nonzero-sector manifest is empty".into());
     }
+    let worker_budget = args.workers.min(sectors.len());
     for sector in &sectors {
         if zero_sectors.contains(sector) {
             return Err(format!("requested sector {} is declared zero", mask(sector)).into());
@@ -225,8 +239,8 @@ fn run<const N: usize>(momenta: &[&[i64]], args: Arguments, process_start: Insta
     )?;
     writeln!(
         metadata,
-        "symbolic_depth={:?}\nnumerical_depth=3\nworkers=1",
-        args.symbolic_depth
+        "symbolic_depth={:?}\nnumerical_depth=3\nworkers={worker_budget}\nrequested_workers={}\nschedule=active-first",
+        args.symbolic_depth, args.workers
     )?;
     for (axis, momentum) in momenta.iter().enumerate() {
         writeln!(metadata, "q{axis}={momentum:?}")?;
@@ -259,59 +273,86 @@ fn run<const N: usize>(momenta: &[&[i64]], args: Arguments, process_start: Insta
     let mut total_solve = Duration::ZERO;
     let progress = std::env::var("RUSTRED_SPIRED_PROGRESS").is_ok_and(|value| value == "1");
     let campaign_start = Instant::now();
-    for (ordinal, sector) in sectors.iter().enumerate() {
-        let label = mask(sector);
-        let start = Instant::now();
-        let solver = SectorSolver::new(
-            &sources,
-            *sector,
-            SectorConfig {
-                zero_sectors: zero_sectors.clone(),
+    let executor = SectorExecutor::new(worker_budget)?;
+    let pool_setup = campaign_start.elapsed();
+    let completed = executor.map_with_observer(
+        &sources,
+        &sectors,
+        &SectorConfig {
+            zero_sectors: zero_sectors.into(),
+            ..Default::default()
+        },
+        SectorSolveOptions {
+            symbolic: SearchOptions {
+                max_depth: args.symbolic_depth,
                 ..Default::default()
             },
-        )?;
-        let precondition = start.elapsed();
-        let solution = solver.solve_sector_with_observer(
-            SectorSolveOptions {
-                symbolic: SearchOptions {
-                    max_depth: args.symbolic_depth,
-                    ..Default::default()
-                },
-                numerical_depth: 3,
-                max_symbolic_cases: None,
-            },
-            |event| {
-                if !progress {
-                    return;
+            numerical_depth: 3,
+            max_symbolic_cases: None,
+        },
+        |_, sector, event| {
+            if !progress {
+                return;
+            }
+            let label = mask(&sector);
+            match event {
+                SectorEvent::CaseStarted { case, pending } => {
+                    eprintln!("sector={label} case={} pending={pending}", case.integral())
                 }
-                match event {
-                    SectorEvent::CaseStarted { case, pending } => {
-                        eprintln!("sector={label} case={} pending={pending}", case.integral())
-                    }
-                    SectorEvent::RuleFound { rule, pending } => eprintln!(
-                        "sector={label} solved={} rhs_terms={} rows={} pending={pending}",
-                        rule.candidate.target,
-                        rule.candidate.rhs.len(),
-                        rule.candidate.stats.rows
-                    ),
-                    SectorEvent::NumericalStarted { cases } => {
-                        eprintln!("sector={label} numerical_cases={}", cases.len())
-                    }
+                SectorEvent::RuleFound { rule, pending } => eprintln!(
+                    "sector={label} solved={} rhs_terms={} rows={} pending={pending}",
+                    rule.candidate.target,
+                    rule.candidate.rhs.len(),
+                    rule.candidate.stats.rows
+                ),
+                SectorEvent::NumericalStarted { cases } => {
+                    eprintln!("sector={label} numerical_cases={}", cases.len())
                 }
-            },
-        )?;
-        let write_start = Instant::now();
-        write_rules(&args.output.join(format!("{label}.rules.txt")), &solution)?;
-        for residual in &solution.finite_residuals {
+            }
+        },
+        |completed| -> std::io::Result<Completed<N>> {
+            let label = mask(&completed.sector);
+            let solution = completed.solution;
+            let write_start = Instant::now();
+            write_rules(&args.output.join(format!("{label}.rules.txt")), &solution)?;
+            let write_time = write_start.elapsed();
+            let rules = solution.rules.len();
+            let stats = solution.stats;
+            let (residuals, retained) = if args.reference.is_some() {
+                (solution.finite_residuals.clone(), Some(solution))
+            } else {
+                (solution.finite_residuals, None)
+            };
+            Ok(Completed {
+                label,
+                rules,
+                residuals,
+                precondition: completed.preconditioning,
+                stats,
+                write_time,
+                retained,
+            })
+        },
+    )?;
+    // Canonical aggregate output is independent of worker completion order.
+    for (ordinal, completed) in completed.into_iter().enumerate() {
+        let Completed {
+            label,
+            rules,
+            residuals,
+            precondition,
+            stats,
+            write_time,
+            retained: solution,
+        } = completed;
+        for residual in &residuals {
             writeln!(residual_file, "{label}\t{residual}")?;
         }
-        let write_time = write_start.elapsed();
-        let stats = &solution.stats;
         writeln!(
             stats_file,
             "{label}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            solution.rules.len(),
-            solution.finite_residuals.len(),
+            rules,
+            residuals.len(),
             precondition.as_micros(),
             stats.elapsed.as_micros(),
             stats.symbolic_cases,
@@ -324,20 +365,20 @@ fn run<const N: usize>(momenta: &[&[i64]], args: Arguments, process_start: Insta
             write_time.as_micros()
         )?;
         stats_file.flush()?;
-        total_rules += solution.rules.len();
-        total_residuals += solution.finite_residuals.len();
+        total_rules += rules;
+        total_residuals += residuals.len();
         total_precondition += precondition;
         total_solve += stats.elapsed;
         println!(
             "sector={label} completed={}/{} rules={} residuals={} precondition_us={} solve_us={}",
             ordinal + 1,
             sectors.len(),
-            solution.rules.len(),
-            solution.finite_residuals.len(),
+            rules,
+            residuals.len(),
             precondition.as_micros(),
             stats.elapsed.as_micros()
         );
-        if args.reference.is_some() {
+        if let Some(solution) = solution {
             retained.push((label, solution));
         }
     }
@@ -374,10 +415,12 @@ fn run<const N: usize>(momenta: &[&[i64]], args: Arguments, process_start: Insta
     let validation = validation_start.elapsed();
     let mut summary = writer(args.output.join("summary.txt"))?;
     let report = format!(
-        "scope=conditional sector rule generation, NOT certified family closure\nloops={loops}\nK={N}\nsectors={}\nrules={total_rules}\nfinite_residuals={total_residuals}\nworkers=1\ninput_us={}\nsource_preparation_us={}\nprecondition_sum_us={}\nsector_solve_sum_us={}\ncampaign_including_output_us={}\nreference_rhs_matches={reference_rules}\nreference_validation_us={}\nlogical_process_elapsed_us={}\n",
+        "scope=conditional sector rule generation, NOT certified family closure\nloops={loops}\nK={N}\nsectors={}\nrules={total_rules}\nfinite_residuals={total_residuals}\nworkers={}\nschedule=active-first\ninput_us={}\nsource_preparation_us={}\npool_setup_us={}\nprecondition_sum_us={}\nsector_solve_sum_us={}\ncampaign_including_output_us={}\nreference_rhs_matches={reference_rules}\nreference_validation_us={}\nlogical_process_elapsed_us={}\n",
         sectors.len(),
+        executor.workers(),
         input_time.as_micros(),
         preparation.as_micros(),
+        pool_setup.as_micros(),
         total_precondition.as_micros(),
         total_solve.as_micros(),
         campaign.as_micros(),
@@ -394,8 +437,8 @@ fn run<const N: usize>(momenta: &[&[i64]], args: Arguments, process_start: Insta
 fn main() -> Result<()> {
     let start = Instant::now();
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    if !(4..=7).contains(&args.len()) {
-        return Err("usage: spired-solve-sector <1|2|3> <sector-mask|all> <new-output-dir> <zero-sectors-file|-> [nonzero-sectors-file|-] [reference-dir|-] [symbolic-depth|unbounded]".into());
+    if !(4..=8).contains(&args.len()) {
+        return Err("usage: spired-solve-sector <1|2|3> <sector-mask|all> <new-output-dir> <zero-sectors-file|-> [nonzero-sectors-file|-] [reference-dir|-] [symbolic-depth|unbounded] [workers]".into());
     }
     let optional_path = |position: usize| {
         args.get(position)
@@ -412,7 +455,11 @@ fn main() -> Result<()> {
             "unbounded" => None,
             value => Some(value.parse()?),
         },
+        workers: args.get(7).map(String::as_str).unwrap_or("1").parse()?,
     };
+    if config.workers == 0 {
+        return Err("workers must be nonzero".into());
+    }
     match args[0].as_str() {
         "1" => run::<1>(&[&[1]], config, start),
         "2" => run::<3>(&[&[1, 0], &[0, 1], &[1, 1]], config, start),

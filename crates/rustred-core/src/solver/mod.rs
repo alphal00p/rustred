@@ -9,6 +9,7 @@ mod case;
 mod discovery;
 mod error;
 mod exception;
+mod execution;
 mod geometry;
 mod index;
 mod instantiate;
@@ -24,6 +25,10 @@ pub use case::CoordinateCase;
 pub use discovery::DiscoveryStats;
 pub use error::SolverError;
 pub use exception::{ExceptionError, ExceptionalConditions, extract_exceptions};
+pub use execution::{
+    SectorCompleted, SectorExecutionError, SectorExecutor, SectorExecutorBuildError,
+    SectorScheduling,
+};
 pub use geometry::GeometryError;
 pub use index::{Integral, IntegralOrder, Power, PowerError};
 pub use numeric::{NumericResult, NumericStats};

@@ -115,6 +115,44 @@ These differences are not performance optimizations justified by the vacuum
 fixture. They preserve exact equations and explicit bounded-search semantics
 for the generic API and are recorded rather than hidden as reference parity.
 
+## Bounded parallel execution
+
+`SectorExecutor` is a reusable, local Rayon executor. The one-worker path runs
+on the caller thread, preserving serial behavior and restricted-license thread
+ownership. Multicore construction uses Symbolica's public license capability
+service. It does not change global thread pools, environment variables, or
+native CAS settings. The configured pool bounds this executor and native Rayon
+work invoked within it, not unrelated pools that a caller might create.
+
+Workers borrow the same `SourceSystem` and share the immutable zero-sector
+census through `Arc`. Each sector still needs its own mutable preconditioned
+basis, case queue, numerical probe, and exact replay buffers. Worker callbacks
+consume completed solutions immediately, allowing direct per-sector output and
+compact result collection. Retaining all solutions is an explicit caller choice,
+used by the example only for oracle validation. No coefficient serialization
+or worker-to-worker expression copying is required.
+
+The default scheduling order is active-coordinate count descending, then sector
+lexicographic order. This generic structural heuristic starts likely-expensive
+sectors earlier; it does not alter ordering or seeding within a sector. Results
+and the first reported error follow the original manifest order regardless of
+completion order. A separate input-order policy permits controlled comparisons.
+
+Native API audit for this slice checked the public sparse-reducer operations,
+their implementations, and their actual call paths: incremental forward GPLU,
+polynomial/rational arithmetic, GCD, and factorization are serial here. The native
+`back_substitute_parallel` exists but is not called by this forward-only port.
+No BLAS/OpenMP dependency is used by this Rust path. Nested compute pools are
+therefore not introduced by the currently used CAS operations. Rational-function
+reconstruction is not implemented; it remains an upstream Symbolica dependency.
+
+The first parallel slice passes all 86 focused solver tests and the workspace
+check. Release runs at 1/2/4/6 workers reproduce all 617 `vac3` equations,
+coordinate guards, and sector signs; independent audits confirm identical
+residuals and output payloads. See the
+[parallel measurements](spired_parallel_results.md) for both retained seven-pair
+benchmark batches, memory figures, host contention, and remaining scaling limits.
+
 ## Validation and current baseline
 
 Each implementation slice gets independent audit and focused differential

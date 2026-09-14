@@ -4,6 +4,10 @@ Date: 2026-09-14. This is a reference-port milestone, not completion of the
 all-one-through-three-loop PM example goal or publication of a certified
 RustRed family artifact.
 
+The subsequent [parallel benchmark report](spired_parallel_results.md) compares
+one, two, four, and six workers, with independent exact-output validation and
+explicit shared-host contention diagnostics.
+
 ## Workload and result
 
 Rust independently generated all 38 nonzero sectors of the supplied C++

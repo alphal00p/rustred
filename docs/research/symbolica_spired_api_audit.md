@@ -6,6 +6,30 @@
 > remains the historical audit of revision `77c1374`; changed APIs must be
 > rechecked against the live tree before new implementation work.
 
+## Sector-parallel port audit (2026-09-14)
+
+Against the pinned `3805d02` public API, its implementation, and the port's
+actual call sites, the required finite-field, integer, polynomial, rational,
+GCD, factorization, and incremental sparse operations are native services.
+No new CAS primitive is needed for sector scheduling. In particular:
+
+- `LicenseManager::{max_threads,execution_capabilities}` provides the native
+  license/target thread limits. Caller-local unlocks do not propagate to workers.
+- Numerica `SparseRowReducer::add_row` and its forward reduction are serial.
+  `back_substitute_parallel` exists but is not used by this forward-only port.
+- The used polynomial/rational, GCD, and factorization paths do not create
+  additional pools. Native scratch is thread-local and source contexts are
+  immutable shared data. This Rust dependency graph uses no BLAS/OpenMP path.
+- A private Rayon pool confines current sector computation; ordinary nested
+  Rayon calls reuse that pool. The library must not mutate the global pool or
+  process environment to control unrelated application code.
+
+The `solver` port uses the reference's name GPLU for its incremental elimination
+workflow. Like the C++ implementation, its native forward kernel uses dense
+scratch; this does not claim a new Gilbert--Peierls reachability kernel.
+Sparse multivariate rational-function reconstruction remains deferred to
+Symbolica rather than implemented in RustRed.
+
 ## Scope and pinned dependency
 
 This audit covers the public Rust API actually pinned by RustRed, with emphasis

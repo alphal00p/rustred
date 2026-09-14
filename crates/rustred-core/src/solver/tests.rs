@@ -92,7 +92,7 @@ fn tadpole_direct_rule_uses_a_shifted_pivot_and_exact_native_coefficients() {
 fn tadpole_numeric_case_reduces_and_master_corner_remains_a_bounded_miss() {
     let system = SourceSystem::<1>::from_family(&tadpole()).unwrap();
     let config = SectorConfig {
-        zero_sectors: vec![[false]],
+        zero_sectors: vec![[false]].into(),
         ..Default::default()
     };
     let solver = SectorSolver::new(&system, [true], config).unwrap();
@@ -154,12 +154,21 @@ fn numeric_sector_classification_tracks_activation_as_well_as_pinches() {
         integral: Integral::symbolic([-1, 1]).unwrap(),
         coefficient: context.coefficient_fixture("1").numerator,
     }];
-    let seed = Seed { integral: Integral::numeric([1, 0]).unwrap(), shifts: [0, 0] };
+    let seed = Seed {
+        integral: Integral::numeric([1, 0]).unwrap(),
+        shifts: [0, 0],
+    };
     let order = IntegralOrder::new([true, false], [false; 2]);
-    let row = super::instantiate::instantiate(&source, &seed, &[0, 1], &order, &[[false, false]]).unwrap();
-    assert_eq!(row.len(), 1, "the actual [false,true] sector is not the listed zero sector");
+    let row = super::instantiate::instantiate(&source, &seed, &[0, 1], &order, &[[false, false]])
+        .unwrap();
+    assert_eq!(
+        row.len(),
+        1,
+        "the actual [false,true] sector is not the listed zero sector"
+    );
     assert_eq!(row[0].integral, Integral::numeric([0, 1]).unwrap());
-    let vanished = super::instantiate::instantiate(&source, &seed, &[0, 1], &order, &[[false, true]]).unwrap();
+    let vanished =
+        super::instantiate::instantiate(&source, &seed, &[0, 1], &order, &[[false, true]]).unwrap();
     assert!(vanished.is_empty());
 }
 
@@ -201,7 +210,7 @@ fn vanished_cuts_are_zero_even_without_an_explicit_zero_sector_list() {
     let config = SectorConfig {
         deltas: [true],
         removed_deltas: [true],
-        zero_sectors: Vec::new(),
+        zero_sectors: Vec::new().into(),
     };
     let solver = SectorSolver::new(&system, [true], config).unwrap();
     let candidate = solver

@@ -26,6 +26,10 @@ The currently evidenced core can:
   all 617 reference equations across 38 sectors with symbolic mass; independent
   audits matched the guard domains and 38 residual keys. See the
   [timing and validation report](docs/spired_vac3_results.md);
+- run those independent sector solves on a bounded private worker pool with
+  shared source data and deterministic aggregate output. All `vac3` equations
+  and residuals agree at 1/2/4/6 workers; see the
+  [parallel timing and memory measurements](docs/spired_parallel_results.md);
 - compile compact, structured-text, and caller-owned Symbolica Atom family
   descriptions, authenticating every form at ingress;
 - build exact topology-neutral affine integral families;

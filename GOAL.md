@@ -19,6 +19,13 @@ objectives remain available but do not redefine this reference-port assignment.
 When there is an unresolved policy conflict between existing RustRed behavior
 and SpIRed, ask the user before deciding it.
 
+Efficient bounded parallelism is part of this port, not a later afterthought:
+share immutable family/source data, keep mutable search state local to live
+workers, and verify deterministic equations and residuals across worker counts.
+Compare release serial and multicore timings against the same C++ workload.
+All CAS remains native Symbolica/numerica after public API audits; rational
+polynomial reconstruction remains deferred until Symbolica provides it.
+
 ## Preamble — user directive (verbatim)
 
 ````text

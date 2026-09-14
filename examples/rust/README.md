@@ -65,8 +65,8 @@ sources or search hints. This diagnostic checks equations, not complete guards.
 
 ## Automatic SpIRed sector traversal
 
-[`spired_solve_sector.rs`](spired_solve_sector.rs) calls
-`SectorSolver::solve_sector_with_observer`: it automatically follows the
+[`spired_solve_sector.rs`](spired_solve_sector.rs) uses `SectorExecutor` to run
+`SectorSolver::solve_sector_with_observer`: each sector automatically follows the
 exceptional coordinate cases and then solves their fully fixed leaves with a
 shared numerical system. Unlike the single-case example, it retains the
 symbolic common squared mass `m` so that a `vac3` benchmark matches the original
@@ -87,13 +87,23 @@ The output directory must be new. Replace `all` with a six-bit sector mask to
 inspect one sector, and replace the reference-directory argument with `-` to
 run without oracle comparison. The sector manifests contain only the same
 zero/nonzero sector input used by C++; no reference equations inform generation.
-The optional last argument bounds symbolic seed depth; `unbounded` removes
-that diagnostic limit. Numerical search uses depth three.
+The optional argument after the reference directory bounds symbolic seed depth;
+`unbounded` removes that diagnostic limit. A final worker count defaults to one.
+Numerical search uses depth three. For six workers, append `6` to the command
+above. Use a valid Symbolica license for multicore execution.
+
+The executor shares immutable source polynomials and the zero-sector census,
+while every live sector owns its preconditioning, case queue, and GPLU state.
+A reusable private Rayon pool bounds compute workers; the one-worker path
+runs inline. Scheduling prioritizes sectors with more active coordinates,
+without changing their internal search. Sector files are written as workers
+finish, while aggregate outputs retain manifest order. Without reference
+comparison, only compact summaries and residual keys survive completed tasks.
 
 Outputs include `<sector>.rules.txt` with exact equations and exceptions,
 `residuals.txt`, `family.txt`, `stats.tsv`, and `summary.txt`. Per-sector and
-aggregate generation timings are separate from the optional native exact RHS
-comparison, which happens only after all sectors have been generated. Set
+aggregate generation timings are separate from the optional native exact RHS,
+guard, and sign comparison, which happens only after all sectors have been generated. Set
 `RUSTRED_SPIRED_PROGRESS=1` for case-level diagnostics. These are source-port
 rules and finite bounded-search residuals, not certified family artifacts or
 a proof that the residual integrals are independent masters.

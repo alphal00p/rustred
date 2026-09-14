@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -17,7 +18,8 @@ use super::{
 pub struct SectorConfig<const N: usize> {
     pub deltas: [bool; N],
     pub removed_deltas: [bool; N],
-    pub zero_sectors: Vec<[bool; N]>,
+    /// Immutable family-wide zero-sector census, shared by sector workers.
+    pub zero_sectors: Arc<[[bool; N]]>,
 }
 
 impl<const N: usize> Default for SectorConfig<N> {
@@ -25,7 +27,7 @@ impl<const N: usize> Default for SectorConfig<N> {
         Self {
             deltas: [false; N],
             removed_deltas: [false; N],
-            zero_sectors: Vec::new(),
+            zero_sectors: Arc::from([]),
         }
     }
 }

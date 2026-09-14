@@ -27,6 +27,9 @@ The executable-reference port is exposed through `rustred::solver`:
 `solve_numeric_cases`, and `solve_sector` perform single-case, shared finite-case,
 and automatic coordinate-case searches. `SectorSolveOptions` controls bounded
 search, and `solve_sector_with_observer` provides borrowed progress events.
+`SectorExecutor` adds a reusable bounded worker pool with deterministic
+manifest-order results, shared immutable sources, structural scheduling, and
+worker-side result consumers for memory-efficient output.
 `SectorSolution` contains conditional `SectorRule` values and finite numerical
 residuals, not a certified closing artifact. This new solver is currently a
 Rust-library interface; its Cargo examples exercise complete reference runs.

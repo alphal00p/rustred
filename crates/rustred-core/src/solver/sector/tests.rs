@@ -11,7 +11,7 @@ fn tadpole_queue_covers_the_symbolic_ray_and_retains_only_the_fixed_corner() {
         &system,
         [true],
         SectorConfig {
-            zero_sectors: vec![[false]],
+            zero_sectors: vec![[false]].into(),
             ..Default::default()
         },
     )
