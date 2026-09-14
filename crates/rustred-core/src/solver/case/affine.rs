@@ -1,21 +1,26 @@
-//! Exact affine equality cases with integral, unit-pivot charts.
+//! Exact integer-coordinate equality cases with rational computational charts.
 //!
 //! The sector search shares these charts and restricts source coefficients
 //! after translation, without identifying distinct integral coordinates.
 //! Symbolica performs all elimination, normalization and substitutions. The
-//! admitted chart parametrizes the ambient integer affine lattice exactly;
-//! its free coordinates still obey the original sector inequalities. General
-//! integer-polyhedron feasibility and congruence charts are not implemented.
+//! case remains the original integer coordinates, exact equalities and sector
+//! signs. A rational chart is a coefficient-restriction device, not a claim
+//! that arbitrary integer free coordinates give integer dependent coordinates.
+//! General integer-lattice and sector-inequality feasibility is not decided.
 
 use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use symbolica::prelude::{Integer, Matrix, Q, Rational};
+use symbolica::prelude::{Integer, IntegerRing, Matrix, Q, Rational, Z};
 
-use crate::algebra::CoefficientPolynomial;
+use crate::algebra::{Coefficient, CoefficientPolynomial};
 
 use super::super::{GeometryError, Integral, Power, geometry};
 use super::CoordinateCase;
+
+#[path = "affine/chart.rs"]
+mod chart;
+use chart::Chart;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AffineGeometryError {
@@ -24,11 +29,8 @@ pub enum AffineGeometryError {
     UnsupportedNonlinear {
         equations: Vec<CoefficientPolynomial>,
     },
-    /// The canonical rational chart is not integral. This does not assert
-    /// either infeasibility or that a different integral chart cannot exist.
-    UnsupportedCongruence {
-        equations: Vec<CoefficientPolynomial>,
-    },
+    /// An exact coefficient denominator vanishes identically on the case.
+    UndefinedCoefficient,
     InvalidInput(&'static str),
     NativeAlgebra,
 }
@@ -40,12 +42,7 @@ impl fmt::Display for AffineGeometryError {
             Self::UnsupportedNonlinear { .. } => {
                 write!(f, "case retains unsupported nonlinear equalities")
             }
-            Self::UnsupportedCongruence { .. } => {
-                write!(
-                    f,
-                    "case requires an unsupported integer-affine congruence chart"
-                )
-            }
+            Self::UndefinedCoefficient => write!(f, "coefficient is undefined on its affine case"),
             Self::InvalidInput(detail) => write!(f, "invalid affine case: {detail}"),
             Self::NativeAlgebra => write!(f, "native algebra failed during affine intersection"),
         }
@@ -65,7 +62,9 @@ pub enum AffineIntersection<const N: usize> {
 ///
 /// `matrix` contains every equality, including the coordinate face, as
 /// canonical rational RREF rows `[A | b]`. `equations` contains only coupled
-/// equations in the original coefficient variable map, interpreted as zero.
+/// primitive integer equations in the original coefficient variable map,
+/// interpreted as zero. `primitive_matrix` caches those whole-row integer
+/// normalizations, including fixed rows, for exact tangency and queue order.
 /// Substitution RHSs contain neither fixed nor other pivot coordinates, so
 /// they can be applied sequentially without altering simultaneous semantics.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -73,8 +72,9 @@ pub struct AffineCase<const N: usize> {
     face: CoordinateCase<N>,
     indices: [usize; N],
     matrix: Matrix<Q>,
+    primitive_matrix: Matrix<IntegerRing>,
     equations: Vec<CoefficientPolynomial>,
-    substitutions: Vec<(usize, CoefficientPolynomial)>,
+    chart: Chart,
 }
 
 impl<const N: usize> AffineCase<N> {
@@ -82,9 +82,9 @@ impl<const N: usize> AffineCase<N> {
     ///
     /// Coordinate-only input uses the existing fast path and allocates no
     /// matrix. Empty means proved empty, never merely unsupported. Rational
-    /// consistency alone is not accepted as integer consistency: every row
-    /// receives native gcd/divisibility checks, and every admitted canonical
-    /// chart must have integral coefficients and constant term.
+    /// consistency is not asserted to prove integer feasibility: every row
+    /// receives native gcd/divisibility checks, but unresolved congruences
+    /// remain implicit in the original exact integer-coordinate equalities.
     pub fn from_coordinate(
         parent: &CoordinateCase<N>,
         equations: &[CoefficientPolynomial],
@@ -122,20 +122,58 @@ impl<const N: usize> AffineCase<N> {
         &self.matrix
     }
 
-    /// `(coefficient-variable position, replacement polynomial)` pairs.
-    pub fn substitutions(&self) -> &[(usize, CoefficientPolynomial)] {
-        &self.substitutions
+    /// Primitive integer canonical rows `[A | b]`, with positive leading entry.
+    pub fn primitive_matrix(&self) -> &Matrix<IntegerRing> {
+        &self.primitive_matrix
     }
 
-    /// Restrict a polynomial to this exact chart using native substitution.
+    /// Whether coefficient restriction can use only integer polynomials.
+    /// This does not assert feasibility of the case's sector inequalities.
+    pub fn has_integral_chart(&self) -> bool {
+        self.chart.is_integral()
+    }
+
+    /// Restrict an equation interpreted as zero. Nonzero rational scalar
+    /// content may be removed; this must not be used for coefficient values.
+    pub fn restrict_equation(
+        &self,
+        polynomial: &CoefficientPolynomial,
+    ) -> Result<CoefficientPolynomial, AffineGeometryError> {
+        self.validate_polynomial(polynomial)?;
+        Ok(self
+            .chart
+            .restrict_equation(polynomial, &self.face, &self.indices))
+    }
+
+    /// Restrict a polynomial value exactly, including every rational factor.
     ///
     /// Search integration MUST shift each ordinary source first and only then
     /// specialize. For example `(n0-n1)(n+s)` on `n0=n1` is `s0-s1`, not zero.
     /// This changes coefficients, never the integral columns of an IBP row.
-    pub fn specialize(
+    pub fn restrict_polynomial_value(
         &self,
         polynomial: &CoefficientPolynomial,
-    ) -> Result<CoefficientPolynomial, AffineGeometryError> {
+    ) -> Result<Coefficient, AffineGeometryError> {
+        self.validate_polynomial(polynomial)?;
+        Ok(self.restrict_polynomial_value_validated(polynomial))
+    }
+
+    /// Restrict numerator and denominator jointly, preserving their relative
+    /// scale. An identically zero restricted denominator is an explicit error.
+    pub fn restrict_coefficient(
+        &self,
+        coefficient: &Coefficient,
+    ) -> Result<Coefficient, AffineGeometryError> {
+        self.validate_polynomial(&coefficient.numerator)?;
+        self.validate_polynomial(&coefficient.denominator)?;
+        self.chart
+            .restrict_coefficient(coefficient, &self.face, &self.indices)
+    }
+
+    fn validate_polynomial(
+        &self,
+        polynomial: &CoefficientPolynomial,
+    ) -> Result<(), AffineGeometryError> {
         if polynomial.variables() != self.equations[0].variables() {
             return Err(AffineGeometryError::InvalidInput(
                 "polynomial and affine case use different variable maps",
@@ -151,20 +189,17 @@ impl<const N: usize> AffineCase<N> {
                 "native polynomial coefficient and exponent arrays have inconsistent lengths",
             ));
         }
-        Ok(self.specialize_validated(polynomial))
+        Ok(())
     }
 
     /// Internal seeded-row path: the solver checks the immutable source and
     /// chart maps once at case entry; no repeated boundary validation per term.
-    pub(crate) fn specialize_validated(
+    pub(crate) fn restrict_polynomial_value_validated(
         &self,
         polynomial: &CoefficientPolynomial,
-    ) -> CoefficientPolynomial {
-        let mut result = specialize_face(polynomial, &self.face, &self.indices);
-        for (position, replacement) in &self.substitutions {
-            result = result.replace_with_poly(*position, replacement);
-        }
-        result
+    ) -> Coefficient {
+        self.chart
+            .restrict_polynomial_value(polynomial, &self.face, &self.indices)
     }
 
     /// Intersect further guard-zero equations after applying the parent chart.
@@ -176,7 +211,7 @@ impl<const N: usize> AffineCase<N> {
     ) -> Result<AffineIntersection<N>, AffineGeometryError> {
         let mut combined = self.equations.clone();
         for equation in equations {
-            combined.push(self.specialize(equation)?);
+            combined.push(self.restrict_equation(equation)?);
         }
         Self::from_coordinate(&self.face, &combined, &self.indices, sector)
     }
@@ -184,12 +219,12 @@ impl<const N: usize> AffineCase<N> {
     /// Whether a displacement preserves every equality, including fixed axes.
     /// Source seeds are NOT restricted by this test; recentered targets are.
     pub fn is_tangent(&self, displacement: &[i16; N]) -> bool {
-        self.matrix.row_iter().all(|row| {
+        self.primitive_matrix.row_iter().all(|row| {
             row[..N]
                 .iter()
                 .zip(displacement)
                 .fold(Integer::zero(), |sum, (coefficient, shift)| {
-                    sum + coefficient.numerator_ref() * Integer::from(*shift)
+                    sum + coefficient * Integer::from(*shift)
                 })
                 .is_zero()
         })
@@ -208,16 +243,17 @@ impl<const N: usize> AffineCase<N> {
             }))
     }
 
-    /// Exact equality-domain containment; sectors must be compared by callers.
-    /// The second case implies this case iff every required equality vanishes
-    /// after its native chart substitution. No sampled points are involved.
+    /// Prove containment by exact rational-affine equality implication;
+    /// sectors must be compared by callers. This is sufficient but conservative
+    /// for integer/sector domains when their feasibility remains unresolved.
+    /// No sampled points or assumed free-integer chart parameters are involved.
     pub fn contains_affine(&self, other: &Self) -> Result<bool, AffineGeometryError> {
         self.compatible(other)?;
         if !geometry::contains(&self.face, &other.face) {
             return Ok(false);
         }
         for equation in &self.equations {
-            if !other.specialize(equation)?.is_zero() {
+            if !other.restrict_equation(equation)?.is_zero() {
                 return Ok(false);
             }
         }
@@ -342,8 +378,9 @@ fn intersect_native<const N: usize>(
     if matrix.row_iter().skip(rank).any(|row| !row[N].is_zero()) {
         return Ok(AffineIntersection::Empty);
     }
-    // Check integer divisibility again on equations exposed by elimination.
-    // Native rational primitive_part clears all denominators exactly.
+    // Normalize each WHOLE row, not its individual coefficient numerators.
+    // Native primitive_part clears denominators and fixes the integer scale.
+    let mut primitive_rows = Vec::with_capacity(rank * (N + 1));
     for row in matrix.row_iter().take(rank) {
         let primitive = Matrix::new_vec(row.to_vec(), Q).primitive_part();
         let integers: Vec<_> = primitive.iter().map(|entry| entry.numerator()).collect();
@@ -353,17 +390,10 @@ fn intersect_native<const N: usize>(
         if !integer_row_possible(&integers) {
             return Ok(AffineIntersection::Empty);
         }
+        primitive_rows.extend(integers);
     }
-    if matrix
-        .row_iter()
-        .take(rank)
-        .flatten()
-        .any(|entry| !entry.is_integer())
-    {
-        return Err(AffineGeometryError::UnsupportedCongruence {
-            equations: equations.to_vec(),
-        });
-    }
+    let primitive_matrix = Matrix::from_linear(primitive_rows, rank as u32, columns, Z)
+        .map_err(|_| AffineGeometryError::NativeAlgebra)?;
     let matrix = Matrix::from_linear(
         matrix.row_iter().take(rank).flatten().cloned().collect(),
         rank as u32,
@@ -373,14 +403,17 @@ fn intersect_native<const N: usize>(
     .map_err(|_| AffineGeometryError::NativeAlgebra)?;
     let mut fixed = [None; N];
     let mut coupled = Vec::new();
-    let mut substitutions = Vec::new();
-    for row in matrix.row_iter() {
+    for (row, primitive) in matrix.row_iter().zip(primitive_matrix.row_iter()) {
         let pivot = row[..N]
             .iter()
             .position(|entry| !entry.is_zero())
             .ok_or(AffineGeometryError::NativeAlgebra)?;
-        let value = row[N].numerator();
         if row[..N].iter().filter(|entry| !entry.is_zero()).count() == 1 {
+            // Divisibility above proves that this unit-pivot RHS is integral.
+            if !row[N].is_integer() {
+                return Err(AffineGeometryError::NativeAlgebra);
+            }
+            let value = row[N].numerator();
             if (!value.is_negative() && !value.is_zero()) != sector[pivot] {
                 return Ok(AffineIntersection::Empty);
             }
@@ -397,33 +430,30 @@ fn intersect_native<const N: usize>(
             fixed[pivot] = Some(compact);
             continue;
         }
-        let mut replacement = template.constant(value);
-        let mut equation = template.constant(-row[N].numerator());
+        let mut equation = template.constant(-&primitive[N]);
         let mut exponents = vec![0; template.nvars()];
-        for (axis, coefficient) in row[..N].iter().enumerate() {
+        for (axis, coefficient) in primitive[..N].iter().enumerate() {
             if coefficient.is_zero() {
                 continue;
             }
             exponents[indices[axis]] = 1;
-            equation.append_monomial(coefficient.numerator(), &exponents);
-            if axis != pivot {
-                replacement.append_monomial(-coefficient.numerator(), &exponents);
-            }
+            equation.append_monomial(coefficient.clone(), &exponents);
             exponents[indices[axis]] = 0;
         }
         coupled.push(equation);
-        substitutions.push((indices[pivot], replacement));
     }
     let face = CoordinateCase::new(fixed).map_err(|_| AffineGeometryError::NativeAlgebra)?;
     if coupled.is_empty() {
         return Ok(AffineIntersection::Coordinate(face));
     }
+    let chart = Chart::new(template, &matrix, indices);
     Ok(AffineIntersection::Affine(AffineCase {
         face,
         indices: *indices,
         matrix,
+        primitive_matrix,
         equations: coupled,
-        substitutions,
+        chart,
     }))
 }
 
@@ -444,3 +474,7 @@ fn integer_row_possible(row: &[Integer]) -> bool {
 #[cfg(test)]
 #[path = "affine/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "affine/rational_audit.rs"]
+mod rational_audit;

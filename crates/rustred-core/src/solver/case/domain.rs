@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use symbolica::prelude::Rational;
+use symbolica::prelude::Integer;
 
 use crate::algebra::CoefficientPolynomial;
 
@@ -127,7 +127,9 @@ impl<const N: usize> Case<N> {
         })
     }
 
-    /// Whether `other` implies this case's equalities. Callers own sectors.
+    /// Prove that `other` implies this case's equalities. Callers own sectors.
+    /// Rational-affine implication is sufficient but conservative when an
+    /// integer/sector domain is empty for reasons not decided by this service.
     pub fn contains(&self, other: &Self) -> Result<bool, AffineGeometryError> {
         match (self, other) {
             (Self::Coordinate(container), Self::Coordinate(contained)) => {
@@ -209,15 +211,15 @@ impl<const N: usize> Case<N> {
             .filter_map(|(axis, is_leading)| is_leading.then_some(axis))
     }
 
-    fn coupled_rows(&self) -> impl Iterator<Item = &[Rational]> {
+    fn coupled_rows(&self) -> impl Iterator<Item = &[Integer]> {
         self.affine()
             .into_iter()
-            .flat_map(|case| case.canonical_matrix().row_iter())
+            .flat_map(|case| case.primitive_matrix().row_iter())
             .filter(|row| row[..N].iter().filter(|entry| !entry.is_zero()).count() > 1)
     }
 }
 
-fn reference_coefficient_cmp(left: &Rational, right: &Rational) -> Ordering {
+fn reference_coefficient_cmp(left: &Integer, right: &Integer) -> Ordering {
     match (left.is_zero(), right.is_zero()) {
         (true, false) => Ordering::Greater,
         (false, true) => Ordering::Less,

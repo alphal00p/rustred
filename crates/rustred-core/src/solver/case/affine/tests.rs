@@ -6,9 +6,9 @@ fn integral_nontrivial_chart_and_fixed_overflow_are_explicit() {
     let context = CoefficientContext::new(["n0", "n1"]);
     let case = affine::<2>(&context, &["n0-2*n1-1"]);
     assert_eq!(
-        case.specialize(&equations(&context, &["n0"]).remove(0))
+        case.restrict_polynomial_value(&equations(&context, &["n0"]).remove(0))
             .unwrap(),
-        equations(&context, &["2*n1+1"]).remove(0)
+        context.coefficient_fixture("2*n1+1")
     );
     assert!(case.is_tangent(&[2, 1]));
     assert!(!case.is_tangent(&[1, 1]));
@@ -45,9 +45,11 @@ fn equal_indices_have_exact_integral_chart_and_tangent_targets() {
     let context = CoefficientContext::new(["n0", "n1"]);
     let case = affine::<2>(&context, &["3*n0-3*n1"]);
     assert_eq!(case.equations(), equations(&context, &["n0-n1"]));
+    assert!(case.has_integral_chart());
     assert_eq!(
-        case.substitutions()[0],
-        (0, equations(&context, &["n1"]).remove(0))
+        case.restrict_polynomial_value(&equations(&context, &["n0"]).remove(0))
+            .unwrap(),
+        context.coefficient_fixture("n1")
     );
     assert!(case.is_tangent(&[1, 1]));
     assert!(case.is_tangent(&[-1, -1]));
@@ -121,20 +123,31 @@ fn rational_chart_does_not_claim_integer_feasibility() {
         &[0, 1, 2],
         &[true; 3],
     );
-    assert!(matches!(
-        result,
-        Err(AffineGeometryError::UnsupportedCongruence { .. })
-    ));
-    // This one is feasible with n1 even, but not in the admitted chart class.
-    assert!(matches!(
-        AffineCase::from_coordinate(
-            &CoordinateCase::generic(),
-            &equations(&context, &["2*n0-n1"]),
-            &[0, 1],
-            &[true; 2]
-        ),
-        Err(AffineGeometryError::UnsupportedCongruence { .. })
-    ));
+    // Integer feasibility is unresolved, not asserted by the computational chart.
+    let AffineIntersection::Affine(case) = result.unwrap() else {
+        panic!("expected conservatively retained integer equalities")
+    };
+    assert!(!case.has_integral_chart());
+    for value in [1, 2] {
+        assert_eq!(
+            case.intersect(&equations(&context, &[&format!("n2-{value}")]), &[true; 3])
+                .unwrap(),
+            AffineIntersection::Empty
+        );
+    }
+    // This one is feasible only with n1 even; that restriction stays implicit
+    // in the exact original-coordinate equality, never dropped from the case.
+    let AffineIntersection::Affine(case) = AffineCase::from_coordinate(
+        &CoordinateCase::generic(),
+        &equations(&context, &["2*n0-n1"]),
+        &[0, 1],
+        &[true; 2],
+    )
+    .unwrap() else {
+        panic!("expected rational computational chart")
+    };
+    assert!(!case.has_integral_chart());
+    assert_eq!(case.equations(), equations(&context, &["2*n0-n1"]));
 }
 
 #[test]
@@ -142,11 +155,11 @@ fn shifted_sources_are_projected_after_translation() {
     let context = CoefficientContext::new(["n0", "n1"]);
     let case = affine::<2>(&context, &["n0-n1"]);
     let source = equations(&context, &["n0-n1"]).remove(0);
-    assert!(case.specialize(&source).unwrap().is_zero());
+    assert!(case.restrict_polynomial_value(&source).unwrap().is_zero());
     assert_eq!(
-        case.specialize(&source.shift_var(0, &Integer::one()))
+        case.restrict_polynomial_value(&source.shift_var(0, &Integer::one()))
             .unwrap(),
-        source.one()
+        context.one()
     );
 }
 
@@ -190,11 +203,11 @@ fn interleaved_variable_map_preserves_axis_identity() {
     let AffineIntersection::Affine(case) = result else {
         panic!("expected affine")
     };
-    assert_eq!(case.substitutions()[0].0, 2);
+    assert!(case.has_integral_chart());
     assert_eq!(
-        case.specialize(&equations(&context, &["d*(n0-n1)"]).remove(0))
+        case.restrict_polynomial_value(&equations(&context, &["d*(n0-n1)"]).remove(0))
             .unwrap(),
-        equations(&context, &["d"]).remove(0)
+        context.coefficient_fixture("d")
     );
 }
 
@@ -239,4 +252,71 @@ fn sector_feasibility_is_not_claimed_for_coupled_inequalities() {
     // pretending to have an exact integer-polyhedron feasibility service.
     let case = affine::<2>(&context, &["n0+n1-1"]);
     assert_eq!(case.equations(), equations(&context, &["n0+n1-1"]));
+}
+
+#[test]
+fn rational_chart_keeps_exact_scale_and_primitive_integer_geometry_separate() {
+    let context = CoefficientContext::new(["n0", "n1"]);
+    let case = affine::<2>(&context, &["2*n0-n1-4"]);
+    assert!(!case.has_integral_chart());
+    assert_eq!(case.equations(), equations(&context, &["2*n0-n1-4"]));
+    assert_eq!(
+        case.primitive_matrix().row_iter().next().unwrap(),
+        &[Integer::from(2), Integer::from(-1), Integer::from(4)]
+    );
+    assert!(case.is_tangent(&[1, 2]));
+    assert!(!case.is_tangent(&[1, 1]));
+    for (input, output) in [("n0", "(n1+4)/2"), ("n0^2", "(n1+4)^2/4"), ("0", "0")] {
+        assert_eq!(
+            case.restrict_polynomial_value(&equations(&context, &[input]).remove(0))
+                .unwrap(),
+            context.coefficient_fixture(output)
+        );
+    }
+    assert_eq!(
+        case.restrict_coefficient(&context.coefficient_fixture("n0/(n0+1)"))
+            .unwrap(),
+        context.coefficient_fixture("(n1+4)/(n1+6)")
+    );
+    assert_eq!(
+        case.restrict_equation(&equations(&context, &["n0-3"]).remove(0))
+            .unwrap(),
+        equations(&context, &["n1-2"]).remove(0)
+    );
+    assert!(
+        case.restrict_equation(&equations(&context, &["2*n0-n1-4"]).remove(0))
+            .unwrap()
+            .is_zero()
+    );
+    assert!(matches!(
+        case.restrict_coefficient(&context.coefficient_fixture("1/(2*n0-n1-4)")),
+        Err(AffineGeometryError::UndefinedCoefficient)
+    ));
+}
+
+#[test]
+fn rational_chart_preserves_transverse_source_translation_and_integer_corners() {
+    let context = CoefficientContext::new(["n0", "n1"]);
+    let case = affine::<2>(&context, &["2*n0-n1-4"]);
+    let source = equations(&context, &["2*n0-n1-4"]).remove(0);
+    assert!(case.restrict_polynomial_value(&source).unwrap().is_zero());
+    assert_eq!(
+        case.restrict_polynomial_value(&source.shift_var(0, &Integer::one()))
+            .unwrap(),
+        context.integer(2)
+    );
+    assert_eq!(
+        case.intersect(&equations(&context, &["n1-1"]), &[true; 2])
+            .unwrap(),
+        AffineIntersection::Empty
+    );
+    assert_eq!(
+        case.intersect(&equations(&context, &["n1-2"]), &[true; 2])
+            .unwrap(),
+        AffineIntersection::Coordinate(CoordinateCase::new([Some(3), Some(2)]).unwrap())
+    );
+    assert_eq!(
+        case,
+        affine::<2>(&context, &["-6*n0+3*n1+12", "4*n0-2*n1-8"])
+    );
 }

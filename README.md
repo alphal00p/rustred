@@ -19,7 +19,7 @@ and Vakint integration roadmap. The local reference source and working notes
 
 The currently evidenced core can:
 
-- automatically traverse coordinate and admitted affine cases with the compact `solver` API,
+- automatically traverse coordinate and affine integer-equality cases with the compact `solver` API,
   precondition polynomial IBPs, discover matching modular GPLU pivots, replay
   compact exact traces, refine exceptional conditions, and share numerical
   searches among fully fixed cases. Its first full `vac3` run reproduced

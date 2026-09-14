@@ -63,13 +63,15 @@ pub(super) fn instantiate<const N: usize>(
         // All ordinary source translations remain admissible. Restrict the
         // shifted coefficients, never integral-key axes or the seed worklist.
         // Applying the chart before translation would erase necessary rows.
-        if let Some(affine) = affine {
-            polynomial = affine.specialize_validated(&polynomial);
-        }
-        if !polynomial.is_zero() {
+        let coefficient = if let Some(affine) = affine {
+            affine.restrict_polynomial_value_validated(&polynomial)
+        } else {
+            polynomial.into()
+        };
+        if !coefficient.is_zero() {
             row.push(Term {
                 integral,
-                coefficient: polynomial.into(),
+                coefficient,
             });
         }
     }

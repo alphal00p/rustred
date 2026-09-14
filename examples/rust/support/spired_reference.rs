@@ -286,8 +286,13 @@ fn restrict_coefficient<const N: usize>(
         .rearrange_with_growth(variables)
         .map_err(invalid)?;
     if let Some(affine) = case.affine() {
-        numerator = affine.specialize(&numerator)?;
-        denominator = affine.specialize(&denominator)?;
+        // Restrict the exact quotient jointly: independently making its
+        // numerator and denominator primitive would lose rational chart scales.
+        let remapped = Coefficient {
+            numerator,
+            denominator,
+        };
+        return Ok(affine.restrict_coefficient(&remapped)?);
     } else {
         for (axis, value) in case.fixed().iter().enumerate() {
             if let Some(value) = value {
@@ -644,6 +649,29 @@ mod guard_tests {
 
     fn generic_reference(guard: &str) -> String {
         format!("{{int[n1_?Positive,n2_?Positive]{guard}->(1)*int[-1+n1,0+n2]}}")
+    }
+
+    #[test]
+    fn affine_oracle_preserves_numerator_denominator_relative_scale() {
+        let (context, source, _) = fixture();
+        let a = context.parameter("a").unwrap();
+        let b = context.parameter("b").unwrap();
+        let constraint = &(&(&context.integer(2) * &a) - &b) - &context.integer(4);
+        let equation = constraint.numerator.clone();
+        let case = Case::generic()
+            .intersect(&[equation], &[1, 2], &[true; 2])
+            .unwrap()
+            .unwrap();
+        let restricted_a = &(&b + &context.integer(4)) / &context.integer(2);
+        assert_eq!(
+            restrict_coefficient(a.clone(), &case, &source).unwrap(),
+            restricted_a
+        );
+        assert_eq!(
+            restrict_coefficient(&a / &(&a + &context.one()), &case, &source).unwrap(),
+            &(&b + &context.integer(4)) / &(&b + &context.integer(6))
+        );
+        assert!(restrict_coefficient(&context.one() / &constraint, &case, &source,).is_err());
     }
 
     #[test]

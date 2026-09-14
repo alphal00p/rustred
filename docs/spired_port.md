@@ -165,8 +165,10 @@ independent ordering choices, including repeated sector masks, while borrowing
 the same immutable `SourceSystem`. It does not mutate a shared ordering table
 or clone a source system per worker. Results and the selected failure retain
 manifest order; callbacks and progress remain live and nondeterministic.
-The example driver accepts a final explicit ordering file, including the
-supplied 16 `fam1_112` overrides as checked input data outside the engine.
+The example driver accepts an explicit ordering file, including the supplied
+16 `fam1_112` overrides as checked input data outside the engine, followed by
+an optional `active-first` or `input-order` scheduling policy. Scheduling
+changes job dispatch, not the mathematical ordering within any sector.
 
 `Case<N>` now connects equality geometry to `solve_case`, the sector queue,
 rule guards, and the example's exact oracle comparison. Its coordinate variant
@@ -179,7 +181,7 @@ existing shared numerical search. An unsupported exceptional intersection is
 never interpreted as empty or covered.
 
 `AffineCase` uses native rational reduced elimination, exact integer
-divisibility checks, and integral unit-pivot charts. `AffineIntersection`
+divisibility checks, and integral or rational computational charts. `AffineIntersection`
 distinguishes a proved-empty domain, a coordinate-only face, and a genuinely
 coupled case. For example, `n0=n1` leaves two distinct physical integral axes:
 `I(n0+1,n1)` and `I(n0,n1+1)` must not be merged merely because their base
@@ -195,14 +197,28 @@ changing its required affine domain. Search validates the immutable source and
 chart maps once at case entry, then uses native substitution without repeated
 per-term boundary checks.
 
-Admission is intentionally narrower than general integer-affine solving.
-Accepted canonical charts have integral coefficients and integer free
-coordinates. A surviving fractional chart returns typed
-`UnsupportedCongruence`, not an infeasibility claim. Fixed-coordinate signs are
-checked against the sector, but general coupled sector-inequality feasibility
-is not decided. Unsupported nonlinear equations also remain explicit errors.
-These conservative limits can leave work unfinished; they cannot establish
-closure by discarding feasible cases.
+The represented case is always the original integer coordinates, exact
+equalities and sector signs. A rational chart is used only for coefficient
+restriction: `2*a-b=4` permits substituting `(b+4)/2` for `a` in a coefficient,
+but does not declare every integer `b` admissible. Tangency, exported equations
+and reference-compatible queue order use native whole-row primitive integer
+normalizations, not individual numerators of rational RREF entries.
+
+The chart has separate APIs for `restrict_equation` (zero locus only),
+`restrict_polynomial_value` (exact value), and `restrict_coefficient` (exact
+quotient). Thus `a*I0+I1=0` restricts to `I0=-2/(b+4)*I1`, not
+`-1/(b+4)*I1`. Native `map_coeff`, `replace_with_poly`, and the public joint
+`FromNumeratorAndDenominator<Q,IntegerRing,u16>` conversion perform all
+arithmetic. A denominator vanishing on the case returns
+`UndefinedCoefficient`. Coordinate-only and integral-chart work retain their
+integer-polynomial fast paths; no rational reconstruction is implemented.
+
+General integer-lattice and coupled sector-inequality feasibility is not
+decided. Proved contradictions are discarded; uncertain integer-empty domains
+may remain and cost extra work. Containment is conservative, and only an
+actually fully fixed case enters numerical search. Unsupported nonlinear
+equations remain explicit errors. None of these limits establishes closure by
+discarding a feasible branch.
 
 ### Cold exact normalization of joint exceptional equations
 

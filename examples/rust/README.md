@@ -67,8 +67,8 @@ sources or search hints. This diagnostic checks equations, not complete guards.
 
 [`spired_solve_sector.rs`](spired_solve_sector.rs) uses `SectorExecutor` to run
 `SectorSolver::solve_sector_with_observer`: each sector automatically follows the
-exceptional coordinate and admitted affine cases and then solves their fully fixed leaves with a
-shared numerical system. Unlike the single-case example, it retains the
+exceptional coordinate and admitted affine cases and then solves their fully
+fixed leaves with a shared numerical system. Unlike the single-case example, it retains the
 symbolic common squared mass `m` so that a `vac3` benchmark matches the original
 C++ coefficient field.
 
@@ -89,17 +89,31 @@ run without oracle comparison. The sector manifests contain only the same
 zero/nonzero sector input used by C++; no reference equations inform generation.
 The optional argument after the reference directory bounds symbolic seed depth;
 `unbounded` removes that diagnostic limit. The next worker count defaults to one;
-an optional ordering-file path follows it. Numerical search uses depth three
-for vacuum inputs. For six workers, append `6` to the command
+an optional ordering-file path follows it, then an optional schedule:
+`active-first` (default) or `input-order`. Use `-` for the ordering-file slot
+when selecting a schedule without ordering overrides. Numerical search uses
+depth three for vacuum inputs. For six workers, append `6` to the command
 above. Use a valid Symbolica license for multicore execution.
 
 The executor shares immutable source polynomials and the zero-sector census,
 while every live sector owns its preconditioning, case queue, and GPLU state.
 A reusable private Rayon pool bounds compute workers; the one-worker path
-runs inline. Scheduling prioritizes sectors with more active coordinates,
-without changing their internal search. Sector files are written as workers
-finish, while aggregate outputs retain manifest order. Without reference
+runs inline. Default `active-first` scheduling prioritizes sectors with more
+active coordinates; `input-order` submits them in manifest order. Neither policy
+changes a sector's integral ordering, seed sequence, or internal search. The
+selected policy is recorded as `schedule=...` in `family.txt` and `summary.txt`.
+Sector files are written as workers finish, while aggregate outputs retain
+manifest order. Without reference
 comparison, only compact summaries and residual keys survive completed tasks.
+
+For an oracle-free six-worker `vac3` run in manifest order:
+
+```sh
+cargo run --release --locked -p rustred --example spired-solve-sector -- \
+  3 all /tmp/rustred-vac3-input-order-new \
+  vendor/spired/examples/zeroSectors_vac3.dat \
+  vendor/spired/examples/nonZeroSectors_vac3.dat - unbounded 6 - input-order
+```
 
 Outputs include `<sector>.rules.txt` with exact equations and exceptions,
 `residuals.txt`, `family.txt`, `stats.tsv`, and `summary.txt`. Per-sector and
@@ -179,7 +193,7 @@ The [additional-fixture report](../../docs/spired_additional_fixtures.md)
 records exact validation, repeated serial/parallel timings, and remaining gaps.
 
 The `fam1_112` reference requires 16 per-sector ordering overrides. Supply the
-checked input file as the final argument:
+checked input file after the worker count (and before any optional schedule):
 
 ```sh
 cargo run --release --locked -p rustred --example spired-solve-sector -- \

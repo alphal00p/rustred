@@ -48,9 +48,12 @@ exceptional equations, with at least one nonlinear, must first defeat ordinary c
 substitution. Native primitive normalization and one coordinate retry follow;
 there is no custom elimination or bounded integer enumeration.
 
-Unsupported congruence charts and unresolved nonlinear cases still fail
-explicitly. General coupled integer-sector inequality feasibility is not
-claimed. Rational-polynomial reconstruction remains deferred to Symbolica.
+At this measured checkpoint, fractional canonical charts were still rejected.
+The subsequent rational-chart implementation described in
+[the port status](spired_port.md) removes that representation restriction
+without claiming general integer-lattice or coupled sector-inequality
+feasibility. Unresolved nonlinear cases remain explicit failures.
+Rational-polynomial reconstruction remains deferred to Symbolica.
 See [the algorithm/API description](spired_port.md) for these boundaries.
 
 ## Seven-pair `fam1_12` performance comparison
@@ -99,8 +102,31 @@ timestamps were not recorded, and the actual campaign median is 260.363 ms.
 The next controlled scheduling experiment should test `InputOrder` before
 adding more infrastructure or fixture-specific cost rules.
 
-Summed sector solve medians rise from 684.704 ms serial to 976.647 ms with
-six workers, while process CPU medians rise from 0.71 to 0.85 s. These records
+That experiment has now run, using the release example's explicit
+`active-first`/`input-order` switch. Seven fresh runs of each policy at each of
+one and six workers, alternating policy order and with builds and our other
+benchmark jobs idle, give:
+
+| Workers | Policy | Process median | Campaign median | Process CPU median |
+| --- | --- | ---: | ---: | ---: |
+| 1 | active-first | 733.3 ms | 699.2 ms | 0.70 s |
+| 1 | input-order | 738.7 ms | 703.5 ms | 0.70 s |
+| 6 | active-first | 272.3 ms | 239.6 ms | 0.79 s |
+| 6 | input-order | 380.2 ms | 343.2 ms | 0.74 s |
+
+The measured six-worker result contradicts the simple offline list-scheduling
+estimate. Rayon work splitting/stealing is not a list scheduler; these
+measurements alone do not identify the full cause. **The default remains
+active-first.** All 28 runs succeed, with 1,176 byte-identical mathematical
+files and identical non-timing per-sector search statistics. Peak RSS medians
+are 9,240–9,264 KiB. No C++ comparison is included in this scheduling-only
+batch, and its times must not be paired with a different historical batch.
+The binary contains the scheduling switch but predates rational-chart support.
+Evidence: `target/spired-scheduling.xdfqrm/`.
+
+In the preceding Rust/C++ paired batch, summed sector solve medians rise from
+684.704 ms serial to 976.647 ms with six workers, while process CPU medians
+rise from 0.71 to 0.85 s. These records
 show cost inflation but do not identify its cause; no claim about host load,
 allocator contention, or native locks is made without further profiling.
 
@@ -149,7 +175,34 @@ to native GCD, GPLU, or exact lifting.
 
 ## Validation and remaining work
 
-- 142 focused solver tests and 39 example tests pass.
+### Rational-chart follow-up
+
+The next implementation slice admits exact rational computational charts while
+retaining the original integer equalities and sector signs. It passes 151
+focused solver tests, 42 example tests, workspace all-target checking, and a
+fresh optimized build. Independent adversarial checks cover coefficient scale,
+on-case poles, parity, tangent shifts, simultaneous substitutions, physical
+integral-key identity and canonical queue order.
+
+All 16 established release regressions also pass again: 582 completed sector
+jobs and 27,462 generated rules. Independent audits find all 614 mathematical
+files unchanged from the previous baseline, all 307 serial/six-worker pairs
+identical, and all non-timing search counters unchanged. The 12 oracle-enabled
+runs check 27,454 exact equations with required domains, signs and guards; the
+remaining eight rules are the supplemental K1/K3 top-sector runs. Residual keys
+match the previously independently decoded native baselines. Evidence:
+`target/spired-rational-regression.KO3jlH/`.
+
+A full `fam1_112` rerun now produces 422 of 436 sector outputs. One newly
+completed sector passes complete reference checks; the other has a candidate
+case-count discrepancy. The full workload still exits with an explicit
+nonlinear-geometry error. See the [updated census](spired_pm_acceptance.md)
+for exact counts and limitations. This is progress, not full-manifest parity
+or a certified family-closing artifact.
+
+### Initial integral-chart checkpoint
+
+- 142 focused solver tests and 39 example tests passed at that checkpoint.
 - Workspace all-targets checking and the release example build pass.
 - Separate agents audit source translation, domain ownership/subsumption,
   native joint normalization, and the complete-domain oracle independently.

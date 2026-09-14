@@ -211,6 +211,70 @@ fn numeric_sector_classification_tracks_activation_as_well_as_pinches() {
 }
 
 #[test]
+fn rational_affine_source_restriction_keeps_scale_and_original_columns() {
+    let context = CoefficientContext::new(["a", "b"]);
+    let equation = context.coefficient_fixture("2*a-b-4").numerator;
+    let AffineIntersection::Affine(case) =
+        AffineCase::from_coordinate(&CoordinateCase::generic(), &[equation], &[0, 1], &[true; 2])
+            .unwrap()
+    else {
+        panic!("expected an exact affine case")
+    };
+    let source = vec![
+        Term {
+            integral: Integral::symbolic([0, 0]).unwrap(),
+            coefficient: context.coefficient_fixture("a").numerator,
+        },
+        Term {
+            integral: Integral::symbolic([-1, 0]).unwrap(),
+            coefficient: context.one().numerator,
+        },
+    ];
+    let order = IntegralOrder::new([true; 2], [false; 2]);
+    let row = super::instantiate::instantiate(
+        &source,
+        &Seed {
+            integral: Integral::symbolic([0, 0]).unwrap(),
+            shifts: [0, 0],
+        },
+        &[0, 1],
+        &[None; 2],
+        &order,
+        &[],
+        Some(&case),
+    )
+    .unwrap();
+    assert_eq!(row.len(), 2);
+    assert_eq!(row[0].coefficient, context.coefficient_fixture("(b+4)/2"));
+    assert_ne!(row[0].integral, row[1].integral);
+    let (_, rhs) = super::instantiate::canonicalize(row, &[0, 1]).unwrap();
+    assert_eq!(rhs[0].coefficient, context.coefficient_fixture("-2/(b+4)"));
+
+    // A source displacement need not be tangent. Translation must precede
+    // restriction: (2a-b-4)(a+1,b) restricts to 2, not 0.
+    let source = vec![Term {
+        integral: Integral::symbolic([0, 0]).unwrap(),
+        coefficient: context.coefficient_fixture("2*a-b-4").numerator,
+    }];
+    let row = super::instantiate::instantiate(
+        &source,
+        &Seed {
+            integral: Integral::symbolic([1, 0]).unwrap(),
+            shifts: [1, 0],
+        },
+        &[0, 1],
+        &[None; 2],
+        &order,
+        &[],
+        Some(&case),
+    )
+    .unwrap();
+    assert_eq!(row.len(), 1);
+    assert_eq!(row[0].integral, Integral::symbolic([1, 0]).unwrap());
+    assert_eq!(row[0].coefficient, context.integer(2));
+}
+
+#[test]
 fn invalid_field_and_coordinate_case_are_rejected_at_entry() {
     let system = SourceSystem::<1>::from_family(&tadpole()).unwrap();
     let solver = SectorSolver::new(&system, [true], SectorConfig::default()).unwrap();

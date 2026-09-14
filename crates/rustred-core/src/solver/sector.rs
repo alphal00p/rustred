@@ -367,7 +367,6 @@ impl<const N: usize> SectorSolver<'_, N> {
                 // Failure to prove an exceptional intersection empty must
                 // never suppress pending work, even if the rule might apply.
                 Err(AffineGeometryError::UnsupportedNonlinear { .. })
-                | Err(AffineGeometryError::UnsupportedCongruence { .. })
                 | Err(AffineGeometryError::Coordinate(GeometryError::UnsupportedGeometry {
                     ..
                 }))

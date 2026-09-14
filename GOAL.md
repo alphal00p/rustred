@@ -1,5 +1,32 @@
 # RustRed project goal
 
+## Parallel Vakint delivery directive (2026-09-14)
+
+Alongside the active SpIRed reference port, develop and independently audit the
+K6 artifact-to-Vakint delivery lane now. The complete `vac3` source-port run
+(617 conditional rules and 38 residual keys) is its input evidence, not an
+already certified, shipped K6 artifact. Establish exact replay, descent,
+guard/sector coverage, finite terminals, and coverage of all five registered
+three-loop vacuum graph classes before treating that output as closing.
+
+Separate subagents own artifact/closure auditing and Vakint integration, so
+this lane does not interrupt the current solver-port work. On GammaLoop's
+`vakint_rustred` branch, ship immutable generation-once artifacts, reuse the
+existing topology match and routing witness, apply them with RustRed, and use
+the FORM-less FeynKit tensor prepass. Reuse and extend the existing comparative
+test harness to every applicable single-scale three-loop acceptance case,
+including master substitution and numerical parity. A finite nonminimal master
+basis is acceptable; existing Vakint oracle methods may evaluate required new
+masters offline to 20,000 decimal digits. The ordinary RustRed evaluation path
+must neither regenerate artifacts nor invoke/fall back to FORM. Preserve
+Vakint's defaults, public conventions and existing FORM-backed modes.
+
+Local-path RustRed dependencies are permitted during development; pushed
+GammaLoop milestones pin the corresponding pushed RustRed Git revision.
+Report actual certified-artifact and test coverage, not completion inferred
+from a source-port rule count. Independent audits and coherent intermediate
+commits/pushes remain required in both repositories.
+
 ## Active reference-port assignment (2026-09-14)
 
 The current tool-managed assignment is to port the actual C++ SpIRed
@@ -51,6 +78,26 @@ its required domain is proved integer-empty. The next scope is `fam1_112` and
 the supplied ordering studies, plus measured parallel scheduling improvements.
 These remain mandatory; source-port output is not a certified closing artifact.
 See [`docs/spired_affine_results.md`](docs/spired_affine_results.md).
+
+The first complete-manifest `fam1_112` attempt now supplies a concrete failure
+census: Rust writes 420 of 436 sector files but exits with an error; isolated
+reruns find three rational-chart admission failures and 13 nonlinear
+exceptional-conjunction failures. The unchanged C++ diagnostic reaches 288
+sectors before its 600-second cap; these concurrent diagnostic times are not a
+performance comparison. Native exact rational computational charts now retain
+the original integer domains and pass all established regression workloads.
+A fresh full run produces 422/436 sector files: one newly completed sector
+passes exact native rule/guard/residual checks; the other's case count exceeds
+the nonempty reference by two proved sector-empty cases, which need generic
+sign-bound pruning followed by a fresh strict comparison. Fourteen
+sectors still lack completed outputs; the reported first error is nonlinear
+geometry. The next
+slice must preserve normalized coupled equations and perform exact
+factorization-driven OR branching, without treating bounded integer scans as
+completeness. Neither slice is a closed-artifact claim. Measured scheduling
+tests retain the current active-first default; input-order was slower on the
+tested full `fam1_12` workload. See the
+[acceptance census](docs/spired_pm_acceptance.md) for the full evidence boundary.
 
 ## Preamble — user directive (verbatim)
 

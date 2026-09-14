@@ -43,6 +43,95 @@ minimality.
 
 ## Exact manifest census
 
+### Reference ordering-sweep driver correction
+
+The user authorized a narrowly scoped correction to the local C++
+`fam1_12_exp.cpp` benchmark driver: resolve sector ordering IDs serially before
+entering the parallel sweep. Previously, each lookup could inspect the shared
+ordering table while other workers replaced its entries. Each worker still
+owns one sector and executes all 5,040 permutations; solver code, inputs,
+requested threads, dynamic schedule, timer boundaries, and output are unchanged.
+The corrected driver compiles successfully with the original optimized GCC
+recipe; solver-header, solver-implementation, and shared-library hashes remain
+unchanged. Its 201,600-job sweep has not yet been run. Its original source,
+complete diff, and before/after hashes are retained under ignored
+`target/spired-exp-driver-audit.movGDg/`; no reference source is pushed.
+The separate build log and hashes are in `target/spired-fam12-exp-build.Ab7SOc/`.
+
+A separate, as-yet-unverified concern remains in the reference's all-ones
+sector: source ordering may not refresh when a permutation changes but its
+ordering ID stays zero. No solver correction has been made. The sweep needs
+independent per-order equation checks before all its statistics can be trusted;
+the authorized lookup correction does not resolve this separate question.
+
+### First full `fam1_112` diagnostics
+
+Both implementations were launched on the unchanged 436-sector manifest with
+all 16 supplied ordering overrides and numerical seed depth three. The Rust
+release run produced 420 sector files, then returned an unsupported affine
+chart error; it did **not** finish successfully. The first reported case
+contains `2*n11-n14=4` in one-based C++ coordinates (source variable map
+`[d,x,n0,...,n14]`). Its canonical rational substitution is
+`n11=(n14+4)/2`; rejecting that representation is not evidence
+that the integer case is impossible. The 16 missing sector outputs remain
+failures, not implicit terminals.
+
+Licensed isolated reruns of those 16 sectors confirm three fractional-chart
+admission failures and 13 unsupported nonlinear conjunctions, with no timeouts.
+The nonlinear frontier includes products that factor into a union of affine
+cases after imposing sibling equalities. Supporting rational charts alone is
+therefore not expected to complete this workload; exact conjunction reduction
+and OR-branch expansion are also needed. Evidence:
+`target/spired-fam112-isolated-licensed.5e73H1/`.
+
+The original, unchanged C++ run hit its 600-second diagnostic limit with
+288 complete sector statistics rows, 48,189 rules, and 256 residual records.
+Those are partial records, not a complete or unique master census. A completed
+sector (`111000101010111`) alone took 323.845 seconds and produced 489 rules
+with 1,130,953 coefficient leaves.
+
+Rust's failed run took 285.54 seconds with 876,632 KiB peak RSS. C++ was
+censored at 600.116 seconds with 1,312,772 KiB peak RSS. They ran concurrently
+on disjoint CPU sets, alongside some build activity: **these are diagnostic
+figures, not a matched performance comparison.** No full `fam1_112` acceptance
+claim follows. Evidence: `target/spired-fam112-first.8b69aX/` and
+`target/spired-fam112-reference.JiWS6v/`.
+
+### Post-rational-chart full rerun
+
+The new release run completes 422/436 sector files, containing 66,904 rules
+and 329 residual records, before returning a nonlinear-geometry error. All
+previous 420 files and the preliminary cut rules remain byte-identical.
+The two new completed sectors are `111000010001111` and `111000011100111`.
+The first originally fractional case, `111000001010111`, advances past that
+restriction but encounters a later nonlinear conjunction. Fourteen sectors
+remain without a completed output.
+
+Independent single-sector generation followed by exact native comparison gives:
+
+| Sector | Rust outcome | Reference comparison |
+| --- | --- | --- |
+| `111000001010111` | Later nonlinear error | Unavailable; generation did not finish |
+| `111000010001111` | 349 rules, no residuals | **Not passed:** reference has 347 nonempty rules plus one proved-empty rule; two Rust cases are sector-empty; exact residual keys agree |
+| `111000011100111` | 398 rules, eight residuals | **Passed:** all exact coefficients, required domains, guards and residual keys; reference has one additional proved-empty rule |
+
+All three preliminary cut rules compare exactly where scalar generation
+finishes. The native residual reader is restricted to the three reference
+files whose completion is individually established; no interrupted database
+is treated as valid. Both extra Rust cases in `111000010001111` require
+`n3=n12` (zero-based), but this sector requires `n3<=0` and `n12>=1`.
+They are therefore exactly sector-empty. The current affine service does not
+yet prune this simple coupled sign contradiction. Removing those two cases
+explains the count difference, but the remaining strict equation/guard
+comparison must still be rerun after a generic correction; it is not waived.
+
+The full diagnostic takes 260.812 seconds wall, 1,425.45 CPU seconds and
+879,688 KiB peak RSS. It runs concurrently with regression/build work, and
+neither it nor the partial C++ run supports a paired speed comparison.
+Evidence: `target/spired-fam112-post-chart.EDZPa7/`. The next exact
+[exceptional-case slice](spired_exceptional_case_plan.md) must retain normalized
+coupled equations and split factorized conjunctions into complete alternatives.
+
 The current release runs of `fam1_12` and `fam1_111` complete their full
 unchanged requested manifests, 40 and 132 sector jobs respectively. Exact
 domain/guard/coefficient comparisons match 1,104 nonempty and 10,333 reference

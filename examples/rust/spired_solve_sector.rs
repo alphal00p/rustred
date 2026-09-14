@@ -3,7 +3,7 @@
 //! Usage:
 //! spired-solve-sector <family> <sector-mask|all> <new-output-directory>
 //!   <zero-sectors-file|-> [nonzero-sectors-file|-] [reference-directory|-]
-//!   [symbolic-depth|unbounded] [workers] [orderings-file|-]
+//!   [symbolic-depth|unbounded] [workers] [orderings-file|-] [schedule]
 //!
 //! Manifest files contain whitespace-separated 0/1 entries, N per sector,
 //! exactly as the original SpIRed examples. `all` requires the nonzero manifest.
@@ -12,6 +12,7 @@
 //! Families: vacuum 1/2/3, fam1_11/12/111/112, bc4PMRad1, fam_cosmo.
 //! PM numerical depth follows the original fixture; all other cases use three.
 //! Optional ordering lines are `sector-mask coordinate-priority...` (zero-based).
+//! Schedule is `active-first` (default) or `input-order`; it only orders jobs.
 //! Outputs are conditional source-port rules
 //! and finite search residuals, NOT certified family-closing artifacts.
 
@@ -25,7 +26,7 @@ use std::time::{Duration, Instant};
 use rustred::family::IntegralFamily;
 use rustred::solver::{
     Integral, IntegralOrder, SearchOptions, SectorConfig, SectorEvent, SectorExecutor,
-    SectorSolution, SectorSolveOptions, SectorStats, prepare_linear_cuts,
+    SectorScheduling, SectorSolution, SectorSolveOptions, SectorStats, prepare_linear_cuts,
 };
 
 #[path = "support/spired_families.rs"]
@@ -45,6 +46,7 @@ struct Arguments {
     symbolic_depth: Option<u32>,
     workers: usize,
     orderings: Option<PathBuf>,
+    scheduling: SectorScheduling,
 }
 
 /// Only compact summaries survive a sector task in ordinary generation.
@@ -77,6 +79,23 @@ fn parse_mask<const N: usize>(input: &str) -> Result<[bool; N]> {
         .collect::<std::result::Result<Vec<_>, _>>()?;
     bits.try_into()
         .map_err(|_: Vec<bool>| format!("expected a {N}-bit sector mask").into())
+}
+
+fn parse_scheduling(input: Option<&str>) -> Result<SectorScheduling> {
+    match input.unwrap_or("active-first") {
+        "active-first" => Ok(SectorScheduling::ActiveFirst),
+        "input-order" => Ok(SectorScheduling::InputOrder),
+        value => {
+            Err(format!("invalid schedule {value:?}; expected active-first or input-order").into())
+        }
+    }
+}
+
+fn scheduling_name(scheduling: SectorScheduling) -> &'static str {
+    match scheduling {
+        SectorScheduling::ActiveFirst => "active-first",
+        SectorScheduling::InputOrder => "input-order",
+    }
 }
 
 fn read_manifest<const N: usize>(path: &Path) -> Result<Vec<[bool; N]>> {
@@ -160,6 +179,27 @@ fn parse_orderings<const N: usize>(
 #[cfg(test)]
 mod input_tests {
     use super::*;
+
+    #[test]
+    fn scheduling_parser_preserves_default_and_round_trips_both_policies() {
+        assert_eq!(
+            parse_scheduling(None).unwrap(),
+            SectorScheduling::ActiveFirst
+        );
+        for policy in [SectorScheduling::ActiveFirst, SectorScheduling::InputOrder] {
+            assert_eq!(
+                parse_scheduling(Some(scheduling_name(policy))).unwrap(),
+                policy
+            );
+        }
+    }
+
+    #[test]
+    fn scheduling_parser_rejects_unknown_or_ambiguous_values() {
+        for input in ["", "-", "input", "active", "InputOrder", "input-order "] {
+            assert!(parse_scheduling(Some(input)).is_err(), "{input:?}");
+        }
+    }
 
     #[test]
     fn all_reference_orderings_are_explicit_valid_input() {
@@ -337,8 +377,10 @@ fn run<const N: usize>(
     )?;
     writeln!(
         metadata,
-        "symbolic_depth={:?}\nnumerical_depth={numerical_depth}\nworkers={worker_budget}\nrequested_workers={}\nschedule=active-first",
-        args.symbolic_depth, args.workers
+        "symbolic_depth={:?}\nnumerical_depth={numerical_depth}\nworkers={worker_budget}\nrequested_workers={}\nschedule={}",
+        args.symbolic_depth,
+        args.workers,
+        scheduling_name(args.scheduling)
     )?;
     writeln!(
         metadata,
@@ -394,7 +436,7 @@ fn run<const N: usize>(
     let mut total_solve = Duration::ZERO;
     let progress = std::env::var("RUSTRED_SPIRED_PROGRESS").is_ok_and(|value| value == "1");
     let campaign_start = Instant::now();
-    let executor = SectorExecutor::new(worker_budget)?;
+    let executor = SectorExecutor::new(worker_budget)?.with_scheduling(args.scheduling);
     let pool_setup = campaign_start.elapsed();
     let config = SectorConfig {
         deltas: removed,
@@ -527,15 +569,16 @@ fn run<const N: usize>(
         for (label, solution) in &retained {
             let sector = parse_mask::<N>(label)?;
             let reference = fs::read_to_string(directory.join(format!("{label}.dat")))?;
-            let comparison = spired_reference::compare_sector_with_aliases(
-                &reference,
-                &solution.rules,
-                &sources,
-                &sector,
-                None,
-                args.oracle_aliases,
-            )
-            .map_err(|error| format!("sector {label}: {error}"))?;
+            let comparison: spired_reference::SectorComparison =
+                spired_reference::compare_sector_with_aliases(
+                    &reference,
+                    &solution.rules,
+                    &sources,
+                    &sector,
+                    None,
+                    args.oracle_aliases,
+                )
+                .map_err(|error| format!("sector {label}: {error}"))?;
             reference_rules += comparison.matched_rules;
             reference_empty_rules += comparison.integer_empty_rules;
         }
@@ -546,9 +589,10 @@ fn run<const N: usize>(
     let validation = validation_start.elapsed();
     let mut summary = writer(args.output.join("summary.txt"))?;
     let report = format!(
-        "scope=conditional sector rule generation, NOT certified family closure\nloops={loops}\nK={N}\nsectors={}\nrules={total_rules}\nfinite_residuals={total_residuals}\nworkers={}\nschedule=active-first\ninput_us={}\nsource_preparation_us={}\npool_setup_us={}\nprecondition_sum_us={}\nsector_solve_sum_us={}\ncampaign_including_output_us={}\nreference_rhs_matches={reference_rules}\nreference_validation_us={}\nlogical_process_elapsed_us={}\n",
+        "scope=conditional sector rule generation, NOT certified family closure\nloops={loops}\nK={N}\nsectors={}\nrules={total_rules}\nfinite_residuals={total_residuals}\nworkers={}\nschedule={}\ninput_us={}\nsource_preparation_us={}\npool_setup_us={}\nprecondition_sum_us={}\nsector_solve_sum_us={}\ncampaign_including_output_us={}\nreference_rhs_matches={reference_rules}\nreference_validation_us={}\nlogical_process_elapsed_us={}\n",
         sectors.len(),
         executor.workers(),
+        scheduling_name(executor.scheduling()),
         input_time.as_micros(),
         preparation.as_micros(),
         pool_setup.as_micros(),
@@ -572,8 +616,8 @@ fn run<const N: usize>(
 fn main() -> Result<()> {
     let start = Instant::now();
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    if !(4..=9).contains(&args.len()) {
-        return Err("usage: spired-solve-sector <family> <sector-mask|all> <new-output-dir> <zero-sectors-file|-> [nonzero-sectors-file|-] [reference-dir|-] [symbolic-depth|unbounded] [workers] [orderings-file|-]".into());
+    if !(4..=10).contains(&args.len()) {
+        return Err("usage: spired-solve-sector <family> <sector-mask|all> <new-output-dir> <zero-sectors-file|-> [nonzero-sectors-file|-] [reference-dir|-] [symbolic-depth|unbounded] [workers] [orderings-file|-] [active-first|input-order]".into());
     }
     let optional_path = |position: usize| {
         args.get(position)
@@ -600,6 +644,7 @@ fn main() -> Result<()> {
         },
         workers: args.get(7).map(String::as_str).unwrap_or("1").parse()?,
         orderings: optional_path(8),
+        scheduling: parse_scheduling(args.get(9).map(String::as_str))?,
     };
     if config.workers == 0 {
         return Err("workers must be nonzero".into());
