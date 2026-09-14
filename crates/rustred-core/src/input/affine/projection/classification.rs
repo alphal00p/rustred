@@ -143,7 +143,7 @@ pub(in crate::input::affine) fn polynomial_contains_momentum(
     polynomial: &CoefficientPolynomial,
     base_count: usize,
 ) -> Result<bool, SymbolicaAffineDenominatorError> {
-    if polynomial.variables.len() < base_count {
+    if polynomial.variables().len() < base_count {
         return Err(
             SymbolicaAffineDenominatorError::InternalVerificationFailure {
                 detail: "polynomial variable map is shorter than the base map",

@@ -250,7 +250,7 @@ fn checked_census_add(left: usize, right: usize) -> Result<usize, AppError> {
 fn integer_significant_bits(value: &Integer) -> Option<usize> {
     let bits = match value {
         Integer::Single(value) => u64::BITS - value.unsigned_abs().leading_zeros(),
-        Integer::Double(value) => u128::BITS - value.unsigned_abs().leading_zeros(),
+        Integer::Double(value) => u128::BITS - value.get().unsigned_abs().leading_zeros(),
         Integer::Large(value) => return usize::try_from(value.significant_bits()).ok(),
     };
     usize::try_from(bits).ok()

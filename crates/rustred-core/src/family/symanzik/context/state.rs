@@ -177,15 +177,13 @@ impl FeynmanPolynomialContext {
     /// authenticated template zero instead.
     pub(in crate::family::symanzik) fn rebind_native_result(
         &self,
-        mut raw: RawFeynmanPolynomial,
+        raw: RawFeynmanPolynomial,
     ) -> Result<FeynmanPolynomial, FeynmanPolynomialError> {
         if raw.is_zero() {
             return Ok(self.zero());
         }
         let candidate = self.wrap(raw);
         self.authenticate(&candidate)?;
-        raw = candidate.raw;
-        raw.variables = self.variables.clone();
-        Ok(self.wrap(raw))
+        Ok(candidate)
     }
 }

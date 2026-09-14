@@ -7,18 +7,25 @@ family represented in Vakint through three loops, publishes the resulting
 one-off artifacts, and applies them through a FORM-free scalar Vakint backend.
 Loop count and topology are input data, never production dispatch keys.
 
-The active implementation program is the
-[Gregor/SpIReD input plan](GREGOR_INPUT_PLAN.md). It adds a case-directed,
-incremental sparse search front end, with an aggressively optimized
-single-scale-vacuum lane, while preserving the existing exact replay, descent,
-coverage, publication, and reduction authority. The local working notes
-`notes-spired.pdf` are intentionally ignored and are never distributed with
-the repository.
+The immediate implementation program is the
+[executable SpIRed reference port](docs/spired_port.md): reproduce the actual
+C++ `solveSector` algorithm in Rust, using native Symbolica/numerica, and match
+or improve the supplied one-through-three-loop PM example workloads. The
+[Gregor/SpIReD input plan](GREGOR_INPUT_PLAN.md) remains the longer-term artifact
+and Vakint integration roadmap. The local reference source and working notes
+`notes-spired.pdf` are ignored and are not distributed with the repository.
 
 ## Current capability
 
 The currently evidenced core can:
 
+- automatically traverse coordinate cases with the compact `solver` API,
+  precondition polynomial IBPs, discover matching modular GPLU pivots, replay
+  compact exact traces, refine exceptional conditions, and share numerical
+  searches among fully fixed cases. Its first full `vac3` run reproduced
+  all 617 reference equations across 38 sectors with symbolic mass; independent
+  audits matched the guard domains and 38 residual keys. See the
+  [timing and validation report](docs/spired_vac3_results.md);
 - compile compact, structured-text, and caller-owned Symbolica Atom family
   descriptions, authenticating every form at ingress;
 - build exact topology-neutral affine integral families;
@@ -77,8 +84,10 @@ The currently evidenced core can:
   a symbolic or exact common mass, and optionally applying Vakint's pure-Rust
   master values without invoking or falling back to FORM.
 
-It does **not** yet close the three-loop `K = 6` family or support
-generic/higher-even-rank tensor reduction. RustRed itself deliberately does not
+It does **not** yet ship a certified three-loop `K = 6` artifact from the new
+solver, pass the complete PM example suite, or support generic/higher-even-rank
+tensor reduction. The successful `vac3` rule-generation comparison is not yet
+connected to artifact publication or Vakint. RustRed itself deliberately does not
 own evaluated master values; the Vakint adapter can substitute Vakint's
 existing values after reduction. Structural source counts—at any loop
 count—remain insufficient closure evidence.
@@ -479,9 +488,11 @@ The repository root is a virtual Cargo workspace with three packages:
   users write `import rustred`; `rustred._rustred` is a private extension
   detail, and top-level `import _rustred` is intentionally unsupported.
 
-The exact registry-shaped Symbolica 2.2.0 dependency is patched to
-`vendor/symbolica` and built with GMP. Symbolica is the sole production CAS.
-RustRed never invokes FORM, Mathematica, SymPy, or authored recurrence tables.
+The registry-shaped Symbolica 2.2.0 dependency is patched to
+`vendor/symbolica`, whose submodule update branch is `dev` and whose parent
+repository pin selects an exact commit. It is built with the `integer-gmp` and
+`float-mpfr` backends. Symbolica is the sole production CAS. RustRed never
+invokes FORM, Mathematica, SymPy, or authored recurrence tables.
 
 ## Development
 

@@ -11,8 +11,8 @@ impl FeynmanPolynomialContext {
         polynomial: &FeynmanPolynomial,
     ) -> Result<(), FeynmanPolynomialError> {
         if polynomial.context != self.family_fingerprint
-            || polynomial.raw.variables.as_ref() != self.variables.as_ref()
-            || polynomial.raw.ring != self.field
+            || polynomial.raw.variables().as_ref() != self.variables.as_ref()
+            || polynomial.raw.ring() != &self.field
         {
             return Err(FeynmanPolynomialError::ForeignPolynomialContext);
         }

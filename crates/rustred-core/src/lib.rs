@@ -16,4 +16,5 @@ pub mod input;
 pub mod reduction;
 pub mod scalar_numerator;
 pub mod sector;
+pub mod solver;
 pub mod tensor;

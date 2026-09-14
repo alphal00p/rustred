@@ -229,7 +229,7 @@ fn encode_fingerprint_polynomial(
     sink: &mut impl FamilyFingerprintSink,
     polynomial: &CoefficientPolynomial,
 ) -> Result<(), IntegralFamilyError> {
-    let variables = polynomial.variables.len();
+    let variables = polynomial.variables().len();
     sink.literal("Y")?;
     sink.usize_value(variables)?;
     sink.literal(",")?;
@@ -452,7 +452,8 @@ impl FamilyFingerprintSink for FamilyFingerprintWriter {
                 write!(self, "I{sign}{:X};", value.unsigned_abs())
             }
             Integer::Double(value) => {
-                let sign = if *value < 0 { '-' } else { '+' };
+                let value = value.get();
+                let sign = if value < 0 { '-' } else { '+' };
                 write!(self, "I{sign}{:X};", value.unsigned_abs())
             }
             // Rug's hexadecimal formatter emits a leading minus followed by
@@ -475,7 +476,9 @@ const fn decimal_digits_usize(value: usize) -> usize {
 fn family_fingerprint_integer_bits(value: &Integer) -> Result<usize, IntegralFamilyError> {
     let bits = match value {
         Integer::Single(value) => u128::from(i64::BITS - value.unsigned_abs().leading_zeros()),
-        Integer::Double(value) => u128::from(i128::BITS - value.unsigned_abs().leading_zeros()),
+        Integer::Double(value) => {
+            u128::from(i128::BITS - value.get().unsigned_abs().leading_zeros())
+        }
         Integer::Large(value) => u128::from(value.significant_bits()),
     };
     usize::try_from(bits).map_err(|_| IntegralFamilyError::ResourceCountOverflow {

@@ -285,7 +285,9 @@ fn constant_polynomial_magnitude_bits(
     };
     let bits = match integer {
         Integer::Single(value) => u64::from(u64::BITS - value.unsigned_abs().leading_zeros()),
-        Integer::Double(value) => u64::from(u128::BITS - value.unsigned_abs().leading_zeros()),
+        Integer::Double(value) => {
+            u64::from(u128::BITS - value.get().unsigned_abs().leading_zeros())
+        }
         Integer::Large(value) => u64::from(value.significant_bits()),
     };
     usize::try_from(bits).ok()

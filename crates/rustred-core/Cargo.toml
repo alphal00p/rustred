@@ -16,3 +16,11 @@ blake3 = "1"
 rand = "0.9"
 rayon = "1"
 symbolica.workspace = true
+
+[[example]]
+name = "spired-solve-case"
+path = "../../examples/rust/spired_solve_case.rs"
+
+[[example]]
+name = "spired-solve-sector"
+path = "../../examples/rust/spired_solve_sector.rs"

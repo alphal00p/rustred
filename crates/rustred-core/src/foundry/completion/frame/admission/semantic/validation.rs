@@ -565,7 +565,9 @@ fn charge_polynomial(
 fn integer_magnitude_bits(value: &Integer) -> u64 {
     match value {
         Integer::Single(value) => u64::from(i64::BITS - value.unsigned_abs().leading_zeros()),
-        Integer::Double(value) => u64::from(i128::BITS - value.unsigned_abs().leading_zeros()),
+        Integer::Double(value) => {
+            u64::from(i128::BITS - value.get().unsigned_abs().leading_zeros())
+        }
         Integer::Large(value) => u64::from(value.significant_bits()),
     }
 }

@@ -72,12 +72,18 @@ fn exact_authentication_rejects_malformed_sparse_polynomials_without_panicking()
 fn exact_authentication_rejects_every_backend_representation_of_numeric_zero() {
     let context = CoefficientContext::new(["x"]);
     for (part, zero) in [
-        (CoefficientPolynomialPart::Numerator, Integer::Double(0)),
+        (
+            CoefficientPolynomialPart::Numerator,
+            Integer::Double(0_i128.into()),
+        ),
         (
             CoefficientPolynomialPart::Numerator,
             Integer::Large(0.into()),
         ),
-        (CoefficientPolynomialPart::Denominator, Integer::Double(0)),
+        (
+            CoefficientPolynomialPart::Denominator,
+            Integer::Double(0_i128.into()),
+        ),
         (
             CoefficientPolynomialPart::Denominator,
             Integer::Large(0.into()),

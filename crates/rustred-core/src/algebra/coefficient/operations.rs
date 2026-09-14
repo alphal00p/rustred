@@ -497,10 +497,10 @@ fn preflight_trusted_input_limits(
                 .enumerate()
                 .find(|(_, exponent)| **exponent > limits.max_exponent)
             {
-                let variable = if polynomial.variables.is_empty() {
+                let variable = if polynomial.variables().is_empty() {
                     0
                 } else {
-                    position % polynomial.variables.len()
+                    position % polynomial.variables().len()
                 };
                 return Err(ExactAlgebraError::ExponentLimit {
                     operation: ExactAlgebraOperation::Authenticate,
@@ -520,7 +520,7 @@ fn preflight_cross_sum_degrees(
     operation: ExactAlgebraOperation,
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
-    for variable in 0..left.numerator.variables.len() {
+    for variable in 0..left.numerator.variables().len() {
         let left_numerator = left.numerator.degree(variable);
         let left_denominator = left.denominator.degree(variable);
         let right_numerator = right.numerator.degree(variable);
@@ -550,7 +550,7 @@ fn preflight_product_degrees(
     operation: ExactAlgebraOperation,
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
-    for variable in 0..left.variables.len() {
+    for variable in 0..left.variables().len() {
         let requested = checked_pairwise_exponent_sum(
             left.degree(variable),
             right.degree(variable),
@@ -582,7 +582,7 @@ pub(super) fn preflight_power_degrees(
     exponent: u64,
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
-    for variable in 0..polynomial.variables.len() {
+    for variable in 0..polynomial.variables().len() {
         let requested = u64::from(polynomial.degree(variable))
             .checked_mul(exponent)
             .ok_or(ExactAlgebraError::ExponentArithmeticOverflow {

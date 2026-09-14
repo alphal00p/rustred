@@ -14,11 +14,24 @@ The repository is a virtual Cargo workspace with three packages:
 | `rustred-app` | Shared application composition, canonical TOML results, and the `rustred` CLI |
 | `rustred-python` | Thin PyO3 adapter exposing the public Python package `rustred` |
 
-There is no root Rust package or root `src/` tree. Symbolica 2.2.0 with GMP is
-the sole production CAS. RustRed has no FORM, Mathematica, or SymPy runtime
-path.
+There is no root Rust package or root `src/` tree. A pinned revision of
+Symbolica's tracked `dev` branch, configured with `integer-gmp` and
+`float-mpfr`, is the sole production CAS. RustRed has no FORM, Mathematica, or
+SymPy runtime path.
 
 ## Rust core
+
+The executable-reference port is exposed through `rustred::solver`:
+`SourceSystem::from_family` prepares ordinary and Lorentz-invariance sources;
+`SectorSolver::new` preconditions a sector; `solve_case`,
+`solve_numeric_cases`, and `solve_sector` perform single-case, shared finite-case,
+and automatic coordinate-case searches. `SectorSolveOptions` controls bounded
+search, and `solve_sector_with_observer` provides borrowed progress events.
+`SectorSolution` contains conditional `SectorRule` values and finite numerical
+residuals, not a certified closing artifact. This new solver is currently a
+Rust-library interface; its Cargo examples exercise complete reference runs.
+The existing CLI/Python campaign interfaces below still use the earlier
+artifact foundry. See [the port status](spired_port.md).
 
 The public `rustred` facade is organized by mathematical owner:
 

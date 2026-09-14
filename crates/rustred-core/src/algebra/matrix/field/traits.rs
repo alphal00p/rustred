@@ -2,7 +2,6 @@
 
 use std::fmt;
 
-use rand::RngCore;
 use symbolica::domains::SelfRing;
 use symbolica::prelude::*;
 
@@ -174,11 +173,6 @@ impl Ring for CheckedCoefficientField<'_> {
         } else {
             Some(self.div_checked(numerator, denominator))
         }
-    }
-
-    fn sample(&self, rng: &mut impl RngCore, range: (i64, i64)) -> Coefficient {
-        self.charge_counter(|stats| &mut stats.non_matrix_trait_calls);
-        self.contextual_integer(Z.sample(rng, range))
     }
 
     fn format<W: fmt::Write>(

@@ -23,11 +23,11 @@ fn lift_translate_and_specialize_preserve_authenticated_maps() {
     let expected_indexed = context.mul(&expected_index_product, &lifted).unwrap();
     assert_eq!(translated, expected_indexed);
     assert_eq!(
-        translated.raw().numerator.variables.as_ref(),
+        translated.raw().numerator.variables().as_ref(),
         context.variables.as_ref()
     );
     assert_eq!(
-        translated.raw().denominator.variables.as_ref(),
+        translated.raw().denominator.variables().as_ref(),
         context.variables.as_ref()
     );
 
@@ -67,7 +67,7 @@ fn absent_index_shift_is_an_exact_noop_for_coefficients_and_polynomials() {
     assert_eq!(translated, n0_squared);
     assert_eq!(translated_polynomial, polynomial);
     assert_eq!(
-        translated_polynomial.raw().variables.as_ref(),
+        translated_polynomial.raw().variables().as_ref(),
         context.variables.as_ref()
     );
 }

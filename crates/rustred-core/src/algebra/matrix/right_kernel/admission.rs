@@ -108,7 +108,9 @@ pub(super) fn check_integer_bits(
 fn integer_bit_length(integer: &Integer) -> Result<usize, RightKernelError> {
     let bits = match integer {
         Integer::Single(value) => u64::from(i64::BITS - value.unsigned_abs().leading_zeros()),
-        Integer::Double(value) => u64::from(i128::BITS - value.unsigned_abs().leading_zeros()),
+        Integer::Double(value) => {
+            u64::from(i128::BITS - value.get().unsigned_abs().leading_zeros())
+        }
         Integer::Large(value) => u64::from(value.significant_bits()),
     };
     usize::try_from(bits).map_err(|_| RightKernelError::CountOverflow {

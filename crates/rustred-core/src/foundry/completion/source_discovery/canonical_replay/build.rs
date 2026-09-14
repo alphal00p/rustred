@@ -826,7 +826,7 @@ fn integer_magnitude_bits(value: &symbolica::prelude::Integer) -> u64 {
             u64::from(i64::BITS - value.unsigned_abs().leading_zeros())
         }
         symbolica::prelude::Integer::Double(value) => {
-            u64::from(i128::BITS - value.unsigned_abs().leading_zeros())
+            u64::from(i128::BITS - value.get().unsigned_abs().leading_zeros())
         }
         symbolica::prelude::Integer::Large(value) => u64::from(value.significant_bits()),
     }

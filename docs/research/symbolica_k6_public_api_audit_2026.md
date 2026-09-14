@@ -4,6 +4,12 @@ Date: 2026-09-01
 
 Status: verified API inventory and experiment plan; no performance result
 
+> Live-dependency update (2026-09-09): RustRed now tracks Symbolica's `dev`
+> branch and is pinned at `3805d02ed6de0ee3fd3011cdf584cc3972aff40e`.
+> The source-level statements below record the historical audit of
+> `77c137481904b8a5531ede86e3ef36b82beed7fd`; they must not be read as a fresh
+> audit of every API at the newer revision.
+
 ## Scope and claim discipline
 
 This note records a read-only audit of the public Rust APIs available to RustRed for the complete

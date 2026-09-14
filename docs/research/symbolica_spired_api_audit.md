@@ -1,5 +1,11 @@
 # Symbolica API audit for modular parametric-IBP reconstruction
 
+> Live-dependency update (2026-09-09): RustRed now tracks Symbolica's `dev`
+> branch and is pinned at `3805d02ed6de0ee3fd3011cdf584cc3972aff40e` with
+> `integer-gmp`, `float-mpfr`, and `tracing_max_level_info`. The inventory below
+> remains the historical audit of revision `77c1374`; changed APIs must be
+> rechecked against the live tree before new implementation work.
+
 ## Scope and pinned dependency
 
 This audit covers the public Rust API actually pinned by RustRed, with emphasis

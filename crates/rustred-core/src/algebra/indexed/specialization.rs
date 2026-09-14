@@ -240,7 +240,7 @@ impl IndexedCoefficientContext {
             }
             result.append_monomial(specialized, &exponents[..base_count]);
         }
-        if result.variables.as_ref() != self.base.variables().as_ref() {
+        if result.variables().as_ref() != self.base.variables().as_ref() {
             return Err(IndexedAlgebraError::WrongContext);
         }
         verify_polynomial_execution_envelope(
@@ -596,7 +596,7 @@ fn normalized_factor_envelope_from_source(
     let variable_end = first_variable
         .checked_add(variable_count)
         .ok_or(IndexedAlgebraError::ResourceCountOverflow { resource })?;
-    if variable_end > source.variables.len() {
+    if variable_end > source.variables().len() {
         return Err(IndexedAlgebraError::WrongContext);
     }
     for variable in first_variable..variable_end {

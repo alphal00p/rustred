@@ -185,18 +185,19 @@ pub(in crate::input::affine) fn project_polynomial_prefix(
     retained: usize,
     max_exponent_entries: usize,
 ) -> Result<CoefficientPolynomial, SymbolicaAffineDenominatorError> {
-    if target_template.variables.len() != retained {
+    if target_template.variables().len() != retained {
         return Err(
             SymbolicaAffineDenominatorError::InternalVerificationFailure {
                 detail: "base projection target has the wrong variable count",
             },
         );
     }
-    let expected_source_entries = source.nterms().checked_mul(source.variables.len()).ok_or(
-        SymbolicaAffineDenominatorError::ResourceCountOverflow {
+    let expected_source_entries = source
+        .nterms()
+        .checked_mul(source.variables().len())
+        .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
             resource: "source projection exponent entries",
-        },
-    )?;
+        })?;
     if source.exponents.len() != expected_source_entries {
         return Err(
             SymbolicaAffineDenominatorError::InternalVerificationFailure {
@@ -216,7 +217,7 @@ pub(in crate::input::affine) fn project_polynomial_prefix(
     )?;
     let mut target = target_template.zero_with_capacity(source.nterms());
     for (integer, exponents) in source.coefficients.iter().zip(source.exponents_iter()) {
-        if exponents.len() != source.variables.len() || exponents.len() < retained {
+        if exponents.len() != source.variables().len() || exponents.len() < retained {
             return Err(
                 SymbolicaAffineDenominatorError::InternalVerificationFailure {
                     detail: "combined polynomial exponent row is too short",
@@ -237,14 +238,14 @@ pub(in crate::input::affine) fn lift_polynomial_prefix(
     retained: usize,
     max_exponent_entries: usize,
 ) -> Result<CoefficientPolynomial, SymbolicaAffineDenominatorError> {
-    if source.variables.len() != retained || target_template.variables.len() < retained {
+    if source.variables().len() != retained || target_template.variables().len() < retained {
         return Err(
             SymbolicaAffineDenominatorError::InternalVerificationFailure {
                 detail: "base lift uses incompatible variable maps",
             },
         );
     }
-    let target_variables = target_template.variables.len();
+    let target_variables = target_template.variables().len();
     let target_entries = source.nterms().checked_mul(target_variables).ok_or(
         SymbolicaAffineDenominatorError::ResourceCountOverflow {
             resource: "base lift exponent entries",

@@ -1,0 +1,890 @@
+//! Diagnostic comparison with a text rule export produced by SpIRed.
+//!
+//! This example helper is an oracle for an already-generated Rust candidate.
+//! Reference rules never supply equations, seeds, or hints to the solver.
+//! `compare` checks coordinate patterns and exact RHS equations only.
+//! `compare_rule` additionally checks Positive/NonPositive annotations and exact
+//! coordinate applicability guards; unsupported non-coordinate guards are errors.
+
+use std::collections::BTreeMap;
+use std::error::Error;
+use std::io::{Error as IoError, ErrorKind};
+
+use rustred::algebra::Coefficient;
+use rustred::solver::{Integral, Power, RuleCandidate, SourceSystem};
+use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
+use symbolica::parser::{ParseSettings, Token};
+use symbolica::prelude::{Integer, IntegerRing, PolyVariable, Q, Z};
+
+type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+fn invalid(message: impl Into<String>) -> Box<dyn Error> {
+    Box::new(IoError::new(ErrorKind::InvalidData, message.into()))
+}
+
+/// Compare one already-generated candidate against its unique coordinate case
+/// in a SpIRed `.dat` rule list. This does not compare applicability guards.
+///
+/// `n1`, ..., `nN` in the reference map directly to the source system's native
+/// index variables. Other reference identifiers use the source's scalar symbol
+/// names. Fixed coordinates are specialized before exact coefficient comparison.
+///
+/// If `reference_mass_one` is `Some(name)`, that named *reference* parameter is
+/// explicitly specialized to one. The candidate is left as supplied, so its
+/// family must already represent the same mass specialization. `None` performs
+/// no mass substitution. Unknown or ambiguous parameter names are errors.
+pub fn compare<const N: usize>(
+    reference: &str,
+    candidate: &RuleCandidate<N>,
+    system: &SourceSystem<N>,
+    reference_mass_one: Option<&str>,
+) -> Result<()> {
+    if candidate.target != candidate.case.integral() {
+        return Err(invalid(
+            "candidate target is not its canonical coordinate case",
+        ));
+    }
+    let body = reference
+        .trim()
+        .strip_prefix('{')
+        .and_then(|text| text.strip_suffix('}'))
+        .ok_or_else(|| invalid("expected a SpIRed rule list enclosed in braces"))?;
+    let mut matching = None;
+    for rule in split_top_level(body, ",")? {
+        let parts = split_top_level(rule, "->")?;
+        if parts.len() != 2 {
+            return Err(invalid(
+                "each reference rule must contain exactly one top-level ->",
+            ));
+        }
+        let fixed = parse_lhs::<N>(parts[0])?;
+        if &fixed == candidate.case.fixed() {
+            if matching.replace(parts[1]).is_some() {
+                return Err(invalid(
+                    "multiple reference rules match this coordinate case; guards are not compared",
+                ));
+            }
+        }
+    }
+    let rhs = matching.ok_or_else(|| {
+        invalid(format!(
+            "no reference rule matches coordinate case {:?}",
+            candidate.case.fixed()
+        ))
+    })?;
+
+    let template = &system
+        .rows()
+        .iter()
+        .flatten()
+        .next()
+        .ok_or_else(|| invalid("the source system has no coefficient variable map"))?
+        .coefficient;
+    let native_variables = template.variables();
+    let mut variable_names = Vec::with_capacity(native_variables.len() + 1);
+    for (position, variable) in native_variables.iter().enumerate() {
+        let name = if let Some(coordinate) = system
+            .index_variables()
+            .iter()
+            .position(|&index| index == position)
+        {
+            format!("n{}", coordinate + 1)
+        } else {
+            match variable {
+                PolyVariable::Symbol(symbol) => symbol.get_stripped_name().to_owned(),
+                _ => {
+                    return Err(invalid(
+                        "reference comparison requires named scalar variables",
+                    ));
+                }
+            }
+        };
+        if variable_names.contains(&name) {
+            return Err(invalid(format!("ambiguous reference variable name {name}")));
+        }
+        variable_names.push(name);
+    }
+    let mut variables = native_variables.as_ref().clone();
+    let mass_position = if let Some(name) = reference_mass_one {
+        if !is_identifier(name) {
+            return Err(invalid(
+                "the mass substitution must name one scalar identifier",
+            ));
+        }
+        if (1..=N).any(|coordinate| name == format!("n{coordinate}")) {
+            return Err(invalid(
+                "a reference index cannot be substituted as a mass parameter",
+            ));
+        }
+        Some(
+            if let Some(position) = variable_names.iter().position(|value| value == name) {
+                position
+            } else {
+                // A local polynomial variable lets native substitution detect a
+                // zero denominator at mass=1 before comparison. It registers no
+                // global symbol and has zero degree after this specialization.
+                let temporary = (0..=variables.len())
+                    .find(|index| !variables.contains(&PolyVariable::Temporary(*index)))
+                    .expect("a finite variable map always has a fresh temporary index");
+                variables.push(PolyVariable::Temporary(temporary));
+                variable_names.push(name.to_owned());
+                variables.len() - 1
+            },
+        )
+    } else {
+        None
+    };
+    let variables = std::sync::Arc::new(variables);
+    let names = variable_names
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<_>>();
+
+    let mut expected = BTreeMap::new();
+    if rhs.trim() != "0" {
+        for term in split_top_level(rhs, "+")? {
+            let factors = split_top_level(term, "*")?;
+            if factors.len() != 2 {
+                return Err(invalid("expected each RHS term as (coefficient)*int[...]"));
+            }
+            let integral = parse_integral::<N>(factors[1])?;
+            require_coordinate_pattern(&integral, candidate.case.fixed())?;
+            let token = Token::parse(factors[0], ParseSettings::polynomial())
+                .map_err(|error| invalid(format!("invalid reference coefficient: {error}")))?;
+            let coefficient: Coefficient = token
+                .to_rational_polynomial(&Q, &Z, &variables, &names)
+                .map_err(|error| invalid(format!("invalid reference coefficient: {error}")))?;
+            let mut numerator = coefficient.numerator;
+            let mut denominator = coefficient.denominator;
+            for (coordinate, fixed) in candidate.case.fixed().iter().enumerate() {
+                if let Some(value) = fixed {
+                    let variable = system.index_variables()[coordinate];
+                    numerator = numerator.replace(variable, &Integer::from(*value));
+                    denominator = denominator.replace(variable, &Integer::from(*value));
+                }
+            }
+            if let Some(variable) = mass_position {
+                numerator = numerator.replace(variable, &Integer::from(1));
+                denominator = denominator.replace(variable, &Integer::from(1));
+            }
+            if denominator.is_zero() {
+                return Err(invalid(format!(
+                    "reference coefficient is undefined after the requested specialization at {integral:?}"
+                )));
+            }
+            let coefficient = <Coefficient as FromNumeratorAndDenominator<
+                IntegerRing,
+                IntegerRing,
+                u16,
+            >>::from_num_den(numerator, denominator, &Z, true);
+            add_term(&mut expected, integral, coefficient);
+        }
+    }
+
+    let mut actual = BTreeMap::new();
+    for term in &candidate.rhs {
+        require_coordinate_pattern(&term.integral, candidate.case.fixed())?;
+        if term.coefficient.numerator.variables() != native_variables
+            || term.coefficient.denominator.variables() != native_variables
+        {
+            return Err(invalid(
+                "candidate coefficients do not use the supplied source variable map",
+            ));
+        }
+        add_term(&mut actual, term.integral, term.coefficient.clone());
+    }
+    expected.retain(|_, coefficient| !coefficient.is_zero());
+    actual.retain(|_, coefficient| !coefficient.is_zero());
+    for (integral, expected_coefficient) in &expected {
+        let actual_coefficient = actual.get(integral).ok_or_else(|| {
+            invalid(format!(
+                "candidate is missing reference RHS integral {integral:?}"
+            ))
+        })?;
+        // Native subtraction unifies the optional, now inactive mass variable
+        // and compares rational functions independently of their printed form.
+        if !(expected_coefficient - actual_coefficient).is_zero() {
+            return Err(invalid(format!(
+                "different exact coefficient for {integral:?}: reference {expected_coefficient}; candidate {actual_coefficient}"
+            )));
+        }
+    }
+    for integral in actual.keys() {
+        if !expected.contains_key(integral) {
+            return Err(invalid(format!(
+                "candidate has additional RHS integral {integral:?}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Compare an independently generated equation AND its exact coordinate domain
+/// against one SpIRed export. Unlike [`compare`], this requires the exported
+/// Positive/NonPositive annotations to agree and compares excluded faces.
+///
+/// The supported guard grammar is a whole negation of nested AND/OR expressions
+/// whose atoms are `n_i == integer` (and Boolean constants). Coupled affine or
+/// nonlinear atoms fail explicitly. Native RustRed coordinate intersection owns
+/// fixed-coordinate substitution, sector pruning, and OR-face subsumption.
+pub fn compare_rule<const N: usize>(
+    reference: &str,
+    rule: &rustred::solver::SectorRule<N>,
+    system: &SourceSystem<N>,
+    sector: &[bool; N],
+    reference_mass_one: Option<&str>,
+) -> Result<()> {
+    if !rule.candidate.case.is_in_sector(sector) {
+        return Err(invalid("candidate case is outside the comparison sector"));
+    }
+    compare(reference, &rule.candidate, system, reference_mass_one)?;
+    let body = reference.trim();
+    let body = &body[1..body.len() - 1]; // compare checked the rule-list brackets.
+    let mut expected = None;
+    for entry in split_top_level(body, ",")? {
+        let parts = split_top_level(entry, "->")?;
+        if &parse_lhs::<N>(parts[0])? == rule.candidate.case.fixed() {
+            expected = Some(reference_exception_cases(parts[0], rule, system, sector)?);
+        }
+    }
+    let mut expected = expected.expect("RHS comparison found exactly one matching case");
+    let mut actual: Vec<_> = rule
+        .exceptional_cases(system.index_variables(), sector)?
+        .into_iter()
+        .map(|case| *case.fixed())
+        .collect();
+    expected.sort_unstable();
+    actual.sort_unstable();
+    if actual != expected {
+        return Err(invalid(format!(
+            "different exceptional coordinate faces: reference {expected:?}; candidate {actual:?}"
+        )));
+    }
+    Ok(())
+}
+
+fn reference_exception_cases<const N: usize>(
+    lhs: &str,
+    rule: &rustred::solver::SectorRule<N>,
+    system: &SourceSystem<N>,
+    sector: &[bool; N],
+) -> Result<Vec<[Option<i16>; N]>> {
+    use rustred::solver::{ExceptionalConditions, SearchStats, SectorRule};
+
+    let (arguments, suffix) = integral_arguments(lhs)?;
+    for (axis, argument) in split_top_level(arguments, ",")?.into_iter().enumerate() {
+        if rule.candidate.case.fixed()[axis].is_some() {
+            continue;
+        }
+        let text: String = argument.chars().filter(|c| !c.is_whitespace()).collect();
+        let expected = format!(
+            "n{}_?{}",
+            axis + 1,
+            if sector[axis] {
+                "Positive"
+            } else {
+                "NonPositive"
+            }
+        );
+        if text != expected {
+            return Err(invalid(format!(
+                "reference sector annotation {text} differs from expected {expected}"
+            )));
+        }
+    }
+    let conjunctions = if suffix.trim().is_empty() {
+        Vec::new()
+    } else {
+        let guard = suffix
+            .trim()
+            .strip_prefix("/;")
+            .map(str::trim)
+            .and_then(|guard| guard.strip_prefix('!'))
+            .map(str::trim)
+            .ok_or_else(|| {
+                invalid("expected a whole negated reference exception guard /;!(...)")
+            })?;
+        let inner = strip_guard_parentheses(guard)?;
+        if inner.len() == guard.len() {
+            return Err(invalid(
+                "reference exception guard must be wholly parenthesized",
+            ));
+        }
+        parse_coordinate_guard::<N>(inner)?
+    };
+    let template = &system.rows().iter().flatten().next().unwrap().coefficient;
+    let branches = conjunctions
+        .into_iter()
+        .map(|conjunction| {
+            conjunction
+                .into_iter()
+                .map(|(axis, value)| {
+                    let variable = template
+                        .variable(&template.variables()[system.index_variables()[axis]])
+                        .expect("validated source index variable");
+                    &variable + &template.constant(-value)
+                })
+                .collect()
+        })
+        .collect();
+    let expected = SectorRule {
+        candidate: RuleCandidate {
+            case: rule.candidate.case,
+            target: rule.candidate.target,
+            rhs: Vec::new(),
+            sources: Vec::new(),
+            stats: SearchStats::default(),
+        },
+        exceptions: ExceptionalConditions { branches },
+    };
+    Ok(expected
+        .exceptional_cases(system.index_variables(), sector)?
+        .into_iter()
+        .map(|case| *case.fixed())
+        .collect())
+}
+
+/// Structural Boolean parsing only; integer and polynomial operations remain
+/// native. The returned outer vector is OR and each inner vector is AND.
+fn parse_coordinate_guard<const N: usize>(text: &str) -> Result<Vec<Vec<(usize, Integer)>>> {
+    let text = strip_guard_parentheses(text.trim())?;
+    let disjunction = split_top_level(text, "||")?;
+    if disjunction.len() > 1 {
+        let mut branches = Vec::new();
+        for branch in disjunction {
+            branches.extend(parse_coordinate_guard::<N>(branch)?);
+        }
+        return Ok(branches);
+    }
+    let conjunction = split_top_level(text, "&&")?;
+    if conjunction.len() > 1 {
+        let mut branches = vec![Vec::new()];
+        for factor in conjunction {
+            let alternatives = parse_coordinate_guard::<N>(factor)?;
+            let mut product = Vec::new();
+            for left in &branches {
+                for right in &alternatives {
+                    let mut combined = left.clone();
+                    combined.extend(right.iter().cloned());
+                    product.push(combined);
+                }
+            }
+            branches = product;
+        }
+        return Ok(branches);
+    }
+    if matches!(text, "True" | "true") {
+        return Ok(vec![Vec::new()]);
+    }
+    if matches!(text, "False" | "false") {
+        return Ok(Vec::new());
+    }
+    let atom = split_top_level(text, "==")?;
+    if atom.len() != 2 {
+        return Err(invalid(
+            "unsupported reference guard atom: expected n_i == integer",
+        ));
+    }
+    let index = atom[0]
+        .trim()
+        .strip_prefix('n')
+        .and_then(|index| index.parse::<usize>().ok())
+        .filter(|index| (1..=N).contains(index))
+        .ok_or_else(|| invalid("unsupported reference guard: left side must be one index n_i"))?;
+    if atom[0].trim() != format!("n{index}") {
+        return Err(invalid(
+            "reference guard must use the canonical coordinate name n_i",
+        ));
+    }
+    let literal = atom[1].trim();
+    let digits = literal.strip_prefix(['-', '+']).unwrap_or(literal);
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(invalid(
+            "unsupported reference guard: right side must be an integer literal",
+        ));
+    }
+    let value = literal
+        .parse::<Integer>()
+        .map_err(|_| invalid("unsupported reference guard: right side must be an integer"))?;
+    Ok(vec![vec![(index - 1, value)]])
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::*;
+    use rustred::algebra::CoefficientContext;
+    use rustred::solver::{CoordinateCase, ExceptionalConditions, SearchStats, SectorRule, Term};
+
+    fn fixture() -> (CoefficientContext, SourceSystem<2>, SectorRule<2>) {
+        let context = CoefficientContext::try_new(["d", "a", "b"]).unwrap();
+        let source = SourceSystem::new(
+            vec![vec![Term {
+                integral: Integral::symbolic([0; 2]).unwrap(),
+                coefficient: context.one().numerator,
+            }]],
+            [1, 2],
+        )
+        .unwrap();
+        let rule = SectorRule {
+            candidate: RuleCandidate {
+                case: CoordinateCase::generic(),
+                target: Integral::symbolic([0; 2]).unwrap(),
+                rhs: vec![Term {
+                    integral: Integral::symbolic([-1, 0]).unwrap(),
+                    coefficient: context.one(),
+                }],
+                sources: Vec::new(),
+                stats: SearchStats::default(),
+            },
+            exceptions: ExceptionalConditions {
+                branches: vec![vec![
+                    (&context.parameter("a").unwrap() - &context.one()).numerator,
+                ]],
+            },
+        };
+        (context, source, rule)
+    }
+
+    fn generic_reference(guard: &str) -> String {
+        format!("{{int[n1_?Positive,n2_?Positive]{guard}->(1)*int[-1+n1,0+n2]}}")
+    }
+
+    #[test]
+    fn exact_guard_comparison_rejects_missing_wrong_and_extra_faces() {
+        let (_, source, rule) = fixture();
+        compare_rule(
+            &generic_reference("/;!((n1==1))"),
+            &rule,
+            &source,
+            &[true; 2],
+            None,
+        )
+        .unwrap();
+        for guard in ["", "/;!(n1==2)", "/;!((n1==1)||(n2==1))", "/;!(False)"] {
+            assert!(
+                compare_rule(&generic_reference(guard), &rule, &source, &[true; 2], None).is_err(),
+                "{guard}"
+            );
+        }
+    }
+
+    #[test]
+    fn guard_or_normalization_prunes_duplicates_subfaces_and_impossible_faces() {
+        let (_, source, rule) = fixture();
+        for guard in [
+            "/;!((n1==1)||(n1==1)||(n1==1&&n2==2)||(n1==0))",
+            "/;!((n1==1)||((n1==2)&&(n1==3)))",
+            "/;!(((n1==1)||(n1==0))&&((n2==2)||(n1==1)))",
+        ] {
+            compare_rule(&generic_reference(guard), &rule, &source, &[true; 2], None).unwrap();
+        }
+    }
+
+    #[test]
+    fn reference_sector_annotations_are_required_and_exact() {
+        let (_, source, rule) = fixture();
+        let good = generic_reference("/;!(n1==1)");
+        for bad in [
+            good.replace("n1_?Positive", "n1_?NonPositive"),
+            good.replace("n2_?Positive", "n2_"),
+        ] {
+            assert!(compare_rule(&bad, &rule, &source, &[true; 2], None).is_err());
+        }
+        let inactive = good.replace("n2_?Positive", "n2_?NonPositive");
+        compare_rule(&inactive, &rule, &source, &[true, false], None).unwrap();
+    }
+
+    #[test]
+    fn affine_nonlinear_and_partial_negation_grammar_fails_explicitly() {
+        let (_, source, rule) = fixture();
+        for guard in [
+            "/;!((n1+n2)==2)",
+            "/;!(n1==n2)",
+            "/;!(n1*n2==1)",
+            "/;!(n1==1)||(n2==1)",
+            "/;n1!=1",
+            "/;!(n01==1)",
+            "/;!(n1==1 2)",
+            "/;!(!(n1==1))",
+        ] {
+            assert!(
+                compare_rule(&generic_reference(guard), &rule, &source, &[true; 2], None).is_err(),
+                "{guard}"
+            );
+        }
+    }
+
+    #[test]
+    fn guards_are_intersected_with_fixed_coordinates_and_sector() {
+        let (context, source, mut rule) = fixture();
+        rule.candidate.case = CoordinateCase::new([Some(2), None]).unwrap();
+        rule.candidate.target = rule.candidate.case.integral();
+        rule.candidate.rhs[0].integral =
+            Integral::new([Power::new(false, 1).unwrap(), Power::new(true, 0).unwrap()]);
+        rule.exceptions.branches = vec![vec![context.parameter("b").unwrap().numerator]];
+        compare_rule(
+            "{int[2,n2_?NonPositive]/;!((n1==1)||((n1==2)&&(n2==0))||(n2==1))->(1)*int[1,0+n2]}",
+            &rule,
+            &source,
+            &[true, false],
+            None,
+        )
+        .unwrap();
+        assert!(
+            compare_rule(
+                "{int[2,n2_?NonPositive]/;!(n1==2)->(1)*int[1,0+n2]}",
+                &rule,
+                &source,
+                &[true, false],
+                None,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn no_exceptions_agrees_with_an_impossible_reference_exception() {
+        let (_, source, mut rule) = fixture();
+        rule.exceptions.branches.clear();
+        for guard in ["", "/;!(False)", "/;!(n1==0)", "/;!((n1==1)&&(n1==2))"] {
+            compare_rule(&generic_reference(guard), &rule, &source, &[true; 2], None).unwrap();
+        }
+        assert!(
+            compare_rule(
+                &generic_reference("/;!(True)"),
+                &rule,
+                &source,
+                &[true; 2],
+                None
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn native_candidate_affine_guard_is_not_silently_ignored() {
+        let (context, source, mut rule) = fixture();
+        rule.exceptions.branches = vec![vec![
+            (&context.parameter("a").unwrap() - &context.parameter("b").unwrap()).numerator,
+        ]];
+        assert!(compare_rule(&generic_reference(""), &rule, &source, &[true; 2], None).is_err());
+    }
+}
+
+/// Remove only parentheses enclosing the WHOLE expression. In particular,
+/// `(a)||(b)` is not mistaken for one wrapped expression.
+fn strip_guard_parentheses(mut text: &str) -> Result<&str> {
+    split_top_level(text, "\0")?; // Validate delimiter balance first.
+    loop {
+        text = text.trim();
+        if !text.starts_with('(') {
+            return Ok(text);
+        }
+        let mut depth = 0usize;
+        let mut closing = None;
+        for (position, byte) in text.bytes().enumerate() {
+            match byte {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        closing = Some(position);
+                        break;
+                    }
+                }
+                _ => (),
+            }
+        }
+        if closing != Some(text.len() - 1) {
+            return Ok(text);
+        }
+        text = &text[1..text.len() - 1];
+    }
+}
+
+fn add_term<const N: usize>(
+    terms: &mut BTreeMap<Integral<N>, Coefficient>,
+    integral: Integral<N>,
+    coefficient: Coefficient,
+) {
+    if let Some(previous) = terms.get_mut(&integral) {
+        *previous = &*previous + &coefficient;
+    } else {
+        terms.insert(integral, coefficient);
+    }
+}
+
+fn require_coordinate_pattern<const N: usize>(
+    integral: &Integral<N>,
+    fixed: &[Option<i16>; N],
+) -> Result<()> {
+    for (coordinate, value) in fixed.iter().enumerate() {
+        if integral[coordinate].is_symbolic() != value.is_none() {
+            return Err(invalid(format!(
+                "RHS coordinate {} does not preserve the LHS symbolic/fixed pattern",
+                coordinate + 1
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn parse_lhs<const N: usize>(text: &str) -> Result<[Option<i16>; N]> {
+    let (coordinates, suffix) = integral_arguments(text)?;
+    if !suffix.trim().is_empty()
+        && !suffix
+            .trim()
+            .strip_prefix("/;")
+            .is_some_and(|guard| !guard.trim().is_empty())
+    {
+        return Err(invalid("unexpected text after the reference LHS integral"));
+    }
+    let coordinates = split_top_level(coordinates, ",")?;
+    if coordinates.len() != N {
+        return Err(invalid(format!(
+            "expected {N} coordinates on the reference LHS"
+        )));
+    }
+    let mut fixed = [None; N];
+    for (coordinate, text) in coordinates.into_iter().enumerate() {
+        let text: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+        if let Some((name, annotation)) = text.split_once('_') {
+            if name != format!("n{}", coordinate + 1)
+                || !matches!(annotation, "" | "?Positive" | "?NonPositive")
+            {
+                return Err(invalid(format!(
+                    "invalid reference pattern coordinate {text}"
+                )));
+            }
+        } else {
+            let value = text
+                .parse::<i16>()
+                .map_err(|_| invalid(format!("invalid fixed reference coordinate {text}")))?;
+            Power::new(false, value)?;
+            fixed[coordinate] = Some(value);
+        }
+    }
+    Ok(fixed)
+}
+
+fn parse_integral<const N: usize>(text: &str) -> Result<Integral<N>> {
+    let (coordinates, suffix) = integral_arguments(text)?;
+    if !suffix.trim().is_empty() {
+        return Err(invalid("unexpected text after an RHS integral"));
+    }
+    let coordinates = split_top_level(coordinates, ",")?;
+    if coordinates.len() != N {
+        return Err(invalid(format!(
+            "expected {N} coordinates in an RHS integral"
+        )));
+    }
+    let mut powers = [Power::default(); N];
+    for (coordinate, text) in coordinates.into_iter().enumerate() {
+        let text: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+        let symbolic = text
+            .split_once("+n")
+            .map(|(shift, index)| (shift, index))
+            .or_else(|| text.strip_prefix('n').map(|index| ("0", index)));
+        powers[coordinate] = if let Some((shift, index)) = symbolic {
+            if index != (coordinate + 1).to_string() {
+                return Err(invalid(format!(
+                    "reference index n{index} appears in coordinate {}",
+                    coordinate + 1
+                )));
+            }
+            Power::new(
+                true,
+                shift
+                    .parse::<i16>()
+                    .map_err(|_| invalid(format!("invalid reference integral shift {shift}")))?,
+            )?
+        } else {
+            Power::new(
+                false,
+                text.parse::<i16>().map_err(|_| {
+                    invalid(format!("invalid reference integral coordinate {text}"))
+                })?,
+            )?
+        };
+    }
+    Ok(Integral::new(powers))
+}
+
+fn integral_arguments(text: &str) -> Result<(&str, &str)> {
+    let body = text
+        .trim()
+        .strip_prefix("int[")
+        .ok_or_else(|| invalid("expected int[...] in the reference rule"))?;
+    let end = body
+        .find(']')
+        .ok_or_else(|| invalid("unclosed reference integral"))?;
+    Ok((&body[..end], &body[end + 1..]))
+}
+
+/// Split only outside balanced (), [] and {}. This recognizes the export's
+/// containers and separators; Symbolica owns coefficient expression parsing.
+fn split_top_level<'a>(text: &'a str, separator: &str) -> Result<Vec<&'a str>> {
+    if text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let bytes = text.as_bytes();
+    let mut stack = Vec::new();
+    let mut start = 0;
+    let mut position = 0;
+    let mut parts = Vec::new();
+    while position < bytes.len() {
+        if stack.is_empty() && bytes[position..].starts_with(separator.as_bytes()) {
+            let part = text[start..position].trim();
+            if part.is_empty() {
+                return Err(invalid("empty element in reference rule syntax"));
+            }
+            parts.push(part);
+            position += separator.len();
+            start = position;
+            continue;
+        }
+        match bytes[position] {
+            b'(' => stack.push(b')'),
+            b'[' => stack.push(b']'),
+            b'{' => stack.push(b'}'),
+            close @ (b')' | b']' | b'}') => {
+                if stack.pop() != Some(close) {
+                    return Err(invalid("mismatched delimiters in reference rule syntax"));
+                }
+            }
+            _ => {}
+        }
+        position += 1;
+    }
+    if !stack.is_empty() {
+        return Err(invalid("unclosed delimiter in reference rule syntax"));
+    }
+    let last = text[start..].trim();
+    if last.is_empty() {
+        return Err(invalid("trailing separator in reference rule syntax"));
+    }
+    parts.push(last);
+    Ok(parts)
+}
+
+fn is_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustred::algebra::CoefficientContext;
+    use rustred::solver::{CoordinateCase, SearchStats, Term};
+
+    fn fixture() -> (SourceSystem<1>, RuleCandidate<1>) {
+        // The reference n1 must map by coordinate, not by the native symbol's
+        // spelling or position: its actual source variable here is "a".
+        let context = CoefficientContext::try_new(["d", "a"]).unwrap();
+        let source = SourceSystem::new(
+            vec![vec![Term {
+                integral: Integral::symbolic([0]).unwrap(),
+                coefficient: context.one().numerator,
+            }]],
+            [1],
+        )
+        .unwrap();
+        let candidate = RuleCandidate {
+            case: CoordinateCase::generic(),
+            target: Integral::symbolic([0]).unwrap(),
+            rhs: vec![Term {
+                integral: Integral::symbolic([-1]).unwrap(),
+                coefficient: &context.parameter("a").unwrap() + &context.one(),
+            }],
+            sources: Vec::new(),
+            stats: SearchStats::default(),
+        };
+        (source, candidate)
+    }
+
+    #[test]
+    fn exact_comparison_uses_native_normalization_and_coordinate_variable_mapping() {
+        let (source, candidate) = fixture();
+        let reference = "{int[n1_?Positive]/;!((n1==1))->((n1^2-1)/(n1-1))*int[-1+n1]}";
+        compare(reference, &candidate, &source, None).unwrap();
+        assert!(
+            compare(
+                "{int[n1_?Positive]->(n1+2)*int[-1+n1]}",
+                &candidate,
+                &source,
+                None,
+            )
+            .is_err()
+        );
+        assert!(compare("{int[n1_?Positive]->0}", &candidate, &source, None).is_err());
+        assert!(compare("{int[1]->0}", &candidate, &source, None).is_err());
+    }
+
+    #[test]
+    fn mass_specialization_is_explicit_and_undefined_specializations_fail() {
+        let (source, candidate) = fixture();
+        let reference = "{int[n1_?Positive]->((n1+1)/m)*int[-1+n1]}";
+        compare(reference, &candidate, &source, Some("m")).unwrap();
+        assert!(compare(reference, &candidate, &source, None).is_err());
+        assert!(
+            compare(
+                "{int[n1_?Positive]->((n1+1)/(m-1))*int[-1+n1]}",
+                &candidate,
+                &source,
+                Some("m"),
+            )
+            .is_err()
+        );
+        assert!(compare(reference, &candidate, &source, Some("n1")).is_err());
+    }
+
+    #[test]
+    fn fixed_coordinates_are_specialized_and_ambiguous_patterns_rejected() {
+        let (source, mut candidate) = fixture();
+        candidate.case = CoordinateCase::new([Some(2)]).unwrap();
+        candidate.target = candidate.case.integral();
+        candidate.rhs[0].integral = Integral::numeric([1]).unwrap();
+        candidate.rhs[0].coefficient = source.rows()[0][0]
+            .coefficient
+            .constant(Integer::from(3))
+            .into();
+        compare("{int[2]->(n1+1)*int[1]}", &candidate, &source, None).unwrap();
+        assert!(
+            compare(
+                "{int[2]->(3)*int[1],int[2]/;!(n1==1)->(3)*int[1]}",
+                &candidate,
+                &source,
+                None,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn split_respects_nested_guards_and_integral_coordinates() {
+        let rules = "int[n1_?Positive,1]/;!((n1==1))->((n1+2)/(3*n1-3))*int[-1+n1,1],int[1,1]->0";
+        let split = split_top_level(rules, ",").unwrap();
+        assert_eq!(split.len(), 2);
+        let rule = split_top_level(split[0], "->").unwrap();
+        assert_eq!(rule.len(), 2);
+        assert_eq!(parse_lhs::<2>(rule[0]).unwrap(), [None, Some(1)]);
+        assert!(split_top_level("int[1,2)", ",").is_err());
+        assert!(split_top_level("int[1,2],", ",").is_err());
+    }
+
+    #[test]
+    fn integral_parser_checks_coordinate_names_types_and_compact_bounds() {
+        let integral = parse_integral::<3>("int[-2+n1, 0+n2, -1]").unwrap();
+        assert_eq!(integral.powers().map(Power::value), [-2, 0, -1]);
+        assert!(integral[0].is_symbolic());
+        assert!(!integral[2].is_symbolic());
+        assert!(parse_integral::<2>("int[-1+n2,0+n1]").is_err());
+        assert!(parse_integral::<1>("int[64+n1]").is_err());
+        assert!(parse_lhs::<2>("int[n2_?Positive,1]").is_err());
+        assert!(require_coordinate_pattern(&integral, &[None, Some(1), None]).is_err());
+    }
+}

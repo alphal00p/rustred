@@ -17,17 +17,23 @@ two-loop unit-mass vacuum families.
 ## Pinned backend
 
 The workspace requests `symbolica = "=2.2.0"` with default features disabled
-and exactly the `gmp` and `tracing_max_level_info` features enabled in the
+and exactly the `integer-gmp`, `float-mpfr`, and
+`tracing_max_level_info` features enabled in the
 [`workspace manifest`](../Cargo.toml). The workspace root patches Symbolica,
 Graphica, and Numerica to the checked-in
-[`vendor/symbolica`](../vendor/symbolica) tree. That tree is pinned at revision
-`77c137481904b8a5531ede86e3ef36b82beed7fd` and declares Symbolica 2.2.0 in its
-[`Cargo.toml`](../vendor/symbolica/Cargo.toml).
+[`vendor/symbolica`](../vendor/symbolica) tree. The submodule tracks Symbolica's
+`dev` branch for explicit remote updates; the RustRed parent repository still
+pins every checkout reproducibly to one commit, currently
+`3805d02ed6de0ee3fd3011cdf584cc3972aff40e`. The tree continues to declare
+Symbolica 2.2.0 in its [`Cargo.toml`](../vendor/symbolica/Cargo.toml).
 
 Consequences of this configuration are deliberate:
 
 - GMP-backed `Integer` is the arbitrary-precision integer authority;
-- the `no_gmp` feature is unsupported and must never enter a RustRed build;
+- MPFR is the selected floating-point backend required by the current
+  Symbolica feature contract;
+- the alternative `integer-malachite` and `float-astro` backends are not part
+  of the authenticated RustRed configuration;
 - disabling Symbolica defaults also avoids its process-global
   `faster_alloc`/mimalloc choice; and
 - RustRed's registry-shaped exact dependency can be resolved to one compatible

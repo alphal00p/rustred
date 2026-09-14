@@ -105,7 +105,7 @@ pub(crate) fn integer_magnitude_bits(value: &Integer) -> u64 {
             u64::from(i64::BITS - magnitude.leading_zeros())
         }
         Integer::Double(value) => {
-            let magnitude = value.unsigned_abs();
+            let magnitude = value.get().unsigned_abs();
             u64::from(i128::BITS - magnitude.leading_zeros())
         }
         Integer::Large(value) => u64::from(value.significant_bits()),
@@ -135,7 +135,10 @@ mod tests {
 
     #[test]
     fn integer_magnitude_bits_handles_double_and_large_boundaries() {
-        assert_eq!(integer_magnitude_bits(&Integer::Double(i128::MIN)), 128);
+        assert_eq!(
+            integer_magnitude_bits(&Integer::Double(i128::MIN.into())),
+            128
+        );
 
         let large = Integer::from(1) << 200_u32;
         assert!(matches!(large, Integer::Large(_)));

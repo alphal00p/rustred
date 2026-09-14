@@ -286,7 +286,7 @@ impl IndexedCoefficientContext {
                 )
             })?;
         }
-        if result.variables.as_ref() != self.variables.as_ref() {
+        if result.variables().as_ref() != self.variables.as_ref() {
             return Err(IndexedAlgebraError::WrongContext);
         }
         verify_polynomial_execution_envelope(

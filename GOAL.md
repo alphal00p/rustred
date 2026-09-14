@@ -1,5 +1,24 @@
 # RustRed project goal
 
+## Active reference-port assignment (2026-09-14)
+
+The current tool-managed assignment is to port the actual C++ SpIRed
+`solver::solveSector` algorithm in `vendor/spired`, using existing RustRed
+family preparation and native Symbolica/numerica algebra. This supersedes
+earlier interpretations of the notes wherever the reference's executable
+algorithm differs. The immediate acceptance set is **all supplied one- through
+three-loop (2–4PM) examples**, at equal or better release performance and with
+identical or algebraically smaller rules. The vacuum examples are additional
+measured workloads, not substitutes for the PM examples.
+
+The implementation and verification sequence is in
+[`docs/spired_port.md`](docs/spired_port.md). Compact search state belongs in
+`solver`; existing artifact ownership and certification are separate from its
+per-row hot path. Janet/Ore and the longer-term Stage 1/Stage 2 integration
+objectives remain available but do not redefine this reference-port assignment.
+When there is an unresolved policy conflict between existing RustRed behavior
+and SpIRed, ask the user before deciding it.
+
 ## Preamble — user directive (verbatim)
 
 ````text

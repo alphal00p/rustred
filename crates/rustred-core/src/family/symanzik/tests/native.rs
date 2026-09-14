@@ -191,7 +191,7 @@ fn singular_native_four_by_four_zero_is_rebound_to_the_context_variable_map() {
     let determinant = checked_determinant(&context, &matrix, &mut work).unwrap();
 
     assert!(determinant.is_zero());
-    assert_eq!(determinant.raw.variables, context.variables);
+    assert_eq!(determinant.raw.variables(), &context.variables);
     context.authenticate(&determinant).unwrap();
 }
 
@@ -261,7 +261,7 @@ fn native_constant_four_by_four_retains_the_authenticated_variable_map() {
     let determinant = checked_determinant(&context, &matrix, &mut work).unwrap();
 
     assert_eq!(determinant, integer(&context, 24));
-    assert_eq!(determinant.raw.variables, context.variables);
+    assert_eq!(determinant.raw.variables(), &context.variables);
     context.authenticate(&determinant).unwrap();
 }
 
@@ -407,7 +407,7 @@ fn native_outer_arithmetic_and_gradient_retain_the_context_map() {
         square.coefficient(&[0, 2, 0, 0, 0]),
         Some(&context.coefficients.one())
     );
-    assert!(Arc::ptr_eq(&square.raw.variables, &context.variables));
+    assert!(Arc::ptr_eq(square.raw.variables(), &context.variables));
 
     let scaled = context
         .scale(
@@ -416,16 +416,16 @@ fn native_outer_arithmetic_and_gradient_retain_the_context_map() {
             &mut work,
         )
         .unwrap();
-    assert!(Arc::ptr_eq(&scaled.raw.variables, &context.variables));
+    assert!(Arc::ptr_eq(scaled.raw.variables(), &context.variables));
 
     let zero = context.sub(&scaled, &scaled, &mut work).unwrap();
     assert!(zero.is_zero());
-    assert!(Arc::ptr_eq(&zero.raw.variables, &context.variables));
+    assert!(Arc::ptr_eq(zero.raw.variables(), &context.variables));
 
     let gradient = context.try_gradient(&square).unwrap();
     assert_eq!(gradient.len(), context.parameter_count());
     for derivative in &gradient {
-        assert!(Arc::ptr_eq(&derivative.raw.variables, &context.variables));
+        assert!(Arc::ptr_eq(derivative.raw.variables(), &context.variables));
         context.authenticate(derivative).unwrap();
     }
     assert_eq!(gradient[0].term_count(), 2);

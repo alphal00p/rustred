@@ -36,7 +36,7 @@ pub(crate) fn validate_polynomial_on_map(
     part: CoefficientPolynomialPart,
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
-    if polynomial.variables.as_ref() != variables.as_ref() {
+    if polynomial.variables().as_ref() != variables.as_ref() {
         return Err(ExactAlgebraError::VariableMapMismatch { part });
     }
     let expected = polynomial
@@ -132,7 +132,7 @@ pub(crate) fn coefficient_clone_owned_retained_byte_bound(
             )?;
         for coefficient in &polynomial.coefficients {
             if let Integer::Large(value) = coefficient {
-                let capacity_bits = usize::try_from(value.capacity()).ok()?;
+                let capacity_bits = usize::try_from(value.as_raw().capacity()).ok()?;
                 bytes = bytes.checked_add(capacity_bits.checked_add(7)?.checked_div(8)?)?;
             }
         }

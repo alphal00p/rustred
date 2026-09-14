@@ -265,7 +265,7 @@ impl IndexedCoefficientContext {
             }
         })?;
         for (monomial, index_polynomial) in split {
-            debug_assert_eq!(monomial.len(), value.raw().variables.len());
+            debug_assert_eq!(monomial.len(), value.raw().variables().len());
             debug_assert!(monomial[base_count..].iter().all(|&power| power == 0));
             debug_assert!(
                 index_polynomial
@@ -964,9 +964,9 @@ fn exact_linear_integer_root(
     variable_position: usize,
 ) -> Option<Integer> {
     let univariate = factor.to_univariate_from_univariate(variable_position);
-    debug_assert_eq!(univariate.coefficients.len(), 2);
-    let constant = univariate.coefficients[0].clone();
-    let leading = univariate.coefficients[1].clone();
+    debug_assert_eq!(univariate.coefficients().len(), 2);
+    let constant = univariate.coefficients()[0].clone();
+    let leading = univariate.coefficients()[1].clone();
     let numerator = -constant;
     let root = numerator.clone() / leading.clone();
     (root.clone() * leading == numerator).then_some(root)

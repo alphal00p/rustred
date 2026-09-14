@@ -14,7 +14,9 @@ pub(in crate::input::affine) fn integer_magnitude_bits(
 ) -> Result<usize, SymbolicaAffineDenominatorError> {
     let bits = match integer {
         Integer::Single(value) => u64::from(u64::BITS - value.unsigned_abs().leading_zeros()),
-        Integer::Double(value) => u64::from(u128::BITS - value.unsigned_abs().leading_zeros()),
+        Integer::Double(value) => {
+            u64::from(u128::BITS - value.get().unsigned_abs().leading_zeros())
+        }
         Integer::Large(value) => u64::from(value.significant_bits()),
     };
     usize::try_from(bits).map_err(|_| SymbolicaAffineDenominatorError::ResourceCountOverflow {
@@ -29,7 +31,7 @@ pub(in crate::input::affine) fn signed_i64_magnitude_bits(value: i64) -> usize {
 fn integer_owned_heap_bytes(integer: &Integer) -> Result<usize, SymbolicaAffineDenominatorError> {
     match integer {
         Integer::Single(_) | Integer::Double(_) => Ok(0),
-        Integer::Large(value) => usize::try_from(value.capacity())
+        Integer::Large(value) => usize::try_from(value.as_raw().capacity())
             .map_err(|_| SymbolicaAffineDenominatorError::ResourceCountOverflow {
                 resource: "integer owned heap bytes",
             })?
@@ -46,7 +48,7 @@ pub(in crate::input::affine) fn polynomial_census(
 ) -> Result<CoefficientCensus, SymbolicaAffineDenominatorError> {
     let polynomial_terms = polynomial.nterms();
     let exponent_entries = polynomial_terms
-        .checked_mul(polynomial.variables.len())
+        .checked_mul(polynomial.variables().len())
         .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
             resource: "polynomial census exponent entries",
         })?;
@@ -139,7 +141,7 @@ pub(in crate::input::affine) fn retained_variable_map_arc_bytes<'a>(
     let mut bytes = 0usize;
     for coefficient in coefficients {
         for polynomial in [&coefficient.numerator, &coefficient.denominator] {
-            let identity = Arc::as_ptr(&polynomial.variables) as usize;
+            let identity = Arc::as_ptr(polynomial.variables()) as usize;
             if distinct.insert(identity) {
                 let arc_header = std::mem::size_of::<usize>().checked_mul(2).ok_or(
                     SymbolicaAffineDenominatorError::ResourceCountOverflow {
@@ -147,7 +149,7 @@ pub(in crate::input::affine) fn retained_variable_map_arc_bytes<'a>(
                     },
                 )?;
                 let variable_payload = polynomial
-                    .variables
+                    .variables()
                     .capacity()
                     .checked_mul(std::mem::size_of::<PolyVariable>())
                     .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {

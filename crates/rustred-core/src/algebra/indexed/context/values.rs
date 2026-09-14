@@ -199,7 +199,7 @@ impl IndexedCoefficientContext {
 
     fn raw_has_sealed_shape(&self, raw: &Coefficient) -> bool {
         let polynomial_has_shape = |polynomial: &CoefficientPolynomial| {
-            polynomial.variables.as_ref() == self.variables.as_ref()
+            polynomial.variables().as_ref() == self.variables.as_ref()
                 && polynomial
                     .coefficients
                     .len()
@@ -381,7 +381,7 @@ fn preflight_guard_polynomial_payload(
                     resource: "guard polynomial serialized payload bytes",
                 })?;
         if let Integer::Large(value) = coefficient {
-            let capacity_bits = usize::try_from(value.capacity()).map_err(|_| {
+            let capacity_bits = usize::try_from(value.as_raw().capacity()).map_err(|_| {
                 IndexedAlgebraError::ResourceCountOverflow {
                     resource: "guard polynomial cloned payload bytes",
                 }

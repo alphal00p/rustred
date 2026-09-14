@@ -42,11 +42,11 @@ fn zero_and_constant_specializations_rebind_the_exact_base_map() {
             .unwrap();
         assert!(denominator_nonzero.is_none());
         assert_eq!(
-            specialized.numerator.variables.as_ref(),
+            specialized.numerator.variables().as_ref(),
             base.variables().as_ref()
         );
         assert_eq!(
-            specialized.denominator.variables.as_ref(),
+            specialized.denominator.variables().as_ref(),
             base.variables().as_ref()
         );
     }
@@ -213,7 +213,7 @@ fn fixed_index_specialization_retains_unfixed_indices_and_denominator_guard() {
     assert!(zero.is_zero());
     assert_eq!(guard.raw(), &denominator.raw().numerator);
     assert_eq!(
-        guard.raw().variables.as_ref(),
+        guard.raw().variables().as_ref(),
         context.variables.as_ref(),
         "partial specialization must keep the authenticated indexed map"
     );

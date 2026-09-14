@@ -55,7 +55,7 @@ fn primitive_magnitude_bytes(value: u128) -> usize {
 fn integer_magnitude_bytes(value: &Integer) -> usize {
     match value {
         Integer::Single(value) => primitive_magnitude_bytes(u128::from(value.unsigned_abs())),
-        Integer::Double(value) => primitive_magnitude_bytes(value.unsigned_abs()),
+        Integer::Double(value) => primitive_magnitude_bytes(value.get().unsigned_abs()),
         Integer::Large(value) => lsf_byte_size(value),
     }
 }
@@ -142,7 +142,7 @@ fn encode_integer(writer: &mut Writer, value: &Integer) -> Result<(), ArtifactPe
             writer.raw(&bytes[..len])
         }
         Integer::Double(value) => {
-            let (bytes, len) = primitive_magnitude(value.unsigned_abs());
+            let (bytes, len) = primitive_magnitude(value.get().unsigned_abs());
             write_length(writer, len, "integer magnitude bytes")?;
             writer.raw(&bytes[..len])
         }

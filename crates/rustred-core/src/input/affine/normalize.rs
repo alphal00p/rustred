@@ -132,7 +132,7 @@ fn polynomial_degrees(
     polynomial: &CoefficientPolynomial,
     expected_variables: usize,
 ) -> Result<Vec<u16>, SymbolicaAffineDenominatorError> {
-    if polynomial.variables.len() != expected_variables {
+    if polynomial.variables().len() != expected_variables {
         return Err(
             SymbolicaAffineDenominatorError::InternalVerificationFailure {
                 detail: "degree census found a polynomial on the wrong variable map",

@@ -1092,7 +1092,7 @@ fn max_integer_bits(polynomial: &CoefficientPolynomial) -> Result<usize, Involut
                 Ok((i64::BITS - value.unsigned_abs().leading_zeros()) as usize)
             }
             Integer::Double(value) => {
-                Ok((i128::BITS - value.unsigned_abs().leading_zeros()) as usize)
+                Ok((i128::BITS - value.get().unsigned_abs().leading_zeros()) as usize)
             }
             Integer::Large(value) => usize::try_from(value.significant_bits()).map_err(|_| {
                 InvolutiveError::ResourceCountOverflow {

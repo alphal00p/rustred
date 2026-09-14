@@ -57,7 +57,7 @@ fn polynomial_power_degree_box(
     limit: usize,
 ) -> Result<usize, ExactAlgebraError> {
     let mut terms = 1usize;
-    for variable in 0..polynomial.variables.len() {
+    for variable in 0..polynomial.variables().len() {
         let degree = u64::from(polynomial.degree(variable))
             .checked_mul(exponent)
             .ok_or(ExactAlgebraError::ExponentArithmeticOverflow {
