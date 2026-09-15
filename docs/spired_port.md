@@ -272,6 +272,13 @@ sector `111111`, it took 68.467 ms versus 64.371 ms (whole process 82 ms versus
 reconstruction wins every case. Constant frames intentionally remain on the
 exact sparse path.
 
+As a PM smoke comparison, `fam1_11` sector `111111111` produced seven
+byte-identical rules with 25.245 ms semi-numerical sector solve time versus
+1.389 ms sparse exact. The gap is expected for this small frame: reconstruction
+has a fixed multi-prime/interpolation cost, while the exact sparse row is tiny.
+The route is intended for expression-swell cases, so this result is a baseline,
+not a rejection of the strategy.
+
 ### Opt-in target-block exact lifting
 
 `SymbolicExactBackend::SparseTargetOnly` is an experimental alternative exact
