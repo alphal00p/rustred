@@ -6,7 +6,7 @@
 //! with the parsed `examples/input/four_loop_h.toml` project once generic
 //! closure orchestration is exposed at the application boundary.
 //!
-//! Usage: spired-generate-four-loop-h <new-output.rr> [workers]
+//! Usage: spired-generate-four-loop-h <new-output.rr> [workers] [permutation]
 
 use std::error::Error;
 use std::fs::OpenOptions;
@@ -27,7 +27,7 @@ fn main() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
     let output = args
         .next()
-        .ok_or("usage: spired-generate-four-loop-h <new-output.rr> [workers]")?;
+        .ok_or("usage: spired-generate-four-loop-h <new-output.rr> [workers] [permutation]")?;
     let output = std::path::PathBuf::from(output);
     let workers = args
         .next()
@@ -40,6 +40,24 @@ fn main() -> Result<()> {
         })
         .transpose()?
         .unwrap_or(1);
+    let permutation = args
+        .next()
+        .map(|value| {
+            let text = value
+                .into_string()
+                .map_err(|_| "permutation must be comma-separated integers".to_owned())?;
+            let values = text
+                .split(',')
+                .map(|item| {
+                    item.parse::<usize>()
+                        .map_err(|_| "permutation must be comma-separated integers".to_owned())
+                })
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            values
+                .try_into()
+                .map_err(|_: Vec<usize>| "permutation must contain exactly ten coordinates".to_owned())
+        })
+        .transpose()?;
     if args.next().is_some() || output.try_exists()? {
         return Err(
             "expected a new output path and optional worker count; refusing overwrite".into(),
@@ -68,6 +86,7 @@ fn main() -> Result<()> {
         &sectors,
         &SectorConfig {
             zero_sectors: zeros,
+            permutation,
             ..Default::default()
         },
         SectorSolveOptions::default(),
