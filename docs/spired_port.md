@@ -159,10 +159,11 @@ benchmark batches, memory figures, host contention, and remaining scaling limits
 
 ## Opt-in search phase diagnostics (2026-09-15)
 
-`SectorSolver::solve_case_with_observer` exposes coarse `SearchEvent` milestones:
+`SectorSolver::solve_case_with_observer` exposes `SearchEvent` milestones:
 depth/power-of-two seed progress, the winning modular pivot and exact dependency
-trace, and canonicalization. The sector observer forwards these with the active
-case and adds guard-extraction and exceptional-geometry boundaries. This does
+trace, the prepared exact frame, each selected exact row's native reduction,
+and canonicalization. The sector observer forwards these with the active case
+and adds guard-extraction and exceptional-geometry boundaries. Observations do
 not change source enumeration, pivot selection or exact arithmetic. The no-op
 path adds no formatting, synchronization, clock reads or exact-row copies.
 
@@ -171,11 +172,43 @@ equality at case entry, not only the integral pattern. Native GPLU column,
 pivot, U-nonzero and L-entry counts describe discovery state at the hit;
 the separate dependency-trace count identifies the selected source rows,
 not the compact exact frame's column count or fill.
+The subsequent `exact-frame` event reports that compact frame's actual column
+union, stored input terms, and full/active coefficient-variable counts.
+`exact-row-start` / `exact-row-finish` bracket each selected source row, including
+dependent rows, and expose native exact U size. Row ordinals are one-based;
+column positions are zero-based. The structural zero sentinel is excluded from
+integral-column counts. There is still no per-row modular progress event.
 `gplu_exact_and_canonicalization_us` describes the modular-hit path only;
 direct-hit normalization is included in total search time. Optional diagnostic
 I/O must not be compared as if it were a silent benchmark run. Four focused
 solver tests cover unchanged direct/modular identities, a bounded miss and
 sector event order; they pass within the 211-test solver/source-replay batch.
+
+### Native exact-frame variable compaction
+
+Selected rows can retain a full coefficient-variable map even when fixed-index
+specialization has removed most variables from every numerator and denominator.
+Before exact GPLU, RustRed now computes their support union with native
+`MultivariatePolynomial::contains` and uses Symbolica's checked
+`rearrange_with_growth` to remove only globally absent variables. The active
+variables keep their original relative order. Every output coefficient is
+restored to the full original map before canonicalization, source replay or
+guard extraction. Physical integral columns, source chronology and the target
+stop are unchanged; this is not a kinematic substitution or reconstruction.
+
+This can unlock Symbolica's existing packed-exponent polynomial division:
+the inspected native implementation selects that path at at most eight
+variables with degrees at most 127 (or at most four variables with degrees at
+most 32767). A 17-slot map bypasses it even if only six variables actually
+occur. This is an implementation-motivated optimization, not a speedup claim
+until the same release workloads are measured.
+
+Five focused helper tests cover denominator-only variables, empty/constant
+frames, unchanged maps, incompatible contexts and checked remapping failures.
+An exact GPLU fixture verifies a 17-to-2-variable reduction restores the same
+full-context rational identity. Native row-event tests also check dependent
+rows, explicit zero input coefficients and the early target stop. The combined
+solver/source-port batch passes 225 tests; all 53 example tests pass.
 
 ## Per-job orderings and integrated affine cases (2026-09-14)
 

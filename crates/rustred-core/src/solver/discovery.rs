@@ -14,6 +14,8 @@ use super::{ExactRow, Integral, IntegralOrder, Term};
 type NumericalCoefficient = <Zp64 as Set>::Element;
 type ExactField = RationalPolynomialField<IntegerRing, u16>;
 
+mod variables;
+
 /// Sizes of the numerical system, excluding its structural zero sentinel.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DiscoveryStats {
@@ -29,6 +31,35 @@ pub struct DiscoveryStats {
     /// Native L column indices, including accepted diagonals and the patterns
     /// of dependent inputs. Pattern mode stores no coefficient values.
     pub retained_l_entries: usize,
+}
+
+/// Exact-frame diagnostics, distinct from the larger modular discovery system.
+/// All sizes are structural native storage counts; no coefficient expansion,
+/// expression copies, timing or formatting is performed for these events.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaterializationEvent<const N: usize> {
+    FramePrepared {
+        source_rows: usize,
+        integral_columns: usize,
+        target_column: usize,
+        /// Stored input terms, including any explicit coefficient zeros.
+        input_terms: usize,
+        coefficient_variables: usize,
+        active_variables: usize,
+    },
+    RowStarted {
+        /// One-based ordinal in the selected original-source trace.
+        row: usize,
+        input_nonzeros: usize,
+        reducer_rows: usize,
+        reducer_nonzeros: usize,
+    },
+    RowFinished {
+        row: usize,
+        pivot: Option<Integral<N>>,
+        reducer_rows: usize,
+        reducer_nonzeros: usize,
+    },
 }
 
 /// Incremental SpIRed GPLU over all integral columns in harder-first order.
@@ -214,12 +245,14 @@ impl<const N: usize> Discovery<N> {
 }
 
 /// Exact replay failed to recover the numerical target pivot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MaterializationError {
     TooManyColumns,
     NonCanonicalRow { row: usize },
     TargetAbsent,
     TargetNotPivot,
+    CoefficientVariableMapMismatch,
+    CoefficientVariableRemap(String),
 }
 
 impl fmt::Display for MaterializationError {
@@ -238,6 +271,18 @@ impl fmt::Display for MaterializationError {
             Self::TargetNotPivot => {
                 write!(f, "selected exact rows do not produce the target pivot")
             }
+            Self::CoefficientVariableMapMismatch => {
+                write!(
+                    f,
+                    "selected exact coefficients have inconsistent variable maps"
+                )
+            }
+            Self::CoefficientVariableRemap(reason) => {
+                write!(
+                    f,
+                    "native exact coefficient variable remap failed: {reason}"
+                )
+            }
         }
     }
 }
@@ -249,10 +294,22 @@ impl std::error::Error for MaterializationError {}
 /// `rows` must be in the order returned by [`Discovery::trace`]. Like SpIRed's
 /// `runGPLU`, stop when `target` is the new pivot and return that normalized U
 /// row. Later pivots and back substitution are unnecessary for this solution.
+#[cfg(test)]
 pub fn exact_materialize<const N: usize>(
     rows: &[ExactRow<N>],
     order: &IntegralOrder<N>,
     target: Integral<N>,
+) -> Result<ExactRow<N>, MaterializationError> {
+    exact_materialize_with_observer(rows, order, target, |_| {})
+}
+
+/// The observer brackets each native exact row reduction, including dependent
+/// inputs. It cannot change row order, pivots, or the early target stop.
+pub fn exact_materialize_with_observer<const N: usize>(
+    rows: &[ExactRow<N>],
+    order: &IntegralOrder<N>,
+    target: Integral<N>,
+    mut observe: impl FnMut(MaterializationEvent<N>),
 ) -> Result<ExactRow<N>, MaterializationError> {
     let mut columns = Vec::new();
     for (row_id, row) in rows.iter().enumerate() {
@@ -274,11 +331,20 @@ pub fn exact_materialize<const N: usize>(
         .checked_add(1)
         .and_then(|count| u32::try_from(count).ok())
         .ok_or(MaterializationError::TooManyColumns)?;
+    let variables = variables::FrameVariables::try_new(rows)?;
+    observe(MaterializationEvent::FramePrepared {
+        source_rows: rows.len(),
+        integral_columns: columns.len(),
+        target_column,
+        input_terms: rows.iter().map(Vec::len).sum(),
+        coefficient_variables: variables.original_len(),
+        active_variables: variables.active_len(),
+    });
     let field = ExactField::new(Z);
     let mut reducer = SparseRowReducer::new(native_columns, field, LuLMode::None);
     let mut values = Vec::new();
     let mut column_ids = Vec::new();
-    for row in rows {
+    for (ordinal, row) in rows.iter().enumerate() {
         values.clear();
         column_ids.clear();
         for term in row {
@@ -286,261 +352,41 @@ pub fn exact_materialize<const N: usize>(
                 let column = columns
                     .binary_search_by(|column| order.compare(column, &term.integral))
                     .expect("exact column union contains every row integral");
-                values.push(term.coefficient.clone());
+                values.push(variables.map_coefficient(&term.coefficient)?);
                 column_ids.push(column as u32);
             }
         }
-        if reducer.add_row(&values, &column_ids) == Some(target_column as u32) {
+        observe(MaterializationEvent::RowStarted {
+            row: ordinal + 1,
+            input_nonzeros: values.len(),
+            reducer_rows: reducer.u().nrows() as usize,
+            reducer_nonzeros: reducer.u().nvalues(),
+        });
+        let pivot = reducer.add_row(&values, &column_ids);
+        observe(MaterializationEvent::RowFinished {
+            row: ordinal + 1,
+            pivot: pivot.map(|column| columns[column as usize]),
+            reducer_rows: reducer.u().nrows() as usize,
+            reducer_nonzeros: reducer.u().nvalues(),
+        });
+        if pivot == Some(target_column as u32) {
             let u = reducer.u();
             let start = u.row_ptrs()[u.nrows() as usize - 1];
             let end = u.row_ptrs()[u.nrows() as usize];
-            return Ok(u.col_idcs()[start..end]
+            return u.col_idcs()[start..end]
                 .iter()
                 .zip(&u.values()[start..end])
-                .map(|(&column, coefficient)| Term {
-                    integral: columns[column as usize],
-                    coefficient: coefficient.clone(),
+                .map(|(&column, coefficient)| {
+                    Ok(Term {
+                        integral: columns[column as usize],
+                        coefficient: variables.restore_coefficient(coefficient)?,
+                    })
                 })
-                .collect());
+                .collect();
         }
     }
     Err(MaterializationError::TargetNotPivot)
 }
 
 #[cfg(test)]
-mod tests {
-    use symbolica::domains::finite_field::FiniteFieldCore;
-
-    use crate::algebra::CoefficientContext;
-
-    use super::*;
-
-    fn order() -> IntegralOrder<1> {
-        IntegralOrder::new([true], [false])
-    }
-
-    fn integral(shift: i16) -> Integral<1> {
-        Integral::symbolic([shift]).unwrap()
-    }
-
-    fn numerical(field: &Zp64, entries: &[(i16, u64)]) -> Vec<Term<1, NumericalCoefficient>> {
-        entries
-            .iter()
-            .map(|&(shift, coefficient)| Term {
-                integral: integral(shift),
-                coefficient: field.to_element(coefficient),
-            })
-            .collect()
-    }
-
-    #[test]
-    fn dynamic_columns_keep_live_pivots_and_trace_in_integral_order() {
-        let field = Zp64::new(101);
-        let mut discovery = Discovery::new(order(), field.clone());
-        assert_eq!(
-            discovery.add_row(&numerical(&field, &[(3, 1), (1, 1)])),
-            Some(integral(3))
-        );
-        // Two insertions before the first old column, one between the old
-        // columns, and one before the trailing sentinel all happen together.
-        let row = [(5, 1), (4, 1), (3, 1), (2, 1), (1, 1), (0, 1)];
-        assert_eq!(
-            discovery.add_row(&numerical(&field, &row)),
-            Some(integral(5))
-        );
-        assert_eq!(discovery.reducer.pivots()[2], Some(0));
-        assert_eq!(
-            discovery.add_row(&numerical(
-                &field,
-                &[(5, 1), (4, 1), (3, 1), (2, 2), (1, 1), (0, 1)],
-            )),
-            Some(integral(2))
-        );
-        assert_eq!(discovery.trace(2), [1, 2]);
-        assert_eq!(discovery.trace(0), [0]);
-        assert_eq!(discovery.trace_many(&[0, 2]), [1, 0, 2]);
-        assert_eq!(discovery.trace_many(&[2, 0, 2]), [1, 0, 2]);
-        assert!(discovery.trace_many(&[]).is_empty());
-        assert_eq!(discovery.stats().columns, 6);
-        assert_eq!(discovery.reducer.u().ncols(), 7);
-    }
-
-    #[test]
-    fn dependent_and_empty_inputs_do_not_shift_accepted_dependency_ids() {
-        let field = Zp64::new(101);
-        let mut discovery = Discovery::new(order(), field.clone());
-        let first = numerical(&field, &[(5, 1), (3, 1)]);
-        assert_eq!(discovery.add_row(&first), Some(integral(5)));
-        assert_eq!(
-            discovery.add_row(&numerical(&field, &[(5, 2), (3, 2)])),
-            None
-        );
-        assert_eq!(discovery.add_row(&[]), None);
-        let second = numerical(&field, &[(5, 1), (3, 2), (1, 1)]);
-        assert_eq!(discovery.add_row(&second), Some(integral(3)));
-        assert_eq!(discovery.add_row(&second), None);
-        assert_eq!(
-            discovery.add_row(&numerical(&field, &[(3, 1), (1, 2)])),
-            Some(integral(1))
-        );
-        assert_eq!(discovery.accepted_l_rows, [0, 2, 4]);
-        assert_eq!(discovery.trace(2), [0, 1, 2]);
-        assert_eq!(discovery.basis_len(), 3);
-        assert_eq!(discovery.stats().rows_seen, 6);
-        assert_eq!(discovery.stats().dependency_edges, 2);
-        assert!(discovery.reducer.l().values().is_empty());
-    }
-
-    #[test]
-    fn full_physical_rank_and_structural_zero_columns_remain_extendable() {
-        let field = Zp64::new(101);
-        let mut discovery = Discovery::new(order(), field.clone());
-        let first = numerical(&field, &[(2, 1)]);
-        assert_eq!(discovery.add_row(&first), Some(integral(2)));
-        assert_eq!(discovery.add_row(&first), None);
-        // Even at full physical rank the native reducer emitted the dependent
-        // L slice, because the sentinel prevents its full-rank early return.
-        assert_eq!(discovery.reducer.l().nrows(), 2);
-        assert_eq!(
-            discovery.add_row(&numerical(&field, &[(4, 0), (3, 1), (2, 1)])),
-            Some(integral(3))
-        );
-        assert_eq!(discovery.columns, [integral(4), integral(3), integral(2)]);
-        assert_eq!(discovery.trace(1), [1]);
-        assert_eq!(discovery.reducer.pivots()[0], None);
-        assert_eq!(
-            discovery.add_row(&numerical(&field, &[(4, 1)])),
-            Some(integral(4))
-        );
-    }
-
-    #[test]
-    fn stats_expose_dependent_l_storage_growth_at_fixed_basis_size() {
-        let field = Zp64::new(101);
-        let mut discovery = Discovery::new(order(), field.clone());
-        assert_eq!(
-            discovery.add_row(&numerical(&field, &[(3, 1), (1, 1)])),
-            Some(integral(3))
-        );
-        assert_eq!(
-            discovery.add_row(&numerical(&field, &[(2, 1), (1, 1)])),
-            Some(integral(2))
-        );
-        let dependent = numerical(&field, &[(3, 1), (2, 1), (1, 2)]);
-        for repetitions in 1..=4 {
-            assert_eq!(discovery.add_row(&dependent), None);
-            let stats = discovery.stats();
-            assert_eq!(stats.independent_rows, 2);
-            assert_eq!(stats.reducer_nonzeros, 4);
-            assert_eq!(stats.dependency_edges, 0);
-            assert_eq!(stats.retained_l_rows, 2 + repetitions);
-            assert_eq!(stats.retained_l_entries, 2 + 2 * repetitions);
-        }
-        // The retained patterns consume indices even though Pattern mode has
-        // no values; nvalues() alone would incorrectly report zero storage.
-        assert!(discovery.reducer.l().values().is_empty());
-        assert_eq!(discovery.trace(0), [0]);
-        assert_eq!(discovery.trace(1), [1]);
-        let before_empty = discovery.stats();
-        assert_eq!(discovery.add_row(&[]), None);
-        assert_eq!(
-            discovery.stats().retained_l_rows,
-            before_empty.retained_l_rows
-        );
-        assert_eq!(
-            discovery.stats().retained_l_entries,
-            before_empty.retained_l_entries
-        );
-    }
-
-    #[test]
-    fn target_trace_prunes_unrelated_rows_and_keeps_transitive_dependencies() {
-        let field = Zp64::new(101);
-        let mut discovery = Discovery::new(order(), field.clone());
-        for entries in [
-            &[(6, 1), (-2, 1)][..],
-            &[(4, 1), (2, 1)][..],
-            &[(4, 1), (2, 2), (0, 1)][..],
-            &[(2, 1), (0, 2)][..],
-        ] {
-            assert!(discovery.add_row(&numerical(&field, entries)).is_some());
-        }
-        assert_eq!(discovery.trace(3), [1, 2, 3]);
-        assert_eq!(discovery.trace(1), [1]);
-    }
-
-    #[test]
-    fn rational_exact_replay_uses_pruned_originals_and_stops_at_the_target() {
-        let field = Zp64::new(101);
-        let mut discovery = Discovery::new(order(), field.clone());
-        for entries in [
-            &[(5, 1), (0, 1)][..],
-            &[(3, 2), (2, 3), (1, 1)][..],
-            &[(3, 1), (2, 3), (1, 2)][..],
-        ] {
-            assert!(discovery.add_row(&numerical(&field, entries)).is_some());
-        }
-        let context = CoefficientContext::new(["x"]);
-        let originals: Vec<ExactRow<1>> = [
-            &[(5, "1"), (0, "1")][..],
-            &[(3, "x/(x+1)"), (2, "1"), (1, "1/(x+1)")][..],
-            &[(3, "1/(x+1)"), (2, "1"), (1, "2/(x+1)")][..],
-        ]
-        .iter()
-        .map(|entries| {
-            entries
-                .iter()
-                .map(|&(shift, coefficient)| Term {
-                    integral: integral(shift),
-                    coefficient: context.coefficient_fixture(coefficient),
-                })
-                .collect()
-        })
-        .collect();
-        let selected = discovery.trace(2);
-        assert_eq!(selected, [1, 2]);
-        let mut rows: Vec<_> = selected.iter().map(|&row| originals[row].clone()).collect();
-        // A later exact pivot must not change the already produced target row.
-        rows.push(vec![Term {
-            integral: integral(1),
-            coefficient: context.one(),
-        }]);
-        let result = exact_materialize(&rows, &order(), integral(2)).unwrap();
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].integral, integral(2));
-        assert_eq!(result[0].coefficient, context.one());
-        assert_eq!(result[1].integral, integral(1));
-        assert_eq!(
-            result[1].coefficient,
-            context.coefficient_fixture("(2*x-1)/((x+1)*(x-1))")
-        );
-    }
-
-    #[test]
-    fn exact_replay_reports_absent_nonpivot_and_noncanonical_inputs() {
-        let context = CoefficientContext::new(["x"]);
-        let mut row = vec![
-            Term {
-                integral: integral(3),
-                coefficient: context.one(),
-            },
-            Term {
-                integral: integral(2),
-                coefficient: context.one(),
-            },
-        ];
-        assert_eq!(
-            exact_materialize(&[row.clone()], &order(), integral(1)),
-            Err(MaterializationError::TargetAbsent)
-        );
-        assert_eq!(
-            exact_materialize(&[row.clone()], &order(), integral(2)),
-            Err(MaterializationError::TargetNotPivot)
-        );
-        row.reverse();
-        assert_eq!(
-            exact_materialize(&[row], &order(), integral(2)),
-            Err(MaterializationError::NonCanonicalRow { row: 0 })
-        );
-    }
-}
+mod tests;

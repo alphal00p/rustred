@@ -3,7 +3,7 @@
 use std::io::{Result, Write};
 use std::time::Duration;
 
-use rustred::solver::{SearchEvent, SectorEvent, SectorPhase};
+use rustred::solver::{MaterializationEvent, SearchEvent, SectorEvent, SectorPhase};
 
 pub fn write_event<const N: usize>(
     output: &mut impl Write,
@@ -70,6 +70,45 @@ pub fn write_event<const N: usize>(
                     output,
                     "phase=canonicalization terms={terms} direct_hit={direct_hit}"
                 ),
+                SearchEvent::ExactProgress(event) => match event {
+                    MaterializationEvent::FramePrepared {
+                        source_rows,
+                        integral_columns,
+                        target_column,
+                        input_terms,
+                        coefficient_variables,
+                        active_variables,
+                    } => writeln!(
+                        output,
+                        "phase=exact-frame source_rows={source_rows} integral_columns={integral_columns} target_column={target_column} input_terms={input_terms} coefficient_variables={coefficient_variables} active_variables={active_variables}"
+                    ),
+                    MaterializationEvent::RowStarted {
+                        row,
+                        input_nonzeros,
+                        reducer_rows,
+                        reducer_nonzeros,
+                    } => writeln!(
+                        output,
+                        "phase=exact-row-start row={row} input_nnz={input_nonzeros} exact_u_rows={reducer_rows} exact_u_nnz={reducer_nonzeros}"
+                    ),
+                    MaterializationEvent::RowFinished {
+                        row,
+                        pivot,
+                        reducer_rows,
+                        reducer_nonzeros,
+                    } => {
+                        write!(output, "phase=exact-row-finish row={row} pivot=")?;
+                        if let Some(pivot) = pivot {
+                            write!(output, "{pivot}")?;
+                        } else {
+                            write!(output, "none")?;
+                        }
+                        writeln!(
+                            output,
+                            " exact_u_rows={reducer_rows} exact_u_nnz={reducer_nonzeros}"
+                        )
+                    }
+                },
             }
         }
         SectorEvent::PhaseStarted { case, phase } => writeln!(
@@ -164,5 +203,56 @@ mod tests {
         assert!(text.contains("phase=exact-materialization"));
         assert!(text.contains("trace_rows=3 pivots=11 columns=20 u_nnz=48 l_entries=29"));
         assert!(!text.contains("closed"));
+    }
+
+    #[test]
+    fn compact_frame_and_exact_rows_have_unambiguous_size_labels() {
+        let case = Case::<1>::generic();
+        let mut output = Vec::new();
+        for event in [
+            MaterializationEvent::FramePrepared {
+                source_rows: 3,
+                integral_columns: 4,
+                target_column: 1,
+                input_terms: 7,
+                coefficient_variables: 17,
+                active_variables: 6,
+            },
+            MaterializationEvent::RowStarted {
+                row: 2,
+                input_nonzeros: 2,
+                reducer_rows: 1,
+                reducer_nonzeros: 2,
+            },
+            MaterializationEvent::RowFinished {
+                row: 2,
+                pivot: None,
+                reducer_rows: 1,
+                reducer_nonzeros: 2,
+            },
+        ] {
+            write_event(
+                &mut output,
+                "1",
+                Duration::ZERO,
+                SectorEvent::Search {
+                    case: &case,
+                    event: SearchEvent::ExactProgress(event),
+                },
+            )
+            .unwrap();
+        }
+        let text = String::from_utf8(output).unwrap();
+        assert_eq!(text.lines().count(), 3);
+        assert!(text.contains("coefficient_variables=17 active_variables=6"));
+        assert!(text.contains(
+            "phase=exact-frame source_rows=3 integral_columns=4 target_column=1 input_terms=7"
+        ));
+        assert!(
+            text.contains("phase=exact-row-start row=2 input_nnz=2 exact_u_rows=1 exact_u_nnz=2")
+        );
+        assert!(
+            text.contains("phase=exact-row-finish row=2 pivot=none exact_u_rows=1 exact_u_nnz=2")
+        );
     }
 }

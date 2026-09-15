@@ -33,7 +33,7 @@ pub use case::{
     CaseIntersectionStats, CoordinateCase,
 };
 pub use cuts::{LinearCutError, LinearCutPreparation, LinearCutRule, prepare_linear_cuts};
-pub use discovery::DiscoveryStats;
+pub use discovery::{DiscoveryStats, MaterializationEvent};
 pub use error::SolverError;
 pub use exception::{ExceptionError, ExceptionalConditions, extract_exceptions};
 pub use execution::{

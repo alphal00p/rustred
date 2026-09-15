@@ -8,6 +8,7 @@ mod certificate;
 mod geometry;
 mod normalization;
 mod ordinary;
+mod program;
 mod replay;
 
 #[cfg(test)]
@@ -151,6 +152,15 @@ impl<const N: usize> SourcePortAudit<N> {
         permutation: Option<[usize; N]>,
         solution: &SectorSolution<N>,
     ) -> Result<SourcePortSectorAudit<N>, SourcePortAuditError> {
+        Ok(self.check_sector(sector, permutation, solution)?.report)
+    }
+
+    fn check_sector(
+        &self,
+        sector: [bool; N],
+        permutation: Option<[usize; N]>,
+        solution: &SectorSolution<N>,
+    ) -> Result<program::SectorCheck<N>, SourcePortAuditError> {
         let start = Instant::now();
         if self.zero_sectors.contains(&sector) {
             return Err(error("a solved sector was also declared zero"));
@@ -200,6 +210,7 @@ impl<const N: usize> SourcePortAudit<N> {
         };
         let mut stored_boxes = Vec::new();
         let mut checked_boxes = Vec::new();
+        let mut retained_rules = Vec::new();
         for (ordinal, rule) in solution.rules.iter().enumerate() {
             let stored = match geometry::application_boxes(
                 rule,
@@ -253,7 +264,10 @@ impl<const N: usize> SourcePortAudit<N> {
                     ) {
                         Ok(()) => {
                             report.uniformly_descending_rules += 1;
-                            checked_boxes.extend(checked);
+                            let retained =
+                                program::CheckedRule::retain(rule, replay.ordinary, checked)?;
+                            checked_boxes.extend(geometry::copy_boxes(&retained.application)?);
+                            retained_rules.push(retained);
                         }
                         Err(issue) => report
                             .issues
@@ -266,6 +280,11 @@ impl<const N: usize> SourcePortAudit<N> {
             }
         }
         let terminal_boxes = geometry::terminal_boxes(&solution.finite_residuals, &sector)?;
+        let terminals = solution
+            .finite_residuals
+            .iter()
+            .map(|terminal| std::array::from_fn(|axis| i64::from(terminal[axis].value())))
+            .collect();
         stored_boxes.extend(geometry::copy_boxes(&terminal_boxes)?);
         checked_boxes.extend(terminal_boxes);
         (
@@ -277,7 +296,11 @@ impl<const N: usize> SourcePortAudit<N> {
             report.checked_rule_unbounded_boxes,
         ) = geometry::uncovered(N, checked_boxes)?;
         report.elapsed = start.elapsed();
-        Ok(report)
+        Ok(program::SectorCheck {
+            report,
+            rules: retained_rules,
+            terminals,
+        })
     }
 
     /// Check only the finite mask census, not the individual report claims.
@@ -286,12 +309,19 @@ impl<const N: usize> SourcePortAudit<N> {
         &self,
         reports: &[SourcePortSectorAudit<N>],
     ) -> Result<(), SourcePortAuditError> {
+        self.validate_sector_masks(reports.iter().map(|report| report.sector))
+    }
+
+    fn validate_sector_masks(
+        &self,
+        sectors: impl IntoIterator<Item = [bool; N]>,
+    ) -> Result<(), SourcePortAuditError> {
         let expected = 1_u128
             .checked_shl(u32::try_from(N).map_err(error)?)
             .ok_or_else(|| error("sector census exceeds diagnostic counter capacity"))?;
         let mut seen: BTreeSet<_> = self.zero_sectors.iter().copied().collect();
-        for report in reports {
-            if !seen.insert(report.sector) {
+        for sector in sectors {
+            if !seen.insert(sector) {
                 return Err(error("duplicate or zero solved sector"));
             }
         }

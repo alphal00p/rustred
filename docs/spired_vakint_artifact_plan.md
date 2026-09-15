@@ -18,6 +18,51 @@ memoized `Reducer` ownership, not introduce a second legacy artifact wrapper.
 RustRed schema compatibility is not required. Preserve Vakint's existing
 defaults, public conventions, and FORM-backed methods.
 
+### Canonical unit-mass checked ownership (2026-09-15)
+
+The cold bridge now retains a private `CheckedProgram` through the same checks
+used by its public diagnostic report. Its consuming gate owns the actual
+family and original-source corpus, wide `i64` target/source displacements,
+exact RHS and normalized source weights, parameter applicability, unbounded
+application boxes, finite terminal keys, native zero proofs, and one persisted
+ordering shared by all sectors. It rejects mutated rules, missing finite or
+infinite coverage, duplicate or missing sectors, foreign family binding and
+incompatible per-sector priorities. Seven focused ownership tests pass; the
+combined solver/source-port suite passes 225 tests, and the source example
+suite passes 53 tests.
+
+The explicit release regression generates from the existing canonical
+unit-mass K6 family, without importing the reference equations or transporting
+their coefficients. It retains **623 exact rules across all 38 nonzero
+sectors, with 38 finite terminals and 26 independently proved-zero sectors**.
+Every rule and the entire family pass original-source replay, guard admission,
+strict descent and the unbounded cover gate. The 623 count is measured for this
+canonical ordering; it must not be replaced by the differently ordered,
+symbolic-mass reference workload's 617.
+
+The direct release test took 1.62 s wall, 1.55 s user plus 0.03 s system CPU,
+with 12,300 KiB peak RSS. It ran on CPU 2 with pools capped at one while an
+example build ran separately on CPUs 16-23. This single shared-host timing is
+diagnostic, not a paired performance comparison. It includes construction,
+zero census, all-sector generation and exact checked ownership, but no
+serialization or decoding. Evidence:
+`target/spired-program-owner.eAmBDX/{canonical-k6.stdout,canonical-k6.stderr,canonical-k6.time}`.
+
+This is **not yet a `ClosedArtifact`**, a shipped asset or a Vakint acceptance
+pass. The next slice must lower the same retained combined-original-identity
+evidence into the existing rule-cell/artifact owner and cold codec, without
+inventing old anchor/counter witnesses. A subsequent fixture-only correctness
+test now checks that **each actual retained typed terminal vector is exactly
+its nonzero sector's 0/1 corner**, and prints all 38 keys. This supplies the
+actual-key binding needed by the corner-orbit feasibility study below, not
+merely a matching total count. Its evidence is
+`target/spired-terminal-key-gate.aIh7F1/canonical-keys.txt`; all-target checking,
+225 core tests and 53 example tests also pass. This debug execution is
+correctness evidence only. The additional assertion and mechanical extraction
+of discovery tests do not change the frozen optimized runtime binaries or
+their measured algorithm. The final installed artifact/catalog must still
+retain and verify this same exact key set.
+
 ### First implementation checkpoint
 
 The existing `OrderingPolicy` now exposes `SpiredUncutV1` and a persisted
@@ -358,12 +403,12 @@ they must never be accepted as a publication token.
 
 ### One cold proof owner, not another reducer
 
-Add a private `ReplayCertifiedCoordinateProgram` in
-`foundry/artifact/source_port/certificate.rs`. It owns the authenticated
+The private `CheckedProgram` in
+`foundry/artifact/source_port/program.rs` now owns the authenticated
 family/indexed context, original-source recipe, deterministic sector/rule order,
 exact application cover, finite terminal keys, zero-sector certificates and
 per-rule original-source replay records. Its fields and constructor remain
-private to this cold bridge. A successful replay/descent/cover verifier returns
+private to this cold bridge. Its successful replay/descent/cover verifier returns
 this consuming owner; unresolved guards, any uncovered complement (including
 finite points not explicitly admitted as terminals), or budget failures cannot
 construct it. It is neither a public `SectorSolution`

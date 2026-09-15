@@ -24,6 +24,7 @@ struct OriginalRow {
 /// Prepared once, immutable, and shared by all cold sector checks. Original
 /// relation ownership retains its family/context identity and source conditions.
 pub(super) struct OriginalSourceCorpus {
+    family_fingerprint: std::sync::Arc<String>,
     context: IndexedCoefficientContext,
     rows: BTreeMap<RowId, OriginalRow>,
 }
@@ -72,7 +73,15 @@ impl OriginalSourceCorpus {
             let scale = checked_scale(&context, &relation, adapter)?;
             rows.insert(row_id.clone(), OriginalRow { relation, scale });
         }
-        Ok(Self { context, rows })
+        Ok(Self {
+            family_fingerprint: family.fingerprint_owner(),
+            context,
+            rows,
+        })
+    }
+
+    pub(super) fn family_fingerprint(&self) -> &str {
+        self.family_fingerprint.as_str()
     }
 
     /// Convert checked adapter weights to weights of original generator rows.

@@ -73,11 +73,22 @@ fn modular_observation_reports_the_winning_trace_before_exact_work() {
     assert_eq!(observed.rhs, baseline.rhs);
     assert_eq!(observed.sources, baseline.sources);
     assert_eq!(observed.stats.discovery, baseline.stats.discovery);
-    assert!(matches!(events.as_slice(), [
+    let original_events: Vec<_> = events
+        .iter()
+        .copied()
+        .filter(|event| !matches!(event, SearchEvent::ExactProgress(_)))
+        .collect();
+    assert!(matches!(original_events.as_slice(), [
         SearchEvent::DiscoveryProgress { discovery: None, .. },
         SearchEvent::ExactStarted { pivot, trace_rows: 2, discovery },
         SearchEvent::CanonicalizationStarted { direct_hit: false, .. },
     ] if *pivot == observed.target && discovery.independent_rows == 2));
+    assert!(matches!(
+        events.get(2),
+        Some(SearchEvent::ExactProgress(
+            super::super::MaterializationEvent::FramePrepared { source_rows: 2, .. }
+        ))
+    ));
 }
 
 #[test]
@@ -135,7 +146,9 @@ fn sector_observation_forwards_case_and_preserves_phase_order() {
                 phases.push(match event {
                     SearchEvent::DiscoveryProgress { .. } => "discovery",
                     SearchEvent::CanonicalizationStarted { .. } => "canonicalization",
-                    SearchEvent::ExactStarted { .. } => panic!("unexpected direct-hit GPLU"),
+                    SearchEvent::ExactStarted { .. } | SearchEvent::ExactProgress(_) => {
+                        panic!("unexpected direct-hit GPLU")
+                    }
                 });
             }
             SectorEvent::PhaseStarted { case, phase } => {

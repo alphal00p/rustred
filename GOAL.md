@@ -34,8 +34,21 @@ K1/K3 likewise pass, and all semantic reports agree at one/six workers.
 This is rule-set validation, not yet a serialized `ClosedArtifact` or a Vakint
 three-loop acceptance pass. The integration now retains original-source
 requests and exact weights, with verified conversion from adapter normalization
-to freshly generated ordinary IBPs. The next step owns and serializes these
-records through the existing artifact/reducer boundary. The parallel Vakint
+to freshly generated ordinary IBPs. These records now have a private checked
+owner; serialization through the existing artifact/reducer boundary remains.
+A fresh autonomous
+release run now also generates directly from the canonical unit-mass K6 family
+used by Vakint's parent slots: **623 exact rules, 38 finite terminals, 38
+nonzero sectors and 26 proved-zero sectors** enter the private checked-program
+owner, with zero replay, descent or coverage gaps. This differs from the 617-rule
+symbolic-mass reference convention. The 1.62-second serial diagnostic includes
+generation and checked ownership, not serialization, cold reload or scalar
+application; concurrent compilation ran on separate cores. A subsequent
+fixture-only correctness test now binds every actual retained typed terminal
+set to its sector's exact 0/1 corner, covering all 38 proposed catalog keys.
+That debug test is not a timing result and does not change the frozen release
+binary. Existing `ClosedArtifact` lowering and codec installation remain
+the next implementation gates. The parallel Vakint
 lane is updating required native solver API calls and checking contraction
 routing; the requested Spenso wrapper decision remains pending. No newly
 added Vakint acceptance test is reported as passed before the current build

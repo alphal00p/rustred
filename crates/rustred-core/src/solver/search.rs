@@ -6,7 +6,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use symbolica::domains::finite_field::{FiniteFieldElement, ToFiniteField, Zp64};
 use symbolica::prelude::{Field, Integer, Ring};
 
-use super::discovery::{Discovery, DiscoveryStats, exact_materialize};
+use super::discovery::{Discovery, DiscoveryStats, exact_materialize_with_observer};
 use super::instantiate::{canonicalize, instantiate};
 use super::precondition::precondition_with_variable_order;
 use super::{
@@ -298,8 +298,13 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                             discovery: probe.discovery.stats(),
                         });
                         let exact_start = Instant::now();
-                        let exact = exact_materialize(&selected, &self.order, pivot)
-                            .map_err(|error| SolverError::ExactReplay(error.to_string()))?;
+                        let exact = exact_materialize_with_observer(
+                            &selected,
+                            &self.order,
+                            pivot,
+                            |event| observe(SearchEvent::ExactProgress(event)),
+                        )
+                        .map_err(|error| SolverError::ExactReplay(error.to_string()))?;
                         observe(SearchEvent::CanonicalizationStarted {
                             terms: exact.len(),
                             direct_hit: false,

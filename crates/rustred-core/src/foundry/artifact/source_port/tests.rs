@@ -9,7 +9,7 @@ use crate::solver::{
 
 use super::{SourcePortAudit, geometry};
 
-fn tadpole() -> IntegralFamily {
+pub(super) fn tadpole() -> IntegralFamily {
     let context = CoefficientContext::new(["d"]);
     IntegralFamily::new(
         "source-port-certificate-tadpole",
@@ -27,7 +27,7 @@ fn tadpole() -> IntegralFamily {
     .unwrap()
 }
 
-fn solved_tadpole() -> (SourcePortAudit<1>, SectorSolution<1>) {
+pub(super) fn solved_tadpole() -> (SourcePortAudit<1>, SectorSolution<1>) {
     let family = tadpole();
     let zeros: Arc<[[bool; 1]]> = Arc::from([[false]]);
     let source = SourceSystem::from_family(&family).unwrap();

@@ -64,6 +64,21 @@ ordering ID stays zero. No solver correction has been made. The sweep needs
 independent per-order equation checks before all its statistics can be trusted;
 the authorized lookup correction does not resolve this separate question.
 
+A bounded eight-order acceptance sample now passes for the completed non-ID0
+`fam1_12` sector `111110110`. An ignored export driver calls the unchanged
+native solver for identity, reversed noncut coordinates and each adjacent
+noncut swap. The existing Rust CLI independently reproduces all exact RHSs,
+required domains, exceptional guards, two preliminary cut rules and residual
+sets for every order. The rule counts are `18,20,18,18,18,18,19,18` (147 total),
+with no residuals or empty/covered-reference waivers. All 16 processes exit
+zero. This is the frozen pre-compaction `9751` release, not the new optimization
+under development. Its single-run sector times are 1.795–4.058 ms including
+Rust preconditioning, versus 5.775–12.208 ms for native `solveSector`;
+shared-host correctness observations are not a paired performance result.
+Exact reference exports are retained for new-release rechecks in
+`target/spired-ordering-sample.ATFL3u/`. The full 201,600-job sweep and the
+all-ones ordering-ID0 issue remain outstanding.
+
 ### First full `fam1_112` diagnostics
 
 Both implementations were launched on the unchanged 436-sector manifest with
@@ -232,6 +247,33 @@ The run remains in exact lifting until its cap, preserving all 415 prior
 case/rule events in order. It produces no completed sector output. Evidence,
 independent checks and the reference-domain explanation are retained in
 `target/spired-observation-regressions.hITFfz/RESULTS.md`.
+
+The next optimized release compacts each selected exact frame through native
+Symbolica variable-map operations, retaining every occurring numerator and
+denominator variable and restoring the full map before returning the rule.
+It again passes all 20 established jobs/939 unchanged mathematical-file checks,
+plus all eight fixed-order rechecks/24 unchanged files, with the same strict
+native comparisons and residual sets.
+
+Its 120-second probe of the same missing sector still does not finish. The
+actual exact frame has 298 selected rows, 482 integral columns and 1,740 input
+terms; coefficient variables shrink from 17 to 6. Row 292 finishes at sector
+elapsed 63.054404 s. Row 293 starts at 63.055360 s with five input nonzeros and a
+native U matrix of 292 rows/4,361 nonzeros, then remains active until exit 124.
+The largest completed row calls are 17.732012 s and 7.371438 s, each starting with
+only three input nonzeros. The original 415 case/rule events are unchanged, and
+no sector output is written. Process wall is 120.058254446 s, CPU 119.02 s and
+peak RSS 428,936 KiB. These observer-enabled shared-host diagnostics are not a
+paired speedup measurement; compaction alone has not removed the remaining
+exact-algebra bottleneck. Evidence: `target/spired-active-map-release.5YHl5n/`.
+
+The next bounded comparison can use Symbolica's existing dense polynomial
+`Matrix::partial_row_reduce_fraction_free` on this actual 298-by-482 frame,
+reducing through target column 404 and retaining every RHS column. The inspected
+native sparse reducer has no fraction-free option. This is an experimental
+alternative to measure, not a default switch, a custom elimination algorithm,
+or a rational-reconstruction implementation. A matrix-entry admission budget
+does not bound subsequent polynomial expression growth.
 
 The current release runs of `fam1_12` and `fam1_111` complete their full
 unchanged requested manifests, 40 and 132 sector jobs respectively. Exact
@@ -479,6 +521,9 @@ The nearby “0.2 second” alternative
 a timing measured here. The remaining random-search and timeout examples are
 also commented out. The active executable prints only the resulting rule
 count; it does not export rules.
+Its selected sector belongs to the 1,792-row nonzero manifest but not to the
+ordinary 436-row needed manifest, so those full-run outputs cannot substitute
+for this separate ordering workload.
 
 The 16 active `fam1_112` overrides are listed below. Every sector is present
 in its 436-row requested manifest, and every permutation is a bijection of
@@ -533,12 +578,15 @@ Likewise, the reference's residual master labels and bounded numerical search
 do not themselves establish a zero-uncovered RustRed closing artifact or
 master minimality. Reference parity and artifact closure are separate checks.
 
-## Output inventory and outstanding reference builds
+## Output inventory and outstanding reference runs
 
 Completed C++ builds and saved full reference runs now include `fam1_11`,
 `fam1_12`, `fam1_111`, `bc4PMRad1`, selected `fam_cosmo`, `vac3`, and `vac4`.
-The `fam1_112` and ordering-study builds/runs remain outstanding. A `.p` build
-directory alone is not a built executable.
+`fam1_112` and both ordering-study executables are also built. The original
+full `fam1_112` run was censored, and the complete supplied ordering workloads
+have not run to completion. The eight-order bounded sample above is separate
+from the supplied exhaustive sweep. A `.p` build directory alone is not treated
+as proof of a successful executable build.
 
 | Generator | Output produced by its active source |
 | --- | --- |
