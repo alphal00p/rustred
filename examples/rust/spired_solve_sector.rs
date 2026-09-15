@@ -11,7 +11,9 @@
 //! search/exact/guard/geometry milestones (diagnostic I/O is not timed fairly
 //! against a silent reference run). The default symbolic
 //! depth limit is three; it is diagnostic, and exhaustion returns an error.
-//! Families: vacuum 1/2/3, fam1_11/12/111/112, bc4PMRad1, fam_cosmo.
+//! Example inputs: vacuum 1/2/3, four-loop H, fam1_11/12/111/112, bc4PMRad1,
+//! fam_cosmo. These constructors live only in this example; production
+//! closure receives a user-supplied compiled family.
 //! PM numerical depth follows the original fixture; all other cases use three.
 //! Optional ordering lines are `sector-mask coordinate-priority...` (zero-based).
 //! Schedule is `active-first` (default) or `input-order`; it only orders jobs.
@@ -701,6 +703,7 @@ fn main() -> Result<()> {
             config,
             start,
         ),
+        "4h" => run::<10>(spired_families::four_loop_h, [false; 10], 3, config, start),
         "fam1_11" => run::<9>(
             spired_families::fam1_11,
             [true, true, false, false, false, false, false, false, false],
@@ -732,7 +735,7 @@ fn main() -> Result<()> {
         "bc4PMRad1" => run::<7>(spired_families::bc4pm_rad1, [false; 7], 3, config, start),
         "fam_cosmo" => run::<5>(spired_families::fam_cosmo, [false; 5], 3, config, start),
         _ => Err(
-            "supported fixtures are vacuum 1/2/3, fam1_11/12/111/112, bc4PMRad1, and fam_cosmo"
+            "supported example inputs are vacuum 1/2/3, 4h, fam1_11/12/111/112, bc4PMRad1, and fam_cosmo"
                 .into(),
         ),
     }

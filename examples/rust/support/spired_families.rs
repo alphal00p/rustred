@@ -5,6 +5,35 @@ use rustred::family::{AffineDenominator, IntegralFamily};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 pub fn vacuum(momenta: &[&[i64]]) -> Result<IntegralFamily> {
+    vacuum_named("spired-vacuum-sector", momenta)
+}
+
+/// Four-loop equal-mass vacuum parent matching Vakint's FMFT `H` example input.
+/// This constructor is an example input only; the RustRed engine remains
+/// topology agnostic and receives the resulting `IntegralFamily` at runtime.
+///
+/// The ten coordinates are ordered as
+/// `(k1^2,k1.k2,k1.k3,k1.k4,k2^2,k2.k3,k2.k4,k3^2,k3.k4,k4^2)`.
+/// This is deliberately ordinary family data: the solver and all exact
+/// algebra remain topology-generic and do not dispatch on this name.
+pub fn four_loop_h() -> Result<IntegralFamily> {
+    vacuum_named(
+        "spired-four-loop-unit-mass-vacuum-h",
+        &[
+            &[1, 0, 0, 0],
+            &[0, 1, 0, 0],
+            &[0, 0, 1, 0],
+            &[0, 0, 0, 1],
+            &[1, 0, -1, 0],
+            &[0, 1, -1, 0],
+            &[-1, 0, 1, 1],
+            &[0, -1, 1, 1],
+            &[0, 0, 1, 1],
+        ],
+    )
+}
+
+fn vacuum_named(name: &str, momenta: &[&[i64]]) -> Result<IntegralFamily> {
     let loops = momenta[0].len();
     let coefficients = CoefficientContext::try_new(["d", "m"])?;
     let mass = coefficients.parameter("m").unwrap();
@@ -21,7 +50,7 @@ pub fn vacuum(momenta: &[&[i64]]) -> Result<IntegralFamily> {
         })
         .collect();
     Ok(IntegralFamily::new(
-        "spired-vacuum-sector",
+        name,
         (0..loops).map(|i| format!("k{i}")).collect(),
         Vec::new(),
         coefficients.clone(),

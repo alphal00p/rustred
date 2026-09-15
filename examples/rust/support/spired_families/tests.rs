@@ -150,6 +150,40 @@ fn three_loop_pm_families_follow_all_fifteen_ordered_denominators() {
 }
 
 #[test]
+fn four_loop_h_uses_the_fmft_parent_momentum_basis() {
+    let family = four_loop_h().unwrap();
+    let c = family.coefficient_context();
+    assert_eq!(family.name(), "spired-four-loop-unit-mass-vacuum-h");
+    assert_eq!(family.loop_count(), 4);
+    assert_eq!(family.external_count(), 0);
+    assert_eq!(family.denominator_count(), 9);
+    assert_eq!(family.coordinates().len(), 10);
+    assert_eq!(c.parameter_names(), ["d", "m"]);
+    assert_eq!(family.dimension(), &c.parameter("d").unwrap());
+    let expected = [
+        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        [1, 0, -2, 0, 0, 0, 0, 1, 0, 0],
+        [0, 0, 0, 0, 1, -2, 0, 1, 0, 0],
+        [1, 0, -2, -2, 0, 0, 0, 1, 2, 1],
+        [0, 0, 0, 0, 1, -2, -2, 1, 2, 1],
+        [0, 0, 0, 0, 0, 0, 0, 1, 2, 1],
+    ];
+    for (denominator, row) in family.denominators().iter().zip(expected) {
+        assert_eq!(denominator.constant(), &-c.parameter("m").unwrap());
+        assert_eq!(
+            denominator.coefficients(),
+            row.map(|value| c.integer(value)).as_slice()
+        );
+    }
+    let sources = SourceSystem::<10>::from_family(&family).unwrap();
+    assert_eq!(sources.rows().len(), 16);
+    assert!(family.power_shifts().iter().all(|shift| shift.is_zero()));
+}
+
+#[test]
 fn bc4pm_rad1_retains_its_noninteger_offset_and_euclidean_gram() {
     let family = bc4pm_rad1().unwrap();
     let c = family.coefficient_context();

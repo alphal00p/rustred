@@ -62,3 +62,17 @@ directory, so each release run should use a fresh directory. Omitting
 `--output` sends only the semantic report to stdout; measurements are emitted
 only when `--measurements-output` is supplied and are never concatenated with
 the report.
+
+[`k6_closing_artifact.py`](k6_closing_artifact.py) demonstrates the stable
+Python-side use of the completed autonomous K=6 artifact. Generation is a
+one-off release operation; the Python example only loads the bytes, validates
+the artifact, and applies its generic reducer:
+
+```bash
+cargo run --release --locked -p rustred --example spired-generate-k6 -- k6.rr 6
+python examples/python/k6_closing_artifact.py k6.rr
+```
+
+It checks the 6-coordinate family, 38 terminals, and the 30-term exact
+reduction of `[2,1,1,1,1,1]`. Once the release artifact exists, the second
+command does not compile or regenerate anything.
