@@ -32,3 +32,7 @@ path = "../../examples/rust/spired_artifact_audit.rs"
 [[example]]
 name = "spired-generate-k6"
 path = "../../examples/rust/spired_generate_k6.rs"
+
+[[example]]
+name = "spired-generate-four-loop-h"
+path = "../../examples/rust/spired_generate_four_loop_h.rs"

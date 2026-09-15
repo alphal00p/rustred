@@ -60,6 +60,37 @@ pub(super) fn vacuum(momenta: &[Vec<i64>]) -> IntegralFamily {
 pub(super) fn tadpole() -> IntegralFamily {
     vacuum(&[vec![1]])
 }
+
+#[test]
+fn generic_family_entry_point_uses_only_supplied_manifest() {
+    let family = tadpole();
+    let summary = solve_family(
+        &family,
+        &[[true]],
+        1,
+        SectorConfig::default(),
+        SectorSolveOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(summary.sectors, 1);
+    assert_eq!(summary.solved_sectors, 1);
+    assert!(summary.rules >= 1);
+}
+
+#[test]
+fn generic_family_entry_point_rejects_manifest_arity_mismatch() {
+    let family = tadpole();
+    let error = solve_family(
+        &family,
+        &[[true, false]],
+        1,
+        SectorConfig::default(),
+        SectorSolveOptions::default(),
+    )
+    .unwrap_err();
+    assert!(matches!(error, FamilySolveError::Source(_)));
+}
+
 pub(super) fn sunset() -> IntegralFamily {
     vacuum(&[vec![1, 0], vec![0, 1], vec![1, 1]])
 }
