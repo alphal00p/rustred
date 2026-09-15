@@ -263,7 +263,10 @@ fn exact_s4_owned_orbit_and_endpoint_children_are_pinned() {
 }
 
 fn assert_rule(context: &crate::algebra::IndexedCoefficientContext, rule: &ParametricRule) {
-    assert_eq!(rule.anchor().powers(), OPPOSITE_PAIR_BULK_REPLAY_ANCHOR);
+    assert_eq!(
+        rule.anchor().expect("anchored fixture").powers(),
+        OPPOSITE_PAIR_BULK_REPLAY_ANCHOR
+    );
     assert_eq!(rule.pivot().values(), OPPOSITE_PAIR_BULK_PIVOT);
     assert_eq!(
         rule.right_hand_side()
@@ -302,7 +305,10 @@ fn assert_rule(context: &crate::algebra::IndexedCoefficientContext, rule: &Param
             &context.integer(6),
         )
         .unwrap();
-    assert_eq!(rule.pivot_guard().coefficient(), &pivot);
+    assert_eq!(
+        rule.pivot_guard().expect("anchored fixture").coefficient(),
+        &pivot
+    );
     let first = context
         .mul(
             &context
@@ -324,11 +330,22 @@ fn assert_rule(context: &crate::algebra::IndexedCoefficientContext, rule: &Param
             .collect::<Vec<_>>(),
         [&first, &scale(8), &scale(-2), &fourth, &scale(-2)],
     );
-    assert_eq!(rule.replay().source_rows_used(), 5);
-    assert_eq!(rule.replay().shift_columns_checked(), 12);
-    assert_eq!(rule.replay().exact_operations(), 54);
     assert_eq!(
-        concrete_metrics(rule.concrete_replay()),
+        rule.replay().expect("anchored fixture").source_rows_used(),
+        5
+    );
+    assert_eq!(
+        rule.replay()
+            .expect("anchored fixture")
+            .shift_columns_checked(),
+        12
+    );
+    assert_eq!(
+        rule.replay().expect("anchored fixture").exact_operations(),
+        54
+    );
+    assert_eq!(
+        concrete_metrics(rule.concrete_replay().expect("anchored fixture")),
         (5, 27, 5, 33, 2, 92, 19)
     );
 }

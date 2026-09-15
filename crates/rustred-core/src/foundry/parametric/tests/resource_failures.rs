@@ -201,7 +201,7 @@ fn domain_ordering_and_replay_limits_are_exact_and_typed() {
         ParametricRuleLimits::default(),
     )
     .unwrap();
-    let one_below = exact.replay().exact_operations() - 1;
+    let one_below = exact.replay().expect("anchored fixture").exact_operations() - 1;
     limits = ParametricRuleLimits {
         max_replay_exact_operations: one_below,
         ..ParametricRuleLimits::default()

@@ -1,0 +1,86 @@
+//! The actual proof used by a parametric rule, without invented search history.
+//!
+//! Existing elimination-produced rules retain their indexed replay and one
+//! concrete specialization. A source-directed coordinate program instead owns
+//! a full original-source identity proved on an exact domain. Neither variant
+//! by itself claims that the surrounding family has a complete rule cover.
+
+use std::sync::Arc;
+
+use crate::foundry::cell::FixedIndexRestriction;
+use crate::foundry::completion::LatticeBox;
+use crate::sector::Mask;
+
+use super::model::{ConcreteSpecializationReplayWitness, ParametricExactReplayWitness};
+
+/// The proof-bearing replay convention of one exact parametric identity.
+///
+/// There is deliberately no universal concrete anchor: a combined identity
+/// proved on a coordinate domain does not acquire an elimination transcript
+/// or a specially sampled point merely to fit the other producer's metadata.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ParametricReplayEvidence {
+    Anchored {
+        indexed: ParametricExactReplayWitness,
+        concrete: ConcreteSpecializationReplayWitness,
+    },
+    CombinedOriginalDomain(Arc<CombinedOriginalDomainEvidence>),
+}
+
+impl ParametricReplayEvidence {
+    pub fn indexed(&self) -> Option<ParametricExactReplayWitness> {
+        match self {
+            Self::Anchored { indexed, .. } => Some(*indexed),
+            Self::CombinedOriginalDomain(_) => None,
+        }
+    }
+
+    pub fn concrete(&self) -> Option<&ConcreteSpecializationReplayWitness> {
+        match self {
+            Self::Anchored { concrete, .. } => Some(concrete),
+            Self::CombinedOriginalDomain(_) => None,
+        }
+    }
+
+    pub fn combined_original_domain(&self) -> Option<&CombinedOriginalDomainEvidence> {
+        match self {
+            Self::Anchored { .. } => None,
+            Self::CombinedOriginalDomain(evidence) => Some(evidence),
+        }
+    }
+}
+
+/// Exact coordinate quotient used for full weighted original-source replay.
+///
+/// The owning rule supplies the unchanged source combination, original source
+/// views, normalized target and RHS, and complete nonzero conditions. Its cold
+/// verifier multiplies the full translated original rows before testing the
+/// combined remainder on this domain. Individual source-term deletions are
+/// not asserted here: cancellations may occur only after rows are combined.
+///
+/// Coordinates are x=n-1 for positive powers and x=-n otherwise. Unbounded
+/// endpoints remain `None`; they are never replaced by an i64 endpoint in the
+/// proof. Runtime cell representability is a separate restriction.
+///
+/// Fields and construction remain private to the exact producer boundary.
+/// A domain description supplied by a caller is not replay authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CombinedOriginalDomainEvidence {
+    pub(super) sector: Mask,
+    pub(super) fixed: Box<[FixedIndexRestriction]>,
+    pub(super) application: Arc<[LatticeBox]>,
+}
+
+impl CombinedOriginalDomainEvidence {
+    pub fn sector(&self) -> &Mask {
+        &self.sector
+    }
+
+    pub fn fixed_restrictions(&self) -> &[FixedIndexRestriction] {
+        &self.fixed
+    }
+}
+
+#[cfg(test)]
+#[path = "evidence/tests.rs"]
+mod tests;

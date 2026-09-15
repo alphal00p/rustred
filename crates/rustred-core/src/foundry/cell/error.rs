@@ -7,6 +7,7 @@ use crate::sector;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RuleCellError {
+    UnsupportedReplayEvidence,
     EmptySourceSelection,
     SourceOrdinalOutOfRange {
         ordinal: usize,
@@ -102,6 +103,8 @@ pub enum RuleCellError {
 impl fmt::Display for RuleCellError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnsupportedReplayEvidence => formatter
+                .write_str("this rule-cell constructor requires anchored exact replay evidence"),
             Self::EmptySourceSelection => formatter.write_str("a rule cell needs source views"),
             Self::SourceOrdinalOutOfRange { ordinal, available } => write!(
                 formatter,

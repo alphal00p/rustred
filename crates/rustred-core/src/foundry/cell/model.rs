@@ -439,6 +439,12 @@ pub struct RuleCell {
 }
 
 impl RuleCell {
+    #[cfg(test)]
+    pub(crate) fn replace_replay_with_uncertified_combined_domain_for_test(&mut self) {
+        self.rule
+            .replace_replay_with_uncertified_combined_domain_for_test();
+    }
+
     pub fn rule(&self) -> &ParametricRule {
         &self.rule
     }

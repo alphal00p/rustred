@@ -116,10 +116,29 @@ fn complete_sunset_span_yields_the_targeted_e1_rref_recurrence() {
         vec![0, 1, 2, 3]
     );
 
-    assert_eq!(rule.replay().source_rows_used(), 3);
-    assert_eq!(rule.replay().shift_columns_checked(), 10);
-    assert_eq!(rule.concrete_replay().anchor().powers(), &[2, 2, 2]);
-    assert_eq!(rule.concrete_replay().source_contributions_checked(), 3);
+    assert_eq!(
+        rule.replay().expect("anchored fixture").source_rows_used(),
+        3
+    );
+    assert_eq!(
+        rule.replay()
+            .expect("anchored fixture")
+            .shift_columns_checked(),
+        10
+    );
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .anchor()
+            .powers(),
+        &[2, 2, 2]
+    );
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .source_contributions_checked(),
+        3
+    );
 
     let repeated = derive_sector_interior_rule_for_target(
         &context,
@@ -157,9 +176,20 @@ fn complete_sunset_span_exposes_corner_pinch_dependencies() {
         ParametricRuleLimits::default(),
     )
     .unwrap();
-    assert!(!rule.domain().contains(rule.anchor().powers()).unwrap());
+    assert!(
+        !rule
+            .domain()
+            .contains(rule.anchor().expect("anchored fixture").powers())
+            .unwrap()
+    );
     assert_eq!(rule.sector().active_bits(), &[true, true, true]);
-    assert_eq!(rule.concrete_replay().anchor().powers(), &[1, 1, 1]);
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .anchor()
+            .powers(),
+        &[1, 1, 1]
+    );
 
     let admission = rule.sector_monotone_admission().unwrap();
     assert!(admission.verify());
@@ -176,7 +206,7 @@ fn complete_sunset_span_exposes_corner_pinch_dependencies() {
     assert_eq!(admission.dependencies().len(), 5);
     assert_eq!(
         admission
-            .proper_subsector_dependency_count_at(rule.anchor().powers())
+            .proper_subsector_dependency_count_at(rule.anchor().expect("anchored fixture").powers())
             .unwrap(),
         4
     );
@@ -191,7 +221,9 @@ fn complete_sunset_span_exposes_corner_pinch_dependencies() {
             .map(|term| term.shift().values())
             .collect::<Vec<_>>()
     );
-    let corner = admission.classify(rule.anchor().powers()).unwrap();
+    let corner = admission
+        .classify(rule.anchor().expect("anchored fixture").powers())
+        .unwrap();
     assert_eq!(
         corner
             .iter()

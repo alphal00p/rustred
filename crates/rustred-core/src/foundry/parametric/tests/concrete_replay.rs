@@ -384,8 +384,14 @@ fn concrete_replay_guard_overflow_and_resource_failures_are_typed() {
         Err(ParametricRuleError::AnchorIndexOverflow { position: 0 })
     );
 
-    let exact = rule.concrete_replay().exact_operations();
-    let retained_terms = rule.concrete_replay().peak_retained_coefficient_terms();
+    let exact = rule
+        .concrete_replay()
+        .expect("anchored fixture")
+        .exact_operations();
+    let retained_terms = rule
+        .concrete_replay()
+        .expect("anchored fixture")
+        .peak_retained_coefficient_terms();
     let exact_retained = ParametricRuleLimits {
         max_concrete_replay_retained_coefficient_terms: retained_terms,
         ..ParametricRuleLimits::default()
@@ -575,7 +581,13 @@ fn boundary_column_reordering_does_not_invalidate_an_exact_parametric_rule() {
     .unwrap();
     assert_eq!(rule.pivot(), &pivot);
     assert_eq!(rule.right_hand_side()[0].shift().values(), [1, 1]);
-    assert_eq!(rule.concrete_replay().anchor().powers(), [1, 1]);
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .anchor()
+            .powers(),
+        [1, 1]
+    );
 
     // The parametric order is pivot > boundary column > RHS. At n=(1,1),
     // however, the middle column pinches from two propagators to one, so the

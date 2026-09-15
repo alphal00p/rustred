@@ -151,7 +151,10 @@ fn endpoint_rule_replay_descent_domain_and_rebuild_are_exact() {
         (&witness.complete_rule, 7, 19),
         (build.endpoint.rule(), 4, 16),
     ] {
-        assert_eq!(rule.anchor().powers(), BRIDGE_DESCENDANT_SECTOR);
+        assert_eq!(
+            rule.anchor().expect("anchored fixture").powers(),
+            BRIDGE_DESCENDANT_SECTOR
+        );
         assert_eq!(rule.pivot().values(), BRIDGE_DESCENDANT_TARGET_SHIFT);
         assert_eq!(
             rule.right_hand_side()
@@ -161,9 +164,20 @@ fn endpoint_rule_replay_descent_domain_and_rebuild_are_exact() {
             RHS.iter().map(<[i64; 6]>::as_slice).collect::<Vec<_>>()
         );
         assert!(rule.nonzero_guards().is_empty());
-        assert_eq!(rule.replay().source_rows_used(), 2);
-        assert_eq!(rule.replay().shift_columns_checked(), shift_columns);
-        assert_eq!(rule.replay().exact_operations(), exact_operations);
+        assert_eq!(
+            rule.replay().expect("anchored fixture").source_rows_used(),
+            2
+        );
+        assert_eq!(
+            rule.replay()
+                .expect("anchored fixture")
+                .shift_columns_checked(),
+            shift_columns
+        );
+        assert_eq!(
+            rule.replay().expect("anchored fixture").exact_operations(),
+            exact_operations
+        );
         assert_concrete_metrics(rule, (2, 8, 2, 11, 0, 29, 9));
     }
 
@@ -334,7 +348,10 @@ fn assert_concrete_metrics(
     rule: &ParametricRule,
     expected: (usize, usize, usize, usize, usize, usize, usize),
 ) {
-    assert_eq!(concrete_metrics(rule.concrete_replay()), expected);
+    assert_eq!(
+        concrete_metrics(rule.concrete_replay().expect("anchored fixture")),
+        expected
+    );
 }
 
 fn concrete_metrics(

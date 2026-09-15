@@ -143,7 +143,13 @@ fn encode_into_writer(
             // Schema-v4 derivation plan: deterministic first-descending
             // interior rule from the independently regenerated source set.
             let mut plan = rules.child();
-            encode_integral_key(&mut plan, rule.anchor())?;
+            encode_integral_key(
+                &mut plan,
+                rule.anchor()
+                    .ok_or(ArtifactPersistenceError::UnsupportedFeature {
+                        detail: "the current artifact grammar requires an anchored rule",
+                    })?,
+            )?;
             plan.string(&rule.ordering().stable_id(), "rule ordering identifier")?;
             let snapshot = encode_rule_snapshot(rule, &rules)?;
             rules.charge_witness_payload(snapshot.len())?;
@@ -786,3 +792,5 @@ mod aggregate_budget_tests {
         );
     }
 }
+#[cfg(test)]
+mod replay_evidence_tests;

@@ -504,7 +504,7 @@ fn assert_rule_metrics(
     parametric: (usize, usize, usize),
     concrete: (usize, usize, usize, usize, usize, usize, usize),
 ) {
-    assert_eq!(rule.anchor().powers(), anchor);
+    assert_eq!(rule.anchor().expect("anchored fixture").powers(), anchor);
     assert_eq!(rule.pivot().values(), BRIDGE_DOT_NUMERATOR_PIVOT);
     assert_eq!(
         rule.right_hand_side()
@@ -513,10 +513,21 @@ fn assert_rule_metrics(
             .collect::<Vec<_>>(),
         rhs.iter().map(<[i64; 6]>::as_slice).collect::<Vec<_>>()
     );
-    assert_eq!(rule.replay().source_rows_used(), parametric.0);
-    assert_eq!(rule.replay().shift_columns_checked(), parametric.1);
-    assert_eq!(rule.replay().exact_operations(), parametric.2);
-    let replay = rule.concrete_replay();
+    assert_eq!(
+        rule.replay().expect("anchored fixture").source_rows_used(),
+        parametric.0
+    );
+    assert_eq!(
+        rule.replay()
+            .expect("anchored fixture")
+            .shift_columns_checked(),
+        parametric.1
+    );
+    assert_eq!(
+        rule.replay().expect("anchored fixture").exact_operations(),
+        parametric.2
+    );
+    let replay = rule.concrete_replay().expect("anchored fixture");
     assert_eq!(replay.source_contributions_checked(), concrete.0);
     assert_eq!(replay.source_terms_checked(), concrete.1);
     assert_eq!(replay.right_hand_side_terms_checked(), concrete.2);

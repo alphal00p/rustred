@@ -239,8 +239,16 @@ fn exact_coefficients_guard_replay_domain_and_rebuild_are_pinned() {
         .numerator_condition_with_limits(&minus_two, Default::default())
         .unwrap();
     for rule in [complete, compact] {
-        assert_eq!(rule.pivot_guard().coefficient(), &minus_two);
-        assert_eq!(rule.pivot_guard().nonzero_polynomial(), &pivot_polynomial);
+        assert_eq!(
+            rule.pivot_guard().expect("anchored fixture").coefficient(),
+            &minus_two
+        );
+        assert_eq!(
+            rule.pivot_guard()
+                .expect("anchored fixture")
+                .nonzero_polynomial(),
+            &pivot_polynomial
+        );
     }
     let complete_guard_coefficient = indexed("6-3*d");
     let complete_guard = build
@@ -313,7 +321,10 @@ fn exact_coefficients_guard_replay_domain_and_rebuild_are_pinned() {
         Default::default(),
     )
     .unwrap();
-    assert_eq!(held_out, compact.concrete_replay().clone());
+    assert_eq!(
+        held_out,
+        compact.concrete_replay().expect("anchored fixture").clone()
+    );
 
     let (_second_context, second) = derive_incident_two_dot_numerator_endpoint().unwrap();
     assert_eq!(second.rule(), compact);
@@ -501,7 +512,10 @@ fn assert_rule_metrics(
     parametric: (usize, usize, usize),
     concrete: (usize, usize, usize, usize, usize, usize, usize),
 ) {
-    assert_eq!(rule.anchor().powers(), FOUR_LINE_SECTOR);
+    assert_eq!(
+        rule.anchor().expect("anchored fixture").powers(),
+        FOUR_LINE_SECTOR
+    );
     assert_eq!(rule.pivot().values(), INCIDENT_TWO_DOT_NUMERATOR_PIVOT);
     assert_eq!(
         rule.right_hand_side()
@@ -510,10 +524,21 @@ fn assert_rule_metrics(
             .collect::<Vec<_>>(),
         RHS.iter().map(<[i64; 6]>::as_slice).collect::<Vec<_>>()
     );
-    assert_eq!(rule.replay().source_rows_used(), parametric.0);
-    assert_eq!(rule.replay().shift_columns_checked(), parametric.1);
-    assert_eq!(rule.replay().exact_operations(), parametric.2);
-    let replay = rule.concrete_replay();
+    assert_eq!(
+        rule.replay().expect("anchored fixture").source_rows_used(),
+        parametric.0
+    );
+    assert_eq!(
+        rule.replay()
+            .expect("anchored fixture")
+            .shift_columns_checked(),
+        parametric.1
+    );
+    assert_eq!(
+        rule.replay().expect("anchored fixture").exact_operations(),
+        parametric.2
+    );
+    let replay = rule.concrete_replay().expect("anchored fixture");
     assert_eq!(replay.source_contributions_checked(), concrete.0);
     assert_eq!(replay.source_terms_checked(), concrete.1);
     assert_eq!(replay.right_hand_side_terms_checked(), concrete.2);

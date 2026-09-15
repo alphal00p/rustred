@@ -347,7 +347,10 @@ fn assert_e_coefficients(c: &crate::algebra::IndexedCoefficientContext, rule: &P
     let reciprocal = c.div(&c.one(), &r).unwrap();
     let sources = scaled(c, &reciprocal, &[1, 1, 1, -3, -3, -2, 1]);
     assert_eq!(coefficients(rule), sources.iter().collect::<Vec<_>>());
-    assert_eq!(rule.pivot_guard().coefficient(), &r);
+    assert_eq!(
+        rule.pivot_guard().expect("anchored fixture").coefficient(),
+        &r
+    );
     let nr = c.mul(&n, &reciprocal).unwrap();
     let scalar = c
         .mul(
@@ -424,7 +427,10 @@ fn assert_u_coefficients(c: &crate::algebra::IndexedCoefficientContext, rule: &P
         rb.clone(),
     ];
     assert_eq!(coefficients(rule), sources.iter().collect::<Vec<_>>());
-    assert_eq!(rule.pivot_guard().coefficient(), &b);
+    assert_eq!(
+        rule.pivot_guard().expect("anchored fixture").coefficient(),
+        &b
+    );
     let rhs = vec![
         c.mul(
             &c.mul(
@@ -485,7 +491,10 @@ fn assert_v_coefficients(c: &crate::algebra::IndexedCoefficientContext, rule: &P
         half.clone(),
     ];
     assert_eq!(coefficients(rule), sources.iter().collect::<Vec<_>>());
-    assert_eq!(rule.pivot_guard().coefficient(), &c.integer(2));
+    assert_eq!(
+        rule.pivot_guard().expect("anchored fixture").coefficient(),
+        &c.integer(2)
+    );
     let rhs = [
         c.mul(&sub(c, &d, &scale(c, 3, &n)), &half).unwrap(),
         c.mul(&scale(c, -3, &n), &half).unwrap(),
@@ -501,7 +510,10 @@ fn assert_shape(
     p: (usize, usize, usize),
     c: (usize, usize, usize, usize, usize, usize, usize),
 ) {
-    assert_eq!(rule.anchor().powers(), PAIR_REPLAY_ANCHOR);
+    assert_eq!(
+        rule.anchor().expect("anchored fixture").powers(),
+        PAIR_REPLAY_ANCHOR
+    );
     assert_eq!(rule.pivot().values(), pivot);
     assert_eq!(
         rule.right_hand_side()
@@ -512,13 +524,15 @@ fn assert_shape(
     );
     assert_eq!(
         (
-            rule.replay().source_rows_used(),
-            rule.replay().shift_columns_checked(),
-            rule.replay().exact_operations()
+            rule.replay().expect("anchored fixture").source_rows_used(),
+            rule.replay()
+                .expect("anchored fixture")
+                .shift_columns_checked(),
+            rule.replay().expect("anchored fixture").exact_operations()
         ),
         p
     );
-    let r = rule.concrete_replay();
+    let r = rule.concrete_replay().expect("anchored fixture");
     assert_eq!(
         (
             r.source_contributions_checked(),
@@ -547,8 +561,8 @@ fn assert_coefficients_equal(left: &ParametricRule, right: &ParametricRule) {
             .collect::<Vec<_>>()
     );
     assert_eq!(
-        left.pivot_guard().coefficient(),
-        right.pivot_guard().coefficient()
+        left.pivot_guard().expect("anchored fixture").coefficient(),
+        right.pivot_guard().expect("anchored fixture").coefficient()
     );
 }
 

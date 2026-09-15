@@ -220,6 +220,10 @@ pub(crate) fn try_single_guard_domain_split(
     fixed: &[FixedIndexRestriction],
     limits: RuleCellLimits,
 ) -> Result<Option<RuleCellGuardDomainSplit>, RuleCellError> {
+    let anchor = rule
+        .anchor()
+        .ok_or(RuleCellError::UnsupportedReplayEvidence)?
+        .powers();
     if application_domain.arity() != context.index_count() {
         return Err(RuleCellError::WrongApplicationArity {
             expected: context.index_count(),
@@ -288,7 +292,6 @@ pub(crate) fn try_single_guard_domain_split(
     let Some((guard_ordinal, position, value)) = selected else {
         return Ok(None);
     };
-    let anchor = rule.anchor().powers();
     let Some(&anchor_value) = anchor.get(position) else {
         return Err(RuleCellError::WrongApplicationArity {
             expected: application_domain.arity(),
@@ -654,6 +657,9 @@ fn validate_bindings(
     rule: &ParametricRule,
     sources: &SourceViewBatch,
 ) -> Result<(), RuleCellError> {
+    if rule.replay().is_none() || rule.concrete_replay().is_none() {
+        return Err(RuleCellError::UnsupportedReplayEvidence);
+    }
     if rule.family_fingerprint() != sources.family_fingerprint() {
         return Err(RuleCellError::ForeignFamily);
     }
@@ -694,3 +700,5 @@ fn check_limit(
 fn singleton(value: i64) -> InteriorBounds {
     InteriorBounds::new(value, value)
 }
+#[cfg(test)]
+mod replay_evidence_tests;

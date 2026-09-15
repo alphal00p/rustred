@@ -155,7 +155,10 @@ fn exact_coefficients_replay_domain_and_rebuild_are_pinned() {
         .expect("exact test retains complete span")
         .complete_rule;
     for (rule, parametric) in [(complete, (2, 14, 30)), (build.endpoint.rule(), (2, 6, 22))] {
-        assert_eq!(rule.anchor().powers(), INCIDENT_PATH_REPLAY_ANCHOR);
+        assert_eq!(
+            rule.anchor().expect("anchored fixture").powers(),
+            INCIDENT_PATH_REPLAY_ANCHOR
+        );
         assert_eq!(rule.pivot().values(), INCIDENT_PATH_DOT_PIVOT);
         assert_eq!(
             rule.right_hand_side()
@@ -166,14 +169,16 @@ fn exact_coefficients_replay_domain_and_rebuild_are_pinned() {
         );
         assert_eq!(
             (
-                rule.replay().source_rows_used(),
-                rule.replay().shift_columns_checked(),
-                rule.replay().exact_operations(),
+                rule.replay().expect("anchored fixture").source_rows_used(),
+                rule.replay()
+                    .expect("anchored fixture")
+                    .shift_columns_checked(),
+                rule.replay().expect("anchored fixture").exact_operations(),
             ),
             parametric
         );
         assert_eq!(
-            concrete_metrics(rule.concrete_replay()),
+            concrete_metrics(rule.concrete_replay().expect("anchored fixture")),
             (2, 11, 2, 14, 0, 36, 12)
         );
         assert!(rule.nonzero_guards().is_empty());
@@ -199,8 +204,22 @@ fn exact_coefficients_replay_domain_and_rebuild_are_pinned() {
             .collect::<Vec<_>>(),
         [&minus_half, &half]
     );
-    assert_eq!(build.endpoint.rule().pivot_guard().coefficient(), &pivot);
-    assert_eq!(complete.pivot_guard().coefficient(), &pivot);
+    assert_eq!(
+        build
+            .endpoint
+            .rule()
+            .pivot_guard()
+            .expect("anchored fixture")
+            .coefficient(),
+        &pivot
+    );
+    assert_eq!(
+        complete
+            .pivot_guard()
+            .expect("anchored fixture")
+            .coefficient(),
+        &pivot
+    );
     assert_eq!(
         build
             .endpoint
@@ -259,7 +278,13 @@ fn exact_coefficients_replay_domain_and_rebuild_are_pinned() {
     assert_eq!(held_out.anchor().powers(), INCIDENT_PATH_SOURCE);
     assert_eq!(
         concrete_metrics(&held_out),
-        concrete_metrics(build.endpoint.rule().concrete_replay())
+        concrete_metrics(
+            build
+                .endpoint
+                .rule()
+                .concrete_replay()
+                .expect("anchored fixture")
+        )
     );
 
     let (_second_context, second) = derive_incident_path_dot_numerator_endpoint().unwrap();

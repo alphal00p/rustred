@@ -5,6 +5,7 @@ use crate::sector::OrderingPolicy;
 use super::anchor::verify_concrete_specialization_replay;
 use super::boundary::{build_sector_monotone_admission, preflight_sector_monotone_rhs_shift};
 use super::error::ParametricRuleError;
+use super::evidence::ParametricReplayEvidence;
 use super::limits::ParametricRuleLimits;
 use super::model::{
     ParametricGuardOrigin, ParametricNonZeroGuard, ParametricRule, ParametricRuleTerm,
@@ -380,8 +381,10 @@ fn build_rule(
         pivot_guards: reduced.pivot_guards,
         nonzero_guards,
         source_combination: reduced.source_combination,
-        replay,
-        concrete_replay,
+        replay_evidence: ParametricReplayEvidence::Anchored {
+            indexed: replay,
+            concrete: concrete_replay,
+        },
         sector_monotone_admission,
     })
 }

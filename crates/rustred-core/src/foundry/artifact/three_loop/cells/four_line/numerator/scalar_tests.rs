@@ -158,7 +158,10 @@ fn generated_depth_one_search_and_selected_bulk_projection_are_exact() {
             .collect::<Vec<_>>(),
         BULK_SELECTION
     );
-    assert_eq!(selection.rule.anchor().powers(), BULK_REPLAY_ANCHOR);
+    assert_eq!(
+        selection.rule.anchor().expect("anchored fixture").powers(),
+        BULK_REPLAY_ANCHOR
+    );
     assert_eq!(selection.rule.pivot().values(), INACTIVE_NUMERATOR_PIVOT);
     let SourceViewConstruction::ResidualProjection(selection_projection) =
         selection.sources.construction()
@@ -421,7 +424,10 @@ fn assert_rule(
     parametric: (usize, usize, usize),
     concrete: (usize, usize, usize, usize, usize, usize, usize),
 ) {
-    assert_eq!(cell.rule().anchor().powers(), anchor);
+    assert_eq!(
+        cell.rule().anchor().expect("anchored fixture").powers(),
+        anchor
+    );
     assert_eq!(cell.rule().pivot().values(), INACTIVE_NUMERATOR_PIVOT);
     assert_eq!(
         cell.rule()
@@ -431,10 +437,28 @@ fn assert_rule(
             .collect::<Vec<_>>(),
         rhs.iter().map(|shift| shift.as_slice()).collect::<Vec<_>>()
     );
-    assert_eq!(cell.rule().replay().source_rows_used(), parametric.0);
-    assert_eq!(cell.rule().replay().shift_columns_checked(), parametric.1);
-    assert_eq!(cell.rule().replay().exact_operations(), parametric.2);
-    let replay = cell.rule().concrete_replay();
+    assert_eq!(
+        cell.rule()
+            .replay()
+            .expect("anchored fixture")
+            .source_rows_used(),
+        parametric.0
+    );
+    assert_eq!(
+        cell.rule()
+            .replay()
+            .expect("anchored fixture")
+            .shift_columns_checked(),
+        parametric.1
+    );
+    assert_eq!(
+        cell.rule()
+            .replay()
+            .expect("anchored fixture")
+            .exact_operations(),
+        parametric.2
+    );
+    let replay = cell.rule().concrete_replay().expect("anchored fixture");
     assert_eq!(replay.source_contributions_checked(), concrete.0);
     assert_eq!(replay.source_terms_checked(), concrete.1);
     assert_eq!(replay.right_hand_side_terms_checked(), concrete.2);

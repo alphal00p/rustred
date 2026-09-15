@@ -116,11 +116,17 @@ fn append_parametric_rule(
         append_coefficient(output, source.coefficient())?;
     }
 
-    let replay = rule.replay();
+    let replay = rule.replay().ok_or(StratumRegistryError::Invariant {
+        detail: "the current owner grammar requires anchored replay evidence",
+    })?;
     output.usize(replay.source_rows_used())?;
     output.usize(replay.shift_columns_checked())?;
     output.usize(replay.exact_operations())?;
-    let concrete = rule.concrete_replay();
+    let concrete = rule
+        .concrete_replay()
+        .ok_or(StratumRegistryError::Invariant {
+            detail: "the current owner grammar requires concrete replay evidence",
+        })?;
     append_integral_key(output, concrete.anchor())?;
     output.usize(concrete.source_contributions_checked())?;
     output.usize(concrete.source_terms_checked())?;

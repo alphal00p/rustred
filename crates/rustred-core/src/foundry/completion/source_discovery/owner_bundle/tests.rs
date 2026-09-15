@@ -1484,11 +1484,13 @@ fn staged_proof_equivalent_owner_selection_is_arrival_order_independent() {
             .cell()
             .rule()
             .concrete_replay()
+            .expect("anchored fixture")
             .anchor(),
         second.executable_candidates()[0]
             .cell()
             .rule()
             .concrete_replay()
+            .expect("anchored fixture")
             .anchor(),
         "the regression needs distinct executable replay witnesses",
     );

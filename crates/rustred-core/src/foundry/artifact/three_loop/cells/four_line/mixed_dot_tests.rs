@@ -98,7 +98,7 @@ fn mixed_dot_singletons_own_independent_complete_generated_projections() {
             let provenance = &cell.sources().provenance()[contribution.source_ordinal()];
             assert_eq!(contribution.row_id(), provenance.translated().source_row());
         }
-        let replay = cell.rule().concrete_replay();
+        let replay = cell.rule().concrete_replay().expect("anchored fixture");
         assert_eq!(
             replay.source_contributions_checked(),
             expected_contributions
@@ -213,7 +213,10 @@ fn assert_cell_shape(
     target: [i64; 6],
     other_orbit: [i64; 6],
 ) {
-    assert_eq!(cell.rule().anchor().powers(), FOUR_LINE_SECTOR);
+    assert_eq!(
+        cell.rule().anchor().expect("anchored fixture").powers(),
+        FOUR_LINE_SECTOR
+    );
     assert_eq!(cell.rule().pivot().values(), expected_shift);
     assert_eq!(
         cell.rule()

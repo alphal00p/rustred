@@ -160,7 +160,10 @@ fn selected_source_mixed_dot_ray_retains_complete_exact_evidence() {
             .collect::<Vec<_>>(),
         selected_complete_source_ordinals.as_ref()
     );
-    let selection_replay = selection_witness.rule().concrete_replay();
+    let selection_replay = selection_witness
+        .rule()
+        .concrete_replay()
+        .expect("anchored fixture");
     assert_eq!(selection_replay.source_contributions_checked(), 46);
     assert_eq!(selection_replay.source_terms_checked(), 310);
     assert_eq!(selection_replay.right_hand_side_terms_checked(), 3);
@@ -189,7 +192,10 @@ fn selected_source_mixed_dot_ray_retains_complete_exact_evidence() {
         )))
     );
 
-    assert_eq!(cell.rule().anchor().powers(), FOUR_LINE_SECTOR);
+    assert_eq!(
+        cell.rule().anchor().expect("anchored fixture").powers(),
+        FOUR_LINE_SECTOR
+    );
     assert_eq!(cell.rule().pivot().values(), MIXED_DOT_RAY_TARGET_SHIFT);
     assert_eq!(
         cell.rule()
@@ -203,13 +209,25 @@ fn selected_source_mixed_dot_ray_retains_complete_exact_evidence() {
             .collect::<Vec<_>>()
     );
     assert_eq!(cell.rule().source_combination().len(), 13);
-    assert_eq!(cell.rule().replay().source_rows_used(), 13);
-    assert_eq!(cell.rule().replay().exact_operations(), 245);
+    assert_eq!(
+        cell.rule()
+            .replay()
+            .expect("anchored fixture")
+            .source_rows_used(),
+        13
+    );
+    assert_eq!(
+        cell.rule()
+            .replay()
+            .expect("anchored fixture")
+            .exact_operations(),
+        245
+    );
     for contribution in cell.rule().source_combination() {
         let provenance = &cell.sources().provenance()[contribution.source_ordinal()];
         assert_eq!(contribution.row_id(), provenance.translated().source_row());
     }
-    let replay = cell.rule().concrete_replay();
+    let replay = cell.rule().concrete_replay().expect("anchored fixture");
     assert_eq!(replay.source_contributions_checked(), 13);
     assert_eq!(replay.source_terms_checked(), 90);
     assert_eq!(replay.right_hand_side_terms_checked(), 5);

@@ -14,6 +14,7 @@ mod anchor;
 mod boundary;
 mod derive;
 mod error;
+mod evidence;
 mod limits;
 mod model;
 mod prepare;
@@ -34,6 +35,7 @@ pub use derive::{
     derive_sector_monotone_rule_for_target,
 };
 pub use error::ParametricRuleError;
+pub use evidence::{CombinedOriginalDomainEvidence, ParametricReplayEvidence};
 pub use limits::ParametricRuleLimits;
 pub use model::{
     ConcreteSpecializationReplayWitness, ParametricExactReplayWitness, ParametricGuardOrigin,

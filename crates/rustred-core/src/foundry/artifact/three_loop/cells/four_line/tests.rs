@@ -121,8 +121,18 @@ fn projected_source_spans_replay_all_nine_rows_on_the_exact_four_line_face() {
 #[test]
 fn exact_rules_target_the_canonical_dot_subcell_and_mixed_boundary() {
     let (_context, canonical_dot, mixed) = derive_four_line_cells().unwrap();
-    assert_eq!(canonical_dot.rule().anchor().powers(), ANCHOR);
-    assert_eq!(mixed.rule().anchor().powers(), ANCHOR);
+    assert_eq!(
+        canonical_dot
+            .rule()
+            .anchor()
+            .expect("anchored fixture")
+            .powers(),
+        ANCHOR
+    );
+    assert_eq!(
+        mixed.rule().anchor().expect("anchored fixture").powers(),
+        ANCHOR
+    );
     assert_eq!(
         canonical_dot.rule().pivot().values(),
         CANONICAL_DOT_TARGET_SHIFT
@@ -174,8 +184,22 @@ fn exact_rules_target_the_canonical_dot_subcell_and_mixed_boundary() {
             (6, "ordinary-ibp:2:0".to_owned()),
         ]
     );
-    assert_eq!(canonical_dot.rule().replay().source_rows_used(), 3);
-    assert_eq!(mixed.rule().replay().source_rows_used(), 2);
+    assert_eq!(
+        canonical_dot
+            .rule()
+            .replay()
+            .expect("anchored fixture")
+            .source_rows_used(),
+        3
+    );
+    assert_eq!(
+        mixed
+            .rule()
+            .replay()
+            .expect("anchored fixture")
+            .source_rows_used(),
+        2
+    );
     for cell in [&canonical_dot, &mixed] {
         assert_eq!(
             cell.domain_proof(),

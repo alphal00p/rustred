@@ -10,6 +10,7 @@ use crate::sector::{
 };
 
 use super::boundary::SectorMonotoneTargetAdmission;
+use super::evidence::ParametricReplayEvidence;
 
 /// One uniformly lower shift on the right-hand side of a parametric rule.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -294,13 +295,15 @@ impl ConcreteSpecializationReplayWitness {
 
 /// One guarded, uniformly descending, exactly replayed parametric rule.
 ///
-/// This object certifies only its fixed-sector interior, supplied source-row
-/// span, and concrete specialization replay. For a sector-monotone target
-/// derivation, the replay anchor may lie outside that same-sector interior;
-/// [`Self::sector_monotone_admission`] then supplies a larger universal parent
-/// box and exhaustive term-local pinch proofs. It does not certify exceptional
-/// guards, lower-sector rule availability, dependency closure, or a published
-/// reduction artifact.
+/// The replay evidence identifies its proof convention. Anchored derivations
+/// certify a supplied source-row span and a concrete specialization; their
+/// anchor may lie outside the fixed-sector interior when
+/// [`Self::sector_monotone_admission`] supplies a larger parent box and exact
+/// pinch proofs. Combined-original-domain evidence instead describes full
+/// weighted source replay on its retained coordinate domain, without an
+/// elimination anchor or pivot history. Its cold producer is not yet enabled.
+/// Neither convention alone certifies exceptional-guard coverage, lower-sector
+/// availability, dependency closure, or a published reduction artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParametricRule {
     pub(super) family_fingerprint: Arc<String>,
@@ -312,8 +315,7 @@ pub struct ParametricRule {
     pub(super) pivot_guards: Vec<ParametricReducerPivotGuard>,
     pub(super) nonzero_guards: Vec<ParametricNonZeroGuard>,
     pub(super) source_combination: Vec<ParametricSourceRowContribution>,
-    pub(super) replay: ParametricExactReplayWitness,
-    pub(super) concrete_replay: ConcreteSpecializationReplayWitness,
+    pub(super) replay_evidence: ParametricReplayEvidence,
     pub(super) sector_monotone_admission: Option<SectorMonotoneTargetAdmission>,
 }
 
@@ -344,8 +346,10 @@ impl ParametricRule {
             pivot_guards,
             nonzero_guards,
             source_combination,
-            replay,
-            concrete_replay,
+            replay_evidence: ParametricReplayEvidence::Anchored {
+                indexed: replay,
+                concrete: concrete_replay,
+            },
             sector_monotone_admission: Some(sector_monotone_admission),
         }
     }
@@ -386,14 +390,16 @@ impl ParametricRule {
         &self.right_hand_side
     }
 
-    pub fn pivot_guard(&self) -> &ParametricReducerPivotGuard {
-        self.pivot_guards
-            .last()
-            .expect("a parametric rule always retains its chosen pivot")
+    /// Final elimination pivot, when this producer performed elimination.
+    pub fn pivot_guard(&self) -> Option<&ParametricReducerPivotGuard> {
+        self.elimination_pivot_guards().last()
     }
 
     pub fn elimination_pivot_guards(&self) -> &[ParametricReducerPivotGuard] {
-        &self.pivot_guards
+        match &self.replay_evidence {
+            ParametricReplayEvidence::Anchored { .. } => &self.pivot_guards,
+            ParametricReplayEvidence::CombinedOriginalDomain(_) => &[],
+        }
     }
 
     pub fn nonzero_guards(&self) -> &[ParametricNonZeroGuard] {
@@ -404,12 +410,18 @@ impl ParametricRule {
         &self.source_combination
     }
 
-    pub fn replay(&self) -> ParametricExactReplayWitness {
-        self.replay
+    pub fn replay_evidence(&self) -> &ParametricReplayEvidence {
+        &self.replay_evidence
     }
 
-    pub fn concrete_replay(&self) -> &ConcreteSpecializationReplayWitness {
-        &self.concrete_replay
+    /// Indexed elimination replay, absent for a combined-domain identity.
+    pub fn replay(&self) -> Option<ParametricExactReplayWitness> {
+        self.replay_evidence.indexed()
+    }
+
+    /// Concrete specialization evidence, when supplied by this producer.
+    pub fn concrete_replay(&self) -> Option<&ConcreteSpecializationReplayWitness> {
+        self.replay_evidence.concrete()
     }
 
     /// Universal parent-box and term-local pinch evidence produced only by the
@@ -444,8 +456,33 @@ impl ParametricRule {
         }
     }
 
-    pub fn anchor(&self) -> &IntegralKey {
-        self.concrete_replay.anchor()
+    pub fn anchor(&self) -> Option<&IntegralKey> {
+        self.concrete_replay()
+            .map(ConcreteSpecializationReplayWitness::anchor)
+    }
+
+    /// Deliberately unverified evidence mutation for cold-boundary rejection
+    /// tests. This is not a producer and is absent from production builds.
+    #[cfg(test)]
+    pub(crate) fn replace_replay_with_uncertified_combined_domain_for_test(&mut self) {
+        use super::evidence::CombinedOriginalDomainEvidence;
+        use crate::foundry::completion::LatticeBox;
+
+        let arity = self.sector().active_bits().len();
+        let application = LatticeBox::try_new(vec![0; arity], vec![None; arity])
+            .expect("test-only whole orthant");
+        self.replay_evidence = ParametricReplayEvidence::CombinedOriginalDomain(Arc::new(
+            CombinedOriginalDomainEvidence {
+                sector: self.sector().clone(),
+                fixed: Box::default(),
+                application: vec![application].into(),
+            },
+        ));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn clear_nonzero_guards_for_test(&mut self) {
+        self.nonzero_guards.clear();
     }
 }
 

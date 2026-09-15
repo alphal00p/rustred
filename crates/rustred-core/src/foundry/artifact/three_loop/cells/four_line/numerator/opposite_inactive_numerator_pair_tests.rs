@@ -224,7 +224,12 @@ fn exact_coefficients_guards_replay_domains_and_rebuild_are_pinned() {
         ]
     );
     assert_eq!(
-        build.undotted_endpoint.rule().pivot_guard().coefficient(),
+        build
+            .undotted_endpoint
+            .rule()
+            .pivot_guard()
+            .expect("anchored fixture")
+            .coefficient(),
         &pivot
     );
     assert_eq!(
@@ -269,18 +274,40 @@ fn exact_coefficients_guards_replay_domains_and_rebuild_are_pinned() {
             &guard,
         ),
     ] {
-        assert_eq!(rule.pivot_guard().source_ordinal(), reducer_source);
         assert_eq!(
-            rule.pivot_guard().row_id().stable_string(),
+            rule.pivot_guard()
+                .expect("anchored fixture")
+                .source_ordinal(),
+            reducer_source
+        );
+        assert_eq!(
+            rule.pivot_guard()
+                .expect("anchored fixture")
+                .row_id()
+                .stable_string(),
             "ordinary-ibp:1:1"
         );
-        assert_eq!(rule.pivot_guard().pivot_column(), pivot_column);
         assert_eq!(
-            rule.pivot_guard().pivot_shift().values(),
+            rule.pivot_guard().expect("anchored fixture").pivot_column(),
+            pivot_column
+        );
+        assert_eq!(
+            rule.pivot_guard()
+                .expect("anchored fixture")
+                .pivot_shift()
+                .values(),
             reducer_pivot_shift
         );
-        assert_eq!(rule.pivot_guard().coefficient(), pivot_coefficient);
-        assert_eq!(rule.pivot_guard().nonzero_polynomial(), pivot_polynomial);
+        assert_eq!(
+            rule.pivot_guard().expect("anchored fixture").coefficient(),
+            pivot_coefficient
+        );
+        assert_eq!(
+            rule.pivot_guard()
+                .expect("anchored fixture")
+                .nonzero_polynomial(),
+            pivot_polynomial
+        );
         let reducer_guard = rule
             .nonzero_guards()
             .iter()
@@ -318,11 +345,20 @@ fn exact_coefficients_guards_replay_domains_and_rebuild_are_pinned() {
         [&minus_three_eighths, &one_quarter]
     );
     assert_eq!(
-        build.dotted_endpoint.rule().pivot_guard().coefficient(),
+        build
+            .dotted_endpoint
+            .rule()
+            .pivot_guard()
+            .expect("anchored fixture")
+            .coefficient(),
         &minus_four
     );
     assert_eq!(
-        witness.complete_dotted_rule.pivot_guard().coefficient(),
+        witness
+            .complete_dotted_rule
+            .pivot_guard()
+            .expect("anchored fixture")
+            .coefficient(),
         &minus_four
     );
     assert_eq!(
@@ -356,7 +392,7 @@ fn exact_coefficients_guards_replay_domains_and_rebuild_are_pinned() {
         assert_eq!(replay.anchor().powers(), OPPOSITE_PAIR_SOURCE);
         assert_eq!(
             concrete_metrics(&replay),
-            concrete_metrics(cell.rule().concrete_replay())
+            concrete_metrics(cell.rule().concrete_replay().expect("anchored fixture"))
         );
     }
 
@@ -627,7 +663,10 @@ fn assert_rule(
     parametric: (usize, usize, usize),
     concrete: (usize, usize, usize, usize, usize, usize, usize),
 ) {
-    assert_eq!(rule.anchor().powers(), OPPOSITE_PAIR_REPLAY_ANCHOR);
+    assert_eq!(
+        rule.anchor().expect("anchored fixture").powers(),
+        OPPOSITE_PAIR_REPLAY_ANCHOR
+    );
     assert_eq!(rule.pivot().values(), pivot);
     assert_eq!(
         rule.right_hand_side()
@@ -638,13 +677,18 @@ fn assert_rule(
     );
     assert_eq!(
         (
-            rule.replay().source_rows_used(),
-            rule.replay().shift_columns_checked(),
-            rule.replay().exact_operations(),
+            rule.replay().expect("anchored fixture").source_rows_used(),
+            rule.replay()
+                .expect("anchored fixture")
+                .shift_columns_checked(),
+            rule.replay().expect("anchored fixture").exact_operations(),
         ),
         parametric
     );
-    assert_eq!(concrete_metrics(rule.concrete_replay()), concrete);
+    assert_eq!(
+        concrete_metrics(rule.concrete_replay().expect("anchored fixture")),
+        concrete
+    );
 }
 
 fn assert_complete_compact_equivalence(complete: &ParametricRule, compact: &ParametricRule) {

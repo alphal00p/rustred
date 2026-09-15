@@ -184,11 +184,30 @@ fn exact_singleton_rules_own_dotted_orbits_and_deeper_descendants() {
         triple,
         three_distinct,
     } = derive_exceptional_four_line_cells().unwrap();
-    assert_eq!(isolated.rule().anchor().powers(), BASE_CORNER);
-    assert_eq!(opposite.rule().anchor().powers(), BASE_CORNER);
-    assert_eq!(adjacent.rule().anchor().powers(), BASE_CORNER);
-    assert_eq!(triple.rule().anchor().powers(), BASE_CORNER);
-    assert_eq!(three_distinct.rule().anchor().powers(), BASE_CORNER);
+    assert_eq!(
+        isolated.rule().anchor().expect("anchored fixture").powers(),
+        BASE_CORNER
+    );
+    assert_eq!(
+        opposite.rule().anchor().expect("anchored fixture").powers(),
+        BASE_CORNER
+    );
+    assert_eq!(
+        adjacent.rule().anchor().expect("anchored fixture").powers(),
+        BASE_CORNER
+    );
+    assert_eq!(
+        triple.rule().anchor().expect("anchored fixture").powers(),
+        BASE_CORNER
+    );
+    assert_eq!(
+        three_distinct
+            .rule()
+            .anchor()
+            .expect("anchored fixture")
+            .powers(),
+        BASE_CORNER
+    );
     assert_eq!(isolated.rule().pivot().values(), CANONICAL_DOT_TARGET_SHIFT);
     assert_eq!(
         opposite.rule().pivot().values(),
@@ -237,11 +256,46 @@ fn exact_singleton_rules_own_dotted_orbits_and_deeper_descendants() {
             (5, "ordinary-ibp:1:2".to_owned()),
         ]
     );
-    assert_eq!(isolated.rule().replay().source_rows_used(), 2);
-    assert_eq!(opposite.rule().replay().source_rows_used(), 5);
-    assert_eq!(adjacent.rule().replay().source_rows_used(), 16);
-    assert_eq!(triple.rule().replay().source_rows_used(), 16);
-    assert_eq!(three_distinct.rule().replay().source_rows_used(), 17);
+    assert_eq!(
+        isolated
+            .rule()
+            .replay()
+            .expect("anchored fixture")
+            .source_rows_used(),
+        2
+    );
+    assert_eq!(
+        opposite
+            .rule()
+            .replay()
+            .expect("anchored fixture")
+            .source_rows_used(),
+        5
+    );
+    assert_eq!(
+        adjacent
+            .rule()
+            .replay()
+            .expect("anchored fixture")
+            .source_rows_used(),
+        16
+    );
+    assert_eq!(
+        triple
+            .rule()
+            .replay()
+            .expect("anchored fixture")
+            .source_rows_used(),
+        16
+    );
+    assert_eq!(
+        three_distinct
+            .rule()
+            .replay()
+            .expect("anchored fixture")
+            .source_rows_used(),
+        17
+    );
     assert_eq!(three_distinct.rule().source_combination().len(), 17);
     let searched_source_span = [
         (81, "ordinary-ibp:0:0", [0, 0, 0, 0, 0, 0]),

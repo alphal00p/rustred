@@ -60,7 +60,7 @@ pub(super) fn validate(
         }
     }
 
-    let replay = rule.replay();
+    let replay = super::anchored_replay(rule)?;
     let factorized_product_programs = super::compile_factorized_product_programs(&candidate)?;
     let validation = ArtifactValidationWitness::new(
         candidate.source_relations.len(),
@@ -153,7 +153,7 @@ fn validate_rule(rule: &ParametricRule) -> Result<(), ArtifactError> {
             });
         }
     }
-    if rule.anchor().powers() != [1] {
+    if super::anchored_concrete_replay(rule)?.anchor().powers() != [1] {
         return Err(ArtifactError::InvalidRuleShape {
             detail: "the concrete replay anchor is not the sector corner",
         });
@@ -165,7 +165,8 @@ fn validate_replay(
     source_relations: &[ParametricRelation],
     rule: &ParametricRule,
 ) -> Result<(), ArtifactError> {
-    let replay = rule.replay();
+    let replay = super::anchored_replay(rule)?;
+    let concrete = super::anchored_concrete_replay(rule)?;
     if replay.source_rows_used() == 0
         || replay.source_rows_used() != rule.source_combination().len()
     {
@@ -190,13 +191,13 @@ fn validate_replay(
             });
         }
     }
-    if rule.concrete_replay().source_contributions_checked() == 0
-        || rule.concrete_replay().source_terms_checked() != 2
-        || rule.concrete_replay().right_hand_side_terms_checked() != 1
-        || rule.concrete_replay().integral_keys_checked() != 4
-        || rule.concrete_replay().nonzero_guards_checked() != rule.nonzero_guards().len()
-        || rule.concrete_replay().exact_operations() == 0
-        || rule.concrete_replay().peak_retained_coefficient_terms() == 0
+    if concrete.source_contributions_checked() == 0
+        || concrete.source_terms_checked() != 2
+        || concrete.right_hand_side_terms_checked() != 1
+        || concrete.integral_keys_checked() != 4
+        || concrete.nonzero_guards_checked() != rule.nonzero_guards().len()
+        || concrete.exact_operations() == 0
+        || concrete.peak_retained_coefficient_terms() == 0
     {
         return Err(ArtifactError::InvalidReplayEvidence {
             detail: "the concrete specialization replay is incomplete",

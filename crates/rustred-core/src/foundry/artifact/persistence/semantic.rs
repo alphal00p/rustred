@@ -288,6 +288,16 @@ pub(super) fn encode_rule_snapshot(
     rule: &ParametricRule,
     parent: &Writer,
 ) -> Result<Vec<u8>, ArtifactPersistenceError> {
+    let replay = rule
+        .replay()
+        .ok_or(ArtifactPersistenceError::UnsupportedFeature {
+            detail: "the current rule snapshot requires anchored replay evidence",
+        })?;
+    let concrete = rule
+        .concrete_replay()
+        .ok_or(ArtifactPersistenceError::UnsupportedFeature {
+            detail: "the current rule snapshot requires concrete replay evidence",
+        })?;
     let mut writer = parent.child();
     writer.string(rule.family_fingerprint(), "rule family fingerprint")?;
     writer.string(rule.context_fingerprint(), "rule context fingerprint")?;
@@ -343,14 +353,12 @@ pub(super) fn encode_rule_snapshot(
         encode_row_id(&mut writer, contribution.row_id())?;
         encode_indexed_coefficient(&mut writer, contribution.coefficient())?;
     }
-    let replay = rule.replay();
     writer.usize(replay.source_rows_used(), "parametric replay source rows")?;
     writer.usize(
         replay.shift_columns_checked(),
         "parametric replay shift columns",
     )?;
     writer.usize(replay.exact_operations(), "parametric replay operations")?;
-    let concrete = rule.concrete_replay();
     encode_integral_key(&mut writer, concrete.anchor())?;
     writer.usize(
         concrete.source_contributions_checked(),

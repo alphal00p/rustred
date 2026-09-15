@@ -403,15 +403,17 @@ fn assert_lossless_lowering(
         assert_eq!(translated.nonzero_polynomial(), exact.nonzero_polynomial());
     }
     assert_eq!(
-        rule.replay().source_rows_used(),
+        rule.replay().expect("anchored fixture").source_rows_used(),
         circuit.replay().source_contributions()
     );
     assert_eq!(
-        rule.replay().shift_columns_checked(),
+        rule.replay()
+            .expect("anchored fixture")
+            .shift_columns_checked(),
         circuit.replay().physical_columns()
     );
     assert_eq!(
-        rule.replay().exact_operations(),
+        rule.replay().expect("anchored fixture").exact_operations(),
         circuit.replay().exact_operations()
     );
 }
@@ -529,7 +531,10 @@ fn exact_lift_replays_a_frame_bound_nonempty_partition_deterministically() {
         lowered.sources().provenance(),
         repeated.sources().provenance()
     );
-    assert_eq!(lowered.rule().anchor().powers(), &[2]);
+    assert_eq!(
+        lowered.rule().anchor().expect("anchored fixture").powers(),
+        &[2]
+    );
     assert_eq!(
         try_lower_exact_circuit(
             &context,

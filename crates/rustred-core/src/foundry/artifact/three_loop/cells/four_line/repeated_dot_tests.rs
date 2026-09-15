@@ -94,7 +94,10 @@ fn repeated_dot_ray_comes_from_the_complete_generated_depth_two_span() {
             .unwrap()
     );
     assert_eq!(repeated_dot_free_position(), 4);
-    assert_eq!(cell.rule().anchor().powers(), FOUR_LINE_SECTOR);
+    assert_eq!(
+        cell.rule().anchor().expect("anchored fixture").powers(),
+        FOUR_LINE_SECTOR
+    );
     assert_eq!(cell.rule().pivot().values(), REPEATED_DOT_TARGET_SHIFT);
     assert_eq!(cell.rule().right_hand_side().len(), 8);
     assert_eq!(cell.rule().nonzero_guards().len(), 32);
@@ -106,7 +109,7 @@ fn repeated_dot_ray_comes_from_the_complete_generated_depth_two_span() {
     );
     assert!(cell.terms().iter().all(|term| term.descent().verify()));
 
-    let replay = cell.rule().concrete_replay();
+    let replay = cell.rule().concrete_replay().expect("anchored fixture");
     assert_eq!(replay.source_contributions_checked(), 50);
     assert_eq!(replay.source_terms_checked(), 358);
     assert_eq!(replay.right_hand_side_terms_checked(), 8);

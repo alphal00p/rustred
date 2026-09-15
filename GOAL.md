@@ -53,6 +53,15 @@ lane is updating required native solver API calls and checking contraction
 routing; the requested Spenso wrapper decision remains pending. No newly
 added Vakint acceptance test is reported as passed before the current build
 and its actual execution succeed.
+The independently reviewed 38-key candidate terminal data now exists in
+Vakint's test-only terminal module, using five existing exact MATAD/product
+expressions. It is not installed and its four new native tests remain unrun;
+no extra numerical master table or new end-to-end acceptance result is claimed.
+The parametric-rule evidence migration also passes 110 focused tests and the
+separate 623-rule canonical K6 regression. It removes the assumption that every
+proof needs a sampled anchor, but deliberately keeps combined-domain
+installation disabled until its real constructor, cell lowering and codec are
+implemented. This is preparation for shipping K6, not a shipped artifact.
 
 ## Active reference-port assignment (2026-09-14)
 

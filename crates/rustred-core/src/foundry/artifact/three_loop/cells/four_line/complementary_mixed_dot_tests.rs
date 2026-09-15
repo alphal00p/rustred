@@ -90,7 +90,10 @@ fn complementary_mixed_dot_singleton_retains_complete_exact_evidence() {
             .unwrap()
     );
 
-    assert_eq!(cell.rule().anchor().powers(), FOUR_LINE_SECTOR);
+    assert_eq!(
+        cell.rule().anchor().expect("anchored fixture").powers(),
+        FOUR_LINE_SECTOR
+    );
     assert_eq!(
         cell.rule().pivot().values(),
         COMPLEMENTARY_MIXED_DOT_TARGET_SHIFT
@@ -117,9 +120,21 @@ fn complementary_mixed_dot_singleton_retains_complete_exact_evidence() {
         let provenance = &cell.sources().provenance()[contribution.source_ordinal()];
         assert_eq!(contribution.row_id(), provenance.translated().source_row());
     }
-    assert_eq!(cell.rule().replay().source_rows_used(), 46);
-    assert_eq!(cell.rule().replay().exact_operations(), 683);
-    let concrete = cell.rule().concrete_replay();
+    assert_eq!(
+        cell.rule()
+            .replay()
+            .expect("anchored fixture")
+            .source_rows_used(),
+        46
+    );
+    assert_eq!(
+        cell.rule()
+            .replay()
+            .expect("anchored fixture")
+            .exact_operations(),
+        683
+    );
+    let concrete = cell.rule().concrete_replay().expect("anchored fixture");
     assert_eq!(concrete.source_contributions_checked(), 46);
     assert_eq!(concrete.source_terms_checked(), 310);
     assert_eq!(concrete.right_hand_side_terms_checked(), 4);

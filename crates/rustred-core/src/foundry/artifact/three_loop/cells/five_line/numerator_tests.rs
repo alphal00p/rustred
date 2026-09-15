@@ -585,7 +585,10 @@ fn assert_pair_rule(
     metrics: (usize, usize, usize, usize, usize, usize),
 ) {
     for cell in [bulk, endpoint] {
-        assert_eq!(cell.rule().anchor().powers(), NUMERATOR_RULE_ANCHOR);
+        assert_eq!(
+            cell.rule().anchor().expect("anchored fixture").powers(),
+            NUMERATOR_RULE_ANCHOR
+        );
         assert_eq!(cell.rule().pivot().values(), NUMERATOR_PIVOT);
         assert_eq!(
             cell.rule()
@@ -595,7 +598,7 @@ fn assert_pair_rule(
                 .collect::<Vec<_>>(),
             rhs.iter().map(<[i64; 6]>::as_slice).collect::<Vec<_>>()
         );
-        let replay = cell.rule().concrete_replay();
+        let replay = cell.rule().concrete_replay().expect("anchored fixture");
         assert_eq!(replay.source_contributions_checked(), metrics.0);
         assert_eq!(replay.source_terms_checked(), metrics.1);
         assert_eq!(replay.right_hand_side_terms_checked(), metrics.2);

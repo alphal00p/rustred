@@ -17,7 +17,7 @@ fn generated_tadpole_yields_a_genuine_guarded_parametric_rule() {
 
     assert_eq!(rule.family_fingerprint(), family_fingerprint);
     assert_eq!(rule.context_fingerprint(), context.fingerprint());
-    assert_eq!(rule.anchor().powers(), &[1]);
+    assert_eq!(rule.anchor().expect("anchored fixture").powers(), &[1]);
     assert_eq!(rule.sector().active_bits(), &[true]);
     assert_eq!(rule.domain().bounds()[0].lower(), 1);
     assert_eq!(rule.domain().bounds()[0].upper(), i64::MAX - 1);
@@ -51,7 +51,13 @@ fn generated_tadpole_yields_a_genuine_guarded_parametric_rule() {
     );
 
     assert_eq!(rule.elimination_pivot_guards().len(), 1);
-    assert_eq!(rule.pivot_guard().pivot_shift().values(), &[1]);
+    assert_eq!(
+        rule.pivot_guard()
+            .expect("anchored fixture")
+            .pivot_shift()
+            .values(),
+        &[1]
+    );
     assert!(rule.nonzero_guards().iter().any(|guard| {
         guard.origins().iter().any(|origin| {
             matches!(
@@ -79,19 +85,60 @@ fn generated_tadpole_yields_a_genuine_guarded_parametric_rule() {
             )
         })
     }));
-    assert_eq!(rule.replay().source_rows_used(), 1);
-    assert_eq!(rule.replay().shift_columns_checked(), 2);
-    assert!(rule.replay().exact_operations() > 0);
-    assert_eq!(rule.concrete_replay().right_hand_side_terms_checked(), 1);
-    assert_eq!(rule.concrete_replay().source_contributions_checked(), 1);
-    assert_eq!(rule.concrete_replay().source_terms_checked(), 2);
-    assert_eq!(rule.concrete_replay().integral_keys_checked(), 4);
     assert_eq!(
-        rule.concrete_replay().nonzero_guards_checked(),
+        rule.replay().expect("anchored fixture").source_rows_used(),
+        1
+    );
+    assert_eq!(
+        rule.replay()
+            .expect("anchored fixture")
+            .shift_columns_checked(),
+        2
+    );
+    assert!(rule.replay().expect("anchored fixture").exact_operations() > 0);
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .right_hand_side_terms_checked(),
+        1
+    );
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .source_contributions_checked(),
+        1
+    );
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .source_terms_checked(),
+        2
+    );
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .integral_keys_checked(),
+        4
+    );
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .nonzero_guards_checked(),
         rule.nonzero_guards().len()
     );
-    assert_eq!(rule.concrete_replay().anchor().powers(), &[1]);
-    assert!(rule.concrete_replay().exact_operations() > 0);
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .anchor()
+            .powers(),
+        &[1]
+    );
+    assert!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .exact_operations()
+            > 0
+    );
 }
 
 #[test]
@@ -213,19 +260,62 @@ fn generated_equal_mass_sunset_selected_source_span_is_descending_and_replayed()
     }
 
     assert_eq!(rule.elimination_pivot_guards().len(), 1);
-    assert_eq!(rule.pivot_guard().pivot_shift().values(), &[0, 1, 0]);
-    assert_eq!(rule.nonzero_guards().len(), 3);
-    assert_eq!(rule.replay().source_rows_used(), 1);
-    assert_eq!(rule.replay().shift_columns_checked(), 7);
-    assert_eq!(rule.replay().exact_operations(), 14);
-    assert_eq!(rule.concrete_replay().anchor().powers(), &[2, 3, 4]);
-    assert_eq!(rule.concrete_replay().right_hand_side_terms_checked(), 6);
-    assert_eq!(rule.concrete_replay().source_contributions_checked(), 1);
     assert_eq!(
-        rule.concrete_replay().integral_keys_checked(),
-        rule.concrete_replay().source_terms_checked() + 7
+        rule.pivot_guard()
+            .expect("anchored fixture")
+            .pivot_shift()
+            .values(),
+        &[0, 1, 0]
     );
-    assert_eq!(rule.concrete_replay().nonzero_guards_checked(), 3);
+    assert_eq!(rule.nonzero_guards().len(), 3);
+    assert_eq!(
+        rule.replay().expect("anchored fixture").source_rows_used(),
+        1
+    );
+    assert_eq!(
+        rule.replay()
+            .expect("anchored fixture")
+            .shift_columns_checked(),
+        7
+    );
+    assert_eq!(
+        rule.replay().expect("anchored fixture").exact_operations(),
+        14
+    );
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .anchor()
+            .powers(),
+        &[2, 3, 4]
+    );
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .right_hand_side_terms_checked(),
+        6
+    );
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .source_contributions_checked(),
+        1
+    );
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .integral_keys_checked(),
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .source_terms_checked()
+            + 7
+    );
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .nonzero_guards_checked(),
+        3
+    );
 }
 
 #[test]
@@ -310,8 +400,27 @@ fn generated_ordinary_and_li_rows_yield_a_genuine_two_source_rule() {
             .collect::<Vec<_>>(),
         vec![0, 1]
     );
-    assert_eq!(rule.replay().source_rows_used(), 2);
-    assert_eq!(rule.concrete_replay().source_contributions_checked(), 2);
-    assert!(rule.concrete_replay().source_terms_checked() > 0);
-    assert_eq!(rule.concrete_replay().anchor().powers(), &[1, 2, 3, 1]);
+    assert_eq!(
+        rule.replay().expect("anchored fixture").source_rows_used(),
+        2
+    );
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .source_contributions_checked(),
+        2
+    );
+    assert!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .source_terms_checked()
+            > 0
+    );
+    assert_eq!(
+        rule.concrete_replay()
+            .expect("anchored fixture")
+            .anchor()
+            .powers(),
+        &[1, 2, 3, 1]
+    );
 }

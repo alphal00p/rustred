@@ -63,6 +63,37 @@ of discovery tests do not change the frozen optimized runtime binaries or
 their measured algorithm. The final installed artifact/catalog must still
 retain and verify this same exact key set.
 
+The parallel Vakint lane now prepares those 38 exact terminal records in a
+test-only `rustred_evaluation::terminal::k6` module. The verified corner orbits
+require only five existing expressions: the tadpole cube, tadpole times
+sunset, `miBN`, the complete five-line MATAD expression, and `miD6`. The
+five-line record retains its outer minus sign. No new numerical master table
+is presently needed. Independent data reviews match all 38 keys to the actual
+checked-program output; four native tests cover key/orbit identity, oracle
+anchors, product signs and internal normalization. **Those tests remain
+unrun** while GammaLoop's Spenso wrapper calls the removed public Symbolica
+linear-solver API. This candidate data is not yet a `TerminalCatalog`, an
+embedded K6 asset, or a new acceptance pass; its module is deliberately absent
+from production builds until the real artifact can bind it.
+
+The existing parametric-rule model now distinguishes anchored elimination
+replay from `CombinedOriginalDomain` evidence. Anchor, elimination-count and
+pivot-history accessors are optional; a combined-domain record cannot borrow
+the other producer's history. This is a preparatory representation change:
+the combined producer and its installer are not enabled yet. Existing cell
+constructors, anchor-directed guard splitting, installation and encoders
+explicitly reject that unsupported evidence kind. The current durable grammar
+is unchanged, rather than inventing an anchor to encode new rules.
+
+The coordinated gate compiled all 1,704 library tests and passed all-target
+checking plus 110 focused tests, including all 11 new getter/rejection tests,
+the existing K1/K3 durable/reducer checks and source-port checks. The separate
+canonical K6 correctness test again retained 623 rules and the same 38 exact
+terminal keys. Evidence is in `target/spired-evidence-migration.STLdzz/`.
+These debug checks add no new timing claim or Vakint acceptance result. The
+next implementation step is the actual combined original-identity constructor
+and supplied-domain rule-cell lowering, followed by the durable codec.
+
 ### First implementation checkpoint
 
 The existing `OrderingPolicy` now exposes `SpiredUncutV1` and a persisted
@@ -393,6 +424,14 @@ offline to the existing MATAD master basis, or supplied through the existing
 numerical Laurent terminal catalog with sufficient epsilon depth. An oracle
 may evaluate this finite catalog during development; production generation,
 loading and scalar application must not invoke the FORM reduction.
+
+When K1/K3 assets are regenerated through the same source-directed installer,
+bind their catalogs to the actual new terminal sets too. In particular, an
+uncanonicalized K3 program retains all three pinch corners and the sunset
+corner, whereas the present symmetry-canonicalized K3 asset has only two keys.
+The three pinch values are the same tadpole square, but their typed keys must
+all be listed if the new artifact retains them. Do not copy the old two-key
+catalog or infer terminal identity from a matching loop count.
 
 ## Concrete installer slice: retained source certificate to existing owner
 

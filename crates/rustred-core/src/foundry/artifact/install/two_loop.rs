@@ -46,13 +46,13 @@ pub(super) fn validate(
     validate_two_loop_factorization(&candidate)?;
 
     let replayed_source_rows = candidate.rule_cells.iter().try_fold(0usize, |sum, cell| {
-        sum.checked_add(cell.rule().replay().source_rows_used())
+        sum.checked_add(super::anchored_replay(cell.rule())?.source_rows_used())
             .ok_or(ArtifactError::InvalidReplayEvidence {
                 detail: "two-loop replayed source-row census overflowed",
             })
     })?;
     let replayed_shift_columns = candidate.rule_cells.iter().try_fold(0usize, |sum, cell| {
-        sum.checked_add(cell.rule().replay().shift_columns_checked())
+        sum.checked_add(super::anchored_replay(cell.rule())?.shift_columns_checked())
             .ok_or(ArtifactError::InvalidReplayEvidence {
                 detail: "two-loop replayed shift-column census overflowed",
             })

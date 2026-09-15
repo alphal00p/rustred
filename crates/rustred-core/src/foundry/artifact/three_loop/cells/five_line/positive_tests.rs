@@ -125,8 +125,14 @@ fn exact_rules_target_the_two_canonical_dotted_edge_representatives() {
     let (_context, cells) = derive_five_line_cells().unwrap();
     let adjacent = &cells.adjacent_dot;
     let opposite = &cells.opposite_dot;
-    assert_eq!(adjacent.rule().anchor().powers(), ANCHOR);
-    assert_eq!(opposite.rule().anchor().powers(), ANCHOR);
+    assert_eq!(
+        adjacent.rule().anchor().expect("anchored fixture").powers(),
+        ANCHOR
+    );
+    assert_eq!(
+        opposite.rule().anchor().expect("anchored fixture").powers(),
+        ANCHOR
+    );
     assert_eq!(adjacent.rule().pivot().values(), ADJACENT_EDGE_TARGET_SHIFT);
     assert_eq!(opposite.rule().pivot().values(), OPPOSITE_EDGE_TARGET_SHIFT);
     assert_eq!(
@@ -191,8 +197,22 @@ fn exact_rules_target_the_two_canonical_dotted_edge_representatives() {
             (8, "ordinary-ibp:2:2".to_owned()),
         ]
     );
-    assert_eq!(adjacent.rule().replay().source_rows_used(), 3);
-    assert_eq!(opposite.rule().replay().source_rows_used(), 5);
+    assert_eq!(
+        adjacent
+            .rule()
+            .replay()
+            .expect("anchored fixture")
+            .source_rows_used(),
+        3
+    );
+    assert_eq!(
+        opposite
+            .rule()
+            .replay()
+            .expect("anchored fixture")
+            .source_rows_used(),
+        5
+    );
     for cell in [adjacent, opposite] {
         assert_eq!(
             cell.domain_proof(),

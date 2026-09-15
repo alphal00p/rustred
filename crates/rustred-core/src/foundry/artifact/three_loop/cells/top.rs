@@ -75,7 +75,7 @@ fn top_application_domain(rule: &ParametricRule) -> Result<SectorMonotoneDomain,
 fn exact_top_rule_is_generated_from_the_complete_ordinary_source_span() {
     let (_context, cell) = derive_top_cell().unwrap();
     let rule = cell.rule();
-    assert_eq!(rule.anchor().powers(), ANCHOR);
+    assert_eq!(rule.anchor().expect("anchored fixture").powers(), ANCHOR);
     assert_eq!(rule.sector().active_bits(), [true; 6]);
     assert_eq!(rule.pivot().values(), TARGET_SHIFT);
     assert_eq!(
@@ -133,7 +133,10 @@ fn exact_top_rule_is_generated_from_the_complete_ordinary_source_span() {
             (8, "ordinary-ibp:2:2".to_owned()),
         ]
     );
-    assert_eq!(rule.replay().source_rows_used(), 3);
+    assert_eq!(
+        rule.replay().expect("anchored fixture").source_rows_used(),
+        3
+    );
     assert_eq!(
         cell.domain_proof(),
         RuleCellDomainProof::ReprovedSectorMonotone

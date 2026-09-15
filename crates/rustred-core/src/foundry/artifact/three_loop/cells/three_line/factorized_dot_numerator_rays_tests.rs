@@ -175,7 +175,14 @@ fn exact_coefficients_guards_replay_domains_and_machine_boundary_are_pinned() {
         ["-1/2/n5", "-1/2/n5"]
     );
     assert_eq!(
-        coefficient_expression(build.path_middle_ray.rule().pivot_guard().coefficient()),
+        coefficient_expression(
+            build
+                .path_middle_ray
+                .rule()
+                .pivot_guard()
+                .expect("anchored fixture")
+                .coefficient()
+        ),
         "-2*n5"
     );
     assert_eq!(
@@ -191,7 +198,14 @@ fn exact_coefficients_guards_replay_domains_and_machine_boundary_are_pinned() {
         ["-1/2/n5", "-1/2/n5"]
     );
     assert_eq!(
-        coefficient_expression(build.star_spoke_ray.rule().pivot_guard().coefficient()),
+        coefficient_expression(
+            build
+                .star_spoke_ray
+                .rule()
+                .pivot_guard()
+                .expect("anchored fixture")
+                .coefficient()
+        ),
         "2*n5"
     );
     assert_eq!(
@@ -480,7 +494,7 @@ fn assert_rule(
     parametric: (usize, usize, usize),
     concrete: (usize, usize, usize, usize, usize, usize, usize),
 ) {
-    assert_eq!(rule.anchor().powers(), sector);
+    assert_eq!(rule.anchor().expect("anchored fixture").powers(), sector);
     assert_eq!(rule.pivot().values(), pivot);
     assert_eq!(
         rule.right_hand_side()
@@ -491,13 +505,18 @@ fn assert_rule(
     );
     assert_eq!(
         (
-            rule.replay().source_rows_used(),
-            rule.replay().shift_columns_checked(),
-            rule.replay().exact_operations(),
+            rule.replay().expect("anchored fixture").source_rows_used(),
+            rule.replay()
+                .expect("anchored fixture")
+                .shift_columns_checked(),
+            rule.replay().expect("anchored fixture").exact_operations(),
         ),
         parametric
     );
-    assert_eq!(concrete_metrics(rule.concrete_replay()), concrete);
+    assert_eq!(
+        concrete_metrics(rule.concrete_replay().expect("anchored fixture")),
+        concrete
+    );
 }
 
 fn assert_complete_compact_equivalence(complete: &ParametricRule, compact: &ParametricRule) {

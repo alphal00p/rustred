@@ -562,12 +562,13 @@ pub(super) fn seal_with_programs(
         });
     }
 
-    let replayed_source_rows =
-        checked_cell_sum(&candidate, |cell| cell.rule().replay().source_rows_used())?;
-    let replayed_shift_columns = checked_cell_sum(&candidate, |cell| {
-        cell.rule().replay().shift_columns_checked()
+    let replayed_source_rows = checked_cell_sum(&candidate, |cell| {
+        Ok(super::anchored_replay(cell.rule())?.source_rows_used())
     })?;
-    let guards = checked_cell_sum(&candidate, |cell| cell.guards().len())?;
+    let replayed_shift_columns = checked_cell_sum(&candidate, |cell| {
+        Ok(super::anchored_replay(cell.rule())?.shift_columns_checked())
+    })?;
+    let guards = checked_cell_sum(&candidate, |cell| Ok(cell.guards().len()))?;
     if factorized_product_programs.len() != candidate.factorization_rules.len()
         || factorized_product_programs.iter().any(Option::is_none)
     {
@@ -770,10 +771,10 @@ fn validate_terminal_ownership(
 
 fn checked_cell_sum(
     candidate: &ClosingArtifactCandidate,
-    value: impl Fn(&crate::foundry::cell::RuleCell) -> usize,
+    value: impl Fn(&crate::foundry::cell::RuleCell) -> Result<usize, ArtifactError>,
 ) -> Result<usize, ArtifactError> {
     candidate.rule_cells.iter().try_fold(0usize, |sum, cell| {
-        sum.checked_add(value(cell))
+        sum.checked_add(value(cell)?)
             .ok_or(ArtifactError::InvalidReplayEvidence {
                 detail: "K6 artifact validation census overflowed",
             })

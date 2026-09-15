@@ -421,7 +421,7 @@ fn validate_cell_replay(
     context: &IndexedCoefficientContext,
 ) -> Result<(), ArtifactError> {
     let rule = cell.rule();
-    let replay = rule.replay();
+    let replay = anchored_replay(rule)?;
     if replay.source_rows_used() == 0
         || replay.source_rows_used() != rule.source_combination().len()
         || replay.shift_columns_checked() == 0
@@ -445,7 +445,7 @@ fn validate_cell_replay(
             });
         }
     }
-    let concrete = rule.concrete_replay();
+    let concrete = anchored_concrete_replay(rule)?;
     if concrete.source_contributions_checked() == 0
         || concrete.source_contributions_checked() != rule.source_combination().len()
         || concrete.source_terms_checked() == 0
@@ -476,6 +476,11 @@ fn validate_cell_replay(
 }
 
 fn validate_rule_descent(rule: &ParametricRule) -> Result<(), ArtifactError> {
+    // Combined-domain construction is not installed until its full original
+    // identity verifier and lowering path are available. Never accept it by
+    // skipping the established producer's replay obligations.
+    anchored_replay(rule)?;
+    anchored_concrete_replay(rule)?;
     let admission = rule.sector_monotone_admission();
     if admission.is_some_and(|value| !value.verify()) {
         return Err(ArtifactError::InvalidRuleShape {
@@ -528,6 +533,23 @@ fn shift_key_matches(key: &crate::sector::ShiftComplexityKey, shift: &[i64]) -> 
             .iter()
             .enumerate()
             .all(|(position, &value)| key.shift_at(position) == Ok(value))
+}
+
+fn anchored_replay(
+    rule: &ParametricRule,
+) -> Result<crate::foundry::parametric::ParametricExactReplayWitness, ArtifactError> {
+    rule.replay().ok_or(ArtifactError::InvalidReplayEvidence {
+        detail: "this artifact producer requires anchored indexed replay evidence",
+    })
+}
+
+fn anchored_concrete_replay(
+    rule: &ParametricRule,
+) -> Result<&crate::foundry::parametric::ConcreteSpecializationReplayWitness, ArtifactError> {
+    rule.concrete_replay()
+        .ok_or(ArtifactError::InvalidReplayEvidence {
+            detail: "this artifact producer requires concrete specialization replay evidence",
+        })
 }
 
 fn replay_fixed_index_quotient(
@@ -624,3 +646,5 @@ mod tests {
         validate_rule_descent(&rule).unwrap();
     }
 }
+#[cfg(test)]
+mod replay_evidence_tests;

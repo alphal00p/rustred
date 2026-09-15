@@ -124,6 +124,12 @@ fn encode_registered_header(
 }
 
 fn encode_cell_plan(writer: &mut Writer, cell: &RuleCell) -> Result<(), ArtifactPersistenceError> {
+    let anchor = cell
+        .rule()
+        .anchor()
+        .ok_or(ArtifactPersistenceError::UnsupportedFeature {
+            detail: "the current K6 grammar requires anchored replay evidence",
+        })?;
     let sources = cell.sources();
     writer.usize(sources.provenance().len(), "K6 cell source requests")?;
     for provenance in sources.provenance() {
@@ -150,7 +156,7 @@ fn encode_cell_plan(writer: &mut Writer, cell: &RuleCell) -> Result<(), Artifact
             encode_fixed(writer, evidence.fixed_restrictions())?;
         }
     }
-    encode_i64_slice(writer, cell.rule().concrete_replay().anchor().powers())?;
+    encode_i64_slice(writer, anchor.powers())?;
     encode_i64_slice(writer, cell.rule().pivot().values())?;
     encode_monotone_domain(writer, cell.application_domain())?;
     encode_fixed(writer, cell.fixed_restrictions())?;
@@ -1250,3 +1256,5 @@ mod tests {
         ));
     }
 }
+#[cfg(test)]
+mod replay_evidence_tests;

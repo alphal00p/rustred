@@ -112,12 +112,30 @@ fn exact_rule_guards_replay_machine_bounds_descent_and_rebuild_are_pinned() {
         assert_rule(&build.context, rule);
     }
     assert_eq!(
-        selection.complete_rule.pivot_guard().coefficient(),
-        build.bulk.rule().pivot_guard().coefficient()
+        selection
+            .complete_rule
+            .pivot_guard()
+            .expect("anchored fixture")
+            .coefficient(),
+        build
+            .bulk
+            .rule()
+            .pivot_guard()
+            .expect("anchored fixture")
+            .coefficient()
     );
     assert_eq!(
-        selection.complete_rule.pivot_guard().nonzero_polynomial(),
-        build.bulk.rule().pivot_guard().nonzero_polynomial()
+        selection
+            .complete_rule
+            .pivot_guard()
+            .expect("anchored fixture")
+            .nonzero_polynomial(),
+        build
+            .bulk
+            .rule()
+            .pivot_guard()
+            .expect("anchored fixture")
+            .nonzero_polynomial()
     );
     assert_eq!(
         selection
@@ -373,7 +391,10 @@ fn assert_selected_provenance(sources: &SourceViewBatch, complete_ordinals: &[us
 }
 
 fn assert_rule(context: &crate::algebra::IndexedCoefficientContext, rule: &ParametricRule) {
-    assert_eq!(rule.anchor().powers(), BULK_REPLAY_ANCHOR);
+    assert_eq!(
+        rule.anchor().expect("anchored fixture").powers(),
+        BULK_REPLAY_ANCHOR
+    );
     assert_eq!(rule.pivot().values(), DOTTED_NEGATIVE_NUMERATOR_PIVOT);
     assert_eq!(
         rule.right_hand_side()
@@ -390,7 +411,10 @@ fn assert_rule(context: &crate::algebra::IndexedCoefficientContext, rule: &Param
     let minus_three_quarters = context
         .lift(&context.base().coefficient_fixture("-3/4"))
         .unwrap();
-    assert_eq!(rule.pivot_guard().coefficient(), &context.integer(-4));
+    assert_eq!(
+        rule.pivot_guard().expect("anchored fixture").coefficient(),
+        &context.integer(-4)
+    );
     assert_eq!(
         rule.source_combination()
             .iter()
@@ -419,11 +443,22 @@ fn assert_rule(context: &crate::algebra::IndexedCoefficientContext, rule: &Param
             .collect::<Vec<_>>(),
         [&first_rhs, &context.one(), &third_rhs]
     );
-    assert_eq!(rule.replay().source_rows_used(), 3);
-    assert_eq!(rule.replay().shift_columns_checked(), 7);
-    assert_eq!(rule.replay().exact_operations(), 30);
     assert_eq!(
-        concrete_metrics(rule.concrete_replay()),
+        rule.replay().expect("anchored fixture").source_rows_used(),
+        3
+    );
+    assert_eq!(
+        rule.replay()
+            .expect("anchored fixture")
+            .shift_columns_checked(),
+        7
+    );
+    assert_eq!(
+        rule.replay().expect("anchored fixture").exact_operations(),
+        30
+    );
+    assert_eq!(
+        concrete_metrics(rule.concrete_replay().expect("anchored fixture")),
         (3, 15, 3, 19, 0, 51, 13)
     );
 }
