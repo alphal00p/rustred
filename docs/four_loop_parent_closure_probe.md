@@ -99,6 +99,39 @@ exceptional branch into a certified DNF owner partition. The affine payload
 codec alone is not a closure proof and remains deliberately rejected by the
 installer.
 
+### H reruns after exact-chart ordinary replay
+
+The ordinary replay path was then changed to restrict coefficients with the
+authenticated affine chart when a rule itself is affine.  This is an exact
+Symbolica-owned operation; it does not sample the chart or rectangularize it.
+The natural ordering was rerun in a fresh release process (two workers pinned
+to CPUs 32 and 33).  It took **100 s** and reached the same `60/63` boundary:
+two rules still had generic residual products and one rule retained a
+nonempty affine ownership branch.  Thus the two residuals are not fixed by
+affine replay alone; they are ordinary source-projection obligations.
+
+The reverse ordering `9,8,7,6,5,4,3,2,1,0` was also rerun from the same
+release binary.  It reached a later sector in **148 s**, with **68/70** rules
+replayed and descending and **zero uncovered coordinate boxes**.  Its sole
+remaining issue was the exact residual
+
+```text
+(-n2)/(-2+n4-n2+d) I(n0,0,n2+1,1,n4,0,1,1,0,1)
+```
+
+on sector `[false,false,false,true,false,false,true,true,true,true]`.  The
+numerator is not identically zero on that sector, so this is not an affine
+exceptional ray and must not be discharged by Janet/Ore or by adding a guard
+`n2=0`.  The current interpretation is a source-seed/translated-zero-census
+projection mismatch (or an invalid fallback candidate), to be resolved by
+provenance instrumentation and strict-vs-fallback proposal comparison.
+
+A nearby ordering `9,8,7,6,5,4,3,2,0,1` reached **73/74** replayed and
+descending with zero uncovered boxes in **154 s**, but stopped on one
+unsupported nonlinear exceptional case.  These ordering results confirm that
+ordering is a useful bounded search dimension, not evidence of four-loop
+closure; no run produced a durable artifact.
+
 ## Interpretation
 
 None of the three external parents currently has a cold-loadable RustRed
