@@ -156,7 +156,7 @@ fn four_loop_h_uses_the_fmft_parent_momentum_basis() {
     assert_eq!(family.name(), "spired-four-loop-unit-mass-vacuum-h");
     assert_eq!(family.loop_count(), 4);
     assert_eq!(family.external_count(), 0);
-    assert_eq!(family.denominator_count(), 9);
+    assert_eq!(family.denominator_count(), 10);
     assert_eq!(family.coordinates().len(), 10);
     assert_eq!(c.parameter_names(), ["d", "m"]);
     assert_eq!(family.dimension(), &c.parameter("d").unwrap());
@@ -170,6 +170,7 @@ fn four_loop_h_uses_the_fmft_parent_momentum_basis() {
         [1, 0, -2, -2, 0, 0, 0, 1, 2, 1],
         [0, 0, 0, 0, 1, -2, -2, 1, 2, 1],
         [0, 0, 0, 0, 0, 0, 0, 1, 2, 1],
+        [1, -2, 0, 0, 1, 0, 0, 0, 0, 0],
     ];
     for (denominator, row) in family.denominators().iter().zip(expected) {
         assert_eq!(denominator.constant(), &-c.parameter("m").unwrap());

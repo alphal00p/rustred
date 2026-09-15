@@ -9,8 +9,12 @@ pub fn vacuum(momenta: &[&[i64]]) -> Result<IntegralFamily> {
 }
 
 /// Four-loop equal-mass vacuum parent matching Vakint's FMFT `H` example input.
-/// This constructor is an example input only; the RustRed engine remains
-/// topology agnostic and receives the resulting `IntegralFamily` at runtime.
+/// The first nine denominators are the physical FMFT slots. The final
+/// `(k1-k2)^2-m` denominator is an explicit irreducible-scalar-product (ISP)
+/// coordinate with initial power zero, which completes the ten-dimensional
+/// vacuum scalar-product basis required by parametric IBPs. This constructor
+/// is example input only; the RustRed engine remains topology agnostic and
+/// receives the resulting `IntegralFamily` at runtime.
 ///
 /// The ten coordinates are ordered as
 /// `(k1^2,k1.k2,k1.k3,k1.k4,k2^2,k2.k3,k2.k4,k3^2,k3.k4,k4^2)`.
@@ -29,6 +33,7 @@ pub fn four_loop_h() -> Result<IntegralFamily> {
             &[-1, 0, 1, 1],
             &[0, -1, 1, 1],
             &[0, 0, 1, 1],
+            &[1, -1, 0, 0], // auxiliary ISP; its initial power is zero
         ],
     )
 }
