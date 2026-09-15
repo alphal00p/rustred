@@ -5,6 +5,7 @@
 //! `ClosedArtifact`, after full original-source replay and supplied-domain
 //! cell lowering. Reports alone remain non-authoritative. No codec lives here.
 
+mod affine;
 mod certificate;
 mod geometry;
 mod normalization;
@@ -27,6 +28,8 @@ use std::time::{Duration, Instant};
 use crate::family::IntegralFamily;
 use crate::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, OrderingPolicy, zero};
 use crate::solver::{SectorConfig, SectorSolution, SectorSolver, SourceSystem};
+
+pub(crate) use affine::AffineApplicationDomain;
 
 /// The role of an affine case which the box-only artifact bridge encountered.
 ///
@@ -53,9 +56,7 @@ pub enum SourcePortAuditError {
     /// variable map. `fixed` retains the coordinate face constraints, which
     /// are independent of the sector signs.
     UnsupportedAffineOwnership {
-        sector: Vec<bool>,
-        fixed: Vec<Option<i16>>,
-        equations: Vec<crate::algebra::CoefficientPolynomial>,
+        domain: AffineApplicationDomain,
         role: AffineOwnershipRole,
     },
 }
@@ -64,12 +65,7 @@ impl fmt::Display for SourcePortAuditError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Message(message) => f.write_str(message),
-            Self::UnsupportedAffineOwnership {
-                sector,
-                fixed,
-                equations,
-                role,
-            } => {
+            Self::UnsupportedAffineOwnership { domain, role } => {
                 let role = match role {
                     AffineOwnershipRole::Target => "target",
                     AffineOwnershipRole::Exceptional => "exceptional",
@@ -77,7 +73,10 @@ impl fmt::Display for SourcePortAuditError {
                 write!(
                     f,
                     "{role} affine ownership is not yet supported by the artifact bridge \
-                     (sector={sector:?}, fixed={fixed:?}, equations={equations:?})"
+                     (sector={:?}, fixed={:?}, equations={:?})",
+                    domain.sector(),
+                    domain.fixed(),
+                    domain.equations(),
                 )
             }
         }
@@ -103,12 +102,9 @@ impl SourcePortAuditError {
         AffineOwnershipRole,
     )> {
         match self {
-            Self::UnsupportedAffineOwnership {
-                sector,
-                fixed,
-                equations,
-                role,
-            } => Some((sector, fixed, equations, *role)),
+            Self::UnsupportedAffineOwnership { domain, role } => {
+                Some((domain.sector(), domain.fixed(), domain.equations(), *role))
+            }
             Self::Message(_) => None,
         }
     }

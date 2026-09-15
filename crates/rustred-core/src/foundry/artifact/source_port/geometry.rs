@@ -20,7 +20,7 @@ use crate::foundry::completion::{BoxCover, CompletionGeometryLimits, LatticeBox}
 use crate::sector::{Mask, OrderingPolicy};
 use crate::solver::{Case, CoordinateCase, Integral, SectorRule};
 
-use super::{AffineOwnershipRole, SourcePortAuditError, error};
+use super::{error, AffineApplicationDomain, AffineOwnershipRole, SourcePortAuditError};
 
 pub(super) fn copy_boxes(boxes: &[LatticeBox]) -> Result<Vec<LatticeBox>, SourcePortAuditError> {
     boxes.iter().map(copy_box).collect()
@@ -67,10 +67,9 @@ pub(super) fn application_boxes<const N: usize>(
                 .case
                 .affine()
                 .expect("non-coordinate case must be affine");
+            let domain = AffineApplicationDomain::from_case(affine, sector).map_err(error)?;
             return Err(SourcePortAuditError::UnsupportedAffineOwnership {
-                sector: sector.to_vec(),
-                fixed: affine.face().fixed().to_vec(),
-                equations: affine.equations().to_vec(),
+                domain,
                 role: AffineOwnershipRole::Target,
             });
         }
@@ -86,10 +85,9 @@ pub(super) fn application_boxes<const N: usize>(
             Some(coordinate) => coordinate,
             None => {
                 let affine = case.affine().expect("non-coordinate case must be affine");
+                let domain = AffineApplicationDomain::from_case(affine, sector).map_err(error)?;
                 return Err(SourcePortAuditError::UnsupportedAffineOwnership {
-                    sector: sector.to_vec(),
-                    fixed: affine.face().fixed().to_vec(),
-                    equations: affine.equations().to_vec(),
+                    domain,
                     role: AffineOwnershipRole::Exceptional,
                 });
             }
