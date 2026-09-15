@@ -24,6 +24,12 @@ use crate::solver::AffineCase;
 pub struct AffineApplicationDomain {
     sector: Box<[bool]>,
     fixed: Box<[Option<i16>]>,
+    /// Positions of the original integral-index variables in the shared
+    /// Symbolica coefficient variable map.  Keeping this map with the
+    /// equality carrier is essential: the coefficient context may contain
+    /// parameters before the index variables, and a positional assumption
+    /// would silently test the wrong locus at runtime.
+    indices: Box<[usize]>,
     equations: Box<[CoefficientPolynomial]>,
 }
 
@@ -43,6 +49,7 @@ impl AffineApplicationDomain {
         Ok(Self {
             sector: sector.to_vec().into_boxed_slice(),
             fixed: case.face().fixed().to_vec().into_boxed_slice(),
+            indices: case.index_variables().to_vec().into_boxed_slice(),
             equations: case.equations().to_vec().into_boxed_slice(),
         })
     }
@@ -75,6 +82,9 @@ impl AffineApplicationDomain {
         Ok(Self {
             sector,
             fixed,
+            indices: (0..equations[0].nvars())
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
             equations,
         })
     }
@@ -87,8 +97,53 @@ impl AffineApplicationDomain {
         &self.fixed
     }
 
+    /// Original coefficient-variable positions corresponding to the integral
+    /// axes.  This is part of the exact domain identity, not an implementation
+    /// detail: parameter variables may precede the index variables.
+    pub fn indices(&self) -> &[usize] {
+        &self.indices
+    }
+
     pub fn equations(&self) -> &[CoefficientPolynomial] {
         &self.equations
+    }
+
+    /// Test an original integral-power assignment against the exact affine
+    /// equality locus.  This intentionally does not accept local box
+    /// coordinates and never constructs a rectangular hull.  It is a cheap
+    /// authenticated predicate for a future affine RuleCell runtime; callers
+    /// still have to perform the surrounding sector and guard checks.
+    pub(crate) fn contains_powers(&self, powers: &[i64]) -> bool {
+        if powers.len() != self.sector.len()
+            || self.fixed.len() != powers.len()
+            || self.indices.len() != powers.len()
+        {
+            return false;
+        }
+        if self
+            .sector
+            .iter()
+            .zip(powers)
+            .any(|(&active, &power)| (power >= 1) != active)
+        {
+            return false;
+        }
+        if self
+            .fixed
+            .iter()
+            .zip(powers)
+            .any(|(fixed, &power)| fixed.is_some_and(|value| i64::from(value) != power))
+        {
+            return false;
+        }
+        self.equations.iter().all(|equation| {
+            let mut restricted = equation.clone();
+            for (&variable, &power) in self.indices.iter().zip(powers) {
+                restricted =
+                    restricted.replace(variable, &symbolica::prelude::Integer::from(power));
+            }
+            restricted.is_zero()
+        })
     }
 }
 
@@ -146,7 +201,11 @@ mod tests {
         let domain = AffineApplicationDomain::from_case(&case, &[true, true]).unwrap();
         assert_eq!(domain.sector(), &[true, true]);
         assert_eq!(domain.fixed(), &[None, None]);
+        assert_eq!(domain.indices(), &[0, 1]);
         assert_eq!(domain.equations(), &[equation]);
+        assert!(domain.contains_powers(&[3, 3]));
+        assert!(!domain.contains_powers(&[3, 2]));
+        assert!(!domain.contains_powers(&[0, 0]));
     }
 
     #[test]
@@ -166,5 +225,24 @@ mod tests {
             AffineApplicationDomain::from_case(&case, &[true, true, false]),
             Err(AffineApplicationDomainError::OutsideSector)
         );
+    }
+
+    #[test]
+    fn equality_predicate_honours_fixed_face_and_negative_sector() {
+        let context = CoefficientContext::new(["n0", "n1", "n2"]);
+        let equation = context.coefficient_fixture("n0 + n1 + 1").numerator;
+        let crate::solver::AffineIntersection::Affine(case) = AffineCase::from_coordinate(
+            &crate::solver::CoordinateCase::new([None, None, Some(-1)]).unwrap(),
+            &[equation],
+            &[0, 1, 2],
+            &[false, false, false],
+        )
+        .unwrap() else {
+            panic!("fixture must remain coupled");
+        };
+        let domain = AffineApplicationDomain::from_case(&case, &[false, false, false]).unwrap();
+        assert!(domain.contains_powers(&[0, -1, -1]));
+        assert!(!domain.contains_powers(&[0, -2, -1]));
+        assert!(!domain.contains_powers(&[-1, -1, -2]));
     }
 }
