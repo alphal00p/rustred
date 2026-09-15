@@ -1,5 +1,6 @@
 mod campaign;
 mod derive;
+mod family_solve;
 
 use std::ffi::OsString;
 use std::fmt;
@@ -31,6 +32,16 @@ pub(crate) struct DeriveArgs {
     pub(crate) output: StreamPath,
     pub(crate) input_format: InputFormat,
     pub(crate) relations: RelationSelection,
+    pub(crate) n_cores: usize,
+    pub(crate) force: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FamilySolveArgs {
+    pub(crate) input: StreamPath,
+    pub(crate) output: StreamPath,
+    pub(crate) input_format: InputFormat,
+    pub(crate) sectors: Option<Vec<Vec<bool>>>,
     pub(crate) n_cores: usize,
     pub(crate) force: bool,
 }
@@ -109,6 +120,7 @@ pub(crate) enum ColorPolicy {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Command {
     Derive(DeriveArgs),
+    FamilySolve(FamilySolveArgs),
     CampaignPlan(CampaignPlanArgs),
     CampaignPreflight(CampaignPreflightArgs),
     CampaignGenerate(CampaignGenerateArgs),
@@ -211,6 +223,7 @@ pub(crate) fn parse_args(
             Ok(Command::Version)
         }
         "derive" => derive::parse(arguments),
+        "family-solve" => family_solve::parse(arguments),
         "campaign" => campaign::parse(arguments),
         _ => Err(ArgError::UnknownCommand(command)),
     }
@@ -282,6 +295,7 @@ RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 
 USAGE:
     rustred derive [OPTIONS]
+    rustred family-solve [OPTIONS]
     rustred campaign plan [OPTIONS]
     rustred campaign preflight [OPTIONS]
     rustred campaign run [OPTIONS]
@@ -296,6 +310,14 @@ DERIVE OPTIONS:
     --input-format <FORMAT>      auto, toml, or symbolica [default: auto]
     --relations <SELECTION>      all, ordinary, or li [default: all]
     --n-cores <COUNT>            Maximum worker cores for parallel stages [default: 1]
+    --force                      Atomically replace an existing output file
+
+FAMILY-SOLVE OPTIONS:
+    --input <PATH|->             Read arbitrary family Project TOML from PATH or stdin
+    --output <PATH|->            Write diagnostic TOML to PATH or stdout
+    --input-format <FORMAT>      auto, toml, or symbolica [default: auto]
+    --sectors <BITS,BITS,...>    Optional comma-separated sector bit strings; otherwise enumerate safely
+    --n-cores <COUNT>            Maximum worker cores [default: 1]
     --force                      Atomically replace an existing output file
 
 CAMPAIGN PLAN OPTIONS:

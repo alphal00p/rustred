@@ -7,6 +7,7 @@ mod campaign {
 mod closing;
 mod derive;
 mod error;
+mod family_solve;
 mod input;
 mod lowering;
 pub(crate) mod memory;
@@ -15,6 +16,7 @@ mod options;
 mod producer;
 
 pub use error::{AppError, AppErrorKind};
+pub use family_solve::{family_solve, FamilySolveRequest, FamilySolveResult};
 pub use options::{
     ClosingFamilySelector, InputFormat, ParseClosingFamilySelectorError, ParseInputFormatError,
     ParseRelationSelectionError, RelationSelection,

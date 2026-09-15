@@ -9,6 +9,25 @@ recurrences, or reduce a concrete target.
 The CLI never invokes FORM. The RustRed crate and binary use Symbolica's GMP
 backend; there is no `no_gmp` mode.
 
+## Generic family solve diagnostic
+
+`rustred family-solve` accepts the same arbitrary Project TOML as `derive`,
+lowers it to the topology-neutral core family, and runs the generic sector
+solver. It never dispatches on a family name and does not publish a durable
+closing artifact; the output is explicitly marked `status = "diagnostic"`.
+Sectors can be supplied as comma-separated bit strings, or are enumerated
+automatically for families with at most 16 denominators:
+
+```console
+rustred family-solve --input examples/input/four_loop_h.toml \
+  --input-format toml --sectors 0000000001 --n-cores 4
+```
+
+The command is intended for arbitrary user-supplied families while the
+authenticated artifact publisher is being generalized. Families with more
+than 16 denominators must provide an explicit sector manifest to avoid an
+unbounded exponential enumeration.
+
 ## Quick start
 
 The smallest input is a single Symbolica expression:
