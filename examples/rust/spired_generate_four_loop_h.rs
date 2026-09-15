@@ -90,7 +90,7 @@ fn main() -> Result<()> {
             ..Default::default()
         },
         SectorSolveOptions::default(),
-        |done| Ok::<_, std::io::Error>((done.sector, None, done.solution)),
+        |done| Ok::<_, std::io::Error>((done.sector, permutation, done.solution)),
     )?;
     let solved_count = solved.len();
     let artifact = audit.install_complete(family, solved)?;
