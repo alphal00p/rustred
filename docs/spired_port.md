@@ -284,6 +284,16 @@ claim of SpIRed parity; they do establish that the implementation is wired
 through release binaries and that its extra triangular/product work can be
 worthwhile only once the target block is large enough.
 
+A fresh 120-second release probe on the difficult PM sector
+`fam1_112/111010100001111` used the target-only backend with progress tracing.
+It reached the start of row 298 in the 298-row exact frame and was then capped
+(exit 124), with approximately 347 MiB peak RSS and no sector output. The
+comparable default-path probe had reached row 293 at its cap, so this trace is
+not a speedup: target-only's additional lower-triangular solve/reconstruction
+never began because the final target pivot was not found. This is a bounded
+diagnostic, not a completion or a paired benchmark; Symbolica activation
+succeeded in the retry.
+
 ## Per-job orderings and integrated affine cases (2026-09-14)
 
 `SectorExecutor::map_configured_with_observer` accepts a per-job configuration
