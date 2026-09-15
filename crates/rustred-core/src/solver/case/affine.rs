@@ -138,7 +138,13 @@ impl<const N: usize> AffineCase<N> {
 
     /// A necessary row-bound test, not a complete integer feasibility solver.
     /// Retained cases may still be empty for joint inequality/congruence reasons.
-    pub(super) fn is_proved_empty_in_sector(&self, sector: &[bool; N]) -> bool {
+    /// Prove that this exact affine locus has no point in the declared
+    /// sector using the primitive integer rows and coordinate bounds.
+    ///
+    /// This is deliberately only an emptiness fast path.  A `false` result
+    /// says nothing about feasibility (joint congruences and inequalities may
+    /// still be unresolved), and must never be used as a coverage claim.
+    pub(crate) fn is_proved_empty_in_sector(&self, sector: &[bool; N]) -> bool {
         !self.face.is_in_sector(sector)
             || self
                 .primitive_matrix

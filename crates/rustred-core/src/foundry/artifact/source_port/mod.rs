@@ -320,6 +320,14 @@ impl<const N: usize> SourcePortAudit<N> {
                     continue;
                 }
             };
+            // `application_boxes` returns an empty cover for an affine target
+            // proved contradictory with this sector.  It is not a replayable
+            // rule and must be omitted, rather than admitted with a vacuous
+            // application domain.  Coordinate targets cannot reach this
+            // branch because their case box is always nonempty.
+            if stored.is_empty() && rule.candidate.case.affine().is_some() {
+                continue;
+            }
             stored_boxes.extend(geometry::copy_boxes(&stored)?);
             match replay::replay_rule(
                 &self.sources,

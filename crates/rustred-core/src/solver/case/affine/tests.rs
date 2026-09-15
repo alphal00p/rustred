@@ -90,6 +90,26 @@ fn divisibility_rejects_vacuous_reference_rule() {
 }
 
 #[test]
+fn primitive_rows_prove_empty_positive_sector_without_rectangularizing() {
+    let context = CoefficientContext::new(["n0", "n1"]);
+    let result = AffineCase::from_coordinate(
+        &CoordinateCase::generic(),
+        &equations(&context, &["n0+n1+1"]),
+        &[0, 1],
+        &[true, true],
+    )
+    .unwrap();
+    let AffineIntersection::Affine(case) = result else {
+        panic!("the coupled equality must remain affine");
+    };
+    // Positive powers cannot satisfy n0+n1+1=0.  This is an exact primitive
+    // row/sector contradiction and is safe for source-port omission; unlike
+    // an unresolved affine case it does not claim any box or global cover.
+    assert!(case.is_proved_empty_in_sector(&[true, true]));
+    assert!(!case.is_proved_empty_in_sector(&[false, true]));
+}
+
+#[test]
 fn native_elimination_finds_coordinates_and_contradictions() {
     let context = CoefficientContext::new(["n0", "n1"]);
     for (expressions, expected) in [

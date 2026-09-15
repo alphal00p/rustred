@@ -67,6 +67,12 @@ pub(super) fn application_boxes<const N: usize>(
                 .case
                 .affine()
                 .expect("non-coordinate case must be affine");
+            // An exact contradiction with this sector is safe to discard.
+            // This is intentionally the only affine target shortcut here:
+            // unresolved affine loci still fail closed below.
+            if affine.is_proved_empty_in_sector(sector) {
+                return Ok(Vec::new());
+            }
             let domain = AffineApplicationDomain::from_case(affine, sector).map_err(error)?;
             return Err(SourcePortAuditError::UnsupportedAffineOwnership {
                 domain,
@@ -85,6 +91,12 @@ pub(super) fn application_boxes<const N: usize>(
             Some(coordinate) => coordinate,
             None => {
                 let affine = case.affine().expect("non-coordinate case must be affine");
+                // A proved-empty exceptional branch contributes no excluded
+                // points.  Do not approximate a nonempty affine branch by a
+                // box: it remains an unsupported ownership case.
+                if affine.is_proved_empty_in_sector(sector) {
+                    continue;
+                }
                 let domain = AffineApplicationDomain::from_case(affine, sector).map_err(error)?;
                 return Err(SourcePortAuditError::UnsupportedAffineOwnership {
                     domain,
