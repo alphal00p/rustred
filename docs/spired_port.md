@@ -294,6 +294,14 @@ never began because the final target pivot was not found. This is a bounded
 diagnostic, not a completion or a paired benchmark; Symbolica activation
 succeeded in the retry.
 
+The same release binary was then run on the complete 38-sector `vac3` K3
+campaign with target-only lifting. Serial execution took 0.735 s wall time;
+six sector workers took 0.259 s (2.84× wall-time speedup, with 1.27 s aggregate
+user time). All 38 rule files were byte-identical across worker counts and both
+runs exited successfully. This is a small vacuum parallelization baseline, not
+a claim about the larger PM workloads; it confirms that immutable source data
+and worker-local Symbolica reducers are safely shareable in the executor.
+
 ## Per-job orderings and integrated affine cases (2026-09-14)
 
 `SectorExecutor::map_configured_with_observer` accepts a per-job configuration
