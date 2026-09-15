@@ -1,29 +1,39 @@
 //! Canonical wide source-parent sharing and exact mathematical cell payloads.
 //! These decoded descriptions carry no replay or installation authority.
 use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use symbolica::prelude::{IntegerRing, Matrix};
 
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial};
 use crate::foundry::cell::{FixedIndexRestriction, RuleCell, SourceViewConstruction};
 use crate::foundry::completion::LatticeBox;
+use crate::foundry::parametric::AffineApplicationDomain;
 use crate::identity::{IndexShift, IntegralShift, TranslatedSourceRequest};
 
 use super::super::super::error::ArtifactPersistenceError;
 use super::super::super::model::ClosedArtifact;
-use super::super::binary::{Reader, Writer, check_limit, try_vec};
+use super::super::binary::{check_limit, try_vec, Reader, Writer};
 use super::super::coefficient::{
-    decode_indexed_coefficient, decode_indexed_polynomial, encode_indexed_coefficient,
-    encode_indexed_polynomial,
+    decode_base_polynomial, decode_indexed_coefficient, decode_indexed_polynomial, decode_integer,
+    encode_base_polynomial, encode_indexed_coefficient, encode_indexed_polynomial, encode_integer,
 };
 use super::super::semantic::{
     decode_bool_vec, decode_i64_vec, encode_bool_slice, encode_i64_slice,
 };
 
-pub(super) const COMBINED_ORIGINAL_PLAN: u16 = 0x701;
+// V2 adds an authenticated affine-domain witness after the fixed face.  A
+// distinct plan tag is intentional: old source-port payloads are rejected at
+// the byte boundary rather than being misread with shifted fields.
+pub(super) const COMBINED_ORIGINAL_PLAN: u16 = 0x702;
+const AFFINE_DOMAIN_ABSENT: u8 = 0;
+const AFFINE_DOMAIN_PRESENT: u8 = 1;
 
 pub(super) struct ParentPlan {
     pub fixed: Vec<FixedIndexRestriction>,
     pub requests: Vec<(TranslatedSourceRequest, IndexedCoefficient)>,
     pub conditions: Vec<IndexedPolynomial>,
+    pub affine: Option<Arc<AffineApplicationDomain>>,
 }
 
 pub(super) struct CellPlan {
@@ -37,6 +47,163 @@ fn invalid(field: &'static str) -> ArtifactPersistenceError {
     ArtifactPersistenceError::SemanticMismatch { field }
 }
 
+pub(super) fn encode_affine_domain(
+    writer: &mut Writer,
+    domain: &AffineApplicationDomain,
+) -> Result<(), ArtifactPersistenceError> {
+    if !domain.is_authenticated()
+        || domain.sector().len() != domain.fixed().len()
+        || domain.indices().len() != domain.sector().len()
+    {
+        return Err(invalid("authenticated affine domain"));
+    }
+    encode_bool_slice(writer, domain.sector())?;
+    writer.usize(domain.fixed().len(), "affine fixed coordinates")?;
+    for fixed in domain.fixed() {
+        match fixed {
+            None => writer.u8(0)?,
+            Some(value) => {
+                writer.u8(1)?;
+                writer.i64(i64::from(*value))?;
+            }
+        }
+    }
+    writer.usize(domain.indices().len(), "affine index-variable positions")?;
+    for &index in domain.indices() {
+        writer.usize(index, "affine index-variable position")?;
+    }
+    writer.usize(domain.equations().len(), "affine equations")?;
+    for equation in domain.equations() {
+        encode_base_polynomial(writer, equation)?;
+    }
+    let matrix = domain
+        .primitive_matrix()
+        .ok_or_else(|| invalid("affine primitive matrix"))?;
+    writer.usize(matrix.nrows(), "affine primitive matrix rows")?;
+    writer.usize(matrix.ncols(), "affine primitive matrix columns")?;
+    for row in matrix.row_iter() {
+        for value in row {
+            encode_integer(writer, value)?;
+        }
+    }
+    writer.u8(if domain.has_integral_chart() == Some(true) {
+        1
+    } else {
+        0
+    })?;
+    Ok(())
+}
+
+fn decode_affine_domain(
+    reader: &mut Reader<'_>,
+    context: &IndexedCoefficientContext,
+    arity: usize,
+) -> Result<Arc<AffineApplicationDomain>, ArtifactPersistenceError> {
+    let sector = decode_bool_vec(reader, "affine sector")?;
+    if sector.len() != arity {
+        return Err(invalid("affine sector arity"));
+    }
+    let fixed_count = reader.count("affine fixed coordinates")?;
+    if fixed_count != arity {
+        return Err(invalid("affine fixed-coordinate arity"));
+    }
+    let mut fixed = try_vec(arity, "affine fixed coordinates")?;
+    for axis in 0..arity {
+        let value = match reader.u8()? {
+            0 => None,
+            1 => Some(i16::try_from(reader.i64()?).map_err(|_| invalid("affine fixed value"))?),
+            _ => return Err(invalid("affine fixed-coordinate tag")),
+        };
+        if value.is_some_and(|value| (value > 0) != sector[axis]) {
+            return Err(invalid("affine fixed-coordinate sector"));
+        }
+        fixed.push(value);
+    }
+    let index_count = reader.count("affine index-variable positions")?;
+    if index_count != arity {
+        return Err(invalid("affine index-variable arity"));
+    }
+    let mut indices = try_vec(arity, "affine index-variable positions")?;
+    for _ in 0..arity {
+        let index = reader.count("affine index-variable position")?;
+        let variable_count = context.one().raw().get_variables().len();
+        let first_index = variable_count
+            .checked_sub(arity)
+            .ok_or_else(|| invalid("affine index-variable positions"))?;
+        let expected = first_index
+            .checked_add(indices.len())
+            .ok_or_else(|| invalid("affine index-variable positions"))?;
+        if index != expected {
+            return Err(invalid("affine index-variable positions"));
+        }
+        indices.push(index);
+    }
+    let equation_count = reader.count("affine equations")?;
+    check_limit(
+        "affine equations",
+        equation_count,
+        reader.limits().rule_cells.max_guards,
+    )?;
+    if equation_count == 0 {
+        return Err(invalid("empty affine equations"));
+    }
+    let template = context.one();
+    let variables = template.raw().get_variables();
+    let mut equations = try_vec(equation_count, "affine equations")?;
+    for _ in 0..equation_count {
+        equations.push(decode_base_polynomial(
+            reader,
+            variables,
+            "affine equation",
+        )?);
+    }
+    let rows = reader.count("affine primitive matrix rows")?;
+    let columns = reader.count("affine primitive matrix columns")?;
+    if rows == 0 || columns != arity + 1 {
+        return Err(invalid("affine primitive matrix shape"));
+    }
+    let entries =
+        rows.checked_mul(columns)
+            .ok_or(ArtifactPersistenceError::ResourceCountOverflow {
+                resource: "affine primitive matrix entries",
+            })?;
+    check_limit(
+        "affine primitive matrix entries",
+        entries,
+        reader.limits().max_collection_entries,
+    )?;
+    let mut values = try_vec(entries, "affine primitive matrix entries")?;
+    for _ in 0..entries {
+        values.push(decode_integer(reader, "affine primitive matrix entry")?);
+    }
+    let rows = u32::try_from(rows).map_err(|_| invalid("affine primitive matrix rows"))?;
+    let columns = u32::try_from(columns).map_err(|_| invalid("affine primitive matrix columns"))?;
+    let matrix = Matrix::from_linear(values, rows, columns, IntegerRing)
+        .map_err(|_| invalid("affine primitive matrix shape"))?;
+    let integral_chart = match reader.u8()? {
+        0 => false,
+        1 => true,
+        _ => return Err(invalid("affine integral-chart tag")),
+    };
+    let domain = AffineApplicationDomain::from_persisted(
+        sector.into_boxed_slice(),
+        fixed.into_boxed_slice(),
+        indices.into_boxed_slice(),
+        equations.into_boxed_slice(),
+        matrix,
+        integral_chart,
+    )
+    .map_err(|_| invalid("authenticated affine domain"))?;
+    if domain
+        .equations()
+        .iter()
+        .any(|equation| equation.variables() != variables)
+    {
+        return Err(invalid("affine equation variable map"));
+    }
+    Ok(Arc::new(domain))
+}
+
 // A cheap, exact structural key locates candidates. Native weight and guard
 // equality resolves its buckets; no hash, Arc address or completion order is
 // ever persisted or used as semantic identity.
@@ -47,16 +214,10 @@ fn parent_key(
     cell: &RuleCell,
 ) -> Result<ParentKey, ArtifactPersistenceError> {
     let rule = cell.rule();
-        let evidence = rule
-            .replay_evidence()
-            .combined_original_domain()
-            .ok_or_else(|| invalid("combined source parent evidence"))?;
-        if evidence.affine_application_domain().is_some() {
-            return Err(invalid("affine combined-domain evidence is not serializable yet"));
-        }
-    if evidence.affine_application_domain().is_some() {
-        return Err(invalid("affine combined domains require the affine codec"));
-    }
+    let evidence = rule
+        .replay_evidence()
+        .combined_original_domain()
+        .ok_or_else(|| invalid("combined source parent evidence"))?;
     if !matches!(
         cell.sources().construction(),
         SourceViewConstruction::Direct
@@ -118,6 +279,16 @@ fn same_parent(left: &RuleCell, right: &RuleCell) -> bool {
                 .nonzero_guards()
                 .iter()
                 .map(|guard| guard.polynomial()))
+        && left
+            .rule()
+            .replay_evidence()
+            .combined_original_domain()
+            .and_then(|evidence| evidence.affine_application_domain())
+            == right
+                .rule()
+                .replay_evidence()
+                .combined_original_domain()
+                .and_then(|evidence| evidence.affine_application_domain())
 }
 
 pub(super) fn encode(
@@ -158,6 +329,18 @@ pub(super) fn encode(
             writer.usize(*axis, "fixed target axis")?;
             writer.i64(*value)?;
         }
+        let evidence = cell
+            .rule()
+            .replay_evidence()
+            .combined_original_domain()
+            .ok_or_else(|| invalid("combined source parent evidence"))?;
+        match evidence.affine_application_domain() {
+            None => writer.u8(AFFINE_DOMAIN_ABSENT)?,
+            Some(domain) => {
+                writer.u8(AFFINE_DOMAIN_PRESENT)?;
+                encode_affine_domain(writer, domain)?;
+            }
+        }
         writer.usize(requests.len(), "combined original source requests")?;
         for ((ordinal, offset), contribution) in
             requests.iter().zip(cell.rule().source_combination())
@@ -183,12 +366,6 @@ pub(super) fn encode(
             .replay_evidence()
             .combined_original_domain()
             .ok_or_else(|| invalid("combined cell evidence"))?;
-        if evidence.affine_application_domain().is_some() {
-            return Err(invalid("affine combined-domain evidence is not serializable yet"));
-        }
-        if evidence.affine_application_domain().is_some() {
-            return Err(invalid("affine combined domains require the affine codec"));
-        }
         encode_box(writer, &evidence.application_boxes()[0])?;
         writer.usize(cell.rule().right_hand_side().len(), "combined RHS terms")?;
         for term in cell.rule().right_hand_side() {
@@ -269,6 +446,11 @@ pub(super) fn decode(
             }
             fixed.push(FixedIndexRestriction::new(axis, value));
         }
+        let affine = match reader.u8()? {
+            AFFINE_DOMAIN_ABSENT => None,
+            AFFINE_DOMAIN_PRESENT => Some(decode_affine_domain(reader, context, arity)?),
+            _ => return Err(invalid("affine-domain presence tag")),
+        };
         let count = reader.count("combined original source requests")?;
         if count == 0 {
             return Err(invalid("empty combined source request"));
@@ -336,6 +518,7 @@ pub(super) fn decode(
             fixed,
             requests,
             conditions,
+            affine,
         });
     }
     let count = reader.count("combined cells")?;
@@ -376,6 +559,25 @@ pub(super) fn decode(
         if sector.len() != arity {
             return Err(invalid("combined sector arity"));
         }
+        if let Some(affine) = &parents[parent].affine {
+            let parent_fixed: Vec<_> = (0..arity)
+                .map(|axis| {
+                    parents[parent]
+                        .fixed
+                        .iter()
+                        .find(|fixed| fixed.position() == axis)
+                        .map(|fixed| fixed.value())
+                })
+                .collect();
+            let affine_fixed: Vec<_> = affine
+                .fixed()
+                .iter()
+                .map(|value| value.map(i64::from))
+                .collect();
+            if affine.sector() != sector.as_slice() || affine_fixed != parent_fixed {
+                return Err(invalid("affine parent/cell binding"));
+            }
+        }
         let application = decode_box(reader, arity)?;
         let term_count = reader.count("combined RHS terms")?;
         check_limit(
@@ -403,4 +605,70 @@ pub(super) fn decode(
         return Err(invalid("unused combined source parent"));
     }
     Ok((parents, cells))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::algebra::{CoefficientContext, IndexedCoefficientContext};
+    use crate::solver::{AffineCase, AffineIntersection, CoordinateCase};
+
+    fn fixture() -> (IndexedCoefficientContext, Arc<AffineApplicationDomain>) {
+        let base = CoefficientContext::new(["d"]);
+        let context = IndexedCoefficientContext::try_new(&base, "affine-persistence-test", 2)
+            .expect("indexed context");
+        let n0 = context.index(0).expect("n0");
+        let n1 = context.index(1).expect("n1");
+        let equation = context
+            .sub(&n0, &n1)
+            .expect("equation")
+            .raw()
+            .numerator
+            .clone();
+        let case = AffineCase::from_coordinate(
+            &CoordinateCase::generic(),
+            &[equation],
+            &[1, 2],
+            &[true, true],
+        )
+        .expect("affine case");
+        let AffineIntersection::Affine(case) = case else {
+            panic!("fixture must be coupled");
+        };
+        let domain = AffineApplicationDomain::from_case(&case, &[true, true]).unwrap();
+        (context, Arc::new(domain))
+    }
+
+    #[test]
+    fn authenticated_affine_domain_round_trips_byte_identically() {
+        let (context, domain) = fixture();
+        let mut writer = Writer::new(Default::default());
+        encode_affine_domain(&mut writer, &domain).unwrap();
+        let bytes = writer.finish();
+        let mut reader = Reader::root(&bytes, Default::default()).unwrap();
+        let decoded = decode_affine_domain(&mut reader, &context, 2).unwrap();
+        reader.finish().unwrap();
+        assert_eq!(*decoded, *domain);
+        let mut replay = Writer::new(Default::default());
+        encode_affine_domain(&mut replay, &decoded).unwrap();
+        assert_eq!(replay.finish(), bytes);
+    }
+
+    #[test]
+    fn affine_domain_codec_rejects_duplicate_index_positions() {
+        let (context, domain) = fixture();
+        let mut writer = Writer::new(Default::default());
+        encode_affine_domain(&mut writer, &domain).unwrap();
+        let mut bytes = writer.finish();
+        // sector length + two sector bytes + fixed length + two fixed tags +
+        // index length place the two u64 positions at offsets 28 and 36.
+        bytes[36..44].copy_from_slice(&1u64.to_le_bytes());
+        let mut reader = Reader::root(&bytes, Default::default()).unwrap();
+        assert_eq!(
+            decode_affine_domain(&mut reader, &context, 2).unwrap_err(),
+            ArtifactPersistenceError::SemanticMismatch {
+                field: "affine index-variable positions"
+            }
+        );
+    }
 }

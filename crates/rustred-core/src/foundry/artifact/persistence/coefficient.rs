@@ -131,7 +131,10 @@ fn primitive_magnitude(value: u128) -> ([u8; 16], usize) {
     (bytes, len)
 }
 
-fn encode_integer(writer: &mut Writer, value: &Integer) -> Result<(), ArtifactPersistenceError> {
+pub(super) fn encode_integer(
+    writer: &mut Writer,
+    value: &Integer,
+) -> Result<(), ArtifactPersistenceError> {
     writer.u8(if value.is_negative() {
         NEGATIVE_INTEGER
     } else {
@@ -240,7 +243,7 @@ pub(super) fn encode_base_polynomial(
     })
 }
 
-fn decode_integer(
+pub(super) fn decode_integer(
     reader: &mut Reader<'_>,
     field: &'static str,
 ) -> Result<Integer, ArtifactPersistenceError> {
@@ -379,6 +382,26 @@ fn decode_coefficient_on_map(
         return Err(ArtifactPersistenceError::NonCanonicalCoefficient { field });
     }
     Ok(raw)
+}
+
+/// Decode a bare polynomial on an already authenticated variable map.  This
+/// is used by structural evidence codecs (such as affine-domain witnesses),
+/// not by expression parsing: the variable map is supplied by the family
+/// context and the sparse payload is still subject to all native limits and
+/// canonical-order checks.
+pub(super) fn decode_base_polynomial(
+    reader: &mut Reader<'_>,
+    variables: &Arc<Vec<PolyVariable>>,
+    field: &'static str,
+) -> Result<CoefficientPolynomial, ArtifactPersistenceError> {
+    let payload = reader.coefficient_payload(field)?;
+    let mut payload_reader = reader.child(payload);
+    if payload_reader.u8()? != POLYNOMIAL_PAYLOAD {
+        return Err(ArtifactPersistenceError::InvalidCoefficient { field });
+    }
+    let polynomial = decode_polynomial_body(&mut payload_reader, variables, field)?;
+    payload_reader.finish()?;
+    Ok(polynomial)
 }
 
 pub(super) fn decode_base_coefficient(

@@ -10,7 +10,7 @@
 
 use std::fmt;
 
-use symbolica::prelude::{IntegerRing, Matrix};
+use symbolica::prelude::{Integer, IntegerRing, Matrix};
 
 use crate::algebra::CoefficientPolynomial;
 use crate::solver::AffineCase;
@@ -69,10 +69,60 @@ impl AffineApplicationDomain {
         })
     }
 
+    /// Reconstitute the exact witness carried by a durable source-port plan.
+    ///
+    /// This is deliberately a structural/authentication boundary, not an
+    /// affine solver: the producer has already proved the case and persisted
+    /// the canonical sparse equations and primitive matrix.  We nevertheless
+    /// reject malformed shapes, duplicate/out-of-range variable positions,
+    /// zero rows, and inconsistent variable maps before the witness can reach
+    /// replay.  Coverage publication remains fail-closed until its partition
+    /// certificate is implemented by the installer.
+    pub(crate) fn from_persisted(
+        sector: Box<[bool]>,
+        fixed: Box<[Option<i16>]>,
+        indices: Box<[usize]>,
+        equations: Box<[CoefficientPolynomial]>,
+        primitive_matrix: Matrix<IntegerRing>,
+        integral_chart: bool,
+    ) -> Result<Self, AffineApplicationDomainError> {
+        if sector.is_empty()
+            || fixed.len() != sector.len()
+            || indices.len() != sector.len()
+            || equations.is_empty()
+            || primitive_matrix.ncols() != sector.len() + 1
+            || primitive_matrix.nrows() == 0
+            || primitive_matrix
+                .row_iter()
+                .any(|row| row.iter().all(Integer::is_zero))
+        {
+            return Err(AffineApplicationDomainError::ArityMismatch);
+        }
+        let variables = equations[0].variables().clone();
+        if equations
+            .iter()
+            .any(|equation| equation.variables() != &variables)
+            || indices.iter().any(|&index| index >= variables.len())
+        {
+            return Err(AffineApplicationDomainError::VariableMapMismatch);
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        if indices.iter().any(|index| !seen.insert(*index)) {
+            return Err(AffineApplicationDomainError::VariableMapMismatch);
+        }
+        Ok(Self {
+            sector,
+            fixed,
+            indices,
+            equations,
+            primitive_matrix: Some(primitive_matrix),
+            integral_chart: Some(integral_chart),
+        })
+    }
+
     /// Construct a carrier from already authenticated pieces at a replay
     /// boundary. This performs only shape checks; polynomial admission remains
     /// the responsibility of the `AffineCase`/source solver boundary.
-    #[cfg(test)]
     pub(crate) fn try_new(
         sector: impl Into<Box<[bool]>>,
         fixed: impl Into<Box<[Option<i16>]>>,
@@ -188,10 +238,8 @@ impl AffineApplicationDomain {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AffineApplicationDomainError {
-    #[cfg(test)]
     ArityMismatch,
     MissingCoupledEquation,
-    #[cfg(test)]
     VariableMapMismatch,
     OutsideSector,
 }
@@ -199,14 +247,12 @@ pub(crate) enum AffineApplicationDomainError {
 impl fmt::Display for AffineApplicationDomainError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            #[cfg(test)]
             Self::ArityMismatch => {
                 formatter.write_str("affine application domain has incompatible arity")
             }
             Self::MissingCoupledEquation => {
                 formatter.write_str("affine application domain has no coupled equation")
             }
-            #[cfg(test)]
             Self::VariableMapMismatch => formatter
                 .write_str("affine application domain equations use different variable maps"),
             Self::OutsideSector => {
@@ -292,12 +338,8 @@ mod tests {
     fn loose_constructor_cannot_be_promoted_to_coverage_evidence() {
         let context = CoefficientContext::new(["n0", "n1"]);
         let equation = context.coefficient_fixture("n0 - n1").numerator;
-        let domain = AffineApplicationDomain::try_new(
-            [true, true],
-            [None, None],
-            [equation],
-        )
-        .expect("shape-valid diagnostic domain");
+        let domain = AffineApplicationDomain::try_new([true, true], [None, None], [equation])
+            .expect("shape-valid diagnostic domain");
 
         // A shape-valid carrier created outside AffineCase deliberately lacks
         // the canonical integer rows and chart witness.  It may be useful in

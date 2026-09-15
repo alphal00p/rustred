@@ -163,7 +163,7 @@ pub(super) fn decode<'input>(
                 Arc::new(sources),
                 contributions,
                 plan.fixed,
-                None,
+                plan.affine,
                 plan.conditions,
                 replay_limits,
             )

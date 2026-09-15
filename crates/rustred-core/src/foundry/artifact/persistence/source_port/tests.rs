@@ -39,6 +39,13 @@ fn changed_rules(
             writer.usize(fixed.position(), "axis").unwrap();
             writer.i64(fixed.value()).unwrap();
         }
+        match parent.affine {
+            None => writer.u8(0).unwrap(),
+            Some(affine) => {
+                writer.u8(1).unwrap();
+                plans::encode_affine_domain(&mut writer, &affine).unwrap();
+            }
+        }
         writer.usize(parent.requests.len(), "requests").unwrap();
         for (request, coefficient) in parent.requests {
             writer.usize(request.source_ordinal(), "ordinal").unwrap();
@@ -159,6 +166,7 @@ fn valid_parent_reference_cannot_borrow_another_parents_replayed_identity() {
             fixed: original.fixed.clone(),
             requests: original.requests.clone(),
             conditions: original.conditions.clone(),
+            affine: original.affine.clone(),
         };
         wrong.requests[0].1 = artifact
             .context
