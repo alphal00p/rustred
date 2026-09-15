@@ -65,6 +65,27 @@ claim that Vakint's full three-loop acceptance suite has already passed.
 
 ## SpIRed reference-port case probe
 
+## Four-loop complete-basis input probe
+
+The `4h` selector in [`spired_solve_sector.rs`](spired_solve_sector.rs) is a
+small example input, not a topology-aware RustRed mode. It supplies Vakint's
+nine physical H propagators plus one explicit `(k1-k2)^2-m` ISP denominator at
+zero initial power, thereby giving the generic parametric engine all ten
+four-loop vacuum scalar-product coordinates. The first all-physical sector can
+be measured without any reference rules:
+
+```sh
+cargo build --release --locked --example spired-solve-sector
+target/release/examples/spired-solve-sector 4h 1111111110 \
+  /tmp/rustred-4h-sector - - - 3 2 - input-order
+```
+
+On the reference host this baseline produced 21 conditional rules and one
+finite residual in 4.53 s of release solver time. It is intentionally not a
+closure claim yet: the residual is the all-one physical sector, and the next
+step is the generic closure/artifact path over all ten-index sectors. No H
+name or relation is consulted by the solver.
+
 The experimental [`spired_solve_case.rs`](spired_solve_case.rs) exercises the
 new compact reference port directly from the Rust library:
 
