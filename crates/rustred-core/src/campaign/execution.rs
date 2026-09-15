@@ -9,7 +9,7 @@ use std::num::NonZeroUsize;
 
 use rayon::prelude::*;
 use rayon::{ThreadPool, ThreadPoolBuilder};
-use symbolica::LicenseManager;
+use symbolica::license::LicenseManager;
 
 /// Failure to construct an explicitly bounded RustRed execution context.
 #[derive(Clone, Debug, PartialEq, Eq)]

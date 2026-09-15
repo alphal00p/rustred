@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
 use rayon::{ThreadPool, ThreadPoolBuilder};
-use symbolica::LicenseManager;
+use symbolica::license::LicenseManager;
 
 use super::{
     SectorConfig, SectorEvent, SectorSolution, SectorSolveError, SectorSolveOptions, SectorSolver,

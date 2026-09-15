@@ -17,6 +17,9 @@
 //! Schedule is `active-first` (default) or `input-order`; it only orders jobs.
 //! Optional diagnostic RUSTRED_SPIRED_SYMBOLIC_EXACT_BACKEND=dense-fraction-free
 //! selects native dense symbolic lifting (numerical-tail lifting stays sparse).
+//! RUSTRED_SPIRED_SYMBOLIC_EXACT_BACKEND=semi-numerical selects Symbolica's
+//! finite-field black-box rational reconstruction route. Its limits are
+//! controlled by RUSTRED_SPIRED_RECON_MAX_{DEGREE,PROBES,ATTEMPTS,PRIMES}.
 //! RUSTRED_SPIRED_FRACTION_FREE_MAX_ENTRIES bounds initial dense matrix slots;
 //! it does not bound intermediate coefficient memory. Sparse is the default.
 //! Outputs are conditional source-port rules

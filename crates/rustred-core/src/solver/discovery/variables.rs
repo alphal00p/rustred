@@ -91,6 +91,10 @@ impl FrameVariables {
         self.active.len()
     }
 
+    pub(super) fn active_variables(&self) -> Arc<Vec<PolyVariable>> {
+        self.active.clone()
+    }
+
     pub(super) fn map_coefficient(
         &self,
         value: &Coefficient,

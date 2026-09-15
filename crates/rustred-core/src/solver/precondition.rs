@@ -236,10 +236,10 @@ impl PolynomialOrder<'_> {
         }
         (
             target
-                .try_div_exact(&gcd)
+                .try_div(&gcd)
                 .expect("a polynomial GCD divides its target exactly"),
             pivot
-                .try_div_exact(&gcd)
+                .try_div(&gcd)
                 .expect("a polynomial GCD divides its pivot exactly"),
         )
     }

@@ -319,3 +319,9 @@ These interfaces remain useful for arbitrary non-vacuum families. The Vakint
 vacuum artifact library is an optimized deployment of the generic services,
 not the limit of RustRed's family model. Tensor API expansion is not part of
 these Stage 1 surfaces.
+
+The executable-reference solver also exposes an opt-in SpIReD
+semi-numerical target-lifting backend. It delegates interpolation, CRT and
+rational reconstruction to Symbolica 3.0's public API; exact replay and
+publication remain the authority. The backend is diagnostic/experimental and
+does not alter RustRed's default exact sparse path.

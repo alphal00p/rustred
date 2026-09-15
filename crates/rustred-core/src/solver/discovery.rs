@@ -15,6 +15,7 @@ type NumericalCoefficient = <Zp64 as Set>::Element;
 type ExactField = RationalPolynomialField<IntegerRing, u16>;
 
 mod fraction_free;
+mod semi_numerical;
 mod target_only;
 mod variables;
 
@@ -31,6 +32,16 @@ pub enum SymbolicExactBackend {
     /// Native dense polynomial elimination. The bound limits initial matrix
     /// slots, not coefficient growth or total memory. Use an external run cap.
     DenseFractionFree { max_matrix_entries: usize },
+    /// Reconstruct the target row from finite-field black-box evaluations
+    /// using Symbolica's native multivariate rational reconstruction. This is
+    /// SpIReD's semi-numerical route; reconstructed rows still pass the normal
+    /// exact replay/publication gates. The bounds are deliberately explicit.
+    SemiNumerical {
+        max_degree: u16,
+        max_probes: usize,
+        max_attempts: usize,
+        max_primes: usize,
+    },
 }
 
 /// Native coefficient-variable order during single-target exact lifting only.
@@ -103,6 +114,19 @@ pub enum MaterializationEvent<const N: usize> {
         columns: usize,
     },
     TargetReconstructionFinished {
+        output_terms: usize,
+    },
+    SemiNumericalStarted {
+        rows: usize,
+        columns: usize,
+        variables: usize,
+    },
+    SemiNumericalCoefficient {
+        column: usize,
+        probes: usize,
+        primes: usize,
+    },
+    SemiNumericalFinished {
         output_terms: usize,
     },
     RowStarted {
@@ -328,6 +352,7 @@ pub enum MaterializationError {
         limit: usize,
     },
     FractionFreeDimensionOverflow,
+    SemiNumericalReconstruction(String),
 }
 
 impl fmt::Display for MaterializationError {
@@ -367,6 +392,9 @@ impl fmt::Display for MaterializationError {
             ),
             Self::FractionFreeDimensionOverflow => {
                 write!(f, "fraction-free matrix dimensions overflow native storage")
+            }
+            Self::SemiNumericalReconstruction(reason) => {
+                write!(f, "semi-numerical reconstruction failed: {reason}")
             }
             Self::CoefficientVariableMapMismatch => {
                 write!(
@@ -466,6 +494,26 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
     });
     if backend == SymbolicExactBackend::SparseTargetOnly {
         return target_only::materialize(rows, &columns, order, target_column, &variables, observe);
+    }
+    if let SymbolicExactBackend::SemiNumerical {
+        max_degree,
+        max_probes,
+        max_attempts,
+        max_primes,
+    } = backend
+    {
+        return semi_numerical::materialize(
+            rows,
+            &columns,
+            order,
+            target_column,
+            &variables,
+            max_degree,
+            max_probes,
+            max_attempts,
+            max_primes,
+            observe,
+        );
     }
     if let SymbolicExactBackend::DenseFractionFree { max_matrix_entries } = backend {
         return fraction_free::materialize(

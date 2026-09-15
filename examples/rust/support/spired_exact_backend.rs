@@ -53,11 +53,35 @@ fn parse(mode: Option<&str>, limit: Option<&str>) -> Result<SymbolicExactBackend
                 .ok_or("fraction-free entry limit must be a positive integer")?;
             Ok(SymbolicExactBackend::DenseFractionFree { max_matrix_entries })
         }
+        "semi-numerical" if limit.is_none() => Ok(SymbolicExactBackend::SemiNumerical {
+            max_degree: env_positive_u16("RUSTRED_SPIRED_RECON_MAX_DEGREE", 128)?,
+            max_probes: env_positive_usize("RUSTRED_SPIRED_RECON_MAX_PROBES", 200_000)?,
+            max_attempts: env_positive_usize("RUSTRED_SPIRED_RECON_MAX_ATTEMPTS", 4)?,
+            max_primes: env_positive_usize("RUSTRED_SPIRED_RECON_MAX_PRIMES", 8)?,
+        }),
         _ => Err(
-            "symbolic exact backend must be sparse, sparse-target-only or dense-fraction-free"
+            "symbolic exact backend must be sparse, sparse-target-only, dense-fraction-free or semi-numerical"
                 .into(),
         ),
     }
+}
+
+fn env_positive_usize(name: &str, default: usize) -> Result<usize, String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| {
+            value
+                .parse::<usize>()
+                .ok()
+                .filter(|value| *value > 0)
+                .ok_or_else(|| format!("{name} must be a positive integer"))
+        })
+        .unwrap_or(Ok(default))
+}
+
+fn env_positive_u16(name: &str, default: u16) -> Result<u16, String> {
+    env_positive_usize(name, default as usize)
+        .and_then(|value| u16::try_from(value).map_err(|_| format!("{name} exceeds u16")))
 }
 
 #[cfg(test)]
@@ -103,6 +127,10 @@ mod tests {
                 max_matrix_entries: 143636
             }
         );
+        assert!(matches!(
+            parse(Some("semi-numerical"), None).unwrap(),
+            SymbolicExactBackend::SemiNumerical { .. }
+        ));
     }
 
     #[test]
@@ -113,5 +141,6 @@ mod tests {
         assert!(parse(Some("dense-fraction-free"), Some("0")).is_err());
         assert!(parse(Some("dense-fraction-free"), Some("-1")).is_err());
         assert!(parse(Some("dense-fraction-free"), Some("unbounded")).is_err());
+        assert!(parse(Some("semi-numerical"), Some("100")).is_err());
     }
 }

@@ -1,5 +1,5 @@
 use serde::Serialize;
-use symbolica::LicenseManager;
+use symbolica::license::LicenseManager;
 
 /// Shared producer block for every canonical RustRed application document.
 ///

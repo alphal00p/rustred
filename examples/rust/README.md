@@ -182,6 +182,21 @@ without guessing from variable names. Arithmetic still uses Symbolica's native
 Lex field; this is not a switch to the C++ library's DEGLEX monomial ordering.
 It is an opt-in experiment with the same original-context restoration gate.
 
+The `semi-numerical` backend follows SpIReD's black-box route using
+Symbolica's native `reconstruct_rational_function_over_q` API:
+
+```sh
+RUSTRED_SPIRED_SYMBOLIC_EXACT_BACKEND=semi-numerical \
+  cargo run --release --locked -p rustred --example spired-solve-sector -- \
+  2 111 /tmp/rustred-k2-semi - - - 3 1 - active-first
+```
+
+Optional bounds are `RUSTRED_SPIRED_RECON_MAX_DEGREE`,
+`RUSTRED_SPIRED_RECON_MAX_PROBES`, `RUSTRED_SPIRED_RECON_MAX_ATTEMPTS`, and
+`RUSTRED_SPIRED_RECON_MAX_PRIMES`. Symbolica performs interpolation, CRT,
+rational lifting and fresh-prime checks; RustRed's exact replay/publication
+gates remain authoritative. This route is opt-in and is not used by default.
+
 ## Independent vacuum artifact diagnostics
 
 Generate every nonzero sector of a vacuum family and independently check the

@@ -241,6 +241,37 @@ The 34 release regression/ordering/source-audit checks pass, but the matching
 This does not solve the remaining PM sector; `Original` stays the default.
 See the [indices-first results](spired_pm_acceptance.md#indices-first-follow-up-2026-09-15).
 
+### Opt-in Symbolica semi-numerical lifting
+
+The vendored Symbolica development API now exposes native multivariate rational
+reconstruction (`reconstruct_rational_function_over_q`). RustRed adds an
+opt-in `SymbolicExactBackend::SemiNumerical` route that follows SpIReD's
+semi-numerical design: each black-box probe evaluates the unchanged selected
+source trace in a finite field, runs native `SparseRowReducer` GPLU, and
+returns the complete target row. Symbolica performs the interpolation, CRT,
+rational lifting and fresh-prime verification; RustRed does not implement a
+reconstruction kernel.
+
+The scalar Symbolica API is used once per output column, but a Rust-side cache
+shares the complete GPLU row for equal `(prime, point)` probes. The resulting
+row is still handed to the ordinary canonicalization, source-replay, guard,
+descent and publication gates. Reconstruction limits (degree, probes,
+attempts and prime images) are explicit and the route is never selected by
+default. An unlucky point or modular target miss is reported as a bounded
+reconstruction failure, not as an authority or closure claim.
+
+The example steering is
+`RUSTRED_SPIRED_SYMBOLIC_EXACT_BACKEND=semi-numerical`; optional controls are
+`RUSTRED_SPIRED_RECON_MAX_DEGREE`, `..._MAX_PROBES`, `..._MAX_ATTEMPTS`, and
+`..._MAX_PRIMES`. On the current dev snapshot, release one-sector comparisons
+produce byte-identical rule files. For K2 sector `111`, semi-numerical took
+6.136 ms of sector solve time versus 0.789 ms for sparse exact (whole process
+39.0 ms versus 2.1 ms, including initialization); for the representative K3
+sector `111111`, it took 68.467 ms versus 64.371 ms (whole process 82 ms versus
+74 ms). These are paired single-host release observations, not a claim that
+reconstruction wins every case. Constant frames intentionally remain on the
+exact sparse path.
+
 ### Opt-in target-block exact lifting
 
 `SymbolicExactBackend::SparseTargetOnly` is an experimental alternative exact

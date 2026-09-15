@@ -534,10 +534,12 @@ The repository root is a virtual Cargo workspace with three packages:
   users write `import rustred`; `rustred._rustred` is a private extension
   detail, and top-level `import _rustred` is intentionally unsupported.
 
-The registry-shaped Symbolica 2.2.0 dependency is patched to
+The registry-shaped Symbolica 3.0.0 development dependency is patched to
 `vendor/symbolica`, whose submodule update branch is `dev` and whose parent
 repository pin selects an exact commit. It is built with the `integer-gmp` and
-`float-mpfr` backends. Symbolica is the sole production CAS. RustRed never
+`float-mpfr` backends. Symbolica is the sole production CAS, including its
+native finite-field and rational-polynomial reconstruction APIs used by the
+opt-in SpIReD semi-numerical route. RustRed never
 invokes FORM, Mathematica, SymPy, or authored recurrence tables.
 
 ## Development

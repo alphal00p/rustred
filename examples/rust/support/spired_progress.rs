@@ -120,6 +120,28 @@ pub fn write_event<const N: usize>(
                             "phase=target-reconstruction-finish output_terms={output_terms}"
                         )
                     }
+                    MaterializationEvent::SemiNumericalStarted {
+                        rows,
+                        columns,
+                        variables,
+                    } => writeln!(
+                        output,
+                        "phase=semi-numerical-start rows={rows} columns={columns} variables={variables}"
+                    ),
+                    MaterializationEvent::SemiNumericalCoefficient {
+                        column,
+                        probes,
+                        primes,
+                    } => writeln!(
+                        output,
+                        "phase=semi-numerical-coefficient column={column} probes={probes} primes={primes}"
+                    ),
+                    MaterializationEvent::SemiNumericalFinished { output_terms } => {
+                        writeln!(
+                            output,
+                            "phase=semi-numerical-finish output_terms={output_terms}"
+                        )
+                    }
                     MaterializationEvent::RowStarted {
                         row,
                         input_nonzeros,

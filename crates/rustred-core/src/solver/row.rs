@@ -45,7 +45,7 @@ pub(super) fn clear_denominators<const N: usize>(
             ));
         }
         let gcd = common.gcd(denominator);
-        let quotient = denominator.try_div_exact(&gcd).ok_or_else(|| {
+        let quotient = denominator.try_div(&gcd).ok_or_else(|| {
             SolverError::ExactReplay("native polynomial GCD does not divide a denominator".into())
         })?;
         common = &common * &quotient;
@@ -53,7 +53,7 @@ pub(super) fn clear_denominators<const N: usize>(
     row.into_iter()
         .map(|term| {
             let scale = common
-                .try_div_exact(&term.coefficient.denominator)
+                .try_div(&term.coefficient.denominator)
                 .ok_or_else(|| {
                     SolverError::ExactReplay(
                         "native common denominator is not exactly divisible".into(),

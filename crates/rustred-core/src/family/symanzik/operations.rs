@@ -95,6 +95,9 @@ pub(super) fn native_determinant_error_detail(
         MatrixError::ShapeMismatch => {
             "Symbolica Matrix::det unexpectedly reported a shape mismatch"
         }
+        MatrixError::FieldMismatch => {
+            "Symbolica Matrix::det unexpectedly reported a field mismatch"
+        }
         MatrixError::RightHandSideIsNotVector => {
             "Symbolica Matrix::det unexpectedly requested a vector right-hand side"
         }

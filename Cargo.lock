@@ -98,12 +98,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be5eb007b7cacc6c660343e96f650fedf4b5a77512399eb952ca6642cf8d13f7"
 
 [[package]]
-name = "base64"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
-
-[[package]]
 name = "bitflags"
 version = "2.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -321,6 +315,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "data-encoding"
+version = "2.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
+
+[[package]]
 name = "directories"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -338,7 +338,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -428,12 +428,11 @@ dependencies = [
 
 [[package]]
 name = "graphica"
-version = "2.1.0"
+version = "3.0.0"
 dependencies = [
  "ahash",
  "dyn-clone",
  "numerica",
- "rand",
 ]
 
 [[package]]
@@ -659,7 +658,7 @@ dependencies = [
 
 [[package]]
 name = "numerica"
-version = "2.2.0"
+version = "3.0.0"
 dependencies = [
  "ahash",
  "colored",
@@ -673,7 +672,7 @@ dependencies = [
  "rug",
  "simba",
  "smallvec",
- "wide 1.6.1",
+ "wide 1.7.1",
  "xprec",
 ]
 
@@ -1020,9 +1019,9 @@ dependencies = [
 
 [[package]]
 name = "safe_arch"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a52ec151f024d703f9fd65abb7cbe81e7cdb39f18917a3a37e3014470dc7c59"
+checksum = "42c6efa15875e6ecb39ca61fb0b0c1a40b84fac5a5ffe71eef7d1000c8eb3f5f"
 dependencies = [
  "bytemuck",
 ]
@@ -1190,14 +1189,14 @@ dependencies = [
 
 [[package]]
 name = "symbolica"
-version = "2.2.0"
+version = "3.0.0"
 dependencies = [
  "ahash",
  "append-only-vec",
- "base64",
  "brotli",
  "byteorder",
  "bytes",
+ "data-encoding",
  "directories",
  "dyn-clone",
  "ed25519-compact",
@@ -1214,7 +1213,7 @@ dependencies = [
  "tinyjson",
  "tracing",
  "tracing-subscriber",
- "wide 1.6.1",
+ "wide 1.7.1",
 ]
 
 [[package]]
@@ -1486,12 +1485,12 @@ dependencies = [
 
 [[package]]
 name = "wide"
-version = "1.6.1"
+version = "1.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de2aaf408e58689c2096682331b1f42bb2d9f2ed6b11560407d023cd0a6c634e"
+checksum = "d920ac99c3c8edce110cb8d07dbb324d6d026011dce85b1e9355b70f0adacc4f"
 dependencies = [
  "bytemuck",
- "safe_arch 1.1.0",
+ "safe_arch 1.2.0",
 ]
 
 [[package]]

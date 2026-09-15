@@ -33,6 +33,7 @@ fn map_native_error<F: Ring>(
         MatrixError::NotSquare => SymbolicaNativeMatrixErrorKind::NotSquare,
         MatrixError::Singular => SymbolicaNativeMatrixErrorKind::Singular,
         MatrixError::ShapeMismatch => SymbolicaNativeMatrixErrorKind::ShapeMismatch,
+        MatrixError::FieldMismatch => SymbolicaNativeMatrixErrorKind::ShapeMismatch,
         MatrixError::RightHandSideIsNotVector => {
             SymbolicaNativeMatrixErrorKind::RightHandSideIsNotVector
         }
