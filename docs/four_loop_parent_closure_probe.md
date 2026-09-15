@@ -51,6 +51,21 @@ the need for an authenticated affine/nonlinear coverage partition nor the
 fail-closed publication gate; it only advances the point at which this
 particular parent is diagnosed.
 
+## Current-head H rerun
+
+The current release binary was also run on the generic external H family with
+the same two-worker, CPU-pinned, fresh-process protocol. It reached the source
+port publication gate in `101.66 s` wall (`199.58 s` user CPU, `660,572 KiB`
+peak RSS), with `60/63` rules replayed and descending. The run was rejected
+fail-closed because seven coordinate boxes remained uncovered and three affine
+candidate rules could not be omitted by the rectangular cover. The repeated
+coupled equality on the affected face is
+`-1 - n4 + 2*n2 = 0` (with the corresponding fixed coordinates and sector
+signs included in the diagnostic). No artifact was written. This is a useful
+four-loop milestone: H now reaches the exact affine-ownership boundary rather
+than failing in source search, but persistence and authenticated coverage of
+that affine locus are still required before publication.
+
 ## Interpretation
 
 None of the three external parents currently has a cold-loadable RustRed
