@@ -66,6 +66,21 @@ four-loop milestone: H now reaches the exact affine-ownership boundary rather
 than failing in source search, but persistence and authenticated coverage of
 that affine locus are still required before publication.
 
+### H rerun after exact-empty affine pruning
+
+The exact-empty fast path was then enabled for affine target and exceptional
+branches and the same release campaign was repeated. It completed in
+`101.16 s` wall (`198.88 s` user CPU, `658,384 KiB` peak RSS), but the
+publication result was unchanged: `60/63` rules replayed and descended, seven
+uncovered boxes remained, and three nonempty affine ownership branches could
+not be discarded. The affected coupled branch is the genuine locus
+`-1 - n2 + 2*n0 = 0` in the original index-variable naming (with the fixed
+face coordinates and sector signs applied); it is not an empty contradiction.
+Thus pruning proved-empty branches removes no part of the H obstruction. The
+next sound step is to persist and authenticate this exact affine carrier and
+to compile a coverage partition that treats its rectangular face only as a
+runtime prefilter, never as the coverage certificate itself.
+
 ## Interpretation
 
 None of the three external parents currently has a cold-loadable RustRed
