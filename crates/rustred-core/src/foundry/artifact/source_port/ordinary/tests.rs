@@ -59,9 +59,11 @@ fn weighted_original_replay_proves_two_point_activation_only_after_combination()
     };
     // Neither raw activating term is zero over n0 <= 0. The strict projected
     // frame therefore has no exact membership certificate for this target.
-    assert!(native::propose(&rows, &desired, &order, zero_product)
-        .unwrap()
-        .is_none());
+    assert!(
+        native::propose(&rows, &desired, &order, zero_product)
+            .unwrap()
+            .is_none()
+    );
     let mut weights = native::propose(&rows, &desired, &order, |term| {
         Ok(term.integral[1].value() == 0)
     })
@@ -111,15 +113,17 @@ fn finite_activation_checks_every_integer_and_rejects_poles_and_infinite_samplin
     );
     // With no zero census, the unbounded negative tail remains a symbolic
     // polynomial, even though the finite activation boundary vanishes.
-    assert!(!geometry::uniformly_zero_term(
-        &rule,
-        &term(&context, 2, 0, "n0*(n0+1)"),
-        &boxes,
-        order.sector(),
-        &[],
-        &[0, 1],
-    )
-    .unwrap());
+    assert!(
+        !geometry::uniformly_zero_term(
+            &rule,
+            &term(&context, 2, 0, "n0*(n0+1)"),
+            &boxes,
+            order.sector(),
+            &[],
+            &[0, 1],
+        )
+        .unwrap()
+    );
 }
 
 #[test]
@@ -232,10 +236,12 @@ fn affine_ordinary_replay_shifts_before_restriction_and_retains_original_columns
     let recentered = weights(&system, &ids, &order, &[], &rule, [2, 1], &[]).unwrap();
     assert_eq!(recentered.contributions[0].offset, [1, 0]);
     assert_eq!(recentered.contributions[0].weight, context.one());
-    assert!(weights(&system, &ids, &order, &[], &rule, [1, 0], &[])
-        .unwrap_err()
-        .to_string()
-        .contains("recentering"));
+    assert!(
+        weights(&system, &ids, &order, &[], &rule, [1, 0], &[])
+            .unwrap_err()
+            .to_string()
+            .contains("recentering")
+    );
 }
 
 #[test]

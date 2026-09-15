@@ -6,11 +6,11 @@
 use crate::algebra::Coefficient;
 use crate::foundry::completion::LatticeBox;
 use crate::solver::{
-    instantiate_source_port, translate_source_port, ExactRow, IntegralOrder, SectorRule,
-    SourceSystem, Term,
+    ExactRow, IntegralOrder, SectorRule, SourceSystem, Term, instantiate_source_port,
+    translate_source_port,
 };
 
-use super::{certificate, error, geometry, SourcePortAuditError};
+use super::{SourcePortAuditError, certificate, error, geometry};
 
 mod native;
 
@@ -128,8 +128,19 @@ pub(super) fn weights<const N: usize>(
         });
     }
     let strict = |term: &Term<N, Coefficient>| {
-        if affine.is_some() || term.integral == rule.candidate.target {
+        if term.integral == rule.candidate.target {
             return Ok(false);
+        }
+        if let Some(affine) = affine {
+            // A coupled target case may make a physical source column vanish
+            // only after restriction to its exact affine chart.  The chart
+            // and polynomial reduction are owned by the authenticated
+            // `AffineCase`; never replace this with a rectangular hull or a
+            // sampled point test.
+            let restricted = affine
+                .restrict_coefficient(&term.coefficient)
+                .map_err(error)?;
+            return Ok(restricted.numerator.is_zero());
         }
         geometry::uniformly_zero_term(
             rule,
@@ -164,10 +175,11 @@ pub(super) fn weights<const N: usize>(
         })?
     };
     native::verify(&rows, &desired, &weights, order, |term| {
-        // Without an affine sign-cell proof, no nonzero residual column can
-        // be discarded. A box supplied by a caller is not affine authority.
-        if affine.is_some() {
-            return Ok(false);
+        if let Some(affine) = affine {
+            let restricted = affine
+                .restrict_coefficient(&term.coefficient)
+                .map_err(error)?;
+            return Ok(restricted.numerator.is_zero());
         }
         geometry::uniformly_zero_term(
             rule,
