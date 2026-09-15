@@ -1,6 +1,6 @@
 //! Example-only steering for the opt-in native symbolic exact-lifting pilot.
 
-use rustred::solver::SymbolicExactBackend;
+use rustred::solver::{CoefficientVariableOrder, SymbolicExactBackend};
 
 pub fn from_environment() -> Result<SymbolicExactBackend, String> {
     let mode = std::env::var("RUSTRED_SPIRED_SYMBOLIC_EXACT_BACKEND")
@@ -16,6 +16,24 @@ pub fn from_environment() -> Result<SymbolicExactBackend, String> {
             _ => Err("fraction-free entry limit must be valid UTF-8".to_owned()),
         })?;
     parse(mode.as_deref(), limit.as_deref())
+}
+
+pub fn coefficient_order_from_environment() -> Result<CoefficientVariableOrder, String> {
+    let order = std::env::var("RUSTRED_SPIRED_COEFFICIENT_VARIABLE_ORDER")
+        .map(Some)
+        .or_else(|error| match error {
+            std::env::VarError::NotPresent => Ok(None),
+            _ => Err("coefficient variable order must be valid UTF-8".to_owned()),
+        })?;
+    parse_coefficient_order(order.as_deref())
+}
+
+fn parse_coefficient_order(order: Option<&str>) -> Result<CoefficientVariableOrder, String> {
+    match order.unwrap_or("original") {
+        "original" => Ok(CoefficientVariableOrder::Original),
+        "reverse" => Ok(CoefficientVariableOrder::Reverse),
+        _ => Err("coefficient variable order must be original or reverse".into()),
+    }
 }
 
 fn parse(mode: Option<&str>, limit: Option<&str>) -> Result<SymbolicExactBackend, String> {
@@ -38,6 +56,24 @@ fn parse(mode: Option<&str>, limit: Option<&str>) -> Result<SymbolicExactBackend
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coefficient_order_is_explicit_and_preserves_the_default() {
+        assert_eq!(
+            parse_coefficient_order(None).unwrap(),
+            CoefficientVariableOrder::Original
+        );
+        assert_eq!(
+            parse_coefficient_order(Some("original")).unwrap(),
+            CoefficientVariableOrder::Original
+        );
+        assert_eq!(
+            parse_coefficient_order(Some("reverse")).unwrap(),
+            CoefficientVariableOrder::Reverse
+        );
+        assert!(parse_coefficient_order(Some("automatic")).is_err());
+        assert!(parse_coefficient_order(Some("")).is_err());
+    }
 
     #[test]
     fn explicit_dense_policy_never_changes_the_default() {

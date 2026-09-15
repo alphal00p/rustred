@@ -2,7 +2,8 @@ use crate::algebra::CoefficientContext;
 use crate::solver::{CoordinateCase, SectorConfig, SectorSolver, SourceSystem, extract_exceptions};
 
 use super::super::{
-    SymbolicExactBackend, exact_materialize, exact_materialize_using_with_observer,
+    CoefficientVariableOrder, SymbolicExactBackend, exact_materialize,
+    exact_materialize_using_with_observer,
 };
 use super::*;
 
@@ -32,6 +33,7 @@ fn dense<const N: usize>(
         SymbolicExactBackend::DenseFractionFree {
             max_matrix_entries: 1000,
         },
+        CoefficientVariableOrder::Original,
         |_| {},
     )
 }
@@ -60,6 +62,77 @@ fn dense_native_target_matches_sparse_and_retains_the_entire_rhs() {
 }
 
 #[test]
+fn reversing_coefficient_variables_preserves_target_identity_and_native_schedule() {
+    let context = CoefficientContext::new(["unused0", "a", "unused1", "b", "c"]);
+    let order = IntegralOrder::new([true], [false]);
+    let expected = row(
+        &context,
+        &[(3, "1"), (2, "c/(a-b)"), (1, "-2*b/(a-b)"), (0, "1/(a-b)")],
+    );
+    for rational in [false, true] {
+        let rows = if rational {
+            vec![
+                row(&context, &[(4, "(a-b)/2"), (3, "1/2"), (1, "b/2")]),
+                row(
+                    &context,
+                    &[
+                        (4, "-2*(a-b)/3"),
+                        (3, "-(a-b+2)/3"),
+                        (2, "-c/3"),
+                        (0, "-1/3"),
+                    ],
+                ),
+            ]
+        } else {
+            vec![
+                row(&context, &[(4, "a-b"), (3, "1"), (1, "b")]),
+                row(
+                    &context,
+                    &[(4, "2*(a-b)"), (3, "a-b+2"), (2, "c"), (0, "1")],
+                ),
+            ]
+        };
+        for backend in [
+            SymbolicExactBackend::Sparse,
+            SymbolicExactBackend::DenseFractionFree {
+                max_matrix_entries: 1000,
+            },
+        ] {
+            let mut previous_events = None;
+            for coefficient_order in [
+                CoefficientVariableOrder::Original,
+                CoefficientVariableOrder::Reverse,
+            ] {
+                let mut events = Vec::new();
+                let actual = exact_materialize_using_with_observer(
+                    &rows,
+                    &order,
+                    integral(3),
+                    backend,
+                    coefficient_order,
+                    |event| events.push(event),
+                )
+                .unwrap();
+                assert_eq!(actual, expected);
+                assert!(
+                    actual
+                        .iter()
+                        .all(|term| term.coefficient.get_variables()
+                            == context.one().get_variables())
+                );
+                if let Some(previous) = previous_events.replace(events.clone()) {
+                    assert_eq!(events, previous);
+                }
+            }
+        }
+    }
+    assert_eq!(
+        SectorConfig::<1>::default().coefficient_variable_order,
+        CoefficientVariableOrder::Original
+    );
+}
+
+#[test]
 fn native_rational_polynomial_frame_preserves_joint_scale_and_full_rhs() {
     let context = CoefficientContext::new(["unused0", "a", "unused1", "b", "c"]);
     // Different rational row scales test native Q arithmetic, not an accidental
@@ -81,6 +154,7 @@ fn native_rational_polynomial_frame_preserves_joint_scale_and_full_rhs() {
         SymbolicExactBackend::DenseFractionFree {
             max_matrix_entries: 1000,
         },
+        CoefficientVariableOrder::Original,
         |event| events.push(event),
     )
     .unwrap();
@@ -156,6 +230,7 @@ fn dense_rejects_variable_denominators_and_budget_before_native_elimination() {
             SymbolicExactBackend::DenseFractionFree {
                 max_matrix_entries: 2,
             },
+            CoefficientVariableOrder::Original,
             |event| events.push(event),
         );
         assert_eq!(
@@ -179,6 +254,7 @@ fn dense_rejects_variable_denominators_and_budget_before_native_elimination() {
             SymbolicExactBackend::DenseFractionFree {
                 max_matrix_entries: 1
             },
+            CoefficientVariableOrder::Original,
             |_| {}
         ),
         Err(MaterializationError::FractionFreeMatrixBudget {
@@ -205,6 +281,7 @@ fn dense_observer_brackets_one_native_batch_without_fictitious_row_events() {
         SymbolicExactBackend::DenseFractionFree {
             max_matrix_entries: 6,
         },
+        CoefficientVariableOrder::Original,
         |event| events.push(event),
     )
     .unwrap();

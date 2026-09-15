@@ -12,7 +12,8 @@ use rustred::family::IntegralFamily;
 use rustred::foundry::artifact::SourcePortAudit;
 use rustred::sector::{Mask, zero};
 use rustred::solver::{
-    SectorConfig, SectorExecutor, SectorSolveOptions, SourceSystem, SymbolicExactBackend,
+    CoefficientVariableOrder, SectorConfig, SectorExecutor, SectorSolveOptions, SourceSystem,
+    SymbolicExactBackend,
 };
 
 #[path = "support/spired_exact_backend.rs"]
@@ -27,9 +28,11 @@ fn run<const N: usize>(
     family: IntegralFamily,
     workers: usize,
     symbolic_exact_backend: SymbolicExactBackend,
+    coefficient_variable_order: CoefficientVariableOrder,
 ) -> Result<()> {
     let start = Instant::now();
     println!("# symbolic_exact_backend={symbolic_exact_backend:?}");
+    println!("# coefficient_variable_order={coefficient_variable_order:?}");
     let zero_analyzer = zero::Analyzer::try_unrestricted(&family)?;
     let mut zeros = Vec::new();
     let mut sectors = Vec::new();
@@ -50,7 +53,7 @@ fn run<const N: usize>(
     let prepared = start.elapsed();
     let executor = SectorExecutor::new(workers)?;
     let reports = executor.map(
-        &sources, &sectors, &SectorConfig { zero_sectors: zeros, symbolic_exact_backend, ..Default::default() },
+        &sources, &sectors, &SectorConfig { zero_sectors: zeros, symbolic_exact_backend, coefficient_variable_order, ..Default::default() },
         SectorSolveOptions { numerical_depth: 3, ..Default::default() },
         |done| {
             let report = audit.audit_sector(done.sector, None, &done.solution)?;
@@ -124,16 +127,19 @@ fn main() -> Result<()> {
         .transpose()?
         .unwrap_or(1);
     let symbolic_exact_backend = spired_exact_backend::from_environment()?;
+    let coefficient_variable_order = spired_exact_backend::coefficient_order_from_environment()?;
     match args[0].as_str() {
         "1" => run::<1>(
             spired_families::vacuum(&[&[1]])?,
             workers,
             symbolic_exact_backend,
+            coefficient_variable_order,
         ),
         "2" => run::<3>(
             spired_families::vacuum(&[&[1, 0], &[0, 1], &[1, 1]])?,
             workers,
             symbolic_exact_backend,
+            coefficient_variable_order,
         ),
         "3" => run::<6>(
             spired_families::vacuum(&[
@@ -146,6 +152,7 @@ fn main() -> Result<()> {
             ])?,
             workers,
             symbolic_exact_backend,
+            coefficient_variable_order,
         ),
         _ => Err("expected vacuum loop count 1, 2 or 3".into()),
     }

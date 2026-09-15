@@ -19,6 +19,35 @@ memoized `Reducer` ownership, not introduce a second legacy artifact wrapper.
 RustRed schema compatibility is not required. Preserve Vakint's existing
 defaults, public conventions, and FORM-backed methods.
 
+The user has approved the current Symbolica API migration in Spenso and a
+private helper retaining Vakint's already-computed parent momentum routing.
+Implement these against the current pinned dependencies; the anticipated
+Symbolica 3.0 stack upgrade is separate. Preserve the public `force_an_lmb`
+signature and reuse its actual witness, without another graph match or solve.
+
+The implementation boundary is explicit: RustRed owns artifact validation,
+rule applicability, recursive/memoized IBP application and exact integral-key
+results. Vakint steers those existing crate capabilities using its topology
+match/routing and shipped assets, then invokes its existing master evaluation.
+No artifact applier or recurrence engine belongs in the Vakint adapter.
+
+The approved migration now passes combined Spenso/Vakint library and test-
+target checking. Frozen binaries execute the three new Spenso tests, five
+native K6 candidate tests, six existing RustRed adapter tests (including strict
+generated-asset byte parity) and four default/backend tests successfully. The
+Vakint native groups use an invalid FORM path. K1/K3 assets were regenerated
+through the existing generator in current V5 format and independently loaded
+and applied; their bytes were not patched manually. This does not install the
+new source-port K6 artifact or validate complete three-loop scalar reduction.
+
+The six added routing tests currently fail at test setup: they bypass normal
+Vakint initialization and register a symbol before its required attributes.
+The subsequent failures share a poisoned initializer, rather than proving six
+routing defects. Adding the existing public initializer to test setup awaits
+the explicit confirmation required for editing a failing GammaLoop test. No
+assertion or production behavior has been changed to hide this result. The
+independent offline comparison of all 38 candidate keys with MATAD is pending.
+
 ### Current milestone: existing artifact and reducer work in memory (2026-09-15)
 
 All three vacuum families now pass the combined original-domain producer into

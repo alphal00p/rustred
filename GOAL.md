@@ -21,6 +21,13 @@ masters offline to 20,000 decimal digits. The ordinary RustRed evaluation path
 must neither regenerate artifacts nor invoke/fall back to FORM. Preserve
 Vakint's defaults, public conventions and existing FORM-backed modes.
 
+Vakint is the steering adapter, not another reduction engine: durable artifact
+validation, guarded rule selection, recursive/memoized IBP application and exact
+integral-key reduction remain implemented in the RustRed crate. Vakint owns its
+existing topology matching and momentum-routing integration, selects the
+shipped artifact, and reuses its existing master-evaluation machinery. Do not
+duplicate RustRed's reducer or introduce a Vakint-local recurrence engine.
+
 Local-path RustRed dependencies are permitted during development; pushed
 GammaLoop milestones pin the corresponding pushed RustRed Git revision.
 Report actual certified-artifact and test coverage, not completion inferred
@@ -51,13 +58,23 @@ binary. The subsequent in-memory installation milestone below now supplies
 the existing `ClosedArtifact` lowering; durable encoding and cold reload
 remain the next gates. The parallel Vakint
 lane is updating required native solver API calls and checking contraction
-routing; the requested Spenso wrapper decision remains pending. No newly
+routing. The user has approved migrating the Spenso solver wrapper and adding
+the private helper that retains the existing routing witness; both are now
+implementation tasks rather than approval blockers. This does not authorize
+an unrelated dependency-stack upgrade to Symbolica 3.0. No newly
 added Vakint acceptance test is reported as passed before the current build
 and its actual execution succeed.
 The independently reviewed 38-key candidate terminal data now exists in
 Vakint's test-only terminal module, using five existing exact MATAD/product
-expressions. It is not installed and its four new native tests remain unrun;
-no extra numerical master table or new end-to-end acceptance result is claimed.
+expressions. Fresh frozen-binary runs now pass its five native tests, six
+existing RustRed adapter tests (including generated-asset byte parity), four
+default/backend tests and the three new Spenso solver tests. The Vakint groups
+use an invalid FORM path. The six new routing tests remain blocked by omitted
+test-only symbol initialization; the requested setup correction awaits explicit
+confirmation, as required by GammaLoop's contribution guidance. The offline
+38-key MATAD comparison and complete K6 scalar acceptance remain separate gates.
+No K6 asset, extra numerical master table or new complete three-loop end-to-end
+acceptance result is claimed.
 The parametric-rule evidence migration also passes 110 focused tests and the
 separate 623-rule canonical K6 regression. It removes the assumption that every
 proof needs a sampled anchor. At that historical checkpoint, combined-domain

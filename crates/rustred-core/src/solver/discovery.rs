@@ -28,6 +28,16 @@ pub enum SymbolicExactBackend {
     DenseFractionFree { max_matrix_entries: usize },
 }
 
+/// Native coefficient-variable order during single-target exact lifting only.
+/// This bijective representation change never reorders integral columns or
+/// source rows. The original variable map is restored before rule extraction.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CoefficientVariableOrder {
+    #[default]
+    Original,
+    Reverse,
+}
+
 /// Sizes of the numerical system, excluding its structural zero sentinel.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DiscoveryStats {
@@ -366,6 +376,7 @@ pub fn exact_materialize_with_observer<const N: usize>(
         order,
         target,
         SymbolicExactBackend::Sparse,
+        CoefficientVariableOrder::Original,
         observe,
     )
 }
@@ -377,6 +388,7 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
     order: &IntegralOrder<N>,
     target: Integral<N>,
     backend: SymbolicExactBackend,
+    coefficient_order: CoefficientVariableOrder,
     mut observe: impl FnMut(MaterializationEvent<N>),
 ) -> Result<ExactRow<N>, MaterializationError> {
     let mut columns = Vec::new();
@@ -399,7 +411,7 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
         .checked_add(1)
         .and_then(|count| u32::try_from(count).ok())
         .ok_or(MaterializationError::TooManyColumns)?;
-    let variables = variables::FrameVariables::try_new(rows)?;
+    let variables = variables::FrameVariables::try_new(rows, coefficient_order)?;
     observe(MaterializationEvent::FramePrepared {
         source_rows: rows.len(),
         integral_columns: columns.len(),

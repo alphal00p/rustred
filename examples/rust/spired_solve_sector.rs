@@ -323,6 +323,7 @@ fn run<const N: usize>(
 ) -> Result<()> {
     let input_start = Instant::now();
     let symbolic_exact_backend = spired_exact_backend::from_environment()?;
+    let coefficient_variable_order = spired_exact_backend::coefficient_order_from_environment()?;
     let zero_sectors = args
         .zero_manifest
         .as_deref()
@@ -403,6 +404,10 @@ fn run<const N: usize>(
         metadata,
         "symbolic_exact_backend={symbolic_exact_backend:?}"
     )?;
+    writeln!(
+        metadata,
+        "coefficient_variable_order={coefficient_variable_order:?}"
+    )?;
     writeln!(metadata, "coordinates={:?}", family.coordinates())?;
     for (axis, shift) in family.power_shifts().iter().enumerate() {
         writeln!(metadata, "power_shift[{axis}]={shift}")?;
@@ -458,6 +463,7 @@ fn run<const N: usize>(
         removed_deltas: removed,
         zero_sectors: zero_sectors.into(),
         symbolic_exact_backend,
+        coefficient_variable_order,
         ..Default::default()
     };
     let completed = executor.map_configured_with_observer(

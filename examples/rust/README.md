@@ -123,6 +123,21 @@ guard, and sign comparison, which happens only after all sectors have been gener
 rules and finite bounded-search residuals, not certified family artifacts or
 a proof that the residual integrals are independent masters.
 
+Both this driver and `spired-artifact-audit` accept optional native exact-lifting
+controls. `RUSTRED_SPIRED_SYMBOLIC_EXACT_BACKEND=sparse` is the default;
+`dense-fraction-free` selects native polynomial elimination, with an initial
+matrix-entry bound from `RUSTRED_SPIRED_FRACTION_FREE_MAX_ENTRIES` (default
+1,000,000). The bound does not limit later coefficient swell: use an external
+process limit for difficult experiments. Variable-denominator inputs fail
+explicitly in the dense mode, while constant rational coefficients use native Q.
+
+`RUSTRED_SPIRED_COEFFICIENT_VARIABLE_ORDER=reverse` optionally reverses active
+polynomial variables inside the selected exact frame. Its default is `original`.
+This does not permute integral indices, alter source discovery, or specialize
+parameters. The original coefficient map is restored before producing a rule.
+Both choices are recorded in the driver metadata; neither changes the shared
+numerical-tail solver. Their performance must be measured, not assumed.
+
 ## Independent vacuum artifact diagnostics
 
 Generate every nonzero sector of a vacuum family and independently check the

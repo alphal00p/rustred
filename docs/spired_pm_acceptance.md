@@ -427,6 +427,49 @@ these are shared-host diagnostics, not a controlled paired benchmark. This
 incomplete native output does not become a reference oracle or relax any
 existing acceptance gate.
 
+### Native coefficient-variable ordering probe (2026-09-15)
+
+The exact-frame representation now has an explicit `Original`/`Reverse`
+variable-order option. Both use native polynomial remapping and restore the
+original coefficient context before rule extraction. This does not change
+physical integral ordering, seeding, source chronology or the shared numerical
+tail. `Original` remains the default; no new algebra kernel or reconstruction
+is introduced.
+
+Both policies pass the same 20 established release jobs and eight physical-
+ordering jobs: 56 successful generation processes, each policy reproducing
+939 established mathematical files and 24 ordering-sample files. Exact native
+RHSs, guards and available independent residual keys agree. Six further
+Reverse source audits at one/six workers reproduce the historical 1/18/617
+rule reports with zero replay, descent, guard or unbounded-cover issues. These
+62 short processes are correctness gates, not a new paired timing benchmark
+or durable-artifact cold reload.
+
+Two fresh single-worker, 120-second probes then reached the identical hard
+`fam1_112` sector and 298-by-482 exact frame. All 415 case/source events and
+54 selected frames agree between policies. Each completes 292 rows in the
+hard frame and remains inside native elimination of row 293 at its cap.
+
+| Coefficient order | Process wall | CPU | Peak RSS (KiB) | Row 293 starts at sector time | Outcome |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Original | 120.054 s | 119.06 s | 475,592 | 61.252 s | Censored, exit 124 |
+| Reverse | 120.065 s | 119.22 s | 579,684 | 42.795 s | Censored, exit 124 |
+
+The final native U state is the same 292 rows and 4,361 nonzeros; neither run
+writes a completed sector. Earlier arrival at the stalled row is not a
+completed-workload speedup. Shared-host conditions and the single observations
+also prevent a statistical comparison. Reversal alone has not removed the
+expression-growth bottleneck. Independent source, execution and mathematical
+audits pass; evidence is retained in `target/spired-variable-order.w2gfCu/`.
+
+Further native-API review distinguishes coefficient ordering from physical
+integral ordering: C++ constructs an indices-first coefficient map and uses
+DEGLEX, whereas RustRed's coefficient map starts with parameters and uses its
+native lexicographic polynomial order. An explicit indices-first exact-frame
+map is therefore a possible next bounded experiment, not already-tested
+DEGLEX parity. The existing native sparse and dense elimination APIs remain
+the only arithmetic engines; rational reconstruction is still deferred.
+
 The current release runs of `fam1_12` and `fam1_111` complete their full
 unchanged requested manifests, 40 and 132 sector jobs respectively. Exact
 domain/guard/coefficient comparisons match 1,104 nonempty and 10,333 reference

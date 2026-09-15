@@ -10,8 +10,8 @@ use super::discovery::{Discovery, DiscoveryStats, exact_materialize_using_with_o
 use super::instantiate::{canonicalize, instantiate};
 use super::precondition::precondition_with_variable_order;
 use super::{
-    Case, ExactRow, Integral, IntegralOrder, PolynomialRow, Seed, Seeds, SolverError, SourceSystem,
-    SymbolicExactBackend, Term,
+    Case, CoefficientVariableOrder, ExactRow, Integral, IntegralOrder, PolynomialRow, Seed, Seeds,
+    SolverError, SourceSystem, SymbolicExactBackend, Term,
 };
 
 mod observation;
@@ -29,6 +29,9 @@ pub struct SectorConfig<const N: usize> {
     /// Single-target symbolic exact lifting only. Shared finite-corner lifting
     /// stays sparse. The default preserves the reference GPLU path.
     pub symbolic_exact_backend: SymbolicExactBackend,
+    /// Native polynomial representation during single-target exact lifting;
+    /// independent of the physical integral permutation and modular discovery.
+    pub coefficient_variable_order: CoefficientVariableOrder,
 }
 
 impl<const N: usize> Default for SectorConfig<N> {
@@ -39,6 +42,7 @@ impl<const N: usize> Default for SectorConfig<N> {
             permutation: None,
             zero_sectors: Arc::from([]),
             symbolic_exact_backend: SymbolicExactBackend::Sparse,
+            coefficient_variable_order: CoefficientVariableOrder::Original,
         }
     }
 }
@@ -307,6 +311,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                             &self.order,
                             pivot,
                             self.config.symbolic_exact_backend,
+                            self.config.coefficient_variable_order,
                             |event| observe(SearchEvent::ExactProgress(event)),
                         )
                         .map_err(|error| SolverError::ExactReplay(error.to_string()))?;

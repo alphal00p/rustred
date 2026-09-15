@@ -1,8 +1,9 @@
 //! Native polynomial-context compaction for one selected exact frame.
 //!
 //! Removing globally absent variables is an injective change of representation,
-//! not a substitution. Physical integral keys and the relative order of active
-//! variables remain unchanged. Restore the complete map before canonicalization.
+//! not a substitution. An optional reversal changes only the native coefficient
+//! representation, never physical integral keys. Restore the complete original
+//! map before canonicalization.
 
 use std::sync::Arc;
 
@@ -12,7 +13,7 @@ use symbolica::prelude::Z;
 
 use crate::algebra::Coefficient;
 
-use super::{ExactRow, MaterializationError};
+use super::{CoefficientVariableOrder, ExactRow, MaterializationError};
 
 #[derive(Debug)]
 pub(super) struct FrameVariables {
@@ -23,6 +24,7 @@ pub(super) struct FrameVariables {
 impl FrameVariables {
     pub(super) fn try_new<const N: usize>(
         rows: &[ExactRow<N>],
+        order: CoefficientVariableOrder,
     ) -> Result<Self, MaterializationError> {
         let Some(first) = rows.iter().flatten().next() else {
             let empty = Arc::new(Vec::new());
@@ -42,16 +44,19 @@ impl FrameVariables {
                 }
             }
         }
-        let active = if used.iter().all(|used| *used) {
+        let active = if order == CoefficientVariableOrder::Original && used.iter().all(|used| *used)
+        {
             original.clone()
         } else {
-            Arc::new(
-                original
-                    .iter()
-                    .zip(used)
-                    .filter_map(|(variable, used)| used.then(|| variable.clone()))
-                    .collect(),
-            )
+            let mut active: Vec<_> = original
+                .iter()
+                .zip(used)
+                .filter_map(|(variable, used)| used.then(|| variable.clone()))
+                .collect();
+            if order == CoefficientVariableOrder::Reverse {
+                active.reverse();
+            }
+            Arc::new(active)
         };
         Ok(Self { original, active })
     }

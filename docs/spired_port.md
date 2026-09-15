@@ -191,7 +191,7 @@ specialization has removed most variables from every numerator and denominator.
 Before exact GPLU, RustRed now computes their support union with native
 `MultivariatePolynomial::contains` and uses Symbolica's checked
 `rearrange_with_growth` to remove only globally absent variables. The active
-variables keep their original relative order. Every output coefficient is
+variables keep their original relative order by default. Every output coefficient is
 restored to the full original map before canonicalization, source replay or
 guard extraction. Physical integral columns, source chronology and the target
 stop are unchanged; this is not a kinematic substitution or reconstruction.
@@ -209,6 +209,24 @@ An exact GPLU fixture verifies a 17-to-2-variable reduction restores the same
 full-context rational identity. Native row-event tests also check dependent
 rows, explicit zero input coefficients and the early target stop. The combined
 solver/source-port batch passes 225 tests; all 53 example tests pass.
+
+An opt-in `SectorConfig::coefficient_variable_order` now permits reversing the
+active coefficient variables during single-target exact lifting. This tests
+native polynomial multiplication/division/GCD sensitivity without changing
+integral ordering, source chronology, modular discovery or numerical-tail
+lifting. Both sparse and dense exact backends use the same checked native
+remapping and restore the original context before canonicalization and guard
+extraction. Native fraction construction also restores the correct leading
+denominator sign; a bijective permutation requires no new GCD. `Original`
+remains the default. The example drivers expose this as
+`RUSTRED_SPIRED_COEFFICIENT_VARIABLE_ORDER=original|reverse` and record the
+choice. This is an experimental representation policy, not a demonstrated
+speedup or a substitute for the remaining full PM acceptance gate.
+Both policies now pass 28 exact release regression jobs each; six further
+source audits also pass. The two capped hard-sector probes still stop inside
+the same exact row. See the [recorded ordering experiment](spired_pm_acceptance.md#native-coefficient-variable-ordering-probe-2026-09-15)
+for process boundaries, memory and the distinction between partial progress
+and a completed-workload timing.
 
 ## Per-job orderings and integrated affine cases (2026-09-14)
 
