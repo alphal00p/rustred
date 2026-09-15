@@ -29,3 +29,11 @@ charts/ownership into the artifact verifier, and only then retry all sectors.
 The core must remain family- and topology-neutral; the H constructor is merely
 an example input while `examples/input/four_loop_h.toml` is the canonical
 user-supplied representation.
+
+The artifact bridge now reports these failures as typed
+`UnsupportedAffineOwnership` diagnostics. Each diagnostic retains the sector,
+the fixed-coordinate face, the exact coupled equations, and whether the
+unsupported domain is a target or an exceptional branch. This is deliberately
+diagnostic only: rectangular hulls and sampled affine points are not accepted
+as coverage proofs, so publication remains fail-closed until an affine-aware
+application-domain carrier and integer-lattice coverage proof are implemented.
