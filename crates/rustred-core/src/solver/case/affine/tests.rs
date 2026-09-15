@@ -247,11 +247,60 @@ fn zero_constraints_take_coordinate_path_and_true_nonlinearity_fails_closed() {
 
 #[test]
 fn sector_feasibility_is_not_claimed_for_coupled_inequalities() {
+    let context = CoefficientContext::new(["n0", "n1", "n2", "n3"]);
+    // Their sum implies n0+n1=-1, impossible in this sector. Each native RREF
+    // row separately has both infinite bounds, so our necessary row test must
+    // retain this unresolved conjunction, not pretend to solve a full LP.
+    let case = affine::<4>(&context, &["n0-n2+n3+1", "n1+n2-n3"]);
+    assert_eq!(case.equations().len(), 2);
+}
+
+#[test]
+fn sector_sign_bounds_reject_empty_affine_branches_without_sampling() {
     let context = CoefficientContext::new(["n0", "n1"]);
-    // Empty in the positive sector, but deliberately retained rather than
-    // pretending to have an exact integer-polyhedron feasibility service.
-    let case = affine::<2>(&context, &["n0+n1-1"]);
-    assert_eq!(case.equations(), equations(&context, &["n0+n1-1"]));
+    for (equation, sector) in [
+        ("n0-n1", [false, true]),
+        ("n0-n1", [true, false]),
+        ("n0+n1-1", [true, true]),
+        ("n0+n1-1", [false, false]),
+        ("-2*n0-3*n1+4", [true, true]),
+    ] {
+        assert_eq!(
+            AffineCase::from_coordinate(
+                &CoordinateCase::generic(),
+                &equations(&context, &[equation]),
+                &[0, 1],
+                &sector,
+            )
+            .unwrap(),
+            AffineIntersection::Empty,
+            "{equation} in {sector:?}",
+        );
+    }
+    // No endpoint is replaced by Power's compact numerical range.
+    assert!(matches!(
+        AffineCase::from_coordinate(
+            &CoordinateCase::generic(),
+            &equations(&context, &["n0+n1-100000000000000000000000000000000"]),
+            &[0, 1],
+            &[true; 2],
+        )
+        .unwrap(),
+        AffineIntersection::Affine(_),
+    ));
+}
+
+#[test]
+fn empty_intersection_rechecks_affine_sign_bounds_for_the_requested_sector() {
+    let context = CoefficientContext::new(["n0", "n1"]);
+    let case = crate::solver::Case::from(affine::<2>(&context, &["n0-n1"]));
+    assert!(case.intersect(&[], &[0, 1], &[true; 2]).unwrap().is_some());
+    assert!(case.intersect(&[], &[0, 1], &[false; 2]).unwrap().is_some());
+    assert!(
+        case.intersect(&[], &[0, 1], &[false, true])
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]

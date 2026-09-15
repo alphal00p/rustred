@@ -111,7 +111,7 @@ impl<const N: usize> Case<N> {
                         "intersection uses a different index-variable map",
                     ));
                 }
-                if !case.face().is_in_sector(sector) {
+                if case.is_proved_empty_in_sector(sector) {
                     return Ok(None);
                 }
                 if equations.is_empty() {

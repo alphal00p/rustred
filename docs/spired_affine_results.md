@@ -175,6 +175,31 @@ to native GCD, GPLU, or exact lifting.
 
 ## Validation and remaining work
 
+### Necessary sector-bound follow-up
+
+Affine admission now checks the finite lower/upper bounds implied by the
+sector signs for each native primitive integer row. This discards impossible
+cases such as `a=b` with `a<=0,b>=1`, without introducing a general inequality
+solver or bounding an infinite ray by the compact search encoding. Unknown
+joint feasibility remains unknown. The existing-affine empty-conjunction path
+also checks the caller's sector.
+
+All 156 focused solver tests pass. Independent adversarial tests include
+128,000 constructed-witness checks, row negation, zero coefficients, and
+80-digit fixed contributions. All 20 fresh release runs pass in
+`target/spired-sign-bounds.vcDRFN/`, including the 16 established workloads
+and both newly completed `fam1_112` sectors at one and six workers.
+The formerly extra branches are now absent: sector `111000010001111` has
+347 rules and passes all 347 exact reference coefficient/required-domain/guard
+comparisons; `111000011100111` retains 398 matching rules and eight residuals.
+Independent review confirms every exit status and strict comparison, identical
+mathematical outputs across worker counts, unchanged outputs for all eight
+prior fixtures, and exact native residual-key agreement for both new sectors
+(930 file comparisons). The same build also passes 76 sector tests, 42 example
+tests, nine artifact-persistence tests and workspace all-target checking.
+This closes that specific case-count discrepancy, not the remaining nonlinear
+frontier or the complete 436-sector workload.
+
 ### Rational-chart follow-up
 
 The next implementation slice admits exact rational computational charts while

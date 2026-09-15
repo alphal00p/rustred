@@ -18,6 +18,32 @@ memoized `Reducer` ownership, not introduce a second legacy artifact wrapper.
 RustRed schema compatibility is not required. Preserve Vakint's existing
 defaults, public conventions, and FORM-backed methods.
 
+### First implementation checkpoint
+
+The existing `OrderingPolicy` now exposes `SpiredUncutV1` and a persisted
+coordinate-priority variant. Concrete comparisons and symbolic shift witnesses
+share the same comparison semantics; the original policies and defaults remain
+unchanged. Ten new tests include exhaustive small comparisons with the source
+port, the actual `001011` counterexample below, extreme runtime indices, and
+pinch/activation boundaries. All 76 sector tests and nine existing artifact
+persistence tests pass. Independent mathematical/implementation review passes.
+These witnesses describe their stated representable domains; the subsequent
+whole-ray certificate must retain genuinely unbounded integer endpoints.
+
+The parallel Vakint lane has added five-class tensor/oracle fixtures and an
+explicitly pending RustRed peer in its existing comparative harness. An offline
+candidate utility prepares exact MATAD-basis records for the 38 proposed finite
+corners, avoiding numerical truncation if those projections succeed. Its input
+keys, routing and normalization have been independently audited. Neither the
+new Vakint tests nor the candidate evaluations have run: compilation is blocked
+by an obsolete Spenso forwarding call following the required Symbolica update.
+The user has been asked about migrating that unused public wrapper to the new
+native API; Vakint's public API would remain unchanged.
+
+No new certified K6 artifact, installed K6 scalar backend, or three-loop
+RustRed acceptance pass is claimed by this checkpoint. The next implementation
+gate remains the cold replay/descent/cover pass described below.
+
 ## Evidence already available
 
 The release outputs under

@@ -10,9 +10,9 @@ use super::{ComplexityComponent, Mask, OrderingPolicy, SectorInteriorDomain};
 ///
 /// On a sector-preserving interior, substituting `n + shift` into
 /// [`super::ComplexityKey`] contributes the same symbolic n terms to every
-/// candidate. This key retains precisely the remaining signed offsets, in the
-/// v1 comparison order: corner distance, dots, numerators, then coordinate
-/// excess.
+/// candidate. This key retains precisely the remaining signed offsets. Its
+/// persisted policy chooses the dot/numerator and coordinate tie-break order,
+/// identically to the concrete integral key.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ShiftComplexityKey {
     policy: OrderingPolicy,
@@ -40,10 +40,17 @@ impl Ord for ShiftComplexityKey {
                 self.corner_distance_offset
                     .cmp(&other.corner_distance_offset)
             })
-            .then_with(|| self.dot_offset.cmp(&other.dot_offset))
-            .then_with(|| self.numerator_offset.cmp(&other.numerator_offset))
+            .then_with(|| {
+                self.policy.compare_degrees(
+                    &self.dot_offset,
+                    &self.numerator_offset,
+                    &other.dot_offset,
+                    &other.numerator_offset,
+                )
+            })
             .then_with(|| {
                 self.policy.compare_coordinate_slices(
+                    &self.sector,
                     self.index_excess_offsets.as_slice(),
                     other.index_excess_offsets.as_slice(),
                 )
@@ -281,7 +288,7 @@ impl OrderingPolicy {
         })
     }
 
-    /// Compare two shifts by the exact structural remainder of the v1 key on
+    /// Compare two shifts by the exact structural remainder of the policy key on
     /// an interior that universally covers both shifts.
     pub fn compare_shifts_on_domain(
         self,
@@ -356,15 +363,18 @@ fn first_differing_component(
     if source.corner_distance_offset != target.corner_distance_offset {
         return Some(ComplexityComponent::CornerDistance);
     }
-    if source.dot_offset != target.dot_offset {
-        return Some(ComplexityComponent::DotPower);
-    }
-    if source.numerator_offset != target.numerator_offset {
-        return Some(ComplexityComponent::NumeratorPower);
+    if let Some(component) = source.policy.first_differing_degree(
+        &source.dot_offset,
+        &source.numerator_offset,
+        &target.dot_offset,
+        &target.numerator_offset,
+    ) {
+        return Some(component);
     }
     source
         .policy
         .first_differing_coordinate(
+            &source.sector,
             source.index_excess_offsets.as_slice(),
             target.index_excess_offsets.as_slice(),
         )

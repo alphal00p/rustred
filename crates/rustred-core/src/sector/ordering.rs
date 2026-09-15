@@ -5,6 +5,7 @@ use std::sync::Arc;
 use super::error::{Error, try_reserve_exact};
 use super::mask::Mask;
 
+mod comparison;
 mod coordinate_priority;
 mod policy;
 
@@ -103,7 +104,8 @@ impl OrderingPolicy {
     }
 }
 
-/// Exact strict total-order key. Field declaration order is the policy.
+/// Exact strict total-order key. The persisted policy chooses the aggregate
+/// and coordinate comparison semantics; storage order alone is not an order.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ComplexityKey {
     policy: OrderingPolicy,
@@ -133,10 +135,17 @@ impl Ord for ComplexityKey {
             .then_with(|| self.propagators.cmp(&other.propagators))
             .then_with(|| self.sector.cmp(&other.sector))
             .then_with(|| self.corner_distance.cmp(&other.corner_distance))
-            .then_with(|| self.dots.cmp(&other.dots))
-            .then_with(|| self.numerators.cmp(&other.numerators))
+            .then_with(|| {
+                self.policy.compare_degrees(
+                    &self.dots,
+                    &self.numerators,
+                    &other.dots,
+                    &other.numerators,
+                )
+            })
             .then_with(|| {
                 self.policy.compare_coordinate_slices(
+                    &self.sector,
                     self.index_excess.as_slice(),
                     other.index_excess.as_slice(),
                 )
@@ -271,20 +280,27 @@ fn first_differing_component(
     if source.corner_distance != target.corner_distance {
         return Some(ComplexityComponent::CornerDistance);
     }
-    if source.dots != target.dots {
-        return Some(ComplexityComponent::DotPower);
-    }
-    if source.numerators != target.numerators {
-        return Some(ComplexityComponent::NumeratorPower);
+    if let Some(component) = source.policy.first_differing_degree(
+        &source.dots,
+        &source.numerators,
+        &target.dots,
+        &target.numerators,
+    ) {
+        return Some(component);
     }
     source
         .policy
         .first_differing_coordinate(
+            &source.sector,
             source.index_excess.as_slice(),
             target.index_excess.as_slice(),
         )
         .map(|position| ComplexityComponent::IndexExcess { position })
 }
+
+#[cfg(test)]
+#[path = "ordering/spired_tests.rs"]
+mod spired_tests;
 
 #[cfg(test)]
 mod tests {

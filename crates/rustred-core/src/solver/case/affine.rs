@@ -22,6 +22,9 @@ use super::CoordinateCase;
 mod chart;
 use chart::Chart;
 
+#[path = "affine/bounds.rs"]
+mod bounds;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AffineGeometryError {
     Coordinate(GeometryError),
@@ -131,6 +134,16 @@ impl<const N: usize> AffineCase<N> {
     /// This does not assert feasibility of the case's sector inequalities.
     pub fn has_integral_chart(&self) -> bool {
         self.chart.is_integral()
+    }
+
+    /// A necessary row-bound test, not a complete integer feasibility solver.
+    /// Retained cases may still be empty for joint inequality/congruence reasons.
+    pub(super) fn is_proved_empty_in_sector(&self, sector: &[bool; N]) -> bool {
+        !self.face.is_in_sector(sector)
+            || self
+                .primitive_matrix
+                .row_iter()
+                .any(|row| bounds::excludes_rhs(row, &self.face, sector))
     }
 
     /// Restrict an equation interpreted as zero. Nonzero rational scalar
@@ -394,6 +407,12 @@ fn intersect_native<const N: usize>(
     }
     let primitive_matrix = Matrix::from_linear(primitive_rows, rank as u32, columns, Z)
         .map_err(|_| AffineGeometryError::NativeAlgebra)?;
+    if primitive_matrix
+        .row_iter()
+        .any(|row| bounds::excludes_rhs(row, parent, sector))
+    {
+        return Ok(AffineIntersection::Empty);
+    }
     let matrix = Matrix::from_linear(
         matrix.row_iter().take(rank).flatten().cloned().collect(),
         rank as u32,

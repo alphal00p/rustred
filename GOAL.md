@@ -86,10 +86,11 @@ exceptional-conjunction failures. The unchanged C++ diagnostic reaches 288
 sectors before its 600-second cap; these concurrent diagnostic times are not a
 performance comparison. Native exact rational computational charts now retain
 the original integer domains and pass all established regression workloads.
-A fresh full run produces 422/436 sector files: one newly completed sector
-passes exact native rule/guard/residual checks; the other's case count exceeds
-the nonempty reference by two proved sector-empty cases, which need generic
-sign-bound pruning followed by a fresh strict comparison. Fourteen
+A fresh full run produces 422/436 sector files. A follow-up generic sign-bound
+check removes two proved-empty cases from one new sector; both newly completed
+sectors now pass fresh strict native rule/guard comparisons (347 and 398 rules)
+with one and six workers. All 20 release regression runs pass, including the
+complete 617-rule vacuum workload. Fourteen
 sectors still lack completed outputs; the reported first error is nonlinear
 geometry. The next
 slice must preserve normalized coupled equations and perform exact

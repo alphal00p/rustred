@@ -214,7 +214,18 @@ arithmetic. A denominator vanishing on the case returns
 integer-polynomial fast paths; no rational reconstruction is implemented.
 
 General integer-lattice and coupled sector-inequality feasibility is not
-decided. Proved contradictions are discarded; uncertain integer-empty domains
+decided. A necessary native-integer row-bound check now rejects a canonical
+linear equality whose right-hand side lies outside its sector-sign bounds.
+For example, `a=b` is impossible when `a<=0` and `b>=1`. Fixed coordinates
+contribute exactly; unfixed coordinates retain genuine unbounded endpoints.
+This check also runs when intersecting an existing affine case with a different
+sector and no new equations. It does not iterate inequalities or implement an
+LP solver. The public Symbolica `Atom::solve` inequality declaration, its
+`wrt_with_exponent` implementation and its regression test were checked: that
+path currently returns `InequalitiesNotSupported`; native `Integer` arithmetic
+and comparison supply every numerical operation in this small domain check.
+
+Proved contradictions are discarded; uncertain integer-empty domains
 may remain and cost extra work. Containment is conservative, and only an
 actually fully fixed case enters numerical search. Unsupported nonlinear
 equations remain explicit errors. None of these limits establishes closure by

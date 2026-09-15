@@ -120,10 +120,14 @@ finishes. The native residual reader is restricted to the three reference
 files whose completion is individually established; no interrupted database
 is treated as valid. Both extra Rust cases in `111000010001111` require
 `n3=n12` (zero-based), but this sector requires `n3<=0` and `n12>=1`.
-They are therefore exactly sector-empty. The current affine service does not
-yet prune this simple coupled sign contradiction. Removing those two cases
-explains the count difference, but the remaining strict equation/guard
-comparison must still be rerun after a generic correction; it is not waived.
+They are therefore exactly sector-empty. That recorded run preceded the
+generic sign-bound correction. Fresh release reruns now discard those two
+cases and pass all 347 exact reference coefficient/required-domain/guard
+comparisons at both one and six workers; the 398-rule sector likewise passes
+again. The corresponding residual counts are zero and eight. All 20 release
+regression runs pass. Evidence: `target/spired-sign-bounds.vcDRFN/`.
+The strict comparison was rerun, not waived. A new complete 436-sector run
+has not followed this narrow correction; the nonlinear frontier remains open.
 
 The full diagnostic takes 260.812 seconds wall, 1,425.45 CPU seconds and
 879,688 KiB peak RSS. It runs concurrently with regression/build work, and

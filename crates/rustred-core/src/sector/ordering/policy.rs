@@ -8,6 +8,8 @@ use super::coordinate_priority::{CoordinatePriority, CoordinatePriorityLimits};
 /// Stable identifier of RustRed's first deterministic integral order.
 pub(crate) const RUSTRED_UNSHIFTED_ORDER_V1_ID: &str = "rustred.unshifted-sector-order.v1";
 const COORDINATE_PRIORITY_ORDER_V1_PREFIX: &str = "rustred.unshifted-sector-order.v1;priority=";
+const SPIRED_UNCUT_ORDER_V1_ID: &str = "rustred.spired-uncut-sector-order.v1";
+const SPIRED_PRIORITY_ORDER_V1_PREFIX: &str = "rustred.spired-uncut-sector-order.v1;priority=";
 #[cfg(test)]
 const TEST_ONLY_DISTINCT_ORDER_ID: &str = "rustred.test-only-distinct-sector-order";
 
@@ -26,8 +28,8 @@ const ORDERING_POLICY_STABLE_ID_CAPACITY: usize = 256;
 
 /// Persisted choice of integral-ordering semantics.
 ///
-/// The coordinate-priority variant changes only the last, per-coordinate
-/// excess tie-break of the unshifted v1 key. `rank_by_slot[slot] == 0` means
+/// Each coordinate-priority variant changes only its coordinate tie-break
+/// priority, not its aggregate ordering. `rank_by_slot[slot] == 0` means
 /// that slot is compared first. Its permutation is retained injectively as a
 /// factorial rank and rendered back into a full-vector semantic identity.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -35,6 +37,13 @@ pub enum OrderingPolicy {
     #[default]
     RustRedUnshiftedV1,
     RustRedUnshiftedCoordinatePriorityV1(CoordinatePriorityOrderingV1),
+    /// The uncut SpIRed source-port order, expressed simpler-first like all
+    /// artifact orders: sector, absolute degree, numerator degree, then
+    /// reversed coordinate excess, with active coordinates compared first.
+    /// The bounded absolute-degree level sets make the reversed final ties
+    /// well-founded. This variant does not encode cut-index priorities.
+    SpiredUncutV1,
+    SpiredUncutCoordinatePriorityV1(CoordinatePriorityOrderingV1),
     /// Test-only distinct identity with the same arithmetic order. It exists
     /// solely to exercise exact owner-ordering rejection and cannot enter a
     /// production build or persisted artifact.
@@ -59,7 +68,9 @@ impl OrderingPolicy {
     pub const fn static_stable_id(self) -> Option<&'static str> {
         match self {
             Self::RustRedUnshiftedV1 => Some(RUSTRED_UNSHIFTED_ORDER_V1_ID),
-            Self::RustRedUnshiftedCoordinatePriorityV1(_) => None,
+            Self::SpiredUncutV1 => Some(SPIRED_UNCUT_ORDER_V1_ID),
+            Self::RustRedUnshiftedCoordinatePriorityV1(_)
+            | Self::SpiredUncutCoordinatePriorityV1(_) => None,
             #[cfg(test)]
             Self::TestOnlyDistinct => Some(TEST_ONLY_DISTINCT_ORDER_ID),
         }
@@ -88,21 +99,57 @@ impl OrderingPolicy {
         ))
     }
 
+    /// Construct the uncut source-port order with this exact coordinate
+    /// priority. Natural priority has the payload-free canonical identity.
+    pub fn try_spired_with_coordinate_priority(
+        priority: &CoordinatePriority,
+    ) -> Result<Self, Error> {
+        match Self::try_with_coordinate_priority(priority)? {
+            Self::RustRedUnshiftedV1 => Ok(Self::SpiredUncutV1),
+            Self::RustRedUnshiftedCoordinatePriorityV1(payload) => {
+                Ok(Self::SpiredUncutCoordinatePriorityV1(payload))
+            }
+            _ => {
+                unreachable!("the original-order constructor returns only original-order variants")
+            }
+        }
+    }
+
+    pub(crate) const fn is_spired(self) -> bool {
+        matches!(
+            self,
+            Self::SpiredUncutV1 | Self::SpiredUncutCoordinatePriorityV1(_)
+        )
+    }
+
     pub fn try_from_stable_id(id: &str) -> Result<Self, Error> {
         if id == RUSTRED_UNSHIFTED_ORDER_V1_ID {
             return Ok(Self::RustRedUnshiftedV1);
+        }
+        if id == SPIRED_UNCUT_ORDER_V1_ID {
+            return Ok(Self::SpiredUncutV1);
         }
         #[cfg(test)]
         if id == TEST_ONLY_DISTINCT_ORDER_ID {
             return Ok(Self::TestOnlyDistinct);
         }
-        if let Some(priority_id) = id.strip_prefix(COORDINATE_PRIORITY_ORDER_V1_PREFIX) {
+        for (prefix, spired) in [
+            (COORDINATE_PRIORITY_ORDER_V1_PREFIX, false),
+            (SPIRED_PRIORITY_ORDER_V1_PREFIX, true),
+        ] {
+            let Some(priority_id) = id.strip_prefix(prefix) else {
+                continue;
+            };
             let limits = CoordinatePriorityLimits {
                 max_arity: MAX_PACKED_ORDERING_PRIORITY_ARITY,
                 max_stable_id_bytes: ORDERING_POLICY_STABLE_ID_CAPACITY,
             };
             if let Ok(priority) = CoordinatePriority::try_from_stable_id(priority_id, limits)
-                && let Ok(policy) = Self::try_with_coordinate_priority(&priority)
+                && let Ok(policy) = if spired {
+                    Self::try_spired_with_coordinate_priority(&priority)
+                } else {
+                    Self::try_with_coordinate_priority(&priority)
+                }
                 && policy.stable_id().as_str() == id
             {
                 return Ok(policy);
@@ -118,8 +165,14 @@ impl OrderingPolicy {
         let mut id = OrderingPolicyStableId::new();
         match self {
             Self::RustRedUnshiftedV1 => id.push_str(RUSTRED_UNSHIFTED_ORDER_V1_ID),
-            Self::RustRedUnshiftedCoordinatePriorityV1(_) => {
-                id.push_str(COORDINATE_PRIORITY_ORDER_V1_PREFIX);
+            Self::SpiredUncutV1 => id.push_str(SPIRED_UNCUT_ORDER_V1_ID),
+            Self::RustRedUnshiftedCoordinatePriorityV1(_)
+            | Self::SpiredUncutCoordinatePriorityV1(_) => {
+                id.push_str(if self.is_spired() {
+                    SPIRED_PRIORITY_ORDER_V1_PREFIX
+                } else {
+                    COORDINATE_PRIORITY_ORDER_V1_PREFIX
+                });
                 id.push_str(super::coordinate_priority::COORDINATE_PRIORITY_V1_PREFIX);
                 let (ranks, arity) = self.decoded_rank_by_slot();
                 id.push_decimal(arity);
@@ -138,11 +191,11 @@ impl OrderingPolicy {
     }
 
     /// Return the exact coordinate priority when this policy has a custom
-    /// final tie-break. The original v1 and test-only policies return `None`.
+    /// final tie-break. Policies with natural priority return `None`.
     pub fn try_coordinate_priority(self) -> Result<Option<CoordinatePriority>, Error> {
-        let Self::RustRedUnshiftedCoordinatePriorityV1(_) = self else {
+        if self.coordinate_priority_arity().is_none() {
             return Ok(None);
-        };
+        }
         let (ranks, arity) = self.decoded_rank_by_slot();
         let mut retained = Vec::new();
         retained
@@ -160,16 +213,16 @@ impl OrderingPolicy {
     /// Arity fixed by a coordinate-priority payload, if present.
     pub const fn coordinate_priority_arity(self) -> Option<usize> {
         match self {
-            Self::RustRedUnshiftedCoordinatePriorityV1(payload) => Some(payload.arity as usize),
-            Self::RustRedUnshiftedV1 => None,
+            Self::RustRedUnshiftedCoordinatePriorityV1(payload)
+            | Self::SpiredUncutCoordinatePriorityV1(payload) => Some(payload.arity as usize),
+            Self::RustRedUnshiftedV1 | Self::SpiredUncutV1 => None,
             #[cfg(test)]
             Self::TestOnlyDistinct => None,
         }
     }
 
     pub(crate) fn require_arity(self, actual: usize) -> Result<(), Error> {
-        if let Self::RustRedUnshiftedCoordinatePriorityV1(payload) = self {
-            let expected = usize::from(payload.arity);
+        if let Some(expected) = self.coordinate_priority_arity() {
             if actual != expected {
                 return Err(Error::WrongArity { expected, actual });
             }
@@ -180,61 +233,15 @@ impl OrderingPolicy {
     /// Decode rank-by-slot into a fixed stack buffer. Unused entries are zero.
     pub(crate) fn decoded_rank_by_slot(self) -> ([u8; MAX_PACKED_ORDERING_PRIORITY_ARITY], usize) {
         match self {
-            Self::RustRedUnshiftedV1 => ([0; MAX_PACKED_ORDERING_PRIORITY_ARITY], 0),
-            Self::RustRedUnshiftedCoordinatePriorityV1(payload) => {
+            Self::RustRedUnshiftedV1 | Self::SpiredUncutV1 => {
+                ([0; MAX_PACKED_ORDERING_PRIORITY_ARITY], 0)
+            }
+            Self::RustRedUnshiftedCoordinatePriorityV1(payload)
+            | Self::SpiredUncutCoordinatePriorityV1(payload) => {
                 decode_permutation(usize::from(payload.arity), payload.permutation_rank)
             }
             #[cfg(test)]
             Self::TestOnlyDistinct => ([0; MAX_PACKED_ORDERING_PRIORITY_ARITY], 0),
-        }
-    }
-
-    /// Visit coordinate slots in the exact final tie-break order.
-    pub(crate) fn compare_coordinate_slices<T: Ord>(
-        self,
-        left: &[T],
-        right: &[T],
-    ) -> std::cmp::Ordering {
-        debug_assert_eq!(left.len(), right.len());
-        if let Self::RustRedUnshiftedCoordinatePriorityV1(_) = self {
-            let (rank_by_slot, arity) = self.decoded_rank_by_slot();
-            debug_assert_eq!(left.len(), arity);
-            for rank in 0..arity {
-                let slot = rank_by_slot[..arity]
-                    .iter()
-                    .position(|&candidate| usize::from(candidate) == rank)
-                    .expect("decoded priority is a bijection");
-                let comparison = left[slot].cmp(&right[slot]);
-                if comparison != std::cmp::Ordering::Equal {
-                    return comparison;
-                }
-            }
-            std::cmp::Ordering::Equal
-        } else {
-            left.cmp(right)
-        }
-    }
-
-    pub(crate) fn first_differing_coordinate<T: Eq>(
-        self,
-        left: &[T],
-        right: &[T],
-    ) -> Option<usize> {
-        debug_assert_eq!(left.len(), right.len());
-        if let Self::RustRedUnshiftedCoordinatePriorityV1(_) = self {
-            let (rank_by_slot, arity) = self.decoded_rank_by_slot();
-            debug_assert_eq!(left.len(), arity);
-            (0..arity).find_map(|rank| {
-                let slot = rank_by_slot[..arity]
-                    .iter()
-                    .position(|&candidate| usize::from(candidate) == rank)
-                    .expect("decoded priority is a bijection");
-                (left[slot] != right[slot]).then_some(slot)
-            })
-        } else {
-            left.iter()
-                .zip(right)
-                .position(|(left, right)| left != right)
         }
     }
 }
