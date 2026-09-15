@@ -241,6 +241,49 @@ The 34 release regression/ordering/source-audit checks pass, but the matching
 This does not solve the remaining PM sector; `Original` stays the default.
 See the [indices-first results](spired_pm_acceptance.md#indices-first-follow-up-2026-09-15).
 
+### Opt-in target-block exact lifting
+
+`SymbolicExactBackend::SparseTargetOnly` is an experimental alternative exact
+schedule, selected in the example drivers with
+`RUSTRED_SPIRED_SYMBOLIC_EXACT_BACKEND=sparse-target-only`. `Sparse` remains
+the default; modular discovery, source selection and the shared numerical
+tail are unchanged. The new option is not rational reconstruction.
+
+For the unchanged selected source prefix, write `A = [F | R]`, with `F`
+containing every harder integral and the target column. Native sparse GPLU
+eliminates only `F`, retaining its native full lower factor `L`. On the first
+target pivot, native triangular normalization/back-substitution solves
+`Lᵀ w = e_target_row`; one native sparse product `wᵀ A` then reconstructs the
+entire monic identity. This avoids updating every easier-integral column during
+each forward step. The original coefficient map is restored before ordinary
+target canonicalization and exception extraction.
+
+Every submitted `F` row must be independent. An empty or dependent prefix row
+is a typed error, not silently dropped or sent to an arbitrary-solution solver.
+Square/nonzero-diagonal `L`, insertion-order mapping, native triangular pivots,
+and the final unit target/zero forbidden columns are checked. Under these
+conditions the source weights are unique and the returned identity equals
+the default full-row GPLU result. Temporary frame weights do not become
+original-generator certificates: the independent artifact replay, source and
+weight guards, descent and unbounded-domain coverage gates remain necessary.
+
+All coefficient elimination, normalization, back-substitution and multiplication
+use the pinned Symbolica/Numerica public APIs. RustRed only arranges sparse
+coordinates and enforces the shape/identity contract. Progress separates
+target-block elimination, weight solving and full reconstruction. Full `L`
+storage and rational weight growth can outweigh the saved tail work; use an
+external time/memory cap and measure before choosing this option in a campaign.
+
+An initial release comparison on the same host confirms why this remains
+opt-in: K1 sector `1` took 5,607 us with target-only versus 121 us with the
+default sparse path, and K2 sector `111` took 1,554 us versus 814 us. A
+representative K3 sector `111111` took 65,595 us versus 66,892 us (about 1.9%
+faster). The generated rule files were byte-identical in all three pairs.
+These are single-worker smoke measurements, not a controlled benchmark or a
+claim of SpIRed parity; they do establish that the implementation is wired
+through release binaries and that its extra triangular/product work can be
+worthwhile only once the target block is large enough.
+
 ## Per-job orderings and integrated affine cases (2026-09-14)
 
 `SectorExecutor::map_configured_with_observer` accepts a per-job configuration

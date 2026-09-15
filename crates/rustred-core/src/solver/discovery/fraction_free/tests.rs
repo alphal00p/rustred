@@ -95,6 +95,7 @@ fn reordering_coefficient_variables_preserves_target_identity_and_native_schedul
         };
         for backend in [
             SymbolicExactBackend::Sparse,
+            SymbolicExactBackend::SparseTargetOnly,
             SymbolicExactBackend::DenseFractionFree {
                 max_matrix_entries: 1000,
             },
@@ -356,6 +357,7 @@ fn sector_policy_preserves_discovery_sources_canonicalization_and_guards() {
     assert!(!expected.branches.is_empty());
     for backend in [
         SymbolicExactBackend::Sparse,
+        SymbolicExactBackend::SparseTargetOnly,
         SymbolicExactBackend::DenseFractionFree {
             max_matrix_entries: 1000,
         },
@@ -431,24 +433,37 @@ fn affine_half_chart_reaches_native_q_lifting_without_changing_case_or_guards() 
         (rule, events)
     };
     let (sparse, _) = solve(SymbolicExactBackend::Sparse);
-    let (dense, events) = solve(SymbolicExactBackend::DenseFractionFree {
-        max_matrix_entries: 1000,
-    });
-    assert!(!sparse.stats.direct_hit && !dense.stats.direct_hit);
-    assert_eq!(dense.target, sparse.target);
-    assert_eq!(dense.case, sparse.case);
-    assert_eq!(dense.rhs, sparse.rhs);
-    assert_eq!(dense.sources, sparse.sources);
-    assert_eq!(dense.stats.discovery, sparse.stats.discovery);
-    assert_eq!(
-        extract_exceptions(&dense, &indices, &[true; 3]).unwrap(),
-        extract_exceptions(&sparse, &indices, &[true; 3]).unwrap()
-    );
-    assert!(events.iter().any(|event| matches!(
-        event,
-        SearchEvent::ExactProgress(MaterializationEvent::DenseFractionFreeStarted {
-            rational_coefficients: true,
-            ..
-        })
-    )));
+    for backend in [
+        SymbolicExactBackend::DenseFractionFree {
+            max_matrix_entries: 1000,
+        },
+        SymbolicExactBackend::SparseTargetOnly,
+    ] {
+        let (actual, events) = solve(backend);
+        assert!(!sparse.stats.direct_hit && !actual.stats.direct_hit);
+        assert_eq!(actual.target, sparse.target);
+        assert_eq!(actual.case, sparse.case);
+        assert_eq!(actual.rhs, sparse.rhs);
+        assert_eq!(actual.sources, sparse.sources);
+        assert_eq!(actual.stats.discovery, sparse.stats.discovery);
+        assert_eq!(
+            extract_exceptions(&actual, &indices, &[true; 3]).unwrap(),
+            extract_exceptions(&sparse, &indices, &[true; 3]).unwrap()
+        );
+        assert!(events.iter().any(|event| matches!(
+            (backend, event),
+            (
+                SymbolicExactBackend::DenseFractionFree { .. },
+                SearchEvent::ExactProgress(MaterializationEvent::DenseFractionFreeStarted {
+                    rational_coefficients: true,
+                    ..
+                })
+            ) | (
+                SymbolicExactBackend::SparseTargetOnly,
+                SearchEvent::ExactProgress(
+                    MaterializationEvent::TargetReconstructionFinished { .. }
+                )
+            )
+        )));
+    }
 }

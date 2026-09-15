@@ -15,6 +15,7 @@ type NumericalCoefficient = <Zp64 as Set>::Element;
 type ExactField = RationalPolynomialField<IntegerRing, u16>;
 
 mod fraction_free;
+mod target_only;
 mod variables;
 
 /// Exact lifting for a single symbolic target. Shared numerical-tail lifting
@@ -23,6 +24,10 @@ mod variables;
 pub enum SymbolicExactBackend {
     #[default]
     Sparse,
+    /// Native GPLU on the harder/target block, followed by a native triangular
+    /// weight solve and one full-row product. Requires an independent prefix.
+    /// This is an opt-in scheduling experiment, not a different source search.
+    SparseTargetOnly,
     /// Native dense polynomial elimination. The bound limits initial matrix
     /// slots, not coefficient growth or total memory. Use an external run cap.
     DenseFractionFree { max_matrix_entries: usize },
@@ -82,6 +87,23 @@ pub enum MaterializationEvent<const N: usize> {
     },
     DenseFractionFreeFinished {
         rank: usize,
+    },
+    TargetBlockStarted {
+        columns: usize,
+    },
+    TargetWeightsStarted {
+        rows: usize,
+        lower_nonzeros: usize,
+    },
+    TargetWeightsFinished {
+        nonzero_weights: usize,
+    },
+    TargetReconstructionStarted {
+        rows: usize,
+        columns: usize,
+    },
+    TargetReconstructionFinished {
+        output_terms: usize,
     },
     RowStarted {
         /// One-based ordinal in the selected original-source trace.
@@ -291,6 +313,10 @@ pub enum MaterializationError {
     TargetNotPivot,
     CoefficientVariableMapMismatch,
     InvalidCoefficientVariablePriority,
+    TargetOnlyDependentPrefix {
+        row: usize,
+    },
+    TargetOnlyInvalidDecomposition(&'static str),
     CoefficientVariableRemap(String),
     FractionFreeNonPolynomialCoefficient {
         row: usize,
@@ -319,6 +345,13 @@ impl fmt::Display for MaterializationError {
             }
             Self::TargetNotPivot => {
                 write!(f, "selected exact rows do not produce the target pivot")
+            }
+            Self::TargetOnlyDependentPrefix { row } => write!(
+                f,
+                "target-only lifting requires an independent harder/target prefix; row {row} is empty or dependent"
+            ),
+            Self::TargetOnlyInvalidDecomposition(reason) => {
+                write!(f, "invalid native target-only decomposition: {reason}")
             }
             Self::FractionFreeNonPolynomialCoefficient { row, term } => write!(
                 f,
@@ -391,8 +424,8 @@ pub fn exact_materialize_with_observer<const N: usize>(
     )
 }
 
-/// The dense option changes exact elimination scheduling, not the discovery
-/// trace. It is a diagnostic and grants no artifact or closure authority.
+/// Alternative backends change exact elimination scheduling, not the discovery
+/// trace. They are diagnostics and grant no artifact or closure authority.
 pub(super) fn exact_materialize_using_with_observer<const N: usize>(
     rows: &[ExactRow<N>],
     order: &IntegralOrder<N>,
@@ -431,6 +464,9 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
         coefficient_variables: variables.original_len(),
         active_variables: variables.active_len(),
     });
+    if backend == SymbolicExactBackend::SparseTargetOnly {
+        return target_only::materialize(rows, &columns, order, target_column, &variables, observe);
+    }
     if let SymbolicExactBackend::DenseFractionFree { max_matrix_entries } = backend {
         return fraction_free::materialize(
             rows,

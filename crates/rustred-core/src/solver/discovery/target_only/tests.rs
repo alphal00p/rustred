@@ -1,0 +1,279 @@
+use crate::algebra::CoefficientContext;
+
+use super::super::{
+    CoefficientVariableOrder, SymbolicExactBackend, exact_materialize,
+    exact_materialize_using_with_observer,
+};
+use super::*;
+
+fn integral(shift: i16) -> Integral<1> {
+    Integral::symbolic([shift]).unwrap()
+}
+
+fn row(context: &CoefficientContext, terms: &[(i16, &str)]) -> ExactRow<1> {
+    terms
+        .iter()
+        .map(|(shift, coefficient)| Term {
+            integral: integral(*shift),
+            coefficient: context.coefficient_fixture(coefficient),
+        })
+        .collect()
+}
+
+fn lift(rows: &[ExactRow<1>], target: i16) -> Result<ExactRow<1>, MaterializationError> {
+    exact_materialize_using_with_observer(
+        rows,
+        &IntegralOrder::new([true], [false]),
+        integral(target),
+        SymbolicExactBackend::SparseTargetOnly,
+        CoefficientVariableOrder::Original,
+        &[],
+        |_| {},
+    )
+}
+
+#[test]
+fn native_full_product_preserves_rational_coefficients_tail_variables_and_early_stop() {
+    let context = CoefficientContext::new(["unused", "a", "b", "c"]);
+    let rows = vec![
+        row(&context, &[(4, "a/(b-1)"), (3, "1/(b-1)"), (1, "c/(b-1)")]),
+        row(
+            &context,
+            &[(4, "-2*a/3"), (3, "-(a+2)/3"), (2, "-c/3"), (0, "-1/3")],
+        ),
+        // Would violate independent-F admission if processed after the hit.
+        row(&context, &[(2, "1"), (0, "1")]),
+    ];
+    let expected = row(&context, &[(3, "1"), (2, "c/a"), (1, "-2*c/a"), (0, "1/a")]);
+    let order = IntegralOrder::new([true], [false]);
+    assert_eq!(
+        exact_materialize(&rows, &order, integral(3)).unwrap(),
+        expected
+    );
+    for policy in [
+        CoefficientVariableOrder::Original,
+        CoefficientVariableOrder::Reverse,
+        CoefficientVariableOrder::IndicesFirst,
+    ] {
+        let mut events = Vec::new();
+        let result = exact_materialize_using_with_observer(
+            &rows,
+            &order,
+            integral(3),
+            SymbolicExactBackend::SparseTargetOnly,
+            policy,
+            &[2, 1, 3, 0],
+            |event| events.push(event),
+        )
+        .unwrap();
+        assert_eq!(result, expected);
+        assert!(
+            result
+                .iter()
+                .all(|term| term.coefficient.get_variables() == context.one().get_variables())
+        );
+        assert!(matches!(
+            events[1],
+            MaterializationEvent::TargetBlockStarted { columns: 2 }
+        ));
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, MaterializationEvent::RowStarted { .. }))
+                .count(),
+            2
+        );
+        assert!(matches!(
+            events[6],
+            MaterializationEvent::TargetWeightsStarted {
+                rows: 2,
+                lower_nonzeros: 3
+            }
+        ));
+        assert!(matches!(
+            events[7],
+            MaterializationEvent::TargetWeightsFinished { nonzero_weights: 2 }
+        ));
+        assert!(matches!(
+            events[8],
+            MaterializationEvent::TargetReconstructionStarted {
+                rows: 2,
+                columns: 5
+            }
+        ));
+        assert!(matches!(
+            events[9],
+            MaterializationEvent::TargetReconstructionFinished { output_terms: 4 }
+        ));
+        assert_eq!(events.len(), 10);
+    }
+}
+
+#[test]
+fn insertion_order_may_differ_from_physical_pivot_order() {
+    let context = CoefficientContext::new(["a", "b", "c"]);
+    let rows = vec![
+        row(&context, &[(3, "2"), (1, "a")]),
+        row(&context, &[(4, "3"), (3, "4"), (1, "b")]),
+        row(&context, &[(4, "6"), (3, "10"), (2, "5"), (0, "c")]),
+    ];
+    let expected = row(&context, &[(2, "1"), (1, "(-2*b-a)/5"), (0, "c/5")]);
+    assert_eq!(lift(&rows, 2).unwrap(), expected);
+    assert_eq!(
+        exact_materialize(&rows, &IntegralOrder::new([true], [false]), integral(2)).unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn nonunit_unsorted_lower_factor_uses_native_normalization_and_pivot_mapping() {
+    let context = CoefficientContext::new(["unused"]);
+    let mut lower = SparseMatrix::new(0, 3, ExactField::new(Z));
+    for (values, ids) in [
+        (vec!["2"], vec![0]),
+        (vec!["3", "5"], vec![0, 1]),
+        (vec!["11", "7", "13"], vec![1, 0, 2]),
+    ] {
+        lower.add_row(
+            values
+                .iter()
+                .map(|value| context.coefficient_fixture(value))
+                .collect(),
+            ids,
+        );
+    }
+    let weights = solve_transposed_lower(&lower, 2).unwrap();
+    assert_eq!(weights.col_idcs(), &[0, 1, 2]);
+    assert_eq!(
+        weights.values(),
+        &[
+            context.coefficient_fixture("-1/65"),
+            context.coefficient_fixture("-11/65"),
+            context.coefficient_fixture("1/13"),
+        ]
+    );
+}
+
+#[test]
+fn empty_dependent_and_tail_only_prefix_rows_are_typed_errors_not_dropped() {
+    let context = CoefficientContext::new(["a"]);
+    let target = row(&context, &[(2, "1"), (0, "a")]);
+    for prefix in [
+        vec![],
+        row(&context, &[(3, "0")]),
+        row(&context, &[(1, "a")]),
+    ] {
+        assert_eq!(
+            lift(&[prefix, target.clone()], 2),
+            Err(MaterializationError::TargetOnlyDependentPrefix { row: 1 })
+        );
+    }
+    let rows = [
+        row(&context, &[(3, "1"), (1, "a")]),
+        // Independent in full A but dependent in the forbidden/target block.
+        row(&context, &[(3, "2"), (0, "1")]),
+        target,
+    ];
+    assert!(exact_materialize(&rows, &IntegralOrder::new([true], [false]), integral(2)).is_ok());
+    assert_eq!(
+        lift(&rows, 2),
+        Err(MaterializationError::TargetOnlyDependentPrefix { row: 2 })
+    );
+}
+
+#[test]
+fn hidden_weight_poles_match_the_default_but_are_not_new_certificate_authority() {
+    let context = CoefficientContext::new(["x"]);
+    for terms in [
+        vec![(2, "x"), (0, "x")],
+        vec![(2, "x")],
+        vec![(2, "1/x"), (0, "1/x")],
+    ] {
+        let rows = [row(&context, &terms)];
+        let result = lift(&rows, 2).unwrap();
+        assert_eq!(
+            result,
+            exact_materialize(&rows, &IntegralOrder::new([true], [false]), integral(2)).unwrap()
+        );
+        assert!(result.iter().all(|term| term.coefficient.is_one()));
+        // Only a candidate ExactRow is returned. Original-source replay and
+        // uncancelled source/weight guards still belong to the artifact owner.
+    }
+}
+
+#[test]
+fn constant_frames_and_denominator_only_variables_keep_the_original_map() {
+    for parameters in [vec![], vec!["unused", "a"]] {
+        let context = CoefficientContext::new(parameters);
+        let rows = [row(&context, &[(2, "-2/3"), (0, "5/7")])];
+        assert_eq!(
+            lift(&rows, 2).unwrap(),
+            row(&context, &[(2, "1"), (0, "-15/14")])
+        );
+    }
+    let context = CoefficientContext::new(["unused", "a"]);
+    let rows = [row(&context, &[(2, "-1/a"), (0, "1")])];
+    assert_eq!(
+        lift(&rows, 2).unwrap(),
+        row(&context, &[(2, "1"), (0, "-a")])
+    );
+}
+
+#[test]
+fn malformed_lower_shapes_and_coordinates_fail_before_native_solving() {
+    let context = CoefficientContext::new(["a"]);
+    let mut missing = SparseMatrix::new(0, 2, ExactField::new(Z));
+    missing.add_row(vec![context.one()], vec![0]);
+    let mut above = missing.clone();
+    above.add_row(vec![context.one()], vec![1]);
+    // Rebuild with a forbidden upper entry while keeping a square shape.
+    let mut upper = SparseMatrix::new(0, 2, ExactField::new(Z));
+    upper.add_row(vec![context.one(), context.one()], vec![0, 1]);
+    upper.add_row(vec![context.one()], vec![1]);
+    let mut zero = SparseMatrix::new(0, 1, ExactField::new(Z));
+    zero.add_row(vec![context.zero()], vec![0]);
+    for (lower, target) in [(missing, 0), (above, 2), (upper, 1), (zero, 0)] {
+        assert!(matches!(
+            solve_transposed_lower(&lower, target),
+            Err(MaterializationError::TargetOnlyInvalidDecomposition(_))
+        ));
+    }
+}
+
+#[test]
+fn native_full_product_rejects_wrong_weights_and_surviving_forbidden_terms() {
+    let context = CoefficientContext::new(["a"]);
+    let rows = [
+        row(&context, &[(3, "1"), (2, "1"), (0, "a")]),
+        row(&context, &[(3, "1"), (0, "1")]),
+    ];
+    let columns = [integral(3), integral(2), integral(0)];
+    let variables =
+        FrameVariables::try_new(&rows, CoefficientVariableOrder::Original, &[]).unwrap();
+    for (ncols, terms) in [
+        (1, vec![(0, "1")]),
+        (2, vec![(0, "1")]),
+        (2, vec![(0, "2"), (1, "-2")]),
+        (2, vec![(1, "1")]),
+    ] {
+        let mut weights = SparseMatrix::new(0, ncols, ExactField::new(Z));
+        weights.add_row(
+            terms
+                .iter()
+                .map(|(_, value)| context.coefficient_fixture(value))
+                .collect(),
+            terms.iter().map(|(column, _)| *column).collect(),
+        );
+        assert!(matches!(
+            reconstruct(
+                &rows,
+                &columns,
+                &IntegralOrder::new([true], [false]),
+                1,
+                &variables,
+                weights
+            ),
+            Err(MaterializationError::TargetOnlyInvalidDecomposition(_))
+        ));
+    }
+}

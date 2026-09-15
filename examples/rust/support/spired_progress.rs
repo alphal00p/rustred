@@ -94,6 +94,32 @@ pub fn write_event<const N: usize>(
                     MaterializationEvent::DenseFractionFreeFinished { rank } => {
                         writeln!(output, "phase=dense-fraction-free-finish rank={rank}")
                     }
+                    MaterializationEvent::TargetBlockStarted { columns } => {
+                        writeln!(output, "phase=target-block-start columns={columns}")
+                    }
+                    MaterializationEvent::TargetWeightsStarted {
+                        rows,
+                        lower_nonzeros,
+                    } => writeln!(
+                        output,
+                        "phase=target-weights-start rows={rows} lower_nnz={lower_nonzeros}"
+                    ),
+                    MaterializationEvent::TargetWeightsFinished { nonzero_weights } => writeln!(
+                        output,
+                        "phase=target-weights-finish weights_nnz={nonzero_weights}"
+                    ),
+                    MaterializationEvent::TargetReconstructionStarted { rows, columns } => {
+                        writeln!(
+                            output,
+                            "phase=target-reconstruction-start rows={rows} columns={columns}"
+                        )
+                    }
+                    MaterializationEvent::TargetReconstructionFinished { output_terms } => {
+                        writeln!(
+                            output,
+                            "phase=target-reconstruction-finish output_terms={output_terms}"
+                        )
+                    }
                     MaterializationEvent::RowStarted {
                         row,
                         input_nonzeros,
@@ -266,5 +292,49 @@ mod tests {
         assert!(
             text.contains("phase=exact-row-finish row=2 pivot=none exact_u_rows=1 exact_u_nnz=2")
         );
+    }
+
+    #[test]
+    fn target_only_native_phases_are_separately_observable() {
+        let case = Case::<1>::generic();
+        let mut output = Vec::new();
+        for event in [
+            MaterializationEvent::TargetBlockStarted { columns: 405 },
+            MaterializationEvent::TargetWeightsStarted {
+                rows: 298,
+                lower_nonzeros: 1200,
+            },
+            MaterializationEvent::TargetWeightsFinished {
+                nonzero_weights: 240,
+            },
+            MaterializationEvent::TargetReconstructionStarted {
+                rows: 298,
+                columns: 482,
+            },
+            MaterializationEvent::TargetReconstructionFinished { output_terms: 20 },
+        ] {
+            write_event(
+                &mut output,
+                "1",
+                Duration::ZERO,
+                SectorEvent::Search {
+                    case: &case,
+                    event: SearchEvent::ExactProgress(event),
+                },
+            )
+            .unwrap();
+        }
+        let text = String::from_utf8(output).unwrap();
+        assert_eq!(text.lines().count(), 5);
+        for expected in [
+            "phase=target-block-start columns=405",
+            "phase=target-weights-start rows=298 lower_nnz=1200",
+            "phase=target-weights-finish weights_nnz=240",
+            "phase=target-reconstruction-start rows=298 columns=482",
+            "phase=target-reconstruction-finish output_terms=20",
+        ] {
+            assert!(text.contains(expected), "{text}");
+        }
+        assert!(!text.contains("closed"));
     }
 }
