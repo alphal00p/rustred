@@ -3,20 +3,22 @@
 ## Status and decision boundary
 
 This is a design investigation, not an implementation or closure claim. It
-is contingent on the result of the actual **literal-unit-mass** four-loop
-campaign. Earlier exploratory H runs retained a symbolic common mass and
-must not be treated as measurements of the literal-unit input now being
-run through the generic CLI.
+was initially contingent on the actual **literal-unit-mass** four-loop
+campaign. The complete CLI attempt at `a435599` now reproduces the same
+indispensable affine obstruction after 162.272127 seconds: no artifact was
+published. The extension is therefore motivated by a current unit-scale run,
+not solely by the earlier symbolic-mass experiments.
 
 The source-port artifact bridge currently authenticates rectangular integer
 domains. An unsupported affine search candidate may be discarded when the
 independently retained, replayed, descending coordinate rules and finite
 terminals already prove a complete whole-sector cover. The candidate itself
-is not published or counted as a verified identity. If that sufficient
-subsystem closes the literal-unit campaign, this extension can be deferred.
+is not published or counted as a verified identity. An alternative ordering
+that proves a complete coordinate-only subsystem could still avoid this
+extension for that particular family.
 
-If the literal-unit campaign instead encounters an indispensable affine
-branch, the following is a proposed bounded extension. It must continue to
+For the observed indispensable affine branch, the following is a proposed
+bounded extension. It must continue to
 reject incomplete coverage, unsupported geometry, or failed exact replay.
 
 ## A genuinely infinite exceptional locus

@@ -8,8 +8,11 @@ invocations, but a raw-log audit found that this does **not** establish complete
 through-three-loop acceptance: the three-loop selection contains 24 tests
 while its result table has 17 entries. One omitted test has a failed raw log
 for an AlphaLoop-versus-MATAD comparison. Independent reruns of the missing
-seven are required. The 40-entry / 46-input inventory remains the obligation,
-not a passing total. Native tensor and scalar stages use FeynKit and RustRed
+seven now give five passes and two failures: the joined selection is 83 tests,
+81 passed and two failed. Mapped peers for the legacy 40-entry / 46-input
+inventory and both basketball finite parts pass. Two supplemental all-class
+pipelines fail at `I3L_pinch_1_6` on AlphaLoop versus MATAD before the RustRed
+comparison; separate pairwise diagnostics are underway. Native tensor and scalar stages use FeynKit and RustRed
 with an invalid FORM path; separate oracle lanes use FORM only for validation.
 
 The active delivery target is now four loops. The sections below retain dated

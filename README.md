@@ -22,9 +22,11 @@ The local reference source and working notes
 K1/K3/K6 artifacts and offline master projections are shipped with Vakint.
 **Acceptance-report correction:** GammaLoop revision `98550cc0` records 76
 passes, but the cited three-loop gate has 24 selected tests and only 17 result
-entries. One omitted test's raw log records an oracle disagreement. Complete
-coverage of the 40-entry / 46-input inventory therefore remains unverified;
-the missing seven tests are being rerun independently. Native evaluation uses
+entries. Independent reruns of the missing seven give five passes and two
+failures, for a joined **81 passed / 2 failed** selection. The mapped legacy
+40-entry / 46-input peers and basketball finite parts pass, but two
+supplemental all-class tests fail on AlphaLoop versus MATAD before the RustRed
+comparison. Complete all-class parity is not established. Native evaluation uses
 an invalid FORM path; separate oracle lanes use FORM for development validation.
 
 Four-loop artifacts are not yet closed or shipped. H, X, BMW and FG are

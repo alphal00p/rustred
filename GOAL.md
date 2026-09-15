@@ -9,9 +9,15 @@ GammaLoop's `vakint_rustred` branch. **Acceptance-report correction:** revision
 `98550cc0` records 76 passing invocations but does not establish complete
 through-three-loop acceptance. Its three-loop selection has 24 tests while
 the result table contains only 17. One omitted test's raw output records an
-AlphaLoop-versus-MATAD failure; the missing seven require independent reruns.
-Native peers use FeynKit, RustRed and an invalid FORM path. The 40-entry /
-46-input inventory is the acceptance obligation, not a proved passing total.
+AlphaLoop-versus-MATAD failure. Independent frozen-binary reruns of the missing
+seven now give five passes and two failures, bringing the joined selection to
+83 tests: 81 passed and two failed. The legacy-setting variants and basketball
+finite parts pass; both supplemental all-class pipelines still fail at
+`I3L_pinch_1_6` on AlphaLoop versus MATAD before comparing RustRed. Pairwise
+backend diagnostics are in progress, without changing the original assertions.
+Native peers use FeynKit, RustRed and an invalid FORM path. The legacy
+40-entry / 46-input inventory now has passing mapped peers, but complete
+supplemental all-class parity is not established.
 Reconcile this discrepancy alongside four-loop work; do not weaken assertions
 or repeat the historical complete-suite claim.
 
@@ -24,6 +30,22 @@ reload for these parents, existing-witness routing in Vakint, offline terminal
 catalogs, pure-Rust FMFT master finalization and the full four-loop numerical
 comparison inventory. Do not infer four-loop acceptance from lower-loop tests
 or from a single sector's rule count.
+
+The generic `family-close` Rust/CLI/Python interfaces are published at
+`a435599`. A literal-unit H full-family release attempt with six workers took
+162.272127 seconds and failed safely at the affine-domain publication boundary;
+no four-loop artifact was written. The first rejected sector has 91/94
+replayed/descending candidates and one uncovered box. These are sector-local
+counts, not a percentage of whole-family completion.
+
+Vakint revision `512d3ce8` adds a pure-Symbolica FMFT master-finalization
+boundary without activating four-loop RustRed reduction. Eight native tests
+pass with invalid FORM paths, and all fourteen unchanged analytic FMFT
+four-loop oracle tests pass after the shared-tail extraction. Those fourteen
+are **not** RustRed four-loop acceptance passes. The milestone pins published
+RustRed revision `ce92d3a7` for its existing coherent Symbolica 2.2 stack;
+alignment with RustRed's current Symbolica 3.0 stack remains required before
+four-loop artifact integration. No temporary local dependency is shipped.
 
 The current source-port artifact bridge accepts coordinate ownership. It may
 omit unsupported affine candidates only if independently replayed, descending

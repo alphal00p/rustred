@@ -50,3 +50,43 @@ redundant-candidate obstruction. It stopped later at sector `0010011001`:
 candidates that therefore could not be discarded. No artifact was written.
 This is progress to a later verified boundary, not four-loop closure. Subsequent
 performance runs must use the corrected literal-unit-scale external input.
+
+## Literal-unit-scale generic CLI run
+
+Revision `a435599` was built with `cargo build -p rustred-app --bin rustred
+--release --locked -j2`. Python steered the resulting executable directly:
+
+```console
+target/release/rustred family-close \
+  --input examples/input/four_loop_h.toml --input-format toml \
+  --permutation 9,8,7,6,5,4,3,2,1,0 --n-cores 6 \
+  --output /tmp/rustred-family-close-release-2RvQXc/h.rr
+```
+
+This is a full-family generation/publication attempt, not a selected-sector
+probe. The process completed in **162.272127 seconds wall time**, using
+**726.054749 CPU-seconds** and **746,156 KiB peak RSS**. It exited with the
+typed execution error (code 8), emitted no artifact bytes and created no output
+artifact. These are single shared-host observations, not controlled scaling
+benchmarks. Compilation is outside the process interval.
+
+The first rejected sector is again `0010011001`: **91/94** candidate rules
+replayed and descended, **one uncovered box**, and three unsupported affine
+candidates (46 exceptional, 54 target, 67 target). Each retains the equality
+`1 + n4 - 2*n7 = 0`; the last additionally fixes `n8 = 0`. These are the
+first rejected sector's counts, not counts for the complete family. The
+literal-unit input therefore confirms that the affine artifact extension is
+needed for this ordering. The exact infinite domain and a bounded extension
+design are recorded in
+[the affine-domain study](research/four_loop_affine_artifact_extension.md).
+
+Fresh-process release controls through the same CLI, with caller-supplied
+families and one worker, passed generation, cold inspection and reduction:
+
+| family | generation | cold inspection | cold reduction |
+| --- | ---: | ---: | ---: |
+| K1 | 15.333 ms | 4.556 ms | 4.998 ms |
+| K3 | 19.431 ms | 8.918 ms | 9.111 ms |
+
+Targets were `[3]` and `[2,2,1]`. All six subprocesses returned zero. These
+small controls are not substitutes for four-loop closure or Gregor's benchmarks.
