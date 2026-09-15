@@ -10,6 +10,7 @@ use crate::foundry::completion::guard::decision::{
     CoefficientIdealGuardDag, GuardDecisionCandidate, GuardDecisionCandidateId,
 };
 use crate::foundry::completion::stratum::TargetColumnPartition;
+use crate::foundry::parametric::AffineApplicationDomain;
 
 use super::error::ExactCircuitSemanticError;
 use super::limits::ExactCircuitSemanticLimits;
@@ -25,6 +26,7 @@ use super::validation::{
 struct SemanticInput {
     circuit: Arc<ExactTargetCircuit>,
     cleared: Option<Arc<ClearedExactCircuit>>,
+    affine_application_domain: Option<Arc<AffineApplicationDomain>>,
 }
 
 impl ExactCircuitSemanticDag {
@@ -38,6 +40,7 @@ impl ExactCircuitSemanticDag {
         inputs.extend(incoming.iter().cloned().map(|circuit| SemanticInput {
             circuit,
             cleared: None,
+            affine_application_domain: None,
         }));
         Self::try_compile_inputs(context, partition, inputs, limits)
     }
@@ -61,6 +64,44 @@ impl ExactCircuitSemanticDag {
             inputs.push(SemanticInput {
                 circuit: circuit.clone(),
                 cleared: Some(cleared.clone()),
+                affine_application_domain: None,
+            });
+        }
+        Self::try_compile_inputs(context, partition, inputs, limits)
+    }
+
+    /// Compile fraction-free semantic routing while retaining the exact
+    /// source-port application locus paired with each admitted candidate.
+    ///
+    /// This is intentionally an additive seam: existing callers which do not
+    /// carry affine source evidence continue through `try_compile_cleared`
+    /// with `None`.  The affine value is metadata only at this layer; no
+    /// rectangular coverage claim is inferred from it.
+    pub(crate) fn try_compile_cleared_with_affine(
+        context: &IndexedCoefficientContext,
+        partition: &TargetColumnPartition<'_>,
+        incoming: &[
+            (
+                Arc<ExactTargetCircuit>,
+                Arc<ClearedExactCircuit>,
+                Option<Arc<AffineApplicationDomain>>,
+            )
+        ],
+        limits: ExactCircuitSemanticLimits,
+    ) -> Result<Self, ExactCircuitSemanticError> {
+        let mut inputs = try_vec(CANDIDATES, incoming.len())?;
+        for (candidate, (circuit, cleared, affine_application_domain)) in incoming.iter().enumerate()
+        {
+            if !cleared.is_bound_to(circuit) {
+                return Err(ExactCircuitSemanticError::CandidateJoin {
+                    candidate,
+                    detail: "fraction-free guard certificate belongs to another exact circuit",
+                });
+            }
+            inputs.push(SemanticInput {
+                circuit: circuit.clone(),
+                cleared: Some(cleared.clone()),
+                affine_application_domain: affine_application_domain.clone(),
             });
         }
         Self::try_compile_inputs(context, partition, inputs, limits)
@@ -149,6 +190,7 @@ impl ExactCircuitSemanticDag {
                 id: ExactCircuitSemanticCandidateId(ordinal),
                 circuit,
                 guard_atoms: atoms.into_boxed_slice(),
+                affine_application_domain: input.affine_application_domain,
             });
         }
 

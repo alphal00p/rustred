@@ -9,6 +9,7 @@ use crate::foundry::completion::guard::CoefficientIdealGuardAtom;
 use crate::foundry::completion::guard::decision::{
     CoefficientIdealGuardDag, GuardDecisionEvaluationLimits, GuardDecisionOutcome,
 };
+use crate::foundry::parametric::AffineApplicationDomain;
 
 use super::error::ExactCircuitSemanticError;
 
@@ -29,6 +30,11 @@ pub(crate) struct ExactCircuitSemanticCandidate {
     pub(super) id: ExactCircuitSemanticCandidateId,
     pub(super) circuit: Arc<ExactTargetCircuit>,
     pub(super) guard_atoms: Box<[CoefficientIdealGuardAtom]>,
+    /// Exact coupled application locus, when this candidate was replayed on
+    /// an affine source-port case.  The rectangular owner region remains a
+    /// cheap prefilter only; coverage code must evaluate this predicate (or
+    /// an authenticated partition derived from it) before claiming ownership.
+    pub(super) affine_application_domain: Option<Arc<AffineApplicationDomain>>,
 }
 
 impl ExactCircuitSemanticCandidate {
@@ -42,6 +48,10 @@ impl ExactCircuitSemanticCandidate {
 
     pub(crate) fn guard_atoms(&self) -> &[CoefficientIdealGuardAtom] {
         &self.guard_atoms
+    }
+
+    pub(crate) fn affine_application_domain(&self) -> Option<&AffineApplicationDomain> {
+        self.affine_application_domain.as_deref()
     }
 }
 
@@ -129,6 +139,7 @@ impl ExactCircuitSemanticDag {
                     id: ExactCircuitSemanticCandidateId(ordinal),
                     circuit,
                     guard_atoms: guard_atoms.into_boxed_slice(),
+                    affine_application_domain: None,
                 },
             )
             .collect::<Vec<_>>();

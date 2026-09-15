@@ -491,6 +491,18 @@ impl RuleCell {
             .and_then(|evidence| evidence.affine_application_domain())
     }
 
+    /// Clone the immutable affine-domain owner without copying its Symbolica
+    /// equations.  This is a cold owner-compilation helper; runtime target
+    /// selection continues to use `affine_application_domain` by reference.
+    pub(crate) fn affine_application_domain_owner(
+        &self,
+    ) -> Option<std::sync::Arc<AffineApplicationDomain>> {
+        self.rule
+            .replay_evidence()
+            .combined_original_domain()
+            .and_then(|evidence| evidence.affine_application_domain_owner())
+    }
+
     #[cfg(test)]
     pub(crate) fn replace_first_guard_polynomial_for_test(
         &mut self,
