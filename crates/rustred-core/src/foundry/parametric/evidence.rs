@@ -11,6 +11,8 @@ use crate::foundry::cell::FixedIndexRestriction;
 use crate::foundry::completion::LatticeBox;
 use crate::sector::Mask;
 
+use super::affine::AffineApplicationDomain;
+
 use super::model::{ConcreteSpecializationReplayWitness, ParametricExactReplayWitness};
 
 /// The proof-bearing replay convention of one exact parametric identity.
@@ -71,6 +73,11 @@ pub struct CombinedOriginalDomainEvidence {
     pub(super) application: Arc<[LatticeBox]>,
     pub(super) source_rows_used: usize,
     pub(super) shift_columns_checked: usize,
+    /// Exact coupled-domain membership, when the producer has retained an
+    /// affine case.  This is deliberately an in-memory carrier only: the
+    /// current artifact codecs and coverage compiler remain box-only and must
+    /// reject a populated value until their authenticated schema is extended.
+    pub(super) affine: Option<Arc<AffineApplicationDomain>>,
 }
 
 impl CombinedOriginalDomainEvidence {
@@ -90,6 +97,12 @@ impl CombinedOriginalDomainEvidence {
     }
     pub(crate) fn shift_columns_checked(&self) -> usize {
         self.shift_columns_checked
+    }
+
+    /// Exact original-power predicate for a coupled replay domain.  A
+    /// rectangular hull is never substituted for the affine equations.
+    pub(crate) fn affine_application_domain(&self) -> Option<&AffineApplicationDomain> {
+        self.affine.as_deref()
     }
 }
 

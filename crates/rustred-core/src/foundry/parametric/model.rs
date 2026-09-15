@@ -483,6 +483,7 @@ impl ParametricRule {
                 application: vec![application].into(),
                 source_rows_used: 0,
                 shift_columns_checked: 0,
+                affine: None,
             },
         ));
     }

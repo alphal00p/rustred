@@ -11,6 +11,7 @@
 //! availability, or closure.
 
 mod anchor;
+mod affine;
 mod boundary;
 mod derive;
 mod error;
@@ -37,6 +38,7 @@ pub use derive::{
 };
 pub use error::ParametricRuleError;
 pub use evidence::{CombinedOriginalDomainEvidence, ParametricReplayEvidence};
+pub use affine::AffineApplicationDomain;
 pub use limits::ParametricRuleLimits;
 pub use model::{
     ConcreteSpecializationReplayWitness, ParametricExactReplayWitness, ParametricGuardOrigin,

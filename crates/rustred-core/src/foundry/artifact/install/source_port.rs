@@ -24,6 +24,16 @@ pub(super) fn validate_combined_rule(cell: &RuleCell) -> Result<(), ArtifactErro
         .replay_evidence()
         .combined_original_domain()
         .ok_or_else(fail)?;
+    // The current installer and cover compiler are rectangular-only. An
+    // affine predicate must not be silently reduced to its bounding box.
+    if evidence.affine_application_domain().is_some() {
+        return Err(ArtifactError::UnsupportedClosureShape);
+    }
+    // The current owner cover, codecs, and cold loader are rectangular-only.
+    // Never silently rectangularize an exact coupled domain.
+    if evidence.affine_application_domain().is_some() {
+        return Err(ArtifactError::UnsupportedClosureShape);
+    }
     if rule.anchor().is_some()
         || rule.replay().is_some()
         || !rule.elimination_pivot_guards().is_empty()

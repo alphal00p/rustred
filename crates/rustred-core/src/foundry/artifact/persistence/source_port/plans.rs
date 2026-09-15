@@ -47,10 +47,16 @@ fn parent_key(
     cell: &RuleCell,
 ) -> Result<ParentKey, ArtifactPersistenceError> {
     let rule = cell.rule();
-    let evidence = rule
-        .replay_evidence()
-        .combined_original_domain()
-        .ok_or_else(|| invalid("combined source parent evidence"))?;
+        let evidence = rule
+            .replay_evidence()
+            .combined_original_domain()
+            .ok_or_else(|| invalid("combined source parent evidence"))?;
+        if evidence.affine_application_domain().is_some() {
+            return Err(invalid("affine combined-domain evidence is not serializable yet"));
+        }
+    if evidence.affine_application_domain().is_some() {
+        return Err(invalid("affine combined domains require the affine codec"));
+    }
     if !matches!(
         cell.sources().construction(),
         SourceViewConstruction::Direct
@@ -177,6 +183,12 @@ pub(super) fn encode(
             .replay_evidence()
             .combined_original_domain()
             .ok_or_else(|| invalid("combined cell evidence"))?;
+        if evidence.affine_application_domain().is_some() {
+            return Err(invalid("affine combined-domain evidence is not serializable yet"));
+        }
+        if evidence.affine_application_domain().is_some() {
+            return Err(invalid("affine combined domains require the affine codec"));
+        }
         encode_box(writer, &evidence.application_boxes()[0])?;
         writer.usize(cell.rule().right_hand_side().len(), "combined RHS terms")?;
         for term in cell.rule().right_hand_side() {

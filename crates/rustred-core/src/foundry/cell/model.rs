@@ -4,6 +4,7 @@ use crate::algebra::{IndexedCoefficientContext, IndexedPolynomial};
 use crate::family::IntegralKey;
 use crate::foundry::completion::frame::exact::ExactCircuitLoweringSeal;
 use crate::foundry::parametric::ParametricRule;
+use crate::foundry::parametric::AffineApplicationDomain;
 use crate::identity::{ParametricRelation, TranslatedSourceProvenance};
 use crate::sector::{
     Mask, SectorInteriorDomain, SectorMonotoneDomain, SectorMonotoneShiftDescentWitness,
@@ -479,6 +480,17 @@ impl RuleCell {
         self.rule.context_fingerprint() == context.fingerprint()
     }
 
+    /// Return the exact coupled application domain carried by original-source
+    /// replay, if any.  This remains separate from the rectangular execution
+    /// carrier: callers must use the rectangle as a cheap prefilter and then
+    /// apply this predicate to the original integral powers.
+    pub(crate) fn affine_application_domain(&self) -> Option<&AffineApplicationDomain> {
+        self.rule
+            .replay_evidence()
+            .combined_original_domain()
+            .and_then(|evidence| evidence.affine_application_domain())
+    }
+
     #[cfg(test)]
     pub(crate) fn replace_first_guard_polynomial_for_test(
         &mut self,
@@ -588,6 +600,15 @@ impl RuleCell {
             assignment.push(value);
         }
         if self.application_domain.contains(&assignment)? {
+            // The rectangular carrier is only a prefilter for coupled replay
+            // domains.  Membership is tested against the original powers,
+            // never against local box coordinates or a sampled hull.
+            if self
+                .affine_application_domain()
+                .is_some_and(|domain| !domain.contains_powers(target.powers()))
+            {
+                return Ok(None);
+            }
             Ok(Some(assignment))
         } else {
             Ok(None)
