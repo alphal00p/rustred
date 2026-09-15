@@ -2,8 +2,13 @@ use super::{Integral, Power, PowerError};
 
 mod affine;
 mod domain;
+mod intersection;
 pub use affine::{AffineCase, AffineGeometryError, AffineIntersection};
 pub use domain::Case;
+pub use intersection::{
+    CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
+    CaseIntersectionResult, CaseIntersectionStats,
+};
 
 /// An equality case with some indices fixed and all other indices free.
 ///

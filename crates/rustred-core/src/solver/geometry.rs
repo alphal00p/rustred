@@ -92,7 +92,7 @@ pub(super) fn intersect<const N: usize>(
     .map_err(|_| GeometryError::NativeAlgebra)?
 }
 
-fn preflight<const N: usize>(
+pub(super) fn preflight<const N: usize>(
     conjunction: &[CoefficientPolynomial],
     indices: &[usize; N],
 ) -> Result<(), GeometryError> {

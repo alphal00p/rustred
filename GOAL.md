@@ -93,9 +93,12 @@ with one and six workers. All 20 release regression runs pass, including the
 complete 617-rule vacuum workload. Fourteen
 sectors still lack completed outputs; the reported first error is nonlinear
 geometry. The next
-slice must preserve normalized coupled equations and perform exact
-factorization-driven OR branching, without treating bounded integer scans as
-completeness. Neither slice is a closed-artifact claim. Measured scheduling
+slice now provides a standalone exact intersection API that preserves
+normalized coupled equations and performs factorization-driven OR branching.
+It passes 13 dedicated tests and all 169 solver tests, but is not yet wired into
+the case queue; the full captured nonlinear census remains to be exercised.
+Bounded integer scans are not treated as completeness. Neither slice is a
+closed-artifact claim. Measured scheduling
 tests retain the current active-first default; input-order was slower on the
 tested full `fam1_12` workload. See the
 [acceptance census](docs/spired_pm_acceptance.md) for the full evidence boundary.

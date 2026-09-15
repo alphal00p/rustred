@@ -22,7 +22,11 @@ mod sector;
 mod seed;
 mod source;
 
-pub use case::{AffineCase, AffineGeometryError, AffineIntersection, Case, CoordinateCase};
+pub use case::{
+    AffineCase, AffineGeometryError, AffineIntersection, Case, CaseIntersectionBudget,
+    CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits, CaseIntersectionResult,
+    CaseIntersectionStats, CoordinateCase,
+};
 pub use cuts::{LinearCutError, LinearCutPreparation, LinearCutRule, prepare_linear_cuts};
 pub use discovery::DiscoveryStats;
 pub use error::SolverError;

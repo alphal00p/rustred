@@ -1,9 +1,29 @@
 # Exact disjunctive exceptional cases: next implementation slice
 
-Date: 2026-09-14. This is a design, not a completed implementation or a claim
-that all 436 requested `fam1_112` sectors pass. It follows the rational
-computational-chart slice and retains the original integer-coordinate meaning
-of every case. All coefficient algebra must remain native Symbolica.
+Design date: 2026-09-14. The standalone intersection service is now implemented
+and independently audited (2026-09-15); queue integration and complete
+`fam1_112` acceptance remain pending. It follows the rational computational-chart
+slice and retains the original integer-coordinate meaning of every case. All
+coefficient algebra remains native Symbolica.
+
+## Standalone implementation checkpoint
+
+`Case::intersect_many` returns one outcome containing the exact union and phase
+statistics. The cohesive `solver/case/intersection` module reuses existing case
+admission and validation, preserves normalized coupled equations, and uses
+native factorization to distribute exceptional conjunctions. Unsupported,
+overflowing or budget-exhausted siblings reject the entire result; none are
+silently dropped. Limits are checked around native operations, not advertised
+as interruption or hard-memory limits inside Symbolica.
+
+Thirteen focused tests pass, including the actual quadratic conjunction below,
+coupled native ideal normalization, rational-chart parity, factor overlap,
+retained siblings, constants and atomic failures. The full 169-test solver set
+and workspace all-target check pass. A separate agent reviewed implementation
+and mathematics. The solver queue still uses its existing singleton service;
+this checkpoint does not change completed campaign output or close any of the
+14 remaining sectors. Direct validation of all 13 captured nonlinear failure
+conjunctions and subsequent queue integration are the next steps.
 
 ## Evidence and immediate objective
 
@@ -79,21 +99,21 @@ With `t=n14`, `u=n10`, and `v=n8`, restriction of that quadratic should expose
 The corresponding branches retain the entire incoming face and require
 `n12=1` together with either `n14=1` or `n14=1+2*n10-2*n8`. They may overlap;
 they must not be replaced by their intersection or an invented larger face.
-This factorization is a concrete expected regression target inferred from the
-saved equations, not a reported successful native factorization or solver run.
-The implementation test must reproduce it with native substitution and
-factorization before using it as acceptance evidence.
+The standalone implementation test now reproduces this exact factorization
+and both retained branches using native substitution and factorization. This
+validates the captured conjunction, not yet an end-to-end run of its sector.
 
 ## Minimal interface and ownership
 
-Introduce an exact union-returning operation, conceptually:
+The implemented union-returning operation is:
 
 ```rust
 Case::intersect_many(conjunction, index_variables, sector, limits)
-    -> Result<Vec<Case<N>>, CaseIntersectionError<N>>
+    -> Result<CaseIntersectionResult<N>, CaseIntersectionError<N>>
 ```
 
-The input conjunction is AND; the returned vector is OR. An empty vector
+The input conjunction is AND; the outcome's `cases` vector is OR, alongside
+phase counters/timings in `stats`. An empty vector
 means that every branch was proved empty. An empty input conjunction returns
 the parent. Successful output is deterministically sorted, deduplicated, and
 pruned only by proved containment. It need not be a disjoint partition.
