@@ -33,6 +33,7 @@ pub use model::{
 pub use one_loop::derive_one_loop_unit_mass_tadpole;
 pub use persistence::{ArtifactCoverReplayLimits, ArtifactEncodingLimits, ArtifactLoadLimits};
 pub use source_port::{SourcePortAudit, SourcePortAuditError, SourcePortSectorAudit};
+pub(crate) use source_port::ReplayedOriginalDomain;
 pub use two_loop::derive_two_loop_unit_mass_sunset;
 
 /// Consume a fully published K6 same-rank campaign and install its exact

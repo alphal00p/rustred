@@ -1,11 +1,14 @@
 //! Opt-in native dense polynomial elimination of a pruned exact source frame.
 //!
 //! This is a bounded diagnostic alternative, not a custom elimination engine.
-//! It deliberately rejects rational input coefficients in the first pilot.
+//! Constant rational coefficients use native Q-polynomials; genuinely rational
+//! functions are rejected. Integer-only frames retain the native Z lane.
 
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
-use symbolica::poly::polynomial::PolynomialRing;
-use symbolica::prelude::Z;
+use symbolica::domains::{EuclideanDomain, Ring};
+use symbolica::poly::gcd::PolynomialGCD;
+use symbolica::poly::polynomial::{MultivariatePolynomial, PolynomialRing};
+use symbolica::prelude::{IntegerRing, Q, Rational, Z};
 use symbolica::tensors::matrix::Matrix;
 
 use crate::algebra::Coefficient;
@@ -20,7 +23,7 @@ pub(super) fn materialize<const N: usize>(
     target_column: usize,
     variables: &FrameVariables,
     max_matrix_entries: usize,
-    mut observe: impl FnMut(MaterializationEvent<N>),
+    observe: impl FnMut(MaterializationEvent<N>),
 ) -> Result<ExactRow<N>, MaterializationError> {
     // The common physical-column validation runs before this private helper.
     // Native partial reduction indexes row zero; never call it on an empty frame.
@@ -42,19 +45,51 @@ pub(super) fn materialize<const N: usize>(
             limit: max_matrix_entries,
         });
     }
-    // Fail before dense allocation. Inherited source/domain conditions are not
-    // discarded or replaced by denominator clearing in this controlled pilot.
+    // Fail before dense allocation. These are polynomials over Z or Q, not
+    // rational functions in the variables. No source/domain condition is
+    // discarded, and no row denominator clearing is performed.
+    let mut rational_coefficients = false;
     for (row, source) in rows.iter().enumerate() {
         for (term, entry) in source.iter().enumerate() {
-            if !entry.coefficient.denominator.is_one() {
+            let denominator = &entry.coefficient.denominator;
+            if denominator.is_zero() || !denominator.is_constant() {
                 return Err(MaterializationError::FractionFreeNonPolynomialCoefficient {
                     row: row + 1,
                     term: term + 1,
                 });
             }
+            rational_coefficients |= !denominator.is_one();
         }
     }
-    let mut matrix = Matrix::new(row_count, column_count, PolynomialRing::new(Z));
+    let shape = (row_count, column_count);
+    if rational_coefficients {
+        let matrix = matrix_from_rows(rows, columns, order, variables, shape, Q, |coefficient| {
+            let denominator = &coefficient.denominator.coefficients[0];
+            coefficient.numerator.map_coeff(
+                |value| Rational::from((value.clone(), denominator.clone())),
+                Q,
+            )
+        })?;
+        target_from_matrix(matrix, columns, target_column, variables, true, observe)
+    } else {
+        let matrix = matrix_from_rows(rows, columns, order, variables, shape, Z, |coefficient| {
+            coefficient.numerator
+        })?;
+        target_from_matrix(matrix, columns, target_column, variables, false, observe)
+    }
+}
+
+/// Remap once, without altering the physical columns or source-row order.
+fn matrix_from_rows<const N: usize, R: Ring>(
+    rows: &[ExactRow<N>],
+    columns: &[Integral<N>],
+    order: &IntegralOrder<N>,
+    variables: &FrameVariables,
+    shape: (u32, u32),
+    ring: R,
+    convert: impl Fn(Coefficient) -> MultivariatePolynomial<R, u16>,
+) -> Result<Matrix<PolynomialRing<R>>, MaterializationError> {
+    let mut matrix = Matrix::new(shape.0, shape.1, PolynomialRing::new(ring));
     for (row, source) in rows.iter().enumerate() {
         for entry in source {
             if !entry.coefficient.is_zero() {
@@ -62,15 +97,31 @@ pub(super) fn materialize<const N: usize>(
                     .binary_search_by(|column| order.compare(column, &entry.integral))
                     .expect("common exact-frame column registry contains every source term");
                 matrix[(row as u32, column as u32)] =
-                    variables.map_coefficient(&entry.coefficient)?.numerator;
+                    convert(variables.map_coefficient(&entry.coefficient)?);
             }
         }
     }
+    Ok(matrix)
+}
+
+fn target_from_matrix<const N: usize, R>(
+    mut matrix: Matrix<PolynomialRing<R>>,
+    columns: &[Integral<N>],
+    target_column: usize,
+    variables: &FrameVariables,
+    rational_coefficients: bool,
+    mut observe: impl FnMut(MaterializationEvent<N>),
+) -> Result<ExactRow<N>, MaterializationError>
+where
+    R: EuclideanDomain + PolynomialGCD<u16>,
+    Coefficient: FromNumeratorAndDenominator<R, IntegerRing, u16>,
+{
     let reduction_columns = target_column + 1;
     observe(MaterializationEvent::DenseFractionFreeStarted {
-        rows: rows.len(),
+        rows: matrix.nrows(),
         columns: columns.len(),
         reduction_columns,
+        rational_coefficients,
     });
     // All columns are retained, including the complete RHS tail. No dense back
     // substitution or generic polynomial-only solve is needed for a target row.

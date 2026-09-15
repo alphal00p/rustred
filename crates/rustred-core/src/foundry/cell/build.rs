@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use crate::algebra::indexed::IntegerZeroLocusDomainResolution;
 use crate::algebra::{
@@ -102,6 +103,31 @@ impl SourceViewBatch {
 }
 
 impl RuleCell {
+    /// Atomic producer boundary: the rule and unchanged sources come from the
+    /// same private full-domain replay record. No separate rule/source/domain
+    /// arguments can be substituted here, and old anchored entries stay gated.
+    pub(crate) fn from_replayed_original_domain(
+        context: &IndexedCoefficientContext,
+        checked: crate::foundry::artifact::ReplayedOriginalDomain,
+    ) -> Result<Self, crate::foundry::artifact::SourcePortAuditError> {
+        let (rule, sources, domain, fixed) =
+            ParametricRule::from_replayed_original_domain(context, checked)?;
+        build(
+            context,
+            rule,
+            sources,
+            domain,
+            RuleCellDomainProof::ReprovedSectorMonotone,
+            GuardDomainPolicy::RequireGloballyNonzero,
+            fixed,
+            Vec::new(),
+            Default::default(),
+        )
+        .map_err(|error| {
+            crate::foundry::artifact::SourcePortAuditError(error.to_string())
+        })
+    }
+
     pub fn try_tightened(
         context: &IndexedCoefficientContext,
         rule: ParametricRule,
@@ -137,7 +163,7 @@ impl RuleCell {
         build(
             context,
             rule,
-            sources,
+            sources.into(),
             domain,
             RuleCellDomainProof::TightenedOriginalInterior,
             GuardDomainPolicy::RequireGloballyNonzero,
@@ -160,7 +186,7 @@ impl RuleCell {
         build(
             context,
             rule,
-            sources,
+            sources.into(),
             application_domain,
             RuleCellDomainProof::ReprovedSectorMonotone,
             GuardDomainPolicy::RequireGloballyNonzero,
@@ -190,7 +216,7 @@ impl RuleCell {
         build(
             context,
             rule,
-            sources,
+            sources.into(),
             application_domain,
             RuleCellDomainProof::ReprovedSectorMonotone,
             GuardDomainPolicy::PermitExactCoordinateLoci,
@@ -358,7 +384,7 @@ pub(crate) fn try_single_guard_domain_split(
 fn build(
     context: &IndexedCoefficientContext,
     rule: ParametricRule,
-    sources: SourceViewBatch,
+    sources: Arc<SourceViewBatch>,
     application_domain: SectorMonotoneDomain,
     domain_proof: RuleCellDomainProof,
     guard_policy: GuardDomainPolicy,

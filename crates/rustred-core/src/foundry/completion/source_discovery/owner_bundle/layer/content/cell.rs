@@ -222,6 +222,10 @@ fn append_parametric_guard_origin(
             output.text(&row_id.stable_string())
         }
         ParametricGuardOrigin::FinalTargetCoefficient => output.tag(6),
+        ParametricGuardOrigin::OriginalDomainCondition { condition_ordinal } => {
+            output.tag(7)?;
+            output.usize(*condition_ordinal)
+        }
     }
 }
 

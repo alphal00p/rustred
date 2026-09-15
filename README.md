@@ -32,8 +32,11 @@ The currently evidenced core can:
 - independently replay the full K6 set from its nine original IBPs, prove
   descent and whole-sector coverage with 38 finite terminals, and obtain
   zero uncovered regions for all 617 rules at one and six workers. This cold
-  audit also passes the complete K1/K3 families; durable source-port artifact
-  installation and the full Vakint three-loop suite remain in progress. See
+  audit also passes the complete K1/K3 families. The canonical unit-mass K6
+  program now installs into the existing in-memory `ClosedArtifact` and
+  memoizing `Reducer`: 623 rules, 5,639 sign-refined cells, 38 finite masters,
+  and 26 proved-zero sectors. Durable source-port encoding/cold reload and
+  the full Vakint three-loop suite remain in progress. See
   the [artifact delivery report](docs/spired_vakint_artifact_plan.md);
 - run those independent sector solves on a bounded private worker pool with
   shared source data and deterministic aggregate output. All `vac3` equations
@@ -116,8 +119,9 @@ The currently evidenced core can:
 
 It does **not** yet ship a certified three-loop `K = 6` artifact from the new
 solver, pass the complete PM example suite, or support generic/higher-even-rank
-tensor reduction. The successful `vac3` rule-generation comparison is not yet
-connected to artifact publication or Vakint. RustRed itself deliberately does not
+tensor reduction. The successful `vac3` rule-generation comparison now has a
+canonical in-memory artifact/reducer counterpart, but that new artifact is
+not yet serialized or consumed by Vakint. RustRed itself deliberately does not
 own evaluated master values; the Vakint adapter can substitute Vakint's
 existing values after reduction. Structural source counts—at any loop
 count—remain insufficient closure evidence.
@@ -134,9 +138,11 @@ and 9 respectively.
 The `K = 1` and `K = 3` families are installed as mathematically closed,
 deterministically encoded artifacts and consumed by the generic recursive
 reducer through Rust, CLI, and Python surfaces. They are also shipped with and
-consumed by Vakint's FORM-free scalar backend. Three-loop `K = 6` closure and
+consumed by Vakint's FORM-free scalar backend. The new SpIRed producer closes
+and installs canonical three-loop `K = 6` in memory; durable delivery and
 extension of that backend across the five registered three-loop graph classes
-are the remaining active Stage 1 work. A test-only K6 pressure fixture already
+are the remaining active Stage 1 work. The earlier foundry lane's test-only K6
+pressure fixture
 pins its exact family, nine sources, order-24 `S4` sector partition, the five
 revision-stamped Vakint class/routing snapshots, and certified `K3 x K1` plus
 both inequivalent `K1 x K1 x K1` factorization sectors. It also derives the

@@ -51,6 +51,23 @@ pub(crate) fn build_sector_monotone_admission(
         &shift_slices,
     )?;
 
+    build_supplied_sector_monotone_admission(domain, pivot, right_hand_side, ordering, limits)
+}
+
+/// Reuse the existing exact term witnesses without expanding a certified
+/// source-directed rule beyond its supplied application domain.
+pub(crate) fn build_supplied_sector_monotone_admission(
+    domain: SectorMonotoneDomain,
+    pivot: &IndexShift,
+    right_hand_side: &[ParametricRuleTerm],
+    ordering: OrderingPolicy,
+    limits: ParametricRuleLimits,
+) -> Result<SectorMonotoneTargetAdmission, ParametricRuleError> {
+    let shift_slices: Vec<_> = right_hand_side
+        .iter()
+        .map(|term| term.shift().values())
+        .collect();
+
     preflight_retained_thresholds(
         &domain,
         &shift_slices,

@@ -18,9 +18,12 @@ use super::persistence::ArtifactCoverReplayLimits;
 
 mod factorization;
 mod one_loop;
+mod source_port;
 mod terminal;
 mod three_loop;
 mod two_loop;
+pub(super) use source_port::ALGORITHM_ID as SOURCE_PORT_ALGORITHM_ID;
+pub(super) use source_port::install_source_port;
 
 pub(crate) use terminal::{TerminalAuthorityCandidate, install_terminal_authority};
 #[cfg(test)]
@@ -134,6 +137,19 @@ pub(super) fn install_persisted_k6(
 }
 
 fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(), ArtifactError> {
+    validate_generic_bindings_for(candidate, ReplayProducer::Anchored)
+}
+
+#[derive(Clone, Copy)]
+enum ReplayProducer {
+    Anchored,
+    CombinedOriginalDomain,
+}
+
+fn validate_generic_bindings_for(
+    candidate: &ClosingArtifactCandidate,
+    producer: ReplayProducer,
+) -> Result<(), ArtifactError> {
     validate_terminal_bindings(TerminalBindings {
         schema: candidate.schema,
         arity: candidate.arity,
@@ -181,7 +197,12 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
                 actual: rule.domain().arity(),
             });
         }
-        validate_rule_descent(rule)?;
+        match producer {
+            ReplayProducer::Anchored => validate_rule_descent(rule)?,
+            ReplayProducer::CombinedOriginalDomain => {
+                return Err(ArtifactError::UnsupportedClosureShape);
+            }
+        }
     }
     for (ordinal, cell) in candidate.rule_cells.iter().enumerate() {
         if cell.rule().ordering() != candidate.ordering {
@@ -207,7 +228,10 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
                 detail: "a rule cell has invalid sector-monotone descent evidence",
             });
         }
-        validate_rule_descent(cell.rule())?;
+        match producer {
+            ReplayProducer::Anchored => validate_rule_descent(cell.rule())?,
+            ReplayProducer::CombinedOriginalDomain => source_port::validate_combined_rule(cell)?,
+        }
         if cell.sources().family_fingerprint() != candidate.family.fingerprint()
             || cell.sources().context_fingerprint() != candidate.context.fingerprint()
             || cell.sources().len() != cell.sources().provenance().len()
@@ -222,8 +246,22 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
                 return Err(ArtifactError::WrongFamily);
             }
         }
-        validate_source_view_construction(cell, candidate)?;
-        validate_cell_replay(cell, &candidate.context)?;
+        match producer {
+            ReplayProducer::Anchored => {
+                validate_source_view_construction(cell, candidate)?;
+                validate_cell_replay(cell, &candidate.context)?;
+            }
+            ReplayProducer::CombinedOriginalDomain => {
+                if !matches!(
+                    cell.sources().construction(),
+                    SourceViewConstruction::Direct
+                ) {
+                    return Err(ArtifactError::InvalidReplayEvidence {
+                        detail: "combined original replay requires unchanged source views",
+                    });
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -481,6 +519,10 @@ fn validate_rule_descent(rule: &ParametricRule) -> Result<(), ArtifactError> {
     // skipping the established producer's replay obligations.
     anchored_replay(rule)?;
     anchored_concrete_replay(rule)?;
+    validate_descent_payload(rule)
+}
+
+fn validate_descent_payload(rule: &ParametricRule) -> Result<(), ArtifactError> {
     let admission = rule.sector_monotone_admission();
     if admission.is_some_and(|value| !value.verify()) {
         return Err(ArtifactError::InvalidRuleShape {

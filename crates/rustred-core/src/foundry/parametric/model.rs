@@ -157,6 +157,11 @@ pub enum ParametricGuardOrigin {
     /// The coefficient of the target in a fully replayed fraction-free
     /// ordinary-source consequence.
     FinalTargetCoefficient,
+    /// An already-authenticated source-directed program obligation, retained
+    /// even if the contributing row weight later cancels exactly.
+    OriginalDomainCondition {
+        condition_ordinal: usize,
+    },
 }
 
 /// One deduplicated parametric nonzero guard with complete retained origins.
@@ -476,6 +481,8 @@ impl ParametricRule {
                 sector: self.sector().clone(),
                 fixed: Box::default(),
                 application: vec![application].into(),
+                source_rows_used: 0,
+                shift_columns_checked: 0,
             },
         ));
     }

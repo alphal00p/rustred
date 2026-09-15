@@ -17,6 +17,9 @@ use super::certificate::{OriginalRowNormalization, OriginalSourceReplay};
 use super::normalization::OriginalSourceCorpus;
 use super::{SourcePortAudit, SourcePortAuditError, SourcePortSectorAudit, error};
 
+#[path = "lower/mod.rs"]
+pub(super) mod lower;
+
 /// One physical displacement from canonical target indices, never a compact
 /// source-port Power. Native coefficients remain bound to the owned corpus.
 #[allow(
@@ -149,7 +152,83 @@ pub(super) struct CheckedProgram<const N: usize> {
     sectors: BTreeMap<[bool; N], CheckedSector<N>>,
 }
 
+impl<const N: usize> CheckedProgram<N> {
+    fn install(self) -> Result<super::super::ClosedArtifact, SourcePortAuditError> {
+        use super::super::install::{
+            ClosingArtifactCandidate, SOURCE_PORT_ALGORITHM_ID, install_source_port,
+        };
+        use super::super::model::{
+            ArtifactSchemaVersion, CommonMassHomogeneityProof, ZeroSectorTerminal,
+            ZeroTerminalProof,
+        };
+        use crate::family::IntegralKey;
+        use crate::identity::ParametricIbpGenerator;
+        use crate::sector::{InteriorBounds, Mask};
+
+        let generator = ParametricIbpGenerator::try_new(&self.family).map_err(error)?;
+        let context = self.original_sources.context().clone();
+        let mut rule_cells = Vec::new();
+        let mut masters = BTreeSet::new();
+        for (_, sector) in self.sectors {
+            for rule in sector.rules {
+                rule_cells.extend(lower::lower_rule(
+                    &self.original_sources,
+                    &generator,
+                    sector.sector,
+                    self.ordering,
+                    &self.zero_sectors,
+                    &self.inherited_source_conditions,
+                    rule,
+                )?);
+            }
+            for terminal in sector.terminals {
+                masters.insert(IntegralKey::try_new(terminal).map_err(error)?);
+            }
+        }
+        drop(generator);
+        let zero_sectors = self
+            .zero_sectors
+            .iter()
+            .map(|sector| {
+                Ok(ZeroSectorTerminal::new(
+                    Mask::try_new(*sector).map_err(error)?,
+                    ZeroTerminalProof::LeePomeranskyRankDeficiency,
+                ))
+            })
+            .collect::<Result<_, SourcePortAuditError>>()?;
+        let candidate = ClosingArtifactCandidate {
+            schema: ArtifactSchemaVersion::CURRENT,
+            algorithm_id: SOURCE_PORT_ALGORITHM_ID,
+            arity: N,
+            ordering: self.ordering,
+            supported_root_power_bounds: vec![InteriorBounds::new(i64::MIN, i64::MAX); N]
+                .into_boxed_slice(),
+            family: self.family,
+            context,
+            source_relations: self.original_sources.into_relations(),
+            rules: Vec::new(),
+            rule_cells,
+            canonicalizer: None,
+            dependencies: Vec::new(),
+            factorization_rules: Vec::new(),
+            masters,
+            zero_sectors,
+            common_mass_homogeneity: Some(CommonMassHomogeneityProof::UniformVacuumMassSquared),
+        };
+        install_source_port(candidate).map_err(error)
+    }
+}
+
 impl<const N: usize> SourcePortAudit<N> {
+    /// Consume complete real solver output into the existing in-memory artifact.
+    /// Cold durable encoding is intentionally a separate, not-yet-enabled gate.
+    pub fn install_complete(
+        self,
+        family: IntegralFamily,
+        sectors: impl IntoIterator<Item = ([bool; N], Option<[usize; N]>, SectorSolution<N>)>,
+    ) -> Result<super::super::ClosedArtifact, SourcePortAuditError> {
+        self.retain_program(family, sectors)?.install()
+    }
     /// Consume real solver output, never caller-editable diagnostic reports.
     /// Each declared sector order is independently checked. A single existing
     /// artifact cannot silently flatten incompatible coordinate priorities.

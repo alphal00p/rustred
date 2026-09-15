@@ -10,14 +10,18 @@ use crate::algebra::{
     Coefficient, CoefficientPolynomial, IndexedCoefficientContext, IndexedPolynomial,
 };
 use crate::family::IntegralFamily;
-use crate::identity::{IndexShift, ParametricIbpGenerator, ParametricRelation, RowId};
+use crate::identity::{
+    CompletedIbpSourceRows, IndexShift, ParametricIbpGenerator, ParametricRelation, RowId,
+};
 use crate::solver::{CoordinateCase, SourceSystem, Term};
 
 use super::certificate::{OriginalRowNormalization, OriginalSourceReplay};
 use super::{SourcePortAuditError, error};
 
+mod translation;
+
 struct OriginalRow {
-    relation: ParametricRelation,
+    ordinal: usize,
     scale: IndexedPolynomial,
 }
 
@@ -26,6 +30,7 @@ struct OriginalRow {
 pub(super) struct OriginalSourceCorpus {
     family_fingerprint: std::sync::Arc<String>,
     context: IndexedCoefficientContext,
+    completed: CompletedIbpSourceRows,
     rows: BTreeMap<RowId, OriginalRow>,
 }
 
@@ -55,10 +60,12 @@ impl OriginalSourceCorpus {
         let generated = (0..batch.len())
             .map(|ordinal| batch.generate(ordinal))
             .collect();
-        let relations = batch.complete(generated).map_err(error)?.into_relations();
-        let mut available: BTreeMap<_, _> = relations
-            .into_iter()
-            .map(|relation| (relation.row_id().clone(), relation))
+        let completed = batch.complete(generated).map_err(error)?;
+        let mut available: BTreeMap<_, _> = completed
+            .relations()
+            .iter()
+            .enumerate()
+            .map(|(ordinal, relation)| (relation.row_id().clone(), ordinal))
             .collect();
         if available.len() != row_ids.len() {
             return Err(error(
@@ -67,21 +74,32 @@ impl OriginalSourceCorpus {
         }
         let mut rows = BTreeMap::new();
         for (row_id, adapter) in row_ids.iter().zip(system.rows()) {
-            let relation = available
+            let ordinal = available
                 .remove(row_id)
                 .ok_or_else(|| error("unknown or duplicate original ordinary RowId"))?;
-            let scale = checked_scale(&context, &relation, adapter)?;
-            rows.insert(row_id.clone(), OriginalRow { relation, scale });
+            let scale = checked_scale(&context, &completed.relations()[ordinal], adapter)?;
+            rows.insert(row_id.clone(), OriginalRow { ordinal, scale });
         }
         Ok(Self {
             family_fingerprint: family.fingerprint_owner(),
             context,
+            completed,
             rows,
         })
     }
 
     pub(super) fn family_fingerprint(&self) -> &str {
         self.family_fingerprint.as_str()
+    }
+
+    pub(in crate::foundry::artifact::source_port) fn context(&self) -> &IndexedCoefficientContext {
+        &self.context
+    }
+
+    pub(in crate::foundry::artifact::source_port) fn into_relations(
+        self,
+    ) -> Vec<ParametricRelation> {
+        self.completed.into_relations()
     }
 
     /// Convert checked adapter weights to weights of original generator rows.
@@ -135,7 +153,7 @@ impl OriginalSourceCorpus {
                 .map_err(error)?
                 .raw()
                 .clone();
-            for condition in original.relation.nonzero_conditions() {
+            for condition in self.completed.relations()[original.ordinal].nonzero_conditions() {
                 let restricted = self.condition_for_target(
                     condition.polynomial(),
                     &contribution.offset,

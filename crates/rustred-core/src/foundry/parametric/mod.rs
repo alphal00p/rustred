@@ -17,6 +17,7 @@ mod error;
 mod evidence;
 mod limits;
 mod model;
+mod original_domain;
 mod prepare;
 mod replay;
 mod sparse;

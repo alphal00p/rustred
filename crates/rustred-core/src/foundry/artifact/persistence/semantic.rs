@@ -278,6 +278,11 @@ fn encode_parametric_guard_origin(
             encode_row_id(writer, row_id)
         }
         ParametricGuardOrigin::FinalTargetCoefficient => writer.u8(6),
+        ParametricGuardOrigin::OriginalDomainCondition { .. } => {
+            Err(ArtifactPersistenceError::UnsupportedFeature {
+                detail: "combined-original-domain conditions require the new source-port codec",
+            })
+        }
     }
 }
 

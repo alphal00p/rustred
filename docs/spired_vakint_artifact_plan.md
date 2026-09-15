@@ -9,14 +9,52 @@ prepass, topology match and routing witness, and pure-Rust master evaluation.
 Ordinary evaluation must neither generate IBPs nor invoke FORM.
 
 This is a parallel integration lane; it does not replace the ongoing generic
-source-port work. The current source-port output is **not yet a certified
-closing artifact**. Matching a complete C++ workload and publishing a complete
-mathematical reduction program are separate milestones.
+source-port work. The canonical unit-mass source-port output now installs as an
+**in-memory `ClosedArtifact`**; durable encoding, cold reload and Vakint shipping
+remain pending. Matching a C++ workload, certifying a reduction program and
+shipping a reusable asset are separate milestones.
 
 The implementation should extend the existing immutable `ClosedArtifact` and
 memoized `Reducer` ownership, not introduce a second legacy artifact wrapper.
 RustRed schema compatibility is not required. Preserve Vakint's existing
 defaults, public conventions, and FORM-backed methods.
+
+### Current milestone: existing artifact and reducer work in memory (2026-09-15)
+
+All three vacuum families now pass the combined original-domain producer into
+the existing `ClosedArtifact` and memoizing `Reducer`. Canonical K6 retains
+**623 independently generated rules, 5,639 sign-refined cells, 38 finite
+terminal corners, and 26 proved-zero sectors**. Every cell derives from full
+weighted original-source replay on its true domain. The installer admits only
+the registered producer, verifies strict descent and all inherited guards,
+and proves an empty unbounded complement for the whole sector census.
+
+Sign refinement handles physical RHS sector changes without inventing a new
+ordering. A separate grounding check found 5,303 surviving term/sign cells:
+3,431 stay in-sector and 1,872 pinch to a proper lower sector. All pass the
+existing descent witness; none activates or swaps an active line. Other
+products vanish by exact coefficient identities or native zero-sector proofs.
+
+The focused test batch passes **269 tests**, including K1 exact reducer parity,
+nonunit mass restoration and observed cache hits, K3 exact parity after mapping
+its four actual terminal keys into the old canonical basis, six full-residual
+negative tests and four checked-payload mutation tests. The separately run
+complete K6 test installs the artifact and checks every master identity plus
+a dotted reduction in every nonzero sector, adding a negative numerator power
+where an inactive slot exists. Those canaries test
+application; they do not establish closure in place of the unbounded proof.
+Independent implementation/mathematical and raw execution audits pass.
+Evidence: `target/spired-original-domain-full.JEvHje/`; debug timings are not
+performance measurements.
+
+The next boundary is **durable serialization and fresh-process cold reload**.
+The existing encoder deliberately rejects this evidence kind until its real
+payload and cold proof reconstruction are implemented. There is no alternate
+artifact wrapper, fabricated anchor or elimination history, or repeated
+authentication in the reducer's hot path. Vakint integration proceeds in
+parallel, but no new three-loop acceptance result or shipped K6 asset is claimed
+by this in-memory milestone. The following dated sections retain earlier
+checkpoint evidence; their pending gates refer to those checkpoints.
 
 ### Canonical unit-mass checked ownership (2026-09-15)
 
@@ -48,8 +86,9 @@ zero census, all-sector generation and exact checked ownership, but no
 serialization or decoding. Evidence:
 `target/spired-program-owner.eAmBDX/{canonical-k6.stdout,canonical-k6.stderr,canonical-k6.time}`.
 
-This is **not yet a `ClosedArtifact`**, a shipped asset or a Vakint acceptance
-pass. The next slice must lower the same retained combined-original-identity
+At this earlier checkpoint it was **not yet a `ClosedArtifact`**, a shipped
+asset or a Vakint acceptance pass. The next slice needed to lower the same
+retained combined-original-identity
 evidence into the existing rule-cell/artifact owner and cold codec, without
 inventing old anchor/counter witnesses. A subsequent fixture-only correctness
 test now checks that **each actual retained typed terminal vector is exactly
@@ -492,21 +531,22 @@ independently of serialized exclusions.
 
 This proof sometimes exists only after weighted cancellation: individual raw
 source terms need not vanish. Therefore do not encode such a certificate as
-independent `ResidualTermDisposition` deletions. Extend the existing
-`SourceViewConstruction` in `foundry/cell/model.rs` with one combined-identity
-domain-quotient evidence variant. It retains unmodified translated source
-relations, fixed-coordinate restrictions and the recomputable combined
-remainder obligations. Existing cell/installer validation must recognize this
-semantic variant explicitly. Do not disguise it as `Direct`, fabricate a
-symmetry canonicalizer, or re-use the existing per-term residual projection
-proof with a weaker meaning. The evidence need not store a large expanded
-sign-cell tree: bounded cold verification can deterministically reconstruct
-the partition from the domain and physical shifts.
+independent `ResidualTermDisposition` deletions. The implemented ownership
+boundary keeps unchanged original translated rows as `SourceViewConstruction::Direct`
+and puts the combined-remainder semantics exclusively in the rule's
+`CombinedOriginalDomain` evidence. A private consuming constructor binds the
+replayed rule and source batch together; the registered installer checks this
+producer explicitly. This supersedes the earlier proposal for a second source
+construction variant: the source rows themselves have not been projected.
+Do not fabricate a symmetry canonicalizer or give a per-term projection proof
+a weaker meaning. Fixed restrictions and combined remainder obligations remain
+recomputable; cold verification can reconstruct sign partitions from the
+domain and physical shifts without storing a redundant expanded proof tree.
 
 ### Lowering and runtime
 
-Add `source_port/lower.rs` and a narrow consuming installer in the existing
-`artifact/install.rs` boundary. The lowerer uses the certified program to
+The cohesive `source_port/lower/` module and narrow consuming installer in the
+existing `artifact/install.rs` boundary use the certified program to
 construct existing `ParametricRule`, `SourceViewBatch` and `Arc<RuleCell>`
 payloads. Extend the private exact-replay construction seal to admit this
 verified producer, preferably moving/renaming the current circuit-specific

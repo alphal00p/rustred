@@ -1,8 +1,9 @@
 //! Cold diagnostics for promoting source-port output into existing artifacts.
 //!
-//! This module cannot construct `ClosedArtifact`. It independently regenerates
-//! sources and checks exact replay, coordinate guards, unbounded structural
-//! coverage and source-port descent. A report is not installation authority.
+//! Reports independently check replay, guards, unbounded coverage and descent.
+//! Only the consuming complete-program path may construct the existing
+//! `ClosedArtifact`, after full original-source replay and supplied-domain
+//! cell lowering. Reports alone remain non-authoritative. No codec lives here.
 
 mod certificate;
 mod geometry;
@@ -10,6 +11,7 @@ mod normalization;
 mod ordinary;
 mod program;
 mod replay;
+pub(crate) use program::lower::ReplayedOriginalDomain;
 
 #[cfg(test)]
 mod tests;

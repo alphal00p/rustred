@@ -47,8 +47,9 @@ application; concurrent compilation ran on separate cores. A subsequent
 fixture-only correctness test now binds every actual retained typed terminal
 set to its sector's exact 0/1 corner, covering all 38 proposed catalog keys.
 That debug test is not a timing result and does not change the frozen release
-binary. Existing `ClosedArtifact` lowering and codec installation remain
-the next implementation gates. The parallel Vakint
+binary. The subsequent in-memory installation milestone below now supplies
+the existing `ClosedArtifact` lowering; durable encoding and cold reload
+remain the next gates. The parallel Vakint
 lane is updating required native solver API calls and checking contraction
 routing; the requested Spenso wrapper decision remains pending. No newly
 added Vakint acceptance test is reported as passed before the current build
@@ -59,9 +60,41 @@ expressions. It is not installed and its four new native tests remain unrun;
 no extra numerical master table or new end-to-end acceptance result is claimed.
 The parametric-rule evidence migration also passes 110 focused tests and the
 separate 623-rule canonical K6 regression. It removes the assumption that every
-proof needs a sampled anchor, but deliberately keeps combined-domain
-installation disabled until its real constructor, cell lowering and codec are
-implemented. This is preparation for shipping K6, not a shipped artifact.
+proof needs a sampled anchor. At that historical checkpoint, combined-domain
+installation was deliberately disabled pending its real constructor and cell
+lowering. The following milestone enables that producer; it does not yet
+enable durable encoding or shipping.
+
+### In-memory artifact and reduction milestone (2026-09-15)
+
+The autonomous canonical unit-mass K6 program now installs through the existing
+`ClosedArtifact` and is applied by the existing memoizing `Reducer`: **623
+generated rules become 5,639 sign-refined rule cells, with 38 actual finite
+terminal corners and 26 proved-zero sectors**. Admission replays the full
+weighted original-source identities, preserves denominator and domain guards,
+proves strict descent, and checks an unbounded zero-complement partition over
+every sector. No sampled canary or rule count substitutes for those gates.
+
+K1 and K3 use the same producer. K1 agrees exactly with the established reducer,
+including nonunit mass restoration and cache hits; K3 agrees after projecting
+its four actual terminal keys to the established symmetry-canonical basis.
+The focused batch passes 269 tests, including adversarial residual and
+checked-payload mutations. The separate complete K6 installation test passes
+all 38 master identities and a dotted canary per nonzero sector, adding a
+negative numerator power where an inactive slot exists.
+Independent mathematical and executed-evidence audits pass. These are
+correctness tests, not debug-build performance measurements. Evidence:
+`target/spired-original-domain-full.JEvHje/`.
+
+Next, the delegated artifact lane must encode and cold-reload this same producer
+through the existing durable format, then ship generation-once K1/K3/K6 assets
+with Vakint. The parallel Vakint lane must bind actual terminal keys to its
+existing exact master expressions, transport contracted topologies and
+numerators through the existing routing witness, and run the full comparative
+three-loop acceptance inventory with FeynKit plus RustRed and an invalid FORM
+path. **No durable K6 asset, cold reload, or new Vakint acceptance pass is
+claimed yet.** This delivery work continues independently of the source-port
+performance lane.
 
 ## Active reference-port assignment (2026-09-14)
 

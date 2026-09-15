@@ -63,6 +63,8 @@ pub enum MaterializationEvent<const N: usize> {
         rows: usize,
         columns: usize,
         reduction_columns: usize,
+        /// True for the native Q-polynomial lane; otherwise native Z.
+        rational_coefficients: bool,
     },
     DenseFractionFreeFinished {
         rank: usize,
@@ -305,7 +307,7 @@ impl fmt::Display for MaterializationError {
             }
             Self::FractionFreeNonPolynomialCoefficient { row, term } => write!(
                 f,
-                "fraction-free pilot requires unit input denominators; row {row}, term {term} is rational"
+                "fraction-free lifting requires polynomial input over Z or Q; row {row}, term {term} has a zero or variable-dependent denominator"
             ),
             Self::FractionFreeMatrixBudget {
                 rows,

@@ -332,15 +332,100 @@ directory. No additional profiler run was made for a dense frame that was never
 reached; the sparse row observations still locate the previously profiled
 exact-algebra bottleneck.
 
-A narrowly scoped follow-up is to evaluate native polynomial elimination over
+A narrowly scoped follow-up was to evaluate native polynomial elimination over
 `Q` for constant rational input coefficients. The inspected Symbolica API
 already supplies `PolynomialRing<RationalField>`, its polynomial GCD service,
 native coefficient-map operations, and conversion of the final rational-field
 numerator/denominator pair to the existing integer-coefficient rational function.
-That route needs focused tests and a repeat of the same full-sector attempt;
-it is not implemented by this pilot. Variable-dependent input denominators
+That route was not implemented by the integer-only pilot. Variable-dependent
+input denominators
 remain a separate policy question. No local reconstruction or denominator-
 clearing algorithm is justified by this failure.
+
+### Constant-rational native elimination follow-up (2026-09-15)
+
+The follow-up now maps nonzero constant-denominator coefficients directly into
+Symbolica's `PolynomialRing<Q>`. Integer-only frames retain `PolynomialRing<Z>`;
+zero or variable-dependent denominators still fail before native elimination.
+Both paths share physical columns, source order and target selection, retain
+the full RHS tail, and normalize only the returned target rule. There is no
+local row-denominator clearing, reconstruction, or silent sparse fallback.
+Progress identifies whether each actual native batch uses Q or Z.
+
+Focused tests compare heterogeneous rational scales and the genuine affine
+half-chart against the sparse backend, including exact RHS, source trace,
+guards, full variable-map restoration and observed Q execution. They also
+reject malformed zero denominators and genuine rational functions. All-target
+checking passes; the coordinated solver/source-port/artifact batch passes 269
+tests, plus the separately executed complete canonical K6 in-memory installation
+test. The latter is not a durable artifact or a performance measurement.
+The two optimized examples were built together in
+`target/spired-original-domain-release.X4wVPB/`; compilation is outside all run
+timings.
+
+All **39 release processes pass**: the established 20 serial/six-worker jobs,
+eight fixed-order jobs, five dense generation jobs and six fresh-process
+generation-plus-source audits. The first two groups preserve 939 and 24
+mathematical files respectively. Dense vac3 executes exactly 137 native integer
+batches and no Q batches, reproducing the 617-rule reference workload and all
+40 sparse mathematical files. Both backends pass all K1/K3/K6 source identities,
+guards, descent and unbounded covers. Matching-progress K6 generation-plus-audit
+takes 1.366280 s sparse / 1.372373 s dense in-process and 1.394704445 s /
+1.399612377 s process wall. These single shared-host observations are not a
+paired performance benchmark or artifact cold reload.
+
+The unchanged hard-sector attempt now genuinely passes the preceding rational
+chart: its 36-by-80 Q-polynomial frame completes in **118,862 µs**. All 415
+historical source/case events remain identical. The 54th native batch reaches
+the original 298-by-482 integer-polynomial frame at 1.819044 s, but remains
+unfinished at the 120-second cap. Exit 124 records **120.408064834 s wall**,
+113.63 s user plus 5.84 s system CPU, and **4,590,928 KiB peak RSS**. There is
+still no completed sector output or hard-case rescue.
+
+This fixes the constant-rational rejection, not the remaining expression swell.
+In this capped observation dense elimination uses substantially more memory
+than the previous sparse observation; the entry-count limit does not constrain
+polynomial growth. Sparse remains the default. Full logs, unchanged-input and
+chronology checks, and independent audits are retained in
+`target/spired-rational-fraction-free-release.jm93vR/`.
+
+A separate 45-second native profile reaches the same integer frame and remains
+censored. Its 2,002 user-space samples, with zero lost samples, place **97.65%
+inclusive** in native integer-polynomial fraction-free elimination. Dense
+polynomial multiplication accounts for **48.10% self / 65.93% inclusive**;
+packed polynomial division is **9.94% self / 12.59% inclusive**, and GCD is
+**0.40% self / 10.84% inclusive**. Inclusive percentages overlap and must not
+be added. The repaired Q-polynomial path contributes only 0.30% inclusive.
+This run measures 41.09 s user plus 4.47 s system CPU, 46.00 s wall including
+profiler flush, and 4,017,412 KiB peak RSS. Evidence:
+`target/spired-native-q-profile.oy0tnm/`. It is a sampled early-window diagnostic,
+not an eventual solve time or a direct speed comparison with the longer sparse
+profile. The dominant observed work has shifted from rational-function division
+to integer-polynomial multiplication; switching native elimination paths has
+not by itself solved the expression-growth problem.
+
+### Isolated unchanged native reference (2026-09-15)
+
+The previously incomplete full C++ campaign did not log individual sector
+starts. Its missing output therefore could not give an isolated native timing
+for `111010100001111`. A new single-sector input manifest now runs the
+**unchanged original release executable**, original zero census and all sixteen
+compiled ordering overrides, with one worker and a 120-second process cap.
+No C++ source, library or binary was edited or rebuilt.
+
+This native run also times out: exit 124, **120.035925402 s wall**, 118.92 s user
+plus 0.37 s system CPU, and 295,732 KiB peak RSS. It writes only the family and
+preliminary-rule files and a header-only statistics file; no completed target
+sector or master list exists. The original source, binary and input hashes
+remain unchanged, and temporary output is preserved in
+`target/spired-fam112-native-isolated.ynIKsc/`. An independent audit passes.
+
+The observation establishes native censoring on the same difficult workload,
+not an eventual completion time, Rust/native intermediate-state equivalence,
+or a speedup ratio. A Rust release build ran concurrently on disjoint CPUs;
+these are shared-host diagnostics, not a controlled paired benchmark. This
+incomplete native output does not become a reference oracle or relax any
+existing acceptance gate.
 
 The current release runs of `fam1_12` and `fam1_111` complete their full
 unchanged requested manifests, 40 and 132 sector jobs respectively. Exact

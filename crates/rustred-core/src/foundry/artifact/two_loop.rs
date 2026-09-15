@@ -157,7 +157,9 @@ pub(super) fn derive_two_loop_unit_mass_sunset_with_limits(
     })
 }
 
-fn canonical_family(limits: IntegralFamilyLimits) -> Result<IntegralFamily, ArtifactError> {
+pub(super) fn canonical_family(
+    limits: IntegralFamilyLimits,
+) -> Result<IntegralFamily, ArtifactError> {
     let base = CoefficientContext::try_new(["d"])?;
     let dimension = base
         .parameter("d")

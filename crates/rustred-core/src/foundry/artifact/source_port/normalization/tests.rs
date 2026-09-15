@@ -3,14 +3,14 @@ use crate::family::AffineDenominator;
 
 use super::*;
 
-fn row_id() -> RowId {
+pub(super) fn row_id() -> RowId {
     RowId::OrdinaryIbp {
         contraction_momentum: 0,
         differentiated_loop: 0,
     }
 }
 
-fn family(symbolic_slope: bool) -> IntegralFamily {
+pub(super) fn family(symbolic_slope: bool) -> IntegralFamily {
     family_order(symbolic_slope, false)
 }
 
@@ -40,7 +40,7 @@ fn family_order(symbolic_slope: bool, reversed: bool) -> IntegralFamily {
     .unwrap()
 }
 
-fn scaled_fixture() -> (OriginalSourceCorpus, SourceSystem<1>) {
+pub(super) fn scaled_fixture() -> (OriginalSourceCorpus, SourceSystem<1>) {
     let family = family(false);
     let original = SourceSystem::<1>::from_family(&family).unwrap();
     let template = &original.rows()[0][0].coefficient;
@@ -77,6 +77,7 @@ fn request(corpus: &OriginalSourceCorpus, offset: i64) -> OriginalSourceReplay<1
 fn generator_scale_is_proved_against_every_original_coefficient() {
     let (corpus, scaled) = scaled_fixture();
     let original = &corpus.rows[&row_id()];
+    let relation = &corpus.completed.relations()[original.ordinal];
     let expected = corpus
         .context
         .add(&corpus.context.index(0).unwrap(), &corpus.context.one())
@@ -84,14 +85,14 @@ fn generator_scale_is_proved_against_every_original_coefficient() {
     assert_eq!(original.scale.raw(), &expected.raw().numerator);
     let mut wrong = scaled.rows()[0].clone();
     wrong[0].coefficient = wrong[0].coefficient.clone().mul_coeff(2.into());
-    assert!(checked_scale(&corpus.context, &original.relation, &wrong).is_err());
+    assert!(checked_scale(&corpus.context, relation, &wrong).is_err());
     wrong = scaled.rows()[0].clone();
     wrong[0].integral = crate::solver::Integral::symbolic([7]).unwrap();
-    assert!(checked_scale(&corpus.context, &original.relation, &wrong).is_err());
+    assert!(checked_scale(&corpus.context, relation, &wrong).is_err());
     wrong = scaled.rows()[0].clone();
     wrong[0].coefficient = CoefficientContext::new(["foreign"]).one().numerator;
-    assert!(checked_scale(&corpus.context, &original.relation, &wrong).is_err());
-    assert!(checked_scale::<1>(&corpus.context, &original.relation, &[]).is_err());
+    assert!(checked_scale(&corpus.context, relation, &wrong).is_err());
+    assert!(checked_scale::<1>(&corpus.context, relation, &[]).is_err());
 }
 
 #[test]
@@ -228,8 +229,7 @@ fn original_parameter_conditions_survive_normalization_without_integer_branching
     let replay = corpus
         .normalize(request(&corpus, 0), &CoordinateCase::generic())
         .unwrap();
-    let expected = corpus.rows[&row_id()]
-        .relation
+    let expected = corpus.completed.relations()[corpus.rows[&row_id()].ordinal]
         .nonzero_conditions()
         .iter()
         .map(|condition| condition.polynomial().raw())

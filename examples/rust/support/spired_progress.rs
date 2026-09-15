@@ -86,9 +86,10 @@ pub fn write_event<const N: usize>(
                         rows,
                         columns,
                         reduction_columns,
+                        rational_coefficients,
                     } => writeln!(
                         output,
-                        "phase=dense-fraction-free-start rows={rows} columns={columns} reduction_columns={reduction_columns}"
+                        "phase=dense-fraction-free-start rows={rows} columns={columns} reduction_columns={reduction_columns} rational_coefficients={rational_coefficients}"
                     ),
                     MaterializationEvent::DenseFractionFreeFinished { rank } => {
                         writeln!(output, "phase=dense-fraction-free-finish rank={rank}")

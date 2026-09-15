@@ -69,6 +69,8 @@ pub struct CombinedOriginalDomainEvidence {
     pub(super) sector: Mask,
     pub(super) fixed: Box<[FixedIndexRestriction]>,
     pub(super) application: Arc<[LatticeBox]>,
+    pub(super) source_rows_used: usize,
+    pub(super) shift_columns_checked: usize,
 }
 
 impl CombinedOriginalDomainEvidence {
@@ -78,6 +80,16 @@ impl CombinedOriginalDomainEvidence {
 
     pub fn fixed_restrictions(&self) -> &[FixedIndexRestriction] {
         &self.fixed
+    }
+
+    pub(crate) fn application_boxes(&self) -> &[LatticeBox] {
+        &self.application
+    }
+    pub(crate) fn source_rows_used(&self) -> usize {
+        self.source_rows_used
+    }
+    pub(crate) fn shift_columns_checked(&self) -> usize {
+        self.shift_columns_checked
     }
 }
 

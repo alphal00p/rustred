@@ -189,6 +189,7 @@ fn assert_lossless_lowering(
                 | ParametricGuardOrigin::RuleCoefficientDenominator { shift } => Some(shift),
                 ParametricGuardOrigin::SourceCondition { .. }
                 | ParametricGuardOrigin::SourceCombinationDenominator { .. }
+                | ParametricGuardOrigin::OriginalDomainCondition { .. }
                 | ParametricGuardOrigin::FinalTargetCoefficient => None,
             };
             if let Some(shift) = shift {

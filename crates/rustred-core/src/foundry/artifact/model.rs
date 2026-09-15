@@ -114,6 +114,8 @@ impl ArtifactValidationWitness {
     }
 
     pub fn replayed_source_rows(self) -> usize {
+        // Logical source-contribution uses across checked identities. Shared
+        // compiled sums can avoid repeating native multiplication per cell.
         self.replayed_source_rows
     }
 

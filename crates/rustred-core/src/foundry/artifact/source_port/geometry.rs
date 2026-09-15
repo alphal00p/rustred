@@ -4,6 +4,10 @@
 //! `LatticeBox::upper == None` remains genuine mathematical infinity. No i64
 //! runtime endpoint is used as a proxy for an infinite proof domain.
 
+#[cfg(test)]
+#[path = "geometry/grounding.rs"]
+mod grounding;
+
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
@@ -232,6 +236,21 @@ fn uniformly_zero_contribution<const N: usize>(
         shifts[axis] =
             i64::from(integral[axis].value()) - i64::from(rule.candidate.target[axis].value());
     }
+    uniformly_zero_wide(&shifts, coefficient, boxes, sector, zero_sectors)
+}
+
+/// Wide original-source/product proof used by durable-payload lowering.
+/// No compact search-power conversion occurs at this boundary.
+pub(super) fn uniformly_zero_wide<const N: usize>(
+    shifts: &[i64; N],
+    coefficient: Option<(&Coefficient, &[usize; N])>,
+    boxes: &[LatticeBox],
+    sector: &[bool; N],
+    zero_sectors: &[[bool; N]],
+) -> Result<bool, SourcePortAuditError> {
+    if boxes.is_empty() {
+        return Ok(false);
+    }
     for cell in boxes {
         for piece in sign_partition(cell, sector, &shifts)? {
             let actual = std::array::from_fn(|axis| {
@@ -341,7 +360,7 @@ fn coefficient_vanishes<const N: usize>(
 
 /// Split exactly where a translated power changes sign. This is a bounded
 /// combinatorial operation on intervals, not an algebraic root solver.
-fn sign_partition<const N: usize>(
+pub(super) fn sign_partition<const N: usize>(
     cell: &LatticeBox,
     sector: &[bool; N],
     shifts: &[i64; N],

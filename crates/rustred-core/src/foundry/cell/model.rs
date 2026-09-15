@@ -427,7 +427,7 @@ impl RuleCellGuardDomainSplit {
 #[derive(Debug)]
 pub struct RuleCell {
     rule: ParametricRule,
-    sources: SourceViewBatch,
+    sources: Arc<SourceViewBatch>,
     proof_domain: SectorInteriorDomain,
     application_domain: SectorMonotoneDomain,
     domain_proof: RuleCellDomainProof,
@@ -501,7 +501,8 @@ impl RuleCell {
         ordinal: usize,
         source_ordinal: usize,
     ) {
-        self.sources
+        Arc::get_mut(&mut self.sources)
+            .expect("test mutation requires uniquely owned source batch")
             .replace_translated_source_ordinal_for_artifact_test(ordinal, source_ordinal);
     }
 
@@ -511,7 +512,8 @@ impl RuleCell {
         ordinal: usize,
         source_row: crate::identity::RowId,
     ) {
-        self.sources
+        Arc::get_mut(&mut self.sources)
+            .expect("test mutation requires uniquely owned source batch")
             .replace_translated_source_row_for_artifact_test(ordinal, source_row);
     }
 
@@ -521,7 +523,8 @@ impl RuleCell {
         ordinal: usize,
         offset: crate::identity::IntegralShift,
     ) {
-        self.sources
+        Arc::get_mut(&mut self.sources)
+            .expect("test mutation requires uniquely owned source batch")
             .replace_translated_source_offset_for_artifact_test(ordinal, offset);
     }
 
@@ -531,7 +534,8 @@ impl RuleCell {
         ordinal: usize,
         relation: ParametricRelation,
     ) {
-        self.sources
+        Arc::get_mut(&mut self.sources)
+            .expect("test mutation requires uniquely owned source batch")
             .replace_source_relation_for_artifact_test(ordinal, relation);
     }
 
@@ -541,7 +545,8 @@ impl RuleCell {
         ordinal: usize,
         relation: ParametricRelation,
     ) {
-        self.sources
+        Arc::get_mut(&mut self.sources)
+            .expect("test mutation requires uniquely owned source batch")
             .replace_residual_original_relation_for_artifact_test(ordinal, relation);
     }
 
@@ -551,7 +556,8 @@ impl RuleCell {
         ordinal: usize,
         group_element: usize,
     ) {
-        self.sources
+        Arc::get_mut(&mut self.sources)
+            .expect("test mutation requires uniquely owned source batch")
             .attach_unregistered_symmetry_for_artifact_test(ordinal, group_element);
     }
     pub fn assignment_for_target(
@@ -590,7 +596,7 @@ impl RuleCell {
 
     pub(super) fn from_parts(
         rule: ParametricRule,
-        sources: SourceViewBatch,
+        sources: Arc<SourceViewBatch>,
         application_domain: SectorMonotoneDomain,
         domain_proof: RuleCellDomainProof,
         guard_domain_proof: RuleCellGuardDomainProof,
