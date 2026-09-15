@@ -38,6 +38,14 @@ no four-loop artifact was written. The first rejected sector has 91/94
 replayed/descending candidates and one uncovered box. These are sector-local
 counts, not a percentage of whole-family completion.
 
+The bounded natural-order parent probes now also record X timing out at
+300.118 s with 1,210,032 KiB peak RSS, BMW timing out at 300.083 s with
+845,304 KiB, and FG failing closed after 233.534 s with 1,087,096 KiB on an
+unsupported nonlinear exceptional intersection. None wrote an artifact. The
+exact affine-domain carrier and membership predicate are pushed in `ed889f8`;
+authenticated RuleCell ownership, persistence, and coverage remain
+intentionally absent.
+
 Vakint revision `512d3ce8` adds a pure-Symbolica FMFT master-finalization
 boundary without activating four-loop RustRed reduction. Eight native tests
 pass with invalid FORM paths, and all fourteen unchanged analytic FMFT

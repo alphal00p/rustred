@@ -90,3 +90,22 @@ families and one worker, passed generation, cold inspection and reduction:
 
 Targets were `[3]` and `[2,2,1]`. All six subprocesses returned zero. These
 small controls are not substitutes for four-loop closure or Gregor's benchmarks.
+
+## Four-loop parent-family natural-order probes
+
+The remaining parent-family probes were run from the release binary with two
+workers pinned to two physical CPUs. They are bounded generation attempts, not
+closure claims; all were run from fresh processes and no FORM-derived rules or
+prior artifacts were supplied.
+
+| family | wall time | CPU time | peak RSS | result |
+| --- | ---: | ---: | ---: | --- |
+| H | 162.272 s | 726.055 s | 746,156 KiB | typed affine-ownership failure; no artifact |
+| X | 300.118 s | 596.532 s | 1,210,032 KiB | timeout; no artifact |
+| BMW | 300.083 s | 596.357 s | 845,304 KiB | timeout; no artifact |
+| FG | 233.534 s | 462.960 s | 1,087,096 KiB | unsupported nonlinear exceptional intersection; no artifact |
+
+The H run reaches an exact coupled affine locus, while FG fails closed before
+an affine candidate can be authenticated. X and BMW exhaust the five-minute
+process budget before publication. These measurements establish the current
+four-loop boundary and are not evidence that any parent family is closed.
