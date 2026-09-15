@@ -29,11 +29,11 @@ pub(super) fn validate_combined_rule(cell: &RuleCell) -> Result<(), ArtifactErro
     if evidence.affine_application_domain().is_some() {
         return Err(ArtifactError::UnsupportedClosureShape);
     }
-    // The current owner cover, codecs, and cold loader are rectangular-only.
-    // Never silently rectangularize an exact coupled domain.
-    if evidence.affine_application_domain().is_some() {
+    if !evidence.affine_exclusions().is_empty() {
         return Err(ArtifactError::UnsupportedClosureShape);
     }
+    // The current owner cover, codecs, and cold loader are rectangular-only.
+    // Never silently rectangularize an exact coupled domain.
     if rule.anchor().is_some()
         || rule.replay().is_some()
         || !rule.elimination_pivot_guards().is_empty()

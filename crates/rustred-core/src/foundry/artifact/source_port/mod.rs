@@ -412,6 +412,23 @@ impl<const N: usize> SourcePortAudit<N> {
                         self.sources.index_variables(),
                     ) {
                         Ok(()) => {
+                            // A successful rectangular descent proof is not
+                            // an ownership proof for a coupled target locus.
+                            // Keep such candidates in the affine census and
+                            // omit them only if the independent coordinate
+                            // cover is complete; the installer remains
+                            // rectangular-only until predicate ownership is
+                            // authenticated end to end.
+                            if let Some(domain) = affine_target.clone() {
+                                affine_candidates.push((
+                                    ordinal,
+                                    SourcePortAuditError::UnsupportedAffineOwnership {
+                                        domain: (*domain).clone(),
+                                        role: AffineOwnershipRole::Target,
+                                    },
+                                ));
+                                continue;
+                            }
                             // Count only executable rules.  An affine
                             // candidate that is later omitted under an
                             // independent complete coordinate cover is not
@@ -424,6 +441,7 @@ impl<const N: usize> SourcePortAudit<N> {
                                 replay.ordinary,
                                 checked,
                                 affine_target.clone(),
+                                Vec::new(),
                             )?;
                             if affine_target.is_none() {
                                 checked_boxes.extend(geometry::copy_boxes(&retained.application)?);

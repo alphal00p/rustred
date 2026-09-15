@@ -484,6 +484,7 @@ impl ParametricRule {
                 source_rows_used: 0,
                 shift_columns_checked: 0,
                 affine: None,
+                affine_exclusions: Arc::from([]),
             },
         ));
     }

@@ -78,6 +78,11 @@ pub struct CombinedOriginalDomainEvidence {
     /// current artifact codecs and coverage compiler remain box-only and must
     /// reject a populated value until their authenticated schema is extended.
     pub(super) affine: Option<Arc<AffineApplicationDomain>>,
+    /// Exact affine exceptional branches removed from the rectangular
+    /// prefilter.  These are retained as predicates, never approximated by
+    /// boxes.  Publication remains fail-closed until the durable predicate
+    /// partition codec/coverage compiler is enabled.
+    pub(super) affine_exclusions: Arc<[Arc<AffineApplicationDomain>]>,
 }
 
 impl CombinedOriginalDomainEvidence {
@@ -112,6 +117,13 @@ impl CombinedOriginalDomainEvidence {
         &self,
     ) -> Option<Arc<AffineApplicationDomain>> {
         self.affine.clone()
+    }
+
+    /// Affine exceptional predicates which must be excluded after the
+    /// rectangular prefilter.  The slice is immutable and pointer-shared
+    /// across cells; callers must test original integral powers.
+    pub(crate) fn affine_exclusions(&self) -> &[Arc<AffineApplicationDomain>] {
+        &self.affine_exclusions
     }
 }
 

@@ -289,6 +289,16 @@ fn same_parent(left: &RuleCell, right: &RuleCell) -> bool {
                 .replay_evidence()
                 .combined_original_domain()
                 .and_then(|evidence| evidence.affine_application_domain())
+        && match (
+            left.rule().replay_evidence().combined_original_domain(),
+            right.rule().replay_evidence().combined_original_domain(),
+        ) {
+            (Some(left), Some(right)) => {
+                left.affine_exclusions().is_empty() && right.affine_exclusions().is_empty()
+            }
+            (None, None) => true,
+            _ => false,
+        }
 }
 
 pub(super) fn encode(

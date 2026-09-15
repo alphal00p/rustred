@@ -82,6 +82,7 @@ impl ParametricRule {
             source_rows_used: parts.source_rows_used,
             shift_columns_checked: parts.shift_columns_checked,
             affine: parts.affine,
+            affine_exclusions: parts.affine_exclusions,
         };
         let rule = Self {
             family_fingerprint: Arc::new(parts.sources.family_fingerprint().to_owned()),

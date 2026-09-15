@@ -33,6 +33,7 @@ pub(crate) struct OriginalDomainParts {
     pub contributions: Vec<(usize, RowId, IndexedCoefficient)>,
     pub guards: Vec<(IndexedPolynomial, Vec<ParametricGuardOrigin>)>,
     pub affine: Option<Arc<AffineApplicationDomain>>,
+    pub affine_exclusions: Arc<[Arc<AffineApplicationDomain>]>,
     pub source_rows_used: usize,
     pub shift_columns_checked: usize,
     pub limits: ReplayLimits,
@@ -115,6 +116,7 @@ pub(super) fn lower_rule<const N: usize>(
         translated.contributions,
         fixed,
         affine,
+        checked.affine_exclusions.clone().into(),
         conditions,
         limits,
     )?;

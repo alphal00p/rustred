@@ -12,6 +12,7 @@ pub(super) mod bounded;
 
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use symbolica::prelude::Integer;
 
@@ -59,6 +60,33 @@ pub(super) fn application_boxes<const N: usize>(
     sector: &[bool; N],
     additional_exceptions: &[Case<N>],
 ) -> Result<Vec<LatticeBox>, SourcePortAuditError> {
+    let partition = application_partition(rule, indices, sector, additional_exceptions)?;
+    if let Some(domain) = partition.affine_exclusions.first() {
+        return Err(SourcePortAuditError::UnsupportedAffineOwnership {
+            domain: (**domain).clone(),
+            role: AffineOwnershipRole::Exceptional,
+        });
+    }
+    Ok(partition.boxes)
+}
+
+/// Exact ownership partition behind the rectangular application prefilter.
+///
+/// Coordinate exceptional branches become box holes as before.  Coupled
+/// affine branches are retained as exact predicates instead of being
+/// approximated by a box.  The legacy `application_boxes` wrapper remains
+/// fail-closed until callers provide predicate-aware replay/descent proof.
+pub(super) struct ApplicationPartition {
+    pub(super) boxes: Vec<LatticeBox>,
+    pub(super) affine_exclusions: Vec<Arc<AffineApplicationDomain>>,
+}
+
+pub(super) fn application_partition<const N: usize>(
+    rule: &SectorRule<N>,
+    indices: &[usize; N],
+    sector: &[bool; N],
+    additional_exceptions: &[Case<N>],
+) -> Result<ApplicationPartition, SourcePortAuditError> {
     let base = if let Some(case) = rule.candidate.case.coordinate() {
         if rule.candidate.target != case.integral() {
             return Err(error("rule target differs from its coordinate case"));
@@ -74,7 +102,10 @@ pub(super) fn application_boxes<const N: usize>(
         // This is intentionally the only affine target shortcut here:
         // unresolved affine loci still fail closed below.
         if affine.is_proved_empty_in_sector(sector) {
-            return Ok(Vec::new());
+            return Ok(ApplicationPartition {
+                boxes: Vec::new(),
+                affine_exclusions: Vec::new(),
+            });
         }
         // The coordinate face is an exact rectangular *prefilter* for the
         // coupled locus. Ownership remains affine and is carried separately
@@ -85,6 +116,7 @@ pub(super) fn application_boxes<const N: usize>(
     };
     let original = rule.exceptional_cases(indices, sector).map_err(error)?;
     let mut excluded = Vec::new();
+    let mut affine_exclusions = Vec::new();
     for case in original.iter().chain(additional_exceptions) {
         let coordinate = match case.coordinate() {
             Some(coordinate) => coordinate,
@@ -96,11 +128,10 @@ pub(super) fn application_boxes<const N: usize>(
                 if affine.is_proved_empty_in_sector(sector) {
                     continue;
                 }
-                let domain = AffineApplicationDomain::from_case(affine, sector).map_err(error)?;
-                return Err(SourcePortAuditError::UnsupportedAffineOwnership {
-                    domain,
-                    role: AffineOwnershipRole::Exceptional,
-                });
+                affine_exclusions.push(Arc::new(
+                    AffineApplicationDomain::from_case(affine, sector).map_err(error)?,
+                ));
+                continue;
             }
         };
         excluded.push(case_box(coordinate, sector)?);
@@ -108,7 +139,10 @@ pub(super) fn application_boxes<const N: usize>(
     let cover =
         BoxCover::try_new(N, excluded, CompletionGeometryLimits::default()).map_err(error)?;
     let applicable = cover.uncovered_within(base).map_err(error)?;
-    copy_boxes(applicable.boxes())
+    Ok(ApplicationPartition {
+        boxes: copy_boxes(applicable.boxes())?,
+        affine_exclusions,
+    })
 }
 
 pub(super) fn terminal_boxes<const N: usize>(

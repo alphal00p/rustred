@@ -164,6 +164,7 @@ pub(super) fn decode<'input>(
                 contributions,
                 plan.fixed,
                 plan.affine,
+                std::sync::Arc::from([]),
                 plan.conditions,
                 replay_limits,
             )

@@ -621,6 +621,22 @@ impl RuleCell {
             {
                 return Ok(None);
             }
+            // Affine exceptional branches are exact predicates, not
+            // rectangular holes.  Keep the cheap box prefilter above, then
+            // reject points lying on any authenticated exceptional locus.
+            if self
+                .rule
+                .replay_evidence()
+                .combined_original_domain()
+                .is_some_and(|evidence| {
+                    evidence
+                        .affine_exclusions()
+                        .iter()
+                        .any(|domain| domain.contains_powers(target.powers()))
+                })
+            {
+                return Ok(None);
+            }
             Ok(Some(assignment))
         } else {
             Ok(None)

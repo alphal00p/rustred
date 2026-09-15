@@ -474,6 +474,33 @@ fn boundary_rule(coefficient: &str) -> (CoefficientContext, SectorRule<2>) {
 }
 
 #[test]
+fn affine_exception_partition_keeps_exact_ray_out_of_box_coverage() {
+    let (context, mut rule) = boundary_rule("1");
+    rule.exceptions.branches = vec![vec![
+        context.coefficient_fixture("1+n0-2*n1").numerator,
+    ]];
+    let partition =
+        geometry::application_partition(&rule, &[0, 1], &[false, false], &[]).unwrap();
+    assert_eq!(partition.boxes.len(), 1);
+    assert_eq!(partition.boxes[0].lower(), &[0, 0]);
+    assert_eq!(partition.boxes[0].upper(), &[None, None]);
+    assert_eq!(partition.affine_exclusions.len(), 1);
+    let excluded = &partition.affine_exclusions[0];
+    assert!(excluded.contains_powers(&[-1, 0]));
+    assert!(excluded.contains_powers(&[-3, -1]));
+    assert!(!excluded.contains_powers(&[0, 0]));
+    // The box-only caller must still refuse to treat this prefilter as a
+    // complete owner: its infinite exceptional ray is carried separately.
+    assert!(matches!(
+        geometry::application_boxes(&rule, &[0, 1], &[false, false], &[]),
+        Err(SourcePortAuditError::UnsupportedAffineOwnership {
+            role: AffineOwnershipRole::Exceptional,
+            ..
+        })
+    ));
+}
+
+#[test]
 fn whole_ray_descent_drops_only_exactly_vanishing_activation_boundary_terms() {
     let (_, rule) = boundary_rule("n0");
     let cells = geometry::application_boxes(&rule, &[0, 1], &[false, true], &[]).unwrap();

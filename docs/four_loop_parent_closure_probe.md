@@ -161,6 +161,19 @@ Symbolica validates all `56` domains, guards, sector signs, and coefficients.
 The reverse run is consequently a stress test for affine ownership and replay,
 not a source of imported rules.
 
+### Exact predicate carrier checkpoint
+
+The source-port geometry now separates a rectangular prefilter from exact
+affine exceptional predicates. The first regression uses
+`1+n0-2*n1=0` in the nonpositive quadrant: `(-1,0)` and `(-3,-1)` are on the
+excluded infinite ray, while `(0,0)` is not. The old box-only entry point still
+rejects that partition, so the prefilter cannot accidentally become coverage.
+Immutable exclusion metadata can pass through the checked-rule/lowering
+carrier and is tested on original powers by runtime cells. Artifact
+installation still rejects populated exclusions pending the exact predicate
+cover proof and its durable encoding. This is an ownership-plumbing slice,
+not a new four-loop closure result.
+
 ## Interpretation
 
 None of the three external parents currently has a cold-loadable RustRed

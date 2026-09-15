@@ -39,5 +39,6 @@ fn combined_evidence_never_inherits_an_anchored_fixtures_history() {
     assert_eq!(domain.application.len(), 1);
     assert_eq!(domain.application[0].lower(), [0]);
     assert_eq!(domain.application[0].upper(), [None]);
+    assert!(domain.affine_exclusions().is_empty());
     assert_eq!(rule.clone().replay_evidence(), rule.replay_evidence());
 }

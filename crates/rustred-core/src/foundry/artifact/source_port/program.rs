@@ -43,6 +43,10 @@ pub(super) struct CheckedRule<const N: usize> {
     /// prefilter; runtime ownership must evaluate this predicate on original
     /// powers. Exceptional affine branches remain fail-closed in geometry.
     pub(super) affine: Option<Arc<AffineApplicationDomain>>,
+    /// Exact exceptional affine predicates removed from the rectangular
+    /// application prefilter.  Kept separate from `affine`: an affine target
+    /// and its affine guard branches form a predicate partition, not a box.
+    pub(super) affine_exclusions: Vec<Arc<AffineApplicationDomain>>,
 }
 
 impl<const N: usize> CheckedRule<N> {
@@ -53,6 +57,7 @@ impl<const N: usize> CheckedRule<N> {
         ordinary: OriginalSourceReplay<N>,
         application: Vec<LatticeBox>,
         affine: Option<Arc<AffineApplicationDomain>>,
+        affine_exclusions: Vec<Arc<AffineApplicationDomain>>,
     ) -> Result<Self, SourcePortAuditError> {
         if ordinary.normalization != OriginalRowNormalization::OriginalGeneratorOrdinaryV1 {
             return Err(error(
@@ -98,6 +103,7 @@ impl<const N: usize> CheckedRule<N> {
             nonzero_conditions,
             ordinary,
             affine,
+            affine_exclusions,
         })
     }
 }
