@@ -6,7 +6,8 @@ use std::time::{Duration, Instant};
 
 use super::geometry::{GeometryError, compare_cases};
 use super::{
-    AffineGeometryError, Case, CoordinateCase, ExceptionError, ExceptionalConditions, Integral,
+    AffineGeometryError, Case, CaseIntersectionError, CaseIntersectionFailure,
+    CaseIntersectionLimits, CoordinateCase, ExceptionError, ExceptionalConditions, Integral,
     RuleCandidate, SearchOptions, SectorSolver, SolverError, extract_exceptions,
 };
 
@@ -26,17 +27,44 @@ impl<const N: usize> SectorRule<N> {
         &self,
         indices: &[usize; N],
         sector: &[bool; N],
-    ) -> Result<Vec<Case<N>>, AffineGeometryError> {
+    ) -> Result<Vec<Case<N>>, SectorSolveError<N>> {
+        let (admitted, _) = self.admit_exceptional_cases(indices, sector)?;
         let mut cases = Vec::new();
-        for branch in &self.exceptions.branches {
-            if let Some(case) = self.candidate.case.intersect(branch, indices, sector)? {
-                if prune_subsumed(&mut cases, &case)? {
-                    cases.push(case);
-                }
+        for case in admitted {
+            if prune_subsumed(&mut cases, &case).map_err(|source| SectorSolveError::Geometry {
+                case: case.clone(),
+                source,
+            })? {
+                cases.push(case);
             }
         }
         cases.sort_unstable_by(Case::queue_cmp);
         Ok(cases)
+    }
+
+    // Keep the complete OR private until every AND branch has been admitted.
+    // Preserve original OR-branch order for the queue: globally pruning this
+    // vector could remove an earlier numeric seed before a later symbolic
+    // sibling is enqueued, changing the reference's shared seed chronology.
+    fn admit_exceptional_cases(
+        &self,
+        indices: &[usize; N],
+        sector: &[bool; N],
+    ) -> Result<(Vec<Case<N>>, usize), SectorSolveError<N>> {
+        let mut cases = Vec::new();
+        let mut discarded = 0;
+        for branch in &self.exceptions.branches {
+            let intersection = self
+                .candidate
+                .case
+                .intersect_many(branch, indices, sector, CaseIntersectionLimits::default())
+                .map_err(|source| SectorSolveError::Intersection(Box::new(source)))?;
+            if intersection.cases.is_empty() {
+                discarded += 1;
+            }
+            cases.extend(intersection.cases);
+        }
+        Ok((cases, discarded))
     }
 }
 
@@ -113,6 +141,10 @@ pub enum SectorSolveError<const N: usize> {
         case: Case<N>,
         source: AffineGeometryError,
     },
+    /// A complete exceptional union could not be admitted. Provenance retains
+    /// the original parent/conjunction and unresolved branch; no partial cover
+    /// or partially published parent rule is returned.
+    Intersection(Box<CaseIntersectionError<N>>),
     Exceptions {
         case: Case<N>,
         source: ExceptionError,
@@ -132,6 +164,7 @@ impl<const N: usize> fmt::Display for SectorSolveError<N> {
         match self {
             Self::Search { case, source } => write!(f, "search for {case:?}: {source}"),
             Self::Geometry { case, source } => write!(f, "geometry on {case:?}: {source}"),
+            Self::Intersection(source) => source.fmt(f),
             Self::Exceptions { case, source } => write!(f, "exceptions for {case:?}: {source}"),
             Self::NonProgress { case } => {
                 write!(f, "a rule excludes its entire current case {case:?}")
@@ -209,23 +242,17 @@ impl<const N: usize> SectorSolver<'_, N> {
             stats.exception_extraction += rule.1;
             let rule = rule.0;
             let geometry_start = Instant::now();
-            // Insert children before storing this rule, matching solveSector.
-            // A newly discovered branch is not covered by that rule itself.
-            for conjunction in &rule.exceptions.branches {
-                let child = current
-                    .intersect(conjunction, &self.system.indices, self.order.sector())
-                    .map_err(|source| SectorSolveError::Geometry {
-                        case: current.clone(),
-                        source,
-                    })?;
-                if let Some(child) = child {
-                    if child == current {
-                        return Err(SectorSolveError::NonProgress { case: current });
-                    }
-                    if !self.enqueue(child, &mut pending, &mut numerical, &rules)? {
-                        stats.discarded_cases += 1;
-                    }
-                } else {
+            // Admit every exceptional sibling before mutating the queue or
+            // publishing the parent. A newly discovered child is not covered
+            // by this rule itself, so only earlier rules may suppress it.
+            let (children, discarded) =
+                rule.admit_exceptional_cases(&self.system.indices, self.order.sector())?;
+            stats.discarded_cases += discarded;
+            if children.iter().any(|child| child == &current) {
+                return Err(SectorSolveError::NonProgress { case: current });
+            }
+            for child in children {
+                if !self.enqueue(child, &mut pending, &mut numerical, &rules)? {
                     stats.discarded_cases += 1;
                 }
             }
@@ -361,23 +388,35 @@ impl<const N: usize> SectorSolver<'_, N> {
             return Ok(false);
         }
         for branch in &rule.exceptions.branches {
-            match case.intersect(branch, &self.system.indices, self.order.sector()) {
-                Ok(None) => (),
-                Ok(Some(_)) => return Ok(false),
+            match case.intersect_many(
+                branch,
+                &self.system.indices,
+                self.order.sector(),
+                CaseIntersectionLimits::default(),
+            ) {
+                Ok(result) if result.cases.is_empty() => (),
+                Ok(_) => return Ok(false),
                 // Failure to prove an exceptional intersection empty must
                 // never suppress pending work, even if the rule might apply.
-                Err(AffineGeometryError::UnsupportedNonlinear { .. })
-                | Err(AffineGeometryError::Coordinate(GeometryError::UnsupportedGeometry {
-                    ..
-                }))
-                | Err(AffineGeometryError::Coordinate(GeometryError::CompactOverflow { .. })) => {
+                Err(source)
+                    if matches!(
+                        &source.failure,
+                        CaseIntersectionFailure::UnsupportedGeometry
+                            | CaseIntersectionFailure::Budget { .. }
+                            | CaseIntersectionFailure::RepeatedState
+                            | CaseIntersectionFailure::Admission(
+                                AffineGeometryError::UnsupportedNonlinear { .. }
+                                    | AffineGeometryError::Coordinate(
+                                        GeometryError::UnsupportedGeometry { .. }
+                                            | GeometryError::CompactOverflow { .. }
+                                    )
+                            )
+                    ) =>
+                {
                     return Ok(false);
                 }
                 Err(source) => {
-                    return Err(SectorSolveError::Geometry {
-                        case: case.clone(),
-                        source,
-                    });
+                    return Err(SectorSolveError::Intersection(Box::new(source)));
                 }
             }
         }
@@ -408,3 +447,7 @@ fn prune_subsumed<const N: usize>(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "sector/intersection_tests.rs"]
+mod intersection_tests;

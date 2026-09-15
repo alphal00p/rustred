@@ -37,3 +37,9 @@ impl<const N: usize> Case<N> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod fast_path_tests;
+
+#[cfg(test)]
+mod captured_tests;

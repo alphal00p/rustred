@@ -1,6 +1,6 @@
 # Supplied SpIRed PM acceptance census and implementation recipes
 
-Snapshot: 2026-09-14. This is a census of the supplied example inputs and
+Snapshot: 2026-09-15. This is a census of the supplied example inputs and
 reference output, not a claim that all examples have been ported. The complete
 `vac3`, `fam1_11`, `fam1_12`, `fam1_111`, `bc4PMRad1`, and selected `fam_cosmo` workloads now pass
 exact Rust/C++ equation, guard, and residual checks. Reference source and binary data stay under ignored
@@ -135,6 +135,42 @@ neither it nor the partial C++ run supports a paired speed comparison.
 Evidence: `target/spired-fam112-post-chart.EDZPa7/`. The next exact
 [exceptional-case slice](spired_exceptional_case_plan.md) must retain normalized
 coupled equations and split factorized conjunctions into complete alternatives.
+
+That standalone service now resolves all 13 captured nonlinear conjunctions:
+two proved-empty domains and 15 explicit branches across the other eleven,
+with zero incomplete inputs. This is exact local geometry validation only.
+Queue integration now passes all 180 solver tests and all 20 fresh release
+regressions, including 939 byte-identical mathematical-file comparisons.
+
+### Post-disjunctive-queue full rerun (2026-09-15)
+
+The unchanged 436-sector manifest reaches **435/436 observed complete rule
+sections**, containing 72,355 rules and 390 provisional residual records, before
+the 600-second cap (exit 124). No terminal algebra/geometry error was emitted.
+Only `111010100001111` lacks output. Its last reported symbolic target is
+`I(1,1,1,0,2,0,1,0,0,0,0,n11,n12,n13,n14)`, with 85 other cases pending;
+207 case solves have been reported. The progress line does not print coupled
+equalities or distinguish modular discovery from exact materialization, so it
+does not identify the entire remaining case or its algebraic bottleneck.
+
+All prior 422 sector outputs are present; 413 are byte-identical and nine
+changed. Independent block-level audits find exactly 14 removed cases, no
+added or altered common rule blocks, and identical residual tails in all nine
+changed files. Thirteen removed affine domains contradict their sector signs.
+The remaining coordinate child in `111010100011011` is covered by a retained
+broader rule: its sole exception is `n4+2*n10+2*n11=4`, whereas all three powers
+are positive, so the left side is at least five. No domain is lost by these
+removals; this does not assert algebraic equality of different applicable
+rules. The preliminary cut rules are unchanged.
+Because the process was censored, a well-formed residual-section tail is not
+proof that every callback flushed all its residuals. These are observed counts,
+not a complete family result or a certified artifact.
+
+Elapsed wall time is 600.163 s, aggregate CPU time 2,828.64 s, and peak RSS
+1,767,052 KiB. This capped run is not a matched performance comparison with
+the incomplete C++ campaign. Frozen release binary, complete manifest,
+16 ordering overrides, regression checks and censoring evidence are retained
+in `target/spired-disjunctive-queue.RLesUd/`.
 
 The current release runs of `fam1_12` and `fam1_111` complete their full
 unchanged requested manifests, 40 and 132 sector jobs respectively. Exact

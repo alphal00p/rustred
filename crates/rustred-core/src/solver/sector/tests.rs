@@ -286,6 +286,7 @@ fn unsupported_guard_intersection_cannot_suppress_pending_work() {
     assert!(!solver.rule_covers(&rule, &Case::generic()).unwrap());
     assert!(matches!(
         rule.exceptional_cases(&[0, 1], &[true; 2]),
-        Err(AffineGeometryError::UnsupportedNonlinear { .. })
+        Err(SectorSolveError::Intersection(source))
+            if matches!(source.failure, CaseIntersectionFailure::UnsupportedGeometry)
     ));
 }

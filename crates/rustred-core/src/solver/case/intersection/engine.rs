@@ -120,6 +120,28 @@ impl<const N: usize> Engine<'_, N> {
         pending: &mut Vec<WorkItem<N>>,
         resolved: &mut Vec<Case<N>>,
     ) -> Result<(), CaseIntersectionFailure> {
+        // Public preflight, incoming-domain emptiness and work/term budgets
+        // have already been checked. Keep the common coordinate/affine lane
+        // on its existing native admission path, without primitive content,
+        // sorting, chart-restriction copies, F4 or factorization here.
+        if self.current.equations.is_empty() {
+            resolved.push(self.current.parent.clone());
+            return Ok(());
+        }
+        if self.current.equations.iter().all(native::is_affine) {
+            let start = Instant::now();
+            let child = self
+                .current
+                .parent
+                .intersect(&self.current.equations, self.indices, self.sector)
+                .map_err(CaseIntersectionFailure::Admission);
+            self.stats.admission_time += start.elapsed();
+            self.stats.affine_admissions += 1;
+            if let Some(child) = child? {
+                resolved.push(child);
+            }
+            return Ok(());
+        }
         let mut normalized = false;
         loop {
             let start = Instant::now();

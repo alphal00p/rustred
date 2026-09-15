@@ -1,12 +1,14 @@
-# Exact disjunctive exceptional cases: next implementation slice
+# Exact disjunctive exceptional cases: implementation and acceptance plan
 
-Design date: 2026-09-14. The standalone intersection service is now implemented
-and independently audited (2026-09-15); queue integration and complete
-`fam1_112` acceptance remain pending. It follows the rational computational-chart
+Design date: 2026-09-14. The intersection service and sector-queue integration
+are implemented, tested and independently audited (2026-09-15). All 20
+established release regressions pass. The first integrated full `fam1_112`
+attempt reached 435 of 436 observed rule sections before its 600-second cap;
+complete-family acceptance remains pending. This follows the rational computational-chart
 slice and retains the original integer-coordinate meaning of every case. All
 coefficient algebra remains native Symbolica.
 
-## Standalone implementation checkpoint
+## Implementation checkpoint
 
 `Case::intersect_many` returns one outcome containing the exact union and phase
 statistics. The cohesive `solver/case/intersection` module reuses existing case
@@ -16,14 +18,107 @@ overflowing or budget-exhausted siblings reject the entire result; none are
 silently dropped. Limits are checked around native operations, not advertised
 as interruption or hard-memory limits inside Symbolica.
 
-Thirteen focused tests pass, including the actual quadratic conjunction below,
-coupled native ideal normalization, rational-chart parity, factor overlap,
-retained siblings, constants and atomic failures. The full 169-test solver set
-and workspace all-target check pass. A separate agent reviewed implementation
-and mathematics. The solver queue still uses its existing singleton service;
-this checkpoint does not change completed campaign output or close any of the
-14 remaining sectors. Direct validation of all 13 captured nonlinear failure
-conjunctions and subsequent queue integration are the next steps.
+The standalone tests cover the actual quadratic conjunction below, coupled
+native ideal normalization, rational-chart parity, factor overlap, retained
+siblings, constants and atomic failures. Ten further regressions test queue
+integration and the affine-only fast path. The combined **180-test solver set
+passes**, including the captured-input census. A separate agent reviewed the
+implementation and mathematics. The queue now admits every exceptional
+conjunction through the union-returning service before publishing its parent
+rule; existing-rule coverage uses the same exact boundary. The subsequent
+release results below provide campaign evidence separately from those tests;
+neither unit-test success nor rule-file generation certifies a closing artifact.
+
+The common all-affine lane retains full validation, incoming-domain emptiness
+checks and work/term budgets, but directly uses existing case admission without
+new primitive-content, restriction-copy, factorization or ideal-normalization
+work. Its tests check those phase counters, rational-chart integer parity,
+empty incoming affine domains and invalid index maps.
+
+The subsequent captured-input diagnostic now succeeds on **all 13** original
+nonlinear conjunctions. Two have empty integer intersections; the remaining
+eleven yield 15 coordinate/affine branches in total. None retains unsupported
+geometry. Independent provenance review checked all 195 fixed-axis entries,
+33 input equations and 264 polynomial terms against the original failure logs,
+including the incoming affine parent. Each returned branch is checked to imply
+every original equality exactly and to retain the parent and sector signs.
+Only two inputs need joint native ideal normalization; the others resolve by
+affine restriction, factorization, and exact sign admission. This diagnostic
+does not prove that later queue descendants will all succeed. The integrated
+full-family run below still stops before every queued case has been processed.
+Evidence: `target/spired-cold-artifact.ckZDsX/captured-geometry.txt`.
+
+## Integrated release checkpoint
+
+The reproducible protocol in `target/spired-disjunctive-queue.RLesUd/` executed
+20 established fixture/frontier runs at requested worker budgets one and six.
+All pass, including strict native equation, required/excluded-domain and
+preliminary-rule comparison, available independently extracted native residual
+keys, and **939 byte-identical mathematical-file comparisons** against the
+previous checkpoint and across worker counts. This includes the complete
+38-sector vac3 workload (617 rules), fam1_11 (802), fam1_12 (1,104), fam1_111
+(10,333), bc4PMRad1 (856), the supplied fam_cosmo sector (15), K1/K3 regression
+fixtures, and the two previously validated fam1_112 frontier sectors (347 and
+398). One-sector fixtures clamp the actual worker count to one.
+
+The following full attempt used all **436** original requested fam1_112 sectors,
+all **16** ordering overrides, numeric search depth **3**, six workers, and
+unbounded symbolic source enumeration under a **600-second process wall cap**.
+It exited **124**, not successfully. Observed output contains **435** complete
+rule sections, **72,355** rules and **390 provisional residual records**. No
+visibly truncated rule section was found, but the residual-section header is
+not an end-of-file completion marker: a killed callback's entire residual list
+is not certified by that header. No partial C++ whole-family oracle was used.
+Binary and input hashes are unchanged.
+
+Only `111010100001111` has no rule file. Its log records 208 case starts,
+207 rules found and no numerical-search start. The last visible target is
+
+```text
+I(1,1,1,0,2,0,1,0,0,0,0,n11,n12,n13,n14)
+```
+
+with 85 additional cases pending. No terminal algebra or geometry error was
+reported before timeout. The observer prints the integral's fixed-coordinate
+pattern, not every possible coupled equality; it also does not separate
+modular search, exact lifting and subsequent guard work within that final
+case. Consequently this is not evidence that any particular native primitive
+is stuck or that this remaining sector cannot complete.
+
+Compared with the prior 422-sector checkpoint, all 422 have output: 413 are
+byte-identical and nine change only by removing 14 rule blocks. Every retained
+block and all nine residual tails remain byte-identical; no rule is added or
+modified in those nine files. Independent review proves 13 removed affine
+domains empty by sector sign bounds. The other removed coordinate rule, in
+`111010100011011`, is redundant: a retained broader rule frees `n11` and has
+the sole exception `n4+2*n10+2*n11=4`, impossible when all three indices are
+positive (the left side is at least five). It therefore covers the removed
+child. This establishes no lost application domain from these deletions; it
+is not a claim of equality between two independently specialized RHSs. The
+original C++ output retains that redundant child, so a strict one-to-one rule
+census may conservatively reject this improved cover and needs a separate
+semantic comparison, not a weakened closure criterion.
+
+Twelve of the original thirteen nonlinear-frontier sectors now have observed
+rule output. The thirteenth is the remaining sector above; an additional
+post-chart continuation also acquired output, giving 13 more files than the
+prior checkpoint. The full run took **600.163 seconds** launch-to-exit,
+**2,779.02 user + 49.62 system CPU seconds**, and peaked at **1,767,052 KiB RSS**.
+These are censored diagnostic figures, not completed timing or performance
+acceptance. Aggregate per-sector phase files did not flush before the timeout,
+so a full-family phase breakdown is unavailable. The completed regressions do
+retain those phases. Large timing variation even between two actual
+single-worker repeats means an unmatched old/new comparison cannot attribute
+slowdown to this queue slice.
+
+The next bounded diagnostic should isolate `111010100001111` with the same
+frozen binary, sources, orderings and numeric depth, a longer finite wall cap,
+and subphase profiling where available. Do not pretend that a cached native
+oracle exists for it: the censored C++ run has no completed statistics record
+for this sector. Separately compare changed sectors against complete native
+records where available, retaining the distinction between redundant rule
+lists and complete exact application coverage. No further run or algorithm
+change is authorized by this recorded proposal alone.
 
 ## Evidence and immediate objective
 
@@ -99,9 +194,11 @@ With `t=n14`, `u=n10`, and `v=n8`, restriction of that quadratic should expose
 The corresponding branches retain the entire incoming face and require
 `n12=1` together with either `n14=1` or `n14=1+2*n10-2*n8`. They may overlap;
 they must not be replaced by their intersection or an invented larger face.
-The standalone implementation test now reproduces this exact factorization
-and both retained branches using native substitution and factorization. This
-validates the captured conjunction, not yet an end-to-end run of its sector.
+The standalone implementation test reproduces this exact factorization and
+both retained branches using native substitution and factorization. The
+integrated full attempt subsequently writes 544 rules for this sector; exact
+native comparison of that new output and complete-family acceptance remain
+separate obligations.
 
 ## Minimal interface and ownership
 
@@ -218,14 +315,26 @@ exists, and do not approximate its result by floating-point roots.
 
 ## Queue, guards, and publication
 
-The sector queue must enqueue **every** admitted exceptional child before
-storing the parent rule. Children keep canonical primitive integer equations;
+The sector queue admits **every** exceptional conjunction completely before
+inserting any new child or storing the parent rule. An unsupported sibling
+rejects the operation atomically, even if another sibling has already been
+resolved internally. Children keep canonical primitive integer equations;
 only their computational charts use rational parameters. Existing
 containment-based pruning is sufficient and conservative, not a complete
 integer-polyhedron implication algorithm.
 
-`SectorRule::exceptional_cases` must flatten `intersect_many` for every original
-OR branch, then apply common canonical union pruning. Existing-rule coverage
+`SectorRule::exceptional_cases` flattens `intersect_many` for every original
+OR branch, then applies common canonical union pruning. Queue insertion has a
+separate private admission step that preserves the original OR-branch order:
+globally pruning before insertion could remove a numerical seed that the old
+queue would have retained before a later, broader symbolic sibling arrived.
+All 24 permutations of a representative coordinate/numerical sibling set are
+checked against the original insertion algorithm for pending order, numerical
+seed bank and discarded counters. Newly split nonlinear branches naturally
+add work, but established coordinate counters and chronology are unchanged.
+Each individual factor union has a deterministic canonical order.
+
+Existing-rule coverage
 is established only if every exceptional intersection is proved empty. An
 unsupported intersection means coverage has not been proved; it cannot
 suppress pending work. A child equal to its parent still triggers explicit

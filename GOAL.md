@@ -95,8 +95,18 @@ sectors still lack completed outputs; the reported first error is nonlinear
 geometry. The next
 slice now provides a standalone exact intersection API that preserves
 normalized coupled equations and performs factorization-driven OR branching.
-It passes 13 dedicated tests and all 169 solver tests, but is not yet wired into
-the case queue; the full captured nonlinear census remains to be exercised.
+It initially passed 13 dedicated tests and all 169 solver tests. The additional full
+captured census now admits all 13 original nonlinear conjunctions exactly:
+two are proved empty and the remaining eleven produce 15 explicit branches,
+with no unsupported remainder. Exact disjunctive queue integration now passes
+all 180 solver tests, including ten new branch/chronology/fast-path regressions.
+All 20 fresh release regressions pass, with 939 byte-identical mathematical
+file comparisons. The subsequent complete-manifest run reaches 435/436 observed
+rule sections before its 600-second cap, with 72,355 rules and 390 provisional
+residual records. Only `111010100001111` lacks output; it is still solving
+symbolic cases when censored, with no terminal geometry error emitted.
+This remains an incomplete diagnostic, not complete-family acceptance or a
+paired performance comparison.
 Bounded integer scans are not treated as completeness. Neither slice is a
 closed-artifact claim. Measured scheduling
 tests retain the current active-first default; input-order was slower on the
