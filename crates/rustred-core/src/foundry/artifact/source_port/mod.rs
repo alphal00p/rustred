@@ -28,20 +28,94 @@ use crate::family::IntegralFamily;
 use crate::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, OrderingPolicy, zero};
 use crate::solver::{SectorConfig, SectorSolution, SectorSolver, SourceSystem};
 
+/// The role of an affine case which the box-only artifact bridge encountered.
+///
+/// This is deliberately a diagnostic distinction: the current bridge cannot
+/// publish coupled domains, but retaining the exact case equations makes the
+/// limitation actionable for a future affine-domain owner instead of reducing
+/// it to an opaque string.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AffineOwnershipRole {
+    Target,
+    Exceptional,
+}
+
 /// Fail-closed cold-audit failure, with no partially installed state.
-#[derive(Debug)]
-pub struct SourcePortAuditError(pub String);
+#[derive(Clone, Debug)]
+pub enum SourcePortAuditError {
+    /// Ordinary bridge/validation failure.
+    Message(String),
+    /// The exact affine case is valid search output, but cannot be represented
+    /// by the current rectangular application-domain artifact bridge.
+    ///
+    /// `sector` is the canonical positive/negative orthant mask and
+    /// `equations` are the canonical coupled equalities in the family index
+    /// variable map. `fixed` retains the coordinate face constraints, which
+    /// are independent of the sector signs.
+    UnsupportedAffineOwnership {
+        sector: Vec<bool>,
+        fixed: Vec<Option<i16>>,
+        equations: Vec<crate::algebra::CoefficientPolynomial>,
+        role: AffineOwnershipRole,
+    },
+}
 
 impl fmt::Display for SourcePortAuditError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        match self {
+            Self::Message(message) => f.write_str(message),
+            Self::UnsupportedAffineOwnership {
+                sector,
+                fixed,
+                equations,
+                role,
+            } => {
+                let role = match role {
+                    AffineOwnershipRole::Target => "target",
+                    AffineOwnershipRole::Exceptional => "exceptional",
+                };
+                write!(
+                    f,
+                    "{role} affine ownership is not yet supported by the artifact bridge \
+                     (sector={sector:?}, fixed={fixed:?}, equations={equations:?})"
+                )
+            }
+        }
     }
 }
 
 impl std::error::Error for SourcePortAuditError {}
 
+impl SourcePortAuditError {
+    pub(crate) fn message(value: impl Into<String>) -> Self {
+        Self::Message(value.into())
+    }
+
+    /// Return the exact affine diagnostic when this error is one.  This is a
+    /// read-only inspection seam for generic campaign/reporting code; it does
+    /// not imply that the current artifact bridge can consume the case.
+    pub fn affine_ownership(
+        &self,
+    ) -> Option<(
+        &[bool],
+        &[Option<i16>],
+        &[crate::algebra::CoefficientPolynomial],
+        AffineOwnershipRole,
+    )> {
+        match self {
+            Self::UnsupportedAffineOwnership {
+                sector,
+                fixed,
+                equations,
+                role,
+            } => Some((sector, fixed, equations, *role)),
+            Self::Message(_) => None,
+        }
+    }
+}
+
 fn error(value: impl fmt::Display) -> SourcePortAuditError {
-    SourcePortAuditError(value.to_string())
+    SourcePortAuditError::message(value.to_string())
 }
 
 /// One non-authoritative report over a whole mathematical integer orthant.

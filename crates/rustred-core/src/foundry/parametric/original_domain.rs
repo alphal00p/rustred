@@ -30,7 +30,7 @@ impl ParametricRule {
         SourcePortAuditError,
     > {
         let parts = checked.into_parts();
-        let error = |message: String| SourcePortAuditError(message);
+        let error = |message: String| SourcePortAuditError::message(message);
         if parts.sources.context_fingerprint() != context.fingerprint()
             || !matches!(parts.sources.construction(), SourceViewConstruction::Direct)
             || parts.source_rows_used == 0

@@ -7,7 +7,25 @@ use crate::solver::{
     SectorSolution, SectorSolveOptions, SectorSolver, SourceSystem, Term,
 };
 
-use super::{SourcePortAudit, geometry};
+use super::{AffineOwnershipRole, SourcePortAudit, SourcePortAuditError, geometry};
+
+#[test]
+fn affine_ownership_diagnostic_preserves_sector_and_exact_constraints() {
+    let context = CoefficientContext::new(["n0", "n1"]);
+    let equation = context.coefficient_fixture("n0 - n1").numerator;
+    let error = SourcePortAuditError::UnsupportedAffineOwnership {
+        sector: vec![true, false],
+        fixed: vec![None, Some(2)],
+        equations: vec![equation.clone()],
+        role: AffineOwnershipRole::Exceptional,
+    };
+    let (sector, fixed, equations, role) = error.affine_ownership().expect("typed affine error");
+    assert_eq!(sector, &[true, false]);
+    assert_eq!(fixed, &[None, Some(2)]);
+    assert_eq!(equations, &[equation]);
+    assert_eq!(role, AffineOwnershipRole::Exceptional);
+    assert!(error.to_string().contains("sector=[true, false]"));
+}
 
 pub(super) fn tadpole() -> IntegralFamily {
     let context = CoefficientContext::new(["d"]);

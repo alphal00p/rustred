@@ -70,8 +70,12 @@ fn native_translated_condition_coordinates_obey_the_original_rule_budget() {
         .unwrap();
     assert!(
         failure
-            .0
+            .to_string()
             .contains("original condition provenance coordinate cells")
     );
-    assert!(failure.0.contains(&format!("requested {cells}, limit 0")));
+    assert!(
+        failure
+            .to_string()
+            .contains(&format!("requested {cells}, limit 0"))
+    );
 }

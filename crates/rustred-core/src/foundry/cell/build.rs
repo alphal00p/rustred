@@ -123,7 +123,7 @@ impl RuleCell {
             Vec::new(),
             limits,
         )
-        .map_err(|error| crate::foundry::artifact::SourcePortAuditError(error.to_string()))
+        .map_err(|error| crate::foundry::artifact::SourcePortAuditError::message(error.to_string()))
     }
 
     pub fn try_tightened(

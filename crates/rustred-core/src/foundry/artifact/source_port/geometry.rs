@@ -20,7 +20,7 @@ use crate::foundry::completion::{BoxCover, CompletionGeometryLimits, LatticeBox}
 use crate::sector::{Mask, OrderingPolicy};
 use crate::solver::{Case, CoordinateCase, Integral, SectorRule};
 
-use super::{SourcePortAuditError, error};
+use super::{AffineOwnershipRole, SourcePortAuditError, error};
 
 pub(super) fn copy_boxes(boxes: &[LatticeBox]) -> Result<Vec<LatticeBox>, SourcePortAuditError> {
     boxes.iter().map(copy_box).collect()
@@ -59,9 +59,22 @@ pub(super) fn application_boxes<const N: usize>(
     sector: &[bool; N],
     additional_exceptions: &[Case<N>],
 ) -> Result<Vec<LatticeBox>, SourcePortAuditError> {
-    let case = rule.candidate.case.coordinate().ok_or_else(|| {
-        error("coupled affine ownership is not yet supported by the artifact bridge")
-    })?;
+    let case = match rule.candidate.case.coordinate() {
+        Some(case) => case,
+        None => {
+            let affine = rule
+                .candidate
+                .case
+                .affine()
+                .expect("non-coordinate case must be affine");
+            return Err(SourcePortAuditError::UnsupportedAffineOwnership {
+                sector: sector.to_vec(),
+                fixed: affine.face().fixed().to_vec(),
+                equations: affine.equations().to_vec(),
+                role: AffineOwnershipRole::Target,
+            });
+        }
+    };
     if rule.candidate.target != case.integral() {
         return Err(error("rule target differs from its coordinate case"));
     }
@@ -69,9 +82,18 @@ pub(super) fn application_boxes<const N: usize>(
     let original = rule.exceptional_cases(indices, sector).map_err(error)?;
     let mut excluded = Vec::new();
     for case in original.iter().chain(additional_exceptions) {
-        let coordinate = case
-            .coordinate()
-            .ok_or_else(|| error("non-coordinate exceptional ownership remains unsupported"))?;
+        let coordinate = match case.coordinate() {
+            Some(coordinate) => coordinate,
+            None => {
+                let affine = case.affine().expect("non-coordinate case must be affine");
+                return Err(SourcePortAuditError::UnsupportedAffineOwnership {
+                    sector: sector.to_vec(),
+                    fixed: affine.face().fixed().to_vec(),
+                    equations: affine.equations().to_vec(),
+                    role: AffineOwnershipRole::Exceptional,
+                });
+            }
+        };
         excluded.push(case_box(coordinate, sector)?);
     }
     let cover =
