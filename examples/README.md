@@ -12,6 +12,14 @@ tadpole campaign used as a fast public-API smoke test.
 - [`cli/`](cli/) uses `rustred campaign generate`, `inspect`, and `reduce`.
 - [`python/`](python/) uses the public `import rustred` package.
 
+The completed autonomous K=6 artifact is also available through both consumer
+surfaces. [`cli/run_k6_closing_artifact.sh`](cli/run_k6_closing_artifact.sh)
+generates it once (or reuses an existing release generator), then cold-loads
+and reduces it with the CLI. [`python/k6_closing_artifact.py`](python/k6_closing_artifact.py)
+performs the same authenticated load and exact reduction through
+`import rustred`; neither consumer recompiles or regenerates an existing
+artifact.
+
 The artifact sets the common squared mass to one. Each reduction coefficient
 also reports the exact power of `mass_squared` that restores a general common
 mass by dimensional homogeneity.
@@ -24,8 +32,9 @@ advanced validation aid, not required family data.
 Run the examples from the repository root in the pinned development
 environment with `SYMBOLICA_LICENSE` set.
 
-The two root-level K=6 campaign documents exercise the still-active
-three-loop foundry investigation rather than the already closed K=3 example:
+The two root-level K=6 campaign documents exercise separate three-loop foundry
+investigation lanes. They are useful bounded search diagnostics, but are not
+needed by the completed artifact consumer examples above:
 
 - [`k6_external_search_hints.toml`](k6_external_search_hints.toml) supplies
   55 reviewed integral-anchor rectangles, a coordinate order, and a modular
