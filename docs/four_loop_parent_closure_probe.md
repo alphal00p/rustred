@@ -81,6 +81,24 @@ next sound step is to persist and authenticate this exact affine carrier and
 to compile a coverage partition that treats its rectangular face only as a
 runtime prefilter, never as the coverage certificate itself.
 
+### H rerun after affine runtime/persistence plumbing
+
+After the exact affine carrier was threaded through replay and the source-port
+codec (commits `60164de` and `2f33965`), a fresh release run was performed from
+the same generic H input. It still did not publish an artifact, but the failure
+mode moved further into the authority pipeline: `60/63` rules replayed and
+descended, with seven uncovered rectangular pieces. Two retained candidates
+(rules 42 and 48) were rejected because full original-source replay still had
+an unproved residual product, while rule 41 exposed one nonempty exceptional
+affine branch. Its exact fixed face is
+`[None,None,None,None,Some(0),Some(1),Some(1),Some(0),Some(1),Some(1)]`
+and its coupled equation is `-1 - n2 + 2*n0 = 0` in the original index map.
+This run therefore identifies two independent requirements: repair the exact
+source-product replay for the two candidates, and compile the affine
+exceptional branch into a certified DNF owner partition. The affine payload
+codec alone is not a closure proof and remains deliberately rejected by the
+installer.
+
 ## Interpretation
 
 None of the three external parents currently has a cold-loadable RustRed
