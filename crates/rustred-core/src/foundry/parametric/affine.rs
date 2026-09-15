@@ -10,6 +10,8 @@
 
 use std::fmt;
 
+use symbolica::prelude::{IntegerRing, Matrix};
+
 use crate::algebra::CoefficientPolynomial;
 use crate::solver::AffineCase;
 
@@ -31,6 +33,17 @@ pub struct AffineApplicationDomain {
     /// would silently test the wrong locus at runtime.
     indices: Box<[usize]>,
     equations: Box<[CoefficientPolynomial]>,
+    /// Primitive augmented rows `[A | b]` copied from the authenticated
+    /// `AffineCase`.  Keeping these rows alongside the equations gives a
+    /// future coverage compiler an exact integer-lattice witness without
+    /// asking it to redo elimination.  `None` is used by the test-only loose
+    /// constructor, which intentionally is not admissible as publication
+    /// evidence.
+    primitive_matrix: Option<Matrix<IntegerRing>>,
+    /// Whether the affine chart maps free integer coordinates to integer
+    /// dependent coordinates.  This is a chart property, not a proof that
+    /// the sector has an integer point or that a family is covered.
+    integral_chart: Option<bool>,
 }
 
 impl AffineApplicationDomain {
@@ -51,6 +64,8 @@ impl AffineApplicationDomain {
             fixed: case.face().fixed().to_vec().into_boxed_slice(),
             indices: case.index_variables().to_vec().into_boxed_slice(),
             equations: case.equations().to_vec().into_boxed_slice(),
+            primitive_matrix: Some(case.primitive_matrix().clone()),
+            integral_chart: Some(case.has_integral_chart()),
         })
     }
 
@@ -86,6 +101,8 @@ impl AffineApplicationDomain {
                 .collect::<Vec<_>>()
                 .into_boxed_slice(),
             equations,
+            primitive_matrix: None,
+            integral_chart: None,
         })
     }
 
@@ -106,6 +123,28 @@ impl AffineApplicationDomain {
 
     pub fn equations(&self) -> &[CoefficientPolynomial] {
         &self.equations
+    }
+
+    /// Exact primitive integer rows `[A | b]` when this domain came from an
+    /// authenticated affine solver case.  The rows are an integer-lattice
+    /// witness only; they do not establish feasibility or family coverage.
+    pub fn primitive_matrix(&self) -> Option<&Matrix<IntegerRing>> {
+        self.primitive_matrix.as_ref()
+    }
+
+    /// Whether the solver's canonical chart is integral.  `None` means the
+    /// domain was built by the deliberately test-only loose constructor and
+    /// therefore cannot be promoted to durable affine coverage evidence.
+    pub fn has_integral_chart(&self) -> Option<bool> {
+        self.integral_chart
+    }
+
+    /// True only for a domain carrying all solver-authenticated integer
+    /// evidence.  This is intentionally weaker than a coverage claim: a
+    /// caller must still provide and verify a partition certificate for the
+    /// surrounding sector before publication.
+    pub fn is_authenticated(&self) -> bool {
+        self.primitive_matrix.is_some() && self.integral_chart.is_some()
     }
 
     /// Test an original integral-power assignment against the exact affine
@@ -203,6 +242,9 @@ mod tests {
         assert_eq!(domain.fixed(), &[None, None]);
         assert_eq!(domain.indices(), &[0, 1]);
         assert_eq!(domain.equations(), &[equation]);
+        assert!(domain.is_authenticated());
+        assert_eq!(domain.has_integral_chart(), Some(true));
+        assert!(domain.primitive_matrix().is_some());
         assert!(domain.contains_powers(&[3, 3]));
         assert!(!domain.contains_powers(&[3, 2]));
         assert!(!domain.contains_powers(&[0, 0]));
@@ -245,5 +287,23 @@ mod tests {
         assert!(!domain.contains_powers(&[0, -2, -1]));
         assert!(!domain.contains_powers(&[-1, -1, -2]));
     }
-}
 
+    #[test]
+    fn loose_constructor_cannot_be_promoted_to_coverage_evidence() {
+        let context = CoefficientContext::new(["n0", "n1"]);
+        let equation = context.coefficient_fixture("n0 - n1").numerator;
+        let domain = AffineApplicationDomain::try_new(
+            [true, true],
+            [None, None],
+            [equation],
+        )
+        .expect("shape-valid diagnostic domain");
+
+        // A shape-valid carrier created outside AffineCase deliberately lacks
+        // the canonical integer rows and chart witness.  It may be useful in
+        // unit diagnostics, but cannot cross a publication boundary.
+        assert!(!domain.is_authenticated());
+        assert!(domain.primitive_matrix().is_none());
+        assert_eq!(domain.has_integral_chart(), None);
+    }
+}
