@@ -7,16 +7,17 @@ use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
 
 use crate::{
-    campaign_plan, campaign_preflight, closing_artifact_generate, closing_artifact_inspect,
+    CampaignPlanRequest, CampaignPreflightRequest, ClosingArtifactGenerateRequest,
+    ClosingArtifactInspectRequest, ClosingArtifactReduceRequest, DeriveRequest, FamilyCloseRequest,
+    FamilySolveRequest, FoundryCampaignRunRequest, FoundryWaveCampaignRunRequest, campaign_plan,
+    campaign_preflight, closing_artifact_generate, closing_artifact_inspect,
     closing_artifact_reduce, derive as derive_application, foundry_campaign_run_with_progress,
-    foundry_wave_campaign_run_with_progress, CampaignPlanRequest, CampaignPreflightRequest,
-    ClosingArtifactGenerateRequest, ClosingArtifactInspectRequest, ClosingArtifactReduceRequest,
-    DeriveRequest, FamilySolveRequest, FoundryCampaignRunRequest, FoundryWaveCampaignRunRequest,
+    foundry_wave_campaign_run_with_progress,
 };
 use args::{
-    parse_args, CampaignGenerateArgs, CampaignInspectArgs, CampaignPlanArgs, CampaignPreflightArgs,
-    CampaignReduceArgs, Command, DeriveArgs, FamilySolveArgs, FoundryCampaignRunArgs,
-    FoundryWaveCampaignRunArgs, StreamPath, HELP,
+    CampaignGenerateArgs, CampaignInspectArgs, CampaignPlanArgs, CampaignPreflightArgs,
+    CampaignReduceArgs, Command, DeriveArgs, FamilyCloseArgs, FamilySolveArgs,
+    FoundryCampaignRunArgs, FoundryWaveCampaignRunArgs, HELP, StreamPath, parse_args,
 };
 use error::CliError;
 use io::{preflight_output_destination, read_artifact, read_input, write_output};
@@ -51,6 +52,7 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         }
         Command::Derive(arguments) => derive_cli(arguments),
         Command::FamilySolve(arguments) => family_solve_cli(arguments),
+        Command::FamilyClose(arguments) => family_close_cli(arguments),
         Command::CampaignPlan(arguments) => plan_campaign(arguments),
         Command::CampaignPreflight(arguments) => preflight_campaign(arguments),
         Command::FoundryCampaignRun(arguments) => run_foundry_campaign_cli(arguments),
@@ -75,6 +77,18 @@ fn family_solve_cli(arguments: FamilySolveArgs) -> Result<(), CliError> {
         result.as_toml().as_bytes(),
         arguments.force,
     )
+}
+
+fn family_close_cli(arguments: FamilyCloseArgs) -> Result<(), CliError> {
+    let source = read_input(&arguments.input)?;
+    preflight_output_destination(&arguments.output, arguments.force)?;
+    let result = crate::family_close(FamilyCloseRequest {
+        source,
+        input_format: arguments.input_format,
+        n_cores: arguments.n_cores,
+        permutation: arguments.permutation,
+    })?;
+    write_output(&arguments.output, result.artifact(), arguments.force)
 }
 
 fn run_foundry_wave_campaign_cli(arguments: FoundryWaveCampaignRunArgs) -> Result<(), CliError> {

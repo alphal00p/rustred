@@ -1,5 +1,24 @@
 # From the SpIRed vacuum source port to a shipped Vakint K6 artifact
 
+## Delivery status (2026-09-15)
+
+K1/K3/K6 assets and exact offline terminal projections are now shipped on
+GammaLoop's `vakint_rustred` branch. Revision `98550cc0` records 76 passing
+invocations, but a raw-log audit found that this does **not** establish complete
+through-three-loop acceptance: the three-loop selection contains 24 tests
+while its result table has 17 entries. One omitted test has a failed raw log
+for an AlphaLoop-versus-MATAD comparison. Independent reruns of the missing
+seven are required. The 40-entry / 46-input inventory remains the obligation,
+not a passing total. Native tensor and scalar stages use FeynKit and RustRed
+with an invalid FORM path; separate oracle lanes use FORM only for validation.
+
+The active delivery target is now four loops. The sections below retain dated
+implementation evidence; their pending K6 artifact gates are historical, while
+the complete Vakint acceptance gate remains open. No four-loop
+artifact or four-loop native acceptance pass is claimed. See
+[the current goal](../GOAL.md) and
+[four-loop closure probes](four_loop_ordering_probe.md).
+
 ## Goal and current boundary
 
 Turn RustRed's independently generated, complete `vac3` reference workload

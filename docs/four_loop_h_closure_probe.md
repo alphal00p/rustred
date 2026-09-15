@@ -5,6 +5,13 @@ source-port solver into a durable four-loop artifact. The family was supplied
 as ordinary data (the first nine physical H propagators plus the auxiliary ISP
 `D10` at power zero); no topology name is consulted by the solver.
 
+**Setup correction:** this original example helper retained symbolic common
+mass `m`, despite its unit-mass name. It has since been corrected to literal
+mass squared one, as used by the external TOML input and required by the
+artifact installer. The counts below describe only the first rejected sector,
+not a family-wide closure tally. See the
+[ordering follow-up](four_loop_ordering_probe.md) for subsequent runs.
+
 ```text
 target/release/examples/spired-generate-four-loop-h \
   /tmp/rustred-four-loop-h-artifact.rr 6

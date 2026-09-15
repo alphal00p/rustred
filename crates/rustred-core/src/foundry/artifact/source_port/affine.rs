@@ -21,7 +21,7 @@ use crate::solver::AffineCase;
 /// No claim is made that the corresponding integer/sector locus is non-empty
 /// or that a finite box cover exists.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct AffineApplicationDomain {
+pub struct AffineApplicationDomain {
     sector: Box<[bool]>,
     fixed: Box<[Option<i16>]>,
     equations: Box<[CoefficientPolynomial]>,
@@ -50,6 +50,7 @@ impl AffineApplicationDomain {
     /// Construct a carrier from already authenticated pieces at a replay
     /// boundary. This performs only shape checks; polynomial admission remains
     /// the responsibility of the `AffineCase`/source solver boundary.
+    #[cfg(test)]
     pub(crate) fn try_new(
         sector: impl Into<Box<[bool]>>,
         fixed: impl Into<Box<[Option<i16>]>>,
@@ -78,23 +79,25 @@ impl AffineApplicationDomain {
         })
     }
 
-    pub(crate) fn sector(&self) -> &[bool] {
+    pub fn sector(&self) -> &[bool] {
         &self.sector
     }
 
-    pub(crate) fn fixed(&self) -> &[Option<i16>] {
+    pub fn fixed(&self) -> &[Option<i16>] {
         &self.fixed
     }
 
-    pub(crate) fn equations(&self) -> &[CoefficientPolynomial] {
+    pub fn equations(&self) -> &[CoefficientPolynomial] {
         &self.equations
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AffineApplicationDomainError {
+    #[cfg(test)]
     ArityMismatch,
     MissingCoupledEquation,
+    #[cfg(test)]
     VariableMapMismatch,
     OutsideSector,
 }
@@ -102,12 +105,14 @@ pub(crate) enum AffineApplicationDomainError {
 impl fmt::Display for AffineApplicationDomainError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            #[cfg(test)]
             Self::ArityMismatch => {
                 formatter.write_str("affine application domain has incompatible arity")
             }
             Self::MissingCoupledEquation => {
                 formatter.write_str("affine application domain has no coupled equation")
             }
+            #[cfg(test)]
             Self::VariableMapMismatch => formatter
                 .write_str("affine application domain equations use different variable maps"),
             Self::OutsideSector => {
@@ -145,20 +150,20 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_case_outside_the_declared_sector() {
-        let context = CoefficientContext::new(["n0", "n1"]);
+    fn rejects_a_fixed_face_outside_the_declared_sector() {
+        let context = CoefficientContext::new(["n0", "n1", "n2"]);
         let equation = context.coefficient_fixture("n0 - n1").numerator;
         let crate::solver::AffineIntersection::Affine(case) = AffineCase::from_coordinate(
-            &crate::solver::CoordinateCase::generic(),
+            &crate::solver::CoordinateCase::new([None, None, Some(1)]).unwrap(),
             &[equation],
-            &[0, 1],
-            &[true, true],
+            &[0, 1, 2],
+            &[true, true, true],
         )
         .unwrap() else {
             panic!("fixture must remain coupled");
         };
         assert_eq!(
-            AffineApplicationDomain::from_case(&case, &[true, false]),
+            AffineApplicationDomain::from_case(&case, &[true, true, false]),
             Err(AffineApplicationDomainError::OutsideSector)
         );
     }

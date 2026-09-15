@@ -86,6 +86,121 @@ fn ordinary_replay_and_unbounded_cover_close_the_generated_tadpole_report() {
 }
 
 #[test]
+fn affine_candidates_are_omitted_only_after_an_independent_complete_cover() {
+    let family = crate::foundry::artifact::two_loop::canonical_family(Default::default()).unwrap();
+    let zeros: Arc<[[bool; 3]]> = Arc::from([
+        [false, false, false],
+        [true, false, false],
+        [false, true, false],
+        [false, false, true],
+    ]);
+    let sources = SourceSystem::<3>::from_family(&family).unwrap();
+    let audit = SourcePortAudit::try_new(&family, zeros.clone()).unwrap();
+    let solver = SectorSolver::new(
+        &sources,
+        [true; 3],
+        SectorConfig {
+            zero_sectors: zeros.clone(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut solution = solver.solve_sector(SectorSolveOptions::default()).unwrap();
+    let proved_rules = solution.rules.len();
+    let template = &sources.rows()[0][0].coefficient;
+    let first = template
+        .variable(&template.variables()[sources.index_variables()[0]])
+        .unwrap();
+    let second = template
+        .variable(&template.variables()[sources.index_variables()[1]])
+        .unwrap();
+    let crate::solver::AffineIntersection::Affine(affine) =
+        crate::solver::AffineCase::from_coordinate(
+            &CoordinateCase::generic(),
+            &[&first - &second],
+            sources.index_variables(),
+            &[true; 3],
+        )
+        .unwrap()
+    else {
+        panic!("equal-index test case must remain affine");
+    };
+    let case = crate::solver::Case::from(affine);
+    // This deliberately has no source certificate: it may only be discarded,
+    // never admitted as a rule. The complete independent coordinate cover is
+    // the authority for all points, including the affine stratum.
+    solution.rules.push(SectorRule {
+        candidate: RuleCandidate {
+            target: case.integral(),
+            case,
+            rhs: Vec::new(),
+            sources: Vec::new(),
+            stats: Default::default(),
+        },
+        exceptions: Default::default(),
+    });
+    let coordinate = CoordinateCase::generic();
+    solution.rules.push(SectorRule {
+        candidate: RuleCandidate {
+            target: coordinate.integral(),
+            case: coordinate.into(),
+            rhs: Vec::new(),
+            sources: Vec::new(),
+            stats: Default::default(),
+        },
+        exceptions: ExceptionalConditions {
+            branches: vec![vec![first - second]],
+            ..Default::default()
+        },
+    });
+    let complete = audit.audit_sector([true; 3], None, &solution).unwrap();
+    assert_eq!(complete.rules, proved_rules + 2);
+    assert_eq!(complete.exact_replayed_rules, proved_rules);
+    assert_eq!(complete.uniformly_descending_rules, proved_rules);
+    assert_eq!(complete.redundant_affine_rules, 2);
+    assert_eq!(complete.checked_rule_uncovered_boxes, 0);
+    assert!(complete.issues.is_empty(), "{:?}", complete.issues);
+
+    let terminals = std::mem::take(&mut solution.finite_residuals);
+    let missing_point = audit.audit_sector([true; 3], None, &solution).unwrap();
+    assert_eq!(missing_point.redundant_affine_rules, 0);
+    assert!(missing_point.checked_rule_uncovered_boxes > 0);
+    assert_eq!(missing_point.checked_rule_unbounded_boxes, 0);
+    solution.finite_residuals = terminals;
+
+    let proved = solution.rules.drain(..proved_rules).collect::<Vec<_>>();
+    let incomplete = audit.audit_sector([true; 3], None, &solution).unwrap();
+    assert_eq!(incomplete.redundant_affine_rules, 0);
+    assert!(incomplete.checked_rule_unbounded_boxes > 0);
+    assert!(incomplete.issues.iter().any(|issue| issue.contains("cannot be omitted")));
+    assert!(incomplete.issues.iter().any(|issue| issue.contains("equations=")));
+    solution.rules.splice(..0, proved);
+
+    let mut sectors = vec![([true; 3], None, solution)];
+    for sector in [[false, true, true], [true, false, true], [true, true, false]] {
+        let solver = SectorSolver::new(
+            &sources,
+            sector,
+            SectorConfig { zero_sectors: zeros.clone(), ..Default::default() },
+        ).unwrap();
+        sectors.push((sector, None, solver.solve_sector(Default::default()).unwrap()));
+    }
+    let artifact = audit.install_complete(family, sectors).unwrap();
+    let bytes = artifact.encode_durable().unwrap();
+    let loaded = crate::foundry::artifact::ClosedArtifact::decode_durable(&bytes).unwrap();
+    assert_eq!(loaded.encode_durable().unwrap(), bytes);
+    let mut direct = crate::reduction::Reducer::new(&artifact).unwrap();
+    let mut cold = crate::reduction::Reducer::new(&loaded).unwrap();
+    for powers in [[1, 1, 1], [2, 2, 1], [3, 3, 2]] {
+        let target = crate::family::IntegralKey::try_new(powers).unwrap();
+        assert_eq!(
+            direct.reduce_unit_mass(&target).unwrap().terms(),
+            cold.reduce_unit_mass(&target).unwrap().terms(),
+        );
+    }
+}
+
+#[test]
 fn removing_terminal_and_removing_rule_distinguish_finite_and_infinite_gaps() {
     let (audit, mut solution) = solved_tadpole();
     let terminals = std::mem::take(&mut solution.finite_residuals);

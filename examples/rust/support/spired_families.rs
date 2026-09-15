@@ -10,7 +10,7 @@ pub fn vacuum(momenta: &[&[i64]]) -> Result<IntegralFamily> {
 
 /// Four-loop equal-mass vacuum parent matching Vakint's FMFT `H` example input.
 /// The first nine denominators are the physical FMFT slots. The final
-/// `(k1-k2)^2-m` denominator is an explicit irreducible-scalar-product (ISP)
+/// `(k1-k2)^2-1` denominator is an explicit irreducible-scalar-product (ISP)
 /// coordinate with initial power zero, which completes the ten-dimensional
 /// vacuum scalar-product basis required by parametric IBPs. This constructor
 /// is example input only; the RustRed engine remains topology agnostic and
@@ -21,7 +21,7 @@ pub fn vacuum(momenta: &[&[i64]]) -> Result<IntegralFamily> {
 /// This is deliberately ordinary family data: the solver and all exact
 /// algebra remain topology-generic and do not dispatch on this name.
 pub fn four_loop_h() -> Result<IntegralFamily> {
-    vacuum_named(
+    vacuum_named_with_scale(
         "spired-four-loop-unit-mass-vacuum-h",
         &[
             &[1, 0, 0, 0],
@@ -35,13 +35,24 @@ pub fn four_loop_h() -> Result<IntegralFamily> {
             &[0, 0, 1, 1],
             &[1, -1, 0, 0], // auxiliary ISP; its initial power is zero
         ],
+        None,
     )
 }
 
 fn vacuum_named(name: &str, momenta: &[&[i64]]) -> Result<IntegralFamily> {
+    vacuum_named_with_scale(name, momenta, Some("m"))
+}
+
+fn vacuum_named_with_scale(
+    name: &str,
+    momenta: &[&[i64]],
+    mass_parameter: Option<&str>,
+) -> Result<IntegralFamily> {
     let loops = momenta[0].len();
-    let coefficients = CoefficientContext::try_new(["d", "m"])?;
-    let mass = coefficients.parameter("m").unwrap();
+    let coefficients = CoefficientContext::try_new(std::iter::once("d").chain(mass_parameter))?;
+    let mass = mass_parameter
+        .map(|name| coefficients.parameter(name).unwrap())
+        .unwrap_or_else(|| coefficients.one());
     let denominators = momenta
         .iter()
         .map(|momentum| {

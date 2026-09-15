@@ -158,7 +158,7 @@ fn four_loop_h_uses_the_fmft_parent_momentum_basis() {
     assert_eq!(family.external_count(), 0);
     assert_eq!(family.denominator_count(), 10);
     assert_eq!(family.coordinates().len(), 10);
-    assert_eq!(c.parameter_names(), ["d", "m"]);
+    assert_eq!(c.parameter_names(), ["d"]);
     assert_eq!(family.dimension(), &c.parameter("d").unwrap());
     let expected = [
         [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -173,7 +173,7 @@ fn four_loop_h_uses_the_fmft_parent_momentum_basis() {
         [1, -2, 0, 0, 1, 0, 0, 0, 0, 0],
     ];
     for (denominator, row) in family.denominators().iter().zip(expected) {
-        assert_eq!(denominator.constant(), &-c.parameter("m").unwrap());
+        assert_eq!(denominator.constant(), &c.integer(-1));
         assert_eq!(
             denominator.coefficients(),
             row.map(|value| c.integer(value)).as_slice()

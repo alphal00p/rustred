@@ -247,6 +247,8 @@ mod tests {
         assert_send::<rustred_app::CampaignPreflightResult>();
         assert_send::<rustred_app::ClosingArtifactGenerateRequest>();
         assert_send::<rustred_app::ClosingArtifactGenerateResult>();
+        assert_send::<rustred_app::FamilyCloseRequest>();
+        assert_send::<rustred_app::FamilyCloseResult>();
         assert_send::<rustred_app::ClosingArtifactInspectRequest>();
         assert_send::<rustred_app::ClosingArtifactInspectResult>();
         assert_send::<rustred_app::ClosingArtifactReduceRequest>();

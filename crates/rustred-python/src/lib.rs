@@ -9,13 +9,13 @@ use pyo3::types::{PyAnyMethods, PyBool, PyBytes};
 use rustred_app::{
     AppError, AppErrorKind, CampaignPlanRequest, CampaignPreflightRequest,
     ClosingArtifactGenerateRequest, ClosingArtifactInspectRequest, ClosingArtifactReduceRequest,
-    ClosingFamilySelector, DeriveRequest, FoundryCampaignRunRequest, FoundryWaveCampaignRunRequest,
-    InputFormat, RelationSelection, campaign_plan as app_campaign_plan,
-    campaign_preflight as app_campaign_preflight,
+    ClosingFamilySelector, DeriveRequest, FamilyCloseRequest, FoundryCampaignRunRequest,
+    FoundryWaveCampaignRunRequest, InputFormat, RelationSelection,
+    campaign_plan as app_campaign_plan, campaign_preflight as app_campaign_preflight,
     closing_artifact_generate as app_closing_artifact_generate,
     closing_artifact_inspect as app_closing_artifact_inspect,
     closing_artifact_reduce as app_closing_artifact_reduce, derive as app_derive,
-    foundry_campaign_run as app_foundry_campaign_run,
+    family_close as app_family_close, foundry_campaign_run as app_foundry_campaign_run,
     foundry_wave_campaign_run as app_foundry_wave_campaign_run,
 };
 
@@ -464,6 +464,47 @@ fn run_foundry_wave_campaign(
 
 #[pyfunction]
 #[pyo3(
+    signature = (source, *, input_format = "auto", n_cores = PythonInteger(1), permutation = None),
+    text_signature = "(source, *, input_format='auto', n_cores=1, permutation=None)"
+)]
+fn family_close(
+    py: Python<'_>,
+    source: &str,
+    input_format: &str,
+    n_cores: PythonInteger,
+    permutation: Option<Vec<PythonInteger>>,
+) -> PyResult<PyClosingArtifactGenerationResult> {
+    let permutation = permutation
+        .map(|coordinates| {
+            coordinates
+                .into_iter()
+                .enumerate()
+                .map(|(position, coordinate)| {
+                    nonnegative_usize(&format!("permutation[{position}]"), coordinate.0)
+                })
+                .collect::<PyResult<Vec<_>>>()
+        })
+        .transpose()?;
+    let request = FamilyCloseRequest {
+        source: bounded_owned_input("family close input", source)?,
+        input_format: parse_input_format(input_format)?,
+        n_cores: positive_core_count("family close n_cores", n_cores.0)?,
+        permutation,
+    };
+    let result = py
+        .detach(move || execute(move || app_family_close(request)))
+        .map_err(map_coordinator_error)?;
+    let result = result.map_err(map_app_error)?;
+    Ok(PyClosingArtifactGenerationResult {
+        schema: rustred_app::FAMILY_CLOSE_SCHEMA,
+        status: "generated-durable",
+        canonical_toml: result.to_toml().to_owned(),
+        artifact: PyBytes::new(py, result.artifact()).unbind(),
+    })
+}
+
+#[pyfunction]
+#[pyo3(
     signature = (*, family = "unit-mass-vacuum-k1"),
     text_signature = "(*, family='unit-mass-vacuum-k1')"
 )]
@@ -788,6 +829,7 @@ fn _rustred(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(run_foundry_campaign, module)?)?;
     module.add_function(wrap_pyfunction!(run_foundry_wave_campaign, module)?)?;
     module.add_function(wrap_pyfunction!(generate_closing_artifact, module)?)?;
+    module.add_function(wrap_pyfunction!(family_close, module)?)?;
     module.add_function(wrap_pyfunction!(inspect_closing_artifact, module)?)?;
     module.add_function(wrap_pyfunction!(reduce_with_closing_artifact, module)?)?;
     Ok(())

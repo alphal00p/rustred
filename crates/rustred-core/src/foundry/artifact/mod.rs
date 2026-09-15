@@ -36,7 +36,8 @@ pub use one_loop::derive_one_loop_unit_mass_tadpole;
 pub use persistence::{ArtifactCoverReplayLimits, ArtifactEncodingLimits, ArtifactLoadLimits};
 pub(crate) use source_port::ReplayedOriginalDomain;
 pub use source_port::{
-    AffineOwnershipRole, SourcePortAudit, SourcePortAuditError, SourcePortSectorAudit,
+    AffineApplicationDomain, AffineOwnershipRole, SourcePortAudit, SourcePortAuditError,
+    SourcePortSectorAudit,
 };
 pub use two_loop::derive_two_loop_unit_mass_sunset;
 

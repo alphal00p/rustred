@@ -1,5 +1,40 @@
 # RustRed project goal
 
+## Current assignment — four-loop delivery (2026-09-15)
+
+The active tool-managed goal is now complete four-loop single-scale vacuum
+closure and FORM-less Vakint evaluation against every applicable FMFT example.
+K1/K3/K6 assets and exact offline terminal projections are shipped on
+GammaLoop's `vakint_rustred` branch. **Acceptance-report correction:** revision
+`98550cc0` records 76 passing invocations but does not establish complete
+through-three-loop acceptance. Its three-loop selection has 24 tests while
+the result table contains only 17. One omitted test's raw output records an
+AlphaLoop-versus-MATAD failure; the missing seven require independent reruns.
+Native peers use FeynKit, RustRed and an invalid FORM path. The 40-entry /
+46-input inventory is the acceptance obligation, not a proved passing total.
+Reconcile this discrepancy alongside four-loop work; do not weaken assertions
+or repeat the historical complete-suite claim.
+
+Four-loop closure is **not yet achieved**. Its physical parent families H, X,
+BMW and FG are explicit files in `examples/input`, each completed to ten
+scalar-product coordinates with auxiliary ISP powers initially zero. They are
+input data, not solver dispatch keys. Each has sixteen ordinary IBP sources.
+The next production gates are exact all-sector artifact generation and cold
+reload for these parents, existing-witness routing in Vakint, offline terminal
+catalogs, pure-Rust FMFT master finalization and the full four-loop numerical
+comparison inventory. Do not infer four-loop acceptance from lower-loop tests
+or from a single sector's rule count.
+
+The current source-port artifact bridge accepts coordinate ownership. It may
+omit unsupported affine candidates only if independently replayed, descending
+coordinate rules and finite terminals already prove whole-sector coverage.
+Indispensable affine conditions still fail closed. See
+[four-loop ordering evidence](docs/four_loop_ordering_probe.md). Parallel agents
+develop and independently audit the Vakint and artifact-delivery slices;
+RustRed continues to own the generic rule applier and all algebra stays with
+Symbolica. Four-loop numerical tables must state their actual precision:
+existing FMFT constants do not supply a universal 20,000-digit catalog.
+
 ## Parallel Vakint delivery directive (2026-09-14)
 
 Alongside the active SpIRed reference port, develop and independently audit the

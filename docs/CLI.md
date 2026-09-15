@@ -9,6 +9,46 @@ recurrences, or reduce a concrete target.
 The CLI never invokes FORM. The RustRed crate and binary use Symbolica's GMP
 backend; there is no `no_gmp` mode.
 
+## Generic complete artifact generation
+
+`rustred family-close` uses the family supplied in the input, not a built-in
+family selector. It enumerates the full sector census, proves zero sectors
+with the existing exact analyzer, and solves the remaining sectors. Durable
+bytes are written only after the core replay, guard, strict-descent and complete
+coverage gates succeed. An incomplete solver result is an error, not a partial
+artifact. The concrete target in a Project input is validated but does not
+restrict the family-wide closure request.
+
+```console
+rustred family-close --input YOUR_UNIT_MASS_FAMILY.toml \
+  --input-format toml --n-cores 4 --output family.rr
+rustred campaign inspect --artifact family.rr --output family.inspect.toml
+rustred campaign reduce --artifact family.rr --powers 2,2,1
+```
+
+The existing core artifact producer currently admits unshifted vacuum families
+with 1 through 16 denominator coordinates, dimension `d`, no other scalar
+parameters, and literal constant term `-1` in every denominator. Normalize the
+common mass before providing input; a denominator containing symbolic `m` is
+not unit-mass input. A shared core admission check rejects incompatible families
+before the sector census or solver runs, and the installer repeats that same
+check at publication.
+Accepted mathematical scope is separate from successful closure: challenging
+families can still fail with exact incomplete/unsupported-domain diagnostics.
+
+`--permutation 2,1,0` optionally supplies a zero-based coordinate priority used
+coherently in every sector (here for a three-coordinate family). Every index
+must appear exactly once. No subset-of-sectors option is offered by this
+command, because it promises complete family coverage. `--force` opts into
+atomic replacement; otherwise existing output files are preserved.
+
+The Rust application API exposes `FamilyCloseRequest`, `family_close`, and
+`FamilyCloseResult`. The result owns durable bytes through `artifact()` and
+`into_artifact()`, and a `to_toml()` report with preparation, generation,
+installation and encoding wall times. Those timings are observational metadata,
+not part of the semantic artifact. Existing inspect/reduce APIs cold-load and
+apply the returned bytes without re-running discovery.
+
 ## Generic family solve diagnostic
 
 `rustred family-solve` accepts the same arbitrary Project TOML as `derive`,
@@ -23,10 +63,10 @@ rustred family-solve --input examples/input/four_loop_h.toml \
   --input-format toml --sectors 0000000001 --n-cores 4
 ```
 
-The command is intended for arbitrary user-supplied families while the
-authenticated artifact publisher is being generalized. Families with more
-than 16 denominators must provide an explicit sector manifest to avoid an
-unbounded exponential enumeration.
+The command remains useful for bounded sector diagnostics separate from
+`family-close`'s complete publication gate. Its currently compiled arity
+dispatch supports 1 through 16 denominators; an explicit sector manifest
+avoids full enumeration but does not lift that implementation limit.
 
 ## Quick start
 

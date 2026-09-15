@@ -237,9 +237,15 @@ impl<const N: usize> SourcePortAudit<N> {
             retain_common_order(&mut ordering, checked.report.ordering)?;
             let report = &checked.report;
             if !report.issues.is_empty()
-                || report.exact_replayed_rules != report.rules
-                || report.uniformly_descending_rules != report.rules
-                || checked.rules.len() != report.rules
+                || report
+                    .exact_replayed_rules
+                    .checked_add(report.redundant_affine_rules)
+                    != Some(report.rules)
+                || report
+                    .uniformly_descending_rules
+                    .checked_add(report.redundant_affine_rules)
+                    != Some(report.rules)
+                || checked.rules.len() != report.exact_replayed_rules
                 || checked.terminals.len() != report.finite_terminals
                 || report.checked_rule_uncovered_boxes != 0
                 || report.checked_rule_unbounded_boxes != 0

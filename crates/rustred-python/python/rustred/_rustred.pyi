@@ -137,6 +137,14 @@ def generate_closing_artifact(
     family: str = "unit-mass-vacuum-k1",
 ) -> ClosingArtifactGenerationResult: ...
 
+def family_close(
+    source: str,
+    *,
+    input_format: str = "auto",
+    n_cores: int = 1,
+    permutation: list[int] | None = None,
+) -> ClosingArtifactGenerationResult: ...
+
 def inspect_closing_artifact(
     artifact: bytes,
 ) -> ClosingArtifactInspectionResult: ...

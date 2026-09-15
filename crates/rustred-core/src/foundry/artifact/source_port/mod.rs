@@ -29,7 +29,7 @@ use crate::family::IntegralFamily;
 use crate::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, OrderingPolicy, zero};
 use crate::solver::{SectorConfig, SectorSolution, SectorSolver, SourceSystem};
 
-pub(crate) use affine::AffineApplicationDomain;
+pub use affine::AffineApplicationDomain;
 
 /// The role of an affine case which the box-only artifact bridge encountered.
 ///
@@ -122,6 +122,11 @@ pub struct SourcePortSectorAudit<const N: usize> {
     pub rules: usize,
     pub exact_replayed_rules: usize,
     pub uniformly_descending_rules: usize,
+    /// Affine candidate rules omitted only when the independently retained
+    /// coordinate cells and terminals prove a complete exact cover.  Such a
+    /// rule is redundant for execution, not silently accepted as an
+    /// unverified identity.
+    pub redundant_affine_rules: usize,
     pub replay_source_entries: usize,
     pub additional_replay_guard_branches: usize,
     pub finite_terminals: usize,
@@ -144,6 +149,14 @@ pub struct SourcePortAudit<const N: usize> {
 }
 
 impl<const N: usize> SourcePortAudit<N> {
+    /// Check family eligibility for complete artifact installation before
+    /// constructing a sector census or running search. This shares the final
+    /// installer's exact unit-mass vacuum admission, not a frontend copy.
+    /// Success is only a family-shape check, not evidence of closure.
+    pub fn validate_install_family(family: &IntegralFamily) -> Result<(), SourcePortAuditError> {
+        super::install::validate_unit_mass_family(family).map_err(error)
+    }
+
     /// The initial bridge admits uncut, unshifted vacuum sources only. It is
     /// generic in loop count, denominator count and momentum routing.
     pub fn try_new(
@@ -273,6 +286,7 @@ impl<const N: usize> SourcePortAudit<N> {
             rules: solution.rules.len(),
             exact_replayed_rules: 0,
             uniformly_descending_rules: 0,
+            redundant_affine_rules: 0,
             replay_source_entries: 0,
             additional_replay_guard_branches: 0,
             finite_terminals: solution.finite_residuals.len(),
@@ -286,6 +300,7 @@ impl<const N: usize> SourcePortAudit<N> {
         let mut stored_boxes = Vec::new();
         let mut checked_boxes = Vec::new();
         let mut retained_rules = Vec::new();
+        let mut affine_candidates = Vec::new();
         for (ordinal, rule) in solution.rules.iter().enumerate() {
             let stored = match geometry::application_boxes(
                 rule,
@@ -295,9 +310,13 @@ impl<const N: usize> SourcePortAudit<N> {
             ) {
                 Ok(stored) => stored,
                 Err(issue) => {
-                    report
-                        .issues
-                        .push(format!("rule {ordinal} stored guard geometry: {issue}"));
+                    if matches!(&issue, SourcePortAuditError::UnsupportedAffineOwnership { .. }) {
+                        affine_candidates.push((ordinal, issue));
+                    } else {
+                        report
+                            .issues
+                            .push(format!("rule {ordinal} stored guard geometry: {issue}"));
+                    }
                     continue;
                 }
             };
@@ -370,6 +389,21 @@ impl<const N: usize> SourcePortAudit<N> {
             report.checked_rule_uncovered_boxes,
             report.checked_rule_unbounded_boxes,
         ) = geometry::uncovered(N, checked_boxes)?;
+        let affine_cover_complete = report.stored_guard_uncovered_boxes == 0
+            && report.stored_guard_unbounded_boxes == 0
+            && report.checked_rule_uncovered_boxes == 0
+            && report.checked_rule_unbounded_boxes == 0;
+        if affine_cover_complete {
+            report.redundant_affine_rules = affine_candidates.len();
+        } else if !affine_candidates.is_empty() {
+            report.issues.push(format!(
+                "{} affine candidate rules cannot be omitted because the retained coordinate cover is incomplete",
+                affine_candidates.len(),
+            ));
+            for (ordinal, issue) in affine_candidates {
+                report.issues.push(format!("rule {ordinal} stored guard geometry: {issue}"));
+            }
+        }
         report.elapsed = start.elapsed();
         Ok(program::SectorCheck {
             report,

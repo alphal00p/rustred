@@ -1,24 +1,38 @@
 # RustRed
 
 RustRed is a pre-alpha, pure-Rust and Symbolica-native project for deriving and
-applying parametric integration-by-parts identities. Its active Stage 1 target
-is a generic, deterministic rule foundry that closes every single-scale vacuum
-family represented in Vakint through three loops, publishes the resulting
-one-off artifacts, and applies them through a FORM-free scalar Vakint backend.
+applying parametric integration-by-parts identities. Its active target is
+four-loop single-scale vacuum closure and FORM-less Vakint evaluation against
+the existing FMFT examples, building on the shipped through-three-loop artifacts.
 Loop count and topology are input data, never production dispatch keys.
 
-The immediate implementation program is the
+The solver implementation follows the
 [executable SpIRed reference port](docs/spired_port.md): reproduce the actual
 C++ `solveSector` algorithm in Rust, using native Symbolica/numerica, and match
 or improve the supplied one-through-three-loop PM example workloads. The
 [artifact-to-Vakint delivery lane](docs/spired_vakint_artifact_plan.md) runs in
-parallel, targeting the complete three-loop acceptance suite with FeynKit
-tensor reduction and RustRed scalar reduction. The
+parallel, extending FeynKit tensor reduction and RustRed scalar reduction to
+four loops. The
 [Gregor/SpIReD input plan](GREGOR_INPUT_PLAN.md) retains the wider roadmap.
 The local reference source and working notes
 `notes-spired.pdf` are ignored and are not distributed with the repository.
 
 ## Current capability
+
+K1/K3/K6 artifacts and offline master projections are shipped with Vakint.
+**Acceptance-report correction:** GammaLoop revision `98550cc0` records 76
+passes, but the cited three-loop gate has 24 selected tests and only 17 result
+entries. One omitted test's raw log records an oracle disagreement. Complete
+coverage of the 40-entry / 46-input inventory therefore remains unverified;
+the missing seven tests are being rerun independently. Native evaluation uses
+an invalid FORM path; separate oracle lanes use FORM for development validation.
+
+Four-loop artifacts are not yet closed or shipped. H, X, BMW and FG are
+[external unit-mass input families](examples/input/README.md), not hard-coded
+solver cases. Current attempts expose unsupported coupled index conditions at
+the exact publication boundary; the [ordering report](docs/four_loop_ordering_probe.md)
+records the actual evidence. Earlier pending-three-loop development checkpoints
+below are historical and do not override this status.
 
 The currently evidenced core can:
 
@@ -36,8 +50,8 @@ The currently evidenced core can:
   program now installs into the existing `ClosedArtifact` and
   memoizing `Reducer`: 623 rules, 5,639 sign-refined cells, 38 finite masters,
   and 26 proved-zero sectors. Serial and six-worker generation writes identical
-  durable bytes; fresh CLI loading and application pass. The full Vakint
-  three-loop suite remains in progress. See
+  durable bytes; fresh CLI loading and application pass. Complete Vakint
+  acceptance remains subject to the report correction above. See
   the [artifact delivery report](docs/spired_vakint_artifact_plan.md);
 - run those independent sector solves on a bounded private worker pool with
   shared source data and deterministic aggregate output. All `vac3` equations
@@ -113,24 +127,25 @@ The currently evidenced core can:
   inspection, and exact reduction through the Rust application API, the
   `campaign` CLI, and `import rustred` Python API; and
 - drive Vakint's opt-in `EvaluationMethod::RustRed` scalar backend through the
-  shipped `K = 1` and `K = 3` artifacts, reusing Vakint's existing matcher and
-  routing witness, returning exact MATAD-basis master coefficients, restoring
+  shipped `K = 1`, `K = 3` and `K = 6` artifacts, reusing Vakint's existing matcher and
+  routing witness, returning exact terminal coefficients, restoring
   a symbolic or exact common mass, and optionally applying Vakint's pure-Rust
-  master values without invoking or falling back to FORM.
+  offline master projections and values without invoking or falling back to FORM.
 
-It does **not** yet pass the complete three-loop Vakint acceptance suite or
-complete supplied PM example suite, or support generic/higher-even-rank tensor
-reduction. Canonical K6 now has a certified durable artifact: its Vakint
-integration is under validation. RustRed itself deliberately does not
+It does **not** yet establish the complete three-loop Vakint acceptance gate,
+provide complete four-loop artifacts or four-loop acceptance, complete the
+supplied PM example suite, or implement a new generic
+higher-even-rank tensor reducer. Vakint uses FeynKit for that tensor prepass.
+RustRed itself deliberately does not
 own evaluated master values; the Vakint adapter can substitute Vakint's
 existing values after reduction. Structural source counts—at any loop
 count—remain insufficient closure evidence.
 
 ## Active development stage
 
-Stage 1 produces sector-complete unit-mass artifacts for the one-loop
+The through-three-loop artifact milestone produced unit-mass artifacts for the one-loop
 `K = 1`, two-loop `K = 3`, and three-loop `K = 6` vacuum families. Together
-they must cover Vakint's eight registered graph classes through three loops:
+they cover Vakint's eight registered graph classes through three loops:
 the tadpole, the sunset and its pinch, and the K4/Mercedes parent with four
 inequivalent contractions. Their complete ordinary-source counts are 1, 4,
 and 9 respectively.
@@ -140,8 +155,14 @@ deterministically encoded artifacts and consumed by the generic recursive
 reducer through Rust, CLI, and Python surfaces. They are also shipped with and
 consumed by Vakint's FORM-free scalar backend. The new SpIRed producer closes
 and durably installs canonical three-loop `K = 6`; fresh-process inspection
-and application pass. Validation of the Vakint backend across its five registered
-three-loop graph classes is the remaining integration work.
+and application pass. The missing Vakint acceptance results are being reconciled.
+
+The active four-loop work uses external H, X, BMW and FG parent inputs,
+each with ten scalar-product coordinates. A single ten-coordinate root family
+is not assumed universal. The generic `family-close` CLI runs complete-sector
+generation and exact artifact installation; see [its contract](docs/CLI.md).
+Four-loop routing, offline master catalogs and FORM-less numerical parity will
+be enabled only after the required artifacts actually pass publication.
 
 ### Earlier foundry research checkpoints
 

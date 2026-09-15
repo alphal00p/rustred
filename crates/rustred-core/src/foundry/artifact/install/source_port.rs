@@ -253,23 +253,26 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
 }
 
 fn validate_unit_mass(candidate: &ClosingArtifactCandidate) -> Result<(), ArtifactError> {
-    let base = candidate.family.coefficient_context();
+    validate_unit_mass_family(&candidate.family)
+}
+
+/// Shared early admission and final-installation check. Keeping the exact
+/// family predicate here prevents frontends from duplicating algebra policy.
+pub(in crate::foundry::artifact) fn validate_unit_mass_family(
+    family: &crate::family::IntegralFamily,
+) -> Result<(), ArtifactError> {
+    let base = family.coefficient_context();
     let minus_one = base
         .try_neg(&base.one(), Default::default())
         .map_err(crate::family::IntegralFamilyError::from)?;
-    if candidate.family.external_count() != 0
+    if family.external_count() != 0
         || base.parameter_names() != ["d"]
-        || candidate
-            .family
+        || family
             .denominators()
             .iter()
             .any(|denominator| denominator.constant() != &minus_one)
-        || candidate
-            .family
-            .power_shifts()
-            .iter()
-            .any(|shift| !shift.is_zero())
-        || base.parameter("d").as_ref() != Some(candidate.family.dimension())
+        || family.power_shifts().iter().any(|shift| !shift.is_zero())
+        || base.parameter("d").as_ref() != Some(family.dimension())
     {
         return Err(ArtifactError::UnsupportedClosureShape);
     }

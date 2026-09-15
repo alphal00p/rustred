@@ -1,5 +1,6 @@
 mod campaign;
 mod derive;
+mod family_close;
 mod family_solve;
 
 use std::ffi::OsString;
@@ -42,6 +43,16 @@ pub(crate) struct FamilySolveArgs {
     pub(crate) output: StreamPath,
     pub(crate) input_format: InputFormat,
     pub(crate) sectors: Option<Vec<Vec<bool>>>,
+    pub(crate) n_cores: usize,
+    pub(crate) force: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FamilyCloseArgs {
+    pub(crate) input: StreamPath,
+    pub(crate) output: StreamPath,
+    pub(crate) input_format: InputFormat,
+    pub(crate) permutation: Option<Vec<usize>>,
     pub(crate) n_cores: usize,
     pub(crate) force: bool,
 }
@@ -121,6 +132,7 @@ pub(crate) enum ColorPolicy {
 pub(crate) enum Command {
     Derive(DeriveArgs),
     FamilySolve(FamilySolveArgs),
+    FamilyClose(FamilyCloseArgs),
     CampaignPlan(CampaignPlanArgs),
     CampaignPreflight(CampaignPreflightArgs),
     CampaignGenerate(CampaignGenerateArgs),
@@ -162,9 +174,9 @@ impl fmt::Display for ArgError {
             Self::NonUtf8Option(value) => {
                 write!(formatter, "command-line option is not UTF-8: {value:?}")
             }
-            Self::MissingCommand => {
-                formatter.write_str("missing command; expected `derive` or `campaign`")
-            }
+            Self::MissingCommand => formatter.write_str(
+                "missing command; expected `derive`, `family-solve`, `family-close`, or `campaign`",
+            ),
             Self::MissingSubcommand(command) => write!(
                 formatter,
                 "missing {command} subcommand; expected `plan`, `preflight`, `run`, `run-waves`, `generate`, `inspect`, or `reduce`"
@@ -224,6 +236,7 @@ pub(crate) fn parse_args(
         }
         "derive" => derive::parse(arguments),
         "family-solve" => family_solve::parse(arguments),
+        "family-close" => family_close::parse(arguments),
         "campaign" => campaign::parse(arguments),
         _ => Err(ArgError::UnknownCommand(command)),
     }
@@ -296,6 +309,7 @@ RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 USAGE:
     rustred derive [OPTIONS]
     rustred family-solve [OPTIONS]
+    rustred family-close [OPTIONS]
     rustred campaign plan [OPTIONS]
     rustred campaign preflight [OPTIONS]
     rustred campaign run [OPTIONS]
@@ -310,6 +324,14 @@ DERIVE OPTIONS:
     --input-format <FORMAT>      auto, toml, or symbolica [default: auto]
     --relations <SELECTION>      all, ordinary, or li [default: all]
     --n-cores <COUNT>            Maximum worker cores for parallel stages [default: 1]
+    --force                      Atomically replace an existing output file
+
+FAMILY-CLOSE OPTIONS:
+    --input <PATH|->             Read external unit-mass vacuum family input [default: -]
+    --output <PATH|->            Write complete durable artifact bytes [default: -]
+    --input-format <FORMAT>      auto, toml, or symbolica [default: auto]
+    --permutation <N,N,...>      Optional zero-based coordinate priority permutation
+    --n-cores <COUNT>            Maximum worker cores [default: 1]
     --force                      Atomically replace an existing output file
 
 FAMILY-SOLVE OPTIONS:
@@ -378,6 +400,14 @@ GENERAL OPTIONS:
 `derive` generates fully parametric identities. Any concrete target carried by
 the input is validated and reported as not processed; it is never reduced by
 this command.
+
+`family-close` enumerates the complete sector census of a caller-supplied
+unshifted unit-mass vacuum family (1..16 coordinates, sole parameter d,
+denominator constant terms -1), proves zero sectors, solves every other sector,
+and publishes only after exact replay, strict descent and complete coverage.
+The target in the input does not restrict this family-wide closure request.
+Failure writes no artifact. Use `campaign inspect` and `campaign reduce` on
+the resulting bytes; no family name selects an implementation.
 
 `campaign plan` authenticates and interns only the supplied campaign roots.
 It does not discover dependencies, derive relations, prove closure, or publish

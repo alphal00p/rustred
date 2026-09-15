@@ -24,12 +24,63 @@ The initial operations are:
 - `rustred.derive(...)`
 - `rustred.campaign_plan(...)`
 - `rustred.campaign_preflight(...)`
+- `rustred.family_close(source, ...)`
 - `rustred.generate_closing_artifact(...)`
 - `rustred.inspect_closing_artifact(artifact_bytes)`
 - `rustred.reduce_with_closing_artifact(artifact_bytes, target_powers, ...)`
 
-Each result's `to_toml()` method returns the exact canonical,
-newline-terminated TOML produced by `rustred-app` and the CLI.
+Each result's `to_toml()` method returns the exact newline-terminated TOML
+produced by `rustred-app`. The `family_close` generation report includes
+observational wall times; its durable artifact bytes, not those times, are the
+semantic output.
+
+## Closing a caller-supplied family
+
+`family_close` accepts the same Project TOML or Symbolica family syntax as
+`derive`. It never selects a solver by family name. The complete sector census
+is solved and checked before a result is returned; incomplete closure raises
+an exception instead of returning a partial artifact. Input must currently be
+an unshifted vacuum with 1 through 16 denominator coordinates, dimension `d`,
+no other scalar parameters, and literal constant term `-1` in every denominator.
+The shared core checks this unit-mass scope before search. Normalize the common
+mass yourself; symbolic `m` does not mean unit mass.
+
+```python
+import rustred
+
+source = """I(
+    name(my_sunset), loops(p,q), externals(), dimension(d),
+    prop(A,p^2-1,1), prop(B,q^2-1,1), prop(C,(p-q)^2-1,1)
+)"""
+generated = rustred.family_close(source, n_cores=1)
+assert isinstance(generated.artifact, bytes)
+inspection = rustred.inspect_closing_artifact(generated.artifact)
+reduction = rustred.reduce_with_closing_artifact(generated.artifact, [2, 2, 1])
+print(generated.to_toml())  # Full-census counts and per-phase wall times.
+print(reduction.to_toml())  # Exact coefficients of declared master keys.
+```
+
+For a one-loop example, use
+`I(name(my_tadpole),loops(k),externals(),dimension(d),prop(P,k^2-1,1))`
+and reduction powers `[3]`; the resulting master has powers `[1]` and the
+separate common-mass-squared factor has exponent `-2`.
+
+`input_format="toml"` selects an explicit Project input; `"auto"` is the
+default. `permutation=[2,1,0]` optionally changes coordinate priority coherently
+in every sector. It must contain every coordinate exactly once. `n_cores`
+bounds the existing solver worker pool. The Python adapter releases the GIL
+and submits owned requests to its existing process coordinator; all algebra,
+coverage proofs, artifact generation and application remain in RustRed.
+
+With a Project saved as `family.toml`, the equivalent CLI is:
+
+```console
+rustred family-close --input family.toml --output family.rr --n-cores 1
+rustred campaign inspect --artifact family.rr
+rustred campaign reduce --artifact family.rr --powers 2,2,1
+```
+
+## Preset generation and artifact consumption
 
 `generate_closing_artifact()` currently accepts the semantic family selectors
 `rustred.ClosingFamily.UNIT_MASS_VACUUM_K1` and
@@ -69,9 +120,10 @@ rustred campaign reduce --artifact one_loop.rr --powers 3
 output; `--artifact -` reads durable artifact bytes from standard input. The
 matching two-loop selector is `unit-mass-vacuum-k3`; its powers have arity
 three. The `K = 1` and `K = 3` artifacts are closed today. The three-loop
-`K = 6` artifact can now be generated with the Rust `spired-generate-k6`
-example, while adding it to Python's generation selectors remains separate
-interface work. The generic Python inspection and reduction functions consume
+`K = 6` artifact can be generated with the Rust `spired-generate-k6`
+example or by supplying its unit-mass family to `family_close`; no additional
+Python family selector is needed. Existing K6 examples are retained.
+The generic Python inspection and reduction functions consume
 its real V5 bytes through the shared Rust codec; they do not select or generate
 a hidden K6 preset. For these original-domain source-port artifacts, untrusted
 loading regenerates ordinary IBP rows and replays the saved exact combinations,

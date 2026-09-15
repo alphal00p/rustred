@@ -61,6 +61,38 @@ expression = "k^2-m2"
 powers = [1]
 '''
 
+UNIT_MASS_PROJECT_K1 = '''schema = "rustred.project.toml.v1"
+[family]
+name = "python_supplied_tadpole"
+loop_momenta = ["q"]
+external_momenta = []
+dimension = "d"
+[[family.denominators]]
+id = "P"
+expression = "q^2-1"
+[target]
+powers = [1]
+'''
+
+UNIT_MASS_PROJECT_K3 = '''schema = "rustred.project.toml.v1"
+[family]
+name = "python_supplied_sunset"
+loop_momenta = ["p", "q"]
+external_momenta = []
+dimension = "d"
+[[family.denominators]]
+id = "A"
+expression = "p^2-1"
+[[family.denominators]]
+id = "B"
+expression = "q^2-1"
+[[family.denominators]]
+id = "C"
+expression = "(p-q)^2-1"
+[target]
+powers = [1, 1, 1]
+'''
+
 PROFILE = '''schema = "rustred.campaign-execution-resource-profile.v1"
 estimator_revision = 19
 enclosing_memory_limit = "1024B"
@@ -688,6 +720,101 @@ class PythonApiTests(unittest.TestCase):
         with self.assertRaises(rustred.RustRedSchemaError):
             rustred.run_foundry_campaign(obsolete_schema)
 
+    def test_family_close_k1_k3_external_input_cold_inspection_and_application(self) -> None:
+        for source, target in (
+            (UNIT_MASS_PROJECT_K1, [3]),
+            (UNIT_MASS_PROJECT_K3, [2, 2, 1]),
+        ):
+            with self.subTest(arity=len(target)):
+                generated = rustred.family_close(
+                    source,
+                    input_format=rustred.InputFormat.TOML,
+                    permutation=list(range(len(target))),
+                )
+                self.assertIsInstance(generated, rustred.ClosingArtifactGenerationResult)
+                self.assertIsInstance(generated.artifact, bytes)
+                self.assertIs(generated.artifact, generated.artifact)
+                self.assertEqual(generated.schema, "rustred.family-close-output.toml.v1")
+                self.assertEqual(generated.status, "generated-durable")
+                report = tomllib.loads(generated.to_toml())
+                self.assertEqual(report["arity"], len(target))
+                self.assertEqual(
+                    report["solved_sectors"] + report["zero_sectors"],
+                    1 << len(target),
+                )
+                self.assertEqual(report["bytes"], len(generated.artifact))
+                self.assertGreaterEqual(report["total_us"], report["generation_us"])
+                inspected = tomllib.loads(
+                    rustred.inspect_closing_artifact(generated.artifact).to_toml()
+                )
+                self.assertEqual(
+                    inspected["artifact"]["family_fingerprint"], report["family_fingerprint"]
+                )
+                masters = {
+                    tuple(master["powers"])
+                    for master in inspected["artifact"]["masters"]
+                }
+                reduction = rustred.reduce_with_closing_artifact(generated.artifact, target)
+                self.assertTrue(reduction.terms)
+                for term in reduction.terms:
+                    self.assertIn(tuple(term.master_powers), masters)
+                    self.assertEqual(
+                        term.common_mass_squared_power,
+                        sum(term.master_powers) - sum(target),
+                    )
+
+    def test_family_close_matches_cli_artifact_and_cold_reduction(self) -> None:
+        generated = rustred.family_close(UNIT_MASS_PROJECT_K1)
+        cli_artifact = cli_bytes(
+            ["family-close", "--input-format", "toml"],
+            UNIT_MASS_PROJECT_K1.encode(),
+        )
+        self.assertEqual(generated.artifact, cli_artifact)
+        reduction = rustred.reduce_with_closing_artifact(generated.artifact, [3])
+        self.assertEqual(
+            reduction.to_toml(),
+            cli_bytes(
+                ["campaign", "reduce", "--artifact", "-", "--powers", "3"],
+                cli_artifact,
+            ).decode(),
+        )
+
+    @unittest.skipUnless(
+        os.environ.get("SYMBOLICA_LICENSE") and (os.cpu_count() or 0) >= 2,
+        "licensed two-core test",
+    )
+    def test_family_close_worker_count_preserves_artifact_bytes(self) -> None:
+        serial = rustred.family_close(UNIT_MASS_PROJECT_K3, n_cores=1)
+        parallel = rustred.family_close(UNIT_MASS_PROJECT_K3, n_cores=2)
+        self.assertEqual(serial.artifact, parallel.artifact)
+
+    def test_family_close_concurrent_callers_receive_deterministic_results(self) -> None:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as workers:
+            futures = [
+                workers.submit(rustred.family_close, UNIT_MASS_PROJECT_K1)
+                for _ in range(4)
+            ]
+            artifacts = [future.result(timeout=30).artifact for future in futures]
+        self.assertTrue(all(artifact == artifacts[0] for artifact in artifacts))
+
+    def test_family_close_validates_python_values_and_family_scope(self) -> None:
+        for permutation in ([True], [-1], [1 << 100], [], [0, 0], [1]):
+            with self.subTest(permutation=permutation):
+                with self.assertRaises(rustred.RustRedInputError):
+                    rustred.family_close(UNIT_MASS_PROJECT_K1, permutation=permutation)
+        for n_cores in (True, -1, 0, 1 << 100):
+            with self.subTest(n_cores=n_cores):
+                with self.assertRaises(rustred.RustRedInputError):
+                    rustred.family_close(UNIT_MASS_PROJECT_K1, n_cores=n_cores)
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.family_close(UNIT_MASS_PROJECT_K1, input_format="json")
+        for denominator in ("q^2-2", "q^2-m"):
+            with self.subTest(denominator=denominator):
+                with self.assertRaises(rustred.RustRedInputError):
+                    rustred.family_close(UNIT_MASS_PROJECT_K1.replace("q^2-1", denominator))
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.family_close(UNIT_MASS_PROJECT_K1.replace('dimension = "d"', 'dimension = "D"'))
+
     def test_closing_artifact_generation_inspection_and_reduction(self) -> None:
         generated = rustred.generate_closing_artifact(
             family=rustred.ClosingFamily.UNIT_MASS_VACUUM_K1,
@@ -1042,6 +1169,10 @@ class PythonApiTests(unittest.TestCase):
         self.assertEqual(
             str(inspect.signature(rustred.campaign_preflight)),
             "(profile, *, n_cores=1, max_memory_bytes)",
+        )
+        self.assertEqual(
+            str(inspect.signature(rustred.family_close)),
+            "(source, *, input_format='auto', n_cores=1, permutation=None)",
         )
         self.assertEqual(
             str(inspect.signature(rustred.run_foundry_campaign)),
