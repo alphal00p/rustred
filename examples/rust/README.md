@@ -138,6 +138,13 @@ parameters. The original coefficient map is restored before producing a rule.
 Both choices are recorded in the driver metadata; neither changes the shared
 numerical-tail solver. Their performance must be measured, not assumed.
 
+The additional `indices-first` policy follows the source system's explicit
+coefficient priority: integral-index variables, dimension when it is one
+parameter, then the other parameters. It supports interleaved variable maps
+without guessing from variable names. Arithmetic still uses Symbolica's native
+Lex field; this is not a switch to the C++ library's DEGLEX monomial ordering.
+It is an opt-in experiment with the same original-context restoration gate.
+
 ## Independent vacuum artifact diagnostics
 
 Generate every nonzero sector of a vacuum family and independently check the

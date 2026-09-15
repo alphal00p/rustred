@@ -352,20 +352,24 @@ fn depth_limit_is_checked_before_overflow_in_an_excluded_shell() {
 #[test]
 fn dimension_precedes_scalars_in_the_reference_coefficient_priority() {
     let context = CoefficientContext::new(["m2", "d"]);
-    let family = IntegralFamily::new(
-        "dimension-priority",
-        vec!["k".into()],
-        Vec::new(),
-        context.clone(),
-        context.parameter("d").unwrap(),
-        vec![AffineDenominator::new(
-            context.parameter("m2").unwrap(),
-            vec![context.one()],
-        )],
-        Vec::new(),
-        vec![context.zero()],
-    )
-    .unwrap();
-    let sources = SourceSystem::<1>::from_family(&family).unwrap();
-    assert_eq!(sources.coefficient_order(), &[2, 1, 0]);
+    for (factor, priority) in [(1, [2, 1, 0]), (2, [2, 0, 1])] {
+        let family = IntegralFamily::new(
+            "dimension-priority",
+            vec!["k".into()],
+            Vec::new(),
+            context.clone(),
+            &context.integer(factor) * &context.parameter("d").unwrap(),
+            vec![AffineDenominator::new(
+                context.parameter("m2").unwrap(),
+                vec![context.one()],
+            )],
+            Vec::new(),
+            vec![context.zero()],
+        )
+        .unwrap();
+        let sources = SourceSystem::<1>::from_family(&family).unwrap();
+        // A compound dimension expression must retain the generic parameter
+        // order instead of inferring an identity from the spelling "d".
+        assert_eq!(sources.coefficient_order(), &priority);
+    }
 }

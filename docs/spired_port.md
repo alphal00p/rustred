@@ -228,6 +228,19 @@ the same exact row. See the [recorded ordering experiment](spired_pm_acceptance.
 for process boundaries, memory and the distinction between partial progress
 and a completed-workload timing.
 
+`IndicesFirst` is a further opt-in policy, exposed as `indices-first` in the
+same environment setting. It consumes the existing explicit source coefficient
+priority rather than inferring an index suffix or recognizing variable names.
+Its full permutation is checked before absent variables are removed, including
+constant frames. The native rational field and polynomial ring expose no
+monomial-order type parameter in the pinned/current APIs: this variable-layout
+probe therefore remains Lex-based and does not implement C++ DEGLEX arithmetic.
+All exact coefficients return to the original map through the same native gate.
+The 34 release regression/ordering/source-audit checks pass, but the matching
+120-second hard-sector probe remains inside row 293 of the same exact frame.
+This does not solve the remaining PM sector; `Original` stays the default.
+See the [indices-first results](spired_pm_acceptance.md#indices-first-follow-up-2026-09-15).
+
 ## Per-job orderings and integrated affine cases (2026-09-14)
 
 `SectorExecutor::map_configured_with_observer` accepts a per-job configuration

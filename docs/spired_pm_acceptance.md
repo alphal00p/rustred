@@ -58,11 +58,36 @@ complete diff, and before/after hashes are retained under ignored
 `target/spired-exp-driver-audit.movGDg/`; no reference source is pushed.
 The separate build log and hashes are in `target/spired-fam12-exp-build.Ab7SOc/`.
 
-A separate, as-yet-unverified concern remains in the reference's all-ones
-sector: source ordering may not refresh when a permutation changes but its
-ordering ID stays zero. No solver correction has been made. The sweep needs
-independent per-order equation checks before all its statistics can be trusted;
-the authorized lookup correction does not resolve this separate question.
+A separate native inspection now confirms stale source ordering in the
+reference's all-ones sector when a permutation changes but its ordering ID
+stays zero. Using the actual `fam1_12_exp` input, native preparation produces
+13 ordinary/LI rows, 10 improved rows containing 80 terms, and two preliminary
+cut rules. After swapping noncut axes 2 and 3 at ID0, **six of those ten rows
+are no longer sorted**. The unchanged `solveSector` branch and an unforced
+`changeOrdering(0)` both skip the necessary refresh. Explicit native
+`changeOrdering(0, true)` restores sortedness without changing any integral/
+coefficient pair. All ten leading terms happen to remain correct for this
+swap: this is a demonstrated sortedness-invariant failure, not a measured
+wrong reduction.
+
+The inspection calls no sector solver and changes no vendor code. Evidence:
+`target/spired-id0-inspection.Vi37Rs/`; source/library hashes remain unchanged.
+Before the full sweep's 5,040 ID0 jobs can serve as reference evidence, its
+driver must refresh each job-local prepared row with the native forced sort
+and retain independent per-order equation checks. The earlier authorized
+lookup correction does not address this separate requirement. This does not
+invalidate the non-ID0 eight-order sample below.
+
+A corrected, ignored export-driver variant now force-refreshes only the
+job-local rows, checks native sortedness and unchanged term/coefficient
+multisets, then invokes the unchanged solver. Its identity and axes-2/3-swap
+ID0 jobs both complete. The existing frozen Rust release independently matches
+**all seven rules and two preliminary cut rules for each order**, with exact
+RHS/domain/guard comparisons, no waived reference rules, and zero residuals.
+Evidence: `target/spired-id0-export.wKlsfA/` and
+`target/spired-id0-rust.7VFYOk/`. This closes the two-order diagnostic, not the
+full ordering sweep or the pending indices-first experiment. The full driver
+still needs the same reviewed refresh policy before its exhaustive run.
 
 A bounded eight-order acceptance sample now passes for the completed non-ID0
 `fam1_12` sector `111110110`. An ignored export driver calls the unchanged
@@ -466,9 +491,33 @@ Further native-API review distinguishes coefficient ordering from physical
 integral ordering: C++ constructs an indices-first coefficient map and uses
 DEGLEX, whereas RustRed's coefficient map starts with parameters and uses its
 native lexicographic polynomial order. An explicit indices-first exact-frame
-map is therefore a possible next bounded experiment, not already-tested
+map therefore motivated the following bounded experiment, not a claim of
 DEGLEX parity. The existing native sparse and dense elimination APIs remain
 the only arithmetic engines; rational reconstruction is still deferred.
+
+### Indices-first follow-up (2026-09-15)
+
+The opt-in `IndicesFirst` policy now uses the source's registered physical-index
+priority, followed by the dimension and remaining parameters. It retains native
+Lex arithmetic and restores the original context before rule extraction.
+All 34 release checks pass: 20 regression jobs preserve 939 mathematical files,
+eight physical-ordering jobs preserve 24 files, and six original-source audits
+retain exact 1/18/617-rule reports with no replay, guard, descent or unbounded-
+cover gaps. Requested one/six-worker results agree. Independent audits pass.
+
+Its hard-sector probe nevertheless remains censored: **120.061831580 s wall,
+119.20 s CPU, 578,012 KiB peak RSS**, exit 124. All 415 case/source events and
+54 exact frames match the earlier Original probe; 828 native calls finish
+overall, including 292 rows in the 298-by-482 hard frame. Row 293 starts at
+41.555924 s with the same 292-row/4,361-nonzero U state, and remains unfinished
+at the cap. There is no completed sector output. Earlier arrival at that row
+does not establish a completed-workload speedup, and the separate shared-host
+observations are not a statistical comparison.
+
+`Original` remains the default. Coefficient-variable layout alone has not
+removed the exact-expression growth. Evidence, including frozen release
+binaries, policy metadata, raw observations and exact comparison scripts:
+`target/spired-indices-first.eJtXQR/`.
 
 The current release runs of `fam1_12` and `fam1_111` complete their full
 unchanged requested manifests, 40 and 132 sector jobs respectively. Exact

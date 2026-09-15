@@ -18,7 +18,8 @@ fn row(context: &CoefficientContext, inputs: &[&str]) -> ExactRow<1> {
 fn denominator_only_variables_survive_and_original_map_is_restored() {
     let context = CoefficientContext::new(["unused0", "a", "unused1", "b", "unused2"]);
     let rows = vec![row(&context, &["(a+1)/(b-2)", "3/(b-2)", "0"])];
-    let variables = FrameVariables::try_new(&rows, CoefficientVariableOrder::Original).unwrap();
+    let variables =
+        FrameVariables::try_new(&rows, CoefficientVariableOrder::Original, &[]).unwrap();
     assert_eq!(variables.original_len(), 5);
     assert_eq!(variables.active_len(), 2);
     assert_eq!(variables.active[0], variables.original[1]);
@@ -43,7 +44,8 @@ fn denominator_only_variables_survive_and_original_map_is_restored() {
 fn constant_and_empty_frames_use_valid_zero_variable_contexts() {
     let context = CoefficientContext::new(["a", "b"]);
     let rows = vec![row(&context, &["0", "1", "-3/7"])];
-    let variables = FrameVariables::try_new(&rows, CoefficientVariableOrder::Original).unwrap();
+    let variables =
+        FrameVariables::try_new(&rows, CoefficientVariableOrder::Original, &[]).unwrap();
     assert_eq!(variables.active_len(), 0);
     for term in rows.iter().flatten() {
         let compact = variables.map_coefficient(&term.coefficient).unwrap();
@@ -54,7 +56,8 @@ fn constant_and_empty_frames_use_valid_zero_variable_contexts() {
         );
     }
     let empty =
-        FrameVariables::try_new::<1>(&[Vec::new()], CoefficientVariableOrder::Original).unwrap();
+        FrameVariables::try_new::<1>(&[Vec::new()], CoefficientVariableOrder::Original, &[])
+            .unwrap();
     assert_eq!((empty.original_len(), empty.active_len()), (0, 0));
 }
 
@@ -62,7 +65,8 @@ fn constant_and_empty_frames_use_valid_zero_variable_contexts() {
 fn fully_active_contexts_share_the_map_and_preserve_values() {
     let context = CoefficientContext::new(["a", "b"]);
     let rows = vec![row(&context, &["a", "1/b"])];
-    let variables = FrameVariables::try_new(&rows, CoefficientVariableOrder::Original).unwrap();
+    let variables =
+        FrameVariables::try_new(&rows, CoefficientVariableOrder::Original, &[]).unwrap();
     assert!(Arc::ptr_eq(&variables.active, &variables.original));
     for term in rows.iter().flatten() {
         let mapped = variables.map_coefficient(&term.coefficient).unwrap();
@@ -80,13 +84,13 @@ fn mixed_coefficient_or_numerator_denominator_maps_are_rejected() {
     let other = CoefficientContext::new(["b", "a"]);
     let mut rows = vec![row(&context, &["a"]), row(&other, &["b"])];
     assert!(matches!(
-        FrameVariables::try_new(&rows, CoefficientVariableOrder::Original),
+        FrameVariables::try_new(&rows, CoefficientVariableOrder::Original, &[]),
         Err(MaterializationError::CoefficientVariableMapMismatch)
     ));
     rows.pop();
     rows[0][0].coefficient.denominator = other.coefficient_fixture("1").denominator;
     assert!(matches!(
-        FrameVariables::try_new(&rows, CoefficientVariableOrder::Original),
+        FrameVariables::try_new(&rows, CoefficientVariableOrder::Original, &[]),
         Err(MaterializationError::CoefficientVariableMapMismatch)
     ));
 }
@@ -95,7 +99,8 @@ fn mixed_coefficient_or_numerator_denominator_maps_are_rejected() {
 fn mapping_rejects_new_active_variables_and_wrong_restore_context() {
     let context = CoefficientContext::new(["unused", "a", "b"]);
     let rows = vec![row(&context, &["a/b"])];
-    let variables = FrameVariables::try_new(&rows, CoefficientVariableOrder::Original).unwrap();
+    let variables =
+        FrameVariables::try_new(&rows, CoefficientVariableOrder::Original, &[]).unwrap();
     assert!(matches!(
         variables.map_coefficient(&context.coefficient_fixture("unused+a/b")),
         Err(MaterializationError::CoefficientVariableRemap(_))
@@ -111,9 +116,11 @@ fn reverse_active_variables_preserves_values_including_leading_sign_changes() {
     for parameters in [vec!["a", "b"], vec!["unused0", "a", "unused1", "b"]] {
         let context = CoefficientContext::new(parameters);
         let rows = vec![row(&context, &["1/(a-b)", "a/(a-b)", "-3/7", "0"])];
-        let variables = FrameVariables::try_new(&rows, CoefficientVariableOrder::Reverse).unwrap();
+        let variables =
+            FrameVariables::try_new(&rows, CoefficientVariableOrder::Reverse, &[]).unwrap();
         assert_eq!(variables.active_len(), 2);
-        let original = FrameVariables::try_new(&rows, CoefficientVariableOrder::Original).unwrap();
+        let original =
+            FrameVariables::try_new(&rows, CoefficientVariableOrder::Original, &[]).unwrap();
         assert_eq!(
             variables.active.iter().collect::<Vec<_>>(),
             original.active.iter().rev().collect::<Vec<_>>()
@@ -146,7 +153,8 @@ fn reverse_empty_constant_and_denominator_only_contexts_are_exact() {
     let context = CoefficientContext::new(["unused", "a", "b"]);
     for inputs in [vec!["0", "-3/7"], vec!["1/a", "1/b"]] {
         let rows = vec![row(&context, &inputs)];
-        let variables = FrameVariables::try_new(&rows, CoefficientVariableOrder::Reverse).unwrap();
+        let variables =
+            FrameVariables::try_new(&rows, CoefficientVariableOrder::Reverse, &[]).unwrap();
         for term in rows.iter().flatten() {
             let mapped = variables.map_coefficient(&term.coefficient).unwrap();
             assert_eq!(
@@ -155,6 +163,69 @@ fn reverse_empty_constant_and_denominator_only_contexts_are_exact() {
             );
         }
     }
-    let empty = FrameVariables::try_new::<1>(&[], CoefficientVariableOrder::Reverse).unwrap();
+    let empty = FrameVariables::try_new::<1>(&[], CoefficientVariableOrder::Reverse, &[]).unwrap();
+    assert_eq!((empty.original_len(), empty.active_len()), (0, 0));
+}
+
+#[test]
+fn source_priority_uses_explicit_interleaved_index_positions_before_parameters() {
+    use crate::solver::SourceSystem;
+
+    let context = CoefficientContext::new(["d", "b", "unused", "a", "m"]);
+    let sources = SourceSystem::new(
+        vec![vec![Term {
+            integral: Integral::symbolic([0, 0]).unwrap(),
+            coefficient: context.coefficient_fixture("a+b+d+m").numerator,
+        }]],
+        [3, 1],
+    )
+    .unwrap();
+    assert_eq!(sources.coefficient_order(), &[3, 1, 0, 2, 4]);
+    for (input, active_positions) in [
+        ("(a+b+d+unused+m)/(b-a)", vec![3, 1, 0, 2, 4]),
+        ("(d+m)/(b-a)", vec![3, 1, 0, 4]),
+        ("1/b", vec![1]),
+        ("-3/7", vec![]),
+        ("0", vec![]),
+    ] {
+        let rows = vec![row(&context, &[input])];
+        let variables = FrameVariables::try_new(
+            &rows,
+            CoefficientVariableOrder::IndicesFirst,
+            sources.coefficient_order(),
+        )
+        .unwrap();
+        assert_eq!(
+            variables.active.as_ref(),
+            &active_positions
+                .iter()
+                .map(|position| variables.original[*position].clone())
+                .collect::<Vec<_>>()
+        );
+        let mapped = variables.map_coefficient(&rows[0][0].coefficient).unwrap();
+        assert_eq!(
+            variables.restore_coefficient(&mapped).unwrap(),
+            rows[0][0].coefficient
+        );
+    }
+}
+
+#[test]
+fn source_priority_is_validated_before_filtering_even_constant_frames() {
+    let context = CoefficientContext::new(["a", "b", "unused"]);
+    for input in ["1/a", "1", "0"] {
+        let rows = vec![row(&context, &[input])];
+        for invalid in [vec![], vec![0], vec![0, 1, 1], vec![0, 1, 3]] {
+            assert!(matches!(
+                FrameVariables::try_new(&rows, CoefficientVariableOrder::IndicesFirst, &invalid),
+                Err(MaterializationError::InvalidCoefficientVariablePriority)
+            ));
+        }
+    }
+    // No row coefficient means no map to interpret: it must not index even
+    // an unavailable source variable. The outer solve rejects TargetAbsent.
+    let empty =
+        FrameVariables::try_new::<1>(&[], CoefficientVariableOrder::IndicesFirst, &[usize::MAX])
+            .unwrap();
     assert_eq!((empty.original_len(), empty.active_len()), (0, 0));
 }

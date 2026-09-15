@@ -312,6 +312,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                             pivot,
                             self.config.symbolic_exact_backend,
                             self.config.coefficient_variable_order,
+                            self.system.coefficient_order(),
                             |event| observe(SearchEvent::ExactProgress(event)),
                         )
                         .map_err(|error| SolverError::ExactReplay(error.to_string()))?;

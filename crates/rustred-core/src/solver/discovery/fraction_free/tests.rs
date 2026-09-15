@@ -34,6 +34,7 @@ fn dense<const N: usize>(
             max_matrix_entries: 1000,
         },
         CoefficientVariableOrder::Original,
+        &[],
         |_| {},
     )
 }
@@ -62,7 +63,7 @@ fn dense_native_target_matches_sparse_and_retains_the_entire_rhs() {
 }
 
 #[test]
-fn reversing_coefficient_variables_preserves_target_identity_and_native_schedule() {
+fn reordering_coefficient_variables_preserves_target_identity_and_native_schedule() {
     let context = CoefficientContext::new(["unused0", "a", "unused1", "b", "c"]);
     let order = IntegralOrder::new([true], [false]);
     let expected = row(
@@ -102,6 +103,7 @@ fn reversing_coefficient_variables_preserves_target_identity_and_native_schedule
             for coefficient_order in [
                 CoefficientVariableOrder::Original,
                 CoefficientVariableOrder::Reverse,
+                CoefficientVariableOrder::IndicesFirst,
             ] {
                 let mut events = Vec::new();
                 let actual = exact_materialize_using_with_observer(
@@ -110,6 +112,7 @@ fn reversing_coefficient_variables_preserves_target_identity_and_native_schedule
                     integral(3),
                     backend,
                     coefficient_order,
+                    &[3, 1, 4, 0, 2],
                     |event| events.push(event),
                 )
                 .unwrap();
@@ -155,6 +158,7 @@ fn native_rational_polynomial_frame_preserves_joint_scale_and_full_rhs() {
             max_matrix_entries: 1000,
         },
         CoefficientVariableOrder::Original,
+        &[],
         |event| events.push(event),
     )
     .unwrap();
@@ -231,6 +235,7 @@ fn dense_rejects_variable_denominators_and_budget_before_native_elimination() {
                 max_matrix_entries: 2,
             },
             CoefficientVariableOrder::Original,
+            &[],
             |event| events.push(event),
         );
         assert_eq!(
@@ -255,6 +260,7 @@ fn dense_rejects_variable_denominators_and_budget_before_native_elimination() {
                 max_matrix_entries: 1
             },
             CoefficientVariableOrder::Original,
+            &[],
             |_| {}
         ),
         Err(MaterializationError::FractionFreeMatrixBudget {
@@ -282,6 +288,7 @@ fn dense_observer_brackets_one_native_batch_without_fictitious_row_events() {
             max_matrix_entries: 6,
         },
         CoefficientVariableOrder::Original,
+        &[],
         |event| events.push(event),
     )
     .unwrap();
@@ -306,7 +313,8 @@ fn dense_observer_brackets_one_native_batch_without_fictitious_row_events() {
 
 #[test]
 fn sector_policy_preserves_discovery_sources_canonicalization_and_guards() {
-    let context = CoefficientContext::new(["unused", "n0", "n1"]);
+    let context = CoefficientContext::new(["unused", "m", "n1", "n0"]);
+    let indices = [3, 2];
     let term = |shift, coefficient| Term {
         integral: Integral::symbolic(shift).unwrap(),
         coefficient: context.coefficient_fixture(coefficient).numerator,
@@ -315,16 +323,17 @@ fn sector_policy_preserves_discovery_sources_canonicalization_and_guards() {
     // The surviving free n1 coefficient tests the ordinary guard pipeline.
     let basis = vec![
         vec![term([1, 0], "1"), term([0, 0], "n1")],
-        vec![term([1, 0], "1"), term([-1, 0], "1")],
+        vec![term([1, 0], "1"), term([-1, 0], "m")],
     ];
-    let sources = SourceSystem::new(basis.clone(), [1, 2]).unwrap();
-    let solve = |backend| {
+    let sources = SourceSystem::new(basis.clone(), indices).unwrap();
+    let solve = |backend, coefficient_variable_order| {
         let solver = SectorSolver {
             system: &sources,
             basis: basis.clone(),
             order: IntegralOrder::new([true; 2], [false; 2]),
             config: SectorConfig {
                 symbolic_exact_backend: backend,
+                coefficient_variable_order,
                 ..Default::default()
             },
         };
@@ -338,27 +347,42 @@ fn sector_policy_preserves_discovery_sources_canonicalization_and_guards() {
             )
             .unwrap()
     };
-    let sparse = solve(SymbolicExactBackend::Sparse);
-    let dense = solve(SymbolicExactBackend::DenseFractionFree {
-        max_matrix_entries: 1000,
-    });
-    assert!(!sparse.stats.direct_hit && !dense.stats.direct_hit);
-    assert_eq!(dense.target, sparse.target);
-    assert_eq!(dense.rhs, sparse.rhs);
-    assert_eq!(dense.sources, sparse.sources);
-    assert_eq!(dense.stats.discovery, sparse.stats.discovery);
-    let expected = extract_exceptions(&sparse, &[1, 2], &[true; 2]).unwrap();
+    let sparse = solve(
+        SymbolicExactBackend::Sparse,
+        CoefficientVariableOrder::Original,
+    );
+    assert!(!sparse.stats.direct_hit);
+    let expected = extract_exceptions(&sparse, &indices, &[true; 2]).unwrap();
     assert!(!expected.branches.is_empty());
-    assert_eq!(
-        extract_exceptions(&dense, &[1, 2], &[true; 2]).unwrap(),
-        expected
-    );
-    assert!(
-        dense
-            .rhs
-            .iter()
-            .all(|term| term.coefficient.get_variables().len() == 3)
-    );
+    for backend in [
+        SymbolicExactBackend::Sparse,
+        SymbolicExactBackend::DenseFractionFree {
+            max_matrix_entries: 1000,
+        },
+    ] {
+        for policy in [
+            CoefficientVariableOrder::Original,
+            CoefficientVariableOrder::Reverse,
+            CoefficientVariableOrder::IndicesFirst,
+        ] {
+            let actual = solve(backend, policy);
+            assert!(!actual.stats.direct_hit);
+            assert_eq!(actual.target, sparse.target);
+            assert_eq!(actual.rhs, sparse.rhs);
+            assert_eq!(actual.sources, sparse.sources);
+            assert_eq!(actual.stats.discovery, sparse.stats.discovery);
+            assert_eq!(
+                extract_exceptions(&actual, &indices, &[true; 2]).unwrap(),
+                expected
+            );
+            assert!(
+                actual
+                    .rhs
+                    .iter()
+                    .all(|term| term.coefficient.get_variables().len() == 4)
+            );
+        }
+    }
 }
 
 #[test]

@@ -1,7 +1,7 @@
 //! Native polynomial-context compaction for one selected exact frame.
 //!
 //! Removing globally absent variables is an injective change of representation,
-//! not a substitution. An optional reversal changes only the native coefficient
+//! not a substitution. An optional reordering changes only the native coefficient
 //! representation, never physical integral keys. Restore the complete original
 //! map before canonicalization.
 
@@ -25,8 +25,11 @@ impl FrameVariables {
     pub(super) fn try_new<const N: usize>(
         rows: &[ExactRow<N>],
         order: CoefficientVariableOrder,
+        source_priority: &[usize],
     ) -> Result<Self, MaterializationError> {
         let Some(first) = rows.iter().flatten().next() else {
+            // With no coefficients there is no map against which to interpret
+            // a source priority. Exact materialization rejects an absent target.
             let empty = Arc::new(Vec::new());
             return Ok(Self {
                 original: empty.clone(),
@@ -34,6 +37,17 @@ impl FrameVariables {
             });
         };
         let original = first.coefficient.get_variables().clone();
+        if order == CoefficientVariableOrder::IndicesFirst {
+            let mut seen = vec![false; original.len()];
+            if source_priority.len() != original.len()
+                || source_priority.iter().any(|position| {
+                    seen.get_mut(*position)
+                        .is_none_or(|seen| std::mem::replace(seen, true))
+                })
+            {
+                return Err(MaterializationError::InvalidCoefficientVariablePriority);
+            }
+        }
         let mut used = vec![false; original.len()];
         for term in rows.iter().flatten() {
             Self::validate_map(&term.coefficient, &original)?;
@@ -47,6 +61,14 @@ impl FrameVariables {
         let active = if order == CoefficientVariableOrder::Original && used.iter().all(|used| *used)
         {
             original.clone()
+        } else if order == CoefficientVariableOrder::IndicesFirst {
+            Arc::new(
+                source_priority
+                    .iter()
+                    .filter(|position| used[**position])
+                    .map(|position| original[*position].clone())
+                    .collect(),
+            )
         } else {
             let mut active: Vec<_> = original
                 .iter()

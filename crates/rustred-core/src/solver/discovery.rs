@@ -36,6 +36,10 @@ pub enum CoefficientVariableOrder {
     #[default]
     Original,
     Reverse,
+    /// Registered source priority: physical index variables, dimension when
+    /// identifiable as one parameter, then the remaining parameters. This
+    /// changes variable layout in the native Lex field, not monomial order.
+    IndicesFirst,
 }
 
 /// Sizes of the numerical system, excluding its structural zero sentinel.
@@ -286,6 +290,7 @@ pub enum MaterializationError {
     TargetAbsent,
     TargetNotPivot,
     CoefficientVariableMapMismatch,
+    InvalidCoefficientVariablePriority,
     CoefficientVariableRemap(String),
     FractionFreeNonPolynomialCoefficient {
         row: usize,
@@ -336,6 +341,10 @@ impl fmt::Display for MaterializationError {
                     "selected exact coefficients have inconsistent variable maps"
                 )
             }
+            Self::InvalidCoefficientVariablePriority => write!(
+                f,
+                "exact coefficient priority must permute the complete original variable map"
+            ),
             Self::CoefficientVariableRemap(reason) => {
                 write!(
                     f,
@@ -377,6 +386,7 @@ pub fn exact_materialize_with_observer<const N: usize>(
         target,
         SymbolicExactBackend::Sparse,
         CoefficientVariableOrder::Original,
+        &[],
         observe,
     )
 }
@@ -389,6 +399,7 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
     target: Integral<N>,
     backend: SymbolicExactBackend,
     coefficient_order: CoefficientVariableOrder,
+    source_priority: &[usize],
     mut observe: impl FnMut(MaterializationEvent<N>),
 ) -> Result<ExactRow<N>, MaterializationError> {
     let mut columns = Vec::new();
@@ -411,7 +422,7 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
         .checked_add(1)
         .and_then(|count| u32::try_from(count).ok())
         .ok_or(MaterializationError::TooManyColumns)?;
-    let variables = variables::FrameVariables::try_new(rows, coefficient_order)?;
+    let variables = variables::FrameVariables::try_new(rows, coefficient_order, source_priority)?;
     observe(MaterializationEvent::FramePrepared {
         source_rows: rows.len(),
         integral_columns: columns.len(),

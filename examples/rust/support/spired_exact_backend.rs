@@ -32,7 +32,8 @@ fn parse_coefficient_order(order: Option<&str>) -> Result<CoefficientVariableOrd
     match order.unwrap_or("original") {
         "original" => Ok(CoefficientVariableOrder::Original),
         "reverse" => Ok(CoefficientVariableOrder::Reverse),
-        _ => Err("coefficient variable order must be original or reverse".into()),
+        "indices-first" => Ok(CoefficientVariableOrder::IndicesFirst),
+        _ => Err("coefficient variable order must be original, reverse or indices-first".into()),
     }
 }
 
@@ -70,6 +71,10 @@ mod tests {
         assert_eq!(
             parse_coefficient_order(Some("reverse")).unwrap(),
             CoefficientVariableOrder::Reverse
+        );
+        assert_eq!(
+            parse_coefficient_order(Some("indices-first")).unwrap(),
+            CoefficientVariableOrder::IndicesFirst
         );
         assert!(parse_coefficient_order(Some("automatic")).is_err());
         assert!(parse_coefficient_order(Some("")).is_err());
