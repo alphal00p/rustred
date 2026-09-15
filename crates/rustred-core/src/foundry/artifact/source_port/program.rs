@@ -15,7 +15,7 @@ use crate::solver::{SectorRule, SectorSolution};
 
 use super::certificate::{OriginalRowNormalization, OriginalSourceReplay};
 use super::normalization::OriginalSourceCorpus;
-use super::{SourcePortAudit, SourcePortAuditError, SourcePortSectorAudit, error};
+use super::{AffineApplicationDomain, SourcePortAudit, SourcePortAuditError, SourcePortSectorAudit, error};
 
 #[path = "lower/mod.rs"]
 pub(super) mod lower;
@@ -37,6 +37,10 @@ pub(super) struct CheckedRule<const N: usize> {
     pub(super) application: Vec<LatticeBox>,
     pub(super) nonzero_conditions: Vec<CoefficientPolynomial>,
     pub(super) ordinary: OriginalSourceReplay<N>,
+    /// Exact coupled target locus. `application` is only its coordinate-face
+    /// prefilter; runtime ownership must evaluate this predicate on original
+    /// powers. Exceptional affine branches remain fail-closed in geometry.
+    pub(super) affine: Option<Arc<AffineApplicationDomain>>,
 }
 
 impl<const N: usize> CheckedRule<N> {
@@ -46,22 +50,23 @@ impl<const N: usize> CheckedRule<N> {
         rule: &SectorRule<N>,
         ordinary: OriginalSourceReplay<N>,
         application: Vec<LatticeBox>,
+        affine: Option<Arc<AffineApplicationDomain>>,
     ) -> Result<Self, SourcePortAuditError> {
         if ordinary.normalization != OriginalRowNormalization::OriginalGeneratorOrdinaryV1 {
             return Err(error(
                 "checked rule requires original-generator source weights",
             ));
         }
-        let case =
-            rule.candidate.case.coordinate().ok_or_else(|| {
-                error("checked program currently requires coordinate target faces")
-            })?;
-        if rule.candidate.target != case.integral() {
+        let face = rule.candidate.case.face();
+        if rule.candidate.target != face.integral() {
             return Err(error(
                 "checked program target is not canonical for its face",
             ));
         }
-        let fixed = std::array::from_fn(|axis| case.fixed()[axis].map(i64::from));
+        if affine.is_some() != rule.candidate.case.affine().is_some() {
+            return Err(error("affine target evidence does not match target case"));
+        }
+        let fixed = std::array::from_fn(|axis| face.fixed()[axis].map(i64::from));
         let mut rhs = Vec::with_capacity(rule.candidate.rhs.len());
         let mut nonzero_conditions = ordinary.source_conditions.clone();
         for term in &rule.candidate.rhs {
@@ -90,6 +95,7 @@ impl<const N: usize> CheckedRule<N> {
             application,
             nonzero_conditions,
             ordinary,
+            affine,
         })
     }
 }

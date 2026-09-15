@@ -154,6 +154,9 @@ fn affine_candidates_are_omitted_only_after_an_independent_complete_cover() {
         },
     });
     let complete = audit.audit_sector([true; 3], None, &solution).unwrap();
+    // The affine target now reaches the replay stage through its coordinate
+    // face prefilter, but the deliberately empty synthetic candidate has no
+    // certificate and therefore is not retained as a rule.
     assert_eq!(complete.rules, proved_rules + 2);
     assert_eq!(complete.exact_replayed_rules, proved_rules);
     assert_eq!(complete.uniformly_descending_rules, proved_rules);

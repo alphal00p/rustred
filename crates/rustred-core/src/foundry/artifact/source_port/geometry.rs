@@ -73,11 +73,12 @@ pub(super) fn application_boxes<const N: usize>(
             if affine.is_proved_empty_in_sector(sector) {
                 return Ok(Vec::new());
             }
-            let domain = AffineApplicationDomain::from_case(affine, sector).map_err(error)?;
-            return Err(SourcePortAuditError::UnsupportedAffineOwnership {
-                domain,
-                role: AffineOwnershipRole::Target,
-            });
+            // The coordinate face is an exact rectangular *prefilter* for
+            // the coupled locus.  Ownership remains affine and is carried
+            // separately by the checked rule; callers must apply its exact
+            // predicate after this cheap box test.  Never use this box as a
+            // coverage claim for the affine equations themselves.
+            return Ok(vec![case_box(affine.face(), sector)?]);
         }
     };
     if rule.candidate.target != case.integral() {

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use crate::algebra::{IndexedCoefficient, IndexedPolynomial};
 use crate::foundry::cell::{FixedIndexRestriction, RuleCell, SourceViewBatch};
 use crate::foundry::completion::LatticeBox;
-use crate::foundry::parametric::ParametricGuardOrigin;
+use crate::foundry::parametric::{AffineApplicationDomain, ParametricGuardOrigin};
 use crate::identity::{IndexShift, ParametricIbpGenerator, RowId};
 use crate::sector::{OrderingPolicy, SectorMonotoneDomain};
 
@@ -32,6 +32,7 @@ pub(crate) struct OriginalDomainParts {
     pub rhs: Vec<(IndexShift, IndexedCoefficient)>,
     pub contributions: Vec<(usize, RowId, IndexedCoefficient)>,
     pub guards: Vec<(IndexedPolynomial, Vec<ParametricGuardOrigin>)>,
+    pub affine: Option<Arc<AffineApplicationDomain>>,
     pub source_rows_used: usize,
     pub shift_columns_checked: usize,
     pub limits: ReplayLimits,
@@ -68,6 +69,7 @@ pub(super) fn lower_rule<const N: usize>(
         .iter()
         .map(|item| (item.position(), item.value()))
         .collect();
+    let affine = checked.affine.clone();
     let translated = corpus.translate_normalized(
         generator,
         &checked.ordinary,
@@ -112,6 +114,7 @@ pub(super) fn lower_rule<const N: usize>(
         Arc::new(translated.sources),
         translated.contributions,
         fixed,
+        affine,
         conditions,
         limits,
     )?;

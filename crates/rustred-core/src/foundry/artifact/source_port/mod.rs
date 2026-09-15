@@ -302,6 +302,12 @@ impl<const N: usize> SourcePortAudit<N> {
         let mut retained_rules = Vec::new();
         let mut affine_candidates = Vec::new();
         for (ordinal, rule) in solution.rules.iter().enumerate() {
+            let affine_target = match rule.candidate.case.affine() {
+                Some(case) => Some(Arc::new(
+                    AffineApplicationDomain::from_case(case, &sector).map_err(error)?,
+                )),
+                None => None,
+            };
             let stored = match geometry::application_boxes(
                 rule,
                 self.sources.index_variables(),
@@ -326,6 +332,23 @@ impl<const N: usize> SourcePortAudit<N> {
             // application domain.  Coordinate targets cannot reach this
             // branch because their case box is always nonempty.
             if stored.is_empty() && rule.candidate.case.affine().is_some() {
+                continue;
+            }
+            // A coupled candidate without a source trace is only a search
+            // witness.  Keep it in the independent affine-candidate census
+            // (so a complete rectangular cover may make it redundant), but
+            // never send it through replay or treat its face prefilter as an
+            // executable rule.
+            if rule.candidate.case.affine().is_some() && rule.candidate.sources.is_empty() {
+                if let Some(domain) = affine_target.clone() {
+                    affine_candidates.push((
+                        ordinal,
+                        SourcePortAuditError::UnsupportedAffineOwnership {
+                            domain: (*domain).clone(),
+                            role: AffineOwnershipRole::Target,
+                        },
+                    ));
+                }
                 continue;
             }
             stored_boxes.extend(geometry::copy_boxes(&stored)?);
@@ -367,7 +390,12 @@ impl<const N: usize> SourcePortAudit<N> {
                         Ok(()) => {
                             report.uniformly_descending_rules += 1;
                             let retained =
-                                program::CheckedRule::retain(rule, replay.ordinary, checked)?;
+                                program::CheckedRule::retain(
+                                    rule,
+                                    replay.ordinary,
+                                    checked,
+                                    affine_target.clone(),
+                                )?;
                             checked_boxes.extend(geometry::copy_boxes(&retained.application)?);
                             retained_rules.push(retained);
                         }

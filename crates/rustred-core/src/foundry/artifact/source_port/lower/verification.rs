@@ -34,6 +34,7 @@ pub(in crate::foundry::artifact) struct PreparedOriginalDomain {
     original: OriginalCombination,
     contributions: Vec<(usize, RowId, IndexedCoefficient)>,
     fixed: Vec<FixedIndexRestriction>,
+    affine: Option<Arc<crate::foundry::parametric::AffineApplicationDomain>>,
     limits: ReplayLimits,
 }
 
@@ -43,6 +44,7 @@ impl PreparedOriginalDomain {
         sources: Arc<SourceViewBatch>,
         contributions: Vec<(usize, RowId, IndexedCoefficient)>,
         fixed: Vec<FixedIndexRestriction>,
+        affine: Option<Arc<crate::foundry::parametric::AffineApplicationDomain>>,
         retained_conditions: Vec<IndexedPolynomial>,
         limits: ReplayLimits,
     ) -> Result<Self, SourcePortAuditError> {
@@ -126,6 +128,7 @@ impl PreparedOriginalDomain {
             original,
             contributions: normalized,
             fixed,
+            affine,
             limits,
         })
     }
@@ -284,6 +287,7 @@ impl PreparedOriginalDomain {
                 .into_iter()
                 .map(|guard| (guard.polynomial, guard.origins))
                 .collect(),
+            affine: self.affine.clone(),
             source_rows_used: self.original.source_rows_multiplied,
             shift_columns_checked: checked,
             limits: self.limits,

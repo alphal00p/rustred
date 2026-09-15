@@ -68,10 +68,10 @@ fn affine_sunset_replays_against_original_ordinary_rows_but_cannot_publish() {
         .contributions
         .iter()
         .any(|source| source.offset != [0; 3]));
-    assert!(matches!(
-        geometry::application_boxes(&rule, audit.sources.index_variables(), &[true; 3], &[]),
-        Err(SourcePortAuditError::UnsupportedAffineOwnership { .. })
-    ));
+    let boxes = geometry::application_boxes(&rule, audit.sources.index_variables(), &[true; 3], &[])
+        .expect("the affine face is a rectangular prefilter, not ownership evidence");
+    assert_eq!(boxes.len(), 1);
+    assert!(boxes[0].upper().iter().any(Option::is_none));
 }
 
 #[test]
