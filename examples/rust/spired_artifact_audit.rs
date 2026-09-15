@@ -1,6 +1,8 @@
 //! Autonomous vacuum generation followed by independent cold diagnostics.
 //! Usage: spired-artifact-audit <1|2|3> [workers]
 //! No artifact is installed or written by this diagnostic example.
+//! Shares the solver example's optional symbolic exact-backend environment
+//! settings. Sparse is the default; numerical-tail lifting remains sparse.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -9,16 +11,25 @@ use std::time::Instant;
 use rustred::family::IntegralFamily;
 use rustred::foundry::artifact::SourcePortAudit;
 use rustred::sector::{Mask, zero};
-use rustred::solver::{SectorConfig, SectorExecutor, SectorSolveOptions, SourceSystem};
+use rustred::solver::{
+    SectorConfig, SectorExecutor, SectorSolveOptions, SourceSystem, SymbolicExactBackend,
+};
 
+#[path = "support/spired_exact_backend.rs"]
+mod spired_exact_backend;
 #[allow(dead_code)]
 #[path = "support/spired_families.rs"]
 mod spired_families;
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
-fn run<const N: usize>(family: IntegralFamily, workers: usize) -> Result<()> {
+fn run<const N: usize>(
+    family: IntegralFamily,
+    workers: usize,
+    symbolic_exact_backend: SymbolicExactBackend,
+) -> Result<()> {
     let start = Instant::now();
+    println!("# symbolic_exact_backend={symbolic_exact_backend:?}");
     let zero_analyzer = zero::Analyzer::try_unrestricted(&family)?;
     let mut zeros = Vec::new();
     let mut sectors = Vec::new();
@@ -39,7 +50,7 @@ fn run<const N: usize>(family: IntegralFamily, workers: usize) -> Result<()> {
     let prepared = start.elapsed();
     let executor = SectorExecutor::new(workers)?;
     let reports = executor.map(
-        &sources, &sectors, &SectorConfig { zero_sectors: zeros, ..Default::default() },
+        &sources, &sectors, &SectorConfig { zero_sectors: zeros, symbolic_exact_backend, ..Default::default() },
         SectorSolveOptions { numerical_depth: 3, ..Default::default() },
         |done| {
             let report = audit.audit_sector(done.sector, None, &done.solution)?;
@@ -112,11 +123,17 @@ fn main() -> Result<()> {
         .map(|value| value.parse())
         .transpose()?
         .unwrap_or(1);
+    let symbolic_exact_backend = spired_exact_backend::from_environment()?;
     match args[0].as_str() {
-        "1" => run::<1>(spired_families::vacuum(&[&[1]])?, workers),
+        "1" => run::<1>(
+            spired_families::vacuum(&[&[1]])?,
+            workers,
+            symbolic_exact_backend,
+        ),
         "2" => run::<3>(
             spired_families::vacuum(&[&[1, 0], &[0, 1], &[1, 1]])?,
             workers,
+            symbolic_exact_backend,
         ),
         "3" => run::<6>(
             spired_families::vacuum(&[
@@ -128,6 +145,7 @@ fn main() -> Result<()> {
                 &[0, 1, -1],
             ])?,
             workers,
+            symbolic_exact_backend,
         ),
         _ => Err("expected vacuum loop count 1, 2 or 3".into()),
     }

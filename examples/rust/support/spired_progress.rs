@@ -82,6 +82,17 @@ pub fn write_event<const N: usize>(
                         output,
                         "phase=exact-frame source_rows={source_rows} integral_columns={integral_columns} target_column={target_column} input_terms={input_terms} coefficient_variables={coefficient_variables} active_variables={active_variables}"
                     ),
+                    MaterializationEvent::DenseFractionFreeStarted {
+                        rows,
+                        columns,
+                        reduction_columns,
+                    } => writeln!(
+                        output,
+                        "phase=dense-fraction-free-start rows={rows} columns={columns} reduction_columns={reduction_columns}"
+                    ),
+                    MaterializationEvent::DenseFractionFreeFinished { rank } => {
+                        writeln!(output, "phase=dense-fraction-free-finish rank={rank}")
+                    }
                     MaterializationEvent::RowStarted {
                         row,
                         input_nonzeros,

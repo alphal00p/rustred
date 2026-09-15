@@ -15,6 +15,10 @@
 //! PM numerical depth follows the original fixture; all other cases use three.
 //! Optional ordering lines are `sector-mask coordinate-priority...` (zero-based).
 //! Schedule is `active-first` (default) or `input-order`; it only orders jobs.
+//! Optional diagnostic RUSTRED_SPIRED_SYMBOLIC_EXACT_BACKEND=dense-fraction-free
+//! selects native dense symbolic lifting (numerical-tail lifting stays sparse).
+//! RUSTRED_SPIRED_FRACTION_FREE_MAX_ENTRIES bounds initial dense matrix slots;
+//! it does not bound intermediate coefficient memory. Sparse is the default.
 //! Outputs are conditional source-port rules
 //! and finite search residuals, NOT certified family-closing artifacts.
 
@@ -31,6 +35,8 @@ use rustred::solver::{
     SectorSolution, SectorSolveOptions, SectorStats, prepare_linear_cuts,
 };
 
+#[path = "support/spired_exact_backend.rs"]
+mod spired_exact_backend;
 #[path = "support/spired_families.rs"]
 mod spired_families;
 #[path = "support/spired_progress.rs"]
@@ -316,6 +322,7 @@ fn run<const N: usize>(
     process_start: Instant,
 ) -> Result<()> {
     let input_start = Instant::now();
+    let symbolic_exact_backend = spired_exact_backend::from_environment()?;
     let zero_sectors = args
         .zero_manifest
         .as_deref()
@@ -392,6 +399,10 @@ fn run<const N: usize>(
         family.coefficient_context().parameter_names(),
         mask(&removed)
     )?;
+    writeln!(
+        metadata,
+        "symbolic_exact_backend={symbolic_exact_backend:?}"
+    )?;
     writeln!(metadata, "coordinates={:?}", family.coordinates())?;
     for (axis, shift) in family.power_shifts().iter().enumerate() {
         writeln!(metadata, "power_shift[{axis}]={shift}")?;
@@ -446,6 +457,7 @@ fn run<const N: usize>(
         deltas: removed,
         removed_deltas: removed,
         zero_sectors: zero_sectors.into(),
+        symbolic_exact_backend,
         ..Default::default()
     };
     let completed = executor.map_configured_with_observer(

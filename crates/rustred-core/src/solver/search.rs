@@ -6,12 +6,12 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use symbolica::domains::finite_field::{FiniteFieldElement, ToFiniteField, Zp64};
 use symbolica::prelude::{Field, Integer, Ring};
 
-use super::discovery::{Discovery, DiscoveryStats, exact_materialize_with_observer};
+use super::discovery::{Discovery, DiscoveryStats, exact_materialize_using_with_observer};
 use super::instantiate::{canonicalize, instantiate};
 use super::precondition::precondition_with_variable_order;
 use super::{
     Case, ExactRow, Integral, IntegralOrder, PolynomialRow, Seed, Seeds, SolverError, SourceSystem,
-    Term,
+    SymbolicExactBackend, Term,
 };
 
 mod observation;
@@ -26,6 +26,9 @@ pub struct SectorConfig<const N: usize> {
     pub permutation: Option<[usize; N]>,
     /// Immutable family-wide zero-sector census, shared by sector workers.
     pub zero_sectors: Arc<[[bool; N]]>,
+    /// Single-target symbolic exact lifting only. Shared finite-corner lifting
+    /// stays sparse. The default preserves the reference GPLU path.
+    pub symbolic_exact_backend: SymbolicExactBackend,
 }
 
 impl<const N: usize> Default for SectorConfig<N> {
@@ -35,6 +38,7 @@ impl<const N: usize> Default for SectorConfig<N> {
             removed_deltas: [false; N],
             permutation: None,
             zero_sectors: Arc::from([]),
+            symbolic_exact_backend: SymbolicExactBackend::Sparse,
         }
     }
 }
@@ -298,10 +302,11 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                             discovery: probe.discovery.stats(),
                         });
                         let exact_start = Instant::now();
-                        let exact = exact_materialize_with_observer(
+                        let exact = exact_materialize_using_with_observer(
                             &selected,
                             &self.order,
                             pivot,
+                            self.config.symbolic_exact_backend,
                             |event| observe(SearchEvent::ExactProgress(event)),
                         )
                         .map_err(|error| SolverError::ExactReplay(error.to_string()))?;

@@ -267,13 +267,80 @@ peak RSS 428,936 KiB. These observer-enabled shared-host diagnostics are not a
 paired speedup measurement; compaction alone has not removed the remaining
 exact-algebra bottleneck. Evidence: `target/spired-active-map-release.5YHl5n/`.
 
-The next bounded comparison can use Symbolica's existing dense polynomial
-`Matrix::partial_row_reduce_fraction_free` on this actual 298-by-482 frame,
-reducing through target column 404 and retaining every RHS column. The inspected
-native sparse reducer has no fraction-free option. This is an experimental
-alternative to measure, not a default switch, a custom elimination algorithm,
-or a rational-reconstruction implementation. A matrix-entry admission budget
-does not bound subsequent polynomial expression growth.
+The opt-in native polynomial pilot now exposes
+`SectorConfig::symbolic_exact_backend` with `Sparse` (unchanged default) and
+`DenseFractionFree { max_matrix_entries }`. The latter calls Symbolica's
+existing `Matrix::partial_row_reduce_fraction_free` through the target column,
+retaining every RHS column and normalizing the target row once with native
+rational-polynomial arithmetic. The inspected native sparse reducer has no
+fraction-free option. No elimination or reconstruction algorithm is implemented
+inside RustRed.
+
+Both the source-sector example and its original-source audit example accept
+`RUSTRED_SPIRED_SYMBOLIC_EXACT_BACKEND=dense-fraction-free` and the optional
+`RUSTRED_SPIRED_FRACTION_FREE_MAX_ENTRIES` (default 1,000,000). The policy affects
+only symbolic single-target exact lifting: discovery, direct hits and the shared
+numerical tail retain their existing paths. Non-unit input denominators,
+including constant rational coefficients, are explicitly rejected; there is no
+hidden denominator-clearing or sparse fallback. The matrix-entry admission
+budget does not bound subsequent polynomial expression growth, so experiments
+also need an external process cap. Native batch start/finish events do not
+pretend to expose per-row progress or cancellation inside that call.
+
+All-target checking and 230 focused solver/source-port tests pass, including
+five native-pilot tests for exact RHS/variable-map preservation, dependent and
+zero rows, denominator and budget rejection, honest observations, and unchanged
+discovery/source/guard semantics. Both example test targets also pass (8 and 55
+tests). The optimized binaries pass all 20 established serial/six-worker jobs
+and eight fixed-order jobs, with 939 plus 24 byte-identical mathematical-file
+comparisons and the unchanged exact native comparison gates. Build evidence is in
+`target/spired-native-fraction-free-build.MzOBYf/`.
+
+The opt-in path completes the full reference K6 workload with **137 actual
+native dense elimination batches**. Its 617 rules, guards and residuals match
+the native reference and its 40 mathematical files are byte-identical to the
+sparse path. Five bounded generation jobs and six fresh-process K1/K3/K6
+generation-plus-original-source audits pass. The latter retain 1/18/617 rules,
+zero replay/descent/guard/coverage failures, and identical backend-independent
+semantic reports. These are not artifact serialization or cold reload tests.
+
+The equally configured K6 generation-plus-audit runs take 1.384019 s for sparse
+and 1.411255 s for dense in-process (about 1.41/1.43 s process wall). This single
+shared-host pair is diagnostic, not statistical performance acceptance. The
+generation-only jobs have different progress settings and cannot be used as a
+backend speed comparison: the dense run writes 4,519 event lines. Sparse stays
+the default. Release evidence and independent audits are in
+`target/spired-fraction-free-release.nP4AE5/`.
+
+The same missing PM sector was then run in fresh processes with both backends,
+the original sector/orderings/depth, one worker on CPU 10, and a 120-second cap.
+Sparse again preserves all 415 historical case/rule events and reaches the
+298-by-482 exact frame with six active coefficient variables. Row 293 starts at
+42.887019 s and is still active at the cap. Process wall is 120.064491302 s,
+CPU 119.20 s, peak RSS 552,412 KiB, exit 124, with no completed sector output.
+
+Dense **fails before reaching that frame**, rather than completing it faster.
+After 52 completed native batches and a matching 413-event prefix, it rejects
+row 20, term 1 of a preceding 36-by-80 frame. That case has the exact condition
+`1 - n13 - 2*n11 + 2*n6 = 0`; its rational coordinate chart introduces halves.
+The error is the pilot's declared non-unit-input-denominator rejection. Exit 1
+comes after 1.695639056 s wall / 1.65 s CPU with 18,512 KiB peak RSS. There is
+no fallback, changed ordering, sampled replacement, or chronology divergence.
+The large exact frame's dense performance therefore remains **unmeasured**.
+Both terminal runs and the failed dense diagnostic remain in the same evidence
+directory. No additional profiler run was made for a dense frame that was never
+reached; the sparse row observations still locate the previously profiled
+exact-algebra bottleneck.
+
+A narrowly scoped follow-up is to evaluate native polynomial elimination over
+`Q` for constant rational input coefficients. The inspected Symbolica API
+already supplies `PolynomialRing<RationalField>`, its polynomial GCD service,
+native coefficient-map operations, and conversion of the final rational-field
+numerator/denominator pair to the existing integer-coefficient rational function.
+That route needs focused tests and a repeat of the same full-sector attempt;
+it is not implemented by this pilot. Variable-dependent input denominators
+remain a separate policy question. No local reconstruction or denominator-
+clearing algorithm is justified by this failure.
 
 The current release runs of `fam1_12` and `fam1_111` complete their full
 unchanged requested manifests, 40 and 132 sector jobs respectively. Exact

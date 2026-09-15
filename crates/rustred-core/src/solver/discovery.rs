@@ -14,7 +14,19 @@ use super::{ExactRow, Integral, IntegralOrder, Term};
 type NumericalCoefficient = <Zp64 as Set>::Element;
 type ExactField = RationalPolynomialField<IntegerRing, u16>;
 
+mod fraction_free;
 mod variables;
+
+/// Exact lifting for a single symbolic target. Shared numerical-tail lifting
+/// remains sparse; this diagnostic choice does not change source discovery.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SymbolicExactBackend {
+    #[default]
+    Sparse,
+    /// Native dense polynomial elimination. The bound limits initial matrix
+    /// slots, not coefficient growth or total memory. Use an external run cap.
+    DenseFractionFree { max_matrix_entries: usize },
+}
 
 /// Sizes of the numerical system, excluding its structural zero sentinel.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -46,6 +58,14 @@ pub enum MaterializationEvent<const N: usize> {
         input_terms: usize,
         coefficient_variables: usize,
         active_variables: usize,
+    },
+    DenseFractionFreeStarted {
+        rows: usize,
+        columns: usize,
+        reduction_columns: usize,
+    },
+    DenseFractionFreeFinished {
+        rank: usize,
     },
     RowStarted {
         /// One-based ordinal in the selected original-source trace.
@@ -248,11 +268,23 @@ impl<const N: usize> Discovery<N> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MaterializationError {
     TooManyColumns,
-    NonCanonicalRow { row: usize },
+    NonCanonicalRow {
+        row: usize,
+    },
     TargetAbsent,
     TargetNotPivot,
     CoefficientVariableMapMismatch,
     CoefficientVariableRemap(String),
+    FractionFreeNonPolynomialCoefficient {
+        row: usize,
+        term: usize,
+    },
+    FractionFreeMatrixBudget {
+        rows: usize,
+        columns: usize,
+        limit: usize,
+    },
+    FractionFreeDimensionOverflow,
 }
 
 impl fmt::Display for MaterializationError {
@@ -270,6 +302,21 @@ impl fmt::Display for MaterializationError {
             }
             Self::TargetNotPivot => {
                 write!(f, "selected exact rows do not produce the target pivot")
+            }
+            Self::FractionFreeNonPolynomialCoefficient { row, term } => write!(
+                f,
+                "fraction-free pilot requires unit input denominators; row {row}, term {term} is rational"
+            ),
+            Self::FractionFreeMatrixBudget {
+                rows,
+                columns,
+                limit,
+            } => write!(
+                f,
+                "fraction-free matrix {rows}x{columns} exceeds the {limit}-entry initial allocation budget"
+            ),
+            Self::FractionFreeDimensionOverflow => {
+                write!(f, "fraction-free matrix dimensions overflow native storage")
             }
             Self::CoefficientVariableMapMismatch => {
                 write!(
@@ -305,10 +352,29 @@ pub fn exact_materialize<const N: usize>(
 
 /// The observer brackets each native exact row reduction, including dependent
 /// inputs. It cannot change row order, pivots, or the early target stop.
+#[cfg(test)]
 pub fn exact_materialize_with_observer<const N: usize>(
     rows: &[ExactRow<N>],
     order: &IntegralOrder<N>,
     target: Integral<N>,
+    observe: impl FnMut(MaterializationEvent<N>),
+) -> Result<ExactRow<N>, MaterializationError> {
+    exact_materialize_using_with_observer(
+        rows,
+        order,
+        target,
+        SymbolicExactBackend::Sparse,
+        observe,
+    )
+}
+
+/// The dense option changes exact elimination scheduling, not the discovery
+/// trace. It is a diagnostic and grants no artifact or closure authority.
+pub(super) fn exact_materialize_using_with_observer<const N: usize>(
+    rows: &[ExactRow<N>],
+    order: &IntegralOrder<N>,
+    target: Integral<N>,
+    backend: SymbolicExactBackend,
     mut observe: impl FnMut(MaterializationEvent<N>),
 ) -> Result<ExactRow<N>, MaterializationError> {
     let mut columns = Vec::new();
@@ -340,6 +406,17 @@ pub fn exact_materialize_with_observer<const N: usize>(
         coefficient_variables: variables.original_len(),
         active_variables: variables.active_len(),
     });
+    if let SymbolicExactBackend::DenseFractionFree { max_matrix_entries } = backend {
+        return fraction_free::materialize(
+            rows,
+            &columns,
+            order,
+            target_column,
+            &variables,
+            max_matrix_entries,
+            observe,
+        );
+    }
     let field = ExactField::new(Z);
     let mut reducer = SparseRowReducer::new(native_columns, field, LuLMode::None);
     let mut values = Vec::new();

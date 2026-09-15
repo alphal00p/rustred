@@ -314,6 +314,7 @@ fn vanished_cuts_are_zero_even_without_an_explicit_zero_sector_list() {
         removed_deltas: [true],
         permutation: None,
         zero_sectors: Vec::new().into(),
+        ..Default::default()
     };
     let solver = SectorSolver::new(&system, [true], config).unwrap();
     let candidate = solver
