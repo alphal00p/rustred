@@ -115,9 +115,11 @@ fn source_scale_translation_precedes_fixed_target_specialization() {
         corpus.context.integer(6).raw().clone()
     );
     assert_eq!(replay.contributions[0].offset, [2]);
-    assert!(corpus
-        .normalize(replay, &CoordinateCase::new([Some(3)]).unwrap().into())
-        .is_err());
+    assert!(
+        corpus
+            .normalize(replay, &CoordinateCase::new([Some(3)]).unwrap().into())
+            .is_err()
+    );
 }
 
 #[test]
@@ -159,14 +161,16 @@ fn unknown_row_ids_and_foreign_weight_maps_are_rejected() {
     let family = family(false);
     let source = SourceSystem::<1>::from_family(&family).unwrap();
     assert!(OriginalSourceCorpus::try_new(&family, &source, &[]).is_err());
-    assert!(OriginalSourceCorpus::try_new(
-        &family,
-        &source,
-        &[RowId::Derived {
-            label: "invented".into()
-        }]
-    )
-    .is_err());
+    assert!(
+        OriginalSourceCorpus::try_new(
+            &family,
+            &source,
+            &[RowId::Derived {
+                label: "invented".into()
+            }]
+        )
+        .is_err()
+    );
     let wrong_indices = SourceSystem::new(source.rows().to_vec(), [0]).unwrap();
     assert!(OriginalSourceCorpus::try_new(&family, &wrong_indices, &[row_id()]).is_err());
 }
@@ -269,9 +273,11 @@ fn translated_source_condition_zero_is_rejected_before_cancellation() {
             Default::default(),
         )
         .unwrap();
-    assert!(corpus
-        .condition_for_target(&condition, &[2], &[(0, 1)])
-        .is_err());
+    assert!(
+        corpus
+            .condition_for_target(&condition, &[2], &[(0, 1)])
+            .is_err()
+    );
     // At source argument1+1 the same condition is-1, not zero.
     let restricted = corpus
         .condition_for_target(&condition, &[1], &[(0, 1)])

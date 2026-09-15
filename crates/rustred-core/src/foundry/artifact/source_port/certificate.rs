@@ -11,7 +11,7 @@ use crate::algebra::{Coefficient, CoefficientPolynomial};
 use crate::identity::RowId;
 use crate::solver::{SectorRule, Seed};
 
-use super::{error, SourcePortAuditError};
+use super::{SourcePortAuditError, error};
 
 /// Identify exactly which ordinary-row normalization the weights multiply.
 /// Conversion from the adapter to original `ParametricRelation` rows verifies

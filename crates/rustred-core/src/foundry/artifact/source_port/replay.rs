@@ -15,11 +15,11 @@ use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
 use crate::algebra::Coefficient;
 use crate::foundry::completion::LatticeBox;
 use crate::solver::{
-    canonicalize_source_port, extract_exceptions, instantiate_source_port, Case, ExactRow,
-    IntegralOrder, PolynomialRow, RuleCandidate, SectorRule, SourceSystem, Term,
+    Case, ExactRow, IntegralOrder, PolynomialRow, RuleCandidate, SectorRule, SourceSystem, Term,
+    canonicalize_source_port, extract_exceptions, instantiate_source_port,
 };
 
-use super::{error, geometry, ordinary, SourcePortAuditError};
+use super::{SourcePortAuditError, error, geometry, ordinary};
 
 #[cfg(test)]
 mod tests;
@@ -77,6 +77,11 @@ pub(super) fn replay_rule<const N: usize>(
                 .map_err(error)?;
         }
     }
+    // Affine discovery deliberately retained the full physical source span;
+    // replay must use the same row projection.  The rectangular zero-sector
+    // census cannot infer signs on coupled charts and pruning here would make
+    // the authenticated source trace differ from the discovered one.
+    let replay_zero_sectors: &[[bool; N]] = if affine.is_some() { &[] } else { zero_sectors };
     let mut rows = Vec::with_capacity(candidate.sources.len());
     for source in &candidate.sources {
         // Seed fields are public search transport, not certificate authority.
@@ -108,7 +113,7 @@ pub(super) fn replay_rule<const N: usize>(
                 system.index_variables(),
                 system.fixed(),
                 order,
-                zero_sectors,
+                replay_zero_sectors,
                 affine,
             )
             .map_err(error)?,
@@ -235,12 +240,13 @@ pub(super) fn replay_rule<const N: usize>(
             order.sector(),
         )?;
         let tightened;
-        // Affine replay is internal identity evidence only. Its exact guard
-        // branches are retained, but box ownership is deliberately not built:
-        // the public bridge must still reject affine publication until its
-        // domain-aware coverage/runtime boundary exists.
+        // An affine target carries an exact chart, but its coordinate-face
+        // box is still a sound conservative prefilter for replay: proving a
+        // discarded physical column zero on that larger box also proves it
+        // on the affine subset.  The box is not used as an ownership or
+        // publication certificate; the affine bridge remains fail-closed.
         let applicable = if affine.is_some() {
-            &[][..]
+            boxes
         } else if additional_exceptions.is_empty() {
             boxes
         } else {

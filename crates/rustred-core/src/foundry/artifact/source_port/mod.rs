@@ -316,7 +316,10 @@ impl<const N: usize> SourcePortAudit<N> {
             ) {
                 Ok(stored) => stored,
                 Err(issue) => {
-                    if matches!(&issue, SourcePortAuditError::UnsupportedAffineOwnership { .. }) {
+                    if matches!(
+                        &issue,
+                        SourcePortAuditError::UnsupportedAffineOwnership { .. }
+                    ) {
                         affine_candidates.push((ordinal, issue));
                     } else {
                         report
@@ -332,6 +335,12 @@ impl<const N: usize> SourcePortAudit<N> {
             // application domain.  Coordinate targets cannot reach this
             // branch because their case box is always nonempty.
             if stored.is_empty() && rule.candidate.case.affine().is_some() {
+                // This affine domain was proved empty in the sector.  It is
+                // a vacuous candidate, so account for its omission directly
+                // rather than sending it through the unresolved-affine
+                // candidate list (which is reserved for nonempty domains
+                // that still need an independent cover).
+                report.redundant_affine_rules += 1;
                 continue;
             }
             // A coupled candidate without a source trace is only a search
@@ -351,7 +360,14 @@ impl<const N: usize> SourcePortAudit<N> {
                 }
                 continue;
             }
-            stored_boxes.extend(geometry::copy_boxes(&stored)?);
+            // An affine face box is only a conservative prefilter, never a
+            // rectangular coverage certificate.  Keep it out of both cover
+            // ledgers so an affine candidate can be omitted only when the
+            // independently replayed coordinate rules already cover the
+            // whole sector.
+            if affine_target.is_none() {
+                stored_boxes.extend(geometry::copy_boxes(&stored)?);
+            }
             match replay::replay_rule(
                 &self.sources,
                 &self.original_row_ids,
@@ -363,7 +379,6 @@ impl<const N: usize> SourcePortAudit<N> {
                 &stored,
             ) {
                 Ok(replay) => {
-                    report.exact_replayed_rules += 1;
                     report.replay_source_entries += replay.ordinary.contributions.len();
                     report.additional_replay_guard_branches += replay.additional_exceptions.len();
                     let checked = match geometry::application_boxes(
@@ -374,9 +389,18 @@ impl<const N: usize> SourcePortAudit<N> {
                     ) {
                         Ok(checked) => checked,
                         Err(issue) => {
-                            report.issues.push(format!(
-                                "rule {ordinal} certificate guard geometry: {issue}"
-                            ));
+                            if affine_target.is_some()
+                                && matches!(
+                                    &issue,
+                                    SourcePortAuditError::UnsupportedAffineOwnership { .. }
+                                )
+                            {
+                                affine_candidates.push((ordinal, issue));
+                            } else {
+                                report.issues.push(format!(
+                                    "rule {ordinal} certificate guard geometry: {issue}"
+                                ));
+                            }
                             continue;
                         }
                     };
@@ -388,25 +412,44 @@ impl<const N: usize> SourcePortAudit<N> {
                         self.sources.index_variables(),
                     ) {
                         Ok(()) => {
+                            // Count only executable rules.  An affine
+                            // candidate that is later omitted under an
+                            // independent complete coordinate cover is not
+                            // an exact replayed rule in the checked program;
+                            // it is accounted for exclusively as redundant.
+                            report.exact_replayed_rules += 1;
                             report.uniformly_descending_rules += 1;
-                            let retained =
-                                program::CheckedRule::retain(
-                                    rule,
-                                    replay.ordinary,
-                                    checked,
-                                    affine_target.clone(),
-                                )?;
-                            checked_boxes.extend(geometry::copy_boxes(&retained.application)?);
+                            let retained = program::CheckedRule::retain(
+                                rule,
+                                replay.ordinary,
+                                checked,
+                                affine_target.clone(),
+                            )?;
+                            if affine_target.is_none() {
+                                checked_boxes.extend(geometry::copy_boxes(&retained.application)?);
+                            }
                             retained_rules.push(retained);
                         }
-                        Err(issue) => report
-                            .issues
-                            .push(format!("rule {ordinal} descent: {issue}")),
+                        Err(issue) => {
+                            if affine_target.is_some() {
+                                affine_candidates.push((ordinal, issue));
+                            } else {
+                                report
+                                    .issues
+                                    .push(format!("rule {ordinal} descent: {issue}"));
+                            }
+                        }
                     }
                 }
-                Err(issue) => report
-                    .issues
-                    .push(format!("rule {ordinal} replay: {issue}")),
+                Err(issue) => {
+                    if affine_target.is_some() {
+                        affine_candidates.push((ordinal, issue));
+                    } else {
+                        report
+                            .issues
+                            .push(format!("rule {ordinal} replay: {issue}"));
+                    }
+                }
             }
         }
         let terminal_boxes = geometry::terminal_boxes(&solution.finite_residuals, &sector)?;
@@ -430,14 +473,16 @@ impl<const N: usize> SourcePortAudit<N> {
             && report.checked_rule_uncovered_boxes == 0
             && report.checked_rule_unbounded_boxes == 0;
         if affine_cover_complete {
-            report.redundant_affine_rules = affine_candidates.len();
+            report.redundant_affine_rules += affine_candidates.len();
         } else if !affine_candidates.is_empty() {
             report.issues.push(format!(
                 "{} affine candidate rules cannot be omitted because the retained coordinate cover is incomplete",
                 affine_candidates.len(),
             ));
             for (ordinal, issue) in affine_candidates {
-                report.issues.push(format!("rule {ordinal} stored guard geometry: {issue}"));
+                report
+                    .issues
+                    .push(format!("rule {ordinal} stored guard geometry: {issue}"));
             }
         }
         report.elapsed = start.elapsed();

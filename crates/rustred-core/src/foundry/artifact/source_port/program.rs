@@ -15,7 +15,9 @@ use crate::solver::{SectorRule, SectorSolution};
 
 use super::certificate::{OriginalRowNormalization, OriginalSourceReplay};
 use super::normalization::OriginalSourceCorpus;
-use super::{AffineApplicationDomain, SourcePortAudit, SourcePortAuditError, SourcePortSectorAudit, error};
+use super::{
+    AffineApplicationDomain, SourcePortAudit, SourcePortAuditError, SourcePortSectorAudit, error,
+};
 
 #[path = "lower/mod.rs"]
 pub(super) mod lower;
@@ -258,11 +260,13 @@ impl<const N: usize> SourcePortAudit<N> {
             {
                 return Err(error(format!(
                     "sector {sector:?} cannot enter the checked program: \
-                     {}/{} replayed, {}/{} descending, {} uncovered boxes, issues={:?}",
+                     {}/{} replayed, {}/{} descending, {} redundant, {} retained, {} uncovered boxes, issues={:?}",
                     report.exact_replayed_rules,
                     report.rules,
                     report.uniformly_descending_rules,
                     report.rules,
+                    report.redundant_affine_rules,
+                    checked.rules.len(),
                     report.checked_rule_uncovered_boxes,
                     report.issues,
                 )));

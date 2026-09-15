@@ -63,13 +63,16 @@ fn affine_sunset_replays_against_original_ordinary_rows_but_cannot_publish() {
         result.ordinary.normalization,
         super::super::certificate::OriginalRowNormalization::OriginalGeneratorOrdinaryV1
     );
-    assert!(result
-        .ordinary
-        .contributions
-        .iter()
-        .any(|source| source.offset != [0; 3]));
-    let boxes = geometry::application_boxes(&rule, audit.sources.index_variables(), &[true; 3], &[])
-        .expect("the affine face is a rectangular prefilter, not ownership evidence");
+    assert!(
+        result
+            .ordinary
+            .contributions
+            .iter()
+            .any(|source| source.offset != [0; 3])
+    );
+    let boxes =
+        geometry::application_boxes(&rule, audit.sources.index_variables(), &[true; 3], &[])
+            .expect("the affine face is a rectangular prefilter, not ownership evidence");
     assert_eq!(boxes.len(), 1);
     assert!(boxes[0].upper().iter().any(Option::is_none));
 }
@@ -78,11 +81,13 @@ fn affine_sunset_replays_against_original_ordinary_rows_but_cannot_publish() {
 fn affine_sunset_replay_rejects_seed_corruption_and_identically_zero_poles() {
     let (audit, mut rule) = coupled_sunset();
     rule.candidate.sources[0].seed.shifts[0] += 1;
-    assert!(replay(&audit, &rule)
-        .err()
-        .unwrap()
-        .to_string()
-        .contains("seed coefficient translation"));
+    assert!(
+        replay(&audit, &rule)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("seed coefficient translation")
+    );
 
     let (audit, mut rule) = coupled_sunset();
     assert!(!rule.candidate.rhs.is_empty());

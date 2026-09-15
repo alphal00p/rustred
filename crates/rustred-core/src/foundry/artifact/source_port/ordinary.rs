@@ -140,7 +140,18 @@ pub(super) fn weights<const N: usize>(
             let restricted = affine
                 .restrict_coefficient(&term.coefficient)
                 .map_err(error)?;
-            return Ok(restricted.numerator.is_zero());
+            let restricted = Term {
+                integral: term.integral,
+                coefficient: restricted,
+            };
+            return geometry::uniformly_zero_term(
+                rule,
+                &restricted,
+                boxes,
+                order.sector(),
+                zero_sectors,
+                system.index_variables(),
+            );
         }
         geometry::uniformly_zero_term(
             rule,
@@ -179,7 +190,18 @@ pub(super) fn weights<const N: usize>(
             let restricted = affine
                 .restrict_coefficient(&term.coefficient)
                 .map_err(error)?;
-            return Ok(restricted.numerator.is_zero());
+            let restricted = Term {
+                integral: term.integral,
+                coefficient: restricted,
+            };
+            return geometry::uniformly_zero_term(
+                rule,
+                &restricted,
+                boxes,
+                order.sector(),
+                zero_sectors,
+                system.index_variables(),
+            );
         }
         geometry::uniformly_zero_term(
             rule,

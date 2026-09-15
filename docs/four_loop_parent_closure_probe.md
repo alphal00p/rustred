@@ -132,6 +132,35 @@ unsupported nonlinear exceptional case.  These ordering results confirm that
 ordering is a useful bounded search dimension, not evidence of four-loop
 closure; no run produced a durable artifact.
 
+### H reverse rerun after disjoint affine accounting
+
+The source-port counters were corrected after the exact-H SpIRed differential
+check exposed an accounting overlap: an affine candidate that replayed but
+failed the rectangular descent proof was counted both as `exact_replayed` and
+as redundant, while a sector-empty affine candidate was silently dropped.
+Executable and redundant candidates are now disjoint; a proved-empty affine
+domain is counted as a vacuous redundant candidate without being treated as an
+unresolved affine cover.
+
+The release reverse-order campaign was rerun with this correction. It passed
+the former failing sector (`68` executable rules plus `2` redundant affine
+candidates out of `70`) and advanced to sector
+`0010011001` (`[false,false,true,false,false,true,true,false,false,true]`) in
+`272 s` wall time under the same two-worker pinned protocol. That sector has
+`91/94` replayed and descending rules, one uncovered coordinate box, and three
+nonempty affine candidates. Their common feasible exceptional equation is
+`1 + n4 - 2*n7 = 0`; one branch additionally fixes `n8=0`. These are genuine
+infinite affine loci (`n7=-t`, `n4=-1-2t`, `n8=-u`, with `t,u >= 0`), not
+proved-empty domains. The current artifact bridge therefore rejects them
+fail-closed, as it must. The remaining coordinate descent issue is likewise
+reported rather than sampled away.
+
+The matched natural-order single-sector run remains an independent oracle
+check: RustRed and the exact-H SpIRed C++ output each produce `56` rules, and
+Symbolica validates all `56` domains, guards, sector signs, and coefficients.
+The reverse run is consequently a stress test for affine ownership and replay,
+not a source of imported rules.
+
 ## Interpretation
 
 None of the three external parents currently has a cold-loadable RustRed

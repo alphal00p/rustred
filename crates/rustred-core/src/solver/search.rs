@@ -223,6 +223,19 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         let mut original_sources = Vec::new();
         let initial = case.integral();
         let mut seeds = Seeds::new(initial, *self.order.sector(), self.config.removed_deltas);
+        // A coupled affine chart can determine the sign of a symbolic power
+        // only after its equations are solved together with the sector.  The
+        // rectangular zero-sector census cannot make that inference: pruning
+        // a term from an affine row using the parent orthant can therefore
+        // change the source span before GPLU sees it.  Keep every physical
+        // column for affine discovery and let the exact chart/replay gates
+        // decide whether it is removable.  Coordinate cases retain the
+        // cheap authenticated zero-sector projection.
+        let discovery_zero_sectors: &[[bool; N]] = if case.affine().is_some() {
+            &[]
+        } else {
+            &self.config.zero_sectors
+        };
         let mut observed_depth = None;
         while let Some(seed) = seeds.next() {
             let depth = seeds.depth();
@@ -250,7 +263,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     &self.system.indices,
                     self.system.fixed(),
                     &self.order,
-                    &self.config.zero_sectors,
+                    discovery_zero_sectors,
                     case.affine(),
                 )?;
                 stats.rows += 1;

@@ -8,7 +8,7 @@ use crate::solver::{
 };
 
 use super::{
-    geometry, AffineApplicationDomain, AffineOwnershipRole, SourcePortAudit, SourcePortAuditError,
+    AffineApplicationDomain, AffineOwnershipRole, SourcePortAudit, SourcePortAuditError, geometry,
 };
 
 #[test]
@@ -175,18 +175,40 @@ fn affine_candidates_are_omitted_only_after_an_independent_complete_cover() {
     let incomplete = audit.audit_sector([true; 3], None, &solution).unwrap();
     assert_eq!(incomplete.redundant_affine_rules, 0);
     assert!(incomplete.checked_rule_unbounded_boxes > 0);
-    assert!(incomplete.issues.iter().any(|issue| issue.contains("cannot be omitted")));
-    assert!(incomplete.issues.iter().any(|issue| issue.contains("equations=")));
+    assert!(
+        incomplete
+            .issues
+            .iter()
+            .any(|issue| issue.contains("cannot be omitted"))
+    );
+    assert!(
+        incomplete
+            .issues
+            .iter()
+            .any(|issue| issue.contains("equations="))
+    );
     solution.rules.splice(..0, proved);
 
     let mut sectors = vec![([true; 3], None, solution)];
-    for sector in [[false, true, true], [true, false, true], [true, true, false]] {
+    for sector in [
+        [false, true, true],
+        [true, false, true],
+        [true, true, false],
+    ] {
         let solver = SectorSolver::new(
             &sources,
             sector,
-            SectorConfig { zero_sectors: zeros.clone(), ..Default::default() },
-        ).unwrap();
-        sectors.push((sector, None, solver.solve_sector(Default::default()).unwrap()));
+            SectorConfig {
+                zero_sectors: zeros.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        sectors.push((
+            sector,
+            None,
+            solver.solve_sector(Default::default()).unwrap(),
+        ));
     }
     let artifact = audit.install_complete(family, sectors).unwrap();
     let bytes = artifact.encode_durable().unwrap();
@@ -290,10 +312,12 @@ fn malformed_seed_and_consistently_mutated_rhs_do_not_forge_ordinary_provenance(
     .unwrap();
     let report = audit.audit_sector([true], None, &solution).unwrap();
     assert_eq!(report.exact_replayed_rules, 0);
-    assert!(report
-        .issues
-        .iter()
-        .any(|issue| issue.contains("seed coefficient translation")));
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue.contains("seed coefficient translation"))
+    );
     assert_eq!(report.checked_rule_unbounded_boxes, 1);
 }
 
@@ -304,10 +328,12 @@ fn numeric_seed_shifts_and_wrong_seed_patterns_are_rejected() {
     solution.rules[0].candidate.sources[0].seed.shifts = [0];
     let wrong_pattern = audit.audit_sector([true], None, &solution).unwrap();
     assert_eq!(wrong_pattern.exact_replayed_rules, 0);
-    assert!(wrong_pattern
-        .issues
-        .iter()
-        .any(|issue| issue.contains("seed symbolic pattern")));
+    assert!(
+        wrong_pattern
+            .issues
+            .iter()
+            .any(|issue| issue.contains("seed symbolic pattern"))
+    );
 
     // Numeric seed coordinates are replacement values. Their shifts must be
     // zero; the underlying instantiator intentionally ignores this field.
@@ -317,10 +343,12 @@ fn numeric_seed_shifts_and_wrong_seed_patterns_are_rejected() {
     solution.rules[0].candidate.sources[0].seed.shifts = [1];
     let numeric_shift = audit.audit_sector([true], None, &solution).unwrap();
     assert_eq!(numeric_shift.exact_replayed_rules, 0);
-    assert!(numeric_shift
-        .issues
-        .iter()
-        .any(|issue| issue.contains("seed coefficient translation")));
+    assert!(
+        numeric_shift
+            .issues
+            .iter()
+            .any(|issue| issue.contains("seed coefficient translation"))
+    );
 }
 
 #[test]
@@ -396,11 +424,10 @@ fn retained_requests_are_joined_before_zero_weight_filtering() {
     assert_eq!(replay.contributions[0].source_row, second);
     assert_eq!(replay.contributions[0].offset, [3, 4]);
     assert_eq!(replay.contributions[0].weight, context.integer(2));
-    assert!(super::certificate::OriginalSourceReplay::retain_checked(
-        vec![(first, [1, 2])],
-        vec![],
-    )
-    .is_err());
+    assert!(
+        super::certificate::OriginalSourceReplay::retain_checked(vec![(first, [1, 2])], vec![],)
+            .is_err()
+    );
 }
 
 #[test]
@@ -459,14 +486,16 @@ fn whole_ray_descent_drops_only_exactly_vanishing_activation_boundary_terms() {
     )
     .unwrap();
     let (_, unsafe_rule) = boundary_rule("1");
-    assert!(geometry::prove_descent(
-        &unsafe_rule,
-        &cells,
-        &[false, true],
-        crate::sector::OrderingPolicy::SpiredUncutV1,
-        &[0, 1]
-    )
-    .is_err());
+    assert!(
+        geometry::prove_descent(
+            &unsafe_rule,
+            &cells,
+            &[false, true],
+            crate::sector::OrderingPolicy::SpiredUncutV1,
+            &[0, 1]
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -481,24 +510,22 @@ fn zero_projection_checks_all_physical_sign_cells_not_the_assumed_sector() {
         crate::solver::Power::new(false, 0).unwrap(),
     ]);
     let all = geometry::application_boxes(&rule, &[0, 1], &[false, true], &[]).unwrap();
-    assert!(!geometry::uniformly_zero_column(
-        &rule,
-        column,
-        &all,
-        &[false, true],
-        &[[false, false]]
-    )
-    .unwrap());
+    assert!(
+        !geometry::uniformly_zero_column(&rule, column, &all, &[false, true], &[[false, false]])
+            .unwrap()
+    );
     rule.exceptions.branches = vec![vec![context.parameter("n0").unwrap().numerator.clone()]];
     let restricted = geometry::application_boxes(&rule, &[0, 1], &[false, true], &[]).unwrap();
-    assert!(geometry::uniformly_zero_column(
-        &rule,
-        column,
-        &restricted,
-        &[false, true],
-        &[[false, false]]
-    )
-    .unwrap());
+    assert!(
+        geometry::uniformly_zero_column(
+            &rule,
+            column,
+            &restricted,
+            &[false, true],
+            &[[false, false]]
+        )
+        .unwrap()
+    );
 }
 
 #[test]

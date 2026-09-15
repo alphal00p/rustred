@@ -16,7 +16,7 @@ use crate::identity::{
 use crate::solver::{Case, SourceSystem, Term};
 
 use super::certificate::{OriginalRowNormalization, OriginalSourceReplay};
-use super::{error, SourcePortAuditError};
+use super::{SourcePortAuditError, error};
 
 mod translation;
 

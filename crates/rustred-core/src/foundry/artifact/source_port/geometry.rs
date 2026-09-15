@@ -20,7 +20,7 @@ use crate::foundry::completion::{BoxCover, CompletionGeometryLimits, LatticeBox}
 use crate::sector::{Mask, OrderingPolicy};
 use crate::solver::{Case, CoordinateCase, Integral, SectorRule};
 
-use super::{error, AffineApplicationDomain, AffineOwnershipRole, SourcePortAuditError};
+use super::{AffineApplicationDomain, AffineOwnershipRole, SourcePortAuditError, error};
 
 pub(super) fn copy_boxes(boxes: &[LatticeBox]) -> Result<Vec<LatticeBox>, SourcePortAuditError> {
     boxes.iter().map(copy_box).collect()
@@ -59,32 +59,30 @@ pub(super) fn application_boxes<const N: usize>(
     sector: &[bool; N],
     additional_exceptions: &[Case<N>],
 ) -> Result<Vec<LatticeBox>, SourcePortAuditError> {
-    let case = match rule.candidate.case.coordinate() {
-        Some(case) => case,
-        None => {
-            let affine = rule
-                .candidate
-                .case
-                .affine()
-                .expect("non-coordinate case must be affine");
-            // An exact contradiction with this sector is safe to discard.
-            // This is intentionally the only affine target shortcut here:
-            // unresolved affine loci still fail closed below.
-            if affine.is_proved_empty_in_sector(sector) {
-                return Ok(Vec::new());
-            }
-            // The coordinate face is an exact rectangular *prefilter* for
-            // the coupled locus.  Ownership remains affine and is carried
-            // separately by the checked rule; callers must apply its exact
-            // predicate after this cheap box test.  Never use this box as a
-            // coverage claim for the affine equations themselves.
-            return Ok(vec![case_box(affine.face(), sector)?]);
+    let base = if let Some(case) = rule.candidate.case.coordinate() {
+        if rule.candidate.target != case.integral() {
+            return Err(error("rule target differs from its coordinate case"));
         }
+        case_box(case, sector)?
+    } else {
+        let affine = rule
+            .candidate
+            .case
+            .affine()
+            .expect("non-coordinate case must be affine");
+        // An exact contradiction with this sector is safe to discard.
+        // This is intentionally the only affine target shortcut here:
+        // unresolved affine loci still fail closed below.
+        if affine.is_proved_empty_in_sector(sector) {
+            return Ok(Vec::new());
+        }
+        // The coordinate face is an exact rectangular *prefilter* for the
+        // coupled locus. Ownership remains affine and is carried separately
+        // by the checked rule; it is still sound to remove coordinate
+        // exceptional branches from this conservative prefilter before
+        // proving descent. Never use this box as an affine coverage claim.
+        case_box(affine.face(), sector)?
     };
-    if rule.candidate.target != case.integral() {
-        return Err(error("rule target differs from its coordinate case"));
-    }
-    let base = case_box(case, sector)?;
     let original = rule.exceptional_cases(indices, sector).map_err(error)?;
     let mut excluded = Vec::new();
     for case in original.iter().chain(additional_exceptions) {
