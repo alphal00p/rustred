@@ -8,6 +8,13 @@ then reduces the sample integral `I(2,2,1)` to masters `I(1,1,1)` and
 `I(0,1,1)`. The Python directory also contains the smaller complete one-loop
 tadpole campaign used as a fast public-API smoke test.
 
+[`input/four_loop_h.toml`](input/four_loop_h.toml) is a generic explicit
+family-input example for a four-loop vacuum parent. It is deliberately kept
+as user data rather than a RustRed built-in: the ten rows (nine physical
+denominators plus an ISP at power zero) are parsed by the same strict TOML
+frontend used for any supplied family. Use it with `rustred derive` as shown
+in [the CLI documentation](../docs/CLI.md#four-loop-vacuum-input-external-family-data).
+
 - [`rust/`](rust/) uses the public `rustred` library directly.
 - [`cli/`](cli/) uses `rustred campaign generate`, `inspect`, and `reduce`.
 - [`python/`](python/) uses the public `import rustred` package.
