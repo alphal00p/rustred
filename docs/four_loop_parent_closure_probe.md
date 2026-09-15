@@ -37,6 +37,20 @@ claim that their families cannot close. FG completed its bounded search far
 enough to return a typed unsupported-case error, but also did not produce a
 publishable artifact.
 
+## Current-head FG rerun
+
+After the exact disjunctive nonlinear-case engine landed, FG was rerun from the
+current release binary rather than the historical `a435599` executable. The
+protocol was otherwise unchanged: fresh process, two pinned workers on CPUs 32
+and 33, nested pools capped at one, and a 300-second wall bound. It ran for
+`235.31 s` wall (`465.39 s` user CPU, `1,092,112 KiB` peak RSS), then returned
+status `8` at sector `397` with:
+`incomplete exact case intersection: a branch retains unsupported nonlinear
+equalities`. No artifact was written. Thus the newer engine removes neither
+the need for an authenticated affine/nonlinear coverage partition nor the
+fail-closed publication gate; it only advances the point at which this
+particular parent is diagnosed.
+
 ## Interpretation
 
 None of the three external parents currently has a cold-loadable RustRed
