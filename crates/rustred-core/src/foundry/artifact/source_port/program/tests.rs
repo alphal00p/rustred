@@ -1,11 +1,12 @@
 use super::super::tests::{solved_tadpole, tadpole};
 use super::*;
-use crate::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask};
+use crate::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, zero};
 use crate::solver::{SectorConfig, SectorSolveOptions, SectorSolver, SourceSystem};
 
 #[test]
 fn checked_program_owns_original_replay_unbounded_cover_and_finite_terminals() {
     let (audit, solution) = solved_tadpole();
+    assert_eq!(audit.proved_zero_sector_count(), 1);
     let family = tadpole();
     let fingerprint = family.fingerprint().to_owned();
     let program = audit
@@ -15,7 +16,6 @@ fn checked_program_owns_original_replay_unbounded_cover_and_finite_terminals() {
     assert_eq!(program.original_sources.family_fingerprint(), fingerprint);
     assert_eq!(program.ordering, OrderingPolicy::SpiredUncutV1);
     assert_eq!(program.zero_sectors.as_ref(), &[[false]]);
-    assert_eq!(program.zero_certificates.len(), 1);
     let sector = &program.sectors[&[true]];
     assert_eq!(sector.sector, [true]);
     assert_eq!(sector.terminals, vec![[1_i64]]);

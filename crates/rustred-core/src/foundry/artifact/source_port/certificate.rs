@@ -1,4 +1,4 @@
-//! Original-source joins retained for the next cold ownership boundary.
+//! Original-source joins retained for checked program lowering.
 //!
 //! These private records do not establish closure or construct an artifact.
 //! They must be retained with the authenticated family/context, coordinate

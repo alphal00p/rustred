@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::algebra::{Coefficient, CoefficientPolynomial};
 use crate::family::IntegralFamily;
 use crate::foundry::completion::LatticeBox;
-use crate::sector::{OrderingPolicy, zero};
+use crate::sector::OrderingPolicy;
 use crate::solver::{SectorRule, SectorSolution};
 
 use super::certificate::{OriginalRowNormalization, OriginalSourceReplay};
@@ -22,10 +22,6 @@ pub(super) mod lower;
 
 /// One physical displacement from canonical target indices, never a compact
 /// source-port Power. Native coefficients remain bound to the owned corpus.
-#[allow(
-    dead_code,
-    reason = "Retained input for the next existing-artifact lowering slice."
-)]
 pub(super) struct CheckedRhs<const N: usize> {
     pub(super) shift: [i64; N],
     pub(super) coefficient: Coefficient,
@@ -35,10 +31,6 @@ pub(super) struct CheckedRhs<const N: usize> {
 /// Boxes are local orthant coordinates and retain genuine infinite endpoints.
 /// Their union includes every stored/recomputed index guard. Full nonzero
 /// polynomials separately retain parameter poles and source applicability.
-#[allow(
-    dead_code,
-    reason = "Retained input for the next existing-artifact lowering slice."
-)]
 pub(super) struct CheckedRule<const N: usize> {
     pub(super) fixed: [Option<i64>; N],
     pub(super) rhs: Vec<CheckedRhs<N>>,
@@ -125,10 +117,6 @@ pub(super) struct SectorCheck<const N: usize> {
     pub(super) terminals: Vec<[i64; N]>,
 }
 
-#[allow(
-    dead_code,
-    reason = "Retained input for the next existing-artifact lowering slice."
-)]
 struct CheckedSector<const N: usize> {
     sector: [bool; N],
     rules: Vec<CheckedRule<N>>,
@@ -136,17 +124,14 @@ struct CheckedSector<const N: usize> {
 }
 
 /// Sole private installation input for this producer. It owns the full family
-/// and original context/corpus, not just fingerprints. It is NOT ClosedArtifact:
-/// cell lowering, cold codec replay and installer admission still remain.
-#[allow(
-    dead_code,
-    reason = "Private checked owner; existing-artifact installation is the next slice."
-)]
+/// and original context/corpus, not just fingerprints. Consuming it lowers
+/// supplied-domain cells and runs the existing complete-artifact installer.
+/// Durable loading instead replays stored original combinations through the
+/// same private cell verifier, without reconstructing solver output.
 pub(super) struct CheckedProgram<const N: usize> {
     family: IntegralFamily,
     original_sources: OriginalSourceCorpus,
     zero_sectors: Arc<[[bool; N]]>,
-    zero_certificates: Vec<zero::Certificate>,
     inherited_source_conditions: Vec<CoefficientPolynomial>,
     ordering: OrderingPolicy,
     sectors: BTreeMap<[bool; N], CheckedSector<N>>,
@@ -232,10 +217,6 @@ impl<const N: usize> SourcePortAudit<N> {
     /// Consume real solver output, never caller-editable diagnostic reports.
     /// Each declared sector order is independently checked. A single existing
     /// artifact cannot silently flatten incompatible coordinate priorities.
-    #[allow(
-        dead_code,
-        reason = "Private checked producer; installer wiring follows the release gate."
-    )]
     pub(super) fn retain_program(
         self,
         family: IntegralFamily,
@@ -291,7 +272,6 @@ impl<const N: usize> SourcePortAudit<N> {
             family,
             original_sources: self.original_sources,
             zero_sectors: self.zero_sectors,
-            zero_certificates: self.zero_certificates,
             inherited_source_conditions,
             ordering: ordering.unwrap_or(OrderingPolicy::SpiredUncutV1),
             sectors: retained,

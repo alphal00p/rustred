@@ -1,6 +1,6 @@
 //! Deterministic durable ownership for sealed closing artifacts.
 //!
-//! Schema v4 persists exact family constructor inputs, one explicit ordering
+//! Schema v5 persists exact family constructor inputs, one explicit ordering
 //! authority, tagged derivation
 //! plans with complete semantic witnesses, rule plans, and terminals. Loading
 //! first bounds every byte-level shape, independently regenerates the tagged
@@ -9,21 +9,22 @@
 
 mod binary;
 mod coefficient;
+mod family;
 mod k6;
 mod limits;
 mod semantic;
+mod source_port;
 mod two_loop;
 
 use std::collections::BTreeSet;
 
-use crate::algebra::CoefficientContext;
-use crate::family::{AffineDenominator, IntegralFamily, IntegralKey};
+use crate::family::{IntegralFamily, IntegralKey};
 use crate::foundry::parametric::derive_sector_interior_rule;
 use crate::identity::{ParametricIbpGenerator, ParametricRelation};
 use crate::sector::{Mask, OrderingPolicy};
 
 use super::error::{ArtifactError, ArtifactPersistenceError};
-use super::install::{ClosingArtifactCandidate, install};
+use super::install::{ClosingArtifactCandidate, SOURCE_PORT_ALGORITHM_ID, install};
 use super::model::{
     ArtifactSchemaVersion, ClosedArtifact, CommonMassHomogeneityProof, ZeroSectorTerminal,
     ZeroTerminalProof,
@@ -34,7 +35,7 @@ use super::two_loop::{
     ALGORITHM_ID as TWO_LOOP_ALGORITHM_ID, derive_two_loop_unit_mass_sunset_with_limits,
 };
 use binary::{Reader, Writer, try_vec};
-use coefficient::{decode_base_coefficient, encode_base_coefficient};
+use coefficient::encode_base_coefficient;
 pub use limits::{ArtifactCoverReplayLimits, ArtifactEncodingLimits, ArtifactLoadLimits};
 use semantic::{
     decode_bool_vec, decode_i64_vec, decode_owned_string, encode_bool_slice,
@@ -94,10 +95,10 @@ fn encode_into_writer(
     }
     if !matches!(
         artifact.algorithm_id(),
-        ONE_LOOP_ALGORITHM_ID | TWO_LOOP_ALGORITHM_ID | K6_ALGORITHM_ID
+        ONE_LOOP_ALGORITHM_ID | TWO_LOOP_ALGORITHM_ID | K6_ALGORITHM_ID | SOURCE_PORT_ALGORITHM_ID
     ) {
         return Err(ArtifactPersistenceError::UnsupportedFeature {
-            detail: "schema-v4 has no registered durable rule-cell grammar for this closing algorithm",
+            detail: "schema-v5 has no registered durable rule-cell grammar for this closing algorithm",
         });
     }
     output.raw(MAGIC)?;
@@ -133,14 +134,16 @@ fn encode_into_writer(
     write_section(output, SOURCES_SECTION, sources)?;
 
     let mut rules = output.child();
-    if artifact.algorithm_id() == TWO_LOOP_ALGORITHM_ID {
+    if artifact.algorithm_id() == SOURCE_PORT_ALGORITHM_ID {
+        source_port::encode(&mut rules, artifact)?;
+    } else if artifact.algorithm_id() == TWO_LOOP_ALGORITHM_ID {
         two_loop::encode(&mut rules, artifact)?;
     } else if artifact.algorithm_id() == K6_ALGORITHM_ID {
         k6::encode(&mut rules, artifact)?;
     } else {
         rules.usize(artifact.rules().len(), "artifact rules")?;
         for rule in artifact.rules() {
-            // Schema-v4 derivation plan: deterministic first-descending
+            // Anchored derivation plan: deterministic first-descending
             // interior rule from the independently regenerated source set.
             let mut plan = rules.child();
             encode_integral_key(
@@ -209,6 +212,7 @@ pub(super) fn decode(
         ONE_LOOP_ALGORITHM_ID => ONE_LOOP_ALGORITHM_ID,
         TWO_LOOP_ALGORITHM_ID => TWO_LOOP_ALGORITHM_ID,
         K6_ALGORITHM_ID => K6_ALGORITHM_ID,
+        SOURCE_PORT_ALGORITHM_ID => SOURCE_PORT_ALGORITHM_ID,
         _ => {
             return Err(ArtifactPersistenceError::UnsupportedFeature {
                 detail: "unknown closing algorithm identifier",
@@ -227,6 +231,7 @@ pub(super) fn decode(
         ONE_LOOP_ALGORITHM_ID => 1,
         TWO_LOOP_ALGORITHM_ID => 3,
         K6_ALGORITHM_ID => 6,
+        SOURCE_PORT_ALGORITHM_ID => arity,
         _ => unreachable!("algorithm identifier was matched above"),
     };
     if arity != expected_arity {
@@ -243,7 +248,7 @@ pub(super) fn decode(
     metadata.finish()?;
 
     if algorithm_id == TWO_LOOP_ALGORITHM_ID {
-        // K=3 schema-v4 owns complete cell/projection/factorization snapshots,
+        // The anchored K=3 grammar owns complete cell/projection/factorization snapshots,
         // including its installer-compiled typed master-product embeddings.
         // At this untrusted boundary only, regenerate the registered exact
         // foundry plan and compare its complete deterministic encoding. The
@@ -270,6 +275,22 @@ pub(super) fn decode(
             });
         }
         return Ok(artifact);
+    }
+
+    if algorithm_id == SOURCE_PORT_ALGORITHM_ID {
+        return source_port::decode(
+            &input,
+            family_bytes,
+            sources_bytes,
+            rules_bytes,
+            terminals_bytes,
+            arity,
+            ordering,
+            &expected_family_fingerprint,
+            &expected_context_fingerprint,
+            limits,
+            bytes,
+        );
     }
 
     if algorithm_id == K6_ALGORITHM_ID {
@@ -387,6 +408,7 @@ fn algorithm_arity_mismatch_field(algorithm_id: &str) -> &'static str {
         ONE_LOOP_ALGORITHM_ID => "one-loop algorithm arity",
         TWO_LOOP_ALGORITHM_ID => "two-loop algorithm arity",
         K6_ALGORITHM_ID => "K6 algorithm arity",
+        SOURCE_PORT_ALGORITHM_ID => "complete vacuum algorithm arity",
         _ => unreachable!("algorithm identifier was matched before arity validation"),
     }
 }
@@ -556,56 +578,7 @@ fn decode_strings(
 fn decode_one_loop_family(
     reader: &mut Reader<'_>,
 ) -> Result<IntegralFamily, ArtifactPersistenceError> {
-    let loop_count = reader.count("loop momentum labels")?;
-    let external_count = reader.count("external momentum labels")?;
-    let parameter_count = reader.count("coefficient parameter names")?;
-    let denominator_count = reader.count("family denominators")?;
-    let gram_rows = reader.count("external Gram rows")?;
-    let power_shift_count = reader.count("family power shifts")?;
-    if (
-        loop_count,
-        external_count,
-        parameter_count,
-        denominator_count,
-        gram_rows,
-        power_shift_count,
-    ) != (1, 0, 1, 1, 0, 1)
-    {
-        return Err(ArtifactPersistenceError::SemanticMismatch {
-            field: "one-loop family structural prelude",
-        });
-    }
-    let denominator_coefficient_count = reader.count("denominator coefficients")?;
-    if denominator_coefficient_count != 1 {
-        return Err(ArtifactPersistenceError::SemanticMismatch {
-            field: "one-loop denominator shape",
-        });
-    }
-
-    let name = decode_owned_string(reader, "family name")?;
-    let loop_momenta = decode_strings(reader, loop_count, "loop momentum labels")?;
-    let external_momenta = decode_strings(reader, external_count, "external momentum labels")?;
-    let parameter_names = decode_strings(reader, parameter_count, "coefficient parameter names")?;
-    let coefficient_context =
-        CoefficientContext::try_new(parameter_names).map_err(ArtifactError::from)?;
-    let dimension = decode_base_coefficient(reader, &coefficient_context, "family dimension")?;
-    let constant = decode_base_coefficient(reader, &coefficient_context, "denominator constant")?;
-    let coefficient =
-        decode_base_coefficient(reader, &coefficient_context, "denominator coefficient")?;
-    let power_shift = decode_base_coefficient(reader, &coefficient_context, "family power shift")?;
-    IntegralFamily::new_with_limits(
-        name,
-        loop_momenta,
-        external_momenta,
-        coefficient_context,
-        dimension,
-        vec![AffineDenominator::new(constant, vec![coefficient])],
-        Vec::new(),
-        vec![power_shift],
-        reader.limits().family,
-    )
-    .map_err(ArtifactError::from)
-    .map_err(ArtifactPersistenceError::from)
+    family::decode(reader, family::FamilyGrammar::OneLoop)
 }
 
 fn encode_source_snapshot(

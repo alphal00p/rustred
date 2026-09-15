@@ -245,6 +245,9 @@ pub enum ArtifactPersistenceError {
     SemanticMismatch {
         field: &'static str,
     },
+    OriginalDomainReplay {
+        detail: String,
+    },
     Artifact(ArtifactError),
 }
 
@@ -312,6 +315,12 @@ impl fmt::Display for ArtifactPersistenceError {
                 write!(
                     formatter,
                     "durable artifact {field} failed exact replay comparison"
+                )
+            }
+            Self::OriginalDomainReplay { detail } => {
+                write!(
+                    formatter,
+                    "durable original-source domain replay failed: {detail}"
                 )
             }
             Self::Artifact(error) => error.fmt(formatter),

@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::foundry::cell::RuleCell;
-use crate::foundry::completion::{BoxCover, LatticeBox};
+use crate::foundry::completion::{BoxCover, CompletionGeometryLimits, LatticeBox};
 use crate::sector::Mask;
 
 use super::super::error::ArtifactError;
@@ -78,6 +78,57 @@ pub(super) fn validate_combined_rule(cell: &RuleCell) -> Result<(), ArtifactErro
 pub(in crate::foundry::artifact) fn install_source_port(
     candidate: ClosingArtifactCandidate,
 ) -> Result<ClosedArtifact, ArtifactError> {
+    install_source_port_with_limits(candidate, Default::default())
+}
+
+pub(in crate::foundry::artifact) fn install_source_port_with_limits(
+    candidate: ClosingArtifactCandidate,
+    geometry: CompletionGeometryLimits,
+) -> Result<ClosedArtifact, ArtifactError> {
+    let check = |resource: &'static str, requested: usize, limit: usize| {
+        if requested > limit {
+            Err(ArtifactError::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            })
+        } else {
+            Ok(())
+        }
+    };
+    check("combined cover arity", candidate.arity, geometry.max_arity)?;
+    let requested =
+        candidate
+            .rule_cells
+            .iter()
+            .try_fold(candidate.masters.len(), |count, cell| {
+                let evidence = cell
+                    .rule()
+                    .replay_evidence()
+                    .combined_original_domain()
+                    .ok_or(ArtifactError::UnsupportedClosureShape)?;
+                count.checked_add(evidence.application_boxes().len()).ok_or(
+                    ArtifactError::ResourceCountOverflow {
+                        resource: "combined cover boxes",
+                    },
+                )
+            })?;
+    check(
+        "combined cover boxes",
+        requested,
+        geometry.max_requested_boxes,
+    )?;
+    let coordinates = requested
+        .checked_mul(candidate.arity)
+        .and_then(|value| value.checked_mul(2))
+        .ok_or(ArtifactError::ResourceCountOverflow {
+            resource: "combined cover coordinate cells",
+        })?;
+    check(
+        "combined cover coordinate cells",
+        coordinates,
+        geometry.max_requested_box_coordinate_cells,
+    )?;
     if candidate.algorithm_id != ALGORITHM_ID
         || !candidate.rules.is_empty()
         || candidate.canonicalizer.is_some()
@@ -158,7 +209,7 @@ pub(in crate::foundry::artifact) fn install_source_port(
         if zeros.contains(&sector) {
             return Err(ArtifactError::InvalidZeroTerminal);
         }
-        let cover = BoxCover::try_new(candidate.arity, pieces, Default::default())
+        let cover = BoxCover::try_new(candidate.arity, pieces, geometry)
             .map_err(|_| ArtifactError::UnsupportedClosureShape)?;
         if !cover
             .uncovered_partition()

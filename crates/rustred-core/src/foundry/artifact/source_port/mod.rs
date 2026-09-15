@@ -12,6 +12,9 @@ mod ordinary;
 mod program;
 mod replay;
 pub(crate) use program::lower::ReplayedOriginalDomain;
+#[cfg(test)]
+pub(in crate::foundry::artifact) use program::lower::durable_tests::installed_k1 as installed_k1_for_codec_test;
+pub(in crate::foundry::artifact) use program::lower::{PreparedOriginalDomain, ReplayLimits};
 
 #[cfg(test)]
 mod tests;

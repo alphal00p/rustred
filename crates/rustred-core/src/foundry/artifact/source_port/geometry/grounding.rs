@@ -115,6 +115,7 @@ fn canonical_k6_supplied_domain_descent_grounding() {
                             &piece,
                             &sector,
                             sources.index_variables(),
+                            CompletionGeometryLimits::default(),
                         )
                         .unwrap()
                         {

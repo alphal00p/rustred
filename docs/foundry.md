@@ -72,7 +72,7 @@ application cells, `S3` routing, Lee--Pomeransky zero proofs, a certified
 unimodular pinch factorization, and immutable lower-family feedback.
 `reduction::Reducer` applies either sealed owner.
 
-A deterministic schema-v4 codec persists exact family inputs, tagged source
+A deterministic schema-v5 codec persists exact family inputs, tagged source
 plans and semantic witnesses, rules/cells, symmetry and factorization data,
 masters, zero terminals, and homogeneity proofs. Bounded loading independently
 reconstructs and exactly compares the registered semantics once under the
@@ -1024,12 +1024,14 @@ primitives, but must not grow a parallel CAS.
 
 ## Artifact boundary
 
-The durable loader accepts the current schema-v4 format only. It rejects every
-obsolete version, including V1, V2, and V3, with a typed schema error and
+The durable loader accepts the current schema-v5 format only. It rejects every
+obsolete version, including V1, V2, V3, and V4, with a typed schema error and
 deliberately provides neither migration nor a dual decoder; RustRed artifact
 schemas have no backward-compatibility promise, including inside Vakint.
 Vakint's API/defaults and existing FORM methods retain their separate backward-
-compatibility obligation. Schema V4 records the semantics needed to load and
+compatibility obligation. Earlier benchmark sections retain their historical
+schema-V4 replay counts; they do not imply current byte compatibility.
+Schema V5 records the semantics needed to load and
 apply the sealed `K = 1` and `K = 3` artifacts and the registered payload for
 an eventually fully published `K = 6` proof chain:
 
@@ -1062,7 +1064,7 @@ repeat schema round trips or whole-artifact replay. Atomic filesystem
 publication remains an application-layer responsibility. The `K = 3`
 installer independently validates its complete five-cell projection,
 symmetry, factorization, and terminal layout at this cold boundary. No such
-authentication is repeated by recursive hot-path reduction. Schema v4 records
+authentication is repeated by recursive hot-path reduction. Schema v5 records
 the generic typed dependency-master product embeddings needed by `K3 x K1`.
 Its registered `K = 6` payload now persists the exact ordinary rule-cell and
 published-owner proof data and cold-regenerates the authenticated product

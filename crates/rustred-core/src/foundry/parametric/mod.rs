@@ -43,6 +43,7 @@ pub use model::{
     ParametricNonZeroGuard, ParametricReducerPivotGuard, ParametricRule, ParametricRuleTerm,
     ParametricRuleTermDescent, ParametricSourceRowContribution,
 };
+pub(crate) use prepare::condition_source_index_cells;
 
 #[cfg(test)]
 pub(crate) mod tests;

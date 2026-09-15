@@ -69,7 +69,14 @@ rustred campaign reduce --artifact one_loop.rr --powers 3
 output; `--artifact -` reads durable artifact bytes from standard input. The
 matching two-loop selector is `unit-mass-vacuum-k3`; its powers have arity
 three. The `K = 1` and `K = 3` artifacts are closed today. The three-loop
-`K = 6` artifact remains Stage 1 work.
+`K = 6` artifact can now be generated with the Rust `spired-generate-k6`
+example, while adding it to Python's generation selectors remains separate
+interface work. The generic Python inspection and reduction functions consume
+its real V5 bytes through the shared Rust codec; they do not select or generate
+a hidden K6 preset. For these original-domain source-port artifacts, untrusted
+loading regenerates ordinary IBP rows and replays the saved exact combinations,
+not the source search. Recursive application remains in RustRed's existing
+memoized reducer. Complete three-loop Vakint acceptance is still a separate gate.
 
 Linux wheels built in the Nix development shell are development artifacts.
 Portable manylinux publication remains gated on a separate audited build and

@@ -154,12 +154,14 @@ fn durable_loader_rejects_corruption_schema_and_trailing_bytes() {
         ArtifactPersistenceError::UnsupportedSchema { actual: 3 }
     );
 
-    let mut obsolete_schema = encoded.clone();
-    obsolete_schema[8..12].copy_from_slice(&2_u32.to_le_bytes());
-    assert_eq!(
-        ClosedArtifact::decode_durable(&obsolete_schema).unwrap_err(),
-        ArtifactPersistenceError::UnsupportedSchema { actual: 2 }
-    );
+    for version in [1_u32, 2, 4] {
+        let mut obsolete_schema = encoded.clone();
+        obsolete_schema[8..12].copy_from_slice(&version.to_le_bytes());
+        assert_eq!(
+            ClosedArtifact::decode_durable(&obsolete_schema).unwrap_err(),
+            ArtifactPersistenceError::UnsupportedSchema { actual: version }
+        );
+    }
 
     assert!(matches!(
         ClosedArtifact::decode_durable(&encoded[..encoded.len() - 1]),
@@ -490,10 +492,16 @@ fn durable_load_threads_explicit_family_source_and_rule_policies() {
 
     let mut family_limited = ArtifactLoadLimits::default();
     family_limited.family.max_scalar_products = 0;
-    assert!(matches!(
-        ClosedArtifact::decode_durable_with_limits(&encoded, family_limited),
-        Err(ArtifactPersistenceError::Artifact(ArtifactError::Family(_)))
-    ));
+    // The structural preflight rejects this before any native coefficient or
+    // family construction, while retaining the caller's exact family limit.
+    assert_eq!(
+        ClosedArtifact::decode_durable_with_limits(&encoded, family_limited).unwrap_err(),
+        ArtifactPersistenceError::ResourceLimit {
+            resource: "family scalar products",
+            requested: 1,
+            limit: 0,
+        }
+    );
 
     let mut source_limited = ArtifactLoadLimits::default();
     source_limited

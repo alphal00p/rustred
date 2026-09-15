@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use crate::algebra::IndexedCoefficientContext;
 use crate::foundry::artifact::{ReplayedOriginalDomain, SourcePortAuditError};
-use crate::foundry::cell::{FixedIndexRestriction, SourceViewBatch, SourceViewConstruction};
+use crate::foundry::cell::{
+    FixedIndexRestriction, RuleCellLimits, SourceViewBatch, SourceViewConstruction,
+};
 use crate::identity::IndexShift;
 use crate::sector::{SectorInteriorDomain, SectorMonotoneDomain};
 
@@ -23,6 +25,7 @@ impl ParametricRule {
             Arc<SourceViewBatch>,
             SectorMonotoneDomain,
             Vec<FixedIndexRestriction>,
+            RuleCellLimits,
         ),
         SourcePortAuditError,
     > {
@@ -62,7 +65,7 @@ impl ParametricRule {
             &pivot,
             &rhs,
             parts.ordering,
-            Default::default(),
+            parts.limits.rule,
         )
         .map_err(|e| error(e.to_string()))?;
         let source_combination = parts
@@ -99,6 +102,12 @@ impl ParametricRule {
             replay_evidence: ParametricReplayEvidence::CombinedOriginalDomain(Arc::new(evidence)),
             sector_monotone_admission: Some(admission),
         };
-        Ok((rule, parts.sources, parts.application, parts.fixed))
+        Ok((
+            rule,
+            parts.sources,
+            parts.application,
+            parts.fixed,
+            parts.limits.cell,
+        ))
     }
 }

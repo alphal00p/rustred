@@ -9,9 +9,10 @@ prepass, topology match and routing witness, and pure-Rust master evaluation.
 Ordinary evaluation must neither generate IBPs nor invoke FORM.
 
 This is a parallel integration lane; it does not replace the ongoing generic
-source-port work. The canonical unit-mass source-port output now installs as an
-**in-memory `ClosedArtifact`**; durable encoding, cold reload and Vakint shipping
-remain pending. Matching a C++ workload, certifying a reduction program and
+source-port work. The canonical unit-mass source-port output now installs as a
+`ClosedArtifact` and passes **durable encode/decode and fresh-process release
+generation/loading/application tests**. Vakint shipping and acceptance remain.
+Matching a C++ workload, certifying a reduction program and
 shipping a reusable asset are separate milestones.
 
 The implementation should extend the existing immutable `ClosedArtifact` and
@@ -40,15 +41,62 @@ through the existing generator in current V5 format and independently loaded
 and applied; their bytes were not patched manually. This does not install the
 new source-port K6 artifact or validate complete three-loop scalar reduction.
 
-The six added routing tests currently fail at test setup: they bypass normal
+Isolated execution of the six added routing tests failed at test setup: they bypass normal
 Vakint initialization and register a symbol before its required attributes.
 The subsequent failures share a poisoned initializer, rather than proving six
-routing defects. Adding the existing public initializer to test setup awaits
-the explicit confirmation required for editing a failing GammaLoop test. No
-assertion or production behavior has been changed to hide this result. The
-independent offline comparison of all 38 candidate keys with MATAD is pending.
+routing defects. A broader native run passed 22 tests, failed one and ignored
+one; its component-template failure identified the need for Symbolica's existing
+`allow_new_wildcards_on_rhs(true)` flag when constructing that template. Final
+component binding remains strict. The user has explicitly approved both setup
+fixes, with every assertion unchanged, and waived routine approval requests
+except for highly ambiguous or dangerous changes. Corrected execution is still
+a gate, not a pass inferred from this diagnosis. The
+independent offline test now passes exact symbolic comparison of all 38 candidate
+keys with MATAD at the configured Laurent order, including common-mass restoration.
+This is not an all-dimension raw-coefficient identity test. Only the explicit
+oracle path uses the verified FORM 5.0.1 executable; the native finalizer keeps
+an invalid FORM path. This validates the proposed terminal data, not the missing
+production K6 asset or complete three-loop comparative pipeline.
 
-### Current milestone: existing artifact and reducer work in memory (2026-09-15)
+### Current milestone: durable codec correctness (2026-09-15)
+
+The original-domain producer now round-trips through the existing V5 codec:
+**8,911,462 bytes**, 623 generated rules replayed from nine ordinary IBPs,
+5,639 sign-refined cells, 38 finite terminal keys and 26 proved-zero sectors. Source identities are
+interned and referenced by their cells. Loading reconstructs the canonical
+family and its ordinary IBPs, replays each full weighted identity on its true
+domain, checks guards and strict descent, and revalidates the whole unbounded
+sector cover. It does not rerun source-port discovery or create another reducer.
+
+The complete K6 correctness test verifies exact re-encoding, all decoded master
+identities, a mixed-master nonunit-mass reduction and cache reuse. Focused tests
+reject corrupted identities, source references, RHS values, offsets, omitted
+poles, and incomplete domains. A coordinated gate passes 302 focused tests,
+the separately enabled full K6 durable test and the 56/9 source/audit example
+tests. Evidence: `target/spired-codec-indices-corrected.FrerFY/`.
+These debug executions establish correctness, not performance.
+
+The standalone release producer now writes byte-identical artifacts at one
+and six workers. Two fresh CLI inspection processes independently load them;
+five further CLI processes apply master, dotted, pinched and negative-power
+canaries, including symbolic common-mass restoration. The inspected terminal
+keys match all 38 catalog candidates; their distinct sector masks and the 26
+zero masks partition all 64 sectors. No ordinary evaluation reruns discovery.
+Evidence: `target/spired-k6-producer.007TpB/run/`.
+
+Observed whole-process generation took 3.20 s at one worker and 1.86 s at six,
+with approximately 237 MiB peak RSS in each process. These are single
+shared-host release observations, not a paired performance comparison: notably,
+the serial process incurred far more major page faults. The producer's measured
+phases separate rule generation (0.423/0.062 s), exact installation
+(2.429/1.527 s) and encoding (0.112/0.072 s). Those phase intervals are not the
+whole logical-cold time. Actual Vakint shipping and its complete comparative
+three-loop suite remain the next delegated gates.
+
+The following dated sections retain earlier checkpoint evidence; their pending
+gates describe those checkpoints rather than overriding the current status.
+
+### Existing artifact and reducer work in memory (2026-09-15)
 
 All three vacuum families now pass the combined original-domain producer into
 the existing `ClosedArtifact` and memoizing `Reducer`. Canonical K6 retains
@@ -76,14 +124,13 @@ Independent implementation/mathematical and raw execution audits pass.
 Evidence: `target/spired-original-domain-full.JEvHje/`; debug timings are not
 performance measurements.
 
-The next boundary is **durable serialization and fresh-process cold reload**.
-The existing encoder deliberately rejects this evidence kind until its real
+At this checkpoint the next boundary was **durable serialization and
+fresh-process cold reload**. The encoder deliberately rejected this evidence kind until its real
 payload and cold proof reconstruction are implemented. There is no alternate
 artifact wrapper, fabricated anchor or elimination history, or repeated
 authentication in the reducer's hot path. Vakint integration proceeds in
 parallel, but no new three-loop acceptance result or shipped K6 asset is claimed
-by this in-memory milestone. The following dated sections retain earlier
-checkpoint evidence; their pending gates refer to those checkpoints.
+by this in-memory milestone.
 
 ### Canonical unit-mass checked ownership (2026-09-15)
 

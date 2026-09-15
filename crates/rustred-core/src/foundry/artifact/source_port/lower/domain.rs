@@ -3,23 +3,29 @@ use symbolica::prelude::Integer;
 
 use crate::algebra::indexed::IntegerZeroLocusDomainResolution;
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial};
+use crate::foundry::cell::RuleCellLimits;
 use crate::foundry::completion::LatticeBox;
 use crate::identity::IndexShift;
 use crate::sector::{InteriorBounds, Mask, SectorMonotoneDomain};
 
 use super::super::{SourcePortAuditError, error};
 
-pub(super) fn runtime_domain<const N: usize>(
+pub(super) fn runtime_domain(
     piece: &LatticeBox,
-    sector: &[bool; N],
+    sector: &[bool],
     rhs: &[(IndexShift, IndexedCoefficient)],
 ) -> Result<SectorMonotoneDomain, SourcePortAuditError> {
-    let mask = Mask::try_new(*sector).map_err(error)?;
+    let arity = sector.len();
+    if piece.arity() != arity || rhs.iter().any(|(shift, _)| shift.values().len() != arity) {
+        return Err(error("combined execution carrier has incompatible arity"));
+    }
+    let mask = Mask::try_new(sector.to_vec()).map_err(error)?;
+    let origin = vec![0; arity];
     let shifts: Vec<_> = rhs.iter().map(|(shift, _)| shift.values()).collect();
-    let carrier = SectorMonotoneDomain::try_maximal_for_rule(mask.clone(), &[0; N], &shifts)
+    let carrier = SectorMonotoneDomain::try_maximal_for_rule(mask.clone(), &origin, &shifts)
         .map_err(error)?;
-    let mut bounds = Vec::with_capacity(N);
-    for axis in 0..N {
+    let mut bounds = Vec::with_capacity(arity);
+    for axis in 0..arity {
         let lower = i128::from(piece.lower()[axis]);
         let upper = piece.upper()[axis].map(i128::from);
         let (lower, upper) = if sector[axis] {
@@ -44,20 +50,24 @@ pub(super) fn runtime_domain<const N: usize>(
             i64::try_from(upper).map_err(error)?,
         ));
     }
-    SectorMonotoneDomain::try_new_for_rule(mask, bounds, &[0; N], &shifts).map_err(error)
+    SectorMonotoneDomain::try_new_for_rule(mask, bounds, &origin, &shifts).map_err(error)
 }
 
-pub(super) fn validate_guard<const N: usize>(
+pub(super) fn validate_guard_with_limits(
     context: &IndexedCoefficientContext,
     polynomial: &IndexedPolynomial,
     piece: &LatticeBox,
-    sector: &[bool; N],
+    sector: &[bool],
+    limits: RuleCellLimits,
 ) -> Result<(), SourcePortAuditError> {
+    if sector.len() != context.index_count() || piece.arity() != sector.len() {
+        return Err(error("combined guard has incompatible sector/box arity"));
+    }
     let system = context
-        .base_coefficient_system(polynomial, Default::default(), Default::default())
+        .base_coefficient_system(polynomial, limits.indexed_algebra, limits.guard_algebra)
         .map_err(error)?;
     let resolution = context
-        .integer_zero_locus_domain_resolution(&system, Default::default(), |axis, root| {
+        .integer_zero_locus_domain_resolution(&system, limits.guard_algebra, |axis, root| {
             let local = if sector[axis] {
                 root - &Integer::from(1)
             } else {

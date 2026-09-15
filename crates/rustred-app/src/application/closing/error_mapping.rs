@@ -39,7 +39,8 @@ fn artifact_persistence_error_kind(
             ArtifactCodecOperation::Load => artifact_validation_error_kind(error),
             ArtifactCodecOperation::Encode => trusted_artifact_encoding_error_kind(error),
         },
-        ArtifactPersistenceError::SemanticMismatch { .. } => match operation {
+        ArtifactPersistenceError::SemanticMismatch { .. }
+        | ArtifactPersistenceError::OriginalDomainReplay { .. } => match operation {
             ArtifactCodecOperation::Encode => AppErrorKind::InternalInvariant,
             ArtifactCodecOperation::Load => AppErrorKind::Input,
         },
@@ -465,6 +466,19 @@ mod tests {
         for error in resource_errors {
             assert_eq!(map_artifact_load_error(error).kind(), AppErrorKind::Limit);
         }
+    }
+
+    #[test]
+    fn original_domain_replay_failure_preserves_operation_and_diagnostic() {
+        let error = ArtifactPersistenceError::OriginalDomainReplay {
+            detail: "stored original combination leaves a nonzero physical residual".into(),
+        };
+        let loaded = map_artifact_load_error(error.clone());
+        assert_eq!(loaded.kind(), AppErrorKind::Input);
+        assert!(loaded.message().contains("nonzero physical residual"));
+        let encoded = map_artifact_encoding_error(error);
+        assert_eq!(encoded.kind(), AppErrorKind::InternalInvariant);
+        assert!(encoded.message().contains("nonzero physical residual"));
     }
 
     #[test]

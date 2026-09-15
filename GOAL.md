@@ -42,7 +42,8 @@ This is rule-set validation, not yet a serialized `ClosedArtifact` or a Vakint
 three-loop acceptance pass. The integration now retains original-source
 requests and exact weights, with verified conversion from adapter normalization
 to freshly generated ordinary IBPs. These records now have a private checked
-owner; serialization through the existing artifact/reducer boundary remains.
+owner. At that first audit checkpoint, serialization through the existing
+artifact/reducer boundary remained; the later durable milestone below passes it.
 A fresh autonomous
 release run now also generates directly from the canonical unit-mass K6 family
 used by Vakint's parent slots: **623 exact rules, 38 finite terminals, 38
@@ -54,9 +55,9 @@ application; concurrent compilation ran on separate cores. A subsequent
 fixture-only correctness test now binds every actual retained typed terminal
 set to its sector's exact 0/1 corner, covering all 38 proposed catalog keys.
 That debug test is not a timing result and does not change the frozen release
-binary. The subsequent in-memory installation milestone below now supplies
-the existing `ClosedArtifact` lowering; durable encoding and cold reload
-remain the next gates. The parallel Vakint
+binary. The subsequent milestones below now supply
+the existing `ClosedArtifact` lowering and durable codec. Fresh-process release
+validation now also passes below; Vakint shipping and acceptance remain. The parallel Vakint
 lane is updating required native solver API calls and checking contraction
 routing. The user has approved migrating the Spenso solver wrapper and adding
 the private helper that retains the existing routing witness; both are now
@@ -69,18 +70,26 @@ Vakint's test-only terminal module, using five existing exact MATAD/product
 expressions. Fresh frozen-binary runs now pass its five native tests, six
 existing RustRed adapter tests (including generated-asset byte parity), four
 default/backend tests and the three new Spenso solver tests. The Vakint groups
-use an invalid FORM path. The six new routing tests remain blocked by omitted
-test-only symbol initialization; the requested setup correction awaits explicit
-confirmation, as required by GammaLoop's contribution guidance. The offline
-38-key MATAD comparison and complete K6 scalar acceptance remain separate gates.
-No K6 asset, extra numerical master table or new complete three-loop end-to-end
+use an invalid FORM path. Isolated execution of the six new routing tests found
+missing test-only symbol initialization. A broader native run passed 22 tests
+and failed one component-template test, exposing a second setup issue: its
+intentional wildcard template needs Symbolica's existing construction flag.
+The user explicitly approved both setup fixes, with all assertions unchanged.
+Routine, unambiguous changes no longer require separate approval under the
+repository's contribution guidance; genuinely ambiguous or dangerous changes
+still do. Neither failing run is counted as a routing acceptance pass. The separate
+offline test now also passes exact symbolic MATAD comparison at the requested
+Laurent order for all 38 actual terminal keys, including common-mass restoration;
+only this oracle process uses FORM.
+Complete K6 scalar acceptance remains a separate gate.
+No shipped K6 asset, extra numerical master table or new complete three-loop end-to-end
 acceptance result is claimed.
 The parametric-rule evidence migration also passes 110 focused tests and the
 separate 623-rule canonical K6 regression. It removes the assumption that every
 proof needs a sampled anchor. At that historical checkpoint, combined-domain
 installation was deliberately disabled pending its real constructor and cell
-lowering. The following milestone enables that producer; it does not yet
-enable durable encoding or shipping.
+lowering. The in-memory milestone enabled that producer; the later durable
+milestone enables encoding, while shipping remains a separate gate.
 
 ### In-memory artifact and reduction milestone (2026-09-15)
 
@@ -103,15 +112,37 @@ Independent mathematical and executed-evidence audits pass. These are
 correctness tests, not debug-build performance measurements. Evidence:
 `target/spired-original-domain-full.JEvHje/`.
 
-Next, the delegated artifact lane must encode and cold-reload this same producer
-through the existing durable format, then ship generation-once K1/K3/K6 assets
+### Durable artifact correctness milestone (2026-09-15)
+
+The combined original-source payload now uses the existing V5 artifact codec.
+The complete canonical K6 correctness test encodes **8,911,462 bytes**, decodes
+them without rerunning rule discovery, and verifies deterministic re-encoding.
+It retains the same 623 generated rules replayed from nine ordinary IBPs,
+5,639 cells, 38 finite keys and 26 zero sectors, and exercises decoded master
+identities, nonunit-mass application and memoization. Untrusted loading replays the exact original identities and
+guards once; the existing reducer's hot path remains unchanged. The coordinated
+core gate passes 302 focused tests plus the explicit complete K6 durable test
+and both example test suites. Evidence:
+`target/spired-codec-indices-corrected.FrerFY/`. These are correctness results,
+not release timing measurements or a fresh-process Vakint acceptance result.
+
+The standalone release producer now generates byte-identical K6 artifacts at
+one and six workers. Separate CLI processes cold-load both artifacts and apply
+five canaries, including a dotted multi-master reduction, a negative numerator
+power and symbolic common-mass restoration. The exact 38 terminal keys and 26
+zero masks partition all 64 sectors. Evidence:
+`target/spired-k6-producer.007TpB/run/`. Observed whole-process generation times
+were 3.20 s and 1.86 s respectively; these single shared-host observations are
+not a controlled speedup comparison or C++ port benchmark.
+
+Next, the delegated Vakint lane must ship generation-once K1/K3/K6 assets
 with Vakint. The parallel Vakint lane must bind actual terminal keys to its
 existing exact master expressions, transport contracted topologies and
 numerators through the existing routing witness, and run the full comparative
 three-loop acceptance inventory with FeynKit plus RustRed and an invalid FORM
-path. **No durable K6 asset, cold reload, or new Vakint acceptance pass is
-claimed yet.** This delivery work continues independently of the source-port
-performance lane.
+path. **Fresh-process K6 generation/loading/application passes; complete new
+three-loop Vakint acceptance is not yet claimed.** This delivery work continues
+independently of the source-port performance lane.
 
 ## Active reference-port assignment (2026-09-14)
 

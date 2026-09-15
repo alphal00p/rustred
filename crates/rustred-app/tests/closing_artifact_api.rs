@@ -186,9 +186,9 @@ fn generation_is_deterministic_and_owns_durable_bytes() {
     assert!(
         generated
             .to_toml()
-            .contains("schema = \"rustred.closing-artifact.v4\"")
+            .contains("schema = \"rustred.closing-artifact.v5\"")
     );
-    assert!(generated.to_toml().contains("schema_version = 4"));
+    assert!(generated.to_toml().contains("schema_version = 5"));
     assert!(generated.to_toml().contains("source_rows = 1"));
     assert!(generated.to_toml().contains("guarded_rules = 1"));
     assert!(generated.to_toml().contains("domain_lower = [1]"));
@@ -218,9 +218,9 @@ fn inspection_authenticates_supplied_durable_bytes() {
     assert!(
         inspected
             .to_toml()
-            .contains("schema = \"rustred.closing-artifact.v4\"")
+            .contains("schema = \"rustred.closing-artifact.v5\"")
     );
-    assert!(inspected.to_toml().contains("schema_version = 4"));
+    assert!(inspected.to_toml().contains("schema_version = 5"));
 
     let invalid = closing_artifact_inspect(ClosingArtifactInspectRequest {
         artifact: b"not a RustRed artifact".to_vec(),
@@ -233,6 +233,12 @@ fn inspection_authenticates_supplied_durable_bytes() {
 #[test]
 fn durable_schema_and_load_resource_failures_keep_typed_categories() {
     let artifact = generate_artifact().into_artifact();
+    let previous_schema = closing_artifact_inspect(ClosingArtifactInspectRequest {
+        artifact: with_durable_schema(&artifact, 4),
+    })
+    .unwrap_err();
+    assert_eq!(previous_schema.kind(), AppErrorKind::Schema);
+    assert!(previous_schema.message().contains("schema version 4"));
     let unsupported_schema = closing_artifact_inspect(ClosingArtifactInspectRequest {
         artifact: with_durable_schema(&artifact, 3),
     })

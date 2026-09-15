@@ -24,6 +24,7 @@ mod three_loop;
 mod two_loop;
 pub(super) use source_port::ALGORITHM_ID as SOURCE_PORT_ALGORITHM_ID;
 pub(super) use source_port::install_source_port;
+pub(super) use source_port::install_source_port_with_limits;
 
 pub(crate) use terminal::{TerminalAuthorityCandidate, install_terminal_authority};
 #[cfg(test)]
@@ -353,7 +354,7 @@ pub(super) fn validate_terminal_bindings(
     Ok(())
 }
 
-fn validate_zero_terminal_proofs(
+pub(super) fn validate_zero_terminal_proofs(
     family: &IntegralFamily,
     zero_sectors: &[ZeroSectorTerminal],
 ) -> Result<(), ArtifactError> {

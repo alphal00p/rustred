@@ -7,13 +7,15 @@
 
 use std::cmp::Ordering;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::Arc;
 
 use symbolica::domains::backend::integer::{from_lsf_bytes, lsf_byte_size, to_lsf_bytes};
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
-use symbolica::prelude::{Integer, MultivariatePolynomial, Z};
+use symbolica::prelude::{Integer, MultivariatePolynomial, PolyVariable, Z};
 
 use crate::algebra::{
-    Coefficient, CoefficientContext, CoefficientPolynomial, IndexedCoefficient, IndexedPolynomial,
+    Coefficient, CoefficientContext, CoefficientPolynomial, IndexedCoefficient,
+    IndexedCoefficientContext, IndexedPolynomial, validate_coefficient_on_map,
 };
 
 use super::super::error::ArtifactPersistenceError;
@@ -266,7 +268,7 @@ fn decode_integer(
 
 fn decode_polynomial_body(
     reader: &mut Reader<'_>,
-    context: &CoefficientContext,
+    variables: &Arc<Vec<PolyVariable>>,
     field: &'static str,
 ) -> Result<CoefficientPolynomial, ArtifactPersistenceError> {
     let term_count = reader.count("polynomial terms")?;
@@ -276,7 +278,7 @@ fn decode_polynomial_body(
         reader.limits().family.exact_algebra.max_polynomial_terms,
     )?;
     let variable_count = reader.count("polynomial variables")?;
-    if variable_count != context.variables().len() {
+    if variable_count != variables.len() {
         return Err(ArtifactPersistenceError::InvalidCoefficient { field });
     }
     let exponent_entries = checked_mul(term_count, variable_count, "polynomial exponent entries")?;
@@ -286,7 +288,7 @@ fn decode_polynomial_body(
         reader.limits().max_collection_entries,
     )?;
 
-    let mut polynomial = MultivariatePolynomial::new(&Z, None, context.variables().clone());
+    let mut polynomial = MultivariatePolynomial::new(&Z, None, variables.clone());
     polynomial
         .coefficients
         .try_reserve_exact(term_count)
@@ -335,9 +337,9 @@ fn decode_polynomial_body(
     Ok(polynomial)
 }
 
-pub(super) fn decode_base_coefficient(
+fn decode_coefficient_on_map(
     reader: &mut Reader<'_>,
-    context: &CoefficientContext,
+    variables: &Arc<Vec<PolyVariable>>,
     field: &'static str,
 ) -> Result<Coefficient, ArtifactPersistenceError> {
     let payload = reader.coefficient_payload(field)?;
@@ -345,15 +347,14 @@ pub(super) fn decode_base_coefficient(
     if payload_reader.u8()? != RATIONAL_PAYLOAD {
         return Err(ArtifactPersistenceError::InvalidCoefficient { field });
     }
-    let numerator = decode_polynomial_body(&mut payload_reader, context, field)?;
-    let denominator = decode_polynomial_body(&mut payload_reader, context, field)?;
+    let numerator = decode_polynomial_body(&mut payload_reader, variables, field)?;
+    let denominator = decode_polynomial_body(&mut payload_reader, variables, field)?;
     payload_reader.finish()?;
     let raw = Coefficient {
         numerator,
         denominator,
     };
-    context
-        .validate_with_limits(&raw, reader.limits().family.exact_algebra)
+    validate_coefficient_on_map(&raw, variables, reader.limits().family.exact_algebra)
         .map_err(|_| ArtifactPersistenceError::InvalidCoefficient { field })?;
     let normalization_operations = checked_mul(
         raw.numerator.nterms().max(1),
@@ -379,3 +380,53 @@ pub(super) fn decode_base_coefficient(
     }
     Ok(raw)
 }
+
+pub(super) fn decode_base_coefficient(
+    reader: &mut Reader<'_>,
+    context: &CoefficientContext,
+    field: &'static str,
+) -> Result<Coefficient, ArtifactPersistenceError> {
+    decode_coefficient_on_map(reader, context.variables(), field)
+}
+
+/// Decode native sparse arithmetic directly onto the already authenticated
+/// positional variable map. No expression parser or symbol-name substitution
+/// is involved; the context seal is created only after canonical validation.
+pub(super) fn decode_indexed_coefficient(
+    reader: &mut Reader<'_>,
+    context: &IndexedCoefficientContext,
+    field: &'static str,
+) -> Result<IndexedCoefficient, ArtifactPersistenceError> {
+    let template = context.one();
+    let variables = template.raw().get_variables();
+    let raw = decode_coefficient_on_map(reader, variables, field)?;
+    context
+        .admit_native_result_with_limits(raw, reader.limits().family.exact_algebra)
+        .map_err(|_| ArtifactPersistenceError::InvalidCoefficient { field })
+}
+
+pub(super) fn decode_indexed_polynomial(
+    reader: &mut Reader<'_>,
+    context: &IndexedCoefficientContext,
+    field: &'static str,
+) -> Result<IndexedPolynomial, ArtifactPersistenceError> {
+    let payload = reader.coefficient_payload(field)?;
+    let mut payload_reader = reader.child(payload);
+    if payload_reader.u8()? != POLYNOMIAL_PAYLOAD {
+        return Err(ArtifactPersistenceError::InvalidCoefficient { field });
+    }
+    let template = context.one();
+    let polynomial =
+        decode_polynomial_body(&mut payload_reader, template.raw().get_variables(), field)?;
+    payload_reader.finish()?;
+    context
+        .admit_native_polynomial_result_with_limits(
+            polynomial,
+            reader.limits().family.exact_algebra,
+        )
+        .map_err(|_| ArtifactPersistenceError::InvalidCoefficient { field })
+}
+
+#[cfg(test)]
+#[path = "coefficient/decoded_tests.rs"]
+mod decoded_tests;

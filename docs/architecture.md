@@ -210,7 +210,7 @@ children back. Separately, `foundry::artifact` generates and verifies the
 canonical `K = 1` and `K = 3` closures and seals them for `reduction`; the
 reusable primitives are topology-neutral, while these first complete
 partition verifiers are registered family manifests rather than a generic
-closure search. Its schema-v4 codec owns deterministic semantic bytes and
+closure search. Its schema-v5 codec owns deterministic semantic bytes and
 one-time bounded untrusted loading. It reconstructs tagged complete-ordinary
 source plans under explicit family/generator/rule policies, compares retained
 semantics exactly, and authenticates replay before exposing a sealed owner.

@@ -28,3 +28,7 @@ path = "../../examples/rust/spired_solve_sector.rs"
 [[example]]
 name = "spired-artifact-audit"
 path = "../../examples/rust/spired_artifact_audit.rs"
+
+[[example]]
+name = "spired-generate-k6"
+path = "../../examples/rust/spired_generate_k6.rs"

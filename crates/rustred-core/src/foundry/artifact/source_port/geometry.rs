@@ -8,6 +8,8 @@
 #[path = "geometry/grounding.rs"]
 mod grounding;
 
+pub(super) mod bounded;
+
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
@@ -124,11 +126,8 @@ pub(super) fn prove_descent<const N: usize>(
     ordering: OrderingPolicy,
     indices: &[usize; N],
 ) -> Result<(), SourcePortAuditError> {
-    let parent_mask = Mask::try_new(*sector).map_err(error)?;
-    let parent_key = ordering
-        .shift_complexity_key(&parent_mask, &[0; N])
-        .map_err(error)?;
-    for (term_ordinal, term) in rule.candidate.rhs.iter().enumerate() {
+    let mut terms = Vec::with_capacity(rule.candidate.rhs.len());
+    for term in &rule.candidate.rhs {
         let mut shifts = [0_i64; N];
         for axis in 0..N {
             let parent = rule.candidate.target[axis];
@@ -138,17 +137,60 @@ pub(super) fn prove_descent<const N: usize>(
             }
             shifts[axis] = i64::from(child.value()) - i64::from(parent.value());
         }
+        terms.push((shifts, &term.coefficient));
+    }
+    prove_wide_descent_with_limits(
+        terms
+            .iter()
+            .map(|(shift, coefficient)| (shift.as_slice(), *coefficient)),
+        boxes,
+        sector,
+        ordering,
+        CompletionGeometryLimits::default(),
+        |coefficient, piece| {
+            coefficient_vanishes(
+                coefficient,
+                piece,
+                sector,
+                indices,
+                CompletionGeometryLimits::default(),
+            )
+        },
+    )
+}
+
+/// The same whole-unbounded order proof for durable wide-coordinate rows.
+/// This entry accepts arithmetic data, not a source replay certificate.
+pub(super) fn prove_wide_descent_with_limits<'a, T: 'a>(
+    terms: impl IntoIterator<Item = (&'a [i64], &'a T)>,
+    boxes: &[LatticeBox],
+    sector: &[bool],
+    ordering: OrderingPolicy,
+    limits: CompletionGeometryLimits,
+    mut vanishes: impl FnMut(&T, &LatticeBox) -> Result<bool, SourcePortAuditError>,
+) -> Result<(), SourcePortAuditError> {
+    let parent_mask = Mask::try_new(sector.iter().copied()).map_err(error)?;
+    let zero = vec![0; sector.len()];
+    let parent_key = ordering
+        .shift_complexity_key(&parent_mask, &zero)
+        .map_err(error)?;
+    for (term_ordinal, (shifts, coefficient)) in terms.into_iter().enumerate() {
+        if shifts.len() != sector.len() {
+            return Err(error("wide descent has incompatible shift arity"));
+        }
         let child_key = ordering
-            .shift_complexity_key(&parent_mask, &shifts)
+            .shift_complexity_key(&parent_mask, shifts)
             .map_err(error)?;
         for cell in boxes {
-            for piece in sign_partition(cell, sector, &shifts)? {
-                let actual: [bool; N] = std::array::from_fn(|axis| {
-                    let local = i128::from(piece.lower()[axis]);
-                    let parent = if sector[axis] { 1 + local } else { -local };
-                    parent + i128::from(shifts[axis]) > 0
-                });
-                let comparison = if actual == *sector {
+            for piece in sign_partition_with_limits(cell, sector, shifts, limits)? {
+                let actual: Vec<bool> = (0..sector.len())
+                    .map(|axis| {
+                        let local = i128::from(piece.lower()[axis]);
+                        let parent = if sector[axis] { 1 + local } else { -local };
+                        parent + i128::from(shifts[axis]) > 0
+                    })
+                    .collect();
+                let comparison = if actual == sector {
                     child_key.cmp(&parent_key)
                 } else {
                     actual
@@ -156,15 +198,9 @@ pub(super) fn prove_descent<const N: usize>(
                         .filter(|active| **active)
                         .count()
                         .cmp(&parent_mask.active_count())
-                        .then_with(|| actual.cmp(sector))
+                        .then_with(|| actual.as_slice().cmp(sector))
                 };
-                if comparison == Ordering::Less {
-                    continue;
-                }
-                // Fixed faces and bounded finite sign cells can disappear
-                // exactly. Every finite point is checked, while unbounded
-                // coordinates always remain symbolic.
-                if coefficient_vanishes(&term.coefficient, &piece, sector, indices)? {
+                if comparison == Ordering::Less || vanishes(coefficient, &piece)? {
                     continue;
                 }
                 return Err(error(format!(
@@ -236,35 +272,75 @@ fn uniformly_zero_contribution<const N: usize>(
         shifts[axis] =
             i64::from(integral[axis].value()) - i64::from(rule.candidate.target[axis].value());
     }
-    uniformly_zero_wide(&shifts, coefficient, boxes, sector, zero_sectors)
+    uniformly_zero_wide(
+        &shifts,
+        coefficient.map(|(value, indices)| (value, indices.as_slice())),
+        boxes,
+        sector,
+        zero_sectors,
+    )
 }
 
 /// Wide original-source/product proof used by durable-payload lowering.
 /// No compact search-power conversion occurs at this boundary.
-pub(super) fn uniformly_zero_wide<const N: usize>(
-    shifts: &[i64; N],
-    coefficient: Option<(&Coefficient, &[usize; N])>,
+pub(super) fn uniformly_zero_wide<Z: AsRef<[bool]>>(
+    shifts: &[i64],
+    coefficient: Option<(&Coefficient, &[usize])>,
     boxes: &[LatticeBox],
-    sector: &[bool; N],
-    zero_sectors: &[[bool; N]],
+    sector: &[bool],
+    zero_sectors: &[Z],
+) -> Result<bool, SourcePortAuditError> {
+    uniformly_zero_wide_with_limits(
+        shifts,
+        coefficient.as_ref(),
+        boxes,
+        sector,
+        zero_sectors,
+        CompletionGeometryLimits::default(),
+        |(coefficient, indices), piece| {
+            coefficient_vanishes(
+                coefficient,
+                piece,
+                sector,
+                indices,
+                CompletionGeometryLimits::default(),
+            )
+        },
+    )
+}
+
+pub(super) fn uniformly_zero_wide_with_limits<Z: AsRef<[bool]>, T>(
+    shifts: &[i64],
+    coefficient: Option<&T>,
+    boxes: &[LatticeBox],
+    sector: &[bool],
+    zero_sectors: &[Z],
+    limits: CompletionGeometryLimits,
+    mut coefficient_vanishes: impl FnMut(&T, &LatticeBox) -> Result<bool, SourcePortAuditError>,
 ) -> Result<bool, SourcePortAuditError> {
     if boxes.is_empty() {
         return Ok(false);
     }
+    if shifts.len() != sector.len() {
+        return Err(error("wide product proof has incompatible index arity"));
+    }
     for cell in boxes {
-        for piece in sign_partition(cell, sector, &shifts)? {
-            let actual = std::array::from_fn(|axis| {
-                let local = i128::from(piece.lower()[axis]);
-                let parent = if sector[axis] { 1 + local } else { -local };
-                parent + i128::from(shifts[axis]) > 0
-            });
-            if zero_sectors.contains(&actual) {
+        for piece in sign_partition_with_limits(cell, sector, shifts, limits)? {
+            let actual: Vec<bool> = (0..sector.len())
+                .map(|axis| {
+                    let local = i128::from(piece.lower()[axis]);
+                    let parent = if sector[axis] { 1 + local } else { -local };
+                    parent + i128::from(shifts[axis]) > 0
+                })
+                .collect();
+            if zero_sectors
+                .iter()
+                .any(|zero| zero.as_ref() == actual.as_slice())
+            {
                 continue;
             }
             let vanishes = match coefficient {
-                Some((coefficient, indices)) => {
-                    coefficient_vanishes(coefficient, &piece, sector, indices)?
-                }
+                Some(coefficient) => coefficient_vanishes(coefficient, &piece)?,
                 None => false,
             };
             if !vanishes {
@@ -275,15 +351,26 @@ pub(super) fn uniformly_zero_wide<const N: usize>(
     Ok(true)
 }
 
-fn coefficient_vanishes<const N: usize>(
+fn coefficient_vanishes(
     coefficient: &Coefficient,
     cell: &LatticeBox,
-    sector: &[bool; N],
-    indices: &[usize; N],
+    sector: &[bool],
+    indices: &[usize],
+    limits: CompletionGeometryLimits,
 ) -> Result<bool, SourcePortAuditError> {
+    if cell.arity() != sector.len()
+        || indices.len() != sector.len()
+        || indices
+            .iter()
+            .any(|index| *index >= coefficient.numerator.nvars())
+    {
+        return Err(error(
+            "coefficient restriction has incompatible variable geometry",
+        ));
+    }
     let mut numerator = coefficient.numerator.clone();
     let mut denominator = coefficient.denominator.clone();
-    for axis in 0..N {
+    for axis in 0..sector.len() {
         if cell.upper()[axis] == Some(cell.lower()[axis]) {
             let local = Integer::from(cell.lower()[axis]);
             let value = if sector[axis] {
@@ -297,7 +384,7 @@ fn coefficient_vanishes<const N: usize>(
     }
     let mut finite_axes = Vec::new();
     let mut leaves = 1_u64;
-    for axis in 0..N {
+    for axis in 0..sector.len() {
         let Some(upper) = cell.upper()[axis] else {
             continue;
         };
@@ -314,21 +401,19 @@ fn coefficient_vanishes<const N: usize>(
             })?;
         leaves = leaves
             .checked_mul(width)
-            .filter(|leaves| {
-                *leaves <= CompletionGeometryLimits::default().max_uncovered_boxes as u64
-            })
+            .filter(|leaves| *leaves <= limits.max_uncovered_boxes as u64)
             .ok_or_else(|| error("finite zero-product proof exceeded its geometry budget"))?;
         finite_axes.push((axis, cell.lower()[axis], upper));
     }
     // This is exhaustive restriction of a finite lattice, not interpolation:
     // no value from an infinite interval is ever enumerated, and all remaining
     // symbolic variables must disappear identically from the numerator.
-    fn restrict<const N: usize>(
+    fn restrict(
         numerator: &crate::algebra::CoefficientPolynomial,
         denominator: &crate::algebra::CoefficientPolynomial,
         axes: &[(usize, u64, u64)],
-        sector: &[bool; N],
-        indices: &[usize; N],
+        sector: &[bool],
+        indices: &[usize],
     ) -> bool {
         let Some((&(axis, lower, upper), remaining)) = axes.split_first() else {
             return !denominator.is_zero() && numerator.is_zero();
@@ -360,13 +445,36 @@ fn coefficient_vanishes<const N: usize>(
 
 /// Split exactly where a translated power changes sign. This is a bounded
 /// combinatorial operation on intervals, not an algebraic root solver.
-pub(super) fn sign_partition<const N: usize>(
+pub(super) fn sign_partition(
     cell: &LatticeBox,
-    sector: &[bool; N],
-    shifts: &[i64; N],
+    sector: &[bool],
+    shifts: &[i64],
 ) -> Result<Vec<LatticeBox>, SourcePortAuditError> {
+    sign_partition_with_limits(cell, sector, shifts, CompletionGeometryLimits::default())
+}
+
+fn sign_partition_with_limits(
+    cell: &LatticeBox,
+    sector: &[bool],
+    shifts: &[i64],
+    limits: CompletionGeometryLimits,
+) -> Result<Vec<LatticeBox>, SourcePortAuditError> {
+    if cell.arity() != sector.len() || shifts.len() != sector.len() {
+        return Err(error("sign partition has incompatible index arity"));
+    }
+    if sector.len() > limits.max_arity || limits.max_uncovered_boxes == 0 {
+        return Err(error("sign partition exceeds its geometry resource policy"));
+    }
+    if sector
+        .len()
+        .checked_mul(2)
+        .is_none_or(|entries| entries > limits.max_uncovered_box_coordinate_cells)
+    {
+        return Err(error("sign partition has incompatible index arity"));
+    }
     let mut pieces = vec![copy_box(cell)?];
-    for axis in 0..N {
+    let mut splits = 0usize;
+    for axis in 0..sector.len() {
         let threshold = if sector[axis] && shifts[axis] < 0 {
             shifts[axis].unsigned_abs()
         } else if !sector[axis] && shifts[axis] > 0 {
@@ -382,6 +490,10 @@ pub(super) fn sign_partition<const N: usize>(
                 next.push(piece);
                 continue;
             }
+            splits = splits
+                .checked_add(1)
+                .filter(|count| *count <= limits.max_split_operations)
+                .ok_or_else(|| error("sign partition exceeds its split-operation budget"))?;
             let mut left_upper = piece.upper().to_vec();
             left_upper[axis] = Some(threshold - 1);
             next.push(
@@ -393,7 +505,13 @@ pub(super) fn sign_partition<const N: usize>(
                 LatticeBox::try_new(right_lower, piece.upper().iter().copied()).map_err(error)?,
             );
         }
-        if next.len() > CompletionGeometryLimits::default().max_uncovered_boxes {
+        if next.len() > limits.max_uncovered_boxes
+            || next
+                .len()
+                .checked_mul(sector.len())
+                .and_then(|n| n.checked_mul(2))
+                .is_none_or(|cells| cells > limits.max_uncovered_box_coordinate_cells)
+        {
             return Err(error(
                 "source-port descent sign partition exceeded its geometry budget",
             ));

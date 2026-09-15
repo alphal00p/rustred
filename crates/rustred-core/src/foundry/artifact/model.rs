@@ -15,21 +15,21 @@ use super::factorized_product_moments::FactorizedProductMomentProgram;
 /// Stable schema identity of an installed closing artifact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ArtifactSchemaVersion {
-    V4,
+    V5,
 }
 
 impl ArtifactSchemaVersion {
-    pub const CURRENT: Self = Self::V4;
+    pub const CURRENT: Self = Self::V5;
 
     pub const fn as_u32(self) -> u32 {
         match self {
-            Self::V4 => 4,
+            Self::V5 => 5,
         }
     }
 
     pub const fn stable_id(self) -> &'static str {
         match self {
-            Self::V4 => "rustred.closing-artifact.v4",
+            Self::V5 => "rustred.closing-artifact.v5",
         }
     }
 }

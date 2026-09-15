@@ -33,10 +33,11 @@ The currently evidenced core can:
   descent and whole-sector coverage with 38 finite terminals, and obtain
   zero uncovered regions for all 617 rules at one and six workers. This cold
   audit also passes the complete K1/K3 families. The canonical unit-mass K6
-  program now installs into the existing in-memory `ClosedArtifact` and
+  program now installs into the existing `ClosedArtifact` and
   memoizing `Reducer`: 623 rules, 5,639 sign-refined cells, 38 finite masters,
-  and 26 proved-zero sectors. Durable source-port encoding/cold reload and
-  the full Vakint three-loop suite remain in progress. See
+  and 26 proved-zero sectors. Serial and six-worker generation writes identical
+  durable bytes; fresh CLI loading and application pass. The full Vakint
+  three-loop suite remains in progress. See
   the [artifact delivery report](docs/spired_vakint_artifact_plan.md);
 - run those independent sector solves on a bounded private worker pool with
   shared source data and deterministic aggregate output. All `vac3` equations
@@ -117,11 +118,10 @@ The currently evidenced core can:
   a symbolic or exact common mass, and optionally applying Vakint's pure-Rust
   master values without invoking or falling back to FORM.
 
-It does **not** yet ship a certified three-loop `K = 6` artifact from the new
-solver, pass the complete PM example suite, or support generic/higher-even-rank
-tensor reduction. The successful `vac3` rule-generation comparison now has a
-canonical in-memory artifact/reducer counterpart, but that new artifact is
-not yet serialized or consumed by Vakint. RustRed itself deliberately does not
+It does **not** yet pass the complete three-loop Vakint acceptance suite or
+complete supplied PM example suite, or support generic/higher-even-rank tensor
+reduction. Canonical K6 now has a certified durable artifact: its Vakint
+integration is under validation. RustRed itself deliberately does not
 own evaluated master values; the Vakint adapter can substitute Vakint's
 existing values after reduction. Structural source counts—at any loop
 count—remain insufficient closure evidence.
@@ -139,9 +139,17 @@ The `K = 1` and `K = 3` families are installed as mathematically closed,
 deterministically encoded artifacts and consumed by the generic recursive
 reducer through Rust, CLI, and Python surfaces. They are also shipped with and
 consumed by Vakint's FORM-free scalar backend. The new SpIRed producer closes
-and installs canonical three-loop `K = 6` in memory; durable delivery and
-extension of that backend across the five registered three-loop graph classes
-are the remaining active Stage 1 work. The earlier foundry lane's test-only K6
+and durably installs canonical three-loop `K = 6`; fresh-process inspection
+and application pass. Validation of the Vakint backend across its five registered
+three-loop graph classes is the remaining integration work.
+
+### Earlier foundry research checkpoints
+
+The following records describe the separate earlier foundry/campaign lane,
+not the current SpIRed producer's closure status. Its bounded frontiers do not
+override the complete K6 artifact described above.
+
+The earlier foundry lane's test-only K6
 pressure fixture
 pins its exact family, nine sources, order-24 `S4` sector partition, the five
 revision-stamped Vakint class/routing snapshots, and certified `K3 x K1` plus
@@ -441,7 +449,7 @@ width four preserve the same authoritative q0 census and grow the frame from
 90 to 122 requests. Width four incurs only the additional auxiliary-support
 evaluations, but this one-epoch experiment still produces no modular hit or
 exact-lift attempt. The path/star closure baselines remain `9/4/10` and
-`22/12/4`; RustRed still has no K6 artifact. These results motivate the next
+`22/12/4`; that checkpoint had no K6 artifact. These results motivated the next
 fixed-slice/syzygy-guided discovery experiment and immutable solved-sector
 feedback work instead of a blind larger seed box.
 
@@ -496,15 +504,17 @@ resource limits. It publishes no layer unless every sector is exactly closed.
 On the K6 rank-three path/star frontier, the exact
 root-aware degree-one diagnostic currently gives `9/4/10` and `22/12/4`
 (replayed owners / guard-total owners / nonfinite complement boxes), so the
-atomic wave correctly stops without publication. The next K6 production
-boundary is still the first complete bottom-up three-line wave. RustRed has no
-closed K6 artifact.
+atomic wave correctly stops without publication. That lane's next production
+boundary was the first complete bottom-up three-line wave. It is separate from
+the now-closed source-port K6 artifact.
+
+### Compatibility policy
 
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,
 authored recurrences, and milestone-log architecture have been deleted rather
 than migrated. Durable artifacts accept the current RustRed schema only: every
-obsolete version, including V1, V2, and V3, is rejected and there is no migration
+obsolete version, including V1 through V4, is rejected and there is no migration
 or dual decoder. Vakint likewise provides no compatibility layer for obsolete
 RustRed artifact schemas. This does not weaken Vakint's separate API/default
 and existing FORM-method compatibility contract.
@@ -588,6 +598,22 @@ rustred campaign reduce \
   --powers 2,2,1 \
   --output two_loop_sunset.I221.toml
 ```
+
+For the complete three-loop family, the standalone Rust example generates a
+new K6 artifact directly from its canonical family and ordinary IBPs:
+
+```bash
+cargo run --release --locked -p rustred --example spired-generate-k6 -- k6.rr 6
+rustred campaign inspect --artifact k6.rr --output k6.inspect.toml
+rustred campaign reduce --artifact k6.rr --powers 2,1,1,1,1,1
+```
+
+Expected generation output includes 623 generated rules, 5,639 refined cells,
+38 finite terminals, 26 zero sectors and 8,911,462 artifact bytes. The output
+path must be new. The generic CLI and Python artifact readers apply these
+bytes without rerunning rule discovery; cold loading regenerates ordinary IBP
+rows and verifies the saved combinations. K6 is not yet a Python/CLI generation selector.
+See the [K6 example and expected output](examples/rust/README.md#complete-k6-closing-artifact).
 
 Artifact input and output also support standard streams. For example, this
 inspects freshly generated bytes without a file:

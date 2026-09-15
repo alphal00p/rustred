@@ -2,9 +2,11 @@
 //!
 //! The installed owner is generic in arity and topology. Complete verifiers
 //! are registered for the generated unit-mass `K = 1` tadpole and `K = 3`
-//! sunset families, and for a `K = 6` family only after its complete
-//! authenticated six-sector wave chain publishes; a successful isolated rule
-//! is not thereby a [`ClosedArtifact`].
+//! sunset families and complete source-port programs, including the canonical
+//! unit-mass `K = 6` family. Source-port installation and durable loading both
+//! replay original-source combinations on whole mathematical domains. The
+//! separate K6 wave producer requires its complete authenticated wave chain;
+//! a successful isolated rule is not thereby a [`ClosedArtifact`].
 
 mod error;
 mod factorization;
@@ -32,8 +34,8 @@ pub use model::{
 };
 pub use one_loop::derive_one_loop_unit_mass_tadpole;
 pub use persistence::{ArtifactCoverReplayLimits, ArtifactEncodingLimits, ArtifactLoadLimits};
-pub use source_port::{SourcePortAudit, SourcePortAuditError, SourcePortSectorAudit};
 pub(crate) use source_port::ReplayedOriginalDomain;
+pub use source_port::{SourcePortAudit, SourcePortAuditError, SourcePortSectorAudit};
 pub use two_loop::derive_two_loop_unit_mass_sunset;
 
 /// Consume a fully published K6 same-rank campaign and install its exact

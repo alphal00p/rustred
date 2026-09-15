@@ -434,7 +434,7 @@ fn find_shift_column(
     Ok(lookup[position])
 }
 
-fn condition_source_index_cells(source: &IdentityConditionSource) -> usize {
+pub(crate) fn condition_source_index_cells(source: &IdentityConditionSource) -> usize {
     match source {
         IdentityConditionSource::RelationInputTermDenominator { shift, .. }
         | IdentityConditionSource::RelationCollectedTermDenominator { shift, .. } => shift.len(),

@@ -110,7 +110,7 @@ impl RuleCell {
         context: &IndexedCoefficientContext,
         checked: crate::foundry::artifact::ReplayedOriginalDomain,
     ) -> Result<Self, crate::foundry::artifact::SourcePortAuditError> {
-        let (rule, sources, domain, fixed) =
+        let (rule, sources, domain, fixed, limits) =
             ParametricRule::from_replayed_original_domain(context, checked)?;
         build(
             context,
@@ -121,11 +121,9 @@ impl RuleCell {
             GuardDomainPolicy::RequireGloballyNonzero,
             fixed,
             Vec::new(),
-            Default::default(),
+            limits,
         )
-        .map_err(|error| {
-            crate::foundry::artifact::SourcePortAuditError(error.to_string())
-        })
+        .map_err(|error| crate::foundry::artifact::SourcePortAuditError(error.to_string()))
     }
 
     pub fn try_tightened(

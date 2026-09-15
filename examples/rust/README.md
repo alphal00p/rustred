@@ -26,6 +26,43 @@ master [1, 1, 1]: ... mass_squared_power = -2
 
 `durable_bytes` and the full exact coefficient strings are also printed.
 
+## Complete K6 closing artifact
+
+[`spired_generate_k6.rs`](spired_generate_k6.rs) constructs the canonical
+three-loop unit-mass family with six denominator/ISP coordinates using public
+Rust constructors. It generates the nine ordinary IBPs, classifies all 64
+sectors and runs the generic source port. Exact original-source replay, guards,
+strict descent and the complete unbounded cover are checked before encoding.
+It imports no reference equations and uses no FORM input or search hints.
+
+```bash
+cargo run --release --locked -p rustred --example spired-generate-k6 -- k6.rr 6
+cargo run --release --locked -p rustred-app --bin rustred -- \
+  campaign inspect --artifact k6.rr --output k6.inspect.toml
+cargo run --release --locked -p rustred-app --bin rustred -- \
+  campaign reduce --artifact k6.rr --powers 2,1,1,1,1,1
+```
+
+The optional worker count defaults to one. Use a valid Symbolica license for
+multicore execution. The artifact output path must be new and is never
+overwritten. The existing CLI loads and applies it in separate processes;
+this example contains no additional artifact reader or reduction engine.
+
+The defining generation output is:
+
+```text
+schema=rustred.closing-artifact.v5
+algorithm_id=rustred.source-port-original-domain.v1
+sectors=38 zero_sectors=26 generated_rules=623 rule_cells=5639 terminals=38 bytes=8911462 workers=6
+```
+
+Family/context identities, all 38 typed terminal keys and preparation,
+generation, installation and encoding timings are also printed. Serial and
+six-worker runs produce identical bytes. Inspection reports those same keys;
+the dotted reduction above produces 30 exact master terms, with explicit
+common-mass homogeneity powers. This is a complete K6 artifact example, not a
+claim that Vakint's full three-loop acceptance suite has already passed.
+
 ## SpIRed reference-port case probe
 
 The experimental [`spired_solve_case.rs`](spired_solve_case.rs) exercises the

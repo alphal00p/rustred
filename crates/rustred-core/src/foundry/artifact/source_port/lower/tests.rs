@@ -1,5 +1,5 @@
 use crate::family::IntegralKey;
-use crate::foundry::artifact::{ArtifactPersistenceError, derive_one_loop_unit_mass_tadpole};
+use crate::foundry::artifact::derive_one_loop_unit_mass_tadpole;
 use crate::reduction::Reducer;
 
 use super::super::super::tests::{solved_tadpole, tadpole};
@@ -19,10 +19,7 @@ fn source_port_k1_installs_into_existing_artifact_and_reducer() {
     assert!(rule.concrete_replay().is_none());
     assert!(rule.pivot_guard().is_none());
     assert!(rule.elimination_pivot_guards().is_empty());
-    assert!(matches!(
-        artifact.encode_durable(),
-        Err(ArtifactPersistenceError::UnsupportedFeature { .. })
-    ));
+    assert!(artifact.encode_durable().is_ok());
     let reference = derive_one_loop_unit_mass_tadpole().unwrap();
     let mut native = Reducer::new(&artifact).unwrap();
     let mut anchored = Reducer::new(&reference).unwrap();
@@ -74,7 +71,7 @@ fn original_domain_installer_rejects_corrupted_checked_payloads() {
     }
 }
 
-fn generated<const N: usize>(
+pub(super) fn generated<const N: usize>(
     family: crate::family::IntegralFamily,
 ) -> crate::foundry::artifact::ClosedArtifact {
     use crate::sector::{Mask, zero};
@@ -219,8 +216,5 @@ fn source_port_k6_full_installation_and_existing_reducer() {
                 .all(|terminal| artifact.masters().contains(terminal))
         );
     }
-    assert!(matches!(
-        artifact.encode_durable(),
-        Err(ArtifactPersistenceError::UnsupportedFeature { .. })
-    ));
+    assert!(artifact.encode_durable().is_ok());
 }

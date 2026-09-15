@@ -780,8 +780,8 @@ class PythonApiTests(unittest.TestCase):
         self.assertEqual(selector, "unit-mass-vacuum-k3")
         generated = rustred.generate_closing_artifact(family=selector)
         document = tomllib.loads(generated.to_toml())
-        self.assertEqual(document["artifact"]["schema"], "rustred.closing-artifact.v4")
-        self.assertEqual(document["artifact"]["schema_version"], 4)
+        self.assertEqual(document["artifact"]["schema"], "rustred.closing-artifact.v5")
+        self.assertEqual(document["artifact"]["schema_version"], 5)
         self.assertEqual(document["family_selector"], "unit-mass-vacuum-k3")
         self.assertEqual(document["validation"]["source_rows"], 4)
         self.assertEqual(document["validation"]["guarded_rules"], 5)
@@ -805,6 +805,10 @@ class PythonApiTests(unittest.TestCase):
         generated = rustred.generate_closing_artifact()
         with self.assertRaises(rustred.RustRedInputError):
             rustred.inspect_closing_artifact(b"invalid artifact")
+        with self.assertRaises(rustred.RustRedSchemaError):
+            rustred.inspect_closing_artifact(
+                with_durable_schema(generated.artifact, 4)
+            )
         with self.assertRaises(rustred.RustRedSchemaError):
             rustred.inspect_closing_artifact(
                 with_durable_schema(generated.artifact, 3)
