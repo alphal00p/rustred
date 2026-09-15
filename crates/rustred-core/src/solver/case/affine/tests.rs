@@ -96,7 +96,7 @@ fn primitive_rows_prove_empty_positive_sector_without_rectangularizing() {
         &CoordinateCase::generic(),
         &equations(&context, &["n0+n1+1"]),
         &[0, 1],
-        &[true, true],
+        &[false, false],
     )
     .unwrap();
     let AffineIntersection::Affine(case) = result else {
