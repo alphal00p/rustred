@@ -6,11 +6,11 @@
 use crate::algebra::Coefficient;
 use crate::foundry::completion::LatticeBox;
 use crate::solver::{
-    ExactRow, IntegralOrder, SectorRule, SourceSystem, Term, instantiate_source_port,
-    translate_source_port,
+    instantiate_source_port, translate_source_port, ExactRow, IntegralOrder, SectorRule,
+    SourceSystem, Term,
 };
 
-use super::{SourcePortAuditError, certificate, error, geometry};
+use super::{certificate, error, geometry, SourcePortAuditError};
 
 mod native;
 
@@ -28,6 +28,14 @@ pub(super) fn weights<const N: usize>(
 ) -> Result<certificate::OriginalSourceReplay<N>, SourcePortAuditError> {
     if original_row_ids.len() != system.rows().len() {
         return Err(error("ordinary replay row-ID count mismatch"));
+    }
+    let affine = rule.candidate.case.affine();
+    if let Some(affine) = affine {
+        if affine.index_variables() != system.index_variables() || !affine.is_tangent(&shifts) {
+            return Err(error(
+                "ordinary replay recentering does not preserve its affine case",
+            ));
+        }
     }
     let template = &system
         .rows()
@@ -48,6 +56,32 @@ pub(super) fn weights<const N: usize>(
     for seed in &seeds {
         let offset = certificate::source_offset(rule, seed, &shifts);
         for (ordinal, source) in system.rows().iter().enumerate() {
+            if let Some(affine) = affine {
+                // Recenter the original seed BEFORE restricting coefficients.
+                // The chart acts only on coefficients; coupled integral-key
+                // axes and every original RowId/offset remain independent.
+                let mut translated = *seed;
+                translated.integral = translated.integral.shifted(shifts).map_err(error)?;
+                for (shift, displacement) in translated.shifts.iter_mut().zip(shifts) {
+                    *shift = shift
+                        .checked_add(displacement)
+                        .ok_or_else(|| error("ordinary source translation overflow"))?;
+                }
+                rows.push(
+                    instantiate_source_port(
+                        source,
+                        &translated,
+                        system.index_variables(),
+                        system.fixed(),
+                        order,
+                        &[],
+                        Some(affine),
+                    )
+                    .map_err(error)?,
+                );
+                requests.push((original_row_ids[ordinal].clone(), offset));
+                continue;
+            }
             // Do not inherit the search's assumed-sector zero pruning.
             let original = instantiate_source_port(
                 source,
@@ -81,13 +115,20 @@ pub(super) fn weights<const N: usize>(
         coefficient: one.clone(),
     }];
     for term in &rule.candidate.rhs {
+        let coefficient = if let Some(affine) = affine {
+            affine
+                .restrict_coefficient(&term.coefficient)
+                .map_err(error)?
+        } else {
+            term.coefficient.clone()
+        };
         desired.push(Term {
             integral: term.integral,
-            coefficient: -term.coefficient.clone(),
+            coefficient: -coefficient,
         });
     }
     let strict = |term: &Term<N, Coefficient>| {
-        if term.integral == rule.candidate.target {
+        if affine.is_some() || term.integral == rule.candidate.target {
             return Ok(false);
         }
         geometry::uniformly_zero_term(
@@ -123,6 +164,11 @@ pub(super) fn weights<const N: usize>(
         })?
     };
     native::verify(&rows, &desired, &weights, order, |term| {
+        // Without an affine sign-cell proof, no nonzero residual column can
+        // be discarded. A box supplied by a caller is not affine authority.
+        if affine.is_some() {
+            return Ok(false);
+        }
         geometry::uniformly_zero_term(
             rule,
             term,

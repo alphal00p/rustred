@@ -59,11 +59,9 @@ fn weighted_original_replay_proves_two_point_activation_only_after_combination()
     };
     // Neither raw activating term is zero over n0 <= 0. The strict projected
     // frame therefore has no exact membership certificate for this target.
-    assert!(
-        native::propose(&rows, &desired, &order, zero_product)
-            .unwrap()
-            .is_none()
-    );
+    assert!(native::propose(&rows, &desired, &order, zero_product)
+        .unwrap()
+        .is_none());
     let mut weights = native::propose(&rows, &desired, &order, |term| {
         Ok(term.integral[1].value() == 0)
     })
@@ -113,17 +111,15 @@ fn finite_activation_checks_every_integer_and_rejects_poles_and_infinite_samplin
     );
     // With no zero census, the unbounded negative tail remains a symbolic
     // polynomial, even though the finite activation boundary vanishes.
-    assert!(
-        !geometry::uniformly_zero_term(
-            &rule,
-            &term(&context, 2, 0, "n0*(n0+1)"),
-            &boxes,
-            order.sector(),
-            &[],
-            &[0, 1],
-        )
-        .unwrap()
-    );
+    assert!(!geometry::uniformly_zero_term(
+        &rule,
+        &term(&context, 2, 0, "n0*(n0+1)"),
+        &boxes,
+        order.sector(),
+        &[],
+        &[0, 1],
+    )
+    .unwrap());
 }
 
 #[test]
@@ -152,4 +148,130 @@ fn finite_zero_proof_budget_is_fail_closed_not_partial_coverage() {
         geometry::uniformly_zero_term(&rule, &contribution, &boxes, &sector, &[], &[0, 1, 2, 3])
             .unwrap_err();
     assert!(error.to_string().contains("budget"));
+}
+
+fn affine_fixture() -> (
+    CoefficientContext,
+    SourceSystem<2>,
+    SectorRule<2>,
+    IntegralOrder<2>,
+) {
+    use crate::solver::{Case, Seed, SeedSource};
+    let context = CoefficientContext::new(["a", "b"]);
+    let system = SourceSystem::new(
+        vec![vec![
+            Term {
+                integral: Integral::symbolic([-1, 0]).unwrap(),
+                coefficient: context.coefficient_fixture("1+a-2*b").numerator,
+            },
+            Term {
+                integral: Integral::symbolic([-2, 0]).unwrap(),
+                coefficient: context.one().numerator,
+            },
+        ]],
+        [0, 1],
+    )
+    .unwrap();
+    let case = Case::generic()
+        .intersect(
+            &[context.coefficient_fixture("1+a-2*b").numerator],
+            &[0, 1],
+            &[true; 2],
+        )
+        .unwrap()
+        .unwrap();
+    let rule = SectorRule {
+        candidate: RuleCandidate {
+            target: case.integral(),
+            case,
+            rhs: vec![Term {
+                integral: Integral::symbolic([-1, 0]).unwrap(),
+                coefficient: context.integer(-1),
+            }],
+            sources: vec![SeedSource {
+                basis_row: 0,
+                seed: Seed {
+                    integral: Integral::symbolic([1, 0]).unwrap(),
+                    shifts: [1, 0],
+                },
+            }],
+            stats: Default::default(),
+        },
+        exceptions: Default::default(),
+    };
+    (
+        context,
+        system,
+        rule,
+        IntegralOrder::new([true; 2], [false; 2]),
+    )
+}
+
+#[test]
+fn affine_ordinary_replay_shifts_before_restriction_and_retains_original_columns() {
+    let (context, system, mut rule, order) = affine_fixture();
+    let ids = [crate::identity::RowId::OrdinaryIbp {
+        contraction_momentum: 0,
+        differentiated_loop: 0,
+    }];
+    // The unshifted pivot vanishes on the case, whereas the transverse source
+    // shift [1,0] restores it to 1. Restricting before shifting loses the rule.
+    let replay = weights(&system, &ids, &order, &[], &rule, [0; 2], &[]).unwrap();
+    assert_eq!(replay.contributions.len(), 1);
+    assert_eq!(replay.contributions[0].offset, [1, 0]);
+    assert_eq!(replay.contributions[0].weight, context.one());
+    assert_eq!(
+        rule.candidate.rhs[0].integral,
+        Integral::symbolic([-1, 0]).unwrap()
+    );
+
+    // The raw target [-2,-1] is tangent to a-2b+1=0. Its recentering gives
+    // exactly the same original-source request, not a chart-coordinate key.
+    rule.candidate.sources[0].seed.integral = Integral::symbolic([-1, -1]).unwrap();
+    rule.candidate.sources[0].seed.shifts = [-1, -1];
+    let recentered = weights(&system, &ids, &order, &[], &rule, [2, 1], &[]).unwrap();
+    assert_eq!(recentered.contributions[0].offset, [1, 0]);
+    assert_eq!(recentered.contributions[0].weight, context.one());
+    assert!(weights(&system, &ids, &order, &[], &rule, [1, 0], &[])
+        .unwrap_err()
+        .to_string()
+        .contains("recentering"));
+}
+
+#[test]
+fn affine_ordinary_replay_rejects_changed_source_shift_coefficient_or_equality() {
+    for mutation in 0..4 {
+        let (context, mut system, mut rule, order) = affine_fixture();
+        let ids = [crate::identity::RowId::OrdinaryIbp {
+            contraction_momentum: 0,
+            differentiated_loop: 0,
+        }];
+        match mutation {
+            0 => {
+                let mut rows = system.rows().to_vec();
+                rows[0][1].coefficient = context.integer(2).numerator;
+                system = SourceSystem::new(rows, [0, 1]).unwrap();
+            }
+            1 => {
+                rule.candidate.sources[0].seed.integral = Integral::symbolic([2, 0]).unwrap();
+                rule.candidate.sources[0].seed.shifts = [2, 0];
+            }
+            2 => rule.candidate.rhs[0].coefficient = context.integer(2),
+            3 => {
+                rule.candidate.case = crate::solver::Case::generic()
+                    .intersect(
+                        &[context.coefficient_fixture("2+a-2*b").numerator],
+                        &[0, 1],
+                        &[true; 2],
+                    )
+                    .unwrap()
+                    .unwrap()
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            weights(&system, &ids, &order, &[], &rule, [0; 2], &[]).is_err(),
+            "mutation {mutation}"
+        );
+    }
 }

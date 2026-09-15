@@ -13,10 +13,10 @@ use crate::family::IntegralFamily;
 use crate::identity::{
     CompletedIbpSourceRows, IndexShift, ParametricIbpGenerator, ParametricRelation, RowId,
 };
-use crate::solver::{CoordinateCase, SourceSystem, Term};
+use crate::solver::{Case, SourceSystem, Term};
 
 use super::certificate::{OriginalRowNormalization, OriginalSourceReplay};
-use super::{SourcePortAuditError, error};
+use super::{error, SourcePortAuditError};
 
 mod translation;
 
@@ -108,12 +108,20 @@ impl OriginalSourceCorpus {
     pub(super) fn normalize<const N: usize>(
         &self,
         mut replay: OriginalSourceReplay<N>,
-        case: &CoordinateCase<N>,
+        case: &Case<N>,
     ) -> Result<OriginalSourceReplay<N>, SourcePortAuditError> {
         if replay.normalization != OriginalRowNormalization::NativeDenominatorClearedOrdinaryV1 {
             return Err(error(
                 "ordinary replay normalization has already been converted",
             ));
+        }
+        if let Some(affine) = case.affine() {
+            let first = self.context.base().parameter_names().len();
+            if affine.index_variables() != &std::array::from_fn(|axis| first + axis) {
+                return Err(error(
+                    "original-source normalization uses a different affine index map",
+                ));
+            }
         }
         let fixed: Vec<_> = case
             .fixed()
@@ -147,6 +155,31 @@ impl OriginalSourceCorpus {
                 .context
                 .admit_native_result_with_limits(contribution.weight.clone(), Default::default())
                 .map_err(error)?;
+            let (weight, scale) = if let Some(affine) = case.affine() {
+                // Preserve the incoming pole BEFORE chart restriction and
+                // scale multiplication can cancel it. The chart is a native
+                // coefficient service, never a replacement for integral keys.
+                let denominator = affine
+                    .restrict_equation(&weight.raw().denominator)
+                    .map_err(error)?;
+                if denominator.is_zero() {
+                    return Err(error(
+                        "original source weight denominator vanishes on the target case",
+                    ));
+                }
+                if !denominator.is_constant() && !conditions.contains(&denominator) {
+                    conditions.push(denominator);
+                }
+                let restrict = |value: &crate::algebra::IndexedCoefficient| {
+                    let restricted = affine.restrict_coefficient(value.raw()).map_err(error)?;
+                    self.context
+                        .admit_native_result_with_limits(restricted, Default::default())
+                        .map_err(error)
+                };
+                (restrict(&weight)?, restrict(&scale)?)
+            } else {
+                (weight, scale)
+            };
             contribution.weight = self
                 .context
                 .mul(&weight, &scale)
@@ -159,8 +192,17 @@ impl OriginalSourceCorpus {
                     &contribution.offset,
                     &fixed,
                 )?;
-                if !restricted.raw().is_constant() && !conditions.contains(restricted.raw()) {
-                    conditions.push(restricted.raw().clone());
+                let restricted = match case.affine() {
+                    Some(affine) => affine.restrict_equation(restricted.raw()).map_err(error)?,
+                    None => restricted.raw().clone(),
+                };
+                if restricted.is_zero() {
+                    return Err(error(
+                        "original source condition vanishes on the target case",
+                    ));
+                }
+                if !restricted.is_constant() && !conditions.contains(&restricted) {
+                    conditions.push(restricted);
                 }
             }
         }

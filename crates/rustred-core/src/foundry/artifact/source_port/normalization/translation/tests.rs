@@ -96,7 +96,9 @@ fn fixed_weight_specialization_does_not_specialize_original_source_rows() {
         vec![corpus.context().one().raw().clone()],
     )
     .unwrap();
-    let normalized = corpus.normalize(input, &CoordinateCase::generic()).unwrap();
+    let normalized = corpus
+        .normalize(input, &CoordinateCase::generic().into())
+        .unwrap();
     let result = translate(
         &corpus,
         &family,
@@ -120,12 +122,10 @@ fn fixed_weight_specialization_does_not_specialize_original_source_rows() {
         result.sources.relations()[0].terms(),
         expected.sources()[0].terms()
     );
-    assert!(
-        result.sources.relations()[0]
-            .terms()
-            .values()
-            .any(|c| !c.raw().numerator.is_constant())
-    );
+    assert!(result.sources.relations()[0]
+        .terms()
+        .values()
+        .any(|c| !c.raw().numerator.is_constant()));
     assert_eq!(
         result.sources.provenance()[0]
             .translated()
@@ -173,15 +173,13 @@ fn weight_poles_survive_join_cancellation_and_fail_before_fixed_pole_cancellatio
         vec![denominator.raw().numerator.clone()]
     );
     assert_eq!(input.contributions.len(), 3);
-    assert!(
-        translate(
-            &corpus,
-            &family,
-            &input,
-            &[FixedIndexRestriction::new(0, 1)]
-        )
-        .is_err()
-    );
+    assert!(translate(
+        &corpus,
+        &family,
+        &input,
+        &[FixedIndexRestriction::new(0, 1)]
+    )
+    .is_err());
     let regular = translate(
         &corpus,
         &family,
@@ -195,17 +193,15 @@ fn weight_poles_survive_join_cancellation_and_fail_before_fixed_pole_cancellatio
         max_guards: 0,
         ..Default::default()
     };
-    assert!(
-        corpus
-            .translate_normalized(
-                &ParametricIbpGenerator::try_new(&family).unwrap(),
-                &input,
-                &[],
-                Default::default(),
-                guard_budget
-            )
-            .is_err()
-    );
+    assert!(corpus
+        .translate_normalized(
+            &ParametricIbpGenerator::try_new(&family).unwrap(),
+            &input,
+            &[],
+            Default::default(),
+            guard_budget
+        )
+        .is_err());
 }
 
 #[test]
@@ -226,27 +222,23 @@ fn invalid_normalization_rows_context_fixed_faces_and_empty_support_fail_closed(
     input.contributions[0].weight = CoefficientContext::new(["foreign"]).one();
     assert!(translate(&corpus, &family, &input, &[]).is_err());
     input.contributions[0].weight = context.one().raw().clone();
-    assert!(
-        translate(
-            &corpus,
-            &family,
-            &input,
-            &[FixedIndexRestriction::new(1, 2)]
-        )
-        .is_err()
-    );
-    assert!(
-        translate(
-            &corpus,
-            &family,
-            &input,
-            &[
-                FixedIndexRestriction::new(0, 2),
-                FixedIndexRestriction::new(0, 2)
-            ]
-        )
-        .is_err()
-    );
+    assert!(translate(
+        &corpus,
+        &family,
+        &input,
+        &[FixedIndexRestriction::new(1, 2)]
+    )
+    .is_err());
+    assert!(translate(
+        &corpus,
+        &family,
+        &input,
+        &[
+            FixedIndexRestriction::new(0, 2),
+            FixedIndexRestriction::new(0, 2)
+        ]
+    )
+    .is_err());
     let other = super::super::tests::family(true);
     assert!(translate(&corpus, &other, &input, &[]).is_err());
     let empty = replay([
@@ -256,34 +248,30 @@ fn invalid_normalization_rows_context_fixed_faces_and_empty_support_fail_closed(
     assert!(translate(&corpus, &family, &empty, &[]).is_err());
     assert!(translate(&corpus, &family, &replay([]), &[]).is_err());
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();
-    assert!(
-        corpus
-            .translate_normalized(
-                &generator,
-                &input,
-                &[],
-                TranslatedSourceLimits {
-                    max_requested_source_translations: 0,
-                    ..Default::default()
-                },
-                Default::default()
-            )
-            .is_err()
-    );
-    assert!(
-        corpus
-            .translate_normalized(
-                &generator,
-                &input,
-                &[],
-                Default::default(),
-                RuleCellLimits {
-                    max_source_views: 0,
-                    ..Default::default()
-                }
-            )
-            .is_err()
-    );
+    assert!(corpus
+        .translate_normalized(
+            &generator,
+            &input,
+            &[],
+            TranslatedSourceLimits {
+                max_requested_source_translations: 0,
+                ..Default::default()
+            },
+            Default::default()
+        )
+        .is_err());
+    assert!(corpus
+        .translate_normalized(
+            &generator,
+            &input,
+            &[],
+            Default::default(),
+            RuleCellLimits {
+                max_source_views: 0,
+                ..Default::default()
+            }
+        )
+        .is_err());
 }
 
 #[test]
@@ -320,12 +308,10 @@ fn fixed_zero_weight_keeps_its_parameter_pole_and_leaves_surviving_source_unmodi
         result.weight_conditions[0].raw(),
         &parameter.raw().numerator
     );
-    assert!(
-        result.sources.relations()[0]
-            .terms()
-            .values()
-            .any(|c| !c.raw().numerator.is_constant())
-    );
+    assert!(result.sources.relations()[0]
+        .terms()
+        .values()
+        .any(|c| !c.raw().numerator.is_constant()));
     assert_eq!(input.contributions.len(), 2);
 }
 

@@ -1,5 +1,6 @@
 use crate::algebra::CoefficientContext;
 use crate::family::AffineDenominator;
+use crate::solver::CoordinateCase;
 
 use super::*;
 
@@ -101,7 +102,7 @@ fn source_scale_translation_precedes_fixed_target_specialization() {
     let replay = corpus
         .normalize(
             request(&corpus, 2),
-            &CoordinateCase::new([Some(3)]).unwrap(),
+            &CoordinateCase::new([Some(3)]).unwrap().into(),
         )
         .unwrap();
     assert_eq!(
@@ -114,18 +115,16 @@ fn source_scale_translation_precedes_fixed_target_specialization() {
         corpus.context.integer(6).raw().clone()
     );
     assert_eq!(replay.contributions[0].offset, [2]);
-    assert!(
-        corpus
-            .normalize(replay, &CoordinateCase::new([Some(3)]).unwrap())
-            .is_err()
-    );
+    assert!(corpus
+        .normalize(replay, &CoordinateCase::new([Some(3)]).unwrap().into())
+        .is_err());
 }
 
 #[test]
 fn retained_translation_is_i64_not_the_compact_source_power_encoding() {
     let (corpus, _) = scaled_fixture();
     let replay = corpus
-        .normalize(request(&corpus, 4096), &CoordinateCase::generic())
+        .normalize(request(&corpus, 4096), &Case::generic())
         .unwrap();
     let expected = corpus
         .context
@@ -138,7 +137,7 @@ fn retained_translation_is_i64_not_the_compact_source_power_encoding() {
     let fixed = corpus
         .normalize(
             request(&corpus, i64::MAX),
-            &CoordinateCase::new([Some(1)]).unwrap(),
+            &CoordinateCase::new([Some(1)]).unwrap().into(),
         )
         .unwrap();
     let expected = corpus.context.integer(i64::MAX).raw() + corpus.context.integer(2).raw();
@@ -153,31 +152,21 @@ fn unknown_row_ids_and_foreign_weight_maps_are_rejected() {
         contraction_momentum: 1,
         differentiated_loop: 0,
     };
-    assert!(
-        corpus
-            .normalize(unknown, &CoordinateCase::generic())
-            .is_err()
-    );
+    assert!(corpus.normalize(unknown, &Case::generic()).is_err());
     let mut foreign = request(&corpus, 0);
     foreign.contributions[0].weight = CoefficientContext::new(["foreign_weight"]).one();
-    assert!(
-        corpus
-            .normalize(foreign, &CoordinateCase::generic())
-            .is_err()
-    );
+    assert!(corpus.normalize(foreign, &Case::generic()).is_err());
     let family = family(false);
     let source = SourceSystem::<1>::from_family(&family).unwrap();
     assert!(OriginalSourceCorpus::try_new(&family, &source, &[]).is_err());
-    assert!(
-        OriginalSourceCorpus::try_new(
-            &family,
-            &source,
-            &[RowId::Derived {
-                label: "invented".into()
-            }]
-        )
-        .is_err()
-    );
+    assert!(OriginalSourceCorpus::try_new(
+        &family,
+        &source,
+        &[RowId::Derived {
+            label: "invented".into()
+        }]
+    )
+    .is_err());
     let wrong_indices = SourceSystem::new(source.rows().to_vec(), [0]).unwrap();
     assert!(OriginalSourceCorpus::try_new(&family, &wrong_indices, &[row_id()]).is_err());
 }
@@ -227,7 +216,7 @@ fn original_parameter_conditions_survive_normalization_without_integer_branching
     let source = SourceSystem::<1>::from_family(&family).unwrap();
     let corpus = OriginalSourceCorpus::try_new(&family, &source, &[row_id()]).unwrap();
     let replay = corpus
-        .normalize(request(&corpus, 0), &CoordinateCase::generic())
+        .normalize(request(&corpus, 0), &Case::generic())
         .unwrap();
     let expected = corpus.completed.relations()[corpus.rows[&row_id()].ordinal]
         .nonzero_conditions()
@@ -255,7 +244,7 @@ fn parameter_registration_order_does_not_change_original_coordinate_binding() {
     let replay = corpus
         .normalize(
             request(&corpus, 4),
-            &CoordinateCase::new([Some(1)]).unwrap(),
+            &CoordinateCase::new([Some(1)]).unwrap().into(),
         )
         .unwrap();
     assert_eq!(
@@ -280,11 +269,9 @@ fn translated_source_condition_zero_is_rejected_before_cancellation() {
             Default::default(),
         )
         .unwrap();
-    assert!(
-        corpus
-            .condition_for_target(&condition, &[2], &[(0, 1)])
-            .is_err()
-    );
+    assert!(corpus
+        .condition_for_target(&condition, &[2], &[(0, 1)])
+        .is_err());
     // At source argument1+1 the same condition is-1, not zero.
     let restricted = corpus
         .condition_for_target(&condition, &[1], &[(0, 1)])

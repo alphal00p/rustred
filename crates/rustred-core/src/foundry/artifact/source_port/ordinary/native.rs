@@ -7,7 +7,7 @@ use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
 use crate::algebra::Coefficient;
 use crate::solver::{ExactRow, IntegralOrder, Term};
 
-use super::{SourcePortAuditError, error};
+use super::{error, SourcePortAuditError};
 
 pub(super) fn propose<const N: usize>(
     rows: &[ExactRow<N>],

@@ -1,15 +1,17 @@
 //! Original-source joins retained for checked program lowering.
 //!
 //! These private records do not establish closure or construct an artifact.
-//! They must be retained with the authenticated family/context, coordinate
+//! They must be retained with the authenticated family/context, exact equality
 //! case, full target identity and exact application cover by their owner.
 //! No preconditioned basis ordinal, compact Power or GPLU state is persisted.
+//! Affine replay is currently diagnostic only: the box-based publication
+//! boundary must reject it until exact affine ownership is implemented.
 
 use crate::algebra::{Coefficient, CoefficientPolynomial};
 use crate::identity::RowId;
 use crate::solver::{SectorRule, Seed};
 
-use super::{SourcePortAuditError, error};
+use super::{error, SourcePortAuditError};
 
 /// Identify exactly which ordinary-row normalization the weights multiply.
 /// Conversion from the adapter to original `ParametricRelation` rows verifies

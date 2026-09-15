@@ -3,7 +3,7 @@
 //! Only weights are restricted to the target face. The retained completed
 //! ordinary batch owns every full source row, its scope and inherited guards.
 
-use std::collections::{BTreeMap, btree_map::Entry};
+use std::collections::{btree_map::Entry, BTreeMap};
 
 use crate::algebra::{IndexedCoefficient, IndexedPolynomial};
 use crate::foundry::cell::{FixedIndexRestriction, RuleCellLimits, SourceViewBatch};
@@ -11,8 +11,8 @@ use crate::identity::{
     IntegralShift, ParametricIbpGenerator, RowId, TranslatedSourceLimits, TranslatedSourceRequest,
 };
 
+use super::{error, SourcePortAuditError};
 use super::{OriginalRowNormalization, OriginalSourceCorpus, OriginalSourceReplay};
-use super::{SourcePortAuditError, error};
 
 /// Raw, unspecialized original identities and their fixed-face weights.
 /// This is preparation only, not a rule, exact replay witness or owner.

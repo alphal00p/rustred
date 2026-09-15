@@ -15,11 +15,14 @@ use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
 use crate::algebra::Coefficient;
 use crate::foundry::completion::LatticeBox;
 use crate::solver::{
-    Case, ExactRow, IntegralOrder, PolynomialRow, RuleCandidate, SectorRule, SourceSystem, Term,
-    canonicalize_source_port, extract_exceptions, instantiate_source_port,
+    canonicalize_source_port, extract_exceptions, instantiate_source_port, Case, ExactRow,
+    IntegralOrder, PolynomialRow, RuleCandidate, SectorRule, SourceSystem, Term,
 };
 
-use super::{SourcePortAuditError, error, geometry, ordinary};
+use super::{error, geometry, ordinary, SourcePortAuditError};
+
+#[cfg(test)]
+mod tests;
 
 pub(super) struct Replay<const N: usize> {
     pub additional_exceptions: Vec<Case<N>>,
@@ -38,12 +41,10 @@ pub(super) fn replay_rule<const N: usize>(
     boxes: &[LatticeBox],
 ) -> Result<Replay<N>, SourcePortAuditError> {
     let candidate = &rule.candidate;
-    if candidate.case.coordinate().is_none()
-        || candidate.target != candidate.case.integral()
-        || !candidate.case.is_in_sector(order.sector())
+    if candidate.target != candidate.case.integral() || !candidate.case.is_in_sector(order.sector())
     {
         return Err(error(
-            "cold bridge requires a canonical coordinate target in its declared sector",
+            "cold bridge requires a canonical target in its declared sector",
         ));
     }
     let template = system
@@ -62,10 +63,24 @@ pub(super) fn replay_rule<const N: usize>(
             "candidate coefficient map differs from regenerated sources",
         ));
     }
+    let affine = candidate.case.affine();
+    if let Some(affine) = affine {
+        if affine.index_variables() != system.index_variables() {
+            return Err(error("affine replay uses a different index-variable map"));
+        }
+        // This validates the chart/map used by the trusted instantiator below.
+        // Reject poles on the WHOLE case before any rational cancellation.
+        affine.restrict_polynomial_value(&template).map_err(error)?;
+        for term in &candidate.rhs {
+            affine
+                .restrict_coefficient(&term.coefficient)
+                .map_err(error)?;
+        }
+    }
     let mut rows = Vec::with_capacity(candidate.sources.len());
     for source in &candidate.sources {
         // Seed fields are public search transport, not certificate authority.
-        // For a canonical coordinate case, the symbolic base is exactly n;
+        // For a canonical target, the symbolic base is exactly n;
         // coefficient and physical-index translations must therefore agree.
         for axis in 0..N {
             let seed_power = source.seed.integral[axis];
@@ -94,7 +109,7 @@ pub(super) fn replay_rule<const N: usize>(
                 system.fixed(),
                 order,
                 zero_sectors,
-                None,
+                affine,
             )
             .map_err(error)?,
         );
@@ -220,7 +235,13 @@ pub(super) fn replay_rule<const N: usize>(
             order.sector(),
         )?;
         let tightened;
-        let applicable = if additional_exceptions.is_empty() {
+        // Affine replay is internal identity evidence only. Its exact guard
+        // branches are retained, but box ownership is deliberately not built:
+        // the public bridge must still reject affine publication until its
+        // domain-aware coverage/runtime boundary exists.
+        let applicable = if affine.is_some() {
+            &[][..]
+        } else if additional_exceptions.is_empty() {
             boxes
         } else {
             tightened = geometry::application_boxes(
@@ -240,13 +261,7 @@ pub(super) fn replay_rule<const N: usize>(
             shifts,
             applicable,
         )?;
-        let ordinary = original_sources.normalize(
-            ordinary,
-            candidate
-                .case
-                .coordinate()
-                .expect("coordinate admission checked above"),
-        )?;
+        let ordinary = original_sources.normalize(ordinary, &candidate.case)?;
         let mut normalized_weights: Vec<_> = ordinary
             .contributions
             .iter()
