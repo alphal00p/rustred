@@ -4,7 +4,9 @@
 //! sources and checks exact replay, coordinate guards, unbounded structural
 //! coverage and source-port descent. A report is not installation authority.
 
+mod certificate;
 mod geometry;
+mod normalization;
 mod ordinary;
 mod replay;
 
@@ -61,6 +63,8 @@ pub struct SourcePortAudit<const N: usize> {
     sources: SourceSystem<N>,
     zero_sectors: Arc<[[bool; N]]>,
     zero_certificates: Vec<zero::Certificate>,
+    original_row_ids: Vec<crate::identity::RowId>,
+    original_sources: normalization::OriginalSourceCorpus,
 }
 
 impl<const N: usize> SourcePortAudit<N> {
@@ -76,6 +80,29 @@ impl<const N: usize> SourcePortAudit<N> {
             ));
         }
         let sources = SourceSystem::from_family(family).map_err(error)?;
+        // SourceSystem's vacuum adapter is differentiated-loop-major. Bind
+        // that audited schedule to generator RowIds, never basis ordinals.
+        let loops = family.loop_count();
+        let expected_rows = loops
+            .checked_mul(loops)
+            .ok_or_else(|| error("ordinary source count overflow"))?;
+        if sources.rows().len() != expected_rows {
+            return Err(error(
+                "vacuum source corpus has unexpected ordinary row count",
+            ));
+        }
+        let original_row_ids: Vec<_> = (0..loops)
+            .flat_map(|differentiated_loop| {
+                (0..loops).map(
+                    move |contraction_momentum| crate::identity::RowId::OrdinaryIbp {
+                        contraction_momentum,
+                        differentiated_loop,
+                    },
+                )
+            })
+            .collect();
+        let original_sources =
+            normalization::OriginalSourceCorpus::try_new(family, &sources, &original_row_ids)?;
         let analyzer = zero::Analyzer::try_unrestricted(family).map_err(error)?;
         let mut seen = BTreeSet::new();
         let mut zero_certificates = Vec::with_capacity(zero_sectors.len());
@@ -99,6 +126,8 @@ impl<const N: usize> SourcePortAudit<N> {
             sources,
             zero_sectors,
             zero_certificates,
+            original_row_ids,
+            original_sources,
         })
     }
 
@@ -189,6 +218,8 @@ impl<const N: usize> SourcePortAudit<N> {
             stored_boxes.extend(geometry::copy_boxes(&stored)?);
             match replay::replay_rule(
                 &self.sources,
+                &self.original_row_ids,
+                &self.original_sources,
                 solver.basis(),
                 &order,
                 &self.zero_sectors,
@@ -197,7 +228,7 @@ impl<const N: usize> SourcePortAudit<N> {
             ) {
                 Ok(replay) => {
                     report.exact_replayed_rules += 1;
-                    report.replay_source_entries += replay.source_entries;
+                    report.replay_source_entries += replay.ordinary.contributions.len();
                     report.additional_replay_guard_branches += replay.additional_exceptions.len();
                     let checked = match geometry::application_boxes(
                         rule,

@@ -5,7 +5,9 @@
 //! `compare` checks required case domains and exact RHS equations only.
 //! `compare_rule` additionally checks Positive/NonPositive annotations and exact
 //! applicability guards, including exact affine equality cases.
-//! `compare_sector_with_aliases` also checks the entire nonempty reference set.
+//! `compare_sector_with_aliases` checks the entire reference domain: retained
+//! rules match exactly, while separately reported omitted cases must be proved
+//! covered by those already-matched rules.
 //! `compare_pre_rules` matches unrestricted linear-cut rules by their excluded
 //! coordinate axis and checks the entire pre-rule set, not just matching RHSs.
 

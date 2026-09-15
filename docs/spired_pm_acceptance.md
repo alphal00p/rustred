@@ -172,6 +172,67 @@ the incomplete C++ campaign. Frozen release binary, complete manifest,
 16 ordering overrides, regression checks and censoring evidence are retained
 in `target/spired-disjunctive-queue.RLesUd/`.
 
+### Isolated remaining sector and native profile (2026-09-15)
+
+An isolated fresh run of `111010100001111` with the same frozen release
+executable, original manifests and ordering overrides, numerical depth three,
+unbounded symbolic search, and one worker on CPU 10 also hits its
+**1,200-second diagnostic cap**. It produces no completed sector rule file.
+All 415 case/rule progress lines match that sector's earlier full-run log:
+208 cases started, 207 solved, the same final visible integral pattern and
+85 other cases pending, with no numerical-search start or algebraic error
+before censoring. The full workload consequently remains at 435/436 observed
+outputs; this diagnostic does not establish nontermination or closure.
+
+User-space perf sampling identifies the long tail more precisely. The full
+56,901-sample profile records **99.92% inclusive** in
+`solver::discovery::exact_materialize` and native rational-polynomial
+`SparseRowReducer::add_row`. Symbolica polynomial `heap_division` accounts for
+**81.18% self / 87.14% inclusive**, with `gcd` at **41.97% inclusive**.
+Inclusive percentages overlap and must not be added. A separate 709-sample,
+15-second attachment to the actual running process likewise observes all
+samples under exact materialization. Thus the measured delay is native exact
+rational-polynomial elimination, not the nonlinear exceptional-case queue
+or continuing modular discovery. Frame dimensions and coefficient growth
+were not exposed by this frozen executable and remain the next measurements.
+
+The primary cap wraps the profiler as well as the solver. Including the final
+profiler flush, launch-to-exit wall time is **1,204.485 s**, with **1,196.32 CPU
+seconds**, **951,160 KiB peak RSS**, and exit 124. These instrumented,
+shared-host figures are not paired Rust/C++ performance measurements. The old
+C++ campaign has no completed statistics for this sector and cannot serve as
+a completed comparison. No source or reference algorithm changed during these
+runs; input hashes are unchanged. Evidence, complete profiling commands,
+setup failures and permission-free mmap workaround, reports and caveats are
+in `target/spired-fam112-last-sector.DYx7uY/RESULTS.md`.
+
+### Refreshed observation and reference-domain gate (2026-09-15)
+
+The release containing coarse search/phase observations passes all 20
+established one/six-worker regressions again, with 939 byte-identical
+mathematical-file comparisons and unchanged native residual keys. These
+established comparisons require zero covered-reference waivers.
+
+The separately checked `111010100011011` sector generates 217 unchanged
+rules and zero residuals. Its 220 completed native reference rules partition
+into **217 exact matches, one empty required domain, and two covered nonempty
+subfaces**. Both subfaces belong to the retained broad rule whose only
+exception is `n4+2*n10+2*n11=4`, impossible for positive powers. The original
+forecast of two empty/one covered was rejected by the post-audit; independent
+inspection of the original reference confirmed the correct partition. The
+initial failed assertion is preserved; no generator or reference was altered.
+
+A separate 60-second diagnostic now exposes the remaining sector's full
+case: the previously displayed pattern has `required=true`, so it is genuinely
+coordinate-only. Exact lifting starts 1.504412 s after launch, approximately
+0.135356 s after that case starts, with **298 selected source rows**. The modular
+discovery state has 2,364 pivots, 4,405 columns, 21,677 U nonzeros and 6,929 L
+entries; these are not the compact exact frame's column/nonzero counts.
+The run remains in exact lifting until its cap, preserving all 415 prior
+case/rule events in order. It produces no completed sector output. Evidence,
+independent checks and the reference-domain explanation are retained in
+`target/spired-observation-regressions.hITFfz/RESULTS.md`.
+
 The current release runs of `fam1_12` and `fam1_111` complete their full
 unchanged requested manifests, 40 and 132 sector jobs respectively. Exact
 domain/guard/coefficient comparisons match 1,104 nonempty and 10,333 reference

@@ -32,9 +32,14 @@ rules replay from the nine original IBPs and descend over their exact domains,
 with 38 finite terminals, 26 proved-zero sectors and zero uncovered regions.
 K1/K3 likewise pass, and all semantic reports agree at one/six workers.
 This is rule-set validation, not yet a serialized `ClosedArtifact` or a Vakint
-three-loop acceptance pass. The next step retains original-source weights and
-installs them through the existing artifact/reducer ownership; the parallel
-Vakint build awaits the requested decision on Spenso's removed Symbolica API.
+three-loop acceptance pass. The integration now retains original-source
+requests and exact weights, with verified conversion from adapter normalization
+to freshly generated ordinary IBPs. The next step owns and serializes these
+records through the existing artifact/reducer boundary. The parallel Vakint
+lane is updating required native solver API calls and checking contraction
+routing; the requested Spenso wrapper decision remains pending. No newly
+added Vakint acceptance test is reported as passed before the current build
+and its actual execution succeed.
 
 ## Active reference-port assignment (2026-09-14)
 

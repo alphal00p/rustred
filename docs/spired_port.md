@@ -157,6 +157,26 @@ residuals and output payloads. See the
 [parallel measurements](spired_parallel_results.md) for both retained seven-pair
 benchmark batches, memory figures, host contention, and remaining scaling limits.
 
+## Opt-in search phase diagnostics (2026-09-15)
+
+`SectorSolver::solve_case_with_observer` exposes coarse `SearchEvent` milestones:
+depth/power-of-two seed progress, the winning modular pivot and exact dependency
+trace, and canonicalization. The sector observer forwards these with the active
+case and adds guard-extraction and exceptional-geometry boundaries. This does
+not change source enumeration, pivot selection or exact arithmetic. The no-op
+path adds no formatting, synchronization, clock reads or exact-row copies.
+
+The executable's `RUSTRED_SPIRED_PROGRESS=1` output includes every coupled
+equality at case entry, not only the integral pattern. Native GPLU column,
+pivot, U-nonzero and L-entry counts describe discovery state at the hit;
+the separate dependency-trace count identifies the selected source rows,
+not the compact exact frame's column count or fill.
+`gplu_exact_and_canonicalization_us` describes the modular-hit path only;
+direct-hit normalization is included in total search time. Optional diagnostic
+I/O must not be compared as if it were a silent benchmark run. Four focused
+solver tests cover unchanged direct/modular identities, a bounded miss and
+sector event order; they pass within the 211-test solver/source-replay batch.
+
 ## Per-job orderings and integrated affine cases (2026-09-14)
 
 `SectorExecutor::map_configured_with_observer` accepts a per-job configuration

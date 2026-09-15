@@ -196,6 +196,97 @@ fn false_and_duplicate_zero_censuses_are_rejected() {
     assert!(audit.audit_sector([false], None, &solution).is_err());
 }
 
+#[test]
+fn retained_replay_keeps_original_ids_offsets_and_nonzero_weights() {
+    let (audit, solution) = solved_tadpole();
+    let solver = SectorSolver::new(
+        &audit.sources,
+        [true],
+        SectorConfig {
+            zero_sectors: audit.zero_sectors.clone(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let rule = &solution.rules[0];
+    let boxes =
+        geometry::application_boxes(rule, audit.sources.index_variables(), &[true], &[]).unwrap();
+    let replay = super::replay::replay_rule(
+        &audit.sources,
+        &audit.original_row_ids,
+        &audit.original_sources,
+        solver.basis(),
+        solver.ordering(),
+        &audit.zero_sectors,
+        rule,
+        &boxes,
+    )
+    .unwrap();
+    assert_eq!(
+        replay.ordinary.normalization,
+        super::certificate::OriginalRowNormalization::OriginalGeneratorOrdinaryV1
+    );
+    assert_eq!(replay.ordinary.contributions.len(), 1);
+    for contribution in &replay.ordinary.contributions {
+        assert_eq!(
+            contribution.source_row,
+            crate::identity::RowId::OrdinaryIbp {
+                contraction_momentum: 0,
+                differentiated_loop: 0,
+            }
+        );
+        assert_eq!(contribution.offset, [-1]);
+        assert!(!contribution.weight.is_zero());
+    }
+}
+
+#[test]
+fn retained_requests_are_joined_before_zero_weight_filtering() {
+    let context = CoefficientContext::new(["d"]);
+    let first = crate::identity::RowId::OrdinaryIbp {
+        contraction_momentum: 0,
+        differentiated_loop: 0,
+    };
+    let second = crate::identity::RowId::OrdinaryIbp {
+        contraction_momentum: 1,
+        differentiated_loop: 0,
+    };
+    let replay = super::certificate::OriginalSourceReplay::retain_checked(
+        vec![(first.clone(), [1, 2]), (second.clone(), [3, 4])],
+        vec![context.zero(), context.integer(2)],
+    )
+    .unwrap();
+    assert_eq!(replay.contributions.len(), 1);
+    assert_eq!(replay.contributions[0].source_row, second);
+    assert_eq!(replay.contributions[0].offset, [3, 4]);
+    assert_eq!(replay.contributions[0].weight, context.integer(2));
+    assert!(
+        super::certificate::OriginalSourceReplay::retain_checked(vec![(first, [1, 2])], vec![],)
+            .is_err()
+    );
+}
+
+#[test]
+fn target_relative_requests_preserve_numeric_seed_displacements() {
+    let (_, mut rule) = boundary_rule("1");
+    let case = CoordinateCase::new([None, Some(1)]).unwrap();
+    rule.candidate.case = case.into();
+    rule.candidate.target = case.integral();
+    let seed = crate::solver::Seed {
+        integral: Integral::new([
+            crate::solver::Power::new(true, 2).unwrap(),
+            crate::solver::Power::new(false, 3).unwrap(),
+        ]),
+        shifts: [2, 0],
+    };
+    // Translate the original row by [1,2] before fixing target n1=1;
+    // its original numeric source argument is then 3, not target value 1.
+    assert_eq!(
+        super::certificate::source_offset(&rule, &seed, &[-1, 0]),
+        [1, 2]
+    );
+}
+
 fn boundary_rule(coefficient: &str) -> (CoefficientContext, SectorRule<2>) {
     let context = CoefficientContext::new(["n0", "n1", "d"]);
     let case = CoordinateCase::generic();

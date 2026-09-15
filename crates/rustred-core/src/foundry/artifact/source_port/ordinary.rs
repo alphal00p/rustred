@@ -10,7 +10,7 @@ use crate::solver::{
     translate_source_port,
 };
 
-use super::{SourcePortAuditError, error, geometry};
+use super::{SourcePortAuditError, certificate, error, geometry};
 
 mod native;
 
@@ -19,12 +19,16 @@ mod tests;
 
 pub(super) fn weights<const N: usize>(
     system: &SourceSystem<N>,
+    original_row_ids: &[crate::identity::RowId],
     order: &IntegralOrder<N>,
     zero_sectors: &[[bool; N]],
     rule: &SectorRule<N>,
     shifts: [i16; N],
     boxes: &[LatticeBox],
-) -> Result<Vec<Coefficient>, SourcePortAuditError> {
+) -> Result<certificate::OriginalSourceReplay<N>, SourcePortAuditError> {
+    if original_row_ids.len() != system.rows().len() {
+        return Err(error("ordinary replay row-ID count mismatch"));
+    }
     let template = &system
         .rows()
         .iter()
@@ -40,8 +44,10 @@ pub(super) fn weights<const N: usize>(
         }
     }
     let mut rows: Vec<ExactRow<N>> = Vec::new();
+    let mut requests = Vec::new();
     for seed in &seeds {
-        for source in system.rows() {
+        let offset = certificate::source_offset(rule, seed, &shifts);
+        for (ordinal, source) in system.rows().iter().enumerate() {
             // Do not inherit the search's assumed-sector zero pruning.
             let original = instantiate_source_port(
                 source,
@@ -67,6 +73,7 @@ pub(super) fn weights<const N: usize>(
             }
             row.sort_unstable_by(|left, right| order.compare(&left.integral, &right.integral));
             rows.push(row);
+            requests.push((original_row_ids[ordinal].clone(), offset));
         }
     }
     let mut desired = vec![Term {
@@ -92,7 +99,7 @@ pub(super) fn weights<const N: usize>(
             system.index_variables(),
         )
     };
-    let mut weights = if let Some(weights) = native::propose(&rows, &desired, order, strict)? {
+    let weights = if let Some(weights) = native::propose(&rows, &desired, order, strict)? {
         weights
     } else {
         // A discovery quotient only: symbolic powers keep their parent signs.
@@ -125,6 +132,5 @@ pub(super) fn weights<const N: usize>(
             system.index_variables(),
         )
     })?;
-    weights.retain(|weight| !weight.is_zero());
-    Ok(weights)
+    certificate::OriginalSourceReplay::retain_checked(requests, weights)
 }

@@ -64,13 +64,50 @@ RustRed acceptance pass is claimed by this checkpoint. The cold
 replay/descent/cover pass below now succeeds; durable certificate ownership
 and installation are the next implementation gate.
 
+### Retained original-source certificates (2026-09-15)
+
+The integration lane now retains each original `RowId`, checked `i64`
+target-relative translation and exact coefficient together, before removing
+zero coefficients. The first retained form explicitly identifies its
+denominator-cleared adapter normalization. Its proof concerns the complete
+weighted identity and combined residual; it does not pretend that cancelling
+terms can be deleted independently from every source. This is private cold
+data, not a second artifact type or a constructor for `ClosedArtifact`.
+Three new retention tests and eight normalization tests pass, within the
+211-test solver/source-replay batch.
+
+The normalization bridge now binds these records to freshly generated
+`ParametricRelation` rows, verifying a native polynomial multiplier against
+every source coefficient and checking both the variable map and index map.
+Translations use `i64` offsets and happen before fixed-coordinate
+specialization; normalized weights and pre-cancellation source conditions stay
+together. Added denominator obligations go through the existing exact guard
+path. Symbolica owns ratios, multiplication and translation; the adapter's
+denominator-clearing algorithm is not duplicated.
+
+The fresh release census still passes all 617 K6 identities with zero issues,
+extra guard branches or uncovered regions at one and six requested workers.
+K1 and K3 likewise pass, and all semantic reports agree across worker counts.
+K6 generation plus audit takes 1.370 s / 0.363 s in-process and 1.39 s / 0.39 s
+process wall in these single observations. These shared-host diagnostics do
+not prove a performance improvement and still exclude artifact encoding and
+cold decode. Evidence: `target/spired-artifact-integration.bo3iL6/RESULTS.md`.
+
+Durable ownership, serialization, cold loading and installation still need to
+follow. Vakint's five-class routing and master-evaluation lane runs separately;
+no ignored three-loop test becomes a pass merely because the source-rule
+census is complete. Its contraction machinery can change loop coordinates:
+the surviving propagator IDs must join to parent artifact slots, and the
+existing simultaneous routing witness must also transport the numerator.
+Assigning powers to six slots alone does not prove that match.
+
 ### Complete cold rule-set audit (2026-09-15)
 
 `SourcePortAudit` and the autonomous `spired-artifact-audit` Rust example now
 perform independent ordinary-source replay, fresh RHS/derivation guard
 extraction, zero-sector authentication, whole-orthant coordinate coverage, and
 piecewise source-port descent. The diagnostic deliberately cannot mint a
-`ClosedArtifact` or supply an installation token. Its sixteen current tests pass,
+`ClosedArtifact` or supply an installation token. Its original sixteen tests pass,
 including corrupted RHS/provenance, omitted exclusions, finite versus infinite
 gaps, activation-boundary checks, and inconsistent physical/coefficient seed
 translations (including a jointly forged seed and RHS). Workspace checking
@@ -609,3 +646,76 @@ separately. Reference-workload timing is not artifact-generation timing until
 the proof and serialization boundary is included. Each implementation slice
 receives a separate mathematical/implementation audit before its milestone
 commit and push.
+
+## Verified finite-terminal basis feasibility (2026-09-15)
+
+This is a read-only feasibility result, not an installed terminal catalog, a
+fresh artifact certificate, or a Vakint numerical acceptance pass. The 38
+proposed undotted source-port terminals, after their documented transfer to
+the canonical unit-mass parent family, require no additional independent MATAD
+integral evaluation. Existing exact records and product identities suffice;
+20,000-digit numerical tables are unnecessary for this particular basis.
+
+An independent enumeration of the discrete `S4` edge action on the actual
+38 candidate keys gives precisely the six existing `FULL_RANK_ORBITS`:
+
+| Canonical parent representative | Keys in orbit | Exact terminal value source |
+| --- | ---: | --- |
+| `(0,0,1,0,1,1)` | 12 | Three independent one-loop tadpoles |
+| `(0,0,1,1,0,1)` | 4 | Three independent one-loop tadpoles |
+| `(0,0,1,1,1,1)` | 12 | Two-loop sunset times one-loop tadpole |
+| `(0,1,1,1,1,0)` | 3 | Existing four-line MATAD corner record |
+| `(0,1,1,1,1,1)` | 6 | Existing five-line MATAD corner record |
+| `(1,1,1,1,1,1)` | 1 | Existing six-line MATAD corner record |
+
+The implementation evidence is in `three_loop/symmetry.rs`,
+`three_loop/manifest.rs`, `three_loop/factorization.rs` and the existing
+generic factorization installer. The two symmetry generators are authenticated
+as exact momentum maps; their induced denominator permutations generate all
+24 group elements. Product recipes are independently checked against every
+denominator and a native determinant of `+1` or `-1`, with normalization one.
+The two three-line orbits are not the same `S4` orbit, but their separate
+unit-Jacobian factorization proofs give the same product value.
+
+For the four-line product representative, the existing basis is
+`q0=k3-k1`, `q1=k1-k2`, `q2=k3`: parent slots 4,5,6 form the sunset and slot 3
+is the tadpole. The sunset's third momentum is `q0+q1=k3-k2`, whose square is
+the required parent denominator. The two three-line recipes independently use
+`(k3,k1-k2,k2-k3)` and `(k3,k3-k1,k2-k3)`. No determinant or Wick-sign factor
+is silently introduced by these scalar changes of integration variables.
+
+Use the existing unit-mass terminal conventions, with
+`T1=-Gam(1,1)/(ep*(ep-1))` and `T2=-miT111`. The first two rows above have
+value `T1^3`; the third has `T1*T2`, hence a positive
+`Gam(1,1)*miT111/(ep*(ep-1))` product. The recently successful pre-existing
+MATAD executable supplies the remaining three actual corner records:
+the four-line value is `+miBN`, and the six-line value is `+miD6`.
+The five-line value must be taken from its complete existing expression,
+including its **outer minus sign**, then specialized and normalized natively;
+no new hand-simplified formula is proposed here. Evidence is retained in
+`target/vakint-existing-oracle-smoke.IbXhcU/stdout.log`. That run is an offline
+oracle smoke check of an older executable, not a build of current GammaLoop.
+
+The original records use the multiplicative FMFT/MATAD loop normalization.
+Unit-mass terminal values contain no residual mass powers. Later Vakint
+materialization restores `(m²)^(6-Σcorner)` and its existing `(m²)^(-3*ep)`
+normalization; the scalar reducer separately supplies the documented
+target-to-master homogeneity power. These factors must not be counted twice.
+
+Before publishing the catalog, the following checks remain mandatory:
+
+- Bind the **actual installed artifact's** complete typed terminal set and
+  canonical unit-mass family, not just the earlier candidate CSV. The source
+  fixture transfer uses `diag(1,-1,-1)` and exchanges denominator slots 3/4
+  in zero-based indexing; all associated data must use the same convention.
+- Classify every terminal through the existing native symmetry and installed
+  product proofs and require exact key coverage, with no unexplained terminal.
+  SpIReD's ordering may choose different orbit representatives: canonicalize
+  both anchors and keys with the same policy, or compare their exact orbits.
+- Parse and normalize the known MATAD expressions with Symbolica, preserving
+  namespaces, epsilon/dimension conventions, poles, signs and existing master
+  substitution controls. Reuse `TerminalCatalog` rather than another owner.
+- Run cold-load, raw-master and numerical end-to-end comparisons, including
+  nonunit mass and the FeynKit prepass followed by the FORM-free scalar tail.
+  The five existing matcher classes must use their actual numerator-routing
+  witnesses; equal denominator slot IDs alone do not imply equal loop bases.

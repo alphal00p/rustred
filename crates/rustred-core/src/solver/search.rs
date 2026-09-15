@@ -14,6 +14,9 @@ use super::{
     Term,
 };
 
+mod observation;
+pub use observation::SearchEvent;
+
 #[derive(Clone, Debug)]
 pub struct SectorConfig<const N: usize> {
     pub deltas: [bool; N],
@@ -159,6 +162,17 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         case: impl Into<Case<N>>,
         options: SearchOptions,
     ) -> Result<RuleCandidate<N>, SolverError> {
+        self.solve_case_with_observer(case, options, |_| {})
+    }
+
+    /// Observe coarse discovery/exact phase boundaries without retaining
+    /// additional rows or changing seed, pivot, or exact-replay chronology.
+    pub fn solve_case_with_observer(
+        &self,
+        case: impl Into<Case<N>>,
+        options: SearchOptions,
+        mut observe: impl FnMut(SearchEvent<N>),
+    ) -> Result<RuleCandidate<N>, SolverError> {
         let case = case.into();
         if !case.is_in_sector(self.order.sector()) {
             return Err(SolverError::InvalidInput(
@@ -201,6 +215,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         let mut original_sources = Vec::new();
         let initial = case.integral();
         let mut seeds = Seeds::new(initial, *self.order.sector(), self.config.removed_deltas);
+        let mut observed_depth = None;
         while let Some(seed) = seeds.next() {
             let depth = seeds.depth();
             if options.max_depth.is_some_and(|limit| depth > limit) {
@@ -211,6 +226,15 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             }
             let seed = seed?;
             stats.seeds += 1;
+            if observed_depth != Some(depth) || stats.seeds.is_power_of_two() {
+                observed_depth = Some(depth);
+                observe(SearchEvent::DiscoveryProgress {
+                    depth,
+                    seeds: stats.seeds,
+                    rows: stats.rows,
+                    discovery: probe.as_ref().map(|p: &Probe<N>| p.discovery.stats()),
+                });
+            }
             for (ordinal, source) in self.basis.iter().enumerate() {
                 let row = instantiate(
                     source,
@@ -230,6 +254,10 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 if case.matches(&leading.integral) {
                     stats.direct_hit = true;
                     stats.exact_trace_rows = 1;
+                    observe(SearchEvent::CanonicalizationStarted {
+                        terms: row.len(),
+                        direct_hit: true,
+                    });
                     let (target, rhs) = canonicalize(row, &self.system.indices)?;
                     stats.elapsed = start.elapsed();
                     stats.discovery = probe.as_ref().map(|p: &Probe<N>| p.discovery.stats());
@@ -264,9 +292,18 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                         // This case ends at the first matching pivot. Release
                         // nonwinning exact rows before the expensive native solve.
                         drop(original_rows);
+                        observe(SearchEvent::ExactStarted {
+                            pivot,
+                            trace_rows: trace.len(),
+                            discovery: probe.discovery.stats(),
+                        });
                         let exact_start = Instant::now();
                         let exact = exact_materialize(&selected, &self.order, pivot)
                             .map_err(|error| SolverError::ExactReplay(error.to_string()))?;
+                        observe(SearchEvent::CanonicalizationStarted {
+                            terms: exact.len(),
+                            direct_hit: false,
+                        });
                         let (target, rhs) = canonicalize(exact, &self.system.indices)?;
                         stats.exact_materialization = exact_start.elapsed();
                         stats.elapsed = start.elapsed();
@@ -339,3 +376,6 @@ impl<const N: usize> Probe<N> {
 
 #[cfg(test)]
 mod affine_tests;
+
+#[cfg(test)]
+mod observation_tests;

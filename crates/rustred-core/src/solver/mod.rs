@@ -46,10 +46,11 @@ pub use numeric::{NumericResult, NumericStats};
 pub use precondition::{precondition, precondition_with_variable_order};
 pub use row::{ExactRow, PolynomialRow, Row, Term};
 pub use search::{
-    RuleCandidate, SearchOptions, SearchStats, SectorConfig, SectorSolver, SeedSource,
+    RuleCandidate, SearchEvent, SearchOptions, SearchStats, SectorConfig, SectorSolver, SeedSource,
 };
 pub use sector::{
-    SectorEvent, SectorRule, SectorSolution, SectorSolveError, SectorSolveOptions, SectorStats,
+    SectorEvent, SectorPhase, SectorRule, SectorSolution, SectorSolveError, SectorSolveOptions,
+    SectorStats,
 };
 pub use seed::{Seed, Seeds};
 pub use source::SourceSystem;

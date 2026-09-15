@@ -8,7 +8,7 @@ use super::geometry::{GeometryError, compare_cases};
 use super::{
     AffineGeometryError, Case, CaseIntersectionError, CaseIntersectionFailure,
     CaseIntersectionLimits, CoordinateCase, ExceptionError, ExceptionalConditions, Integral,
-    RuleCandidate, SearchOptions, SectorSolver, SolverError, extract_exceptions,
+    RuleCandidate, SearchEvent, SearchOptions, SectorSolver, SolverError, extract_exceptions,
 };
 
 /// A solved equation together with the exact exceptional index conditions
@@ -122,6 +122,14 @@ pub enum SectorEvent<'a, const N: usize> {
         case: Case<N>,
         pending: usize,
     },
+    Search {
+        case: &'a Case<N>,
+        event: SearchEvent<N>,
+    },
+    PhaseStarted {
+        case: &'a Case<N>,
+        phase: SectorPhase,
+    },
     RuleFound {
         rule: &'a SectorRule<N>,
         pending: usize,
@@ -129,6 +137,12 @@ pub enum SectorEvent<'a, const N: usize> {
     NumericalStarted {
         cases: &'a [CoordinateCase<N>],
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SectorPhase {
+    GuardExtraction,
+    ExceptionalGeometry,
 }
 
 #[derive(Debug)]
@@ -229,18 +243,31 @@ impl<const N: usize> SectorSolver<'_, N> {
                 case: current.clone(),
                 pending: pending.len(),
             });
-            let candidate =
-                self.solve_case(current.clone(), options.symbolic)
-                    .map_err(|source| SectorSolveError::Search {
-                        case: current.clone(),
-                        source,
-                    })?;
+            let candidate = self
+                .solve_case_with_observer(current.clone(), options.symbolic, |event| {
+                    observe(SectorEvent::Search {
+                        case: &current,
+                        event,
+                    });
+                })
+                .map_err(|source| SectorSolveError::Search {
+                    case: current.clone(),
+                    source,
+                })?;
             stats.symbolic_cases += 1;
             stats.symbolic_rows += candidate.stats.rows;
             stats.symbolic_search += candidate.stats.elapsed;
+            observe(SectorEvent::PhaseStarted {
+                case: &current,
+                phase: SectorPhase::GuardExtraction,
+            });
             let rule = self.finish_rule(candidate)?;
             stats.exception_extraction += rule.1;
             let rule = rule.0;
+            observe(SectorEvent::PhaseStarted {
+                case: &current,
+                phase: SectorPhase::ExceptionalGeometry,
+            });
             let geometry_start = Instant::now();
             // Admit every exceptional sibling before mutating the queue or
             // publishing the parent. A newly discovered child is not covered

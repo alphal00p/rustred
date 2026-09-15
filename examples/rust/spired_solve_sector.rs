@@ -7,7 +7,9 @@
 //!
 //! Manifest files contain whitespace-separated 0/1 entries, N per sector,
 //! exactly as the original SpIRed examples. `all` requires the nonzero manifest.
-//! Set RUSTRED_SPIRED_PROGRESS=1 for per-case progress. The default symbolic
+//! Set RUSTRED_SPIRED_PROGRESS=1 for complete case constraints and coarse
+//! search/exact/guard/geometry milestones (diagnostic I/O is not timed fairly
+//! against a silent reference run). The default symbolic
 //! depth limit is three; it is diagnostic, and exhaustion returns an error.
 //! Families: vacuum 1/2/3, fam1_11/12/111/112, bc4PMRad1, fam_cosmo.
 //! PM numerical depth follows the original fixture; all other cases use three.
@@ -25,12 +27,14 @@ use std::time::{Duration, Instant};
 
 use rustred::family::IntegralFamily;
 use rustred::solver::{
-    Integral, IntegralOrder, SearchOptions, SectorConfig, SectorEvent, SectorExecutor,
-    SectorScheduling, SectorSolution, SectorSolveOptions, SectorStats, prepare_linear_cuts,
+    Integral, IntegralOrder, SearchOptions, SectorConfig, SectorExecutor, SectorScheduling,
+    SectorSolution, SectorSolveOptions, SectorStats, prepare_linear_cuts,
 };
 
 #[path = "support/spired_families.rs"]
 mod spired_families;
+#[path = "support/spired_progress.rs"]
+mod spired_progress;
 #[path = "support/spired_reference.rs"]
 mod spired_reference;
 
@@ -464,20 +468,13 @@ fn run<const N: usize>(
                 return;
             }
             let label = mask(&sector);
-            match event {
-                SectorEvent::CaseStarted { case, pending } => {
-                    eprintln!("sector={label} case={} pending={pending}", case.integral())
-                }
-                SectorEvent::RuleFound { rule, pending } => eprintln!(
-                    "sector={label} solved={} rhs_terms={} rows={} pending={pending}",
-                    rule.candidate.target,
-                    rule.candidate.rhs.len(),
-                    rule.candidate.stats.rows
-                ),
-                SectorEvent::NumericalStarted { cases } => {
-                    eprintln!("sector={label} numerical_cases={}", cases.len())
-                }
-            }
+            spired_progress::write_event(
+                &mut std::io::stderr().lock(),
+                &label,
+                process_start.elapsed(),
+                event,
+            )
+            .expect("progress stderr write failed");
         },
         |completed| -> std::io::Result<Completed<N>> {
             let label = mask(&completed.sector);
@@ -559,6 +556,7 @@ fn run<const N: usize>(
     let validation_start = Instant::now();
     let mut reference_rules = 0;
     let mut reference_empty_rules = 0;
+    let mut reference_covered_rules = 0;
     if let Some(directory) = &args.reference {
         if !prepared.rules.is_empty() {
             let reference = fs::read_to_string(directory.join("preRules.dat"))?;
@@ -581,9 +579,10 @@ fn run<const N: usize>(
                 .map_err(|error| format!("sector {label}: {error}"))?;
             reference_rules += comparison.matched_rules;
             reference_empty_rules += comparison.integer_empty_rules;
+            reference_covered_rules += comparison.covered_reference_rules;
         }
         println!(
-            "reference_rule_matches={reference_rules}; reference_integer_empty_rules={reference_empty_rules}; exact symbolic parameters, required domains, guards, and sector signs; residuals NOT compared"
+            "reference_rule_matches={reference_rules}; reference_integer_empty_rules={reference_empty_rules}; reference_covered_rules={reference_covered_rules}; exact symbolic parameters, required domains, guards, and sector signs; covered reference-only cases have separate exact domain proofs; residuals NOT compared"
         );
     }
     let validation = validation_start.elapsed();
@@ -607,6 +606,7 @@ fn run<const N: usize>(
         summary,
         "reference_integer_empty_rules={reference_empty_rules}"
     )?;
+    writeln!(summary, "reference_covered_rules={reference_covered_rules}")?;
     summary.flush()?;
     print!("{report}");
     println!("output_directory={}", args.output.display());

@@ -6,7 +6,9 @@
 
 use std::cmp::Ordering;
 
-use symbolica::domains::rational_polynomial::RationalPolynomialField;
+use symbolica::domains::rational_polynomial::{
+    FromNumeratorAndDenominator, RationalPolynomialField,
+};
 use symbolica::prelude::{IntegerRing, Z};
 use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
 
@@ -20,12 +22,15 @@ use crate::solver::{
 use super::{SourcePortAuditError, error, geometry, ordinary};
 
 pub(super) struct Replay<const N: usize> {
-    pub source_entries: usize,
     pub additional_exceptions: Vec<Case<N>>,
+    /// Retain with the rule and exact domain at the next installation boundary.
+    pub ordinary: super::certificate::OriginalSourceReplay<N>,
 }
 
 pub(super) fn replay_rule<const N: usize>(
     system: &SourceSystem<N>,
+    original_row_ids: &[crate::identity::RowId],
+    original_sources: &super::normalization::OriginalSourceCorpus,
     basis: &[PolynomialRow<N>],
     order: &IntegralOrder<N>,
     zero_sectors: &[[bool; N]],
@@ -226,15 +231,37 @@ pub(super) fn replay_rule<const N: usize>(
             )?;
             &tightened
         };
-        let ordinary_weights =
-            ordinary::weights(system, order, zero_sectors, rule, shifts, applicable)?;
-        let normalized_weights = ordinary_weights
+        let ordinary = ordinary::weights(
+            system,
+            original_row_ids,
+            order,
+            zero_sectors,
+            rule,
+            shifts,
+            applicable,
+        )?;
+        let ordinary = original_sources.normalize(
+            ordinary,
+            candidate
+                .case
+                .coordinate()
+                .expect("coordinate admission checked above"),
+        )?;
+        let mut normalized_weights: Vec<_> = ordinary
+            .contributions
             .iter()
-            .map(|weight| Term {
+            .map(|contribution| Term {
                 integral: candidate.target,
-                coefficient: weight.clone(),
+                coefficient: contribution.weight.clone(),
             })
             .collect();
+        // Index-dependent original-source poles take the same exact geometry
+        // path as converted-weight poles. Parameter-only conditions remain
+        // attached to the retained record even when that extractor omits them.
+        normalized_weights.extend(ordinary.source_conditions.iter().map(|condition| Term {
+            integral: candidate.target,
+            coefficient: Coefficient::from_num_den(condition.one(), condition.clone(), &Z, false),
+        }));
         let weight_candidate = RuleCandidate {
             case: candidate.case.clone(),
             target: candidate.target,
@@ -254,8 +281,8 @@ pub(super) fn replay_rule<const N: usize>(
             order.sector(),
         )?;
         return Ok(Replay {
-            source_entries: ordinary_weights.len(),
             additional_exceptions,
+            ordinary,
         });
     }
     Err(error(

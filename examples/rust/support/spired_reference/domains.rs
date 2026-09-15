@@ -7,11 +7,17 @@ use super::*;
 use rustred::algebra::CoefficientPolynomial;
 use rustred::solver::{CoordinateCase, ExceptionalConditions, SearchStats, SectorRule};
 
+#[path = "domains/coverage.rs"]
+mod coverage;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SectorComparison {
     pub matched_rules: usize,
     /// Reference required domains proved empty over integer sector indices.
     pub integer_empty_rules: usize,
+    /// Reference-only applicability domains covered by already exact-matched
+    /// candidate rules. Their separate RHS expressions were not compared.
+    pub covered_reference_rules: usize,
 }
 
 pub(super) struct ReferenceEntry<'a, const N: usize> {
@@ -150,8 +156,9 @@ pub(super) fn equivalent<const N: usize>(left: &Case<N>, right: &Case<N>) -> Res
 }
 
 /// Whole-sector oracle validation; no reference expression is sent to search.
-/// Required integer-empty domains may be omitted, but every nonempty case must
-/// match exactly once, including its exact coefficient functions and exclusions.
+/// Every retained rule matches exactly once, including its coefficient functions
+/// and exclusions. Reference-only cases may be omitted only when integer-empty
+/// or when their whole applicability domain is covered by those matched rules.
 pub fn compare_sector_with_aliases<const N: usize>(
     reference: &str,
     rules: &[SectorRule<N>],
@@ -174,14 +181,6 @@ pub fn compare_sector_with_aliases<const N: usize>(
             }
             None => integer_empty_rules += 1,
         }
-    }
-    if entries.len() != rules.len() {
-        return Err(invalid(format!(
-            "different nonempty rule counts: reference {} ({} integer-empty omitted); candidate {}",
-            entries.len(),
-            integer_empty_rules,
-            rules.len()
-        )));
     }
     let mut matched = vec![false; entries.len()];
     for rule in rules {
@@ -215,9 +214,31 @@ pub fn compare_sector_with_aliases<const N: usize>(
         )?;
         compare_exceptions(entry, rule, system, sector)?;
     }
+    // No unmatched case receives coverage credit until ALL retained rules have
+    // passed their independent exact RHS, required-case and guard comparisons.
+    let mut covered_reference_rules = 0;
+    for (entry, matched) in entries.iter().zip(matched) {
+        if matched {
+            continue;
+        }
+        if !coverage::covered_by_matched_rules(
+            entry,
+            rules,
+            system,
+            sector,
+            rustred::solver::CaseIntersectionLimits::default(),
+        )? {
+            return Err(invalid(format!(
+                "reference-only case is not proved covered by exact-matched rules: {:?}",
+                entry.case,
+            )));
+        }
+        covered_reference_rules += 1;
+    }
     Ok(SectorComparison {
         matched_rules: rules.len(),
         integer_empty_rules,
+        covered_reference_rules,
     })
 }
 
@@ -227,6 +248,21 @@ pub(super) fn compare_exceptions<const N: usize>(
     system: &SourceSystem<N>,
     sector: &[bool; N],
 ) -> Result<()> {
+    let expected = reference_exceptions(reference, system, sector)?;
+    let actual = rule.exceptional_cases(system.index_variables(), sector)?;
+    if !same_case_union(&expected, &actual)? {
+        return Err(invalid(format!(
+            "different exceptional domains: reference {expected:?}; candidate {actual:?}"
+        )));
+    }
+    Ok(())
+}
+
+fn reference_exceptions<const N: usize>(
+    reference: &ReferenceEntry<'_, N>,
+    system: &SourceSystem<N>,
+    sector: &[bool; N],
+) -> Result<Vec<Case<N>>> {
     let mut branches = Vec::new();
     for expression in &reference.exclusions {
         branches.extend(parse_guard(expression, system)?);
@@ -241,14 +277,7 @@ pub(super) fn compare_exceptions<const N: usize>(
         },
         exceptions: ExceptionalConditions { branches },
     };
-    let expected = expected_rule.exceptional_cases(system.index_variables(), sector)?;
-    let actual = rule.exceptional_cases(system.index_variables(), sector)?;
-    if !same_case_union(&expected, &actual)? {
-        return Err(invalid(format!(
-            "different exceptional domains: reference {expected:?}; candidate {actual:?}"
-        )));
-    }
-    Ok(())
+    Ok(expected_rule.exceptional_cases(system.index_variables(), sector)?)
 }
 
 fn same_case_union<const N: usize>(left: &[Case<N>], right: &[Case<N>]) -> Result<bool> {

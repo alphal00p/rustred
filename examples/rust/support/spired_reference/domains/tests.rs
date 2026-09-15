@@ -2,6 +2,9 @@ use super::*;
 use rustred::algebra::CoefficientContext;
 use rustred::solver::Term;
 
+#[path = "coverage_tests.rs"]
+mod coverage;
+
 fn fixture() -> (CoefficientContext, SourceSystem<2>) {
     let context = CoefficientContext::try_new(["d", "a", "b"]).unwrap();
     let system = SourceSystem::new(
@@ -119,7 +122,8 @@ fn full_sector_distinguishes_affine_cases_with_identical_fixed_patterns() {
         report,
         SectorComparison {
             matched_rules: 2,
-            integer_empty_rules: 0
+            integer_empty_rules: 0,
+            covered_reference_rules: 0,
         }
     );
 }
@@ -139,13 +143,31 @@ fn integer_empty_affine_reference_rule_is_omitted_with_exact_proof() {
         report,
         SectorComparison {
             matched_rules: 1,
-            integer_empty_rules: 1
+            integer_empty_rules: 1,
+            covered_reference_rules: 0,
         }
     );
     let nonempty = reference.replace("2*n1-2*n2==1", "n1-n2==1");
     let candidate = rule(CoordinateCase::generic().into(), context.one(), Vec::new());
-    assert!(
+    let report =
         compare_sector_with_aliases(&nonempty, &[candidate], &system, &[true; 2], None, &[])
+            .unwrap();
+    assert_eq!(report.covered_reference_rules, 1);
+    assert_eq!(report.matched_rules, 1);
+    assert_eq!(report.integer_empty_rules, 0);
+    let a = context.parameter("a").unwrap();
+    let b = context.parameter("b").unwrap();
+    let candidate = rule(
+        CoordinateCase::generic().into(),
+        context.one(),
+        vec![vec![(&(&a - &b) - &context.one()).numerator]],
+    );
+    let uncovered = nonempty.replace(
+        "int[n1_?Positive,n2_?Positive]->",
+        "int[n1_?Positive,n2_?Positive]/;!(n1-n2==1)->",
+    );
+    assert!(
+        compare_sector_with_aliases(&uncovered, &[candidate], &system, &[true; 2], None, &[])
             .is_err()
     );
 }
