@@ -14,6 +14,14 @@ as user data rather than a RustRed built-in: the ten rows (nine physical
 denominators plus an ISP at power zero) are parsed by the same strict TOML
 frontend used for any supplied family. Use it with `rustred derive` as shown
 in [the CLI documentation](../docs/CLI.md#four-loop-vacuum-input-external-family-data).
+For a topology-neutral solver diagnostic, use the same input directly with
+`rustred family-solve`; this path accepts arbitrary Project TOML and never
+dispatches on the family name:
+
+```console
+rustred family-solve --input examples/input/four_loop_h.toml \
+  --input-format toml --sectors 0000000001 --n-cores 4
+```
 
 - [`rust/`](rust/) uses the public `rustred` library directly.
 - [`cli/`](cli/) uses `rustred campaign generate`, `inspect`, and `reduce`.

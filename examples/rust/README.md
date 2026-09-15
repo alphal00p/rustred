@@ -67,12 +67,23 @@ claim that Vakint's full three-loop acceptance suite has already passed.
 
 ## Four-loop complete-basis input probe
 
-The `4h` selector in [`spired_solve_sector.rs`](spired_solve_sector.rs) is a
-small example input, not a topology-aware RustRed mode. It supplies Vakint's
-nine physical H propagators plus one explicit `(k1-k2)^2-m` ISP denominator at
-zero initial power, thereby giving the generic parametric engine all ten
-four-loop vacuum scalar-product coordinates. The first all-physical sector can
-be measured without any reference rules:
+The Rust-only `4h` constructor in [`spired_solve_sector.rs`](spired_solve_sector.rs)
+is retained as a small source-port example, not as a production family
+selector. Production studies must provide their family through the normal
+input grammar. For example, the same ten-coordinate family is supplied by
+[`examples/input/four_loop_h.toml`](../input/four_loop_h.toml) and can be
+solved through the topology-neutral CLI diagnostic:
+
+```sh
+rustred family-solve --input examples/input/four_loop_h.toml \
+  --input-format toml --sectors 1111111110 --n-cores 2
+```
+
+The Rust-only helper supplies Vakint's nine physical H propagators plus one
+explicit `(k1-k2)^2-m` ISP denominator at zero initial power, thereby giving
+the generic parametric engine all ten four-loop vacuum scalar-product
+coordinates. The first all-physical sector can be measured without any
+reference rules:
 
 ```sh
 cargo build --release --locked --example spired-solve-sector
