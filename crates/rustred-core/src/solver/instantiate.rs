@@ -7,7 +7,7 @@ use super::{
     AffineCase, ExactRow, Integral, IntegralOrder, PolynomialRow, Seed, SolverError, Term,
 };
 
-pub(super) fn instantiate<const N: usize>(
+pub(crate) fn instantiate<const N: usize>(
     source: &PolynomialRow<N>,
     seed: &Seed<N>,
     indices: &[usize; N],
@@ -100,7 +100,7 @@ fn vanishes_in_subsector<const N: usize>(
                 .any(|(active, cut)| *cut && !*active))
 }
 
-pub(super) fn canonicalize<const N: usize>(
+pub(crate) fn canonicalize<const N: usize>(
     row: ExactRow<N>,
     indices: &[usize; N],
 ) -> Result<(Integral<N>, ExactRow<N>), SolverError> {
@@ -126,7 +126,7 @@ pub(super) fn canonicalize<const N: usize>(
     Ok((target, rhs))
 }
 
-pub(super) fn translate<const N: usize>(
+pub(crate) fn translate<const N: usize>(
     coefficient: &Coefficient,
     indices: &[usize; N],
     shifts: &[i16; N],

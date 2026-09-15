@@ -11,8 +11,11 @@ The immediate implementation program is the
 [executable SpIRed reference port](docs/spired_port.md): reproduce the actual
 C++ `solveSector` algorithm in Rust, using native Symbolica/numerica, and match
 or improve the supplied one-through-three-loop PM example workloads. The
-[Gregor/SpIReD input plan](GREGOR_INPUT_PLAN.md) remains the longer-term artifact
-and Vakint integration roadmap. The local reference source and working notes
+[artifact-to-Vakint delivery lane](docs/spired_vakint_artifact_plan.md) runs in
+parallel, targeting the complete three-loop acceptance suite with FeynKit
+tensor reduction and RustRed scalar reduction. The
+[Gregor/SpIReD input plan](GREGOR_INPUT_PLAN.md) retains the wider roadmap.
+The local reference source and working notes
 `notes-spired.pdf` are ignored and are not distributed with the repository.
 
 ## Current capability
@@ -26,6 +29,12 @@ The currently evidenced core can:
   all 617 reference equations across 38 sectors with symbolic mass; independent
   audits matched the guard domains and 38 residual keys. See the
   [timing and validation report](docs/spired_vac3_results.md);
+- independently replay the full K6 set from its nine original IBPs, prove
+  descent and whole-sector coverage with 38 finite terminals, and obtain
+  zero uncovered regions for all 617 rules at one and six workers. This cold
+  audit also passes the complete K1/K3 families; durable source-port artifact
+  installation and the full Vakint three-loop suite remain in progress. See
+  the [artifact delivery report](docs/spired_vakint_artifact_plan.md);
 - run those independent sector solves on a bounded private worker pool with
   shared source data and deterministic aggregate output. All `vac3` equations
   and residuals agree at 1/2/4/6 workers; see the

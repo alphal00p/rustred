@@ -123,6 +123,28 @@ guard, and sign comparison, which happens only after all sectors have been gener
 rules and finite bounded-search residuals, not certified family artifacts or
 a proof that the residual integrals are independent masters.
 
+## Independent vacuum artifact diagnostics
+
+Generate every nonzero sector of a vacuum family and independently check the
+original IBP sources, guards, descent, finite terminals, and whole-integer-sector
+coverage:
+
+```sh
+cargo run --release --locked -p rustred --example spired-artifact-audit -- 3 6
+```
+
+The first argument is the loop count (`1`, `2`, or `3`); the second is the
+worker budget. The census is derived from the family, without reference rule
+files. Expected generation counts are respectively 1, 18, and 617 rules across
+1, 4, and 38 nonzero sectors. The table distinguishes stored-guard coverage
+from independently replayed, descending coverage and prints every unresolved
+obligation. All three full-family audits now pass at one and six workers: every
+rule is replayed and descending, `issues=0`, and every uncovered-region column
+is zero. A failed audit exits nonzero. **This is a diagnostic, not a shipped
+artifact generator:** it neither writes a `ClosedArtifact` nor installs one in
+Vakint. See the [artifact integration report](../../docs/spired_vakint_artifact_plan.md)
+for the current full-run results and publication boundary.
+
 ## Linear-cut PM example
 
 The same executable accepts the supplied two-loop `fam1_11` family:

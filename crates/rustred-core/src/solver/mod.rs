@@ -22,6 +22,11 @@ mod sector;
 mod seed;
 mod source;
 
+pub(crate) use instantiate::{
+    canonicalize as canonicalize_source_port, instantiate as instantiate_source_port,
+    translate as translate_source_port,
+};
+
 pub use case::{
     AffineCase, AffineGeometryError, AffineIntersection, Case, CaseIntersectionBudget,
     CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits, CaseIntersectionResult,

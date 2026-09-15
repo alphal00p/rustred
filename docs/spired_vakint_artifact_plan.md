@@ -40,9 +40,123 @@ by an obsolete Spenso forwarding call following the required Symbolica update.
 The user has been asked about migrating that unused public wrapper to the new
 native API; Vakint's public API would remain unchanged.
 
+The previously linked September 2 MATAD oracle executable does still run:
+its nine existing exact raw-master records pass with the installed FORM5.
+This is an offline oracle smoke check, not a build of current GammaLoop or a
+RustRed acceptance pass. An isolated consumer for the 38 candidate keys could
+not link against that preserved library set because its matching transitive
+RustRed library had subsequently been overwritten. No cache/fingerprint or
+Spenso workaround was applied. Evidence:
+`target/vakint-existing-oracle-smoke.IbXhcU/` and
+`target/vakint-cached-terminal-oracle.NWFhoN/`.
+
+Its acceptance inventory now maps all 40 legacy test entries (46 input
+executions), including aliases and previously missing normalization, epsilon
+depth, decorated-index and external-vector variants. New peers reuse the same
+comparative harness; two additional basketball cases include the finite part.
+Enabled is not synonymous with passed: the new one-loop variant is unrun and
+the new three-loop peers remain explicitly pending. The inventory lives in
+GammaLoop at `crates/vakint/tests/RUSTRED_ACCEPTANCE.md`; no reference-repository
+contents are copied into RustRed's Git history.
+
 No new certified K6 artifact, installed K6 scalar backend, or three-loop
-RustRed acceptance pass is claimed by this checkpoint. The next implementation
-gate remains the cold replay/descent/cover pass described below.
+RustRed acceptance pass is claimed by this checkpoint. The cold
+replay/descent/cover pass below now succeeds; durable certificate ownership
+and installation are the next implementation gate.
+
+### Complete cold rule-set audit (2026-09-15)
+
+`SourcePortAudit` and the autonomous `spired-artifact-audit` Rust example now
+perform independent ordinary-source replay, fresh RHS/derivation guard
+extraction, zero-sector authentication, whole-orthant coordinate coverage, and
+piecewise source-port descent. The diagnostic deliberately cannot mint a
+`ClosedArtifact` or supply an installation token. Its sixteen current tests pass,
+including corrupted RHS/provenance, omitted exclusions, finite versus infinite
+gaps, activation-boundary checks, and inconsistent physical/coefficient seed
+translations (including a jointly forged seed and RHS). Workspace checking
+also passes.
+
+The complete autonomous release census now passes for all three vacuum
+families, at both one and six requested workers:
+
+| Family | Nonzero / proved-zero sectors | Original sources | Rules replayed and descending | Finite terminals | Additional guards / uncovered regions |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| K1 | 1 / 1 | 1 | 1 / 1 | 1 | 0 / 0 |
+| K3, all pinches | 4 / 4 | 4 | 18 / 18 | 4 | 0 / 0 |
+| K6 | 38 / 26 | 9 | **617 / 617** | 38 | **0 / 0** |
+
+Every report has zero issues, zero stored-guard and checked-rule gaps, and zero
+uncovered unbounded boxes. Semantic reports agree across worker counts. This
+verifies the complete rule-set replay/descent/cover; the diagnostic still
+does not retain a durable certificate or construct a `ClosedArtifact`.
+Canonical unit-mass installation, serialization/cold loading, the five-class
+Vakint routing gate and the current acceptance suite remain separate work.
+
+The final correction verifies full **weighted original-source identities**.
+Some residual contributions have coefficient `n0*(n0+1)` and shift `n0+2`:
+the integral lies in a proved-zero sector for `n0<=-2`, while the coefficient
+vanishes on both activation points `n0=-1,0`. Those products become zero only
+after combining rows; independent raw-term deletion cannot prove them. The
+native exact reducer may propose weights in a projected frame, but both
+proposal paths must pass full unprojected multiplication and exact sign-cell
+verification. Finite boundary sets are exhausted under a hard budget;
+unbounded coordinates remain symbolic. Corrupted weights/sources, either
+missing endpoint root, a zero denominator, an infinite nonzero tail and budget
+exhaustion all have rejecting tests. No generated reduction rule was changed.
+
+K6 generation plus this independent audit took **2.151 s in-process / 2.18 s
+process wall** at one worker, and **0.495 s / 0.53 s** at six workers. Aggregate
+CPU times were 2.13 s and 2.27 s; peak RSS was 9,232 and 9,244 KiB. These are
+single release observations, not a paired SpIRed benchmark or publication /
+cold-artifact-load timing. Evidence: `target/spired-combined-replay.cmaXc8/`.
+The initial failed census below is retained as diagnostic history.
+
+The first autonomous full release census completed at both one and six workers:
+
+| Family | Ordinary sources | Rules | Replayed and descending | Finite terminals | Bridge replay failures |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| K1 | 1 | 1 | 1 | 1 | 0 |
+| K3, including all pinches | 4 | 18 | 15 | 4 | 3 |
+| K6, all 38 nonzero sectors | 9 | 617 | 387 | 38 | 230 |
+
+Both worker counts produced identical semantic reports. All stored-guard
+covers had zero uncovered boxes. The initial checked K6 cover retained 283
+boxes (282 unbounded) across 28 sectors because the ordinary-source bridge
+could not certify 230 rules. These were **certificate-bridge gaps**, not newly
+established failures of those IBPs. All had the same original-frame membership
+diagnostic; the smaller K3 pinch failures exposed the mechanism below. The
+subsequent coefficient-aware and weighted-product corrections resolve all of
+them, as recorded in the current complete census above.
+
+A standalone native-Rust inspection establishes the K3 mechanism. After the
+canonical target translation, an original ordinary source contains
+`-(n0+1) I(n0+2,n1-1,0)` on `n0<=-1, n1>=2`. The integral is in a proved-zero
+sector when `n0<=-2`; at the activation wall `n0=-1` its coefficient is zero.
+The product therefore vanishes on the whole admitted domain, although the
+integral label alone does not. Native Symbolica also verifies the complete
+unprojected preconditioned row equals `2*ordinary0 + ordinary1 - 2*ordinary2 -
+ordinary3`, with no remainder. This particular miss is therefore a projection
+limitation, not missing source support or an invalid identity. The first bridge used only label-wise zero
+projection. The scoped correction must prove product vanishing on every exact
+sign cell using native coefficient substitution, with a coefficient-1 negative
+control. It does not modify the IBPs or relax their guards. Inspection evidence:
+`target/source-port-pinch-inspector.R8Y9qx/canonical-output.txt`.
+
+On this diagnostic run, K6 generation plus the audit took 1.973 s logically
+in-process / 2.01 s process wall time with one worker, and 0.494 s / 0.53 s
+with six workers. Aggregate CPU times were 1.96 s and 2.10 s; peak RSS was
+9,244 and 15,408 KiB. These are single diagnostic observations, not paired
+SpIRed performance claims or timings for a completed artifact. Release
+compilation preceded the runs. Evidence:
+`target/spired-cold-artifact.ckZDsX/` (frozen binary hash and all six runs).
+
+An independent ordinary-source certificate can introduce avoidable poles.
+The report therefore keeps stored-guard and certificate-checked coverage
+separate, records per-rule failures, and continues the full census. A pole in
+one chosen certificate is not proof that its target rule is invalid: obtaining
+a regular certificate may remove that obligation. The native polynomial
+preconditioner uses exact polynomial quotients and does not divide out pivot
+content, so it does not by itself introduce rational poles.
 
 ## Evidence already available
 
@@ -61,9 +175,9 @@ The release outputs under
   condition.
 
 The 26 zero-sector masks and 38 nonzero-sector masks exhaust the 64 masks of
-this family. These input classifications still need independent mathematical
-authentication at artifact construction/loading; a supplied mask list is not
-a proof that an integral vanishes.
+this family. The current cold audit independently authenticates the zero
+classifications; the durable construction/loading boundary must retain that
+check. A supplied mask list is not a proof that an integral vanishes.
 
 An independent read-only structural audit additionally parsed every target
 and excluded condition using only literal coordinate equality syntax. Every
@@ -198,6 +312,155 @@ numerical Laurent terminal catalog with sufficient epsilon depth. An oracle
 may evaluate this finite catalog during development; production generation,
 loading and scalar application must not invoke the FORM reduction.
 
+## Concrete installer slice: retained source certificate to existing owner
+
+This is a proposed implementation boundary, not a claim that the current cold
+diagnostic can already install or reload an artifact. Complete the remaining
+ordinary-replay obligations first. Public audit counters are diagnostic data;
+they must never be accepted as a publication token.
+
+### One cold proof owner, not another reducer
+
+Add a private `ReplayCertifiedCoordinateProgram` in
+`foundry/artifact/source_port/certificate.rs`. It owns the authenticated
+family/indexed context, original-source recipe, deterministic sector/rule order,
+exact application cover, finite terminal keys, zero-sector certificates and
+per-rule original-source replay records. Its fields and constructor remain
+private to this cold bridge. A successful replay/descent/cover verifier returns
+this consuming owner; unresolved guards, any uncovered complement (including
+finite points not explicitly admitted as terminals), or budget failures cannot
+construct it. It is neither a public `SectorSolution`
+wrapper nor a second `ClosedArtifact`.
+
+Per-rule records retain the exact original `RowId`, canonical target-relative
+`i64` translation, normalization scale and native rational weight together
+before filtering zero weights. They also retain the coordinate face and full
+RHS. Fixed coordinates are specialized only after source translation; numeric
+seed values need not equal the fixed target values. No preconditioned basis
+ordinal, compact `Power`, GPLU state or search transcript is required in the
+durable certificate.
+
+The source adapter clears denominators using a native polynomial LCM. A weight
+of that cleared row is not automatically a weight of the generator's original
+`ParametricRelation`: preserve the clearing multiplier, or convert the weight
+by that multiplier and verify the resulting exact relation. Source-condition
+and all weight/RHS denominator obligations stay attached to the certificate.
+Regenerating the same source rows and their scales must reproduce every
+retained request; an ordinal without its `RowId` is insufficient.
+
+### Combined-remainder semantics
+
+For original translated rows `R_j`, normalized target identity `T`, and weights
+`w_j`, the authority check computes the complete physical residual
+`sum(w_j R_j) - T`, combining coefficients of equal integral keys with native
+Symbolica arithmetic. No term is deleted first. For each remaining combined
+term and every exact physical sign cell of the application cover, prove either
+that its integral belongs to an independently certified zero sector or that
+its coefficient vanishes identically after the cell's exact restrictions.
+The target is never discarded merely because a discovery projection hid it.
+
+An individually proved-product quotient is the cheap discovery lane. A more
+permissive assumed-sector quotient may propose weights only after that lane
+misses; the same full-residual check authenticates both. Finite activation
+intervals may be exhaustively split into singleton integer coordinates under
+an explicit budget. Every unbounded coordinate remains symbolic. Checking all
+points of the exact two-point set `{-1,0}` is exhaustive; testing those points
+on an infinite ray would not be. Zero numerators with identically zero
+restricted denominators are rejected. Fresh applicability guards are checked
+independently of serialized exclusions.
+
+This proof sometimes exists only after weighted cancellation: individual raw
+source terms need not vanish. Therefore do not encode such a certificate as
+independent `ResidualTermDisposition` deletions. Extend the existing
+`SourceViewConstruction` in `foundry/cell/model.rs` with one combined-identity
+domain-quotient evidence variant. It retains unmodified translated source
+relations, fixed-coordinate restrictions and the recomputable combined
+remainder obligations. Existing cell/installer validation must recognize this
+semantic variant explicitly. Do not disguise it as `Direct`, fabricate a
+symmetry canonicalizer, or re-use the existing per-term residual projection
+proof with a weaker meaning. The evidence need not store a large expanded
+sign-cell tree: bounded cold verification can deterministically reconstruct
+the partition from the domain and physical shifts.
+
+### Lowering and runtime
+
+Add `source_port/lower.rs` and a narrow consuming installer in the existing
+`artifact/install.rs` boundary. The lowerer uses the certified program to
+construct existing `ParametricRule`, `SourceViewBatch` and `Arc<RuleCell>`
+payloads. Extend the private exact-replay construction seal to admit this
+verified producer, preferably moving/renaming the current circuit-specific
+`ExactCircuitLoweringSeal` to a neutral exact-replay boundary shared by both
+producers. Never expose a public unchecked witness constructor or manufacture
+an old physical-frame/wave transcript just to obtain the seal.
+
+Compile guard-complement boxes with the existing unbounded `BoxCover` service.
+For runtime rule cells, split at RHS sign walls and exact coefficient-dead
+faces as needed to build the existing sector-monotone descent witnesses.
+The full unbounded cover remains the publication proof; checked machine-index
+bounds only delimit representable runtime inputs. Preserve deterministic
+first-applicable rule priority and share immutable source/certificate data
+across derived cells rather than cloning coefficient graphs for every cell.
+
+The new installer reuses generic family/context, ordering, terminal,
+zero-sector and rule-cell checks, then seals the same `ClosedArtifact`.
+Initial ownership needs no factorization dependency or minimal-master proof:
+the 38 finite parent-family corners can be explicit masters. The existing
+`reduction::Reducer` continues to specialize coefficients, descend, memoize
+and return exact typed-master decompositions. No certificate replay, source
+generation or search enters its hot path. Sector-indexed dispatch may be
+compiled once later if profiles justify it; the initial change need not add
+another application engine.
+
+### Canonical family and coefficient field
+
+For the first shipped program, prefer generation directly from Vakint's
+canonical unit-mass family. If transporting the already generated reference
+program instead, authenticate the unimodular loop routing and denominator-slot
+permutation described above, transform indices/guards/source requests/order
+together, substitute the squared mass `m=1` natively, and rerun the full cold
+proof against freshly generated canonical-family sources. Never permute only
+the RHS or leave its ordering in the old slot convention.
+
+Use the existing indexed coefficient context and native variable-map remapping
+for the canonical field, not textual symbol replacement. Reject a denominator
+that becomes zero during unit-mass specialization. Preserve generic dimension
+dependence and explicitly retain parameter-locus conditions. Attach the
+existing homogeneity proof so application restores a general common squared
+mass with `M2^(sum(master powers)-sum(target powers))`, including negative
+numerator powers. Runtime integral indices remain checked `i64` values.
+
+### Codec, files and focused acceptance
+
+Extend `artifact/persistence/mod.rs` and a cohesive
+`artifact/persistence/source_port.rs` grammar under the current owner. Bump
+`ArtifactSchemaVersion::CURRENT` from v4 to v5 and add one source-directed
+algorithm identifier; update K1/K3 assets coherently rather than retain schema
+compatibility shims. Reuse the existing bounded binary/coefficient codecs and
+canonical content identity. Serialize family/context, source recipe and
+normalization, exact weights/RHS, cases/guards, ordering, terminals and mass
+metadata. Derived caches, native reducer arenas and validation timings are not
+durable data.
+
+Cold decode reconstructs native coefficients and original sources, verifies the
+stored weighted identities and their exact domain/guard/descent/cover proofs,
+and seals once. It must not rerun modular discovery, preconditioning search,
+case solving, Janet completion or the reference executable. Invalid payloads
+fail at this boundary; ordinary Vakint evaluation loads the immutable owner
+once and never regenerates a campaign. New parser resource limits remain
+explicit, but do not repeat expensive authentication per integral.
+
+Required tests for this slice are original-row/offset/scale/weight mutation
+rejection; full-remainder cancellation and finite-boundary negative controls;
+guard and zero-census mutation; empty versus finite versus infinite cover;
+canonical routing and native context remapping; mass-one specialization poles;
+strict descent under the persisted ordering; deterministic serial/six-worker
+bytes; fresh-process encode/decode plus canary reduction; memoization and
+master-only output beyond the search encoding's compact range; nonunit-mass
+restoration; and a decoder test proving no source finder was invoked. After
+these pass, ship the asset and exact 38-key terminal catalog with Vakint and
+run the separately maintained complete acceptance matrix. Each small lowering,
+codec and application slice receives an independent audit before publication.
+
 ## Proposed bounded implementation ownership
 
 Keep new work outside `solver`'s hot path:
@@ -293,16 +556,17 @@ revision is not a replacement for comparing today's matcher.
 
 ## Acceptance and first implementation gate
 
-Before promising that the current 617 rules already form the final artifact,
-perform one complete cold certificate pass. Report independently:
+The complete cold rule-set pass now succeeds. Retain the same independent
+obligations when materializing and loading the final artifact:
 
 - original-source replay failures or additional exceptional obligations;
 - ordering/descent failures, including the explicit old-order counterexample;
 - uncovered cells after all rule guards and all 38 proposed terminals;
 - independently authenticated zero sectors and the five-class routing census.
 
-The source workload may already contain everything required, but the answer
-must come from this pass. New missing branches are actionable solver inputs,
+The current source workload passes these replay/descent/cover checks. Its
+canonical durable installation and five-class Vakint routing still need
+validation. Any newly exposed missing branches are actionable solver inputs,
 not grounds for weakening the installer.
 
 Required regressions include mutated source/seed/translation rejection,
@@ -320,6 +584,25 @@ FeynKit/RustRed path uses an invalid FORM path; separate FORM-enabled
 AlphaLoop/MATAD runs remain the authoritative development oracle. A finite
 nonminimal terminal basis may use numerical parity instead of identical raw
 master labels, with the required Laurent precision checked explicitly.
+
+The harness inventory finds 40 applicable single-common-mass
+one- through three-loop entrypoints, expanding to 46 parameter/input executions
+across the five legacy end-to-end files. These are configured inputs, not fresh
+passing tests or 46 distinct integrals. With the added variants and documented
+aliases, enabled native peers map to 25 entries / 31 executions and pending
+K6 peers map to 15 entries / 15 executions. The new enabled one-loop variant
+has not yet run. Eleven core three-loop bodies already have ignored
+RustRed counterparts (five comparative, six analytic, eight tensor-bearing).
+Four PySecDec-reference bodies duplicate existing analytic workloads and are
+explicit aliases. Four previously missing settings/input variants now have
+native peers: three pending three-loop comparative variants and the decorated
+one-loop input at five epsilon terms. Two additional pending basketball peers
+include the finite part and are not counted in the 40-entry legacy inventory.
+PySecDec itself
+stays non-gating; existing native AlphaLoop/MATAD or analytic references provide
+the comparison. The new five-class fixtures supplement, not replace, these
+reused acceptance bodies. Exclude the genuinely multi-mass two-loop input and
+the misleadingly named decorated `1l` FMFT input that actually has four loops.
 
 Profile generation, cold certification/loading and warm scalar application
 separately. Reference-workload timing is not artifact-generation timing until

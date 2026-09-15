@@ -27,6 +27,15 @@ Report actual certified-artifact and test coverage, not completion inferred
 from a source-port rule count. Independent audits and coherent intermediate
 commits/pushes remain required in both repositories.
 
+The first complete cold source-port audit now passes (2026-09-15): all 617 K6
+rules replay from the nine original IBPs and descend over their exact domains,
+with 38 finite terminals, 26 proved-zero sectors and zero uncovered regions.
+K1/K3 likewise pass, and all semantic reports agree at one/six workers.
+This is rule-set validation, not yet a serialized `ClosedArtifact` or a Vakint
+three-loop acceptance pass. The next step retains original-source weights and
+installs them through the existing artifact/reducer ownership; the parallel
+Vakint build awaits the requested decision on Spenso's removed Symbolica API.
+
 ## Active reference-port assignment (2026-09-14)
 
 The current tool-managed assignment is to port the actual C++ SpIRed
