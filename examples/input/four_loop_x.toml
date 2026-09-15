@@ -1,12 +1,10 @@
 schema = "rustred.project.toml.v1"
 
-# User-supplied four-loop, unit-mass vacuum family.  The first nine
-# denominators are the physical H parent propagators; D10 is an auxiliary ISP
-# completing the ten-dimensional four-loop vacuum scalar-product basis.  Its
-# target power is zero, but it remains part of the parametric family so that
-# generic IBP generation can shift it in either direction.
+# External four-loop vacuum input in Vakint's X-parent propagator order.
+# D1--D9 are physical propagators; D10 is an auxiliary ISP coordinate.
+# The common squared mass is one; dimensional homogeneity restores it.
 [family]
-name = "four_loop_unit_mass_vacuum_h"
+name = "four_loop_unit_mass_vacuum_x"
 loop_momenta = ["k1", "k2", "k3", "k4"]
 external_momenta = []
 dimension = "d"
@@ -37,24 +35,24 @@ expression = "(k2-k3)^2-1"
 
 [[family.denominators]]
 id = "D7"
-expression = "(-k1+k3+k4)^2-1"
+expression = "(k3-k1+k4)^2-1"
 
 [[family.denominators]]
 id = "D8"
-expression = "(-k2+k3+k4)^2-1"
+expression = "(k3-k2+k4)^2-1"
 
 [[family.denominators]]
 id = "D9"
-expression = "(k3+k4)^2-1"
+expression = "(k3-k1-k2+k4)^2-1"
 
 [[family.denominators]]
 id = "D10"
-expression = "(k1-k2)^2-1"
+expression = "(k3+k4)^2-1"
 
 [target]
 powers = [1, 1, 1, 1, 1, 1, 1, 1, 1, 0]
 numerator = "1"
 
 [metadata]
-description = "Four-loop single-scale vacuum H parent with an explicit ISP"
+description = "Four-loop single-scale vacuum X parent with an explicit ISP"
 family_role = "input-only; no topology dispatch"

@@ -1,0 +1,58 @@
+schema = "rustred.project.toml.v1"
+
+# External four-loop vacuum input in Vakint's BMW-parent propagator order.
+# D1--D8 are physical propagators; D9 and D10 are auxiliary ISP coordinates.
+# The common squared mass is one; dimensional homogeneity restores it.
+[family]
+name = "four_loop_unit_mass_vacuum_bmw"
+loop_momenta = ["k1", "k2", "k3", "k4"]
+external_momenta = []
+dimension = "d"
+
+[[family.denominators]]
+id = "D1"
+expression = "k1^2-1"
+
+[[family.denominators]]
+id = "D2"
+expression = "k2^2-1"
+
+[[family.denominators]]
+id = "D3"
+expression = "k3^2-1"
+
+[[family.denominators]]
+id = "D4"
+expression = "k4^2-1"
+
+[[family.denominators]]
+id = "D5"
+expression = "(k1-k2)^2-1"
+
+[[family.denominators]]
+id = "D6"
+expression = "(k3-k4)^2-1"
+
+[[family.denominators]]
+id = "D7"
+expression = "(k2+k3-k1)^2-1"
+
+[[family.denominators]]
+id = "D8"
+expression = "(k3-k4-k1)^2-1"
+
+[[family.denominators]]
+id = "D9"
+expression = "(k1-k3)^2-1"
+
+[[family.denominators]]
+id = "D10"
+expression = "(k2-k4)^2-1"
+
+[target]
+powers = [1, 1, 1, 1, 1, 1, 1, 1, 0, 0]
+numerator = "1"
+
+[metadata]
+description = "Four-loop single-scale vacuum BMW parent with two explicit ISPs"
+family_role = "input-only; no topology dispatch"
