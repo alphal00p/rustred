@@ -2,6 +2,29 @@
 
 ## Current assignment — four-loop delivery (2026-09-15)
 
+**Certification convergence (2026-09-16):** target a common topology-independent
+proof contract for identities, actual guarded domains, strict descent and full
+coverage. Resolve whole classes of coordinate/affine-integer obligations through
+shared exact services and compact verifiable witnesses, not topology-specific
+exceptions. Separate implementation gaps, genuine uncovered/invalid rules and
+resource exhaustion. Seek completeness for an explicitly supported domain
+language; do not claim a universally efficient terminating verifier for every
+integer-polynomial condition. Publication and cold verification must agree on
+domain semantics while independently checking untrusted data. See the
+[architecture objective and concrete FG diagnosis](docs/research/certification_convergence.md).
+
+**Research and benchmark extensions (2026-09-16):** investigate principled
+complete proof mechanisms, including semi-numerical discovery of exact witnesses,
+with a delegated deep primary-literature review and an independent adversarial
+audit of the completeness assumptions. Do not confuse probabilistic identity
+verification, algebraic specialization coverage and coverage of integer index
+domains. The complete four-parent generation benchmark must compare RustRed
+with rational-function reconstruction both disabled and enabled, serially and
+with six workers, against the unchanged SpiReD baseline. Exclude independent
+certification and report serialization separately; record failures/timeouts and
+check resulting rules, not just timings. See the
+[matched benchmark protocol](docs/four_loop_generation_comparison.md).
+
 **Parallel candidate validation (user directive, 2026-09-16):** do not wait for
 whole-family certification before testing the current four-loop candidate IBPs
 against Vakint's existing numerical acceptance cases. Run a separate explicitly
