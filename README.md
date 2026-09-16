@@ -35,21 +35,23 @@ checks pass. See the [dependency migration report](docs/vakint_symbolica3_migrat
 
 Four-loop artifacts are not yet closed or shipped. H, X, BMW and FG are
 [external unit-mass input families](examples/input/README.md), not hard-coded
-solver cases. Bounded reuse of successful native consistency checks passes
-**495 focused tests** and independent review, without raising proof limits.
-Current release evidence distinguishes whole-sector certification from later
-durable-artifact publication:
+solver cases. Bounded native consistency reuse and joint guard-coefficient
+refinement pass **553 focused tests** and independent review, without raising
+proof limits. The latest recorded release attempts distinguish whole-sector
+certification from later durable-artifact publication:
 
 | Family | Exact sector audits | Remaining publication obstruction |
 | --- | --- | --- |
 | H | **314/314**, 21,360/21,360 replayed and descending rules, zero gaps/issues | Guard-chart resource estimate while lowering H370 rule66; 338.17s whole process |
-| FG | **124/124**, 9,272/9,272 replayed and descending rules, zero gaps/issues | Guard nonvanishing proof while lowering FG114 rule66; 232.39s whole process |
+| FG | **124/124**, 9,272/9,272 replayed and descending rules, zero gaps/issues | FG114 now lowers completely; guard-chart estimate stops FG214 rule74 after 32 lowered sectors; 246.78s whole process |
 | BMW | 97/134 completed sector audits after all searches finish | Native consistency work allowance at BMW107; 439.00s whole process |
 | X | Current selected X460 still reaches the work allowance | Full search completed previously; no redundant full rerun on the same selected obstruction |
 
 The H/FG candidate systems pass all sector checks, but still do **not** produce
 a durable, cold-validated artifact. Detailed counters distinguish actual work
-limits from mathematical coverage witnesses. A local BMW CPU profile instead
+limits from mathematical coverage witnesses. The latest correction rules out
+impossible simultaneous guard-coefficient zeros using native Symbolica
+substitution; it does not drop genuine exceptional branches. A local BMW CPU profile instead
 finds exact source replay/native rational-polynomial elimination dominating
 the sampled interval; that is a separate runtime issue. The
 [guard-consistency report](docs/research/four_loop_predicate_consistency.md)

@@ -8,6 +8,8 @@ use crate::algebra::{
     IndexedGuardLimits,
 };
 
+mod joint_refinement;
+
 #[test]
 fn base_coefficient_system_is_exact_and_deterministically_ordered() {
     let base = CoefficientContext::new(["d", "x"]);

@@ -270,6 +270,24 @@ bounded work-policy changes separately if needed. No extra masters, sampled
 closure, proof bypass or numerical Vakint parity follows from these sector
 results. Evidence: `/tmp/rustred-consistency-reuse-release.kKCcQ1/`.
 
+**Joint guard-coefficient follow-up (2026-09-16):** native substitution now
+discards a candidate exceptional hyperplane if any coefficient equation
+restricts to a nonzero constant there. Nonconstant restrictions remain
+inconclusive, and exactness requires every equation to vanish on every
+surviving hyperplane. Existing full work precharges and limits remain.
+All 553 focused tests pass (five existing ignored), with independent code
+and mathematical audit. The full release FG run again passes all 124 sector
+audits and 9,272 replayed/descending rules with zero gaps or issues. It now
+lowers FG114 completely, passing the previous failure. Publication advances
+from 17 to 32 complete sectors, then FG214 rule74 hits the prospective affine
+guard-chart integer-bit bound. The process exits after 246.78s wall and writes
+no artifact. K1/K3/K6 bytes, current-core cold/reducer canaries and K6 workers
+1/2/6 determinism remain unchanged. Next capture the actual failed lowered
+guard and avoid charging chart expansion for variables not substituted,
+using authenticated fixed/pivot support and Symbolica's existing APIs.
+No four-loop closure or Vakint numerical acceptance is claimed. Evidence:
+`/tmp/rustred-joint-guard-release.QQBORj/`.
+
 **Vakint precision policy (user directive, 2026-09-16):** compare requested
 precision with the known precision of supplied master data. If the request is
 higher, emit a clear warning identifying the requested and available precision

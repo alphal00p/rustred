@@ -641,10 +641,11 @@ impl IndexedCoefficientContext {
     /// The exact univariate lane is used first. For a genuinely multivariate
     /// system, RustRed asks Symbolica to factor individual coefficient
     /// equations. One equation that decomposes completely into nonzero
-    /// constant or univariate irreducible factors and has no integer root in
-    /// the domain is enough to prove that the *simultaneous* locus is empty.
-    /// Coupled irreducible factors and every other unresolved case fail
-    /// closed and return `false`.
+    /// constant or univariate irreducible factors covers the *simultaneous*
+    /// locus by its integer-root hyperplanes. Roots outside the domain, or
+    /// hyperplanes on which another equation is a nonzero constant, cannot
+    /// contribute to that locus. Coupled irreducible factors and every other
+    /// unresolved case fail closed and return `false`.
     pub(crate) fn integer_zero_locus_misses_domain(
         &self,
         system: &BaseCoefficientSystem,
@@ -663,7 +664,9 @@ impl IndexedCoefficientContext {
     /// Symbolica performs every GCD and factorization. For a multivariate base
     /// coefficient system, one completely separable coefficient equation is
     /// enough: its root hyperplanes conservatively cover the simultaneous
-    /// zero locus. Coupled irreducible factors remain typed unsupported.
+    /// zero locus. An exact nonzero constant after restriction disproves one
+    /// such hyperplane; a merely nonzero polynomial does not. Coupled
+    /// irreducible factors remain typed unsupported.
     pub(crate) fn integer_zero_locus_domain_resolution(
         &self,
         system: &BaseCoefficientSystem,
@@ -821,8 +824,10 @@ impl IndexedCoefficientContext {
             // exceptional locus is contained in the union of these
             // hyperplanes. Cell splitting needs the converse as well: every
             // retained hyperplane must make *all* base-coefficient equations
-            // vanish identically. Without that replay the cover may strictly
-            // overapproximate a codimension-two (or coupled) locus.
+            // vanish identically. A nonzero constant restriction instead
+            // disproves that hyperplane entirely. Without either certificate,
+            // retain the hyperplane conservatively: a nonzero polynomial may
+            // still vanish on a codimension-two (or coupled) locus.
             charge_exact_hyperplane_replay(
                 system,
                 base_count,
@@ -835,27 +840,36 @@ impl IndexedCoefficientContext {
                 limits,
             )?;
             let mut every_hyperplane_is_exact = true;
-            for root in &intersections {
-                let variable_position = base_count + root.index_position;
-                let replays_all = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    system.equations.iter().all(|candidate| {
-                        candidate
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                intersections.retain(|root| {
+                    let variable_position = base_count + root.index_position;
+                    let mut hyperplane_is_exact = true;
+                    for candidate in &system.equations {
+                        let restricted = candidate
                             .index_polynomial
                             .raw()
-                            .replace(variable_position, &root.root)
-                            .is_zero()
-                    })
-                }))
-                .map_err(|_| {
-                    IndexedAlgebraError::Symbolica(
-                        "Symbolica panicked while proving an exact exceptional hyperplane"
-                            .to_owned(),
-                    )
-                })?;
-                if !replays_all {
-                    every_hyperplane_is_exact = false;
-                    break;
-                }
+                            .replace(variable_position, &root.root);
+                        if restricted.is_zero() {
+                            continue;
+                        }
+                        if restricted.is_constant() {
+                            return false;
+                        }
+                        // Continue checking the conjunction: a later equation
+                        // may still give a constant contradiction.
+                        hyperplane_is_exact = false;
+                    }
+                    every_hyperplane_is_exact &= hyperplane_is_exact;
+                    true
+                });
+            }))
+            .map_err(|_| {
+                IndexedAlgebraError::Symbolica(
+                    "Symbolica panicked while proving an exact exceptional hyperplane".to_owned(),
+                )
+            })?;
+            if intersections.is_empty() {
+                return Ok(IntegerZeroLocusDomainResolution::MissesDomain);
             }
             if every_hyperplane_is_exact {
                 return Ok(

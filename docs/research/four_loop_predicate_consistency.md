@@ -255,3 +255,66 @@ Next priorities are the actual FG guard/domain counterexample and an explicit
 bounded work policy if needed for X/BMW, without relaxing any mathematical
 or cold-load gate. More cache-key changes require evidence of missed reuse.
 Release evidence: `/tmp/rustred-consistency-reuse-release.kKCcQ1/`.
+
+## Joint coefficient-zero refinement
+
+The captured FG114 rule66 denominator is
+
+```text
+Q = (n8+3)*(d-n0) + 2*n8^2 + 5*n8 + 1.
+```
+
+To vanish identically in the generic dimensional parameter `d`, both its
+coefficient equations must vanish. The coefficient of `d` forces `n8=-3`,
+but the remaining equation is then the nonzero constant 4 for every `n0`.
+There is no common exceptional locus. This does not assert the absence of
+poles at specially chosen numerical values of `d`.
+
+The existing indexed-algebra service already factors a coefficient with
+Symbolica and replays the resulting integer-root hyperplanes against the
+complete coefficient conjunction. It now removes a hyperplane if any native
+restriction is a nonzero constant. A nonzero nonconstant restriction stays
+inconclusive, and replay continues in case a later equation supplies a
+constant contradiction. Only all-zero restrictions make a surviving
+hyperplane exact. Every surviving root remains in the returned union.
+The full root-by-equation replay remains precharged under unchanged limits;
+no algebraic primitive, root finder or topology-specific rule was introduced.
+
+Eight new regressions cover the actual denominator, mixed exact/conservative
+survivors, later contradictions, real codimension-two intersections, arbitrary
+native-integer roots and admission limits. The extended combined suite passes
+**553 tests**, zero failures, five existing ignored, with independent
+mathematical and implementation audit.
+
+The new full release run searches all 124 FG sectors in 43.628s and passes
+all **9,272/9,272 original-source replays and strict descents**, with zero
+stored/checked gaps or issues. Every sector audit completes by 220.820s.
+FG114 then lowers completely to 1,363 cells, confirming the previous actual
+publication obstruction is cleared. Thirty-two sectors lower completely
+(previously 17), before FG214 rule74/161 reaches
+`affine guard chart exceeds prospective integer-bit budget`.
+
+The process exits normally with the error code after **246.78s wall**,
+275.49s user and 10.86s system time; peak RSS is 5,120,096 KiB. It is not
+stopped by its 1,200s external timeout. No artifact is written or cold loaded.
+This later conservative resource bound is not evidence of a missing IBP.
+The exact private guard triggering it still needs capture; candidate RHS
+formulas alone cannot identify a source-weight/provenance guard.
+
+The next support-aware check should query Symbolica's native `contains()`
+against both fixed coordinates and the authenticated chart's actual pivot
+positions. If neither occurs, zero-locus restriction is a no-op and needs no
+dense expansion estimate. Such a shortcut must retain original admission,
+work and degree checks and must not itself imply guard nonvanishing. This
+next check is not implemented or validated by the present release.
+
+K1/K3/K6 artifacts and exact reductions remain unchanged, with current-core
+fresh-process loading and master-only canaries passing. K6 workers 1/2/6
+produce identical bytes. Serial generation observations are 0.06s/0.02s/2.00s
+for K1/K3/K6; these concurrent shared-host runs are not controlled speed
+comparisons or new CLI/Python benchmarks. H/X/BMW were not redundantly rerun
+for their distinct remaining obstructions.
+
+Evidence: `/tmp/rustred-joint-guard-refinement.m3uTgL/`,
+`/tmp/rustred-joint-guard-release.QQBORj/`, and the read-only chart design in
+`/tmp/rustred-chart-noop-design.lsF8sJ/DESIGN.md`.
