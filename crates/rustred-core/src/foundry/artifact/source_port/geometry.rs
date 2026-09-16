@@ -707,7 +707,7 @@ pub(super) fn sign_partition(
     sign_partition_with_limits(cell, sector, shifts, CompletionGeometryLimits::default())
 }
 
-fn sign_partition_with_limits(
+pub(super) fn sign_partition_with_limits(
     cell: &LatticeBox,
     sector: &[bool],
     shifts: &[i64],

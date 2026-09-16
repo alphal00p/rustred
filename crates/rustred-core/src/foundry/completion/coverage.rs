@@ -102,6 +102,24 @@ impl BoxCover {
         &self,
         universe: LatticeBox,
     ) -> Result<UncoveredPartition, CompletionGeometryError> {
+        self.uncovered_within_budget(
+            universe,
+            self.limits.max_uncovered_boxes,
+            self.limits.max_uncovered_box_coordinate_cells,
+            self.limits.max_split_operations,
+        )
+    }
+
+    /// Reuse an immutable cover with a caller's remaining query allowances.
+    /// Query limits may only tighten the stored policy, never raise it. Input
+    /// cover admission is still performed once by `try_new`.
+    pub(crate) fn uncovered_within_budget(
+        &self,
+        universe: LatticeBox,
+        max_boxes: usize,
+        max_coordinate_cells: usize,
+        max_split_operations: usize,
+    ) -> Result<UncoveredPartition, CompletionGeometryError> {
         if universe.arity() != self.arity {
             return Err(CompletionGeometryError::WrongArity {
                 object: "structural-cover universe",
@@ -109,8 +127,17 @@ impl BoxCover {
                 actual: universe.arity(),
             });
         }
+        let limits = CompletionGeometryLimits {
+            max_uncovered_boxes: self.limits.max_uncovered_boxes.min(max_boxes),
+            max_uncovered_box_coordinate_cells: self
+                .limits
+                .max_uncovered_box_coordinate_cells
+                .min(max_coordinate_cells),
+            max_split_operations: self.limits.max_split_operations.min(max_split_operations),
+            ..self.limits
+        };
         let mut uncovered = Vec::new();
-        reserve_box_push(&mut uncovered, self.arity, self.limits)?;
+        reserve_box_push(&mut uncovered, self.arity, limits)?;
         uncovered.push(universe);
         let mut split_operations = 0usize;
 
@@ -123,7 +150,7 @@ impl BoxCover {
                     &mut next,
                     &mut split_operations,
                     self.arity,
-                    self.limits,
+                    limits,
                 )?;
             }
             next.sort_unstable();

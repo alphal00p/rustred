@@ -54,7 +54,10 @@ Release K1/K3/K6 generation, separate certification, cold inspection and canary
 reduction reproduce the previous bytes. Full saved FG/H certification now stops
 at explicit endpoint-storage budgets (11,600/8,720 requested versus 8,192), not
 at those captured local proof failures. Retries with an explicit larger caller
-storage allowance are in progress; no four-loop certified artifact is claimed.
+storage allowance fail later: FG exceeds a guard-factor work allowance, and H
+leaves a guard-zero/domain implication unproved. Neither produces an artifact.
+Locate these exact obligations and improve domain-aware proof reuse before
+raising more global limits; no four-loop certified artifact is claimed.
 See [the implementation and release evidence](docs/research/relative_domain_certification.md).
 
 **Parallel candidate validation (user directive, 2026-09-16):** do not wait for

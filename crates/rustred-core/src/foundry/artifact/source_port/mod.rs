@@ -118,6 +118,15 @@ impl SourcePortAuditError {
         Self::Message(value.into())
     }
 
+    /// Add location to an otherwise opaque downstream diagnostic without
+    /// erasing typed resource or exceptional-domain errors.
+    fn with_message_context(self, context: impl FnOnce() -> String) -> Self {
+        match self {
+            Self::Message(detail) => Self::Message(format!("{}: {detail}", context())),
+            typed => typed,
+        }
+    }
+
     /// Return the exact affine diagnostic when this error is one.  This is a
     /// read-only inspection seam for generic campaign/reporting code; it does
     /// not imply that the current artifact bridge can consume the case.

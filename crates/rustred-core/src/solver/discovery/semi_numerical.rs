@@ -91,7 +91,16 @@ pub(super) fn materialize<const N: usize>(
             &options,
             max_primes,
         )
-        .map_err(|error| MaterializationError::SemiNumericalReconstruction(error.to_string()))?;
+        .map_err(|error| {
+            reconstruction_error(
+                error,
+                column,
+                target_column,
+                rows.len(),
+                columns.len(),
+                reconstruction_variables.len(),
+            )
+        })?;
         observe(MaterializationEvent::SemiNumericalCoefficient {
             column,
             probes: stats.probes,
@@ -124,6 +133,21 @@ pub(super) fn materialize<const N: usize>(
         output_terms: output.len(),
     });
     Ok(output)
+}
+
+/// Add bounded structural context only after the native reconstruction fails.
+/// No coefficient formatting, additional probe or retry happens on this path.
+fn reconstruction_error(
+    cause: impl std::fmt::Display,
+    column: usize,
+    target_column: usize,
+    rows: usize,
+    columns: usize,
+    active_variables: usize,
+) -> MaterializationError {
+    MaterializationError::SemiNumericalReconstruction(format!(
+        "coefficient column {column} (zero-based; target column {target_column}; frame rows={rows}, columns={columns}, active variables={active_variables}): {cause}"
+    ))
 }
 
 fn target_row_at_point<const N: usize>(
@@ -244,5 +268,69 @@ mod tests {
         assert_eq!(actual[0].integral, integral(3));
         assert!(actual[0].coefficient.is_one());
         assert!(actual.iter().any(|term| term.integral == integral(2)));
+    }
+
+    #[test]
+    fn failure_context_preserves_native_prime_budget_cause() {
+        let cause = symbolica::poly::reconstruction::ReconstructionError::PrimeLimit;
+        let expected_cause = cause.to_string();
+        let error = reconstruction_error(cause, 7, 3, 11, 19, 4);
+        let MaterializationError::SemiNumericalReconstruction(detail) = error else {
+            panic!("native reconstruction failure changed its error variant");
+        };
+        assert_eq!(
+            detail,
+            format!(
+                "coefficient column 7 (zero-based; target column 3; frame rows=11, columns=19, active variables=4): {expected_cause}"
+            )
+        );
+    }
+
+    #[test]
+    fn native_invalid_options_gain_context_without_success_events_or_retry() {
+        let context = CoefficientContext::new(["a"]);
+        let rows = vec![vec![Term {
+            integral: integral(1),
+            coefficient: context.coefficient_fixture("a"),
+        }]];
+        let columns = vec![integral(1)];
+        let order = IntegralOrder::new([true], [false]);
+        let variables =
+            FrameVariables::try_new(&rows, CoefficientVariableOrder::Original, &[]).unwrap();
+        let mut events = Vec::new();
+        // A zero degree bound is rejected by Symbolica before probing. This
+        // exercises the actual error boundary without changing native policy.
+        let error = materialize(
+            &rows,
+            &columns,
+            &order,
+            0,
+            &variables,
+            0,
+            10,
+            1,
+            2,
+            |event| events.push(event),
+        )
+        .unwrap_err();
+        let MaterializationError::SemiNumericalReconstruction(detail) = error else {
+            panic!("native reconstruction failure changed its error variant");
+        };
+        assert_eq!(
+            detail,
+            format!(
+                "coefficient column 0 (zero-based; target column 0; frame rows=1, columns=1, active variables=1): {}",
+                symbolica::poly::reconstruction::ReconstructionError::InvalidOptions
+            )
+        );
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            events[0],
+            MaterializationEvent::SemiNumericalStarted {
+                rows: 1,
+                columns: 1,
+                variables: 1,
+            }
+        ));
     }
 }

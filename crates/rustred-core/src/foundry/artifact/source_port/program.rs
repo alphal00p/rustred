@@ -192,7 +192,8 @@ impl<const N: usize> CheckedProgram<N> {
                     total,
                     elapsed: started.elapsed(),
                 });
-                rule_cells.extend(lower::lower_rule(
+                let fixed = rule.fixed;
+                let cells = lower::lower_rule(
                     &self.original_sources,
                     &generator,
                     sector.sector,
@@ -201,7 +202,16 @@ impl<const N: usize> CheckedProgram<N> {
                     &self.inherited_source_conditions,
                     rule,
                     self.limits.rule_derivation,
-                )?);
+                )
+                .map_err(|issue| {
+                    issue.with_message_context(|| {
+                        format!(
+                            "lowering sector {:?}, retained rule {ordinal}/{total} (zero-based), fixed {fixed:?}",
+                            sector.sector,
+                        )
+                    })
+                })?;
+                rule_cells.extend(cells);
             }
             for terminal in sector.terminals {
                 masters.insert(IntegralKey::try_new(terminal).map_err(error)?);

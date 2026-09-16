@@ -318,6 +318,66 @@ fn arbitrary_box_construction_and_cover_limits_fail_closed() {
 }
 
 #[test]
+fn immutable_box_cover_query_allowances_only_tighten_stored_limits() {
+    let limits = CompletionGeometryLimits {
+        max_uncovered_boxes: 1,
+        max_uncovered_box_coordinate_cells: 2,
+        max_split_operations: 1,
+        ..Default::default()
+    };
+    let cover = BoxCover::try_new(1, [lattice_box([0], [None])], limits).unwrap();
+    let pointer = cover.boxes().as_ptr();
+    for allowances in [(0, 2, 1), (1, 1, 1), (1, 2, 0)] {
+        assert!(matches!(
+            cover.uncovered_within_budget(
+                lattice_box([0], [None]),
+                allowances.0,
+                allowances.1,
+                allowances.2
+            ),
+            Err(CompletionGeometryError::ResourceLimit { .. })
+        ));
+    }
+    // A failed tightened query does not mutate the cover or its stored policy.
+    assert!(
+        cover
+            .uncovered_within_budget(lattice_box([0], [None]), 1, 2, 1)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(cover.boxes().as_ptr(), pointer);
+    for stored in [
+        CompletionGeometryLimits {
+            max_uncovered_boxes: 0,
+            ..limits
+        },
+        CompletionGeometryLimits {
+            max_uncovered_box_coordinate_cells: 1,
+            ..limits
+        },
+        CompletionGeometryLimits {
+            max_split_operations: 0,
+            ..limits
+        },
+    ] {
+        let limited = BoxCover::try_new(1, [lattice_box([0], [None])], stored).unwrap();
+        assert!(matches!(
+            limited.uncovered_within_budget(
+                lattice_box([0], [None]),
+                usize::MAX,
+                usize::MAX,
+                usize::MAX
+            ),
+            Err(CompletionGeometryError::ResourceLimit { .. })
+        ));
+    }
+    assert!(matches!(
+        cover.uncovered_within_budget(lattice_box([0, 0], [None, None]), 1, 2, 1),
+        Err(CompletionGeometryError::WrongArity { .. })
+    ));
+}
+
+#[test]
 fn a_full_arbitrary_box_cover_has_zero_cardinality() {
     let cover = BoxCover::try_new(
         3,

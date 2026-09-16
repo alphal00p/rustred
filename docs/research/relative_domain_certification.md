@@ -88,10 +88,53 @@ Both exited with status 8 and produced no certified artifact. The endpoint
 preflight counts `(3 * rhs_terms + 4) * arity * 2` storage cells; the FG count
 corresponds to a 192-term K10 rule and H to 144 terms. These are explicit
 resource-policy failures, not evidence of an invalid identity or coverage gap.
-Separate 1,200-second-bounded retries use the existing caller option
-`--max-domain-bound-endpoint-cells 32768`; defaults and coefficient limits remain
-unchanged. A completed retry will need an independent cold load under the same
-declared resource policy before any publication claim.
+Separate 1,200-second-bounded retries used the existing caller option
+`--max-domain-bound-endpoint-cells 32768`; defaults and coefficient limits were
+unchanged. Both reached further checks and failed closed without artifacts:
+
+| Candidate | Wall time | User CPU | Peak RSS (KiB) | Next failure |
+| --- | ---: | ---: | ---: | --- |
+| FG | 260.03 s | 244.24 s | 15,460,832 | Guard separable-factor work preflight requests 859,963,392 units, limit 64,000,000 |
+| H | 280.23 s | 266.15 s | 9,236,444 | Guard zero locus not proved outside the complete affine application domain |
+
+The FG result is another resource-policy failure; the H result is an unresolved
+domain implication. Neither demonstrates a missing candidate IBP, nor proves
+that every candidate is valid. These errors currently lack the offending
+retained rule's location. A follow-up diagnostic adds sector, retained ordinal
+and fixed coordinates to opaque lowering errors, without erasing typed resource
+or affine errors. The next proof investigation must reproduce that precise
+obligation, not repeatedly increase all limits. A successful future run will
+still need an independent cold load under its declared resource policy.
+
+### Isolated H282 obligation
+
+The existing release `family-close --progress` route locates H's failure at
+retained rule 53/80 (one-based display) in sector mask 282. Restricting the
+caller-supplied root to that sector, without changing the input family or any
+solver policy, reproduces the same failed guard in about one second. This is
+a diagnostic subfamily, not a replacement for the required complete campaign.
+The full H attempt took 289.61 s including regeneration; FG took 261.31 s and
+located its factor-work failure at sector 115, retained rule 83/177.
+
+The H guard, after its actual singleton `n0=-1` is substituted, is
+
+```text
+P = (2*n9-n7)*(n7+n9+1) + d*(n7-4*n9),   n7 <= -1, n9 <= -1.
+```
+
+For this polynomial to vanish identically over the coefficient field `Q(d)`,
+both coefficients must vanish. Since `n7+n9+1 <= -1`, the constant coefficient
+requires `n7=2*n9`, and the `d` coefficient requires `n7=4*n9`. Together they
+force `n7=n9=0`, outside the actual domain. This is not a proof that `P` has no
+root at any specially chosen numerical dimension; the existing coefficient-
+field guard contract is the one being checked.
+
+The conjunction service already uses native affine elimination to derive fixed
+coordinates, but currently does not compare those joint fixed consequences
+against the domain box before returning inconclusive. The next narrow fix is
+to retain that exact implication and perform the missing structural bounds
+check. Widening the box to admit `(0,0)` must remain a failing negative control.
+No topology-specific identity or new elimination algorithm is needed.
 
 Evidence directory: `/tmp/rustred-relative-domain-release.pxuNef/`.
 The release binary SHA-256 is

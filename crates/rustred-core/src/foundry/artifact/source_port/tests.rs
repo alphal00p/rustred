@@ -12,6 +12,39 @@ use super::{
 };
 
 #[test]
+fn message_location_keeps_typed_proof_errors_intact() {
+    assert_eq!(
+        SourcePortAuditError::message("guard limit")
+            .with_message_context(|| "lowering rule 7".into())
+            .to_string(),
+        "lowering rule 7: guard limit",
+    );
+    let typed = SourcePortAuditError::ResourceBudgetExhausted { resource: "atoms" }
+        .with_message_context(|| panic!("typed errors must retain their structure"));
+    assert!(matches!(
+        typed,
+        SourcePortAuditError::ResourceBudgetExhausted { resource: "atoms" }
+    ));
+}
+
+#[test]
+fn lowering_storage_failure_identifies_sector_and_retained_rule() {
+    let (audit, solution) = solved_tadpole();
+    let mut limits = super::SourcePortLimits::default();
+    limits.rule_derivation.max_domain_bound_endpoint_cells = 1;
+    let failure = audit
+        .with_limits(limits)
+        .install_complete(tadpole(), [([true], None, solution)])
+        .unwrap_err();
+    let message = failure.to_string();
+    assert!(
+        message.contains("lowering sector [true], retained rule 0/1"),
+        "{message}"
+    );
+    assert!(message.contains("domain bound endpoint cells"), "{message}");
+}
+
+#[test]
 fn affine_ownership_diagnostic_preserves_sector_and_exact_constraints() {
     let context = CoefficientContext::new(["n0", "n1"]);
     let equation = context.coefficient_fixture("n0 - n1").numerator;

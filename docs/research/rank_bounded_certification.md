@@ -13,6 +13,19 @@ requested-coverage regressions passed in the combined source-port gate:
 249 passed, zero failed, five existing ignored tests. No public rank flag,
 scoped artifact grammar, or rank-bounded closure claim is enabled by that gate.
 
+The next internal increment now provides `PreparedSuccessorScope`: destination
+box unions are admitted, copied and sorted once, then reused for exact physical
+RHS-image containment checks. All four active/inactive coordinate maps and
+sign crossings preserve genuine infinite endpoints. Query subtraction may only
+tighten the stored resource policy, with one cumulative budget across terms.
+Thirteen successor tests and a generic query-cap regression passed alongside
+the existing gate: 264 source-port tests, 15 completion tests and three native
+reconstruction tests, zero failures, five existing ignored source-port tests.
+Independent implementation and mathematical review passed. This is still a
+geometry service, not a public scoped artifact: original replay, predicate
+coverage, machine-index admission, cold persistence and entry enforcement have
+not been redirected to a rank-restricted publication path.
+
 ## Recommendation and immediate implementation
 
 Use **finite negative-index slices with unbounded positive-index rays**, and

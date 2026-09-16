@@ -13,6 +13,8 @@ use super::super::error::ArtifactError;
 // successor closure and persist/enforce the scope before exposing a rank flag.
 #[allow(dead_code)]
 pub(in crate::foundry::artifact) mod rank;
+#[allow(dead_code)]
+pub(in crate::foundry::artifact) mod successor;
 
 pub(in crate::foundry::artifact) fn root_bounds(
     root: &Mask,
