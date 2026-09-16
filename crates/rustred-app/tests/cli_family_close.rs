@@ -111,6 +111,50 @@ fn external_input_generates_artifact_for_fresh_process_inspection_and_reduction(
 }
 
 #[test]
+fn resource_flags_preserve_artifact_bytes_and_are_reapplied_for_cold_load() {
+    let baseline = success(&["family-close"], INPUT.as_bytes());
+    let flags = [
+        "--max-domain-bound-endpoint-cells",
+        "65536",
+        "--max-predicate-consistency-work",
+        "67108864",
+    ];
+    let mut command = vec!["family-close"];
+    command.extend(flags);
+    let chosen = success(&command, INPUT.as_bytes());
+    assert_eq!(chosen, baseline);
+    for prefix in [
+        vec!["campaign", "inspect", "--artifact", "-"],
+        vec!["campaign", "reduce", "--artifact", "-", "--powers", "3"],
+    ] {
+        let mut command = prefix.clone();
+        command.extend(flags);
+        let bytes = success(&command, &chosen);
+        let report: toml::Value = toml::from_str(std::str::from_utf8(&bytes).unwrap()).unwrap();
+        assert_eq!(
+            report["load_resources"]["max_domain_bound_endpoint_cells"].as_str(),
+            Some("65536")
+        );
+        assert_eq!(
+            report["load_resources"]["max_predicate_consistency_work"].as_str(),
+            Some("67108864")
+        );
+        let mut restricted = prefix;
+        restricted.extend(["--max-domain-bound-endpoint-cells", "0"]);
+        let failed = run(&restricted, &chosen);
+        assert!(!failed.status.success());
+        assert!(failed.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&failed.stderr).contains("limit 0"));
+    }
+    let failed = run(
+        &["family-close", "--max-domain-bound-endpoint-cells", "0"],
+        INPUT.as_bytes(),
+    );
+    assert!(!failed.status.success());
+    assert!(failed.stdout.is_empty());
+}
+
+#[test]
 fn existing_artifact_destination_is_preserved_before_semantic_work() {
     let directory = Directory::new();
     let path = directory.0.join("family.rr");

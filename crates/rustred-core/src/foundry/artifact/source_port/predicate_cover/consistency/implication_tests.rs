@@ -289,12 +289,53 @@ fn equivalent_predicate_partition_closes_but_a_real_missing_point_still_fails() 
     )
     .unwrap();
     assert_eq!(proof.predicates, 2);
+    for max_consistency_work in [0, 1] {
+        assert_eq!(
+            certify_predicate_cover(
+                &sector,
+                &owners(&face),
+                &[],
+                PredicateCoverLimits {
+                    max_consistency_work,
+                    ..Default::default()
+                },
+            ),
+            Err(PredicateCoverError::Budget(
+                "native affine literal consistency"
+            ))
+        );
+    }
+    assert_eq!(
+        certify_predicate_cover(
+            &sector,
+            &owners(&face),
+            &[],
+            PredicateCoverLimits {
+                max_consistency_work: 8_388_608,
+                ..Default::default()
+            },
+        )
+        .unwrap(),
+        proof
+    );
     assert!(matches!(
         certify_predicate_cover(
             &sector,
             &owners(&missing),
             &[],
             PredicateCoverLimits::default()
+        ),
+        Err(PredicateCoverError::Uncovered { .. })
+    ));
+    assert!(matches!(
+        certify_predicate_cover(
+            &sector,
+            &owners(&missing),
+            &[],
+            PredicateCoverLimits {
+                max_consistency_work: 8_388_608,
+                ..Default::default()
+            },
         ),
         Err(PredicateCoverError::Uncovered { .. })
     ));

@@ -149,6 +149,7 @@ fn two_loop_generation_and_application_surfaces_publish_the_closed_sunset() {
     assert_eq!(rendered_rule_sizes, [5, 4, 3, 2, 1]);
 
     let reduction = closing_artifact_reduce(ClosingArtifactReduceRequest {
+        load_limits: Default::default(),
         artifact: generated.artifact().to_vec(),
         target_powers: vec![2, 2, 1],
         max_rule_applications: MAX_CLOSING_RULE_APPLICATIONS,
@@ -204,6 +205,7 @@ fn generation_is_deterministic_and_owns_durable_bytes() {
 fn inspection_authenticates_supplied_durable_bytes() {
     let generated = generate_artifact();
     let inspected = closing_artifact_inspect(ClosingArtifactInspectRequest {
+        load_limits: Default::default(),
         artifact: generated.artifact().to_vec(),
     })
     .expect("inspect durable one-loop closure");
@@ -223,6 +225,7 @@ fn inspection_authenticates_supplied_durable_bytes() {
     assert!(inspected.to_toml().contains("schema_version = 5"));
 
     let invalid = closing_artifact_inspect(ClosingArtifactInspectRequest {
+        load_limits: Default::default(),
         artifact: b"not a RustRed artifact".to_vec(),
     })
     .unwrap_err();
@@ -234,18 +237,21 @@ fn inspection_authenticates_supplied_durable_bytes() {
 fn durable_schema_and_load_resource_failures_keep_typed_categories() {
     let artifact = generate_artifact().into_artifact();
     let previous_schema = closing_artifact_inspect(ClosingArtifactInspectRequest {
+        load_limits: Default::default(),
         artifact: with_durable_schema(&artifact, 4),
     })
     .unwrap_err();
     assert_eq!(previous_schema.kind(), AppErrorKind::Schema);
     assert!(previous_schema.message().contains("schema version 4"));
     let unsupported_schema = closing_artifact_inspect(ClosingArtifactInspectRequest {
+        load_limits: Default::default(),
         artifact: with_durable_schema(&artifact, 3),
     })
     .unwrap_err();
     assert_eq!(unsupported_schema.kind(), AppErrorKind::Schema);
     assert!(unsupported_schema.message().contains("schema version 3"));
     let obsolete_schema = closing_artifact_inspect(ClosingArtifactInspectRequest {
+        load_limits: Default::default(),
         artifact: with_durable_schema(&artifact, 2),
     })
     .unwrap_err();
@@ -253,6 +259,7 @@ fn durable_schema_and_load_resource_failures_keep_typed_categories() {
     assert!(obsolete_schema.message().contains("schema version 2"));
 
     let excessive_arity = closing_artifact_inspect(ClosingArtifactInspectRequest {
+        load_limits: Default::default(),
         artifact: with_durable_arity(&artifact, u64::MAX),
     })
     .unwrap_err();
@@ -264,6 +271,7 @@ fn durable_schema_and_load_resource_failures_keep_typed_categories() {
 fn reduction_exposes_exact_typed_masters_and_common_mass_homogeneity() {
     let artifact = generate_artifact().into_artifact();
     let result = closing_artifact_reduce(ClosingArtifactReduceRequest {
+        load_limits: Default::default(),
         artifact: artifact.clone(),
         target_powers: vec![3],
         max_rule_applications: MAX_CLOSING_RULE_APPLICATIONS,
@@ -296,6 +304,7 @@ fn reduction_exposes_exact_typed_masters_and_common_mass_homogeneity() {
     );
 
     let zero = closing_artifact_reduce(ClosingArtifactReduceRequest {
+        load_limits: Default::default(),
         artifact,
         target_powers: vec![0],
         max_rule_applications: MAX_CLOSING_RULE_APPLICATIONS,
@@ -308,6 +317,7 @@ fn reduction_exposes_exact_typed_masters_and_common_mass_homogeneity() {
 fn application_rejects_wrong_arity_and_enforces_resource_limits() {
     let artifact = generate_artifact().into_artifact();
     let wrong_arity = closing_artifact_reduce(ClosingArtifactReduceRequest {
+        load_limits: Default::default(),
         artifact: artifact.clone(),
         target_powers: vec![2, 1],
         max_rule_applications: MAX_CLOSING_RULE_APPLICATIONS,
@@ -317,6 +327,7 @@ fn application_rejects_wrong_arity_and_enforces_resource_limits() {
     assert!(wrong_arity.message().contains("arity 1"));
 
     let excessive_limit = closing_artifact_reduce(ClosingArtifactReduceRequest {
+        load_limits: Default::default(),
         artifact: artifact.clone(),
         target_powers: vec![1],
         max_rule_applications: MAX_CLOSING_RULE_APPLICATIONS + 1,
@@ -325,6 +336,7 @@ fn application_rejects_wrong_arity_and_enforces_resource_limits() {
     assert_eq!(excessive_limit.kind(), AppErrorKind::Limit);
 
     let exhausted = closing_artifact_reduce(ClosingArtifactReduceRequest {
+        load_limits: Default::default(),
         artifact,
         target_powers: vec![3],
         max_rule_applications: 1,
@@ -343,6 +355,7 @@ fn campaign_cli_bytes_match_the_application_surfaces() {
     );
 
     let inspected = closing_artifact_inspect(ClosingArtifactInspectRequest {
+        load_limits: Default::default(),
         artifact: generated.artifact().to_vec(),
     })
     .unwrap();
@@ -355,6 +368,7 @@ fn campaign_cli_bytes_match_the_application_surfaces() {
     );
 
     let reduced = closing_artifact_reduce(ClosingArtifactReduceRequest {
+        load_limits: Default::default(),
         artifact: generated.artifact().to_vec(),
         target_powers: vec![3],
         max_rule_applications: MAX_CLOSING_RULE_APPLICATIONS,
@@ -412,6 +426,7 @@ fn campaign_cli_round_trips_artifact_and_toml_files_atomically() {
     assert!(inspect_output.status.success());
     assert!(inspect_output.stdout.is_empty());
     let expected_inspection = closing_artifact_inspect(ClosingArtifactInspectRequest {
+        load_limits: Default::default(),
         artifact: generated.artifact().to_vec(),
     })
     .unwrap();

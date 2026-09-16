@@ -313,6 +313,39 @@ their own load limits. Evidence: `/tmp/rustred-chart-support-release.FT3gS3/`
 and the [guard-consistency report](docs/research/four_loop_predicate_consistency.md).
 No four-loop artifact or numerical Vakint acceptance is claimed.
 
+**Explicit resource-policy follow-up (2026-09-16):** caller-selected endpoint
+and predicate-consistency allowances now propagate through producer audits,
+lowering, installation and independent cold loading. Rust, CLI and Python
+surfaces expose the same settings; defaults remain unchanged, zero is restrictive,
+and artifact bytes cannot authorize their own proof budget. The independently
+audited core gate passes 606 tests, zero failures and 16 existing ignored.
+The rebuilt frontend gates pass 134 Rust tests and all 29 public Python API
+tests; setup/stale-example failures and their corrected reruns are recorded
+separately in the research report.
+Current release CLI K1/K3/K6 generation, fresh-process loading and exact canaries
+pass, with unchanged bytes and K6 worker1/2/6 determinism.
+
+Complete public release CLI attempts selected 65,536 endpoint-storage cells
+and 67,108,864 consistency-work units. H, FG and BMW pass every sector audit:
+314/21,360, 124/9,272 and 134/9,024 sectors/rules respectively. They lower
+66, 41 and 31 complete sectors, then encounter distinct guard proof-service
+limitations. H/FG repeat a weaker coordinate guard check after stronger private
+original-domain proof; BMW's captured guard zero locus lies in an already
+retained exclusion, but the verifier has not proved that implication. X passes
+65 sector audits, then reports an abstract complement at X394; an exact linear
+combination and its box bounds prove this first branch empty. These findings
+do not imply later branches or all remaining publication obligations are solved.
+Whole-process times are H318.00s, FG232.45s, BMW485.26s and X340.06s on a shared
+host, not controlled performance ratios. All exit without an artifact.
+
+Next reuse the existing private full-domain guard seal for coordinate cells,
+without changing public/unsealed constructors; pursue bounded existing native
+consistency refinement for X and native polynomial-ideal proof for BMW. Each
+requires independent code/mathematical audit and another release full-family
+attempt. Never hard-code the captured identities, relax guards or create masters
+from abstract complements. Evidence: `/tmp/rustred-publication-policy-release.4PE5dn/`
+and the [guard-consistency report](docs/research/four_loop_predicate_consistency.md).
+
 **Vakint precision policy (user directive, 2026-09-16):** compare requested
 precision with the known precision of supplied master data. If the request is
 higher, emit a clear warning identifying the requested and available precision

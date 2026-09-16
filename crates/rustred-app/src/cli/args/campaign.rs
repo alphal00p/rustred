@@ -7,8 +7,8 @@ use crate::{ClosingFamilySelector, InputFormat};
 use super::{
     ArgError, CampaignGenerateArgs, CampaignInspectArgs, CampaignPlanArgs, CampaignPreflightArgs,
     CampaignReduceArgs, ColorPolicy, Command, FoundryCampaignRunArgs, FoundryWaveCampaignRunArgs,
-    StreamPath, next_utf8_value, next_value, parse_nonnegative_integer, parse_positive_integer,
-    reject_trailing, set_once,
+    ResourceLimitsArgs, StreamPath, next_utf8_value, next_value, parse_nonnegative_integer,
+    parse_positive_integer, reject_trailing, set_once,
 };
 
 pub(super) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -328,6 +328,7 @@ fn parse_generate(arguments: impl Iterator<Item = OsString>) -> Result<Command, 
 
 fn parse_inspect(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
     let mut artifact = None;
+    let mut resources = ResourceLimitsArgs::default();
     let mut output = None;
     let mut force = false;
     let mut help = false;
@@ -349,6 +350,7 @@ fn parse_inspect(arguments: impl Iterator<Item = OsString>) -> Result<Command, A
                 "--output",
                 StreamPath::parse(next_value(&mut arguments, "--output")?)?,
             )?,
+            _ if resources.parse_option(&option, &mut arguments)? => {}
             _ if option.starts_with('-') => return Err(ArgError::UnknownOption(option)),
             _ => return Err(ArgError::UnexpectedArgument(option)),
         }
@@ -358,6 +360,7 @@ fn parse_inspect(arguments: impl Iterator<Item = OsString>) -> Result<Command, A
     }
     Ok(Command::CampaignInspect(CampaignInspectArgs {
         artifact: artifact.ok_or(ArgError::MissingRequiredOption("--artifact"))?,
+        resources,
         output: output.unwrap_or(StreamPath::Stdio),
         force,
     }))
@@ -365,6 +368,7 @@ fn parse_inspect(arguments: impl Iterator<Item = OsString>) -> Result<Command, A
 
 fn parse_reduce(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
     let mut artifact = None;
+    let mut resources = ResourceLimitsArgs::default();
     let mut powers = None;
     let mut max_rule_applications = None;
     let mut output = None;
@@ -406,6 +410,7 @@ fn parse_reduce(arguments: impl Iterator<Item = OsString>) -> Result<Command, Ar
                 "--output",
                 StreamPath::parse(next_value(&mut arguments, "--output")?)?,
             )?,
+            _ if resources.parse_option(&option, &mut arguments)? => {}
             _ if option.starts_with('-') => return Err(ArgError::UnknownOption(option)),
             _ => return Err(ArgError::UnexpectedArgument(option)),
         }
@@ -415,6 +420,7 @@ fn parse_reduce(arguments: impl Iterator<Item = OsString>) -> Result<Command, Ar
     }
     Ok(Command::CampaignReduce(CampaignReduceArgs {
         artifact: artifact.ok_or(ArgError::MissingRequiredOption("--artifact"))?,
+        resources,
         target_powers: powers.ok_or(ArgError::MissingRequiredOption("--powers"))?,
         max_rule_applications: max_rule_applications
             .unwrap_or(crate::MAX_CLOSING_RULE_APPLICATIONS),

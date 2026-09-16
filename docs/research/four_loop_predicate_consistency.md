@@ -406,3 +406,126 @@ current-core fresh-process validation and master-only application; K6 workers
 observations, not controlled speed ratios. CLI/Python frontends were not
 rebuilt for this internal verifier slice. BMW/X were not redundantly rerun
 for their separate unchanged native-consistency budget obstruction.
+
+## Explicit resource-policy release (2026-09-16)
+
+`SourcePortLimits` now carries caller-owned rule-derivation and consistency
+allowances through both sector covers, retained programs, lowering and final
+installation. Cold loading independently selects `ArtifactLoadLimits`; no
+resource setting is encoded into artifact authority or mathematical identity.
+The defaults remain 8,192 endpoint-storage cells and 4,194,304 consistency-work
+units. Zero is restrictive, not an unlimited sentinel. A single consistency
+budget is shared by all boxes/branches in each whole traversal; native matrix,
+term, cache and other local bounds remain unchanged.
+
+The Rust application, generic CLI and public Python API expose both settings
+for generation and loading. Output reports record selected settings as decimal
+strings without narrowing `usize` to TOML's signed range. Report schemas become
+family-close v3, inspect v3 and reduce v2; durable artifact encoding is unchanged.
+Consistency exhaustion has typed errors. Existing endpoint failure taxonomy
+is unchanged. Raising either allowance authorizes additional exact proof work,
+never a weaker proof or self-authorizing artifact.
+
+Independent code and mathematical audits pass. The core gate passes **606
+tests**, zero failed and 16 existing ignored. Eleven frontend test targets
+pass 132 tests. A twelfth target initially fails one stale assertion requiring
+the obsolete specialized K6 example generator; its test-only correction checks
+the actual generic `family-close`/external-input contract and passes 2/2 after
+rebuilding. Original failure evidence is retained. No production behavior was
+changed to satisfy that obsolete assertion.
+
+The rebuilt local release wheel passes all **29 public Python API tests**
+against the rebuilt CLI, with zero skips, in 46.830s (46.98s process wall).
+The first wheel run passed 28 tests and failed a worker-width test because the
+harness restricted the process to two CPUs while requesting four. The unchanged
+test/wheel suite passes with four-CPU affinity; both sets of logs are retained.
+Combined current frontend gates are 134 Rust tests and 29 Python tests passing.
+
+Full release public CLI runs use the unchanged external physical parent inputs,
+two workers, endpoint allowance 65,536, consistency allowance 67,108,864, and
+a 1,800-second wall bound. All finish with exit 8 before that bound:
+
+| Family | Sector audits | Fully lowered sectors | Wall / user / system seconds | Peak RSS KiB | Obstruction |
+| --- | --- | ---: | --- | ---: | --- |
+| H | 314 passing; 21,360 replayed/descending rules | 66 | 318.00 / 356.27 / 15.75 | 8,846,224 | H282 displayed rule51: weaker coordinate guard recheck |
+| FG | 124 passing; 9,272 replayed/descending rules | 41 | 232.45 / 258.72 / 7.18 | 6,715,388 | FG158 displayed rule58: same recheck |
+| BMW | 134 passing; 9,024 replayed/descending rules | 31 | 485.26 / 535.01 / 7.65 | 4,656,532 | BMW230 displayed rule49: guard/exclusion implication |
+| X | 65 passing, then first abstract complement in the 66th audit | 0 | 340.06 / 465.19 / 5.40 | 951,324 | X394 abstract assignment is inconsistent |
+
+All H/FG/BMW sector audits have zero reported gaps/issues. X searches all
+328 sectors (19,980 rules, 445 finite residual candidates), then stops during
+the 66th audit; its 4,409 replayed/descending rules include that stopping sector.
+These counts do not establish publication or terminal authority. No four-loop
+artifact is written. These are shared-host observations with verbose progress
+and proof diagnostics, not controlled comparisons against earlier drivers or
+SpIReD. Compilation was separate: core release 3m36, frontend release 8m20.
+
+### Coordinate replay seal: next narrow correction
+
+H/FG's exact original-domain service already proves every guard on the actual
+application piece, then replays original sources and proves strict descent.
+Its private sealed record binds those guards, origins, RHS, source owner and
+domain. No later step introduces a new denominator or widens the application.
+However, the private `RuleCell` constructor consumes that guard proof only for
+affine cases; coordinate cases repeat an older weaker bounds-only check.
+Independent tracing finds this duplicate check causes the observed failures.
+The proposed correction consumes the same private proof for coordinate cells,
+retaining all public/unsealed checks and fresh cold reconstruction. It remains
+a separate implementation/test/release gate, not part of these timings.
+
+### BMW: a retained exclusion already contains the guard zero locus
+
+The captured polynomial is `Q=C0+d*C1`, with `a=n3`, `b=n4`, `c=n9`:
+
+```text
+C0 = -3+2c+c^2+4b+2bc-8a-2ac+2ab-3a^2
+C1 = 1-c-2b+3a
+C0 + (a+c+2)*C1 = c-a-1
+```
+
+Generic-d vanishing requires both coefficient equations. Their exact identity
+implies `a=c-1`, then `b=c-1`. The retained target `2n0-a-c-1=0` gives `n0=c`,
+exactly the second retained exclusion. This particular obstruction is a missing
+proof capability, not a missing IBP. The generic sufficient proof candidate is
+native Symbolica ideal membership of exclusion equations in the ideal generated
+by guard coefficients and target equations. Symbolica already provides native
+Gröbner bases/reduction; RustRed must not implement polynomial elimination.
+Resource safety and exact admission require a separate audit before integration.
+Further API review identifies an even narrower reuse path: the existing
+`Case::intersect_many` first absorbs affine equations, restricts remaining
+polynomials through its native chart, and repeats. For this guard, affine `C1`
+already turns `C0` into an affine condition; native F4 need not be invoked.
+The cold verifier needs runtime-arity reuse of that policy, not a topology- or
+arity-specific dispatcher.
+
+### X: exact finite refinement, not sampling
+
+The first abstract branch imposes `A0=-1-n6+n0=0` and
+`A1=-4-4n6-n4+2n2=0`. It also has `n0<=-2`, `n4<=0`, `-1<=n2<=0`.
+But `A1-4*A0=-4*n0-n4+2*n2` is at least six on that box, a contradiction.
+
+An equivalent proof reuses narrower existing services: exhaust the two integer
+faces `n2=0` and `n2=-1`, leaving every other axis unbounded as before. `A1=0`
+implies that two atoms assigned nonzero, `4+4n6+n4` and `6+4n6+n4`, equal
+`2n2` and `2n2+2` respectively. Each face therefore contradicts one false atom.
+Existing native rank implication suffices after exact singleton specialization.
+The existing bounded finite-axis geometry policy can guide this refinement;
+all children must share the traversal work budget. This is exhaustive integer
+partitioning, not sampled coverage. Only the first reported branch is analyzed.
+
+### Regressions and evidence
+
+Current release public CLI K1/K3/K6 generation, fresh-process inspection and
+canary reduction pass. Artifacts are byte-identical to the prior baseline;
+complete reduction reports agree exactly after removing only the report schema
+tag and newly declared load-resource fields. K6 high-resource runs at one, two
+and six configured workers also produce identical bytes. Those worker tests
+used a two-CPU affinity and are determinism tests, not six-core timing claims.
+The first shell harness attempt failed `taskset` argument parsing before RustRed
+started; corrected retry logs are separate and preserved.
+
+Evidence: `/tmp/rustred-publication-policy-release.4PE5dn/`, including
+`controls.hYiJg2/`; independent audit:
+`/tmp/rustred-resource-policy-audit.U77NS9/AUDIT.md`.
+Public CLI SHA-256:
+`800fa4c2bbd01b7b7e12eddc3622735a8a53410dd05019e080f3e7db49bb91b9`.

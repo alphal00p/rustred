@@ -18,7 +18,7 @@ use super::certificate::{OriginalRowNormalization, OriginalSourceReplay};
 use super::normalization::OriginalSourceCorpus;
 use super::{
     AffineApplicationDomain, SourcePortAudit, SourcePortAuditError, SourcePortInstallEvent,
-    SourcePortSectorAudit, error,
+    SourcePortLimits, SourcePortSectorAudit, error,
 };
 
 #[path = "lower/mod.rs"]
@@ -152,6 +152,7 @@ pub(super) struct CheckedProgram<const N: usize> {
     inherited_source_conditions: Vec<CoefficientPolynomial>,
     ordering: OrderingPolicy,
     sectors: BTreeMap<[bool; N], CheckedSector<N>>,
+    limits: SourcePortLimits,
 }
 
 impl<const N: usize> CheckedProgram<N> {
@@ -166,7 +167,7 @@ impl<const N: usize> CheckedProgram<N> {
         observe: &mut dyn FnMut(SourcePortInstallEvent<'_, N>),
     ) -> Result<super::super::ClosedArtifact, SourcePortAuditError> {
         use super::super::install::{
-            ClosingArtifactCandidate, SOURCE_PORT_ALGORITHM_ID, install_source_port,
+            ClosingArtifactCandidate, SOURCE_PORT_ALGORITHM_ID, install_source_port_with_limits,
         };
         use super::super::model::{
             ArtifactSchemaVersion, CommonMassHomogeneityProof, ZeroSectorTerminal,
@@ -199,6 +200,7 @@ impl<const N: usize> CheckedProgram<N> {
                     &self.zero_sectors,
                     &self.inherited_source_conditions,
                     rule,
+                    self.limits.rule_derivation,
                 )?);
             }
             for terminal in sector.terminals {
@@ -246,7 +248,17 @@ impl<const N: usize> CheckedProgram<N> {
             terminals: candidate.masters.len(),
             elapsed: started.elapsed(),
         });
-        let artifact = install_source_port(candidate).map_err(error)?;
+        let artifact = install_source_port_with_limits(
+            candidate,
+            Default::default(),
+            self.limits.max_predicate_consistency_work,
+        )
+        .map_err(|issue| match issue {
+            super::super::ArtifactError::ResourceBudgetExhausted { resource } => {
+                SourcePortAuditError::ResourceBudgetExhausted { resource }
+            }
+            other => error(other),
+        })?;
         observe(SourcePortInstallEvent::Installed {
             elapsed: started.elapsed(),
         });
@@ -377,6 +389,7 @@ impl<const N: usize> SourcePortAudit<N> {
             inherited_source_conditions,
             ordering: ordering.unwrap_or(OrderingPolicy::SpiredUncutV1),
             sectors: retained,
+            limits: self.limits,
         })
     }
 }
@@ -425,6 +438,7 @@ pub(super) fn lower_sector_for_test<const N: usize>(
             &audit.zero_sectors,
             audit.sources.conditions(),
             rule,
+            audit.limits.rule_derivation,
         )
         .map_err(|issue| error(format!("rule {ordinal} lowering: {issue}")))?;
         count += cells.len();

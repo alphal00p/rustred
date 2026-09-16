@@ -15,6 +15,7 @@ pub(crate) mod memory;
 mod model;
 mod options;
 mod producer;
+mod resource_policy;
 
 pub use error::{AppError, AppErrorKind};
 pub use family_close::{
@@ -26,6 +27,7 @@ pub use options::{
     ClosingFamilySelector, InputFormat, ParseClosingFamilySelectorError, ParseInputFormatError,
     ParseRelationSelectionError, RelationSelection,
 };
+pub use rustred::foundry::artifact::{ArtifactLoadLimits, SourcePortLimits};
 pub use rustred::foundry::campaign::{
     FoundryCampaignCensus, FoundryCampaignCoverageObstruction, FoundryCampaignCoverageStatus,
     FoundryCampaignNeedsRefinementReason, FoundryCampaignOperationalLimit, FoundryCampaignProgress,
@@ -111,12 +113,15 @@ impl ClosingArtifactGenerateRequest {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClosingArtifactInspectRequest {
     pub artifact: Vec<u8>,
+    /// Caller-owned authentication policy; never obtained from artifact bytes.
+    pub load_limits: ArtifactLoadLimits,
 }
 
 impl ClosingArtifactInspectRequest {
     pub fn new(artifact: impl Into<Vec<u8>>) -> Self {
         Self {
             artifact: artifact.into(),
+            load_limits: ArtifactLoadLimits::default(),
         }
     }
 }
@@ -124,6 +129,8 @@ impl ClosingArtifactInspectRequest {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClosingArtifactReduceRequest {
     pub artifact: Vec<u8>,
+    /// Caller-owned authentication policy, independent of reduction limits.
+    pub load_limits: ArtifactLoadLimits,
     pub target_powers: Vec<i64>,
     pub max_rule_applications: usize,
 }
@@ -132,6 +139,7 @@ impl ClosingArtifactReduceRequest {
     pub fn new(artifact: impl Into<Vec<u8>>, target_powers: impl Into<Vec<i64>>) -> Self {
         Self {
             artifact: artifact.into(),
+            load_limits: ArtifactLoadLimits::default(),
             target_powers: target_powers.into(),
             max_rule_applications: MAX_CLOSING_RULE_APPLICATIONS,
         }

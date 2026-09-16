@@ -13,6 +13,7 @@ use symbolica::prelude::AtomCore;
 use super::error::AppError;
 use super::options::ClosingFamilySelector;
 use super::producer::ProducerOutputV1;
+use super::resource_policy::ResourcePolicyOutput;
 use super::{
     ClosingArtifactGenerateRequest, ClosingArtifactGenerateResult, ClosingArtifactInspectRequest,
     ClosingArtifactInspectResult, ClosingArtifactReduceRequest, ClosingArtifactReduceResult,
@@ -21,14 +22,14 @@ use super::{
 use error_mapping::{map_artifact_encoding_error, map_artifact_load_error, map_reduction_error};
 use model::{
     ArtifactPayloadOutputV1, ArtifactSummaryOutputV2, ClosingRuleOutputV1, GenerateOutputV2,
-    InspectOutputV2, IntegralKeyOutputV1, LifecycleOutputV1, ReduceOutputV1,
+    InspectOutputV3, IntegralKeyOutputV1, LifecycleOutputV1, ReduceOutputV2,
     ReductionStatisticsOutputV1, ReductionTermOutputV1, RelationTermOutputV1, RuleTermOutputV1,
     SourceRelationOutputV1, ValidationOutputV1, ZeroTerminalOutputV1,
 };
 
 pub(super) const GENERATE_SCHEMA: &str = "rustred.closing-artifact-generate-output.toml.v2";
-pub(super) const INSPECT_SCHEMA: &str = "rustred.closing-artifact-inspect-output.toml.v2";
-pub(super) const REDUCE_SCHEMA: &str = "rustred.closing-artifact-reduce-output.toml.v1";
+pub(super) const INSPECT_SCHEMA: &str = "rustred.closing-artifact-inspect-output.toml.v3";
+pub(super) const REDUCE_SCHEMA: &str = "rustred.closing-artifact-reduce-output.toml.v2";
 
 const GENERATED_STATUS: &str = "generated-durable";
 const INSPECTED_STATUS: &str = "inspected";
@@ -170,8 +171,8 @@ pub(super) fn generate_request(
 pub(super) fn inspect_request(
     request: ClosingArtifactInspectRequest,
 ) -> Result<ClosingArtifactInspectResult, AppError> {
-    let artifact = decode_artifact(&request.artifact)?;
-    let output = InspectOutputV2 {
+    let artifact = decode_artifact(&request.artifact, request.load_limits)?;
+    let output = InspectOutputV3 {
         schema: INSPECT_SCHEMA,
         status: INSPECTED_STATUS,
         producer: ProducerOutputV1::current(),
@@ -180,6 +181,13 @@ pub(super) fn inspect_request(
         lifecycle: lifecycle(),
         artifact: artifact_summary(&artifact),
         validation: validation_output(&artifact),
+        load_resources: ResourcePolicyOutput::new(
+            request
+                .load_limits
+                .rule_derivation
+                .max_domain_bound_endpoint_cells,
+            request.load_limits.max_predicate_consistency_work,
+        ),
     };
     let canonical_toml = render::serialize(&output)?;
     Ok(ClosingArtifactInspectResult::new(
@@ -199,7 +207,7 @@ pub(super) fn reduce_request(
             super::MAX_CLOSING_RULE_APPLICATIONS
         )));
     }
-    let artifact = decode_artifact(&request.artifact)?;
+    let artifact = decode_artifact(&request.artifact, request.load_limits)?;
     let target = IntegralKey::try_new(request.target_powers.iter().copied())
         .map_err(|error| AppError::input(format!("invalid reduction target: {error}")))?;
     if target.powers().len() != artifact.arity() {
@@ -250,7 +258,7 @@ pub(super) fn reduce_request(
         public_terms.push(term);
     }
     let family_fingerprint = decomposition.family_fingerprint().to_owned();
-    let output = ReduceOutputV1 {
+    let output = ReduceOutputV2 {
         schema: REDUCE_SCHEMA,
         status: REDUCED_STATUS,
         producer: ProducerOutputV1::current(),
@@ -269,6 +277,13 @@ pub(super) fn reduce_request(
             cached_coefficient_bytes: statistics.cached_coefficient_bytes(),
         },
         terms: output_terms,
+        load_resources: ResourcePolicyOutput::new(
+            request
+                .load_limits
+                .rule_derivation
+                .max_domain_bound_endpoint_cells,
+            request.load_limits.max_predicate_consistency_work,
+        ),
     };
     let canonical_toml = render::serialize(&output)?;
     Ok(ClosingArtifactReduceResult::new(
@@ -289,7 +304,10 @@ fn generate_family(selector: ClosingFamilySelector) -> Result<ClosedArtifact, Ap
     .map_err(|error| AppError::derivation(format!("cannot generate closing artifact: {error}")))
 }
 
-fn decode_artifact(bytes: &[u8]) -> Result<ClosedArtifact, AppError> {
+fn decode_artifact(
+    bytes: &[u8],
+    mut limits: ArtifactLoadLimits,
+) -> Result<ClosedArtifact, AppError> {
     if bytes.len() > super::MAX_CLOSING_ARTIFACT_BYTES {
         return Err(AppError::limit(format!(
             "closing artifact has {} bytes, exceeding the application ceiling {}",
@@ -297,11 +315,10 @@ fn decode_artifact(bytes: &[u8]) -> Result<ClosedArtifact, AppError> {
             super::MAX_CLOSING_ARTIFACT_BYTES
         )));
     }
-    debug_assert_eq!(
-        ArtifactLoadLimits::default().max_artifact_bytes,
-        super::MAX_CLOSING_ARTIFACT_BYTES
-    );
-    ClosedArtifact::decode_durable(bytes).map_err(map_artifact_load_error)
+    limits.max_artifact_bytes = limits
+        .max_artifact_bytes
+        .min(super::MAX_CLOSING_ARTIFACT_BYTES);
+    ClosedArtifact::decode_durable_with_limits(bytes, limits).map_err(map_artifact_load_error)
 }
 
 fn lifecycle() -> LifecycleOutputV1 {

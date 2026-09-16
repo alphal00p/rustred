@@ -643,9 +643,10 @@ rustred campaign reduce \
 
 `campaign generate` writes the deterministic binary artifact itself, not a
 TOML proxy. The semantic family selectors are `unit-mass-vacuum-k1` and
-`unit-mass-vacuum-k3`. There is no preset K6 selector: K6 bytes can originate
-only from a completely published `campaign run-waves` result, and the current
-bounded example campaigns do not close K6.
+`unit-mass-vacuum-k3`. There is no preset K6 selector: use the generic
+`family-close` command with `examples/input/three_loop_k6.toml` to generate
+the closed K6 artifact from its ordinary IBPs. The CLI and Python K6 examples
+include fresh-process inspection and canary application.
 `campaign inspect` and `campaign reduce` require artifact bytes from a path or
 from `--artifact -`; neither substitutes a hidden preset for those bytes. The
 `K = 3` untrusted-load boundary cold-regenerates its registered derivation once
@@ -663,9 +664,9 @@ rustred campaign generate --family unit-mass-vacuum-k1 \
 ```
 
 Inspection emits schema
-`rustred.closing-artifact-inspect-output.toml.v2` after one bounded decode,
+`rustred.closing-artifact-inspect-output.toml.v3` after one bounded decode,
 authentication, and exact replay. Reduction emits schema
-`rustred.closing-artifact-reduce-output.toml.v1`, exact Symbolica-canonical
+`rustred.closing-artifact-reduce-output.toml.v2`, exact Symbolica-canonical
 unit-mass coefficients keyed by master power vectors, and a separate decimal
 string `common_mass_squared_power`. For `--powers 3`, the only master is `[1]`,
 the coefficient is
@@ -678,6 +679,24 @@ then by the core codec's structural, string, coefficient, arity, and exact-
 algebra limits. Successful decoding produces one sealed owner; recursive hot-
 path application does not repeat cold authentication.
 
+`family-close`, `campaign inspect` and `campaign reduce` accept two matching
+resource controls:
+
+- `--max-domain-bound-endpoint-cells N`: conservative per-rule endpoint-buffer
+  allowance, default 8,192.
+- `--max-predicate-consistency-work N`: aggregate native consistency work per
+  exact predicate-cover traversal, default 4,194,304. It is not reset on each
+  Boolean branch or cache miss.
+
+Zero is a restrictive allowance, not an unlimited setting. Larger allowances
+permit more verification work or storage; they do not remove a guard, skip a
+proof or authorize a new master. Choose sufficient limits explicitly for both
+generation and subsequent untrusted loading. They are caller policy, not
+trusted artifact contents, and successful choices do not change durable bytes.
+The existing input/output byte ceiling and other structural limits remain.
+Reports record chosen resource counts as decimal strings so every supported
+`usize` value is representable in TOML.
+
 The core library contains a host-independent pre-pool effective-width planner,
 checked resource values, bounded ordered execution, and the K6-specific
 single-sector and atomic-wave foundry drivers. Roots-only family/sector/job
@@ -688,9 +707,10 @@ without constructing a pool. The roots-only CLI remains separate; the resource
 preflight exposes only the pure decision from an explicit profile. Named-host
 calibration, task-specific estimator adapters, generic multi-family campaign
 execution, and checkpointing remain unimplemented. The
-fine-grained `K = 1` and `K = 3` artifact commands are separate from roots-only
-planning and physical preflight; they do not claim three-loop closure or
-Vakint integration.
+fine-grained artifact commands are separate from roots-only planning and
+physical preflight. The generic K6 artifact and through-three-loop Vakint
+integration are available; complete four-loop publication and acceptance
+remain open gates.
 
 `--n-cores` is always a ceiling. The planner derives an effective execution
 width `E` with `1 <= E <= --n-cores`. `E=1` denotes inline coordinator

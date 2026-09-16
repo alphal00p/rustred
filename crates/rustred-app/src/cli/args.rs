@@ -2,6 +2,9 @@ mod campaign;
 mod derive;
 mod family_close;
 mod family_solve;
+mod resource_limits;
+
+use resource_limits::ResourceLimitsArgs;
 
 use std::ffi::OsString;
 use std::fmt;
@@ -54,6 +57,7 @@ pub(crate) struct FamilyCloseArgs {
     pub(crate) input_format: InputFormat,
     pub(crate) permutation: Option<Vec<usize>>,
     pub(crate) nonpositive_indices: Vec<usize>,
+    pub(crate) resources: ResourceLimitsArgs,
     pub(crate) n_cores: usize,
     pub(crate) progress: bool,
     pub(crate) force: bool,
@@ -87,6 +91,7 @@ pub(crate) struct CampaignGenerateArgs {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CampaignInspectArgs {
     pub(crate) artifact: StreamPath,
+    pub(crate) resources: ResourceLimitsArgs,
     pub(crate) output: StreamPath,
     pub(crate) force: bool,
 }
@@ -94,6 +99,7 @@ pub(crate) struct CampaignInspectArgs {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CampaignReduceArgs {
     pub(crate) artifact: StreamPath,
+    pub(crate) resources: ResourceLimitsArgs,
     pub(crate) target_powers: Vec<i64>,
     pub(crate) max_rule_applications: usize,
     pub(crate) output: StreamPath,
@@ -334,6 +340,8 @@ FAMILY-CLOSE OPTIONS:
     --input-format <FORMAT>      auto, toml, or symbolica [default: auto]
     --permutation <N,N,...>      Optional zero-based coordinate priority permutation
     --nonpositive-indices <N,N,...>  Coordinates restricted to nonpositive powers
+    --max-domain-bound-endpoint-cells <N>  Publication endpoint budget [core default]
+    --max-predicate-consistency-work <N>   Publication consistency budget [core default]
     --n-cores <COUNT>            Maximum worker cores [default: 1]
     --progress                  Also emit plain progress when stderr is redirected
     --force                      Atomically replace an existing output file
@@ -387,6 +395,8 @@ CAMPAIGN GENERATE OPTIONS:
 
 CAMPAIGN INSPECT OPTIONS:
     --artifact <PATH|->          Read durable artifact bytes from PATH or standard input
+    --max-domain-bound-endpoint-cells <N>  Cold-replay endpoint budget [core default]
+    --max-predicate-consistency-work <N>   Cold-replay consistency budget [core default]
     --output <PATH|->            Write TOML to PATH, or standard output with - [default: -]
     --force                      Atomically replace an existing output file
 
@@ -394,6 +404,8 @@ CAMPAIGN REDUCE OPTIONS:
     --artifact <PATH|->          Read durable artifact bytes from PATH or standard input
     --powers <N,...>             Signed integer target powers in denominator order
     --max-rule-applications <N>  Per-request recurrence ceiling [default: 1000000]
+    --max-domain-bound-endpoint-cells <N>  Cold-replay endpoint budget [core default]
+    --max-predicate-consistency-work <N>   Cold-replay consistency budget [core default]
     --output <PATH|->            Write TOML to PATH, or standard output with - [default: -]
     --force                      Atomically replace an existing output file
 
@@ -415,6 +427,10 @@ Failure writes no artifact. Use `campaign inspect` and `campaign reduce` on
 the resulting bytes; no family name selects an implementation.
 TTY progress overwrites one stderr status field; redirected stderr is quiet
 unless --progress is supplied. Artifact stdout is never mixed with progress.
+Publication and cold-load resource budgets are caller policy, not artifact
+evidence. Zero is a valid restrictive budget. Reapply any chosen budgets for
+inspection and reduction; artifacts never raise their loader's limits.
+TOML resource reports use decimal strings to preserve the platform integer range.
 
 `campaign plan` authenticates and interns only the supplied campaign roots.
 It does not discover dependencies, derive relations, prove closure, or publish

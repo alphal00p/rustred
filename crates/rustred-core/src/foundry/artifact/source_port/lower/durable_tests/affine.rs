@@ -2,8 +2,12 @@
 use std::sync::Arc;
 
 use crate::family::IntegralKey;
-use crate::foundry::artifact::ClosedArtifact;
-use crate::foundry::artifact::install::{ClosingArtifactCandidate, install_source_port};
+use crate::foundry::artifact::install::{
+    ClosingArtifactCandidate, install_source_port, install_source_port_with_limits,
+};
+use crate::foundry::artifact::{
+    ArtifactError, ArtifactLoadLimits, ArtifactPersistenceError, ClosedArtifact,
+};
 use crate::foundry::cell::SourceViewBatch;
 use crate::foundry::parametric::AffineApplicationDomain;
 use crate::identity::{ParametricIbpGenerator, TranslatedSourceRequest};
@@ -12,6 +16,15 @@ use crate::solver::{AffineCase, AffineIntersection, CoordinateCase};
 
 #[test]
 fn affine_partition_cold_roundtrip_routes_both_sides_and_preserves_reduction() {
+    affine_partition_roundtrip(false);
+}
+
+#[test]
+fn affine_partition_explicit_work_policy_matches_installation_and_cold_load() {
+    affine_partition_roundtrip(true);
+}
+
+fn affine_partition_roundtrip(require_native_consistency: bool) {
     let original = super::super::tests::generated::<3>(
         crate::foundry::artifact::two_loop::canonical_family(Default::default()).unwrap(),
     );
@@ -64,6 +77,30 @@ fn affine_partition_cold_roundtrip_routes_both_sides_and_preserves_reduction() {
         panic!("equal indices must remain a coupled affine case")
     };
     let equality = Arc::new(AffineApplicationDomain::from_case(&case, &[true; 3]).unwrap());
+    let additional_domains = require_native_consistency.then(|| {
+        let next_equation = context
+            .sub(&context.index(1).unwrap(), &context.index(2).unwrap())
+            .unwrap()
+            .raw()
+            .numerator
+            .clone();
+        let make_domain = |equations: &[crate::algebra::CoefficientPolynomial]| {
+            let AffineIntersection::Affine(case) = AffineCase::from_coordinate(
+                &CoordinateCase::generic(),
+                equations,
+                &[first, first + 1, first + 2],
+                &[true; 3],
+            )
+            .unwrap() else {
+                panic!("expected coupled equality")
+            };
+            Arc::new(AffineApplicationDomain::from_case(&case, &[true; 3]).unwrap())
+        };
+        (
+            make_domain(std::slice::from_ref(&next_equation)),
+            make_domain(&[equality.equations()[0].clone(), next_equation]),
+        )
+    });
 
     // Regenerate the very same original translated rows. Neither a synthetic
     // replay seal nor a cloned private source arena authorizes these children.
@@ -200,7 +237,22 @@ fn affine_partition_cold_roundtrip_routes_both_sides_and_preserves_reduction() {
             rhs.clone(),
         )
         .unwrap();
-    let on = parent(Some(equality), Arc::from([]))
+    let middle = additional_domains.as_ref().map(|(next, _)| {
+        parent(Some(Arc::clone(&equality)), Arc::from([Arc::clone(next)]))
+            .verify_cell(
+                context,
+                original.ordering,
+                &[true; 3],
+                &zeros,
+                copy_piece(),
+                rhs.clone(),
+            )
+            .unwrap()
+    });
+    let on_domain = additional_domains
+        .as_ref()
+        .map_or_else(|| Arc::clone(&equality), |(_, joint)| Arc::clone(joint));
+    let on = parent(Some(on_domain), Arc::from([]))
         .verify_cell(
             context,
             original.ordering,
@@ -220,7 +272,7 @@ fn affine_partition_cold_roundtrip_routes_both_sides_and_preserves_reduction() {
     assert!(on.assignment_for_target(&targets[1]).unwrap().is_none());
     assert!(off.assignment_for_target(&targets[1]).unwrap().is_some());
     let mut cells = original.rule_cells.clone();
-    cells.splice(position..=position, [off, on]);
+    cells.splice(position..=position, [off, on].into_iter().chain(middle));
     drop(generator);
     let candidate = ClosingArtifactCandidate {
         schema: original.schema,
@@ -242,6 +294,75 @@ fn affine_partition_cold_roundtrip_routes_both_sides_and_preserves_reduction() {
     };
     let partitioned = install_source_port(candidate).unwrap();
     let bytes = partitioned.encode_durable().unwrap();
+    if require_native_consistency {
+        // The joint a=b=c chart uses canonical a=c,b=c equations. Closing
+        // its partition with a=b,b!=c requires a native affine implication,
+        // not just treating all three equality atoms as independent booleans.
+        let candidate = || {
+            // Rebuild the owned family and original relations through the
+            // existing cold replay boundary, not by cloning source owners.
+            let rebuilt = ClosedArtifact::decode_durable(&bytes).unwrap();
+            ClosingArtifactCandidate {
+                schema: rebuilt.schema,
+                algorithm_id: rebuilt.algorithm_id,
+                arity: rebuilt.arity,
+                ordering: rebuilt.ordering,
+                supported_root_power_bounds: rebuilt.supported_root_power_bounds,
+                family: rebuilt.family,
+                context: rebuilt.context,
+                source_relations: rebuilt.source_relations,
+                rules: rebuilt.rules,
+                rule_cells: rebuilt.rule_cells,
+                canonicalizer: rebuilt.canonicalizer,
+                dependencies: rebuilt.dependencies,
+                factorization_rules: rebuilt.factorization_rules,
+                masters: rebuilt.masters,
+                zero_sectors: rebuilt.zero_sectors,
+                common_mass_homogeneity: rebuilt.common_mass_homogeneity,
+            }
+        };
+        for max_work in [0, 1] {
+            assert!(matches!(
+                install_source_port_with_limits(candidate(), Default::default(), max_work),
+                Err(ArtifactError::ResourceBudgetExhausted {
+                    resource: "native affine literal consistency"
+                })
+            ));
+            let limits = ArtifactLoadLimits {
+                max_predicate_consistency_work: max_work,
+                ..Default::default()
+            };
+            assert!(matches!(
+                ClosedArtifact::decode_durable_with_limits(&bytes, limits),
+                Err(ArtifactPersistenceError::Artifact(
+                    ArtifactError::ResourceBudgetExhausted {
+                        resource: "native affine literal consistency"
+                    }
+                ))
+            ));
+        }
+        let high = 8_388_608;
+        assert_eq!(
+            install_source_port_with_limits(candidate(), Default::default(), high)
+                .unwrap()
+                .encode_durable()
+                .unwrap(),
+            bytes
+        );
+        assert_eq!(
+            ClosedArtifact::decode_durable_with_limits(
+                &bytes,
+                ArtifactLoadLimits {
+                    max_predicate_consistency_work: high,
+                    ..Default::default()
+                }
+            )
+            .unwrap()
+            .encode_durable()
+            .unwrap(),
+            bytes
+        );
+    }
     let cold = ClosedArtifact::decode_durable(&bytes).unwrap();
     assert_eq!(bytes, cold.encode_durable().unwrap());
     assert_eq!(cold.rule_cells.len(), partitioned.rule_cells.len());

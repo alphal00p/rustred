@@ -219,6 +219,7 @@ pub(super) fn decode<'input>(
             common_mass_homogeneity: terminals.common_mass_homogeneity,
         },
         limits.cover_replay.geometry(),
+        limits.max_predicate_consistency_work,
     )?;
     // Deterministic encoding validates canonical sharing/order and all stored
     // semantic payloads, without discovery or reconstructing any other plan.

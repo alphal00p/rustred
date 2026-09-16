@@ -101,6 +101,22 @@ The equivalent Python request is
 `rustred.family_close(source, input_format="toml", nonpositive_indices=[8, 9])`.
 The Rust request uses `FamilyCloseRequest::nonpositive_indices`.
 
+Larger families may need explicit publication-resource allowances. For example,
+add `--max-domain-bound-endpoint-cells 65536` and
+`--max-predicate-consistency-work 67108864` to `family-close`, and pass those
+same settings to `campaign inspect` and `campaign reduce` when loading the
+result. These are finite caller-selected storage/work budgets, not changes to
+the identities, coverage domain, or proof requirements; their sufficiency for
+a particular full family must be established by an actual successful run.
+Defaults remain 8,192 endpoint cells and 4,194,304 consistency-work units.
+
+Python accepts the same keyword names, `max_domain_bound_endpoint_cells` and
+`max_predicate_consistency_work`, on `family_close`,
+`inspect_closing_artifact`, and `reduce_with_closing_artifact`. In Rust, set
+`FamilyCloseRequest.publication_limits`; cold requests carry independent
+`load_limits`. A successful artifact never supplies or raises its own loading
+budget. Increasing a resource allowance cannot make an uncovered region valid.
+
 This includes every physical parent contraction and arbitrary negative ISP
 powers. The sample target does **not** infer this domain: omitting the option
 requests all ten-coordinate sectors, including positive ISP powers. Exact

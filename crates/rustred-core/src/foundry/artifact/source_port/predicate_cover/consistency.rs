@@ -32,10 +32,11 @@ struct WorkBudget {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct WorkExhausted;
 
+#[cfg(test)]
 impl Default for WorkBudget {
     fn default() -> Self {
         Self {
-            remaining: 4_194_304,
+            remaining: super::super::DEFAULT_PREDICATE_CONSISTENCY_WORK,
         }
     }
 }
@@ -97,11 +98,26 @@ pub(super) struct RestrictionCache<'a> {
 }
 
 impl<'a> RestrictionCache<'a> {
+    #[cfg(test)]
     pub(super) fn new(sector: &'a [bool], atoms: &'a [Atom<'a>]) -> Self {
+        Self::with_work_limit(
+            sector,
+            atoms,
+            super::super::DEFAULT_PREDICATE_CONSISTENCY_WORK,
+        )
+    }
+
+    pub(super) fn with_work_limit(
+        sector: &'a [bool],
+        atoms: &'a [Atom<'a>],
+        max_work: usize,
+    ) -> Self {
         Self {
             sector,
             atoms,
-            budget: WorkBudget::default(),
+            budget: WorkBudget {
+                remaining: max_work,
+            },
             limits: CacheLimits::default(),
             entries: BTreeMap::new(),
             implications: Vec::new(),

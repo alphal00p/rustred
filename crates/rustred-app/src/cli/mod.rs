@@ -96,6 +96,7 @@ fn family_close_cli(arguments: FamilyCloseArgs) -> Result<(), CliError> {
         n_cores: arguments.n_cores,
         permutation: arguments.permutation,
         nonpositive_indices: arguments.nonpositive_indices,
+        publication_limits: arguments.resources.publication_limits(),
     };
     let result = if terminal || arguments.progress {
         crate::family_close_with_progress(request, |event| {
@@ -238,7 +239,10 @@ fn generate_campaign_artifact(arguments: CampaignGenerateArgs) -> Result<(), Cli
 
 fn inspect_campaign_artifact(arguments: CampaignInspectArgs) -> Result<(), CliError> {
     let artifact = read_artifact(&arguments.artifact)?;
-    let result = closing_artifact_inspect(ClosingArtifactInspectRequest { artifact })?;
+    let result = closing_artifact_inspect(ClosingArtifactInspectRequest {
+        artifact,
+        load_limits: arguments.resources.load_limits(),
+    })?;
     write_output(
         &arguments.output,
         result.to_toml().as_bytes(),
@@ -250,6 +254,7 @@ fn reduce_campaign_target(arguments: CampaignReduceArgs) -> Result<(), CliError>
     let artifact = read_artifact(&arguments.artifact)?;
     let result = closing_artifact_reduce(ClosingArtifactReduceRequest {
         artifact,
+        load_limits: arguments.resources.load_limits(),
         target_powers: arguments.target_powers,
         max_rule_applications: arguments.max_rule_applications,
     })?;

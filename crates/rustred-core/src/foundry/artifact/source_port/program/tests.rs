@@ -4,6 +4,77 @@ use crate::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, zero};
 use crate::solver::{SectorConfig, SectorSolveOptions, SectorSolver, SourceSystem};
 
 #[test]
+fn source_port_rule_policy_survives_retention_and_matches_cold_loading() {
+    use crate::foundry::artifact::{ArtifactLoadLimits, ClosedArtifact};
+
+    let (audit, solution) = solved_tadpole();
+    let baseline = audit
+        .install_complete(tadpole(), [([true], None, solution)])
+        .unwrap()
+        .encode_durable()
+        .unwrap();
+    assert_eq!(
+        SourcePortLimits::default().max_predicate_consistency_work,
+        4_194_304
+    );
+    assert_eq!(
+        SourcePortLimits::default()
+            .rule_derivation
+            .max_domain_bound_endpoint_cells,
+        8_192
+    );
+    assert_eq!(
+        ArtifactLoadLimits::default().max_predicate_consistency_work,
+        SourcePortLimits::default().max_predicate_consistency_work
+    );
+    for endpoints in [13, 14, 16_384] {
+        let (audit, solution) = solved_tadpole();
+        let mut limits = SourcePortLimits::default();
+        limits.rule_derivation.max_domain_bound_endpoint_cells = endpoints;
+        // This coordinate-only proof needs no affine native consistency work.
+        limits.max_predicate_consistency_work = 0;
+        let program = audit
+            .with_limits(limits)
+            .retain_program(tadpole(), [([true], None, solution)])
+            .unwrap();
+        assert_eq!(program.limits, limits);
+        let result = program.install();
+        let cold_limits = ArtifactLoadLimits {
+            rule_derivation: limits.rule_derivation,
+            max_predicate_consistency_work: 0,
+            ..Default::default()
+        };
+        let cold = ClosedArtifact::decode_durable_with_limits(&baseline, cold_limits);
+        if endpoints == 13 {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("combined domain bound endpoint cells")
+            );
+            assert!(
+                cold.unwrap_err()
+                    .to_string()
+                    .contains("combined domain bound endpoint cells")
+            );
+        } else {
+            assert_eq!(result.unwrap().encode_durable().unwrap(), baseline);
+            assert_eq!(cold.unwrap().encode_durable().unwrap(), baseline);
+        }
+    }
+    let (audit, solution) = solved_tadpole();
+    assert_eq!(
+        audit
+            .with_limits(SourcePortLimits::default())
+            .install_complete(tadpole(), [([true], None, solution)])
+            .unwrap()
+            .encode_durable()
+            .unwrap(),
+        baseline
+    );
+}
+
+#[test]
 fn install_observer_preserves_durable_bytes_and_runs_on_calling_thread() {
     let (audit, solution) = solved_tadpole();
     let baseline = audit

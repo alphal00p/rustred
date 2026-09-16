@@ -100,6 +100,9 @@ pub struct ArtifactLoadLimits {
     /// Exact persisted rule/master cover replay policy.  This is applied
     /// before allocating the per-sector input box collection.
     pub cover_replay: ArtifactCoverReplayLimits,
+    /// Native affine consistency work per source-port sector cover traversal.
+    /// This caller-owned allowance never comes from the artifact payload.
+    pub max_predicate_consistency_work: usize,
 }
 
 /// Resource policy for deterministic durable encoding.
@@ -145,6 +148,8 @@ impl Default for ArtifactLoadLimits {
             rule_derivation: ParametricRuleLimits::default(),
             rule_cells: RuleCellLimits::default(),
             cover_replay: ArtifactCoverReplayLimits::default(),
+            max_predicate_consistency_work:
+                super::super::source_port::DEFAULT_PREDICATE_CONSISTENCY_WORK,
         }
     }
 }

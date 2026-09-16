@@ -35,38 +35,36 @@ checks pass. See the [dependency migration report](docs/vakint_symbolica3_migrat
 
 Four-loop artifacts are not yet closed or shipped. H, X, BMW and FG are
 [external unit-mass input families](examples/input/README.md), not hard-coded
-solver cases. Bounded native consistency reuse and support-aware guard
-refinement pass **603 focused tests** and independent review, without raising
-proof limits. The latest recorded release attempts distinguish whole-sector
-certification from later durable-artifact publication:
+solver cases. Explicit caller-owned publication and cold-load resource policies
+now pass **606 focused core tests** and independent review. Defaults are
+unchanged; larger finite allowances expose the next proof obligations. The
+latest public release CLI attempts distinguish whole-sector certification
+from later durable-artifact publication:
 
 | Family | Exact sector audits | Remaining publication obstruction |
 | --- | --- | --- |
-| H | **314/314**, 21,360/21,360 replayed and descending rules, zero gaps/issues | Previous guard failure cleared; H370 rule90 requests 8,720 endpoint-storage cells versus 8,192 allowed; 327.18s whole process |
-| FG | **124/124**, 9,272/9,272 replayed and descending rules, zero gaps/issues | Previous guard failure cleared; FG214 rule76 requests 11,600 endpoint-storage cells versus 8,192 allowed; 240.70s whole process |
-| BMW | 97/134 completed sector audits after all searches finish | Native consistency work allowance at BMW107; 439.00s whole process |
-| X | Current selected X460 still reaches the work allowance | Full search completed previously; no redundant full rerun on the same selected obstruction |
+| H | **314/314**, 21,360/21,360 replayed and descending rules, zero gaps/issues | 66 sectors lowered; redundant weaker coordinate guard recheck at H282, displayed rule51; 318.00s whole process |
+| FG | **124/124**, 9,272/9,272 replayed and descending rules, zero gaps/issues | 41 sectors lowered; same recheck at FG158, displayed rule58; 232.45s whole process |
+| BMW | **134/134**, 9,024/9,024 replayed and descending rules, zero gaps/issues | 31 sectors lowered; guard proof cannot establish containment in a retained exclusion at BMW230; 485.26s whole process |
+| X | 65 passing audits; the 66th reports an abstract complement | First reported X394 branch is demonstrably inconsistent, not a concrete missing integral; 340.06s whole process |
 
-The H/FG candidate systems pass all sector checks, but still do **not** produce
-a durable, cold-validated artifact. Detailed counters distinguish actual work
-limits from mathematical coverage witnesses. The latest correction avoids
-estimating chart expansion when no substituted variable occurs and uses
-Symbolica to specialize coordinates already fixed by the exact application
-cell. Original admission and subsequent nonvanishing proofs remain mandatory.
-The new endpoint counts are conservative storage estimates, not numbers of
-uncovered integrals or regions. The existing public allowance needs consistent
-producer/cold-loader wiring; its default was not raised for these runs.
+The H/FG/BMW candidate systems pass all sector checks, but still do **not**
+produce a durable, cold-validated artifact. The CLI, Rust and Python interfaces
+expose separate producer/load allowances, never serialized as artifact authority.
+These runs selected 65,536 endpoint-storage cells and 67,108,864 consistency
+work units; all local proof checks remain mandatory. Independent tracing
+identifies exact proof-service gaps in these particular obstructions, not
+authority to drop guards, add terminals or claim all later obligations solved.
 A local BMW CPU profile instead
 finds exact source replay/native rational-polynomial elimination dominating
 the sampled interval; that is a separate runtime issue. The
 [guard-consistency report](docs/research/four_loop_predicate_consistency.md)
 records exact boundaries, evidence and next steps.
 **No closed four-loop artifact is written or shipped.** Current
-core K1/K3/K6 generation, fresh-process validation and master-only application
-pass with unchanged bytes. Earlier CLI one-, two- and six-worker generation
-also remains byte-identical; this latest verifier slice was tested through
-the Rust API rather than rebuilt CLI/Python frontends. Shared-host timings
-are not controlled speed ratios.
+release CLI K1/K3/K6 generation, fresh-process validation and master-only
+application pass with unchanged artifact bytes and exact reductions. K6 output
+is identical across one, two and six configured workers and sufficient resource
+policies. Shared-host timings are not controlled speed ratios.
 See the
 [certificate profiling report](docs/research/original_source_certificate_performance.md).
 Live phase diagnostics and an explicit domain-scoped publication path are

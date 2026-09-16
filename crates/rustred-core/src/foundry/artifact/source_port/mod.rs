@@ -8,6 +8,9 @@
 mod affine;
 mod certificate;
 mod geometry;
+mod limits;
+pub(crate) use limits::DEFAULT_PREDICATE_CONSISTENCY_WORK;
+pub use limits::SourcePortLimits;
 mod normalization;
 mod ordinary;
 pub(in crate::foundry::artifact) mod predicate_cover;
@@ -52,6 +55,8 @@ pub enum AffineOwnershipRole {
 pub enum SourcePortAuditError {
     /// Ordinary bridge/validation failure.
     Message(String),
+    /// An exact proof exhausted a caller-owned resource allowance.
+    ResourceBudgetExhausted { resource: &'static str },
     /// Search output lacks an exact ownership proof in the calling path.
     /// In particular, box-only callers must not discard coupled predicates.
     ///
@@ -69,6 +74,9 @@ impl fmt::Display for SourcePortAuditError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Message(message) => f.write_str(message),
+            Self::ResourceBudgetExhausted { resource } => {
+                write!(f, "source-port proof budget exhausted: {resource}")
+            }
             Self::UnsupportedAffineOwnership { domain, role } => {
                 let role = match role {
                     AffineOwnershipRole::Target => "target",
@@ -109,7 +117,7 @@ impl SourcePortAuditError {
             Self::UnsupportedAffineOwnership { domain, role } => {
                 Some((domain.sector(), domain.fixed(), domain.equations(), *role))
             }
-            Self::Message(_) => None,
+            Self::Message(_) | Self::ResourceBudgetExhausted { .. } => None,
         }
     }
 }
@@ -153,6 +161,7 @@ pub struct SourcePortAudit<const N: usize> {
     zero_certificates: Vec<zero::Certificate>,
     original_row_ids: Vec<crate::identity::RowId>,
     original_sources: normalization::OriginalSourceCorpus,
+    limits: SourcePortLimits,
 }
 
 impl<const N: usize> SourcePortAudit<N> {
@@ -241,7 +250,15 @@ impl<const N: usize> SourcePortAudit<N> {
             zero_certificates,
             original_row_ids,
             original_sources,
+            limits: SourcePortLimits::default(),
         })
+    }
+
+    /// Select explicit audit/publication resources without changing source
+    /// definitions, proof requirements, or deterministic artifact identity.
+    pub fn with_limits(mut self, limits: SourcePortLimits) -> Self {
+        self.limits = limits;
+        self
     }
 
     pub fn original_source_count(&self) -> usize {
@@ -532,7 +549,10 @@ impl<const N: usize> SourcePortAudit<N> {
                 &sector,
                 owners,
                 &terminal_boxes,
-                PredicateCoverLimits::default(),
+                PredicateCoverLimits {
+                    max_consistency_work: self.limits.max_predicate_consistency_work,
+                    ..Default::default()
+                },
             ) {
                 Ok(_) => Ok((0, 0, None)),
                 Err(issue) => match &issue {
@@ -541,6 +561,9 @@ impl<const N: usize> SourcePortAudit<N> {
                         unbounded_boxes,
                         ..
                     } => Ok((*boxes, *unbounded_boxes, Some(issue.to_string()))),
+                    predicate_cover::PredicateCoverError::Budget(resource) => {
+                        Err(SourcePortAuditError::ResourceBudgetExhausted { resource })
+                    }
                     _ => Err(error(issue)),
                 },
             };

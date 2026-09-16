@@ -464,8 +464,8 @@ fn run_foundry_wave_campaign(
 
 #[pyfunction]
 #[pyo3(
-    signature = (source, *, input_format = "auto", n_cores = PythonInteger(1), permutation = None, nonpositive_indices = None),
-    text_signature = "(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None)"
+    signature = (source, *, input_format = "auto", n_cores = PythonInteger(1), permutation = None, nonpositive_indices = None, max_domain_bound_endpoint_cells = None, max_predicate_consistency_work = None),
+    text_signature = "(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None)"
 )]
 fn family_close(
     py: Python<'_>,
@@ -474,6 +474,8 @@ fn family_close(
     n_cores: PythonInteger,
     permutation: Option<Vec<PythonInteger>>,
     nonpositive_indices: Option<Vec<PythonInteger>>,
+    max_domain_bound_endpoint_cells: Option<PythonInteger>,
+    max_predicate_consistency_work: Option<PythonInteger>,
 ) -> PyResult<PyClosingArtifactGenerationResult> {
     let permutation = permutation
         .map(|coordinates| {
@@ -494,13 +496,23 @@ fn family_close(
             nonnegative_usize(&format!("nonpositive_indices[{position}]"), index.0)
         })
         .collect::<PyResult<Vec<_>>>()?;
-    let request = FamilyCloseRequest {
+    let mut request = FamilyCloseRequest {
         source: bounded_owned_input("family close input", source)?,
         input_format: parse_input_format(input_format)?,
         n_cores: positive_core_count("family close n_cores", n_cores.0)?,
         permutation,
         nonpositive_indices,
+        publication_limits: Default::default(),
     };
+    apply_resource_limits(
+        max_domain_bound_endpoint_cells,
+        max_predicate_consistency_work,
+        &mut request
+            .publication_limits
+            .rule_derivation
+            .max_domain_bound_endpoint_cells,
+        &mut request.publication_limits.max_predicate_consistency_work,
+    )?;
     let result = py
         .detach(move || execute(move || app_family_close(request)))
         .map_err(map_coordinator_error)?;
@@ -542,18 +554,28 @@ fn generate_closing_artifact(
 }
 
 #[pyfunction]
-#[pyo3(signature = (artifact), text_signature = "(artifact)")]
+#[pyo3(
+    signature = (artifact, *, max_domain_bound_endpoint_cells = None, max_predicate_consistency_work = None),
+    text_signature = "(artifact, *, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None)"
+)]
 fn inspect_closing_artifact(
     py: Python<'_>,
     artifact: &Bound<'_, PyBytes>,
+    max_domain_bound_endpoint_cells: Option<PythonInteger>,
+    max_predicate_consistency_work: Option<PythonInteger>,
 ) -> PyResult<PyClosingArtifactInspectionResult> {
-    let artifact = bounded_artifact_bytes(artifact)?;
+    let mut request = ClosingArtifactInspectRequest::new(bounded_artifact_bytes(artifact)?);
+    apply_resource_limits(
+        max_domain_bound_endpoint_cells,
+        max_predicate_consistency_work,
+        &mut request
+            .load_limits
+            .rule_derivation
+            .max_domain_bound_endpoint_cells,
+        &mut request.load_limits.max_predicate_consistency_work,
+    )?;
     let result = py
-        .detach(move || {
-            execute(move || {
-                app_closing_artifact_inspect(ClosingArtifactInspectRequest { artifact })
-            })
-        })
+        .detach(move || execute(move || app_closing_artifact_inspect(request)))
         .map_err(map_coordinator_error)?;
     let result = result.map_err(map_app_error)?;
     Ok(PyClosingArtifactInspectionResult::new(
@@ -565,14 +587,16 @@ fn inspect_closing_artifact(
 
 #[pyfunction]
 #[pyo3(
-    signature = (artifact, target_powers, *, max_rule_applications = PythonInteger(1_000_000)),
-    text_signature = "(artifact, target_powers, *, max_rule_applications=1000000)"
+    signature = (artifact, target_powers, *, max_rule_applications = PythonInteger(1_000_000), max_domain_bound_endpoint_cells = None, max_predicate_consistency_work = None),
+    text_signature = "(artifact, target_powers, *, max_rule_applications=1000000, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None)"
 )]
 fn reduce_with_closing_artifact(
     py: Python<'_>,
     artifact: &Bound<'_, PyBytes>,
     target_powers: Vec<PythonInteger>,
     max_rule_applications: PythonInteger,
+    max_domain_bound_endpoint_cells: Option<PythonInteger>,
+    max_predicate_consistency_work: Option<PythonInteger>,
 ) -> PyResult<PyClosingArtifactReductionResult> {
     let artifact = bounded_artifact_bytes(artifact)?;
     let target_powers = target_powers
@@ -590,16 +614,19 @@ fn reduce_with_closing_artifact(
         "closing-artifact max_rule_applications",
         max_rule_applications.0,
     )?;
+    let mut request = ClosingArtifactReduceRequest::new(artifact, target_powers);
+    request.max_rule_applications = max_rule_applications;
+    apply_resource_limits(
+        max_domain_bound_endpoint_cells,
+        max_predicate_consistency_work,
+        &mut request
+            .load_limits
+            .rule_derivation
+            .max_domain_bound_endpoint_cells,
+        &mut request.load_limits.max_predicate_consistency_work,
+    )?;
     let result = py
-        .detach(move || {
-            execute(move || {
-                app_closing_artifact_reduce(ClosingArtifactReduceRequest {
-                    artifact,
-                    target_powers,
-                    max_rule_applications,
-                })
-            })
-        })
+        .detach(move || execute(move || app_closing_artifact_reduce(request)))
         .map_err(map_coordinator_error)?;
     let result = result.map_err(map_app_error)?;
     let terms = result
@@ -654,6 +681,21 @@ fn positive_core_count(label: &str, value: i128) -> PyResult<usize> {
             "{label} must be a positive integer fitting this platform"
         ))
     })
+}
+
+fn apply_resource_limits(
+    endpoint_cells: Option<PythonInteger>,
+    consistency_work: Option<PythonInteger>,
+    endpoint_limit: &mut usize,
+    consistency_limit: &mut usize,
+) -> PyResult<()> {
+    if let Some(value) = endpoint_cells {
+        *endpoint_limit = nonnegative_usize("max_domain_bound_endpoint_cells", value.0)?;
+    }
+    if let Some(value) = consistency_work {
+        *consistency_limit = nonnegative_usize("max_predicate_consistency_work", value.0)?;
+    }
+    Ok(())
 }
 
 fn nonnegative_usize(label: &str, value: i128) -> PyResult<usize> {

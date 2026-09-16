@@ -9,6 +9,36 @@ fn disable_cache(cache: &mut RestrictionCache<'_>) {
 }
 
 #[test]
+fn explicit_work_allowance_is_shared_across_boxes_and_zero_never_calls_native() {
+    let context = CoefficientContext::new(["d", "a", "b"]);
+    let equation = context.coefficient_fixture("a-b").numerator;
+    let atoms = [Atom {
+        indices: &[1, 2],
+        equation: &equation,
+    }];
+    let first = LatticeBox::try_new([0, 0], [Some(0); 2]).unwrap();
+    let second = LatticeBox::try_new([1, 1], [Some(1); 2]).unwrap();
+    let cost = polynomial_work(&atoms[0], 2).unwrap();
+    let mut cache = RestrictionCache::with_work_limit(&[false; 2], &atoms, 2 * cost - 1);
+    assert_eq!(cache.contradicts(&first, &[Some(true)]), Ok(false));
+    assert_eq!(cache.budget.remaining, cost - 1);
+    assert_eq!(
+        cache.contradicts(&second, &[Some(true)]),
+        Err(WorkExhausted)
+    );
+    assert_eq!(cache.statistics.classification_materializations, 1);
+    // An earlier proved cache entry remains reusable after exhaustion.
+    assert_eq!(cache.contradicts(&first, &[Some(false)]), Ok(true));
+    assert_eq!(cache.statistics.native_work, cost);
+
+    let mut zero = RestrictionCache::with_work_limit(&[false; 2], &atoms, 0);
+    assert_eq!(zero.contradicts(&first, &[None]), Ok(false));
+    assert_eq!(zero.contradicts(&first, &[Some(true)]), Err(WorkExhausted));
+    assert_eq!(zero.statistics.classification_materializations, 0);
+    assert_eq!(zero.statistics.native_work, 0);
+}
+
+#[test]
 fn zero_and_nonzero_restrictions_are_reused_across_opposite_assignments() {
     let context = CoefficientContext::new(["d", "a", "b"]);
     let equation = context.coefficient_fixture("a-b").numerator;

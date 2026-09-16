@@ -37,7 +37,7 @@ pub use persistence::{ArtifactCoverReplayLimits, ArtifactEncodingLimits, Artifac
 pub(crate) use source_port::ReplayedOriginalDomain;
 pub use source_port::{
     AffineApplicationDomain, AffineOwnershipRole, SourcePortAudit, SourcePortAuditError,
-    SourcePortInstallEvent, SourcePortSectorAudit,
+    SourcePortInstallEvent, SourcePortLimits, SourcePortSectorAudit,
 };
 pub use two_loop::derive_two_loop_unit_mass_sunset;
 

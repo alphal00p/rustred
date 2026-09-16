@@ -34,10 +34,15 @@ struct TraversalWork<'a> {
 }
 
 impl<'a> TraversalWork<'a> {
+    #[cfg(test)]
     fn new(sector: &'a [bool], atoms: &'a [Atom<'a>]) -> Self {
+        Self::with_work_limit(sector, atoms, super::DEFAULT_PREDICATE_CONSISTENCY_WORK)
+    }
+
+    fn with_work_limit(sector: &'a [bool], atoms: &'a [Atom<'a>], max_work: usize) -> Self {
         Self {
             nodes: 0,
-            consistency: consistency::RestrictionCache::new(sector, atoms),
+            consistency: consistency::RestrictionCache::with_work_limit(sector, atoms, max_work),
         }
     }
 }
@@ -57,6 +62,7 @@ pub(in crate::foundry::artifact) struct PredicateCoverLimits {
     pub(in crate::foundry::artifact) max_predicates: usize,
     pub(in crate::foundry::artifact) max_clauses: usize,
     pub(in crate::foundry::artifact) max_boolean_nodes: usize,
+    pub(in crate::foundry::artifact) max_consistency_work: usize,
 }
 
 impl Default for PredicateCoverLimits {
@@ -66,6 +72,7 @@ impl Default for PredicateCoverLimits {
             max_predicates: 32,
             max_clauses: 65_536,
             max_boolean_nodes: 65_536,
+            max_consistency_work: super::DEFAULT_PREDICATE_CONSISTENCY_WORK,
         }
     }
 }
@@ -222,7 +229,7 @@ pub(in crate::foundry::artifact) fn certify_predicate_cover(
         )?;
     }
     let mut assignments = vec![None; atoms.len()];
-    let mut work = TraversalWork::new(sector, &atoms);
+    let mut work = TraversalWork::with_work_limit(sector, &atoms, limits.max_consistency_work);
     let result = check_valuations(
         sector,
         &atoms,

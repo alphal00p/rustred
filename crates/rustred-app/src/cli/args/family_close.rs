@@ -1,8 +1,8 @@
 use std::ffi::OsString;
 
 use super::{
-    ArgError, Command, FamilyCloseArgs, StreamPath, next_utf8_value, next_value,
-    parse_nonnegative_integer, parse_positive_integer, set_once,
+    ArgError, Command, FamilyCloseArgs, ResourceLimitsArgs, StreamPath, next_utf8_value,
+    next_value, parse_nonnegative_integer, parse_positive_integer, set_once,
 };
 use crate::InputFormat;
 
@@ -12,6 +12,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     let mut input_format = None;
     let mut permutation = None;
     let mut nonpositive_indices = None;
+    let mut resources = ResourceLimitsArgs::default();
     let mut n_cores = None;
     let mut force = false;
     let mut progress = false;
@@ -87,6 +88,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                     parse_positive_integer("--n-cores", value)?,
                 )?;
             }
+            _ if resources.parse_option(&option, &mut arguments)? => {}
             _ if option.starts_with('-') => return Err(ArgError::UnknownOption(option)),
             _ => return Err(ArgError::UnexpectedArgument(option)),
         }
@@ -100,6 +102,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         input_format: input_format.unwrap_or(InputFormat::Auto),
         permutation,
         nonpositive_indices: nonpositive_indices.unwrap_or_default(),
+        resources,
         n_cores: n_cores.unwrap_or(1),
         progress,
         force,

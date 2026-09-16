@@ -56,9 +56,13 @@ pub(super) fn lower_rule<const N: usize>(
     zero_sectors: &[[bool; N]],
     inherited: &[crate::algebra::CoefficientPolynomial],
     checked: CheckedRule<N>,
+    rule_limits: crate::foundry::parametric::ParametricRuleLimits,
 ) -> Result<Vec<Arc<RuleCell>>, SourcePortAuditError> {
     let context = corpus.context();
-    let limits = ReplayLimits::default();
+    let limits = ReplayLimits {
+        rule: rule_limits,
+        ..Default::default()
+    };
     let fixed: Vec<_> = checked
         .fixed
         .iter()

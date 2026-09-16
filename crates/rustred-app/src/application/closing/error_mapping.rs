@@ -75,6 +75,7 @@ fn artifact_validation_error_kind(error: &ArtifactError) -> AppErrorKind {
     match error {
         ArtifactError::UnsupportedSchema { .. } => AppErrorKind::Schema,
         ArtifactError::ResourceCountOverflow { .. }
+        | ArtifactError::ResourceBudgetExhausted { .. }
         | ArtifactError::ResourceLimit { .. }
         | ArtifactError::AllocationFailure { .. } => AppErrorKind::Limit,
         ArtifactError::Family(error) if integral_family_error_is_limit(error) => {
@@ -484,6 +485,9 @@ mod tests {
     #[test]
     fn nested_artifact_resource_failures_keep_operation_specific_categories() {
         let resource_errors = [
+            ArtifactError::ResourceBudgetExhausted {
+                resource: "native affine literal consistency",
+            },
             ArtifactError::ResourceCountOverflow {
                 resource: "persisted cover coordinate cells",
             },

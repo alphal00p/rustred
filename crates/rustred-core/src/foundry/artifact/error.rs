@@ -30,6 +30,11 @@ pub enum ArtifactError {
     ResourceCountOverflow {
         resource: &'static str,
     },
+    /// A bounded exact proof exhausted its allowance without producing an
+    /// uncovered-domain claim. No artificial requested count is implied.
+    ResourceBudgetExhausted {
+        resource: &'static str,
+    },
     ResourceLimit {
         resource: &'static str,
         requested: usize,
@@ -99,6 +104,9 @@ impl fmt::Display for ArtifactError {
             Self::ZeroAnalysis(error) => error.fmt(formatter),
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "artifact {resource} count overflowed usize")
+            }
+            Self::ResourceBudgetExhausted { resource } => {
+                write!(formatter, "artifact proof budget exhausted: {resource}")
             }
             Self::ResourceLimit {
                 resource,

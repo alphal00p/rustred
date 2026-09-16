@@ -11,7 +11,7 @@ use crate::sector::Mask;
 use super::super::error::ArtifactError;
 use super::super::model::{ArtifactValidationWitness, ClosedArtifact, CommonMassHomogeneityProof};
 use super::super::source_port::predicate_cover::{
-    PredicateCoverLimits, PredicateCoveragePiece, certify_predicate_cover,
+    PredicateCoverError, PredicateCoverLimits, PredicateCoveragePiece, certify_predicate_cover,
 };
 use super::super::source_port::scope;
 use super::{ClosingArtifactCandidate, ReplayProducer};
@@ -115,12 +115,17 @@ pub(super) fn validate_combined_rule(cell: &RuleCell) -> Result<(), ArtifactErro
 pub(in crate::foundry::artifact) fn install_source_port(
     candidate: ClosingArtifactCandidate,
 ) -> Result<ClosedArtifact, ArtifactError> {
-    install_source_port_with_limits(candidate, Default::default())
+    install_source_port_with_limits(
+        candidate,
+        Default::default(),
+        super::super::source_port::DEFAULT_PREDICATE_CONSISTENCY_WORK,
+    )
 }
 
 pub(in crate::foundry::artifact) fn install_source_port_with_limits(
     candidate: ClosingArtifactCandidate,
     geometry: CompletionGeometryLimits,
+    max_predicate_consistency_work: usize,
 ) -> Result<ClosedArtifact, ArtifactError> {
     let check = |resource: &'static str, requested: usize, limit: usize| {
         if requested > limit {
@@ -264,10 +269,16 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
             &terminals,
             PredicateCoverLimits {
                 geometry,
+                max_consistency_work: max_predicate_consistency_work,
                 ..Default::default()
             },
         )
-        .map_err(|_| ArtifactError::UnsupportedClosureShape)?;
+        .map_err(|issue| match issue {
+            PredicateCoverError::Budget(resource) => {
+                ArtifactError::ResourceBudgetExhausted { resource }
+            }
+            _ => ArtifactError::UnsupportedClosureShape,
+        })?;
     }
     let validation = ArtifactValidationWitness::new(
         candidate.source_relations.len(),
