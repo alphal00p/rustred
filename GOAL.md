@@ -346,6 +346,24 @@ attempt. Never hard-code the captured identities, relax guards or create masters
 from abstract complements. Evidence: `/tmp/rustred-publication-policy-release.4PE5dn/`
 and the [guard-consistency report](docs/research/four_loop_predicate_consistency.md).
 
+**Private coordinate-seal follow-up (2026-09-16):** the private original-domain
+cell constructor now consumes its existing full-domain guard proof for coordinate
+pieces too. Public/unsealed guards are unchanged. Independent code/math audit
+and 608 focused tests pass (16 existing ignored), including real-source K3
+partitioning, genuine-zero/widening rejection, cold roundtrip and exact reduction.
+Release public CLI K1/K3/K6 bytes, cold loads and exact reductions are unchanged;
+configured workers1/2/6 also agree with six CPUs available.
+
+Full H/FG release attempts retain all 314/21,360 and 124/9,272 passing sector
+audits respectively and clear the weaker recheck. They still reject later pieces
+of the same displayed rules in the full original-domain guard proof, after
+312.95s and 247.25s wall. No artifact is written. The captured H guard's joint
+coefficients imply a forbidden zero of n9; FG has a factored base coefficient
+nonzero by its affine box bounds. Reuse those existing native proof services
+alongside the independently designed BMW affine-conjunction and X finite-axis
+refinements. Do not count source prototypes as release cures or infer closure
+from these analyzed guards. Evidence: `/tmp/rustred-private-seal-release.9Fm7bz/`.
+
 **Vakint precision policy (user directive, 2026-09-16):** compare requested
 precision with the known precision of supplied master data. If the request is
 higher, emit a clear warning identifying the requested and available precision

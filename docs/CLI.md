@@ -60,9 +60,9 @@ The artifact stores the domain, cold loading checks it, and reduction rejects
 an out-of-domain target. Every published rule still proves strict descent and
 valid RHS transitions. Globally proved zero sectors outside the domain remain
 available as exact source-replay evidence; they do not expand the reduction
-domain. Generation report schema v2 distinguishes `zero_sectors` (inside the
+domain. Generation report schema v3 distinguishes `zero_sectors` (inside the
 domain) from `global_zero_sectors` and records `root_sector`. Inspection schema
-v2 exposes `root_power_lower`, `root_power_upper`, and `in_scope_zero_sectors`.
+v3 exposes `root_power_lower`, `root_power_upper`, and `in_scope_zero_sectors`.
 Its existing zero-terminal list includes the global proof evidence.
 
 ```console

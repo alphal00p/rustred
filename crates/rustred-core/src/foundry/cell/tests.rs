@@ -43,6 +43,51 @@ fn sunset_family() -> IntegralFamily {
 }
 
 #[test]
+fn unsealed_guard_bounds_do_not_inherit_a_coordinate_replay_seal() {
+    let base = CoefficientContext::new(["d"]);
+    let context =
+        crate::algebra::IndexedCoefficientContext::try_new(&base, "unsealed-coordinate-guard", 2)
+            .unwrap();
+    let a = context
+        .sub(&context.index(0).unwrap(), &context.integer(2))
+        .unwrap();
+    let b = context
+        .sub(&context.index(1).unwrap(), &context.integer(2))
+        .unwrap();
+    let d = context.lift(&base.parameter("d").unwrap()).unwrap();
+    let q = context
+        .add(
+            &context.mul(&context.sub(&a, &b).unwrap(), &d).unwrap(),
+            &context
+                .add(
+                    &context
+                        .add(&a, &context.mul(&context.integer(2), &b).unwrap())
+                        .unwrap(),
+                    &context.integer(3),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+    let polynomial = context
+        .numerator_condition_with_limits(&q, Default::default())
+        .unwrap();
+    // The unsealed service remains conservative. The private full-domain
+    // replay path can prove this guard on b=2 using singleton substitution;
+    // that stronger proof is not granted to this ordinary constructor gate.
+    assert_eq!(
+        validate_guard_on_bounds(
+            &context,
+            0,
+            &polynomial,
+            &[InteriorBounds::new(1, i64::MAX), InteriorBounds::new(2, 2)],
+            Default::default(),
+            Default::default(),
+        ),
+        Err(RuleCellError::UnsupportedMultivariateGuardLocus { ordinal: 0 })
+    );
+}
+
+#[test]
 fn generated_rule_retains_sources_and_separate_application_proof() {
     let family = sunset_family();
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();

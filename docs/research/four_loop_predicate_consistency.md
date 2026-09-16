@@ -529,3 +529,62 @@ Evidence: `/tmp/rustred-publication-policy-release.4PE5dn/`, including
 `/tmp/rustred-resource-policy-audit.U77NS9/AUDIT.md`.
 Public CLI SHA-256:
 `800fa4c2bbd01b7b7e12eddc3622735a8a53410dd05019e080f3e7db49bb91b9`.
+
+## Private coordinate replay-seal release (2026-09-16)
+
+The private cell constructor now consumes the existing exact original-domain
+guard proof for coordinate-only pieces as well as affine pieces. This changes
+no public/unsealed constructor, source replay, descent, domain ownership or
+artifact encoding. A new real-source K3 regression verifies incidental singleton
+specialization with an empty fixed map, original guard/origin retention, genuine
+zero and wider-domain rejection, complete three-child ownership, cold loading,
+and exact reduction. A separate regression confirms the ordinary unsealed guard
+validator still rejects an unsupported coupled locus.
+
+Independent source/mathematical audit passes. Debug compilation takes 2m20;
+the focused gate passes **608 tests**, zero failures, 16 existing ignored, in
+3.93s. Public release CLI/Python targets compile in 7m04. Current CLI K1/K3/K6
+artifacts, fresh-process inspection and exact canary reports are byte-for-byte
+unchanged against the preceding policy release. The K6 policy/worker1/2/6
+outputs agree; this run permits six CPUs24–29, still on a shared host. No new
+installed-wheel Python suite was run for this internal-only correction.
+
+Full H/FG public CLI attempts keep the same explicit finite resource allowances,
+two-worker configuration and input files. They again pass every sector audit:
+H314/21,360 and FG124/9,272 sectors/rules, zero gaps/issues. They lower 66 and41
+complete sectors respectively, then stop at the same displayed rule counters
+(H282 rule51/80; FG158 rule58/91), **but on a different proof step/piece**.
+The weaker post-seal recheck is cleared. Complete new diagnostics now originate
+from the actual full-domain guard verifier. Neither produces an artifact.
+
+| Family | Wall seconds | User seconds | System seconds | Peak RSS KiB |
+| --- | ---: | ---: | ---: | ---: |
+| H | 312.95 | 359.52 | 15.51 | 8,849,080 |
+| FG | 247.25 | 277.31 | 7.26 | 6,714,136 |
+
+Both exit8 rather than timing out. These are observations, not controlled
+performance ratios. BMW/X were not rerun for their separate unchanged problems.
+
+The new captures admit concrete exact explanations:
+
+- H's actual coordinate piece has `n0=-1`, `n7<=-1`, `n9<=-1`. Its `d²`
+  coefficient is `n7-4*n9`; imposing its vanishing turns the `d` coefficient
+  into `-10*n9²`, impossible on that piece. The generic guard proof needs to
+  retain the complete coefficient conjunction while using an affine consequence
+  to restrict another coefficient. The BMW affine-first reuse proposal applies
+  naturally to this kind of obligation; its implementation remains separate.
+- FG's piece has `n1=1`, `n8<=0`, `n9<=-2`. Its `d` coefficient factors as
+  `2*(n8-1)*(2*n8+n9-1)`. The factors are at most−1 and−3 respectively, so that
+  coefficient never vanishes. The existing native affine box-contradiction
+  service should be reused by guard-factor admission, not replaced with a
+  topology-specific polynomial identity or a new interval CAS.
+
+These arguments explain only the captured failures, not all later obligations.
+No extra terminal, numerical substitution or skipped guard is authorized.
+
+Evidence: `/tmp/rustred-private-seal-release.9Fm7bz/`; independent audit in
+`/tmp/rustred-resource-policy-audit.U77NS9/PRIVATE_SEAL_RECHECK.md`.
+Frozen release CLI SHA-256:
+`7e90212e3e1eb99b17a4e7649d0de1d09f86246a00bd6b7248a32d6f4ca2c42d`.
+Workspace formatting check reports only pre-existing unrelated files; touched
+seal files are formatted. Existing unrelated formatting is preserved.

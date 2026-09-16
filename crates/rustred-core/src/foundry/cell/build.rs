@@ -113,26 +113,18 @@ impl RuleCell {
         let (rule, sources, domain, fixed, limits) =
             ParametricRule::from_replayed_original_domain(context, checked)?;
         // Only this constructor consumes the private original-domain seal.
-        // Its guards have already been proved on these exact predicates;
-        // asking for a second proof on the larger rectangle loses that fact.
-        let guard_policy = if rule
-            .replay_evidence()
-            .combined_original_domain()
-            .is_some_and(|evidence| {
-                evidence.affine_application_domain().is_some()
-                    || !evidence.affine_exclusions().is_empty()
-            }) {
-            GuardDomainPolicy::ReplayedOriginalPredicate
-        } else {
-            GuardDomainPolicy::RequireGloballyNonzero
-        };
+        // Every retained guard has already been proved on the exact original
+        // domain, including coordinate-only pieces and their singleton axes.
+        // Repeating a weaker bounds-only proof here would discard that fact.
+        // No new guard is introduced after the seal, and the machine carrier
+        // is contained in its proved mathematical application piece.
         build(
             context,
             rule,
             sources,
             domain,
             RuleCellDomainProof::ReprovedSectorMonotone,
-            guard_policy,
+            GuardDomainPolicy::ReplayedOriginalPredicate,
             fixed,
             Vec::new(),
             limits,

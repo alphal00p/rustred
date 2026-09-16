@@ -36,15 +36,16 @@ checks pass. See the [dependency migration report](docs/vakint_symbolica3_migrat
 Four-loop artifacts are not yet closed or shipped. H, X, BMW and FG are
 [external unit-mass input families](examples/input/README.md), not hard-coded
 solver cases. Explicit caller-owned publication and cold-load resource policies
-now pass **606 focused core tests** and independent review. Defaults are
+and the private coordinate replay-seal correction pass **608 focused core tests**
+and independent review. Defaults are
 unchanged; larger finite allowances expose the next proof obligations. The
 latest public release CLI attempts distinguish whole-sector certification
 from later durable-artifact publication:
 
 | Family | Exact sector audits | Remaining publication obstruction |
 | --- | --- | --- |
-| H | **314/314**, 21,360/21,360 replayed and descending rules, zero gaps/issues | 66 sectors lowered; redundant weaker coordinate guard recheck at H282, displayed rule51; 318.00s whole process |
-| FG | **124/124**, 9,272/9,272 replayed and descending rules, zero gaps/issues | 41 sectors lowered; same recheck at FG158, displayed rule58; 232.45s whole process |
+| H | **314/314**, 21,360/21,360 replayed and descending rules, zero gaps/issues | 66 sectors lowered; later original-domain guard proof at H282, displayed rule51; 312.95s whole process |
+| FG | **124/124**, 9,272/9,272 replayed and descending rules, zero gaps/issues | 41 sectors lowered; later original-domain guard proof at FG158, displayed rule58; 247.25s whole process |
 | BMW | **134/134**, 9,024/9,024 replayed and descending rules, zero gaps/issues | 31 sectors lowered; guard proof cannot establish containment in a retained exclusion at BMW230; 485.26s whole process |
 | X | 65 passing audits; the 66th reports an abstract complement | First reported X394 branch is demonstrably inconsistent, not a concrete missing integral; 340.06s whole process |
 
@@ -53,7 +54,10 @@ produce a durable, cold-validated artifact. The CLI, Rust and Python interfaces
 expose separate producer/load allowances, never serialized as artifact authority.
 These runs selected 65,536 endpoint-storage cells and 67,108,864 consistency
 work units; all local proof checks remain mandatory. Independent tracing
-identifies exact proof-service gaps in these particular obstructions, not
+identifies exact proof-service gaps in these particular obstructions. H/FG's
+redundant weaker guard check is corrected; subsequent pieces of those same
+rules now need joint-coefficient or affine-box reasoning in the full guard
+proof. This is not
 authority to drop guards, add terminals or claim all later obligations solved.
 A local BMW CPU profile instead
 finds exact source replay/native rational-polynomial elimination dominating

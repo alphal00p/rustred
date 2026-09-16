@@ -5,6 +5,7 @@ use crate::reduction::Reducer;
 use super::super::super::tests::{solved_tadpole, tadpole};
 
 mod affine;
+mod coordinate;
 
 pub(in crate::foundry::artifact) fn installed_k1() -> ClosedArtifact {
     let (audit, solution) = solved_tadpole();
