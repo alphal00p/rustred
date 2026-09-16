@@ -2,6 +2,7 @@ use super::*;
 use crate::algebra::{CoefficientContext, IndexedCoefficient};
 use crate::solver::{AffineCase, AffineIntersection, CoordinateCase};
 
+mod conjunction;
 mod support;
 
 fn context() -> IndexedCoefficientContext {

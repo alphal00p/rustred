@@ -7,7 +7,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use symbolica::prelude::Integer;
 
 use crate::algebra::CoefficientPolynomial;
-use crate::foundry::completion::LatticeBox;
+use crate::foundry::completion::{LatticeBox, MAX_BOUNDED_AXIS_FACES};
 use crate::solver::canonical_equalities;
 
 use super::AffineApplicationDomain;
@@ -15,7 +15,6 @@ use super::AffineApplicationDomain;
 type Interval = (Option<Integer>, Option<Integer>);
 pub(super) const MAX_MATRIX_CELLS: usize = 65_536;
 pub(super) const MAX_POLYNOMIAL_CELLS: usize = 262_144;
-const MAX_REFINED_FACES: usize = 8;
 
 impl AffineApplicationDomain {
     /// `true` proves the intersection empty. `false` is inconclusive.
@@ -119,7 +118,7 @@ impl AffineApplicationDomain {
                 let count = (hi - lo + Integer::one())
                     .to_i64()
                     .and_then(|count| usize::try_from(count).ok())?;
-                (count <= MAX_REFINED_FACES).then_some((count, axis, lo))
+                (count <= MAX_BOUNDED_AXIS_FACES).then_some((count, axis, lo))
             })
             .min_by_key(|&(count, axis, _)| (count, axis));
         let Some((count, axis, lower)) = selected else {

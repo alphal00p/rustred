@@ -69,6 +69,8 @@ pub(super) struct CacheStatistics {
     pub inconsistent_extensions: usize,
     pub native_errors: usize,
     pub native_panics: usize,
+    pub finite_axis_refinements: usize,
+    pub finite_axis_faces: usize,
     pub exhaustion: Option<Exhaustion>,
 }
 

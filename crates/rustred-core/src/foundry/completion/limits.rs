@@ -1,3 +1,7 @@
+/// One nonrecursive, exhaustive finite-axis refinement. Shared by affine
+/// box emptiness and predicate-cover consistency; never a sampling bound.
+pub(crate) const MAX_BOUNDED_AXIS_FACES: usize = 8;
+
 /// Hard resource limits for exact sector-lattice coverage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CompletionGeometryLimits {

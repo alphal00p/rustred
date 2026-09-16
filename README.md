@@ -35,40 +35,43 @@ checks pass. See the [dependency migration report](docs/vakint_symbolica3_migrat
 
 Four-loop artifacts are not yet closed or shipped. H, X, BMW and FG are
 [external unit-mass input families](examples/input/README.md), not hard-coded
-solver cases. Explicit caller-owned publication and cold-load resource policies
-and the private coordinate replay-seal correction pass **608 focused core tests**
-and independent review. Defaults are
+solver cases. Explicit caller-owned publication and cold-load resource policies,
+native coefficient-conjunction refinement and exhaustive short-axis consistency
+checks pass **629 focused core tests** and independent review. Defaults are
 unchanged; larger finite allowances expose the next proof obligations. The
 latest public release CLI attempts distinguish whole-sector certification
 from later durable-artifact publication:
 
 | Family | Exact sector audits | Remaining publication obstruction |
 | --- | --- | --- |
-| H | **314/314**, 21,360/21,360 replayed and descending rules, zero gaps/issues | 66 sectors lowered; later original-domain guard proof at H282, displayed rule51; 312.95s whole process |
-| FG | **124/124**, 9,272/9,272 replayed and descending rules, zero gaps/issues | 41 sectors lowered; later original-domain guard proof at FG158, displayed rule58; 247.25s whole process |
-| BMW | **134/134**, 9,024/9,024 replayed and descending rules, zero gaps/issues | 31 sectors lowered; guard proof cannot establish containment in a retained exclusion at BMW230; 485.26s whole process |
-| X | 65 passing audits; the 66th reports an abstract complement | First reported X394 branch is demonstrably inconsistent, not a concrete missing integral; 340.06s whole process |
+| H | **314/314**, 21,360/21,360 replayed and descending rules, zero gaps/issues | 72 sectors lowered; new guard proof at H58, displayed rule77; 308.58s whole process |
+| FG | **124/124**, 9,272/9,272 replayed and descending rules, zero gaps/issues | 82 sectors lowered; new guard proof at FG83, displayed rule59; 283.58s whole process |
+| BMW | **134/134**, 9,024/9,024 replayed and descending rules, zero gaps/issues | 31 sectors lowered; next guard of BMW230 displayed rule49; 568.98s whole process |
+| X | 144 passing audits, 8,893 replayed/descending rules, zero gaps/issues | X394 is cleared; X369 preparation rejects a 33rd predicate under its independent 32-atom cap; 551.93s whole process |
 
 The H/FG/BMW candidate systems pass all sector checks, but still do **not**
 produce a durable, cold-validated artifact. The CLI, Rust and Python interfaces
 expose separate producer/load allowances, never serialized as artifact authority.
 These runs selected 65,536 endpoint-storage cells and 67,108,864 consistency
-work units; all local proof checks remain mandatory. Independent tracing
-identifies exact proof-service gaps in these particular obstructions. H/FG's
-redundant weaker guard check is corrected; subsequent pieces of those same
-rules now need joint-coefficient or affine-box reasoning in the full guard
-proof. This is not
-authority to drop guards, add terminals or claim all later obligations solved.
-A local BMW CPU profile instead
-finds exact source replay/native rational-polynomial elimination dominating
-the sampled interval; that is a separate runtime issue. The
+work units; all local proof checks remain mandatory. The previous H282/FG158
+obstructions now pass complete lowering. New H/FG guards have an affine
+consequence hidden behind a domain-proved nonzero factor; BMW's next guard
+adds a factor already covered by a retained exclusion. Reusing native factor
+evidence is the next narrow refinement. X's new failure is a preparation
+resource cap, not a mathematical uncovered-domain witness. These observations
+identify verification limitations, not demonstrated missing IBPs, but do not
+prove the rest of X's unchecked sectors complete. Integer/finite-field sampling
+will guide diagnostics and exact work, never replace infinite-domain closure.
+A short X replay CPU profile again finds native rational-polynomial elimination
+dominating the sampled interval; that is a separate runtime issue. The
 [guard-consistency report](docs/research/four_loop_predicate_consistency.md)
 records exact boundaries, evidence and next steps.
 **No closed four-loop artifact is written or shipped.** Current
 release CLI K1/K3/K6 generation, fresh-process validation and master-only
 application pass with unchanged artifact bytes and exact reductions. K6 output
 is identical across one, two and six configured workers and sufficient resource
-policies. Shared-host timings are not controlled speed ratios.
+policies. A fresh release wheel passes all 29 public Python API tests, including
+CLI parity. Shared-host timings are not controlled speed ratios.
 See the
 [certificate profiling report](docs/research/original_source_certificate_performance.md).
 Live phase diagnostics and an explicit domain-scoped publication path are

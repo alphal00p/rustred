@@ -6,7 +6,10 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+use symbolica::prelude::{IntegerRing, Matrix};
+
 use crate::algebra::{Coefficient, CoefficientPolynomial};
+use crate::foundry::completion::LatticeBox;
 use crate::solver::{AffineGeometryError, AffineRestrictionChart, canonical_equalities};
 
 use super::AffineApplicationDomain;
@@ -23,6 +26,30 @@ pub(crate) struct AffineDomainRestriction {
 }
 
 impl AffineApplicationDomain {
+    /// Bool-only reuse of the existing original-equation/box contradiction
+    /// service. This transient carrier has no authenticated matrix or chart
+    /// and cannot escape as publication evidence. Caller owns input/budget
+    /// admission; unsupported geometry is inconclusive, never a proof.
+    pub(crate) fn equation_proved_empty_in_box(
+        equation: &CoefficientPolynomial,
+        indices: &[usize],
+        sector: &[bool],
+        cell: &LatticeBox,
+    ) -> Result<bool, AffineGeometryError> {
+        catch_unwind(AssertUnwindSafe(|| {
+            let transient = Self {
+                sector: sector.to_vec().into_boxed_slice(),
+                fixed: vec![None; sector.len()].into_boxed_slice(),
+                indices: indices.to_vec().into_boxed_slice(),
+                equations: vec![equation.clone()].into_boxed_slice(),
+                primitive_matrix: None,
+                integral_chart: None,
+            };
+            transient.is_proved_empty_in_box(cell)
+        }))
+        .map_err(|_| AffineGeometryError::NativeAlgebra)
+    }
+
     pub(crate) fn prepare_restriction(
         &self,
     ) -> Result<AffineDomainRestriction, AffineGeometryError> {
@@ -105,6 +132,60 @@ impl AffineApplicationDomain {
 }
 
 impl AffineDomainRestriction {
+    /// Transient chart of an admitted affine conjunction, not a persisted
+    /// application domain. The caller owns resource preflight and all sector,
+    /// context and domain obligations. `None` is a native exact contradiction;
+    /// an unrepresentable fixed row is an error, never an empty locus.
+    pub(crate) fn from_equalities(
+        fixed: &[Option<i16>],
+        equations: &[CoefficientPolynomial],
+        indices: &[usize],
+    ) -> Result<Option<(Self, Matrix<IntegerRing>)>, AffineGeometryError> {
+        catch_unwind(AssertUnwindSafe(|| {
+            let Some((matrix, primitive)) = canonical_equalities(fixed, equations, indices)? else {
+                return Ok(None);
+            };
+            let n = indices.len();
+            let mut derived_fixed = vec![None; n];
+            for row in matrix.row_iter() {
+                let mut nonzero = row[..n]
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, value)| !value.is_zero());
+                let Some((axis, _)) = nonzero.next() else {
+                    return Err(AffineGeometryError::NativeAlgebra);
+                };
+                if nonzero.next().is_none() {
+                    if !row[n].is_integer() {
+                        return Err(AffineGeometryError::NativeAlgebra);
+                    }
+                    derived_fixed[axis] = Some(
+                        row[n]
+                            .numerator()
+                            .to_i64()
+                            .and_then(|value| i16::try_from(value).ok())
+                            .ok_or(AffineGeometryError::InvalidInput(
+                                "transient affine fixed coordinate is out of range",
+                            ))?,
+                    );
+                }
+            }
+            // Chart replacements deliberately omit coordinate-only rows.
+            // Keep every newly derived fixed value alongside the coupled pivots.
+            let chart = AffineRestrictionChart::new(&equations[0], &matrix, indices);
+            Ok(Some((
+                Self {
+                    template: equations[0].zero(),
+                    fixed: derived_fixed.into_boxed_slice(),
+                    indices: indices.to_vec().into_boxed_slice(),
+                    chart,
+                },
+                primitive,
+            )))
+        }))
+        .map_err(|_| AffineGeometryError::NativeAlgebra)?
+    }
+
     /// Whether an authenticated input contains any fixed or pivot variable
     /// replaced by this prepared chart. `false` proves that substitution is
     /// unnecessary, not that the polynomial is nonzero. Zero-locus restriction
@@ -121,6 +202,29 @@ impl AffineDomainRestriction {
             .zip(&self.indices)
             .any(|(fixed, &position)| fixed.is_some() && polynomial.contains(position))
             || self.chart.replaces_variable_in(polynomial))
+    }
+
+    /// Structural upper bound on terms introduced by one variable replacement.
+    /// Fixed coordinates are scalars; unused pivots cannot expand this input.
+    /// No cancellation, special value, or integer-feasibility claim is used.
+    pub(crate) fn replacement_term_bound(
+        &self,
+        polynomial: &CoefficientPolynomial,
+    ) -> Result<usize, AffineGeometryError> {
+        self.validate_polynomial(polynomial)?;
+        let bound = match &self.chart {
+            AffineRestrictionChart::Integral(replacements) => replacements
+                .iter()
+                .filter(|(position, _)| polynomial.contains(*position))
+                .map(|(_, replacement)| replacement.nterms())
+                .max(),
+            AffineRestrictionChart::Rational(replacements) => replacements
+                .iter()
+                .filter(|(position, _)| polynomial.contains(*position))
+                .map(|(_, replacement)| replacement.nterms())
+                .max(),
+        };
+        Ok(bound.unwrap_or(1).max(1))
     }
 
     /// Restrict numerator and denominator jointly. Relative rational scale is

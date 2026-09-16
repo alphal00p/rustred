@@ -5,8 +5,11 @@
 //! that f has no zero in the box, or that f=0 implies one *whole* excluded
 //! conjunction. In particular, divisibility is e/f for every exclusion
 //! equation e, never f/e and never just one equation of a conjunction.
+//! A cold affine-first fallback retains the whole base-coefficient AND system.
 
 use std::sync::Arc;
+
+use symbolica::prelude::{IntegerRing, Matrix};
 
 use crate::algebra::indexed::{
     IntegerZeroLocusDomainResolution, ceil_log2, integer_magnitude_bits,
@@ -17,6 +20,8 @@ use crate::foundry::completion::LatticeBox;
 use crate::foundry::parametric::{AffineApplicationDomain, AffineDomainRestriction};
 
 use super::{SourcePortAuditError, error, validate_guard_with_limits};
+
+mod conjunction;
 
 pub(in crate::foundry::artifact::source_port) fn validate_guard_on_domain_with_limits(
     context: &IndexedCoefficientContext,
@@ -161,6 +166,20 @@ pub(in crate::foundry::artifact::source_port) fn validate_guard_on_domain_with_l
             return Ok(());
         }
     }
+    if conjunction::proves_excluded_on_domain(
+        context,
+        &system,
+        &predicates,
+        conjunction::GuardDomain {
+            piece,
+            sector,
+            target: target.map(|(domain, _)| domain),
+        },
+        limits,
+        &mut work,
+    )? {
+        return Ok(());
+    }
     Err(error(
         "guard zero locus is not proved outside the complete affine application domain",
     ))
@@ -185,6 +204,34 @@ fn misses_target(
     let mut system = context
         .base_coefficient_system(polynomial, limits.indexed_algebra, limits.guard_algebra)
         .map_err(error)?;
+    // A native affine factor can miss the complete box even when it is not a
+    // coordinate hyperplane. Reuse the existing exact original-equation bounds
+    // service; no new interval algebra or rectangular exclusion is introduced.
+    if !polynomial.is_zero()
+        && !polynomial.is_nonzero_constant()
+        && is_index_affine(polynomial.raw(), context.base().variables().len())
+    {
+        conjunction::precharge_box_equation(
+            polynomial.raw(),
+            context.base().variables().len(),
+            piece,
+            sector,
+            limits,
+            work,
+        )?;
+        let first = context.base().variables().len();
+        let indices: Vec<_> = (0..sector.len()).map(|axis| first + axis).collect();
+        if AffineApplicationDomain::equation_proved_empty_in_box(
+            polynomial.raw(),
+            &indices,
+            sector,
+            piece,
+        )
+        .map_err(error)?
+        {
+            return Ok(true);
+        }
+    }
     let mut fixed = Vec::new();
     fixed
         .try_reserve_exact(sector.len())
@@ -362,6 +409,34 @@ fn restrict(
     limits: RuleCellLimits,
     work: &mut Work,
 ) -> Result<IndexedPolynomial, SourcePortAuditError> {
+    restrict_prepared(
+        context,
+        raw,
+        target.map(|(domain, chart)| RestrictionTarget {
+            chart,
+            primitive: domain.primitive_matrix(),
+            diagnostic_domain: Some(domain),
+        }),
+        limits,
+        work,
+    )
+}
+
+/// Shared admission/precharge for original and transient native charts.
+/// A transient conjunction chart is never itself application-domain authority.
+struct RestrictionTarget<'a> {
+    chart: &'a AffineDomainRestriction,
+    primitive: Option<&'a Matrix<IntegerRing>>,
+    diagnostic_domain: Option<&'a AffineApplicationDomain>,
+}
+
+fn restrict_prepared(
+    context: &IndexedCoefficientContext,
+    raw: &CoefficientPolynomial,
+    target: Option<RestrictionTarget<'_>>,
+    limits: RuleCellLimits,
+    work: &mut Work,
+) -> Result<IndexedPolynomial, SourcePortAuditError> {
     work.input_terms = work
         .input_terms
         .checked_add(raw.nterms())
@@ -383,9 +458,10 @@ fn restrict(
     context
         .base_coefficient_system(&input, limits.indexed_algebra, limits.guard_algebra)
         .map_err(error)?;
-    let Some((domain, chart)) = target else {
+    let Some(target) = target else {
         return Ok(input);
     };
+    let chart = target.chart;
     let n = context.index_count();
     let degree = raw
         .exponents_iter()
@@ -408,9 +484,13 @@ fn restrict(
     if !chart.affects_polynomial(raw).map_err(error)? {
         return Ok(input);
     }
-    let expansion = n
-        .checked_add(1)
-        .and_then(|v| v.checked_pow(degree as u32))
+    // Actual native replacement support is a tighter upper bound than the
+    // ambient arity. All pivot RHSs contain no other pivots, so the product
+    // of these per-power bounds covers every simultaneous substitution.
+    let expansion = chart
+        .replacement_term_bound(raw)
+        .map_err(error)?
+        .checked_pow(degree as u32)
         .ok_or_else(|| error("affine guard chart expansion overflow"))?;
     let terms = raw
         .nterms()
@@ -419,35 +499,39 @@ fn restrict(
     if terms > limits.guard_algebra.max_input_terms
         || terms > limits.guard_algebra.max_exact_hyperplane_replay_terms
     {
-        super::super::diagnostic::restriction_failure(
-            super::super::diagnostic::RestrictionFailure {
-                reason: "affine guard chart exceeds prospective term budget",
-                polynomial: raw,
-                target: domain,
-                estimate: super::super::diagnostic::RestrictionEstimate {
-                    variables: n,
-                    index_degree: degree,
-                    input_terms: raw.nterms(),
-                    expansion,
-                    prospective_terms: terms,
-                    chart_bits: None,
-                    input_coefficient_bits: None,
-                    prospective_coefficient_bits: None,
-                    prospective_total_bits: None,
-                    max_input_terms: limits.guard_algebra.max_input_terms,
-                    max_replay_terms: limits.guard_algebra.max_exact_hyperplane_replay_terms,
-                    max_total_bits: limits.guard_algebra.max_total_integer_bits,
-                    max_coefficient_bits: limits.indexed_algebra.max_specialization_integer_bits,
+        if let Some(domain) = target.diagnostic_domain {
+            super::super::diagnostic::restriction_failure(
+                super::super::diagnostic::RestrictionFailure {
+                    reason: "affine guard chart exceeds prospective term budget",
+                    polynomial: raw,
+                    target: domain,
+                    estimate: super::super::diagnostic::RestrictionEstimate {
+                        variables: n,
+                        index_degree: degree,
+                        input_terms: raw.nterms(),
+                        expansion,
+                        prospective_terms: terms,
+                        chart_bits: None,
+                        input_coefficient_bits: None,
+                        prospective_coefficient_bits: None,
+                        prospective_total_bits: None,
+                        max_input_terms: limits.guard_algebra.max_input_terms,
+                        max_replay_terms: limits.guard_algebra.max_exact_hyperplane_replay_terms,
+                        max_total_bits: limits.guard_algebra.max_total_integer_bits,
+                        max_coefficient_bits: limits
+                            .indexed_algebra
+                            .max_specialization_integer_bits,
+                    },
                 },
-            },
-        );
+            );
+        }
         return Err(error("affine guard chart exceeds prospective term budget"));
     }
     // Hadamard/Cramer's-rule bound: one pivot minor supplies a common
     // denominator to the rational affine chart. No integer-lattice
     // assumption is made here, and the native chart does all algebra.
-    let bits = domain
-        .primitive_matrix()
+    let bits = target
+        .primitive
         .ok_or_else(|| error("affine guard target lacks an authenticated matrix"))?
         .iter()
         .map(integer_magnitude_bits)
@@ -475,28 +559,32 @@ fn restrict(
     if total_bits > limits.guard_algebra.max_total_integer_bits
         || bits > limits.indexed_algebra.max_specialization_integer_bits
     {
-        super::super::diagnostic::restriction_failure(
-            super::super::diagnostic::RestrictionFailure {
-                reason: "affine guard chart exceeds prospective integer-bit budget",
-                polynomial: raw,
-                target: domain,
-                estimate: super::super::diagnostic::RestrictionEstimate {
-                    variables: n,
-                    index_degree: degree,
-                    input_terms: raw.nterms(),
-                    expansion,
-                    prospective_terms: terms,
-                    chart_bits: Some(chart_bits),
-                    input_coefficient_bits: Some(input_bits),
-                    prospective_coefficient_bits: Some(bits),
-                    prospective_total_bits: Some(total_bits),
-                    max_input_terms: limits.guard_algebra.max_input_terms,
-                    max_replay_terms: limits.guard_algebra.max_exact_hyperplane_replay_terms,
-                    max_total_bits: limits.guard_algebra.max_total_integer_bits,
-                    max_coefficient_bits: limits.indexed_algebra.max_specialization_integer_bits,
+        if let Some(domain) = target.diagnostic_domain {
+            super::super::diagnostic::restriction_failure(
+                super::super::diagnostic::RestrictionFailure {
+                    reason: "affine guard chart exceeds prospective integer-bit budget",
+                    polynomial: raw,
+                    target: domain,
+                    estimate: super::super::diagnostic::RestrictionEstimate {
+                        variables: n,
+                        index_degree: degree,
+                        input_terms: raw.nterms(),
+                        expansion,
+                        prospective_terms: terms,
+                        chart_bits: Some(chart_bits),
+                        input_coefficient_bits: Some(input_bits),
+                        prospective_coefficient_bits: Some(bits),
+                        prospective_total_bits: Some(total_bits),
+                        max_input_terms: limits.guard_algebra.max_input_terms,
+                        max_replay_terms: limits.guard_algebra.max_exact_hyperplane_replay_terms,
+                        max_total_bits: limits.guard_algebra.max_total_integer_bits,
+                        max_coefficient_bits: limits
+                            .indexed_algebra
+                            .max_specialization_integer_bits,
+                    },
                 },
-            },
-        );
+            );
+        }
         return Err(error(
             "affine guard chart exceeds prospective integer-bit budget",
         ));

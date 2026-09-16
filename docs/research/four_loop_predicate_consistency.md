@@ -588,3 +588,139 @@ Frozen release CLI SHA-256:
 `7e90212e3e1eb99b17a4e7649d0de1d09f86246a00bd6b7248a32d6f4ca2c42d`.
 Workspace formatting check reports only pre-existing unrelated files; touched
 seal files are formatted. Existing unrelated formatting is preserved.
+
+## Native conjunction and finite-face proof refinement (2026-09-16)
+
+The next generic slice implements both narrower reuse paths identified above.
+It does not change candidate discovery, orderings, terminals, artifact encoding
+or default resource allowances. Symbolica still owns all polynomial algebra
+and exact matrix reduction.
+
+For a generic-parameter guard, vanishing requires every index-coefficient
+equation simultaneously. The verifier now retains that complete conjunction,
+absorbs its affine equations using the existing native chart, and restricts
+nonlinear siblings through it. New affine consequences are retained together
+with earlier equations. Strict rank progress bounds the iteration by the
+index arity. A contradiction, nonzero constant, a complete retained exclusion,
+or the existing exact box/root service can prove the zero locus absent. An
+unknown result cannot. In particular, equations from different excluded
+branches are never combined into a fictitious exclusion.
+
+The transient chart retains newly derived fixed coordinates as well as coupled
+pivots; it is not a persisted application-domain certificate. Its substitution
+preflight uses actual native replacement support, including scalar replacements,
+instead of a bound based only on ambient arity. A bool-only adapter reuses the
+existing affine box contradiction service. Every potentially reachable bounded
+face pass and endpoint-induced integer growth is precharged against the same
+work allowance. No local elimination, factorization or root algorithm is added.
+
+For abstract Boolean coverage, an inconclusive native implication can now
+exhaust one equation-dependent integer interval containing two through eight
+values. The deterministic choice is the shortest interval, then axis ordinal.
+Every value must yield an exact contradiction; all other, possibly infinite,
+axes remain unchanged. Children cannot subdivide recursively, and all share
+one original cache and work budget. Unsupported original polynomial support,
+local admission failure or a surviving child prevents a contradiction claim.
+This handles the captured two-face X394 assignment without finite sampling of
+its infinite directions.
+
+Independent implementation and mathematical review passes. The combined debug
+gate passes **629 tests**, zero failures and 16 existing ignored, in 3.31s.
+All nine new coverage tests and twelve new guard tests pass, including the
+captured X/BMW/H/FG failures and genuine surviving-domain controls. The first
+run passed 628 tests and failed an obsolete work-counter assertion after the
+new box precharge. Only the accounting expectations were corrected; all three
+genuine-root assertions are unchanged and pass on the retry. Both runs are
+retained. Release whole-family outcomes are recorded separately below when
+available; these tests alone establish neither family closure nor an artifact.
+
+Evidence: `/tmp/rustred-native-refinement-release.YaRtcr/`; independent audit:
+`/tmp/rustred-resource-policy-audit.U77NS9/NATIVE_PROOF_REFINEMENTS.md`.
+
+### Full public release results
+
+The CLI/Python release build succeeds in 6m53. The frozen CLI SHA-256 is
+`e2bfac6392b3fd418eab7b4de5efafc7f66b24b43492b93314c9f0ff23b0e8ba`.
+All four campaigns use the unchanged external inputs/order, two configured
+workers, endpoint allowance 65,536 and consistency allowance 67,108,864. The
+1,800s wall limit is not reached. All runs are shared-host observations, not
+controlled performance comparisons; not every verification phase is parallel.
+
+| Family | Passing sector audits / rules | Fully lowered sectors | Wall / user / system seconds | Peak RSS KiB | Terminal boundary |
+| --- | --- | ---: | --- | ---: | --- |
+| H | 314 / 21,360, zero gaps/issues | 72 | 308.58 / 346.15 / 13.55 | 9,710,424 | Exit 8, H58 rule 77/88, new guard |
+| FG | 124 / 9,272, zero gaps/issues | 82 | 283.58 / 300.37 / 15.58 | 14,662,608 | Exit 8, FG83 rule 59/73, new guard |
+| BMW | 134 / 9,024, zero gaps/issues | 31 | 568.98 / 630.15 / 7.21 | 4,682,756 | Exit 8, BMW230 rule 49/149, next guard |
+| X | 144 / 8,893, zero gaps/issues | 0 | 551.93 / 701.41 / 7.07 | 1,174,588 | Exit 4, X369 predicate preparation resource limit |
+
+H282 now completely lowers 1,676 cells and FG158 lowers 2,163 cells, so the
+previous stopping sectors really are cleared. BMW's previous guard 0 is cleared;
+the new error concerns guard 1 of the same rule. X394 now passes 52 replayed and
+descending rules, zero uncovered regions and no issues. No four-loop artifact
+is written, and no four-loop cold or Vakint numerical acceptance is claimed.
+
+For X369, the last rule-start marker is 183/183, but no complete audit report
+is returned. Predicate preparation rejects insertion of the 33rd distinct
+equation under `max_predicates=32`, before Boolean traversal. The final total
+number of distinct equations is not observed. This allowance is separate from
+the explicitly selected consistency-work budget and the native implication
+service's local 32-equation matrix cap. It supplies no uncovered-domain witness.
+Exact normalization/face-local atom reduction and a caller-owned predicate
+allowance are alternatives to investigate, not implemented changes or implicit
+permission to weaken later work/traversal checks.
+
+### Next guard refinement: necessary factors, not arbitrary branch choices
+
+The new H/FG captures have another exact native-backed explanation. Write
+`a=n0,b=n7` for H, and `a=n2,b=n8` for FG. In both actual boxes `a<=-2,b<=-1`;
+their affine targets additionally identify b with another inactive index.
+
+- H's leading `d²` coefficient is `2*b*(2*a-3*b)`. Since b is nonzero,
+  common coefficient vanishing requires `2*a=3*b`. Substituting that necessary
+  equation into the original `d` coefficient gives `b³`, which cannot vanish.
+- FG's `d` coefficient is `b*(2*a-3*b)`. The same necessary equation turns
+  its original constant coefficient into `b³/2`, again nonzero.
+- BMW's new polynomial is `(n3-n9-1)` times its previous guard. The new factor's
+  zero locus is contained in the first complete retained exclusion after
+  imposing the target. The previous guard uses the second exclusion. These
+  remain distinct complete excluded branches, not mixed equations.
+
+The current conjunction entry sees nonlinear coefficient products and does
+not inherit the preceding factor proof. A narrow generic next implementation
+can reuse the complete native factor lists already computed: if all but one
+factor are independently proved absent from the admissible domain, the sole
+remaining affine factor is a necessary equation. Add it while retaining every
+original coefficient sibling. Never select one of multiple unresolved factors:
+those describe OR branches, not a necessary individual equality. No new CAS,
+GCD implementation, unbounded branching or numerical proof is needed.
+
+Independent derivations agree. A tiny exact identity reproduction uses the
+already installed Symbolica Python extension `symbolica-77c1374`; it is an
+independent diagnostic, not a pinned Symbolica3 Rust implementation test.
+
+### Numerical diagnostics and cost
+
+Following the user's directive, bounded integer/finite-field sampling will
+complement symbolic investigation. It can expose actual counterexamples and
+rank/support candidates cheaply. Condition samples on exact target equalities,
+track excluded branches and poles, vary primes to expose unlucky samples, and
+record seeds/counts. Integer box order has no finite-field counterpart. Replay
+any proposed integer counterexample exactly; successful samples cannot prove
+coverage of unbounded index domains or authorize dropping an exceptional case.
+The existing solver's modular discovery already uses this separation between
+cheap evidence and exact authority; apply it to verification diagnostics too.
+
+A requested 15s X audit CPU sample ends when the target process exits: 233 samples
+span 4.683s; the recorder exits 143, so it is not a completed 15s profile. The
+readable captured data attributes 88.42% inclusive sampled cycles to original
+source replay, 72.89% to native sparse rational-polynomial row insertion, and
+38.56% to native polynomial GCD. These overlap and describe only that short
+window, not whole-run phase percentages. Optimizing compact exact replay is
+separate from the final predicate-count failure.
+
+K1/K3/K6 regenerate byte-identical artifacts and pass fresh-process inspection
+and canary application. Entire reduction reports match the preceding milestone.
+K6 workers 1/2/6, with six CPUs available, agree exactly; its serial CLI regression
+is 1.85s. The fresh release wheel passes 29/29 public Python API tests, no skips,
+in 47.804s (48.05s process wall), including CLI parity. Touched-file formatting
+and `git diff --check` pass. Existing unrelated work is preserved.

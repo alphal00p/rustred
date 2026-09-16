@@ -43,7 +43,7 @@ pub(crate) use family_campaign::{
     CompletePhysicalContractionGoal, CompletePhysicalContractionPlan, FamilyCoverageError,
     FamilyCoverageLimits, RequiredSectorOrbit,
 };
-pub(crate) use limits::CompletionGeometryLimits;
+pub(crate) use limits::{CompletionGeometryLimits, MAX_BOUNDED_AXIS_FACES};
 pub(crate) use model::{LatticeBox, LatticeCardinality, LatticePoint, UncoveredPartition};
 #[allow(unused_imports)] // Consumed by the staged owner-cover publisher.
 pub(crate) use region::{GuardBlindCarrierRegion, OuterPowerDirection};

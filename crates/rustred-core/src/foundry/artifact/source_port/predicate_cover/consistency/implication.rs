@@ -13,9 +13,9 @@ use super::{
 #[cfg(test)]
 use super::Atom;
 
-const MAX_EQUATIONS: usize = 32;
-const MAX_MATRIX_CELLS: usize = 65_536;
-const MAX_POLYNOMIAL_CELLS: usize = 262_144;
+pub(super) const MAX_EQUATIONS: usize = 32;
+pub(super) const MAX_MATRIX_CELLS: usize = 65_536;
+pub(super) const MAX_POLYNOMIAL_CELLS: usize = 262_144;
 
 fn native_rank(
     fixed: &[Option<i16>],

@@ -232,6 +232,23 @@ fn affected_pivots_and_fixed_coordinates_keep_prospective_limits() {
             (terms, "prospective term budget"),
             (bits, "prospective integer-bit budget"),
         ] {
+            if axis == 2 && expected == "prospective term budget" {
+                // A fixed scalar has one prospective term, even when its
+                // actual value is zero. No cancellation is needed for this
+                // tighter native-replacement support bound.
+                assert!(
+                    restrict(
+                        &context,
+                        value.raw(),
+                        Some((&target, &chart)),
+                        limits,
+                        &mut Work::default(),
+                    )
+                    .unwrap()
+                    .is_zero()
+                );
+                continue;
+            }
             assert!(
                 restrict(
                     &context,
@@ -516,6 +533,16 @@ fn singleton_physical_mapping_never_narrows_unrepresentable_integer_roots() {
     let huge_root = context.add(&huge, &context.one()).unwrap();
     let q = polynomial(&context, &context.sub(&n, &huge_root).unwrap());
     let piece = LatticeBox::try_new([u64::MAX, 0, 0], [Some(u64::MAX), None, None]).unwrap();
+    let mut box_work = Work::default();
+    super::super::conjunction::precharge_box_equation(
+        q.raw(),
+        context.base().variables().len(),
+        &piece,
+        &[false; 3],
+        Default::default(),
+        &mut box_work,
+    )
+    .unwrap();
     let mut work = Work::default();
     assert!(
         !misses_target(
@@ -529,7 +556,11 @@ fn singleton_physical_mapping_never_narrows_unrepresentable_integer_roots() {
         )
         .unwrap()
     );
-    assert_eq!(work.operations, 0);
+    // The native box check is precharged even when it finds a genuine root.
+    // No additional i64 singleton specialization can represent this root.
+    assert_eq!(work.operations, box_work.operations);
+    assert_eq!(work.input_terms, box_work.input_terms);
+    assert_eq!(work.substitutions, box_work.substitutions);
     // Positive x=u64::MAX corresponds to n=u64::MAX+1, not a wrapped zero.
     let positive_root = context
         .mul(&context.integer(i64::MIN), &context.integer(-2))
@@ -554,6 +585,16 @@ fn singleton_physical_mapping_never_narrows_unrepresentable_integer_roots() {
     );
     let local = 1u64 << 63;
     let piece = LatticeBox::try_new([local, 0, 0], [Some(local), None, None]).unwrap();
+    let mut box_work = Work::default();
+    super::super::conjunction::precharge_box_equation(
+        q.raw(),
+        context.base().variables().len(),
+        &piece,
+        &[false; 3],
+        Default::default(),
+        &mut box_work,
+    )
+    .unwrap();
     let mut work = Work::default();
     assert!(
         !misses_target(
@@ -567,5 +608,7 @@ fn singleton_physical_mapping_never_narrows_unrepresentable_integer_roots() {
         )
         .unwrap()
     );
-    assert_eq!(work.substitutions, 1);
+    assert_eq!(work.operations, box_work.operations + q.raw().nterms());
+    assert_eq!(work.input_terms, box_work.input_terms + q.raw().nterms());
+    assert_eq!(work.substitutions, box_work.substitutions + 1);
 }

@@ -364,6 +364,47 @@ alongside the independently designed BMW affine-conjunction and X finite-axis
 refinements. Do not count source prototypes as release cures or infer closure
 from these analyzed guards. Evidence: `/tmp/rustred-private-seal-release.9Fm7bz/`.
 
+**Native proof-refinement follow-up (2026-09-16):** the runtime-arity guard
+verifier now retains the full coefficient conjunction, repeatedly applies
+existing native affine charts to nonlinear siblings, and reuses native
+affine-box proofs with bounded precharged work. Boolean coverage can exhaust
+one short finite integer axis while preserving every other infinite direction;
+all children share one budget and cannot recursively split. Independent
+implementation/mathematical audit passes, and the combined focused gate passes
+629 tests, zero failed, 16 existing ignored. All 21 new regressions pass,
+including the captured X/BMW/H/FG obstructions and surviving-domain controls.
+The first run's obsolete work-counter expectation was corrected without
+changing any genuine-root assertion. This is a proof-service improvement,
+not a new IBP, terminal or family closure claim. The frozen public release
+CLI/Python build succeeds in 6m53. K1/K3/K6 bytes, fresh-process canaries and
+exact reduction reports remain unchanged; K6 workers1/2/6 agree. A freshly
+installed release wheel passes all 29 Python API tests with no skips.
+
+All four new full campaigns finish without an artifact. H/FG clear the old
+guards and fully lower 72/82 sectors (previously 66/41), then stop at new guards
+H58/FG83 after 308.58s/283.58s. BMW clears the previous guard but rejects the
+next guard of the same displayed rule after 568.98s, with 31 sectors lowered.
+All H/FG/BMW sector audits still pass. X advances from 65 to 144 complete sector
+audits (8,893 rules), then stops after 551.93s when preparing X369's 33rd distinct
+predicate under the separate 32-atom limit. This is not an uncovered witness;
+the rest of X remains unverified. Reuse native factor evidence to expose the
+necessary affine consequences without dropping original coefficient siblings;
+investigate explicit predicate policy/normalization separately, preserving
+fail-closed work and traversal limits. Evidence:
+`/tmp/rustred-native-refinement-release.YaRtcr/`.
+
+**Numerical diagnostics directive (2026-09-16):** include bounded reproducible
+integer and finite-field sampling in the investigation, not only symbolic
+reasoning. Use native Symbolica evaluations/reducers to find counterexamples,
+screen dependency/support candidates and prioritize exact materialization.
+Retain target/exclusion conditions; finite fields do not model integer order or
+box inequalities. Record sample domains, seeds, primes and unlucky-prime/pole
+handling. Replay proposed counterexamples exactly. Successful samples guide
+work but cannot certify infinite-domain coverage, remove guards, authorize a
+terminal or replace the final exact artifact gates. The current observed
+obstructions are proof-service/resource limits, not demonstrated missing rules;
+do not infer that every later unchecked obligation will pass.
+
 **Vakint precision policy (user directive, 2026-09-16):** compare requested
 precision with the known precision of supplied master data. If the request is
 higher, emit a clear warning identifying the requested and available precision

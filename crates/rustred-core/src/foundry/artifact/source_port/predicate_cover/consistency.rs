@@ -18,6 +18,8 @@ use super::{Atom, LatticeBox};
 mod diagnostics;
 #[path = "consistency/implication.rs"]
 mod implication;
+#[path = "consistency/refinement.rs"]
+mod refinement;
 #[path = "consistency/scalar_cache.rs"]
 mod scalar_cache;
 
@@ -133,6 +135,19 @@ impl<'a> RestrictionCache<'a> {
     /// box. `false` includes unsupported cases. Budget exhaustion is explicit,
     /// never disguised as a potentially uncovered mathematical domain.
     pub(super) fn contradicts(
+        &mut self,
+        cell: &LatticeBox,
+        assignments: &[Option<bool>],
+    ) -> Result<bool, WorkExhausted> {
+        if self.contradicts_without_refinement(cell, assignments)? {
+            return Ok(true);
+        }
+        self.contradicts_finite_axis(cell, assignments)
+    }
+
+    /// Children of a finite-axis partition use only this entry. They cannot
+    /// recursively create another partition or reset the traversal budget.
+    fn contradicts_without_refinement(
         &mut self,
         cell: &LatticeBox,
         assignments: &[Option<bool>],
