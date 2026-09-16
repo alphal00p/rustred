@@ -3,46 +3,11 @@
 use std::fmt::{self, Write};
 
 use crate::algebra::CoefficientPolynomial;
+use crate::diagnostic::BoundedText;
 
 use super::{Case, CaseIntersectionError};
 
 const MAX_CONTEXT_BYTES: usize = 16_384;
-
-struct BoundedText {
-    text: String,
-    remaining: usize,
-    truncated: bool,
-}
-
-impl BoundedText {
-    fn new(limit: usize) -> Self {
-        Self {
-            text: String::new(),
-            remaining: limit,
-            truncated: false,
-        }
-    }
-}
-
-impl Write for BoundedText {
-    fn write_str(&mut self, value: &str) -> fmt::Result {
-        if value.len() <= self.remaining {
-            self.text.push_str(value);
-            self.remaining -= value.len();
-            return Ok(());
-        }
-        let mut end = self.remaining;
-        while !value.is_char_boundary(end) {
-            end -= 1;
-        }
-        self.text.push_str(&value[..end]);
-        self.remaining = 0;
-        self.truncated = true;
-        // Stop the native formatter rather than allocating the entire output
-        // and truncating afterwards. The owned typed error stays untouched.
-        Err(fmt::Error)
-    }
-}
 
 fn equations(output: &mut BoundedText, values: &[CoefficientPolynomial]) -> fmt::Result {
     output.write_char('[')?;

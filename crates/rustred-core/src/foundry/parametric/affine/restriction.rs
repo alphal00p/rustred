@@ -105,6 +105,24 @@ impl AffineApplicationDomain {
 }
 
 impl AffineDomainRestriction {
+    /// Whether an authenticated input contains any fixed or pivot variable
+    /// replaced by this prepared chart. `false` proves that substitution is
+    /// unnecessary, not that the polynomial is nonzero. Zero-locus restriction
+    /// may still discard nonzero scalar content; coefficient-value APIs must
+    /// continue preserving their exact relative normalization.
+    pub(crate) fn affects_polynomial(
+        &self,
+        polynomial: &CoefficientPolynomial,
+    ) -> Result<bool, AffineGeometryError> {
+        self.validate_polynomial(polynomial)?;
+        Ok(self
+            .fixed
+            .iter()
+            .zip(&self.indices)
+            .any(|(fixed, &position)| fixed.is_some() && polynomial.contains(position))
+            || self.chart.replaces_variable_in(polynomial))
+    }
+
     /// Restrict numerator and denominator jointly. Relative rational scale is
     /// retained and an identically zero restricted denominator is an error.
     pub(crate) fn restrict_coefficient(
@@ -159,6 +177,10 @@ impl AffineDomainRestriction {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "restriction/support_tests.rs"]
+mod support_tests;
 
 #[cfg(test)]
 mod tests {

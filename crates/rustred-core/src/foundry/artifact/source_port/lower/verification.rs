@@ -368,7 +368,7 @@ impl PreparedOriginalDomain {
             ));
         }
         validate_guard_limits(&guards, self.limits.rule)?;
-        for guard in &guards {
+        for (ordinal, guard) in guards.iter().enumerate() {
             domain::validate_guard_on_domain_with_limits(
                 context,
                 &guard.polynomial,
@@ -377,7 +377,19 @@ impl PreparedOriginalDomain {
                 self.affine.as_deref().zip(self.affine_restriction.as_ref()),
                 &self.affine_exclusions,
                 self.limits.cell,
-            )?;
+            )
+            .inspect_err(|error| {
+                super::diagnostic::guard_failure(super::diagnostic::GuardFailure {
+                    ordinal,
+                    polynomial: guard.polynomial.raw(),
+                    origins: &guard.origins,
+                    sector,
+                    piece: &piece,
+                    target: self.affine.as_deref(),
+                    exclusions: &self.affine_exclusions,
+                    error,
+                });
+            })?;
         }
         let vanishes = |coefficient: &IndexedCoefficient, piece: &LatticeBox| {
             self.coefficient_vanishes(context, coefficient, piece, sector)

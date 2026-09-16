@@ -70,6 +70,7 @@ pub(in crate::foundry::artifact::source_port) fn validate_guard_on_domain_with_l
         sector,
         target.map(|(domain, _)| domain),
         limits,
+        &mut work,
     )? {
         return Ok(());
     }
@@ -118,6 +119,7 @@ pub(in crate::foundry::artifact::source_port) fn validate_guard_on_domain_with_l
                 sector,
                 target.map(|(domain, _)| domain),
                 limits,
+                &mut work,
             )? {
                 continue;
             }
@@ -175,11 +177,59 @@ fn misses_target(
     sector: &[bool],
     target: Option<&AffineApplicationDomain>,
     limits: RuleCellLimits,
+    work: &mut Work,
 ) -> Result<bool, SourcePortAuditError> {
     use symbolica::prelude::Integer;
-    let system = context
+    // Admit the complete original before specialization: a singleton cannot
+    // hide an oversized or unauthenticated input by cancelling its terms.
+    let mut system = context
         .base_coefficient_system(polynomial, limits.indexed_algebra, limits.guard_algebra)
         .map_err(error)?;
+    let mut fixed = Vec::new();
+    fixed
+        .try_reserve_exact(sector.len())
+        .map_err(|_| error("affine guard singleton allocation failed"))?;
+    for (axis, &active) in sector.iter().enumerate() {
+        if piece.upper()[axis] != Some(piece.lower()[axis])
+            || !polynomial
+                .raw()
+                .contains(context.base().variables().len() + axis)
+        {
+            continue;
+        }
+        let local = i128::from(piece.lower()[axis]);
+        let physical = if active { local + 1 } else { -local };
+        // The shared specialization API accepts i64, but the mathematical
+        // box is wider. Leave unrepresentable singletons symbolic rather
+        // than narrowing them or declaring their domain empty.
+        if let Ok(physical) = i64::try_from(physical) {
+            fixed.push((axis, physical));
+        }
+    }
+    if !fixed.is_empty() {
+        let terms = fixed
+            .len()
+            .checked_mul(polynomial.raw().nterms())
+            .ok_or_else(|| error("affine guard singleton replay term overflow"))?;
+        work.input_terms = work
+            .input_terms
+            .checked_add(terms)
+            .ok_or_else(|| error("affine guard input-term count overflow"))?;
+        if work.input_terms > limits.guard_algebra.max_exact_hyperplane_replay_terms {
+            return Err(error("affine guard exceeds aggregate input-term budget"));
+        }
+        // Charge every selected singleton before the allocation-owning native
+        // service. Its own coefficient-bit and specialization caps also apply.
+        for _ in &fixed {
+            work.charge(polynomial.raw().nterms(), limits)?;
+        }
+        let restricted = context
+            .specialize_fixed_polynomial(polynomial, &fixed, limits.indexed_algebra)
+            .map_err(error)?;
+        system = context
+            .base_coefficient_system(&restricted, limits.indexed_algebra, limits.guard_algebra)
+            .map_err(error)?;
+    }
     let resolution = context
         .integer_zero_locus_domain_resolution(&system, limits.guard_algebra, |axis, root| {
             let local = if sector[axis] {
@@ -350,6 +400,14 @@ fn restrict(
     if degree > limits.guard_algebra.max_factor_total_degree {
         return Err(error("affine guard chart input exceeds degree budget"));
     }
+    // No substituted variable occurs: there is no expanding operation to
+    // preflight. Input/map/bit/work/degree admission above still applies, and
+    // callers must still prove nonvanishing on the full application domain.
+    // Keeping scalar content is valid here because only the zero locus is
+    // used; coefficient-value restrictions retain their separate exact path.
+    if !chart.affects_polynomial(raw).map_err(error)? {
+        return Ok(input);
+    }
     let expansion = n
         .checked_add(1)
         .and_then(|v| v.checked_pow(degree as u32))
@@ -361,6 +419,28 @@ fn restrict(
     if terms > limits.guard_algebra.max_input_terms
         || terms > limits.guard_algebra.max_exact_hyperplane_replay_terms
     {
+        super::super::diagnostic::restriction_failure(
+            super::super::diagnostic::RestrictionFailure {
+                reason: "affine guard chart exceeds prospective term budget",
+                polynomial: raw,
+                target: domain,
+                estimate: super::super::diagnostic::RestrictionEstimate {
+                    variables: n,
+                    index_degree: degree,
+                    input_terms: raw.nterms(),
+                    expansion,
+                    prospective_terms: terms,
+                    chart_bits: None,
+                    input_coefficient_bits: None,
+                    prospective_coefficient_bits: None,
+                    prospective_total_bits: None,
+                    max_input_terms: limits.guard_algebra.max_input_terms,
+                    max_replay_terms: limits.guard_algebra.max_exact_hyperplane_replay_terms,
+                    max_total_bits: limits.guard_algebra.max_total_integer_bits,
+                    max_coefficient_bits: limits.indexed_algebra.max_specialization_integer_bits,
+                },
+            },
+        );
         return Err(error("affine guard chart exceeds prospective term budget"));
     }
     // Hadamard/Cramer's-rule bound: one pivot minor supplies a common
@@ -395,6 +475,28 @@ fn restrict(
     if total_bits > limits.guard_algebra.max_total_integer_bits
         || bits > limits.indexed_algebra.max_specialization_integer_bits
     {
+        super::super::diagnostic::restriction_failure(
+            super::super::diagnostic::RestrictionFailure {
+                reason: "affine guard chart exceeds prospective integer-bit budget",
+                polynomial: raw,
+                target: domain,
+                estimate: super::super::diagnostic::RestrictionEstimate {
+                    variables: n,
+                    index_degree: degree,
+                    input_terms: raw.nterms(),
+                    expansion,
+                    prospective_terms: terms,
+                    chart_bits: Some(chart_bits),
+                    input_coefficient_bits: Some(input_bits),
+                    prospective_coefficient_bits: Some(bits),
+                    prospective_total_bits: Some(total_bits),
+                    max_input_terms: limits.guard_algebra.max_input_terms,
+                    max_replay_terms: limits.guard_algebra.max_exact_hyperplane_replay_terms,
+                    max_total_bits: limits.guard_algebra.max_total_integer_bits,
+                    max_coefficient_bits: limits.indexed_algebra.max_specialization_integer_bits,
+                },
+            },
+        );
         return Err(error(
             "affine guard chart exceeds prospective integer-bit budget",
         ));

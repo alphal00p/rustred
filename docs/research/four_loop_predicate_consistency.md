@@ -318,3 +318,91 @@ for their distinct remaining obstructions.
 Evidence: `/tmp/rustred-joint-guard-refinement.m3uTgL/`,
 `/tmp/rustred-joint-guard-release.QQBORj/`, and the read-only chart design in
 `/tmp/rustred-chart-noop-design.lsF8sJ/DESIGN.md`.
+
+## Actual chart-support failures and fixed-cell refinement
+
+Failure-only diagnostics now capture the actual lowered guard, exact target,
+box, exclusions and failed prospective bound. They are enabled only by
+`RUSTRED_AFFINE_GUARD_DIAGNOSTICS=1`, have a 16 KiB block limit with explicit
+truncation status, and cannot replace the original proof error. Successful
+guards do not format diagnostics or inspect the environment. Existing bounded
+formatters share one crate-private implementation.
+
+The diagnostic-only release baseline passes 595 focused tests and repeats
+both full campaigns without changing proof decisions. FG passes all 124 sector
+audits, then fails lowering FG214 rule74 after 273.17s wall; H passes all 314
+audits, then fails H370 rule66 after 337.76s. Neither writes an artifact.
+The actual FG guard is
+
+```text
+Q = -10 - 13*n8 - 3*n8^2 - 12*n5 - 5*n5*n8 - 2*n5^2
+    + 3*d*(1+n8+n5).
+```
+
+Its chart replaces `n3` using `2*n3-n8-1=0`; the other fixed coordinates
+also do not occur in `Q`. Nevertheless the old dense expansion estimate
+charged 1,089 terms and 230,868 bits for this nine-term polynomial.
+The actual H guard likewise contains none of the chart's substituted variables:
+its chart replaces `n0`, while the polynomial uses only `d,n3,n7`.
+Its 15 terms were charged 19,965 prospective terms and 6,308,940 bits.
+
+The support-aware correction queries Symbolica's existing `contains()` on
+authenticated fixed and pivot positions. An unaffected guard is returned
+unchanged **after** the original map, size, bit, degree and work checks.
+This proves only that substitution is unnecessary, not guard nonvanishing.
+Affected polynomials retain the existing prospective bounds.
+
+The H capture supplies another exact simplification: its actual application
+cell fixes `n3=0`, with `n7<=-2`, and has no affine exclusions. Substituting
+that singleton with the existing native fixed-polynomial service leaves
+the coefficient of `d` equal to `3*n7*(n7+1)`, nonzero throughout the cell.
+The verifier now uses supported cell singletons before its existing native
+coefficient zero-locus analysis, after chart restriction and original input
+admission. All selected singleton-by-input-term work is charged before native
+substitution. Checked physical-coordinate conversion leaves an unrepresentable
+machine endpoint symbolic, never narrowed. An identically zero restriction
+remains inconclusive. No interval is replaced by a sampled representative.
+
+Independent source and mathematical audits pass. New regressions cover both
+captured failures, genuine zero guards, fixed/pivot support, foreign contexts,
+input limits, singleton work charges and unrepresentable endpoints. The FG
+regression includes the captured exclusion, but singleton specialization can
+prove that example directly; dedicated implication tests separately cover
+the exclusion proof.
+
+Capture evidence: `/tmp/rustred-guard-capture.Z0r0WH/`.
+Independent audit: `/tmp/rustred-chart-diagnostics-audit.F5hc5S/AUDIT.md`.
+The enabled correction's release evidence is recorded separately in
+`/tmp/rustred-chart-support-release.FT3gS3/`. Debug and release builds pass;
+the broader diagnostic-inclusive focused gate passes **603 tests**, zero
+failed and 16 existing ignored. All eight new guard regressions and five
+chart-support tests ran.
+
+Both full reruns clear their captured guard failures. FG again passes all
+124 sector audits and 9,272 replayed/descending rules with zero gaps/issues;
+H passes all 314 and 21,360 respectively. Thirty-two FG sectors and 56 H
+sectors lower completely. The next failures occur later within the same
+sectors: FG214 rule76 and H370 rule90 reach the existing combined endpoint
+storage preflight. The formula is `(3*retained_rhs_terms + 4)*arity*2`:
+11,600 cells for FG's 192 retained RHS terms and 8,720 for H's 144, against
+the unchanged allowance of 8,192. These are conservative buffer counts,
+not numbers of distinct domains, uncovered regions or masters. The three
+independently constructed proof buffers cannot simply be removed from the
+estimate without first changing ownership/sharing.
+
+FG exits with code 8 after 240.70s wall, 264.21s user and 8.58s system time,
+with 5,098,392 KiB peak RSS. H exits with code 8 after 327.18s wall, 373.94s
+user and 10.35s system time, with 7,475,724 KiB peak RSS. Neither reaches its
+1,200s timeout or writes an artifact. The next narrow step is exposing the
+already-public `ParametricRuleLimits.max_domain_bound_endpoint_cells` to
+generation while retaining its existing caller-controlled cold-load setting
+in `ArtifactLoadLimits.rule_derivation`. No default was raised in this slice.
+
+K1/K3/K6 artifact bytes and exact canary reductions are unchanged. Each passes
+current-core fresh-process validation and master-only application; K6 workers
+1/2/6 produce identical bytes. Its artifact retains 623 rules, 5,640 cells,
+38 masters, 26 zero sectors and 8,925,944 bytes. Serial core generation takes
+0.03s/0.03s/2.40s for K1/K3/K6 on this shared host; these are regression
+observations, not controlled speed ratios. CLI/Python frontends were not
+rebuilt for this internal verifier slice. BMW/X were not redundantly rerun
+for their separate unchanged native-consistency budget obstruction.

@@ -2,6 +2,8 @@
 
 use std::fmt::{self, Write};
 
+use crate::diagnostic::BoundedText;
+
 use super::{Atom, CoefficientPolynomial, LatticeBox};
 
 const MAX_DISPLAY_BYTES: usize = 16_384;
@@ -91,42 +93,6 @@ impl fmt::Display for PredicateCoverWitness {
 impl fmt::Debug for PredicateCoverWitness {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self, output)
-    }
-}
-
-struct BoundedText {
-    text: String,
-    remaining: usize,
-    truncated: bool,
-}
-
-impl BoundedText {
-    fn new(limit: usize) -> Self {
-        Self {
-            text: String::new(),
-            remaining: limit,
-            truncated: false,
-        }
-    }
-}
-
-impl Write for BoundedText {
-    fn write_str(&mut self, value: &str) -> fmt::Result {
-        if value.len() <= self.remaining {
-            self.text.push_str(value);
-            self.remaining -= value.len();
-            return Ok(());
-        }
-        let mut end = self.remaining;
-        while !value.is_char_boundary(end) {
-            end -= 1;
-        }
-        self.text.push_str(&value[..end]);
-        self.remaining = 0;
-        self.truncated = true;
-        // Stop native formatting at the limit instead of first allocating an
-        // unbounded equation string. This does not mutate the typed witness.
-        Err(fmt::Error)
     }
 }
 

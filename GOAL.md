@@ -288,6 +288,31 @@ using authenticated fixed/pivot support and Symbolica's existing APIs.
 No four-loop closure or Vakint numerical acceptance is claimed. Evidence:
 `/tmp/rustred-joint-guard-release.QQBORj/`.
 
+**Support-aware guard follow-up (2026-09-16):** bounded diagnostics captured
+the actual H370 and FG214 failures. Their polynomials contain none of their
+prepared chart's substituted variables, so dense expansion estimates were
+unnecessary. The exact support shortcut preserves original admission and
+downstream guard proofs. Native specialization of cell singletons also proves
+the captured H guard without inventing an exclusion. Independent source and
+mathematical audits and all 603 focused tests pass (16 existing ignored in
+the broader diagnostic-inclusive selection). Full release H and FG again
+pass every sector audit: 314/21,360 and 124/9,272 sectors/rules respectively,
+with zero gaps or issues. Both previous guard failures are cleared.
+
+The next publication bounds are endpoint-storage counts: H370 rule90 requests
+8,720 cells and FG214 rule76 requests 11,600, against the unchanged 8,192
+allowance. These are conservative allocation estimates, not uncovered
+integrals. H exits after 327.18s wall and FG after 240.70s; neither writes an
+artifact. K1/K3/K6 bytes, current-core cold loads, exact master-only canaries
+and K6 workers1/2/6 determinism remain unchanged. Next expose the existing
+resource allowance consistently to generation and cold loading, retaining
+typed failures and all mathematical checks; handle BMW/X's separate native
+consistency allowance through the same explicit policy discipline. Do not
+remove real proof buffers from the estimate or let artifact bytes authorize
+their own load limits. Evidence: `/tmp/rustred-chart-support-release.FT3gS3/`
+and the [guard-consistency report](docs/research/four_loop_predicate_consistency.md).
+No four-loop artifact or numerical Vakint acceptance is claimed.
+
 **Vakint precision policy (user directive, 2026-09-16):** compare requested
 precision with the known precision of supplied master data. If the request is
 higher, emit a clear warning identifying the requested and available precision

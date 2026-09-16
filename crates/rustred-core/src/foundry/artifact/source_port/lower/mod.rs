@@ -1,4 +1,5 @@
 //! One exact original-domain lowering shared by generation and cold decoding.
+mod diagnostic;
 mod domain;
 #[cfg(test)]
 pub(in crate::foundry::artifact) mod durable_tests;

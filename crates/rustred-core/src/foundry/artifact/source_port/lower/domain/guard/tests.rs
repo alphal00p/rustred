@@ -2,6 +2,8 @@ use super::*;
 use crate::algebra::{CoefficientContext, IndexedCoefficient};
 use crate::solver::{AffineCase, AffineIntersection, CoordinateCase};
 
+mod support;
+
 fn context() -> IndexedCoefficientContext {
     IndexedCoefficientContext::try_new(&CoefficientContext::new(["d"]), "affine-guard-tests", 3)
         .unwrap()

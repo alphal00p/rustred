@@ -34,6 +34,20 @@ impl Chart {
         matches!(self, Self::Integral(_))
     }
 
+    /// Structural query only; the caller must authenticate the polynomial's
+    /// variable map. Fixed-face substitutions are owned by the caller, not
+    /// by this list of coupled pivots.
+    pub(crate) fn replaces_variable_in(&self, polynomial: &CoefficientPolynomial) -> bool {
+        match self {
+            Self::Integral(replacements) => replacements
+                .iter()
+                .any(|(position, _)| polynomial.contains(*position)),
+            Self::Rational(replacements) => replacements
+                .iter()
+                .any(|(position, _)| polynomial.contains(*position)),
+        }
+    }
+
     pub(super) fn restrict_equation<const N: usize>(
         &self,
         polynomial: &CoefficientPolynomial,

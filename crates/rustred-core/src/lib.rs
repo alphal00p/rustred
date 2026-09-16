@@ -9,6 +9,7 @@
 
 pub mod algebra;
 pub mod campaign;
+mod diagnostic;
 pub mod family;
 pub mod foundry;
 pub mod identity;
