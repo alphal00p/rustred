@@ -9,7 +9,7 @@ mod combinatorics;
 mod error;
 
 pub(super) use combinatorics::{
-    checked_binomial, try_apply_finite_assignment, try_build_simplex_offsets,
-    try_finite_assignment_count, try_simplex_sample_count,
+    checked_binomial, try_apply_finite_assignment, try_finite_assignment_count,
 };
-pub(super) use error::SimplexSupportError;
+pub(crate) use combinatorics::{try_build_simplex_offsets, try_simplex_sample_count};
+pub(crate) use error::SimplexSupportError;

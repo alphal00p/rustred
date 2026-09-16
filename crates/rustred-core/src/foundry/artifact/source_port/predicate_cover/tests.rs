@@ -4,6 +4,8 @@ use crate::solver::{AffineCase, AffineIntersection, CoordinateCase};
 
 #[path = "tests/atom_policy.rs"]
 mod atom_policy;
+#[path = "tests/scoped.rs"]
+mod scoped;
 
 fn full<const N: usize>() -> LatticeBox {
     LatticeBox::try_new([0; N], [None; N]).unwrap()

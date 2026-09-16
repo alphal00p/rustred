@@ -4,6 +4,7 @@ use crate::solver::{AffineCase, AffineIntersection, CoordinateCase};
 
 mod conjunction;
 mod factor_consequences;
+mod singleton;
 mod support;
 
 fn context() -> IndexedCoefficientContext {

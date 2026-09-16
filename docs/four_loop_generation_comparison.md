@@ -79,10 +79,54 @@ coefficient-byte limit prevented emission of a phase report. Their process
 times must not be substituted for missing solve times. The generation-only
 library client removes saving from the requested workload for the next matrix.
 
-The pending matched matrix includes all four parents, one and six workers, and
-three implementations/configurations: C++ exact, RustRed sparse exact, and
-RustRed Symbolica reconstruction. Completed rows, timeouts and backend failures
-must all remain visible; no full-workload speed ratio is justified yet.
+The matched library-client matrix includes all four parents, one and six
+workers, and three configurations. Its completed or censored observations so
+far are below. Pending jobs are not inferred from another frontend's times.
+
+| Parent | Workers | C++ exact solve | RustRed sparse-exact solve | RustRed reconstruction solve |
+| --- | ---: | ---: | ---: | ---: |
+| H | 1 | Timed out at 900 s | 105.649 s | Prime budget exhausted; 185.90 s process |
+| X | 1 | Timed out at 900 s | 299.662 s | Prime budget exhausted; 435.91 s process |
+| BMW | 1 | Running | Pending | Pending |
+| FG | 1 | Pending | Pending | Pending |
+| H | 6 | Pending | Pending | Pending |
+| X | 6 | Pending | Pending | Pending |
+| BMW | 6 | Pending | Pending | Pending |
+| FG | 6 | Pending | Pending | Pending |
+
+The C++ H serial process used 900.06 s wall time and 890.11 s user CPU time,
+then exited with timeout status 124 before producing any rule files. It has no
+completed solver time; 900 s is not a speedup denominator. The RustRed H serial
+library run used 107.19 s process wall time, of which 105.649 s was solving and
+1.197 s was native-display output. Its full output census checks passed:
+314 sectors, 21,360 rules, 386 residual records and 315 files. The matching CLI
+counts corroborate workload selection, not certification. Different serial
+observations on this shared host also demonstrate why one sample is not a
+performance guarantee. No full-workload speed ratio is justified yet.
+
+The H reconstruction run failed in sector `0000110110`, on a coordinate case
+fixing indices 2 and 6 to zero and indices 4, 5, 7 and 8 to one (zero-based
+positions; auxiliary index 9 is zero). Symbolica reported exhaustion of its
+rational-reconstruction prime budget. The process exited 1 after 185.90 s;
+there is no successful solve interval or completed output to compare. This is
+an observed limitation of the selected eight-prime policy, not evidence that
+reconstruction is mathematically impossible. Its 200,000-probe/four-attempt
+controls apply per coefficient and prime, and its eight-prime allowance applies
+per coefficient reconstruction, not globally to the family. Failed modular
+images also consume that prime allowance, so this message alone does not
+establish excessive final coefficient height. The implementation did not
+silently switch to sparse exact arithmetic after this failure.
+
+C++ X serial likewise reached the normal deadline: 900.07 s process wall time,
+889.37 s user CPU time, exit 124, and no completed rule files. RustRed's matched
+generation-only X attempt completed in 299.662 s solve time and 302.31 s process
+wall time. Its full output check passed: 328 sectors, 19,980 rules and 445 finite
+residual records. This successful phase report supplies the previously missing
+X timing without changing or bypassing the app's candidate-bundle limits.
+The X reconstruction run subsequently failed in the same sector and coordinate
+case as H, again with Symbolica's prime-budget exhaustion error; its process
+wall time was 435.91 s and exit status was 1. No completed reconstruction output
+or solve-time comparison is available for either parent.
 
 ## Reproducibility
 

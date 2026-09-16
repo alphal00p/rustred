@@ -27,6 +27,11 @@ mod residual;
 pub(crate) mod scheduler;
 mod sector_closure;
 mod simplex_support;
+// Pure combinatorics shared with exact rank-scope geometry; none of the
+// proposal/discovery machinery gains publication authority through this seam.
+pub(crate) use simplex_support::{
+    SimplexSupportError, try_build_simplex_offsets, try_simplex_sample_count,
+};
 #[cfg(test)]
 pub(crate) mod test_fixtures;
 mod triangular_support;

@@ -26,11 +26,14 @@ use super::AffineApplicationDomain;
 
 mod consistency;
 mod diagnostic;
+mod scope;
 use diagnostic::PredicateCoverWitness;
 
 struct TraversalWork<'a> {
     nodes: usize,
     consistency: consistency::RestrictionCache<'a>,
+    required_domain: Option<&'a LatticeBox>,
+    scoped_geometry: scope::GeometryWork,
 }
 
 impl<'a> TraversalWork<'a> {
@@ -43,6 +46,8 @@ impl<'a> TraversalWork<'a> {
         Self {
             nodes: 0,
             consistency: consistency::RestrictionCache::with_work_limit(sector, atoms, max_work),
+            required_domain: None,
+            scoped_geometry: scope::GeometryWork::default(),
         }
     }
 }
@@ -166,6 +171,30 @@ pub(in crate::foundry::artifact) fn certify_predicate_cover(
     terminals: &[LatticeBox],
     limits: PredicateCoverLimits,
 ) -> Result<PredicateCoverCertificate, PredicateCoverError> {
+    certify_predicate_cover_impl(sector, owners, terminals, None, limits)
+}
+
+/// Certify only a caller-required union, retaining infinite endpoints exactly.
+/// This proves coverage, not rule validity or closure under RHS successors.
+/// The caller must separately certify those obligations before publication.
+/// All original owners are admitted even when the requested union is empty.
+pub(in crate::foundry::artifact) fn certify_predicate_cover_within(
+    sector: &[bool],
+    owners: &[PredicateCoveragePiece<'_>],
+    terminals: &[LatticeBox],
+    required: &[LatticeBox],
+    limits: PredicateCoverLimits,
+) -> Result<PredicateCoverCertificate, PredicateCoverError> {
+    certify_predicate_cover_impl(sector, owners, terminals, Some(required), limits)
+}
+
+fn certify_predicate_cover_impl(
+    sector: &[bool],
+    owners: &[PredicateCoveragePiece<'_>],
+    terminals: &[LatticeBox],
+    required: Option<&[LatticeBox]>,
+    limits: PredicateCoverLimits,
+) -> Result<PredicateCoverCertificate, PredicateCoverError> {
     if limits.max_predicates > super::SourcePortLimits::MAX_PREDICATE_ATOMS {
         return Err(PredicateCoverError::Budget(
             "supported predicate atom policy",
@@ -174,6 +203,9 @@ pub(in crate::foundry::artifact) fn certify_predicate_cover(
     if sector.is_empty() || sector.len() > limits.geometry.max_arity {
         return Err(PredicateCoverError::InvalidDomain("sector arity"));
     }
+    let required = required
+        .map(|boxes| scope::prepare_required(sector.len(), boxes, limits.geometry))
+        .transpose()?;
     let mut atoms = Vec::new();
     let mut constraints = Vec::new();
     let mut clauses = Vec::new();
@@ -235,15 +267,33 @@ pub(in crate::foundry::artifact) fn certify_predicate_cover(
     }
     let mut assignments = vec![None; atoms.len()];
     let mut work = TraversalWork::with_work_limit(sector, &atoms, limits.max_consistency_work);
-    let result = check_valuations(
-        sector,
-        &atoms,
-        &clauses,
-        &constraints,
-        &mut assignments,
-        &mut work,
-        limits,
-    );
+    let result = (|| {
+        if let Some(required) = &required {
+            for domain in required.boxes() {
+                work.required_domain = Some(domain);
+                check_valuations(
+                    sector,
+                    &atoms,
+                    &clauses,
+                    &constraints,
+                    &mut assignments,
+                    &mut work,
+                    limits,
+                )?;
+            }
+            Ok(())
+        } else {
+            check_valuations(
+                sector,
+                &atoms,
+                &clauses,
+                &constraints,
+                &mut assignments,
+                &mut work,
+                limits,
+            )
+        }
+    })();
     work.consistency.report(match &result {
         Ok(()) => "covered",
         Err(PredicateCoverError::Budget(_)) => "budget",
@@ -384,10 +434,20 @@ fn check_valuations(
             definite.push(copy_box(&clause.domain)?);
         }
     }
-    let complement = BoxCover::try_new(sector.len(), definite, limits.geometry)
-        .map_err(geometry)?
-        .uncovered_partition()
-        .map_err(geometry)?;
+    let geometry_limits = if work.required_domain.is_some() {
+        work.scoped_geometry.remaining(limits.geometry)?
+    } else {
+        limits.geometry
+    };
+    let cover = BoxCover::try_new(sector.len(), definite, geometry_limits).map_err(geometry)?;
+    let complement = match work.required_domain {
+        Some(domain) => cover.uncovered_within(copy_box(domain)?),
+        None => cover.uncovered_partition(),
+    }
+    .map_err(geometry)?;
+    if work.required_domain.is_some() {
+        work.scoped_geometry.record(&complement, sector.len())?;
+    }
     let mut possible = Vec::new();
     for piece in complement.boxes() {
         if constraints.iter().any(|constraint| {

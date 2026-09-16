@@ -25,6 +25,38 @@ certification and report serialization separately; record failures/timeouts and
 check resulting rules, not just timings. See the
 [matched benchmark protocol](docs/four_loop_generation_comparison.md).
 
+**Optional rank-scoped certification (user directive, 2026-09-16):** extend
+the delegated certification study to a caller-supplied maximum numerator rank
+of the starting integrals, selected optionally during the separate certification
+stage. Define the rank convention explicitly; do not confuse numerator rank
+with the number or powers of denominators. Positive propagator powers remain
+unbounded unless separately restricted. A starting-rank bound is not generally
+preserved by reduction: certify an inductive successor domain as well as the
+entry domain, persist the scope, and enforce it when accepting inputs. Retain
+unrestricted certification as the default. The researcher must recommend a
+concrete next implementation balancing speed, coverage and complexity, and the
+implementation lane must act on that recommendation with independent audit and
+end-to-end checks. Bounded sampling or an unproved intermediate-rank cutoff is
+not a certificate. The final recommendation is now recorded in
+[rank-bounded certification](docs/research/rank_bounded_certification.md): exact
+negative-degree slices, successor-closed proof envelopes, then compact exact
+witnesses for remaining domain implications. The slice and scoped-coverage
+primitives are implemented and independently audited. Scope persistence,
+successor checks and runtime entry enforcement are still required before this
+becomes a public option; the internal primitives alone do not certify closure.
+
+**Domain-proof implementation checkpoint (2026-09-16):** common certification
+now retains singleton restrictions through guard proofs and detects complete
+affine exclusions relative to the actual target domain. These remove the
+captured H/FG proof gaps without topology dispatch or changing coefficient
+budgets. The focused gate passes 293 tests with five existing ignored tests.
+Release K1/K3/K6 generation, separate certification, cold inspection and canary
+reduction reproduce the previous bytes. Full saved FG/H certification now stops
+at explicit endpoint-storage budgets (11,600/8,720 requested versus 8,192), not
+at those captured local proof failures. Retries with an explicit larger caller
+storage allowance are in progress; no four-loop certified artifact is claimed.
+See [the implementation and release evidence](docs/research/relative_domain_certification.md).
+
 **Parallel candidate validation (user directive, 2026-09-16):** do not wait for
 whole-family certification before testing the current four-loop candidate IBPs
 against Vakint's existing numerical acceptance cases. Run a separate explicitly

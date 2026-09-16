@@ -9,6 +9,11 @@ use crate::sector::{InteriorBounds, Mask};
 
 use super::super::error::ArtifactError;
 
+// Internal exact entry geometry; publication wiring must additionally prove
+// successor closure and persist/enforce the scope before exposing a rank flag.
+#[allow(dead_code)]
+pub(in crate::foundry::artifact) mod rank;
+
 pub(in crate::foundry::artifact) fn root_bounds(
     root: &Mask,
 ) -> Result<Box<[InteriorBounds]>, ArtifactError> {

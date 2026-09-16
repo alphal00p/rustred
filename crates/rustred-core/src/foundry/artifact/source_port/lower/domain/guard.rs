@@ -23,6 +23,7 @@ use super::{SourcePortAuditError, error, validate_guard_with_limits};
 
 mod conjunction;
 mod factors;
+mod singleton;
 
 pub(in crate::foundry::artifact::source_port) fn validate_guard_on_domain_with_limits(
     context: &IndexedCoefficientContext,
@@ -66,6 +67,11 @@ pub(in crate::foundry::artifact::source_port) fn validate_guard_on_domain_with_l
     }
     let mut work = Work::default();
     let polynomial = restrict(context, polynomial.raw(), target, limits, &mut work)?;
+    // Preserve the actual piece's fixed coordinates throughout coefficient
+    // splitting, factor implications and conjunction charts. A temporary
+    // bool-only specialization would lose this premise before exact lifting.
+    let polynomial = singleton::restrict(context, &polynomial, piece, sector, limits, &mut work)?
+        .unwrap_or(polynomial);
     if polynomial.is_zero() {
         return Err(error("guard vanishes identically on its affine target"));
     }
@@ -93,7 +99,11 @@ pub(in crate::foundry::artifact::source_port) fn validate_guard_on_domain_with_l
             if !is_index_affine(equation, context.base().variables().len()) {
                 return Err(error("guard exclusion is not an index-affine equation"));
             }
-            equations.push(restrict(context, equation, target, limits, &mut work)?);
+            let equation = restrict(context, equation, target, limits, &mut work)?;
+            equations.push(
+                singleton::restrict(context, &equation, piece, sector, limits, &mut work)?
+                    .unwrap_or(equation),
+            );
         }
         if !equations.is_empty() {
             predicates.push(equations);
@@ -205,47 +215,8 @@ fn misses_target(
             return Ok(true);
         }
     }
-    let mut fixed = Vec::new();
-    fixed
-        .try_reserve_exact(sector.len())
-        .map_err(|_| error("affine guard singleton allocation failed"))?;
-    for (axis, &active) in sector.iter().enumerate() {
-        if piece.upper()[axis] != Some(piece.lower()[axis])
-            || !polynomial
-                .raw()
-                .contains(context.base().variables().len() + axis)
-        {
-            continue;
-        }
-        let local = i128::from(piece.lower()[axis]);
-        let physical = if active { local + 1 } else { -local };
-        // The shared specialization API accepts i64, but the mathematical
-        // box is wider. Leave unrepresentable singletons symbolic rather
-        // than narrowing them or declaring their domain empty.
-        if let Ok(physical) = i64::try_from(physical) {
-            fixed.push((axis, physical));
-        }
-    }
-    if !fixed.is_empty() {
-        let terms = fixed
-            .len()
-            .checked_mul(polynomial.raw().nterms())
-            .ok_or_else(|| error("affine guard singleton replay term overflow"))?;
-        work.input_terms = work
-            .input_terms
-            .checked_add(terms)
-            .ok_or_else(|| error("affine guard input-term count overflow"))?;
-        if work.input_terms > limits.guard_algebra.max_exact_hyperplane_replay_terms {
-            return Err(error("affine guard exceeds aggregate input-term budget"));
-        }
-        // Charge every selected singleton before the allocation-owning native
-        // service. Its own coefficient-bit and specialization caps also apply.
-        for _ in &fixed {
-            work.charge(polynomial.raw().nterms(), limits)?;
-        }
-        let restricted = context
-            .specialize_fixed_polynomial(polynomial, &fixed, limits.indexed_algebra)
-            .map_err(error)?;
+    if let Some(restricted) = singleton::restrict(context, polynomial, piece, sector, limits, work)?
+    {
         system = context
             .base_coefficient_system(&restricted, limits.indexed_algebra, limits.guard_algebra)
             .map_err(error)?;

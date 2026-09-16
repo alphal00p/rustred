@@ -19,6 +19,8 @@ use crate::solver::AffineCase;
 mod box_bounds;
 #[path = "affine/box_containment.rs"]
 mod box_containment;
+#[path = "affine/relative_containment.rs"]
+mod relative_containment;
 #[path = "affine/restriction.rs"]
 mod restriction;
 pub(crate) use restriction::AffineDomainRestriction;

@@ -195,14 +195,26 @@ impl PreparedOriginalDomain {
                 "original application emptiness has incompatible sector or arity",
             ));
         }
-        Ok(self
+        let rectangular_proof = self
             .affine
             .as_ref()
             .is_some_and(|domain| domain.is_proved_empty_in_box(piece))
             || self
                 .affine_exclusions
                 .iter()
-                .any(|domain| domain.is_proved_to_contain_box(piece)))
+                .any(|domain| domain.is_proved_to_contain_box(piece));
+        if rectangular_proof {
+            return Ok(true);
+        }
+        self.affine.as_ref().map_or(Ok(false), |target| {
+            target
+                .is_proved_excluded_in_box(
+                    piece,
+                    &self.affine_exclusions,
+                    self.limits.cell.guard_algebra,
+                )
+                .map_err(|resource| SourcePortAuditError::ResourceBudgetExhausted { resource })
+        })
     }
 
     /// One affine-aware zero proof for early RHS pruning and final cold

@@ -47,6 +47,9 @@ pub(crate) use limits::{CompletionGeometryLimits, MAX_BOUNDED_AXIS_FACES};
 pub(crate) use model::{LatticeBox, LatticeCardinality, LatticePoint, UncoveredPartition};
 #[allow(unused_imports)] // Consumed by the staged owner-cover publisher.
 pub(crate) use region::{GuardBlindCarrierRegion, OuterPowerDirection};
+pub(crate) use source_discovery::{
+    SimplexSupportError, try_build_simplex_offsets, try_simplex_sample_count,
+};
 
 #[cfg(test)]
 mod tests;

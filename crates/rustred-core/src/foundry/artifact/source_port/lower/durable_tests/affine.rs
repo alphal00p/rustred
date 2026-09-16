@@ -227,6 +227,48 @@ fn affine_partition_roundtrip(require_native_consistency: bool) {
             .application_is_proved_empty(&copy_piece(), &[true; 3])
             .unwrap()
     );
+    if let Some((_, joint)) = &additional_domains {
+        // The rectangle alone does not satisfy the target n0=n1. On that
+        // target, fixing n1=n2 implies the WHOLE exclusion n0=n1=n2.
+        // Warm lowering skips this piece; the common cold proof rejects a
+        // supplied cell instead of accepting any vacuous coefficient/descent.
+        let local = piece.lower()[1].max(piece.lower()[2]);
+        let relative_piece = || {
+            crate::foundry::completion::LatticeBox::try_new(
+                [piece.lower()[0], local, local],
+                [piece.upper()[0], Some(local), Some(local)],
+            )
+            .unwrap()
+        };
+        assert!(!joint.is_proved_to_contain_box(&relative_piece()));
+        let relative_parent = parent(Some(Arc::clone(&equality)), Arc::from([Arc::clone(joint)]));
+        assert!(
+            relative_parent
+                .application_is_proved_empty(&relative_piece(), &[true; 3])
+                .unwrap()
+        );
+        assert!(
+            relative_parent
+                .coefficient_vanishes(context, &context.one(), &relative_piece(), &[true; 3])
+                .unwrap()
+        );
+        assert!(
+            !relative_parent
+                .application_is_proved_empty(&copy_piece(), &[true; 3])
+                .unwrap()
+        );
+        let error = relative_parent
+            .verify_cell(
+                context,
+                original.ordering,
+                &[true; 3],
+                &zeros,
+                relative_piece(),
+                rhs.clone(),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("entirely excluded or empty"));
+    }
     let off = parent(None, Arc::from([Arc::clone(&equality)]))
         .verify_cell(
             context,
