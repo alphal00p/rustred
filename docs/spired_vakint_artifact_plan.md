@@ -1,6 +1,62 @@
 # From the SpIRed vacuum source port to a shipped Vakint K6 artifact
 
-## Delivery status (2026-09-15)
+## Delivery status (2026-09-16)
+
+K1/K3/K6 artifacts and exact offline terminal projections are shipped on
+GammaLoop's `vakint_rustred` branch. The complete recorded through-three-loop
+selection passes **83/83**, with no failures or ignored tests, including all
+five three-loop classes. Native FeynKit/RustRed lanes use invalid FORM paths;
+separate AlphaLoop/MATAD oracle lanes use FORM. Revision `433e42d3` corrects
+MATAD's contracted-numerator orientation; pushed revision `a3d26dab` repeats
+the complete gate on Symbolica 3 with published RustRed `09cef8e3` and its
+regenerated K6 asset. See [the dependency migration report](vakint_symbolica3_migration.md).
+
+The active delivery target is four loops. None of its four physical parent
+families has a closed artifact yet. The latest bounded FG run completes sector
+discovery but times out during exact source-certificate construction; see
+[the certificate profile](research/original_source_certificate_performance.md).
+The dated K6 development sections below are historical, not current open gates.
+
+### Four-loop adapter and acceptance boundary
+
+An independent source audit confirms that the existing topology matcher already
+retains simultaneous parent routing for the four-loop parents and contractions.
+The adapter must consume that witness and structural parent descriptors rather
+than rematching graphs or dispatching on topology names. H/X input families
+have nine physical coordinates plus one auxiliary; BMW/FG have eight plus two.
+Every family has ten complete scalar-product coordinates and sixteen ordinary
+IBPs. Absent physical lines and auxiliary starting powers are zero-filled.
+RustRed's generic scalar-numerator lowering, memoized rule applier and mass
+restoration already own the algebra; Vakint must not duplicate them.
+
+Actual closing artifacts and exact offline terminal catalogs must be shipped
+before activating this lane. A typed master-basis descriptor should select
+the existing pure FMFT PR finalizer instead of the current MATAD finalizer.
+Finite nonminimal terminal bases use numerical-parity policy, not a demand
+for an identical MATAD basis. Existing defaults and FORM-backed modes remain
+unchanged.
+
+The frozen Symbolica 3 baseline passes all **15 deterministic four-loop FMFT
+reference entrypoints**: fourteen analytic cases plus the decorated four-loop
+clover whose test name misleadingly contains `1l`. All **eight native PR
+finalizer unit tests** also pass with invalid FORM paths. These 23 passes do
+**not** establish four-loop RustRed reduction: the references still use FMFT,
+and finalizer units begin with already-reduced masters. The eventual native
+comparative harness must cover all fifteen entrypoints, retaining their
+numerators, nonunit masses, decorated indices, symbols and tolerances.
+
+Five optional four-loop PySecDec comparisons remain supplemental. One PR9d
+pinch requests epsilon^1, beyond the current FMFT table's finite term, and
+needs additional master data rather than a silently shortened comparison.
+Existing PR9d/PR11d finite constants contain 28/26 decimal digits respectively;
+increasing arithmetic precision does not create additional source accuracy.
+The native finalizer currently rejects requested precision above those stored
+values whereas legacy FMFT permits it. This policy difference is identified,
+not silently removed or covered by a claimed 20,000-digit master catalog.
+The independent audit, exact test inventory and frozen run logs are retained at
+`/tmp/vakint-four-loop-frozen-gate.FKioIB/`.
+
+## Historical acceptance audit (2026-09-15)
 
 K1/K3/K6 assets and exact offline terminal projections are now shipped on
 GammaLoop's `vakint_rustred` branch. Revision `98550cc0` records 76 passing
@@ -15,10 +71,9 @@ pipelines fail at `I3L_pinch_1_6` on AlphaLoop versus MATAD before the RustRed
 comparison; separate pairwise diagnostics are underway. Native tensor and scalar stages use FeynKit and RustRed
 with an invalid FORM path; separate oracle lanes use FORM only for validation.
 
-The active delivery target is now four loops. The sections below retain dated
-implementation evidence; their pending K6 artifact gates are historical, while
-the complete Vakint acceptance gate remains open. No four-loop
-artifact or four-loop native acceptance pass is claimed. See
+The sections below retain dated implementation evidence; their pending K6
+artifact and acceptance gates were subsequently resolved as summarized above.
+No four-loop artifact or four-loop native acceptance pass is claimed. See
 [the current goal](../GOAL.md) and
 [four-loop closure probes](four_loop_ordering_probe.md).
 

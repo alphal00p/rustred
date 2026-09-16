@@ -150,6 +150,7 @@ fn forced_plain_progress_preserves_binary_stdout() {
     assert_eq!(observed.stdout, baseline);
     let progress = String::from_utf8(observed.stderr).unwrap();
     assert!(progress.contains("preparing K=1"));
+    assert!(progress.contains("checking sector=1 rule=1/1"));
     assert!(progress.contains("artifact written"));
     assert!(!progress.contains('\u{1b}') && !progress.contains('\r'));
 }

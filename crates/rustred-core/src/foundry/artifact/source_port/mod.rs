@@ -273,6 +273,17 @@ impl<const N: usize> SourcePortAudit<N> {
         permutation: Option<[usize; N]>,
         solution: &SectorSolution<N>,
     ) -> Result<program::SectorCheck<N>, SourcePortAuditError> {
+        self.check_sector_with_observer(sector, permutation, solution, Instant::now(), &mut |_| {})
+    }
+
+    fn check_sector_with_observer(
+        &self,
+        sector: [bool; N],
+        permutation: Option<[usize; N]>,
+        solution: &SectorSolution<N>,
+        started: Instant,
+        observe: &mut dyn FnMut(SourcePortInstallEvent<'_, N>),
+    ) -> Result<program::SectorCheck<N>, SourcePortAuditError> {
         let start = Instant::now();
         if !Mask::try_new(sector)
             .map_err(error)?
@@ -334,6 +345,12 @@ impl<const N: usize> SourcePortAudit<N> {
         let mut retained_rules = Vec::new();
         let mut affine_candidates = Vec::new();
         for (ordinal, rule) in solution.rules.iter().enumerate() {
+            observe(SourcePortInstallEvent::CheckingRule {
+                sector,
+                ordinal,
+                total: solution.rules.len(),
+                elapsed: started.elapsed(),
+            });
             let affine_target = match rule.candidate.case.affine() {
                 Some(case) => Some(Arc::new(
                     AffineApplicationDomain::from_case(case, &sector).map_err(error)?,

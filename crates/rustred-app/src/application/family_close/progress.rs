@@ -76,6 +76,13 @@ pub enum FamilyCloseProgress {
         rules: usize,
         elapsed: Duration,
     },
+    /// Start exact checking of one proposed rule; not an admission result.
+    CheckingRule {
+        sector: u64,
+        ordinal: usize,
+        total: usize,
+        elapsed: Duration,
+    },
     CheckedSector {
         ordinal: usize,
         sector: u64,
@@ -160,6 +167,17 @@ pub(super) fn installation_event<const N: usize>(
             ordinal,
             sector: sector_mask(sector),
             rules,
+            elapsed,
+        },
+        SourcePortInstallEvent::CheckingRule {
+            sector,
+            ordinal,
+            total,
+            ..
+        } => FamilyCloseProgress::CheckingRule {
+            sector: sector_mask(sector),
+            ordinal,
+            total,
             elapsed,
         },
         SourcePortInstallEvent::CheckedSector {

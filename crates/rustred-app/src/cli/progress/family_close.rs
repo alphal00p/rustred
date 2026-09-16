@@ -55,6 +55,7 @@ impl<W: Write> FamilyCloseProgressMonitor<W> {
                     | FamilyCloseProgress::Prepared { .. }
                     | FamilyCloseProgress::GeneratedSector { .. }
                     | FamilyCloseProgress::CheckingSector { .. }
+                    | FamilyCloseProgress::CheckingRule { .. }
                     | FamilyCloseProgress::CheckedSector { .. }
                     | FamilyCloseProgress::LoweringRule { .. }
                     | FamilyCloseProgress::LoweredSector { .. }
@@ -158,6 +159,15 @@ fn format_event(event: FamilyCloseProgress) -> String {
             elapsed,
             ..
         } => (elapsed, format!("replay sector={sector} {rules} rules")),
+        CheckingRule {
+            sector,
+            ordinal,
+            total,
+            elapsed,
+        } => (
+            elapsed,
+            format!("checking sector={sector} rule={}/{total}", ordinal + 1),
+        ),
         CheckedSector {
             sector,
             replayed_rules,
@@ -238,6 +248,34 @@ mod tests {
     }
 
     #[test]
+    fn consecutive_rule_checks_are_visible_inside_the_throttle_window() {
+        let mut monitor = FamilyCloseProgressMonitor::new(Vec::new(), false, true, true);
+        monitor.observe(FamilyCloseProgress::CheckingSector {
+            ordinal: 0,
+            sector: 214,
+            rules: 161,
+            elapsed: Duration::ZERO,
+        });
+        for ordinal in [0, 1, 160] {
+            // Reset the last-render timestamp explicitly: the assertion must
+            // not depend on how quickly this test process is scheduled.
+            monitor.last_update = Some(Instant::now());
+            monitor.observe(FamilyCloseProgress::CheckingRule {
+                sector: 214,
+                ordinal,
+                total: 161,
+                elapsed: Duration::ZERO,
+            });
+        }
+        let output = String::from_utf8(monitor.plain.unwrap()).unwrap();
+        assert_eq!(output.lines().count(), 4);
+        for expected in ["rule=1/161", "rule=2/161", "rule=161/161"] {
+            assert!(output.contains(expected), "missing {expected}: {output}");
+        }
+        assert!(!output.contains("closed") && !output.contains("written"));
+    }
+
+    #[test]
     fn adjacent_phase_boundaries_are_never_throttled() {
         let mut monitor = FamilyCloseProgressMonitor::new(Vec::new(), false, true, true);
         for event in [
@@ -252,6 +290,12 @@ mod tests {
                 ordinal: 0,
                 sector: 7,
                 rules: 2,
+                elapsed: Duration::ZERO,
+            },
+            FamilyCloseProgress::CheckingRule {
+                sector: 7,
+                ordinal: 0,
+                total: 2,
                 elapsed: Duration::ZERO,
             },
             FamilyCloseProgress::CheckedSector {
@@ -280,6 +324,7 @@ mod tests {
         for expected in [
             "generated 2",
             "replay sector=7",
+            "checking sector=7 rule=1/2",
             "replayed sector=7",
             "lowering sector=7 rule=1/2",
             "lowered sector=7",

@@ -21,6 +21,15 @@ pub enum SourcePortInstallEvent<'a, const N: usize> {
         rules: usize,
         elapsed: Duration,
     },
+    /// Start checking one proposed rule, before guard geometry and exact
+    /// replay. `ordinal` is zero-based in the sector's original rule order.
+    /// This observation does not imply that the rule will be admitted.
+    CheckingRule {
+        sector: [bool; N],
+        ordinal: usize,
+        total: usize,
+        elapsed: Duration,
+    },
     /// A diagnostic report, possibly incomplete. Receiving it does not mean
     /// that the sector passed the subsequent admission gate.
     CheckedSector {

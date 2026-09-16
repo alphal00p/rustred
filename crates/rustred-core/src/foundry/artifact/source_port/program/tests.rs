@@ -34,6 +34,15 @@ fn install_observer_preserves_durable_bytes_and_runs_on_calling_thread() {
                     assert_eq!((ordinal, sector, rules), (0, [true], 1));
                     ("checking", elapsed)
                 }
+                SourcePortInstallEvent::CheckingRule {
+                    sector,
+                    ordinal,
+                    total,
+                    elapsed,
+                } => {
+                    assert_eq!((sector, ordinal, total), ([true], 0, 1));
+                    ("checking rule", elapsed)
+                }
                 SourcePortInstallEvent::CheckedSector {
                     ordinal,
                     report,
@@ -86,6 +95,7 @@ fn install_observer_preserves_durable_bytes_and_runs_on_calling_thread() {
         events.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
         [
             "checking",
+            "checking rule",
             "checked",
             "lowering",
             "lowered",
@@ -116,6 +126,10 @@ fn observed_incomplete_sector_cannot_reach_lowering_or_installation() {
             .install_complete_with_observer(tadpole(), [([true], None, solution)], |event| {
                 match event {
                     SourcePortInstallEvent::CheckingSector { .. } => events.push("checking"),
+                    SourcePortInstallEvent::CheckingRule { ordinal, total, .. } => {
+                        assert_eq!((ordinal, total), (0, 1));
+                        events.push("checking rule");
+                    }
                     SourcePortInstallEvent::CheckedSector { report, .. } => {
                         assert!(report.checked_rule_uncovered_boxes > 0);
                         events.push("incomplete report");
@@ -124,7 +138,7 @@ fn observed_incomplete_sector_cannot_reach_lowering_or_installation() {
                 }
             })
             .unwrap_err();
-    assert_eq!(events, ["checking", "incomplete report"]);
+    assert_eq!(events, ["checking", "checking rule", "incomplete report"]);
     assert_eq!(failure.to_string(), baseline);
 }
 
@@ -133,12 +147,40 @@ fn observer_panic_aborts_instead_of_creating_a_successful_artifact() {
     let (audit, solution) = solved_tadpole();
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         audit.install_complete_with_observer(tadpole(), [([true], None, solution)], |event| {
-            if matches!(event, SourcePortInstallEvent::CheckingSector { .. }) {
+            if matches!(event, SourcePortInstallEvent::CheckingRule { .. }) {
                 panic!("observer requested no authority");
             }
         })
     }));
     assert!(outcome.is_err());
+}
+
+#[test]
+fn rule_check_observations_follow_original_rule_order() {
+    let (audit, mut solution) = solved_tadpole();
+    let (_, second) = solved_tadpole();
+    solution.rules.extend(second.rules);
+    let caller = std::thread::current().id();
+    let mut ordinals = Vec::new();
+    let checked = audit
+        .check_sector_with_observer([true], None, &solution, Instant::now(), &mut |event| {
+            assert_eq!(std::thread::current().id(), caller);
+            let SourcePortInstallEvent::CheckingRule {
+                sector,
+                ordinal,
+                total,
+                ..
+            } = event
+            else {
+                panic!("the rule checker must only announce rule starts");
+            };
+            assert_eq!((sector, total), ([true], 2));
+            ordinals.push(ordinal);
+        })
+        .unwrap();
+    assert_eq!(ordinals, [0, 1]);
+    assert_eq!(checked.report.exact_replayed_rules, 2);
+    assert!(checked.report.issues.is_empty());
 }
 
 #[test]

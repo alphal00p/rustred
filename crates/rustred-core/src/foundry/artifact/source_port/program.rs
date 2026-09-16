@@ -315,7 +315,8 @@ impl<const N: usize> SourcePortAudit<N> {
                 rules: solution.rules.len(),
                 elapsed: started.elapsed(),
             });
-            let checked = self.check_sector(sector, permutation, &solution)?;
+            let checked =
+                self.check_sector_with_observer(sector, permutation, &solution, started, observe)?;
             observe(SourcePortInstallEvent::CheckedSector {
                 ordinal,
                 report: &checked.report,

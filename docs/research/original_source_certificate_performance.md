@@ -79,6 +79,18 @@ attribute 98.32% inclusive cost to native exact `SparseRowReducer::add_row`,
 Again these are overlapping local stack fractions. The profile does not
 distinguish compact versus fallback calls or identify the active rule ordinal.
 
+The next monitoring slice adds a `CheckingRule` event before every rule's
+geometry/replay check. It carries only sector, ordinal, count and elapsed time;
+the CLI renders every rule start in its existing overwriting TTY field or
+opt-in plain stderr log. Artifact bytes and publication authority are unchanged.
+The core source-port gate passes 122 tests (five existing larger tests ignored),
+17 focused application/monitor tests pass, and the CLI progress/stdout-byte
+parity test passes. Independent review verifies caller-thread ordering,
+incomplete-sector rejection and observer-panic behavior. These debug tests are
+correctness checks, not a performance measurement. Evidence is retained at
+`/tmp/rustred-checking-rule-app.c2BbvV/` and
+`/tmp/rustred-precondition-provenance-tests.uscoaI/`.
+
 ## Structural follow-on: retain the existing derivation
 
 An external diagnostic of the frozen pre-pruning solver identifies repeated
