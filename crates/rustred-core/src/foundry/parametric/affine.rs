@@ -15,6 +15,12 @@ use symbolica::prelude::{Integer, IntegerRing, Matrix};
 use crate::algebra::CoefficientPolynomial;
 use crate::solver::AffineCase;
 
+#[path = "affine/box_bounds.rs"]
+mod box_bounds;
+#[path = "affine/restriction.rs"]
+mod restriction;
+pub(crate) use restriction::AffineDomainRestriction;
+
 /// Topology-neutral exact affine equality domain in original index variables.
 ///
 /// `sector` and `fixed` describe the surrounding sign orthant and coordinate

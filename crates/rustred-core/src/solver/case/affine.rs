@@ -11,7 +11,7 @@
 use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use symbolica::prelude::{Integer, IntegerRing, Matrix, Q, Rational, Z};
+use symbolica::prelude::{Integer, IntegerRing, Matrix, Q};
 
 use crate::algebra::{Coefficient, CoefficientPolynomial};
 
@@ -21,6 +21,7 @@ use super::CoordinateCase;
 #[path = "affine/chart.rs"]
 mod chart;
 use chart::Chart;
+pub(crate) use chart::{Chart as AffineRestrictionChart, canonical_equalities};
 
 #[path = "affine/bounds.rs"]
 mod bounds;
@@ -326,106 +327,17 @@ fn intersect_native<const N: usize>(
     let Some(template) = equations.first() else {
         return Ok(AffineIntersection::Coordinate(*parent));
     };
-    let columns = N.checked_add(1).and_then(|n| u32::try_from(n).ok()).ok_or(
-        AffineGeometryError::InvalidInput("affine matrix dimensions exceed native limits"),
-    )?;
-    let mut rows: Vec<Vec<Rational>> = Vec::new();
-    for (axis, value) in parent.fixed().iter().enumerate() {
-        if let Some(value) = value {
-            let mut row = vec![Rational::zero(); N + 1];
-            row[axis] = Rational::one();
-            row[N] = Rational::from(*value);
-            rows.push(row);
-        }
-    }
-    for source in equations {
-        let equation = specialize_face(source, parent, indices);
-        if equation.is_zero() {
-            continue;
-        }
-        if equation.is_constant() {
-            return Ok(AffineIntersection::Empty);
-        }
-        if (0..equation.nterms()).any(|term| {
-            equation
-                .exponents(term)
-                .iter()
-                .map(|&e| usize::from(e))
-                .sum::<usize>()
-                > 1
-        }) {
-            return Err(AffineGeometryError::UnsupportedNonlinear {
-                equations: equations.to_vec(),
-            });
-        }
-        let mut row = vec![Integer::zero(); N + 1];
-        let mut exponents = vec![0; equation.nvars()];
-        for (axis, &position) in indices.iter().enumerate() {
-            exponents[position] = 1;
-            row[axis] = equation
-                .coefficient(&exponents)
-                .unwrap_or_else(Integer::zero);
-            exponents[position] = 0;
-        }
-        row[N] = -equation.get_constant();
-        if !integer_row_possible(&row) {
-            return Ok(AffineIntersection::Empty);
-        }
-        rows.push(row.into_iter().map(Rational::from).collect());
-    }
-    // Numerica's reducer requires at least one row and one coefficient column.
-    if rows.is_empty() {
-        return Ok(AffineIntersection::Coordinate(*parent));
-    }
-    if N == 0 {
-        return Err(AffineGeometryError::InvalidInput(
-            "nonconstant zero-dimensional case",
-        ));
-    }
-    let row_count = u32::try_from(rows.len()).map_err(|_| {
-        AffineGeometryError::InvalidInput("affine matrix dimensions exceed native limits")
-    })?;
-    row_count
-        .checked_mul(columns)
-        .ok_or(AffineGeometryError::InvalidInput(
-            "affine matrix dimensions exceed native limits",
-        ))?;
-    let mut matrix =
-        Matrix::from_linear(rows.into_iter().flatten().collect(), row_count, columns, Q)
-            .map_err(|_| AffineGeometryError::NativeAlgebra)?;
-    let rank = matrix.row_reduce(N as u32);
-    if matrix.row_iter().skip(rank).any(|row| !row[N].is_zero()) {
+    let Some((matrix, primitive_matrix)) =
+        canonical_equalities(parent.fixed(), equations, indices)?
+    else {
         return Ok(AffineIntersection::Empty);
-    }
-    // Normalize each WHOLE row, not its individual coefficient numerators.
-    // Native primitive_part clears denominators and fixes the integer scale.
-    let mut primitive_rows = Vec::with_capacity(rank * (N + 1));
-    for row in matrix.row_iter().take(rank) {
-        let primitive = Matrix::new_vec(row.to_vec(), Q).primitive_part();
-        let integers: Vec<_> = primitive.iter().map(|entry| entry.numerator()).collect();
-        if primitive.iter().any(|entry| !entry.is_integer()) {
-            return Err(AffineGeometryError::NativeAlgebra);
-        }
-        if !integer_row_possible(&integers) {
-            return Ok(AffineIntersection::Empty);
-        }
-        primitive_rows.extend(integers);
-    }
-    let primitive_matrix = Matrix::from_linear(primitive_rows, rank as u32, columns, Z)
-        .map_err(|_| AffineGeometryError::NativeAlgebra)?;
+    };
     if primitive_matrix
         .row_iter()
         .any(|row| bounds::excludes_rhs(row, parent, sector))
     {
         return Ok(AffineIntersection::Empty);
     }
-    let matrix = Matrix::from_linear(
-        matrix.row_iter().take(rank).flatten().cloned().collect(),
-        rank as u32,
-        columns,
-        Q,
-    )
-    .map_err(|_| AffineGeometryError::NativeAlgebra)?;
     let mut fixed = [None; N];
     let mut coupled = Vec::new();
     for (row, primitive) in matrix.row_iter().zip(primitive_matrix.row_iter()) {

@@ -10,6 +10,7 @@ mod certificate;
 mod geometry;
 mod normalization;
 mod ordinary;
+mod predicate_cover;
 mod program;
 mod replay;
 pub(crate) use program::lower::ReplayedOriginalDomain;

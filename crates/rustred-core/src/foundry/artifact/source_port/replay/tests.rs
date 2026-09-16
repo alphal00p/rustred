@@ -70,9 +70,17 @@ fn affine_sunset_replays_against_original_ordinary_rows_but_cannot_publish() {
             .iter()
             .any(|source| source.offset != [0; 3])
     );
-    let boxes =
-        geometry::application_boxes(&rule, audit.sources.index_variables(), &[true; 3], &[])
+    let partition =
+        geometry::application_partition(&rule, audit.sources.index_variables(), &[true; 3], &[])
             .expect("the affine face is a rectangular prefilter, not ownership evidence");
+    if !partition.affine_exclusions.is_empty() {
+        assert!(
+            geometry::application_boxes(&rule, audit.sources.index_variables(), &[true; 3], &[],)
+                .is_err(),
+            "box-only callers must reject an affine exceptional branch"
+        );
+    }
+    let boxes = partition.boxes;
     assert_eq!(boxes.len(), 1);
     assert!(boxes[0].upper().iter().any(Option::is_none));
 }

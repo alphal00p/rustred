@@ -5,6 +5,118 @@ use crate::reduction::Reducer;
 use super::super::super::tests::{solved_tadpole, tadpole};
 
 #[test]
+fn original_domain_affine_axis_binding_rejects_consistent_permuted_charts() {
+    use crate::algebra::IndexedCoefficientContext;
+    use crate::foundry::cell::SourceViewBatch;
+    use crate::foundry::parametric::AffineApplicationDomain;
+    use crate::identity::{IntegralShift, ParametricIbpGenerator};
+    use crate::solver::{AffineCase, AffineIntersection, CoordinateCase};
+    use std::sync::Arc;
+
+    fn domain(
+        context: &IndexedCoefficientContext,
+        indices: [usize; 3],
+    ) -> Arc<AffineApplicationDomain> {
+        let equation = context
+            .sub(
+                &context.index(0).unwrap(),
+                &context
+                    .mul(&context.integer(2), &context.index(1).unwrap())
+                    .unwrap(),
+            )
+            .unwrap()
+            .raw()
+            .numerator
+            .clone();
+        let AffineIntersection::Affine(case) = AffineCase::from_coordinate(
+            &CoordinateCase::generic(),
+            &[equation],
+            &indices,
+            &[true; 3],
+        )
+        .unwrap() else {
+            panic!("expected affine case")
+        };
+        let domain = AffineApplicationDomain::from_case(&case, &[true; 3]).unwrap();
+        // Even the adversarial chart is internally consistent: rejecting it
+        // requires binding its physical axes to the generator, not merely
+        // rechecking its matrix against its own equations.
+        domain.prepare_restriction().unwrap();
+        Arc::new(domain)
+    }
+
+    let family = crate::foundry::artifact::two_loop::canonical_family(Default::default()).unwrap();
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let batch = generator.prepare_ordinary_ibp().unwrap();
+    let rows = (0..batch.len()).map(|i| batch.generate(i)).collect();
+    let completed = batch.complete(rows).unwrap();
+    let translated = generator
+        .translate_completed_source_rows(
+            &completed,
+            [IntegralShift::try_new([0; 3]).unwrap()],
+            Default::default(),
+        )
+        .unwrap();
+    let sources =
+        Arc::new(SourceViewBatch::try_select(translated, &[0], Default::default()).unwrap());
+    let context = generator.context();
+    let first = context.base().variables().len();
+    let correct = domain(context, [first, first + 1, first + 2]);
+    let permuted = domain(context, [first + 1, first, first + 2]);
+    let make_parent = |target, exclusions| {
+        super::verification::PreparedOriginalDomain::try_new(
+            context,
+            Arc::clone(&sources),
+            vec![(0, sources.relations()[0].row_id().clone(), context.one())],
+            Vec::new(),
+            target,
+            exclusions,
+            Vec::new(),
+            Default::default(),
+        )
+    };
+    assert!(make_parent(Some(Arc::clone(&correct)), Arc::from([])).is_ok());
+    assert!(make_parent(None, Arc::from([correct])).is_ok());
+    for (target, exclusions) in [
+        (Some(Arc::clone(&permuted)), Arc::from([])),
+        (None, Arc::from([permuted])),
+    ] {
+        let failure = make_parent(target, exclusions)
+            .err()
+            .expect("foreign axis map accepted");
+        assert!(
+            failure
+                .to_string()
+                .contains("generator's index-variable map")
+        );
+    }
+
+    // Keeping correct positional indices but changing the base-symbol map
+    // must also fail, including for exclusion-only predicates.
+    let foreign = IndexedCoefficientContext::try_new(
+        &crate::algebra::CoefficientContext::new(["foreign_dimension"]),
+        "affine-binding-foreign-context",
+        3,
+    )
+    .unwrap();
+    assert_eq!(foreign.base().variables().len(), first);
+    let foreign = domain(&foreign, [first, first + 1, first + 2]);
+    for (target, exclusions) in [
+        (Some(Arc::clone(&foreign)), Arc::from([])),
+        (None, Arc::from([foreign])),
+    ] {
+        let failure = make_parent(target, exclusions)
+            .err()
+            .expect("foreign variable map accepted");
+        assert!(
+            failure
+                .to_string()
+                .contains("generator's index-variable map")
+        );
+    }
+}
+
+#[test]
 fn source_port_k1_installs_into_existing_artifact_and_reducer() {
     let (audit, solution) = solved_tadpole();
     let artifact = audit

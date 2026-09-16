@@ -8,6 +8,141 @@ use crate::solver::{SectorConfig, SectorSolveOptions, SectorSolver, SourceSystem
 use super::super::SourcePortAudit;
 use super::*;
 
+#[test]
+#[ignore = "release-only four-loop affine replay/descent grounding"]
+fn four_loop_affine_sector_grounding() {
+    use crate::input::{Compiler, Limits, LoweringLimits};
+    use crate::sector::{CoordinatePriority, CoordinatePriorityLimits};
+    let family = Compiler::new(Limits::default())
+        .unwrap()
+        .compile_compact(
+            "I(loops(k1,k2,k3,k4),externals(),dimension(d),\
+        prop(D1,k1^2-1,1),prop(D2,k2^2-1,1),prop(D3,k3^2-1,1),\
+        prop(D4,k4^2-1,1),prop(D5,(k1-k3)^2-1,1),prop(D6,(k2-k3)^2-1,1),\
+        prop(D7,(-k1+k3+k4)^2-1,1),prop(D8,(-k2+k3+k4)^2-1,1),\
+        prop(D9,(k3+k4)^2-1,1),prop(D10,(k1-k2)^2-1,0))",
+            None,
+        )
+        .unwrap()
+        .into_lowered(LoweringLimits::default())
+        .unwrap()
+        .into_family();
+    let sector = [
+        false, false, true, false, false, true, true, false, false, true,
+    ];
+    let permutation = [9, 8, 7, 6, 5, 4, 3, 2, 1, 0];
+    let analyzer = zero::Analyzer::try_unrestricted(&family).unwrap();
+    let zeros: Arc<[[bool; 10]]> = (0usize..1024)
+        .filter_map(|bits| {
+            let mask = std::array::from_fn(|axis| bits & (1 << axis) != 0);
+            matches!(
+                analyzer.analyze(&Mask::try_new(mask).unwrap()).unwrap(),
+                zero::Decision::ProvedZero(_)
+            )
+            .then_some(mask)
+        })
+        .collect::<Vec<_>>()
+        .into();
+    let audit = SourcePortAudit::try_new(&family, zeros.clone()).unwrap();
+    let solver = SectorSolver::new(
+        &audit.sources,
+        sector,
+        SectorConfig {
+            permutation: Some(permutation),
+            zero_sectors: zeros.clone(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let started = std::time::Instant::now();
+    let solution = solver.solve_sector(SectorSolveOptions::default()).unwrap();
+    eprintln!(
+        "affine grounding generated={} solve_ms={}",
+        solution.rules.len(),
+        started.elapsed().as_millis()
+    );
+    let priority =
+        CoordinatePriority::try_new(10, &permutation, CoordinatePriorityLimits::default()).unwrap();
+    let ordering = OrderingPolicy::try_spired_with_coordinate_priority(&priority).unwrap();
+    let mut problems = Vec::new();
+    let mut checked_owners = Vec::new();
+    for (ordinal, rule) in solution.rules.iter().enumerate() {
+        let partition =
+            application_partition(rule, audit.sources.index_variables(), &sector, &[]).unwrap();
+        let replay = super::super::replay::replay_rule(
+            &audit.sources,
+            &audit.original_row_ids,
+            &audit.original_sources,
+            solver.basis(),
+            solver.ordering(),
+            &zeros,
+            rule,
+            &partition.boxes,
+        );
+        match replay {
+            Ok(replay) => {
+                let checked = application_partition(
+                    rule,
+                    audit.sources.index_variables(),
+                    &sector,
+                    &replay.additional_exceptions,
+                )
+                .unwrap();
+                if let Err(error) = prove_descent(
+                    rule,
+                    &checked.boxes,
+                    &sector,
+                    ordering,
+                    audit.sources.index_variables(),
+                ) {
+                    problems.push(format!("rule {ordinal} descent: {error}"));
+                } else {
+                    let target = rule
+                        .candidate
+                        .case
+                        .affine()
+                        .map(|case| AffineApplicationDomain::from_case(case, &sector).unwrap());
+                    checked_owners.push((checked, target));
+                }
+            }
+            Err(error) => problems.push(format!("rule {ordinal} replay: {error}")),
+        }
+    }
+    eprintln!(
+        "affine grounding total_ms={} unresolved={problems:#?}",
+        started.elapsed().as_millis()
+    );
+    assert!(
+        problems.is_empty(),
+        "affine replay/descent remains incomplete: {problems:#?}"
+    );
+    use super::super::predicate_cover::{
+        PredicateCoverLimits, PredicateCoveragePiece, certify_predicate_cover,
+    };
+    let owners: Vec<_> = checked_owners
+        .iter()
+        .map(|(partition, target)| PredicateCoveragePiece {
+            boxes: &partition.boxes,
+            affine_target: target.as_ref(),
+            affine_exclusions: &partition.affine_exclusions,
+        })
+        .collect();
+    let terminals = terminal_boxes(&solution.finite_residuals, &sector).unwrap();
+    let cover = certify_predicate_cover(
+        &sector,
+        &owners,
+        &terminals,
+        PredicateCoverLimits::default(),
+    );
+    eprintln!("affine grounding predicate_cover={cover:?}");
+    assert!(
+        cover.is_ok(),
+        "replayed affine rules must cover the whole test sector"
+    );
+    // This checks conditional identities and descent, NOT family coverage or
+    // artifact publication. The latter still needs exact predicate owners.
+}
+
 fn runtime_piece(piece: &LatticeBox, sector: &[bool; 6], shift: &[i64; 6]) -> SectorMonotoneDomain {
     let mask = Mask::try_new(*sector).unwrap();
     let representable =

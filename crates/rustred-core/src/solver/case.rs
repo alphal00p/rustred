@@ -4,6 +4,7 @@ mod affine;
 mod domain;
 mod intersection;
 pub use affine::{AffineCase, AffineGeometryError, AffineIntersection};
+pub(crate) use affine::{AffineRestrictionChart, canonical_equalities};
 pub use domain::Case;
 pub use intersection::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,

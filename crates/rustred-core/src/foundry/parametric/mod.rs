@@ -10,8 +10,8 @@
 //! dependencies. No API here claims exceptional-guard coverage, lower-rule
 //! availability, or closure.
 
-mod anchor;
 mod affine;
+mod anchor;
 mod boundary;
 mod derive;
 mod error;
@@ -28,6 +28,8 @@ pub(crate) use anchor::replay_rule_at_concrete_assignment;
 #[allow(unused_imports)]
 pub(crate) use anchor::verify_concrete_specialization_replay;
 
+pub use affine::AffineApplicationDomain;
+pub(crate) use affine::AffineDomainRestriction;
 pub use boundary::{
     SectorMonotoneDependency, SectorMonotoneDependencyAtPoint, SectorMonotoneDependencyKind,
     SectorMonotoneTargetAdmission,
@@ -38,7 +40,6 @@ pub use derive::{
 };
 pub use error::ParametricRuleError;
 pub use evidence::{CombinedOriginalDomainEvidence, ParametricReplayEvidence};
-pub use affine::AffineApplicationDomain;
 pub use limits::ParametricRuleLimits;
 pub use model::{
     ConcreteSpecializationReplayWitness, ParametricExactReplayWitness, ParametricGuardOrigin,

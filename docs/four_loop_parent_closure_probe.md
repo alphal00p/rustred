@@ -174,6 +174,93 @@ installation still rejects populated exclusions pending the exact predicate
 cover proof and its durable encoding. This is an ownership-plumbing slice,
 not a new four-loop closure result.
 
+### Affine replay/descent grounding (2026-09-16)
+
+A dedicated release test now regenerates the `0010011001` H sector from
+ordinary family input, with reverse coordinate ordering and the independently
+computed zero-sector census. The first run generated **94 rules in 1.058 s**;
+generation plus conditional source replay/descent took **19.546 s**. These are
+single observations, not a controlled benchmark. Compilation is a separate
+8m17s build, not part of the solver measurement.
+
+The exact integer-boundary correction removed rule 67's descent obstruction:
+on `n4=0`, `1+n4-2*n7=0` would require `2*n7=1`, which has no integer solution.
+The new check uses Symbolica integer gcd/divisibility and interval arithmetic
+on the defining equations, not samples or a trusted cached matrix. Its
+negative control retains the boundary when an integer solution exists.
+
+That run passed replay/descent for **93/94** rules. Rule 54 failed original
+source replay on a term containing `I(0,0,1,-1,n4,1,2,n7,n8+1,0)`.
+Its stored exceptions include `n8=0`, but the exceptional case is represented
+as the conjunction of the parent's coupled equation and `n8=0`. The previous
+prefilter left this excluded boundary present because the whole child was
+classified as affine. The fix proves, with the parent's native chart, that
+the child's coupled equations are already implied by the target; only then
+is the child's fixed coordinate face subtracted from the replay prefilter.
+Genuinely new coupled constraints remain exact predicate exclusions.
+
+A second release run after that correction generated **94 rules in 0.927 s**
+and took **21.825 s** through replay/descent (9m01s compilation separate).
+It still passed **93/94** rules: the residual moved to
+`I(0,0,1,-1,n4,1,1,n7+1,n8+1,0)` in rule 54. The original offending term
+was removed, but this exposed another conservative geometry gap. On the
+affine target, excluding `n7=0` fixes both `n7=0` and `n4=-1`. The rectangular
+complement still contains `n7=0,n4!=-1`, although that entire slice violates
+`1+n4-2*n7=0`. The per-sign-cell integer contradiction check already used by
+descent must therefore also be used by original-source zero-product replay.
+No sector-coverage certificate was reached in this run, and no artifact was
+written.
+
+A separate bounded Boolean/box coverage checker now tests affine targets and
+exception conjunctions without conflating their boxes with ownership.
+Missing children, cycles, mismatched predicates, nonfinite terminals and
+budget exhaustion fail closed. Integer-impossible true branches may be
+discarded only by recomputing exact contradiction evidence. This checker and
+the conditional grounding test are **not** a published artifact: durable
+lowering, guard validation, installation and cold reloading remain separate
+required gates.
+
+The shared affine restriction service now rebuilds the native Symbolica
+RREF from defining equations for cold replay. It preserves rational scale
+and rejects zero denominators before cancellation. Both target and exclusion
+predicates must use the original generator's physical index map; an internally
+consistent but permuted chart is not sufficient. Independent review prompted
+an explicit adversarial regression for this distinction.
+
+The next guard-proof slice can stay narrow. For the observed H denominator
+`(n8-1)*(1+n4-2*n7)`, the first factor cannot vanish when `n8<=0`, and the
+second describes an explicitly excluded affine branch. After optional target
+restriction and native base-parameter coefficient splitting, each factor of
+one nonzero coefficient equation must either miss the box or imply a complete
+excluded predicate. Symbolica's existing `Factorize` and `try_div` supply the
+algebra. The required implication is **factor-zero implies exclusion**, not
+the reverse; every excluded equation and its fixed-coordinate face must hold.
+This is the next implementation design, not an already-enabled admission path.
+
+After adding that per-sign-cell contradiction test to zero-product replay,
+the next release run passes **all 94 original-source replays**, with 93 rules
+also passing descent. Generation took **0.937 s**; the complete conditional
+replay/descent pass took **21.023 s** (8m38s compilation separate). Rule 54 now
+reaches descent and is rejected at RHS term 24, whose shift raises `n7` by two.
+The flagged sign cell has `n4<=-2`, `n7` in `{-1,0}`, and `n8<=-1`.
+On the required affine equation, `n7=0` is impossible there, while `n7=-1`
+forces `n4=-3`. The actual numerator of that term factors as
+`3*(n7+1)*(4+3*n8+6*n7-3*d)`, so it vanishes on the feasible slice; its
+denominator remains nonzero as a generic polynomial in `d` there. A whole-box
+coefficient test must not conflate these two integer slices. Independent
+inspection confirms that the current finite-axis traversal does not recheck
+affine emptiness at each leaf. The next correction is therefore affine-aware
+finite-leaf coefficient vanishing, not an inferred missing IBP. The
+sector-coverage assertion still is not reached, and artifact publication
+remains disabled for indispensable affine owners.
+
+Validation for this checkpoint includes 82 focused source-port and 107 affine
+debug tests (overlapping selections, no failures), independent implementation
+and mathematical audits, and a successful release K6 durable-artifact/reducer
+regression. The earlier release snapshot also passed all 1,776 nonignored
+library tests, with 31 diagnostics ignored. None of those ignored diagnostics
+is counted as a four-loop closure success.
+
 ## Interpretation
 
 None of the three external parents currently has a cold-loadable RustRed

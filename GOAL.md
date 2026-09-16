@@ -13,8 +13,20 @@ AlphaLoop-versus-MATAD failure. Independent frozen-binary reruns of the missing
 seven now give five passes and two failures, bringing the joined selection to
 83 tests: 81 passed and two failed. The legacy-setting variants and basketball
 finite parts pass; both supplemental all-class pipelines still fail at
-`I3L_pinch_1_6` on AlphaLoop versus MATAD before comparing RustRed. Pairwise
-backend diagnostics are in progress, without changing the original assertions.
+`I3L_pinch_1_6` on AlphaLoop versus MATAD before comparing RustRed. Separate
+pairwise diagnostics now show RustRed agreeing with AlphaLoop through the
+finite part, but disagreeing with MATAD at both unit and nonunit mass. The
+leading-pole relative discrepancy is approximately `4.741253423e-4`; its
+persistence at unit mass rules out mass restoration as the sole explanation.
+Numerator/scalar-product isolation preserves the original assertions.
+An independent frozen-binary diagnostic now passes eight of thirteen probes:
+the constant numerator, all three loop squares, and `k1.k2` agree with MATAD;
+`k1.k3` and `k2.k3` disagree by an exact sign, as does one isolated original
+numerator term. Source inspection identifies missing parent-edge orientation
+signs in MATAD's contracted-loop numerator mapping. Two independent audits
+confirm the signed map `[+p4,+p5,+p6,-p1,+p2,-p3]` from its momentum identities.
+The adapter correction and unchanged acceptance-suite rerun are still needed
+before resolving this gap.
 Native peers use FeynKit, RustRed and an invalid FORM path. The legacy
 40-entry / 46-input inventory now has passing mapped peers, but complete
 supplemental all-class parity is not established.
@@ -64,6 +76,17 @@ develop and independently audit the Vakint and artifact-delivery slices;
 RustRed continues to own the generic rule applier and all algebra stays with
 Symbolica. Four-loop numerical tables must state their actual precision:
 existing FMFT constants do not supply a universal 20,000-digit catalog.
+
+The current affine-validation slice fixes two distinct boundary problems:
+integer-impossible activation cells and coordinate exceptions nested inside
+an affine target. It also shares Symbolica's exact affine restriction chart
+between discovery and cold replay, and adds a bounded predicate-aware sector
+coverage checker. These checks are not yet an enabled affine-artifact
+producer: predicate-aware guard proof, durable exclusion encoding, final
+installation and cold family validation remain required. The targeted H
+sector is an implementation regression, not whole-four-loop closure; current
+measurements and rerun results belong in
+[the parent-probe report](docs/four_loop_parent_closure_probe.md).
 
 ## Parallel Vakint delivery directive (2026-09-14)
 

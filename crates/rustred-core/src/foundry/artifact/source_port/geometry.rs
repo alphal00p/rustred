@@ -87,6 +87,16 @@ pub(super) fn application_partition<const N: usize>(
     sector: &[bool; N],
     additional_exceptions: &[Case<N>],
 ) -> Result<ApplicationPartition, SourcePortAuditError> {
+    if rule
+        .candidate
+        .case
+        .affine()
+        .is_some_and(|case| case.index_variables() != indices)
+    {
+        return Err(error(
+            "affine target and application partition use different index maps",
+        ));
+    }
     let base = if let Some(case) = rule.candidate.case.coordinate() {
         if rule.candidate.target != case.integral() {
             return Err(error("rule target differs from its coordinate case"));
@@ -122,11 +132,35 @@ pub(super) fn application_partition<const N: usize>(
             Some(coordinate) => coordinate,
             None => {
                 let affine = case.affine().expect("non-coordinate case must be affine");
+                if affine.index_variables() != indices {
+                    return Err(error(
+                        "affine exception and application partition use different index maps",
+                    ));
+                }
                 // A proved-empty exceptional branch contributes no excluded
                 // points.  Do not approximate a nonempty affine branch by a
                 // box: it remains an unsupported ownership case.
                 if affine.is_proved_empty_in_sector(sector) {
                     continue;
+                }
+                // On an affine target, an exceptional child may add only
+                // fixed coordinates while repeating equations already true
+                // everywhere on the target. In that case its fixed face is
+                // an exact relative exclusion, not an affine approximation.
+                // This matters for source replay on activation boundaries:
+                // the excluded face must not remain in the replay prefilter.
+                if let Some(parent) = rule.candidate.case.affine() {
+                    let mut implied = true;
+                    for equation in affine.equations() {
+                        if !parent.restrict_equation(equation).map_err(error)?.is_zero() {
+                            implied = false;
+                            break;
+                        }
+                    }
+                    if implied {
+                        excluded.push(case_box(affine.face(), sector)?);
+                        continue;
+                    }
                 }
                 affine_exclusions.push(Arc::new(
                     AffineApplicationDomain::from_case(affine, sector).map_err(error)?,
@@ -191,6 +225,10 @@ pub(super) fn prove_descent<const N: usize>(
     ordering: OrderingPolicy,
     indices: &[usize; N],
 ) -> Result<(), SourcePortAuditError> {
+    let affine = rule.candidate.case.affine();
+    let affine_domain = affine
+        .map(|case| AffineApplicationDomain::from_case(case, sector).map_err(error))
+        .transpose()?;
     let mut terms = Vec::with_capacity(rule.candidate.rhs.len());
     for term in &rule.candidate.rhs {
         let mut shifts = [0_i64; N];
@@ -213,6 +251,19 @@ pub(super) fn prove_descent<const N: usize>(
         ordering,
         CompletionGeometryLimits::default(),
         |coefficient, piece| {
+            if affine_domain
+                .as_ref()
+                .is_some_and(|domain| domain.is_proved_empty_in_box(piece))
+            {
+                return Ok(true);
+            }
+            let restricted;
+            let coefficient = if let Some(affine) = affine {
+                restricted = affine.restrict_coefficient(coefficient).map_err(error)?;
+                &restricted
+            } else {
+                coefficient
+            };
             coefficient_vanishes(
                 coefficient,
                 piece,
@@ -337,12 +388,55 @@ fn uniformly_zero_contribution<const N: usize>(
         shifts[axis] =
             i64::from(integral[axis].value()) - i64::from(rule.candidate.target[axis].value());
     }
-    uniformly_zero_wide(
+    let affine = rule.candidate.case.affine();
+    if let (Some(affine), Some((value, indices))) = (affine, coefficient) {
+        if affine.index_variables() != indices {
+            return Err(error(
+                "affine zero-product proof uses a different index-variable map",
+            ));
+        }
+        let variables = affine.equations()[0].variables();
+        if value.numerator.variables() != variables || value.denominator.variables() != variables {
+            return Err(error(
+                "affine zero-product proof uses a different polynomial variable map",
+            ));
+        }
+    }
+    let affine_domain = affine
+        .map(|case| AffineApplicationDomain::from_case(case, sector).map_err(error))
+        .transpose()?;
+    uniformly_zero_wide_with_limits(
         &shifts,
-        coefficient.map(|(value, indices)| (value, indices.as_slice())),
+        // Retain a callback payload even for an integral-only query: an
+        // impossible affine sign cell has no contribution regardless of
+        // whether a coefficient was supplied.
+        Some(&coefficient),
         boxes,
         sector,
         zero_sectors,
+        CompletionGeometryLimits::default(),
+        |coefficient, piece| {
+            // A coordinate exception on an affine target can fix several
+            // axes. Its exact box subtraction may leave rectangular sign
+            // cells which contain no point of the target. This is the same
+            // equation-derived emptiness proof used by strict descent.
+            if affine_domain
+                .as_ref()
+                .is_some_and(|domain| domain.is_proved_empty_in_box(piece))
+            {
+                return Ok(true);
+            }
+            match coefficient {
+                Some((value, indices)) => coefficient_vanishes(
+                    value,
+                    piece,
+                    sector,
+                    indices.as_slice(),
+                    CompletionGeometryLimits::default(),
+                ),
+                None => Ok(false),
+            }
+        },
     )
 }
 

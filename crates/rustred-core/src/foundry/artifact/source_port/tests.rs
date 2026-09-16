@@ -476,11 +476,8 @@ fn boundary_rule(coefficient: &str) -> (CoefficientContext, SectorRule<2>) {
 #[test]
 fn affine_exception_partition_keeps_exact_ray_out_of_box_coverage() {
     let (context, mut rule) = boundary_rule("1");
-    rule.exceptions.branches = vec![vec![
-        context.coefficient_fixture("1+n0-2*n1").numerator,
-    ]];
-    let partition =
-        geometry::application_partition(&rule, &[0, 1], &[false, false], &[]).unwrap();
+    rule.exceptions.branches = vec![vec![context.coefficient_fixture("1+n0-2*n1").numerator]];
+    let partition = geometry::application_partition(&rule, &[0, 1], &[false, false], &[]).unwrap();
     assert_eq!(partition.boxes.len(), 1);
     assert_eq!(partition.boxes[0].lower(), &[0, 0]);
     assert_eq!(partition.boxes[0].upper(), &[None, None]);
@@ -523,6 +520,102 @@ fn whole_ray_descent_drops_only_exactly_vanishing_activation_boundary_terms() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn affine_descent_excludes_only_proved_impossible_activation_cells() {
+    let context = CoefficientContext::new(["n0", "n1"]);
+    let sector = [false, false];
+    let make_rule = |equation: &str| {
+        let crate::solver::AffineIntersection::Affine(affine) =
+            crate::solver::AffineCase::from_coordinate(
+                &CoordinateCase::generic(),
+                &[context.coefficient_fixture(equation).numerator],
+                &[0, 1],
+                &sector,
+            )
+            .unwrap()
+        else {
+            panic!("expected affine ray")
+        };
+        let case = crate::solver::Case::from(affine);
+        SectorRule {
+            candidate: RuleCandidate {
+                target: case.integral(),
+                case,
+                rhs: vec![Term {
+                    integral: Integral::symbolic([1, 0]).unwrap(),
+                    coefficient: context.one(),
+                }],
+                sources: Vec::new(),
+                stats: Default::default(),
+            },
+            exceptions: ExceptionalConditions::default(),
+        }
+    };
+    let boxes =
+        vec![crate::foundry::completion::LatticeBox::try_new([0, 0], [None, None]).unwrap()];
+    geometry::prove_descent(
+        &make_rule("1+n0-2*n1"),
+        &boxes,
+        &sector,
+        crate::sector::OrderingPolicy::SpiredUncutV1,
+        &[0, 1],
+    )
+    .unwrap();
+    // n0=n1=0 is now on the locus, so raising n0 creates a genuine higher
+    // sector. Reusing the positive test's parity shortcut would be unsound.
+    assert!(
+        geometry::prove_descent(
+            &make_rule("n0-2*n1"),
+            &boxes,
+            &sector,
+            crate::sector::OrderingPolicy::SpiredUncutV1,
+            &[0, 1]
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn affine_target_removes_relative_coordinate_exceptions_from_replay_prefilter() {
+    let context = CoefficientContext::new(["n0", "n1", "n2", "n3"]);
+    let sector = [false; 4];
+    let crate::solver::AffineIntersection::Affine(affine) =
+        crate::solver::AffineCase::from_coordinate(
+            &CoordinateCase::generic(),
+            &[context.coefficient_fixture("1+n0-2*n1").numerator],
+            &[0, 1, 2, 3],
+            &sector,
+        )
+        .unwrap()
+    else {
+        panic!("expected affine target")
+    };
+    let case = crate::solver::Case::from(affine);
+    let mut rule = SectorRule {
+        candidate: RuleCandidate {
+            target: case.integral(),
+            case,
+            rhs: Vec::new(),
+            sources: Vec::new(),
+            stats: Default::default(),
+        },
+        exceptions: ExceptionalConditions {
+            branches: vec![vec![context.coefficient_fixture("n2").numerator]],
+        },
+    };
+    let partition = geometry::application_partition(&rule, &[0, 1, 2, 3], &sector, &[]).unwrap();
+    assert!(partition.affine_exclusions.is_empty());
+    assert_eq!(partition.boxes.len(), 1);
+    assert_eq!(partition.boxes[0].lower()[2], 1); // n2 <= -1, not n2=0
+    assert_eq!(partition.boxes[0].upper()[2], None);
+    // A genuinely new coupled equality cannot be replaced with its fixed
+    // face (here the entire box); doing so would erase a valid owner.
+    rule.exceptions.branches = vec![vec![context.coefficient_fixture("n2-n3").numerator]];
+    let partition = geometry::application_partition(&rule, &[0, 1, 2, 3], &sector, &[]).unwrap();
+    assert_eq!(partition.affine_exclusions.len(), 1);
+    assert_eq!(partition.boxes[0].lower(), &[0; 4]);
 }
 
 #[test]

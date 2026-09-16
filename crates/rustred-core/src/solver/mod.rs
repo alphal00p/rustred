@@ -36,6 +36,7 @@ pub use case::{
     CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits, CaseIntersectionResult,
     CaseIntersectionStats, CoordinateCase,
 };
+pub(crate) use case::{AffineRestrictionChart, canonical_equalities};
 pub use cuts::{LinearCutError, LinearCutPreparation, LinearCutRule, prepare_linear_cuts};
 pub use discovery::{
     CoefficientVariableOrder, DiscoveryStats, MaterializationEvent, SymbolicExactBackend,

@@ -35,6 +35,7 @@ pub(in crate::foundry::artifact) struct PreparedOriginalDomain {
     contributions: Vec<(usize, RowId, IndexedCoefficient)>,
     fixed: Vec<FixedIndexRestriction>,
     affine: Option<Arc<crate::foundry::parametric::AffineApplicationDomain>>,
+    affine_restriction: Option<crate::foundry::parametric::AffineDomainRestriction>,
     affine_exclusions: Arc<[Arc<crate::foundry::parametric::AffineApplicationDomain>]>,
     limits: ReplayLimits,
 }
@@ -50,6 +51,34 @@ impl PreparedOriginalDomain {
         retained_conditions: Vec<IndexedPolynomial>,
         limits: ReplayLimits,
     ) -> Result<Self, SourcePortAuditError> {
+        // A polynomial variable map alone does not identify the integral
+        // axes: a consistently rebuilt affine chart could still permute its
+        // axis-to-variable map. Bind both runtime predicates and coefficient
+        // charts to the original generator context before using either one.
+        let template = context.one();
+        let first_index = context.base().variables().len();
+        for domain in affine.iter().chain(affine_exclusions.iter()) {
+            if domain.sector().len() != context.index_count()
+                || domain.indices().len() != context.index_count()
+                || domain
+                    .indices()
+                    .iter()
+                    .enumerate()
+                    .any(|(axis, &variable)| variable != first_index + axis)
+                || domain
+                    .equations()
+                    .iter()
+                    .any(|equation| equation.variables() != template.raw().numerator.variables())
+            {
+                return Err(error(
+                    "affine original-domain predicate differs from the generator's index-variable map",
+                ));
+            }
+        }
+        let affine_restriction = affine
+            .as_ref()
+            .map(|domain| domain.prepare_restriction().map_err(error))
+            .transpose()?;
         if !matches!(sources.construction(), SourceViewConstruction::Direct)
             || sources.context_fingerprint() != context.fingerprint()
             || sources.len() > limits.cell.max_source_views
@@ -131,6 +160,7 @@ impl PreparedOriginalDomain {
             contributions: normalized,
             fixed,
             affine,
+            affine_restriction,
             affine_exclusions,
             limits,
         })
@@ -148,6 +178,16 @@ impl PreparedOriginalDomain {
         {
             return Err(error(
                 "original-domain proof has incompatible sector/box arity",
+            ));
+        }
+        if self
+            .affine
+            .iter()
+            .chain(self.affine_exclusions.iter())
+            .any(|domain| domain.sector() != sector)
+        {
+            return Err(error(
+                "affine original-domain predicate belongs to a different sector",
             ));
         }
         let mut pairs = Vec::with_capacity(self.fixed.len());
@@ -239,6 +279,29 @@ impl PreparedOriginalDomain {
             )?;
         }
         let vanishes = |coefficient: &IndexedCoefficient, piece: &LatticeBox| {
+            // This test is recomputed from the defining equations in both
+            // generation and cold replay, never trusted from a stored flag.
+            if self
+                .affine
+                .as_ref()
+                .is_some_and(|domain| domain.is_proved_empty_in_box(piece))
+            {
+                return Ok(true);
+            }
+            let restricted;
+            let coefficient = if let Some(chart) = &self.affine_restriction {
+                restricted = context
+                    .admit_native_result_with_limits(
+                        chart
+                            .restrict_coefficient(coefficient.raw())
+                            .map_err(error)?,
+                        self.limits.cell.indexed_algebra.exact_algebra,
+                    )
+                    .map_err(error)?;
+                &restricted
+            } else {
+                coefficient
+            };
             geometry::bounded::coefficient_vanishes(
                 context,
                 coefficient,

@@ -281,3 +281,84 @@ fn affine_ordinary_replay_rejects_changed_source_shift_coefficient_or_equality()
         );
     }
 }
+
+#[test]
+fn affine_zero_projection_discards_only_impossible_activation_cells() {
+    use crate::solver::Case;
+
+    let context = CoefficientContext::new(["a", "b"]);
+    let sector = [false; 2];
+    let indices = [0, 1];
+    let case = Case::generic()
+        .intersect(
+            &[context.coefficient_fixture("1+a-2*b").numerator],
+            &indices,
+            &sector,
+        )
+        .unwrap()
+        .unwrap();
+    let mut rule = SectorRule {
+        candidate: RuleCandidate {
+            target: case.integral(),
+            case,
+            rhs: Vec::new(),
+            sources: Vec::new(),
+            stats: Default::default(),
+        },
+        exceptions: ExceptionalConditions::default(),
+    };
+    let activating = Term {
+        integral: Integral::symbolic([0, 1]).unwrap(),
+        coefficient: context.one(),
+    };
+    let zeros = [[false, false]];
+    let boxes = geometry::application_boxes(&rule, &indices, &sector, &[]).unwrap();
+    // The feasible point (a,b)=(-1,0) activates b+1. Neither the
+    // coefficient-bearing proof nor the integral-only query may omit it.
+    assert!(
+        !geometry::uniformly_zero_term(&rule, &activating, &boxes, &sector, &zeros, &indices)
+            .unwrap()
+    );
+    assert!(
+        !geometry::uniformly_zero_column(&rule, activating.integral, &boxes, &sector, &zeros)
+            .unwrap()
+    );
+
+    rule.exceptions.branches = vec![vec![context.coefficient_fixture("b").numerator]];
+    let exceptional = rule.exceptional_cases(&indices, &sector).unwrap();
+    assert_eq!(exceptional.len(), 1);
+    assert_eq!(
+        exceptional[0].coordinate().unwrap().fixed(),
+        &[Some(-1), Some(0)],
+        "on the affine target, b=0 also fixes a=-1"
+    );
+    let boxes = geometry::application_boxes(&rule, &indices, &sector, &[]).unwrap();
+    // Removing that point still leaves box-prefilter cells with b=0 and
+    // a!= -1. A rectangular-only zero check cannot discard those cells.
+    assert!(!geometry::uniformly_zero_wide(&[0, 1], None, &boxes, &sector, &zeros).unwrap());
+    assert!(
+        geometry::uniformly_zero_term(&rule, &activating, &boxes, &sector, &zeros, &indices)
+            .unwrap()
+    );
+    assert!(
+        geometry::uniformly_zero_column(&rule, activating.integral, &boxes, &sector, &zeros)
+            .unwrap()
+    );
+    assert!(
+        geometry::uniformly_zero_term(&rule, &activating, &boxes, &sector, &zeros, &[1, 0])
+            .unwrap_err()
+            .to_string()
+            .contains("index-variable map")
+    );
+    let foreign_context = CoefficientContext::new(["x", "y"]);
+    let foreign = Term {
+        integral: activating.integral,
+        coefficient: foreign_context.one(),
+    };
+    assert!(
+        geometry::uniformly_zero_term(&rule, &foreign, &boxes, &sector, &zeros, &indices)
+            .unwrap_err()
+            .to_string()
+            .contains("polynomial variable map")
+    );
+}
