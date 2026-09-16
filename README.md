@@ -28,23 +28,26 @@ reach all five three-loop classes, with unchanged tolerances. Native evaluation
 uses an invalid FORM path; separate oracle lanes use FORM for validation.
 The 83-test selection covers native peers, legacy comparisons, matching,
 defaults and the offline 38-terminal catalog; it is not 83 distinct integrals.
+GammaLoop milestone `a3d26dab` repeats that complete selection successfully on
+the published Symbolica 3/RustRed stack and ships the regenerated K6 artifact.
+The full workspace compiles; focused GammaLoop, Spenso and FeynKit runtime
+checks pass. See the [dependency migration report](docs/vakint_symbolica3_migration.md).
 
 Four-loop artifacts are not yet closed or shipped. H, X, BMW and FG are
 [external unit-mass input families](examples/input/README.md), not hard-coded
-solver cases. The previously failing H sector now passes all 94 exact replays
-and descent checks, exact predicate coverage, and lowering to 1,202 rule cells.
-This single-sector result is not a whole-family artifact: the subsequent full
-H run reached a 600-second bound without publication. FG's remaining failure
-has been isolated to an exact nonlinear exceptional condition outside its
-physical no-positive-ISP domain. A two-worker release diagnostic finishes all
-124 nonzero physical FG sector searches in 33.47 s, producing 9,264 proposed
-rules and 145 finite residuals. This is **not yet a replayed, closed artifact**.
+solver cases. Selected H and FG sectors now pass complete exact replay,
+descent and coverage. The latest full physical FG run searches all 124 nonzero
+sectors in 57.1 seconds, yielding 9,272 candidate rules and 145 finite residuals.
+It passes 32 sector audits, then reaches a 600-second bound during exact
+source-certificate construction in sector 214. It writes **no closed artifact**.
+A sampled profile identifies native exact elimination and coefficient GCD as
+the bottleneck; compact certificate construction is the next optimization.
 Live phase diagnostics and an explicit domain-scoped publication path are
 implemented: `--nonpositive-indices` restricts specified auxiliary
 coordinates without bounding numerator rank or weakening exact closure checks.
-The unrestricted default is unchanged. The first physical-domain FG publication
-attempt completes discovery but rejects three candidate rules at original-source
-replay after about 50 seconds; it does not emit an artifact. The
+The unrestricted default is unchanged. A conservative source-projection fix
+resolves the earlier three-rule FG boundary failure without weakening replay.
+The
 [parent-probe report](docs/four_loop_parent_closure_probe.md) records the evidence.
 Earlier pending-three-loop development checkpoints
 below are historical and do not override this status.

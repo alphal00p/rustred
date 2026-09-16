@@ -19,20 +19,23 @@ and `/tmp/vakint-batched-83.baAvzc/`. Clippy also passes for the touched Vakint
 library and comparison targets. Four-loop acceptance is a separate open gate.
 
 **Dependency-migration rerun (2026-09-16):** the same frozen 83-test selection
-also passes in the pending GammaLoop working tree using published RustRed
+also passes in GammaLoop milestone `a3d26dab`, pushed to `vakint_rustred`, using published RustRed
 `09cef8e3`, Symbolica 3 at `953e26e2`, and the regenerated `0x704` K6 asset:
 83 passed, zero failed or ignored. Native lanes retain invalid FORM paths;
-legacy reference lanes alone use FORM5. The broader GammaLoop workspace
-migration is still being checked, so this is not yet a pushed migration
-milestone. Evidence is retained in
+legacy reference lanes alone use FORM5. Full workspace library, test and
+benchmark compilation passes, as do 28 focused GammaLoop tests, four Spenso
+tests, 52 FeynKit tests (one unchanged ignored test), and scoped Vakint Clippy.
+Native solver guards, requested precision, and zero-loop point samples are
+preserved. Symbolica 3 uses runtime signed licensing; the removed OEM activation
+path is not emulated. Evidence is retained in
 `/tmp/vakint-symbolica3-main.bMELju/acceptance/`.
 
-The latest physical FG full-family blocker is an exact-source certificate failure, not
-failure to finish the sector search. The scoped release campaign searches all
+The earlier physical FG full-family blocker was an exact-source certificate failure,
+not failure to finish the sector search. That scoped release campaign searched all
 124 nonzero sectors in 32.9 seconds, then rejects three certificates in sector
 106. A selected-sector diagnostic reproduces this in 0.82 seconds and proves
 that the disputed `n0=0,n8=-1` boundary is admitted. A conservative,
-translation-safe source-projection correction is under release validation;
+translation-safe source-projection correction has since passed release validation;
 all 225 solver unit tests and 104 artifact source-port tests pass (five larger
 source-port workloads excluded from that debug gate). A separate reconstruction
 of rule 85 confirms that only the speculative parent-sign quotient finds a
@@ -128,9 +131,8 @@ pass with invalid FORM paths, and all fourteen unchanged analytic FMFT
 four-loop oracle tests pass after the shared-tail extraction. Those fourteen
 are **not** RustRed four-loop acceptance passes. The milestone pins published
 RustRed revision `ce92d3a7` for its existing coherent Symbolica 2.2 stack;
-alignment with RustRed's current Symbolica 3.0 stack remains required before
-four-loop artifact integration. The isolated compiler/API census now bounds
-the initial native API adaptations and requires atomic K6 regeneration; see
+alignment with RustRed's current Symbolica 3.0 stack was subsequently completed
+in `a3d26dab`, including atomic K6 regeneration and full selected acceptance; see
 [the dependency migration plan](docs/vakint_symbolica3_migration.md).
 No temporary local dependency is shipped.
 
@@ -197,9 +199,8 @@ one release observation; fresh CLI generation takes 2.75 s at two workers and
 2.24 s at six. These are shared-host regression observations, not paired
 scaling benchmarks. Separate cold inspection and the 30-term canary pass,
 and all master keys match the existing Vakint catalog. The new identifier-safe
-example label and `0x704` root-scope format require the coordinated private
-loader/asset/producer-pin migration described above; the new bytes are not yet
-shipped in Vakint.
+example label and `0x704` root-scope format were shipped together with the
+coordinated private loader/asset/producer-pin migration in `a3d26dab`.
 The first full physical-FG publication attempt completes all 124 searches but
 fails original-source replay on three of 96 candidate rules in sector mask 106;
 zero reported uncovered boxes cannot override these unproved source residuals.

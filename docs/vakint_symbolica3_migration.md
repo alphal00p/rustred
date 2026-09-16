@@ -1,15 +1,16 @@
 # Vakint integration with the current RustRed dependency stack
 
-Status: the main `vakint_rustred` working tree now passes the complete recorded
-83-test selection on the new dependency stack, 2026-09-16. The broader workspace
-migration is still being checked; **these changes have not yet been pushed**.
+Status: **completed and pushed** as GammaLoop `a3d26dab` on `vakint_rustred`,
+2026-09-16. The complete recorded 83-test selection passes on the new dependency
+stack, together with full-workspace compilation and the focused runtime gates
+below. Four-loop artifacts and acceptance remain separate open goals.
 
-Vakint's last pushed `vakint_rustred` checkpoint ships RustRed `ce92d3a7` and the
-coherent Symbolica/Numerica 2.2 stack. RustRed's current main branch uses the
+The preceding checkpoint shipped RustRed `ce92d3a7` and the coherent
+Symbolica/Numerica 2.2 stack. RustRed's current main branch uses the
 vendored Symbolica 3.0 checkout at
 `953e26e2754e9a4b918404fbdea590725d8e863d`. The existing through-three-loop
-acceptance matrix passes on the shipped stack. Four-loop integration must
-first align these dependencies and regenerate the embedded artifacts.
+acceptance matrix passes on both stacks. The dependency and embedded-artifact
+alignment required before four-loop integration is now shipped.
 
 ## Observed compatibility boundary
 
@@ -95,18 +96,28 @@ The exact frozen selection passes in nine batches: **83 passed, zero failed,
 zero ignored**. Native FeynKit/RustRed lanes retain invalid FORM paths, while
 the separate AlphaLoop/MATAD and terminal-oracle lanes use FORM5. No assertion,
 tolerance or default is changed. The nine binary hashes, runner, selection and
-results are retained at `/tmp/vakint-symbolica3-main.bMELju/acceptance/`.
+results are retained under `/tmp/vakint-symbolica3-main.bMELju/`; the
+`acceptance/` subdirectory contains per-binary logs and the batch result table.
 The scoped Vakint library/test compilation also passes. These are correctness
 gates; debug test runtime is not a performance benchmark.
 
-The broader GammaLoop workspace compilation and its direct linear-solver
-callers remain a separate pre-push gate. Native matrix solving must preserve
-unique/generic field-valued contracts where appropriate; UV partial momentum
-routings must preserve free coordinates and may not discard conditions.
-Passing Vakint alone does not establish that the whole workspace migration
-is complete, nor that four-loop RustRed artifacts exist.
+The broader workspace library, test and benchmark compilation gates also pass.
+Native matrix solving preserves unique/generic field-valued contracts where
+appropriate; UV partial momentum routing retains free coordinates and rejects
+conditional solutions. Focused runtime results are 28 GammaLoop passes, four
+Spenso passes, and 52 FeynKit passes with one unchanged expensive ignored test.
+These include exact high-precision conversion, guarded routing, and native
+zero-dimensional integration samples. Scoped Vakint Clippy passes with
+`-D warnings`; this is not a whole-workspace lint or runtime claim.
 
-## Coherent delivery sequence
+Symbolica 3's removed OEM macro is not emulated. Native runtime signed-license
+activation is used, without committing any key. Renewed OEM distribution is a
+separate upstream requirement. K6's shipped size is 8,916,759 bytes and SHA256
+`bcf45f876695c99516a7cefec2ae3cd3c5886a89d3da156391a6ea75237ff2ff`;
+its 38 terminal keys are unchanged. The validated producer remains pinned at
+`09cef8e3`; a later RustRed producer must be validated separately before repinning.
+
+## Completed migration sequence and remaining integration
 
 1. Adapt only demonstrated incompatibilities in the relevant local crates,
    preserving Vakint's public conventions, defaults and FORM-based backends.
@@ -121,8 +132,8 @@ is complete, nor that four-loop RustRed artifacts exist.
    schema is still V5. Do not edit bytes or add a compatibility shim. Confirm
    terminal keys before reusing the exact offline catalog.
    The new external K6 input and Rust generator use the ingress-compatible
-   name `rustred_three_loop_unit_mass_vacuum_k6_v1`; the currently shipped
-   Vakint asset uses the earlier hyphenated name. This deliberately changes
+   name `rustred_three_loop_unit_mass_vacuum_k6_v1`; the previous
+   Vakint asset used the earlier hyphenated name. This deliberately changes
    artifact identity, not denominators, coordinate order or mathematics.
    Update Vakint's private expected family fingerprint atomically with the
    new bytes and dependency pin. Compare all 38 typed terminal keys directly
@@ -144,5 +155,5 @@ satisfies both requirements. The main-tree check subsequently fetched that
 locked version without changing its constraints. The initial diagnostic
 report and compiler logs remain outside the repository at
 `/tmp/vakint-symbolica3-census.1Szmr3/`; main-tree migration evidence is at
-`/tmp/vakint-symbolica3-main.bMELju/`. Production manifests and adapters are now
-modified locally as described above, but the migration is not yet committed.
+`/tmp/vakint-symbolica3-main.bMELju/`. Production manifests, adapters, artifact
+and acceptance report are committed together in `a3d26dab`.
