@@ -1,6 +1,9 @@
+mod family_close;
 mod model;
 mod render;
 mod terminal;
+
+pub(crate) use family_close::FamilyCloseProgressMonitor;
 
 #[cfg(test)]
 mod tests;

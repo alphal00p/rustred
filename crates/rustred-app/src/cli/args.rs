@@ -54,6 +54,7 @@ pub(crate) struct FamilyCloseArgs {
     pub(crate) input_format: InputFormat,
     pub(crate) permutation: Option<Vec<usize>>,
     pub(crate) n_cores: usize,
+    pub(crate) progress: bool,
     pub(crate) force: bool,
 }
 
@@ -332,6 +333,7 @@ FAMILY-CLOSE OPTIONS:
     --input-format <FORMAT>      auto, toml, or symbolica [default: auto]
     --permutation <N,N,...>      Optional zero-based coordinate priority permutation
     --n-cores <COUNT>            Maximum worker cores [default: 1]
+    --progress                  Also emit plain progress when stderr is redirected
     --force                      Atomically replace an existing output file
 
 FAMILY-SOLVE OPTIONS:
@@ -408,6 +410,8 @@ and publishes only after exact replay, strict descent and complete coverage.
 The target in the input does not restrict this family-wide closure request.
 Failure writes no artifact. Use `campaign inspect` and `campaign reduce` on
 the resulting bytes; no family name selects an implementation.
+TTY progress overwrites one stderr status field; redirected stderr is quiet
+unless --progress is supplied. Artifact stdout is never mixed with progress.
 
 `campaign plan` authenticates and interns only the supplied campaign roots.
 It does not discover dependencies, derive relations, prove closure, or publish

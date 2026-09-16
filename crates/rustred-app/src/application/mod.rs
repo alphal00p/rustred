@@ -17,7 +17,10 @@ mod options;
 mod producer;
 
 pub use error::{AppError, AppErrorKind};
-pub use family_close::{FAMILY_CLOSE_SCHEMA, FamilyCloseRequest, FamilyCloseResult, family_close};
+pub use family_close::{
+    FAMILY_CLOSE_SCHEMA, FamilyCloseGenerationStage, FamilyCloseProgress, FamilyCloseRequest,
+    FamilyCloseResult, family_close, family_close_with_progress,
+};
 pub use family_solve::{FamilySolveRequest, FamilySolveResult, family_solve};
 pub use options::{
     ClosingFamilySelector, InputFormat, ParseClosingFamilySelectorError, ParseInputFormatError,

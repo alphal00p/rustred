@@ -6,13 +6,17 @@ The active tool-managed goal is now complete four-loop single-scale vacuum
 closure and FORM-less Vakint evaluation against every applicable FMFT example.
 K1/K3/K6 assets and exact offline terminal projections are shipped on
 GammaLoop's `vakint_rustred` branch. **Latest validation (2026-09-16):** the
-confirmed MATAD signed-numerator routing correction now passes 34 freshly
-built tests: three routing regressions, all sixteen K6 pipeline tests and all
-fifteen AlphaLoop/MATAD comparison tests. Both previously failing all-class
-tests now reach all five three-loop classes, with unchanged tolerances and
-an invalid FORM path on the FeynKit/RustRed lanes. Two independent source
-audits and a separate test rerun confirm the correction. This resolves the
-known failures, not a fresh rerun of the entire historical 83-test inventory.
+complete recorded 83-test selection now passes on `433e42d3`: **83 passed,
+0 failed, 0 ignored**. This follows the independently audited 34-test targeted
+gate for MATAD's signed-numerator routing correction. Both previously failing
+all-class tests reach all five three-loop classes with unchanged tolerances
+and an invalid FORM path on the FeynKit/RustRed lanes. Separate legacy oracle
+lanes use FORM. The selected matrix includes native peers, references,
+matching/defaults and the offline 38-terminal catalog; it is not a count of
+distinct integrals. The exact manifest, frozen binary hashes and nine batched
+process results are retained in `/tmp/vakint-orientation-full-gate.Ny652I/`
+and `/tmp/vakint-batched-83.baAvzc/`. Clippy also passes for the touched Vakint
+library and comparison targets. Four-loop acceptance is a separate open gate.
 
 **Historical acceptance-report correction:** revision
 `98550cc0` records 76 passing invocations but does not establish complete
@@ -73,7 +77,10 @@ four-loop oracle tests pass after the shared-tail extraction. Those fourteen
 are **not** RustRed four-loop acceptance passes. The milestone pins published
 RustRed revision `ce92d3a7` for its existing coherent Symbolica 2.2 stack;
 alignment with RustRed's current Symbolica 3.0 stack remains required before
-four-loop artifact integration. No temporary local dependency is shipped.
+four-loop artifact integration. The isolated compiler/API census now bounds
+the initial native API adaptations and requires atomic K6 regeneration; see
+[the dependency migration plan](docs/vakint_symbolica3_migration.md).
+No temporary local dependency is shipped.
 
 The source-port artifact bridge now retains exact affine targets and exclusions,
 proves guards on those predicates, and certifies their whole-sector cover. It
@@ -94,6 +101,29 @@ lowering to 1,202 rule cells in 44.44 seconds (including two replay passes;
 generation alone 1.205 seconds). K1/K3/K6 durable regressions pass. The targeted
 H sector is an implementation regression, not whole-four-loop closure. The
 next gate is a full-family CLI attempt followed by cold reload and reduction.
+The subsequent reverse-order full H CLI run reached its 600-second bound
+(600.16 s wall, 843.97 s CPU, 849,296 KiB peak RSS), with neither an artifact
+nor a diagnostic. Its phase cannot be inferred from CPU utilization; add
+observational progress before the next full run. The isolated FG failure now
+has an exact polynomial payload: it is a genuinely nonlinear quadratic
+condition on three nonpositive powers, not an unrecognized affine face.
+Investigate alternative valid pivots/orderings without discarding its
+nonempty exceptional domain. Both natural and reversed orderings fail on this
+isolated FG mask; however, the reverse-order quadratic has only one admissible
+integer zero, suggesting a narrower exact geometric classification route.
+The mask activates an auxiliary ISP as a propagator, outside the physical FG
+root domain. A two-worker release diagnostic on that explicitly chosen
+physical domain now finishes all 124 nonzero sector searches in 33.47 s wall
+(plus 132 proved-zero sectors), yielding 9,264 proposed rules and 145 finite
+residuals. This is search completion, not yet exact replay or a closed artifact.
+The next delivery slice is an explicit, caller-specified downward sector domain
+for the physical parents:
+prove every admitted sector and RHS transition, bind the domain into the
+artifact/codec/identity, and reject out-of-scope reductions. Never silently
+filter sectors while retaining the current unrestricted-family promise.
+Run the full replay, descent, coverage, cold-load and reduction gates on the
+resulting physical-domain artifacts before enabling their Vakint routing.
+See [the exact FG diagnosis and scope analysis](docs/research/four_loop_fg_exceptional_geometry.md).
 Current measurements and rerun results belong in
 [the parent-probe report](docs/four_loop_parent_closure_probe.md).
 

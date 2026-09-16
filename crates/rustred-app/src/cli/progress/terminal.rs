@@ -29,6 +29,22 @@ impl<W: Write> TerminalSession<W> {
         Self::try_with_viewport(writer, Viewport::Inline(DASHBOARD_HEIGHT))
     }
 
+    pub(super) fn try_new_line(writer: W) -> io::Result<Self> {
+        Self::try_with_viewport(writer, Viewport::Inline(1))
+    }
+
+    pub(super) fn render_line(&mut self, content: &str, color: bool) -> io::Result<()> {
+        self.terminal.draw(|frame| {
+            let style = if color {
+                Style::default().fg(Color::Cyan)
+            } else {
+                Style::default()
+            };
+            frame.render_widget(Paragraph::new(content).style(style), frame.area());
+        })?;
+        Ok(())
+    }
+
     #[cfg(test)]
     pub(super) fn try_new_fixed(writer: W, width: u16) -> io::Result<Self> {
         Self::try_with_viewport(

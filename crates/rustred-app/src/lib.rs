@@ -8,8 +8,9 @@ pub use application::{
     ClosingArtifactReduceResult, ClosingFamilySelector, DeriveRequest, DeriveResult,
     ExactMasterCoefficient, FAMILY_CLOSE_SCHEMA, FOUNDRY_CAMPAIGN_MEASUREMENTS_SCHEMA,
     FOUNDRY_WAVE_CAMPAIGN_MEASUREMENTS_SCHEMA, FOUNDRY_WAVE_CAMPAIGN_REPORT_SCHEMA,
-    FamilyCloseRequest, FamilyCloseResult, FamilySolveRequest, FamilySolveResult,
-    FoundryCampaignCensus, FoundryCampaignCoverageObstruction, FoundryCampaignCoverageStatus,
+    FamilyCloseGenerationStage, FamilyCloseProgress, FamilyCloseRequest, FamilyCloseResult,
+    FamilySolveRequest, FamilySolveResult, FoundryCampaignCensus,
+    FoundryCampaignCoverageObstruction, FoundryCampaignCoverageStatus,
     FoundryCampaignNeedsRefinementReason, FoundryCampaignOperationalLimit, FoundryCampaignProgress,
     FoundryCampaignRunRequest, FoundryCampaignRunResult, FoundryCampaignSnapshot,
     FoundryCampaignStop, FoundryCampaignTaskLocation, FoundryCampaignTaskLocationKind,
@@ -19,8 +20,9 @@ pub use application::{
     MAX_INPUT_BYTES, MAX_OUTPUT_BYTES, ParseClosingFamilySelectorError, ParseInputFormatError,
     ParseRelationSelectionError, RelationSelection, campaign_plan, campaign_preflight,
     closing_artifact_generate, closing_artifact_inspect, closing_artifact_reduce, derive,
-    family_close, family_solve, foundry_campaign_run, foundry_campaign_run_with_progress,
-    foundry_wave_campaign_run, foundry_wave_campaign_run_with_progress,
+    family_close, family_close_with_progress, family_solve, foundry_campaign_run,
+    foundry_campaign_run_with_progress, foundry_wave_campaign_run,
+    foundry_wave_campaign_run_with_progress,
 };
 
 /// Run the command-line adapter and return its stable process exit code.

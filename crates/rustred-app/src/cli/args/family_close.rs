@@ -13,6 +13,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     let mut permutation = None;
     let mut n_cores = None;
     let mut force = false;
+    let mut progress = false;
     let mut help = false;
     let mut arguments = arguments.peekable();
     while let Some(option) = arguments.next() {
@@ -29,6 +30,12 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                     return Err(ArgError::DuplicateOption("--force"));
                 }
                 force = true;
+            }
+            "--progress" => {
+                if progress {
+                    return Err(ArgError::DuplicateOption("--progress"));
+                }
+                progress = true;
             }
             "--input" => set_once(
                 &mut input,
@@ -78,6 +85,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         input_format: input_format.unwrap_or(InputFormat::Auto),
         permutation,
         n_cores: n_cores.unwrap_or(1),
+        progress,
         force,
     }))
 }
@@ -109,6 +117,20 @@ mod tests {
         assert_eq!(arguments.permutation, Some(vec![2, 1, 0]));
         assert_eq!(arguments.n_cores, 3);
         assert!(!arguments.force);
+        assert!(!arguments.progress);
+    }
+
+    #[test]
+    fn progress_flag_is_opt_in_and_cannot_be_repeated() {
+        let command = parse(["--progress"].into_iter().map(OsString::from)).unwrap();
+        let Command::FamilyClose(arguments) = command else {
+            panic!("expected family-close");
+        };
+        assert!(arguments.progress);
+        assert!(matches!(
+            parse(["--progress", "--progress"].into_iter().map(OsString::from)),
+            Err(ArgError::DuplicateOption("--progress"))
+        ));
     }
 
     #[test]

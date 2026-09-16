@@ -6,6 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::algebra::{Coefficient, CoefficientPolynomial};
 use crate::family::IntegralFamily;
@@ -16,7 +17,8 @@ use crate::solver::{SectorRule, SectorSolution};
 use super::certificate::{OriginalRowNormalization, OriginalSourceReplay};
 use super::normalization::OriginalSourceCorpus;
 use super::{
-    AffineApplicationDomain, SourcePortAudit, SourcePortAuditError, SourcePortSectorAudit, error,
+    AffineApplicationDomain, SourcePortAudit, SourcePortAuditError, SourcePortInstallEvent,
+    SourcePortSectorAudit, error,
 };
 
 #[path = "lower/mod.rs"]
@@ -152,7 +154,16 @@ pub(super) struct CheckedProgram<const N: usize> {
 }
 
 impl<const N: usize> CheckedProgram<N> {
+    #[cfg(test)]
     fn install(self) -> Result<super::super::ClosedArtifact, SourcePortAuditError> {
+        self.install_with_observer(Instant::now(), &mut |_| {})
+    }
+
+    fn install_with_observer(
+        self,
+        started: Instant,
+        observe: &mut dyn FnMut(SourcePortInstallEvent<'_, N>),
+    ) -> Result<super::super::ClosedArtifact, SourcePortAuditError> {
         use super::super::install::{
             ClosingArtifactCandidate, SOURCE_PORT_ALGORITHM_ID, install_source_port,
         };
@@ -168,8 +179,17 @@ impl<const N: usize> CheckedProgram<N> {
         let context = self.original_sources.context().clone();
         let mut rule_cells = Vec::new();
         let mut masters = BTreeSet::new();
+        let sector_count = self.sectors.len();
         for (_, sector) in self.sectors {
-            for rule in sector.rules {
+            let cells_before = rule_cells.len();
+            let total = sector.rules.len();
+            for (ordinal, rule) in sector.rules.into_iter().enumerate() {
+                observe(SourcePortInstallEvent::LoweringRule {
+                    sector: sector.sector,
+                    ordinal,
+                    total,
+                    elapsed: started.elapsed(),
+                });
                 rule_cells.extend(lower::lower_rule(
                     &self.original_sources,
                     &generator,
@@ -183,6 +203,11 @@ impl<const N: usize> CheckedProgram<N> {
             for terminal in sector.terminals {
                 masters.insert(IntegralKey::try_new(terminal).map_err(error)?);
             }
+            observe(SourcePortInstallEvent::LoweredSector {
+                sector: sector.sector,
+                cells: rule_cells.len() - cells_before,
+                elapsed: started.elapsed(),
+            });
         }
         drop(generator);
         let zero_sectors = self
@@ -214,7 +239,17 @@ impl<const N: usize> CheckedProgram<N> {
             zero_sectors,
             common_mass_homogeneity: Some(CommonMassHomogeneityProof::UniformVacuumMassSquared),
         };
-        install_source_port(candidate).map_err(error)
+        observe(SourcePortInstallEvent::Installing {
+            sectors: sector_count,
+            rule_cells: candidate.rule_cells.len(),
+            terminals: candidate.masters.len(),
+            elapsed: started.elapsed(),
+        });
+        let artifact = install_source_port(candidate).map_err(error)?;
+        observe(SourcePortInstallEvent::Installed {
+            elapsed: started.elapsed(),
+        });
+        Ok(artifact)
     }
 }
 
@@ -226,15 +261,41 @@ impl<const N: usize> SourcePortAudit<N> {
         family: IntegralFamily,
         sectors: impl IntoIterator<Item = ([bool; N], Option<[usize; N]>, SectorSolution<N>)>,
     ) -> Result<super::super::ClosedArtifact, SourcePortAuditError> {
-        self.retain_program(family, sectors)?.install()
+        self.install_complete_with_observer(family, sectors, |_| {})
+    }
+
+    /// Observe existing exact checking, cell lowering and final installation.
+    /// This is the same consuming authority path as `install_complete`; the
+    /// borrowed callback cannot grant authority or alter scheduling, inputs,
+    /// source provenance, or durable bytes. No worker pool is created here.
+    pub fn install_complete_with_observer(
+        self,
+        family: IntegralFamily,
+        sectors: impl IntoIterator<Item = ([bool; N], Option<[usize; N]>, SectorSolution<N>)>,
+        mut observe: impl FnMut(SourcePortInstallEvent<'_, N>),
+    ) -> Result<super::super::ClosedArtifact, SourcePortAuditError> {
+        let started = Instant::now();
+        self.retain_program_with_observer(family, sectors, started, &mut observe)?
+            .install_with_observer(started, &mut observe)
     }
     /// Consume real solver output, never caller-editable diagnostic reports.
     /// Each declared sector order is independently checked. A single existing
     /// artifact cannot silently flatten incompatible coordinate priorities.
+    #[cfg(test)]
     pub(super) fn retain_program(
         self,
         family: IntegralFamily,
         sectors: impl IntoIterator<Item = ([bool; N], Option<[usize; N]>, SectorSolution<N>)>,
+    ) -> Result<CheckedProgram<N>, SourcePortAuditError> {
+        self.retain_program_with_observer(family, sectors, Instant::now(), &mut |_| {})
+    }
+
+    fn retain_program_with_observer(
+        self,
+        family: IntegralFamily,
+        sectors: impl IntoIterator<Item = ([bool; N], Option<[usize; N]>, SectorSolution<N>)>,
+        started: Instant,
+        observe: &mut dyn FnMut(SourcePortInstallEvent<'_, N>),
     ) -> Result<CheckedProgram<N>, SourcePortAuditError> {
         if family.fingerprint() != self.original_sources.family_fingerprint() {
             return Err(error(
@@ -243,11 +304,22 @@ impl<const N: usize> SourcePortAudit<N> {
         }
         let mut retained = BTreeMap::new();
         let mut ordering = None;
-        for (sector, permutation, solution) in sectors {
+        for (ordinal, (sector, permutation, solution)) in sectors.into_iter().enumerate() {
             if retained.contains_key(&sector) {
                 return Err(error("duplicate solved sector in checked program"));
             }
+            observe(SourcePortInstallEvent::CheckingSector {
+                ordinal,
+                sector,
+                rules: solution.rules.len(),
+                elapsed: started.elapsed(),
+            });
             let checked = self.check_sector(sector, permutation, &solution)?;
+            observe(SourcePortInstallEvent::CheckedSector {
+                ordinal,
+                report: &checked.report,
+                elapsed: started.elapsed(),
+            });
             retain_common_order(&mut ordering, checked.report.ordering)?;
             let report = &checked.report;
             if !report.issues.is_empty()

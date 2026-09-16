@@ -21,19 +21,25 @@ The local reference source and working notes
 
 K1/K3/K6 artifacts and offline master projections are shipped with Vakint.
 GammaLoop milestone `433e42d3` corrects MATAD's signed routing for contracted
-three-loop numerator momenta. All **34 targeted tests pass**: three routing
-regressions, sixteen K6 pipeline tests and fifteen comparative tests. Both
-previously failing all-class comparisons now reach all five three-loop classes.
-Independent auditors reproduced these results without changing tolerances.
-This resolves the known failures in the historical 81-pass/2-fail selection;
-it is not a new execution of that entire 83-test inventory. Native evaluation
+three-loop numerator momenta. After the independently audited 34-test targeted
+gate, a fresh rerun of the **complete recorded 83-test selection passes:
+83 passed, 0 failed, 0 ignored**. Both previously failing all-class comparisons
+reach all five three-loop classes, with unchanged tolerances. Native evaluation
 uses an invalid FORM path; separate oracle lanes use FORM for validation.
+The 83-test selection covers native peers, legacy comparisons, matching,
+defaults and the offline 38-terminal catalog; it is not 83 distinct integrals.
 
 Four-loop artifacts are not yet closed or shipped. H, X, BMW and FG are
 [external unit-mass input families](examples/input/README.md), not hard-coded
 solver cases. The previously failing H sector now passes all 94 exact replays
 and descent checks, exact predicate coverage, and lowering to 1,202 rule cells.
-This single-sector result is not a whole-family artifact. The
+This single-sector result is not a whole-family artifact: the subsequent full
+H run reached a 600-second bound without publication. FG's remaining failure
+has been isolated to an exact nonlinear exceptional condition outside its
+physical no-positive-ISP domain. A two-worker release diagnostic finishes all
+124 nonzero physical FG sector searches in 33.47 s, producing 9,264 proposed
+rules and 145 finite residuals. This is **not yet a replayed, closed artifact**.
+Explicit domain-scoped publication and live phase diagnostics are next. The
 [parent-probe report](docs/four_loop_parent_closure_probe.md) records the evidence.
 Earlier pending-three-loop development checkpoints
 below are historical and do not override this status.
@@ -55,7 +61,7 @@ The currently evidenced core can:
   memoizing `Reducer`: 623 rules, 5,639 sign-refined cells, 38 finite masters,
   and 26 proved-zero sectors. Serial and six-worker generation writes identical
   durable bytes; fresh CLI loading and application pass. Complete Vakint
-  acceptance remains subject to the report correction above. See
+  acceptance now passes the complete selected matrix described above. See
   the [artifact delivery report](docs/spired_vakint_artifact_plan.md);
 - run those independent sector solves on a bounded private worker pool with
   shared source data and deterministic aggregate output. All `vac3` equations
@@ -159,7 +165,7 @@ deterministically encoded artifacts and consumed by the generic recursive
 reducer through Rust, CLI, and Python surfaces. They are also shipped with and
 consumed by Vakint's FORM-free scalar backend. The new SpIRed producer closes
 and durably installs canonical three-loop `K = 6`; fresh-process inspection
-and application pass. The missing Vakint acceptance results are being reconciled.
+and application pass. The complete recorded Vakint acceptance selection passes.
 
 The active four-loop work uses external H, X, BMW and FG parent inputs,
 each with ten scalar-product coordinates. A single ten-coordinate root family

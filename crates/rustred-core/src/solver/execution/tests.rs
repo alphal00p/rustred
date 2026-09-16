@@ -430,3 +430,20 @@ fn nested_rayon_work_reuses_the_owned_pool_instead_of_spawning_another_pool() {
     assert!(!threads.lock().unwrap().is_empty());
     assert!(threads.lock().unwrap().len() <= 2);
 }
+
+#[test]
+fn diagnostic_mask_is_distinct_from_the_manifest_ordinal() {
+    let error = SectorExecutionError::<3, Infallible>::Solve {
+        ordinal: 397,
+        sector: [true, false, true],
+        source: SectorSolveError::CaseBudget {
+            solved: 2,
+            pending: 1,
+        },
+    };
+    let text = error.to_string();
+    assert!(text.starts_with("sector 397 search: symbolic-case budget exhausted"));
+    assert!(text.ends_with("\nsector_mask=101"));
+    assert_eq!(error.ordinal(), 397);
+    assert_eq!(error.sector(), &[true, false, true]);
+}

@@ -18,6 +18,10 @@ use super::input::prepare_input;
 use super::lowering::lower_project;
 use super::{InputFormat, MAX_CLOSING_ARTIFACT_BYTES, MAX_INPUT_BYTES};
 
+mod progress;
+pub use progress::{FamilyCloseGenerationStage, FamilyCloseProgress};
+use progress::{Observer, emit, generation_stage, installation_event, sector_mask};
+
 pub const FAMILY_CLOSE_SCHEMA: &str = "rustred.family-close-output.toml.v1";
 
 /// Request a sector-complete closing artifact for an external family.
@@ -113,6 +117,25 @@ struct Installed {
 }
 
 pub fn family_close(request: FamilyCloseRequest) -> Result<FamilyCloseResult, AppError> {
+    family_close_impl(request, None)
+}
+
+/// Generate the same artifact while observing lightweight progress.
+///
+/// Generation callbacks run on sector workers and may overlap. Observers
+/// must be short and must synchronize their own mutable state. A panic aborts
+/// normally; observations cannot authorize rules or change solver policy.
+pub fn family_close_with_progress(
+    request: FamilyCloseRequest,
+    observe: impl Fn(FamilyCloseProgress) + Send + Sync,
+) -> Result<FamilyCloseResult, AppError> {
+    family_close_impl(request, Some(&observe))
+}
+
+fn family_close_impl(
+    request: FamilyCloseRequest,
+    observe: Observer<'_>,
+) -> Result<FamilyCloseResult, AppError> {
     let start = Instant::now();
     if request.source.len() > MAX_INPUT_BYTES {
         return Err(AppError::limit(format!(
@@ -141,7 +164,14 @@ pub fn family_close(request: FamilyCloseRequest) -> Result<FamilyCloseResult, Ap
         }
     }
     let family_name = family.name().to_owned();
-    let installed = dispatch_close(family, &request, start)?;
+    emit(observe, || FamilyCloseProgress::Preparing {
+        arity,
+        elapsed: start.elapsed(),
+    });
+    let installed = dispatch_close(family, &request, start, observe)?;
+    emit(observe, || FamilyCloseProgress::Encoding {
+        elapsed: start.elapsed(),
+    });
     let bytes = installed
         .artifact
         .encode_durable()
@@ -176,6 +206,10 @@ pub fn family_close(request: FamilyCloseRequest) -> Result<FamilyCloseResult, Ap
     };
     let report_toml = toml::to_string_pretty(&report)
         .map_err(|error| AppError::serialization(error.to_string()))?;
+    emit(observe, || FamilyCloseProgress::Encoded {
+        bytes: bytes.len(),
+        elapsed: start.elapsed(),
+    });
     Ok(FamilyCloseResult {
         artifact: bytes,
         report_toml,
@@ -193,11 +227,12 @@ fn dispatch_close(
     family: IntegralFamily,
     request: &FamilyCloseRequest,
     start: Instant,
+    observe: Observer<'_>,
 ) -> Result<Installed, AppError> {
     macro_rules! arms {
         ($($n:literal),+ $(,)?) => {
             match family.denominator_count() {
-                $($n => close::<$n>(family, request, start),)+
+                $($n => close::<$n>(family, request, start, observe),)+
                 _ => unreachable!("family-close arity checked before dispatch"),
             }
         };
@@ -209,6 +244,7 @@ fn close<const N: usize>(
     family: IntegralFamily,
     request: &FamilyCloseRequest,
     start: Instant,
+    observe: Observer<'_>,
 ) -> Result<Installed, AppError> {
     SourcePortAudit::<N>::validate_install_family(&family).map_err(|error| {
         AppError::input(format!(
@@ -249,8 +285,13 @@ fn close<const N: usize>(
     let executor = SectorExecutor::new(request.n_cores)
         .map_err(|error| AppError::execution(error.to_string()))?;
     let prepared_at = start.elapsed();
+    emit(observe, || FamilyCloseProgress::Prepared {
+        sectors: sectors.len(),
+        zero_sectors: zeros.len(),
+        elapsed: prepared_at,
+    });
     let solved = executor
-        .map(
+        .map_with_observer(
             &sources,
             &sectors,
             &SectorConfig {
@@ -259,7 +300,24 @@ fn close<const N: usize>(
                 ..Default::default()
             },
             SectorSolveOptions::default(),
-            |done| Ok::<_, std::io::Error>((done.sector, permutation, done.solution)),
+            |ordinal, sector, event| {
+                emit(observe, || FamilyCloseProgress::Generating {
+                    ordinal,
+                    sector: sector_mask(sector),
+                    stage: generation_stage(event),
+                    elapsed: start.elapsed(),
+                })
+            },
+            |done| {
+                emit(observe, || FamilyCloseProgress::GeneratedSector {
+                    ordinal: done.ordinal,
+                    sector: sector_mask(done.sector),
+                    rules: done.solution.rules.len(),
+                    finite_residuals: done.solution.finite_residuals.len(),
+                    elapsed: start.elapsed(),
+                });
+                Ok::<_, std::io::Error>((done.sector, permutation, done.solution))
+            },
         )
         .map_err(|error| AppError::execution(error.to_string()))?;
     let generated_at = start.elapsed();
@@ -268,7 +326,9 @@ fn close<const N: usize>(
         .map(|(_, _, solution)| solution.rules.len())
         .sum();
     let artifact = audit
-        .install_complete(family, solved)
+        .install_complete_with_observer(family, solved, |event| {
+            emit(observe, || installation_event(event, start.elapsed()));
+        })
         .map_err(|error| AppError::execution(error.to_string()))?;
     Ok(Installed {
         artifact,
@@ -345,7 +405,17 @@ numerator = "1"
         assert_eq!(result.solved_sectors + result.zero_sectors, 8);
         let mut parallel = FamilyCloseRequest::new(K3);
         parallel.n_cores = 2;
-        let parallel = family_close(parallel).unwrap();
+        let generated = std::sync::atomic::AtomicUsize::new(0);
+        let parallel = family_close_with_progress(parallel, |event| {
+            if matches!(event, FamilyCloseProgress::GeneratedSector { .. }) {
+                generated.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        })
+        .unwrap();
+        assert_eq!(
+            generated.load(std::sync::atomic::Ordering::Relaxed),
+            parallel.solved_sectors
+        );
         assert_eq!(result.artifact(), parallel.artifact());
         let reduction = closing_artifact_reduce(ClosingArtifactReduceRequest::new(
             result.into_artifact(),
@@ -353,6 +423,65 @@ numerator = "1"
         ))
         .unwrap();
         assert!(!reduction.terms().is_empty());
+    }
+
+    #[test]
+    fn owned_progress_preserves_bytes_and_distinguishes_install_from_encoding() {
+        let baseline = family_close(FamilyCloseRequest::new(K1)).unwrap();
+        let events = std::sync::Mutex::new(Vec::new());
+        let observed = family_close_with_progress(FamilyCloseRequest::new(K1), |event| {
+            events.lock().unwrap().push(event);
+        })
+        .unwrap();
+        assert_eq!(baseline.artifact(), observed.artifact());
+        let events = events.into_inner().unwrap();
+        assert!(matches!(
+            events.first(),
+            Some(FamilyCloseProgress::Preparing { arity: 1, .. })
+        ));
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, FamilyCloseProgress::Generating { .. }))
+        );
+        let checked = events
+            .iter()
+            .position(|event| matches!(event, FamilyCloseProgress::CheckedSector { .. }))
+            .unwrap();
+        let lowered = events
+            .iter()
+            .position(|event| matches!(event, FamilyCloseProgress::LoweredSector { .. }))
+            .unwrap();
+        let installed = events
+            .iter()
+            .position(|event| matches!(event, FamilyCloseProgress::Installed { .. }))
+            .unwrap();
+        let encoding = events
+            .iter()
+            .position(|event| matches!(event, FamilyCloseProgress::Encoding { .. }))
+            .unwrap();
+        assert!(checked < lowered && lowered < installed && installed < encoding);
+        assert!(
+            matches!(events.last(), Some(FamilyCloseProgress::Encoded { bytes, .. }) if *bytes == observed.artifact().len())
+        );
+    }
+
+    #[test]
+    fn rejected_family_never_announces_success() {
+        let events = std::sync::Mutex::new(Vec::new());
+        assert!(
+            family_close_with_progress(
+                FamilyCloseRequest::new(K1.replace("q^2-1", "q^2-2")),
+                |event| {
+                    events.lock().unwrap().push(event);
+                }
+            )
+            .is_err()
+        );
+        assert!(events.into_inner().unwrap().iter().all(|event| !matches!(
+            event,
+            FamilyCloseProgress::Installed { .. } | FamilyCloseProgress::Encoded { .. }
+        )));
     }
 
     #[test]

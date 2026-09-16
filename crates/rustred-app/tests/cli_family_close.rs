@@ -117,3 +117,19 @@ fn rejected_family_leaves_no_partial_artifact() {
     assert!(output.stdout.is_empty());
     assert!(!path.exists());
 }
+
+#[test]
+fn forced_plain_progress_preserves_binary_stdout() {
+    let baseline = success(&["family-close"], INPUT.as_bytes());
+    let observed = run(&["family-close", "--progress"], INPUT.as_bytes());
+    assert!(
+        observed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&observed.stderr)
+    );
+    assert_eq!(observed.stdout, baseline);
+    let progress = String::from_utf8(observed.stderr).unwrap();
+    assert!(progress.contains("preparing K=1"));
+    assert!(progress.contains("artifact written"));
+    assert!(!progress.contains('\u{1b}') && !progress.contains('\r'));
+}

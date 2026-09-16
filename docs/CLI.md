@@ -42,12 +42,43 @@ must appear exactly once. No subset-of-sectors option is offered by this
 command, because it promises complete family coverage. `--force` opts into
 atomic replacement; otherwise existing output files are preserved.
 
+On a terminal, `family-close` refreshes one inline stderr status field for
+generation, exact replay, rule lowering, installation and encoding. It does not
+enter an alternate screen. Redirected stderr is quiet by default; add
+`--progress` to request plain newline-delimited progress (no ANSI escapes):
+
+```console
+rustred family-close --input YOUR_UNIT_MASS_FAMILY.toml \
+  --n-cores 4 --progress --output family.rr 2>family.progress.log
+```
+
+Worker progress is live and may arrive out of order. The renderer throttles
+repeated search activity, but preserves phase boundaries and each rule-lowering
+start so a long operation is labelled correctly. `NO_COLOR` disables terminal
+colors. Progress never shares artifact stdout; neither a replay observation nor
+an in-memory installation announces a written artifact. The final `artifact
+written` message is emitted only after output succeeds.
+
 The Rust application API exposes `FamilyCloseRequest`, `family_close`, and
 `FamilyCloseResult`. The result owns durable bytes through `artifact()` and
 `into_artifact()`, and a `to_toml()` report with preparation, generation,
 installation and encoding wall times. Those timings are observational metadata,
 not part of the semantic artifact. Existing inspect/reduce APIs cold-load and
 apply the returned bytes without re-running discovery.
+
+`family_close_with_progress(request, observer)` produces identical artifact
+bytes and exposes owned, lightweight `FamilyCloseProgress` events. Its observer
+has type `Fn(FamilyCloseProgress) + Send + Sync`: generation callbacks can run
+concurrently on sector workers, while installation callbacks run on the calling
+thread. Keep callbacks short and synchronize any mutable observer state.
+Sector masks use bit `i` for input denominator coordinate `i`; ordinals are
+zero-based. No symbolic expressions are copied into progress. `family_close`
+uses the unobserved path, avoiding renderer locking and application-event construction.
+
+Live progress is currently exposed through the Rust application API and CLI.
+Python's existing `rustred.family_close` still provides the same generation,
+artifact and timing-report result; Python callbacks are deferred until their
+interaction with the detached coordinator and GIL is designed and tested.
 
 ## Generic family solve diagnostic
 

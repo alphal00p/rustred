@@ -101,7 +101,8 @@ impl<const N: usize> fmt::Display for CaseIntersectionError<N> {
             CaseIntersectionFailure::Budget { kind, limit } => {
                 write!(f, "{kind:?} budget {limit} exhausted")
             }
-        }
+        }?;
+        super::diagnostic::write_context(self, f)
     }
 }
 

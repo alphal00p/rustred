@@ -311,12 +311,87 @@ sector**, not a whole-family cold-loadable artifact. The next run uses the
 generic `family-close` CLI with the external literal-unit H input and reverse
 coordinate order.
 
+### Full H rerun after predicate-aware lowering
+
+The subsequent whole-family CLI run used the released `da70bf4` implementation,
+the unchanged literal-unit H input and reverse coordinate order
+`9,8,7,6,5,4,3,2,1,0`. It used two workers on physical CPUs 32/33, with nested
+BLAS/OpenMP pools limited to one, and a fresh output path. The executable
+SHA-256 was
+`58aceec22284bd68e824deb9a91a5be5e6934d0aa1b24b96697c0083b0171021`.
+
+The run reached its explicit 600-second limit: **600.16 s wall, 843.97 s CPU
+(840.81 user + 3.16 system), 849,296 KiB peak RSS**, exit 124. It produced
+neither an artifact nor an error diagnostic. The old CLI exposed phase timings
+only after successful completion, so this observation does **not** locate the
+remaining cost in discovery, replay, lowering, or final coverage. CPU utilization
+alone cannot identify the phase. No licensing failure was reported. Compilation
+preceded the timed process and took 9m29s.
+
+The complete invocation and measurement records are retained at
+`/tmp/rustred-h-predicate-close.qBzEqd/`. The next implementation slice adds
+non-authoritative live generation and installation progress, preserving the
+exact proof path and artifact bytes. The next full run must use these events
+to identify the actual bottleneck instead of interpreting this timeout as a
+mathematical failure or a successful closure.
+
+The progress implementation now has independent code/mathematical audits and
+114 focused core passes (five diagnostic tests remain ignored), plus twelve
+app/unit and four CLI passes. The checks include an actual affine owner and
+its complementary excluded domain surviving cold artifact loading, exact
+artifact-byte parity with/without observers, serial/parallel K3 parity,
+fail-closed incomplete installation, and binary stdout remaining unchanged
+under `--progress`. Private observer helpers erase callback types to avoid
+duplicating the proof pipeline. Quiet redirected CLI runs bypass renderer
+locking and app-event construction. A fresh release run is the next timing
+gate; these debug checks are not performance measurements.
+
+### FG's exact exceptional condition
+
+The earlier `sector 397` error identifies an ordinal in the sorted nonzero
+sector list, **not** a bitmask. A selected-sector release diagnostic now maps
+it to physical-coordinate mask `1001110010` and captures its exact fixed face:
+
+```text
+[1, n1, 0, 1, 1, 1, n6, n7, 1, 0], with n1,n6,n7 <= 0
+g = 1 + 2*n7 + n7^2 + n6^2 + n1 + n1*n7 - 3*n1*n6 + 2*n1^2 = 0
+```
+
+The whole family has 743 nonzero and 281 proved-zero sectors. Isolating this
+sector takes 0.20 s wall (84 ms preparation, 106 ms solving), **not** a whole
+family closing time. Native Symbolica factorization retains one irreducible
+quadratic factor. This is not a coupled affine constraint missed by the affine
+carrier, and increasing its factorization budget does not make it affine.
+The captured typed payload and native factorization are retained at
+`/tmp/rustred-fg-sector-diagnostic.6o3yj9/`.
+
+Reversing coordinate order changes the quadratic but still fails safely on
+this same mask (193 ms solving). Native Symbolica solving returns conditional
+radical branches, not unconditional affine charts. The nonlinear locus has
+infinitely many admissible integer points, so it cannot be discarded. The
+mask also activates FG's auxiliary `D9` as a propagator, outside its physical
+root domain. Any smaller closure contract must be explicit and persisted,
+with exact sector coverage and RHS containment; it cannot silently filter the
+current unrestricted command. See
+[the detailed diagnosis](research/four_loop_fg_exceptional_geometry.md).
+
+A subsequent explicitly scoped physical-FG search (`n8,n9 <= 0`) completes
+all **124 nonzero sectors**, with 132 native proved-zero sectors, in **33.47 s
+wall** (65.91 s user + 0.39 s system, 114,080 KiB peak RSS, two workers). It
+returns 9,264 proposed rules and 145 finite residuals. No original-source
+audit, descent/coverage installation, cold loading or artifact publication was
+performed by this diagnostic. Thus it motivates an explicit root-domain
+contract; it does not establish either a physical FG artifact or unrestricted
+K10 closure. The reverse-order polynomial above also has only one admissible
+integer zero, unlike the natural-order infinite locus; the detailed report
+distinguishes these cases and records native solver results.
+
 ## Interpretation
 
-None of the three external parents currently has a cold-loadable RustRed
+None of the four external parents currently has a cold-loadable RustRed
 artifact. In particular, no physical or dotted reduction canary is reported:
 the CLI publishes atomically only after complete sector coverage and exact
-installation, and all three runs stopped before publication. The observations
+installation, and all runs stopped before publication. The observations
 do show that the current generic lane encounters materially different resource
 profiles: X and BMW consume the full five-minute budget, while FG reaches an
 unsupported nonlinear exceptional branch in about 234 seconds.

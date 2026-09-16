@@ -108,7 +108,12 @@ impl<const N: usize, E: fmt::Display> fmt::Display for SectorExecutionError<N, E
             } => {
                 write!(f, "sector {ordinal} output: {source}")
             }
+        }?;
+        write!(f, "\nsector_mask=")?;
+        for active in self.sector() {
+            f.write_str(if *active { "1" } else { "0" })?;
         }
+        Ok(())
     }
 }
 

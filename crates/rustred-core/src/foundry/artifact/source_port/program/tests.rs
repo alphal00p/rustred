@@ -4,6 +4,144 @@ use crate::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, zero};
 use crate::solver::{SectorConfig, SectorSolveOptions, SectorSolver, SourceSystem};
 
 #[test]
+fn install_observer_preserves_durable_bytes_and_runs_on_calling_thread() {
+    let (audit, solution) = solved_tadpole();
+    let baseline = audit
+        .install_complete(tadpole(), [([true], None, solution)])
+        .unwrap();
+    let (audit, solution) = solved_tadpole();
+    let explicit_noop = audit
+        .install_complete_with_observer(tadpole(), [([true], None, solution)], |_| {})
+        .unwrap();
+    assert_eq!(
+        baseline.encode_durable().unwrap(),
+        explicit_noop.encode_durable().unwrap()
+    );
+
+    let caller = std::thread::current().id();
+    let mut events = Vec::new();
+    let (audit, solution) = solved_tadpole();
+    let observed = audit
+        .install_complete_with_observer(tadpole(), [([true], None, solution)], |event| {
+            assert_eq!(std::thread::current().id(), caller);
+            let (name, elapsed) = match event {
+                SourcePortInstallEvent::CheckingSector {
+                    ordinal,
+                    sector,
+                    rules,
+                    elapsed,
+                } => {
+                    assert_eq!((ordinal, sector, rules), (0, [true], 1));
+                    ("checking", elapsed)
+                }
+                SourcePortInstallEvent::CheckedSector {
+                    ordinal,
+                    report,
+                    elapsed,
+                } => {
+                    assert_eq!(
+                        (ordinal, report.sector, report.exact_replayed_rules),
+                        (0, [true], 1)
+                    );
+                    assert!(report.issues.is_empty());
+                    ("checked", elapsed)
+                }
+                SourcePortInstallEvent::LoweringRule {
+                    sector,
+                    ordinal,
+                    total,
+                    elapsed,
+                } => {
+                    assert_eq!((sector, ordinal, total), ([true], 0, 1));
+                    ("lowering", elapsed)
+                }
+                SourcePortInstallEvent::LoweredSector {
+                    sector,
+                    cells,
+                    elapsed,
+                } => {
+                    assert_eq!(sector, [true]);
+                    assert_eq!(cells, baseline.rule_cells().len());
+                    ("lowered", elapsed)
+                }
+                SourcePortInstallEvent::Installing {
+                    sectors,
+                    rule_cells,
+                    terminals,
+                    elapsed,
+                } => {
+                    assert_eq!(sectors, 1);
+                    assert_eq!(rule_cells, baseline.rule_cells().len());
+                    assert_eq!(terminals, baseline.masters().len());
+                    ("installing", elapsed)
+                }
+                SourcePortInstallEvent::Installed { elapsed } => ("installed", elapsed),
+            };
+            events.push((name, elapsed));
+            // Observable caller work may perturb timings, never rule choices.
+            std::thread::yield_now();
+        })
+        .unwrap();
+    assert_eq!(
+        events.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        [
+            "checking",
+            "checked",
+            "lowering",
+            "lowered",
+            "installing",
+            "installed"
+        ]
+    );
+    assert!(events.windows(2).all(|pair| pair[0].1 <= pair[1].1));
+    assert_eq!(
+        baseline.encode_durable().unwrap(),
+        observed.encode_durable().unwrap()
+    );
+}
+
+#[test]
+fn observed_incomplete_sector_cannot_reach_lowering_or_installation() {
+    let (audit, mut solution) = solved_tadpole();
+    solution.finite_residuals.clear();
+    let baseline = audit
+        .install_complete(tadpole(), [([true], None, solution)])
+        .unwrap_err()
+        .to_string();
+    let (audit, mut solution) = solved_tadpole();
+    solution.finite_residuals.clear();
+    let mut events = Vec::new();
+    let failure =
+        audit
+            .install_complete_with_observer(tadpole(), [([true], None, solution)], |event| {
+                match event {
+                    SourcePortInstallEvent::CheckingSector { .. } => events.push("checking"),
+                    SourcePortInstallEvent::CheckedSector { report, .. } => {
+                        assert!(report.checked_rule_uncovered_boxes > 0);
+                        events.push("incomplete report");
+                    }
+                    _ => panic!("incomplete diagnostic was treated as admission evidence"),
+                }
+            })
+            .unwrap_err();
+    assert_eq!(events, ["checking", "incomplete report"]);
+    assert_eq!(failure.to_string(), baseline);
+}
+
+#[test]
+fn observer_panic_aborts_instead_of_creating_a_successful_artifact() {
+    let (audit, solution) = solved_tadpole();
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        audit.install_complete_with_observer(tadpole(), [([true], None, solution)], |event| {
+            if matches!(event, SourcePortInstallEvent::CheckingSector { .. }) {
+                panic!("observer requested no authority");
+            }
+        })
+    }));
+    assert!(outcome.is_err());
+}
+
+#[test]
 fn checked_program_owns_original_replay_unbounded_cover_and_finite_terminals() {
     let (audit, solution) = solved_tadpole();
     assert_eq!(audit.proved_zero_sector_count(), 1);

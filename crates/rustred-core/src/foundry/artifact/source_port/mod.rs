@@ -12,6 +12,8 @@ mod normalization;
 mod ordinary;
 pub(in crate::foundry::artifact) mod predicate_cover;
 mod program;
+mod progress;
+pub use progress::SourcePortInstallEvent;
 mod replay;
 pub(crate) use program::lower::ReplayedOriginalDomain;
 #[cfg(test)]

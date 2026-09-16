@@ -5,6 +5,7 @@ mod progress;
 
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
+use std::sync::Mutex;
 
 use crate::{
     CampaignPlanRequest, CampaignPreflightRequest, ClosingArtifactGenerateRequest,
@@ -21,7 +22,7 @@ use args::{
 };
 use error::CliError;
 use io::{preflight_output_destination, read_artifact, read_input, write_output};
-use progress::{CampaignProgressMonitor, ProgressPresentation};
+use progress::{CampaignProgressMonitor, FamilyCloseProgressMonitor, ProgressPresentation};
 
 pub(crate) fn main_entry() -> i32 {
     match run(std::env::args_os()) {
@@ -82,13 +83,35 @@ fn family_solve_cli(arguments: FamilySolveArgs) -> Result<(), CliError> {
 fn family_close_cli(arguments: FamilyCloseArgs) -> Result<(), CliError> {
     let source = read_input(&arguments.input)?;
     preflight_output_destination(&arguments.output, arguments.force)?;
-    let result = crate::family_close(FamilyCloseRequest {
+    let terminal = std::io::stderr().is_terminal();
+    let monitor = Mutex::new(FamilyCloseProgressMonitor::new(
+        std::io::stderr(),
+        terminal,
+        arguments.progress,
+        std::env::var_os("NO_COLOR").is_some(),
+    ));
+    let request = FamilyCloseRequest {
         source,
         input_format: arguments.input_format,
         n_cores: arguments.n_cores,
         permutation: arguments.permutation,
-    })?;
-    write_output(&arguments.output, result.artifact(), arguments.force)
+    };
+    let result = if terminal || arguments.progress {
+        crate::family_close_with_progress(request, |event| {
+            if let Ok(mut monitor) = monitor.lock() {
+                monitor.observe(event);
+            }
+        })
+    } else {
+        crate::family_close(request)
+    };
+    let result = result
+        .map_err(CliError::from)
+        .and_then(|result| write_output(&arguments.output, result.artifact(), arguments.force));
+    if let Ok(mut monitor) = monitor.lock() {
+        monitor.finish(result.is_ok());
+    }
+    result
 }
 
 fn run_foundry_wave_campaign_cli(arguments: FoundryWaveCampaignRunArgs) -> Result<(), CliError> {
