@@ -85,10 +85,8 @@ fn exhausted_native_work_surfaces_as_budget_error_not_an_uncovered_box() {
             literals: vec![],
         },
     ];
-    let mut work = TraversalWork {
-        nodes: 0,
-        consistency: WorkBudget { remaining: 0 },
-    };
+    let mut work = TraversalWork::new(&[false; 3], &atoms);
+    work.consistency.budget.remaining = 0;
     let mut assignments = [Some(false)];
     assert_eq!(
         check_valuations(
@@ -101,7 +99,7 @@ fn exhausted_native_work_surfaces_as_budget_error_not_an_uncovered_box() {
             PredicateCoverLimits::default(),
         ),
         Err(PredicateCoverError::Budget(
-            "singleton literal substitutions"
+            "native affine literal consistency"
         ))
     );
     assert_eq!(assignments, [Some(false)]);
@@ -117,11 +115,11 @@ fn empty_and_unassigned_predicates_do_not_consume_native_work() {
         equation: &equation,
     }];
     let face = LatticeBox::try_new([0; 3], [Some(0), Some(0), None]).unwrap();
-    let mut work = WorkBudget { remaining: 0 };
-    assert_eq!(work.contradicts(&[false; 3], &face, &[], &[]), Ok(false));
-    assert_eq!(
-        work.contradicts(&[false; 3], &face, &atoms, &[None]),
-        Ok(false)
-    );
-    assert_eq!(work.remaining, 0);
+    let mut empty = RestrictionCache::new(&[false; 3], &[]);
+    empty.budget.remaining = 0;
+    assert_eq!(empty.contradicts(&face, &[]), Ok(false));
+    let mut work = RestrictionCache::new(&[false; 3], &atoms);
+    work.budget.remaining = 0;
+    assert_eq!(work.contradicts(&face, &[None]), Ok(false));
+    assert_eq!(work.budget.remaining, 0);
 }

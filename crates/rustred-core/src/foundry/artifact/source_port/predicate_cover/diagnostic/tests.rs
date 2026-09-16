@@ -15,7 +15,7 @@ fn first_failure_preserves_exact_box_sector_maps_and_partial_truth_assignment() 
         .collect::<Vec<_>>();
     let mut assignments = [Some(true), Some(false), None];
     let before = assignments;
-    let mut work = TraversalWork::default();
+    let mut work = TraversalWork::new(&[false, true, false], &atoms);
     let error = check_valuations(
         &[false, true, false],
         &atoms,

@@ -37,28 +37,28 @@ Four-loop artifacts are not yet closed or shipped. H, X, BMW and FG are
 [external unit-mass input families](examples/input/README.md), not hard-coded
 solver cases. Selected H and FG sectors pass complete exact replay, descent
 and coverage, but neither whole family is certified. The latest full physical
-FG Rust API attempt searches all 124 nonzero sectors in 39.384 seconds,
+FG Rust API attempt searches all 124 nonzero sectors in 32.773 seconds,
 yielding 9,272 candidate rules and 145 finite terminal candidates. It passes
-32 sector audits and finishes in **125.79 seconds**, rejecting publication
-on an explicit exact-substitution work limit during predicate coverage.
-The preceding release validates **161/161 FG214 rules** for exact replay and
-descent; those identities must not be confused with a complete coverage proof.
-Early exact contradiction pruning passes 436 focused tests, but does not yet
-resolve the full campaign's proof-work budget. Bounded reuse of repeated
-native substitutions is the next coverage investigation, not a larger cap,
-extra master or hard-coded IBP.
+32 sector audits and finishes in **109.92 seconds** on the bounded native
+affine-consistency work limit. The preceding cache/replay snapshot validates
+**161/161 FG214 rules**, but that identity count is not complete coverage.
+Bounded reuse of native substitutions removed an earlier limit; reuse of
+repeated joint equation checks is the next measured investigation.
 
 A separate H attempt initially passes 47 sector audits before rejecting a
 rule on a boundary explicitly excluded from its domain. The shared raw/durable
 correction passes 442 focused tests and a selected release audit: **54/54
 H226 rules**, zero uncovered regions, **0.50 seconds**. The new whole-H run
-searches all 314 sectors, advances to **56 passing audits**, and exits after
-**79.43 seconds** at H370: 133/134 rules pass. Independent diagnosis traces
-the rejected exception to replay using a single-case intersection where
-discovery's existing exact case-splitting routine succeeds. The first abstract
-cover witness is also inconsistent; both remaining verifier corrections are
-in progress. **No closed four-loop
-artifact is written or shipped.** Current
+searches all 314 sectors and now advances to **91 passing audits** before
+exiting after **112.97 seconds**, also at an affine-consistency work limit.
+H370 now passes **134/134 rules and complete sector coverage**, in an 11.02s
+selected release run. The native exact implication change passes the combined
+**473-test** correctness gate and independent review. Separate BMW/X campaigns
+complete 133/134 and 326/328 searches before unsupported quadratic guards with
+no integer roots; their narrow native-factor correction passes 44 focused
+tests and independent review but awaits release validation. See the
+[guard-consistency report](docs/research/four_loop_predicate_consistency.md).
+**No closed four-loop artifact is written or shipped.** Current
 core K1/K3/K6 generation, fresh-process validation and master-only application
 pass with unchanged bytes. Earlier CLI one-, two- and six-worker generation
 also remains byte-identical; this latest verifier slice was tested through
@@ -174,8 +174,8 @@ The currently evidenced core can:
   a symbolic or exact common mass, and optionally applying Vakint's pure-Rust
   offline master projections and values without invoking or falling back to FORM.
 
-It does **not** yet establish the complete three-loop Vakint acceptance gate,
-provide complete four-loop artifacts or four-loop acceptance, complete the
+It does **not** yet provide complete four-loop artifacts or four-loop
+acceptance, complete the
 supplied PM example suite, or implement a new generic
 higher-even-rank tensor reducer. Vakint uses FeynKit for that tensor prepass.
 RustRed itself deliberately does not

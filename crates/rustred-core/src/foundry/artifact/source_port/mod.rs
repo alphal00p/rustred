@@ -576,9 +576,9 @@ impl<const N: usize> SourcePortAudit<N> {
                 affine_candidates.len(),
             ));
             for (ordinal, issue) in affine_candidates {
-                report
-                    .issues
-                    .push(format!("rule {ordinal} stored guard geometry: {issue}"));
+                report.issues.push(format!(
+                    "rule {ordinal} deferred source/geometry proof: {issue}"
+                ));
             }
         }
         report.elapsed = start.elapsed();

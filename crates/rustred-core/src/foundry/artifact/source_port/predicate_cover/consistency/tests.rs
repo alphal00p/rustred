@@ -14,17 +14,15 @@ fn contradiction(
 ) -> bool {
     let equation = context.coefficient_fixture(equation).numerator;
     let indices: Vec<_> = (1..=sector.len()).collect();
-    WorkBudget::default()
-        .contradicts(
-            sector,
-            cell,
-            &[Atom {
-                indices: &indices,
-                equation: &equation,
-            }],
-            &[assignment],
-        )
-        .unwrap()
+    RestrictionCache::new(
+        sector,
+        &[Atom {
+            indices: &indices,
+            equation: &equation,
+        }],
+    )
+    .contradicts(cell, &[assignment])
+    .unwrap()
 }
 
 #[test]
@@ -123,13 +121,13 @@ fn substitution_uses_original_axis_bindings_not_native_variable_positions() {
         equation: &equation,
     }];
     assert!(
-        WorkBudget::default()
-            .contradicts(&[false; 3], &cell, &atoms, &[Some(false)])
+        RestrictionCache::new(&[false; 3], &atoms)
+            .contradicts(&cell, &[Some(false)])
             .unwrap()
     );
     assert!(
-        !WorkBudget::default()
-            .contradicts(&[false; 3], &cell, &atoms, &[Some(true)])
+        !RestrictionCache::new(&[false; 3], &atoms)
+            .contradicts(&cell, &[Some(true)])
             .unwrap()
     );
 }
@@ -141,17 +139,15 @@ fn malformed_maps_stay_unknown_and_budget_exhaustion_is_explicit() {
     let equation = context.coefficient_fixture("a-b").numerator;
     for indices in [&[1, 1, 3][..], &[1, 2, 4][..], &[0, 2, 3][..], &[1, 2][..]] {
         assert!(
-            !WorkBudget::default()
-                .contradicts(
-                    &[false; 3],
-                    &cell,
-                    &[Atom {
-                        indices,
-                        equation: &equation
-                    }],
-                    &[Some(false)],
-                )
-                .unwrap()
+            !RestrictionCache::new(
+                &[false; 3],
+                &[Atom {
+                    indices,
+                    equation: &equation
+                }],
+            )
+            .contradicts(&cell, &[Some(false)])
+            .unwrap()
         );
     }
     for equation in ["d*a-b", "a^2-b", "a*b"] {
@@ -167,35 +163,34 @@ fn malformed_maps_stay_unknown_and_budget_exhaustion_is_explicit() {
         indices: &[1, 2, 3],
         equation: &equation,
     }];
-    let mut budget = WorkBudget { remaining: 1 };
+    let mut budget = RestrictionCache::new(&[false; 3], &atoms);
+    budget.budget.remaining = 1;
     assert_eq!(
-        budget.contradicts(&[false; 3], &cell, &atoms, &[Some(false)]),
+        budget.contradicts(&cell, &[Some(false)]),
         Err(WorkExhausted)
     );
-    assert_eq!(budget.remaining, 0);
+    assert_eq!(budget.budget.remaining, 0);
     assert_eq!(
-        budget.contradicts(&[false; 3], &cell, &atoms, &[Some(false)]),
+        budget.contradicts(&cell, &[Some(false)]),
         Err(WorkExhausted)
     );
     assert!(
-        !WorkBudget::default()
-            .contradicts(&[false; 3], &cell, &atoms, &[])
+        !RestrictionCache::new(&[false; 3], &atoms)
+            .contradicts(&cell, &[])
             .unwrap()
     );
     let mut malformed = equation.clone();
     malformed.exponents.pop();
     assert!(
-        !WorkBudget::default()
-            .contradicts(
-                &[false; 3],
-                &cell,
-                &[Atom {
-                    indices: &[1, 2, 3],
-                    equation: &malformed
-                }],
-                &[Some(false)],
-            )
-            .unwrap()
+        !RestrictionCache::new(
+            &[false; 3],
+            &[Atom {
+                indices: &[1, 2, 3],
+                equation: &malformed
+            }],
+        )
+        .contradicts(&cell, &[Some(false)])
+        .unwrap()
     );
 }
 

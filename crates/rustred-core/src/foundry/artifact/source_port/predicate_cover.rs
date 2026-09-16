@@ -12,9 +12,10 @@
 //! one. The existing affine row-bound service may additionally certify that
 //! a true-equation branch has no integer point in a box. Before further
 //! branching, native singleton substitution can also disprove individual
-//! Boolean literals throughout a remaining box. No sampling or new CAS
-//! implementation is involved. Other feasibility or equation implications
-//! may remain unresolved and cause conservative incompleteness.
+//! Boolean literals throughout a remaining box. Bounded native affine rank
+//! checks can also disprove jointly inconsistent equality/disequality choices.
+//! No sampling or new CAS implementation is involved. Other feasibility may
+//! remain unresolved and cause conservative incompleteness.
 
 use std::{fmt, sync::Arc};
 
@@ -27,10 +28,18 @@ mod consistency;
 mod diagnostic;
 use diagnostic::PredicateCoverWitness;
 
-#[derive(Default)]
-struct TraversalWork {
+struct TraversalWork<'a> {
     nodes: usize,
-    consistency: consistency::WorkBudget,
+    consistency: consistency::RestrictionCache<'a>,
+}
+
+impl<'a> TraversalWork<'a> {
+    fn new(sector: &'a [bool], atoms: &'a [Atom<'a>]) -> Self {
+        Self {
+            nodes: 0,
+            consistency: consistency::RestrictionCache::new(sector, atoms),
+        }
+    }
 }
 
 /// Borrowed domains of independently replayed and descending rules.
@@ -213,7 +222,7 @@ pub(in crate::foundry::artifact) fn certify_predicate_cover(
         )?;
     }
     let mut assignments = vec![None; atoms.len()];
-    let mut work = TraversalWork::default();
+    let mut work = TraversalWork::new(sector, &atoms);
     check_valuations(
         sector,
         &atoms,
@@ -329,7 +338,7 @@ fn check_valuations(
     clauses: &[Clause],
     constraints: &[EqualityConstraint<'_>],
     assignments: &mut [Option<bool>],
-    work: &mut TraversalWork,
+    work: &mut TraversalWork<'_>,
     limits: PredicateCoverLimits,
 ) -> Result<(), PredicateCoverError> {
     if work.nodes >= limits.max_boolean_nodes {
@@ -380,8 +389,8 @@ fn check_valuations(
         // waiting for a leaf needlessly repeats identical exact work.
         if !work
             .consistency
-            .contradicts(sector, piece, atoms, assignments)
-            .map_err(|_| PredicateCoverError::Budget("singleton literal substitutions"))?
+            .contradicts(piece, assignments)
+            .map_err(|_| PredicateCoverError::Budget("native affine literal consistency"))?
         {
             possible.push(piece);
         }

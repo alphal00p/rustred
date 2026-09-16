@@ -198,6 +198,43 @@ K6 observation is 2.51 seconds. H release evidence is at
 `/tmp/rustred-exclusion-release.zcMlbk/`. The subsequent bounded restriction
 cache is a separate development slice and is not included in those timings.
 
+**Cache/replay release and next exact proof slice (2026-09-16):** bounded
+reuse removes the observed FG substitution-work cap. The full release FG
+attempt searches all 124 sectors in 55.181 seconds, then validates all 161
+FG214 rules after 32 earlier passing sector audits; the process exits after
+139.95 seconds on a contradictory abstract guard assignment. H searches all
+314 sectors in 58.482 seconds, passes 56 earlier audits, and now validates
+134/134 H370 rules after switching replay to the existing complete disjunctive
+intersection service. It exits after 83.20 seconds on its contradictory guard
+assignment. These are shared-host observations, not controlled speed ratios.
+Neither process writes an artifact. K1/K3/K6 bytes and current-core cold/reducer
+canaries remain unchanged.
+
+A generic bounded native affine-implication check is implemented and passes
+473 focused tests with five existing workloads ignored, plus independent
+review. It uses the existing native canonical equality service, never a new
+CAS: only inconsistency of true equations or consistent equal-rank augmentation
+can refute an abstract branch. Its subsequent release results are below. BMW's
+separate full search finishes 133/134 sectors before rejecting the root-free
+quadratic `n1^2-3*n1+4=0`; reuse of already-computed native irreducible factors
+is the next separate geometry slice. No sampled coverage, extra masters or
+larger proof cap is authorized. The
+[guard-consistency report](docs/research/four_loop_predicate_consistency.md)
+records the exact examples and evidence.
+
+**Native implication release follow-up:** the next frozen release closes
+H370's actual sector audit (134/134 replayed/descending rules, zero uncovered
+regions, 11.02s selected process). Whole H now passes 91 complete sector
+audits, then stops at H214 on the native affine-consistency work budget after
+112.97s; whole FG stops at the same resource after 109.92s and 32 passing
+audits. No final aggregate is returned for either stopping sector and no
+artifact is written. K1/K3/K6 bytes, cold-load canaries, and K6 workers 1/2/6
+determinism pass. Next reuse repeated native true-system/false-extension
+checks with complete exact cache keys and bounded observational counters;
+do not increase caps or weaken proofs. Separately, the root-free univariate
+factor correction for BMW/X passes 44 focused tests and independent audit,
+but remains a pending release-validation slice.
+
 **Vakint precision policy (user directive, 2026-09-16):** compare requested
 precision with the known precision of supplied master data. If the request is
 higher, emit a clear warning identifying the requested and available precision
@@ -206,6 +243,14 @@ digits or silently relabel source accuracy. Missing Laurent coefficients and
 unknown expansion orders remain errors. Apply this consistently to relevant
 native and legacy master-substitution paths while preserving defaults and
 existing evaluation results.
+
+This warning-only policy is implemented and pushed on `vakint_rustred` as
+`98e0989d`: native/legacy FMFT, MATAD, AlphaLoop and RustRed numerical terminal
+substitution inspect the original stored float precision before resizing.
+Per-evaluation/table-pass warnings use the normal logger and do not alter
+values, working precision or missing-Laurent-data errors. The focused native
+and K6 pipeline gate passes 43 tests; this is not a new full-83 rerun or a
+four-loop RustRed acceptance claim.
 
 The frozen Symbolica 3 Vakint baseline independently passes all **15 existing
 deterministic four-loop FMFT reference entrypoints**, including the decorated

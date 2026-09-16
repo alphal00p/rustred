@@ -69,15 +69,17 @@ four-loop evaluation.
   existing three-loop symbolic output and Vakint conventions when extending
   the new catalog identity.
 - Separate arithmetic working precision from source-master accuracy. Native
-  FMFT finalization currently requires available constant precision, while
-  legacy FMFT does not. Default working precision is 32 digits; some stored
+  and legacy master substitution now both warn, rather than abort, when the
+  request exceeds known source precision (`vakint_rustred` milestone `98e0989d`).
+  Default working precision is 32 digits; some stored
   PR9d/PR11d coefficients have only 28/26 digits. More floating-point precision
   cannot supply missing digits, and this checkout has no accurate 20,000-digit
   four-loop catalog. The user's selected policy is to **warn and continue**
   when the request exceeds known master-source precision, retaining the
   requested arithmetic precision and identifying the available source digits.
-  Unknown Laurent orders must still be rejected. Implementation/validation of
-  that policy is separate from the completed read-only routing audit.
+  Unknown Laurent orders remain errors. The policy's 43-test focused native/K6
+  validation is separate from the read-only routing audit and does not certify
+  four-loop RustRed reduction.
 
 Reuse the existing comparative harness with a FORM5 FMFT oracle and
 FeynKit/RustRed native lanes using invalid FORM paths. The required numerical

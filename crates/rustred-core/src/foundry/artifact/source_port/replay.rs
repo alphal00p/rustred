@@ -15,13 +15,16 @@ use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
 use crate::algebra::Coefficient;
 use crate::foundry::completion::LatticeBox;
 use crate::solver::{
-    Case, ExactRow, IntegralOrder, PolynomialRow, PreconditionProvenance, RuleCandidate,
-    SectorRule, SourceSystem, Term, canonicalize_source_port, extract_exceptions,
+    Case, CaseIntersectionLimits, ExactRow, IntegralOrder, PolynomialRow, PreconditionProvenance,
+    RuleCandidate, SectorRule, SourceSystem, Term, canonicalize_source_port, extract_exceptions,
     instantiate_source_port,
 };
 
 use super::{SourcePortAuditError, error, geometry, ordinary};
 
+#[cfg(test)]
+#[path = "replay/exception_tests.rs"]
+mod exception_tests;
 #[cfg(test)]
 mod tests;
 
@@ -326,22 +329,26 @@ fn append_exceptions<const N: usize>(
     sector: &[bool; N],
 ) -> Result<(), SourcePortAuditError> {
     for branch in exceptions.branches {
-        let Some(case) = candidate
+        // The same exact disjunctive service used by discovery must admit
+        // replay guards: a nonlinear AND conjunction can simplify after one
+        // sibling fixes a coordinate, or split into several affine cases.
+        // Any unsupported sibling rejects the complete intersection; never
+        // publish only the subset that happened to be admitted first.
+        let intersection = candidate
             .case
-            .intersect(&branch, indices, sector)
-            .map_err(error)?
-        else {
-            continue;
-        };
-        let mut already_excluded = false;
-        for excluded in existing.iter().chain(additional.iter()) {
-            if excluded.contains(&case).map_err(error)? {
-                already_excluded = true;
-                break;
+            .intersect_many(&branch, indices, sector, CaseIntersectionLimits::default())
+            .map_err(error)?;
+        for case in intersection.cases {
+            let mut already_excluded = false;
+            for excluded in existing.iter().chain(additional.iter()) {
+                if excluded.contains(&case).map_err(error)? {
+                    already_excluded = true;
+                    break;
+                }
             }
-        }
-        if !already_excluded {
-            additional.push(case);
+            if !already_excluded {
+                additional.push(case);
+            }
         }
     }
     Ok(())
