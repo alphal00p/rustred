@@ -119,6 +119,7 @@ pub(in crate::foundry::artifact) fn install_source_port(
         candidate,
         Default::default(),
         super::super::source_port::DEFAULT_PREDICATE_CONSISTENCY_WORK,
+        super::super::source_port::DEFAULT_PREDICATE_ATOMS,
     )
 }
 
@@ -126,6 +127,7 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
     candidate: ClosingArtifactCandidate,
     geometry: CompletionGeometryLimits,
     max_predicate_consistency_work: usize,
+    max_predicate_atoms: usize,
 ) -> Result<ClosedArtifact, ArtifactError> {
     let check = |resource: &'static str, requested: usize, limit: usize| {
         if requested > limit {
@@ -138,6 +140,11 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
             Ok(())
         }
     };
+    check(
+        "supported predicate atom policy",
+        max_predicate_atoms,
+        super::super::source_port::SourcePortLimits::MAX_PREDICATE_ATOMS,
+    )?;
     check("combined cover arity", candidate.arity, geometry.max_arity)?;
     let requested =
         candidate
@@ -269,6 +276,7 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
             &terminals,
             PredicateCoverLimits {
                 geometry,
+                max_predicates: max_predicate_atoms,
                 max_consistency_work: max_predicate_consistency_work,
                 ..Default::default()
             },

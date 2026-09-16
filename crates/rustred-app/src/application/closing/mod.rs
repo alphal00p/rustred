@@ -22,14 +22,14 @@ use super::{
 use error_mapping::{map_artifact_encoding_error, map_artifact_load_error, map_reduction_error};
 use model::{
     ArtifactPayloadOutputV1, ArtifactSummaryOutputV2, ClosingRuleOutputV1, GenerateOutputV2,
-    InspectOutputV3, IntegralKeyOutputV1, LifecycleOutputV1, ReduceOutputV2,
+    InspectOutputV4, IntegralKeyOutputV1, LifecycleOutputV1, ReduceOutputV3,
     ReductionStatisticsOutputV1, ReductionTermOutputV1, RelationTermOutputV1, RuleTermOutputV1,
     SourceRelationOutputV1, ValidationOutputV1, ZeroTerminalOutputV1,
 };
 
 pub(super) const GENERATE_SCHEMA: &str = "rustred.closing-artifact-generate-output.toml.v2";
-pub(super) const INSPECT_SCHEMA: &str = "rustred.closing-artifact-inspect-output.toml.v3";
-pub(super) const REDUCE_SCHEMA: &str = "rustred.closing-artifact-reduce-output.toml.v2";
+pub(super) const INSPECT_SCHEMA: &str = "rustred.closing-artifact-inspect-output.toml.v4";
+pub(super) const REDUCE_SCHEMA: &str = "rustred.closing-artifact-reduce-output.toml.v3";
 
 const GENERATED_STATUS: &str = "generated-durable";
 const INSPECTED_STATUS: &str = "inspected";
@@ -172,7 +172,7 @@ pub(super) fn inspect_request(
     request: ClosingArtifactInspectRequest,
 ) -> Result<ClosingArtifactInspectResult, AppError> {
     let artifact = decode_artifact(&request.artifact, request.load_limits)?;
-    let output = InspectOutputV3 {
+    let output = InspectOutputV4 {
         schema: INSPECT_SCHEMA,
         status: INSPECTED_STATUS,
         producer: ProducerOutputV1::current(),
@@ -187,6 +187,7 @@ pub(super) fn inspect_request(
                 .rule_derivation
                 .max_domain_bound_endpoint_cells,
             request.load_limits.max_predicate_consistency_work,
+            request.load_limits.max_predicate_atoms,
         ),
     };
     let canonical_toml = render::serialize(&output)?;
@@ -258,7 +259,7 @@ pub(super) fn reduce_request(
         public_terms.push(term);
     }
     let family_fingerprint = decomposition.family_fingerprint().to_owned();
-    let output = ReduceOutputV2 {
+    let output = ReduceOutputV3 {
         schema: REDUCE_SCHEMA,
         status: REDUCED_STATUS,
         producer: ProducerOutputV1::current(),
@@ -283,6 +284,7 @@ pub(super) fn reduce_request(
                 .rule_derivation
                 .max_domain_bound_endpoint_cells,
             request.load_limits.max_predicate_consistency_work,
+            request.load_limits.max_predicate_atoms,
         ),
     };
     let canonical_toml = render::serialize(&output)?;

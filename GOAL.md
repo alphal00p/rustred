@@ -2,6 +2,47 @@
 
 ## Current assignment — four-loop delivery (2026-09-15)
 
+**Parallel candidate validation (user directive, 2026-09-16):** do not wait for
+whole-family certification before testing the current four-loop candidate IBPs
+against Vakint's existing numerical acceptance cases. Run a separate explicitly
+experimental lane with candidate application implemented in RustRed and steered
+by Vakint's existing topology/routing and FeynKit tensor machinery. Check actual
+integer targets, exceptional conditions, denominators and strict descent; retain
+typed unresolved-integral errors and explicit supplied finite residuals. Use the
+existing FMFT oracle offline to prepare residual values/projections and compare
+the FORM-less native tail numerically. Never present candidate data as a sealed
+`ClosedArtifact`, change production defaults, invent missing master values, or
+count finite test parity as whole-family closure. This lane runs in parallel with
+the exact certification work; final four-loop delivery still requires both.
+
+**Separate generation and certification (user directive, 2026-09-16):** expose
+generation without the additional independent certification pass for fair
+SpIReD workload comparisons. Preserve the resulting exact candidate rules in an
+explicitly uncertified bundle that can be certified in a separate invocation,
+without rerunning discovery. Distinguish solver-internal checks from original-
+source replay, uniform descent, complete coverage, publication and cold loading.
+The C++ reference does perform construction/exception/reconstruction checks; its
+example timings do not include RustRed's independent artifact certification.
+Report matched solver-only and solver-plus-output timings separately from
+certification and cold validation. Keep family/sectors/ordering/workers/backend
+and output costs explicit. Skipping certification must never produce a
+`ClosedArtifact` or imply a family-closure claim. Reuse the same candidate rules
+for the experimental Vakint lane; preserve Rust/CLI/public Python API parity.
+See [generation versus certification](docs/generation_and_certification.md)
+for the inspected C++ timer boundary and comparison protocol.
+
+**Latest implementation checkpoint (2026-09-16):** native factor-derived affine
+guard consequences and explicit caller-owned predicate-atom allowances pass
+642 focused core tests (16 existing ignored tests), the earlier 128-test
+application/CLI gate, and 29 fresh release-wheel Python tests. K1/K3/K6 release
+artifacts and cold reductions are unchanged; K6 bytes agree at one, two and six
+workers. The fresh FG campaign clears its old guard blocker but stops at a
+uniform-descent check in sector 115, rule 76; H advances to an affine-chart
+integer-bit preflight limit in sector 229, rule 65. Neither publishes an
+artifact. BMW and X reruns remain in progress at this checkpoint. These are
+not whole-family closure or four-loop numerical-acceptance results. Evidence:
+`/tmp/rustred-factor-policy-release.QSclTI/`.
+
 The active tool-managed goal is now complete four-loop single-scale vacuum
 closure and FORM-less Vakint evaluation against every applicable FMFT example.
 K1/K3/K6 assets and exact offline terminal projections are shipped on

@@ -464,8 +464,8 @@ fn run_foundry_wave_campaign(
 
 #[pyfunction]
 #[pyo3(
-    signature = (source, *, input_format = "auto", n_cores = PythonInteger(1), permutation = None, nonpositive_indices = None, max_domain_bound_endpoint_cells = None, max_predicate_consistency_work = None),
-    text_signature = "(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None)"
+    signature = (source, *, input_format = "auto", n_cores = PythonInteger(1), permutation = None, nonpositive_indices = None, max_domain_bound_endpoint_cells = None, max_predicate_consistency_work = None, max_predicate_atoms = None),
+    text_signature = "(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None, max_predicate_atoms=None)"
 )]
 fn family_close(
     py: Python<'_>,
@@ -476,6 +476,7 @@ fn family_close(
     nonpositive_indices: Option<Vec<PythonInteger>>,
     max_domain_bound_endpoint_cells: Option<PythonInteger>,
     max_predicate_consistency_work: Option<PythonInteger>,
+    max_predicate_atoms: Option<PythonInteger>,
 ) -> PyResult<PyClosingArtifactGenerationResult> {
     let permutation = permutation
         .map(|coordinates| {
@@ -507,11 +508,13 @@ fn family_close(
     apply_resource_limits(
         max_domain_bound_endpoint_cells,
         max_predicate_consistency_work,
+        max_predicate_atoms,
         &mut request
             .publication_limits
             .rule_derivation
             .max_domain_bound_endpoint_cells,
         &mut request.publication_limits.max_predicate_consistency_work,
+        &mut request.publication_limits.max_predicate_atoms,
     )?;
     let result = py
         .detach(move || execute(move || app_family_close(request)))
@@ -555,24 +558,27 @@ fn generate_closing_artifact(
 
 #[pyfunction]
 #[pyo3(
-    signature = (artifact, *, max_domain_bound_endpoint_cells = None, max_predicate_consistency_work = None),
-    text_signature = "(artifact, *, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None)"
+    signature = (artifact, *, max_domain_bound_endpoint_cells = None, max_predicate_consistency_work = None, max_predicate_atoms = None),
+    text_signature = "(artifact, *, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None, max_predicate_atoms=None)"
 )]
 fn inspect_closing_artifact(
     py: Python<'_>,
     artifact: &Bound<'_, PyBytes>,
     max_domain_bound_endpoint_cells: Option<PythonInteger>,
     max_predicate_consistency_work: Option<PythonInteger>,
+    max_predicate_atoms: Option<PythonInteger>,
 ) -> PyResult<PyClosingArtifactInspectionResult> {
     let mut request = ClosingArtifactInspectRequest::new(bounded_artifact_bytes(artifact)?);
     apply_resource_limits(
         max_domain_bound_endpoint_cells,
         max_predicate_consistency_work,
+        max_predicate_atoms,
         &mut request
             .load_limits
             .rule_derivation
             .max_domain_bound_endpoint_cells,
         &mut request.load_limits.max_predicate_consistency_work,
+        &mut request.load_limits.max_predicate_atoms,
     )?;
     let result = py
         .detach(move || execute(move || app_closing_artifact_inspect(request)))
@@ -587,8 +593,8 @@ fn inspect_closing_artifact(
 
 #[pyfunction]
 #[pyo3(
-    signature = (artifact, target_powers, *, max_rule_applications = PythonInteger(1_000_000), max_domain_bound_endpoint_cells = None, max_predicate_consistency_work = None),
-    text_signature = "(artifact, target_powers, *, max_rule_applications=1000000, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None)"
+    signature = (artifact, target_powers, *, max_rule_applications = PythonInteger(1_000_000), max_domain_bound_endpoint_cells = None, max_predicate_consistency_work = None, max_predicate_atoms = None),
+    text_signature = "(artifact, target_powers, *, max_rule_applications=1000000, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None, max_predicate_atoms=None)"
 )]
 fn reduce_with_closing_artifact(
     py: Python<'_>,
@@ -597,6 +603,7 @@ fn reduce_with_closing_artifact(
     max_rule_applications: PythonInteger,
     max_domain_bound_endpoint_cells: Option<PythonInteger>,
     max_predicate_consistency_work: Option<PythonInteger>,
+    max_predicate_atoms: Option<PythonInteger>,
 ) -> PyResult<PyClosingArtifactReductionResult> {
     let artifact = bounded_artifact_bytes(artifact)?;
     let target_powers = target_powers
@@ -619,11 +626,13 @@ fn reduce_with_closing_artifact(
     apply_resource_limits(
         max_domain_bound_endpoint_cells,
         max_predicate_consistency_work,
+        max_predicate_atoms,
         &mut request
             .load_limits
             .rule_derivation
             .max_domain_bound_endpoint_cells,
         &mut request.load_limits.max_predicate_consistency_work,
+        &mut request.load_limits.max_predicate_atoms,
     )?;
     let result = py
         .detach(move || execute(move || app_closing_artifact_reduce(request)))
@@ -686,14 +695,26 @@ fn positive_core_count(label: &str, value: i128) -> PyResult<usize> {
 fn apply_resource_limits(
     endpoint_cells: Option<PythonInteger>,
     consistency_work: Option<PythonInteger>,
+    predicate_atoms: Option<PythonInteger>,
     endpoint_limit: &mut usize,
     consistency_limit: &mut usize,
+    atom_limit: &mut usize,
 ) -> PyResult<()> {
     if let Some(value) = endpoint_cells {
         *endpoint_limit = nonnegative_usize("max_domain_bound_endpoint_cells", value.0)?;
     }
     if let Some(value) = consistency_work {
         *consistency_limit = nonnegative_usize("max_predicate_consistency_work", value.0)?;
+    }
+    if let Some(value) = predicate_atoms {
+        let value = nonnegative_usize("max_predicate_atoms", value.0)?;
+        if value > rustred_app::SourcePortLimits::MAX_PREDICATE_ATOMS {
+            return Err(RustRedInputError::new_err(format!(
+                "max_predicate_atoms exceeds supported maximum {}",
+                rustred_app::SourcePortLimits::MAX_PREDICATE_ATOMS
+            )));
+        }
+        *atom_limit = value;
     }
     Ok(())
 }

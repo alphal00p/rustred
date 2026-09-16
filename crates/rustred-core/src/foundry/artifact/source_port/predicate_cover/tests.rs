@@ -2,6 +2,9 @@ use super::*;
 use crate::algebra::CoefficientContext;
 use crate::solver::{AffineCase, AffineIntersection, CoordinateCase};
 
+#[path = "tests/atom_policy.rs"]
+mod atom_policy;
+
 fn full<const N: usize>() -> LatticeBox {
     LatticeBox::try_new([0; N], [None; N]).unwrap()
 }

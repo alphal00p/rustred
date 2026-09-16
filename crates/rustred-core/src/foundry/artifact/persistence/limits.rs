@@ -103,6 +103,10 @@ pub struct ArtifactLoadLimits {
     /// Native affine consistency work per source-port sector cover traversal.
     /// This caller-owned allowance never comes from the artifact payload.
     pub max_predicate_consistency_work: usize,
+    /// Caller-owned distinct affine atom allowance per source-port cover.
+    /// Defaults to 32; values above `SourcePortLimits::MAX_PREDICATE_ATOMS`
+    /// are rejected before decoding. This policy is never read from bytes.
+    pub max_predicate_atoms: usize,
 }
 
 /// Resource policy for deterministic durable encoding.
@@ -150,6 +154,7 @@ impl Default for ArtifactLoadLimits {
             cover_replay: ArtifactCoverReplayLimits::default(),
             max_predicate_consistency_work:
                 super::super::source_port::DEFAULT_PREDICATE_CONSISTENCY_WORK,
+            max_predicate_atoms: super::super::source_port::DEFAULT_PREDICATE_ATOMS,
         }
     }
 }

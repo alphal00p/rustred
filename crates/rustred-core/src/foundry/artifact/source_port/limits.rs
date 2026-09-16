@@ -1,6 +1,7 @@
 use crate::foundry::parametric::ParametricRuleLimits;
 
 pub(crate) const DEFAULT_PREDICATE_CONSISTENCY_WORK: usize = 4_194_304;
+pub(crate) const DEFAULT_PREDICATE_ATOMS: usize = 32;
 
 /// Caller-owned resource policy for source-port audit and publication.
 ///
@@ -15,6 +16,28 @@ pub struct SourcePortLimits {
     /// replay-checked, and final installed covers are independent traversals.
     /// Zero permits no native work; it does not mean unlimited work.
     pub max_predicate_consistency_work: usize,
+    /// Distinct affine atoms admitted per complete predicate-cover traversal.
+    /// Zero admits coordinate-only covers. The supported ceiling bounds the
+    /// depth of the exact Boolean traversal; it is not an authority shortcut.
+    pub max_predicate_atoms: usize,
+}
+
+impl SourcePortLimits {
+    /// Supported atom-policy ceiling for the bounded recursive cover walker.
+    /// Native affine consistency retains its independent equation/work caps.
+    pub const MAX_PREDICATE_ATOMS: usize = 256;
+
+    /// Validate caller policy before beginning audit or publication work.
+    pub fn validate(&self) -> Result<(), super::SourcePortAuditError> {
+        if self.max_predicate_atoms > Self::MAX_PREDICATE_ATOMS {
+            return Err(super::SourcePortAuditError::UnsupportedResourcePolicy {
+                resource: "predicate atoms",
+                requested: self.max_predicate_atoms,
+                supported_max: Self::MAX_PREDICATE_ATOMS,
+            });
+        }
+        Ok(())
+    }
 }
 
 impl Default for SourcePortLimits {
@@ -22,6 +45,7 @@ impl Default for SourcePortLimits {
         Self {
             rule_derivation: ParametricRuleLimits::default(),
             max_predicate_consistency_work: DEFAULT_PREDICATE_CONSISTENCY_WORK,
+            max_predicate_atoms: DEFAULT_PREDICATE_ATOMS,
         }
     }
 }

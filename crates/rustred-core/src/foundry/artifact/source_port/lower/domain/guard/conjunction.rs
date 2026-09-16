@@ -23,17 +23,21 @@ pub(super) fn proves_excluded_on_domain(
     context: &IndexedCoefficientContext,
     system: &BaseCoefficientSystem,
     predicates: &[Vec<IndexedPolynomial>],
+    consequences: &[IndexedPolynomial],
     domain: GuardDomain<'_>,
     limits: RuleCellLimits,
     work: &mut Work,
+    factor_work: &mut usize,
 ) -> Result<bool, SourcePortAuditError> {
     proves_excluded_using(
         context,
         system,
         predicates,
+        consequences,
         Some(domain),
         limits,
         work,
+        factor_work,
         AffineDomainRestriction::from_equalities,
     )
 }
@@ -50,9 +54,11 @@ pub(super) fn proves_excluded(
         context,
         system,
         predicates,
+        &[],
         None,
         limits,
         work,
+        &mut 0,
         AffineDomainRestriction::from_equalities,
     )
 }
@@ -62,9 +68,11 @@ pub(super) fn proves_excluded_using<F>(
     context: &IndexedCoefficientContext,
     system: &BaseCoefficientSystem,
     predicates: &[Vec<IndexedPolynomial>],
+    consequences: &[IndexedPolynomial],
     domain: Option<GuardDomain<'_>>,
     limits: RuleCellLimits,
     work: &mut Work,
+    factor_work: &mut usize,
     mut native: F,
 ) -> Result<bool, SourcePortAuditError>
 where
@@ -76,13 +84,22 @@ where
         -> Result<Option<(AffineDomainRestriction, Matrix<IntegerRing>)>, AffineGeometryError>,
 {
     // No affine consequence to absorb: do not allocate or enter native algebra.
-    if !system.equations().iter().any(|equation| {
-        let raw = equation.index_polynomial().raw();
-        !raw.is_zero() && is_index_affine(raw, context.base().variables().len())
-    }) {
+    if !system
+        .equations()
+        .iter()
+        .map(|equation| equation.index_polynomial())
+        .chain(consequences)
+        .any(|equation| {
+            !equation.is_zero() && is_index_affine(equation.raw(), context.base().variables().len())
+        })
+    {
         return Ok(false);
     }
-    let count = system.equations().len();
+    let count = system
+        .equations()
+        .len()
+        .checked_add(consequences.len())
+        .ok_or_else(|| error("affine guard conjunction equation overflow"))?;
     if count > MAX_EQUATIONS || count > limits.guard_algebra.max_coefficient_equations {
         return Err(error(
             "affine guard conjunction exceeds its equation budget",
@@ -96,6 +113,7 @@ where
         .equations()
         .iter()
         .map(|equation| equation.index_polynomial())
+        .chain(consequences)
         .chain(predicates.iter().flatten())
     {
         context
@@ -129,10 +147,16 @@ where
     let mut pending: Vec<_> = system
         .equations()
         .iter()
-        .map(|equation| equation.index_polynomial().clone())
+        .map(|equation| equation.index_polynomial())
+        .chain(consequences)
+        .cloned()
         .collect();
     let mut affine = Vec::new();
     let mut rank = 0;
+    let mut retained_count = count;
+    let mut retained_cells = cells;
+    let mut aligned_predicates: Option<Vec<Vec<IndexedPolynomial>>> = None;
+    let mut refine_factors = false;
     loop {
         let old_count = affine.len();
         let mut nonlinear = Vec::new();
@@ -146,6 +170,35 @@ where
             if is_index_affine(equation.raw(), first) {
                 affine.push(equation.raw().clone());
             } else {
+                if refine_factors && let Some(domain) = &domain {
+                    match factors::classify(
+                        context,
+                        &equation,
+                        aligned_predicates.as_deref().unwrap_or(predicates),
+                        domain,
+                        limits,
+                        work,
+                        factor_work,
+                    )? {
+                        factors::Consequence::Nonzero => return Ok(true),
+                        factors::Consequence::Affine(consequence) => {
+                            charge_consequence(
+                                &mut retained_count,
+                                &mut retained_cells,
+                                &consequence,
+                                limits,
+                                work,
+                            )?;
+                            affine
+                                .try_reserve(1)
+                                .map_err(|_| error("affine guard consequence allocation failed"))?;
+                            affine.push(consequence.raw().clone());
+                        }
+                        factors::Consequence::Unresolved => {}
+                    }
+                }
+                // The original sibling is never replaced by a selected
+                // factor. Necessary consequences only strengthen this AND.
                 nonlinear.push(equation);
             }
         }
@@ -168,13 +221,41 @@ where
         rank = primitive.nrows();
         // Strict rank progress bounds iterations by the dynamic index arity.
         // Every prior affine equation remains present when new ones are added.
+        let live_cells = nonlinear
+            .iter()
+            .map(|equation| equation.raw().exponents.len())
+            .chain(affine.iter().map(|equation| equation.exponents.len()))
+            .chain(
+                aligned_predicates
+                    .iter()
+                    .flatten()
+                    .flatten()
+                    .map(|equation| equation.raw().exponents.len()),
+            )
+            .try_fold(retained_cells, |sum, cells| sum.checked_add(cells))
+            .ok_or_else(|| error("affine guard conjunction live storage overflow"))?;
+        precharge_refined_storage(
+            context,
+            &chart,
+            nonlinear.iter().chain(predicates.iter().flatten()),
+            live_cells,
+            limits,
+            work,
+        )?;
+        let mut next_predicates = Vec::new();
+        next_predicates
+            .try_reserve_exact(predicates.len())
+            .map_err(|_| error("affine guard predicate allocation failed"))?;
         for predicate in predicates {
             if predicate.is_empty() {
                 continue;
             }
-            let mut implied = true;
+            let mut restricted = Vec::new();
+            restricted
+                .try_reserve_exact(predicate.len())
+                .map_err(|_| error("affine guard predicate equation allocation failed"))?;
             for equation in predicate {
-                if !restrict_prepared(
+                restricted.push(restrict_prepared(
                     context,
                     equation.raw(),
                     Some(RestrictionTarget {
@@ -184,17 +265,16 @@ where
                     }),
                     limits,
                     work,
-                )?
-                .is_zero()
-                {
-                    implied = false;
-                    break;
-                }
+                )?);
             }
-            if implied {
+            if restricted.iter().all(IndexedPolynomial::is_zero) {
                 return Ok(true);
             }
+            next_predicates.push(restricted);
         }
+        // Factor implications at the next stage must compare equations in
+        // this same chart, never an old exclusion against a refined factor.
+        aligned_predicates = Some(next_predicates);
         pending = Vec::with_capacity(nonlinear.len());
         for equation in nonlinear {
             let restricted = restrict_prepared(
@@ -223,7 +303,106 @@ where
             }
             pending.push(restricted);
         }
+        // Factorization work is shared with the initial pass and every rank
+        // stage. No restart creates a new native-factor or guard-work budget.
+        refine_factors = true;
     }
+}
+
+pub(super) fn retain_consequence(
+    system: &BaseCoefficientSystem,
+    predicates: &[Vec<IndexedPolynomial>],
+    consequences: &mut Vec<IndexedPolynomial>,
+    consequence: IndexedPolynomial,
+    limits: RuleCellLimits,
+    work: &mut Work,
+) -> Result<(), SourcePortAuditError> {
+    let mut count = system
+        .equations()
+        .len()
+        .checked_add(consequences.len())
+        .ok_or_else(|| error("affine guard conjunction equation overflow"))?;
+    let mut cells = system
+        .equations()
+        .iter()
+        .map(|equation| equation.index_polynomial())
+        .chain(consequences.iter())
+        .chain(predicates.iter().flatten())
+        .try_fold(0usize, |sum, equation| {
+            sum.checked_add(equation.raw().exponents.len())
+        })
+        .ok_or_else(|| error("affine guard conjunction storage overflow"))?;
+    charge_consequence(&mut count, &mut cells, &consequence, limits, work)?;
+    consequences
+        .try_reserve(1)
+        .map_err(|_| error("affine guard consequence allocation failed"))?;
+    consequences.push(consequence);
+    Ok(())
+}
+
+fn charge_consequence(
+    count: &mut usize,
+    cells: &mut usize,
+    consequence: &IndexedPolynomial,
+    limits: RuleCellLimits,
+    work: &mut Work,
+) -> Result<(), SourcePortAuditError> {
+    *count = count
+        .checked_add(1)
+        .ok_or_else(|| error("affine guard conjunction equation overflow"))?;
+    *cells = cells
+        .checked_add(consequence.raw().exponents.len())
+        .ok_or_else(|| error("affine guard conjunction storage overflow"))?;
+    if *count > MAX_EQUATIONS || *count > limits.guard_algebra.max_coefficient_equations {
+        return Err(error(
+            "affine guard conjunction exceeds its equation budget",
+        ));
+    }
+    if *cells > MAX_POLYNOMIAL_CELLS {
+        return Err(error("affine guard conjunction exceeds its storage budget"));
+    }
+    work.charge(consequence.raw().exponents.len(), limits)
+}
+
+fn precharge_refined_storage<'a>(
+    context: &IndexedCoefficientContext,
+    chart: &AffineDomainRestriction,
+    polynomials: impl Iterator<Item = &'a IndexedPolynomial>,
+    live_cells: usize,
+    limits: RuleCellLimits,
+    work: &mut Work,
+) -> Result<(), SourcePortAuditError> {
+    let mut prospective_cells = 0usize;
+    for polynomial in polynomials {
+        let raw = polynomial.raw();
+        let degree = raw
+            .exponents_iter()
+            .map(|powers| {
+                powers[context.base().variables().len()..]
+                    .iter()
+                    .map(|&power| usize::from(power))
+                    .sum::<usize>()
+            })
+            .max()
+            .unwrap_or(0);
+        if degree > limits.guard_algebra.max_factor_total_degree {
+            return Err(error("affine guard chart input exceeds degree budget"));
+        }
+        let (terms, _) = chart.restriction_term_bound(raw).map_err(error)?;
+        prospective_cells = terms
+            .checked_mul(raw.nvars())
+            .and_then(|cells| prospective_cells.checked_add(cells))
+            .ok_or_else(|| error("affine guard refined storage overflow"))?;
+    }
+    if live_cells
+        .checked_add(prospective_cells)
+        .is_none_or(|cells| cells > MAX_POLYNOMIAL_CELLS)
+    {
+        return Err(error(
+            "affine guard conjunction exceeds its refined storage budget",
+        ));
+    }
+    work.charge(prospective_cells, limits)
 }
 
 pub(super) fn precharge_matrix(

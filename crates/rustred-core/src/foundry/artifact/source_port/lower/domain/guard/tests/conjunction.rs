@@ -2,7 +2,7 @@ use super::*;
 use crate::algebra::indexed::BaseCoefficientSystem;
 use crate::solver::AffineGeometryError;
 
-fn expression(context: &IndexedCoefficientContext, source: &str) -> IndexedCoefficient {
+pub(super) fn expression(context: &IndexedCoefficientContext, source: &str) -> IndexedCoefficient {
     // Fixtures use the indexed field's stable private symbol namespace.
     context
         .parse_expression_with_limits(
@@ -37,7 +37,7 @@ fn predicates(
         .collect()
 }
 
-fn exact_domain<const N: usize>(
+pub(super) fn exact_domain<const N: usize>(
     context: &IndexedCoefficientContext,
     sector: &[bool; N],
     fixed: [Option<i16>; N],
@@ -348,9 +348,11 @@ fn native_errors_panics_and_foreign_context_never_certify_a_conjunction() {
                 &context,
                 &equations,
                 &excluded,
+                &[],
                 None,
                 Default::default(),
                 &mut Work::default(),
+                &mut 0,
                 |_, _, _| {
                     if panic {
                         panic!("injected native conjunction failure");
@@ -511,7 +513,7 @@ fn sparse_native_support_bound_keeps_term_and_bit_limits() {
             .unwrap()
             .unwrap();
     let input = polynomial(&context, &expression(&context, "n0^2"));
-    assert_eq!(chart.replacement_term_bound(input.raw()).unwrap(), 3);
+    assert_eq!(chart.restriction_term_bound(input.raw()).unwrap(), (9, 9));
     let restriction = || RestrictionTarget {
         chart: &chart,
         primitive: Some(&primitive),
@@ -554,6 +556,106 @@ fn sparse_native_support_bound_keeps_term_and_bit_limits() {
 }
 
 #[test]
+fn monomial_support_counts_free_powers_and_fixed_zero_before_native_expansion() {
+    let context = context();
+    for leading in ["n0", "3*n0"] {
+        let equations = vec![
+            expression(&context, &format!("{leading}-2*n1-n2+1"))
+                .raw()
+                .numerator
+                .clone(),
+        ];
+        let (chart, primitive) =
+            AffineDomainRestriction::from_equalities(&[None; 3], &equations, &[1, 2, 3])
+                .unwrap()
+                .unwrap();
+        let input = polynomial(&context, &expression(&context, "n0^2+n2^6"));
+        assert_eq!(chart.restriction_term_bound(input.raw()).unwrap(), (10, 9));
+        assert!(chart.restrict_equation(input.raw()).unwrap().nterms() <= 10);
+        let restriction = || RestrictionTarget {
+            chart: &chart,
+            primitive: Some(&primitive),
+            diagnostic_domain: None,
+        };
+        let mut limits = RuleCellLimits::default();
+        limits.guard_algebra.max_input_terms = 9;
+        assert!(
+            restrict_prepared(
+                &context,
+                input.raw(),
+                Some(restriction()),
+                limits,
+                &mut Work::default()
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("prospective term budget")
+        );
+        limits.guard_algebra.max_input_terms = 10;
+        restrict_prepared(
+            &context,
+            input.raw(),
+            Some(restriction()),
+            limits,
+            &mut Work::default(),
+        )
+        .unwrap();
+    }
+    let equations = ["2*n0-n2-1", "3*n1-2*n2-1"]
+        .map(|source| expression(&context, source).raw().numerator.clone());
+    let (chart, _) = AffineDomainRestriction::from_equalities(&[None; 3], &equations, &[1, 2, 3])
+        .unwrap()
+        .unwrap();
+    let input = polynomial(&context, &expression(&context, "n0^2*n1^3"));
+    assert_eq!(chart.restriction_term_bound(input.raw()).unwrap(), (32, 32));
+    assert!(chart.restrict_equation(input.raw()).unwrap().nterms() <= 32);
+    for fixed in [0, 2] {
+        let equations = vec![expression(&context, "2*n0-n1-1").raw().numerator.clone()];
+        let (chart, _) = AffineDomainRestriction::from_equalities(
+            &[None, None, Some(fixed)],
+            &equations,
+            &[1, 2, 3],
+        )
+        .unwrap()
+        .unwrap();
+        for (source, zero_bound, nonzero_bound) in [
+            ("n0^3*n2^5+n1", 2, 9),
+            ("n0^2+n1^6", 5, 5),
+            ("n2^6", 1, 1),
+            ("n0^3*n2", 1, 8),
+        ] {
+            let input = polynomial(&context, &expression(&context, source));
+            let (bound, _) = chart.restriction_term_bound(input.raw()).unwrap();
+            assert_eq!(
+                bound,
+                if fixed == 0 {
+                    zero_bound
+                } else {
+                    nonzero_bound
+                }
+            );
+            assert!(chart.restrict_equation(input.raw()).unwrap().nterms() <= bound);
+        }
+        let input = polynomial(&context, &expression(&context, "n0^64"));
+        assert!(chart.restriction_term_bound(input.raw()).is_err());
+        let foreign = IndexedCoefficientContext::try_new(
+            &CoefficientContext::new(["x"]),
+            "foreign-term-bound",
+            3,
+        )
+        .unwrap();
+        assert!(
+            chart
+                .restriction_term_bound(polynomial(&foreign, &expression(&foreign, "1")).raw())
+                .is_err()
+        );
+        let mut malformed = input.raw().clone();
+        malformed.exponents.pop();
+        assert!(chart.restriction_term_bound(&malformed).is_err());
+    }
+}
+
+#[test]
 fn local_caps_and_exhausted_work_reject_before_native_reduction() {
     let context = context();
     let equations = system(
@@ -569,9 +671,11 @@ fn local_caps_and_exhausted_work_reject_before_native_reduction() {
             &context,
             &equations,
             &[],
+            &[],
             None,
             Default::default(),
             &mut Work::default(),
+            &mut 0,
             |_, _, _| {
                 calls += 1;
                 Err(AffineGeometryError::NativeAlgebra)
@@ -588,9 +692,11 @@ fn local_caps_and_exhausted_work_reject_before_native_reduction() {
             &context,
             &equations,
             &[],
+            &[],
             None,
             limits,
             &mut Work::default(),
+            &mut 0,
             |_, _, _| {
                 calls += 1;
                 Err(AffineGeometryError::NativeAlgebra)

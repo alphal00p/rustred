@@ -22,6 +22,7 @@ use crate::foundry::parametric::{AffineApplicationDomain, AffineDomainRestrictio
 use super::{SourcePortAuditError, error, validate_guard_with_limits};
 
 mod conjunction;
+mod factors;
 
 pub(in crate::foundry::artifact::source_port) fn validate_guard_on_domain_with_limits(
     context: &IndexedCoefficientContext,
@@ -102,81 +103,53 @@ pub(in crate::foundry::artifact::source_port) fn validate_guard_on_domain_with_l
         .base_coefficient_system(&polynomial, limits.indexed_algebra, limits.guard_algebra)
         .map_err(error)?;
     let mut factor_work = 0;
+    let mut consequences = Vec::new();
+    let domain = conjunction::GuardDomain {
+        piece,
+        sector,
+        target: target.map(|(domain, _)| domain),
+    };
     for coefficient in system.equations() {
         let coefficient = coefficient.index_polynomial();
         if coefficient.is_zero() {
             continue;
         }
-        let factors = context
-            .factor_guard_coefficient_with_limits(
-                coefficient,
-                limits.indexed_algebra,
-                limits.guard_algebra,
-                &mut factor_work,
-            )
-            .map_err(error)?;
-        let mut covered = true;
-        for factor in factors {
-            if misses_target(
-                context,
-                &factor,
-                piece,
-                sector,
-                target.map(|(domain, _)| domain),
-                limits,
-                &mut work,
-            )? {
-                continue;
-            }
-            let mut excluded = false;
-            for equations in &predicates {
-                let mut implied = true;
-                for equation in equations {
-                    work.charge(
-                        equation
-                            .raw()
-                            .nterms()
-                            .saturating_add(factor.raw().nterms()),
+        match factors::classify(
+            context,
+            coefficient,
+            &predicates,
+            &domain,
+            limits,
+            &mut work,
+            &mut factor_work,
+        )? {
+            factors::Consequence::Nonzero => return Ok(()),
+            factors::Consequence::Affine(equation) => {
+                // An originally affine coefficient is already a necessary
+                // equation; do not spend a second retained-row slot on it.
+                if !is_index_affine(coefficient.raw(), context.base().variables().len()) {
+                    conjunction::retain_consequence(
+                        &system,
+                        &predicates,
+                        &mut consequences,
+                        equation,
                         limits,
+                        &mut work,
                     )?;
-                    // The dividend is affine, so this native exact division
-                    // cannot create a large higher-degree quotient.
-                    if !equation.is_zero()
-                        && std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            equation.raw().try_div(factor.raw())
-                        }))
-                        .map_err(|_| error("native affine guard implication division panicked"))?
-                        .is_none()
-                    {
-                        implied = false;
-                        break;
-                    }
-                }
-                if implied {
-                    excluded = true;
-                    break;
                 }
             }
-            if !excluded {
-                covered = false;
-                break;
-            }
-        }
-        if covered {
-            return Ok(());
+            factors::Consequence::Unresolved => {}
         }
     }
     if conjunction::proves_excluded_on_domain(
         context,
         &system,
         &predicates,
-        conjunction::GuardDomain {
-            piece,
-            sector,
-            target: target.map(|(domain, _)| domain),
-        },
+        &consequences,
+        domain,
         limits,
         &mut work,
+        &mut factor_work,
     )? {
         return Ok(());
     }
@@ -484,18 +457,10 @@ fn restrict_prepared(
     if !chart.affects_polynomial(raw).map_err(error)? {
         return Ok(input);
     }
-    // Actual native replacement support is a tighter upper bound than the
-    // ambient arity. All pivot RHSs contain no other pivots, so the product
-    // of these per-power bounds covers every simultaneous substitution.
-    let expansion = chart
-        .replacement_term_bound(raw)
-        .map_err(error)?
-        .checked_pow(degree as u32)
-        .ok_or_else(|| error("affine guard chart expansion overflow"))?;
-    let terms = raw
-        .nterms()
-        .checked_mul(expansion)
-        .ok_or_else(|| error("affine guard chart term overflow"))?;
+    // Count support separately for each original monomial. Powers of free
+    // variables do not expand, and fixed-zero monomials vanish before the
+    // coupled substitutions. Full input admission above remains mandatory.
+    let (terms, expansion) = chart.restriction_term_bound(raw).map_err(error)?;
     if terms > limits.guard_algebra.max_input_terms
         || terms > limits.guard_algebra.max_exact_hyperplane_replay_terms
     {

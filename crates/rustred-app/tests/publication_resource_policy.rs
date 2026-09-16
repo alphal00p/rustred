@@ -47,9 +47,11 @@ fn publication_and_cold_load_report_independent_policies_without_changing_bytes(
         .rule_derivation
         .max_domain_bound_endpoint_cells = 65_536;
     chosen.publication_limits.max_predicate_consistency_work = 67_108_864;
+    chosen.publication_limits.max_predicate_atoms = 64;
     let chosen = family_close(chosen).unwrap();
     assert_eq!(baseline.artifact(), chosen.artifact());
     let publication = &report(chosen.to_toml())["publication_resources"];
+    assert_eq!(publication["max_predicate_atoms"].as_str(), Some("64"));
     assert_eq!(
         publication["max_domain_bound_endpoint_cells"].as_str(),
         Some("65536")
@@ -63,6 +65,10 @@ fn publication_and_cold_load_report_independent_policies_without_changing_bytes(
         closing_artifact_inspect(ClosingArtifactInspectRequest::new(chosen.artifact())).unwrap();
     let defaults = ArtifactLoadLimits::default();
     assert_eq!(
+        report(default_inspection.to_toml())["load_resources"]["max_predicate_atoms"].as_str(),
+        Some("32")
+    );
+    assert_eq!(
         report(default_inspection.to_toml())["load_resources"]["max_predicate_consistency_work"]
             .as_str(),
         Some(defaults.max_predicate_consistency_work.to_string().as_str())
@@ -70,6 +76,7 @@ fn publication_and_cold_load_report_independent_policies_without_changing_bytes(
     let mut limits = defaults;
     limits.rule_derivation.max_domain_bound_endpoint_cells = usize::MAX;
     limits.max_predicate_consistency_work = usize::MAX;
+    limits.max_predicate_atoms = SourcePortLimits::MAX_PREDICATE_ATOMS;
     // Increasing other caller limits cannot change the app's ingress ceiling.
     limits.max_artifact_bytes = usize::MAX;
     let inspected = closing_artifact_inspect(ClosingArtifactInspectRequest {
@@ -88,6 +95,7 @@ fn publication_and_cold_load_report_independent_policies_without_changing_bytes(
     );
     for source in [inspected.to_toml(), reduced.to_toml()] {
         let resources = &report(source)["load_resources"];
+        assert_eq!(resources["max_predicate_atoms"].as_str(), Some("256"));
         for key in [
             "max_domain_bound_endpoint_cells",
             "max_predicate_consistency_work",
@@ -104,15 +112,50 @@ fn publication_and_cold_load_report_independent_policies_without_changing_bytes(
     no_consistency_work
         .publication_limits
         .max_predicate_consistency_work = 0;
+    no_consistency_work.publication_limits.max_predicate_atoms = 0;
     let zero = family_close(no_consistency_work).unwrap();
     assert_eq!(zero.artifact(), baseline.artifact());
     let mut zero_load = ClosingArtifactInspectRequest::new(zero.artifact());
     zero_load.load_limits.max_predicate_consistency_work = 0;
+    zero_load.load_limits.max_predicate_atoms = 0;
     let zero_report = closing_artifact_inspect(zero_load).unwrap();
+    assert_eq!(
+        report(zero_report.to_toml())["load_resources"]["max_predicate_atoms"].as_str(),
+        Some("0")
+    );
     assert_eq!(
         report(zero_report.to_toml())["load_resources"]["max_predicate_consistency_work"].as_str(),
         Some("0")
     );
+}
+
+#[test]
+fn unsupported_atom_policies_fail_early_on_all_application_entry_points() {
+    for atoms in [257, usize::MAX] {
+        let mut generation = FamilyCloseRequest::new("not a project");
+        generation.publication_limits.max_predicate_atoms = atoms;
+        let limits = ArtifactLoadLimits {
+            max_predicate_atoms: atoms,
+            ..Default::default()
+        };
+        for error in [
+            family_close(generation).unwrap_err(),
+            closing_artifact_inspect(ClosingArtifactInspectRequest {
+                artifact: b"not an artifact".to_vec(),
+                load_limits: limits,
+            })
+            .unwrap_err(),
+            closing_artifact_reduce(ClosingArtifactReduceRequest {
+                load_limits: limits,
+                ..ClosingArtifactReduceRequest::new(b"not an artifact".to_vec(), vec![1])
+            })
+            .unwrap_err(),
+        ] {
+            assert_eq!(error.kind(), AppErrorKind::Limit);
+            assert!(error.message().contains("supported"));
+            assert!(error.message().contains("256"));
+        }
+    }
 }
 
 #[test]

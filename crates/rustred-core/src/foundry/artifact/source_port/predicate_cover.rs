@@ -69,7 +69,7 @@ impl Default for PredicateCoverLimits {
     fn default() -> Self {
         Self {
             geometry: CompletionGeometryLimits::default(),
-            max_predicates: 32,
+            max_predicates: super::DEFAULT_PREDICATE_ATOMS,
             max_clauses: 65_536,
             max_boolean_nodes: 65_536,
             max_consistency_work: super::DEFAULT_PREDICATE_CONSISTENCY_WORK,
@@ -166,6 +166,11 @@ pub(in crate::foundry::artifact) fn certify_predicate_cover(
     terminals: &[LatticeBox],
     limits: PredicateCoverLimits,
 ) -> Result<PredicateCoverCertificate, PredicateCoverError> {
+    if limits.max_predicates > super::SourcePortLimits::MAX_PREDICATE_ATOMS {
+        return Err(PredicateCoverError::Budget(
+            "supported predicate atom policy",
+        ));
+    }
     if sector.is_empty() || sector.len() > limits.geometry.max_arity {
         return Err(PredicateCoverError::InvalidDomain("sector arity"));
     }

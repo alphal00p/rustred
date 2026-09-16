@@ -17,6 +17,8 @@ fn source_port_rule_policy_survives_retention_and_matches_cold_loading() {
         SourcePortLimits::default().max_predicate_consistency_work,
         4_194_304
     );
+    assert_eq!(SourcePortLimits::default().max_predicate_atoms, 32);
+    assert_eq!(ArtifactLoadLimits::default().max_predicate_atoms, 32);
     assert_eq!(
         SourcePortLimits::default()
             .rule_derivation
@@ -33,6 +35,7 @@ fn source_port_rule_policy_survives_retention_and_matches_cold_loading() {
         limits.rule_derivation.max_domain_bound_endpoint_cells = endpoints;
         // This coordinate-only proof needs no affine native consistency work.
         limits.max_predicate_consistency_work = 0;
+        limits.max_predicate_atoms = 0;
         let program = audit
             .with_limits(limits)
             .retain_program(tadpole(), [([true], None, solution)])
@@ -42,6 +45,7 @@ fn source_port_rule_policy_survives_retention_and_matches_cold_loading() {
         let cold_limits = ArtifactLoadLimits {
             rule_derivation: limits.rule_derivation,
             max_predicate_consistency_work: 0,
+            max_predicate_atoms: 0,
             ..Default::default()
         };
         let cold = ClosedArtifact::decode_durable_with_limits(&baseline, cold_limits);
@@ -72,6 +76,41 @@ fn source_port_rule_policy_survives_retention_and_matches_cold_loading() {
             .unwrap(),
         baseline
     );
+}
+
+#[test]
+fn unsupported_atom_policy_fails_before_producer_iteration_and_cold_input_decode() {
+    use crate::foundry::artifact::{ArtifactLoadLimits, ArtifactPersistenceError, ClosedArtifact};
+    for value in [257, usize::MAX] {
+        let (audit, solution) = solved_tadpole();
+        let audit = audit.with_limits(SourcePortLimits {
+            max_predicate_atoms: value,
+            ..Default::default()
+        });
+        assert!(matches!(
+            audit.audit_sector([true], None, &solution),
+            Err(SourcePortAuditError::UnsupportedResourcePolicy {
+                resource: "predicate atoms", requested, supported_max: 256,
+            }) if requested == value
+        ));
+        let never_read =
+            std::iter::once_with(|| -> ([bool; 1], Option<[usize; 1]>, SectorSolution<1>) {
+                panic!("invalid policy must not consume sectors")
+            });
+        assert!(matches!(
+            audit.retain_program(tadpole(), never_read),
+            Err(SourcePortAuditError::UnsupportedResourcePolicy { .. })
+        ));
+        assert!(matches!(
+            ClosedArtifact::decode_durable_with_limits(b"not an artifact", ArtifactLoadLimits {
+                max_predicate_atoms: value,
+                ..Default::default()
+            }),
+            Err(ArtifactPersistenceError::ResourceLimit {
+                resource: "supported predicate atom policy", requested, limit: 256,
+            }) if requested == value
+        ));
+    }
 }
 
 #[test]

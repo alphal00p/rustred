@@ -220,6 +220,7 @@ pub(super) fn decode<'input>(
         },
         limits.cover_replay.geometry(),
         limits.max_predicate_consistency_work,
+        limits.max_predicate_atoms,
     )?;
     // Deterministic encoding validates canonical sharing/order and all stored
     // semantic payloads, without discovery or reconstructing any other plan.

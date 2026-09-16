@@ -103,7 +103,7 @@ pub(super) struct GenerateOutputV2 {
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
-pub(super) struct InspectOutputV3 {
+pub(super) struct InspectOutputV4 {
     pub(super) schema: &'static str,
     pub(super) status: &'static str,
     pub(super) producer: ProducerOutputV1,
@@ -116,7 +116,7 @@ pub(super) struct InspectOutputV3 {
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
-pub(super) struct ReduceOutputV2 {
+pub(super) struct ReduceOutputV3 {
     pub(super) schema: &'static str,
     pub(super) status: &'static str,
     pub(super) producer: ProducerOutputV1,

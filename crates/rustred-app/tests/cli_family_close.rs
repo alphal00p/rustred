@@ -118,6 +118,8 @@ fn resource_flags_preserve_artifact_bytes_and_are_reapplied_for_cold_load() {
         "65536",
         "--max-predicate-consistency-work",
         "67108864",
+        "--max-predicate-atoms",
+        "64",
     ];
     let mut command = vec!["family-close"];
     command.extend(flags);
@@ -131,6 +133,10 @@ fn resource_flags_preserve_artifact_bytes_and_are_reapplied_for_cold_load() {
         command.extend(flags);
         let bytes = success(&command, &chosen);
         let report: toml::Value = toml::from_str(std::str::from_utf8(&bytes).unwrap()).unwrap();
+        assert_eq!(
+            report["load_resources"]["max_predicate_atoms"].as_str(),
+            Some("64")
+        );
         assert_eq!(
             report["load_resources"]["max_domain_bound_endpoint_cells"].as_str(),
             Some("65536")
@@ -152,6 +158,22 @@ fn resource_flags_preserve_artifact_bytes_and_are_reapplied_for_cold_load() {
     );
     assert!(!failed.status.success());
     assert!(failed.stdout.is_empty());
+}
+
+#[test]
+fn unsupported_atom_flag_fails_before_reading_family_or_artifact() {
+    for prefix in [
+        vec!["family-close"],
+        vec!["campaign", "inspect", "--artifact", "-"],
+        vec!["campaign", "reduce", "--artifact", "-", "--powers", "3"],
+    ] {
+        let mut args = prefix;
+        args.extend(["--max-predicate-atoms", "257"]);
+        let failed = run(&args, b"invalid input");
+        assert!(!failed.status.success());
+        assert!(failed.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&failed.stderr).contains("supported maximum 256"));
+    }
 }
 
 #[test]

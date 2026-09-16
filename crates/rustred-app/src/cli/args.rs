@@ -342,6 +342,7 @@ FAMILY-CLOSE OPTIONS:
     --nonpositive-indices <N,N,...>  Coordinates restricted to nonpositive powers
     --max-domain-bound-endpoint-cells <N>  Publication endpoint budget [core default]
     --max-predicate-consistency-work <N>   Publication consistency budget [core default]
+    --max-predicate-atoms <N>              Publication atom limit [default: 32; maximum: 256]
     --n-cores <COUNT>            Maximum worker cores [default: 1]
     --progress                  Also emit plain progress when stderr is redirected
     --force                      Atomically replace an existing output file
@@ -397,6 +398,7 @@ CAMPAIGN INSPECT OPTIONS:
     --artifact <PATH|->          Read durable artifact bytes from PATH or standard input
     --max-domain-bound-endpoint-cells <N>  Cold-replay endpoint budget [core default]
     --max-predicate-consistency-work <N>   Cold-replay consistency budget [core default]
+    --max-predicate-atoms <N>              Cold-replay atom limit [default: 32; maximum: 256]
     --output <PATH|->            Write TOML to PATH, or standard output with - [default: -]
     --force                      Atomically replace an existing output file
 
@@ -406,6 +408,7 @@ CAMPAIGN REDUCE OPTIONS:
     --max-rule-applications <N>  Per-request recurrence ceiling [default: 1000000]
     --max-domain-bound-endpoint-cells <N>  Cold-replay endpoint budget [core default]
     --max-predicate-consistency-work <N>   Cold-replay consistency budget [core default]
+    --max-predicate-atoms <N>              Cold-replay atom limit [default: 32; maximum: 256]
     --output <PATH|->            Write TOML to PATH, or standard output with - [default: -]
     --force                      Atomically replace an existing output file
 

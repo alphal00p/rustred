@@ -8,6 +8,7 @@ use super::{ArgError, next_utf8_value, parse_nonnegative_integer, set_once};
 pub(crate) struct ResourceLimitsArgs {
     endpoint_cells: Option<usize>,
     consistency_work: Option<usize>,
+    predicate_atoms: Option<usize>,
 }
 
 impl ResourceLimitsArgs {
@@ -25,9 +26,17 @@ impl ResourceLimitsArgs {
                 "--max-predicate-consistency-work",
                 &mut self.consistency_work,
             ),
+            "--max-predicate-atoms" => ("--max-predicate-atoms", &mut self.predicate_atoms),
             _ => return Ok(false),
         };
         let value = parse_nonnegative_integer(name, next_utf8_value(arguments, name)?)?;
+        if name == "--max-predicate-atoms" && value > SourcePortLimits::MAX_PREDICATE_ATOMS {
+            return Err(ArgError::InvalidValue {
+                option: name,
+                value: value.to_string(),
+                expected: "a nonnegative integer no larger than the supported maximum 256",
+            });
+        }
         set_once(slot, name, value)?;
         Ok(true)
     }
@@ -40,6 +49,9 @@ impl ResourceLimitsArgs {
         if let Some(value) = self.consistency_work {
             limits.max_predicate_consistency_work = value;
         }
+        if let Some(value) = self.predicate_atoms {
+            limits.max_predicate_atoms = value;
+        }
         limits
     }
 
@@ -50,6 +62,9 @@ impl ResourceLimitsArgs {
         }
         if let Some(value) = self.consistency_work {
             limits.max_predicate_consistency_work = value;
+        }
+        if let Some(value) = self.predicate_atoms {
+            limits.max_predicate_atoms = value;
         }
         limits
     }
@@ -96,6 +111,8 @@ mod tests {
                         "0",
                         "--max-predicate-consistency-work",
                         "17",
+                        "--max-predicate-atoms",
+                        "64",
                     ],
                 )
                 .unwrap(),
@@ -119,6 +136,22 @@ mod tests {
                 17
             );
             assert_eq!(chosen.load_limits().max_predicate_consistency_work, 17);
+            assert_eq!(chosen.publication_limits().max_predicate_atoms, 64);
+            assert_eq!(chosen.load_limits().max_predicate_atoms, 64);
+            for atoms in ["0", "33", "256"] {
+                let chosen = resources(parse(command, &["--max-predicate-atoms", atoms]).unwrap());
+                assert_eq!(chosen.load_limits().max_predicate_atoms.to_string(), atoms);
+                assert_eq!(
+                    chosen.publication_limits().max_predicate_atoms.to_string(),
+                    atoms
+                );
+            }
+            for atoms in ["257", "18446744073709551615"] {
+                assert!(matches!(
+                    parse(command, &["--max-predicate-atoms", atoms]),
+                    Err(ArgError::InvalidValue { .. })
+                ));
+            }
             let maximum = usize::MAX.to_string();
             let chosen =
                 resources(parse(command, &["--max-predicate-consistency-work", &maximum]).unwrap());
@@ -139,6 +172,7 @@ mod tests {
             for flag in [
                 "--max-domain-bound-endpoint-cells",
                 "--max-predicate-consistency-work",
+                "--max-predicate-atoms",
             ] {
                 for value in ["-1", "340282366920938463463374607431768211456", "1.5"] {
                     assert!(matches!(

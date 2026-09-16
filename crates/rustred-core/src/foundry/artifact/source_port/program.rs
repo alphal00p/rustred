@@ -252,6 +252,7 @@ impl<const N: usize> CheckedProgram<N> {
             candidate,
             Default::default(),
             self.limits.max_predicate_consistency_work,
+            self.limits.max_predicate_atoms,
         )
         .map_err(|issue| match issue {
             super::super::ArtifactError::ResourceBudgetExhausted { resource } => {
@@ -310,6 +311,7 @@ impl<const N: usize> SourcePortAudit<N> {
         started: Instant,
         observe: &mut dyn FnMut(SourcePortInstallEvent<'_, N>),
     ) -> Result<CheckedProgram<N>, SourcePortAuditError> {
+        self.limits.validate()?;
         if family.fingerprint() != self.original_sources.family_fingerprint() {
             return Err(error(
                 "checked program family differs from the original-source corpus",

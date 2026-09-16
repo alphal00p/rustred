@@ -664,9 +664,9 @@ rustred campaign generate --family unit-mass-vacuum-k1 \
 ```
 
 Inspection emits schema
-`rustred.closing-artifact-inspect-output.toml.v3` after one bounded decode,
+`rustred.closing-artifact-inspect-output.toml.v4` after one bounded decode,
 authentication, and exact replay. Reduction emits schema
-`rustred.closing-artifact-reduce-output.toml.v2`, exact Symbolica-canonical
+`rustred.closing-artifact-reduce-output.toml.v3`, exact Symbolica-canonical
 unit-mass coefficients keyed by master power vectors, and a separate decimal
 string `common_mass_squared_power`. For `--powers 3`, the only master is `[1]`,
 the coefficient is
@@ -679,7 +679,7 @@ then by the core codec's structural, string, coefficient, arity, and exact-
 algebra limits. Successful decoding produces one sealed owner; recursive hot-
 path application does not repeat cold authentication.
 
-`family-close`, `campaign inspect` and `campaign reduce` accept two matching
+`family-close`, `campaign inspect` and `campaign reduce` accept three matching
 resource controls:
 
 - `--max-domain-bound-endpoint-cells N`: conservative per-rule endpoint-buffer
@@ -687,12 +687,23 @@ resource controls:
 - `--max-predicate-consistency-work N`: aggregate native consistency work per
   exact predicate-cover traversal, default 4,194,304. It is not reset on each
   Boolean branch or cache miss.
+- `--max-predicate-atoms N`: distinct affine atoms per cover, default 32 and
+  supported maximum 256. Atom IDs and assignments are dynamically sized;
+  the supported ceiling bounds recursive traversal depth. The separate native
+  affine equation, Boolean-node, clause and work ceilings remain in force.
 
 Zero is a restrictive allowance, not an unlimited setting. Larger allowances
 permit more verification work or storage; they do not remove a guard, skip a
 proof or authorize a new master. Choose sufficient limits explicitly for both
 generation and subsequent untrusted loading. They are caller policy, not
 trusted artifact contents, and successful choices do not change durable bytes.
+Values above 256 are rejected for the atom policy before generation or decoding;
+zero permits coordinate-only covers, not an unlimited predicate allowance.
+The Rust policies expose `max_predicate_atoms`; Python's `family_close`,
+`inspect_closing_artifact` and `reduce_with_closing_artifact` accept the same
+optional keyword (default `None`, selecting the core default). All three
+reports include it as a decimal-string resource field; family generation uses
+`rustred.family-close-output.toml.v4`. Durable artifact schemas are unchanged.
 The existing input/output byte ceiling and other structural limits remain.
 Reports record chosen resource counts as decimal strings so every supported
 `usize` value is representable in TOML.

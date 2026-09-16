@@ -3,6 +3,7 @@ use crate::algebra::{CoefficientContext, IndexedCoefficient};
 use crate::solver::{AffineCase, AffineIntersection, CoordinateCase};
 
 mod conjunction;
+mod factor_consequences;
 mod support;
 
 fn context() -> IndexedCoefficientContext {

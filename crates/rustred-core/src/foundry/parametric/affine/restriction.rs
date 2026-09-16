@@ -204,27 +204,57 @@ impl AffineDomainRestriction {
             || self.chart.replaces_variable_in(polynomial))
     }
 
-    /// Structural upper bound on terms introduced by one variable replacement.
-    /// Fixed coordinates are scalars; unused pivots cannot expand this input.
-    /// No cancellation, special value, or integer-feasibility claim is used.
-    pub(crate) fn replacement_term_bound(
+    /// Bound native substitution's intermediate term count and the largest
+    /// individual monomial expansion, using only authenticated support. Fixed
+    /// scalar substitutions run first; a fixed zero kills its entire monomial.
+    /// Coupled pivot replacements contain no other pivots, so each surviving
+    /// monomial expands by at most the product of the actual replacement term
+    /// counts raised to that variable's exponent. No cancellation is assumed.
+    pub(crate) fn restriction_term_bound(
         &self,
         polynomial: &CoefficientPolynomial,
-    ) -> Result<usize, AffineGeometryError> {
+    ) -> Result<(usize, usize), AffineGeometryError> {
         self.validate_polynomial(polynomial)?;
-        let bound = match &self.chart {
-            AffineRestrictionChart::Integral(replacements) => replacements
+        let overflow =
+            || AffineGeometryError::InvalidInput("affine restriction term bound overflow");
+        let mut terms = 0usize;
+        let mut expansion = 1usize;
+        for powers in polynomial.exponents_iter() {
+            if self
+                .fixed
                 .iter()
-                .filter(|(position, _)| polynomial.contains(*position))
-                .map(|(_, replacement)| replacement.nterms())
-                .max(),
-            AffineRestrictionChart::Rational(replacements) => replacements
-                .iter()
-                .filter(|(position, _)| polynomial.contains(*position))
-                .map(|(_, replacement)| replacement.nterms())
-                .max(),
-        };
-        Ok(bound.unwrap_or(1).max(1))
+                .zip(&self.indices)
+                .any(|(fixed, &position)| *fixed == Some(0) && powers[position] != 0)
+            {
+                continue;
+            }
+            let mut monomial_terms = 1usize;
+            let mut include = |position: usize, replacement_terms: usize| {
+                let factor = replacement_terms
+                    .max(1)
+                    .checked_pow(u32::from(powers[position]))
+                    .ok_or_else(overflow)?;
+                monomial_terms = monomial_terms.checked_mul(factor).ok_or_else(overflow)?;
+                Ok::<(), AffineGeometryError>(())
+            };
+            match &self.chart {
+                AffineRestrictionChart::Integral(replacements) => {
+                    for (position, replacement) in replacements {
+                        include(*position, replacement.nterms())?;
+                    }
+                }
+                AffineRestrictionChart::Rational(replacements) => {
+                    for (position, replacement) in replacements {
+                        include(*position, replacement.nterms())?;
+                    }
+                }
+            }
+            expansion = expansion.max(monomial_terms);
+            terms = terms.checked_add(monomial_terms).ok_or_else(overflow)?;
+        }
+        // The native implementation first retains/specializes the full input.
+        // Keep that allocation covered even if a fixed zero removes terms.
+        Ok((terms.max(polynomial.nterms()), expansion))
     }
 
     /// Restrict numerator and denominator jointly. Relative rational scale is

@@ -862,6 +862,7 @@ Stable design documents are:
 - [closing-rule foundry target](docs/foundry.md);
 - [application, Python, and Vakint interfaces](docs/interfaces.md);
 - [validation and oracle ladder](docs/validation.md);
+- [rule-generation versus independent-certification timing](docs/generation_and_certification.md);
 - [semi-numerical proof alternatives and four-loop certificate experiments](docs/research/seminumerical_proof_systems.md);
 - [LiteRed2 semantic reference](docs/references/litered2.md);
 - [parametric-IBP breakthrough research](docs/research/parametric_ibp_breakthrough.md);

@@ -9,8 +9,8 @@ mod affine;
 mod certificate;
 mod geometry;
 mod limits;
-pub(crate) use limits::DEFAULT_PREDICATE_CONSISTENCY_WORK;
 pub use limits::SourcePortLimits;
+pub(crate) use limits::{DEFAULT_PREDICATE_ATOMS, DEFAULT_PREDICATE_CONSISTENCY_WORK};
 mod normalization;
 mod ordinary;
 pub(in crate::foundry::artifact) mod predicate_cover;
@@ -57,6 +57,12 @@ pub enum SourcePortAuditError {
     Message(String),
     /// An exact proof exhausted a caller-owned resource allowance.
     ResourceBudgetExhausted { resource: &'static str },
+    /// The caller requested a policy beyond the supported traversal bound.
+    UnsupportedResourcePolicy {
+        resource: &'static str,
+        requested: usize,
+        supported_max: usize,
+    },
     /// Search output lacks an exact ownership proof in the calling path.
     /// In particular, box-only callers must not discard coupled predicates.
     ///
@@ -76,6 +82,16 @@ impl fmt::Display for SourcePortAuditError {
             Self::Message(message) => f.write_str(message),
             Self::ResourceBudgetExhausted { resource } => {
                 write!(f, "source-port proof budget exhausted: {resource}")
+            }
+            Self::UnsupportedResourcePolicy {
+                resource,
+                requested,
+                supported_max,
+            } => {
+                write!(
+                    f,
+                    "unsupported source-port resource policy: {resource} requested {requested}, supported maximum {supported_max}"
+                )
             }
             Self::UnsupportedAffineOwnership { domain, role } => {
                 let role = match role {
@@ -117,7 +133,9 @@ impl SourcePortAuditError {
             Self::UnsupportedAffineOwnership { domain, role } => {
                 Some((domain.sector(), domain.fixed(), domain.equations(), *role))
             }
-            Self::Message(_) | Self::ResourceBudgetExhausted { .. } => None,
+            Self::Message(_)
+            | Self::ResourceBudgetExhausted { .. }
+            | Self::UnsupportedResourcePolicy { .. } => None,
         }
     }
 }
@@ -301,6 +319,7 @@ impl<const N: usize> SourcePortAudit<N> {
         started: Instant,
         observe: &mut dyn FnMut(SourcePortInstallEvent<'_, N>),
     ) -> Result<program::SectorCheck<N>, SourcePortAuditError> {
+        self.limits.validate()?;
         let start = Instant::now();
         if !Mask::try_new(sector)
             .map_err(error)?
@@ -550,6 +569,7 @@ impl<const N: usize> SourcePortAudit<N> {
                 owners,
                 &terminal_boxes,
                 PredicateCoverLimits {
+                    max_predicates: self.limits.max_predicate_atoms,
                     max_consistency_work: self.limits.max_predicate_consistency_work,
                     ..Default::default()
                 },

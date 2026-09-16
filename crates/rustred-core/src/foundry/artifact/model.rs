@@ -328,6 +328,13 @@ impl ClosedArtifact {
         bytes: &[u8],
         limits: super::persistence::ArtifactLoadLimits,
     ) -> Result<Self, ArtifactPersistenceError> {
+        if limits.max_predicate_atoms > super::source_port::SourcePortLimits::MAX_PREDICATE_ATOMS {
+            return Err(ArtifactPersistenceError::ResourceLimit {
+                resource: "supported predicate atom policy",
+                requested: limits.max_predicate_atoms,
+                limit: super::source_port::SourcePortLimits::MAX_PREDICATE_ATOMS,
+            });
+        }
         super::persistence::decode(bytes, limits)
     }
 

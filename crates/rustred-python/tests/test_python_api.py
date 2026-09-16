@@ -412,7 +412,7 @@ class PythonApiTests(unittest.TestCase):
             module.main()
         payload = output.getvalue()
         reduction_marker = (
-            'schema = "rustred.closing-artifact-reduce-output.toml.v2"'
+            'schema = "rustred.closing-artifact-reduce-output.toml.v3"'
         )
         reduction_offset = payload.index(reduction_marker)
         generation = tomllib.loads(payload[:reduction_offset])
@@ -734,7 +734,7 @@ class PythonApiTests(unittest.TestCase):
                 self.assertIsInstance(generated, rustred.ClosingArtifactGenerationResult)
                 self.assertIsInstance(generated.artifact, bytes)
                 self.assertIs(generated.artifact, generated.artifact)
-                self.assertEqual(generated.schema, "rustred.family-close-output.toml.v3")
+                self.assertEqual(generated.schema, "rustred.family-close-output.toml.v4")
                 self.assertEqual(generated.status, "generated-durable")
                 report = tomllib.loads(generated.to_toml())
                 self.assertEqual(report["arity"], len(target))
@@ -783,16 +783,19 @@ class PythonApiTests(unittest.TestCase):
         options = {
             "max_domain_bound_endpoint_cells": 65536,
             "max_predicate_consistency_work": 67108864,
+            "max_predicate_atoms": 64,
         }
         flags = [
             "--max-domain-bound-endpoint-cells", "65536",
             "--max-predicate-consistency-work", "67108864",
+            "--max-predicate-atoms", "64",
         ]
         baseline = rustred.family_close(UNIT_MASS_PROJECT_K1)
         explicit_defaults = rustred.family_close(
             UNIT_MASS_PROJECT_K1,
             max_domain_bound_endpoint_cells=None,
             max_predicate_consistency_work=None,
+            max_predicate_atoms=None,
         )
         chosen = rustred.family_close(UNIT_MASS_PROJECT_K1, **options)
         self.assertEqual(baseline.artifact, explicit_defaults.artifact)
@@ -845,7 +848,7 @@ class PythonApiTests(unittest.TestCase):
             lambda **options: rustred.reduce_with_closing_artifact(artifact, [3], **options),
         )
         for call in calls:
-            for key in ("max_domain_bound_endpoint_cells", "max_predicate_consistency_work"):
+            for key in ("max_domain_bound_endpoint_cells", "max_predicate_consistency_work", "max_predicate_atoms"):
                 for invalid in (True, -1, 1.5, "5", 1 << 100, 1 << 200):
                     with self.subTest(key=key, value=invalid):
                         with self.assertRaises(rustred.RustRedInputError):
@@ -860,6 +863,13 @@ class PythonApiTests(unittest.TestCase):
             report = tomllib.loads(zero.to_toml())
             resources = report.get("publication_resources", report.get("load_resources"))
             self.assertEqual(resources["max_predicate_consistency_work"], "0")
+            for atom_limit in (0, 33, 256):
+                report = tomllib.loads(call(max_predicate_atoms=atom_limit).to_toml())
+                resources = report.get("publication_resources", report.get("load_resources"))
+                self.assertEqual(resources["max_predicate_atoms"], str(atom_limit))
+            for invalid in (257, 2 * sys.maxsize + 1):
+                with self.assertRaises(rustred.RustRedInputError):
+                    call(max_predicate_atoms=invalid)
 
     @unittest.skipUnless(
         os.environ.get("SYMBOLICA_LICENSE") and (os.cpu_count() or 0) >= 2,
@@ -1275,15 +1285,15 @@ class PythonApiTests(unittest.TestCase):
         )
         self.assertEqual(
             str(inspect.signature(rustred.family_close)),
-            "(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None)",
+            "(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None, max_predicate_atoms=None)",
         )
         self.assertEqual(
             str(inspect.signature(rustred.inspect_closing_artifact)),
-            "(artifact, *, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None)",
+            "(artifact, *, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None, max_predicate_atoms=None)",
         )
         self.assertEqual(
             str(inspect.signature(rustred.reduce_with_closing_artifact)),
-            "(artifact, target_powers, *, max_rule_applications=1000000, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None)",
+            "(artifact, target_powers, *, max_rule_applications=1000000, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None, max_predicate_atoms=None)",
         )
         self.assertEqual(
             str(inspect.signature(rustred.run_foundry_campaign)),

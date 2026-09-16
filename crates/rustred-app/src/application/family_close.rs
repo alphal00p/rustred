@@ -26,7 +26,7 @@ mod scope;
 pub use progress::{FamilyCloseGenerationStage, FamilyCloseProgress};
 use progress::{Observer, emit, generation_stage, installation_event, sector_mask};
 
-pub const FAMILY_CLOSE_SCHEMA: &str = "rustred.family-close-output.toml.v3";
+pub const FAMILY_CLOSE_SCHEMA: &str = "rustred.family-close-output.toml.v4";
 
 /// Request a sector-complete closing artifact for an external family.
 ///
@@ -156,6 +156,10 @@ fn family_close_impl(
     observe: Observer<'_>,
 ) -> Result<FamilyCloseResult, AppError> {
     let start = Instant::now();
+    request
+        .publication_limits
+        .validate()
+        .map_err(publication_error)?;
     if request.source.len() > MAX_INPUT_BYTES {
         return Err(AppError::limit(format!(
             "family close input exceeds the application ceiling {MAX_INPUT_BYTES} bytes"
@@ -231,6 +235,7 @@ fn family_close_impl(
                 .rule_derivation
                 .max_domain_bound_endpoint_cells,
             request.publication_limits.max_predicate_consistency_work,
+            request.publication_limits.max_predicate_atoms,
         ),
     };
     let report_toml = toml::to_string_pretty(&report)
@@ -387,7 +392,10 @@ fn close<const N: usize>(
 
 fn publication_error(error: SourcePortAuditError) -> AppError {
     match error {
-        SourcePortAuditError::ResourceBudgetExhausted { .. } => AppError::limit(error.to_string()),
+        SourcePortAuditError::ResourceBudgetExhausted { .. }
+        | SourcePortAuditError::UnsupportedResourcePolicy { .. } => {
+            AppError::limit(error.to_string())
+        }
         _ => AppError::execution(error.to_string()),
     }
 }

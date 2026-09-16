@@ -146,6 +146,7 @@ def family_close(
     nonpositive_indices: list[int] | None = None,
     max_domain_bound_endpoint_cells: int | None = None,
     max_predicate_consistency_work: int | None = None,
+    max_predicate_atoms: int | None = None,
 ) -> ClosingArtifactGenerationResult: ...
 
 def inspect_closing_artifact(
@@ -153,6 +154,7 @@ def inspect_closing_artifact(
     *,
     max_domain_bound_endpoint_cells: int | None = None,
     max_predicate_consistency_work: int | None = None,
+    max_predicate_atoms: int | None = None,
 ) -> ClosingArtifactInspectionResult: ...
 
 def reduce_with_closing_artifact(
@@ -162,4 +164,5 @@ def reduce_with_closing_artifact(
     max_rule_applications: int = 1_000_000,
     max_domain_bound_endpoint_cells: int | None = None,
     max_predicate_consistency_work: int | None = None,
+    max_predicate_atoms: int | None = None,
 ) -> ClosingArtifactReductionResult: ...
