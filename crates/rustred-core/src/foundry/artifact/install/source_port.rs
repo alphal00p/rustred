@@ -4,12 +4,15 @@
 //! it never accepts old wave metadata or substitutes finite sampling.
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::foundry::cell::RuleCell;
-use crate::foundry::completion::{BoxCover, CompletionGeometryLimits, LatticeBox};
+use crate::foundry::cell::{RuleCell, RuleCellGuardDomainProof};
+use crate::foundry::completion::{CompletionGeometryLimits, LatticeBox};
 use crate::sector::Mask;
 
 use super::super::error::ArtifactError;
 use super::super::model::{ArtifactValidationWitness, ClosedArtifact, CommonMassHomogeneityProof};
+use super::super::source_port::predicate_cover::{
+    PredicateCoverLimits, PredicateCoveragePiece, certify_predicate_cover,
+};
 use super::{ClosingArtifactCandidate, ReplayProducer};
 
 pub(in crate::foundry::artifact) const ALGORITHM_ID: &str =
@@ -24,16 +27,39 @@ pub(super) fn validate_combined_rule(cell: &RuleCell) -> Result<(), ArtifactErro
         .replay_evidence()
         .combined_original_domain()
         .ok_or_else(fail)?;
-    // The current installer and cover compiler are rectangular-only. An
-    // affine predicate must not be silently reduced to its bounding box.
-    if evidence.affine_application_domain().is_some() {
-        return Err(ArtifactError::UnsupportedClosureShape);
+    let predicated =
+        evidence.affine_application_domain().is_some() || !evidence.affine_exclusions().is_empty();
+    if predicated
+        && cell.guard_domain_proof() != RuleCellGuardDomainProof::ReplayAuthorizedOriginalPredicate
+    {
+        return Err(fail());
     }
-    if !evidence.affine_exclusions().is_empty() {
-        return Err(ArtifactError::UnsupportedClosureShape);
+    for domain in evidence.affine_application_domain().into_iter().chain(
+        evidence
+            .affine_exclusions()
+            .iter()
+            .map(|domain| domain.as_ref()),
+    ) {
+        if !domain.is_authenticated()
+            || domain.sector() != rule.sector().active_bits()
+            || domain.fixed().len() != rule.sector().arity()
+        {
+            return Err(fail());
+        }
     }
-    // The current owner cover, codecs, and cold loader are rectangular-only.
-    // Never silently rectangularize an exact coupled domain.
+    if let Some(target) = evidence.affine_application_domain() {
+        for (axis, value) in target.fixed().iter().enumerate() {
+            if value.map(i64::from)
+                != cell
+                    .fixed_restrictions()
+                    .iter()
+                    .find(|item| item.position() == axis)
+                    .map(|item| item.value())
+            {
+                return Err(fail());
+            }
+        }
+    }
     if rule.anchor().is_some()
         || rule.replay().is_some()
         || !rule.elimination_pivot_guards().is_empty()
@@ -151,7 +177,8 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
     }
     super::validate_generic_bindings_for(&candidate, ReplayProducer::CombinedOriginalDomain)?;
     validate_unit_mass(&candidate)?;
-    let mut covers: BTreeMap<Mask, Vec<LatticeBox>> = BTreeMap::new();
+    let mut covers: BTreeMap<Mask, (Vec<PredicateCoveragePiece<'_>>, Vec<LatticeBox>)> =
+        BTreeMap::new();
     let zeros: BTreeSet<_> = candidate
         .zero_sectors
         .iter()
@@ -169,15 +196,15 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
         if zeros.contains(cell.rule().sector()) {
             return Err(ArtifactError::InvalidZeroTerminal);
         }
-        for piece in evidence.application_boxes() {
-            covers
-                .entry(cell.rule().sector().clone())
-                .or_default()
-                .push(
-                    LatticeBox::try_new(piece.lower().to_vec(), piece.upper().to_vec())
-                        .map_err(|_| ArtifactError::UnsupportedClosureShape)?,
-                );
-        }
+        covers
+            .entry(cell.rule().sector().clone())
+            .or_default()
+            .0
+            .push(PredicateCoveragePiece {
+                boxes: evidence.application_boxes(),
+                affine_target: evidence.affine_application_domain(),
+                affine_exclusions: evidence.affine_exclusions(),
+            });
         replayed_rows = replayed_rows
             .checked_add(evidence.source_rows_used())
             .ok_or(ArtifactError::UnsupportedClosureShape)?;
@@ -203,7 +230,7 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
             .collect::<Result<_, _>>()
             .map_err(|_| ArtifactError::InvalidMasterManifest)?;
         let upper: Vec<_> = local.iter().copied().map(Some).collect();
-        covers.entry(sector).or_default().push(
+        covers.entry(sector).or_default().1.push(
             LatticeBox::try_new(local, upper).map_err(|_| ArtifactError::InvalidMasterManifest)?,
         );
     }
@@ -215,20 +242,20 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
     if covers.len().checked_add(zeros.len()) != Some(expected) {
         return Err(ArtifactError::UnsupportedClosureShape);
     }
-    for (sector, pieces) in covers {
+    for (sector, (owners, terminals)) in covers {
         if zeros.contains(&sector) {
             return Err(ArtifactError::InvalidZeroTerminal);
         }
-        let cover = BoxCover::try_new(candidate.arity, pieces, geometry)
-            .map_err(|_| ArtifactError::UnsupportedClosureShape)?;
-        if !cover
-            .uncovered_partition()
-            .map_err(|_| ArtifactError::UnsupportedClosureShape)?
-            .boxes()
-            .is_empty()
-        {
-            return Err(ArtifactError::UnsupportedClosureShape);
-        }
+        certify_predicate_cover(
+            sector.active_bits(),
+            &owners,
+            &terminals,
+            PredicateCoverLimits {
+                geometry,
+                ..Default::default()
+            },
+        )
+        .map_err(|_| ArtifactError::UnsupportedClosureShape)?;
     }
     let validation = ArtifactValidationWitness::new(
         candidate.source_relations.len(),

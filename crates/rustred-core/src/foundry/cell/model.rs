@@ -3,8 +3,8 @@ use std::sync::Arc;
 use crate::algebra::{IndexedCoefficientContext, IndexedPolynomial};
 use crate::family::IntegralKey;
 use crate::foundry::completion::frame::exact::ExactCircuitLoweringSeal;
-use crate::foundry::parametric::ParametricRule;
 use crate::foundry::parametric::AffineApplicationDomain;
+use crate::foundry::parametric::ParametricRule;
 use crate::identity::{ParametricRelation, TranslatedSourceProvenance};
 use crate::sector::{
     Mask, SectorInteriorDomain, SectorMonotoneDomain, SectorMonotoneShiftDescentWitness,
@@ -323,6 +323,9 @@ pub enum RuleCellDomainProof {
 pub(crate) enum RuleCellGuardDomainProof {
     GloballyNonzero,
     ReplayAuthorizedPointwiseExactCoordinateLoci,
+    /// Every guard was proved nonzero on the exact original target minus
+    /// its exclusions, before consuming the private full-domain replay seal.
+    ReplayAuthorizedOriginalPredicate,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

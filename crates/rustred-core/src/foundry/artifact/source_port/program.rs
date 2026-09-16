@@ -41,7 +41,7 @@ pub(super) struct CheckedRule<const N: usize> {
     pub(super) ordinary: OriginalSourceReplay<N>,
     /// Exact coupled target locus. `application` is only its coordinate-face
     /// prefilter; runtime ownership must evaluate this predicate on original
-    /// powers. Exceptional affine branches remain fail-closed in geometry.
+    /// powers. Exclusions retain their own exact predicates below.
     pub(super) affine: Option<Arc<AffineApplicationDomain>>,
     /// Exact exceptional affine predicates removed from the rectangular
     /// application prefilter.  Kept separate from `affine`: an affine target
@@ -220,7 +220,7 @@ impl<const N: usize> CheckedProgram<N> {
 
 impl<const N: usize> SourcePortAudit<N> {
     /// Consume complete real solver output into the existing in-memory artifact.
-    /// Cold durable encoding is intentionally a separate, not-yet-enabled gate.
+    /// Durable decoding replays the same exact predicates and source weights.
     pub fn install_complete(
         self,
         family: IntegralFamily,
@@ -312,6 +312,44 @@ fn retain_common_order(
     }
     *retained = Some(incoming);
     Ok(())
+}
+
+#[cfg(test)]
+pub(super) fn lower_sector_for_test<const N: usize>(
+    audit: &SourcePortAudit<N>,
+    family: &IntegralFamily,
+    sector: [bool; N],
+    permutation: Option<[usize; N]>,
+    solution: &SectorSolution<N>,
+) -> Result<usize, SourcePortAuditError> {
+    let checked = audit.check_sector(sector, permutation, solution)?;
+    if !checked.report.issues.is_empty()
+        || checked.report.checked_rule_uncovered_boxes != 0
+        || checked.report.checked_rule_unbounded_boxes != 0
+        || checked.report.exact_replayed_rules + checked.report.redundant_affine_rules
+            != checked.report.rules
+    {
+        return Err(error(format!(
+            "incomplete checked sector: {:?}",
+            checked.report
+        )));
+    }
+    let generator = crate::identity::ParametricIbpGenerator::try_new(family).map_err(error)?;
+    let mut count = 0;
+    for (ordinal, rule) in checked.rules.into_iter().enumerate() {
+        let cells = lower::lower_rule(
+            &audit.original_sources,
+            &generator,
+            sector,
+            checked.report.ordering,
+            &audit.zero_sectors,
+            audit.sources.conditions(),
+            rule,
+        )
+        .map_err(|issue| error(format!("rule {ordinal} lowering: {issue}")))?;
+        count += cells.len();
+    }
+    Ok(count)
 }
 
 #[cfg(test)]

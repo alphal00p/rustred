@@ -11,7 +11,7 @@ use crate::algebra::{
 };
 use crate::foundry::completion::{CompletionGeometryLimits, LatticeBox};
 
-use super::super::{SourcePortAuditError, error};
+use super::super::{AffineApplicationDomain, SourcePortAuditError, error};
 
 pub(in crate::foundry::artifact::source_port) fn coefficient_vanishes(
     context: &IndexedCoefficientContext,
@@ -20,6 +20,28 @@ pub(in crate::foundry::artifact::source_port) fn coefficient_vanishes(
     sector: &[bool],
     algebra: IndexedAlgebraLimits,
     geometry: CompletionGeometryLimits,
+) -> Result<bool, SourcePortAuditError> {
+    coefficient_vanishes_in_affine_domain(
+        context,
+        coefficient,
+        cell,
+        sector,
+        algebra,
+        geometry,
+        None,
+    )
+}
+
+/// Exact finite-face proof relative to an optional affine target. The
+/// ordinary coordinate wrapper above retains its allocation-free leaf path.
+pub(in crate::foundry::artifact::source_port) fn coefficient_vanishes_in_affine_domain(
+    context: &IndexedCoefficientContext,
+    coefficient: &IndexedCoefficient,
+    cell: &LatticeBox,
+    sector: &[bool],
+    algebra: IndexedAlgebraLimits,
+    geometry: CompletionGeometryLimits,
+    affine: Option<&AffineApplicationDomain>,
 ) -> Result<bool, SourcePortAuditError> {
     let arity = context.index_count();
     if cell.arity() != arity || sector.len() != arity {
@@ -48,6 +70,12 @@ pub(in crate::foundry::artifact::source_port) fn coefficient_vanishes(
     // Authenticated indexed contexts append the physical index variables to
     // the base map. Dependence checks do not construct or alter polynomials.
     let base_count = context.base().variables().len();
+    super::validate_affine_coefficient_domain(
+        affine,
+        coefficient.raw(),
+        sector,
+        base_count..base_count + arity,
+    )?;
 
     let mut fixed = Vec::new();
     fixed.try_reserve_exact(arity).map_err(error)?;
@@ -124,7 +152,10 @@ pub(in crate::foundry::artifact::source_port) fn coefficient_vanishes(
     )?;
 
     if finite.is_empty() {
-        return Ok(numerator.is_zero() && !denominator.is_zero());
+        return Ok(
+            super::affine_leaf_is_empty(affine, cell, std::iter::empty())?
+                || (numerator.is_zero() && !denominator.is_zero()),
+        );
     }
     // Preflight the complete Cartesian product above, then use a bounded
     // odometer instead of recursion on the caller-controlled number of axes.
@@ -140,10 +171,20 @@ pub(in crate::foundry::artifact::source_port) fn coefficient_vanishes(
             })?;
             fixed.push((axis, value));
         }
-        let restricted_numerator = specialize(context, &numerator, &fixed, algebra)?;
-        let restricted_denominator = specialize(context, &denominator, &fixed, algebra)?;
-        if !restricted_numerator.is_zero() || restricted_denominator.is_zero() {
-            return Ok(false);
+        let empty = super::affine_leaf_is_empty(
+            affine,
+            cell,
+            finite
+                .iter()
+                .zip(&local)
+                .map(|(&(axis, _, _), &value)| (axis, value)),
+        )?;
+        if !empty {
+            let restricted_numerator = specialize(context, &numerator, &fixed, algebra)?;
+            let restricted_denominator = specialize(context, &denominator, &fixed, algebra)?;
+            if !restricted_numerator.is_zero() || restricted_denominator.is_zero() {
+                return Ok(false);
+            }
         }
         if leaf + 1 < leaves {
             for position in (0..finite.len()).rev() {

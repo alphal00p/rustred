@@ -10,6 +10,9 @@ use crate::sector::{InteriorBounds, Mask, SectorMonotoneDomain};
 
 use super::super::{SourcePortAuditError, error};
 
+mod guard;
+pub(super) use guard::validate_guard_on_domain_with_limits;
+
 pub(super) fn runtime_domain(
     piece: &LatticeBox,
     sector: &[bool],

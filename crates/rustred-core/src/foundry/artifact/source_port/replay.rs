@@ -245,18 +245,16 @@ pub(super) fn replay_rule<const N: usize>(
         // discarded physical column zero on that larger box also proves it
         // on the affine subset.  The box is not used as an ownership or
         // publication certificate; the affine bridge remains fail-closed.
-        let applicable = if affine.is_some() {
-            boxes
-        } else if additional_exceptions.is_empty() {
+        let applicable = if additional_exceptions.is_empty() {
             boxes
         } else {
-            tightened = geometry::application_boxes(
+            tightened = geometry::application_partition(
                 rule,
                 system.index_variables(),
                 order.sector(),
                 &additional_exceptions,
             )?;
-            &tightened
+            &tightened.boxes
         };
         let ordinary = ordinary::weights(
             system,

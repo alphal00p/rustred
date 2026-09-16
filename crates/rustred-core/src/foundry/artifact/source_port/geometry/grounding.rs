@@ -139,8 +139,23 @@ fn four_loop_affine_sector_grounding() {
         cover.is_ok(),
         "replayed affine rules must cover the whole test sector"
     );
-    // This checks conditional identities and descent, NOT family coverage or
-    // artifact publication. The latter still needs exact predicate owners.
+    let lowered = super::super::program::lower_sector_for_test(
+        &audit,
+        &family,
+        sector,
+        Some(permutation),
+        &solution,
+    );
+    eprintln!(
+        "affine grounding lowered_cells={lowered:?} total_ms={}",
+        started.elapsed().as_millis()
+    );
+    assert!(
+        lowered.is_ok(),
+        "exact conditional cells must lower: {lowered:?}"
+    );
+    // This checks one sector's exact predicates, coverage and lowering, not
+    // a full-family artifact or a claim about all four-loop parent families.
 }
 
 fn runtime_piece(piece: &LatticeBox, sector: &[bool; 6], shift: &[i64; 6]) -> SectorMonotoneDomain {

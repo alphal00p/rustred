@@ -20,20 +20,22 @@ The local reference source and working notes
 ## Current capability
 
 K1/K3/K6 artifacts and offline master projections are shipped with Vakint.
-**Acceptance-report correction:** GammaLoop revision `98550cc0` records 76
-passes, but the cited three-loop gate has 24 selected tests and only 17 result
-entries. Independent reruns of the missing seven give five passes and two
-failures, for a joined **81 passed / 2 failed** selection. The mapped legacy
-40-entry / 46-input peers and basketball finite parts pass, but two
-supplemental all-class tests fail on AlphaLoop versus MATAD before the RustRed
-comparison. Complete all-class parity is not established. Native evaluation uses
-an invalid FORM path; separate oracle lanes use FORM for development validation.
+GammaLoop milestone `433e42d3` corrects MATAD's signed routing for contracted
+three-loop numerator momenta. All **34 targeted tests pass**: three routing
+regressions, sixteen K6 pipeline tests and fifteen comparative tests. Both
+previously failing all-class comparisons now reach all five three-loop classes.
+Independent auditors reproduced these results without changing tolerances.
+This resolves the known failures in the historical 81-pass/2-fail selection;
+it is not a new execution of that entire 83-test inventory. Native evaluation
+uses an invalid FORM path; separate oracle lanes use FORM for validation.
 
 Four-loop artifacts are not yet closed or shipped. H, X, BMW and FG are
 [external unit-mass input families](examples/input/README.md), not hard-coded
-solver cases. Current attempts expose unsupported coupled index conditions at
-the exact publication boundary; the [ordering report](docs/four_loop_ordering_probe.md)
-records the actual evidence. Earlier pending-three-loop development checkpoints
+solver cases. The previously failing H sector now passes all 94 exact replays
+and descent checks, exact predicate coverage, and lowering to 1,202 rule cells.
+This single-sector result is not a whole-family artifact. The
+[parent-probe report](docs/four_loop_parent_closure_probe.md) records the evidence.
+Earlier pending-three-loop development checkpoints
 below are historical and do not override this status.
 
 The currently evidenced core can:

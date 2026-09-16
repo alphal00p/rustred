@@ -51,6 +51,11 @@ impl PreparedOriginalDomain {
         retained_conditions: Vec<IndexedPolynomial>,
         limits: ReplayLimits,
     ) -> Result<Self, SourcePortAuditError> {
+        if affine_exclusions.len() > limits.cell.max_guards {
+            return Err(error(
+                "original parent exclusions exceed their guard budget",
+            ));
+        }
         // A polynomial variable map alone does not identify the integral
         // axes: a consistently rebuilt affine chart could still permute its
         // axis-to-variable map. Bind both runtime predicates and coefficient
@@ -79,6 +84,11 @@ impl PreparedOriginalDomain {
             .as_ref()
             .map(|domain| domain.prepare_restriction().map_err(error))
             .transpose()?;
+        // Cached chart metadata is not evidence. Validate it once for each
+        // decoded exclusion as well; runtime membership uses only equations.
+        for exclusion in affine_exclusions.iter() {
+            exclusion.prepare_restriction().map_err(error)?;
+        }
         if !matches!(sources.construction(), SourceViewConstruction::Direct)
             || sources.context_fingerprint() != context.fingerprint()
             || sources.len() > limits.cell.max_source_views
@@ -164,6 +174,64 @@ impl PreparedOriginalDomain {
             affine_exclusions,
             limits,
         })
+    }
+
+    /// One affine-aware zero proof for early RHS pruning and final cold
+    /// replay. The chart is prepared once with the original-source parent.
+    pub(super) fn coefficient_vanishes(
+        &self,
+        context: &IndexedCoefficientContext,
+        coefficient: &IndexedCoefficient,
+        piece: &LatticeBox,
+        sector: &[bool],
+    ) -> Result<bool, SourcePortAuditError> {
+        if context.fingerprint() != self.sources.context_fingerprint()
+            || self
+                .affine
+                .as_ref()
+                .is_some_and(|domain| domain.sector() != sector)
+        {
+            return Err(error(
+                "original zero-product proof has incompatible context or sector",
+            ));
+        }
+        // Recompute this from defining equations, never from a stored flag.
+        if self
+            .affine
+            .as_ref()
+            .is_some_and(|domain| domain.is_proved_empty_in_box(piece))
+        {
+            context
+                .authenticate_coefficient_with_limits(
+                    coefficient,
+                    self.limits.cell.indexed_algebra.exact_algebra,
+                )
+                .map_err(error)?;
+            return Ok(true);
+        }
+        let restricted;
+        let coefficient = if let Some(chart) = &self.affine_restriction {
+            restricted = context
+                .admit_native_result_with_limits(
+                    chart
+                        .restrict_coefficient(coefficient.raw())
+                        .map_err(error)?,
+                    self.limits.cell.indexed_algebra.exact_algebra,
+                )
+                .map_err(error)?;
+            &restricted
+        } else {
+            coefficient
+        };
+        geometry::bounded::coefficient_vanishes_in_affine_domain(
+            context,
+            coefficient,
+            piece,
+            sector,
+            self.limits.cell.indexed_algebra,
+            self.limits.geometry,
+            self.affine.as_deref(),
+        )
     }
 
     /// Check the target face on the true box, not only on its i64 carrier.
@@ -270,46 +338,18 @@ impl PreparedOriginalDomain {
         }
         validate_guard_limits(&guards, self.limits.rule)?;
         for guard in &guards {
-            domain::validate_guard_with_limits(
+            domain::validate_guard_on_domain_with_limits(
                 context,
                 &guard.polynomial,
                 &piece,
                 sector,
+                self.affine.as_deref().zip(self.affine_restriction.as_ref()),
+                &self.affine_exclusions,
                 self.limits.cell,
             )?;
         }
         let vanishes = |coefficient: &IndexedCoefficient, piece: &LatticeBox| {
-            // This test is recomputed from the defining equations in both
-            // generation and cold replay, never trusted from a stored flag.
-            if self
-                .affine
-                .as_ref()
-                .is_some_and(|domain| domain.is_proved_empty_in_box(piece))
-            {
-                return Ok(true);
-            }
-            let restricted;
-            let coefficient = if let Some(chart) = &self.affine_restriction {
-                restricted = context
-                    .admit_native_result_with_limits(
-                        chart
-                            .restrict_coefficient(coefficient.raw())
-                            .map_err(error)?,
-                        self.limits.cell.indexed_algebra.exact_algebra,
-                    )
-                    .map_err(error)?;
-                &restricted
-            } else {
-                coefficient
-            };
-            geometry::bounded::coefficient_vanishes(
-                context,
-                coefficient,
-                piece,
-                sector,
-                self.limits.cell.indexed_algebra,
-                self.limits.geometry,
-            )
+            self.coefficient_vanishes(context, coefficient, piece, sector)
         };
         let checked = refined_replay::verify_wide(
             context,

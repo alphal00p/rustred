@@ -201,23 +201,6 @@ pub(super) fn terminal_boxes<const N: usize>(
         .collect()
 }
 
-pub(super) fn uncovered(
-    arity: usize,
-    boxes: Vec<LatticeBox>,
-) -> Result<(usize, usize), SourcePortAuditError> {
-    let cover =
-        BoxCover::try_new(arity, boxes, CompletionGeometryLimits::default()).map_err(error)?;
-    let complement = cover.uncovered_partition().map_err(error)?;
-    Ok((
-        complement.boxes().len(),
-        complement
-            .boxes()
-            .iter()
-            .filter(|cell| cell.free_dimension() > 0)
-            .count(),
-    ))
-}
-
 pub(super) fn prove_descent<const N: usize>(
     rule: &SectorRule<N>,
     boxes: &[LatticeBox],
@@ -264,12 +247,13 @@ pub(super) fn prove_descent<const N: usize>(
             } else {
                 coefficient
             };
-            coefficient_vanishes(
+            coefficient_vanishes_in_affine_domain(
                 coefficient,
                 piece,
                 sector,
                 indices,
                 CompletionGeometryLimits::default(),
+                affine_domain.as_ref(),
             )
         },
     )
@@ -427,12 +411,13 @@ fn uniformly_zero_contribution<const N: usize>(
                 return Ok(true);
             }
             match coefficient {
-                Some((value, indices)) => coefficient_vanishes(
+                Some((value, indices)) => coefficient_vanishes_in_affine_domain(
                     value,
                     piece,
                     sector,
                     indices.as_slice(),
                     CompletionGeometryLimits::default(),
+                    affine_domain.as_ref(),
                 ),
                 None => Ok(false),
             }
@@ -517,6 +502,17 @@ fn coefficient_vanishes(
     indices: &[usize],
     limits: CompletionGeometryLimits,
 ) -> Result<bool, SourcePortAuditError> {
+    coefficient_vanishes_in_affine_domain(coefficient, cell, sector, indices, limits, None)
+}
+
+fn coefficient_vanishes_in_affine_domain(
+    coefficient: &Coefficient,
+    cell: &LatticeBox,
+    sector: &[bool],
+    indices: &[usize],
+    limits: CompletionGeometryLimits,
+    affine: Option<&AffineApplicationDomain>,
+) -> Result<bool, SourcePortAuditError> {
     if cell.arity() != sector.len()
         || indices.len() != sector.len()
         || indices
@@ -527,6 +523,7 @@ fn coefficient_vanishes(
             "coefficient restriction has incompatible variable geometry",
         ));
     }
+    validate_affine_coefficient_domain(affine, coefficient, sector, indices.iter().copied())?;
     let mut numerator = coefficient.numerator.clone();
     let mut denominator = coefficient.denominator.clone();
     for axis in 0..sector.len() {
@@ -564,6 +561,19 @@ fn coefficient_vanishes(
             .ok_or_else(|| error("finite zero-product proof exceeded its geometry budget"))?;
         finite_axes.push((axis, cell.lower()[axis], upper));
     }
+    if affine.is_some() {
+        let coordinate_work = usize::try_from(leaves)
+            .ok()
+            .and_then(|leaves| leaves.checked_mul(sector.len()));
+        if sector.len() > limits.max_arity
+            || leaves > limits.max_uncovered_boxes as u64
+            || coordinate_work.is_none_or(|work| work > limits.max_uncovered_box_coordinate_cells)
+        {
+            return Err(error(
+                "affine finite-leaf proof exceeded its geometry budget",
+            ));
+        }
+    }
     // This is exhaustive restriction of a finite lattice, not interpolation:
     // no value from an infinite interval is ever enumerated, and all remaining
     // symbolic variables must disappear identically from the numerator.
@@ -573,33 +583,102 @@ fn coefficient_vanishes(
         axes: &[(usize, u64, u64)],
         sector: &[bool],
         indices: &[usize],
-    ) -> bool {
+        cell: &LatticeBox,
+        affine: Option<&AffineApplicationDomain>,
+        assignments: &mut Vec<(usize, u64)>,
+    ) -> Result<bool, SourcePortAuditError> {
         let Some((&(axis, lower, upper), remaining)) = axes.split_first() else {
-            return !denominator.is_zero() && numerator.is_zero();
+            if affine_leaf_is_empty(affine, cell, assignments.iter().copied())? {
+                return Ok(true);
+            }
+            return Ok(!denominator.is_zero() && numerator.is_zero());
         };
-        (lower..=upper).all(|local| {
+        for local in lower..=upper {
+            if affine.is_some() {
+                assignments.push((axis, local));
+            }
             let local = Integer::from(local);
             let value = if sector[axis] {
                 &local + &Integer::from(1)
             } else {
                 -local
             };
-            restrict(
+            let vanishes = restrict(
                 &numerator.replace(indices[axis], &value),
                 &denominator.replace(indices[axis], &value),
                 remaining,
                 sector,
                 indices,
-            )
-        })
+                cell,
+                affine,
+                assignments,
+            )?;
+            if affine.is_some() {
+                assignments.pop();
+            }
+            if !vanishes {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
-    Ok(restrict(
+    restrict(
         &numerator,
         &denominator,
         &finite_axes,
         sector,
         indices,
-    ))
+        cell,
+        affine,
+        &mut Vec::new(),
+    )
+}
+
+/// Bind the optional exact domain before any empty-leaf shortcut. The
+/// indexed cold path additionally authenticates the coefficient itself.
+fn validate_affine_coefficient_domain(
+    affine: Option<&AffineApplicationDomain>,
+    coefficient: &Coefficient,
+    sector: &[bool],
+    indices: impl IntoIterator<Item = usize>,
+) -> Result<(), SourcePortAuditError> {
+    let Some(affine) = affine else {
+        return Ok(());
+    };
+    if affine.sector() != sector
+        || !affine.indices().iter().copied().eq(indices)
+        || coefficient.numerator.variables() != coefficient.denominator.variables()
+        || affine
+            .equations()
+            .iter()
+            .any(|equation| equation.variables() != coefficient.numerator.variables())
+    {
+        return Err(error(
+            "affine finite-leaf proof has incompatible sector or variable map",
+        ));
+    }
+    Ok(())
+}
+
+/// Refine only already-enumerated finite coordinates in the original box.
+/// Infinite coordinates stay infinite; the native equation/gcd/range proof
+/// may discard a leaf, but an inconclusive result never discards one.
+fn affine_leaf_is_empty(
+    affine: Option<&AffineApplicationDomain>,
+    cell: &LatticeBox,
+    assignments: impl IntoIterator<Item = (usize, u64)>,
+) -> Result<bool, SourcePortAuditError> {
+    let Some(affine) = affine else {
+        return Ok(false);
+    };
+    let mut lower = cell.lower().to_vec();
+    let mut upper = cell.upper().to_vec();
+    for (axis, value) in assignments {
+        lower[axis] = value;
+        upper[axis] = Some(value);
+    }
+    let leaf = LatticeBox::try_new(lower, upper).map_err(error)?;
+    Ok(affine.is_proved_empty_in_box(&leaf))
 }
 
 /// Split exactly where a translated power changes sign. This is a bounded

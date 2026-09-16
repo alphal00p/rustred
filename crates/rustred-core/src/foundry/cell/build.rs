@@ -112,13 +112,27 @@ impl RuleCell {
     ) -> Result<Self, crate::foundry::artifact::SourcePortAuditError> {
         let (rule, sources, domain, fixed, limits) =
             ParametricRule::from_replayed_original_domain(context, checked)?;
+        // Only this constructor consumes the private original-domain seal.
+        // Its guards have already been proved on these exact predicates;
+        // asking for a second proof on the larger rectangle loses that fact.
+        let guard_policy = if rule
+            .replay_evidence()
+            .combined_original_domain()
+            .is_some_and(|evidence| {
+                evidence.affine_application_domain().is_some()
+                    || !evidence.affine_exclusions().is_empty()
+            }) {
+            GuardDomainPolicy::ReplayedOriginalPredicate
+        } else {
+            GuardDomainPolicy::RequireGloballyNonzero
+        };
         build(
             context,
             rule,
             sources,
             domain,
             RuleCellDomainProof::ReprovedSectorMonotone,
-            GuardDomainPolicy::RequireGloballyNonzero,
+            guard_policy,
             fixed,
             Vec::new(),
             limits,
@@ -229,6 +243,7 @@ impl RuleCell {
 enum GuardDomainPolicy {
     RequireGloballyNonzero,
     PermitExactCoordinateLoci,
+    ReplayedOriginalPredicate,
 }
 
 /// Split one exactly separable integer-root hyperplane before consuming the
@@ -523,7 +538,15 @@ fn build(
             resource: "rule guards",
             requested: rule.nonzero_guards().len(),
         })?;
-    let mut guard_domain_proof = RuleCellGuardDomainProof::GloballyNonzero;
+    let mut guard_domain_proof = match guard_policy {
+        GuardDomainPolicy::ReplayedOriginalPredicate => {
+            if rule.replay_evidence().combined_original_domain().is_none() {
+                return Err(RuleCellError::UnsupportedReplayEvidence);
+            }
+            RuleCellGuardDomainProof::ReplayAuthorizedOriginalPredicate
+        }
+        _ => RuleCellGuardDomainProof::GloballyNonzero,
+    };
     for (ordinal, guard) in rule.nonzero_guards().iter().enumerate() {
         let polynomial = context
             .specialize_fixed_polynomial_sealed(
@@ -552,6 +575,7 @@ fn build(
                 limits.indexed_algebra,
                 limits.guard_algebra,
             )?,
+            GuardDomainPolicy::ReplayedOriginalPredicate => false,
         };
         if pointwise {
             guard_domain_proof =

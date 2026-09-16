@@ -13,7 +13,7 @@ use crate::identity::{IndexShift, IntegralShift, TranslatedSourceRequest};
 
 use super::super::super::error::ArtifactPersistenceError;
 use super::super::super::model::ClosedArtifact;
-use super::super::binary::{check_limit, try_vec, Reader, Writer};
+use super::super::binary::{Reader, Writer, check_limit, try_vec};
 use super::super::coefficient::{
     decode_base_polynomial, decode_indexed_coefficient, decode_indexed_polynomial, decode_integer,
     encode_base_polynomial, encode_indexed_coefficient, encode_indexed_polynomial, encode_integer,
@@ -22,10 +22,10 @@ use super::super::semantic::{
     decode_bool_vec, decode_i64_vec, encode_bool_slice, encode_i64_slice,
 };
 
-// V2 adds an authenticated affine-domain witness after the fixed face.  A
+// V3 retains exact affine exclusions as well as the target witness. A
 // distinct plan tag is intentional: old source-port payloads are rejected at
 // the byte boundary rather than being misread with shifted fields.
-pub(super) const COMBINED_ORIGINAL_PLAN: u16 = 0x702;
+pub(super) const COMBINED_ORIGINAL_PLAN: u16 = 0x703;
 const AFFINE_DOMAIN_ABSENT: u8 = 0;
 const AFFINE_DOMAIN_PRESENT: u8 = 1;
 
@@ -34,6 +34,7 @@ pub(super) struct ParentPlan {
     pub requests: Vec<(TranslatedSourceRequest, IndexedCoefficient)>,
     pub conditions: Vec<IndexedPolynomial>,
     pub affine: Option<Arc<AffineApplicationDomain>>,
+    pub affine_exclusions: Arc<[Arc<AffineApplicationDomain>]>,
 }
 
 pub(super) struct CellPlan {
@@ -293,9 +294,7 @@ fn same_parent(left: &RuleCell, right: &RuleCell) -> bool {
             left.rule().replay_evidence().combined_original_domain(),
             right.rule().replay_evidence().combined_original_domain(),
         ) {
-            (Some(left), Some(right)) => {
-                left.affine_exclusions().is_empty() && right.affine_exclusions().is_empty()
-            }
+            (Some(left), Some(right)) => left.affine_exclusions() == right.affine_exclusions(),
             (None, None) => true,
             _ => false,
         }
@@ -350,6 +349,10 @@ pub(super) fn encode(
                 writer.u8(AFFINE_DOMAIN_PRESENT)?;
                 encode_affine_domain(writer, domain)?;
             }
+        }
+        writer.usize(evidence.affine_exclusions().len(), "affine exclusions")?;
+        for excluded in evidence.affine_exclusions() {
+            encode_affine_domain(writer, excluded)?;
         }
         writer.usize(requests.len(), "combined original source requests")?;
         for ((ordinal, offset), contribution) in
@@ -461,6 +464,16 @@ pub(super) fn decode(
             AFFINE_DOMAIN_PRESENT => Some(decode_affine_domain(reader, context, arity)?),
             _ => return Err(invalid("affine-domain presence tag")),
         };
+        let count = reader.count("affine exclusions")?;
+        check_limit(
+            "affine exclusions",
+            count,
+            reader.limits().rule_cells.max_guards,
+        )?;
+        let mut affine_exclusions = try_vec(count, "affine exclusions")?;
+        for _ in 0..count {
+            affine_exclusions.push(decode_affine_domain(reader, context, arity)?);
+        }
         let count = reader.count("combined original source requests")?;
         if count == 0 {
             return Err(invalid("empty combined source request"));
@@ -529,6 +542,7 @@ pub(super) fn decode(
             requests,
             conditions,
             affine,
+            affine_exclusions: affine_exclusions.into(),
         });
     }
     let count = reader.count("combined cells")?;
@@ -587,6 +601,13 @@ pub(super) fn decode(
             if affine.sector() != sector.as_slice() || affine_fixed != parent_fixed {
                 return Err(invalid("affine parent/cell binding"));
             }
+        }
+        if parents[parent]
+            .affine_exclusions
+            .iter()
+            .any(|excluded| excluded.sector() != sector.as_slice())
+        {
+            return Err(invalid("affine exclusion/cell binding"));
         }
         let application = decode_box(reader, arity)?;
         let term_count = reader.count("combined RHS terms")?;

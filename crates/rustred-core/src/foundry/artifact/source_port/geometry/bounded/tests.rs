@@ -295,3 +295,125 @@ fn native_specialization_limits_remain_authoritative() {
         .is_err()
     );
 }
+
+fn affine_domain(c: &IndexedCoefficientContext) -> AffineApplicationDomain {
+    use crate::solver::{AffineCase, AffineIntersection, CoordinateCase};
+    assert_eq!(c.index_count(), 3);
+    let equation = c
+        .sub(
+            &c.add(&c.one(), &c.index(0).unwrap()).unwrap(),
+            &c.mul(&c.integer(2), &c.index(1).unwrap()).unwrap(),
+        )
+        .unwrap();
+    let first = c.base().variables().len();
+    let AffineIntersection::Affine(case) = AffineCase::from_coordinate(
+        &CoordinateCase::generic(),
+        &[equation.raw().numerator.clone()],
+        &[first, first + 1, first + 2],
+        &[false; 3],
+    )
+    .unwrap() else {
+        panic!("expected coupled affine case")
+    };
+    AffineApplicationDomain::from_case(&case, &[false; 3]).unwrap()
+}
+
+#[test]
+fn affine_finite_leaf_proof_keeps_original_bounds_and_symbolic_tails() {
+    let c = context(3);
+    let affine = affine_domain(&c);
+    let value = c.add(&c.index(1).unwrap(), &c.one()).unwrap();
+    let check = |value: &IndexedCoefficient, piece: &LatticeBox| {
+        coefficient_vanishes_in_affine_domain(
+            &c,
+            value,
+            piece,
+            &[false; 3],
+            Default::default(),
+            Default::default(),
+            Some(&affine),
+        )
+        .unwrap()
+    };
+    let piece = cell(&[2, 0, 0], &[None, Some(1), None]);
+    assert!(!vanishes(&c, &value, &piece, &[false; 3]));
+    assert!(check(&value, &piece));
+    // n1=-1 is feasible at n0=-3; n1=0 would force n0=-1, outside
+    // n0<=-2. Relaxing this inequality must restore the failing leaf.
+    assert!(!check(&value, &cell(&[1, 0, 0], &[None, Some(1), None])));
+    assert!(!check(&value, &cell(&[2, 0, 0], &[None; 3])));
+    assert!(!check(&c.one(), &piece));
+    // A pole on the feasible leaf is not removed by its zero numerator.
+    let singular = c.div(&value, &c.index(2).unwrap()).unwrap();
+    assert!(!check(
+        &singular,
+        &cell(&[2, 0, 0], &[None, Some(1), Some(0)])
+    ));
+}
+
+#[test]
+fn affine_finite_leaf_proof_preflights_budgets_context_and_domain_maps() {
+    let c = context(3);
+    let affine = affine_domain(&c);
+    let value = c.add(&c.index(1).unwrap(), &c.one()).unwrap();
+    let piece = cell(&[2, 0, 0], &[None, Some(1), None]);
+    let check = |value: &IndexedCoefficient,
+                 geometry,
+                 affine: &AffineApplicationDomain,
+                 sector: &[bool]| {
+        coefficient_vanishes_in_affine_domain(
+            &c,
+            value,
+            &piece,
+            sector,
+            Default::default(),
+            geometry,
+            Some(affine),
+        )
+    };
+    let mut limits = CompletionGeometryLimits::default();
+    limits.max_uncovered_boxes = 1;
+    assert!(
+        check(&value, limits, &affine, &[false; 3])
+            .unwrap_err()
+            .to_string()
+            .contains("finite leaves")
+    );
+    limits = CompletionGeometryLimits::default();
+    limits.max_uncovered_box_coordinate_cells = 5;
+    assert!(
+        check(&value, limits, &affine, &[false; 3])
+            .unwrap_err()
+            .to_string()
+            .contains("finite leaf coordinates")
+    );
+    limits = CompletionGeometryLimits::default();
+    limits.max_split_operations = 1;
+    assert!(
+        check(&value, limits, &affine, &[false; 3])
+            .unwrap_err()
+            .to_string()
+            .contains("finite assignments")
+    );
+    let foreign = IndexedCoefficientContext::try_new(c.base(), "foreign-affine-leaves", 3).unwrap();
+    assert!(check(&foreign.zero(), Default::default(), &affine, &[false; 3]).is_err());
+    // Context namespaces are sealed coefficient identities, not different
+    // native polynomial variable maps. Change the base parameter itself for
+    // the independent affine-domain map check.
+    let foreign_map = IndexedCoefficientContext::try_new(
+        &CoefficientContext::new(["foreign_d"]),
+        "foreign-affine-map",
+        3,
+    )
+    .unwrap();
+    assert!(
+        check(
+            &value,
+            Default::default(),
+            &affine_domain(&foreign_map),
+            &[false; 3]
+        )
+        .is_err()
+    );
+    assert!(check(&value, Default::default(), &affine, &[true; 3]).is_err());
+}

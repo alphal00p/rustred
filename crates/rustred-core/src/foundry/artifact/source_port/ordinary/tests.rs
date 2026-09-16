@@ -362,3 +362,98 @@ fn affine_zero_projection_discards_only_impossible_activation_cells() {
             .contains("polynomial variable map")
     );
 }
+
+#[test]
+fn affine_mixed_finite_boundary_keeps_only_feasible_coefficient_leaves() {
+    use crate::sector::OrderingPolicy;
+    use crate::solver::Case;
+
+    let context = CoefficientContext::new(["a", "b", "c", "d"]);
+    let sector = [false; 3];
+    let indices = [0, 1, 2];
+    let case = Case::generic()
+        .intersect(
+            &[context.coefficient_fixture("1+a-2*b").numerator],
+            &indices,
+            &sector,
+        )
+        .unwrap()
+        .unwrap();
+    let activating = Term {
+        integral: Integral::symbolic([0, 2, 1]).unwrap(),
+        // The H boundary coefficient, with spectator c and generic d.
+        coefficient: context.coefficient_fixture(
+            "3*(b+1)*(4+3*c+6*b-3*d)/(8+8*c+2*c^2+16*b+8*b*c+6*b^2-10*d-5*d*c-9*d*b+3*d^2)",
+        ),
+    };
+    let mut rule = SectorRule {
+        candidate: RuleCandidate {
+            target: case.integral(),
+            case,
+            rhs: vec![activating.clone()],
+            sources: Vec::new(),
+            stats: Default::default(),
+        },
+        exceptions: ExceptionalConditions::default(),
+    };
+    // a<=-2 and c<=-1. The activating b+2 sign cell has b=-1 or0.
+    // The former forces a=-3 and kills the numerator; the latter forces
+    // a=-1 outside this box. Neither the whole sign cell nor its numerator
+    // is identically empty/zero before that exact finite split.
+    let boxes = [LatticeBox::try_new([2, 0, 1], [None; 3]).unwrap()];
+    assert!(
+        geometry::uniformly_zero_term(&rule, &activating, &boxes, &sector, &[sector], &indices)
+            .unwrap()
+    );
+    geometry::prove_descent(
+        &rule,
+        &boxes,
+        &sector,
+        OrderingPolicy::SpiredUncutV1,
+        &indices,
+    )
+    .unwrap();
+    assert!(
+        !geometry::uniformly_zero_column(&rule, activating.integral, &boxes, &sector, &[sector])
+            .unwrap(),
+        "the feasible b=-1 leaf is not itself an empty integral"
+    );
+
+    let enlarged = [LatticeBox::try_new([1, 0, 1], [None; 3]).unwrap()];
+    assert!(
+        !geometry::uniformly_zero_term(&rule, &activating, &enlarged, &sector, &[sector], &indices)
+            .unwrap(),
+        "the now feasible (a,b)=(-1,0) has nonzero coefficient"
+    );
+    assert!(
+        geometry::prove_descent(
+            &rule,
+            &enlarged,
+            &sector,
+            OrderingPolicy::SpiredUncutV1,
+            &indices
+        )
+        .is_err()
+    );
+    let singular = Term {
+        integral: activating.integral,
+        coefficient: context.coefficient_fixture("(b+1)/(c+1)"),
+    };
+    let pole = [LatticeBox::try_new([2, 0, 1], [None, None, Some(1)]).unwrap()];
+    assert!(
+        !geometry::uniformly_zero_term(&rule, &singular, &pole, &sector, &[sector], &indices)
+            .unwrap(),
+        "0/0 on the feasible b=-1,c=-1 leaf must not disappear"
+    );
+    rule.candidate.rhs = vec![singular];
+    assert!(
+        geometry::prove_descent(
+            &rule,
+            &pole,
+            &sector,
+            OrderingPolicy::SpiredUncutV1,
+            &indices
+        )
+        .is_err()
+    );
+}

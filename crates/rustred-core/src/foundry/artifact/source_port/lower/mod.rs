@@ -115,7 +115,7 @@ pub(super) fn lower_rule<const N: usize>(
         Arc::new(translated.sources),
         translated.contributions,
         fixed,
-        affine,
+        affine.clone(),
         checked.affine_exclusions.clone().into(),
         conditions,
         limits,
@@ -134,6 +134,12 @@ pub(super) fn lower_rule<const N: usize>(
             pieces = refined;
         }
         for piece in pieces {
+            if affine
+                .as_ref()
+                .is_some_and(|domain| domain.is_proved_empty_in_box(&piece))
+            {
+                continue;
+            }
             let mut retained = Vec::new();
             for (shift, coefficient) in &rhs {
                 if geometry::uniformly_zero_wide_with_limits(
@@ -144,14 +150,7 @@ pub(super) fn lower_rule<const N: usize>(
                     zero_sectors,
                     limits.geometry,
                     |coefficient, piece| {
-                        geometry::bounded::coefficient_vanishes(
-                            context,
-                            coefficient,
-                            piece,
-                            &sector,
-                            limits.cell.indexed_algebra,
-                            limits.geometry,
-                        )
+                        parent.coefficient_vanishes(context, coefficient, piece, &sector)
                     },
                 )? {
                     continue;

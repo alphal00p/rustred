@@ -261,6 +261,56 @@ regression. The earlier release snapshot also passed all 1,776 nonignored
 library tests, with 31 diagnostics ignored. None of those ignored diagnostics
 is counted as a four-loop closure success.
 
+### Predicate-aware lowering milestone (2026-09-16)
+
+The finite-leaf correction now preserves the original affine equations while
+enumerating only genuinely finite integer axes. Each leaf is checked for exact
+emptiness before its coefficient is required to vanish; feasible leaves still
+retain the original denominator check. No infinite direction is sampled.
+
+The release `four_loop_affine_sector_grounding` rerun now passes:
+
+| Gate | Result |
+| --- | --- |
+| Generated rules | 94 in 1.205 s |
+| Original-source replay and strict descent | 94/94, reached at 22.329 s |
+| Exact predicate cover | success: 1 predicate, 100 clauses, 3 Boolean nodes |
+| Lowering through the cold-cell verifier | 1,202 rule cells |
+| Whole diagnostic | 44.44 s wall, 43.87 s user + 0.12 s system, 30,784 KiB peak RSS |
+
+The diagnostic deliberately runs the original replay/descent pass and then
+the production `check_sector` pass again before lowering; its total is not
+the timing of a single solver pass or a complete family artifact. It was
+pinned to CPU 34 with one Rayon/OpenMP/BLAS thread. This is one shared-host
+release observation, not a repeated controlled benchmark. Compilation took
+7m40s and is outside the timed test process.
+
+Guard checking now uses Symbolica's native factorization and exact polynomial
+division. A factor's zero set must either miss the actual affine domain or
+imply every equation and fixed coordinate of an excluded predicate. The
+application path retains these predicates on original integral powers.
+The source-port plan tag is bumped to `0x703`, including exact exclusions;
+old layouts are rejected, not migrated. Cold loading regenerates source
+identities and validates cached affine charts once per parent. Installation
+checks the exact predicate cover, never only its rectangular prefilter.
+
+The K1 and K3 release durable tests pass (0.11 s together), and the complete
+K6 generation/cold-load/application regression passes in 5.77 s: 623 rules,
+5,639 cells, 38 typed terminals, 26 zero sectors and 8,916,745 encoded bytes.
+Final-source debug selections pass 95 source-port, 117 affine and 10 codec
+tests (overlapping filters, not a unique combined count). Independent
+implementation and mathematical audits found no blocker. The release test
+snapshot predates the final excluded-chart rejection hardening and diagnostic
+omission-accounting fix; those additions are included in the final debug gates
+and the ensuing CLI build. They do not change the successful H derivation.
+
+The earlier debug-only H probe reached its explicit 120-second cap; that
+inconclusive attempt is not counted as a pass or a release timing. The release
+run above establishes exact coverage and executable lowering for **one H
+sector**, not a whole-family cold-loadable artifact. The next run uses the
+generic `family-close` CLI with the external literal-unit H input and reverse
+coordinate order.
+
 ## Interpretation
 
 None of the three external parents currently has a cold-loadable RustRed
@@ -273,6 +323,6 @@ unsupported nonlinear exceptional branch in about 234 seconds.
 
 These runs do not authorize hard-coded relations, topology-specific dispatch,
 sampled coverage, or a claim of four-loop closure. The next implementation
-requirement is the exact affine/nonlinear exceptional-domain carrier and its
-artifact ownership proof; until that exists, publication must remain
-fail-closed.
+requirement is full-family validation of the exact affine ownership path now
+implemented, with nonlinear exceptional cases remaining unsupported where
+they cannot be proved. Publication stays fail-closed for every unproved region.

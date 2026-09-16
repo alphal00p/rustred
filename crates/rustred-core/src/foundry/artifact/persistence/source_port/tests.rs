@@ -46,6 +46,12 @@ fn changed_rules(
                 plans::encode_affine_domain(&mut writer, &affine).unwrap();
             }
         }
+        writer
+            .usize(parent.affine_exclusions.len(), "affine exclusions")
+            .unwrap();
+        for excluded in parent.affine_exclusions.iter() {
+            plans::encode_affine_domain(&mut writer, excluded).unwrap();
+        }
         writer.usize(parent.requests.len(), "requests").unwrap();
         for (request, coefficient) in parent.requests {
             writer.usize(request.source_ordinal(), "ordinal").unwrap();
@@ -167,6 +173,7 @@ fn valid_parent_reference_cannot_borrow_another_parents_replayed_identity() {
             requests: original.requests.clone(),
             conditions: original.conditions.clone(),
             affine: original.affine.clone(),
+            affine_exclusions: original.affine_exclusions.clone(),
         };
         wrong.requests[0].1 = artifact
             .context
@@ -208,4 +215,307 @@ fn omitted_stored_poles_are_regenerated_before_canonical_payload_admission() {
             field: "combined canonical artifact payload"
         }
     );
+}
+
+fn coupled_exclusion_fixture() -> (
+    crate::algebra::IndexedCoefficientContext,
+    [Arc<crate::foundry::parametric::AffineApplicationDomain>; 2],
+) {
+    use crate::algebra::{CoefficientContext, IndexedCoefficientContext};
+    use crate::foundry::parametric::AffineApplicationDomain;
+    use crate::solver::{AffineCase, AffineIntersection, CoordinateCase};
+
+    let context = IndexedCoefficientContext::try_new(
+        &CoefficientContext::new(["d"]),
+        "affine-exclusion-codec",
+        2,
+    )
+    .unwrap();
+    let domains = [1, 2].map(|slope| {
+        let equation = context
+            .sub(
+                &context.index(0).unwrap(),
+                &context
+                    .mul(&context.integer(slope), &context.index(1).unwrap())
+                    .unwrap(),
+            )
+            .unwrap()
+            .raw()
+            .numerator
+            .clone();
+        let AffineIntersection::Affine(case) = AffineCase::from_coordinate(
+            &CoordinateCase::generic(),
+            &[equation],
+            &[1, 2],
+            &[true, true],
+        )
+        .unwrap() else {
+            panic!("fixture must retain a coupled equality")
+        };
+        Arc::new(AffineApplicationDomain::from_case(&case, &[true, true]).unwrap())
+    });
+    (context, domains)
+}
+
+// Deliberately unsealed arithmetic plans: these codec probes cannot publish a
+// rule. Each parent differs only in its exact exclusion, not weights or RHS.
+fn exclusion_plan_bytes(
+    context: &crate::algebra::IndexedCoefficientContext,
+    exclusions: &[Arc<crate::foundry::parametric::AffineApplicationDomain>],
+) -> Vec<u8> {
+    let mut writer = Writer::new(Default::default());
+    writer.u16(plans::COMBINED_ORIGINAL_PLAN).unwrap();
+    writer.usize(exclusions.len(), "parents").unwrap();
+    for excluded in exclusions {
+        writer.usize(0, "fixed").unwrap();
+        writer.u8(0).unwrap();
+        writer.usize(1, "affine exclusions").unwrap();
+        plans::encode_affine_domain(&mut writer, excluded).unwrap();
+        writer.usize(1, "requests").unwrap();
+        writer.usize(0, "ordinal").unwrap();
+        encode_i64_slice(&mut writer, &vec![0; context.index_count()]).unwrap();
+        encode_indexed_coefficient(&mut writer, &context.one()).unwrap();
+        writer.usize(0, "conditions").unwrap();
+    }
+    writer.usize(exclusions.len(), "cells").unwrap();
+    for parent in 0..exclusions.len() {
+        writer.usize(parent, "parent").unwrap();
+        encode_bool_slice(&mut writer, &vec![true; context.index_count()]).unwrap();
+        plans::encode_box(
+            &mut writer,
+            &crate::foundry::completion::LatticeBox::try_new(
+                vec![0; context.index_count()],
+                vec![None; context.index_count()],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        writer.usize(1, "RHS").unwrap();
+        let mut shift = vec![0; context.index_count()];
+        shift[0] = -1;
+        encode_i64_slice(&mut writer, &shift).unwrap();
+        encode_indexed_coefficient(&mut writer, &context.one()).unwrap();
+    }
+    writer.finish()
+}
+
+#[test]
+fn coupled_exclusion_plans_retain_exact_predicates_and_distinct_parents() {
+    let (context, exclusions) = coupled_exclusion_fixture();
+    let bytes = exclusion_plan_bytes(&context, &exclusions);
+    let mut reader = Reader::root(&bytes, Default::default()).unwrap();
+    let (parents, cells) = plans::decode(&mut reader, &context, 1).unwrap();
+    reader.finish().unwrap();
+    assert_eq!(parents.len(), 2);
+    assert_eq!(
+        cells.iter().map(|cell| cell.parent).collect::<Vec<_>>(),
+        [0, 1]
+    );
+    assert_eq!(parents[0].requests, parents[1].requests);
+    assert_eq!(cells[0].rhs, cells[1].rhs);
+    for (parent, expected) in parents.iter().zip(&exclusions) {
+        assert_eq!(parent.affine_exclusions.as_ref(), &[Arc::clone(expected)]);
+        let mut original = Writer::new(Default::default());
+        plans::encode_affine_domain(&mut original, expected).unwrap();
+        let mut loaded = Writer::new(Default::default());
+        plans::encode_affine_domain(&mut loaded, &parent.affine_exclusions[0]).unwrap();
+        assert_eq!(loaded.finish(), original.finish());
+    }
+    assert_ne!(parents[0].affine_exclusions, parents[1].affine_exclusions);
+    assert!(parents[0].affine_exclusions[0].contains_powers(&[2, 2]));
+    assert!(!parents[1].affine_exclusions[0].contains_powers(&[2, 2]));
+    assert!(parents[1].affine_exclusions[0].contains_powers(&[4, 2]));
+}
+
+#[test]
+fn affine_exclusion_codec_rejects_old_tag_wrong_axis_map_and_sector() {
+    let (context, exclusions) = coupled_exclusion_fixture();
+    let original = exclusion_plan_bytes(&context, &exclusions[..1]);
+    // tag(2), parent count(8), fixed count(8), absent-target tag(1),
+    // exclusion count(8), then the exact domain payload.
+    const DOMAIN: usize = 27;
+    for (mutation, field) in [
+        (0, "combined original plan tag"),
+        (1, "affine index-variable positions"),
+        (2, "affine index-variable positions"),
+        (3, "affine exclusion/cell binding"),
+    ] {
+        let mut bytes = original.clone();
+        match mutation {
+            0 => bytes[..2].copy_from_slice(&0x702u16.to_le_bytes()),
+            // A parameter position must never masquerade as an integral axis.
+            1 => bytes[DOMAIN + 28..DOMAIN + 36].copy_from_slice(&0u64.to_le_bytes()),
+            // An internally valid but permuted map likewise changes ownership.
+            2 => {
+                bytes[DOMAIN + 28..DOMAIN + 36].copy_from_slice(&2u64.to_le_bytes());
+                bytes[DOMAIN + 36..DOMAIN + 44].copy_from_slice(&1u64.to_le_bytes());
+            }
+            3 => bytes[DOMAIN + 8] = 0,
+            _ => unreachable!(),
+        }
+        let mut reader = Reader::root(&bytes, Default::default()).unwrap();
+        assert_eq!(
+            plans::decode(&mut reader, &context, 1).err().unwrap(),
+            ArtifactPersistenceError::SemanticMismatch { field },
+            "mutation {mutation}"
+        );
+    }
+}
+
+#[test]
+fn affine_exclusion_codec_checks_count_budget_and_truncated_predicates() {
+    let (context, exclusions) = coupled_exclusion_fixture();
+    let bytes = exclusion_plan_bytes(&context, &exclusions[..1]);
+    let mut limits = ArtifactLoadLimits::default();
+    limits.rule_cells.max_guards = 0;
+    let mut reader = Reader::root(&bytes, limits).unwrap();
+    assert_eq!(
+        plans::decode(&mut reader, &context, 1).err().unwrap(),
+        ArtifactPersistenceError::ResourceLimit {
+            resource: "affine exclusions",
+            requested: 1,
+            limit: 0,
+        }
+    );
+    let mut encoded = Writer::new(Default::default());
+    plans::encode_affine_domain(&mut encoded, &exclusions[0]).unwrap();
+    let domain_bytes = encoded.finish();
+    for boundary in [19, 26, 27, 27 + 8, 27 + 28, 27 + domain_bytes.len() - 1] {
+        let mut reader = Reader::root(&bytes[..boundary], Default::default()).unwrap();
+        assert!(
+            matches!(
+                plans::decode(&mut reader, &context, 1),
+                Err(ArtifactPersistenceError::Truncated { .. })
+            ),
+            "boundary {boundary}"
+        );
+    }
+}
+
+#[test]
+fn cold_artifact_rejects_affine_exclusion_axis_and_sector_substitution() {
+    use crate::foundry::parametric::AffineApplicationDomain;
+    use symbolica::prelude::{Integer, IntegerRing, Matrix};
+    let artifact = installed_k1_for_codec_test();
+    for (indices, sector, field) in [
+        (vec![0], vec![true], "affine index-variable positions"),
+        (vec![1], vec![false], "affine exclusion/cell binding"),
+    ] {
+        // Structural untrusted data, not a solver-issued affine rule. The
+        // cold loader must reject these bindings before any replay authority.
+        let domain = AffineApplicationDomain::from_persisted(
+            sector.into_boxed_slice(),
+            vec![None].into_boxed_slice(),
+            indices.into_boxed_slice(),
+            vec![artifact.context.index(0).unwrap().raw().numerator.clone()].into_boxed_slice(),
+            Matrix::from_linear(vec![Integer::from(1), Integer::from(0)], 1, 2, IntegerRing)
+                .unwrap(),
+            true,
+        )
+        .unwrap();
+        let bytes = changed_rules(&artifact, |parents, _| {
+            parents[0].affine_exclusions = Arc::from([Arc::new(domain)]);
+        });
+        assert_eq!(
+            ClosedArtifact::decode_durable(&bytes).unwrap_err(),
+            ArtifactPersistenceError::SemanticMismatch { field }
+        );
+    }
+}
+
+#[test]
+fn cold_parent_rebuilds_exclusion_matrix_and_chart_from_exact_equations() {
+    use crate::foundry::cell::SourceViewBatch;
+    use crate::foundry::parametric::AffineApplicationDomain;
+    use crate::identity::{IntegralShift, ParametricIbpGenerator};
+    use crate::solver::{AffineCase, AffineIntersection, CoordinateCase};
+    use symbolica::prelude::{Integer, IntegerRing, Matrix};
+
+    let family = crate::foundry::artifact::two_loop::canonical_family(Default::default()).unwrap();
+    let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let batch = generator.prepare_ordinary_ibp().unwrap();
+    let rows = (0..batch.len())
+        .map(|ordinal| batch.generate(ordinal))
+        .collect();
+    let completed = batch.complete(rows).unwrap();
+    let translated = generator
+        .translate_completed_source_rows(
+            &completed,
+            [IntegralShift::try_new([0; 3]).unwrap()],
+            Default::default(),
+        )
+        .unwrap();
+    let sources =
+        Arc::new(SourceViewBatch::try_select(translated, &[0], Default::default()).unwrap());
+    let context = generator.context();
+    let first = context.base().variables().len();
+    let equation = context
+        .sub(&context.index(0).unwrap(), &context.index(1).unwrap())
+        .unwrap()
+        .raw()
+        .numerator
+        .clone();
+    let AffineIntersection::Affine(case) = AffineCase::from_coordinate(
+        &CoordinateCase::generic(),
+        &[equation],
+        &[first, first + 1, first + 2],
+        &[true; 3],
+    )
+    .unwrap() else {
+        panic!("expected a coupled exclusion")
+    };
+    let correct = AffineApplicationDomain::from_case(&case, &[true; 3]).unwrap();
+    for mutation in 0..3 {
+        let original = correct.primitive_matrix().unwrap();
+        let mut entries = original
+            .row_iter()
+            .flat_map(|row| row.iter().cloned())
+            .collect::<Vec<_>>();
+        if mutation == 1 {
+            entries[0] += Integer::from(1);
+        }
+        let matrix = Matrix::from_linear(
+            entries,
+            original.nrows() as u32,
+            original.ncols() as u32,
+            IntegerRing,
+        )
+        .unwrap();
+        let domain = AffineApplicationDomain::from_persisted(
+            correct.sector().to_vec().into_boxed_slice(),
+            correct.fixed().to_vec().into_boxed_slice(),
+            correct.indices().to_vec().into_boxed_slice(),
+            correct.equations().to_vec().into_boxed_slice(),
+            matrix,
+            correct.has_integral_chart().unwrap() ^ (mutation == 2),
+        )
+        .unwrap();
+        let bytes = exclusion_plan_bytes(context, &[Arc::new(domain)]);
+        let mut reader = Reader::root(&bytes, Default::default()).unwrap();
+        let (mut plans, _) = plans::decode(&mut reader, context, 4).unwrap();
+        reader.finish().unwrap();
+        let plan = plans.pop().unwrap();
+        let result = PreparedOriginalDomain::try_new(
+            context,
+            Arc::clone(&sources),
+            vec![(0, sources.relations()[0].row_id().clone(), context.one())],
+            Vec::new(),
+            None,
+            plan.affine_exclusions,
+            Vec::new(),
+            Default::default(),
+        );
+        if mutation == 0 {
+            assert!(result.is_ok(), "unchanged decoded witness rejected");
+        } else {
+            assert!(
+                result
+                    .err()
+                    .unwrap()
+                    .to_string()
+                    .contains("cached matrix/chart"),
+                "mutation {mutation}"
+            );
+        }
+    }
 }

@@ -5,7 +5,16 @@
 The active tool-managed goal is now complete four-loop single-scale vacuum
 closure and FORM-less Vakint evaluation against every applicable FMFT example.
 K1/K3/K6 assets and exact offline terminal projections are shipped on
-GammaLoop's `vakint_rustred` branch. **Acceptance-report correction:** revision
+GammaLoop's `vakint_rustred` branch. **Latest validation (2026-09-16):** the
+confirmed MATAD signed-numerator routing correction now passes 34 freshly
+built tests: three routing regressions, all sixteen K6 pipeline tests and all
+fifteen AlphaLoop/MATAD comparison tests. Both previously failing all-class
+tests now reach all five three-loop classes, with unchanged tolerances and
+an invalid FORM path on the FeynKit/RustRed lanes. Two independent source
+audits and a separate test rerun confirm the correction. This resolves the
+known failures, not a fresh rerun of the entire historical 83-test inventory.
+
+**Historical acceptance-report correction:** revision
 `98550cc0` records 76 passing invocations but does not establish complete
 through-three-loop acceptance. Its three-loop selection has 24 tests while
 the result table contains only 17. One omitted test's raw output records an
@@ -25,13 +34,11 @@ the constant numerator, all three loop squares, and `k1.k2` agree with MATAD;
 numerator term. Source inspection identifies missing parent-edge orientation
 signs in MATAD's contracted-loop numerator mapping. Two independent audits
 confirm the signed map `[+p4,+p5,+p6,-p1,+p2,-p3]` from its momentum identities.
-The adapter correction and unchanged acceptance-suite rerun are still needed
-before resolving this gap.
+The correction and targeted rerun above resolve this gap.
 Native peers use FeynKit, RustRed and an invalid FORM path. The legacy
-40-entry / 46-input inventory now has passing mapped peers, but complete
-supplemental all-class parity is not established.
-Reconcile this discrepancy alongside four-loop work; do not weaken assertions
-or repeat the historical complete-suite claim.
+40-entry / 46-input inventory has passing mapped peers; the new rerun adds
+passing supplemental all-class parity. Preserve the failed historical evidence
+and the distinction between targeted and full-suite reruns.
 
 Four-loop closure is **not yet achieved**. Its physical parent families H, X,
 BMW and FG are explicit files in `examples/input`, each completed to ten
@@ -55,8 +62,9 @@ The bounded natural-order parent probes now also record X timing out at
 845,304 KiB, and FG failing closed after 233.534 s with 1,087,096 KiB on an
 unsupported nonlinear exceptional intersection. None wrote an artifact. The
 exact affine-domain carrier and membership predicate are pushed in `ed889f8`;
-authenticated RuleCell ownership, persistence, and coverage remain
-intentionally absent.
+authenticated RuleCell ownership, persistence, and coverage were absent at
+that checkpoint. The predicate-aware implementation and sector validation
+described below supersede that limitation; full-family acceptance is pending.
 
 Vakint revision `512d3ce8` adds a pure-Symbolica FMFT master-finalization
 boundary without activating four-loop RustRed reduction. Eight native tests
@@ -67,25 +75,26 @@ RustRed revision `ce92d3a7` for its existing coherent Symbolica 2.2 stack;
 alignment with RustRed's current Symbolica 3.0 stack remains required before
 four-loop artifact integration. No temporary local dependency is shipped.
 
-The current source-port artifact bridge accepts coordinate ownership. It may
-omit unsupported affine candidates only if independently replayed, descending
-coordinate rules and finite terminals already prove whole-sector coverage.
-Indispensable affine conditions still fail closed. See
+The source-port artifact bridge now retains exact affine targets and exclusions,
+proves guards on those predicates, and certifies their whole-sector cover. It
+may omit unsupported candidates only if independently replayed, descending
+rules and finite terminals already prove coverage. Unproved conditions still
+fail closed. See
 [four-loop ordering evidence](docs/four_loop_ordering_probe.md). Parallel agents
 develop and independently audit the Vakint and artifact-delivery slices;
 RustRed continues to own the generic rule applier and all algebra stays with
 Symbolica. Four-loop numerical tables must state their actual precision:
 existing FMFT constants do not supply a universal 20,000-digit catalog.
 
-The current affine-validation slice fixes two distinct boundary problems:
-integer-impossible activation cells and coordinate exceptions nested inside
-an affine target. It also shares Symbolica's exact affine restriction chart
-between discovery and cold replay, and adds a bounded predicate-aware sector
-coverage checker. These checks are not yet an enabled affine-artifact
-producer: predicate-aware guard proof, durable exclusion encoding, final
-installation and cold family validation remain required. The targeted H
-sector is an implementation regression, not whole-four-loop closure; current
-measurements and rerun results belong in
+The affine-validation slice now also checks finite coefficient leaves against
+the original affine domain, proves guard-zero faces empty or wholly excluded,
+and persists exact exclusions in the new source-port plan format. A release
+rerun of H sector `0010011001` passes all 94 rules, exact predicate coverage and
+lowering to 1,202 rule cells in 44.44 seconds (including two replay passes;
+generation alone 1.205 seconds). K1/K3/K6 durable regressions pass. The targeted
+H sector is an implementation regression, not whole-four-loop closure. The
+next gate is a full-family CLI attempt followed by cold reload and reduction.
+Current measurements and rerun results belong in
 [the parent-probe report](docs/four_loop_parent_closure_probe.md).
 
 ## Parallel Vakint delivery directive (2026-09-14)

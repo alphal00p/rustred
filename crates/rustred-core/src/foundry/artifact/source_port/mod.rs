@@ -10,7 +10,7 @@ mod certificate;
 mod geometry;
 mod normalization;
 mod ordinary;
-mod predicate_cover;
+pub(in crate::foundry::artifact) mod predicate_cover;
 mod program;
 mod replay;
 pub(crate) use program::lower::ReplayedOriginalDomain;
@@ -32,12 +32,10 @@ use crate::solver::{SectorConfig, SectorSolution, SectorSolver, SourceSystem};
 
 pub use affine::AffineApplicationDomain;
 
-/// The role of an affine case which the box-only artifact bridge encountered.
+/// The role of an affine case requiring an exact ownership proof.
 ///
-/// This is deliberately a diagnostic distinction: the current bridge cannot
-/// publish coupled domains, but retaining the exact case equations makes the
-/// limitation actionable for a future affine-domain owner instead of reducing
-/// it to an opaque string.
+/// Retaining the exact equations makes incomplete source or ownership proofs
+/// actionable rather than reducing the case to an opaque string.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AffineOwnershipRole {
     Target,
@@ -49,8 +47,8 @@ pub enum AffineOwnershipRole {
 pub enum SourcePortAuditError {
     /// Ordinary bridge/validation failure.
     Message(String),
-    /// The exact affine case is valid search output, but cannot be represented
-    /// by the current rectangular application-domain artifact bridge.
+    /// Search output lacks an exact ownership proof in the calling path.
+    /// In particular, box-only callers must not discard coupled predicates.
     ///
     /// `sector` is the canonical positive/negative orthant mask and
     /// `equations` are the canonical coupled equalities in the family index
@@ -124,7 +122,7 @@ pub struct SourcePortSectorAudit<const N: usize> {
     pub exact_replayed_rules: usize,
     pub uniformly_descending_rules: usize,
     /// Affine candidate rules omitted only when the independently retained
-    /// coordinate cells and terminals prove a complete exact cover.  Such a
+    /// predicate-aware cells and terminals prove a complete exact cover. Such a
     /// rule is redundant for execution, not silently accepted as an
     /// unverified identity.
     pub redundant_affine_rules: usize,
@@ -298,8 +296,7 @@ impl<const N: usize> SourcePortAudit<N> {
             issues: Vec::new(),
             elapsed: Duration::ZERO,
         };
-        let mut stored_boxes = Vec::new();
-        let mut checked_boxes = Vec::new();
+        let mut stored_partitions = Vec::new();
         let mut retained_rules = Vec::new();
         let mut affine_candidates = Vec::new();
         for (ordinal, rule) in solution.rules.iter().enumerate() {
@@ -309,7 +306,7 @@ impl<const N: usize> SourcePortAudit<N> {
                 )),
                 None => None,
             };
-            let stored = match geometry::application_boxes(
+            let stored = match geometry::application_partition(
                 rule,
                 self.sources.index_variables(),
                 &sector,
@@ -330,12 +327,12 @@ impl<const N: usize> SourcePortAudit<N> {
                     continue;
                 }
             };
-            // `application_boxes` returns an empty cover for an affine target
+            // `application_partition` returns no boxes for an affine target
             // proved contradictory with this sector.  It is not a replayable
             // rule and must be omitted, rather than admitted with a vacuous
             // application domain.  Coordinate targets cannot reach this
             // branch because their case box is always nonempty.
-            if stored.is_empty() && rule.candidate.case.affine().is_some() {
+            if stored.boxes.is_empty() && rule.candidate.case.affine().is_some() {
                 // This affine domain was proved empty in the sector.  It is
                 // a vacuous candidate, so account for its omission directly
                 // rather than sending it through the unresolved-affine
@@ -344,30 +341,34 @@ impl<const N: usize> SourcePortAudit<N> {
                 report.redundant_affine_rules += 1;
                 continue;
             }
+            stored_partitions.push((stored, affine_target.clone()));
+            let stored = &stored_partitions.last().expect("just inserted partition").0;
             // A coupled candidate without a source trace is only a search
             // witness.  Keep it in the independent affine-candidate census
-            // (so a complete rectangular cover may make it redundant), but
+            // (so a complete independent cover may make it redundant), but
             // never send it through replay or treat its face prefilter as an
             // executable rule.
-            if rule.candidate.case.affine().is_some() && rule.candidate.sources.is_empty() {
-                if let Some(domain) = affine_target.clone() {
+            if rule.candidate.sources.is_empty() {
+                let predicate = affine_target
+                    .clone()
+                    .map(|domain| (domain, AffineOwnershipRole::Target))
+                    .or_else(|| {
+                        stored
+                            .affine_exclusions
+                            .first()
+                            .cloned()
+                            .map(|domain| (domain, AffineOwnershipRole::Exceptional))
+                    });
+                if let Some((domain, role)) = predicate {
                     affine_candidates.push((
                         ordinal,
                         SourcePortAuditError::UnsupportedAffineOwnership {
                             domain: (*domain).clone(),
-                            role: AffineOwnershipRole::Target,
+                            role,
                         },
                     ));
+                    continue;
                 }
-                continue;
-            }
-            // An affine face box is only a conservative prefilter, never a
-            // rectangular coverage certificate.  Keep it out of both cover
-            // ledgers so an affine candidate can be omitted only when the
-            // independently replayed coordinate rules already cover the
-            // whole sector.
-            if affine_target.is_none() {
-                stored_boxes.extend(geometry::copy_boxes(&stored)?);
             }
             match replay::replay_rule(
                 &self.sources,
@@ -377,12 +378,12 @@ impl<const N: usize> SourcePortAudit<N> {
                 &order,
                 &self.zero_sectors,
                 rule,
-                &stored,
+                &stored.boxes,
             ) {
                 Ok(replay) => {
                     report.replay_source_entries += replay.ordinary.contributions.len();
                     report.additional_replay_guard_branches += replay.additional_exceptions.len();
-                    let checked = match geometry::application_boxes(
+                    let checked = match geometry::application_partition(
                         rule,
                         self.sources.index_variables(),
                         &sector,
@@ -407,46 +408,24 @@ impl<const N: usize> SourcePortAudit<N> {
                     };
                     match geometry::prove_descent(
                         rule,
-                        &checked,
+                        &checked.boxes,
                         &sector,
                         ordering,
                         self.sources.index_variables(),
                     ) {
                         Ok(()) => {
-                            // A successful rectangular descent proof is not
-                            // an ownership proof for a coupled target locus.
-                            // Keep such candidates in the affine census and
-                            // omit them only if the independent coordinate
-                            // cover is complete; the installer remains
-                            // rectangular-only until predicate ownership is
-                            // authenticated end to end.
-                            if let Some(domain) = affine_target.clone() {
-                                affine_candidates.push((
-                                    ordinal,
-                                    SourcePortAuditError::UnsupportedAffineOwnership {
-                                        domain: (*domain).clone(),
-                                        role: AffineOwnershipRole::Target,
-                                    },
-                                ));
-                                continue;
-                            }
-                            // Count only executable rules.  An affine
-                            // candidate that is later omitted under an
-                            // independent complete coordinate cover is not
-                            // an exact replayed rule in the checked program;
-                            // it is accounted for exclusively as redundant.
+                            // Individual replay/descent is not whole-sector
+                            // ownership. Exact predicates remain attached for
+                            // the independent cover proof below and cold load.
                             report.exact_replayed_rules += 1;
                             report.uniformly_descending_rules += 1;
                             let retained = program::CheckedRule::retain(
                                 rule,
                                 replay.ordinary,
-                                checked,
+                                checked.boxes,
                                 affine_target.clone(),
-                                Vec::new(),
+                                checked.affine_exclusions,
                             )?;
-                            if affine_target.is_none() {
-                                checked_boxes.extend(geometry::copy_boxes(&retained.application)?);
-                            }
                             retained_rules.push(retained);
                         }
                         Err(issue) => {
@@ -477,16 +456,45 @@ impl<const N: usize> SourcePortAudit<N> {
             .iter()
             .map(|terminal| std::array::from_fn(|axis| i64::from(terminal[axis].value())))
             .collect();
-        stored_boxes.extend(geometry::copy_boxes(&terminal_boxes)?);
-        checked_boxes.extend(terminal_boxes);
+        use predicate_cover::{PredicateCoverLimits, PredicateCoveragePiece};
+        let stored_owners: Vec<_> = stored_partitions
+            .iter()
+            .map(|(partition, target)| PredicateCoveragePiece {
+                boxes: &partition.boxes,
+                affine_target: target.as_deref(),
+                affine_exclusions: &partition.affine_exclusions,
+            })
+            .collect();
+        let checked_owners: Vec<_> = retained_rules
+            .iter()
+            .map(|rule| PredicateCoveragePiece {
+                boxes: &rule.application,
+                affine_target: rule.affine.as_deref(),
+                affine_exclusions: &rule.affine_exclusions,
+            })
+            .collect();
+        let coverage =
+            |owners: &[PredicateCoveragePiece<'_>]| match predicate_cover::certify_predicate_cover(
+                &sector,
+                owners,
+                &terminal_boxes,
+                PredicateCoverLimits::default(),
+            ) {
+                Ok(_) => Ok((0, 0)),
+                Err(predicate_cover::PredicateCoverError::Uncovered {
+                    boxes,
+                    unbounded_boxes,
+                }) => Ok((boxes, unbounded_boxes)),
+                Err(issue) => Err(error(issue)),
+            };
         (
             report.stored_guard_uncovered_boxes,
             report.stored_guard_unbounded_boxes,
-        ) = geometry::uncovered(N, stored_boxes)?;
+        ) = coverage(&stored_owners)?;
         (
             report.checked_rule_uncovered_boxes,
             report.checked_rule_unbounded_boxes,
-        ) = geometry::uncovered(N, checked_boxes)?;
+        ) = coverage(&checked_owners)?;
         let affine_cover_complete = report.stored_guard_uncovered_boxes == 0
             && report.stored_guard_unbounded_boxes == 0
             && report.checked_rule_uncovered_boxes == 0
@@ -495,7 +503,7 @@ impl<const N: usize> SourcePortAudit<N> {
             report.redundant_affine_rules += affine_candidates.len();
         } else if !affine_candidates.is_empty() {
             report.issues.push(format!(
-                "{} affine candidate rules cannot be omitted because the retained coordinate cover is incomplete",
+                "{} affine candidate rules cannot be omitted because the retained exact predicate cover is incomplete",
                 affine_candidates.len(),
             ));
             for (ordinal, issue) in affine_candidates {

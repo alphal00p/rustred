@@ -206,6 +206,61 @@ impl BaseCoefficientSystem {
 }
 
 impl IndexedCoefficientContext {
+    /// Bounded native factorization of one index-only guard coefficient.
+    /// Callers retain a shared charge across alternative coefficients; this
+    /// deliberately reuses the existing guard lane's admission envelope.
+    pub(crate) fn factor_guard_coefficient_with_limits(
+        &self,
+        value: &IndexedPolynomial,
+        algebra: IndexedAlgebraLimits,
+        limits: IndexedGuardLimits,
+        charged_work: &mut usize,
+    ) -> Result<Vec<IndexedPolynomial>, IndexedAlgebraError> {
+        self.validate_polynomial_with_limits(value, algebra.exact_algebra)?;
+        let raw = value.raw();
+        let base_count = self.base().variables().len();
+        if raw.is_zero() || (0..base_count).any(|position| raw.degree(position) != 0) {
+            return Err(IndexedAlgebraError::Symbolica(
+                "guard factor input must be a nonzero index-only coefficient".to_owned(),
+            ));
+        }
+        let work = separable_factor_work(raw, base_count, limits)?;
+        *charged_work =
+            charged_work
+                .checked_add(work)
+                .ok_or(IndexedAlgebraError::ResourceCountOverflow {
+                    resource: "guard affine factor work",
+                })?;
+        check_limit(
+            "guard affine factor work",
+            *charged_work,
+            limits.max_gcd_factor_work,
+        )?;
+        let factors = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| raw.factor()))
+            .map_err(|_| {
+                IndexedAlgebraError::Symbolica(
+                    "Symbolica panicked while factoring an affine-domain guard coefficient"
+                        .to_owned(),
+                )
+            })?;
+        validate_factorization_output(&factors, limits)?;
+        if factors.is_empty()
+            || factors
+                .iter()
+                .any(|(factor, multiplicity)| factor.is_zero() || *multiplicity == 0)
+        {
+            return Err(IndexedAlgebraError::Symbolica(
+                "native guard factorization returned no complete nonzero factor list".to_owned(),
+            ));
+        }
+        factors
+            .into_iter()
+            .map(|(factor, _)| {
+                self.admit_native_polynomial_result_with_limits(factor, algebra.exact_algebra)
+            })
+            .collect()
+    }
+
     /// Expand `value` in the authenticated base variables and retain its exact
     /// index-polynomial coefficients in deterministic monomial order.
     ///
