@@ -1,8 +1,44 @@
 # Four-loop Vakint matcher census
 
-Frozen on 2026-09-16 against GammaLoop `a3d26dab9eaa4d141196b302ec95e2b8c888c2de`
-on `vakint_rustred`. This is a matcher/input audit, **not four-loop IBP closure
-or native numerical acceptance**.
+The original census was frozen on 2026-09-16 against GammaLoop
+`a3d26dab9eaa4d141196b302ec95e2b8c888c2de` on `vakint_rustred`. The typed
+routing-validation milestone is now pushed as
+`30705f12303ae41275fd61ce3ee4bbb8349dd002`. Both establish matcher/input
+compatibility, **not four-loop IBP closure or native numerical acceptance**.
+
+## Shipped typed routing validation
+
+The existing K6 parent checks now share the crate-private
+`Integral::validate_parent_routing` validator. It verifies every defining
+parent slot, including contracted-away slots, and transports surviving
+canonical momenta with Symbolica's simultaneous replacement. Comparisons
+retain exact momentum signs. K6 mass/power handling is unchanged; no graph
+rematching, topology-name dispatch, new momentum solve or FORM call is added.
+
+Typed tests use the matcher's internal records directly, without the Debug
+inspection used by the original external diagnostic below. They validate all
+**19 registered classes, 123 surviving physical slots and six nonidentity
+parent-routing witnesses**, with structural parent counts `[1,1,1,16]`.
+Renaming every topology to an opaque label leaves the checks valid. Negative
+tests reject missing or malformed routing, corrupted coordinates or momenta,
+a changed pinched-out parent slot, invalid descriptors and sign flips.
+Every four-loop class still explicitly rejects RustRed scalar admission,
+including when master substitution is disabled.
+
+The milestone passed formatting, `cargo check`, scoped Clippy with
+`-D warnings`, and independent routing review. Its fresh focused gate has
+**39 passes: 23 library tests and 16 K6 pipeline tests**, with **one existing
+offline FORM/MATAD terminal-catalog comparison ignored**. Native library tests
+use an invalid FORM path; the pipeline retains invalid paths for its strict
+native lanes and FORM5 only for independent legacy oracle lanes. The full
+**83-test acceptance inventory passed at the prior milestone but was not
+rerun for this routing-only change**. These debug runs are correctness checks,
+not performance benchmarks or four-loop numerical acceptance.
+
+Commands, executable hashes, test names and results are retained at
+`/tmp/vakint-four-loop-routing.dkHXAz/RESULTS.md` and adjacent logs. No
+dependency pin, shipped artifact, terminal catalog, public API or default
+evaluation policy changed in this milestone.
 
 ## Coverage target
 
@@ -72,7 +108,7 @@ witness must transport the scalar numerator; sequential substitution is not
 equivalent. The production adapter must use the existing typed witness, with
 no second graph match or momentum-basis solve.
 
-## Frozen inputs and diagnostic boundary
+## Original frozen inputs and diagnostic boundary
 
 | Input under `examples/input/` | SHA256 |
 | --- | --- |
@@ -83,10 +119,10 @@ no second graph match or momentum-basis solve.
 
 The diagnostic links the frozen migrated Vakint library, SHA256
 `cb237cee0c1743ff3cb90f8cbc60ced070dec65c72b776340aa7c71871cafcde`,
-using published RustRed `09cef8e3` and Symbolica `953e26e2`. No GammaLoop
-production code, artifacts or dependencies were changed. The run used an
-invalid FORM path and passed in 0.57 seconds wall; this is a debug correctness
-diagnostic, not a solver benchmark.
+using published RustRed `09cef8e3` and Symbolica `953e26e2`. That original
+diagnostic changed no GammaLoop production code, artifacts or dependencies.
+The run used an invalid FORM path and passed in 0.57 seconds wall; this is a
+debug correctness diagnostic, not a solver benchmark.
 
 To inspect private fields without changing visibility, the external diagnostic
 reads its own native Debug records and passes complete Atom byte arrays to

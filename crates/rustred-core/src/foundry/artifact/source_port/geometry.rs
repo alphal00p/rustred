@@ -9,6 +9,7 @@
 mod grounding;
 
 pub(super) mod bounded;
+mod relative_face;
 
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
@@ -149,18 +150,11 @@ pub(super) fn application_partition<const N: usize>(
                 // an exact relative exclusion, not an affine approximation.
                 // This matters for source replay on activation boundaries:
                 // the excluded face must not remain in the replay prefilter.
-                if let Some(parent) = rule.candidate.case.affine() {
-                    let mut implied = true;
-                    for equation in affine.equations() {
-                        if !parent.restrict_equation(equation).map_err(error)?.is_zero() {
-                            implied = false;
-                            break;
-                        }
-                    }
-                    if implied {
-                        excluded.push(case_box(affine.face(), sector)?);
-                        continue;
-                    }
+                if let Some(parent) = rule.candidate.case.affine()
+                    && relative_face::is_coordinate_exception(parent, affine, sector)?
+                {
+                    excluded.push(case_box(affine.face(), sector)?);
+                    continue;
                 }
                 affine_exclusions.push(Arc::new(
                     AffineApplicationDomain::from_case(affine, sector).map_err(error)?,

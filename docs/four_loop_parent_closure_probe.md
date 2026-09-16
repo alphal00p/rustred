@@ -1,12 +1,19 @@
 # Four-loop external-parent closure probe
 
-Latest checkpoint, 2026-09-16: optional exact preconditioner provenance now
-allows the **selected** FG214 audit to finish in 106.60 seconds, revealing
-seven stored-guard geometry failures and an incomplete predicate cover. The
-**full physical-FG CLI attempt** now also finishes in 138.07 seconds with the
-same fail-closed proof result, not a timeout. No four-loop artifact is
-published. The sections below preserve the chronological evidence for the
-earlier timeout runs and these distinct selected/full workloads.
+Latest checkpoint, 2026-09-16: generic exact-domain corrections now admit all
+**161/161** FG214 rules in a **selected release** audit (85.10 seconds wall),
+after replay and uniform descent. Publication still rejects predicate coverage.
+The first reported abstract Boolean witness is impossible: it fixes
+`n5=-1,n9=0` but assumes `1+n5-n9 != 0`. An existing rule owns the point;
+native fixed-coordinate consistency is the next proof-service correction.
+This does not certify later branches or establish whole-family closure.
+
+The last **full physical-FG CLI attempt**, before these geometry corrections,
+finished in 138.07 seconds with 154/161 rules admitted in that sector, rather
+than timing out. No four-loop artifact is published. See the
+[current exact-domain report](research/original_source_certificate_performance.md).
+The sections below preserve chronological evidence for earlier timeout runs
+and these distinct selected/full workloads.
 
 This is a bounded runtime probe of the three external four-loop unit-mass
 parents that are not the H input. It deliberately uses the unchanged generic

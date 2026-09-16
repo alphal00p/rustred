@@ -30,6 +30,18 @@ preserved. Symbolica 3 uses runtime signed licensing; the removed OEM activation
 path is not emulated. Evidence is retained in
 `/tmp/vakint-symbolica3-main.bMELju/acceptance/`.
 
+**Four-loop routing milestone (2026-09-16):** GammaLoop `30705f12` is pushed
+to `vakint_rustred`. Typed tests exercise the existing simultaneous routing
+witnesses for all 19 registered four-loop classes and 123 surviving physical
+slots, including six nonidentity witnesses. The shared parent validator
+preserves signed momenta and checks contracted-away defining slots as well.
+The focused gate passes 39 tests (23 library and 16 K6 pipeline), with one
+existing offline catalog comparison ignored; the full 83-test inventory was
+not rerun for this routing-only change. No dependency pin, shipped artifact,
+default, or public API changed, and four-loop RustRed admission remains
+unavailable pending exact artifacts and numerical validation. See the
+[typed census and evidence](docs/four_loop_vakint_census.md).
+
 The earlier physical FG full-family blocker was an exact-source certificate failure,
 not failure to finish the sector search. That scoped release campaign searched all
 124 nonzero sectors in 32.9 seconds, then rejects three certificates in sector
@@ -106,6 +118,34 @@ extension is not rebuilt for this certificate-only slice. The next gate is
 the independently audited generic geometry correction and another exact
 full-family attempt. Evidence:
 `/tmp/rustred-provenance-certificate.gSddBU/`.
+
+**Exact-domain follow-up (2026-09-16):** relative child-face implication,
+native joint-equation reduction after singleton specialization, and bounded
+exhaustion of one short finite axis are implemented and independently audited.
+The combined solver/source-port/affine gate passes 427 tests, zero failed,
+five existing ignored. An intermediate selected release run admits 159/161
+FG214 rules in 100.29 seconds; the final bounded-refinement snapshot admits
+**161/161 replayed and uniformly descending rules in 85.10 seconds wall**
+(15.086 s search, 69.748 s audit). These single shared-host observations are
+not controlled speed ratios. All 11 finite terminal candidates are unchanged.
+
+Sector publication still rejects the exact predicate cover. The new bounded
+diagnostic identifies its first abstract Boolean failure at
+`n=(-1,1,1,0,1,-1,1,1,-2,0)`: it assigns `1+n5-n9` nonzero although that
+polynomial is zero there. Independent inspection finds stored rule 117 owns
+the point. Thus this first witness is unrealizable, not a new uncovered
+integral; it says nothing about later failed valuations or whole-family
+closure. A narrow native singleton-substitution consistency check is the next
+implementation, with nonconstant restrictions, unknowns and budget failures
+remaining inconclusive. No extra terminal, sampling, or weakened replay is
+authorized. This release snapshot has not rerun the full family and writes
+no four-loop artifact. Evidence:
+`/tmp/rustred-affine-width-release.CNbu4g/`.
+The same snapshot passes release K1/K3/K6 core generation followed by
+fresh-process inspection and canary application with the preceding compatible
+CLI. Artifact bytes and reductions are unchanged. The unnamed diagnostic K6
+input takes 2.88 seconds wall; this is not the named CLI benchmark or a new
+frontend build. These lower-loop regressions do not establish four-loop closure.
 
 The frozen Symbolica 3 Vakint baseline independently passes all **15 existing
 deterministic four-loop FMFT reference entrypoints**, including the decorated

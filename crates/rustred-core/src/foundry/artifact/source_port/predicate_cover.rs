@@ -21,6 +21,9 @@ use crate::foundry::completion::{BoxCover, CompletionGeometryLimits, LatticeBox}
 
 use super::AffineApplicationDomain;
 
+mod diagnostic;
+use diagnostic::PredicateCoverWitness;
+
 /// Borrowed domains of independently replayed and descending rules.
 /// Coverage alone never validates the algebraic rule. Callers must supply
 /// only checked owners, and repeat this check after cold replay.
@@ -66,6 +69,7 @@ pub(in crate::foundry::artifact) enum PredicateCoverError {
     Uncovered {
         boxes: usize,
         unbounded_boxes: usize,
+        witness: Box<PredicateCoverWitness>,
     },
 }
 
@@ -78,9 +82,10 @@ impl fmt::Display for PredicateCoverError {
             Self::Uncovered {
                 boxes,
                 unbounded_boxes,
+                witness,
             } => write!(
                 f,
-                "predicate cover leaves {boxes} possibly uncovered boxes ({unbounded_boxes} unbounded)"
+                "predicate cover's first failed abstract Boolean branch leaves {boxes} possibly uncovered boxes ({unbounded_boxes} unbounded); not an exhaustive complement census\n{witness}"
             ),
         }
     }
@@ -201,7 +206,8 @@ pub(in crate::foundry::artifact) fn certify_predicate_cover(
     let mut assignments = vec![None; atoms.len()];
     let mut nodes = 0;
     check_valuations(
-        sector.len(),
+        sector,
+        &atoms,
         &clauses,
         &constraints,
         &mut assignments,
@@ -309,7 +315,8 @@ fn subtract_predicate(
 }
 
 fn check_valuations(
-    arity: usize,
+    sector: &[bool],
+    atoms: &[Atom<'_>],
     clauses: &[Clause],
     constraints: &[EqualityConstraint<'_>],
     assignments: &mut [Option<bool>],
@@ -340,7 +347,7 @@ fn check_valuations(
             definite.push(copy_box(&clause.domain)?);
         }
     }
-    let complement = BoxCover::try_new(arity, definite, limits.geometry)
+    let complement = BoxCover::try_new(sector.len(), definite, limits.geometry)
         .map_err(geometry)?
         .uncovered_partition()
         .map_err(geometry)?;
@@ -371,12 +378,34 @@ fn check_valuations(
                 .iter()
                 .filter(|cell| cell.free_dimension() > 0)
                 .count(),
+            witness: Box::new(PredicateCoverWitness::capture(
+                sector,
+                possible[0],
+                atoms,
+                assignments,
+            )),
         });
     };
     assignments[atom] = Some(false);
-    check_valuations(arity, clauses, constraints, assignments, nodes, limits)?;
+    check_valuations(
+        sector,
+        atoms,
+        clauses,
+        constraints,
+        assignments,
+        nodes,
+        limits,
+    )?;
     assignments[atom] = Some(true);
-    check_valuations(arity, clauses, constraints, assignments, nodes, limits)?;
+    check_valuations(
+        sector,
+        atoms,
+        clauses,
+        constraints,
+        assignments,
+        nodes,
+        limits,
+    )?;
     assignments[atom] = None;
     Ok(())
 }

@@ -41,11 +41,16 @@ nonzero sectors in 39.9 seconds, yielding 9,272 candidate rules and 145 finite
 residuals. Exact preconditioner provenance now avoids repeating an expensive
 source-certificate solve. The run passes 32 sector audits and finishes in
 138.07 seconds with a precise rejection, rather than the previous timeout:
-154/161 rules pass in sector 214; seven affine cases still fail geometry checks.
-It writes **no closed artifact**. Independent audit identifies missing exact
-fixed-face/equality reasoning in the verifier, with corrections underway.
-Dropping those rules would leave genuine infinite gaps; the first reported
-bounded coverage box does not describe the whole complement. K1/K3/K6 CLI
+154/161 rules pass in sector 214 at that checkpoint. The subsequent generic
+geometry correction now admits **161/161** rules in a selected release audit
+(85.10 seconds): every candidate replays exactly and descends. Publication
+still fails at predicate coverage, whose first reported gap has an impossible
+Boolean assignment: it requires `1+n5-n9 != 0` while fixing `n5=-1,n9=0`.
+An existing rule covers that point; exact singleton-atom consistency is the
+next verifier correction, not an extra master or a hard-coded IBP. This does
+not certify later coverage branches or the remaining sectors. **No closed
+four-loop artifact is written.** The correction passes 427 focused tests
+and independent review. K1/K3/K6 CLI
 generation and cold application pass, with byte-identical K6 artifacts at
 one, two and six workers. Shared-host timings are not controlled speed ratios.
 See the

@@ -533,21 +533,36 @@ impl<const N: usize> SourcePortAudit<N> {
                 &terminal_boxes,
                 PredicateCoverLimits::default(),
             ) {
-                Ok(_) => Ok((0, 0)),
-                Err(predicate_cover::PredicateCoverError::Uncovered {
-                    boxes,
-                    unbounded_boxes,
-                }) => Ok((boxes, unbounded_boxes)),
-                Err(issue) => Err(error(issue)),
+                Ok(_) => Ok((0, 0, None)),
+                Err(issue) => match &issue {
+                    predicate_cover::PredicateCoverError::Uncovered {
+                        boxes,
+                        unbounded_boxes,
+                        ..
+                    } => Ok((*boxes, *unbounded_boxes, Some(issue.to_string()))),
+                    _ => Err(error(issue)),
+                },
             };
+        let (stored_boxes, stored_unbounded, stored_issue) = coverage(&stored_owners)?;
+        let (checked_boxes, checked_unbounded, checked_issue) = coverage(&checked_owners)?;
         (
             report.stored_guard_uncovered_boxes,
             report.stored_guard_unbounded_boxes,
-        ) = coverage(&stored_owners)?;
+        ) = (stored_boxes, stored_unbounded);
         (
             report.checked_rule_uncovered_boxes,
             report.checked_rule_unbounded_boxes,
-        ) = coverage(&checked_owners)?;
+        ) = (checked_boxes, checked_unbounded);
+        if let Some(issue) = stored_issue {
+            report
+                .issues
+                .push(format!("stored guard predicate coverage: {issue}"));
+        }
+        if let Some(issue) = checked_issue {
+            report
+                .issues
+                .push(format!("checked rule predicate coverage: {issue}"));
+        }
         let affine_cover_complete = report.stored_guard_uncovered_boxes == 0
             && report.stored_guard_unbounded_boxes == 0
             && report.checked_rule_uncovered_boxes == 0

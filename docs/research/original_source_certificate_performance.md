@@ -1,18 +1,135 @@
 # Original-source certificates: provenance composition and measured bottlenecks
 
-Status, 2026-09-16: the optional polynomial-preconditioner derivation and its
-exact original-source composition are now implemented, alongside the earlier
-bounded modular-support proposal. Selected FG sector 214 completes its release
-audit in **106.60 seconds wall**, but publication remains rejected: **154/161**
-rules pass, seven fail stored-guard geometry, and the predicate cover reports
-an uncovered piece. The provenance-enabled **full physical-FG CLI attempt**
-also finishes, in **138.07 seconds**, and rejects the same sector fail-closed
-rather than reaching its 600-second limit. No artifact is written. Earlier
-timeout runs and selected-sector timings remain separate observations, not
-a controlled speedup ratio. Every exact replay, guard, descent, ownership and
-cold-load gate remains required.
+Status, 2026-09-16: relative-face implication, native singleton-specialized
+affine reasoning and bounded exact face refinement are implemented. The
+latest selected FG214 release audit now admits **161/161** exact-replayed and
+uniformly descending rules in **85.10 seconds wall**. It still exits 8:
+the stored and checked predicate-cover gates reject an abstract Boolean
+valuation, so **neither sector closure nor a four-loop artifact is established**.
+The exact diagnostic proves the first reported valuation unrealizable; a
+separate consistency correction is the next step, not part of this measured
+revision. The focused debug gate passes **427 tests**. Every exact replay,
+guard, descent, ownership and cold-load gate remains required.
 
-## Implemented provenance composition
+## Geometry follow-up after provenance composition
+
+The first geometry slice uses the existing Symbolica-backed affine service
+to prove exclusions relative to the actual child fixed face:
+`parent ∩ child_fixed_face ⊆ child_equalities`. It no longer requires an
+equality valid only on that face to follow from the unrestricted parent.
+Native exact row reduction also combines coupled affine equations after
+specializing singleton box coordinates. Both are exact domain proofs, not
+new elimination algorithms, numerical sampling or additional master choices.
+
+The resulting serial `--release --locked` FG214 diagnostic retains the same
+161 candidate rules and eleven finite terminal candidates:
+
+| Boundary | Completed first geometry slice |
+| --- | ---: |
+| Search | 15.430 s |
+| Exact audit | 84.417 s |
+| Whole-process wall | 100.29 s |
+| CPU | 99.53 s (98.86 user + 0.67 system) |
+| Peak RSS | 97,412 KiB |
+| Admitted replay/descent rules | 159/161 |
+| Exit | 8; incomplete proof, no artifact |
+
+At that first geometry checkpoint, rules 69–73 pass their exact gates. The
+remaining **zero-based** failures
+are **rule 100, RHS term 34**, and **rule 101, RHS term 26**; these are later
+terms than those reported at the preceding revision. Both fail stored-guard
+uniform descent geometry. The stored and checked covers again report one
+uncovered box and zero unbounded boxes, but those counters stop at the first
+failing Boolean valuation and are **not a census** of uncovered domains.
+They do not justify dropping either candidate or declaring the infinite
+complement empty. Logs, command, timings and profile are retained at
+`/tmp/rustred-affine-face-release.HLRRJy/`.
+
+The follow-up in `parametric/affine/box_bounds.rs` chooses **one** shortest
+equation-dependent finite axis, provided it has at most **eight integer
+values**. It exhausts that axis and requires a proof of emptiness on **every**
+resulting face, leaving all other finite and infinite intervals unchanged.
+The eight-face cap is a generic work limit, not a K6/FG-specific rule. This is
+neither recursive splitting nor a Cartesian-product expansion, and it never
+samples an infinite ray. Native Symbolica integers, polynomial substitution
+and exact equation reduction supply the algebra; aggregate matrix and
+polynomial work is preflighted. A face that cannot be proved empty, an
+unsupported equation or an exceeded budget leaves the result inconclusive,
+never falsely empty.
+
+The new diagnostic preserves the first failing box and exact Boolean
+equations, distinguishing true, false and unassigned atoms. It labels this
+an abstract Boolean witness, **not a concrete uncovered integral or a closure
+certificate**. The debug gate passes **427 tests, zero failures and five
+existing ignored workloads** in 1.67 seconds; evidence is
+`/tmp/rustred-fg214-geometry.mC9IJi/width-tests.stdout`.
+
+The follow-up's full **selected-sector** release audit has now completed:
+
+| Boundary | Bounded-face follow-up |
+| --- | ---: |
+| Search | 15.086 s |
+| Exact audit | 69.747864194 s |
+| Whole-process wall | 85.10 s |
+| CPU | 84.46 s (84.22 user + 0.24 system) |
+| Peak RSS | 100,912 KiB |
+| Exact-replayed rules | 161/161 |
+| Uniformly descending rules | 161/161 |
+| Redundant rules / additional replay guard branches | 0 / 0 |
+| Replay source entries / finite terminal candidates | 11,217 / 11 |
+| Exit | 8; predicate-cover rejection only, no artifact |
+
+Thus both remaining rule-geometry failures are resolved by the exact gates,
+without dropping rules or adding terminals. Stored and checked predicate
+coverage still fail on the same first abstract Boolean box; one reported
+bounded box and zero unbounded boxes remain nonexhaustive counters. The
+sector is **not closed**. This is not a rerun of the full 124-sector family
+campaign. Raw outputs and timings are
+`/tmp/rustred-affine-width-release.CNbu4g/selected-sector.stdout` and
+`selected-sector.time`.
+
+The release **stored-cover-only diagnostic** has completed in **13.37 seconds
+wall** (13.072 s search, 0.139 s predicate diagnostic). It deliberately removes
+source traces and therefore performs **no successful original-source replay**;
+this timing must not be substituted for the full selected audit above. Its
+first Boolean box fixes the physical
+indices to `(-1,1,1,0,1,-1,1,1,-2,0)`. Atom 2 requires
+`q=1-n9+n5 != 0`, yet exact substitution gives `q=1-0-1=0`.
+This particular reported Boolean witness is thus proved unrealizable, not
+merely suspected to be a spurious gap. It does **not** establish consistency
+or coverage of later valuations. A separate narrow singleton-consistency
+correction is being developed from this evidence; it is not part of the
+completed selected release audit. Raw evidence is
+`/tmp/rustred-affine-width-release.CNbu4g/stored-cover-only.stdout`.
+
+K1/K3/K6 core-driver artifacts after the first geometry slice are byte-identical
+to their prior provenance counterparts; fresh-process inspection and canary
+reductions also pass and match. This K6 invocation uses the **unnamed
+diagnostic input**, producing 8,925,944 bytes, 623 rules, 5,640 cells and 38
+masters in **2.78 seconds wall**. It is not the canonical named CLI artifact
+or a new public-API performance benchmark. All timings here are single
+shared-host observations, not controlled speedup comparisons.
+
+The final bounded-face snapshot repeats this lower-loop gate successfully:
+K1/K3/K6 generation, fresh-process inspection and canary reduction all pass;
+both artifacts and reductions remain byte-identical to the preceding producer.
+The unnamed K6 input above takes **2.88 seconds wall** (2.47 user + 0.37 system),
+with 245,772 KiB peak RSS, and retains SHA256
+`834505478c3c682a3427f53884afcf098555a53cc6198cba2d5397e1a6c9e9dd`.
+Generation uses the new public-core release driver; cold inspection/application
+use the preceding compatible frozen CLI on these identical bytes. This does
+not constitute a rebuild of the current CLI/Python frontend or a four-loop
+cold-load test. Records are in `/tmp/rustred-affine-width-release.CNbu4g/`.
+
+## Historical provenance-composition checkpoint
+
+The following records the preceding revision, before the geometry fixes
+above. Its selected FG214 result was **154/161** in **106.60 seconds wall**;
+its full physical-FG CLI attempt exited fail-closed in **138.07 seconds**
+without an artifact. References below to unimplemented geometry corrections
+describe that historical checkpoint, not the current implementation.
+
+### Implemented provenance composition
 
 `solver/precondition/provenance.rs` records the existing preconditioner's
 forward polynomial identities, `B_new = a B_left - b B_right`, in an optional
