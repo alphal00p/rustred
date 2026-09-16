@@ -35,33 +35,25 @@ checks pass. See the [dependency migration report](docs/vakint_symbolica3_migrat
 
 Four-loop artifacts are not yet closed or shipped. H, X, BMW and FG are
 [external unit-mass input families](examples/input/README.md), not hard-coded
-solver cases. Selected H and FG sectors pass complete exact replay, descent
-and coverage, but neither whole family is certified. The latest full physical
-FG Rust API attempt searches all 124 nonzero sectors in 32.773 seconds,
-yielding 9,272 candidate rules and 145 finite terminal candidates. It passes
-32 sector audits and finishes in **109.92 seconds** on the bounded native
-affine-consistency work limit. The preceding cache/replay snapshot validates
-**161/161 FG214 rules**, but that identity count is not complete coverage.
-Bounded reuse of native substitutions removed an earlier limit; reuse of
-repeated joint equation checks is the next measured investigation.
+solver cases. Bounded reuse of successful native consistency checks passes
+**495 focused tests** and independent review, without raising proof limits.
+Current release evidence distinguishes whole-sector certification from later
+durable-artifact publication:
 
-A separate H attempt initially passes 47 sector audits before rejecting a
-rule on a boundary explicitly excluded from its domain. The shared raw/durable
-correction passes 442 focused tests and a selected release audit: **54/54
-H226 rules**, zero uncovered regions, **0.50 seconds**. The new whole-H run
-searches all 314 sectors and now advances to **91 passing audits** before
-exiting after **112.97 seconds**, also at an affine-consistency work limit.
-H370 now passes **134/134 rules and complete sector coverage**, in an 11.02s
-selected release run. The native exact implication change passes the combined
-**473-test** correctness gate and independent review. A subsequent generic
-native-factor correction removes root-free univariate exceptional branches
-and passes **484 focused tests** plus independent review. BMW/X now complete
-all **134/134 and 328/328 sector searches**. Publication passes 45 BMW and
-31 X sector audits, then stops at the consistency-budget checks for BMW158
-and X460, after 178.17s and 257.47s wall. Selected BMW223 passes all 60 rules
-and complete coverage in 5.21s. These are not complete family artifacts.
-Bounded reuse of successful native consistency checks is the next slice. See the
-[guard-consistency report](docs/research/four_loop_predicate_consistency.md).
+| Family | Exact sector audits | Remaining publication obstruction |
+| --- | --- | --- |
+| H | **314/314**, 21,360/21,360 replayed and descending rules, zero gaps/issues | Guard-chart resource estimate while lowering H370 rule66; 338.17s whole process |
+| FG | **124/124**, 9,272/9,272 replayed and descending rules, zero gaps/issues | Guard nonvanishing proof while lowering FG114 rule66; 232.39s whole process |
+| BMW | 97/134 completed sector audits after all searches finish | Native consistency work allowance at BMW107; 439.00s whole process |
+| X | Current selected X460 still reaches the work allowance | Full search completed previously; no redundant full rerun on the same selected obstruction |
+
+The H/FG candidate systems pass all sector checks, but still do **not** produce
+a durable, cold-validated artifact. Detailed counters distinguish actual work
+limits from mathematical coverage witnesses. A local BMW CPU profile instead
+finds exact source replay/native rational-polynomial elimination dominating
+the sampled interval; that is a separate runtime issue. The
+[guard-consistency report](docs/research/four_loop_predicate_consistency.md)
+records exact boundaries, evidence and next steps.
 **No closed four-loop artifact is written or shipped.** Current
 core K1/K3/K6 generation, fresh-process validation and master-only application
 pass with unchanged bytes. Earlier CLI one-, two- and six-worker generation

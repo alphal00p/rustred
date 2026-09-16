@@ -252,6 +252,24 @@ reuse and detailed observational counters are the separate next slice, not
 part of these release observations. Evidence and mathematical boundary are
 in the [guard-consistency report](docs/research/four_loop_predicate_consistency.md).
 
+**Bounded consistency-reuse release follow-up:** successful native base and
+false-extension outcomes now share the existing bounded cache envelope,
+keyed by exact boxes and complete true-atom sets. All 495 focused tests and
+independent audits pass, with unchanged proof limits and K1/K3/K6 artifact
+bytes, cold canaries and workers1/2/6 determinism. Full H and FG now pass every
+sector audit: 314 sectors/21,360 rules and 124 sectors/9,272 rules respectively,
+with exact replay, strict descent and zero coverage gaps or issues. Durable
+lowering still fails at H370 rule66 on a prospective guard-chart bit bound,
+and FG114 rule66 on a guard-nonvanishing proof. Their complete attempts take
+338.17s and 232.39s wall; neither writes an artifact. BMW advances to 97 passing
+sector audits before another consistency-work limit; selected X460 retains
+that limit. A sampled BMW audit is dominated by exact source replay rather
+than affine consistency. Next diagnose the captured H/FG guard formulas and
+reuse existing native services for the smallest exact correction; pursue
+bounded work-policy changes separately if needed. No extra masters, sampled
+closure, proof bypass or numerical Vakint parity follows from these sector
+results. Evidence: `/tmp/rustred-consistency-reuse-release.kKCcQ1/`.
+
 **Vakint precision policy (user directive, 2026-09-16):** compare requested
 precision with the known precision of supplied master data. If the request is
 higher, emit a clear warning identifying the requested and available precision

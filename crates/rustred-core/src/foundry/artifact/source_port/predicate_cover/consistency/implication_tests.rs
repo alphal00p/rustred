@@ -214,29 +214,21 @@ fn shared_native_work_and_local_admission_caps_fail_explicitly() {
         cache.contradicts(&cell, &[Some(true), Some(false)]),
         Err(WorkExhausted)
     );
-    let mut budget = WorkBudget::default();
+    let mut cache = RestrictionCache::new(&[false; 3], &atoms);
     assert_eq!(
-        contradicts(
-            &[false; 3],
-            &atoms,
+        cache.contradicts_implications(
             &cell,
+            &[Some(true), Some(false)],
             &vec![(0, true); MAX_EQUATIONS + 1],
-            &mut budget
         ),
         Err(WorkExhausted)
     );
-    let before = budget.remaining;
+    let before = cache.budget.remaining;
     assert_eq!(
-        contradicts(
-            &[false; 3],
-            &atoms,
-            &cell,
-            &[(0, false), (1, false)],
-            &mut budget
-        ),
+        cache.contradicts_implications(&cell, &[Some(false); 2], &[(0, false), (1, false)],),
         Ok(false)
     );
-    assert_eq!(budget.remaining, before);
+    assert_eq!(cache.budget.remaining, before);
 }
 
 #[test]

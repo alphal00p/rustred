@@ -193,3 +193,65 @@ Evidence: `/tmp/rustred-univariate-case.T3Icsy/`,
 `/tmp/rustred-univariate-audit.wJ98A8/`,
 `/tmp/rustred-univariate-release.VxseCS/`, and
 `/tmp/rustred-bmw-univariate-release.k7WHbl/`.
+
+## Reusing completed native consistency checks
+
+The next slice stores only successful scalar outcomes of native affine
+reductions. Its key retains the full exact box and complete true-atom ordinal
+set, bound to one immutable sector/atom-table context. Sparse false-atom
+outcomes reuse only the corresponding completed extension. Original input
+admission precedes lookup; native failures and exhausted work are not proof.
+Both caches share the existing entry/slot/coordinate limits, and the native
+work allowance remains 4,194,304. No matrix or polynomial survives a call.
+
+All **495 focused tests pass**, zero failed, five existing ignored, with an
+independent mathematical/code audit. An opt-in internal diagnostic reports
+actual native calls, substitutions, successful estimated-work charges, hits,
+fallbacks and the exact exhausted stage. These counters carry no authority.
+
+Selected release audits now pass BMW158 (**155/155**), FG214 (**161/161**)
+and H214 (**152/152**), each with zero uncovered regions and no issues.
+Their respective per-traversal work charges are 1,774,911, 4,051,298 and
+2,018,045. The two cover traversals remain independent, not one shared cache.
+X460 still exhausts the cumulative allowance: an extension needs 363 units
+with 84 remaining. There is no cache-capacity fallback or native failure.
+That resource error is not a mathematical coverage witness.
+
+The full FG campaign now searches all 124 sectors and passes **every sector
+audit: 9,272/9,272 exact replays and strict descents, zero stored/checked gaps
+or issues**. Publication subsequently fails while lowering FG114 rule66/83
+into durable cells: `guard zero locus is not proved outside the complete
+affine application domain`. Seventeen sectors have lowered by that point.
+The process exits after 232.39s, with 2,959,544 KiB peak RSS, and writes no
+artifact. This is a new, later guard-proof boundary—not whole-family durable
+closure or a successful numerical Vakint reduction.
+
+BMW searches all 134 sectors, passes **97 complete sector audits** (formerly
+45), then reaches the native-work allowance in BMW107 after 439.00s wall.
+The error is a base reduction requesting 363 units with 23 remaining, not a
+local shape limit. No final aggregate is returned for that sector and no
+artifact exists. H now also passes **all 314 sector audits: 21,360/21,360
+exact replays and strict descents, zero gaps or issues**. Durable lowering
+completes 56 sectors before H370 rule66/134 exceeds the prospective affine
+guard-chart integer-bit bound. The process exits after 338.17s, with
+7,441,576 KiB peak RSS, and writes no artifact. This is a different later
+resource bound from the consistency allowance. A redundant whole-X rerun is
+deferred until its reproduced selected-sector limit changes.
+
+A 15-second DWARF-unwound profile during BMW's exact audit records 724 samples
+and zero lost samples. Inclusive sampled costs are 99.35% in source replay,
+92.94% in native sparse rational-polynomial reduction, and 64.07% in polynomial
+GCD. These nested percentages overlap and apply only to that window. They
+identify a replay bottleneck, not affine-consistency row reduction; neither
+accounting units nor one sampled interval imply whole-run phase percentages.
+
+K1/K3/K6 bytes, current-core fresh-process checks and master-only canaries
+remain unchanged; K6 workers1/2/6 are byte-identical. Its unnamed serial
+regression is 1.76s wall, not a controlled speed comparison. No CLI/Python
+frontend was rebuilt for this internal proof slice. H214 was inadvertently
+probed twice on disjoint CPUs; both pass and neither is a benchmark.
+
+Next priorities are the actual FG guard/domain counterexample and an explicit
+bounded work policy if needed for X/BMW, without relaxing any mathematical
+or cold-load gate. More cache-key changes require evidence of missed reuse.
+Release evidence: `/tmp/rustred-consistency-reuse-release.kKCcQ1/`.

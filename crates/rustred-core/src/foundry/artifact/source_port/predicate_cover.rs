@@ -223,7 +223,7 @@ pub(in crate::foundry::artifact) fn certify_predicate_cover(
     }
     let mut assignments = vec![None; atoms.len()];
     let mut work = TraversalWork::new(sector, &atoms);
-    check_valuations(
+    let result = check_valuations(
         sector,
         &atoms,
         &clauses,
@@ -231,7 +231,14 @@ pub(in crate::foundry::artifact) fn certify_predicate_cover(
         &mut assignments,
         &mut work,
         limits,
-    )?;
+    );
+    work.consistency.report(match &result {
+        Ok(()) => "covered",
+        Err(PredicateCoverError::Budget(_)) => "budget",
+        Err(PredicateCoverError::Uncovered { .. }) => "uncovered",
+        Err(_) => "error",
+    });
+    result?;
     Ok(PredicateCoverCertificate {
         predicates: atoms.len(),
         clauses: clauses.len(),

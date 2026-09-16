@@ -14,8 +14,15 @@ use symbolica::prelude::Integer;
 
 use super::{Atom, LatticeBox};
 
+#[path = "consistency/diagnostics.rs"]
+mod diagnostics;
 #[path = "consistency/implication.rs"]
 mod implication;
+#[path = "consistency/scalar_cache.rs"]
+mod scalar_cache;
+
+use diagnostics::{CacheStatistics, Exhaustion, LocalCap, Shape, Stage, add};
+use scalar_cache::ScalarEntry;
 
 /// Shared by the entire Boolean traversal, not reset for each failed box.
 struct WorkBudget {
@@ -34,22 +41,6 @@ impl Default for WorkBudget {
 }
 
 impl WorkBudget {
-    fn charge(&mut self, atom: &Atom<'_>, singletons: usize) -> Result<usize, WorkExhausted> {
-        let Some(work) = atom
-            .equation
-            .exponents
-            .len()
-            .checked_add(atom.equation.coefficients.len())
-            .and_then(|cells| cells.checked_mul(singletons + 1))
-        else {
-            self.remaining = 0;
-            return Err(WorkExhausted);
-        };
-        let work = work.max(1);
-        self.charge_units(work)?;
-        Ok(work)
-    }
-
     fn charge_units(&mut self, work: usize) -> Result<(), WorkExhausted> {
         let Some(remaining) = self.remaining.checked_sub(work) else {
             self.remaining = 0;
@@ -87,18 +78,7 @@ impl Default for CacheLimits {
     }
 }
 
-/// Small observational counters; never consulted to establish a proof.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct CacheStatistics {
-    hits: usize,
-    misses: usize,
-    native_work: usize,
-    uncached_results: usize,
-    atom_slots: usize,
-    coordinate_cells: usize,
-}
-
-/// Assignment-independent native restrictions for one immutable traversal.
+/// Native restriction classifications and scalar ranks for one traversal.
 ///
 /// The borrowed sector and atom table are bound at construction: an ordinal
 /// cannot accidentally refer to a different polynomial, map, or sector in a
@@ -111,7 +91,9 @@ pub(super) struct RestrictionCache<'a> {
     budget: WorkBudget,
     limits: CacheLimits,
     entries: BTreeMap<LatticeBox, Box<[Option<RestrictionTruth>]>>,
+    implications: Vec<ScalarEntry>,
     statistics: CacheStatistics,
+    diagnostics_enabled: bool,
 }
 
 impl<'a> RestrictionCache<'a> {
@@ -122,7 +104,12 @@ impl<'a> RestrictionCache<'a> {
             budget: WorkBudget::default(),
             limits: CacheLimits::default(),
             entries: BTreeMap::new(),
+            implications: Vec::new(),
             statistics: CacheStatistics::default(),
+            // Internal profiling flag, read once per traversal. Diagnostics
+            // never enter certificates, artifacts, or proof decisions.
+            diagnostics_enabled: std::env::var_os("RUSTRED_PREDICATE_CONSISTENCY_DIAGNOSTICS")
+                .is_some(),
         }
     }
 
@@ -148,6 +135,12 @@ impl<'a> RestrictionCache<'a> {
         // of exact polynomials. A miss builds the singleton values only once.
         let mut singleton = None;
         let mut unresolved = Vec::new();
+        let shape = Shape {
+            columns: self.sector.len().saturating_add(1),
+            true_count: assignments.iter().filter(|&&a| a == Some(true)).count(),
+            false_count: assignments.iter().filter(|&&a| a == Some(false)).count(),
+            ..Shape::default()
+        };
         for (ordinal, &assignment) in assignments.iter().enumerate() {
             let Some(expected_zero) = assignment else {
                 continue;
@@ -157,16 +150,21 @@ impl<'a> RestrictionCache<'a> {
             } else {
                 match self.entries.get(cell).and_then(|row| row[ordinal]) {
                     Some(truth) => {
-                        self.statistics.hits += 1;
+                        add(&mut self.statistics.hits, 1);
                         truth
                     }
                     None => {
-                        self.statistics.misses += 1;
+                        add(&mut self.statistics.misses, 1);
                         let singleton =
                             singleton.get_or_insert_with(|| singleton_values(self.sector, cell));
                         let atom = &self.atoms[ordinal];
-                        self.statistics.native_work += self.budget.charge(atom, singleton.len())?;
-                        let truth = restrict_atom(atom, self.sector.len(), singleton);
+                        self.charge_native(
+                            Stage::Classification,
+                            polynomial_work(atom, singleton.len()),
+                            shape,
+                        )?;
+                        let truth =
+                            restrict_atom(atom, self.sector.len(), singleton, &mut self.statistics);
                         self.remember(cell, ordinal, truth);
                         truth
                     }
@@ -180,11 +178,7 @@ impl<'a> RestrictionCache<'a> {
                 _ => {}
             }
         }
-        let before = self.budget.remaining;
-        let result =
-            implication::contradicts(self.sector, self.atoms, cell, &unresolved, &mut self.budget);
-        self.statistics.native_work += before - self.budget.remaining;
-        result
+        self.contradicts_implications(cell, assignments, &unresolved)
     }
 
     fn remember(&mut self, cell: &LatticeBox, ordinal: usize, truth: RestrictionTruth) {
@@ -193,19 +187,8 @@ impl<'a> RestrictionCache<'a> {
             return;
         }
         let stored = (|| {
-            if self.entries.len() >= self.limits.boxes {
-                return None;
-            }
-            let atom_slots = self.statistics.atom_slots.checked_add(self.atoms.len())?;
-            let coordinate_cells = self
-                .statistics
-                .coordinate_cells
-                .checked_add(cell.arity().checked_mul(2)?)?;
-            if atom_slots > self.limits.atom_slots
-                || coordinate_cells > self.limits.coordinate_cells
-            {
-                return None;
-            }
+            let (atom_slots, coordinate_cells) =
+                self.storage_after(self.atoms.len(), cell.arity().checked_mul(2)?, true)?;
             let mut row = Vec::new();
             row.try_reserve_exact(self.atoms.len()).ok()?;
             row.resize(self.atoms.len(), None);
@@ -219,9 +202,89 @@ impl<'a> RestrictionCache<'a> {
             Some(())
         })();
         if stored.is_none() {
-            self.statistics.uncached_results += 1;
+            add(&mut self.statistics.uncached_results, 1);
         }
     }
+
+    fn storage_after(
+        &self,
+        slots: usize,
+        coordinates: usize,
+        new_entry: bool,
+    ) -> Option<(usize, usize)> {
+        let entries = self.entries.len().checked_add(self.implications.len())?;
+        if new_entry && entries >= self.limits.boxes {
+            return None;
+        }
+        let slots = self.statistics.atom_slots.checked_add(slots)?;
+        let coordinates = self.statistics.coordinate_cells.checked_add(coordinates)?;
+        (slots <= self.limits.atom_slots && coordinates <= self.limits.coordinate_cells)
+            .then_some((slots, coordinates))
+    }
+
+    fn charge_native(
+        &mut self,
+        stage: Stage,
+        requested: Option<usize>,
+        shape: Shape,
+    ) -> Result<usize, WorkExhausted> {
+        let remaining = self.budget.remaining;
+        if let Some(work) = requested {
+            if self.budget.charge_units(work).is_ok() {
+                add(&mut self.statistics.native_work, work);
+                return Ok(work);
+            }
+        } else {
+            self.budget.remaining = 0;
+        }
+        self.statistics.exhaustion = Some(Exhaustion {
+            stage,
+            requested,
+            remaining,
+            shape,
+            local_cap: None,
+        });
+        Err(WorkExhausted)
+    }
+
+    fn local_exhaustion(
+        &mut self,
+        cap: LocalCap,
+        requested: Option<usize>,
+        shape: Shape,
+    ) -> WorkExhausted {
+        self.statistics.exhaustion = Some(Exhaustion {
+            stage: Stage::Admission,
+            requested,
+            remaining: self.budget.remaining,
+            shape,
+            local_cap: Some(cap),
+        });
+        WorkExhausted
+    }
+
+    pub(super) fn report(&self, outcome: &str) {
+        if self.diagnostics_enabled {
+            use std::io::Write;
+            // Best effort: a closed diagnostics pipe cannot affect coverage.
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "predicate-consistency sector={:?} outcome={outcome} remaining={} {:?}",
+                self.sector,
+                self.budget.remaining,
+                self.statistics,
+            );
+        }
+    }
+}
+
+fn polynomial_work(atom: &Atom<'_>, singletons: usize) -> Option<usize> {
+    atom.equation
+        .exponents
+        .len()
+        .checked_add(atom.equation.coefficients.len())?
+        .checked_mul(singletons.checked_add(1)?)
+        .map(|work| work.max(1))
 }
 
 fn singleton_values(sector: &[bool], cell: &LatticeBox) -> Vec<(usize, Integer)> {
@@ -249,13 +312,16 @@ fn restrict_atom(
     atom: &Atom<'_>,
     arity: usize,
     singleton: &[(usize, Integer)],
+    statistics: &mut CacheStatistics,
 ) -> RestrictionTruth {
     if !admitted_atom(atom, arity) {
         return RestrictionTruth::Unsupported;
     }
     catch_unwind(AssertUnwindSafe(|| {
+        add(&mut statistics.classification_materializations, 1);
         let mut restricted = atom.equation.clone();
         for (axis, value) in singleton {
+            add(&mut statistics.classification_replaces, 1);
             restricted = restricted.replace(atom.indices[*axis], value);
         }
         if restricted.is_zero() {
@@ -266,7 +332,10 @@ fn restrict_atom(
             RestrictionTruth::Unknown
         }
     }))
-    .unwrap_or(RestrictionTruth::Unknown)
+    .unwrap_or_else(|_| {
+        add(&mut statistics.native_panics, 1);
+        RestrictionTruth::Unknown
+    })
 }
 
 fn admitted_atom(atom: &Atom<'_>, arity: usize) -> bool {
