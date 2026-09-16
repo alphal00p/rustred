@@ -3,6 +3,7 @@
 from enum import StrEnum
 
 from ._rustred import (
+    CandidateBundleResult,
     CampaignPlanResult,
     CampaignPreflightResult,
     ClosingArtifactGenerationResult,
@@ -27,8 +28,10 @@ from ._rustred import (
     __version__,
     campaign_plan,
     campaign_preflight,
+    certify_candidates,
     derive,
     family_close,
+    family_candidates,
     generate_closing_artifact,
     inspect_closing_artifact,
     reduce_with_closing_artifact,
@@ -61,6 +64,7 @@ class ClosingFamily(StrEnum):
 
 
 __all__ = [
+    "CandidateBundleResult",
     "CampaignPlanResult",
     "CampaignPreflightResult",
     "ClosingArtifactGenerationResult",
@@ -88,8 +92,10 @@ __all__ = [
     "__version__",
     "campaign_plan",
     "campaign_preflight",
+    "certify_candidates",
     "derive",
     "family_close",
+    "family_candidates",
     "generate_closing_artifact",
     "inspect_closing_artifact",
     "reduce_with_closing_artifact",

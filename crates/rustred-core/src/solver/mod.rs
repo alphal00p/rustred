@@ -5,6 +5,7 @@
 //! artifact publication remain outside its per-row hot path. A sector search
 //! result is not, by itself, a certified family-closing artifact.
 
+mod candidate_reduction;
 mod case;
 mod cuts;
 mod discovery;
@@ -32,6 +33,9 @@ pub(crate) use instantiate::{
     translate as translate_source_port,
 };
 
+pub use candidate_reduction::{
+    CandidateDecomposition, CandidateReducer, CandidateReductionError, CandidateStatistics,
+};
 pub use case::{
     AffineCase, AffineGeometryError, AffineIntersection, Case, CaseIntersectionBudget,
     CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits, CaseIntersectionResult,

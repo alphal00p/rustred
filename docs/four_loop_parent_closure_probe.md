@@ -1,6 +1,78 @@
 # Four-loop external-parent closure probe
 
-Latest checkpoint, 2026-09-16: generic exact-domain corrections now admit all
+## Latest full release checkpoint: native factor refinement
+
+The `8af4dd1` implementation was exercised through the public `family-close`
+CLI for H, FG, BMW and X. All four attempts finish with a typed rejection;
+**none produces an artifact**. The older selected-sector results below are
+historical evidence, not the current failure locations.
+
+| Input | Passed sector audits | Replayed rules | Completed sector lowering | Wall time | New stopping point |
+| --- | ---: | ---: | ---: | ---: | --- |
+| H | 314/314 | 21,360 | 166 | 373.95 s | Sector 229, rule 65: prospective affine-chart integer-bit bound |
+| FG | 124/124 | 9,272 | 86 | 269.37 s | Sector 115, rule 76: uniform descent not established |
+| BMW | 134/134 | 9,024 | 31 | 460.30 s | Sector 230, rule 73: guard zero locus not proved excluded |
+| X | 254/328 | 15,664 | 0 | 856.25 s | Sector 155: cumulative native affine-consistency work exhausted |
+
+H/FG/BMW pass every sector audit before these later lowering checks. X still
+has unchecked sectors; no conclusion about them follows from the passed prefix.
+FG's reported child shift is `[0,0,0,0,0,0,0,-1,2,-1]`. The failure alone does
+not determine whether the rule genuinely fails descent on an admitted integer
+point or whether the domain proof is too conservative; retain the actual case,
+coefficient and zero-sector obligations for that investigation.
+
+The frozen executable has SHA-256
+`23a810c6397d803cf27890f9b6cb7e2e0b7225b752665f16a54d683673fe9fd0`.
+Each process used two workers, natural ordering, physical-slot roots from the
+external TOML inputs, a 1,800-second wall bound, endpoint allowance 65,536,
+predicate-consistency allowance 67,108,864, and explicit predicate-atom
+allowance 64. H/FG/BMW/X used disjoint CPU pairs 50–51/52–53/54–55/56–57 on the
+shared host. Peak RSS was respectively 25,674,992 / 15,305,144 / 4,680,724 /
+1,481,812 KiB. These include certification and are **not** matched C++ solver
+timings. Full logs and controls are in
+`/tmp/rustred-factor-policy-release.QSclTI/`.
+
+The next work proceeds on two separate tracks: preserve the generated
+candidates so proof attempts can be rerun independently, and test concrete
+candidate reductions against Vakint/FMFT without presenting them as certified
+artifacts. K1/K3/K6 release artifacts and cold canaries remain byte-identical,
+including K6 at one, two and six workers.
+
+### Follow-up diagnosis, without changing the solver
+
+For H229, write the captured generic-d guard as `C0+d*C1+d^2*C2` and set
+`z=n1=0`, `a=n3<=-1`, `b=n4<=-2`. Native Symbolica factorization/replacement
+verifies
+
+```text
+C2 = 3*(1+b)*(-1-b-2*a+z)*(1+b-a+z)
+C1 at z=0, a=1+b = 6*(1+b)^4
+```
+
+The first two factors of C2 cannot vanish on this piece. Its remaining zero
+forces `a=1+b`, where C1 is nonzero. Thus this captured guard has an exact
+nonvanishing proof. The current transient-chart preflight does not retain the
+piece's singleton `n1=0`, causing unnecessary expansion. A generic, budgeted
+singleton restriction is the next candidate correction, not an increased bit
+allowance. The widened point `z=0,a=-1,b=-1` really is a zero and must continue
+to be rejected. The independent diagnostic used installed Python Symbolica
+`77c1374`, not the pinned Rust runtime; a production correction still needs
+its own pinned-runtime regression and review.
+
+For FG115, the reported displacement maps
+`[1,1,n2,0,1,1,1,0,-1,0]` to
+`[1,1,n2,0,1,1,1,-1,1,-1]`, with `n2<=-1`. It increases the active propagator
+count, but the log alone does not show whether its coefficient survives the
+full case/exclusions or the child is certified zero. The search-facing gate
+had already admitted all 177 rules, including its descent checks. Compare
+that path with the later cold/lowered descent path using the exact saved
+candidate—not just the shift—before assigning the cause. Detailed evidence
+and extraction requirements are in `H229-FG115-NEXT-FAILURES.md` in the evidence
+directory above.
+
+## Earlier selected-sector checkpoint
+
+Earlier on 2026-09-16, generic exact-domain corrections admitted all
 **161/161** FG214 rules in a **selected release** audit (85.10 seconds wall),
 after replay and uniform descent. Publication still rejects predicate coverage.
 The first reported abstract Boolean witness is impossible: it fixes

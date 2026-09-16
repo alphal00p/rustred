@@ -213,7 +213,7 @@ fn validate_run_paths(
     Ok(())
 }
 
-fn same_file(left: &StreamPath, right: &StreamPath) -> bool {
+pub(super) fn same_file(left: &StreamPath, right: &StreamPath) -> bool {
     matches!(
         (left, right),
         (StreamPath::File(left), StreamPath::File(right))
@@ -222,7 +222,7 @@ fn same_file(left: &StreamPath, right: &StreamPath) -> bool {
     )
 }
 
-fn same_stream_or_file(left: &StreamPath, right: &StreamPath) -> bool {
+pub(super) fn same_stream_or_file(left: &StreamPath, right: &StreamPath) -> bool {
     matches!((left, right), (StreamPath::Stdio, StreamPath::Stdio)) || same_file(left, right)
 }
 

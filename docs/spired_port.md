@@ -16,8 +16,8 @@ reference must not be replaced by an invented benchmark claim.
 For performance comparisons, distinguish solver-internal construction checks
 from RustRed's additional independent artifact certification. The
 [generation/certification boundary](generation_and_certification.md) documents
-the reference timer and the split candidate-generation/certification API being
-implemented. A solver-only time is not a certified-artifact time.
+the reference timer and the split candidate-generation/certification API.
+A solver-only time is not a certified-artifact time.
 
 ## Why the existing notes-based search is not the reference algorithm
 

@@ -1,0 +1,192 @@
+use std::collections::BTreeMap;
+use std::fmt;
+use std::sync::Arc;
+
+use crate::algebra::{
+    Coefficient, ExactAlgebraError, IndexedAlgebraError, IndexedCoefficient, IndexedPolynomial,
+};
+use crate::family::IntegralKey;
+use crate::reduction::{ReductionError, ReductionStatistics};
+
+/// Exact arithmetic result of candidate formulas, not certified IBP provenance
+/// or a proof that the listed finite terminals form a complete master basis.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CandidateDecomposition {
+    pub(super) family_fingerprint: Arc<String>,
+    pub(super) target: IntegralKey,
+    pub(super) terms: BTreeMap<IntegralKey, Coefficient>,
+}
+
+impl CandidateDecomposition {
+    pub fn family_fingerprint(&self) -> &str {
+        &self.family_fingerprint
+    }
+    pub fn target(&self) -> &IntegralKey {
+        &self.target
+    }
+    pub fn terms(&self) -> &BTreeMap<IntegralKey, Coefficient> {
+        &self.terms
+    }
+    pub fn is_zero(&self) -> bool {
+        self.terms.is_empty()
+    }
+
+    /// Common-mass-squared exponent for one returned terminal. The constructor
+    /// admits the generic unit-mass vacuum family through the existing family
+    /// service. No mass normalization or numerical master evaluation occurs here.
+    pub fn common_mass_squared_power(
+        &self,
+        terminal: &IntegralKey,
+    ) -> Result<i128, CandidateReductionError> {
+        if !self.terms.contains_key(terminal) {
+            return Err(CandidateReductionError::InvalidInput(
+                "requested key is not a returned candidate terminal".into(),
+            ));
+        }
+        let sum = |key: &IntegralKey| {
+            key.powers()
+                .iter()
+                .try_fold(0_i128, |s, &n| s.checked_add(i128::from(n)))
+                .ok_or(CandidateReductionError::Application(
+                    ReductionError::CommonMassPowerOverflow,
+                ))
+        };
+        sum(terminal)?
+            .checked_sub(sum(&self.target)?)
+            .ok_or(CandidateReductionError::Application(
+                ReductionError::CommonMassPowerOverflow,
+            ))
+    }
+}
+
+/// Work and retained-cache census of an experimental candidate owner.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CandidateStatistics {
+    pub(super) work: ReductionStatistics,
+    pub(super) cached_integrals: usize,
+    pub(super) cached_coefficient_terms: usize,
+    pub(super) cached_coefficient_bytes: usize,
+}
+
+impl CandidateStatistics {
+    pub fn rule_applications(self) -> usize {
+        self.work.rule_applications()
+    }
+    pub fn cache_hits(self) -> usize {
+        self.work.cache_hits()
+    }
+    pub fn coalescing_additions(self) -> usize {
+        self.work.coalescing_additions()
+    }
+    pub fn cached_integrals(self) -> usize {
+        self.cached_integrals
+    }
+    pub fn cached_coefficient_terms(self) -> usize {
+        self.cached_coefficient_terms
+    }
+    pub fn cached_coefficient_bytes(self) -> usize {
+        self.cached_coefficient_bytes
+    }
+}
+
+/// No error variant denotes closure or promotes an uncovered point to a terminal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CandidateReductionError {
+    InvalidInput(String),
+    UnsupportedFamily(String),
+    OutsideRoot {
+        target: IntegralKey,
+    },
+    Uncovered {
+        target: IntegralKey,
+    },
+    SourceConditionVanished {
+        target: IntegralKey,
+        ordinal: usize,
+    },
+    NonDescending {
+        target: IntegralKey,
+        child: IntegralKey,
+        rule: usize,
+    },
+    IndexOverflow {
+        target: IntegralKey,
+        axis: usize,
+        rule: usize,
+    },
+    Algebra(IndexedAlgebraError),
+    Application(ReductionError),
+}
+
+impl fmt::Display for CandidateReductionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidInput(s) => write!(f, "invalid candidate program: {s}"),
+            Self::UnsupportedFamily(s) => write!(f, "unsupported candidate family: {s}"),
+            Self::OutsideRoot { target } => write!(
+                f,
+                "candidate target {:?} is outside the supplied root",
+                target.powers()
+            ),
+            Self::Uncovered { target } => write!(
+                f,
+                "candidate formulas do not cover {:?}; no terminal was inferred",
+                target.powers()
+            ),
+            Self::SourceConditionVanished { target, ordinal } => write!(
+                f,
+                "candidate source condition {ordinal} vanishes at {:?}",
+                target.powers()
+            ),
+            Self::NonDescending {
+                target,
+                child,
+                rule,
+            } => write!(
+                f,
+                "candidate rule {rule} is not descending: {:?} -> {:?}",
+                target.powers(),
+                child.powers()
+            ),
+            Self::IndexOverflow { target, axis, rule } => write!(
+                f,
+                "candidate rule {rule} overflows index {axis} at {:?}",
+                target.powers()
+            ),
+            Self::Algebra(error) => error.fmt(f),
+            Self::Application(error) => error.fmt(f),
+        }
+    }
+}
+impl std::error::Error for CandidateReductionError {}
+impl From<IndexedAlgebraError> for CandidateReductionError {
+    fn from(e: IndexedAlgebraError) -> Self {
+        Self::Algebra(e)
+    }
+}
+impl From<ReductionError> for CandidateReductionError {
+    fn from(e: ReductionError) -> Self {
+        Self::Application(e)
+    }
+}
+impl From<ExactAlgebraError> for CandidateReductionError {
+    fn from(e: ExactAlgebraError) -> Self {
+        Self::Application(ReductionError::ExactAlgebra(e))
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct PreparedRule<const N: usize> {
+    pub ordinal: usize,
+    pub fixed: [Option<i16>; N],
+    pub equalities: Vec<IndexedPolynomial>,
+    pub exceptions: Vec<Vec<IndexedPolynomial>>,
+    pub rhs: Vec<PreparedTerm<N>>,
+}
+
+#[derive(Debug)]
+pub(super) struct PreparedTerm<const N: usize> {
+    pub shift: [i64; N],
+    pub coefficient: IndexedCoefficient,
+    pub denominator: IndexedPolynomial,
+}

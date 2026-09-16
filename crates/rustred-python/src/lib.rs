@@ -1,3 +1,4 @@
+mod candidates;
 mod coordinator;
 
 use std::str::FromStr;
@@ -905,6 +906,7 @@ fn _rustred(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(family_close, module)?)?;
     module.add_function(wrap_pyfunction!(inspect_closing_artifact, module)?)?;
     module.add_function(wrap_pyfunction!(reduce_with_closing_artifact, module)?)?;
+    candidates::register(module)?;
     Ok(())
 }
 

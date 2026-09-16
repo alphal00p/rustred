@@ -114,6 +114,47 @@ Python's existing `rustred.family_close` still provides the same generation,
 artifact and timing-report result; Python callbacks are deferred until their
 interaction with the detached coordinator and GIL is designed and tested.
 
+## Save candidates, certify independently
+
+Use `family-candidates` when you want the solver's formulas even before global
+artifact certification succeeds. It saves an explicitly **uncertified** bundle;
+it does not perform original-source replay or prove family closure. A separate
+`certify-candidates` invocation reconstructs those formulas and uses the existing
+replay, guard, strict-descent, coverage and publication gates without repeating
+the search.
+
+```console
+rustred family-candidates --input examples/input/three_loop_k6.toml \
+  --output k6.candidates.toml --report-output k6.search.toml --n-cores 1
+rustred certify-candidates --input k6.candidates.toml \
+  --output k6.rribp --report-output k6.certification.toml
+rustred campaign inspect --artifact k6.rribp
+```
+
+Generation accepts `--input-format`, `--permutation`, and
+`--nonpositive-indices` with their existing meanings. Certification alone
+accepts `--max-domain-bound-endpoint-cells`,
+`--max-predicate-consistency-work`, and `--max-predicate-atoms` as caller-owned
+proof budgets. Increasing a budget never certifies an invalid formula.
+Generation supports the generic source solver; certification retains the
+current unit-mass vacuum publication admission.
+
+Bundle schema `rustred.uncertified-candidates.toml.v1` records
+`status = "uncertified-candidates"`, not closure. It cannot be passed to
+`campaign inspect` or `campaign reduce` as an artifact. The optional separate
+generation report (`rustred.family-candidates-output.toml.v1`) records
+`preparation_us`, `solve_us`, `bundle_encoding_us`, and `total_us`.
+The certification report (`rustred.candidate-certification-output.toml.v1`)
+separately records bundle decoding, preparation, native reconstruction,
+certification and artifact encoding. These are observational timings, not part
+of the bundle or artifact identity, and exclude a later explicit cold reload.
+
+Both commands default to stdin/stdout and accept `--force` for atomic file
+replacement. `--report-output` must differ from the data output stream/path
+and the input file. Both destinations are preflighted before expensive work;
+bundle/artifact data is written before its report. Certification failure writes
+no artifact or success report, while the saved input bundle remains available.
+
 ## Generic family solve diagnostic
 
 `rustred family-solve` accepts the same arbitrary Project TOML as `derive`,

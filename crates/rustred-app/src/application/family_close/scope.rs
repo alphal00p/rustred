@@ -8,21 +8,11 @@ pub(super) fn root_sector(
     arity: usize,
     nonpositive_indices: &[usize],
 ) -> Result<Vec<bool>, AppError> {
-    let mut root = vec![true; arity];
-    for &axis in nonpositive_indices {
-        let permitted = root.get_mut(axis).ok_or_else(|| {
-            AppError::input(format!(
-                "family close nonpositive index {axis} lies outside 0..{arity}"
-            ))
-        })?;
-        if !*permitted {
-            return Err(AppError::input(format!(
-                "family close nonpositive index {axis} is repeated"
-            )));
-        }
-        *permitted = false;
-    }
-    Ok(root)
+    crate::application::candidate_bundle::preparation::root_sector(
+        arity,
+        nonpositive_indices,
+        "family close",
+    )
 }
 
 #[cfg(test)]

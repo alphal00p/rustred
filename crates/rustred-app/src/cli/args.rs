@@ -1,9 +1,11 @@
 mod campaign;
+mod candidates;
 mod derive;
 mod family_close;
 mod family_solve;
 mod resource_limits;
 
+pub(crate) use candidates::{CertifyCandidatesArgs, FamilyCandidatesArgs};
 use resource_limits::ResourceLimitsArgs;
 
 use std::ffi::OsString;
@@ -141,6 +143,8 @@ pub(crate) enum Command {
     Derive(DeriveArgs),
     FamilySolve(FamilySolveArgs),
     FamilyClose(FamilyCloseArgs),
+    FamilyCandidates(FamilyCandidatesArgs),
+    CertifyCandidates(CertifyCandidatesArgs),
     CampaignPlan(CampaignPlanArgs),
     CampaignPreflight(CampaignPreflightArgs),
     CampaignGenerate(CampaignGenerateArgs),
@@ -183,7 +187,7 @@ impl fmt::Display for ArgError {
                 write!(formatter, "command-line option is not UTF-8: {value:?}")
             }
             Self::MissingCommand => formatter.write_str(
-                "missing command; expected `derive`, `family-solve`, `family-close`, or `campaign`",
+                "missing command; expected `derive`, `family-solve`, `family-close`, `family-candidates`, `certify-candidates`, or `campaign`",
             ),
             Self::MissingSubcommand(command) => write!(
                 formatter,
@@ -245,6 +249,8 @@ pub(crate) fn parse_args(
         "derive" => derive::parse(arguments),
         "family-solve" => family_solve::parse(arguments),
         "family-close" => family_close::parse(arguments),
+        "family-candidates" => candidates::parse_generation(arguments),
+        "certify-candidates" => candidates::parse_certification(arguments),
         "campaign" => campaign::parse(arguments),
         _ => Err(ArgError::UnknownCommand(command)),
     }
@@ -318,6 +324,8 @@ USAGE:
     rustred derive [OPTIONS]
     rustred family-solve [OPTIONS]
     rustred family-close [OPTIONS]
+    rustred family-candidates [OPTIONS]
+    rustred certify-candidates [OPTIONS]
     rustred campaign plan [OPTIONS]
     rustred campaign preflight [OPTIONS]
     rustred campaign run [OPTIONS]
@@ -346,6 +354,25 @@ FAMILY-CLOSE OPTIONS:
     --n-cores <COUNT>            Maximum worker cores [default: 1]
     --progress                  Also emit plain progress when stderr is redirected
     --force                      Atomically replace an existing output file
+
+FAMILY-CANDIDATES OPTIONS:
+    --input <PATH|->             Read supplied family text [default: -]
+    --output <PATH|->            Write UNCERTIFIED candidate bundle [default: -]
+    --report-output <PATH|->     Optional separate phase-timing TOML report
+    --input-format <FORMAT>      auto, toml, or symbolica [default: auto]
+    --permutation <N,N,...>      Optional zero-based coordinate priority permutation
+    --nonpositive-indices <N,N,...>  Coordinates restricted to nonpositive powers
+    --n-cores <COUNT>            Maximum worker cores [default: 1]
+    --force                      Atomically replace existing output files
+
+CERTIFY-CANDIDATES OPTIONS:
+    --input <PATH|->             Read saved uncertified candidate bundle [default: -]
+    --output <PATH|->            Write independently certified artifact [default: -]
+    --report-output <PATH|->     Optional separate phase-timing TOML report
+    --max-domain-bound-endpoint-cells <N>  Certification endpoint budget [core default]
+    --max-predicate-consistency-work <N>   Certification consistency budget [core default]
+    --max-predicate-atoms <N>              Certification atom limit [default: 32; maximum: 256]
+    --force                      Atomically replace existing output files
 
 FAMILY-SOLVE OPTIONS:
     --input <PATH|->             Read arbitrary family Project TOML from PATH or stdin
@@ -434,6 +461,14 @@ Publication and cold-load resource budgets are caller policy, not artifact
 evidence. Zero is a valid restrictive budget. Reapply any chosen budgets for
 inspection and reduction; artifacts never raise their loader's limits.
 TOML resource reports use decimal strings to preserve the platform integer range.
+
+`family-candidates` prepares sources, solves the supplied root, and saves
+formulas with an explicit uncertified status. It does not replay provenance,
+prove global coverage, or emit a closing artifact. `certify-candidates`
+independently reconstructs and replays that bundle through the existing complete
+publication pipeline without running search again; incomplete inputs fail.
+Optional --report-output records phase timings separately from bundle/artifact
+bytes. Data is written before its report; destinations must differ.
 
 `campaign plan` authenticates and interns only the supplied campaign roots.
 It does not discover dependencies, derive relations, prove closure, or publish

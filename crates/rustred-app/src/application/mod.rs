@@ -4,6 +4,7 @@ mod campaign {
     pub(super) mod plan;
     pub(super) mod preflight;
 }
+mod candidate_bundle;
 mod closing;
 mod derive;
 mod error;
@@ -17,6 +18,11 @@ mod options;
 mod producer;
 mod resource_policy;
 
+pub use candidate_bundle::{
+    CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateBundleLimits,
+    CandidateBundleResult, CandidateCertificationRequest, CandidateCertificationResult,
+    FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest, certify_candidates, family_candidates,
+};
 pub use error::{AppError, AppErrorKind};
 pub use family_close::{
     FAMILY_CLOSE_SCHEMA, FamilyCloseGenerationStage, FamilyCloseProgress, FamilyCloseRequest,

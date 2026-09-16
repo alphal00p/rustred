@@ -31,6 +31,25 @@ for the experimental Vakint lane; preserve Rust/CLI/public Python API parity.
 See [generation versus certification](docs/generation_and_certification.md)
 for the inspected C++ timer boundary and comparison protocol.
 
+**Split workflow implementation (2026-09-16):** `family_candidates` and
+`certify_candidates` are implemented in the Rust application library and public
+`import rustred` Python API, with CLI commands `family-candidates` and
+`certify-candidates` and independent timing-report outputs. Certification reads
+the saved formulas and source support; it does not repeat sector search. K1,
+K3 and K6 generation, separate certification, cold loading and canary reduction
+match the existing artifact bytes exactly. K6 candidate bytes agree across one,
+two and six workers. Validation passes 651 focused core tests (16 existing
+ignored), 150 application/CLI/Python-binding Rust tests, and 32 fresh release-
+wheel Python tests. The experimental core `CandidateReducer` remains explicitly
+uncertified and checks each actual integer point, guards and descent. The
+four-loop Vakint numerical gate is still separate and pending.
+
+The new release CLI also saves full H and FG candidate bundles (21,360 and
+9,272 rules). On the shared host with two workers, their solve phases took
+51.46 s and 31.89 s; text bundle encoding took 9.08 s and 3.14 s. These are
+uncertified generation measurements, not C++ comparisons or artifact closure.
+Evidence: `/tmp/rustred-split-candidates-release.qCn7z3/`.
+
 **Latest implementation checkpoint (2026-09-16):** native factor-derived affine
 guard consequences and explicit caller-owned predicate-atom allowances pass
 642 focused core tests (16 existing ignored tests), the earlier 128-test
@@ -39,8 +58,12 @@ artifacts and cold reductions are unchanged; K6 bytes agree at one, two and six
 workers. The fresh FG campaign clears its old guard blocker but stops at a
 uniform-descent check in sector 115, rule 76; H advances to an affine-chart
 integer-bit preflight limit in sector 229, rule 65. Neither publishes an
-artifact. BMW and X reruns remain in progress at this checkpoint. These are
-not whole-family closure or four-loop numerical-acceptance results. Evidence:
+artifact. BMW reaches sector 230 rule 73, then rejects another unproved guard;
+X passes 254/328 sector audits, then exhausts cumulative affine-consistency
+work in sector 155. All four attempts finish without an artifact. These are
+not whole-family closure or four-loop numerical-acceptance results. The
+[full release results](docs/four_loop_parent_closure_probe.md) record the new
+stopping points and workload boundaries. Evidence:
 `/tmp/rustred-factor-policy-release.QSclTI/`.
 
 The active tool-managed goal is now complete four-loop single-scale vacuum

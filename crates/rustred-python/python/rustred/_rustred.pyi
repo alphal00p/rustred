@@ -14,6 +14,16 @@ class RustRedInternalError(RustRedError): ...
 class RustRedCoordinatorPoisonedError(RustRedInternalError): ...
 
 @final
+class CandidateBundleResult:
+    @property
+    def schema(self) -> str: ...
+    @property
+    def status(self) -> str: ...
+    @property
+    def bundle(self) -> bytes: ...
+    def to_toml(self) -> str: ...
+
+@final
 class DeriveResult:
     @property
     def schema(self) -> str: ...
@@ -144,6 +154,23 @@ def family_close(
     n_cores: int = 1,
     permutation: list[int] | None = None,
     nonpositive_indices: list[int] | None = None,
+    max_domain_bound_endpoint_cells: int | None = None,
+    max_predicate_consistency_work: int | None = None,
+    max_predicate_atoms: int | None = None,
+) -> ClosingArtifactGenerationResult: ...
+
+def family_candidates(
+    source: str,
+    *,
+    input_format: str = "auto",
+    n_cores: int = 1,
+    permutation: list[int] | None = None,
+    nonpositive_indices: list[int] | None = None,
+) -> CandidateBundleResult: ...
+
+def certify_candidates(
+    bundle: bytes,
+    *,
     max_domain_bound_endpoint_cells: int | None = None,
     max_predicate_consistency_work: int | None = None,
     max_predicate_atoms: int | None = None,

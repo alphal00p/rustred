@@ -25,6 +25,8 @@ The initial operations are:
 - `rustred.campaign_plan(...)`
 - `rustred.campaign_preflight(...)`
 - `rustred.family_close(source, ...)`
+- `rustred.family_candidates(source, ...)`
+- `rustred.certify_candidates(bundle, ...)`
 - `rustred.generate_closing_artifact(...)`
 - `rustred.inspect_closing_artifact(artifact_bytes)`
 - `rustred.reduce_with_closing_artifact(artifact_bytes, target_powers, ...)`
@@ -86,10 +88,10 @@ print(rustred.reduce_with_closing_artifact(pinch.artifact, [2, 2, -1]).to_toml()
 ```
 
 The domain survives cold loading. Publication still requires exact replay,
-strict descent, and complete coverage inside it. Generation report schema v2
+strict descent, and complete coverage inside it. Generation report schema v4
 records `root_sector`, in-domain `zero_sectors`, and `global_zero_sectors`:
 global zero proofs can be needed to replay translated sources even outside
-the reduction domain. Inspection schema v2 reports `root_power_lower`,
+the reduction domain. Inspection schema v4 reports `root_power_lower`,
 `root_power_upper`, and `in_scope_zero_sectors`. Duplicate, negative, boolean,
 or out-of-range indices are rejected. Zero-only scopes are not yet supported
 and fail without publishing an artifact.
@@ -101,6 +103,58 @@ rustred family-close --input family.toml --output family.rr --n-cores 1
 rustred campaign inspect --artifact family.rr
 rustred campaign reduce --artifact family.rr --powers 2,2,1
 ```
+
+## Save formulas before independent certification
+
+`family_candidates` prepares and solves an explicitly supplied family but skips
+the subsequent source replay and global closure proof. Its immutable result is
+`CandidateBundleResult`, with `.bundle: bytes`, `.status ==
+"uncertified-candidates"`, and a separate observational `to_toml()` timing
+report. The bundle is not a closing artifact and cannot be used by
+`inspect_closing_artifact` or `reduce_with_closing_artifact`.
+
+```python
+from pathlib import Path
+import rustred
+
+source = "I(loops(k),externals(),dimension(d),prop(P,k^2-1,1))"
+candidates = rustred.family_candidates(source, n_cores=1)
+Path("tadpole.candidates.toml").write_bytes(candidates.bundle)
+print(candidates.to_toml())  # preparation, solve and bundle-writing microseconds
+
+# Can run in a fresh Python process; this does not repeat the search.
+certified = rustred.certify_candidates(Path("tadpole.candidates.toml").read_bytes())
+assert certified.status == "generated-durable"
+print(certified.to_toml())  # reconstruction and exact certification timings
+print(rustred.reduce_with_closing_artifact(certified.artifact, [3]).to_toml())
+```
+
+The result of successful certification is the usual
+`ClosingArtifactGenerationResult`. A modified, incomplete or inadmissible
+bundle raises an exception; it cannot grant itself closure authority.
+Generation accepts `input_format`, `n_cores`, `permutation`, and
+`nonpositive_indices`. Certification keeps the existing unit-mass vacuum
+publication admission and accepts these optional caller resource limits:
+
+```python
+certified = rustred.certify_candidates(
+    candidates.bundle,
+    max_domain_bound_endpoint_cells=65536,
+    max_predicate_consistency_work=67108864,
+    max_predicate_atoms=64,
+)
+```
+
+Those same three limits are accepted by `family_close`,
+`inspect_closing_artifact`, and `reduce_with_closing_artifact`; reapply chosen
+budgets on a later cold load. Defaults are unchanged, zero is restrictive, and
+the supported predicate-atom ceiling is 256. Limits are not serialized as
+artifact authority. Candidate generation does not accept proof-budget options.
+
+Equivalent CLI commands are `family-candidates` and `certify-candidates`; both
+support `--report-output` for phase timings separate from their data output.
+Neither candidate generation nor a successful finite-target experiment is a
+proof of complete family coverage.
 
 ## Preset generation and artifact consumption
 

@@ -1,4 +1,5 @@
 pub(crate) mod args;
+mod candidates;
 pub(crate) mod error;
 mod io;
 mod progress;
@@ -54,6 +55,8 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         Command::Derive(arguments) => derive_cli(arguments),
         Command::FamilySolve(arguments) => family_solve_cli(arguments),
         Command::FamilyClose(arguments) => family_close_cli(arguments),
+        Command::FamilyCandidates(arguments) => candidates::generate(arguments),
+        Command::CertifyCandidates(arguments) => candidates::certify(arguments),
         Command::CampaignPlan(arguments) => plan_campaign(arguments),
         Command::CampaignPreflight(arguments) => preflight_campaign(arguments),
         Command::FoundryCampaignRun(arguments) => run_foundry_campaign_cli(arguments),

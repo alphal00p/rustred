@@ -4,17 +4,16 @@
 //! generic sector solving, original-source replay, coverage installation and
 //! durable encoding. It supplies neither relations nor topology selectors.
 
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rustred::family::IntegralFamily;
 use rustred::foundry::artifact::{
     ClosedArtifact, SourcePortAudit, SourcePortAuditError, SourcePortLimits,
 };
-use rustred::sector::{Mask, zero};
-use rustred::solver::{SectorConfig, SectorExecutor, SectorSolveOptions, SourceSystem};
+use rustred::solver::{SectorConfig, SectorExecutor, SectorSolveOptions};
 use serde::Serialize;
 
+use super::candidate_bundle::preparation;
 use super::error::AppError;
 use super::input::prepare_input;
 use super::lowering::lower_project;
@@ -289,43 +288,21 @@ fn close<const N: usize>(
              and d as its sole scalar parameter: {error}"
         ))
     })?;
-    let permutation = request.permutation.as_deref().map(|coordinates| {
-        <[usize; N]>::try_from(coordinates).expect("validated coordinate permutation")
-    });
-    let root_sector: [bool; N] = root_sector.try_into().expect("validated root-sector arity");
+    let preparation::Prepared {
+        family,
+        root: root_sector,
+        permutation,
+        zeros,
+        sectors,
+        sources,
+    } = preparation::prepare::<N>(family, root_sector, request.permutation.as_deref())?;
     let admits = |sector: &[bool; N]| {
         sector
             .iter()
             .zip(root_sector)
             .all(|(&active, allowed)| !active || allowed)
     };
-    let analyzer = zero::Analyzer::try_unrestricted(&family)
-        .map_err(|error| AppError::execution(error.to_string()))?;
-    let mut zeros = Vec::new();
-    let mut sectors = Vec::new();
-    for bits in 0..(1usize << N) {
-        let sector: [bool; N] = std::array::from_fn(|axis| bits & (1 << axis) != 0);
-        let mask = Mask::try_new(sector).map_err(|error| AppError::execution(error.to_string()))?;
-        match analyzer
-            .analyze(&mask)
-            .map_err(|error| AppError::execution(error.to_string()))?
-        {
-            zero::Decision::ProvedZero(_) => zeros.push(sector),
-            zero::Decision::Inconclusive(_) if admits(&sector) => sectors.push(sector),
-            zero::Decision::Inconclusive(_) => {}
-            zero::Decision::Excluded(_) => {
-                return Err(AppError::internal_invariant(
-                    "unrestricted zero analysis excluded a sector",
-                ));
-            }
-        }
-    }
-    drop(analyzer);
-    sectors.sort_unstable();
     let scoped_zero_sectors = zeros.iter().filter(|sector| admits(sector)).count();
-    let zeros: Arc<[[bool; N]]> = zeros.into();
-    let sources = SourceSystem::from_family(&family)
-        .map_err(|error| AppError::execution(error.to_string()))?;
     let audit = SourcePortAudit::try_new_with_root_sector(&family, zeros.clone(), root_sector)
         .map_err(|error| AppError::execution(error.to_string()))?
         .with_limits(request.publication_limits);
