@@ -87,18 +87,70 @@ fn vanishes_in_subsector<const N: usize>(
 ) -> bool {
     let sector = order.sector();
     let mut actual = *sector;
+    let mut symbolic = false;
     for (i, power) in integral.powers().iter().enumerate() {
-        if !power.is_symbolic() {
+        if power.is_symbolic() {
+            symbolic = true;
+        } else {
             actual[i] = power.value() > 0;
+            // A fixed missing cut stays missing under every later symbolic
+            // translation. This proof does not need the zero-sector census.
+            if order.deltas()[i] && sector[i] && !actual[i] {
+                return true;
+            }
         }
     }
-    actual != *sector
-        && (zero_sectors.contains(&actual)
-            || actual
-                .iter()
-                .zip(order.deltas())
-                .any(|(active, cut)| *cut && !*active))
+    let is_zero = |mask: &[bool; N]| {
+        mask != sector
+            && (zero_sectors.contains(mask)
+                || mask
+                    .iter()
+                    .zip(order.deltas())
+                    .any(|(active, cut)| *cut && !*active))
+    };
+    if !symbolic {
+        return is_zero(&actual);
+    }
+    // Search subsequently recenters the winning target. A symbolic n_i can
+    // therefore acquire an activating/pinching shift even when its current
+    // displacement is zero. Pruning solely from the parent orthant loses an
+    // identity on that boundary, and RHS guard extraction cannot see a term
+    // which was already deleted. Only a sign-INDEPENDENT zero proof is safe
+    // here without carrying separate source-projection obligations.
+    //
+    // Explicit membership, rather than monotonicity of the zero census, is
+    // required: the generic source API does not promise downward closure.
+    // This is a bounded optional optimization. If proving every support is
+    // too expensive, retain the exact source column; never assume it zero.
+    let mut remaining = 1024;
+    every_symbolic_support_is_zero(integral, &mut actual, 0, &mut remaining, &is_zero)
 }
+
+fn every_symbolic_support_is_zero<const N: usize>(
+    integral: &Integral<N>,
+    actual: &mut [bool; N],
+    from: usize,
+    remaining: &mut usize,
+    is_zero: &impl Fn(&[bool; N]) -> bool,
+) -> bool {
+    if *remaining == 0 {
+        return false;
+    }
+    *remaining -= 1;
+    let Some(axis) = (from..N).find(|&axis| integral[axis].is_symbolic()) else {
+        return is_zero(actual);
+    };
+    if !every_symbolic_support_is_zero(integral, actual, axis + 1, remaining, is_zero) {
+        return false;
+    }
+    actual[axis] = !actual[axis];
+    let result = every_symbolic_support_is_zero(integral, actual, axis + 1, remaining, is_zero);
+    actual[axis] = !actual[axis];
+    result
+}
+
+#[cfg(test)]
+mod projection_tests;
 
 pub(crate) fn canonicalize<const N: usize>(
     row: ExactRow<N>,

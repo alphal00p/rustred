@@ -63,7 +63,7 @@ The currently evidenced core can:
   zero uncovered regions for all 617 rules at one and six workers. This cold
   audit also passes the complete K1/K3 families. The canonical unit-mass K6
   program now installs into the existing `ClosedArtifact` and
-  memoizing `Reducer`: 623 rules, 5,639 sign-refined cells, 38 finite masters,
+  memoizing `Reducer`: 623 rules, 5,640 sign-refined cells, 38 finite masters,
   and 26 proved-zero sectors. Serial and six-worker generation writes identical
   durable bytes; fresh CLI loading and application pass. Complete Vakint
   acceptance now passes the complete selected matrix described above. See
@@ -650,7 +650,7 @@ rustred campaign reduce --artifact k6.rr --powers 2,1,1,1,1,1
 python examples/python/k6_closing_artifact.py another-k6.rr --generate --workers 6
 ```
 
-Expected generation output includes 623 generated rules, 5,639 refined cells,
+Expected generation output includes 623 generated rules, 5,640 refined cells,
 38 finite terminals and 26 zero sectors. The output
 path must be new. The generic CLI and Python artifact readers apply these
 bytes without rerunning rule discovery; cold loading regenerates ordinary IBP

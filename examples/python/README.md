@@ -83,7 +83,7 @@ python examples/python/k6_closing_artifact.py k6.rr
 
 The first command refuses to overwrite any existing artifact and requires its
 parent directory to exist. Generation reports 38 solved sectors, 26 proved-zero
-sectors, 623 generated rules and 5,639 installed rule cells. Both commands check
+sectors, 623 generated rules and 5,640 installed rule cells. Both commands check
 the 6-coordinate family, 38 terminals, and the 30-term exact reduction of
 `[2,1,1,1,1,1]`. The second command consumes supplied bytes only: no generation,
 compilation, or FORM dependency. Run it as a separate process to demonstrate

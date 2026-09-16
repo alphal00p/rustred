@@ -1,9 +1,10 @@
 # Vakint integration with the current RustRed dependency stack
 
-Status: independently audited API adapters and focused runtime gates pass in
-an isolated worktree, 2026-09-16; **the production branch is not yet migrated**.
+Status: the main `vakint_rustred` working tree now passes the complete recorded
+83-test selection on the new dependency stack, 2026-09-16. The broader workspace
+migration is still being checked; **these changes have not yet been pushed**.
 
-Vakint's current `vakint_rustred` branch ships RustRed `ce92d3a7` and the
+Vakint's last pushed `vakint_rustred` checkpoint ships RustRed `ce92d3a7` and the
 coherent Symbolica/Numerica 2.2 stack. RustRed's current main branch uses the
 vendored Symbolica 3.0 checkout at
 `953e26e2754e9a4b918404fbdea590725d8e863d`. The existing through-three-loop
@@ -71,11 +72,39 @@ The scoped Vakint library check and no-dependencies Clippy gate with
 `-D warnings` also passed. This does not claim a warning-free upstream
 dependency stack or a whole-workspace lint gate.
 
-These are focused adapter tests, **not** the complete 83-test comparative
-acceptance gate on the upgraded stack. The narrowed workspace and local Cargo
-paths remain diagnostic conveniences. Idenso's additional integration-test
-and benchmark matching calls still require mechanical adaptation if those
-targets are selected in the broader workspace gate.
+These initial isolated results were focused adapter tests, **not** the complete
+comparative acceptance gate. The subsequent main-tree gate below supplies
+that distinct result. The narrowed workspace and local Cargo paths were only
+diagnostic conveniences.
+
+## Main-tree acceptance gate
+
+The main GammaLoop workspace now resolves with published RustRed
+`09cef8e3cf7487dded7803edc26df5d51bb9f500` and published
+Symbolica/Graphica/Numerica `953e26e2754e9a4b918404fbdea590725d8e863d`.
+The workspace-hack tables move with these pins. Additional Idenso test and
+benchmark matching setters are mechanically adapted; no local-path dependency
+is proposed for shipping.
+
+K1 and K3 regenerate byte-identically. K6 is replaced by the generic CLI/Python
+producer's identical, cold-checked `0x704` bytes, with the identifier-safe family
+name updated in the private Vakint loader. All 38 terminal keys are unchanged;
+no new master catalog or compatibility decoder is needed.
+
+The exact frozen selection passes in nine batches: **83 passed, zero failed,
+zero ignored**. Native FeynKit/RustRed lanes retain invalid FORM paths, while
+the separate AlphaLoop/MATAD and terminal-oracle lanes use FORM5. No assertion,
+tolerance or default is changed. The nine binary hashes, runner, selection and
+results are retained at `/tmp/vakint-symbolica3-main.bMELju/acceptance/`.
+The scoped Vakint library/test compilation also passes. These are correctness
+gates; debug test runtime is not a performance benchmark.
+
+The broader GammaLoop workspace compilation and its direct linear-solver
+callers remain a separate pre-push gate. Native matrix solving must preserve
+unique/generic field-valued contracts where appropriate; UV partial momentum
+routings must preserve free coordinates and may not discard conditions.
+Passing Vakint alone does not establish that the whole workspace migration
+is complete, nor that four-loop RustRed artifacts exist.
 
 ## Coherent delivery sequence
 
@@ -111,7 +140,9 @@ targets are selected in the broader workspace gate.
 The initial full-workspace offline resolution hit a local cache/index mismatch
 for `typed-index-collections` 3.3.0 versus a cached 3.5.0 candidate. This does
 not prove an incompatible dependency constraint: the intended locked version
-satisfies both requirements. Fetch/preserve it rather than changing unrelated
-constraints. The full diagnostic report and compiler logs remain outside the
-repository at `/tmp/vakint-symbolica3-census.1Szmr3/`. No production GammaLoop
-manifest or source was changed by this investigation.
+satisfies both requirements. The main-tree check subsequently fetched that
+locked version without changing its constraints. The initial diagnostic
+report and compiler logs remain outside the repository at
+`/tmp/vakint-symbolica3-census.1Szmr3/`; main-tree migration evidence is at
+`/tmp/vakint-symbolica3-main.bMELju/`. Production manifests and adapters are now
+modified locally as described above, but the migration is not yet committed.

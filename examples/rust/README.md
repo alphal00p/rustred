@@ -53,7 +53,7 @@ The defining generation output is:
 ```text
 schema=rustred.closing-artifact.v5
 algorithm_id=rustred.source-port-original-domain.v1
-sectors=38 zero_sectors=26 generated_rules=623 rule_cells=5639 terminals=38 bytes=8916759 workers=6
+sectors=38 zero_sectors=26 generated_rules=623 rule_cells=5640 terminals=38 bytes=8917577 workers=6
 ```
 
 Family/context identities, all 38 typed terminal keys and preparation,
@@ -64,7 +64,9 @@ common-mass homogeneity powers. The example now shares the identifier-safe
 family name in `input/three_loop_k6.toml`. This intentionally changes its
 identity; Vakint's loader binding and shipped asset must migrate together.
 The existing pinned Vakint stack passes the complete recorded 83-test
-selection; the new producer/dependency migration needs its own full rerun.
+selection; the pending Symbolica 3 migration also passes that selection on
+its regenerated artifact. The projection-safe producer above adds one refined
+cell without changing the 38 masters or the exact dotted canary result.
 
 ## SpIRed reference-port case probe
 

@@ -36,7 +36,7 @@ The script refuses to overwrite an artifact, authenticates it in a fresh CLI
 process, and applies it to `[2,1,1,1,1,1]`. Inspection reports the canonical
 K=6 family with 38 terminal entries; reduction reports 30 exact master terms.
 Generation reports 38 solved sectors, 26 proved-zero sectors, 623 generated
-rules and 5,639 installed rule cells. The equivalent generation command is:
+rules and 5,640 installed rule cells. The equivalent generation command is:
 
 ```bash
 ./target/release/rustred family-close \

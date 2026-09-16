@@ -523,6 +523,143 @@ The frozen binary, hashes, invocation, full logs and measurements are retained
 at `/tmp/rustred-four-loop-fg-scope.4ueeaV/`. This failure localizes the next
 correctness investigation before further broad profiling or full-family reruns.
 
+#### Selected-sector confirmation of the admitted boundary
+
+A release diagnostic against the frozen `09cef8e3` library then repeated
+sector 106 alone, with the same native global-zero census and solver options.
+It reproduces all 96 candidate rules and the exact three replay failures in
+**0.82 s wall, 0.80 s CPU, 9,216 KiB peak RSS** (218 ms search, 490 ms audit).
+The driver exits successfully after printing an incomplete audit; this is
+diagnostic execution success, not a closing artifact.
+
+The actual cases remove the remaining domain ambiguity:
+
+| Rule | Canonical target | Only excluded face |
+| --- | --- | --- |
+| 85 | `I(n0,1,0,1,0,1,1,0,n8,0)` | `n8=0` |
+| 86 | `I(n0,1,0,1,0,1,1,-1,n8,0)` | `n8=0` |
+| 87 | `I(n0,1,-1,1,0,1,1,0,n8,0)` | `n8=0` |
+
+Only `n0,n8` are symbolic; the rest are fixed. All three rules therefore admit
+`n0=0,n8=-1`, as independently checked by substituting the complete boundary
+point into their exceptional equations with Symbolica. There are no affine
+conditions or hidden `n0` exclusions. The native census directly confirms
+mask 74 is proved zero and mask 75 is not.
+
+Each candidate has a 22-source dependency trace. Full source seeds, basis
+rows, ordinary rows, RHS coefficients and exceptional cases are retained at
+`/tmp/rustred-fg106-trace.O1QCHP/`. This localizes the obligation to a boundary-
+unsafe source certificate/discovery projection, not a missing CLI display of
+an excluded face. A nonzero residual invalidates that replay proposal; it
+does not alone prove the final candidate identity false, since a different
+complete original-source certificate may exist. The correction must preserve
+the exact replay gate and be tested against this small reproducer before a
+new full physical-family run.
+
+A supplemental temporary reconstruction uses Symbolica's native sparse
+reducer and the frozen original-source proposal helper to expose rule 85's
+weights. It exactly reproduces the stored projected row from a raw pivot
+`I(n0-1,1,0,1,0,1,1,0,n8,0)` with a **+1 translation of `n0`**. The strict
+whole-domain proposal fails; the assumed-parent-sign fallback succeeds.
+Its 64 original rows have 29 nonzero weights, all `±1/n8` or `±2/n8`, so none
+has an `n0=0` pole. Native full replay rejects the same residual product.
+This rules out a merely delayed `n0` weight-pole exception for this proposal
+and records the recentering that can reactivate a prematurely projected
+column. The supplemental diagnostic takes 0.83 s wall; it neither publishes
+an artifact nor proves that no alternative valid certificate exists.
+
+#### Conservative projection passes the selected-sector proof gate
+
+The next release build retains a symbolic source column unless the native
+zero census proves it zero for every assignment of its symbolic sector signs.
+This is deliberately conservative and invariant under later canonical shifts;
+it does not implement new algebra or weaken original-source replay.
+
+The selected sector 106 rerun now passes **99/99 original-source replays and
+99/99 uniform-descent checks**, with **zero issues, zero stored/checked
+uncovered or unbounded boxes, and one finite terminal candidate**. The old
+snapshot produced 96 rules, of which 93 passed and three failed. No additional
+replay guard branches were needed in the new report.
+
+The retention has a measured cost in these small single-run diagnostics:
+search rises from **218 to 557 ms**, exact audit from **490 to 1,002 ms**,
+and whole-process wall time from **0.82 to 1.68 s**. The corrected process
+uses **1.66 s CPU** (1.61 user + 0.05 system) and **12,288 KiB peak RSS**,
+versus 0.80 s CPU and 9,216 KiB before. These are shared-host observations
+with changed rule workloads, not comparative benchmark medians; the new
+driver also links the core-only release feature build. Both exclude compilation.
+
+This is a successful selected-sector replay/descent/coverage check, **not a
+full FG artifact**. Durable lowering, combined installation, cold inspection
+and application remain to be tested by the next complete physical-family
+CLI run. The aggregate diagnostic does not expose the newly generated case
+domains, so the extra three rules are not yet identified as particular fixed
+faces. Evidence is `updated.stdout` and `updated.time` in
+`/tmp/rustred-fg106-trace.O1QCHP/`.
+
+#### Matched unchanged C++ reference agrees with the old candidates
+
+A temporary release C++ driver then used the exact ten FG denominators, sector
+106, natural static ordering, numerical depth 2, and the complete **281-mask
+native zero census**. It invokes the unchanged SpIRed solver serially on CPU
+36; the unrelated vendored `vac4.cpp` family was not used.
+
+It produces **96 rules and one master candidate in 549.566 ms search**,
+**0.60 s process wall, 0.55 s CPU, and 9,228 KiB peak RSS**, exit 0. C++ rules
+85--87 have exactly the same targets, sole `n8=0` exclusion, and four RHS
+terms as the frozen old RustRed candidates, after translating C++'s one-based
+coefficient names. This rules out a simple candidate transcription mismatch;
+it does not turn those candidates into authenticated original-source proofs.
+
+The corrected RustRed search's 557 ms is similar in this single shared-host
+observation, but includes a changed 99-rule workload. Its additional 1,002 ms
+exact audit is not performed by the C++ driver, so their total runtimes are
+not equal-workload performance comparisons. Temporary source, native census,
+complete numbered rules, three generated reference files, and timing evidence
+are in `/tmp/rustred-fg106-cpp.QSBJtn/`. No C++ solver or production Rust code
+was modified for this comparison.
+
+#### Corrected full physical FG run reaches exact certificate swell
+
+The next complete release CLI attempt retains the same external input, natural
+ordering, nonpositive indices 8 and 9, and two workers on CPUs 34 and 35.
+All **124 nonzero-sector searches** finish by **57.1 s**, producing **9,272
+candidate rules and 145 finite terminal candidates**. This is eight more rules
+than the old discovery run; the finite-terminal candidate count is unchanged.
+
+The exact audit now passes **32 sectors**, including sector 106's **99/99
+rules with zero issues and zero uncovered boxes**. It enters sector **214**
+with 161 rules at **80.9 s** and remains there until the new 600-second cap.
+The full process uses **600.13 s wall, 651.21 s CPU** (647.10 user + 4.11
+system), and **551,840 KiB peak RSS**, exiting **124**. No artifact is written,
+so cold inspection and application are still not attempted for FG.
+
+A **15-second live CPU profile**, containing **724 cycle samples** and no
+reported lost samples, localizes this stall. Inclusive stacks contain native
+`SparseRowReducer::add_row` in **97.90%** of samples,
+`ordinary::native::propose` in **95.67%**, and native polynomial GCD in
+**64.90%**. These overlap: they are not additive timings or measurements of
+the full campaign. The profile does not identify the active rule ordinal
+within sector 214. This is a shared-host bounded diagnostic.
+
+The source-level finding is concrete: the original-source membership proposal
+augments every source row with its own identity column, `[A | I]`, making even
+physically dependent rows independent and carrying all their rational source
+weights through exact elimination. The smallest proposed next slice is native
+modular dependency-support pruning before the existing exact proposal, with
+full unprojected replay and every guard gate unchanged. A failed compact
+proposal must retain deterministic fallback within the same quotient; new
+certificate poles must not hide exceptional faces. The detailed design and
+native Symbolica reuse points are in
+[`original_source_certificate_performance.md`](research/original_source_certificate_performance.md).
+It has not yet been implemented or benchmarked.
+
+Evidence, frozen executable, invocation and full profile are retained at
+`/tmp/rustred-safe-projection.DMp3co/`. This run moves the active physical FG
+blocker from the now-resolved sector-106 proof gap to the cost of original-
+source certificate proposal at sector 214; it does not establish that all
+remaining exact checks will succeed once that cost is reduced.
+
 ## Interpretation
 
 None of the four external parents currently has a cold-loadable RustRed
@@ -532,12 +669,14 @@ installation, and all runs stopped before publication. The observations
 do show materially different profiles: the initial X and BMW attempts consume
 their five-minute budgets; unrestricted FG encounters nonlinear geometry;
 unrestricted H now completes discovery but stalls in exact checking; scoped
-physical FG completes discovery and exposes three exact-replay failures in
-about 50 seconds.
+physical FG initially exposed three exact-replay failures in about 50 seconds,
+then conservative projection resolved those failures and the next full run
+reached a separately profiled certificate-proposal bottleneck at sector 214.
 
 These runs do not authorize hard-coded relations, topology-specific dispatch,
 sampled coverage, or a claim of four-loop closure. The next implementation
-requirement is to resolve the physical FG source-projection/replay gap, then
-repeat complete scoped validation. The unrestricted objective retains its
-separate nonlinear-geometry and exact-check cost challenges. Publication stays
-fail-closed for every unproved identity or region.
+requirement is to accelerate the physical FG original-source certificate
+proposal without weakening replay or exceptional-domain coverage, then repeat
+complete scoped validation. The unrestricted objective retains its separate
+nonlinear-geometry and exact-check cost challenges. Publication stays fail-
+closed for every unproved identity or region.

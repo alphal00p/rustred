@@ -18,6 +18,58 @@ process results are retained in `/tmp/vakint-orientation-full-gate.Ny652I/`
 and `/tmp/vakint-batched-83.baAvzc/`. Clippy also passes for the touched Vakint
 library and comparison targets. Four-loop acceptance is a separate open gate.
 
+**Dependency-migration rerun (2026-09-16):** the same frozen 83-test selection
+also passes in the pending GammaLoop working tree using published RustRed
+`09cef8e3`, Symbolica 3 at `953e26e2`, and the regenerated `0x704` K6 asset:
+83 passed, zero failed or ignored. Native lanes retain invalid FORM paths;
+legacy reference lanes alone use FORM5. The broader GammaLoop workspace
+migration is still being checked, so this is not yet a pushed migration
+milestone. Evidence is retained in
+`/tmp/vakint-symbolica3-main.bMELju/acceptance/`.
+
+The latest physical FG full-family blocker is an exact-source certificate failure, not
+failure to finish the sector search. The scoped release campaign searches all
+124 nonzero sectors in 32.9 seconds, then rejects three certificates in sector
+106. A selected-sector diagnostic reproduces this in 0.82 seconds and proves
+that the disputed `n0=0,n8=-1` boundary is admitted. A conservative,
+translation-safe source-projection correction is under release validation;
+all 225 solver unit tests and 104 artifact source-port tests pass (five larger
+source-port workloads excluded from that debug gate). A separate reconstruction
+of rule 85 confirms that only the speculative parent-sign quotient finds a
+certificate: the pivot is recentered by `+1` on `n0`, but the deleted column
+then activates at `n0=0`. Its 29 nonzero weights have only `n8` denominators;
+an unrecorded `n0` pole is not the cause of this actual failure. Neither a
+valid-looking candidate formula nor zero uncovered boxes can bypass complete
+original-source verification. The corrected release build now passes that
+selected sector: 99/99 replayed and descending rules, one finite terminal,
+zero uncovered boxes and no issues, in 1.68 seconds wall (557 ms search,
+1.002 s audit). This costs more than the old 0.82-second failing diagnostic.
+The matched, unchanged SpIReD C++ solver reproduces the old 96-rule candidates
+and the disputed targets/RHS/exclusions exactly; matching that output does not
+replace source-certificate validation.
+
+The corrected full physical-FG CLI attempt subsequently searches all 124
+nonzero sectors in 57.1 seconds (9,272 rules, 145 finite residuals), passes 32
+sector audits including sector 106, and reaches its 600.13-second bound while
+checking sector 214. No artifact is written. A 15-second, 724-sample CPU profile
+of that long check attributes 97.90% inclusive sampled cycles to native exact
+sparse elimination and 95.67% to original-source membership proposals;
+polynomial GCD has 64.90% inclusive cost. These overlapping percentages are
+local to that window, not whole-campaign phase fractions. The next slice is
+compact original-source certificate construction using native modular
+dependency traces followed by exact lifting and unchanged full replay—not
+larger search budgets or weaker publication checks.
+
+Release CLI K1/K3/K6 generation, fresh-process inspection and canary reduction
+all pass with the correction. K6 remains 623 rules and 38 masters, now with
+5,640 refined cells and 8,917,577 bytes. One-, two- and six-worker artifacts are
+byte-identical; its dotted canary matches the previous artifact exactly.
+The rebuilt public Python extension generates the same bytes, and all 27
+Python API tests pass against that extension and the updated release CLI.
+The serial K6 generation observation is 2.47 seconds wall; this shared-host
+regression is not a controlled speed comparison. Evidence is retained at
+`/tmp/rustred-safe-projection.DMp3co/`.
+
 **Historical acceptance-report correction:** revision
 `98550cc0` records 76 passing invocations but does not establish complete
 through-three-loop acceptance. Its three-loop selection has 24 tests while

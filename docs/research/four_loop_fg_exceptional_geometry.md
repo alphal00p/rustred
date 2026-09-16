@@ -381,12 +381,80 @@ need a selected-sector diagnostic to establish precisely where the boundary
 was lost. Neither the 145 finite residual count nor zero uncovered coordinate
 boxes substitutes for a replayed identity.
 
-### Conditional nonzero boundary check
+### Selected-sector boundary evidence
+
+The selected-sector release diagnostic subsequently supplies the missing
+actual case information. Against the `09cef8e3` release library, the same
+native global census and default natural-order solver reproduce 96 rules,
+one finite residual, and exactly the same three original-source errors.
+The process takes 0.82 s wall (0.80 s CPU), with 218 ms sector discovery and
+490 ms exact audit. Full evidence is at `/tmp/rustred-fg106-trace.O1QCHP/`.
+
+The canonical targets are
+`I(n0,1,0,1,0,1,1,0,n8,0)`,
+`I(n0,1,0,1,0,1,1,-1,n8,0)` and
+`I(n0,1,-1,1,0,1,1,0,n8,0)`. All three are coordinate cases with only `n0,n8`
+unfixed; their only exceptional branch is `n8=0`. Symbolica substitution
+confirms that `n0=0,n8=-1` belongs to every case and is not excluded.
+Native zero analysis independently reports mask 74 proved zero and mask 75
+not proved zero. The source dump retains 22 source recipes per rule, with
+symbolic shifts either zero or minus one on `n0`, plus their original rows.
+
+Consequently the replay failure is not explained by a hidden exclusion of
+the activation boundary. The original-source proposal must be repaired or
+the candidate regenerated using boundary-safe projection. This is still a
+statement about the selected certificate: a failed replay with a nonzero
+residual does not prove that the final candidate identity has no other exact
+IBP proof. Neither a speculative source quotient nor a different numerical
+test can authorize publication in place of that missing proof.
+
+Rule 85's original-source proposal was then reconstructed in a temporary
+driver using the existing native sparse helper and Symbolica arithmetic.
+The selected raw pivot is `I(n0-1,1,0,1,0,1,1,0,n8,0)`; canonicalization
+translates `n0` by +1. Strict whole-domain projection finds no source proposal,
+so the assumed-parent-sign fallback is used. Of 64 original rows, 29 carry
+nonzero weights, exclusively `±1/n8` or `±2/n8`. None has an `n0=0` pole.
+Full native replay reproduces the exact rejected product. Thus an initially
+plausible alternative—verification preceding extraction of a hidden `1/n0`
+weight pole—does not explain this particular failure. A projection rule safe
+only before canonical translation is insufficient: its assumptions must
+survive the +1 recentering or be carried explicitly into the rule domain.
+
+The reference C++ `vendor/spired/src/ibp.tpp::removeZeroIntegrals` uses the
+same symbolic-parent-sign convention when projecting zero subsectors. This
+is not evidence of a Rust-only transcription mistake. A portable exact
+artifact needs the extra domain/provenance discipline enforced by RustRed's
+independent replay gate, regardless of which discovery implementation proposed
+the rule.
+
+### Conservative retention resolves the selected replay obstruction
+
+A follow-up release prototype retains a symbolic source column unless its
+zero status is certified for every symbolic sign assignment. A bounded proof
+attempt that cannot establish this retains the column. This removes the
+assumption that a source's original orthant survives canonical recentering.
+
+On the same sector 106 and native zero census, discovery now returns 99 rules
+and one finite residual. **All 99 replay exactly and descend**, both stored
+and checked cover complements are empty, and the issue list is empty. The
+previous snapshot returned 96 rules but authenticated only 93.
+
+Conservative retention is not free: the single selected-sector process grows
+from 0.82 to 1.68 seconds wall (0.80 to 1.66 seconds CPU), with peak RSS rising
+from 9,216 to 12,288 KiB. Search is 557 ms and exact audit 1,002 ms in the new
+run. This is a correctness regression experiment with changed workloads on a
+shared host, not an isolated performance comparison. No new artifact was
+installed or cold-loaded by this diagnostic. Full physical-FG publication is
+the next required check; the positive result does not resolve unrestricted
+positive-auxiliary-sector nonlinear geometry.
+
+### Confirmed nonzero boundary check
 
 For the first displayed residual (reported rule 85), consider `n0=0,n8=-1`.
-**Admission of this point by that rule's complete case and exclusions has not
-yet been confirmed.** The following calculation identifies a useful exact
-diagnostic target; it does not establish the full cause of the replay failure.
+The selected-sector diagnostic above confirms that this point is admitted
+by the complete case and exclusions. The following exact calculation proves
+that the rejected replay residual cannot be discarded there; it does not
+alone prove the candidate identity false.
 
 The residual coefficient is then `+1`, multiplying
 
@@ -411,10 +479,26 @@ I(1,1,-1,2,0,0,1,0,-1,0)
 
 The final step uses the ordinary one-loop IBP `2*T_2=(d-2)*T_1`. This is
 generically nonzero, so full rank here is not the only evidence against
-discarding the term. If the selected-rule diagnostic confirms that `n0=0`
-and `n8=-1` satisfy the actual case, recentering and guards, this point is a
-concrete counterexample to treating the entire shifted column as scaleless.
-Until those conditions are checked, the pruning diagnosis remains conditional.
+discarding the term. Together with the confirmed case admission and the
+weight diagnostic excluding an `n0=0` certificate pole, this is a concrete
+counterexample to treating the entire shifted column as scaleless.
+
+### Matched unchanged C++ candidates
+
+A reference-only C++ driver using the exact FG denominator order, all 281
+native-proved-zero masks, natural ordering and sector 106 returns 96 rules
+and one terminal candidate. Its rules 85--87 agree exactly with the old Rust
+targets, sole `n8=0` exclusions and four RHS terms. Thus these candidates
+were not altered by a simple porting mistake. The unchanged reference's raw
+rule output is not an independent original-source replay certificate.
+
+The serial release observation is 549.566 ms discovery, 0.60 s whole-process
+wall, 0.55 s CPU and 9,228 KiB peak RSS. RustRed's corrected 557 ms discovery
+is similar for its different 99-rule result; its extra 1,002 ms exact audit
+must not be compared with a C++ phase that was not performed. This is one
+shared-host diagnostic, not a controlled benchmark. Complete reference-only
+driver, census, output and measurements are at
+`/tmp/rustred-fg106-cpp.QSBJtn/`.
 
 ## Minimal generic direction
 
