@@ -63,16 +63,29 @@ directory, so each release run should use a fresh directory. Omitting
 only when `--measurements-output` is supplied and are never concatenated with
 the report.
 
-[`k6_closing_artifact.py`](k6_closing_artifact.py) demonstrates the stable
-Python-side use of the completed autonomous K=6 artifact. Generation is a
-one-off release operation; the Python example only loads the bytes, validates
-the artifact, and applies its generic reducer:
+[`k6_closing_artifact.py`](k6_closing_artifact.py) generates the completed
+autonomous K=6 artifact through `rustred.family_close`, then cold-inspects the
+written bytes and applies the generic reducer. The mathematical family is
+supplied in [`three_loop_k6.toml`](../input/three_loop_k6.toml), with the same
+mathematical family and propagator order used by Vakint. Its identifier-safe
+metadata name `rustred_three_loop_unit_mass_vacuum_k6_v1` intentionally changes
+the old hyphenated-name fingerprint: regenerated Vakint assets and their
+loader identity must migrate together. Terminal keys are unchanged. All 64
+sectors are requested; the input contains no authored IBPs or oracle hints.
+
+After building/installing the release Python extension, generation needs no
+specialized Rust example binary or recompilation:
 
 ```bash
-cargo run --release --locked -p rustred --example spired-generate-k6 -- k6.rr 6
+python examples/python/k6_closing_artifact.py k6.rr --generate --workers 6
 python examples/python/k6_closing_artifact.py k6.rr
 ```
 
-It checks the 6-coordinate family, 38 terminals, and the 30-term exact
-reduction of `[2,1,1,1,1,1]`. Once the release artifact exists, the second
-command does not compile or regenerate anything.
+The first command refuses to overwrite any existing artifact and requires its
+parent directory to exist. Generation reports 38 solved sectors, 26 proved-zero
+sectors, 623 generated rules and 5,639 installed rule cells. Both commands check
+the 6-coordinate family, 38 terminals, and the 30-term exact reduction of
+`[2,1,1,1,1,1]`. The second command consumes supplied bytes only: no generation,
+compilation, or FORM dependency. Run it as a separate process to demonstrate
+fresh-process cold loading after generation. `--workers` controls generation
+only and defaults to one.

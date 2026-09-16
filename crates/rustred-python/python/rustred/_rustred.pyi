@@ -143,6 +143,7 @@ def family_close(
     input_format: str = "auto",
     n_cores: int = 1,
     permutation: list[int] | None = None,
+    nonpositive_indices: list[int] | None = None,
 ) -> ClosingArtifactGenerationResult: ...
 
 def inspect_closing_artifact(

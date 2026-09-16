@@ -13,6 +13,7 @@ use super::super::model::{ArtifactValidationWitness, ClosedArtifact, CommonMassH
 use super::super::source_port::predicate_cover::{
     PredicateCoverLimits, PredicateCoveragePiece, certify_predicate_cover,
 };
+use super::super::source_port::scope;
 use super::{ClosingArtifactCandidate, ReplayProducer};
 
 pub(in crate::foundry::artifact) const ALGORITHM_ID: &str =
@@ -177,6 +178,7 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
     }
     super::validate_generic_bindings_for(&candidate, ReplayProducer::CombinedOriginalDomain)?;
     validate_unit_mass(&candidate)?;
+    let root = scope::root_from_bounds(&candidate.supported_root_power_bounds, candidate.arity)?;
     let mut covers: BTreeMap<Mask, (Vec<PredicateCoveragePiece<'_>>, Vec<LatticeBox>)> =
         BTreeMap::new();
     let zeros: BTreeSet<_> = candidate
@@ -188,6 +190,11 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
     let mut replayed_columns = 0usize;
     let mut guards = 0usize;
     for cell in &candidate.rule_cells {
+        if !cell.rule().sector().is_subsector_of(&root)? {
+            return Err(ArtifactError::InvalidRuleShape {
+                detail: "source-port rule sector is outside the declared root scope",
+            });
+        }
         let evidence = cell
             .rule()
             .replay_evidence()
@@ -217,6 +224,9 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
     }
     for terminal in &candidate.masters {
         let sector = Mask::try_from_indices(terminal.powers()).map_err(ArtifactError::from)?;
+        if !sector.is_subsector_of(&root)? {
+            return Err(ArtifactError::InvalidMasterManifest);
+        }
         let local: Vec<_> = terminal
             .powers()
             .iter()
@@ -234,12 +244,14 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
             LatticeBox::try_new(local, upper).map_err(|_| ArtifactError::InvalidMasterManifest)?,
         );
     }
-    let expected = 1usize
-        .checked_shl(
-            u32::try_from(candidate.arity).map_err(|_| ArtifactError::UnsupportedClosureShape)?,
-        )
-        .ok_or(ArtifactError::UnsupportedClosureShape)?;
-    if covers.len().checked_add(zeros.len()) != Some(expected) {
+    let expected = scope::sector_count(&root)?;
+    // Global zero certificates may discharge translated source columns outside
+    // the requested scope; only their intersection with the root downset counts
+    // towards this artifact's promised ownership cover.
+    let scoped_zeros = zeros.iter().try_fold(0usize, |count, sector| {
+        Ok::<_, ArtifactError>(count + usize::from(sector.is_subsector_of(&root)?))
+    })?;
+    if covers.len().checked_add(scoped_zeros) != Some(expected) {
         return Err(ArtifactError::UnsupportedClosureShape);
     }
     for (sector, (owners, terminals)) in covers {

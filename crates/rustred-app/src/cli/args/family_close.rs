@@ -11,6 +11,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     let mut output = None;
     let mut input_format = None;
     let mut permutation = None;
+    let mut nonpositive_indices = None;
     let mut n_cores = None;
     let mut force = false;
     let mut progress = false;
@@ -64,6 +65,20 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                     .collect::<Result<Vec<_>, _>>()?;
                 set_once(&mut permutation, "--permutation", coordinates)?;
             }
+            "--nonpositive-indices" => {
+                let value = next_utf8_value(&mut arguments, "--nonpositive-indices")?;
+                let coordinates = value
+                    .split(',')
+                    .map(|token| {
+                        parse_nonnegative_integer("--nonpositive-indices", token.to_owned())
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                set_once(
+                    &mut nonpositive_indices,
+                    "--nonpositive-indices",
+                    coordinates,
+                )?;
+            }
             "--n-cores" => {
                 let value = next_utf8_value(&mut arguments, "--n-cores")?;
                 set_once(
@@ -84,6 +99,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         output: output.unwrap_or(StreamPath::Stdio),
         input_format: input_format.unwrap_or(InputFormat::Auto),
         permutation,
+        nonpositive_indices: nonpositive_indices.unwrap_or_default(),
         n_cores: n_cores.unwrap_or(1),
         progress,
         force,
@@ -118,6 +134,7 @@ mod tests {
         assert_eq!(arguments.n_cores, 3);
         assert!(!arguments.force);
         assert!(!arguments.progress);
+        assert!(arguments.nonpositive_indices.is_empty());
     }
 
     #[test]
@@ -130,6 +147,36 @@ mod tests {
         assert!(matches!(
             parse(["--progress", "--progress"].into_iter().map(OsString::from)),
             Err(ArgError::DuplicateOption("--progress"))
+        ));
+    }
+
+    #[test]
+    fn nonpositive_indices_are_explicit_and_duplicate_options_fail() {
+        let command = parse(
+            ["--nonpositive-indices", "8,9"]
+                .into_iter()
+                .map(OsString::from),
+        )
+        .unwrap();
+        let Command::FamilyClose(arguments) = command else {
+            panic!("expected family-close");
+        };
+        assert_eq!(arguments.nonpositive_indices, [8, 9]);
+        assert!(
+            parse(
+                ["--nonpositive-indices", ""]
+                    .into_iter()
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+        assert!(matches!(
+            parse(
+                ["--nonpositive-indices", "0", "--nonpositive-indices", "1"]
+                    .into_iter()
+                    .map(OsString::from)
+            ),
+            Err(ArgError::DuplicateOption("--nonpositive-indices"))
         ));
     }
 

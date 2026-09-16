@@ -65,7 +65,10 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         })
         .collect();
     let family = IntegralFamily::new(
-        "rustred-three-loop-unit-mass-vacuum-k6-v1",
+        // Identifier-safe metadata shared with the external TOML example.
+        // This intentionally changes the old hyphenated family fingerprint;
+        // the regenerated Vakint asset and its loader identity migrate together.
+        "rustred_three_loop_unit_mass_vacuum_k6_v1",
         vec!["k1".into(), "k2".into(), "k3".into()],
         Vec::new(),
         context.clone(),

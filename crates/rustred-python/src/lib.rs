@@ -464,8 +464,8 @@ fn run_foundry_wave_campaign(
 
 #[pyfunction]
 #[pyo3(
-    signature = (source, *, input_format = "auto", n_cores = PythonInteger(1), permutation = None),
-    text_signature = "(source, *, input_format='auto', n_cores=1, permutation=None)"
+    signature = (source, *, input_format = "auto", n_cores = PythonInteger(1), permutation = None, nonpositive_indices = None),
+    text_signature = "(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None)"
 )]
 fn family_close(
     py: Python<'_>,
@@ -473,6 +473,7 @@ fn family_close(
     input_format: &str,
     n_cores: PythonInteger,
     permutation: Option<Vec<PythonInteger>>,
+    nonpositive_indices: Option<Vec<PythonInteger>>,
 ) -> PyResult<PyClosingArtifactGenerationResult> {
     let permutation = permutation
         .map(|coordinates| {
@@ -485,11 +486,20 @@ fn family_close(
                 .collect::<PyResult<Vec<_>>>()
         })
         .transpose()?;
+    let nonpositive_indices = nonpositive_indices
+        .unwrap_or_default()
+        .into_iter()
+        .enumerate()
+        .map(|(position, index)| {
+            nonnegative_usize(&format!("nonpositive_indices[{position}]"), index.0)
+        })
+        .collect::<PyResult<Vec<_>>>()?;
     let request = FamilyCloseRequest {
         source: bounded_owned_input("family close input", source)?,
         input_format: parse_input_format(input_format)?,
         n_cores: positive_core_count("family close n_cores", n_cores.0)?,
         permutation,
+        nonpositive_indices,
     };
     let result = py
         .detach(move || execute(move || app_family_close(request)))

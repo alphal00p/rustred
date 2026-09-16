@@ -116,14 +116,43 @@ root domain. A two-worker release diagnostic on that explicitly chosen
 physical domain now finishes all 124 nonzero sector searches in 33.47 s wall
 (plus 132 proved-zero sectors), yielding 9,264 proposed rules and 145 finite
 residuals. This is search completion, not yet exact replay or a closed artifact.
-The next delivery slice is an explicit, caller-specified downward sector domain
-for the physical parents:
+The delivery slice now under validation adds an explicit, caller-specified
+downward sector domain through Rust, CLI and Python. The unrestricted default
+is unchanged; `nonpositive_indices` declares auxiliary coordinates that may not
+become positive. The domain is serialized and cold-checked, global zero-source
+evidence is retained, and out-of-domain reductions are rejected. Zero-only
+scopes remain explicitly unsupported. Required gates for the physical parents:
 prove every admitted sector and RHS transition, bind the domain into the
 artifact/codec/identity, and reject out-of-scope reductions. Never silently
 filter sectors while retaining the current unrestricted-family promise.
 Run the full replay, descent, coverage, cold-load and reduction gates on the
 resulting physical-domain artifacts before enabling their Vakint routing.
 See [the exact FG diagnosis and scope analysis](docs/research/four_loop_fg_exceptional_geometry.md).
+The subsequent instrumented unrestricted H run finishes all 728 searches by
+164.6 s, but reaches a 1,200.24 s bound without an artifact. It completes 47
+sector audits before spending over 926 s checking sector mask `0010011011`
+(integer mask 868), which activates H's auxiliary coordinate. Thus serialized
+exact verification, not discovery, is the observed bottleneck in this run.
+Its inner replay/guard/descent/coverage stages still need separate profiling;
+do not attribute the cost to a specific CAS routine from this observation.
+The new scoped producer passes 120 core source-port tests (five separate
+ignored workloads), 16 application tests, five CLI tests and eleven artifact
+API tests. All 27 Python API tests pass against the release extension and CLI.
+Generic external-input K6 generation now also passes through both interfaces:
+623 rules, 5,639 cells, 38 masters and 26 zero sectors, with identical artifact
+bytes at one, two and six workers. Serial Python generation takes 3.626 s in
+one release observation; fresh CLI generation takes 2.75 s at two workers and
+2.24 s at six. These are shared-host regression observations, not paired
+scaling benchmarks. Separate cold inspection and the 30-term canary pass,
+and all master keys match the existing Vakint catalog. The new identifier-safe
+example label and `0x704` root-scope format require the coordinated private
+loader/asset/producer-pin migration described above; the new bytes are not yet
+shipped in Vakint.
+The first full physical-FG publication attempt completes all 124 searches but
+fails original-source replay on three of 96 candidate rules in sector mask 106;
+zero reported uncovered boxes cannot override these unproved source residuals.
+No four-loop artifact is published. The next diagnostic is the exact residual
+on the activating coordinate boundary, not relaxed proof acceptance.
 Current measurements and rerun results belong in
 [the parent-probe report](docs/four_loop_parent_closure_probe.md).
 

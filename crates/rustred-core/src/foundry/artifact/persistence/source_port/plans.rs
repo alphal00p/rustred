@@ -22,10 +22,11 @@ use super::super::semantic::{
     decode_bool_vec, decode_i64_vec, encode_bool_slice, encode_i64_slice,
 };
 
-// V3 retains exact affine exclusions as well as the target witness. A
+// V4 retains the caller-declared root-sector scope as well as exact affine
+// targets and exclusions. A
 // distinct plan tag is intentional: old source-port payloads are rejected at
 // the byte boundary rather than being misread with shifted fields.
-pub(super) const COMBINED_ORIGINAL_PLAN: u16 = 0x703;
+pub(super) const COMBINED_ORIGINAL_PLAN: u16 = 0x704;
 const AFFINE_DOMAIN_ABSENT: u8 = 0;
 const AFFINE_DOMAIN_PRESENT: u8 = 1;
 
@@ -331,6 +332,11 @@ pub(super) fn encode(
         cells.push(ordinal);
     }
     writer.u16(COMBINED_ORIGINAL_PLAN)?;
+    let root = super::super::super::source_port::scope::root_from_bounds(
+        artifact.supported_root_power_bounds(),
+        artifact.arity(),
+    )?;
+    encode_bool_slice(writer, root.active_bits())?;
     writer.usize(parents.len(), "combined source parents")?;
     for (cell, (fixed, requests)) in &parents {
         writer.usize(fixed.len(), "combined fixed target coordinates")?;
@@ -431,11 +437,16 @@ pub(super) fn decode(
     reader: &mut Reader<'_>,
     context: &IndexedCoefficientContext,
     original_count: usize,
-) -> Result<(Vec<ParentPlan>, Vec<CellPlan>), ArtifactPersistenceError> {
+) -> Result<(crate::sector::Mask, Vec<ParentPlan>, Vec<CellPlan>), ArtifactPersistenceError> {
     if reader.u16()? != COMBINED_ORIGINAL_PLAN {
         return Err(invalid("combined original plan tag"));
     }
     let arity = context.index_count();
+    let root = decode_bool_vec(reader, "combined root sector")?;
+    if root.len() != arity {
+        return Err(invalid("combined root-sector arity"));
+    }
+    let root = crate::sector::Mask::try_new(root).map_err(|_| invalid("combined root sector"))?;
     let parent_count = reader.count("combined source parents")?;
     if parent_count == 0 {
         return Err(invalid("empty combined source parents"));
@@ -635,7 +646,7 @@ pub(super) fn decode(
     if used.iter().any(|value| !*value) {
         return Err(invalid("unused combined source parent"));
     }
-    Ok((parents, cells))
+    Ok((root, parents, cells))
 }
 
 #[cfg(test)]

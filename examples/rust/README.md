@@ -53,15 +53,18 @@ The defining generation output is:
 ```text
 schema=rustred.closing-artifact.v5
 algorithm_id=rustred.source-port-original-domain.v1
-sectors=38 zero_sectors=26 generated_rules=623 rule_cells=5639 terminals=38 bytes=8911462 workers=6
+sectors=38 zero_sectors=26 generated_rules=623 rule_cells=5639 terminals=38 bytes=8916759 workers=6
 ```
 
 Family/context identities, all 38 typed terminal keys and preparation,
 generation, installation and encoding timings are also printed. Serial and
 six-worker runs produce identical bytes. Inspection reports those same keys;
 the dotted reduction above produces 30 exact master terms, with explicit
-common-mass homogeneity powers. This is a complete K6 artifact example, not a
-claim that Vakint's full three-loop acceptance suite has already passed.
+common-mass homogeneity powers. The example now shares the identifier-safe
+family name in `input/three_loop_k6.toml`. This intentionally changes its
+identity; Vakint's loader binding and shipped asset must migrate together.
+The existing pinned Vakint stack passes the complete recorded 83-test
+selection; the new producer/dependency migration needs its own full rerun.
 
 ## SpIRed reference-port case probe
 

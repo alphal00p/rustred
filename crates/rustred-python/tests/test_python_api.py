@@ -734,7 +734,7 @@ class PythonApiTests(unittest.TestCase):
                 self.assertIsInstance(generated, rustred.ClosingArtifactGenerationResult)
                 self.assertIsInstance(generated.artifact, bytes)
                 self.assertIs(generated.artifact, generated.artifact)
-                self.assertEqual(generated.schema, "rustred.family-close-output.toml.v1")
+                self.assertEqual(generated.schema, "rustred.family-close-output.toml.v2")
                 self.assertEqual(generated.status, "generated-durable")
                 report = tomllib.loads(generated.to_toml())
                 self.assertEqual(report["arity"], len(target))
@@ -798,6 +798,10 @@ class PythonApiTests(unittest.TestCase):
         self.assertTrue(all(artifact == artifacts[0] for artifact in artifacts))
 
     def test_family_close_validates_python_values_and_family_scope(self) -> None:
+        for indices in ([True], [-1], [1 << 100], [0, 0], [1]):
+            with self.subTest(nonpositive_indices=indices):
+                with self.assertRaises(rustred.RustRedInputError):
+                    rustred.family_close(UNIT_MASS_PROJECT_K1, nonpositive_indices=indices)
         for permutation in ([True], [-1], [1 << 100], [], [0, 0], [1]):
             with self.subTest(permutation=permutation):
                 with self.assertRaises(rustred.RustRedInputError):
@@ -815,13 +819,30 @@ class PythonApiTests(unittest.TestCase):
         with self.assertRaises(rustred.RustRedInputError):
             rustred.family_close(UNIT_MASS_PROJECT_K1.replace('dimension = "d"', 'dimension = "D"'))
 
+    def test_family_close_explicit_domain_survives_cli_and_cold_load(self) -> None:
+        generated = rustred.family_close(UNIT_MASS_PROJECT_K3, nonpositive_indices=[2])
+        report = tomllib.loads(generated.to_toml())
+        self.assertEqual(report["root_sector"], [True, True, False])
+        self.assertEqual((report["solved_sectors"], report["zero_sectors"], report["global_zero_sectors"]), (1, 3, 4))
+        cli_artifact = cli_bytes(
+            ["family-close", "--nonpositive-indices", "2"], UNIT_MASS_PROJECT_K3.encode()
+        )
+        self.assertEqual(generated.artifact, cli_artifact)
+        inspection = tomllib.loads(rustred.inspect_closing_artifact(generated.artifact).to_toml())
+        self.assertEqual(inspection["artifact"]["root_power_upper"][2], 0)
+        self.assertEqual(inspection["artifact"]["in_scope_zero_sectors"], 3)
+        result = rustred.reduce_with_closing_artifact(generated.artifact, [2, 2, -1])
+        self.assertTrue(result.terms)
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.reduce_with_closing_artifact(generated.artifact, [1, 1, 1])
+
     def test_closing_artifact_generation_inspection_and_reduction(self) -> None:
         generated = rustred.generate_closing_artifact(
             family=rustred.ClosingFamily.UNIT_MASS_VACUUM_K1,
         )
         self.assertEqual(
             generated.schema,
-            "rustred.closing-artifact-generate-output.toml.v1",
+            "rustred.closing-artifact-generate-output.toml.v2",
         )
         self.assertEqual(generated.status, "generated-durable")
         self.assertIsInstance(generated.artifact, bytes)
@@ -1172,7 +1193,7 @@ class PythonApiTests(unittest.TestCase):
         )
         self.assertEqual(
             str(inspect.signature(rustred.family_close)),
-            "(source, *, input_format='auto', n_cores=1, permutation=None)",
+            "(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None)",
         )
         self.assertEqual(
             str(inspect.signature(rustred.run_foundry_campaign)),

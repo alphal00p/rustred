@@ -20,14 +20,14 @@ use super::{
 };
 use error_mapping::{map_artifact_encoding_error, map_artifact_load_error, map_reduction_error};
 use model::{
-    ArtifactPayloadOutputV1, ArtifactSummaryOutputV1, ClosingRuleOutputV1, GenerateOutputV1,
-    InspectOutputV1, IntegralKeyOutputV1, LifecycleOutputV1, ReduceOutputV1,
+    ArtifactPayloadOutputV1, ArtifactSummaryOutputV2, ClosingRuleOutputV1, GenerateOutputV2,
+    InspectOutputV2, IntegralKeyOutputV1, LifecycleOutputV1, ReduceOutputV1,
     ReductionStatisticsOutputV1, ReductionTermOutputV1, RelationTermOutputV1, RuleTermOutputV1,
     SourceRelationOutputV1, ValidationOutputV1, ZeroTerminalOutputV1,
 };
 
-pub(super) const GENERATE_SCHEMA: &str = "rustred.closing-artifact-generate-output.toml.v1";
-pub(super) const INSPECT_SCHEMA: &str = "rustred.closing-artifact-inspect-output.toml.v1";
+pub(super) const GENERATE_SCHEMA: &str = "rustred.closing-artifact-generate-output.toml.v2";
+pub(super) const INSPECT_SCHEMA: &str = "rustred.closing-artifact-inspect-output.toml.v2";
 pub(super) const REDUCE_SCHEMA: &str = "rustred.closing-artifact-reduce-output.toml.v1";
 
 const GENERATED_STATUS: &str = "generated-durable";
@@ -44,7 +44,7 @@ pub(super) fn generate_request(
     let encoded = artifact
         .encode_durable()
         .map_err(map_artifact_encoding_error)?;
-    let output = GenerateOutputV1 {
+    let output = GenerateOutputV2 {
         schema: GENERATE_SCHEMA,
         status: GENERATED_STATUS,
         producer: ProducerOutputV1::current(),
@@ -171,7 +171,7 @@ pub(super) fn inspect_request(
     request: ClosingArtifactInspectRequest,
 ) -> Result<ClosingArtifactInspectResult, AppError> {
     let artifact = decode_artifact(&request.artifact)?;
-    let output = InspectOutputV1 {
+    let output = InspectOutputV2 {
         schema: INSPECT_SCHEMA,
         status: INSPECTED_STATUS,
         producer: ProducerOutputV1::current(),
@@ -312,8 +312,8 @@ fn lifecycle() -> LifecycleOutputV1 {
     }
 }
 
-fn artifact_summary(artifact: &ClosedArtifact) -> ArtifactSummaryOutputV1 {
-    ArtifactSummaryOutputV1 {
+fn artifact_summary(artifact: &ClosedArtifact) -> ArtifactSummaryOutputV2 {
+    ArtifactSummaryOutputV2 {
         schema: artifact.schema().stable_id(),
         schema_version: artifact.schema().as_u32(),
         algorithm_id: artifact.algorithm_id(),
@@ -324,6 +324,33 @@ fn artifact_summary(artifact: &ClosedArtifact) -> ArtifactSummaryOutputV1 {
         common_mass_homogeneity: artifact
             .common_mass_homogeneity()
             .map(|proof| proof.stable_id()),
+        root_power_lower: artifact
+            .supported_root_power_bounds()
+            .iter()
+            .map(|bounds| bounds.lower())
+            .collect(),
+        root_power_upper: artifact
+            .supported_root_power_bounds()
+            .iter()
+            .map(|bounds| bounds.upper())
+            .collect(),
+        in_scope_zero_sectors: artifact
+            .zero_sectors()
+            .iter()
+            .filter(|zero| {
+                zero.sector()
+                    .active_bits()
+                    .iter()
+                    .zip(artifact.supported_root_power_bounds())
+                    .all(|(&active, bounds)| {
+                        if active {
+                            bounds.upper() >= 1
+                        } else {
+                            bounds.lower() <= 0
+                        }
+                    })
+            })
+            .count(),
         masters: artifact
             .masters()
             .iter()

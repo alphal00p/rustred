@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::foundry::cell::SourceViewBatch;
 use crate::identity::ParametricIbpGenerator;
-use crate::sector::{InteriorBounds, OrderingPolicy};
+use crate::sector::OrderingPolicy;
 
 use super::super::error::{ArtifactError, ArtifactPersistenceError};
 use super::super::install::{
@@ -84,7 +84,7 @@ pub(super) fn decode<'input>(
     // Bound/decode all cell, coefficient and terminal payloads before any
     // original-row multiplication. Every child shares the input budgets.
     let mut rules_reader = parent.child(rules_bytes);
-    let (parent_plans, cell_plans) =
+    let (root_sector, parent_plans, cell_plans) =
         plans::decode(&mut rules_reader, generator.context(), expected_rows)?;
     rules_reader.finish()?;
     let mut terminal_reader = parent.child(terminals_bytes);
@@ -203,8 +203,9 @@ pub(super) fn decode<'input>(
             algorithm_id: ALGORITHM_ID,
             arity,
             ordering,
-            supported_root_power_bounds: vec![InteriorBounds::new(i64::MIN, i64::MAX); arity]
-                .into_boxed_slice(),
+            supported_root_power_bounds: super::super::source_port::scope::root_bounds(
+                &root_sector,
+            )?,
             family,
             context,
             source_relations: completed.into_relations(),

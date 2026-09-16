@@ -346,6 +346,85 @@ duplicating the proof pipeline. Quiet redirected CLI runs bypass renderer
 locking and app-event construction. A fresh release run is the next timing
 gate; these debug checks are not performance measurements.
 
+### Full H rerun with observed checking boundaries
+
+The next run froze the release executable from `2df001df` into an external
+evidence directory before any subsequent source edits. Its SHA-256 is
+`1fcc6eb1163acbc487b5afc34db93e1c155aaf650c0920fac2ffa73b33e8d7e9`.
+The input, reverse priority, two workers and physical CPUs 32/33 were unchanged;
+the command added `--progress` and used a **1200-second** wall bound. This is
+still unrestricted closure of all 1024 coordinate masks, not a physical-root
+scope. Compilation took 5m58s and preceded all timed runs.
+
+The process ended at its bound with **1200.24 s wall, 1352.60 s CPU
+(1344.59 user + 8.01 system), 1,012,324 KiB peak RSS**, exit 124. No artifact
+was written, and no cold inspection or H reduction canary could run. There
+was no mathematical failure or licensing error diagnostic before the censor.
+The dedicated process and its timeout parent both exited; it was not restarted.
+The host also carried development compilation, including an unpinned release
+build during late H checking. Thus these are diagnostic, timeout-censored
+observations on a shared host, not isolated performance benchmark numbers.
+
+Unlike the previous silent run, the phase log identifies what happened:
+
+| Boundary | Observed result |
+| --- | --- |
+| Native census | 728 nonzero sectors plus 296 proved-zero sectors |
+| All independent sector searches finished | 164.6 s from application entry |
+| Search output, before artifact audit | 41,028 candidate rules and 893 finite residual entries |
+| Completed exact sector audits | 47 sectors, reporting 2,939 exact-replayed rules |
+| First 47 audits | 164.6–273.3 s, about 108.7 s |
+| Next audit: mask `0010011011`, numeric mask 868 | Started at 273.3 s and remained active until the bound, over 926 s |
+| Lowering, final installation and encoding | Not reached |
+
+Sector 868 had already produced **128 candidate rules and 11 finite residuals**
+at 20.7 s during parallel search. Its unresolved runtime cost is therefore
+inside `SourcePortAudit::check_sector`, not ongoing modular discovery. The
+observer does not expose how many individual rules in that sector had finished
+checking. Nor do finite residual counts themselves authenticate master terminals.
+
+The former affine obstruction, mask `0010011001` (numeric mask 612), now passes
+the actual whole-family checking path: all 94 rules, zero uncovered pieces,
+zero issues, in 17.6 s (197.5–215.1 s). Mask `0010011010` (356) then passes its
+68-rule check in 58.2 s. This advances the mathematical integration beyond the
+earlier affine failures while leaving complete H publication unresolved.
+Sector 868 activates auxiliary coordinate `D10` (zero-based index 9), so it
+lies outside an explicitly requested physical H scope with `n9<=0`. Avoiding
+that sector through a persisted physical-domain contract changes the declared
+closure task; it is not a proof of unrestricted closure or an optimized solver.
+Sector 356, by contrast, is inside that physical scope and still has a measured
+58.2-second audit cost.
+
+Read-only thread observations during the long check show the main thread
+running while both existing sector workers wait on futexes. No user-space
+sampling profiler was available, and the process was not interrupted to obtain
+a stack. The event spans several exact operations, so it would be unjustified
+to attribute the long check specifically to polynomial gcd, factorization, or
+any other Symbolica routine from these measurements alone. The historical
+600-second run remains unprofiled; these observations belong to this new run.
+
+The next profiling boundary should separate:
+
+1. sector-basis preparation;
+2. each rule's selected-frame exact GPLU;
+3. independent original ordinary-source membership GPLU/fallback;
+4. exact identity replay;
+5. guard and application-domain reconstruction;
+6. uniform descent;
+7. stored and checked predicate covers.
+
+Repeated application-partition/affine-owner construction and repeated predicate
+constraints are static exact-reuse candidates, not measured dominant costs.
+Any optimization must retain the original-source, guard, descent and coverage
+proofs; the candidate generator's success cannot substitute for those gates.
+
+The same frozen executable first passed generic external-input K1 and K3
+generation, fresh-process inspection and dotted canaries. Generation took
+0.13 s and 0.04 s respectively in single smoke observations. These are not
+comparative benchmark medians. All protocols, the frozen binary, inputs,
+phase logs and external measurements are in
+`/tmp/rustred-four-loop-progress.AKMOli/`.
+
 ### FG's exact exceptional condition
 
 The earlier `sector 397` error identifies an ordinal in the sorted nonzero
@@ -386,18 +465,79 @@ K10 closure. The reverse-order polynomial above also has only one admissible
 integer zero, unlike the natural-order infinite locus; the detailed report
 distinguishes these cases and records native solver results.
 
+### First physical-FG artifact attempt with an explicit root contract
+
+The generic persisted root-domain implementation was then exercised through
+the full release CLI, not just the search-only driver:
+
+```text
+rustred family-close --input examples/input/four_loop_fg.toml --input-format toml \
+  --nonpositive-indices 8,9 --n-cores 2 --progress --output <fresh-path>/fg.rr
+```
+
+This used natural coordinate order, two workers on physical CPUs 34/35,
+nested pools capped at one, and a 1200-second bound. The release executable
+was frozen after the explicit-scope development slice following `2df001df`;
+its SHA-256 is
+`b01f0c4c8e96d41e1deaf53b34aed36fdae9672f725d824a6e5e402fe988b64b`.
+Compilation took 7m55s and ended before the timed process. Lower-loop tests
+and Python binding installation could run concurrently on the shared host.
+
+| Boundary | Observed result |
+| --- | --- |
+| Declared domain | `n8,n9<=0`, all 256 masks in that downset |
+| Native census | 124 nonzero and 132 zero masks in scope; all 281 global zero proofs retained |
+| All sector searches completed | 32.9 s from application entry |
+| Search output | 9,264 candidate rules and 145 finite residual entries |
+| Successful exact sector audits | 20 |
+| First failing audit | Numeric mask 106, physical-coordinate mask `0101011000` |
+| Failure summary | 93/96 replayed and descending, zero uncovered boxes, three issues |
+| Whole process | 50.11 s wall, 81.61 s CPU (79.94 user + 1.67 system), 196,640 KiB peak RSS |
+| Exit / artifact | Exit 8, not timeout; no artifact written |
+
+At 49.9 s, full original-source replay rejected these residual products:
+
+```text
+rule 85: (-1/n8) I(n0+1,1,-1,2,0,0,1,0,n8,0)
+rule 86: (-1/n8) I(n0+1,1,-1,2,0,0,1,-1,n8,0)
+rule 87: (-1/n8) I(n0+1,1,-2,2,0,0,1,0,n8,0)
+```
+
+This is a physical-sector original-source proof gap, not the earlier nonlinear
+exception on a positive auxiliary propagator. Discovery has finished; no
+lowering, final installation, cold inspection or reduction canary was reached.
+The zero-uncovered-box count does not validate the three rejected identities.
+
+Read-only inspection points to symbolic boundary activation in discovery's
+zero-sector projection. The displayed products lie in rank-deficient mask 74
+when `n0<=-1`; at `n0=0`, `n0+1` becomes positive and activates full-rank mask 75.
+The coefficient `-1/n8` does not vanish on that face for negative `n8`.
+The current discovery helper inherits a parent sign for symbolic powers,
+whereas exact replay partitions their actual signs. This is a concrete next
+diagnostic target, not yet a complete provenance diagnosis: the three original
+candidate domains and source traces must be inspected before changing search
+or ownership. It is not sound to omit the rules merely because the other
+reported boxes cover the sector.
+
+The frozen binary, hashes, invocation, full logs and measurements are retained
+at `/tmp/rustred-four-loop-fg-scope.4ueeaV/`. This failure localizes the next
+correctness investigation before further broad profiling or full-family reruns.
+
 ## Interpretation
 
 None of the four external parents currently has a cold-loadable RustRed
 artifact. In particular, no physical or dotted reduction canary is reported:
 the CLI publishes atomically only after complete sector coverage and exact
 installation, and all runs stopped before publication. The observations
-do show that the current generic lane encounters materially different resource
-profiles: X and BMW consume the full five-minute budget, while FG reaches an
-unsupported nonlinear exceptional branch in about 234 seconds.
+do show materially different profiles: the initial X and BMW attempts consume
+their five-minute budgets; unrestricted FG encounters nonlinear geometry;
+unrestricted H now completes discovery but stalls in exact checking; scoped
+physical FG completes discovery and exposes three exact-replay failures in
+about 50 seconds.
 
 These runs do not authorize hard-coded relations, topology-specific dispatch,
 sampled coverage, or a claim of four-loop closure. The next implementation
-requirement is full-family validation of the exact affine ownership path now
-implemented, with nonlinear exceptional cases remaining unsupported where
-they cannot be proved. Publication stays fail-closed for every unproved region.
+requirement is to resolve the physical FG source-projection/replay gap, then
+repeat complete scoped validation. The unrestricted objective retains its
+separate nonlinear-geometry and exact-check cost challenges. Publication stays
+fail-closed for every unproved identity or region.

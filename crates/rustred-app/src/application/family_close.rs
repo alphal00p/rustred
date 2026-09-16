@@ -19,17 +19,19 @@ use super::lowering::lower_project;
 use super::{InputFormat, MAX_CLOSING_ARTIFACT_BYTES, MAX_INPUT_BYTES};
 
 mod progress;
+mod scope;
 pub use progress::{FamilyCloseGenerationStage, FamilyCloseProgress};
 use progress::{Observer, emit, generation_stage, installation_event, sector_mask};
 
-pub const FAMILY_CLOSE_SCHEMA: &str = "rustred.family-close-output.toml.v1";
+pub const FAMILY_CLOSE_SCHEMA: &str = "rustred.family-close-output.toml.v2";
 
 /// Request a sector-complete closing artifact for an external family.
 ///
 /// The existing core artifact admission currently requires an unshifted,
 /// unit-mass vacuum with `d` as its sole scalar parameter. Every denominator
-/// must have constant term `-1`. The full sector census is mandatory: a
-/// selected sector subset must not masquerade as family closure.
+/// must have constant term `-1`. Coverage includes every sector in the
+/// declared root domain. By default that domain is the unrestricted family;
+/// `nonpositive_indices` can explicitly keep numerator coordinates inactive.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FamilyCloseRequest {
     pub source: String,
@@ -37,6 +39,9 @@ pub struct FamilyCloseRequest {
     pub n_cores: usize,
     /// A permutation of `0..arity` used coherently in every sector.
     pub permutation: Option<Vec<usize>>,
+    /// Zero-based coordinates whose powers must remain nonpositive. All
+    /// other powers remain unrestricted. Never inferred from target powers.
+    pub nonpositive_indices: Vec<usize>,
 }
 
 impl FamilyCloseRequest {
@@ -46,6 +51,7 @@ impl FamilyCloseRequest {
             input_format: InputFormat::Auto,
             n_cores: 1,
             permutation: None,
+            nonpositive_indices: Vec::new(),
         }
     }
 }
@@ -62,6 +68,9 @@ pub struct FamilyCloseResult {
     pub arity: usize,
     pub solved_sectors: usize,
     pub zero_sectors: usize,
+    /// All authenticated zero sectors retained for original-source replay,
+    /// including those outside the declared root domain.
+    pub global_zero_sectors: usize,
     pub generated_rules: usize,
     pub rule_cells: usize,
     pub terminals: usize,
@@ -93,6 +102,8 @@ struct Report<'a> {
     arity: usize,
     solved_sectors: usize,
     zero_sectors: usize,
+    global_zero_sectors: usize,
+    root_sector: &'a [bool],
     generated_rules: usize,
     rule_cells: usize,
     terminals: usize,
@@ -110,6 +121,7 @@ struct Installed {
     artifact: ClosedArtifact,
     solved_sectors: usize,
     zero_sectors: usize,
+    global_zero_sectors: usize,
     generated_rules: usize,
     prepared_at: Duration,
     generated_at: Duration,
@@ -164,11 +176,12 @@ fn family_close_impl(
         }
     }
     let family_name = family.name().to_owned();
+    let root_sector = scope::root_sector(arity, &request.nonpositive_indices)?;
     emit(observe, || FamilyCloseProgress::Preparing {
         arity,
         elapsed: start.elapsed(),
     });
-    let installed = dispatch_close(family, &request, start, observe)?;
+    let installed = dispatch_close(family, &request, &root_sector, start, observe)?;
     emit(observe, || FamilyCloseProgress::Encoding {
         elapsed: start.elapsed(),
     });
@@ -192,6 +205,8 @@ fn family_close_impl(
         arity,
         solved_sectors: installed.solved_sectors,
         zero_sectors: installed.zero_sectors,
+        global_zero_sectors: installed.global_zero_sectors,
+        root_sector: &root_sector,
         generated_rules: installed.generated_rules,
         rule_cells: installed.artifact.rule_cells().len(),
         terminals: installed.artifact.masters().len(),
@@ -216,6 +231,7 @@ fn family_close_impl(
         arity,
         solved_sectors: report.solved_sectors,
         zero_sectors: report.zero_sectors,
+        global_zero_sectors: report.global_zero_sectors,
         generated_rules: report.generated_rules,
         rule_cells: report.rule_cells,
         terminals: report.terminals,
@@ -226,13 +242,14 @@ fn family_close_impl(
 fn dispatch_close(
     family: IntegralFamily,
     request: &FamilyCloseRequest,
+    root_sector: &[bool],
     start: Instant,
     observe: Observer<'_>,
 ) -> Result<Installed, AppError> {
     macro_rules! arms {
         ($($n:literal),+ $(,)?) => {
             match family.denominator_count() {
-                $($n => close::<$n>(family, request, start, observe),)+
+                $($n => close::<$n>(family, request, root_sector, start, observe),)+
                 _ => unreachable!("family-close arity checked before dispatch"),
             }
         };
@@ -243,6 +260,7 @@ fn dispatch_close(
 fn close<const N: usize>(
     family: IntegralFamily,
     request: &FamilyCloseRequest,
+    root_sector: &[bool],
     start: Instant,
     observe: Observer<'_>,
 ) -> Result<Installed, AppError> {
@@ -255,6 +273,13 @@ fn close<const N: usize>(
     let permutation = request.permutation.as_deref().map(|coordinates| {
         <[usize; N]>::try_from(coordinates).expect("validated coordinate permutation")
     });
+    let root_sector: [bool; N] = root_sector.try_into().expect("validated root-sector arity");
+    let admits = |sector: &[bool; N]| {
+        sector
+            .iter()
+            .zip(root_sector)
+            .all(|(&active, allowed)| !active || allowed)
+    };
     let analyzer = zero::Analyzer::try_unrestricted(&family)
         .map_err(|error| AppError::execution(error.to_string()))?;
     let mut zeros = Vec::new();
@@ -267,7 +292,8 @@ fn close<const N: usize>(
             .map_err(|error| AppError::execution(error.to_string()))?
         {
             zero::Decision::ProvedZero(_) => zeros.push(sector),
-            zero::Decision::Inconclusive(_) => sectors.push(sector),
+            zero::Decision::Inconclusive(_) if admits(&sector) => sectors.push(sector),
+            zero::Decision::Inconclusive(_) => {}
             zero::Decision::Excluded(_) => {
                 return Err(AppError::internal_invariant(
                     "unrestricted zero analysis excluded a sector",
@@ -277,17 +303,19 @@ fn close<const N: usize>(
     }
     drop(analyzer);
     sectors.sort_unstable();
+    let scoped_zero_sectors = zeros.iter().filter(|sector| admits(sector)).count();
     let zeros: Arc<[[bool; N]]> = zeros.into();
     let sources = SourceSystem::from_family(&family)
         .map_err(|error| AppError::execution(error.to_string()))?;
-    let audit = SourcePortAudit::try_new(&family, zeros.clone())
+    let audit = SourcePortAudit::try_new_with_root_sector(&family, zeros.clone(), root_sector)
         .map_err(|error| AppError::execution(error.to_string()))?;
     let executor = SectorExecutor::new(request.n_cores)
         .map_err(|error| AppError::execution(error.to_string()))?;
     let prepared_at = start.elapsed();
     emit(observe, || FamilyCloseProgress::Prepared {
         sectors: sectors.len(),
-        zero_sectors: zeros.len(),
+        zero_sectors: scoped_zero_sectors,
+        global_zero_sectors: zeros.len(),
         elapsed: prepared_at,
     });
     let solved = executor
@@ -333,7 +361,8 @@ fn close<const N: usize>(
     Ok(Installed {
         artifact,
         solved_sectors: sectors.len(),
-        zero_sectors: zeros.len(),
+        zero_sectors: scoped_zero_sectors,
+        global_zero_sectors: zeros.len(),
         generated_rules,
         prepared_at,
         generated_at,
@@ -423,6 +452,69 @@ numerator = "1"
         ))
         .unwrap();
         assert!(!reduction.terms().is_empty());
+    }
+
+    #[test]
+    fn explicit_scope_is_cold_visible_and_preserves_in_scope_reductions() {
+        let full = family_close(FamilyCloseRequest::new(K3)).unwrap();
+        let mut request = FamilyCloseRequest::new(K3);
+        request.nonpositive_indices = vec![2];
+        let scoped = family_close(request.clone()).unwrap();
+        assert_eq!(scoped.solved_sectors, 1);
+        assert_eq!(scoped.zero_sectors, 3);
+        assert_eq!(scoped.global_zero_sectors, 4);
+        let report: toml::Value = toml::from_str(scoped.to_toml()).unwrap();
+        assert_eq!(
+            report["root_sector"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|bit| bit.as_bool().unwrap())
+                .collect::<Vec<_>>(),
+            [true, true, false]
+        );
+        request.n_cores = 2;
+        assert_eq!(scoped.artifact(), family_close(request).unwrap().artifact());
+
+        let inspected = crate::closing_artifact_inspect(crate::ClosingArtifactInspectRequest {
+            artifact: scoped.artifact().to_vec(),
+        })
+        .unwrap();
+        let inspected: toml::Value = toml::from_str(inspected.to_toml()).unwrap();
+        assert_eq!(
+            inspected["artifact"]["root_power_upper"][2].as_integer(),
+            Some(0)
+        );
+        assert_eq!(
+            inspected["artifact"]["in_scope_zero_sectors"].as_integer(),
+            Some(3)
+        );
+        assert_eq!(
+            inspected["artifact"]["zero_terminals"]
+                .as_array()
+                .unwrap()
+                .len(),
+            4
+        );
+        for target in [vec![2, 2, 0], vec![2, 2, -1], vec![2, 2, -2]] {
+            let full_result = closing_artifact_reduce(ClosingArtifactReduceRequest::new(
+                full.artifact().to_vec(),
+                target.clone(),
+            ))
+            .unwrap();
+            let scoped_result = closing_artifact_reduce(ClosingArtifactReduceRequest::new(
+                scoped.artifact().to_vec(),
+                target,
+            ))
+            .unwrap();
+            assert_eq!(full_result.terms(), scoped_result.terms());
+        }
+        let failure = closing_artifact_reduce(ClosingArtifactReduceRequest::new(
+            scoped.into_artifact(),
+            vec![1, 1, 1],
+        ))
+        .unwrap_err();
+        assert_eq!(failure.kind(), crate::AppErrorKind::Input);
     }
 
     #[test]

@@ -10,6 +10,13 @@ fn changed_rules(
     artifact: &ClosedArtifact,
     change: impl FnOnce(&mut Vec<ParentPlan>, &mut Vec<CellPlan>),
 ) -> Vec<u8> {
+    changed_plan(artifact, |_, parents, cells| change(parents, cells))
+}
+
+fn changed_plan(
+    artifact: &ClosedArtifact,
+    change: impl FnOnce(&mut crate::sector::Mask, &mut Vec<ParentPlan>, &mut Vec<CellPlan>),
+) -> Vec<u8> {
     let original = artifact.encode_durable().unwrap();
     let mut offset = 16;
     let (start, end) = loop {
@@ -22,16 +29,17 @@ fn changed_rules(
         offset += 10 + length;
     };
     let mut reader = Reader::root(&original[start + 10..end], Default::default()).unwrap();
-    let (mut parents, mut cells) = plans::decode(
+    let (mut root, mut parents, mut cells) = plans::decode(
         &mut reader,
         &artifact.context,
         artifact.source_relations().len(),
     )
     .unwrap();
     reader.finish().unwrap();
-    change(&mut parents, &mut cells);
+    change(&mut root, &mut parents, &mut cells);
     let mut writer = Writer::new(Default::default());
     writer.u16(plans::COMBINED_ORIGINAL_PLAN).unwrap();
+    encode_bool_slice(&mut writer, root.active_bits()).unwrap();
     writer.usize(parents.len(), "parents").unwrap();
     for parent in parents {
         writer.usize(parent.fixed.len(), "fixed").unwrap();
@@ -80,6 +88,36 @@ fn changed_rules(
     changed.extend_from_slice(&replacement);
     changed.extend_from_slice(&original[end..]);
     changed
+}
+
+#[test]
+fn cold_scope_cannot_be_widened_shrunk_or_rebound_without_new_coverage() {
+    use crate::foundry::artifact::source_port::generated_scoped_k3_for_codec_test;
+    use crate::sector::Mask;
+
+    let scoped = generated_scoped_k3_for_codec_test([true, true, false]);
+    for new_root in [
+        [true, true, true],
+        [false, true, false],
+        [true, false, true], // Same cardinality, different physical axes.
+    ] {
+        let bytes = changed_plan(&scoped, |root, _, _| {
+            *root = Mask::try_new(new_root).unwrap();
+        });
+        assert!(
+            ClosedArtifact::decode_durable(&bytes).is_err(),
+            "forged root {new_root:?}"
+        );
+    }
+    let wrong_arity = changed_plan(&scoped, |root, _, _| {
+        *root = Mask::try_new([true, false]).unwrap();
+    });
+    assert_eq!(
+        ClosedArtifact::decode_durable(&wrong_arity).unwrap_err(),
+        ArtifactPersistenceError::SemanticMismatch {
+            field: "combined root-sector arity"
+        }
+    );
 }
 
 #[test]
@@ -265,6 +303,7 @@ fn exclusion_plan_bytes(
 ) -> Vec<u8> {
     let mut writer = Writer::new(Default::default());
     writer.u16(plans::COMBINED_ORIGINAL_PLAN).unwrap();
+    encode_bool_slice(&mut writer, &vec![true; context.index_count()]).unwrap();
     writer.usize(exclusions.len(), "parents").unwrap();
     for excluded in exclusions {
         writer.usize(0, "fixed").unwrap();
@@ -304,7 +343,7 @@ fn coupled_exclusion_plans_retain_exact_predicates_and_distinct_parents() {
     let (context, exclusions) = coupled_exclusion_fixture();
     let bytes = exclusion_plan_bytes(&context, &exclusions);
     let mut reader = Reader::root(&bytes, Default::default()).unwrap();
-    let (parents, cells) = plans::decode(&mut reader, &context, 1).unwrap();
+    let (_, parents, cells) = plans::decode(&mut reader, &context, 1).unwrap();
     reader.finish().unwrap();
     assert_eq!(parents.len(), 2);
     assert_eq!(
@@ -331,9 +370,9 @@ fn coupled_exclusion_plans_retain_exact_predicates_and_distinct_parents() {
 fn affine_exclusion_codec_rejects_old_tag_wrong_axis_map_and_sector() {
     let (context, exclusions) = coupled_exclusion_fixture();
     let original = exclusion_plan_bytes(&context, &exclusions[..1]);
-    // tag(2), parent count(8), fixed count(8), absent-target tag(1),
-    // exclusion count(8), then the exact domain payload.
-    const DOMAIN: usize = 27;
+    // tag(2), root mask length(8)+bits, parent count(8), fixed count(8),
+    // absent-target tag(1), exclusion count(8), then the exact domain payload.
+    let domain = 2 + 8 + context.index_count() + 8 + 8 + 1 + 8;
     for (mutation, field) in [
         (0, "combined original plan tag"),
         (1, "affine index-variable positions"),
@@ -342,15 +381,15 @@ fn affine_exclusion_codec_rejects_old_tag_wrong_axis_map_and_sector() {
     ] {
         let mut bytes = original.clone();
         match mutation {
-            0 => bytes[..2].copy_from_slice(&0x702u16.to_le_bytes()),
+            0 => bytes[..2].copy_from_slice(&0x703u16.to_le_bytes()),
             // A parameter position must never masquerade as an integral axis.
-            1 => bytes[DOMAIN + 28..DOMAIN + 36].copy_from_slice(&0u64.to_le_bytes()),
+            1 => bytes[domain + 28..domain + 36].copy_from_slice(&0u64.to_le_bytes()),
             // An internally valid but permuted map likewise changes ownership.
             2 => {
-                bytes[DOMAIN + 28..DOMAIN + 36].copy_from_slice(&2u64.to_le_bytes());
-                bytes[DOMAIN + 36..DOMAIN + 44].copy_from_slice(&1u64.to_le_bytes());
+                bytes[domain + 28..domain + 36].copy_from_slice(&2u64.to_le_bytes());
+                bytes[domain + 36..domain + 44].copy_from_slice(&1u64.to_le_bytes());
             }
-            3 => bytes[DOMAIN + 8] = 0,
+            3 => bytes[domain + 8] = 0,
             _ => unreachable!(),
         }
         let mut reader = Reader::root(&bytes, Default::default()).unwrap();
@@ -380,7 +419,15 @@ fn affine_exclusion_codec_checks_count_budget_and_truncated_predicates() {
     let mut encoded = Writer::new(Default::default());
     plans::encode_affine_domain(&mut encoded, &exclusions[0]).unwrap();
     let domain_bytes = encoded.finish();
-    for boundary in [19, 26, 27, 27 + 8, 27 + 28, 27 + domain_bytes.len() - 1] {
+    let domain = 2 + 8 + context.index_count() + 8 + 8 + 1 + 8;
+    for boundary in [
+        domain - 8,
+        domain - 1,
+        domain,
+        domain + 8,
+        domain + 28,
+        domain + domain_bytes.len() - 1,
+    ] {
         let mut reader = Reader::root(&bytes[..boundary], Default::default()).unwrap();
         assert!(
             matches!(
@@ -492,7 +539,7 @@ fn cold_parent_rebuilds_exclusion_matrix_and_chart_from_exact_equations() {
         .unwrap();
         let bytes = exclusion_plan_bytes(context, &[Arc::new(domain)]);
         let mut reader = Reader::root(&bytes, Default::default()).unwrap();
-        let (mut plans, _) = plans::decode(&mut reader, context, 4).unwrap();
+        let (_, mut plans, _) = plans::decode(&mut reader, context, 4).unwrap();
         reader.finish().unwrap();
         let plan = plans.pop().unwrap();
         let result = PreparedOriginalDomain::try_new(

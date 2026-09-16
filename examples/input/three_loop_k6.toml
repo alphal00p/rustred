@@ -1,0 +1,45 @@
+schema = "rustred.project.toml.v1"
+
+# Canonical K6 family, in the same order as rust/spired_generate_k6.rs.
+# The identifier-safe name intentionally replaces the old hyphenated metadata
+# name. Regenerated assets and their Vakint loader identity migrate together;
+# the propagators, coordinate order and terminal keys are unchanged.
+# This is ordinary caller input, not a topology selector or an oracle hint.
+# Every denominator has unit mass; no auxiliary coordinate is restricted.
+[family]
+name = "rustred_three_loop_unit_mass_vacuum_k6_v1"
+loop_momenta = ["k1", "k2", "k3"]
+external_momenta = []
+dimension = "d"
+
+[[family.denominators]]
+id = "D1"
+expression = "k1^2-1"
+
+[[family.denominators]]
+id = "D2"
+expression = "k2^2-1"
+
+[[family.denominators]]
+id = "D3"
+expression = "k3^2-1"
+
+[[family.denominators]]
+id = "D4"
+expression = "(k1-k3)^2-1"
+
+[[family.denominators]]
+id = "D5"
+expression = "(k1-k2)^2-1"
+
+[[family.denominators]]
+id = "D6"
+expression = "(k2-k3)^2-1"
+
+[target]
+powers = [1, 1, 1, 1, 1, 1]
+numerator = "1"
+
+[metadata]
+description = "Canonical three-loop single-scale vacuum K6 family"
+family_role = "input-only; complete unrestricted sector census"

@@ -95,6 +95,7 @@ fn family_close_cli(arguments: FamilyCloseArgs) -> Result<(), CliError> {
         input_format: arguments.input_format,
         n_cores: arguments.n_cores,
         permutation: arguments.permutation,
+        nonpositive_indices: arguments.nonpositive_indices,
     };
     let result = if terminal || arguments.progress {
         crate::family_close_with_progress(request, |event| {

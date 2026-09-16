@@ -1,6 +1,7 @@
 # Vakint integration with the current RustRed dependency stack
 
-Status: audited migration census, 2026-09-16; **not an implemented upgrade**.
+Status: independently audited API adapters and focused runtime gates pass in
+an isolated worktree, 2026-09-16; **the production branch is not yet migrated**.
 
 Vakint's current `vakint_rustred` branch ships RustRed `ce92d3a7` and the
 coherent Symbolica/Numerica 2.2 stack. RustRed's current main branch uses the
@@ -18,9 +19,7 @@ macros, Linnet, and Symbolica-utils. The existing RustRed reduction and scalar
 numerator APIs are unchanged across the two RustRed revisions.
 
 A detached diagnostic worktree, narrowed to this crate closure and using local
-dependency paths, successfully checked current RustRed, Symbolica,
-Symbolica-utils, Linnet, and FeynKit model/kinematics/graph. It then reported
-twelve concrete Spenso errors:
+dependency paths, initially reported twelve concrete Spenso errors:
 
 - `LicenseManager` moved from the Symbolica crate root to `symbolica::license`.
 - Ten matching builders use the removed `level_range((min,max))` setter. The
@@ -30,13 +29,53 @@ twelve concrete Spenso errors:
   Its global coverage and coverage guard are mathematically significant;
   blindly collecting its branches into a vector would discard information.
 
-Static downstream inspection additionally finds eight matching-depth calls
-in Idenso and Vakint's simultaneous routing helper expecting `as_slice()` on
-the old solver result. That helper must retain its existing ordered witness
-and require complete, guard-free coverage with a unique unconditional point
-solution before accepting the route. These are native API adaptations, not
-new algebra algorithms. Further compiler errors may appear after the first
-layer is fixed; the initial count is not a completed migration estimate.
+Downstream inspection additionally found eight matching-depth calls in Idenso
+and Vakint's simultaneous routing helper expecting `as_slice()` on the old
+solver result. These demonstrated incompatibilities have now been adapted in
+the isolated worktree. The complete relevant production dependency closure,
+including FeynKit tensor and Vakint, passes the scoped library check. No
+FeynKit production source change was needed.
+
+## Isolated implementation and runtime evidence
+
+The patch touches five production files: Spenso's license import, parsing
+materialization and parametric-atom wrappers; Idenso's metric shorthand
+matcher; and Vakint's topology routing. The existing Spenso pattern-wrapper
+interface still forwards the same inclusive matching depths to Symbolica's
+native setters. Its linear solver forwards the native `SolutionSet` after the
+existing native linearity gate, solving the original expressions so input
+denominator conditions are preserved.
+
+Vakint accepts a routing witness only with complete coverage, an empty global
+guard, exactly one unconditional point branch and every requested momentum
+assigned. Native coordinates retain requested-variable order. The existing
+simultaneous substitution into numerator and propagators is unchanged. No
+custom algebra, topology rematching, defaults change or artifact compatibility
+shim was introduced.
+
+The focused runtime gates passed with an invalid `FORM_PATH`:
+
+| Gate | Result | What it protects |
+| --- | --- | --- |
+| Vakint topology and MATAD routing | 9/9 | All five 3L matcher classes, signed momentum identities, mass/power preservation, simultaneous transport, and rejection of conditional, dependent or nonlinear routes |
+| Spenso linear-system forwarding | 4/4 | Ordered exact solutions, retained global/branch conditions and free variables, and nonlinear rejection |
+
+The Spenso regression explicitly distinguishes `a*x=0`, whose answer `x=0`
+requires the global generic-coverage guard `a != 0`, from `x/a=0`, whose
+answer has complete coverage only on the branch's original domain `a != 0`.
+Neither obligation may disappear just because the returned coordinate has
+no denominator. An independent audit verified this contract and the matching
+depth and routing changes against the vendored Symbolica API.
+
+The scoped Vakint library check and no-dependencies Clippy gate with
+`-D warnings` also passed. This does not claim a warning-free upstream
+dependency stack or a whole-workspace lint gate.
+
+These are focused adapter tests, **not** the complete 83-test comparative
+acceptance gate on the upgraded stack. The narrowed workspace and local Cargo
+paths remain diagnostic conveniences. Idenso's additional integration-test
+and benchmark matching calls still require mechanical adaptation if those
+targets are selected in the broader workspace gate.
 
 ## Coherent delivery sequence
 
@@ -48,9 +87,18 @@ layer is fixed; the initial count is not a completed migration estimate.
    one dependency milestone. Local paths are allowed during development, not
    in the pushed milestone. Do not broadly update unrelated dependencies.
 3. Regenerate and cold-validate K1/K3/K6 with that producer. K6's source-port
-   parent-plan tag changed from `0x701` to `0x703` although the outer artifact
+   parent-plan tag changed from `0x701` to `0x704` (including explicit root scope)
+   although the outer artifact
    schema is still V5. Do not edit bytes or add a compatibility shim. Confirm
    terminal keys before reusing the exact offline catalog.
+   The new external K6 input and Rust generator use the ingress-compatible
+   name `rustred_three_loop_unit_mass_vacuum_k6_v1`; the currently shipped
+   Vakint asset uses the earlier hyphenated name. This deliberately changes
+   artifact identity, not denominators, coordinate order or mathematics.
+   Update Vakint's private expected family fingerprint atomically with the
+   new bytes and dependency pin. Compare all 38 typed terminal keys directly
+   against `crates/vakint/src/rustred_evaluation/terminal/k6.rs::SOURCES`;
+   equality of the old and new family-fingerprint strings is not expected.
 4. Rerun the complete 83-test selection, routing diagnostics, FeynKit/Spenso
    regressions and the relevant compilation/lint gates. Native acceptance
    retains invalid FORM paths; separate legacy oracle lanes use FORM.

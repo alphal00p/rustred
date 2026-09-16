@@ -146,6 +146,7 @@ struct CheckedSector<const N: usize> {
 /// same private cell verifier, without reconstructing solver output.
 pub(super) struct CheckedProgram<const N: usize> {
     family: IntegralFamily,
+    root_sector: crate::sector::Mask,
     original_sources: OriginalSourceCorpus,
     zero_sectors: Arc<[[bool; N]]>,
     inherited_source_conditions: Vec<CoefficientPolynomial>,
@@ -173,7 +174,7 @@ impl<const N: usize> CheckedProgram<N> {
         };
         use crate::family::IntegralKey;
         use crate::identity::ParametricIbpGenerator;
-        use crate::sector::{InteriorBounds, Mask};
+        use crate::sector::Mask;
 
         let generator = ParametricIbpGenerator::try_new(&self.family).map_err(error)?;
         let context = self.original_sources.context().clone();
@@ -225,8 +226,8 @@ impl<const N: usize> CheckedProgram<N> {
             algorithm_id: SOURCE_PORT_ALGORITHM_ID,
             arity: N,
             ordering: self.ordering,
-            supported_root_power_bounds: vec![InteriorBounds::new(i64::MIN, i64::MAX); N]
-                .into_boxed_slice(),
+            supported_root_power_bounds: super::scope::root_bounds(&self.root_sector)
+                .map_err(error)?,
             family: self.family,
             context,
             source_relations: self.original_sources.into_relations(),
@@ -361,9 +362,15 @@ impl<const N: usize> SourcePortAudit<N> {
             );
         }
         self.validate_sector_masks(retained.keys().copied())?;
+        if retained.is_empty() {
+            return Err(error(
+                "zero-only source-port root scopes are not yet supported",
+            ));
+        }
         let inherited_source_conditions = self.sources.conditions().to_vec();
         Ok(CheckedProgram {
             family,
+            root_sector: self.root_sector,
             original_sources: self.original_sources,
             zero_sectors: self.zero_sectors,
             inherited_source_conditions,
@@ -426,3 +433,6 @@ pub(super) fn lower_sector_for_test<const N: usize>(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(in crate::foundry::artifact) mod scoped_tests;

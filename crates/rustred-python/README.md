@@ -38,7 +38,7 @@ semantic output.
 
 `family_close` accepts the same Project TOML or Symbolica family syntax as
 `derive`. It never selects a solver by family name. The complete sector census
-is solved and checked before a result is returned; incomplete closure raises
+of the requested domain is solved and checked before a result is returned; incomplete closure raises
 an exception instead of returning a partial artifact. Input must currently be
 an unshifted vacuum with 1 through 16 denominator coordinates, dimension `d`,
 no other scalar parameters, and literal constant term `-1` in every denominator.
@@ -71,6 +71,28 @@ in every sector. It must contain every coordinate exactly once. `n_cores`
 bounds the existing solver worker pool. The Python adapter releases the GIL
 and submits owned requests to its existing process coordinator; all algebra,
 coverage proofs, artifact generation and application remain in RustRed.
+
+By default the domain is unrestricted; zero powers in the sample target never
+restrict it. `nonpositive_indices=[2]` instead explicitly declares that input
+coordinate 2 must have integer power at most zero, with no lower bound. Every
+other coordinate remains unrestricted. Indices refer to the original input
+order, not `permutation`. For example, the sunset's factorized pinch can be
+closed and reduced independently:
+
+```python
+pinch = rustred.family_close(source, nonpositive_indices=[2], n_cores=1)
+print(rustred.reduce_with_closing_artifact(pinch.artifact, [2, 2, -1]).to_toml())
+# Reducing [1, 1, 1] with this artifact raises RustRedInputError: outside its domain.
+```
+
+The domain survives cold loading. Publication still requires exact replay,
+strict descent, and complete coverage inside it. Generation report schema v2
+records `root_sector`, in-domain `zero_sectors`, and `global_zero_sectors`:
+global zero proofs can be needed to replay translated sources even outside
+the reduction domain. Inspection schema v2 reports `root_power_lower`,
+`root_power_upper`, and `in_scope_zero_sectors`. Duplicate, negative, boolean,
+or out-of-range indices are rejected. Zero-only scopes are not yet supported
+and fail without publishing an artifact.
 
 With a Project saved as `family.toml`, the equivalent CLI is:
 
@@ -128,7 +150,8 @@ its real V5 bytes through the shared Rust codec; they do not select or generate
 a hidden K6 preset. For these original-domain source-port artifacts, untrusted
 loading regenerates ordinary IBP rows and replays the saved exact combinations,
 not the source search. Recursive application remains in RustRed's existing
-memoized reducer. Complete three-loop Vakint acceptance is still a separate gate.
+memoized reducer. The complete recorded 83-test through-three-loop Vakint
+selection passes; four-loop acceptance remains a separate open gate.
 
 Linux wheels built in the Nix development shell are development artifacts.
 Portable manylinux publication remains gated on a separate audited build and

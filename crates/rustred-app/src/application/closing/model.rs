@@ -16,7 +16,7 @@ pub(super) struct ArtifactPayloadOutputV1 {
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
-pub(super) struct ArtifactSummaryOutputV1 {
+pub(super) struct ArtifactSummaryOutputV2 {
     pub(super) schema: &'static str,
     pub(super) schema_version: u32,
     pub(super) algorithm_id: &'static str,
@@ -25,7 +25,13 @@ pub(super) struct ArtifactSummaryOutputV1 {
     pub(super) family_fingerprint: String,
     pub(super) coefficient_context_fingerprint: String,
     pub(super) common_mass_homogeneity: Option<&'static str>,
+    pub(super) root_power_lower: Vec<i64>,
+    pub(super) root_power_upper: Vec<i64>,
+    /// Only zero sectors intersecting the declared root-power domain.
+    pub(super) in_scope_zero_sectors: usize,
     pub(super) masters: Vec<IntegralKeyOutputV1>,
+    /// Global zero evidence, including sectors outside the admitted root
+    /// domain when translated source replay requires those certificates.
     pub(super) zero_terminals: Vec<ZeroTerminalOutputV1>,
 }
 
@@ -82,28 +88,28 @@ pub(super) struct RuleTermOutputV1 {
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
-pub(super) struct GenerateOutputV1 {
+pub(super) struct GenerateOutputV2 {
     pub(super) schema: &'static str,
     pub(super) status: &'static str,
     pub(super) producer: ProducerOutputV1,
     pub(super) family_selector: &'static str,
     pub(super) lifecycle: LifecycleOutputV1,
     pub(super) payload: ArtifactPayloadOutputV1,
-    pub(super) artifact: ArtifactSummaryOutputV1,
+    pub(super) artifact: ArtifactSummaryOutputV2,
     pub(super) validation: ValidationOutputV1,
     pub(super) source_relations: Vec<SourceRelationOutputV1>,
     pub(super) rules: Vec<ClosingRuleOutputV1>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
-pub(super) struct InspectOutputV1 {
+pub(super) struct InspectOutputV2 {
     pub(super) schema: &'static str,
     pub(super) status: &'static str,
     pub(super) producer: ProducerOutputV1,
     pub(super) artifact_source: &'static str,
     pub(super) materialization: &'static str,
     pub(super) lifecycle: LifecycleOutputV1,
-    pub(super) artifact: ArtifactSummaryOutputV1,
+    pub(super) artifact: ArtifactSummaryOutputV2,
     pub(super) validation: ValidationOutputV1,
 }
 

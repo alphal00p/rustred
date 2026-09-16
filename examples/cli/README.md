@@ -16,19 +16,36 @@ contains master keys `[0,1,1]` and `[1,1,1]`, with common-mass-squared powers
 
 ## Completed K=6 artifact
 
-The K=6 closing artifact is generated once and then consumed by the ordinary
-RustRed CLI. The example prefers existing release binaries, so repeated runs
-do not recompile; set `RUSTRED_K6_GENERATOR` and `RUSTRED_BIN` when binaries
-live outside `target/release`:
+The K=6 example uses the generic `family-close` command with
+[`three_loop_k6.toml`](../input/three_loop_k6.toml). The mathematical family and
+propagator order match the Vakint artifact; all 64 sectors are included.
+The identifier-safe metadata name `rustred_three_loop_unit_mass_vacuum_k6_v1`
+intentionally replaces the older hyphenated name, changing the fingerprint.
+Regenerated Vakint assets and their loader identity must migrate together;
+the mathematics and terminal keys are unchanged. There are no authored IBPs
+or oracle hints in the input.
+Build the ordinary release CLI once, then run the example without recompiling:
 
 ```bash
+cargo build --release --locked -p rustred-app --bin rustred
 sh examples/cli/run_k6_closing_artifact.sh /tmp/rustred-k6.rr 6
 ```
 
+Set `RUSTRED_BIN` when the release binary lives outside `target/release`.
 The script refuses to overwrite an artifact, authenticates it in a fresh CLI
 process, and applies it to `[2,1,1,1,1,1]`. Inspection reports the canonical
 K=6 family with 38 terminal entries; reduction reports 30 exact master terms.
-Generation is autonomous and uses no FORM-derived rules.
+Generation reports 38 solved sectors, 26 proved-zero sectors, 623 generated
+rules and 5,639 installed rule cells. The equivalent generation command is:
+
+```bash
+./target/release/rustred family-close \
+  --input examples/input/three_loop_k6.toml --input-format toml \
+  --n-cores 6 --progress --output /tmp/rustred-k6.rr
+```
+
+Use a fresh output path when running either command; neither requires the
+specialized Rust-library example binary.
 
 The same pure-RustRed K=6 foundry lanes are directly runnable through the CLI.
 Use a release build and keep their reports separate:

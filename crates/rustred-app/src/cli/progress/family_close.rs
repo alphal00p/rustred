@@ -110,10 +110,13 @@ fn format_event(event: FamilyCloseProgress) -> String {
         Prepared {
             sectors,
             zero_sectors,
+            global_zero_sectors,
             elapsed,
         } => (
             elapsed,
-            format!("generate {sectors} sectors; {zero_sectors} proved zero"),
+            format!(
+                "generate {sectors} sectors; {zero_sectors} scoped zero; {global_zero_sectors} global zero proofs"
+            ),
         ),
         Generating {
             sector,

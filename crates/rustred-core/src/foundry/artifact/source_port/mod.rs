@@ -15,10 +15,13 @@ mod program;
 mod progress;
 pub use progress::SourcePortInstallEvent;
 mod replay;
+pub(in crate::foundry::artifact) mod scope;
 pub(crate) use program::lower::ReplayedOriginalDomain;
 #[cfg(test)]
 pub(in crate::foundry::artifact) use program::lower::durable_tests::installed_k1 as installed_k1_for_codec_test;
 pub(in crate::foundry::artifact) use program::lower::{PreparedOriginalDomain, ReplayLimits};
+#[cfg(test)]
+pub(in crate::foundry::artifact) use program::scoped_tests::generated_scope as generated_scoped_k3_for_codec_test;
 
 #[cfg(test)]
 mod tests;
@@ -143,6 +146,9 @@ pub struct SourcePortSectorAudit<const N: usize> {
 /// The search itself is neither rerun nor invoked from this owner.
 pub struct SourcePortAudit<const N: usize> {
     sources: SourceSystem<N>,
+    root_sector: Mask,
+    // Globally valid zero evidence is also needed by translated source replay
+    // outside the requested root downset. Never filter this list to the scope.
     zero_sectors: Arc<[[bool; N]]>,
     zero_certificates: Vec<zero::Certificate>,
     original_row_ids: Vec<crate::identity::RowId>,
@@ -164,6 +170,22 @@ impl<const N: usize> SourcePortAudit<N> {
         family: &IntegralFamily,
         zero_sectors: Arc<[[bool; N]]>,
     ) -> Result<Self, SourcePortAuditError> {
+        Self::try_new_with_root_sector(family, zero_sectors, [true; N])
+    }
+
+    /// Certify every subsector of a caller-declared maximal root sector.
+    ///
+    /// A `true` position permits positive powers; a `false` position requires
+    /// nonpositive powers, including arbitrary numerators. The zero evidence
+    /// remains global because translated original identities can use it beyond
+    /// this root domain. Omitted nonzero sectors inside the domain are errors.
+    pub fn try_new_with_root_sector(
+        family: &IntegralFamily,
+        zero_sectors: Arc<[[bool; N]]>,
+        root_sector: [bool; N],
+    ) -> Result<Self, SourcePortAuditError> {
+        let root_sector = Mask::try_new(root_sector).map_err(error)?;
+        scope::sector_count(&root_sector).map_err(error)?;
         if family.external_count() != 0 || family.power_shifts().iter().any(|x| !x.is_zero()) {
             return Err(error(
                 "source-port artifact audit currently requires an unshifted vacuum family",
@@ -214,6 +236,7 @@ impl<const N: usize> SourcePortAudit<N> {
         }
         Ok(Self {
             sources,
+            root_sector,
             zero_sectors,
             zero_certificates,
             original_row_ids,
@@ -251,6 +274,15 @@ impl<const N: usize> SourcePortAudit<N> {
         solution: &SectorSolution<N>,
     ) -> Result<program::SectorCheck<N>, SourcePortAuditError> {
         let start = Instant::now();
+        if !Mask::try_new(sector)
+            .map_err(error)?
+            .is_subsector_of(&self.root_sector)
+            .map_err(error)?
+        {
+            return Err(error(
+                "solved sector is outside the declared root-sector scope",
+            ));
+        }
         if self.zero_sectors.contains(&sector) {
             return Err(error("a solved sector was also declared zero"));
         }
@@ -535,17 +567,28 @@ impl<const N: usize> SourcePortAudit<N> {
         &self,
         sectors: impl IntoIterator<Item = [bool; N]>,
     ) -> Result<(), SourcePortAuditError> {
-        let expected = 1_u128
-            .checked_shl(u32::try_from(N).map_err(error)?)
-            .ok_or_else(|| error("sector census exceeds diagnostic counter capacity"))?;
-        let mut seen: BTreeSet<_> = self.zero_sectors.iter().copied().collect();
+        let expected = scope::sector_count(&self.root_sector).map_err(error)?;
+        let in_scope = |sector: &[bool; N]| {
+            sector
+                .iter()
+                .zip(self.root_sector.active_bits())
+                .all(|(&active, &allowed)| !active || allowed)
+        };
+        let mut seen: BTreeSet<_> = self.zero_sectors.iter().copied().filter(in_scope).collect();
         for sector in sectors {
+            if !in_scope(&sector) {
+                return Err(error(
+                    "sector census contains an out-of-scope solved sector",
+                ));
+            }
             if !seen.insert(sector) {
                 return Err(error("duplicate or zero solved sector"));
             }
         }
-        if seen.len() as u128 != expected {
-            return Err(error("sector census does not exhaust all masks"));
+        if seen.len() != expected {
+            return Err(error(
+                "sector census does not exhaust the declared root-sector scope",
+            ));
         }
         Ok(())
     }

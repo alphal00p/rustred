@@ -283,8 +283,8 @@ set of sectors, such as all masks with `n8,n9<=0` for FG, then:
 - retain unrestricted all-sector closure as the default or an explicit
   separate objective, never silently narrow it based on names or comments.
 
-Existing `supported_root_power_bounds` and reducer root-input checking offer
-some infrastructure, but the current source-port loader replaces these with
+At the time of the initial diagnosis, `supported_root_power_bounds` and reducer
+root-input checking offered some infrastructure, but the source-port loader replaced these with
 unrestricted bounds and both census gates require `2^K` masks. Thus this is an
 explicit generic schema/coverage extension, not merely filtering the search
 queue. It could avoid artificial positive-ISP obstructions for the physical
@@ -331,6 +331,90 @@ native zero-sector census. The temporary driver was used here to keep source
 projection identical to `family-close`, and to retain per-sector completion
 records. This API/configuration difference should be addressed generically
 when adding the explicit closure-scope interface.
+
+### Full physical-domain publication attempt
+
+The subsequently implemented generic root-scope contract was tested through
+`family-close --nonpositive-indices 8,9`, with natural priority and two workers
+on physical CPUs 34/35. This is explicitly scoped closure, not a redefinition
+of the unrestricted family. All 281 native global zero-sector proofs remained
+available to replay; the requested downset contained 132 zero and 124 nonzero
+masks.
+
+All 124 searches finished by **32.9 s**, again proposing **9,264 rules and 145
+finite residual entries**. Unlike the search-only diagnostic, this run then
+invoked exact artifact checks. Twenty sectors passed before sector mask
+**106**, physical-coordinate string **`0101011000`**, failed with **93/96
+replayed and descending rules, zero uncovered boxes, and three original-source
+residuals**:
+
+```text
+(-1/n8) I(n0+1,1,-1,2,0,0,1,0,n8,0)
+(-1/n8) I(n0+1,1,-1,2,0,0,1,-1,n8,0)
+(-1/n8) I(n0+1,1,-2,2,0,0,1,0,n8,0)
+```
+
+The process exited 8 after **50.11 s wall**, **81.61 s CPU** (79.94 user +
+1.67 system), with **196,640 KiB peak RSS**. It did not reach the 1200-second
+bound. No artifact, cold inspection, or reduction canary was produced. Evidence
+and the frozen release binary are in `/tmp/rustred-four-loop-fg-scope.4ueeaV/`;
+the executable SHA-256 is
+`b01f0c4c8e96d41e1deaf53b34aed36fdae9672f725d824a6e5e402fe988b64b`.
+These are shared-host diagnostic observations, not benchmark medians.
+
+This obstruction is inside the physical domain and does not involve the
+nonlinear exceptional geometry above. The first useful source-level lead is
+boundary activation: when `n0<=-1`, the displayed integrals have only the
+three active denominators `D2,D4,D7` (mask 74), leaving a scaleless loop
+direction. At `n0=0`, the shifted exponent `n0+1` activates `D1` and gives
+mask 75. The four momentum forms `k1`, `k2`, `k1-k3`, `k1-k3+k4` are independent;
+the native census includes that sector among its nonzero search tasks. Thus
+the whole shifted column cannot be removed solely from the parent sign of
+`n0`, and `-1/n8` does not vanish on this boundary for negative `n8`.
+
+Discovery's `vanishes_in_subsector` currently retains the parent sector sign
+for symbolic shifted powers; the independent source audit deliberately
+regenerates unprojected rows and checks actual sign cells. Their discrepancy
+is a concrete source-projection hypothesis, not authority to weaken replay.
+The complete candidate cases, recentering shifts and dependency traces still
+need a selected-sector diagnostic to establish precisely where the boundary
+was lost. Neither the 145 finite residual count nor zero uncovered coordinate
+boxes substitutes for a replayed identity.
+
+### Conditional nonzero boundary check
+
+For the first displayed residual (reported rule 85), consider `n0=0,n8=-1`.
+**Admission of this point by that rule's complete case and exclusions has not
+yet been confirmed.** The following calculation identifies a useful exact
+diagnostic target; it does not establish the full cause of the replay failure.
+
+The residual coefficient is then `+1`, multiplying
+
+```text
+I(1,1,-1,2,0,0,1,0,-1,0).
+```
+
+Use the unit-Jacobian loop transformation
+`a=k1, b=k2, c=k1-k3, e=k1-k3+k4`. Its denominators are four independent
+unit-mass tadpoles, with the `c` denominator squared. The numerator is
+`((a-c)^2-1)*((b-e+c)^2-1)`. Write
+`T_r = integral d^d l / (l^2-1)^r`, with the same per-loop measure convention
+throughout. Odd terms integrate to zero; terms canceling the only denominator
+of `a`, `b`, or `e` leave a scaleless polynomial integral. Consequently,
+
+```text
+I(1,1,-1,2,0,0,1,0,-1,0)
+  = T_1^3 * integral d^d c [c^2*(c^2+1)/(c^2-1)^2]
+  = T_1^3 * (3*T_1 + 2*T_2)
+  = (d+1)*T_1^4.
+```
+
+The final step uses the ordinary one-loop IBP `2*T_2=(d-2)*T_1`. This is
+generically nonzero, so full rank here is not the only evidence against
+discarding the term. If the selected-rule diagnostic confirms that `n0=0`
+and `n8=-1` satisfy the actual case, recentering and guards, this point is a
+concrete counterexample to treating the entire shifted column as scaleless.
+Until those conditions are checked, the pruning diagnosis remains conditional.
 
 ## Minimal generic direction
 

@@ -18,6 +18,26 @@ powers = [1]
 numerator = "1"
 "#;
 
+const K3: &str = r#"
+schema = "rustred.project.toml.v1"
+[family]
+name = "cli_scoped_user_family"
+loop_momenta = ["p", "q"]
+external_momenta = []
+dimension = "d"
+[[family.denominators]]
+id = "A"
+expression = "p^2-1"
+[[family.denominators]]
+id = "B"
+expression = "q^2-1"
+[[family.denominators]]
+id = "C"
+expression = "(p-q)^2-1"
+[target]
+powers = [1, 1, 0]
+"#;
+
 struct Directory(PathBuf);
 
 impl Directory {
@@ -132,4 +152,56 @@ fn forced_plain_progress_preserves_binary_stdout() {
     assert!(progress.contains("preparing K=1"));
     assert!(progress.contains("artifact written"));
     assert!(!progress.contains('\u{1b}') && !progress.contains('\r'));
+}
+
+#[test]
+fn explicit_scope_is_persisted_and_rejected_outside_its_domain() {
+    let scoped = success(
+        &["family-close", "--nonpositive-indices", "2"],
+        K3.as_bytes(),
+    );
+    let inspected = success(&["campaign", "inspect", "--artifact", "-"], &scoped);
+    let inspected: toml::Value = toml::from_str(std::str::from_utf8(&inspected).unwrap()).unwrap();
+    assert_eq!(
+        inspected["artifact"]["root_power_upper"][2].as_integer(),
+        Some(0)
+    );
+    assert_eq!(
+        inspected["artifact"]["in_scope_zero_sectors"].as_integer(),
+        Some(3)
+    );
+    let inside = success(
+        &[
+            "campaign",
+            "reduce",
+            "--artifact",
+            "-",
+            "--powers",
+            "2,2,-1",
+        ],
+        &scoped,
+    );
+    assert!(
+        std::str::from_utf8(&inside)
+            .unwrap()
+            .contains("status = \"reduced\"")
+    );
+    let outside = run(
+        &["campaign", "reduce", "--artifact", "-", "--powers", "1,1,1"],
+        &scoped,
+    );
+    assert!(!outside.status.success());
+    assert!(outside.stdout.is_empty());
+
+    // A zero in the concrete input is not itself a closure-scope declaration.
+    let full = success(&["family-close"], K3.as_bytes());
+    let inside_full = success(
+        &["campaign", "reduce", "--artifact", "-", "--powers", "1,1,1"],
+        &full,
+    );
+    assert!(
+        std::str::from_utf8(&inside_full)
+            .unwrap()
+            .contains("status = \"reduced\"")
+    );
 }

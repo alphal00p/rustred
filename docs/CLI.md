@@ -12,7 +12,7 @@ backend; there is no `no_gmp` mode.
 ## Generic complete artifact generation
 
 `rustred family-close` uses the family supplied in the input, not a built-in
-family selector. It enumerates the full sector census, proves zero sectors
+family selector. By default it enumerates the full sector census, proves zero sectors
 with the existing exact analyzer, and solves the remaining sectors. Durable
 bytes are written only after the core replay, guard, strict-descent and complete
 coverage gates succeed. An incomplete solver result is an error, not a partial
@@ -38,9 +38,41 @@ families can still fail with exact incomplete/unsupported-domain diagnostics.
 
 `--permutation 2,1,0` optionally supplies a zero-based coordinate priority used
 coherently in every sector (here for a three-coordinate family). Every index
-must appear exactly once. No subset-of-sectors option is offered by this
-command, because it promises complete family coverage. `--force` opts into
+must appear exactly once. `--force` opts into
 atomic replacement; otherwise existing output files are preserved.
+
+### Explicit nonpositive coordinates
+
+`--nonpositive-indices 8,9` explicitly restricts input coordinates 8 and 9 to
+integer powers at most zero. This is useful for auxiliary scalar-product
+coordinates: their numerator powers remain unbounded below. All other powers
+remain unrestricted, and every sector and contraction in this declared domain
+must still pass the complete closure gates. Indices are zero-based in the
+original input order, independently of `--permutation`.
+
+This is a domain declaration, not a finite sample or a list of convenient
+sectors. The input target's zero powers never imply this restriction. Omitting
+the option requests the unrestricted family. Duplicate or out-of-range indices
+are errors. Scopes containing only zero sectors currently fail closed rather
+than producing a zero-only artifact.
+
+The artifact stores the domain, cold loading checks it, and reduction rejects
+an out-of-domain target. Every published rule still proves strict descent and
+valid RHS transitions. Globally proved zero sectors outside the domain remain
+available as exact source-replay evidence; they do not expand the reduction
+domain. Generation report schema v2 distinguishes `zero_sectors` (inside the
+domain) from `global_zero_sectors` and records `root_sector`. Inspection schema
+v2 exposes `root_power_lower`, `root_power_upper`, and `in_scope_zero_sectors`.
+Its existing zero-terminal list includes the global proof evidence.
+
+```console
+rustred family-close --input examples/input/four_loop_fg.toml \
+  --nonpositive-indices 8,9 --n-cores 2 --progress --output fg-physical.rr
+```
+
+This requests closure of the physical FG domain; it is not a claim that the
+four-loop run already passes publication. See the
+[current parent-probe evidence](four_loop_parent_closure_probe.md).
 
 On a terminal, `family-close` refreshes one inline stderr status field for
 generation, exact replay, rule lowering, installation and encoding. It does not
@@ -65,6 +97,8 @@ The Rust application API exposes `FamilyCloseRequest`, `family_close`, and
 installation and encoding wall times. Those timings are observational metadata,
 not part of the semantic artifact. Existing inspect/reduce APIs cold-load and
 apply the returned bytes without re-running discovery.
+`FamilyCloseRequest::nonpositive_indices` declares the same optional domain;
+Python exposes `rustred.family_close(..., nonpositive_indices=[8, 9])`.
 
 `family_close_with_progress(request, observer)` produces identical artifact
 bytes and exposes owned, lightweight `FamilyCloseProgress` events. Its observer
@@ -629,7 +663,7 @@ rustred campaign generate --family unit-mass-vacuum-k1 \
 ```
 
 Inspection emits schema
-`rustred.closing-artifact-inspect-output.toml.v1` after one bounded decode,
+`rustred.closing-artifact-inspect-output.toml.v2` after one bounded decode,
 authentication, and exact replay. Reduction emits schema
 `rustred.closing-artifact-reduce-output.toml.v1`, exact Symbolica-canonical
 unit-mass coefficients keyed by master power vectors, and a separate decimal

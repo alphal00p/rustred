@@ -51,7 +51,10 @@ pub enum FamilyCloseProgress {
     },
     Prepared {
         sectors: usize,
+        /// Proved-zero sectors inside the explicit root domain.
         zero_sectors: usize,
+        /// Global zero proofs also retained for translated-source replay.
+        global_zero_sectors: usize,
         elapsed: Duration,
     },
     Generating {

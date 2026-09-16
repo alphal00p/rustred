@@ -1,4 +1,13 @@
-# External four-loop vacuum families
+# External vacuum families
+
+[`three_loop_k6.toml`](three_loop_k6.toml) supplies the complete three-loop
+family to the generic CLI and Python examples, without authored rules or
+search hints. It has six physical denominator coordinates and requests an
+unrestricted sector census. The identifier-safe metadata name is shared with
+the Rust-library example; migrating existing Vakint artifacts requires the
+matching private loader binding as well as new bytes.
+
+## Four-loop parents
 
 These TOML files are ordinary user input to RustRed's topology-independent
 parser and solver. Their descriptive names are not engine dispatch keys and
@@ -74,3 +83,30 @@ parent; it is a quick input-path smoke test. `family-solve` currently reports
 diagnostic rule counts, not a publishable closing artifact. Full physical
 parent and contraction studies must be requested explicitly and assessed
 by exact artifact validation, not these smoke-test counts.
+
+## Request complete closure of a physical parent
+
+The auxiliary coordinates can be explicitly restricted to nonpositive powers
+without bounding numerator rank. Use `--nonpositive-indices 9` for H/X and
+`--nonpositive-indices 8,9` for BMW/FG. These are zero-based input indices, not
+permuted ordering positions. For example:
+
+```console
+rustred family-close --input examples/input/four_loop_fg.toml \
+  --input-format toml --nonpositive-indices 8,9 --n-cores 2 \
+  --progress --output /tmp/four_loop_fg_physical.rr
+```
+
+The equivalent Python request is
+`rustred.family_close(source, input_format="toml", nonpositive_indices=[8, 9])`.
+The Rust request uses `FamilyCloseRequest::nonpositive_indices`.
+
+This includes every physical parent contraction and arbitrary negative ISP
+powers. The sample target does **not** infer this domain: omitting the option
+requests all ten-coordinate sectors, including positive ISP powers. Exact
+replay, descent, coverage and cold-load validation remain mandatory. The
+artifact binds its scope and refuses out-of-scope reductions.
+
+These commands are closure attempts, not shipped four-loop artifacts. See the
+[current measurements](../../docs/four_loop_parent_closure_probe.md); search
+completion alone does not establish publication or four-loop Vakint parity.

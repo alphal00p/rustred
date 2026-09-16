@@ -178,7 +178,7 @@ fn generation_is_deterministic_and_owns_durable_bytes() {
     assert!(!generated.artifact().is_empty());
     assert_eq!(
         generated.schema(),
-        "rustred.closing-artifact-generate-output.toml.v1"
+        "rustred.closing-artifact-generate-output.toml.v2"
     );
     assert_eq!(generated.status(), "generated-durable");
     assert!(generated.to_toml().ends_with('\n'));

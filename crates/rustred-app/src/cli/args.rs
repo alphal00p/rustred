@@ -53,6 +53,7 @@ pub(crate) struct FamilyCloseArgs {
     pub(crate) output: StreamPath,
     pub(crate) input_format: InputFormat,
     pub(crate) permutation: Option<Vec<usize>>,
+    pub(crate) nonpositive_indices: Vec<usize>,
     pub(crate) n_cores: usize,
     pub(crate) progress: bool,
     pub(crate) force: bool,
@@ -332,6 +333,7 @@ FAMILY-CLOSE OPTIONS:
     --output <PATH|->            Write complete durable artifact bytes [default: -]
     --input-format <FORMAT>      auto, toml, or symbolica [default: auto]
     --permutation <N,N,...>      Optional zero-based coordinate priority permutation
+    --nonpositive-indices <N,N,...>  Coordinates restricted to nonpositive powers
     --n-cores <COUNT>            Maximum worker cores [default: 1]
     --progress                  Also emit plain progress when stderr is redirected
     --force                      Atomically replace an existing output file
@@ -405,9 +407,10 @@ this command.
 
 `family-close` enumerates the complete sector census of a caller-supplied
 unshifted unit-mass vacuum family (1..16 coordinates, sole parameter d,
-denominator constant terms -1), proves zero sectors, solves every other sector,
+denominator constant terms -1), proves zero sectors, solves every admitted sector,
 and publishes only after exact replay, strict descent and complete coverage.
-The target in the input does not restrict this family-wide closure request.
+Use --nonpositive-indices to explicitly keep selected numerator coordinates
+nonpositive. By default every sector is admitted. Target powers never infer scope.
 Failure writes no artifact. Use `campaign inspect` and `campaign reduce` on
 the resulting bytes; no family name selects an implementation.
 TTY progress overwrites one stderr status field; redirected stderr is quiet
