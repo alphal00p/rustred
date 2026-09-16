@@ -652,13 +652,42 @@ proposal must retain deterministic fallback within the same quotient; new
 certificate poles must not hide exceptional faces. The detailed design and
 native Symbolica reuse points are in
 [`original_source_certificate_performance.md`](research/original_source_certificate_performance.md).
-It has not yet been implemented or benchmarked.
+That proposal was not implemented at this checkpoint; the subsequent bounded
+implementation and rerun are recorded below.
 
 Evidence, frozen executable, invocation and full profile are retained at
 `/tmp/rustred-safe-projection.DMp3co/`. This run moves the active physical FG
 blocker from the now-resolved sector-106 proof gap to the cost of original-
 source certificate proposal at sector 214; it does not establish that all
 remaining exact checks will succeed once that cost is reduced.
+
+#### Compact certificate-support rerun (2026-09-16)
+
+The bounded native modular support proposal is now implemented, with exact
+lifting, no-new-index-pole admission and full unprojected replay. The fallback
+retains the complete exact proposal within the same quotient. Independent
+implementation/mathematical audits and 121 source-port tests pass (five existing
+larger workloads ignored). Release K1/K3/K6 generation, fresh-process inspection
+and canary reductions pass; K6 bytes agree at one, two and six workers.
+
+The full physical FG rerun still does **not** close. Its 124 searches finish by
+**59.4 s**, yielding the same **9,272 rules and 145 finite candidates**. After
+32 passed sector audits it starts sector 214 at **79.5 s**, then reaches the
+**600.14 s** bound (651.32 s CPU, 443,624 KiB peak RSS). No artifact is written.
+A 15-second profile again points to exact certificate proposals: 98.32%
+inclusive native sparse elimination, 93.57% `propose_projected`, and 64.17%
+polynomial GCD. These overlapping local samples cannot identify the active
+rule or distinguish compact from fallback proposals.
+
+A separate structural diagnostic finds that 25 fully fixed rules share an
+identical 1,493-source selected trace over 268 seeds. Independent replay can
+therefore regenerate 4,288 ordinary rows for each of those rules. The next
+slice retains the preconditioner's native-polynomial row-operation derivation
+for exact coefficient composition instead of repeating a membership solve.
+Full original-source replay, pole admission, descent and coverage remain
+mandatory. This is a follow-on design, not an already measured speedup.
+Evidence: `/tmp/rustred-compact-certificate.LQpBJ4/` and
+`/tmp/rustred-fg214-rule-shapes.vnNEle/`.
 
 ## Interpretation
 

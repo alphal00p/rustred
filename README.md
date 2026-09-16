@@ -37,11 +37,15 @@ Four-loop artifacts are not yet closed or shipped. H, X, BMW and FG are
 [external unit-mass input families](examples/input/README.md), not hard-coded
 solver cases. Selected H and FG sectors now pass complete exact replay,
 descent and coverage. The latest full physical FG run searches all 124 nonzero
-sectors in 57.1 seconds, yielding 9,272 candidate rules and 145 finite residuals.
+sectors in 59.4 seconds, yielding 9,272 candidate rules and 145 finite residuals.
 It passes 32 sector audits, then reaches a 600-second bound during exact
 source-certificate construction in sector 214. It writes **no closed artifact**.
 A sampled profile identifies native exact elimination and coefficient GCD as
-the bottleneck; compact certificate construction is the next optimization.
+the bottleneck. Bounded modular certificate-support pruning is implemented
+and preserves K1/K3/K6 regressions, but does not yet clear this bottleneck.
+The next optimization retains the preconditioner's exact derivation for reuse
+instead of independently rediscovering its source coefficients. See the
+[certificate profiling report](docs/research/original_source_certificate_performance.md).
 Live phase diagnostics and an explicit domain-scoped publication path are
 implemented: `--nonpositive-indices` restricts specified auxiliary
 coordinates without bounding numerator rank or weakening exact closure checks.

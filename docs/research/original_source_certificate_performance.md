@@ -1,9 +1,118 @@
 # Original-source certificate proposal: measured bottleneck and next slice
 
-Status: research/design only, 2026-09-16. No prototype, implementation, speedup
-measurement, or new closure claim accompanies this note. The proposed change
-must retain the complete original-source replay and every existing guard,
-descent, ownership and cold-load gate.
+Status: the bounded modular-support slice below is implemented and has passed
+focused debug validation and independent implementation/mathematical audits,
+2026-09-16. Release regressions pass, but the full FG rerun still reaches its
+600-second bound; no speedup or four-loop closure is claimed. Complete original-source replay and
+every existing guard, descent, ownership and cold-load gate remain required.
+
+## Implemented first slice
+
+`ordinary/native/support.rs` uses native finite-field evaluation and GPLU
+patterns to propose a compact physical source set with two deterministic
+probes. It keeps original-source, accepted-U and native-L indices distinct,
+retains full dependency ancestry, and bounds input/fill/pattern storage.
+`native::propose_verified` lifts that support exactly, expands weights into
+their original positions and requires full unprojected replay. Failure retries
+the unchanged complete exact proposal within the same quotient.
+
+`ordinary/guards.rs` admits no new index-pole face: it uses existing native
+exception extraction and exact excluded cases, or proves a coordinate face
+disjoint from every current application box. Unsupported coupled geometry
+selects fallback. Index-dependent inherited source conditions disable pruning.
+The original-source normalization multiplier is already proved polynomial, so
+it cannot introduce a new denominator; the existing downstream conditions and
+normalization gates remain unchanged.
+
+The ordinary namespace passes 24 tests, including 17 new regressions. The
+broader source-port namespace passes 121 tests, with five existing larger
+workloads ignored in that debug gate. These protect sampled-zero/pole/rank
+misses, source/L bookkeeping, false modular membership, exact lifting, full
+replay, guard admission, affine cases and persistence. Debug correctness times
+are not performance evidence. Logs are at
+`/tmp/rustred-original-source-tests.VD8gMH/`.
+
+A frozen pre-change selected-sector-214 release run finds 161 rules and eleven
+finite residual candidates in 11.980 seconds, then reaches its 180.01-second
+bound during audit (178.57 seconds CPU, 91,704 KiB peak RSS). This is a focused
+baseline, not closure or a controlled cross-machine comparison. The updated
+release driver repeats this workload and the full physical FG campaign below.
+Evidence is at `/tmp/rustred-compact-certificate.LQpBJ4/`.
+
+The first updated release measurements now confirm K1/K3/K6 generation,
+fresh-process inspection and canary application. K6 still has 623 rules,
+5,640 cells and 38 masters; its new ordinary-source certificates produce
+8,923,663 bytes. One-, two- and six-worker artifacts agree exactly, and the dotted
+canary output is byte-identical to the previous producer's output. Serial
+generation took 3.32 seconds wall in this shared-host regression, not a
+controlled performance comparison.
+
+The selected FG106 boundary regression also passes all 99 replay/descent
+checks with zero gaps or issues (1.02 seconds wall, 549 ms audit). FG214 still
+reaches a 180.03-second bound: pruning alone has **not** resolved that sector.
+The new driver links the app-feature release library, while the old selected
+baseline linked the core-only library; concurrent host load also differs.
+The observed solve times (31.274 versus 11.980 seconds) therefore must not be
+presented as a controlled pruning speed comparison. Discovery is unchanged by
+this patch.
+
+The full updated physical-FG CLI run finishes all 124 sector searches by
+**59.4 seconds**, again generating **9,272 rules and 145 finite residuals**.
+It passes the same 32 sector audits and starts sector 214 at **79.5 seconds**,
+then reaches the **600.14-second** bound without writing an artifact.
+CPU time is **651.32 seconds** (645.68 user + 5.64 system), with
+**443,624 KiB** peak RSS. This establishes that compact support alone is
+insufficient on this workload; it does not establish a speed or memory ratio
+against the earlier shared-host run.
+
+The frozen CLI SHA256 is
+`c045724de27170fcaaa29681cd61315f117b446d848ea56c59902f578fc80aa6`.
+Its K6 artifact SHA256 at all three worker counts is
+`315542ebe00b588892dc161ce92a37764a89ed36deac1c84bbd0c0f64df18e48`.
+Commands, raw outputs, timings and profiles are retained at
+`/tmp/rustred-compact-certificate.LQpBJ4/`. These are CLI release checks;
+the Python extension was not rebuilt for this certificate-only slice.
+
+In a 15-second sample of the updated full run, 724 CPU samples (none lost)
+attribute 98.32% inclusive cost to native exact `SparseRowReducer::add_row`,
+93.57% to `ordinary::native::propose_projected`, and 64.17% to polynomial GCD.
+Again these are overlapping local stack fractions. The profile does not
+distinguish compact versus fallback calls or identify the active rule ordinal.
+
+## Structural follow-on: retain the existing derivation
+
+An external diagnostic of the frozen pre-pruning solver identifies repeated
+work in FG214. All 25 fully fixed rules, ordinals 136–160, retain the same
+1,493-source numerical trace over 268 seeds: 4,288 regenerated original rows
+per rule. They account for 107,200 of the sector's 125,184 potential original
+row instances. This is a structural count, not per-rule timing attribution.
+Rule 100 also has a large affine payload: 207 selected sources over 29 seeds
+and 12,066 RHS coefficient monomials. Detailed data are at
+`/tmp/rustred-fg214-rule-shapes.vnNEle/`.
+
+Independent API/mathematical audit finds a stronger follow-on viable: record
+the existing polynomial preconditioner's exact forward operations once, then
+compose that derivation with the selected frame's exact weights. Every
+preconditioner operation is a native polynomial identity
+`B_new = a B_left - b B_right`; no polynomial division is introduced by the
+provenance trace itself. Specialized rank loss obstructs inversion, not this
+forward identity. An optional immutable row-operation DAG can avoid solving
+the second original-source membership problem, without constructing expanded
+transitive combinations in the search path.
+
+Seed translation, fixed-coordinate specialization, affine restriction and
+canonical recentering must retain their current exact order and tangent checks.
+Selected-frame weights can still have poles, so complete unprojected replay,
+no-new-pole admission and the current certificate fallback remain mandatory.
+Only original-row coefficients are persisted; cold loading trusts no DAG.
+The existing normal preconditioner entry must allocate no trace arena.
+
+The fully numeric shared trace also permits bounded frame reuse if exact
+ordered recipes, source owner, ordering, sector, zero census and specialization
+context match. Persisted offsets remain target-relative. A general projected
+matrix cannot be cached merely by source IDs, because its omission predicate
+depends on the application domain. These are follow-on designs, not measured
+speedups or implemented artifact authority.
 
 ## Actual corrected FG run
 
@@ -41,14 +150,14 @@ Evidence: `/tmp/rustred-safe-projection.DMp3co/fg-generate.stderr`,
 The frozen CLI SHA256 is
 `7cd40693f4ac25cb7cbcc43ee3fbbb42757e70acb5fbc61a13a6365aa5508e56`.
 
-## Why the current proposal is expensive
+## Why the original complete proposal is expensive
 
 `foundry/artifact/source_port/ordinary.rs::weights` regenerates every ordinary
 IBP at each distinct seed in a candidate's retained source trace. For four
 loops that is 16 ordinary rows per seed. It asks
 `ordinary/native.rs::propose` to express the desired identity in this corpus.
 
-The proposal currently reduces an augmented matrix `[A | I]`: physical
+The complete proposal reduces an augmented matrix `[A | I]`: physical
 integral columns followed by a distinct identity column for **every** source
 row, and a separate desired-row marker. Even physically dependent source rows
 become independent in the augmented matrix. Exact elimination therefore keeps
@@ -62,7 +171,7 @@ not currently accelerate this independent original-source membership proposal.
 The full unprojected replay in `native::verify` remains essential: the earlier
 FG failure showed why success in an assumed-sector quotient is not authority.
 
-## Smallest recommended implementation slice
+## Design implemented by the first slice
 
 Use a bounded modular support proposal before the existing exact proposal.
 Do not change source generation, coefficient translations, mathematical

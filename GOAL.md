@@ -63,6 +63,31 @@ compact original-source certificate construction using native modular
 dependency traces followed by exact lifting and unchanged full replay—not
 larger search budgets or weaker publication checks.
 
+**Compact-certificate follow-up (2026-09-16):** bounded native modular support
+selection, exact lifting, full unprojected replay and no-new-index-pole admission
+are implemented and independently audited. All 121 source-port tests pass
+(five existing larger workloads ignored). Release K1/K3/K6 generation, cold
+inspection and canary application pass; K6 retains 623 rules, 5,640 cells and
+38 masters, with byte-identical output at one, two and six workers. This
+certificate-only slice was checked through the CLI, not a rebuilt Python
+extension. The full physical FG rerun searches 124 sectors in 59.4 seconds,
+passes 32 audits, then again times out in sector 214 at 600.14 seconds. No
+four-loop artifact is published. The next implementation records the existing
+polynomial preconditioner's exact forward derivation for certificate reuse,
+with full original-source replay and guard checks retained. See
+[the certificate profiling report](docs/research/original_source_certificate_performance.md).
+
+The frozen Symbolica 3 Vakint baseline independently passes all **15 existing
+deterministic four-loop FMFT reference entrypoints**, including the decorated
+four-loop clover whose test name says `1l`, plus all eight native PR-finalizer
+unit tests with invalid FORM paths. These are not four-loop RustRed acceptance
+passes. The adapter must consume four structural parent descriptors and the
+existing simultaneous routing witness, append auxiliary zero powers, and use
+RustRed's generic numerator lowering and rule applier. Five optional PySecDec
+tests remain separate; one needs deeper master-series data than current FMFT
+tables supply. Existing numerical constants are not a 20,000-digit catalog.
+Evidence: `/tmp/vakint-four-loop-frozen-gate.FKioIB/REPORT.md`.
+
 Release CLI K1/K3/K6 generation, fresh-process inspection and canary reduction
 all pass with the correction. K6 remains 623 rules and 38 masters, now with
 5,640 refined cells and 8,917,577 bytes. One-, two- and six-worker artifacts are

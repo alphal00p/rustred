@@ -12,6 +12,7 @@ use crate::solver::{
 
 use super::{SourcePortAuditError, certificate, error, geometry};
 
+mod guards;
 mod native;
 
 #[cfg(test)]
@@ -162,55 +163,59 @@ pub(super) fn weights<const N: usize>(
             system.index_variables(),
         )
     };
-    let weights = if let Some(weights) = native::propose(&rows, &desired, order, strict)? {
+    // Normalization multiplies a checked polynomial scale. Inherited source
+    // conditions are retained separately; do not change support when any of
+    // those conditions can introduce a new index-dependent exceptional face.
+    let enable_compact =
+        guards::conditions_are_index_free(system.conditions(), system.index_variables());
+    let accept_compact = |weights: &[Coefficient]| {
+        guards::preserves_domain(
+            weights,
+            rule,
+            boxes,
+            system.index_variables(),
+            order.sector(),
+        )
+        .unwrap_or(false)
+    };
+    let weights = if let Some(weights) = native::propose_verified(
+        &rows,
+        &desired,
+        order,
+        &strict,
+        &strict,
+        &accept_compact,
+        enable_compact,
+    )? {
         weights
     } else {
         // A discovery quotient only: symbolic powers keep their parent signs.
         // Weighted cancellation can make a discarded activating column zero
         // even when none of its individual source terms is uniformly zero.
         // The complete unprojected original identity is checked below.
-        native::propose(&rows, &desired, order, |term| {
-            let assumed = std::array::from_fn(|axis| {
-                if term.integral[axis].is_symbolic() {
-                    order.sector()[axis]
-                } else {
-                    term.integral[axis].value() > 0
-                }
-            });
-            Ok(term.integral != rule.candidate.target
-                && assumed != *order.sector()
-                && zero_sectors.contains(&assumed))
-        })?
+        native::propose_verified(
+            &rows,
+            &desired,
+            order,
+            |term| {
+                let assumed = std::array::from_fn(|axis| {
+                    if term.integral[axis].is_symbolic() {
+                        order.sector()[axis]
+                    } else {
+                        term.integral[axis].value() > 0
+                    }
+                });
+                Ok(term.integral != rule.candidate.target
+                    && assumed != *order.sector()
+                    && zero_sectors.contains(&assumed))
+            },
+            &strict,
+            accept_compact,
+            enable_compact,
+        )?
         .ok_or_else(|| {
             error("stored identity has no original-source proposal in either quotient")
         })?
     };
-    native::verify(&rows, &desired, &weights, order, |term| {
-        if let Some(affine) = affine {
-            let restricted = affine
-                .restrict_coefficient(&term.coefficient)
-                .map_err(error)?;
-            let restricted = Term {
-                integral: term.integral,
-                coefficient: restricted,
-            };
-            return geometry::uniformly_zero_term(
-                rule,
-                &restricted,
-                boxes,
-                order.sector(),
-                zero_sectors,
-                system.index_variables(),
-            );
-        }
-        geometry::uniformly_zero_term(
-            rule,
-            term,
-            boxes,
-            order.sector(),
-            zero_sectors,
-            system.index_variables(),
-        )
-    })?;
     certificate::OriginalSourceReplay::retain_checked(requests, weights)
 }

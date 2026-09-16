@@ -9,14 +9,82 @@ use crate::solver::{ExactRow, IntegralOrder, Term};
 
 use super::{SourcePortAuditError, error};
 
+mod support;
+
+#[cfg(test)]
+mod tests;
+
+/// Try a compact proposal only as an optimization of this SAME quotient.
+/// Full unprojected replay and the caller's no-new-poles check are mandatory;
+/// any inconclusive fast path falls back to the unchanged complete proposal.
+pub(super) fn propose_verified<const N: usize>(
+    rows: &[ExactRow<N>],
+    desired: &ExactRow<N>,
+    order: &IntegralOrder<N>,
+    omit: impl FnMut(&Term<N, Coefficient>) -> Result<bool, SourcePortAuditError>,
+    mut zero_product: impl FnMut(&Term<N, Coefficient>) -> Result<bool, SourcePortAuditError>,
+    mut accept_compact: impl FnMut(&[Coefficient]) -> bool,
+    enable_compact: bool,
+) -> Result<Option<Vec<Coefficient>>, SourcePortAuditError> {
+    let projected = project(rows, desired, order, omit)?;
+    let template = &desired
+        .first()
+        .ok_or_else(|| error("ordinary replay has no desired target"))?
+        .coefficient;
+    if enable_compact {
+        for support in support::candidates(&projected, order) {
+            if support.len() >= rows.len() {
+                continue;
+            }
+            let compact: Vec<_> = support
+                .iter()
+                .map(|&row| &projected[row])
+                .chain(std::iter::once(projected.last().unwrap()))
+                .collect();
+            let Ok(Some(compact_weights)) = propose_projected(&compact, template, order) else {
+                continue;
+            };
+            let mut weights = vec![template.numerator.zero().into(); rows.len()];
+            for (&row, weight) in support.iter().zip(compact_weights) {
+                weights[row] = weight;
+            }
+            if accept_compact(&weights)
+                && verify(rows, desired, &weights, order, &mut zero_product).is_ok()
+            {
+                return Ok(Some(weights));
+            }
+        }
+    }
+    let borrowed: Vec<_> = projected.iter().collect();
+    let weights = propose_projected(&borrowed, template, order)?;
+    if let Some(weights) = &weights {
+        verify(rows, desired, weights, order, zero_product)?;
+    }
+    Ok(weights)
+}
+
+#[cfg(test)]
 pub(super) fn propose<const N: usize>(
     rows: &[ExactRow<N>],
     desired: &ExactRow<N>,
     order: &IntegralOrder<N>,
-    mut omit: impl FnMut(&Term<N, Coefficient>) -> Result<bool, SourcePortAuditError>,
+    omit: impl FnMut(&Term<N, Coefficient>) -> Result<bool, SourcePortAuditError>,
 ) -> Result<Option<Vec<Coefficient>>, SourcePortAuditError> {
-    let projected: Vec<ExactRow<N>> = rows
-        .iter()
+    let projected = project(rows, desired, order, omit)?;
+    let template = &desired
+        .first()
+        .ok_or_else(|| error("ordinary replay has no desired target"))?
+        .coefficient;
+    propose_projected(&projected.iter().collect::<Vec<_>>(), template, order)
+}
+
+fn project<const N: usize>(
+    rows: &[ExactRow<N>],
+    desired: &ExactRow<N>,
+    order: &IntegralOrder<N>,
+    mut omit: impl FnMut(&Term<N, Coefficient>) -> Result<bool, SourcePortAuditError>,
+) -> Result<Vec<ExactRow<N>>, SourcePortAuditError> {
+    rows.iter()
         .chain(std::iter::once(desired))
         .map(|row| {
             row.iter()
@@ -25,25 +93,35 @@ pub(super) fn propose<const N: usize>(
                     Ok(false) => Some(Ok(term.clone())),
                     Err(error) => Some(Err(error)),
                 })
-                .collect()
+                .collect::<Result<ExactRow<N>, _>>()
+                .map(|mut row| {
+                    row.sort_unstable_by(|left, right| {
+                        order.compare(&left.integral, &right.integral)
+                    });
+                    row
+                })
         })
-        .collect::<Result<_, _>>()?;
-    let template = &desired
-        .first()
-        .ok_or_else(|| error("ordinary replay has no desired target"))?
-        .coefficient;
+        .collect()
+}
+
+fn propose_projected<const N: usize>(
+    projected: &[&ExactRow<N>],
+    template: &Coefficient,
+    order: &IntegralOrder<N>,
+) -> Result<Option<Vec<Coefficient>>, SourcePortAuditError> {
+    let source_count = projected.len() - 1;
     let one: Coefficient = template.numerator.one().into();
     let zero: Coefficient = template.numerator.zero().into();
     let mut columns: Vec<_> = projected
         .iter()
-        .flatten()
+        .flat_map(|row| row.iter())
         .map(|term| term.integral)
         .collect();
     columns.sort_unstable_by(|left, right| order.compare(left, right));
     columns.dedup();
     let desired_column = columns
         .len()
-        .checked_add(rows.len())
+        .checked_add(source_count)
         .ok_or_else(|| error("ordinary replay column count overflow"))?;
     let ncols = desired_column
         .checked_add(2)
@@ -54,8 +132,7 @@ pub(super) fn propose<const N: usize>(
         RationalPolynomialField::<IntegerRing, u16>::new(Z),
         LuLMode::None,
     );
-    for (ordinal, mut row) in projected.into_iter().enumerate() {
-        row.sort_unstable_by(|left, right| order.compare(&left.integral, &right.integral));
+    for (ordinal, row) in projected.iter().enumerate() {
         let mut values: Vec<_> = row.iter().map(|term| term.coefficient.clone()).collect();
         let mut indices: Vec<_> = row
             .iter()
@@ -68,7 +145,7 @@ pub(super) fn propose<const N: usize>(
         values.push(one.clone());
         indices.push((columns.len() + ordinal) as u32);
         let pivot = reducer.add_row(&values, &indices);
-        if ordinal < rows.len() {
+        if ordinal < source_count {
             continue;
         }
         if pivot.is_none_or(|pivot| (pivot as usize) < columns.len()) {
@@ -86,13 +163,13 @@ pub(super) fn propose<const N: usize>(
         if desired_scale.is_zero() {
             return Err(error("native desired-row coefficient is zero"));
         }
-        let mut weights = vec![zero.clone(); rows.len()];
+        let mut weights = vec![zero.clone(); source_count];
         for (&column, value) in u.col_idcs()[start..end].iter().zip(&u.values()[start..end]) {
             if (column as usize) < columns.len() {
                 return Err(error("ordinary proposal has a physical remainder"));
             }
             let source = column as usize - columns.len();
-            if source < rows.len() {
+            if source < source_count {
                 weights[source] = -(value / desired_scale);
             }
         }
