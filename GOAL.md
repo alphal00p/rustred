@@ -77,6 +77,36 @@ polynomial preconditioner's exact forward derivation for certificate reuse,
 with full original-source replay and guard checks retained. See
 [the certificate profiling report](docs/research/original_source_certificate_performance.md).
 
+**Preconditioner-provenance follow-up (2026-09-16):** the existing polynomial
+preconditioner now optionally records its forward row derivation. Exact
+selected-frame weights can be composed onto original IBPs instead of solving
+that membership problem again; native Symbolica arithmetic, no-new-pole checks,
+full replay, and the previous fallback remain authoritative. All 359 focused
+solver/source-port tests pass (five existing larger workloads ignored).
+The release selected-sector check passes FG106 in 0.70 seconds; FG214 now
+finishes in 106.60 seconds rather than hitting its prior cap. It accepts 154
+of 161 candidates and rejects seven affine cases on strict-descent geometry.
+The cover check returns on its first counterexample valuation: one reported
+bounded box and zero unbounded boxes are **not** an exhaustive inventory or
+proof that no infinite gaps remain. No new terminal or four-loop artifact is
+authorized by those counts. Independent audit now exhibits three genuine
+infinite gaps if the rejected rules are simply omitted; it identifies exact
+fixed-face/equality reasoning that can address the reported false descent
+pieces without weakening the order.
+
+The frozen release CLI rerun searches all 124 physical FG sectors by 39.9
+seconds and passes 32 audits. It finishes in **138.07 seconds wall**, rejecting
+sector 214 on the same seven geometry obligations rather than timing out;
+no artifact is written. Current CLI K1/K3/K6 generation, fresh-process loading
+and reduction pass. K6 is byte-identical at one, two and six workers, with
+623 rules, 5,640 cells, 38 masters and 8,926,013 bytes; its dotted reduction
+matches the previous producer exactly. Its 3.23-second serial CLI observation
+is a shared-host regression, not a controlled speed comparison. The Python
+extension is not rebuilt for this certificate-only slice. The next gate is
+the independently audited generic geometry correction and another exact
+full-family attempt. Evidence:
+`/tmp/rustred-provenance-certificate.gSddBU/`.
+
 The frozen Symbolica 3 Vakint baseline independently passes all **15 existing
 deterministic four-loop FMFT reference entrypoints**, including the decorated
 four-loop clover whose test name says `1l`, plus all eight native PR-finalizer
@@ -133,6 +163,13 @@ reload for these parents, existing-witness routing in Vakint, offline terminal
 catalogs, pure-Rust FMFT master finalization and the full four-loop numerical
 comparison inventory. Do not infer four-loop acceptance from lower-loop tests
 or from a single sector's rule count.
+
+The frozen [four-loop matcher census](docs/four_loop_vakint_census.md) contains
+19 registered classes: H, X, BMW and FG with 15 inequivalent contractions.
+All 123 surviving physical slots pass exact signed-momentum transport using
+the existing simultaneous witnesses, and their ten-axis embeddings correctly
+zero-fill pinches and auxiliary powers. The artifacts/adapter must cover all
+19, independently of the fifteen deterministic numerical reference entrypoints.
 
 The generic `family-close` Rust/CLI/Python interfaces are published at
 `a435599`. A literal-unit H full-family release attempt with six workers took

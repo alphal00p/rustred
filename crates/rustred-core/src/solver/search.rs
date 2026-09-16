@@ -8,7 +8,9 @@ use symbolica::prelude::{Field, Integer, Ring};
 
 use super::discovery::{Discovery, DiscoveryStats, exact_materialize_using_with_observer};
 use super::instantiate::{canonicalize, instantiate};
-use super::precondition::precondition_with_variable_order;
+use super::precondition::{
+    PreconditionProvenance, precondition_with_provenance, precondition_with_variable_order,
+};
 use super::{
     Case, CoefficientVariableOrder, ExactRow, Integral, IntegralOrder, PolynomialRow, Seed, Seeds,
     SolverError, SourceSystem, SymbolicExactBackend, Term,
@@ -115,6 +117,41 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         sector: [bool; N],
         config: SectorConfig<N>,
     ) -> Result<Self, SolverError> {
+        let (order, rows) = Self::prepare(system, sector, &config)?;
+        let basis = precondition_with_variable_order(rows, &order, system.coefficient_order());
+        Ok(Self {
+            system,
+            basis,
+            order,
+            config,
+        })
+    }
+
+    /// Cold replay may retain the forward polynomial derivation. Discovery's
+    /// ordinary constructor never constructs this optional trace.
+    pub(crate) fn new_with_provenance(
+        system: &'a SourceSystem<N>,
+        sector: [bool; N],
+        config: SectorConfig<N>,
+    ) -> Result<(Self, PreconditionProvenance), SolverError> {
+        let (order, rows) = Self::prepare(system, sector, &config)?;
+        let (basis, trace) = precondition_with_provenance(rows, &order, system.coefficient_order());
+        Ok((
+            Self {
+                system,
+                basis,
+                order,
+                config,
+            },
+            trace,
+        ))
+    }
+
+    fn prepare(
+        system: &'a SourceSystem<N>,
+        sector: [bool; N],
+        config: &SectorConfig<N>,
+    ) -> Result<(IntegralOrder<N>, Vec<PolynomialRow<N>>), SolverError> {
         for i in 0..N {
             if config.deltas[i] && !sector[i] || config.removed_deltas[i] && !config.deltas[i] {
                 return Err(SolverError::InvalidInput(
@@ -149,13 +186,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
             canonical.retain(|term| !term.coefficient.is_zero());
             *row = canonical;
         }
-        let basis = precondition_with_variable_order(rows, &order, system.coefficient_order());
-        Ok(Self {
-            system,
-            basis,
-            order,
-            config,
-        })
+        Ok((order, rows))
     }
 
     pub fn basis(&self) -> &[PolynomialRow<N>] {

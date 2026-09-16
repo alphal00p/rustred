@@ -6,14 +6,22 @@
 use crate::algebra::Coefficient;
 use crate::foundry::completion::LatticeBox;
 use crate::solver::{
-    ExactRow, IntegralOrder, SectorRule, SourceSystem, Term, instantiate_source_port,
-    translate_source_port,
+    ExactRow, IntegralOrder, PreconditionProvenance, SectorRule, SourceSystem, Term,
+    instantiate_source_port, translate_source_port,
 };
 
 use super::{SourcePortAuditError, certificate, error, geometry};
 
 mod guards;
 mod native;
+mod provenance;
+
+/// Recovered exact selected-frame weights before canonical normalization.
+pub(super) struct BasisReplay<'a> {
+    pub derivation: &'a PreconditionProvenance,
+    pub weights: &'a [(usize, Coefficient)],
+    pub pivot: &'a Coefficient,
+}
 
 #[cfg(test)]
 mod tests;
@@ -26,6 +34,7 @@ pub(super) fn weights<const N: usize>(
     rule: &SectorRule<N>,
     shifts: [i16; N],
     boxes: &[LatticeBox],
+    basis_replay: Option<&BasisReplay<'_>>,
 ) -> Result<certificate::OriginalSourceReplay<N>, SourcePortAuditError> {
     if original_row_ids.len() != system.rows().len() {
         return Err(error("ordinary replay row-ID count mismatch"));
@@ -178,6 +187,17 @@ pub(super) fn weights<const N: usize>(
         )
         .unwrap_or(false)
     };
+    // A regenerated forward derivation can avoid a second membership solve.
+    // It remains only a proposal until the same full original identity and
+    // no-new-index-poles gates succeed. Any miss keeps the existing fallback.
+    if enable_compact
+        && let Some(basis_replay) = basis_replay
+        && let Ok(weights) = provenance::compose(system, rule, &seeds, shifts, basis_replay)
+        && accept_compact(&weights)
+        && native::verify(&rows, &desired, &weights, order, &strict).is_ok()
+    {
+        return certificate::OriginalSourceReplay::retain_checked(requests, weights);
+    }
     let weights = if let Some(weights) = native::propose_verified(
         &rows,
         &desired,

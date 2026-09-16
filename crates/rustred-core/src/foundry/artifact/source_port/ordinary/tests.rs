@@ -154,7 +154,7 @@ fn finite_zero_proof_budget_is_fail_closed_not_partial_coverage() {
     assert!(error.to_string().contains("budget"));
 }
 
-fn affine_fixture() -> (
+pub(super) fn affine_fixture() -> (
     CoefficientContext,
     SourceSystem<2>,
     SectorRule<2>,
@@ -220,7 +220,7 @@ fn affine_ordinary_replay_shifts_before_restriction_and_retains_original_columns
     }];
     // The unshifted pivot vanishes on the case, whereas the transverse source
     // shift [1,0] restores it to 1. Restricting before shifting loses the rule.
-    let replay = weights(&system, &ids, &order, &[], &rule, [0; 2], &[]).unwrap();
+    let replay = weights(&system, &ids, &order, &[], &rule, [0; 2], &[], None).unwrap();
     assert_eq!(replay.contributions.len(), 1);
     assert_eq!(replay.contributions[0].offset, [1, 0]);
     assert_eq!(replay.contributions[0].weight, context.one());
@@ -233,11 +233,11 @@ fn affine_ordinary_replay_shifts_before_restriction_and_retains_original_columns
     // exactly the same original-source request, not a chart-coordinate key.
     rule.candidate.sources[0].seed.integral = Integral::symbolic([-1, -1]).unwrap();
     rule.candidate.sources[0].seed.shifts = [-1, -1];
-    let recentered = weights(&system, &ids, &order, &[], &rule, [2, 1], &[]).unwrap();
+    let recentered = weights(&system, &ids, &order, &[], &rule, [2, 1], &[], None).unwrap();
     assert_eq!(recentered.contributions[0].offset, [1, 0]);
     assert_eq!(recentered.contributions[0].weight, context.one());
     assert!(
-        weights(&system, &ids, &order, &[], &rule, [1, 0], &[])
+        weights(&system, &ids, &order, &[], &rule, [1, 0], &[], None)
             .unwrap_err()
             .to_string()
             .contains("recentering")
@@ -276,7 +276,7 @@ fn affine_ordinary_replay_rejects_changed_source_shift_coefficient_or_equality()
             _ => unreachable!(),
         }
         assert!(
-            weights(&system, &ids, &order, &[], &rule, [0; 2], &[]).is_err(),
+            weights(&system, &ids, &order, &[], &rule, [0; 2], &[], None).is_err(),
             "mutation {mutation}"
         );
     }

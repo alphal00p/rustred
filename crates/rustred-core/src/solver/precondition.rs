@@ -16,6 +16,10 @@ use crate::algebra::CoefficientPolynomial;
 
 use super::{IntegralOrder, PolynomialRow, Term};
 
+mod provenance;
+
+pub(crate) use provenance::{PreconditionProvenance, precondition_with_provenance};
+
 /// Precondition canonical source rows without introducing rational functions.
 ///
 /// Rows must have distinct nonzero terms sorted by `order`; coefficients must
@@ -55,11 +59,62 @@ pub fn precondition<const N: usize>(
 /// permutation of their positions. With only empty rows, the result is returned
 /// unchanged because no coefficient map is available to validate.
 pub fn precondition_with_variable_order<const N: usize>(
-    mut rows: Vec<PolynomialRow<N>>,
+    rows: Vec<PolynomialRow<N>>,
     order: &IntegralOrder<N>,
     variables: &[usize],
 ) -> Vec<PolynomialRow<N>> {
-    let Some(first) = rows.iter().flatten().next() else {
+    precondition_recorded(rows, order, variables, &mut NoTrace)
+}
+
+trait RowEntry<const N: usize> {
+    fn terms(&self) -> &PolynomialRow<N>;
+}
+
+impl<const N: usize> RowEntry<N> for PolynomialRow<N> {
+    fn terms(&self) -> &PolynomialRow<N> {
+        self
+    }
+}
+
+trait Recording<const N: usize> {
+    type Entry: RowEntry<N>;
+
+    fn derived(
+        &mut self,
+        left: &Self::Entry,
+        left_scale: &CoefficientPolynomial,
+        right: &Self::Entry,
+        right_scale: &CoefficientPolynomial,
+        result: PolynomialRow<N>,
+    ) -> Self::Entry;
+}
+
+// This ordinary path has neither tagged row wrappers nor a trace arena, and
+// never clones elimination scales for provenance.
+struct NoTrace;
+
+impl<const N: usize> Recording<N> for NoTrace {
+    type Entry = PolynomialRow<N>;
+
+    fn derived(
+        &mut self,
+        _left: &Self::Entry,
+        _left_scale: &CoefficientPolynomial,
+        _right: &Self::Entry,
+        _right_scale: &CoefficientPolynomial,
+        result: PolynomialRow<N>,
+    ) -> Self::Entry {
+        result
+    }
+}
+
+fn precondition_recorded<const N: usize, R: Recording<N>>(
+    mut rows: Vec<R::Entry>,
+    order: &IntegralOrder<N>,
+    variables: &[usize],
+    recording: &mut R,
+) -> Vec<R::Entry> {
+    let Some(first) = rows.iter().flat_map(RowEntry::terms).next() else {
         return rows;
     };
     let map = first.coefficient.variables();
@@ -69,7 +124,8 @@ pub fn precondition_with_variable_order<const N: usize>(
         sorted_variables.iter().copied().eq(0..map.len()),
         "precondition variable order must be a permutation of the coefficient map"
     );
-    for row in &rows {
+    for entry in &rows {
+        let row = entry.terms();
         for term in row {
             assert_eq!(
                 term.coefficient.variables(),
@@ -90,22 +146,24 @@ pub fn precondition_with_variable_order<const N: usize>(
     // Equal rows are interchangeable, so only that selected minimum matters.
     for current in 0..rows.len() {
         rows[current..].select_nth_unstable_by(0, |left, right| {
-            compare_rows(left, right, order, &polynomials)
+            compare_rows(left.terms(), right.terms(), order, &polynomials)
         });
         let (earlier, later) = rows.split_at_mut(current + 1);
         let pivot = &earlier[current];
-        let Some(head) = pivot.first() else {
+        let Some(head) = pivot.terms().first() else {
             break;
         };
         for row in later {
-            let Some(target) = row.first() else {
+            let Some(target) = row.terms().first() else {
                 continue;
             };
             if head.integral == target.integral {
                 let (pivot_scale, row_scale) =
                     polynomials.cancellation_scales(&head.coefficient, &target.coefficient);
                 // Reference forward sign: pivot * target/g - target * pivot/g.
-                *row = scaled_subtract(pivot, &pivot_scale, row, &row_scale, order);
+                let result =
+                    scaled_subtract(pivot.terms(), &pivot_scale, row.terms(), &row_scale, order);
+                *row = recording.derived(pivot, &pivot_scale, row, &row_scale, result);
             }
         }
     }
@@ -113,17 +171,20 @@ pub fn precondition_with_variable_order<const N: usize>(
     for current in (0..rows.len()).rev() {
         let (earlier, later) = rows.split_at_mut(current);
         let pivot = &later[0];
-        let Some(head) = pivot.first() else {
+        let Some(head) = pivot.terms().first() else {
             continue;
         };
         for row in earlier.iter_mut().rev() {
-            if let Ok(position) =
-                row.binary_search_by(|term| order.compare(&term.integral, &head.integral))
+            if let Ok(position) = row
+                .terms()
+                .binary_search_by(|term| order.compare(&term.integral, &head.integral))
             {
-                let (pivot_scale, row_scale) =
-                    polynomials.cancellation_scales(&head.coefficient, &row[position].coefficient);
+                let (pivot_scale, row_scale) = polynomials
+                    .cancellation_scales(&head.coefficient, &row.terms()[position].coefficient);
                 // Reference backward sign: target * pivot/g - pivot * target/g.
-                *row = scaled_subtract(row, &row_scale, pivot, &pivot_scale, order);
+                let result =
+                    scaled_subtract(row.terms(), &row_scale, pivot.terms(), &pivot_scale, order);
+                *row = recording.derived(row, &row_scale, pivot, &pivot_scale, result);
             }
         }
     }

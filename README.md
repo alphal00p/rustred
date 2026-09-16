@@ -36,15 +36,19 @@ checks pass. See the [dependency migration report](docs/vakint_symbolica3_migrat
 Four-loop artifacts are not yet closed or shipped. H, X, BMW and FG are
 [external unit-mass input families](examples/input/README.md), not hard-coded
 solver cases. Selected H and FG sectors now pass complete exact replay,
-descent and coverage. The latest full physical FG run searches all 124 nonzero
-sectors in 59.4 seconds, yielding 9,272 candidate rules and 145 finite residuals.
-It passes 32 sector audits, then reaches a 600-second bound during exact
-source-certificate construction in sector 214. It writes **no closed artifact**.
-A sampled profile identifies native exact elimination and coefficient GCD as
-the bottleneck. Bounded modular certificate-support pruning is implemented
-and preserves K1/K3/K6 regressions, but does not yet clear this bottleneck.
-The next optimization retains the preconditioner's exact derivation for reuse
-instead of independently rediscovering its source coefficients. See the
+descent and coverage. The latest full physical FG attempt searches all 124
+nonzero sectors in 39.9 seconds, yielding 9,272 candidate rules and 145 finite
+residuals. Exact preconditioner provenance now avoids repeating an expensive
+source-certificate solve. The run passes 32 sector audits and finishes in
+138.07 seconds with a precise rejection, rather than the previous timeout:
+154/161 rules pass in sector 214; seven affine cases still fail geometry checks.
+It writes **no closed artifact**. Independent audit identifies missing exact
+fixed-face/equality reasoning in the verifier, with corrections underway.
+Dropping those rules would leave genuine infinite gaps; the first reported
+bounded coverage box does not describe the whole complement. K1/K3/K6 CLI
+generation and cold application pass, with byte-identical K6 artifacts at
+one, two and six workers. Shared-host timings are not controlled speed ratios.
+See the
 [certificate profiling report](docs/research/original_source_certificate_performance.md).
 Live phase diagnostics and an explicit domain-scoped publication path are
 implemented: `--nonpositive-indices` restricts specified auxiliary

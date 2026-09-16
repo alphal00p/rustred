@@ -384,6 +384,7 @@ fn retained_replay_keeps_original_ids_offsets_and_nonzero_weights() {
         &audit.zero_sectors,
         rule,
         &boxes,
+        None,
     )
     .unwrap();
     assert_eq!(

@@ -51,6 +51,7 @@ fn replay(
         &[],
         rule,
         &[],
+        None,
     )
 }
 

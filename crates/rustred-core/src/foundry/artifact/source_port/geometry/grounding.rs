@@ -78,6 +78,7 @@ fn four_loop_affine_sector_grounding() {
             &zeros,
             rule,
             &partition.boxes,
+            None,
         );
         match replay {
             Ok(replay) => {

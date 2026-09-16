@@ -1,5 +1,13 @@
 # Four-loop external-parent closure probe
 
+Latest checkpoint, 2026-09-16: optional exact preconditioner provenance now
+allows the **selected** FG214 audit to finish in 106.60 seconds, revealing
+seven stored-guard geometry failures and an incomplete predicate cover. The
+**full physical-FG CLI attempt** now also finishes in 138.07 seconds with the
+same fail-closed proof result, not a timeout. No four-loop artifact is
+published. The sections below preserve the chronological evidence for the
+earlier timeout runs and these distinct selected/full workloads.
+
 This is a bounded runtime probe of the three external four-loop unit-mass
 parents that are not the H input. It deliberately uses the unchanged generic
 `family-close` CLI, with no topology dispatch, FORM rules, ordering hints, or
@@ -689,6 +697,119 @@ mandatory. This is a follow-on design, not an already measured speedup.
 Evidence: `/tmp/rustred-compact-certificate.LQpBJ4/` and
 `/tmp/rustred-fg214-rule-shapes.vnNEle/`.
 
+#### Exact provenance-composition grounding (2026-09-16)
+
+The preconditioner derivation is now implemented as an optional immutable DAG
+of its existing forward polynomial row operations. The ordinary search entry
+remains untraced. Sector verification regenerates the DAG once and composes
+the selected frame's exact weights, with the required seed, recentering,
+specialization and affine-chart transformations, back into ordinary-source
+weights. Native Symbolica owns all coefficient arithmetic. Full unprojected
+replay and no-new-pole admission still validate the proposal; an inconclusive
+result retains the existing compact/full exact fallback. No DAG is persisted
+or accepted as artifact authority. The detailed implementation boundary is in
+[the certificate study](research/original_source_certificate_performance.md).
+
+The integrated solver/source-port debug selection passes **359 tests**, with
+zero failures and five existing ignored workloads. Independent implementation
+and mathematical audits cover composition, specialization and the unchanged
+authority gates. Serial release K1/K3/K6 generation, cold inspection and
+reduction canaries pass. These gates do not establish any four-loop closure.
+
+The release CLI also passes fresh-process K1/K3/K6 inspection and canaries.
+Its canonical K6 input produces **8,926,013 identical bytes at one, two and
+six workers**, SHA256
+`ce62d5cdad5350ddd8b8213d7ceee7c183b39ffe56fe76565831c0e390e9e290`;
+the dotted canary is byte-identical to the preceding compact-support result.
+Serial canonical K6 generation takes 3.23 s wall, 2.75 s user + 0.44 s system,
+and 248,860 KiB peak RSS on the shared host, not a controlled speed ratio.
+The frozen CLI SHA256 is
+`63922deebb116877df6e66250b530e3a4e8214bfd5123b54fc64f7ba5bf7c1d9`.
+
+The new selected FG106 run passes **99/99 replay and descent checks**, with
+zero issues or uncovered boxes, in **0.70 s wall** (331 ms search, 270 ms
+audit, 0.69 s CPU, 12,288 KiB peak RSS). The selected FG214 run now **finishes**
+in **106.60 s wall**, rather than reaching its former 180-second selected-run
+bound: 12.521 s search, 93.884 s audit, 105.77 s CPU, 96,392 KiB peak RSS.
+It exits **8**, not success: **154/161** rules pass replay and descent, while
+zero-based rules **69–73, 100 and 101** fail stored-guard geometry. Their first
+reported nonlower terms are 0, 0, 2, 0, 1, 0 and 0 respectively. These are
+unresolved exact-domain/descent obligations, not proof that the identities
+are false. Eleven finite terminal candidates are retained.
+
+The stored and checked predicate-cover summaries each report one uncovered
+box and zero unbounded boxes. This checker stops at the **first failing
+Boolean valuation**: the counts are not exhaustive and do **not** prove that
+all infinite rays close or that only one additional finite terminal is needed.
+The seven affine rules cannot be dropped without a complete cover proof.
+Neither selected diagnostic installs a complete family artifact.
+
+Independent exact-case inspection attributes the reported pieces to two
+candidate geometry corrections: rules 69–73 need implication on the
+intersection of the parent and the child's fixed face; rules 100/101 need
+the coupled equations combined after substituting singleton box coordinates.
+The seven pieces appear unreachable under the full predicates, but those
+corrections are not yet implemented and no additional rule is counted passed.
+A 3,125-point corner diagnostic finds twelve holes after removing the seven
+rules. Separately, independent exact audit verifies three infinite rays owned
+by rules 69/70/72 and excludes every other owner throughout each ray's integer
+parameter range. Dropping these rules therefore leaves genuine infinite gaps;
+the first bounded Boolean failure is not an exhaustive description. These ray
+checks do not certify the rejected rules or establish a global gap count.
+The independent mathematical
+audit is `/tmp/rustred-fg214-geometry.mC9IJi/AUDIT.md`; see also the
+[detailed certificate study](research/original_source_certificate_performance.md).
+
+A new local profile contains 724 CPU samples, none lost: 99.68% inclusive
+`replay_rule`, 84.61% native exact sparse reduction and 47.53% polynomial GCD.
+The observed bottleneck has moved to **selected-frame exact replay**, not the
+second original-source membership solve highlighted by the older full runs.
+These overlapping fractions are not full-run phase timings, and the sample
+does not identify a rule ordinal or establish that fallback is never used.
+
+Both selected release drivers use natural ordering, the complete native zero
+census, physical root `n8,n9<=0`, and one worker on CPU 34 with nested pools
+capped at one. Compilation is outside the measurements. These shared-host
+single observations must not be converted into a whole-family speed ratio
+against the earlier 600-second, two-worker full-campaign censor. The ensuing
+full CLI attempt is recorded below; cold installation and canary application
+remain blocked. Evidence: `/tmp/rustred-provenance-certificate.gSddBU/` and
+`/tmp/rustred-provenance-integration-tests.NtDJwA/`.
+
+#### Full provenance-enabled physical-FG rerun (2026-09-16)
+
+The frozen CLI uses the unchanged external FG input, natural ordering,
+`--nonpositive-indices 8,9`, and two workers on CPUs 32/33, with nested pools
+capped at one. The command retains a 600-second limit, but now **exits 8 in
+138.07 seconds**, using **176.18 s CPU** (172.94 user + 3.24 system) and
+**298,780 KiB** peak RSS. This is a completed diagnostic failure, not a timeout
+or closing artifact.
+
+All **124 sector searches finish by 39.9 s**, producing the unchanged **9,272
+rules and 145 finite terminal candidates**. That time is the recorded
+monitor's 0.1-second resolution. The program passes **32 sector audits**;
+FG106 completes **99/99**, with zero issues/gaps, at **44.7 s**. FG214 begins
+at **46.9 s** and finishes at **137.4 s**, with the same **154/161** rules
+replayed and descending. Zero-based rules **69–73, 100 and 101** fail stored
+guard geometry, and the exact predicate cover remains incomplete. The first
+reported bounded box still is not a global complement census, as the three
+independently verified infinite holes above demonstrate.
+
+No artifact is written; remaining sector audits, executable lowering,
+installation, fresh-process inspection and application are not reached. The
+previous compact-support full run hit its 600.14-second cap. These shared-host
+single observations establish progress through a previously stalled check,
+not a controlled solver-speed or memory ratio; discovery was not changed by
+this certificate slice.
+
+The new `fg.perf.data` also contains 724 CPU samples, none lost, but its
+frame-pointer stacks are largely unresolved. Do not attribute the selected
+driver's 99.68% replay / 84.61% sparse reduction / 47.53% GCD fractions to this
+full CLI run. Those figures apply only to the separate selected-driver profile.
+The exact command and full records are `fg.sh`, `fg-generate.stderr`,
+`fg-generate.time` and `fg-perf-report.txt` under
+`/tmp/rustred-provenance-certificate.gSddBU/`.
+
 ## Interpretation
 
 None of the four external parents currently has a cold-loadable RustRed
@@ -701,11 +822,15 @@ unrestricted H now completes discovery but stalls in exact checking; scoped
 physical FG initially exposed three exact-replay failures in about 50 seconds,
 then conservative projection resolved those failures and the next full run
 reached a separately profiled certificate-proposal bottleneck at sector 214.
+Provenance composition now makes both selected and full-run sector-214 audits
+finish, exposing seven guard-geometry failures and incomplete coverage. The
+full campaign stops there without installing an artifact.
 
 These runs do not authorize hard-coded relations, topology-specific dispatch,
 sampled coverage, or a claim of four-loop closure. The next implementation
-requirement is to accelerate the physical FG original-source certificate
-proposal without weakening replay or exceptional-domain coverage, then repeat
-complete scoped validation. The unrestricted objective retains its separate
+requirement is to diagnose the selected FG214 affine guard/descent obligations,
+profile its remaining selected-frame replay cost and repeat complete scoped
+validation without weakening original-source or exceptional-domain checks.
+The unrestricted objective retains its separate
 nonlinear-geometry and exact-check cost challenges. Publication stays fail-
 closed for every unproved identity or region.

@@ -28,6 +28,7 @@ use crate::family::IntegralFamily;
 
 pub(crate) use instantiate::{
     canonicalize as canonicalize_source_port, instantiate as instantiate_source_port,
+    instantiate_polynomial as instantiate_polynomial_source_port,
     translate as translate_source_port,
 };
 
@@ -50,6 +51,7 @@ pub use execution::{
 pub use geometry::GeometryError;
 pub use index::{Integral, IntegralOrder, Power, PowerError};
 pub use numeric::{NumericResult, NumericStats};
+pub(crate) use precondition::PreconditionProvenance;
 pub use precondition::{precondition, precondition_with_variable_order};
 pub use row::{ExactRow, PolynomialRow, Row, Term};
 pub use search::{

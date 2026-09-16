@@ -18,18 +18,7 @@ pub(crate) fn instantiate<const N: usize>(
 ) -> Result<ExactRow<N>, SolverError> {
     // Prepared coordinates are absolute, and cannot be shifted or reopened
     // by a different case. Validate once even when this source row is empty.
-    for (axis, value) in fixed.iter().enumerate() {
-        if let Some(value) = value {
-            if seed.integral[axis].is_symbolic()
-                || seed.integral[axis].value() != *value
-                || seed.shifts[axis] != 0
-            {
-                return Err(SolverError::InvalidInput(format!(
-                    "seed is incompatible with prepared coordinate {axis} fixed to {value}"
-                )));
-            }
-        }
-    }
+    validate_prepared_seed(seed, fixed)?;
     let mut row = Vec::with_capacity(source.len());
     for term in source {
         let mut powers = *seed.integral.powers();
@@ -46,28 +35,8 @@ pub(crate) fn instantiate<const N: usize>(
         if vanishes_in_subsector(&integral, order, zero_sectors) {
             continue;
         }
-        let mut polynomial = term.coefficient.clone();
-        for (i, variable) in indices.iter().enumerate() {
-            if fixed[i].is_some() {
-                continue;
-            }
-            if seed.integral[i].is_symbolic() {
-                if seed.shifts[i] != 0 {
-                    polynomial = polynomial.shift_var(*variable, &Integer::from(seed.shifts[i]));
-                }
-            } else {
-                polynomial =
-                    polynomial.replace(*variable, &Integer::from(seed.integral[i].value()));
-            }
-        }
-        // All ordinary source translations remain admissible. Restrict the
-        // shifted coefficients, never integral-key axes or the seed worklist.
-        // Applying the chart before translation would erase necessary rows.
-        let coefficient = if let Some(affine) = affine {
-            affine.restrict_polynomial_value_validated(&polynomial)
-        } else {
-            polynomial.into()
-        };
+        let coefficient =
+            instantiate_polynomial_validated(&term.coefficient, seed, indices, fixed, affine);
         if !coefficient.is_zero() {
             row.push(Term {
                 integral,
@@ -78,6 +47,87 @@ pub(crate) fn instantiate<const N: usize>(
     // Specializing coordinates can change both sector and tie-break ordering.
     row.sort_unstable_by(|a, b| order.compare(&a.integral, &b.integral));
     Ok(row)
+}
+
+fn validate_prepared_seed<const N: usize>(
+    seed: &Seed<N>,
+    fixed: &[Option<i16>; N],
+) -> Result<(), SolverError> {
+    for (axis, value) in fixed.iter().enumerate() {
+        if let Some(value) = value {
+            if seed.integral[axis].is_symbolic()
+                || seed.integral[axis].value() != *value
+                || seed.shifts[axis] != 0
+            {
+                return Err(SolverError::InvalidInput(format!(
+                    "seed is incompatible with prepared coordinate {axis} fixed to {value}"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Instantiate a scalar factor using exactly the row instantiator's native
+/// substitutions. No synthetic physical integral or sector projection exists.
+pub(crate) fn instantiate_polynomial<const N: usize>(
+    polynomial: &CoefficientPolynomial,
+    seed: &Seed<N>,
+    indices: &[usize; N],
+    fixed: &[Option<i16>; N],
+    affine: Option<&AffineCase<N>>,
+) -> Result<Coefficient, SolverError> {
+    validate_prepared_seed(seed, fixed)?;
+    if indices.iter().enumerate().any(|(axis, variable)| {
+        *variable >= polynomial.nvars() || indices[..axis].contains(variable)
+    }) {
+        return Err(SolverError::InvalidInput(
+            "scalar seed index map is invalid".into(),
+        ));
+    }
+    if let Some(affine) = affine {
+        if affine.index_variables() != indices
+            || affine
+                .equations()
+                .iter()
+                .any(|equation| equation.variables() != polynomial.variables())
+        {
+            return Err(SolverError::InvalidInput(
+                "scalar seed affine variable map differs".into(),
+            ));
+        }
+    }
+    Ok(instantiate_polynomial_validated(
+        polynomial, seed, indices, fixed, affine,
+    ))
+}
+
+fn instantiate_polynomial_validated<const N: usize>(
+    polynomial: &CoefficientPolynomial,
+    seed: &Seed<N>,
+    indices: &[usize; N],
+    fixed: &[Option<i16>; N],
+    affine: Option<&AffineCase<N>>,
+) -> Coefficient {
+    let mut polynomial = polynomial.clone();
+    for (axis, variable) in indices.iter().enumerate() {
+        if fixed[axis].is_some() {
+            continue;
+        }
+        if seed.integral[axis].is_symbolic() {
+            if seed.shifts[axis] != 0 {
+                polynomial = polynomial.shift_var(*variable, &Integer::from(seed.shifts[axis]));
+            }
+        } else {
+            polynomial = polynomial.replace(*variable, &Integer::from(seed.integral[axis].value()));
+        }
+    }
+    // Translate/specialize before the chart, exactly as for physical rows.
+    if let Some(affine) = affine {
+        affine.restrict_polynomial_value_validated(&polynomial)
+    } else {
+        polynomial.into()
+    }
 }
 
 fn vanishes_in_subsector<const N: usize>(

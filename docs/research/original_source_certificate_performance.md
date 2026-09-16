@@ -1,12 +1,200 @@
-# Original-source certificate proposal: measured bottleneck and next slice
+# Original-source certificates: provenance composition and measured bottlenecks
 
-Status: the bounded modular-support slice below is implemented and has passed
-focused debug validation and independent implementation/mathematical audits,
-2026-09-16. Release regressions pass, but the full FG rerun still reaches its
-600-second bound; no speedup or four-loop closure is claimed. Complete original-source replay and
-every existing guard, descent, ownership and cold-load gate remain required.
+Status, 2026-09-16: the optional polynomial-preconditioner derivation and its
+exact original-source composition are now implemented, alongside the earlier
+bounded modular-support proposal. Selected FG sector 214 completes its release
+audit in **106.60 seconds wall**, but publication remains rejected: **154/161**
+rules pass, seven fail stored-guard geometry, and the predicate cover reports
+an uncovered piece. The provenance-enabled **full physical-FG CLI attempt**
+also finishes, in **138.07 seconds**, and rejects the same sector fail-closed
+rather than reaching its 600-second limit. No artifact is written. Earlier
+timeout runs and selected-sector timings remain separate observations, not
+a controlled speedup ratio. Every exact replay, guard, descent, ownership and
+cold-load gate remains required.
 
-## Implemented first slice
+## Implemented provenance composition
+
+`solver/precondition/provenance.rs` records the existing preconditioner's
+forward polynomial identities, `B_new = a B_left - b B_right`, in an optional
+immutable DAG. It records structure and native Symbolica coefficients, not a
+new elimination or CAS algorithm. The ordinary solver entry remains untraced:
+it allocates no provenance arena and does not clone scales for this feature.
+`SourcePortAudit::check_sector` regenerates the traced preconditioner once for
+the sector's verification pass; search does not propagate expanded transitive
+source combinations.
+
+After the existing selected-frame exact replay has recovered its weights,
+`ordinary/provenance.rs::compose` groups them by seed and walks only reachable
+DAG edges backwards to obtain ordinary-source weights. Native arithmetic
+combines seed translation with canonical recentering before fixed-coordinate
+specialization and affine-chart restriction, preserving the original order. Foreign
+coefficient maps, invalid roots, overflow, movement of absolute numeric
+coordinates, and nontangent affine translations reject the proposal. A
+vanishing polynomial scale does not invalidate its forward identity; no
+inverse-preconditioner or specialized-rank assumption is used.
+
+Composition is a fast proposal, **not new authority**. It is admitted only
+when inherited source conditions are index-free, existing exact pole-domain
+checks allow its weights, and full unprojected original-row weighted replay
+reproduces the desired identity. An inconclusive composition, new unsupported
+pole or replay failure takes the unchanged compact/full exact proposal routes
+and their same-quotient fallbacks. Original normalization, exceptional-domain
+checks, strict descent and cover compilation still follow. The DAG is neither
+serialized nor trusted by cold loading: artifacts retain ordinary-source
+certificates under the existing replay contract.
+
+The integrated `solver::` and `foundry::artifact::source_port` debug selection
+passes **359 tests, zero failures, five existing ignored workloads**, in
+1.57 seconds. This includes seven DAG and five composition regressions, with
+an explicit fast-path-versus-fallback witness and a nonconstant affine scale
+under nonzero tangent recentering. Independent implementation and mathematical
+audits checked the proof boundary. Evidence is retained at
+`/tmp/rustred-provenance-integration-tests.NtDJwA/`; these are correctness
+results, not release performance measurements.
+
+### Selected release grounding
+
+Both selected-sector drivers use the same external FG mathematical input,
+natural ordering, global zero census of 281 masks, and physical root domain
+`n8,n9<=0`. They link a `--release --locked` core build and run serially on CPU
+34 with nested pools capped at one. Compilation precedes the timed process.
+
+| Selected sector | Search | Exact audit | Whole-process wall | CPU | Peak RSS | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| FG106 | 0.331 s | 0.270 s | 0.70 s | 0.69 s | 12,288 KiB | 99/99 replayed and descending; zero gaps/issues; exit 0 |
+| FG214 | 12.521 s | 93.884 s | 106.60 s | 105.77 s | 96,392 KiB | 154/161 replayed and descending; incomplete proof; exit 8 |
+
+FG214 retains eleven finite terminal candidates. Its failing **zero-based**
+rule ordinals are **69–73, 100 and 101**. The errors arise in stored-guard
+geometry, before the affected rules can receive successful replay/descent
+admission; they must not be described as seven disproved identities or seven
+original-source residual failures. The first reported nonlower RHS term is
+term 0 for rules 69, 70, 72, 100 and 101; term 2 for rule 71; and term 1 for
+rule 73. Their exact affine targets and exceptional subcases require a
+separate domain-aware investigation, not omission based on numerical probes.
+
+Both stored and checked cover counters report **one uncovered box and zero
+unbounded boxes**. Crucially, `predicate_cover::check_valuations` returns on
+its **first failing Boolean valuation**. These are not an exhaustive census
+of all missing domains; they do not prove that only one finite master is
+missing, that every infinite ray closes, or that the rejected affine rules
+can be discarded. The checked rules' full exact predicate cover is incomplete,
+and no artifact is published by either selected-sector diagnostic.
+
+Independent inspection of the exact dumped cases identifies two narrow,
+generic geometry deficiencies for the **reported** failing pieces:
+
+- Rules 69–73 need an exclusion implication relative to the child fixed face,
+  `parent ∩ child_fixed_face ⊆ child_equalities`, rather than implication from
+  the parent alone. For example, rule 69's parent is
+  `n0-2*n8-n9-1=0`; its excluded face `n9=0` also carries
+  `n0-2*n8-1=0`. That child equation follows exactly on the face, so the
+  reported activation of `n9` from 0 to 1 is outside the true rule domain.
+- Rules 100/101 need coupled equations combined after specializing singleton
+  box coordinates. For rule 100, `n8=0` together with `n8-n9-1=0` forces
+  `n9=-1`, then `n0-3*n9-3=0` forces `n0=0`, contradicting its reported
+  `n0∈[-2,-1]` box. Checking the equations separately misses this contradiction.
+
+These proposed corrections are **not implemented or counted as passing** in
+the measured run. They must reuse native chart restriction/row reduction,
+preserve genuinely new child equations and feasible near-neighbors, and work
+identically in warm and cold verification. A separate bounded check covers
+all 3,125 tested corner points with the 161 stored candidates/terminals but
+finds twelve actual holes after dropping the seven rejected rules. This finite
+check alone is not an unbounded cover proof. Separately, independent exact
+audit verifies three infinite rays owned by rules 69/70/72 and excludes every
+other owner throughout their respective integer-parameter ranges. Removing
+those owners therefore leaves genuine infinite gaps, not merely the first
+bounded piece reported by the Boolean checker. This does not certify the
+rejected rules: their geometry corrections and complete exact gates remain
+unimplemented at this checkpoint.
+
+For each independently checked ray, `n1=n2=n4=n6=n7=1`:
+
+| Sole applicable stored owner | Remaining coordinates | Integer range |
+| --- | --- | --- |
+| 69 | `n3=n5=0`, `(n0,n8,n9)=(-t-1,-1,-t)` | `t>=3` |
+| 70 | `n0=n5=0`, `(n3,n8,n9)=(-t,1-2*t,-2)` | `t>=2` |
+| 72 | `n3=n9=0`, `(n0,n5,n8)=(-t,-2*t,-1)` | `t>=2` |
+
+The independent audit enumerates every fixed-face-compatible rule, excludes
+its full equation/exception domain along the ray, and checks that none of
+the eleven finite terminals lies there. These rays are explicit infinite
+holes in the retained 154-rule cover, not evidence that new IBPs necessarily
+need to be discovered: the rejected stored owners may already supply the
+needed identities once all their proof obligations have been discharged.
+
+The first Boolean failure may itself involve unrealizable equality assignments,
+but its actual box/assignment must be retained and checked before claiming
+that explanation. Exact dumps, bounded checks and the independent audit are
+at `/tmp/rustred-fg214-geometry.mC9IJi/`, especially `AUDIT.md`.
+
+A sampled window from the new FG214 run contains 724 CPU-cycle samples with
+no lost samples. Inclusive stacks place **99.68%** in selected-frame
+`source_port::replay::replay_rule`, **84.61%** in native exact
+`SparseRowReducer::add_row`, and **47.53%** in polynomial GCD. These overlapping
+fractions are local stack attribution, not additive timings or whole-run
+shares. The sampled bottleneck is now selected-frame replay, not the second
+original-source membership proposal profiled in the older full runs. The
+sample does not identify an active rule ordinal or prove that the original
+fallback is never used elsewhere.
+
+Release CLI K1/K3/K6 generation, fresh-process inspection and reduction
+canaries also pass. Using the canonical `examples/input/three_loop_k6.toml`,
+the new K6 payload retains 623 rules, 5,640 cells and 38 masters in
+**8,926,013 bytes**. One-, two- and six-worker outputs agree exactly, SHA256
+`ce62d5cdad5350ddd8b8213d7ceee7c183b39ffe56fe76565831c0e390e9e290`.
+The dotted canary output is byte-identical to the prior compact-support
+producer's output. Serial CLI generation takes **3.23 seconds wall**, 2.75 s
+user + 0.44 s system, and 248,860 KiB peak RSS. Its frozen executable SHA256 is
+`63922deebb116877df6e66250b530e3a4e8214bfd5123b54fc64f7ba5bf7c1d9`.
+
+The earlier core-driver regression used an unnamed diagnostic input; its
+8,925,944-byte artifact and 2.67-second timing are a distinct input identity
+and invocation, not the canonical CLI artifact above. All timings are
+shared-host observations, not paired medians or controlled speedup claims.
+Raw selected runs, lower-loop regressions, commands and profile are at
+`/tmp/rustred-provenance-certificate.gSddBU/`.
+
+### Full physical-FG CLI rerun
+
+The frozen CLI above was run against `examples/input/four_loop_fg.toml`,
+natural ordering, nonpositive auxiliary indices 8 and 9, two workers on CPUs
+32/33, nested pools capped at one, and a 600-second upper bound. The actual
+process **exits 8 after 138.07 seconds**, not by timeout. It uses **176.18 s
+CPU** (172.94 s user + 3.24 s system) and **298,780 KiB** peak RSS.
+
+| Recorded boundary | Result |
+| --- | --- |
+| All sector searches finished | **39.9 s**, at the monitor's 0.1-second resolution |
+| Search output | **124 sectors, 9,272 rules, 145 finite terminal candidates** |
+| FG106 audit | **99/99**, zero issues/gaps, finished at **44.7 s** |
+| Successful sector audits before FG214 | **32** |
+| FG214 audit | Begins **46.9 s**, finishes **137.4 s**, **154/161** replayed and descending |
+| Failure | Same seven zero-based guard-geometry ordinals **69–73, 100, 101**, plus incomplete exact cover |
+| Durable output | **None**; remaining sector audits, lowering, installation and cold canary were not reached |
+
+The search-output counts are unchanged from the preceding compact-support run.
+That older run reached its **600.14-second** cap; this run completes the
+formerly stalled audit and exposes its proof failures. These shared-host
+runs are neither repeated nor hardware-isolated, and discovery itself is
+unchanged by provenance composition. Do not present the different search
+times, total wall times or peak RSS values as controlled speedup ratios.
+
+The full CLI profile also records 724 CPU samples, none lost, but its
+frame-pointer call stacks are largely unresolved. It does **not** support the
+selected-driver percentages above as full-run attribution. The reported
+99.68% replay / 84.61% sparse reduction / 47.53% GCD fractions belong solely
+to `selected214.perf.data`; `fg.perf.data` is separate evidence with that
+limitation. Raw full-run records are `fg.sh`, `fg-generate.stderr`,
+`fg-generate.time` and `fg-perf-report.txt` in the same evidence directory.
+
+The next complete validation must follow the generic geometry corrections
+through all remaining sectors, combined installation, cold loading and
+application. Finishing the former bottleneck does not discharge those
+mathematical obligations or establish four-loop closure.
+
+## Historical first slice: compact modular support
 
 `ordinary/native/support.rs` uses native finite-field evaluation and GPLU
 patterns to propose a compact physical source set with two deterministic
@@ -79,7 +267,7 @@ attribute 98.32% inclusive cost to native exact `SparseRowReducer::add_row`,
 Again these are overlapping local stack fractions. The profile does not
 distinguish compact versus fallback calls or identify the active rule ordinal.
 
-The next monitoring slice adds a `CheckingRule` event before every rule's
+The implemented monitoring slice adds a `CheckingRule` event before every rule's
 geometry/replay check. It carries only sector, ordinal, count and elapsed time;
 the CLI renders every rule start in its existing overwriting TTY field or
 opt-in plain stderr log. Artifact bytes and publication authority are unchanged.
@@ -91,7 +279,7 @@ correctness checks, not a performance measurement. Evidence is retained at
 `/tmp/rustred-checking-rule-app.c2BbvV/` and
 `/tmp/rustred-precondition-provenance-tests.uscoaI/`.
 
-## Structural follow-on: retain the existing derivation
+## Structural motivation for retaining the derivation
 
 An external diagnostic of the frozen pre-pruning solver identifies repeated
 work in FG214. All 25 fully fixed rules, ordinals 136–160, retain the same
@@ -102,7 +290,7 @@ Rule 100 also has a large affine payload: 207 selected sources over 29 seeds
 and 12,066 RHS coefficient monomials. Detailed data are at
 `/tmp/rustred-fg214-rule-shapes.vnNEle/`.
 
-Independent API/mathematical audit finds a stronger follow-on viable: record
+Independent API/mathematical audit motivated the now-implemented follow-on: record
 the existing polynomial preconditioner's exact forward operations once, then
 compose that derivation with the selected frame's exact weights. Every
 preconditioner operation is a native polynomial identity
@@ -119,14 +307,15 @@ no-new-pole admission and the current certificate fallback remain mandatory.
 Only original-row coefficients are persisted; cold loading trusts no DAG.
 The existing normal preconditioner entry must allocate no trace arena.
 
-The fully numeric shared trace also permits bounded frame reuse if exact
+The fully numeric shared trace also permits a future bounded frame-reuse slice if exact
 ordered recipes, source owner, ordering, sector, zero census and specialization
 context match. Persisted offsets remain target-relative. A general projected
 matrix cannot be cached merely by source IDs, because its omission predicate
-depends on the application domain. These are follow-on designs, not measured
-speedups or implemented artifact authority.
+depends on the application domain. This cache is still a follow-on design,
+not an implemented speedup or artifact authority. The provenance composition
+above is implemented independently of that potential cache.
 
-## Actual corrected FG run
+## Historical corrected full FG run before provenance composition
 
 After conservative symbolic zero projection fixed the selected sector-106
 replay obstruction, the full physical FG release campaign used the external

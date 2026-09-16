@@ -15,8 +15,9 @@ use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
 use crate::algebra::Coefficient;
 use crate::foundry::completion::LatticeBox;
 use crate::solver::{
-    Case, ExactRow, IntegralOrder, PolynomialRow, RuleCandidate, SectorRule, SourceSystem, Term,
-    canonicalize_source_port, extract_exceptions, instantiate_source_port,
+    Case, ExactRow, IntegralOrder, PolynomialRow, PreconditionProvenance, RuleCandidate,
+    SectorRule, SourceSystem, Term, canonicalize_source_port, extract_exceptions,
+    instantiate_source_port,
 };
 
 use super::{SourcePortAuditError, error, geometry, ordinary};
@@ -39,6 +40,7 @@ pub(super) fn replay_rule<const N: usize>(
     zero_sectors: &[[bool; N]],
     rule: &SectorRule<N>,
     boxes: &[LatticeBox],
+    preconditioner: Option<&PreconditionProvenance>,
 ) -> Result<Replay<N>, SourcePortAuditError> {
     let candidate = &rule.candidate;
     if candidate.target != candidate.case.integral() || !candidate.case.is_in_sector(order.sector())
@@ -256,6 +258,11 @@ pub(super) fn replay_rule<const N: usize>(
             )?;
             &tightened.boxes
         };
+        let basis_replay = preconditioner.map(|derivation| ordinary::BasisReplay {
+            derivation,
+            weights: &weights,
+            pivot: &physical[0].coefficient,
+        });
         let ordinary = ordinary::weights(
             system,
             original_row_ids,
@@ -264,6 +271,7 @@ pub(super) fn replay_rule<const N: usize>(
             rule,
             shifts,
             applicable,
+            basis_replay.as_ref(),
         )?;
         let ordinary = original_sources.normalize(ordinary, &candidate.case)?;
         let mut normalized_weights: Vec<_> = ordinary

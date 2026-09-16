@@ -12,12 +12,25 @@ the complete gate on Symbolica 3 with published RustRed `09cef8e3` and its
 regenerated K6 asset. See [the dependency migration report](vakint_symbolica3_migration.md).
 
 The active delivery target is four loops. None of its four physical parent
-families has a closed artifact yet. The latest bounded FG run completes sector
-discovery but times out during exact source-certificate construction; see
+families has a closed artifact yet. The previous full FG run completes sector
+discovery but times out during exact source-certificate construction. Optional
+preconditioner provenance now lets the selected sector 214 check finish in
+106.6 seconds, with 154/161 candidates passing and seven affine candidates
+failing geometry. Coverage stops at its first counterexample valuation;
+the reported bounded region is not proof of a globally finite complement.
+The subsequent full physical FG CLI attempt searches all 124 sectors and
+passes 32 audits, then rejects sector 214 on those same obligations after
+138.07 seconds wall. No artifact is written; see
 [the certificate profile](research/original_source_certificate_performance.md).
 The dated K6 development sections below are historical, not current open gates.
 
 ### Four-loop adapter and acceptance boundary
+
+The frozen [matcher census](four_loop_vakint_census.md) has **19 registered
+classes**: H, X, BMW, and FG with 15 contractions. All 123 surviving physical
+slots transport exactly under the retained simultaneous witnesses and match
+the four external parent inputs. This census is distinct from the fifteen
+numerical reference entrypoints and does not establish IBP closure.
 
 An independent source audit confirms that the existing topology matcher already
 retains simultaneous parent routing for the four-loop parents and contractions.

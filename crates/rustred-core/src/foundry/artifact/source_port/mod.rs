@@ -319,7 +319,8 @@ impl<const N: usize> SourcePortAudit<N> {
             zero_sectors: self.zero_sectors.clone(),
             ..SectorConfig::default()
         };
-        let solver = SectorSolver::new(&self.sources, sector, config).map_err(error)?;
+        let (solver, preconditioner) =
+            SectorSolver::new_with_provenance(&self.sources, sector, config).map_err(error)?;
         let mut order = crate::solver::IntegralOrder::new(sector, [false; N]);
         if let Some(slots) = permutation {
             order = order.with_permutation(slots).map_err(error)?;
@@ -430,6 +431,7 @@ impl<const N: usize> SourcePortAudit<N> {
                 &self.zero_sectors,
                 rule,
                 &stored.boxes,
+                Some(&preconditioner),
             ) {
                 Ok(replay) => {
                     report.replay_source_entries += replay.ordinary.contributions.len();
