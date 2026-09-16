@@ -405,6 +405,20 @@ terminal or replace the final exact artifact gates. The current observed
 obstructions are proof-service/resource limits, not demonstrated missing rules;
 do not infer that every later unchecked obligation will pass.
 
+**Semi-numerical proof research (2026-09-16):** independent modular-algebra
+and geometric-proof investigations favor bounded discovery of small witnesses,
+followed by native exact verification. A diagnostic Symbolica experiment
+discovers affine multiplier coefficients for the captured H58/FG83 guards from
+point evaluations and verifies both complete polynomial identities exactly.
+The coefficient pairs, target monomials and multiplier supports were supplied;
+this is not autonomous certificate-template selection or production integration.
+Integer/finite-field probes are diagnostic only. Prioritize existing native
+factor/affine consequences, then sparse multiplier and local affine-conflict
+certificates; retain complete domain/exclusion checks. General CAD/SOS and
+randomized-only verification are not the immediate implementation direction.
+See the audited [research synthesis](docs/research/seminumerical_proof_systems.md).
+No new four-loop artifact or Vakint acceptance follows from these experiments.
+
 **Vakint precision policy (user directive, 2026-09-16):** compare requested
 precision with the known precision of supplied master data. If the request is
 higher, emit a clear warning identifying the requested and available precision
