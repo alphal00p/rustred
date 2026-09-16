@@ -233,7 +233,24 @@ determinism pass. Next reuse repeated native true-system/false-extension
 checks with complete exact cache keys and bounded observational counters;
 do not increase caps or weaken proofs. Separately, the root-free univariate
 factor correction for BMW/X passes 44 focused tests and independent audit,
-but remains a pending release-validation slice.
+with its subsequent release results below.
+
+**Root-free-factor release follow-up:** complete native Symbolica
+factorization now proves univariate irreducible degree-above-one exceptions
+empty over integer indices. No root solver, sampling, extra factorization,
+or topology-specific rule is introduced. All 484 focused tests pass (five
+existing workloads ignored), with independent proof/code audit. BMW223 now
+passes 60/60 replayed and descending rules and complete coverage in 5.21s.
+X214 completes discovery but reaches the native affine-consistency budget
+during exact publication. Whole BMW and X now finish every sector search:
+134 and 328 sectors, respectively. Publication passes 45 BMW audits and 31 X
+audits before stopping at BMW158 and X460 on consistency-budget errors, after
+178.17s and 257.47s wall. Neither writes an artifact or identifies an actual
+uncovered domain. K1/K3/K6 bytes, current-core cold/reducer canaries and K6
+workers1/2/6 determinism pass unchanged. Bounded exact-key scalar consistency
+reuse and detailed observational counters are the separate next slice, not
+part of these release observations. Evidence and mathematical boundary are
+in the [guard-consistency report](docs/research/four_loop_predicate_consistency.md).
 
 **Vakint precision policy (user directive, 2026-09-16):** compare requested
 precision with the known precision of supplied master data. If the request is

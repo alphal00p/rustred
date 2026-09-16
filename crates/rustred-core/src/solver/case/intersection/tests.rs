@@ -247,7 +247,7 @@ fn rational_chart_preserves_integer_parity_and_physical_integral_axes() {
 fn an_unsupported_sibling_rejects_the_entire_union_atomically() {
     let context = CoefficientContext::new(["a", "b"]);
     let parent = Case::<2>::generic();
-    let conjunction = equations(&context, &["(a-1)*(b^2-2)"]);
+    let conjunction = equations(&context, &["(a-1)*(a^2+b^2-1)"]);
     let error = parent
         .intersect_many(
             &conjunction,

@@ -177,7 +177,7 @@ fn unsupported_factor_sibling_rejects_the_guard_without_retaining_a_partial_unio
     let context = CoefficientContext::new(["a", "b"]);
     let rule = candidate(Case::<2>::generic());
     let exceptions = ExceptionalConditions {
-        branches: vec![equations(&context, &["(a-1)*(b^2-2)"])],
+        branches: vec![equations(&context, &["(a-1)*(a*b-2)"])],
     };
     let mut additional = Vec::new();
     assert!(

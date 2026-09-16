@@ -44,3 +44,6 @@ mod fast_path_tests;
 
 #[cfg(test)]
 mod captured_tests;
+
+#[cfg(test)]
+mod univariate_tests;

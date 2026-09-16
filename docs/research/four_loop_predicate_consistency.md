@@ -150,8 +150,46 @@ in the last pair. This noisy small check does not establish a speed ratio or
 confirm the apparent twofold increase in an earlier concurrent observation.
 The FG work-budget exhaustion, not that isolated timing, motivates reuse.
 
-The separate root-free univariate factor correction passes 44 focused tests
-and independent review. It is not included in this release snapshot and has
-not yet passed a full BMW/X release campaign. Evidence:
-`/tmp/rustred-univariate-case.T3Icsy/` and
-`/tmp/rustred-univariate-audit.wJ98A8/`.
+## Root-free exceptional factors
+
+The next independently audited correction reuses the complete factorization
+already returned by Symbolica. An irreducible factor supported on exactly one
+authenticated index variable and having degree greater than one cannot have
+a rational root, hence cannot have an integer root. Such a zero-equation
+branch is empty. No local root finder, discriminant routine, sampling or extra
+factorization is introduced. Linear factors still undergo ordinary integer
+admission; coupled nonlinear factors remain unsupported. All raw factor terms
+are charged before filtering, and every remaining OR sibling must complete.
+
+This slice passes **484 focused tests**, zero failures, five existing ignored
+workloads, plus independent proof/code review. The actual BMW223 release
+audit passes all **60/60 replayed and descending rules**, with two finite
+terminals, zero uncovered regions and no issues, in **5.21s**. X214 now
+searches successfully (160 rules, 11 finite candidates, 8.593s), but its exact
+audit reaches the native affine-consistency work limit after 50.30s total.
+It returns no final rule or coverage aggregate.
+
+The full BMW release search now completes **134/134 sectors**, with 9,024
+candidate rules and 179 finite terminal candidates, in 68.815s. Publication
+passes **45 complete sector audits**, then reaches the same consistency work
+limit in BMW158. The final rule-start event is not a completed sector report.
+The process exits after 178.17s wall, writes no artifact, and provides no
+mathematical uncovered-domain witness. The full X search also completes all
+328 sectors (19,980 rules, 445 finite candidates) in 218.721s. Publication
+passes **31 complete sector audits**, then stops at X460 on the same
+consistency-budget error, after 257.47s wall. No artifact is written. The
+frozen release predates the next slice's detailed counters, so these errors
+do not distinguish the exact exhausted work stage from a local admission cap.
+
+K1/K3/K6 regenerate unchanged bytes, pass current-core fresh-process loading
+and master-only canary reductions, and K6 is byte-identical at workers 1/2/6.
+The unnamed serial K6 regression is 3.47s wall. These concurrent shared-host
+Rust API runs are not controlled performance ratios or new CLI/Python builds.
+The next generic slice reuses successful native true-system and false-extension
+outcomes with exact keys and the same work allowance; it is not included in
+this frozen release.
+
+Evidence: `/tmp/rustred-univariate-case.T3Icsy/`,
+`/tmp/rustred-univariate-audit.wJ98A8/`,
+`/tmp/rustred-univariate-release.VxseCS/`, and
+`/tmp/rustred-bmw-univariate-release.k7WHbl/`.

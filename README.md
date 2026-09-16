@@ -53,10 +53,14 @@ searches all 314 sectors and now advances to **91 passing audits** before
 exiting after **112.97 seconds**, also at an affine-consistency work limit.
 H370 now passes **134/134 rules and complete sector coverage**, in an 11.02s
 selected release run. The native exact implication change passes the combined
-**473-test** correctness gate and independent review. Separate BMW/X campaigns
-complete 133/134 and 326/328 searches before unsupported quadratic guards with
-no integer roots; their narrow native-factor correction passes 44 focused
-tests and independent review but awaits release validation. See the
+**473-test** correctness gate and independent review. A subsequent generic
+native-factor correction removes root-free univariate exceptional branches
+and passes **484 focused tests** plus independent review. BMW/X now complete
+all **134/134 and 328/328 sector searches**. Publication passes 45 BMW and
+31 X sector audits, then stops at the consistency-budget checks for BMW158
+and X460, after 178.17s and 257.47s wall. Selected BMW223 passes all 60 rules
+and complete coverage in 5.21s. These are not complete family artifacts.
+Bounded reuse of successful native consistency checks is the next slice. See the
 [guard-consistency report](docs/research/four_loop_predicate_consistency.md).
 **No closed four-loop artifact is written or shipped.** Current
 core K1/K3/K6 generation, fresh-process validation and master-only application

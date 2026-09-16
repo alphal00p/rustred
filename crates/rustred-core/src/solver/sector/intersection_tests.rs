@@ -82,7 +82,7 @@ fn the_queue_retains_both_factors_exposed_by_a_coupled_affine_sibling() {
 #[test]
 fn an_unresolved_factor_prevents_parent_publication_after_exact_discovery() {
     let context = CoefficientContext::new(["a", "b", "c", "d"]);
-    let sources = source(&context, "d*(a-1)*(b^2-2)+(c-1)");
+    let sources = source(&context, "d*(a-1)*(a^2+b^2-5)+(c-1)");
     let original = sources.rows().to_vec();
     let solver = SectorSolver::new(&sources, [true; 3], SectorConfig::default()).unwrap();
     let mut published = 0;
@@ -115,7 +115,7 @@ fn an_unresolved_factor_prevents_parent_publication_after_exact_discovery() {
 #[test]
 fn all_original_or_branches_are_admitted_before_returning_any_children() {
     let context = CoefficientContext::new(["a", "b", "c"]);
-    let rule = guarded::<3>(&context, &[&["a-1"], &["(b-1)*(c^2-2)"]]);
+    let rule = guarded::<3>(&context, &[&["a-1"], &["(b-1)*(b^2+c^2-5)"]]);
     let error = rule
         .admit_exceptional_cases(&[0, 1, 2], &[true; 3])
         .unwrap_err();
@@ -221,8 +221,31 @@ fn disjunctive_rule_coverage_proves_empty_not_merely_one_empty_factor() {
     assert!(!solver.rule_covers(&rule, &excluded_b).unwrap());
     assert!(solver.rule_covers(&rule, &admitted).unwrap());
     assert!(!solver.rule_covers(&rule, &Case::generic()).unwrap());
-    let unsupported = guarded::<3>(&context, &[&["(a-1)*(b^2-2)"]]);
+    let unsupported = guarded::<3>(&context, &[&["(a-1)*(a^2+b^2-5)"]]);
     assert!(!solver.rule_covers(&unsupported, &Case::generic()).unwrap());
+}
+
+#[test]
+fn root_free_exceptional_factors_preserve_other_or_branches_and_rule_coverage() {
+    let context = CoefficientContext::new(["a", "b", "c"]);
+    let sources = source(&context, "1");
+    let solver = SectorSolver::new(&sources, [true; 3], SectorConfig::default()).unwrap();
+    let empty = guarded::<3>(&context, &[&["a^2-3*a+4"], &["b^2-8*b+3"]]);
+    assert!(
+        empty
+            .exceptional_cases(&[0, 1, 2], &[true; 3])
+            .unwrap()
+            .is_empty()
+    );
+    assert!(solver.rule_covers(&empty, &Case::generic()).unwrap());
+
+    let mixed = guarded::<3>(&context, &[&["a^2-3*a+4"], &["(a-1)*(b^2-2)"]]);
+    let retained: Case<3> = CoordinateCase::new([Some(1), None, None]).unwrap().into();
+    assert_eq!(
+        mixed.exceptional_cases(&[0, 1, 2], &[true; 3]).unwrap(),
+        [retained]
+    );
+    assert!(!solver.rule_covers(&mixed, &Case::generic()).unwrap());
 }
 
 #[test]

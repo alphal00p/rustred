@@ -228,8 +228,11 @@ impl<const N: usize> Engine<'_, N> {
                 let start = Instant::now();
                 let factors = native::factors(&self.current.equations[position]);
                 self.stats.factorization_time += start.elapsed();
-                let factors = factors?;
+                let mut factors = factors?;
                 self.check_terms(&factors)?;
+                native::retain_possible_integer_factors(&mut factors, self.indices);
+                // An empty validated factor list proves this AND branch empty;
+                // other pending OR siblings still have to finish successfully.
                 if factors.len() == 1 && factors[0] == self.current.equations[position] {
                     continue;
                 }

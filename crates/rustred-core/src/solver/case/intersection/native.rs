@@ -144,19 +144,39 @@ pub(super) fn normalize(
 pub(super) fn factors(
     equation: &CoefficientPolynomial,
 ) -> Result<Vec<CoefficientPolynomial>, CaseIntersectionFailure> {
-    let mut factors: Vec<_> = equation
-        .factor()
+    let factors = equation.factor();
+    if factors.is_empty()
+        || factors.iter().any(|(factor, multiplicity)| {
+            factor.is_zero() || *multiplicity == 0 || factor.variables() != equation.variables()
+        })
+    {
+        return Err(CaseIntersectionFailure::NativeAlgebra);
+    }
+    let mut factors: Vec<_> = factors
         .into_iter()
         .filter(|(factor, _)| !factor.is_constant())
         .map(|(factor, _)| primitive(factor))
         .collect();
     canonicalize(&mut factors);
-    if factors.is_empty()
-        || factors
-            .iter()
-            .any(|factor| factor.variables() != equation.variables())
-    {
+    if factors.is_empty() {
         return Err(CaseIntersectionFailure::NativeAlgebra);
     }
     Ok(factors)
+}
+
+/// Apply only to the validated output of complete native `factor()`, after
+/// charging all factor terms. An irreducible univariate factor of degree above
+/// one has no rational root, hence no integer root. Authentication must cover
+/// its entire support; parameters and coupled factors do not qualify.
+pub(super) fn retain_possible_integer_factors<const N: usize>(
+    factors: &mut Vec<CoefficientPolynomial>,
+    indices: &[usize; N],
+) {
+    factors.retain(|factor| {
+        let mut support = (0..factor.nvars()).filter(|&position| factor.degree(position) != 0);
+        match (support.next(), support.next()) {
+            (Some(position), None) if indices.contains(&position) => factor.degree(position) <= 1,
+            _ => true,
+        }
+    });
 }
