@@ -135,8 +135,8 @@ diagnostic identifies its first abstract Boolean failure at
 polynomial is zero there. Independent inspection finds stored rule 117 owns
 the point. Thus this first witness is unrealizable, not a new uncovered
 integral; it says nothing about later failed valuations or whole-family
-closure. A narrow native singleton-substitution consistency check is the next
-implementation, with nonconstant restrictions, unknowns and budget failures
+closure. At that checkpoint a narrow native singleton-substitution consistency
+check was the next implementation, with nonconstant restrictions, unknowns and budget failures
 remaining inconclusive. No extra terminal, sampling, or weakened replay is
 authorized. This release snapshot has not rerun the full family and writes
 no four-loop artifact. Evidence:
@@ -146,6 +146,66 @@ fresh-process inspection and canary application with the preceding compatible
 CLI. Artifact bytes and reductions are unchanged. The unnamed diagnostic K6
 input takes 2.88 seconds wall; this is not the named CLI benchmark or a new
 frontend build. These lower-loop regressions do not establish four-loop closure.
+
+**Predicate-work and exclusion follow-up (2026-09-16):** a leaf-only native
+consistency check passes 433 focused tests but its full FG run still rejects
+coverage after 131.50 seconds; that snapshot validates all 161 FG214 rules.
+The subsequent early-pruning change retains the same proof budget, prunes
+contradictions before unrelated Boolean branches, and reports exhaustion
+explicitly instead of displaying it as another apparent uncovered point.
+Its independent audit and 436-test focused gate pass. The release full-family
+run searches all 124 physical FG sectors by 39.384 seconds, passes 32 sector
+audits, and exits in **125.79 seconds** on the exact-substitution work limit.
+The FG214 rule traversal reaches its last entry, but no final sector report
+is returned; do not infer a new aggregate coverage or certificate count from
+that marker. No artifact is written. The next bounded investigation reuses
+identical native polynomial restrictions within a traversal, with immutable
+context binding, finite cache storage and unchanged exact proof limits.
+
+The leaf-only snapshot also searches all 314 physical H sectors by 61.639
+seconds, passes 47 audits and exits in **71.92 seconds**, retaining 53/54
+H226 rules. Independent all-owner inspection proves that the rejected rule's
+bad sign cell lies wholly in an existing affine exclusion, while the rule
+alone covers another genuine infinite ray. The exclusion was retained but
+omitted from the descent proof call. A generic shared whole-box containment
+service now threads that domain through raw descent, producer lowering and
+cold verification; entirely excluded incoming cells are rejected, not sealed
+by vacuous proofs. This follow-up passes 442 focused tests and independent
+implementation/math audits. Its selected release H226 audit passes all 54
+rules, with zero uncovered regions, in 0.50 seconds. The full H rerun searches
+all 314 sectors and passes 56 sector audits before exiting after 79.43 seconds
+at H370. That sector retains 133/134 replayed/descending rules. Rule 66's
+exception is rejected by the singular intersection used during replay; an
+independent native-API probe resolves the same conjunction with the existing
+exact disjunctive intersection already used by discovery. Its first abstract
+cover witness is also inconsistent: after fixing n0=-1, a true equation is
+the negative of an equation assigned false. These are two distinct remaining
+verifier corrections, not evidence of a missing master. No artifact is written, and no master
+inflation, dropped rule or relaxed guard is authorized by either failure.
+
+The early-pruning release regenerates byte-identical K1/K3/K6 artifacts and
+passes current-core fresh-process decoding and master-only canaries. Unnamed
+K6 generation takes 2.34 seconds wall, retaining 623 rules, 5,640 cells and
+38 masters. These are shared-host Rust API regression observations, not
+controlled speedups or rebuilt frontend benchmarks. Evidence is retained in
+`/tmp/rustred-early-pruning-release.72tckt/` and
+`/tmp/rustred-h226-case.vE4em0/AUDIT.md`. Four-loop closure and Vakint numerical
+acceptance remain open.
+
+The H-exclusion snapshot independently regenerates the same K1/K3/K6 bytes
+and passes current-core cold loading and master-only canaries; its unnamed
+K6 observation is 2.51 seconds. H release evidence is at
+`/tmp/rustred-exclusion-release.zcMlbk/`. The subsequent bounded restriction
+cache is a separate development slice and is not included in those timings.
+
+**Vakint precision policy (user directive, 2026-09-16):** compare requested
+precision with the known precision of supplied master data. If the request is
+higher, emit a clear warning identifying the requested and available precision
+and continue at the requested arithmetic working precision. Do not invent
+digits or silently relabel source accuracy. Missing Laurent coefficients and
+unknown expansion orders remain errors. Apply this consistently to relevant
+native and legacy master-substitution paths while preserving defaults and
+existing evaluation results.
 
 The frozen Symbolica 3 Vakint baseline independently passes all **15 existing
 deterministic four-loop FMFT reference entrypoints**, including the decorated

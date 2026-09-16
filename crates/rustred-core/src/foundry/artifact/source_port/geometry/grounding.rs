@@ -92,6 +92,7 @@ fn four_loop_affine_sector_grounding() {
                 if let Err(error) = prove_descent(
                     rule,
                     &checked.boxes,
+                    &checked.affine_exclusions,
                     &sector,
                     ordering,
                     audit.sources.index_variables(),

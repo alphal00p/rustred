@@ -1,17 +1,242 @@
 # Original-source certificates: provenance composition and measured bottlenecks
 
-Status, 2026-09-16: relative-face implication, native singleton-specialized
-affine reasoning and bounded exact face refinement are implemented. The
-latest selected FG214 release audit now admits **161/161** exact-replayed and
-uniformly descending rules in **85.10 seconds wall**. It still exits 8:
-the stored and checked predicate-cover gates reject an abstract Boolean
-valuation, so **neither sector closure nor a four-loop artifact is established**.
-The exact diagnostic proves the first reported valuation unrealizable; a
-separate consistency correction is the next step, not part of this measured
-revision. The focused debug gate passes **427 tests**. Every exact replay,
-guard, descent, ownership and cold-load gate remains required.
+Status, 2026-09-16: the partial-node early-pruning release completes a new full
+physical-FG **Rust API** attempt in **125.79 seconds wall**. All 124 sector
+searches finish and 32 sector audits pass; after FG214's final rule-start
+event, predicate-cover traversal explicitly exhausts its singleton-substitution
+budget. There is no final FG214 audit aggregate and no artifact. The preceding
+snapshot had established 161/161 exact replay/descent checks; that result must
+not be relabeled as a completed current-run sector certificate. The new
+snapshot passes **436 focused tests**. Separately, the retained-exclusion
+correction for H226 passes **442 focused debug tests** and its selected release
+audit passes **54/54 rules with zero uncovered regions in 0.50 seconds**.
+The full H rerun advances to 56 passing sector audits before stopping at
+H370 in 79.43 seconds; no artifact is written. Bounded traversal-local memoization is proposed to avoid
+repeating identical native restrictions; no cache result or four-loop closure
+is claimed.
 
-## Geometry follow-up after provenance composition
+## Shared affine-exclusion domain: selected H226 resolved
+
+The generic whole-box containment service proves every fixed coordinate and
+every defining equation of a complete exclusion using native Symbolica
+substitution. Raw descent, producer lowering and prepared cold verification
+share that application-domain reasoning. Producer lowering skips wholly
+excluded sign cells; cold verification rejects an incoming wholly excluded
+cell instead of sealing vacuous evidence. A `0/0` coefficient on an excluded
+face is not declared numerically zero, and the nearby admitted infinite ray
+remains subject to ordinary replay/descent. Independent implementation and
+mathematical audits pass, along with **442 tests, zero failed, five existing
+ignored workloads**.
+
+The release selected H226 solve produces the same 54 candidates and one
+finite terminal. All 54 replay exactly and descend, with 837 original-source
+entries, no additional guard branches, zero stored/checked uncovered boxes
+and no issues. Search takes 193 ms, audit 224.258 ms and total process time
+**0.50 seconds wall** (0.46 user + 0.02 system, 9,216 KiB peak RSS). This is
+a successful sector proof, not whole-family closure.
+
+The same frozen binary runs the full external H input with two workers,
+natural ordering and nonpositive auxiliary axis 9:
+
+| Boundary | Frozen exclusion-domain release |
+| --- | --- |
+| All searches finished | 56.521 s; 314 sectors |
+| Search output | 21,360 rules; 386 finite terminal candidates |
+| Successful sector audits | 56, including H226 at ordinal 47 |
+| First rejected sector | H370, ordinal 56; 133/134 replayed and descending |
+| Rejection | Rule 66 replay reports unsupported nonlinear intersection; predicate coverage also incomplete |
+| Whole process | 79.43 s wall; 134.84 s CPU (133.20 user + 1.64 system) |
+| Peak RSS | 446,940 KiB |
+| Publication | Exit 8; no artifact |
+
+The stored/checked first-valuation counters are one/two potentially uncovered
+boxes, respectively; they are not an exhaustive census of infinite gaps.
+An independent fresh selected run reproduces the same rejection, excluding
+a serial/parallel proposal discrepancy. Its existing external case dump and
+native public-API probe identify two distinct issues:
+
+- Rule 66's stored exceptions and freshly extracted RHS exceptions agree.
+  Replay applies singular `Case::intersect` to the conjunction
+  `-n7-n7^2+14*n3+3*n3*n7+6*n3^2=0` and `n3=0`, obtaining
+  `UnsupportedNonlinear`. Discovery's existing exact `intersect_many` resolves
+  it to `n0=0,n3=0,n7=-1`, with all other fixed coordinates retained. This
+  child already belongs to the stored n0=0 exception. Reuse the disjunctive
+  engine and retain every returned branch; no new nonlinear solver is needed.
+  The current deferred-error label says "stored guard geometry" even for
+  replay errors and must not be treated as a precise attribution.
+- At the first abstract witness, n0=-1 specializes true atom
+  `-1-n7-n3+2*n0=0` to the negative of false atom `3+n7+n3!=0`.
+  The assignment is therefore impossible, even without its additional box
+  bounds. Those bounds further force n3=-2,n7=-1, where stored rule 96 owns
+  the point. Singleton truth caching alone does not prove implications between
+  nonconstant equations; native exact equation reasoning remains necessary.
+
+These diagnoses are not yet fixes in the frozen binary. Neither authorizes
+discarding the rule or adding a terminal. Evidence is retained in
+`/tmp/rustred-h370-case.8bVbbQ/`, especially `guards.stdout` and `selected.stdout`.
+
+K1/K3/K6 regenerate unchanged bytes, pass current-core fresh-process decoding
+and return master-only canaries. Unnamed K6 retains 623 rules, 5,640 cells,
+38 masters and 8,925,944 bytes in **2.51 seconds wall**. Commands, logs and an
+independent evidence audit are at `/tmp/rustred-exclusion-release.zcMlbk/`.
+The N10 binary SHA256 is
+`91e325b7704427c6ec5a07f8fec942682e30ebf29e12d2e6c3ed824cdb99129b`.
+These are shared-host observations, not controlled speedup ratios. The later
+bounded restriction-cache implementation is not part of this frozen binary.
+
+## Partial-node early pruning and explicit work-budget exhaustion
+
+This checkpoint moves exact singleton consistency checks from Boolean leaves
+to partial nodes. Contradictory partial assignments can therefore prune their
+entire remaining subtree. Exhaustion is now a typed failure,
+`predicate-cover budget exhausted: singleton literal substitutions`, rather
+than being silently treated as an inconclusive literal check. No proof cap is
+raised, and native Symbolica still performs the exact substitutions. The
+focused gate passes **436 tests, zero failures and five existing ignored
+workloads**; its log is
+`/tmp/rustred-predicate-consistency-release.QwzeVF/early-pruning-tests.stdout`.
+
+| Boundary | Frozen early-pruning release |
+| --- | --- |
+| All searches finished | 39.384 s; 124 sectors |
+| Search output | 9,272 rules; 145 finite terminal candidates |
+| Sector audits passing before FG214 | 32 |
+| FG214 progress | Begins 46.245 s; final zero-based rule-start 160/161 at 120.945 s |
+| Whole process | 125.79 s wall; 163.27 s CPU (161.04 user + 2.23 system) |
+| Peak RSS | 295,204 KiB |
+| Rejection | Typed singleton-substitution work-budget exhaustion; exit 8, no artifact |
+
+The rule-start event precedes the rule's expensive checking work. In
+particular, this log has **no final FG214 aggregate**, and cannot establish a
+current-run 161-rule certificate, sector coverage, or a complement census.
+The full generic N10 Rust API driver follows the CLI's core authority path;
+this is not a rebuilt CLI/Python frontend run. It uses the external physical
+FG input, natural ordering, nonpositive axes 8/9, two workers on CPUs 32/33,
+and a 600-second limit. It terminates with the explicit error, not a timeout.
+
+The separate **uncertified stored-cover diagnostic** also ends at this typed
+budget error: **14.54 s wall**, 14.22 user + 0.19 system, 67,584 KiB peak RSS.
+Its search takes 14.182 s; the whole-process duration is not time spent solely
+in predicate consistency. This diagnostic removes local source traces and
+cannot certify exact replay or publish an artifact.
+
+Inspection identifies repeated exact restrictions of the same immutable
+polynomial/index map on the same box across Boolean nodes. A bounded,
+traversal-local cache of their assignment-independent truth classes is the
+next proposed slice. Its actual cache-hit rate and ability to pass FG coverage
+remain unmeasured; exhausting another budget or finding a genuine gap must
+remain a typed incomplete result. Native work and memory caps must not be
+raised as a substitute for the missing proof.
+
+K1/K3/K6 regenerate byte-identically, and freshly rebuilt current-core cold
+validation and master-only canaries pass. The unnamed K6 core diagnostic
+retains **623 rules, 5,640 cells, 38 masters and 8,925,944 bytes**, taking
+**2.34 s wall**, 1.94 user + 0.37 system and 245,808 KiB peak RSS. This remains
+an unnamed regression input, not the canonical named CLI benchmark. Exact
+commands, hashes and logs are in
+`/tmp/rustred-early-pruning-release.72tckt/RESULTS.md`. All timings are single
+shared-host observations, not controlled speedup ratios.
+
+The H226 whole-box exclusion correction has separately passed **442 tests,
+zero failures and five existing ignored workloads** in
+`/tmp/rustred-excluded-domain.wBwDYT/tests.stdout`. It is not part of this
+frozen early-pruning release; its subsequent release results appear above.
+
+## Leaf-only predicate-consistency release
+
+This follows the geometry checkpoints below. Native exact consistency checks
+at Boolean leaves move traversal past the earlier first failure, but the new
+frozen release still stops on another inconsistent assignment at the same
+physical point. Its debug gate passes **433 tests, zero failures and five
+existing ignored workloads** in 1.73 seconds; the log is
+`/tmp/rustred-affine-width-release.CNbu4g/consistency-tests.stdout`.
+Its full public-core family-close attempt uses the external
+compact FG input, natural ordering, nonpositive axes 8/9, two workers on CPUs
+32/33 and a 600-second cap. The driver uses the CLI's exact core authority
+path, **not a rebuilt CLI input/report frontend**.
+
+| Boundary | Frozen leaf-only release |
+| --- | --- |
+| All searches finished | 36.056 s; 124 sectors |
+| Search output | 9,272 rules; 145 finite terminal candidates |
+| Sector audits passing before FG214 | 32 |
+| FG214 audit | Begins 42.781 s; ends 131.307 s; 88.524 s audit |
+| FG214 rule checks | 161/161 exact-replayed and 161/161 uniformly descending; zero redundant rules |
+| Whole process | 131.50 s wall; 164.81 s CPU (163.34 user + 1.47 system) |
+| Peak RSS | 287,312 KiB |
+| Rejection | Stored and checked predicate cover only; exit 8, no artifact |
+
+This is a completed **attempt**, not a completed family proof. The reported
+one bounded/zero unbounded boxes are only the first failing valuation's
+counters, not a complement census. Remaining audits, lowering, installation,
+four-loop cold loading and application are still unreached.
+
+The separate uncertified stored-cover diagnostic takes **17.53 seconds wall**
+(11.106 s search, 6.336 s predicate inspection). It removes local source
+traces and cannot stand in for exact replay or artifact generation. Its first
+box fixes `n=(-1,1,1,0,1,-1,1,1,-2,0)`, as before, but later truth assignments
+differ: atom 2 asserts `1-n9+n5 != 0` while its value is zero; atom 11 now
+asserts `1+n8+n5=0` while its value is `-2`. The assignment is unrealizable.
+The behavior suggests exhaustion of the leaf-only proof-work budget, but
+that outcome was **not instrumented**, so the cause is not yet confirmed.
+The partial-node pruning/typed-budget slice is not part of this frozen
+run; its later release result is recorded above.
+
+K1/K3/K6 generation still produces byte-identical artifacts and canary results.
+In addition to prior-compatible-CLI inspection, a freshly rebuilt
+**current-core** decoder validates all three artifacts in new processes and
+their reducer canaries return master-only results. The unnamed core K6
+diagnostic retains 623 rules, 5,640 cells and 38 masters in 8,925,944 bytes:
+**2.86 seconds wall**, 2.47 user + 0.36 system, 245,840 KiB peak RSS. This is
+not the canonical named CLI input, a frontend rebuild or a four-loop artifact.
+
+Evidence and exact commands are at
+`/tmp/rustred-predicate-consistency-release.QwzeVF/RESULTS.md`. The frozen
+combined N10 driver SHA256 is
+`4117535df84be015ebb6399e2f092b6859351c5cbb6f6d10e85c96a5d3904792`.
+Single shared-host timings must not be presented as controlled speedup ratios.
+
+### Same-snapshot full H campaign and retained-exclusion defect
+
+The same generic N10 Rust API executable subsequently runs the external H
+input with natural ordering, two workers, nonpositive auxiliary axis 9 and a
+300-second cap. Its **314 sector searches finish in 61.639 seconds**, producing
+**21,360 rules and 386 finite terminal candidates**. It passes 47 sector
+audits, then H226 retains **53/54** rules: its 0.300-second audit begins at
+71.196 s and ends at 71.496 s. The process exits 8 in **71.92 seconds wall**,
+132.34 s CPU (130.97 user + 1.37 system), with 432,032 KiB peak RSS. No H
+artifact is written. Stored cover passes; the checked cover's first failure
+reports two unbounded boxes, not an exhaustive inventory.
+
+An independent dump/audit identifies why **zero-based rule 47, RHS term 34**
+fails. The coordinate target fixes `n1=n5=n6=n7=1`, `n3=n8=n9=0`, and leaves
+`n0,n2,n4<=0`. Its exact excluded child includes `n0-n4=0`; it also excludes
+`n2=0`. The rejected sign cell `n0=n4=0,n2<=-1` therefore lies wholly outside
+the rule domain. Term 34's coefficient is
+`3*n0*n4/[2*(n4-n0)*(4+n4+n2+n0-2*d)]`, which becomes `0/0` there.
+The denominator-aware zero check is correctly conservative.
+
+The actual defect is that the checked partition retains the affine exclusion
+but the descent call passes only its rectangular boxes. No exclusion reaches
+that proof callback. Rule 52 separately owns the rejected boundary. This is
+a verified loss of domain information **at the proof call**, not missing
+guard serialization or proof that the IBP identity is wrong. The same
+whole-box exclusion reasoning must also reach durable lowering and cold
+original-domain descent; a raw-only workaround is insufficient.
+
+Dropping rule 47 leaves a genuine infinite hole: independent inspection of
+every one of the 54 stored owners shows only rule 47 covers
+`(0,1,-t,0,-1,1,1,1,0,0)` for integer `t>=1`, and the finite terminal does
+not cover it. The next narrow remedy is a bounded native-Symbolica proof that
+the **entire** problematic sign box belongs to a complete exclusion, retaining
+all conjunctions, fixed faces, nearby allowed domains and durable guards.
+That remedy is not validated by this frozen run and does not yet imply H
+closure. Run evidence is in
+`/tmp/rustred-predicate-consistency-release.QwzeVF/h.{stderr,time}`; the
+independent mathematical/code-path analysis is
+`/tmp/rustred-h226-case.vE4em0/AUDIT.md`, with raw cases in `run.stdout`.
+
+## Earlier geometry follow-up after provenance composition
 
 The first geometry slice uses the existing Symbolica-backed affine service
 to prove exclusions relative to the actual child fixed face:
@@ -98,8 +323,9 @@ indices to `(-1,1,1,0,1,-1,1,1,-2,0)`. Atom 2 requires
 This particular reported Boolean witness is thus proved unrealizable, not
 merely suspected to be a spurious gap. It does **not** establish consistency
 or coverage of later valuations. A separate narrow singleton-consistency
-correction is being developed from this evidence; it is not part of the
-completed selected release audit. Raw evidence is
+correction followed from this evidence; its first measured implementation is
+the leaf-only checkpoint above, not part of this selected release audit.
+Raw evidence is
 `/tmp/rustred-affine-width-release.CNbu4g/stored-cover-only.stdout`.
 
 K1/K3/K6 core-driver artifacts after the first geometry slice are byte-identical

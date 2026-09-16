@@ -1,4 +1,4 @@
-use super::super::{PredicateCoverError, PredicateCoverLimits, check_valuations};
+use super::super::{PredicateCoverError, PredicateCoverLimits, TraversalWork, check_valuations};
 use super::*;
 use crate::algebra::CoefficientContext;
 
@@ -15,14 +15,14 @@ fn first_failure_preserves_exact_box_sector_maps_and_partial_truth_assignment() 
         .collect::<Vec<_>>();
     let mut assignments = [Some(true), Some(false), None];
     let before = assignments;
-    let mut nodes = 0;
+    let mut work = TraversalWork::default();
     let error = check_valuations(
         &[false, true, false],
         &atoms,
         &[],
         &[],
         &mut assignments,
-        &mut nodes,
+        &mut work,
         PredicateCoverLimits::default(),
     )
     .unwrap_err();
@@ -36,7 +36,7 @@ fn first_failure_preserves_exact_box_sector_maps_and_partial_truth_assignment() 
     };
     assert_eq!((*boxes, *unbounded_boxes), (1, 1));
     assert_eq!(assignments, before);
-    assert_eq!(nodes, 1);
+    assert_eq!(work.nodes, 1);
     assert_eq!(&*witness.sector, &[false, true, false]);
     assert_eq!(&*witness.lower, &[0; 3]);
     assert_eq!(&*witness.upper, &[None; 3]);

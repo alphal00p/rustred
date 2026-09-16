@@ -505,6 +505,7 @@ fn whole_ray_descent_drops_only_exactly_vanishing_activation_boundary_terms() {
     geometry::prove_descent(
         &rule,
         &cells,
+        &[],
         &[false, true],
         crate::sector::OrderingPolicy::SpiredUncutV1,
         &[0, 1],
@@ -515,6 +516,7 @@ fn whole_ray_descent_drops_only_exactly_vanishing_activation_boundary_terms() {
         geometry::prove_descent(
             &unsafe_rule,
             &cells,
+            &[],
             &[false, true],
             crate::sector::OrderingPolicy::SpiredUncutV1,
             &[0, 1]
@@ -559,6 +561,7 @@ fn affine_descent_excludes_only_proved_impossible_activation_cells() {
     geometry::prove_descent(
         &make_rule("1+n0-2*n1"),
         &boxes,
+        &[],
         &sector,
         crate::sector::OrderingPolicy::SpiredUncutV1,
         &[0, 1],
@@ -570,6 +573,7 @@ fn affine_descent_excludes_only_proved_impossible_activation_cells() {
         geometry::prove_descent(
             &make_rule("n0-2*n1"),
             &boxes,
+            &[],
             &sector,
             crate::sector::OrderingPolicy::SpiredUncutV1,
             &[0, 1]

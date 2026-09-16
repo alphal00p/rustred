@@ -408,6 +408,7 @@ fn affine_mixed_finite_boundary_keeps_only_feasible_coefficient_leaves() {
     geometry::prove_descent(
         &rule,
         &boxes,
+        &[],
         &sector,
         OrderingPolicy::SpiredUncutV1,
         &indices,
@@ -429,6 +430,7 @@ fn affine_mixed_finite_boundary_keeps_only_feasible_coefficient_leaves() {
         geometry::prove_descent(
             &rule,
             &enlarged,
+            &[],
             &sector,
             OrderingPolicy::SpiredUncutV1,
             &indices
@@ -450,6 +452,7 @@ fn affine_mixed_finite_boundary_keeps_only_feasible_coefficient_leaves() {
         geometry::prove_descent(
             &rule,
             &pole,
+            &[],
             &sector,
             OrderingPolicy::SpiredUncutV1,
             &indices

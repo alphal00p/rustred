@@ -5,6 +5,8 @@
 //! runtime endpoint is used as a proxy for an infinite proof domain.
 
 #[cfg(test)]
+mod excluded_tests;
+#[cfg(test)]
 #[path = "geometry/grounding.rs"]
 mod grounding;
 
@@ -198,6 +200,7 @@ pub(super) fn terminal_boxes<const N: usize>(
 pub(super) fn prove_descent<const N: usize>(
     rule: &SectorRule<N>,
     boxes: &[LatticeBox],
+    affine_exclusions: &[Arc<AffineApplicationDomain>],
     sector: &[bool; N],
     ordering: OrderingPolicy,
     indices: &[usize; N],
@@ -228,6 +231,25 @@ pub(super) fn prove_descent<const N: usize>(
         ordering,
         CompletionGeometryLimits::default(),
         |coefficient, piece| {
+            // Authenticate all native maps before any empty-domain shortcut,
+            // including the original coefficient (which may be 0/0 here).
+            for domain in affine_domain
+                .iter()
+                .chain(affine_exclusions.iter().map(AsRef::as_ref))
+            {
+                validate_affine_coefficient_domain(
+                    Some(domain),
+                    coefficient,
+                    sector,
+                    indices.iter().copied(),
+                )?;
+            }
+            if affine_exclusions
+                .iter()
+                .any(|domain| domain.is_proved_to_contain_box(piece))
+            {
+                return Ok(true);
+            }
             if affine_domain
                 .as_ref()
                 .is_some_and(|domain| domain.is_proved_empty_in_box(piece))

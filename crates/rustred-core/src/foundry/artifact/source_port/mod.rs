@@ -462,6 +462,7 @@ impl<const N: usize> SourcePortAudit<N> {
                     match geometry::prove_descent(
                         rule,
                         &checked.boxes,
+                        &checked.affine_exclusions,
                         &sector,
                         ordering,
                         self.sources.index_variables(),

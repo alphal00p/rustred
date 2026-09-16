@@ -13,8 +13,8 @@ use crate::solver::canonical_equalities;
 use super::AffineApplicationDomain;
 
 type Interval = (Option<Integer>, Option<Integer>);
-const MAX_MATRIX_CELLS: usize = 65_536;
-const MAX_POLYNOMIAL_CELLS: usize = 262_144;
+pub(super) const MAX_MATRIX_CELLS: usize = 65_536;
+pub(super) const MAX_POLYNOMIAL_CELLS: usize = 262_144;
 const MAX_REFINED_FACES: usize = 8;
 
 impl AffineApplicationDomain {
@@ -198,7 +198,10 @@ impl AffineApplicationDomain {
     }
 }
 
-fn linear_row(equation: &CoefficientPolynomial, indices: &[usize]) -> Option<Vec<Integer>> {
+pub(super) fn linear_row(
+    equation: &CoefficientPolynomial,
+    indices: &[usize],
+) -> Option<Vec<Integer>> {
     let mut row = vec![Integer::zero(); indices.len() + 1];
     for (term, coefficient) in equation.coefficients.iter().enumerate() {
         let mut variable = None;

@@ -10,8 +10,10 @@
 //! valuation is stronger than requiring it only for realizable integer
 //! valuations, so this can reject a valid cover but cannot accept an invalid
 //! one. The existing affine row-bound service may additionally certify that
-//! a true-equation branch has no integer point in a box. No sampling or new
-//! CAS implementation is involved. Other feasibility or equation implications
+//! a true-equation branch has no integer point in a box. Before further
+//! branching, native singleton substitution can also disprove individual
+//! Boolean literals throughout a remaining box. No sampling or new CAS
+//! implementation is involved. Other feasibility or equation implications
 //! may remain unresolved and cause conservative incompleteness.
 
 use std::{fmt, sync::Arc};
@@ -21,8 +23,15 @@ use crate::foundry::completion::{BoxCover, CompletionGeometryLimits, LatticeBox}
 
 use super::AffineApplicationDomain;
 
+mod consistency;
 mod diagnostic;
 use diagnostic::PredicateCoverWitness;
+
+#[derive(Default)]
+struct TraversalWork {
+    nodes: usize,
+    consistency: consistency::WorkBudget,
+}
 
 /// Borrowed domains of independently replayed and descending rules.
 /// Coverage alone never validates the algebraic rule. Callers must supply
@@ -204,20 +213,20 @@ pub(in crate::foundry::artifact) fn certify_predicate_cover(
         )?;
     }
     let mut assignments = vec![None; atoms.len()];
-    let mut nodes = 0;
+    let mut work = TraversalWork::default();
     check_valuations(
         sector,
         &atoms,
         &clauses,
         &constraints,
         &mut assignments,
-        &mut nodes,
+        &mut work,
         limits,
     )?;
     Ok(PredicateCoverCertificate {
         predicates: atoms.len(),
         clauses: clauses.len(),
-        boolean_nodes: nodes,
+        boolean_nodes: work.nodes,
     })
 }
 
@@ -320,13 +329,13 @@ fn check_valuations(
     clauses: &[Clause],
     constraints: &[EqualityConstraint<'_>],
     assignments: &mut [Option<bool>],
-    nodes: &mut usize,
+    work: &mut TraversalWork,
     limits: PredicateCoverLimits,
 ) -> Result<(), PredicateCoverError> {
-    if *nodes >= limits.max_boolean_nodes {
+    if work.nodes >= limits.max_boolean_nodes {
         return Err(PredicateCoverError::Budget("Boolean partition nodes"));
     }
-    *nodes += 1;
+    work.nodes += 1;
     let mut definite = Vec::new();
     let mut next_atom = None;
     for clause in clauses {
@@ -351,23 +360,32 @@ fn check_valuations(
         .map_err(geometry)?
         .uncovered_partition()
         .map_err(geometry)?;
-    let possible = complement
-        .boxes()
-        .iter()
-        .filter(|piece| {
-            !constraints.iter().any(|constraint| {
-                // All equalities AND the fixed face must hold before the
-                // authenticated domain's emptiness service applies. An equation
-                // being false, or merely intersecting the face, proves nothing.
-                constraint
-                    .atoms
-                    .iter()
-                    .all(|&atom| assignments[atom] == Some(true))
-                    && contains_box(&constraint.face, piece)
-                    && constraint.domain.is_proved_empty_in_box(piece)
-            })
-        })
-        .collect::<Vec<_>>();
+    let mut possible = Vec::new();
+    for piece in complement.boxes() {
+        if constraints.iter().any(|constraint| {
+            // All equalities AND the fixed face must hold before the
+            // authenticated domain's emptiness service applies. An equation
+            // being false, or merely intersecting the face, proves nothing.
+            constraint
+                .atoms
+                .iter()
+                .all(|&atom| assignments[atom] == Some(true))
+                && contains_box(&constraint.face, piece)
+                && constraint.domain.is_proved_empty_in_box(piece)
+        }) {
+            continue;
+        }
+        // Assigned literals already constrain the entire current branch.
+        // Discharge contradictions before branching over unrelated atoms;
+        // waiting for a leaf needlessly repeats identical exact work.
+        if !work
+            .consistency
+            .contradicts(sector, piece, atoms, assignments)
+            .map_err(|_| PredicateCoverError::Budget("singleton literal substitutions"))?
+        {
+            possible.push(piece);
+        }
+    }
     if possible.is_empty() {
         return Ok(());
     }
@@ -393,7 +411,7 @@ fn check_valuations(
         clauses,
         constraints,
         assignments,
-        nodes,
+        work,
         limits,
     )?;
     assignments[atom] = Some(true);
@@ -403,7 +421,7 @@ fn check_valuations(
         clauses,
         constraints,
         assignments,
-        nodes,
+        work,
         limits,
     )?;
     assignments[atom] = None;

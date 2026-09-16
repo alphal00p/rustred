@@ -176,6 +176,35 @@ impl PreparedOriginalDomain {
         })
     }
 
+    /// Recompute emptiness of the actual predicate-restricted application
+    /// domain. No rectangular hull of an exclusion is ever removed.
+    pub(super) fn application_is_proved_empty(
+        &self,
+        piece: &LatticeBox,
+        sector: &[bool],
+    ) -> Result<bool, SourcePortAuditError> {
+        if sector.len() != piece.arity()
+            || piece.arity() > self.limits.geometry.max_arity
+            || self
+                .affine
+                .iter()
+                .chain(self.affine_exclusions.iter())
+                .any(|domain| domain.sector() != sector || domain.indices().len() != piece.arity())
+        {
+            return Err(error(
+                "original application emptiness has incompatible sector or arity",
+            ));
+        }
+        Ok(self
+            .affine
+            .as_ref()
+            .is_some_and(|domain| domain.is_proved_empty_in_box(piece))
+            || self
+                .affine_exclusions
+                .iter()
+                .any(|domain| domain.is_proved_to_contain_box(piece)))
+    }
+
     /// One affine-aware zero proof for early RHS pruning and final cold
     /// replay. The chart is prepared once with the original-source parent.
     pub(super) fn coefficient_vanishes(
@@ -188,19 +217,16 @@ impl PreparedOriginalDomain {
         if context.fingerprint() != self.sources.context_fingerprint()
             || self
                 .affine
-                .as_ref()
-                .is_some_and(|domain| domain.sector() != sector)
+                .iter()
+                .chain(self.affine_exclusions.iter())
+                .any(|domain| domain.sector() != sector)
         {
             return Err(error(
                 "original zero-product proof has incompatible context or sector",
             ));
         }
         // Recompute this from defining equations, never from a stored flag.
-        if self
-            .affine
-            .as_ref()
-            .is_some_and(|domain| domain.is_proved_empty_in_box(piece))
-        {
+        if self.application_is_proved_empty(piece, sector)? {
             context
                 .authenticate_coefficient_with_limits(
                     coefficient,
@@ -301,6 +327,11 @@ impl PreparedOriginalDomain {
         }
         preflight_cell_storage(context.index_count(), rhs.len(), self.limits.rule)?;
         let fixed_pairs = self.validate_face(context, sector, &piece)?;
+        if self.application_is_proved_empty(&piece, sector)? {
+            return Err(error(
+                "original cell has an entirely excluded or empty application domain",
+            ));
+        }
         if context.fingerprint() != self.sources.context_fingerprint()
             || rhs.is_empty()
             || rhs.len() > self.limits.cell.max_retained_terms

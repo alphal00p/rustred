@@ -147,6 +147,49 @@ fn affine_partition_cold_roundtrip_routes_both_sides_and_preserves_reduction() {
         )
         .unwrap()
     };
+    // A cold cell may not obtain vacuous replay/descent authority from a
+    // rectangle lying entirely on the excluded equality. Generation skips
+    // such sign cells; decoding must reject them rather than seal them.
+    let off_parent = parent(None, Arc::from([Arc::clone(&equality)]));
+    let local = piece.lower()[0].max(piece.lower()[1]);
+    let excluded_piece = || {
+        crate::foundry::completion::LatticeBox::try_new(
+            [local, local, piece.lower()[2]],
+            [Some(local), Some(local), piece.upper()[2]],
+        )
+        .unwrap()
+    };
+    assert!(
+        off_parent
+            .application_is_proved_empty(&excluded_piece(), &[true; 3])
+            .unwrap()
+    );
+    assert!(
+        off_parent
+            .coefficient_vanishes(context, &context.one(), &excluded_piece(), &[true; 3])
+            .unwrap()
+    );
+    assert!(
+        off_parent
+            .application_is_proved_empty(&excluded_piece(), &[false; 3])
+            .is_err()
+    );
+    let vacuous = off_parent
+        .verify_cell(
+            context,
+            original.ordering,
+            &[true; 3],
+            &zeros,
+            excluded_piece(),
+            rhs.clone(),
+        )
+        .unwrap_err();
+    assert!(vacuous.to_string().contains("entirely excluded or empty"));
+    assert!(
+        !off_parent
+            .application_is_proved_empty(&copy_piece(), &[true; 3])
+            .unwrap()
+    );
     let off = parent(None, Arc::from([Arc::clone(&equality)]))
         .verify_cell(
             context,

@@ -134,10 +134,7 @@ pub(super) fn lower_rule<const N: usize>(
             pieces = refined;
         }
         for piece in pieces {
-            if affine
-                .as_ref()
-                .is_some_and(|domain| domain.is_proved_empty_in_box(&piece))
-            {
+            if parent.application_is_proved_empty(&piece, &sector)? {
                 continue;
             }
             let mut retained = Vec::new();

@@ -35,24 +35,35 @@ checks pass. See the [dependency migration report](docs/vakint_symbolica3_migrat
 
 Four-loop artifacts are not yet closed or shipped. H, X, BMW and FG are
 [external unit-mass input families](examples/input/README.md), not hard-coded
-solver cases. Selected H and FG sectors now pass complete exact replay,
-descent and coverage. The latest full physical FG attempt searches all 124
-nonzero sectors in 39.9 seconds, yielding 9,272 candidate rules and 145 finite
-residuals. Exact preconditioner provenance now avoids repeating an expensive
-source-certificate solve. The run passes 32 sector audits and finishes in
-138.07 seconds with a precise rejection, rather than the previous timeout:
-154/161 rules pass in sector 214 at that checkpoint. The subsequent generic
-geometry correction now admits **161/161** rules in a selected release audit
-(85.10 seconds): every candidate replays exactly and descends. Publication
-still fails at predicate coverage, whose first reported gap has an impossible
-Boolean assignment: it requires `1+n5-n9 != 0` while fixing `n5=-1,n9=0`.
-An existing rule covers that point; exact singleton-atom consistency is the
-next verifier correction, not an extra master or a hard-coded IBP. This does
-not certify later coverage branches or the remaining sectors. **No closed
-four-loop artifact is written.** The correction passes 427 focused tests
-and independent review. K1/K3/K6 CLI
-generation and cold application pass, with byte-identical K6 artifacts at
-one, two and six workers. Shared-host timings are not controlled speed ratios.
+solver cases. Selected H and FG sectors pass complete exact replay, descent
+and coverage, but neither whole family is certified. The latest full physical
+FG Rust API attempt searches all 124 nonzero sectors in 39.384 seconds,
+yielding 9,272 candidate rules and 145 finite terminal candidates. It passes
+32 sector audits and finishes in **125.79 seconds**, rejecting publication
+on an explicit exact-substitution work limit during predicate coverage.
+The preceding release validates **161/161 FG214 rules** for exact replay and
+descent; those identities must not be confused with a complete coverage proof.
+Early exact contradiction pruning passes 436 focused tests, but does not yet
+resolve the full campaign's proof-work budget. Bounded reuse of repeated
+native substitutions is the next coverage investigation, not a larger cap,
+extra master or hard-coded IBP.
+
+A separate H attempt initially passes 47 sector audits before rejecting a
+rule on a boundary explicitly excluded from its domain. The shared raw/durable
+correction passes 442 focused tests and a selected release audit: **54/54
+H226 rules**, zero uncovered regions, **0.50 seconds**. The new whole-H run
+searches all 314 sectors, advances to **56 passing audits**, and exits after
+**79.43 seconds** at H370: 133/134 rules pass. Independent diagnosis traces
+the rejected exception to replay using a single-case intersection where
+discovery's existing exact case-splitting routine succeeds. The first abstract
+cover witness is also inconsistent; both remaining verifier corrections are
+in progress. **No closed four-loop
+artifact is written or shipped.** Current
+core K1/K3/K6 generation, fresh-process validation and master-only application
+pass with unchanged bytes. Earlier CLI one-, two- and six-worker generation
+also remains byte-identical; this latest verifier slice was tested through
+the Rust API rather than rebuilt CLI/Python frontends. Shared-host timings
+are not controlled speed ratios.
 See the
 [certificate profiling report](docs/research/original_source_certificate_performance.md).
 Live phase diagnostics and an explicit domain-scoped publication path are

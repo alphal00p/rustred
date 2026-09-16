@@ -40,6 +40,59 @@ Commands, executable hashes, test names and results are retained at
 dependency pin, shipped artifact, terminal catalog, public API or default
 evaluation policy changed in this milestone.
 
+## Remaining integration work after routing
+
+A read-only audit of `30705f12` identifies the following gates. Routing tests
+alone do not mean the adapter or offline master producer already supports
+four-loop evaluation.
+
+- Replace the single-family-per-loop-count asset selection with unique
+  structural parent-descriptor selection using the existing witness validator.
+  Append auxiliary zero powers to the authenticated artifact arity and retain
+  simultaneous numerator routing for every parent. No graph rematch or
+  topology-name dispatch is needed. RustRed already owns scalar numerator
+  lowering, recursive IBP application and common-mass homogeneity.
+- Produce terminal catalogs offline from each authentic artifact's master
+  keys. The current K6 producer fixes six indices and MATAD input; it is not
+  yet a generic four-loop producer. Negative physical and auxiliary powers
+  must be transported as polynomial numerator factors. Prefer exact FMFT
+  PR-basis projections, using numerical Laurent records only with truthful
+  precision and tail metadata. Ordinary evaluation must never run the oracle.
+- Select the existing pure-Symbolica
+  `FMFT::finalize_native_reduced_masters` for PR catalogs. The current RustRed
+  materializer always invokes the MATAD finalizer. Preserve symbolic-master
+  mode, custom epsilon conventions and normalization exactly once.
+- Qualify new numerical fallback master identities by family: equal
+  ten-index tuples from distinct parent families are not the same integral.
+  Existing `RustRedMaster(powers)` and its tail label use only the tuple.
+  Exact shared PR-basis projections do not have this ambiguity. Preserve
+  existing three-loop symbolic output and Vakint conventions when extending
+  the new catalog identity.
+- Separate arithmetic working precision from source-master accuracy. Native
+  FMFT finalization currently requires available constant precision, while
+  legacy FMFT does not. Default working precision is 32 digits; some stored
+  PR9d/PR11d coefficients have only 28/26 digits. More floating-point precision
+  cannot supply missing digits, and this checkout has no accurate 20,000-digit
+  four-loop catalog. The user's selected policy is to **warn and continue**
+  when the request exceeds known master-source precision, retaining the
+  requested arithmetic precision and identifying the available source digits.
+  Unknown Laurent orders must still be rejected. Implementation/validation of
+  that policy is separate from the completed read-only routing audit.
+
+Reuse the existing comparative harness with a FORM5 FMFT oracle and
+FeynKit/RustRed native lanes using invalid FORM paths. The required numerical
+inventory has **15 deterministic reference entrypoints**, including the
+four-loop decorated clover whose test name says `1l`; add all **19 registered
+classes** as structural/native canaries. Keep the **five optional PySecDec
+cases** separate: one requests an epsilon order beyond the present FMFT
+tables. The eight native PR-finalizer tests are boundary tests, not native
+four-loop reduction acceptance. Rerun the complete recorded 83-test lower-loop
+inventory after integration without changing inputs, tolerances or defaults.
+
+Exact code locations and test names are recorded in
+`/tmp/vakint-four-loop-routing.dkHXAz/READINESS_NEXT.md`. This audit performed
+no build or test and changed no GammaLoop code; it adds no acceptance claim.
+
 ## Coverage target
 
 The existing matcher registers **19 four-loop graph classes**: the H, X and
