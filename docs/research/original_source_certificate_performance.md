@@ -1,5 +1,36 @@
 # Original-source certificates: provenance composition and measured bottlenecks
 
+## Resumed four-loop measurement slice (2026-09-17)
+
+The prepared Symbolica probe-frame optimization is now pushed in RustRed
+commit `b77c0646`. It moves immutable column lookup and coefficient-variable
+mapping out of every finite-field probe; polynomial evaluation and sparse GPLU
+remain Symbolica operations. On the complete FG parent (124 sectors, 16
+ordinary sources, 9,272 rules and 145 finite residuals), the new release
+client produced 125 output files byte-for-byte identical to the saved sparse
+baseline:
+
+| RustRed run | Wall | Solver | User CPU | Peak RSS | Output |
+| --- | ---: | ---: | ---: | ---: | --- |
+| old client, 1 worker (saved baseline) | 117.25 s | 116.741 s | 116.08 s | 161 MiB | reference |
+| prepared frame, 1 worker | 76.02 s | 75.522 s | 75.30 s | 161 MiB | identical |
+| prepared frame, 6 workers (clean rerun) | 115.95 s | 114.028 s | 397.80 s | 256 MiB | identical |
+| old client, 6 workers (same-host control) | 171.28 s | 169.124 s | 561.61 s | 256 MiB | identical |
+
+The historical 71.996-second six-worker result was taken on a less loaded
+host; it is retained as evidence but is not used as a controlled comparison.
+The same-host control shows that the frame path improves the six-worker run,
+but the current machine has substantial unrelated load, so this is not a
+scaling claim. Exact output equality was checked by SHA-256 over every file.
+
+The independent C++ audit also corrected the interpretation of the surrounding
+benchmark notes: the saved “cpp-lane” JSON proves RustRed display equality and
+determinism, not C++ completion. Completed native SpIRed evidence is H(6),
+FG(1/6), and BMW(1); BMW(6) was signal-15 censored, and X(1/6) has no
+completed native timing. A fresh uncapped X(6) process is still running under
+the frozen driver on CPUs 38–43; its empty timing/output files therefore must
+not be presented as a result.
+
 Status, 2026-09-16: the partial-node early-pruning release completes a new full
 physical-FG **Rust API** attempt in **125.79 seconds wall**. All 124 sector
 searches finish and 32 sector audits pass; after FG214's final rule-start
