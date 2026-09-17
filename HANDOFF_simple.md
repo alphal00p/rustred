@@ -1,5 +1,10 @@
 # RustRed handoff — simple overview
 
+> This is the historical September 3 overview. The
+> [September 17 checkpoint](docs/checkpoints/2026-09-17.md) is current: through
+> three loops is shipped; four-loop candidates and selected numerical comparisons
+> work, but complete four-loop certification and delivery remain unfinished.
+
 ## The big picture
 
 RustRed is being built to find reusable equations that reduce complicated loop

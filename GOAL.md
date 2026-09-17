@@ -1,5 +1,30 @@
 # RustRed project goal
 
+## User-requested checkpoint — 2026-09-17
+
+Freeze feature development and stabilize the work already in flight, aiming to
+finish this checkpoint within about one hour of 07:42 UTC. Complete focused
+tests, independent audits and feasible measurements; record incomplete and
+user-interrupted runs honestly. Commit and push coherent snapshots subject to
+each repository's publication rules, then stop work for the user's quota pause.
+Do not mark the scientific objective complete. Resume the three lanes below
+only after the user resumes work. The consolidated checkpoint is recorded in
+[the four-loop checkpoint](docs/checkpoints/2026-09-17.md).
+
+The active lanes remain Symbolica reconstruction, uncapped C++ SpIRed comparison
+including actual output equivalence, and four-loop Vakint FORM-less application,
+certification and FMFT comparison. Finite nonminimal terminals are acceptable;
+optional certification may cover an explicit finite or rank/power-bounded entry
+scope, but formula provenance and all reachable successors must still be checked.
+Neither candidate reachability nor numerical agreement alone is a certificate.
+
+At this checkpoint the experimental native lane has twelve finite-target
+comparisons across H, FG, X and BMW (BMW's dotted target has power three), with
+an invalid FORM path after offline terminal preparation. This is not the entire
+four-loop acceptance inventory. The fifteen legacy FMFT reference entrypoints
+also pass, separately. Four-loop certified artifacts, shipped native catalogs
+and cold-application performance parity remain unfinished.
+
 ## Current assignment — four-loop delivery (2026-09-15)
 
 **Certification convergence (2026-09-16):** target a common topology-independent
@@ -41,8 +66,9 @@ not a certificate. The final recommendation is now recorded in
 [rank-bounded certification](docs/research/rank_bounded_certification.md): exact
 negative-degree slices, successor-closed proof envelopes, then compact exact
 witnesses for remaining domain implications. The slice and scoped-coverage
-primitives are implemented and independently audited. Scope persistence,
-successor checks and runtime entry enforcement are still required before this
+primitives and a reusable exact successor-containment service are implemented,
+tested and independently audited. Connecting them into scoped certification,
+scope persistence and runtime entry enforcement is still required before this
 becomes a public option; the internal primitives alone do not certify closure.
 
 **Domain-proof implementation checkpoint (2026-09-16):** common certification
@@ -101,6 +127,19 @@ ignored), 150 application/CLI/Python-binding Rust tests, and 32 fresh release-
 wheel Python tests. The experimental core `CandidateReducer` remains explicitly
 uncertified and checks each actual integer point, guards and descent. The
 four-loop Vakint numerical gate is still separate and pending.
+
+**Experimental four-loop numerical progress (2026-09-16):** the existing strict
+comparative harness now passes parent, dotted-parent and pinch targets for both
+H and FG (six finite-target comparisons, not the full acceptance inventory).
+The FeynKit/RustRed tail uses an invalid FORM path. Offline FMFT supplies exact
+terminal projections; clearing the candidate cache before comparison forces
+26,956 new rule applications for H and 3,362 for FG. Exact expansion before
+approximate master substitution fixes a demonstrated floating cancellation
+failure without changing tolerances, precision or missing-order checks; all
+nine shared-finalizer tests pass. The unchanged legacy four-loop references
+and the other parents still need their gates. No four-loop certified artifact
+or production shipping claim follows from these finite comparisons. Evidence:
+`TMP/vakint-candidate-4l.DRxEa4/RESULTS.md` (moved into the workspace).
 
 The new release CLI also saves full H and FG candidate bundles (21,360 and
 9,272 rules). On the shared host with two workers, their solve phases took

@@ -19,6 +19,16 @@ The local reference source and working notes
 
 ## Current capability
 
+The [September 17 status report](STATUS_17_09_2026.md) and
+[checkpoint ledger](docs/checkpoints/2026-09-17.md) record the
+latest reconstruction, C++ comparison, certification and experimental Vakint
+results. Four-loop candidate generation is usable; four-loop production
+artifacts and the complete native acceptance suite remain unfinished. Twelve
+finite-target native comparisons across H, FG, X and BMW passed against FMFT; these
+are separate from the fifteen passing legacy FMFT references. See the
+[matched generation measurements](docs/four_loop_generation_comparison.md)
+for completed versus interrupted runs and output-equivalence qualifications.
+
 K1/K3/K6 artifacts and offline master projections are shipped with Vakint.
 GammaLoop milestone `433e42d3` corrects MATAD's signed routing for contracted
 three-loop numerator momenta. After the independently audited 34-test targeted
@@ -39,7 +49,7 @@ solver cases. Explicit caller-owned publication and cold-load resource policies,
 native coefficient-conjunction refinement and exhaustive short-axis consistency
 checks pass **629 focused core tests** and independent review. Defaults are
 unchanged; larger finite allowances expose the next proof obligations. The
-latest public release CLI attempts distinguish whole-sector certification
+earlier recorded public release CLI attempts distinguish whole-sector certification
 from later durable-artifact publication:
 
 | Family | Exact sector audits | Remaining publication obstruction |
