@@ -182,3 +182,46 @@ Neither change is topology dispatch, a new CAS implementation, an increased
 proof budget, or a relaxation of source replay, guards, descent or coverage.
 The proposed rank-scoped certification service will reuse these same exact
 domain semantics; see [the rank-bound recommendation](rank_bounded_certification.md).
+
+### Fresh FG recertification resource-bound evidence (2026-09-17)
+
+The resumed release recertification used the unchanged saved FG candidate
+bundle and the normal exact replay/publication path. With an endpoint-cell
+limit of `32768`, it reached this precise diagnostic:
+
+```text
+sector [true,true,false,false,true,true,true,false,false,false]
+retained rule 157/177 (zero-based)
+fixed [1,1,-1,0,1,1,1,0,-3,0]
+combined domain bound endpoint cells: requested 33080, limit 32768
+```
+
+That run took 468.00 s wall, used 15,428,848 KiB peak RSS, and exited with
+status 8 without writing an artifact. This is a resource-policy rejection,
+not an identity, descent, or coverage proof.
+
+Raising only the endpoint-cell limit to `65536` did not establish closure. A
+second release run took 310.94 s wall, used 25,225,696 KiB peak RSS, and then
+failed closed at the next exact aggregate-cover preflight:
+
+```text
+artifact combined cover boxes requires 288047 units, limit is 65536
+```
+
+It also exited with status 8 and produced no artifact. These measurements show
+why repeatedly increasing a global cap is not a certification strategy:
+endpoint and aggregate-cover structures have distinct cumulative costs, and
+the latter can grow substantially after the former succeeds. No FG closure
+claim should be inferred from either run.
+
+The safe scoped-certification direction remains an explicit
+successor-closed proof domain. A future rank-bounded mode must persist the
+admitted entry domain and an exact finite union of coordinate/affine slices,
+then verify: (1) every admitted entry is in that domain or a proved
+zero/terminal; (2) every applicable retained rule is replayed and descending;
+(3) every nonzero RHS image is contained in the same domain or an independently
+checked terminal; and (4) the same domain and checks are reproduced on cold
+load and runtime entry. Existing rank-slice and successor-scope helpers are
+useful building blocks, but until these obligations are wired into the durable
+schema they must not be exposed as a bounded closure certificate. Increasing
+budgets, finite sampling, and finite-field agreement remain diagnostics only.
