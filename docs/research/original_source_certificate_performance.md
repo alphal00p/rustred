@@ -23,6 +23,9 @@ The same-host control shows that the frame path improves the six-worker run,
 but the current machine has substantial unrelated load, so this is not a
 scaling claim. Exact output equality was checked by SHA-256 over every file.
 
+After the scope primitive and probe-frame commits, the complete RustRed library
+gate passes **2,063 tests, zero failures and 31 ignored tests** in 336.88 s.
+
 The independent C++ audit also corrected the interpretation of the surrounding
 benchmark notes: the saved “cpp-lane” JSON proves RustRed display equality and
 determinism, not C++ completion. Completed native SpIRed evidence is H(6),
