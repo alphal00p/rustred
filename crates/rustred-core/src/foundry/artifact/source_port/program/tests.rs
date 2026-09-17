@@ -18,6 +18,10 @@ fn source_port_rule_policy_survives_retention_and_matches_cold_loading() {
         4_194_304
     );
     assert_eq!(SourcePortLimits::default().max_predicate_atoms, 32);
+    assert_eq!(
+        SourcePortLimits::default().cover_replay,
+        ArtifactLoadLimits::default().cover_replay
+    );
     assert_eq!(ArtifactLoadLimits::default().max_predicate_atoms, 32);
     assert_eq!(
         SourcePortLimits::default()
@@ -28,6 +32,33 @@ fn source_port_rule_policy_survives_retention_and_matches_cold_loading() {
     assert_eq!(
         ArtifactLoadLimits::default().max_predicate_consistency_work,
         SourcePortLimits::default().max_predicate_consistency_work
+    );
+    // Producer and cold-loader policies use the same explicit cover budget;
+    // neither silently substitutes the generic geometry default.
+    let mut cover_limited = SourcePortLimits::default();
+    cover_limited.cover_replay.max_requested_boxes = 1;
+    let (audit, solution) = solved_tadpole();
+    let program = audit
+        .with_limits(cover_limited)
+        .retain_program(tadpole(), [([true], None, solution)])
+        .unwrap();
+    assert_eq!(program.limits.cover_replay, cover_limited.cover_replay);
+    assert!(
+        program
+            .install()
+            .unwrap_err()
+            .to_string()
+            .contains("combined cover boxes")
+    );
+    let cold_limits = ArtifactLoadLimits {
+        cover_replay: cover_limited.cover_replay,
+        ..Default::default()
+    };
+    assert!(
+        ClosedArtifact::decode_durable_with_limits(&baseline, cold_limits)
+            .unwrap_err()
+            .to_string()
+            .contains("combined cover boxes")
     );
     for endpoints in [13, 14, 16_384] {
         let (audit, solution) = solved_tadpole();

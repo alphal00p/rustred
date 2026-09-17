@@ -1,3 +1,4 @@
+use crate::foundry::artifact::ArtifactCoverReplayLimits;
 use crate::foundry::parametric::ParametricRuleLimits;
 
 pub(crate) const DEFAULT_PREDICATE_CONSISTENCY_WORK: usize = 4_194_304;
@@ -11,6 +12,11 @@ pub(crate) const DEFAULT_PREDICATE_ATOMS: usize = 32;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SourcePortLimits {
     pub rule_derivation: ParametricRuleLimits,
+    /// Exact geometric work permitted during original-domain lowering and
+    /// final complete-cover installation. This policy is independent of
+    /// algebraic row/column limits. Its default matches durable loading; a
+    /// caller's smaller limit, including zero, is never increased implicitly.
+    pub cover_replay: ArtifactCoverReplayLimits,
     /// Native affine consistency work allowed per complete predicate-cover
     /// traversal, shared by all of its boxes and Boolean branches. Stored,
     /// replay-checked, and final installed covers are independent traversals.
@@ -44,6 +50,7 @@ impl Default for SourcePortLimits {
     fn default() -> Self {
         Self {
             rule_derivation: ParametricRuleLimits::default(),
+            cover_replay: ArtifactCoverReplayLimits::default(),
             max_predicate_consistency_work: DEFAULT_PREDICATE_CONSISTENCY_WORK,
             max_predicate_atoms: DEFAULT_PREDICATE_ATOMS,
         }

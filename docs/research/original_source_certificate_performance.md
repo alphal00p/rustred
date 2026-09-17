@@ -23,6 +23,27 @@ The same-host control shows that the frame path improves the six-worker run,
 but the current machine has substantial unrelated load, so this is not a
 scaling claim. Exact output equality was checked by SHA-256 over every file.
 
+### Fresh matched-parent serial sweep
+
+The same prepared-frame client was then run on the remaining parent inputs with
+one worker.  The runs were release builds using the current Symbolica license;
+their host was also carrying the uncapped native X reference processes, so the
+times are reproducible observations rather than isolated scaling claims.
+
+| Parent | Wall | Solver | Prepare | Output | Peak RSS | Sectors / zero / sources | Rules / finite residuals | Files |
+| --- | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: |
+| H | 133.66 s | 132.367754 s | 50.857 ms | 0.979290 s | 349.7 MiB | 314 / 296 / 16 | 21,360 / 386 | 315 |
+| BMW | 153.02 s | 152.326904 s | 57.829 ms | 0.490887 s | 243.0 MiB | 134 / 274 / 16 | 9,024 / 179 | 135 |
+| X | 400.19 s | 398.367532 s | 56.155 ms | 1.376402 s | 673.9 MiB | 328 / 281 / 16 | 19,980 / 445 | 329 |
+
+Every output directory is file-for-file identical to its saved sparse baseline:
+H and BMW match both the sparse and semi-pivot2 baselines, and X matches the
+sparse baseline.  The current frame client is slower than the saved same-host
+sparse H (107.19 s) and BMW (117.70 s) runs, while the earlier controlled FG
+frame run remains the demonstrated improvement.  These entries are all
+`uncertified-generated` bundles: they are not closing artifacts and do not
+authorize four-loop Vakint production admission.
+
 After the scope primitive and probe-frame commits, the complete RustRed library
 gate passes **2,063 tests, zero failures and 31 ignored tests** in 336.88 s.
 

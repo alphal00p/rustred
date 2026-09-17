@@ -57,35 +57,12 @@ pub(super) fn lower_rule<const N: usize>(
     inherited: &[crate::algebra::CoefficientPolynomial],
     checked: CheckedRule<N>,
     rule_limits: crate::foundry::parametric::ParametricRuleLimits,
+    cover_limits: crate::foundry::artifact::ArtifactCoverReplayLimits,
 ) -> Result<Vec<Arc<RuleCell>>, SourcePortAuditError> {
     let context = corpus.context();
-    // The generic geometry helper has a conservative 65_536-box default.  A
-    // source-port caller, however, already owns the explicit rule-shift and
-    // retained-coordinate budgets.  Reuse those budgets for the derived
-    // sign-cell/refinement geometry as well; otherwise a mathematically valid
-    // four-loop rule can be rejected by an unrelated hidden cap before the
-    // caller's resource policy is reached.  This only raises the admissible
-    // work when the caller has explicitly raised the corresponding rule
-    // budgets and remains fail-closed on every checked multiplication.
-    let mut geometry = crate::foundry::completion::CompletionGeometryLimits::default();
-    geometry.max_requested_boxes = geometry
-        .max_requested_boxes
-        .max(rule_limits.max_shift_columns);
-    geometry.max_requested_box_coordinate_cells = geometry
-        .max_requested_box_coordinate_cells
-        .max(rule_limits.max_index_coordinate_cells);
-    geometry.max_uncovered_boxes = geometry
-        .max_uncovered_boxes
-        .max(rule_limits.max_shift_columns);
-    geometry.max_uncovered_box_coordinate_cells = geometry
-        .max_uncovered_box_coordinate_cells
-        .max(rule_limits.max_index_coordinate_cells);
-    geometry.max_split_operations = geometry
-        .max_split_operations
-        .max(rule_limits.max_index_coordinate_cells);
     let limits = ReplayLimits {
         rule: rule_limits,
-        geometry,
+        geometry: cover_limits.geometry(),
         ..Default::default()
     };
     let fixed: Vec<_> = checked

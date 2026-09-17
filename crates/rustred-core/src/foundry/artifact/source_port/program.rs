@@ -202,6 +202,7 @@ impl<const N: usize> CheckedProgram<N> {
                     &self.inherited_source_conditions,
                     rule,
                     self.limits.rule_derivation,
+                    self.limits.cover_replay,
                 )
                 .map_err(|issue| {
                     issue.with_message_context(|| {
@@ -260,7 +261,7 @@ impl<const N: usize> CheckedProgram<N> {
         });
         let artifact = install_source_port_with_limits(
             candidate,
-            Default::default(),
+            self.limits.cover_replay.geometry(),
             self.limits.max_predicate_consistency_work,
             self.limits.max_predicate_atoms,
         )
@@ -451,6 +452,7 @@ pub(super) fn lower_sector_for_test<const N: usize>(
             audit.sources.conditions(),
             rule,
             audit.limits.rule_derivation,
+            audit.limits.cover_replay,
         )
         .map_err(|issue| error(format!("rule {ordinal} lowering: {issue}")))?;
         count += cells.len();
