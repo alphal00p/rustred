@@ -528,3 +528,50 @@ fn prospective_sign_product_and_late_input_caps_fail_without_truncation() {
         .is_err()
     );
 }
+
+#[test]
+fn successor_closed_scope_checks_entries_and_all_rhs_images() {
+    let source = cell([0], [Some(1)]);
+    let domain = [cell([0], [Some(2)])];
+    let entries = [DestinationScope {
+        sector: &[true],
+        boxes: &domain,
+    }];
+    let mut proof = SuccessorClosedScope::try_new(
+        1,
+        &entries,
+        &entries,
+        Default::default(),
+    )
+    .unwrap();
+    let shifts = [&[0_i64][..], &[1_i64][..]];
+    assert!(proof.check_rule_images(&source, &[true], &shifts).is_ok());
+
+    let escaped = [&[3_i64][..]];
+    assert!(matches!(
+        proof.check_rule_images(&source, &[true], &escaped),
+        Err(ArtifactError::InvalidRuleShape { .. })
+    ));
+}
+
+#[test]
+fn successor_closed_scope_rejects_an_entry_outside_the_domain() {
+    let entry = [cell([2], [Some(3)])];
+    let destination = [cell([0], [Some(1)])];
+    let result = SuccessorClosedScope::try_new(
+        1,
+        &[DestinationScope {
+            sector: &[true],
+            boxes: &entry,
+        }],
+        &[DestinationScope {
+            sector: &[true],
+            boxes: &destination,
+        }],
+        Default::default(),
+    );
+    assert!(matches!(
+        result,
+        Err(ArtifactError::InvalidRuleShape { .. })
+    ));
+}

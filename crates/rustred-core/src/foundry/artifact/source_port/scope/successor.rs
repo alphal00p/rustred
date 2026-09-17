@@ -37,6 +37,57 @@ pub(in crate::foundry::artifact) struct PreparedSuccessorScope {
     budget: SuccessorScopeBudget,
 }
 
+/// Internal proof object for a rank-scoped successor-closed domain.
+///
+/// Construction first proves that every admitted entry piece is contained in
+/// the immutable destination union.  Callers then submit every executable
+/// RHS shift; each translated image is checked against that same union.  This
+/// is deliberately not wired into artifact persistence or runtime admission:
+/// it is a small exact building block for the future scoped-certification
+/// contract, not a bounded closure claim by itself.
+pub(in crate::foundry::artifact) struct SuccessorClosedScope {
+    prepared: PreparedSuccessorScope,
+}
+
+impl SuccessorClosedScope {
+    pub(in crate::foundry::artifact) fn try_new(
+        arity: usize,
+        entries: &[DestinationScope<'_>],
+        destinations: &[DestinationScope<'_>],
+        limits: CompletionGeometryLimits,
+    ) -> Result<Self, ArtifactError> {
+        let mut prepared = PreparedSuccessorScope::try_new(arity, destinations, limits)?;
+        let zero = vec![0_i64; arity];
+        for entry in entries {
+            if entry.sector.len() != arity {
+                return Err(invalid("successor entry sector arity mismatch"));
+            }
+            for source in entry.boxes {
+                if !prepared.contains(source, entry.sector, &zero)? {
+                    return Err(invalid(
+                        "successor entry domain is not contained in destination union",
+                    ));
+                }
+            }
+        }
+        Ok(Self { prepared })
+    }
+
+    pub(in crate::foundry::artifact) fn check_rule_images(
+        &mut self,
+        source: &LatticeBox,
+        sector: &[bool],
+        rhs_shifts: &[&[i64]],
+    ) -> Result<(), ArtifactError> {
+        for shift in rhs_shifts {
+            if !self.prepared.contains(source, sector, shift)? {
+                return Err(invalid("RHS image escapes successor-closed proof domain"));
+            }
+        }
+        Ok(())
+    }
+}
+
 struct SuccessorScopeBudget {
     limits: CompletionGeometryLimits,
     requested_boxes: usize,
