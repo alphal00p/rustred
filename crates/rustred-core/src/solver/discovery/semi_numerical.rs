@@ -10,17 +10,25 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use symbolica::domains::SelfRing;
+#[cfg(test)]
+use symbolica::domains::finite_field::ToFiniteField;
 use symbolica::domains::finite_field::{
-    FiniteFieldCore, FiniteFieldElement, PrimeIteratorU64, ToFiniteField, Zp64,
+    FiniteFieldCore, FiniteFieldElement, PrimeIteratorU64, Zp64,
 };
-use symbolica::domains::{Field, Ring, SelfRing};
+#[cfg(test)]
+use symbolica::domains::{Field, Ring};
 use symbolica::poly::reconstruction::{
     ReconstructionMethod, ReconstructionOptions, reconstruct_rational_function_over_q,
 };
+#[cfg(test)]
 use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
 
 use super::variables::FrameVariables;
 use super::{ExactRow, Integral, IntegralOrder, MaterializationError, MaterializationEvent, Term};
+
+mod frame;
+use frame::ProbeFrame;
 
 type Fp = FiniteFieldElement<u64>;
 type CacheKey = (u64, Vec<u64>);
@@ -31,7 +39,7 @@ type CacheKey = (u64, Vec<u64>);
 /// the source trace at a zero of a pivot minor can otherwise make the
 /// black-box oracle piecewise, which is not a valid input to Symbolica's
 /// rational-function reconstructor.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct TargetImage {
     row: Vec<(u32, Fp)>,
     // One outcome per original source row, including dependent inputs. Pivot
@@ -114,6 +122,10 @@ fn materialize_with_support<const N: usize>(
         variables: reconstruction_variables.len(),
     });
 
+    // Column lookup and native variable remapping depend only on the selected
+    // source trace, not on a prime or probe point. Prepare them once.
+    let frame = ProbeFrame::new(rows, columns, order, variables)?;
+
     // All target-row evaluations at one point are shared by every coefficient
     // reconstruction. This is essential: the Symbolica API is scalar-valued,
     // while one GPLU evaluation yields the complete sparse row.
@@ -129,7 +141,7 @@ fn materialize_with_support<const N: usize>(
     let (candidate_columns, sampled_pivots) = if let Some(support) = support_override {
         (support, Vec::new())
     } else {
-        sampled_support(rows, columns, order, target_column, variables)
+        sampled_frame_support(&frame, target_column, variables.active_len())
             .unwrap_or_else(|| ((0..columns.len()).collect(), Vec::new()))
     };
     if !sampled_pivots.is_empty() {
@@ -152,9 +164,9 @@ fn materialize_with_support<const N: usize>(
                 field.get_prime(),
                 point.iter().map(|value| *value.inner()).collect::<Vec<_>>(),
             );
-            let image = cache.entry(key).or_insert_with(|| {
-                target_row_at_point(rows, columns, order, target_column, variables, field, point)
-            });
+            let image = cache
+                .entry(key)
+                .or_insert_with(|| frame.target_row(target_column, field, point));
             let Some(image) = image.as_ref() else {
                 return None;
             };
@@ -243,12 +255,15 @@ fn materialize_with_support<const N: usize>(
     // observer type through the semi-numerical branch at higher-arity call
     // sites. The replay deliberately discards events and remains the same
     // characteristic-zero sparse GPLU authority.
-    let exact = super::sparse_materialize(rows, columns, order, target_column, variables, |_| {})
-        .map_err(|error| {
-        MaterializationError::SemiNumericalReconstruction(format!(
-            "exact characteristic-zero replay failed after reconstruction: {error}"
-        ))
-    })?;
+    let exact = match exact_support {
+        Some(exact) => exact,
+        None => super::sparse_materialize(rows, columns, order, target_column, variables, |_| {})
+            .map_err(|error| {
+            MaterializationError::SemiNumericalReconstruction(format!(
+                "exact characteristic-zero replay failed after reconstruction: {error}"
+            ))
+        })?,
+    };
     if exact != output {
         if !support_retry {
             let exact_support_columns = exact
@@ -298,12 +313,10 @@ fn materialize_with_support<const N: usize>(
 /// specializations. `None` means no usable image was found and requests the
 /// conservative all-column path. This is a structural sparsity screen, not a
 /// correctness gate; exact source replay/publication remains authoritative.
-fn sampled_support<const N: usize>(
-    rows: &[ExactRow<N>],
-    columns: &[Integral<N>],
-    order: &IntegralOrder<N>,
+fn sampled_frame_support(
+    frame: &ProbeFrame,
     target_column: usize,
-    variables: &FrameVariables,
+    dimensions: usize,
 ) -> Option<(Vec<usize>, Vec<Option<u32>>)> {
     let mut primes = PrimeIteratorU64::new(1 << 61);
     // Keep support by pivot branch and choose the most frequently observed
@@ -311,7 +324,6 @@ fn sampled_support<const N: usize>(
     // irrelevant columns and can make Symbolica try to reconstruct a zero
     // coefficient for a different GPLU branch.
     let mut branches: BTreeMap<Vec<Option<u32>>, (usize, BTreeSet<usize>)> = BTreeMap::new();
-    let dimensions = variables.active_len();
     let mut rng = StdRng::seed_from_u64(0x7375_7070_6f72_7421);
     for _ in 0..24 {
         let prime = primes.next()?;
@@ -319,15 +331,7 @@ fn sampled_support<const N: usize>(
         let point: Vec<_> = (0..dimensions)
             .map(|_| field.to_element(rng.random_range(1..prime)))
             .collect();
-        if let Some(image) = target_row_at_point(
-            rows,
-            columns,
-            order,
-            target_column,
-            variables,
-            &field,
-            &point,
-        ) {
+        if let Some(image) = frame.target_row(target_column, &field, &point) {
             let entry = branches
                 .entry(image.pivots)
                 .or_insert_with(|| (0, BTreeSet::new()));
@@ -372,6 +376,8 @@ fn reconstruction_error(
     ))
 }
 
+// The pre-preparation implementation remains a test-only differential oracle.
+#[cfg(test)]
 fn target_row_at_point<const N: usize>(
     rows: &[ExactRow<N>],
     columns: &[Integral<N>],
@@ -753,7 +759,12 @@ mod tests {
         let variables =
             FrameVariables::try_new(&rows, CoefficientVariableOrder::Original, &[]).unwrap();
         assert_eq!(
-            sampled_support(&rows, &columns, &order, 0, &variables).unwrap(),
+            sampled_frame_support(
+                &ProbeFrame::new(&rows, &columns, &order, &variables).unwrap(),
+                0,
+                variables.active_len(),
+            )
+            .unwrap(),
             (vec![0, 1], vec![Some(0)]),
         );
         let actual = materialize(
@@ -770,5 +781,46 @@ mod tests {
         )
         .unwrap();
         assert_eq!(actual, rows[0]);
+    }
+
+    #[test]
+    fn prepared_probes_match_direct_evaluation_across_primes_orders_and_poles() {
+        let context = CoefficientContext::new(["unused", "a", "b"]);
+        let term = |shift, value: &str| Term {
+            integral: integral(shift),
+            coefficient: context.coefficient_fixture(value),
+        };
+        let rows = vec![
+            vec![term(3, "a/(b-1)"), term(2, "a")],
+            vec![term(3, "2*a/(b-1)"), term(2, "2*a")],
+            vec![term(3, "1"), term(2, "2"), term(1, "b")],
+            vec![term(2, "1"), term(1, "a+b")],
+        ];
+        let columns = vec![integral(3), integral(2), integral(1)];
+        let order = IntegralOrder::new([true], [false]);
+        for variable_order in [
+            CoefficientVariableOrder::Original,
+            CoefficientVariableOrder::Reverse,
+        ] {
+            let variables = FrameVariables::try_new(&rows, variable_order, &[]).unwrap();
+            assert_eq!(variables.active_len(), 2);
+            let prepared = ProbeFrame::new(&rows, &columns, &order, &variables).unwrap();
+            for prime in PrimeIteratorU64::new(1 << 61).take(3) {
+                let field = Zp64::new(prime);
+                for first in 0..4 {
+                    for second in 0..4 {
+                        let point = [field.to_element(first), field.to_element(second)];
+                        for target in 0..columns.len() {
+                            assert_eq!(
+                                prepared.target_row(target, &field, &point),
+                                target_row_at_point(
+                                    &rows, &columns, &order, target, &variables, &field, &point,
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }

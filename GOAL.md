@@ -1,5 +1,30 @@
 # RustRed project goal
 
+## Full implementation resumed — 2026-09-17
+
+The user explicitly resumed the full stated goal and superseded the checkpoint
+stop: "Full implementation of the state goal now, ignore previous instructions
+to stop until goal completion, and split your work across agents when orthogonal
+implementation allows it."
+
+Continue all three lanes in parallel: complete and independently certify the
+four-loop outputs, reproduce the complete applicable Vakint four-loop numerical
+inventory with the FORM-less native path and shipped data, and finish matched
+generation/application performance measurements. The September 17 checkpoint
+below is historical, not an instruction to stop. Retain its tested baseline,
+explicit incomplete claims, and benchmark provenance. Start new measurements
+from current release builds and preserve previous evidence rather than replacing
+failed or censored records. Production admission still requires exact replay,
+guards, descent, reachable coverage, artifact serialization and cold loading.
+
+Implementation lanes must have independent audits before milestone publication.
+Reuse Symbolica's public algebra and reconstruction APIs, keep IBP application
+in RustRed, and preserve Vakint's existing defaults and FORM-backed methods.
+The user subsequently withdrew the previously supplied AGENTS.md instructions,
+including that host-specific CI/upload prerequisite. Continue ordinary relevant
+checks and independent audits before publishing; never label unrun CI or cache
+uploads successful.
+
 ## User-requested checkpoint — 2026-09-17
 
 Freeze feature development and stabilize the work already in flight, aiming to
