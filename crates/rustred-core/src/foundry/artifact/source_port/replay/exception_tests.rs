@@ -80,6 +80,47 @@ fn nonlinear_guard_conjunction_uses_its_linear_sibling_and_existing_parent_excep
 }
 
 #[test]
+fn h370_guard_with_n3_zero_keeps_the_exact_integer_child() {
+    let context = CoefficientContext::new(["n0", "n3", "n7"]);
+    let indices = [0, 1, 2];
+    let sector = [false; 3];
+    let parent = Case::generic()
+        .intersect(&equations(&context, &["-1-n7-n3+2*n0"]), &indices, &sector)
+        .unwrap()
+        .unwrap();
+    let branch = equations(&context, &["-n7-n7^2+14*n3+3*n3*n7+6*n3^2", "n3"]);
+
+    // The singleton API cannot soundly admit this mixed nonlinear/affine
+    // conjunction, while the exact disjunctive service refines it to the
+    // only integer child n0=0, n3=0, n7=-1.
+    assert!(matches!(
+        parent.intersect(&branch, &indices, &sector),
+        Err(AffineGeometryError::UnsupportedNonlinear { .. })
+    ));
+    let rule = candidate(parent);
+    let mut additional = Vec::new();
+    append_exceptions(
+        &rule,
+        ExceptionalConditions {
+            branches: vec![branch],
+        },
+        &[],
+        &mut additional,
+        &indices,
+        &sector,
+    )
+    .unwrap();
+    assert_eq!(
+        additional,
+        vec![
+            CoordinateCase::new([Some(0), Some(0), Some(-1)])
+                .unwrap()
+                .into()
+        ]
+    );
+}
+
+#[test]
 fn split_guard_retains_all_children_and_every_and_condition() {
     let context = CoefficientContext::new(["a", "b", "c"]);
     let rule = candidate(Case::<3>::generic());
