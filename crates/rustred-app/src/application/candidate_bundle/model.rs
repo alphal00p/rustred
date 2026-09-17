@@ -7,6 +7,11 @@ use crate::application::InputFormat;
 pub const CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.uncertified-candidates.toml.v1";
 pub const FAMILY_CANDIDATES_SCHEMA: &str = "rustred.family-candidates-output.toml.v1";
 pub const CANDIDATE_CERTIFICATION_SCHEMA: &str = "rustred.candidate-certification-output.toml.v1";
+/// Maximum semantic rank bound accepted by the (currently fail-closed)
+/// bounded-certification front end.  Keeping this cap explicit prevents a
+/// caller from accidentally turning a bounded request into an unbounded
+/// resource campaign while the scoped artifact contract is completed.
+pub const MAX_RANK_SCOPED_CERTIFICATION_DEGREE: usize = 30;
 pub(super) const STATUS: &str = "uncertified-candidates";
 pub(super) const SOLVER_POLICY: &str = "ordinary-source-port-default-v1";
 
@@ -63,6 +68,12 @@ pub struct CandidateCertificationRequest {
     pub bundle: Vec<u8>,
     pub input_limits: CandidateBundleLimits,
     pub publication_limits: SourcePortLimits,
+    /// Optional entry numerator degree requested for a future scoped proof.
+    /// This is deliberately not interpreted as a whole-family certificate:
+    /// the current durable artifact schema has no persisted successor-closed
+    /// scope or runtime entry admission.  Requests are therefore rejected
+    /// before decoding until that contract is implemented end to end.
+    pub max_negative_index_degree: Option<usize>,
 }
 
 impl CandidateCertificationRequest {
@@ -71,7 +82,13 @@ impl CandidateCertificationRequest {
             bundle: bundle.into(),
             input_limits: CandidateBundleLimits::default(),
             publication_limits: SourcePortLimits::default(),
+            max_negative_index_degree: None,
         }
+    }
+
+    pub fn with_max_negative_index_degree(mut self, degree: usize) -> Self {
+        self.max_negative_index_degree = Some(degree);
+        self
     }
 }
 

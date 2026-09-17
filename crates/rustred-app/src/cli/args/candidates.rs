@@ -24,6 +24,7 @@ pub(crate) struct CertifyCandidatesArgs {
     pub output: StreamPath,
     pub report_output: Option<StreamPath>,
     pub resources: ResourceLimitsArgs,
+    pub max_negative_index_degree: Option<usize>,
     pub force: bool,
 }
 
@@ -51,6 +52,7 @@ fn parse(
     let mut permutation = None;
     let mut nonpositive_indices = None;
     let mut resources = ResourceLimitsArgs::default();
+    let mut max_negative_index_degree = None;
     let mut force = false;
     let mut help = false;
     while let Some(option) = arguments.next() {
@@ -117,6 +119,14 @@ fn parse(
                 )?;
             }
             _ if certification && resources.parse_option(&option, &mut arguments)? => {}
+            "--max-negative-index-degree" if certification => set_once(
+                &mut max_negative_index_degree,
+                "--max-negative-index-degree",
+                parse_nonnegative_integer(
+                    "--max-negative-index-degree",
+                    next_utf8_value(&mut arguments, "--max-negative-index-degree")?,
+                )?,
+            )?,
             _ if option.starts_with('-') => return Err(ArgError::UnknownOption(option)),
             _ => return Err(ArgError::UnexpectedArgument(option)),
         }
@@ -146,6 +156,7 @@ fn parse(
             output,
             report_output,
             resources,
+            max_negative_index_degree,
             force,
         }))
     } else {
@@ -199,6 +210,8 @@ mod tests {
                 "64",
                 "--max-domain-bound-endpoint-cells",
                 "0",
+                "--max-negative-index-degree",
+                "30",
             ]
             .into_iter()
             .map(OsString::from),
@@ -218,6 +231,7 @@ mod tests {
                 .max_domain_bound_endpoint_cells,
             0
         );
+        assert_eq!(arguments.max_negative_index_degree, Some(30));
         assert!(
             parse_generation(
                 ["--max-predicate-atoms", "64"]

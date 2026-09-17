@@ -101,6 +101,33 @@ fn certification_replays_saved_coefficients_and_honors_separate_resource_policy(
 }
 
 #[test]
+fn rank_scoped_certification_is_explicitly_fail_closed_without_an_unbounded_fallback() {
+    let bundle = success(&["family-candidates"], INPUT.as_bytes());
+    let failed = run(
+        &["certify-candidates", "--max-negative-index-degree", "30"],
+        &bundle,
+    );
+    assert!(!failed.status.success());
+    assert!(failed.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&failed.stderr);
+    assert!(stderr.contains("rank-scoped certification"), "{stderr}");
+    assert!(
+        stderr.contains("refusing an unbounded certification fallback"),
+        "{stderr}"
+    );
+
+    let failed = run(
+        &["certify-candidates", "--max-negative-index-degree", "31"],
+        &bundle,
+    );
+    assert!(!failed.status.success());
+    assert!(failed.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&failed.stderr).contains("exceeds the supported rank-scoped limit")
+    );
+}
+
+#[test]
 fn candidate_command_help_and_policy_errors_are_explicit() {
     let help = success(&["--help"], b"");
     let help = std::str::from_utf8(&help).unwrap();

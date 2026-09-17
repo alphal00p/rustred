@@ -145,6 +145,12 @@ certified = rustred.certify_candidates(
 )
 ```
 
+`max_negative_index_degree` is an opt-in request for the future bounded-rank
+certification contract.  RustRed currently rejects values up to the supported
+cap of 30 with a fail-closed diagnostic: the durable artifact schema and
+reducer do not yet persist and enforce the required successor-closed entry
+scope, and therefore no unbounded whole-family fallback is attempted.
+
 Those same three limits are accepted by `family_close`,
 `inspect_closing_artifact`, and `reduce_with_closing_artifact`; reapply chosen
 budgets on a later cold load. Defaults are unchanged, zero is restrictive, and

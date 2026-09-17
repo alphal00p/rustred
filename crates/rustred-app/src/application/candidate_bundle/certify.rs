@@ -13,6 +13,16 @@ use super::{codec, model::*, preparation};
 pub fn certify_candidates(
     request: CandidateCertificationRequest,
 ) -> Result<CandidateCertificationResult, AppError> {
+    if let Some(degree) = request.max_negative_index_degree {
+        if degree > MAX_RANK_SCOPED_CERTIFICATION_DEGREE {
+            return Err(AppError::input(format!(
+                "max-negative-index-degree {degree} exceeds the supported rank-scoped limit {MAX_RANK_SCOPED_CERTIFICATION_DEGREE}"
+            )));
+        }
+        return Err(AppError::execution(format!(
+            "rank-scoped certification through max-negative-index-degree={degree} is not yet available: the durable artifact schema and runtime reducer do not persist or enforce a successor-closed entry scope; refusing an unbounded certification fallback"
+        )));
+    }
     let started = Instant::now();
     request
         .publication_limits

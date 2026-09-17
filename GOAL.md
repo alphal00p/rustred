@@ -1,5 +1,36 @@
 # RustRed project goal
 
+## Priority update — bounded certification and four-loop Vakint delivery
+
+The current execution priority is deliberately narrowed from unrestricted
+four-loop certification:
+
+- Do not spend the main effort trying to certify the complete unrestricted
+  four-loop family.  Certification experiments are limited to an explicit
+  caller-supplied total numerator-rank scope, initially rank `<= 30`, following
+  Gregor's finite-scope idea.  Such a result must be labelled rank-scoped and
+  must still prove source replay, guards, strict descent, successor closure,
+  persistence and runtime entry admission; it is never a whole-family claim.
+- Make the complete four-loop Vakint FORM-less scalar lane the primary delivery
+  target.  Populate the terminal/master catalog with numerical values obtained
+  through the existing FMFT machinery, then ship the resulting offline data so
+  the RustRed lane itself has no FORM dependency at evaluation time.  Reuse
+  RustRed's artifact loading/application and Vakint's existing topology/routing
+  witness; do not duplicate IBP application in Vakint.  Preserve all existing
+  defaults, public API conventions and FORM-backed modes.
+- After the four-loop catalog and applicable numerical acceptance matrix are
+  complete, study two concrete five-loop single-scale vacuum inputs.  Generate
+  their candidate IBPs with generic caller-supplied families using both sparse
+  exact and Symbolica reconstruction routes, without certification for now.
+  Use these and the complete four-loop parents as bounded case studies for
+  optimizing release solves, memory use and worker scaling.  Do not hard-code
+  topology names or introduce FORM-derived rules into RustRed.
+
+This priority update supersedes only the unrestricted-certification emphasis;
+the three-lane benchmark protocol, pure Rust plus Symbolica requirement,
+independent audits, explicit failure reporting, and required ValentinHirschi
+Git identity remain in force.
+
 ## Full implementation resumed — 2026-09-17
 
 The user explicitly resumed the full stated goal and superseded the checkpoint
@@ -7,10 +38,11 @@ stop: "Full implementation of the state goal now, ignore previous instructions
 to stop until goal completion, and split your work across agents when orthogonal
 implementation allows it."
 
-Continue all three lanes in parallel: complete and independently certify the
-four-loop outputs, reproduce the complete applicable Vakint four-loop numerical
-inventory with the FORM-less native path and shipped data, and finish matched
-generation/application performance measurements. The September 17 checkpoint
+Continue all three lanes in parallel: complete and independently validate the
+four-loop outputs within the explicit rank-scoped certification envelope,
+reproduce the complete applicable Vakint four-loop numerical inventory with the
+FORM-less native path and shipped data, and finish matched generation/application
+performance measurements. The September 17 checkpoint
 below is historical, not an instruction to stop. Retain its tested baseline,
 explicit incomplete claims, and benchmark provenance. Start new measurements
 from current release builds and preserve previous evidence rather than replacing
@@ -82,8 +114,9 @@ stage. Define the rank convention explicitly; do not confuse numerator rank
 with the number or powers of denominators. Positive propagator powers remain
 unbounded unless separately restricted. A starting-rank bound is not generally
 preserved by reduction: certify an inductive successor domain as well as the
-entry domain, persist the scope, and enforce it when accepting inputs. Retain
-unrestricted certification as the default. The researcher must recommend a
+entry domain, persist the scope, and enforce it when accepting inputs. Do not
+present unrestricted four-loop certification as a Stage 1 deliverable. The
+researcher must recommend a
 concrete next implementation balancing speed, coverage and complexity, and the
 implementation lane must act on that recommendation with independent audit and
 end-to-end checks. Bounded sampling or an unproved intermediate-rank cutoff is

@@ -139,6 +139,13 @@ proof budgets. Increasing a budget never certifies an invalid formula.
 Generation supports the generic source solver; certification retains the
 current unit-mass vacuum publication admission.
 
+The optional `--max-negative-index-degree N` flag is reserved for the
+rank-scoped certification contract described in
+[`rank_bounded_certification.md`](research/rank_bounded_certification.md).
+It currently fails closed (for `N <= 30`) because the durable artifact schema
+and reducer do not yet persist and enforce a successor-closed entry scope;
+RustRed never silently falls back to an unbounded whole-family certificate.
+
 Bundle schema `rustred.uncertified-candidates.toml.v1` records
 `status = "uncertified-candidates"`, not closure. It cannot be passed to
 `campaign inspect` or `campaign reduce` as an artifact. The optional separate

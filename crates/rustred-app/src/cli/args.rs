@@ -372,6 +372,7 @@ CERTIFY-CANDIDATES OPTIONS:
     --max-domain-bound-endpoint-cells <N>  Certification endpoint budget [core default]
     --max-predicate-consistency-work <N>   Certification consistency budget [core default]
     --max-predicate-atoms <N>              Certification atom limit [default: 32; maximum: 256]
+    --max-negative-index-degree <N>        Request rank-scoped certification (currently fail-closed; maximum 30)
     --force                      Atomically replace existing output files
 
 FAMILY-SOLVE OPTIONS:

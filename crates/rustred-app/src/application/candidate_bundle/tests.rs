@@ -189,6 +189,22 @@ fn solve_only_accepts_symbolic_mass_but_certification_keeps_its_existing_admissi
 }
 
 #[test]
+fn rank_scoped_certification_rejects_without_unbounded_fallback() {
+    let generated = family_candidates(FamilyCandidatesRequest::new(K1)).unwrap();
+    let bounded = CandidateCertificationRequest::new(generated.bundle())
+        .with_max_negative_index_degree(MAX_RANK_SCOPED_CERTIFICATION_DEGREE);
+    let error = certify_candidates(bounded).unwrap_err();
+    assert_eq!(error.kind(), AppErrorKind::Execution);
+    assert!(error.message().contains("successor-closed entry scope"));
+
+    let over_limit = CandidateCertificationRequest::new(generated.bundle())
+        .with_max_negative_index_degree(MAX_RANK_SCOPED_CERTIFICATION_DEGREE + 1);
+    let error = certify_candidates(over_limit).unwrap_err();
+    assert_eq!(error.kind(), AppErrorKind::Input);
+    assert!(error.message().contains("supported rank-scoped limit"));
+}
+
+#[test]
 fn bundles_are_deterministic_across_workers_and_explicit_root_permutation_roundtrip() {
     let serial = family_candidates(FamilyCandidatesRequest::new(K3)).unwrap();
     let mut request = FamilyCandidatesRequest::new(K3);
