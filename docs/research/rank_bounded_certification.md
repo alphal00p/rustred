@@ -26,6 +26,16 @@ geometry service, not a public scoped artifact: original replay, predicate
 coverage, machine-index admission, cold persistence and entry enforcement have
 not been redirected to a rank-restricted publication path.
 
+The next narrow primitive is now also present internally
+(`SuccessorClosedScope`, RustRed commits `fbff9fd4`/`8e22f2fb`). It owns an
+exact admitted-entry union and an immutable destination union, proves entry
+admission at construction, and checks every translated RHS image against that
+same union with the existing Symbolica-backed box geometry. Escapes fail closed
+with a typed error. Twenty-eight focused scope tests pass. This is deliberately
+not a public rank-bounded artifact claim: persistence, source replay, guards,
+descent, cold loading and runtime entry enforcement still have to be composed
+around it.
+
 ## Recommendation and immediate implementation
 
 Use **finite negative-index slices with unbounded positive-index rays**, and
