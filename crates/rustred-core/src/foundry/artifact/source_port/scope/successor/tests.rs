@@ -537,13 +537,8 @@ fn successor_closed_scope_checks_entries_and_all_rhs_images() {
         sector: &[true],
         boxes: &domain,
     }];
-    let mut proof = SuccessorClosedScope::try_new(
-        1,
-        &entries,
-        &entries,
-        Default::default(),
-    )
-    .unwrap();
+    let mut proof =
+        SuccessorClosedScope::try_new(1, &entries, &entries, Default::default()).unwrap();
     let shifts = [&[0_i64][..], &[1_i64][..]];
     assert!(proof.check_rule_images(&source, &[true], &shifts).is_ok());
 
