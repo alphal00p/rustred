@@ -219,6 +219,41 @@ where
             return Ok(false);
         }
         rank = primitive.nrows();
+        if let Some(domain) = &domain {
+            // The jointly reduced equations can force a coordinate outside
+            // this box even when each original equation separately meets it.
+            // Keep this consequence before all nonlinear siblings reduce to
+            // zero and the next iteration has no further rank progress.
+            if chart.fixed_values().len() != domain.sector.len()
+                || domain.piece.arity() != domain.sector.len()
+            {
+                return Err(error("affine guard consequence has incompatible arity"));
+            }
+            work.charge(domain.sector.len(), limits)?;
+            if chart
+                .fixed_values()
+                .iter()
+                .enumerate()
+                .any(|(axis, value)| {
+                    let Some(value) = value else { return false };
+                    let physical = i64::from(*value);
+                    let local = if domain.sector[axis] {
+                        physical - 1
+                    } else {
+                        -physical
+                    };
+                    match u64::try_from(local) {
+                        Ok(local) => {
+                            local < domain.piece.lower()[axis]
+                                || domain.piece.upper()[axis].is_some_and(|end| local > end)
+                        }
+                        Err(_) => true,
+                    }
+                })
+            {
+                return Ok(true);
+            }
+        }
         // Strict rank progress bounds iterations by the dynamic index arity.
         // Every prior affine equation remains present when new ones are added.
         let live_cells = nonlinear

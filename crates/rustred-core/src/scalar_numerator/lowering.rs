@@ -3,25 +3,32 @@ use std::collections::BTreeMap;
 use symbolica::atom::{Atom, AtomCore};
 
 use crate::algebra::Coefficient;
-use crate::family::IntegralKey;
+use crate::family::{IntegralFamily, IntegralKey};
 
 use super::error::{ScalarNumeratorError, check_limit, checked_add, checked_mul};
 use super::model::{LoweredScalarNumeratorTerm, ScalarNumeratorLowering};
-use super::service::ScalarNumeratorService;
+use super::service::PreparedScalarProducts;
 use super::syntax::{
     ExactComparisonBudget, census_atom, preflight_polynomial_shape, validate_scalar_syntax,
 };
 
 type ContributionKey = (Vec<i64>, u32);
 
-impl ScalarNumeratorService<'_> {
+impl PreparedScalarProducts {
     pub(super) fn lower_impl(
         &self,
+        family: &IntegralFamily,
         numerator: &Atom,
         base_integral: &IntegralKey,
+        validate_scope: impl Fn(&IntegralKey) -> Result<(), ScalarNumeratorError>,
     ) -> Result<ScalarNumeratorLowering, ScalarNumeratorError> {
-        let family = self.artifact.family();
-        validate_root_key(self.artifact, base_integral)?;
+        if base_integral.powers().len() != family.denominator_count() {
+            return Err(ScalarNumeratorError::WrongIntegralKeyArity {
+                expected: family.denominator_count(),
+                actual: base_integral.powers().len(),
+            });
+        }
+        validate_scope(base_integral)?;
         census_atom(
             numerator.as_view(),
             "scalar-numerator input nodes",
@@ -82,7 +89,7 @@ impl ScalarNumeratorService<'_> {
             );
             for (coordinate, exponent) in monomial.exponents.iter().enumerate() {
                 for _ in 0..*exponent {
-                    contributions = self.expand_coordinate(contributions, coordinate)?;
+                    contributions = self.expand_coordinate(family, contributions, coordinate)?;
                 }
             }
 
@@ -129,7 +136,7 @@ impl ScalarNumeratorService<'_> {
                     continue;
                 }
                 let integral = IntegralKey::try_from_preallocated(powers)?;
-                validate_root_key(self.artifact, &integral)?;
+                validate_scope(&integral)?;
                 output.push(LoweredScalarNumeratorTerm {
                     coefficient,
                     scalar_spectator: monomial.coefficient.clone(),
@@ -140,17 +147,17 @@ impl ScalarNumeratorService<'_> {
         }
 
         Ok(ScalarNumeratorLowering {
-            family_identity: self.artifact.family_fingerprint_owner(),
+            family_identity: family.fingerprint_owner(),
             terms: output,
         })
     }
 
     fn expand_coordinate(
         &self,
+        family: &IntegralFamily,
         contributions: BTreeMap<ContributionKey, Coefficient>,
         coordinate: usize,
     ) -> Result<BTreeMap<ContributionKey, Coefficient>, ScalarNumeratorError> {
-        let family = self.artifact.family();
         let expansion = family.scalar_product_expansion(coordinate)?;
         let branch_count = checked_add(
             "affine scalar-product branches",
@@ -227,7 +234,7 @@ fn clone_powers(source: &[i64]) -> Result<Vec<i64>, ScalarNumeratorError> {
     Ok(target)
 }
 
-fn validate_root_key(
+pub(super) fn validate_root_key(
     artifact: &crate::foundry::artifact::ClosedArtifact,
     integral: &IntegralKey,
 ) -> Result<(), ScalarNumeratorError> {

@@ -1,8 +1,8 @@
 use std::ffi::OsString;
 
 use super::{
-    next_utf8_value, next_value, parse_positive_integer, set_once, ArgError, Command,
-    FamilySolveArgs, StreamPath,
+    ArgError, Command, FamilySolveArgs, StreamPath, next_utf8_value, next_value,
+    parse_positive_integer, set_once,
 };
 use crate::InputFormat;
 

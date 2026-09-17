@@ -24,10 +24,20 @@ mod terminal;
 mod three_loop;
 mod two_loop;
 
+/// Durable algorithm identifier for a complete unit-mass vacuum artifact.
+///
+/// This is intentionally a capability identifier rather than a topology
+/// name.  A consumer such as Vakint can use it after the artifact has passed
+/// [`ClosedArtifact::decode_durable`] to admit any authenticated arity,
+/// including a future four-loop artifact, without maintaining another
+/// hard-coded loop-count table in the RustRed adapter.
+pub const COMPLETE_VACUUM_SOURCE_PORT_ALGORITHM_ID: &str = "rustred.source-port-original-domain.v1";
+
 pub use error::{ArtifactError, ArtifactPersistenceError};
 pub use factorization::{
     FactorizationFactor, FactorizationMasterEmbedding, FactorizationRule, UnimodularLoopBasis,
 };
+pub(crate) use install::validate_unit_mass_family;
 pub use model::{
     ArtifactSchemaVersion, ArtifactValidationWitness, ClosedArtifact, CommonMassHomogeneityProof,
     ZeroSectorTerminal, ZeroTerminalProof,
@@ -37,7 +47,8 @@ pub use persistence::{ArtifactCoverReplayLimits, ArtifactEncodingLimits, Artifac
 pub(crate) use source_port::ReplayedOriginalDomain;
 pub use source_port::{
     AffineApplicationDomain, AffineOwnershipRole, SourcePortAudit, SourcePortAuditError,
-    SourcePortInstallEvent, SourcePortLimits, SourcePortSectorAudit,
+    SourcePortInstallEvent, SourcePortLimits, SourcePortReplayedRule, SourcePortRuleReplayAudit,
+    SourcePortSectorAudit,
 };
 pub use two_loop::derive_two_loop_unit_mass_sunset;
 

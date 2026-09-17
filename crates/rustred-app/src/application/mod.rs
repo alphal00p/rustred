@@ -22,6 +22,7 @@ pub use candidate_bundle::{
     CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateBundleLimits,
     CandidateBundleResult, CandidateCertificationRequest, CandidateCertificationResult,
     FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest, certify_candidates, family_candidates,
+    load_candidate_bundle,
 };
 pub use error::{AppError, AppErrorKind};
 pub use family_close::{

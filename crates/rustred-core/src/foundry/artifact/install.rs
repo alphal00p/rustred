@@ -23,9 +23,10 @@ mod terminal;
 mod three_loop;
 mod two_loop;
 pub(super) use source_port::ALGORITHM_ID as SOURCE_PORT_ALGORITHM_ID;
+#[cfg(test)]
 pub(super) use source_port::install_source_port;
 pub(super) use source_port::install_source_port_with_limits;
-pub(super) use source_port::validate_unit_mass_family;
+pub(crate) use source_port::validate_unit_mass_family;
 
 pub(crate) use terminal::{TerminalAuthorityCandidate, install_terminal_authority};
 #[cfg(test)]

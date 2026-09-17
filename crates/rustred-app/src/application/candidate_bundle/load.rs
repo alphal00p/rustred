@@ -1,0 +1,119 @@
+//! Load saved formulas into the explicitly uncertified concrete applier.
+
+use rustred::family::IntegralFamily;
+use rustred::identity::ParametricIbpGenerator;
+use rustred::reduction::ReductionLimits;
+use rustred::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, OrderingPolicy, zero};
+use rustred::solver::CandidateReducer;
+
+use crate::application::{AppError, InputFormat};
+
+use super::{CandidateBundleLimits, codec, preparation};
+
+/// Decode a saved candidate bundle for experimental concrete application.
+///
+/// Re-establishes the family binding, zero-sector evidence and the saved
+/// ordering, but performs no sector search, source-identity replay or closure
+/// certification. The returned [`CandidateReducer`] checks guards and descent
+/// at actual integer targets; it is never a `ClosedArtifact`. The family and
+/// reducer use the original denominator coordinates, not priority-order slots.
+pub fn load_candidate_bundle<const N: usize>(
+    bytes: &[u8],
+    input_limits: CandidateBundleLimits,
+    reduction_limits: ReductionLimits,
+) -> Result<(IntegralFamily, CandidateReducer<N>), AppError> {
+    let bundle = codec::read(bytes, input_limits)?;
+    if !(1..=16).contains(&N) || bundle.root_sector.len() != N {
+        return Err(AppError::input("candidate bundle/reducer arity mismatch"));
+    }
+    let format: InputFormat = bundle
+        .input_format
+        .parse()
+        .map_err(|error| AppError::input(format!("{error}")))?;
+    let family = preparation::family(&bundle.family_source, format)?;
+    if family.fingerprint() != bundle.family_fingerprint || family.denominator_count() != N {
+        return Err(AppError::input(
+            "candidate family binding differs from reconstructed family",
+        ));
+    }
+    let prepared =
+        preparation::prepare::<N>(family, &bundle.root_sector, bundle.permutation.as_deref())?;
+    let context = ParametricIbpGenerator::try_new(&prepared.family)
+        .map_err(|error| AppError::execution(error.to_string()))?
+        .context()
+        .clone();
+    let solutions = codec::solutions::<N>(
+        &bundle,
+        &context,
+        prepared.sources.index_variables(),
+        input_limits,
+    )?;
+    let ordering = candidate_ordering(N, bundle.permutation.as_deref())?;
+    // Preparation keeps a compact zero-mask census. The experimental reducer
+    // takes native proof owners, not caller-asserted zero masks.
+    let analyzer = zero::Analyzer::try_unrestricted(&prepared.family)
+        .map_err(|error| AppError::execution(error.to_string()))?;
+    let mut certificates = Vec::with_capacity(prepared.zeros.len());
+    for sector in prepared.zeros.iter() {
+        let mask = Mask::try_new(*sector).map_err(|error| AppError::input(error.to_string()))?;
+        match analyzer
+            .analyze(&mask)
+            .map_err(|error| AppError::execution(error.to_string()))?
+        {
+            zero::Decision::ProvedZero(certificate) => certificates.push(certificate),
+            _ => {
+                return Err(AppError::internal_invariant(
+                    "prepared zero-sector proof was lost",
+                ));
+            }
+        }
+    }
+    drop(analyzer);
+    let reducer = CandidateReducer::try_new(
+        &prepared.family,
+        prepared.root,
+        ordering,
+        solutions,
+        certificates,
+        reduction_limits,
+    )
+    .map_err(|error| AppError::execution(error.to_string()))?;
+    Ok((prepared.family, reducer))
+}
+
+fn candidate_ordering(
+    arity: usize,
+    permutation: Option<&[usize]>,
+) -> Result<OrderingPolicy, AppError> {
+    preparation::validate_permutation(arity, permutation)?;
+    let Some(slots) = permutation else {
+        return Ok(OrderingPolicy::SpiredUncutV1);
+    };
+    // Solver input lists slots by priority. The application descriptor stores
+    // the inverse: each physical slot's rank. Never permute the integral key.
+    let mut ranks = vec![0; arity];
+    for (rank, &slot) in slots.iter().enumerate() {
+        ranks[slot] = rank;
+    }
+    let priority = CoordinatePriority::try_new(arity, &ranks, CoordinatePriorityLimits::default())
+        .map_err(|error| AppError::input(error.to_string()))?;
+    OrderingPolicy::try_spired_with_coordinate_priority(&priority)
+        .map_err(|error| AppError::input(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saved_non_involutive_priority_is_inverted_without_rerouting_keys() {
+        let expected =
+            CoordinatePriority::try_new(3, &[1, 2, 0], CoordinatePriorityLimits::default())
+                .unwrap();
+        assert_eq!(
+            candidate_ordering(3, Some(&[2, 0, 1])).unwrap(),
+            OrderingPolicy::try_spired_with_coordinate_priority(&expected).unwrap()
+        );
+        assert!(candidate_ordering(3, Some(&[0, 0, 2])).is_err());
+    }
+}

@@ -8,11 +8,13 @@
 mod certify;
 mod codec;
 mod generate;
+mod load;
 mod model;
 pub(super) mod preparation;
 
 pub use certify::certify_candidates;
 pub use generate::family_candidates;
+pub use load::load_candidate_bundle;
 pub use model::{
     CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateBundleLimits,
     CandidateBundleResult, CandidateCertificationRequest, CandidateCertificationResult,

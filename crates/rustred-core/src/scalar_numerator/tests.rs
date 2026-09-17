@@ -81,6 +81,38 @@ fn one_loop_dot_square_lowers_with_physical_mass_bookkeeping() {
 }
 
 #[test]
+fn family_bound_lane_reuses_exact_lowering_without_closure_artifact() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let head = dot_head();
+    let loop_momentum = symbol("family_lane_k").to_atom();
+    let numerator = dot(head, loop_momentum.clone(), loop_momentum).pow(Atom::num(2));
+    let base = IntegralKey::try_new([3]).unwrap();
+    let artifact_lane = ScalarNumeratorService::try_new(
+        &artifact,
+        head,
+        vec![symbol("family_lane_k").to_atom()],
+        ScalarNumeratorLimits::default(),
+    )
+    .unwrap()
+    .lower(&numerator, &base)
+    .unwrap();
+    let family_lane = FamilyScalarNumeratorService::try_new(
+        artifact.family(),
+        head,
+        vec![symbol("family_lane_k").to_atom()],
+        ScalarNumeratorLimits::default(),
+    )
+    .unwrap()
+    .lower(&numerator, &base)
+    .unwrap();
+    assert_eq!(family_lane.terms(), artifact_lane.terms());
+    assert_eq!(
+        family_lane.family_fingerprint(),
+        artifact.family_fingerprint()
+    );
+}
+
+#[test]
 fn two_loop_cross_product_uses_the_complete_artifact_basis() {
     let artifact = derive_two_loop_unit_mass_sunset().unwrap();
     let head = dot_head();

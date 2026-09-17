@@ -40,7 +40,7 @@ impl Default for ScalarNumeratorLimits {
     }
 }
 
-/// One polynomial numerator term lowered onto a typed artifact-family key.
+/// One polynomial numerator term lowered onto an authenticated family key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoweredScalarNumeratorTerm {
     pub(super) coefficient: Coefficient,
@@ -50,7 +50,7 @@ pub struct LoweredScalarNumeratorTerm {
 }
 
 impl LoweredScalarNumeratorTerm {
-    /// Exact coefficient in the sealed artifact's coefficient context.
+    /// Exact coefficient in the admitted family's coefficient context.
     pub fn coefficient(&self) -> &Coefficient {
         &self.coefficient
     }
@@ -83,7 +83,7 @@ pub struct ScalarNumeratorLowering {
 }
 
 impl ScalarNumeratorLowering {
-    /// Stable identity of the artifact family that minted every term.
+    /// Stable identity of the authenticated family that minted every term.
     pub fn family_fingerprint(&self) -> &str {
         self.family_identity.as_str()
     }

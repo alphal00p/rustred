@@ -478,11 +478,6 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
     let target_column = columns
         .binary_search_by(|column| order.compare(column, &target))
         .map_err(|_| MaterializationError::TargetAbsent)?;
-    let native_columns = columns
-        .len()
-        .checked_add(1)
-        .and_then(|count| u32::try_from(count).ok())
-        .ok_or(MaterializationError::TooManyColumns)?;
     let variables = variables::FrameVariables::try_new(rows, coefficient_order, source_priority)?;
     observe(MaterializationEvent::FramePrepared {
         source_rows: rows.len(),
@@ -526,6 +521,26 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
             observe,
         );
     }
+    sparse_materialize(rows, &columns, order, target_column, &variables, observe)
+}
+
+/// Materialize the ordinary sparse exact backend after the backend-dispatch
+/// layer has selected it.  Keeping this as a separate non-dispatch helper is
+/// important for semi-numerical replay: replay must never instantiate the
+/// backend dispatcher recursively through its generic observer type.
+fn sparse_materialize<const N: usize>(
+    rows: &[ExactRow<N>],
+    columns: &[Integral<N>],
+    order: &IntegralOrder<N>,
+    target_column: usize,
+    variables: &variables::FrameVariables,
+    mut observe: impl FnMut(MaterializationEvent<N>),
+) -> Result<ExactRow<N>, MaterializationError> {
+    let native_columns = columns
+        .len()
+        .checked_add(1)
+        .and_then(|count| u32::try_from(count).ok())
+        .ok_or(MaterializationError::TooManyColumns)?;
     let field = ExactField::new(Z);
     let mut reducer = SparseRowReducer::new(native_columns, field, LuLMode::None);
     let mut values = Vec::new();

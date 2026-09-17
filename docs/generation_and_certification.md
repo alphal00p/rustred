@@ -56,6 +56,21 @@ do not prove the formulas' IBP provenance or whole-family closure. Numerical
 agreement with Vakint/FMFT is valuable additional evidence, not a replacement
 for certification.
 
+Rust callers can use `rustred_app::load_candidate_bundle::<N>` to load saved
+candidate formulas into the experimental `CandidateReducer` without repeating
+sector search. The loader re-establishes family binding, zero-sector proofs,
+root scope and coordinate priority. It does **not** authenticate source identities
+or promote candidates to artifacts. `CandidateReducer::check_targets` reports
+finite concrete reachability and the observed index bounds; it deliberately
+returns a `CandidateReachabilityReport`, not a certificate.
+
+For independent bounded-proof work, `SourcePortAudit::replay_sector_rule_batch`
+can replay selected sector-local rule ordinals against original IBPs while
+checking their declared guards. It omits whole-sector cover and does not certify
+descent or reachable terminals. Joining this identity evidence with a concrete
+reduction trace and persisting/enforcing a certified entry scope remains work
+to do. The checkpoint does not ship a four-loop bounded or unrestricted artifact.
+
 ## Timing reports
 
 Report separately:

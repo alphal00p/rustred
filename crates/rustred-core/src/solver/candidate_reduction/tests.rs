@@ -113,6 +113,36 @@ fn candidate_k1_matches_certified_reducer_and_memoizes_without_inventing_termina
 }
 
 #[test]
+fn candidate_finite_scope_reports_reachability_without_claiming_certification() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let mut candidate = candidate::<1>(artifact.family(), ReductionLimits::default());
+    let report = candidate
+        .check_targets([key([-3]), key([0]), key([2])])
+        .unwrap();
+    assert_eq!(report.requested_targets(), 3);
+    assert!(report.reachable_integrals() >= report.requested_targets());
+    assert_eq!(report.reachable_terminals(), 1);
+    assert!(report.max_negative_index_degree() >= 3);
+    assert!(report.max_positive_power_sum() >= 2);
+    // CandidateReducer remains explicitly uncertified: source provenance is
+    // unreplayed, and this finite DAG says nothing about other integer points.
+    assert_eq!(candidate.terminals().len(), 1);
+}
+
+#[test]
+fn candidate_finite_scope_check_fails_closed_on_an_unreachable_target() {
+    let family = crate::solver::tests::tadpole();
+    let mut solution = one_rule(&family);
+    solution.rules.clear();
+    let mut candidate = from_one_rule(&family, solution);
+    assert!(matches!(
+        candidate.check_targets([key([2])]),
+        Err(CandidateReductionError::Uncovered { target }) if target == key([2])
+    ));
+    assert_eq!(candidate.statistics().cached_integrals(), 0);
+}
+
+#[test]
 fn candidate_k3_matches_certified_reductions_after_exact_finite_basis_mapping() {
     let artifact = derive_two_loop_unit_mass_sunset().unwrap();
     let mut candidate = candidate::<3>(artifact.family(), ReductionLimits::default());

@@ -17,7 +17,7 @@ use super::super::source_port::scope;
 use super::{ClosingArtifactCandidate, ReplayProducer};
 
 pub(in crate::foundry::artifact) const ALGORITHM_ID: &str =
-    "rustred.source-port-original-domain.v1";
+    super::super::COMPLETE_VACUUM_SOURCE_PORT_ALGORITHM_ID;
 
 pub(super) fn validate_combined_rule(cell: &RuleCell) -> Result<(), ArtifactError> {
     let rule = cell.rule();
@@ -112,6 +112,7 @@ pub(super) fn validate_combined_rule(cell: &RuleCell) -> Result<(), ArtifactErro
     super::validate_descent_payload(rule)
 }
 
+#[cfg(test)]
 pub(in crate::foundry::artifact) fn install_source_port(
     candidate: ClosingArtifactCandidate,
 ) -> Result<ClosedArtifact, ArtifactError> {
@@ -326,7 +327,7 @@ fn validate_unit_mass(candidate: &ClosingArtifactCandidate) -> Result<(), Artifa
 
 /// Shared early admission and final-installation check. Keeping the exact
 /// family predicate here prevents frontends from duplicating algebra policy.
-pub(in crate::foundry::artifact) fn validate_unit_mass_family(
+pub(crate) fn validate_unit_mass_family(
     family: &crate::family::IntegralFamily,
 ) -> Result<(), ArtifactError> {
     let base = family.coefficient_context();

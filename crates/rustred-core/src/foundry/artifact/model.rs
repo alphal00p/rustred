@@ -184,6 +184,35 @@ impl ClosedArtifact {
         self.algorithm_id
     }
 
+    /// Whether this artifact is an authenticated complete unit-mass vacuum
+    /// source-port artifact.
+    ///
+    /// Durable decoding already authenticates the source grammar, replay,
+    /// cover, guards, terminals, and homogeneity proof.  This predicate is a
+    /// deliberately small admission seam for external consumers: it does not
+    /// infer a topology or a supported loop count, and therefore remains
+    /// usable when a new vacuum arity is shipped.  It is not a substitute for
+    /// calling [`Self::decode_durable`] at the untrusted input boundary.
+    pub fn is_complete_unit_mass_vacuum(&self) -> bool {
+        self.algorithm_id
+            == super::COMPLETE_VACUUM_SOURCE_PORT_ALGORITHM_ID
+            // `arity` is the number of scalar-product denominators (ten for
+            // four loops), not the loop count itself.
+            && self.family.external_count() == 0
+            && self.family.denominator_count() == self.arity
+            && self.family.coordinates().len() == self.arity
+            && self.family.power_shifts().len() == self.arity
+            && self
+                .family
+                .power_shifts()
+                .iter()
+                .all(|shift| shift.is_zero())
+            && self.family.external_gram().is_empty()
+            && self.coefficient_context().parameter_names().len() == 1
+            && self.common_mass_homogeneity
+                == Some(CommonMassHomogeneityProof::UniformVacuumMassSquared)
+    }
+
     pub fn arity(&self) -> usize {
         self.arity
     }
@@ -319,6 +348,35 @@ impl ClosedArtifact {
     /// default resource policy.
     pub fn decode_durable(bytes: &[u8]) -> Result<Self, ArtifactPersistenceError> {
         Self::decode_durable_with_limits(bytes, Default::default())
+    }
+
+    /// Load one authenticated complete unit-mass vacuum artifact.
+    ///
+    /// This combines the untrusted-boundary decode with the capability check
+    /// used by topology adapters.  It deliberately accepts any source-port
+    /// arity, so a newly shipped four-loop artifact does not require a RustRed
+    /// release solely to extend a loop-count table.  The regular
+    /// [`Self::decode_durable`] method remains available when callers want to
+    /// admit registered lower-loop algorithms as well.
+    pub fn decode_complete_unit_mass_vacuum(
+        bytes: &[u8],
+    ) -> Result<Self, ArtifactPersistenceError> {
+        Self::decode_complete_unit_mass_vacuum_with_limits(bytes, Default::default())
+    }
+
+    /// Limited-resource variant of [`Self::decode_complete_unit_mass_vacuum`].
+    pub fn decode_complete_unit_mass_vacuum_with_limits(
+        bytes: &[u8],
+        limits: super::persistence::ArtifactLoadLimits,
+    ) -> Result<Self, ArtifactPersistenceError> {
+        let artifact = Self::decode_durable_with_limits(bytes, limits)?;
+        if artifact.is_complete_unit_mass_vacuum() {
+            Ok(artifact)
+        } else {
+            Err(ArtifactPersistenceError::SemanticMismatch {
+                field: "complete unit-mass vacuum artifact capability",
+            })
+        }
     }
 
     /// Load and authenticate one deterministic durable artifact once at the

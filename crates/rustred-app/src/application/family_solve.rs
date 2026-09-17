@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-use rustred::solver::{solve_family, SectorConfig, SectorSolveOptions};
+use rustred::solver::{SectorConfig, SectorSolveOptions, solve_family};
 
 use super::error::AppError;
 use super::input::prepare_input;
@@ -196,9 +196,11 @@ numerator = "1"
         assert_eq!(result.family_name, "user_supplied_tadpole");
         assert_eq!(result.arity, 1);
         assert_eq!(result.sectors, 2);
-        assert!(result
-            .as_toml()
-            .contains("rustred.family-solve-output.toml.v1"));
+        assert!(
+            result
+                .as_toml()
+                .contains("rustred.family-solve-output.toml.v1")
+        );
     }
 
     #[test]

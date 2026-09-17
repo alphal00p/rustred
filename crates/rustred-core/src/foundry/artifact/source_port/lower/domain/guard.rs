@@ -75,17 +75,6 @@ pub(in crate::foundry::artifact::source_port) fn validate_guard_on_domain_with_l
     if polynomial.is_zero() {
         return Err(error("guard vanishes identically on its affine target"));
     }
-    if misses_target(
-        context,
-        &polynomial,
-        piece,
-        sector,
-        target.map(|(domain, _)| domain),
-        limits,
-        &mut work,
-    )? {
-        return Ok(());
-    }
     let mut predicates = Vec::new();
     for exclusion in exclusions {
         // A factor may force all equations but not an unrelated fixed face.
@@ -119,7 +108,28 @@ pub(in crate::foundry::artifact::source_port) fn validate_guard_on_domain_with_l
         sector,
         target: target.map(|(domain, _)| domain),
     };
-    for coefficient in system.equations() {
+    // A single nonzero coefficient excludes the entire simultaneous zero
+    // locus. After admitting the complete polynomial/system and exclusions,
+    // try small native coefficient proofs before a whole-system factor pass
+    // can exhaust its budget on an unrelated larger coefficient. This only
+    // changes scheduling: retain every original AND sibling for conjunction,
+    // and keep one factor-work allowance across all visited coefficients.
+    let count = system.equations().len();
+    work.charge(
+        count
+            .checked_mul(ceil_log2(count).max(1))
+            .ok_or_else(|| error("affine guard coefficient scheduling work overflow"))?,
+        limits,
+    )?;
+    let mut ordered = Vec::new();
+    ordered
+        .try_reserve_exact(count)
+        .map_err(|_| error("affine guard coefficient schedule allocation failed"))?;
+    ordered.extend(system.equations().iter().enumerate());
+    ordered.sort_unstable_by_key(|(ordinal, equation)| {
+        (equation.index_polynomial().raw().nterms(), *ordinal)
+    });
+    for (_, coefficient) in ordered {
         let coefficient = coefficient.index_polynomial();
         if coefficient.is_zero() {
             continue;
@@ -150,6 +160,19 @@ pub(in crate::foundry::artifact::source_port) fn validate_guard_on_domain_with_l
             }
             factors::Consequence::Unresolved => {}
         }
+    }
+    // Preserve the full coefficient-system coordinate-root certificate as a
+    // fallback; individual factors need not discover all joint consequences.
+    if misses_target(
+        context,
+        &polynomial,
+        piece,
+        sector,
+        target.map(|(domain, _)| domain),
+        limits,
+        &mut work,
+    )? {
+        return Ok(());
     }
     if conjunction::proves_excluded_on_domain(
         context,

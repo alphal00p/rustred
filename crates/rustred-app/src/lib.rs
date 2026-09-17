@@ -25,7 +25,7 @@ pub use application::{
     campaign_preflight, certify_candidates, closing_artifact_generate, closing_artifact_inspect,
     closing_artifact_reduce, derive, family_candidates, family_close, family_close_with_progress,
     family_solve, foundry_campaign_run, foundry_campaign_run_with_progress,
-    foundry_wave_campaign_run, foundry_wave_campaign_run_with_progress,
+    foundry_wave_campaign_run, foundry_wave_campaign_run_with_progress, load_candidate_bundle,
 };
 
 /// Run the command-line adapter and return its stable process exit code.

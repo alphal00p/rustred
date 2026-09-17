@@ -18,6 +18,8 @@ mod program;
 mod progress;
 pub use progress::SourcePortInstallEvent;
 mod replay;
+mod rule_replay;
+pub use rule_replay::{SourcePortReplayedRule, SourcePortRuleReplayAudit};
 pub(in crate::foundry::artifact) mod scope;
 pub(crate) use program::lower::ReplayedOriginalDomain;
 #[cfg(test)]

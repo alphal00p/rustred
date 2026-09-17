@@ -73,6 +73,13 @@ fn scoped_k3_cold_roundtrip_matches_full_family_and_restores_mass() {
     );
     let cold = ClosedArtifact::decode_durable(&bytes).unwrap();
     assert_eq!(bytes, cold.encode_durable().unwrap());
+    assert!(cold.is_complete_unit_mass_vacuum());
+    let capability_loaded = ClosedArtifact::decode_complete_unit_mass_vacuum(&bytes).unwrap();
+    assert_eq!(capability_loaded.encode_durable().unwrap(), bytes);
+    assert_eq!(
+        cold.algorithm_id(),
+        crate::foundry::artifact::COMPLETE_VACUUM_SOURCE_PORT_ALGORITHM_ID
+    );
     assert_ne!(bytes, full.encode_durable().unwrap());
     assert_eq!(cold.zero_sectors().len(), 4);
     assert!(

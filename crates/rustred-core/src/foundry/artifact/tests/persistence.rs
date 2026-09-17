@@ -27,6 +27,13 @@ fn durable_encoding_is_deterministic_and_loads_a_sealed_equivalent() {
     assert_eq!(loaded.masters(), artifact.masters());
     assert_eq!(loaded.zero_sectors(), artifact.zero_sectors());
     assert_eq!(loaded.validation(), artifact.validation());
+    assert!(!loaded.is_complete_unit_mass_vacuum());
+    assert!(matches!(
+        ClosedArtifact::decode_complete_unit_mass_vacuum(&first),
+        Err(ArtifactPersistenceError::SemanticMismatch {
+            field: "complete unit-mass vacuum artifact capability"
+        })
+    ));
 }
 
 fn durable_section(bytes: &[u8], wanted_tag: u16) -> Range<usize> {

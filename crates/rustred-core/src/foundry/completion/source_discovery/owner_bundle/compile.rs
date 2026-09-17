@@ -103,19 +103,13 @@ pub(crate) fn try_compile_canonical_executable_owner(
     }
 
     let mut circuits = try_vec(OWNER_CANDIDATES, executable.len())?;
-    circuits.extend(
-        executable
-            .iter()
-            .map(|candidate| {
-                (
-                    candidate.circuit().clone(),
-                    candidate.cleared().clone(),
-                    candidate
-                        .cell()
-                        .affine_application_domain_owner(),
-                )
-            }),
-    );
+    circuits.extend(executable.iter().map(|candidate| {
+        (
+            candidate.circuit().clone(),
+            candidate.cleared().clone(),
+            candidate.cell().affine_application_domain_owner(),
+        )
+    }));
     let semantic = Arc::new(ExactCircuitSemanticDag::try_compile_cleared_with_affine(
         context,
         &partition,
@@ -218,9 +212,7 @@ pub(crate) fn try_compile_single_canonical_probe_executable_owner(
     let circuits = [(
         admitted.circuit().clone(),
         admitted.cleared().clone(),
-        admitted
-            .cell()
-            .affine_application_domain_owner(),
+        admitted.cell().affine_application_domain_owner(),
     )];
     let semantic = Arc::new(ExactCircuitSemanticDag::try_compile_cleared_with_affine(
         context,

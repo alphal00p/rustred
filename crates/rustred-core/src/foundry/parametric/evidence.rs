@@ -113,9 +113,7 @@ impl CombinedOriginalDomainEvidence {
     /// Retain the immutable affine carrier without cloning its Symbolica
     /// equations.  Owner compilation uses this to keep candidate metadata
     /// pointer-shared with the replay evidence.
-    pub(crate) fn affine_application_domain_owner(
-        &self,
-    ) -> Option<Arc<AffineApplicationDomain>> {
+    pub(crate) fn affine_application_domain_owner(&self) -> Option<Arc<AffineApplicationDomain>> {
         self.affine.clone()
     }
 

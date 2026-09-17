@@ -80,17 +80,16 @@ impl ExactCircuitSemanticDag {
     pub(crate) fn try_compile_cleared_with_affine(
         context: &IndexedCoefficientContext,
         partition: &TargetColumnPartition<'_>,
-        incoming: &[
-            (
-                Arc<ExactTargetCircuit>,
-                Arc<ClearedExactCircuit>,
-                Option<Arc<AffineApplicationDomain>>,
-            )
-        ],
+        incoming: &[(
+            Arc<ExactTargetCircuit>,
+            Arc<ClearedExactCircuit>,
+            Option<Arc<AffineApplicationDomain>>,
+        )],
         limits: ExactCircuitSemanticLimits,
     ) -> Result<Self, ExactCircuitSemanticError> {
         let mut inputs = try_vec(CANDIDATES, incoming.len())?;
-        for (candidate, (circuit, cleared, affine_application_domain)) in incoming.iter().enumerate()
+        for (candidate, (circuit, cleared, affine_application_domain)) in
+            incoming.iter().enumerate()
         {
             if !cleared.is_bound_to(circuit) {
                 return Err(ExactCircuitSemanticError::CandidateJoin {

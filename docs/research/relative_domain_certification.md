@@ -130,11 +130,49 @@ root at any specially chosen numerical dimension; the existing coefficient-
 field guard contract is the one being checked.
 
 The conjunction service already uses native affine elimination to derive fixed
-coordinates, but currently does not compare those joint fixed consequences
-against the domain box before returning inconclusive. The next narrow fix is
-to retain that exact implication and perform the missing structural bounds
-check. Widening the box to admit `(0,0)` must remain a failing negative control.
-No topology-specific identity or new elimination algorithm is needed.
+coordinates. The new implementation compares those joint fixed consequences
+against the actual domain box before returning inconclusive. Physical index
+values are converted to the existing active/inactive local coordinates; both
+signs and finite endpoints are checked. Widening the box to admit `(0,0)` is a
+failing negative control. No topology-specific identity or new elimination
+algorithm is introduced. Independent source and mathematical audits passed.
+
+### Isolated FG115 coefficient scheduling
+
+The second capture is a guard polynomial of degree eight in `n2`, `n8`, and
+`d`. Its target includes `-1-n8+2*n3=0`, and one complete exclusion is the
+conjunction of that equality with `1-n8+n2=0`. The coefficient of `d^6` in
+the original guard is exactly
+
+```text
+648 * (1-n8+n2)^2.
+```
+
+On the target outside that whole exclusion, this coefficient cannot vanish.
+It alone therefore proves that the entire guard is a nonzero element of
+`Q(d)`. The earlier execution attempted expensive factor work on a larger
+coefficient first and exhausted its allowance before reaching this short proof.
+
+The new scheduling admits the complete original polynomial, coefficient system,
+target, and exclusions first, then visits coefficient equations in increasing
+native term count with a deterministic original-order tie break. Existing
+Symbolica factorization and exact implication services do the algebra. All
+coefficient equations remain available for simultaneous-conjunction reasoning,
+and all visits share the existing work budgets. No failed proof is suppressed,
+no limit is raised, and an exclusion's unrelated conjuncts cannot be discarded.
+The full captured polynomial, actual zero points, absent/incomplete exclusions,
+and swapped dimension-degree positions are included in the focused regressions.
+Independent source and mathematical audits passed. The combined source-port
+gate passes 268 tests, with zero failures and five existing ignored tests;
+the same frozen debug test binary passes 44 affine-domain and 15 completion
+tests. Both captured obligations and their negative controls pass. Two initial
+test-setup failures (private box-constructor access and a negative fixture
+canonicalizing to a coordinate-only case) were corrected without weakening
+the proof assertions; their original logs are retained. The fresh optimized
+build and complete saved-candidate recertification are pending.
+
+Focused evidence: `/tmp/rustred-guard-scheduling.cfXaNt/`.
+Fresh release evidence: `/tmp/rustred-joint-guard-release.VS9hEJ/`.
 
 Evidence directory: `/tmp/rustred-relative-domain-release.pxuNef/`.
 The release binary SHA-256 is

@@ -12,7 +12,10 @@ mod model;
 mod preparation;
 mod reducer;
 
-pub use model::{CandidateDecomposition, CandidateReductionError, CandidateStatistics};
+pub use model::{
+    CandidateDecomposition, CandidateReachabilityReport, CandidateReductionError,
+    CandidateStatistics,
+};
 pub use reducer::CandidateReducer;
 
 #[cfg(test)]

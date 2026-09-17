@@ -10,7 +10,8 @@ use crate::reduction::{
 use crate::sector::{OrderingPolicy, zero};
 
 use super::model::{
-    CandidateDecomposition, CandidateReductionError, CandidateStatistics, PreparedRule,
+    CandidateDecomposition, CandidateReachabilityReport, CandidateReductionError,
+    CandidateStatistics, PreparedRule,
 };
 
 /// Deterministic, iterative application of explicitly experimental sector
@@ -171,6 +172,76 @@ impl<const N: usize> CandidateReducer<N> {
         self.cache.clear();
         self.cache_weight = CacheWeight::default();
         Ok(())
+    }
+
+    /// Check an explicit finite entry set and its reachable successor DAG.
+    ///
+    /// The batch starts with a fresh cache, and every nonterminal child
+    /// reached by its reductions is recursively visited by the same
+    /// concrete candidate engine. Consequently an uncovered point, vanished
+    /// source condition, undefined denominator or non-descending edge fails
+    /// closed. Candidate formulas have not replayed their original-source
+    /// provenance, so the report is not a proof for even these finite entries.
+    /// It also carries no claim about entries outside `targets` or about the
+    /// infinite positive-power complement.
+    pub fn check_targets(
+        &mut self,
+        targets: impl IntoIterator<Item = IntegralKey>,
+    ) -> Result<CandidateReachabilityReport, CandidateReductionError> {
+        self.clear_cache()?;
+        let mut requested = BTreeSet::new();
+        for target in targets {
+            requested.insert(target);
+        }
+        for target in &requested {
+            self.reduce_unit_mass(target)?;
+        }
+        let mut max_negative = 0_u128;
+        let mut max_positive = 0_u128;
+        for key in self.cache.keys() {
+            let (negative, positive) = key
+                .powers()
+                .iter()
+                .try_fold::<_, _, Result<_, ()>>(
+                    (0_u128, 0_u128),
+                    |(negative, positive), &power| {
+                        if power < 0 {
+                            Ok((
+                                negative
+                                    .checked_add(u128::from(power.unsigned_abs()))
+                                    .ok_or(())?,
+                                positive,
+                            ))
+                        } else {
+                            Ok((
+                                negative,
+                                positive.checked_add(u128::from(power as u64)).ok_or(())?,
+                            ))
+                        }
+                    },
+                )
+                .map_err(|_| {
+                    CandidateReductionError::InvalidInput(
+                        "candidate reachability power census overflowed".to_owned(),
+                    )
+                })?;
+            max_negative = max_negative.max(negative);
+            max_positive = max_positive.max(positive);
+        }
+        let reachable_terminals = self
+            .cache
+            .values()
+            .flat_map(|decomposition| decomposition.terms().keys())
+            .filter(|key| self.terminals.contains(*key))
+            .collect::<BTreeSet<_>>()
+            .len();
+        Ok(CandidateReachabilityReport {
+            requested_targets: requested.len(),
+            reachable_integrals: self.cache.len(),
+            reachable_terminals,
+            max_negative_index_degree: max_negative,
+            max_positive_power_sum: max_positive,
+        })
     }
 
     fn push_frame(

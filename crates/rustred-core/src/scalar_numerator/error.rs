@@ -38,6 +38,8 @@ pub enum ScalarNumeratorError {
     UnsupportedArtifact {
         detail: &'static str,
     },
+    /// Shared family-shape admission, without any artifact/closure proof.
+    FamilyEligibility(crate::foundry::artifact::ArtifactError),
     InvalidScalarProductHead {
         violation: ScalarProductHeadViolation,
     },
@@ -106,6 +108,10 @@ pub enum ScalarNumeratorError {
 impl fmt::Display for ScalarNumeratorError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::FamilyEligibility(error) => write!(
+                formatter,
+                "family cannot lower a unit-mass common-scale vacuum numerator: {error}"
+            ),
             Self::UnsupportedArtifact { detail } => {
                 write!(
                     formatter,

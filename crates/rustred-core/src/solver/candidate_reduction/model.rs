@@ -68,6 +68,48 @@ pub struct CandidateStatistics {
     pub(super) cached_coefficient_bytes: usize,
 }
 
+/// Exact finite-DAG reachability report for an explicitly supplied target set.
+///
+/// This is not a certificate, even for the requested finite entries: candidate
+/// formulas do not carry replayed original-source provenance. The reducer only
+/// checks their internal applicability, denominators, strict descent, and
+/// successor reachability. A missing or invalid successor aborts the operation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CandidateReachabilityReport {
+    pub(super) requested_targets: usize,
+    pub(super) reachable_integrals: usize,
+    pub(super) reachable_terminals: usize,
+    pub(super) max_negative_index_degree: u128,
+    pub(super) max_positive_power_sum: u128,
+}
+
+impl CandidateReachabilityReport {
+    pub fn requested_targets(&self) -> usize {
+        self.requested_targets
+    }
+
+    pub fn reachable_integrals(&self) -> usize {
+        self.reachable_integrals
+    }
+
+    pub fn reachable_terminals(&self) -> usize {
+        self.reachable_terminals
+    }
+
+    /// Maximum `sum(max(-n_i, 0))` over the requested entries and all
+    /// reachable successors retained in the finite reduction DAG.
+    pub fn max_negative_index_degree(&self) -> u128 {
+        self.max_negative_index_degree
+    }
+
+    /// Maximum `sum(max(n_i, 0))` over the same finite DAG. Positive powers
+    /// are intentionally reported rather than silently treated as bounded by
+    /// the entry rank.
+    pub fn max_positive_power_sum(&self) -> u128 {
+        self.max_positive_power_sum
+    }
+}
+
 impl CandidateStatistics {
     pub fn rule_applications(self) -> usize {
         self.work.rule_applications()

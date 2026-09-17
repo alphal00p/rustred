@@ -4,6 +4,7 @@ use crate::solver::{AffineCase, AffineIntersection, CoordinateCase};
 
 mod conjunction;
 mod factor_consequences;
+mod joint_bounds;
 mod singleton;
 mod support;
 

@@ -87,6 +87,93 @@ fn k1_saved_candidates_roundtrip_and_certify_without_resolving() {
 }
 
 #[test]
+fn saved_candidate_loader_applies_without_search_or_artifact_promotion() {
+    use rustred::family::IntegralKey;
+    use rustred::foundry::artifact::derive_one_loop_unit_mass_tadpole;
+    use rustred::reduction::{Reducer, ReductionLimits};
+
+    let generated = family_candidates(FamilyCandidatesRequest::new(K1)).unwrap();
+    let (family, mut candidate) = load_candidate_bundle::<1>(
+        generated.bundle(),
+        CandidateBundleLimits::default(),
+        ReductionLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(family.fingerprint(), candidate.family_fingerprint());
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let mut certified = Reducer::new(&artifact).unwrap();
+    for power in [0, 1, 2, 7] {
+        let key = IntegralKey::try_new([power]).unwrap();
+        assert_eq!(
+            candidate.reduce_unit_mass(&key).unwrap().terms(),
+            certified.reduce_unit_mass(&key).unwrap().terms()
+        );
+    }
+    assert!(candidate.statistics().rule_applications() > 0);
+    assert!(ClosedArtifact::decode_durable(generated.bundle()).is_err());
+}
+
+#[test]
+fn candidate_loader_rejects_wrong_arity_family_binding_and_ingress_budget() {
+    use rustred::reduction::ReductionLimits;
+
+    let generated = family_candidates(FamilyCandidatesRequest::new(K1)).unwrap();
+    let limits = CandidateBundleLimits::default();
+    assert!(
+        load_candidate_bundle::<3>(generated.bundle(), limits, ReductionLimits::default()).is_err()
+    );
+    assert!(
+        load_candidate_bundle::<1>(
+            generated.bundle(),
+            CandidateBundleLimits {
+                max_bundle_bytes: 1,
+                ..limits
+            },
+            ReductionLimits::default()
+        )
+        .is_err()
+    );
+    let mut bundle = codec::read(generated.bundle(), limits).unwrap();
+    bundle.family_fingerprint.push_str("-mismatch");
+    let mutated = codec::write(&bundle, limits).unwrap();
+    assert_eq!(
+        load_candidate_bundle::<1>(&mutated, limits, ReductionLimits::default())
+            .unwrap_err()
+            .kind(),
+        AppErrorKind::Input
+    );
+}
+
+#[test]
+fn candidate_loader_preserves_nonpositive_root_and_saved_coordinate_priority() {
+    use rustred::family::IntegralKey;
+    use rustred::reduction::ReductionLimits;
+
+    let mut request = FamilyCandidatesRequest::new(K3);
+    request.permutation = Some(vec![2, 0, 1]);
+    request.nonpositive_indices = vec![0];
+    let generated = family_candidates(request).unwrap();
+    let (_, mut candidate) = load_candidate_bundle::<3>(
+        generated.bundle(),
+        CandidateBundleLimits::default(),
+        ReductionLimits::default(),
+    )
+    .unwrap();
+    assert!(
+        !candidate
+            .reduce_unit_mass(&IntegralKey::try_new([0, 1, 1]).unwrap())
+            .unwrap()
+            .terms()
+            .is_empty()
+    );
+    assert!(
+        candidate
+            .reduce_unit_mass(&IntegralKey::try_new([1, 1, 1]).unwrap())
+            .is_err()
+    );
+}
+
+#[test]
 fn k3_saved_candidates_roundtrip_and_certify_without_resolving() {
     roundtrip::<3>(K3);
 }

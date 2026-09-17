@@ -15,3 +15,5 @@ result-*
 /.venv/
 **/__pycache__/
 /crates/rustred-python/python/rustred/_rustred*.so
+# Workspace-local benchmark/evidence staging; never commit generated runs.
+/TMP/

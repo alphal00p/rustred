@@ -3,7 +3,7 @@ use std::sync::Arc;
 use symbolica::atom::{Atom, FunctionBuilder, Symbol, SymbolAttribute, UserData};
 use symbolica::prelude::PolyVariable;
 
-use crate::family::ScalarProductCoordinate;
+use crate::family::{IntegralFamily, IntegralKey, ScalarProductCoordinate};
 use crate::foundry::artifact::{ClosedArtifact, CommonMassHomogeneityProof};
 
 use super::error::{
@@ -14,7 +14,19 @@ use super::syntax::{census_atom, contains_head};
 
 /// Artifact-bound lowering service for scalarized common-mass vacuum numerators.
 pub struct ScalarNumeratorService<'artifact> {
-    pub(super) artifact: &'artifact ClosedArtifact,
+    artifact: &'artifact ClosedArtifact,
+    prepared: PreparedScalarProducts,
+}
+
+/// Exact scalar-product lowering on an independently admitted unit-mass vacuum
+/// family. This service has no reduction, sector-coverage or closure authority.
+/// Resulting keys must still pass the caller's separate reduction boundary.
+pub struct FamilyScalarNumeratorService<'family> {
+    family: &'family IntegralFamily,
+    prepared: PreparedScalarProducts,
+}
+
+pub(super) struct PreparedScalarProducts {
     pub(super) dot_head: Symbol,
     pub(super) loop_momenta: Vec<Atom>,
     pub(super) scalar_products: Vec<Atom>,
@@ -47,6 +59,82 @@ impl<'artifact> ScalarNumeratorService<'artifact> {
                 detail: "the common-mass scalar lane currently requires a vacuum family",
             });
         }
+        Ok(Self {
+            artifact,
+            prepared: PreparedScalarProducts::try_new(family, dot_head, loop_momenta, limits)?,
+        })
+    }
+
+    pub const fn artifact(&self) -> &'artifact ClosedArtifact {
+        self.artifact
+    }
+
+    pub const fn limits(&self) -> ScalarNumeratorLimits {
+        self.prepared.limits
+    }
+
+    /// Lower an already scalarized numerator without performing tensor projection.
+    pub fn lower(
+        &self,
+        numerator: &Atom,
+        base_integral: &IntegralKey,
+    ) -> Result<ScalarNumeratorLowering, ScalarNumeratorError> {
+        self.prepared
+            .lower_impl(self.artifact.family(), numerator, base_integral, |key| {
+                super::lowering::validate_root_key(self.artifact, key)
+            })
+    }
+}
+
+impl<'family> FamilyScalarNumeratorService<'family> {
+    /// Bind the same polynomial lowering engine without requiring a closing
+    /// artifact. Eligibility is checked independently against the shared
+    /// unit-mass, d-only, single-scale vacuum family policy. The authenticated
+    /// family's existing inverse basis is reused, never reconstructed here.
+    pub fn try_new(
+        family: &'family IntegralFamily,
+        dot_head: Symbol,
+        loop_momenta: Vec<Atom>,
+        limits: ScalarNumeratorLimits,
+    ) -> Result<Self, ScalarNumeratorError> {
+        validate_dot_head(dot_head)?;
+        crate::foundry::artifact::validate_unit_mass_family(family)
+            .map_err(ScalarNumeratorError::FamilyEligibility)?;
+        Ok(Self {
+            family,
+            prepared: PreparedScalarProducts::try_new(family, dot_head, loop_momenta, limits)?,
+        })
+    }
+
+    pub const fn family(&self) -> &'family IntegralFamily {
+        self.family
+    }
+
+    pub const fn limits(&self) -> ScalarNumeratorLimits {
+        self.prepared.limits
+    }
+
+    /// Lower scalarized syntax to family-bound keys. Only arity and checked
+    /// index arithmetic are admitted here, not a certified root/sector scope.
+    /// Common-mass powers and scalar spectators retain the artifact lane's
+    /// exact meaning. This method does not apply any reduction formula.
+    pub fn lower(
+        &self,
+        numerator: &Atom,
+        base_integral: &IntegralKey,
+    ) -> Result<ScalarNumeratorLowering, ScalarNumeratorError> {
+        self.prepared
+            .lower_impl(self.family, numerator, base_integral, |_| Ok(()))
+    }
+}
+
+impl PreparedScalarProducts {
+    fn try_new(
+        family: &IntegralFamily,
+        dot_head: Symbol,
+        loop_momenta: Vec<Atom>,
+        limits: ScalarNumeratorLimits,
+    ) -> Result<Self, ScalarNumeratorError> {
         if loop_momenta.len() != family.loop_count() {
             return Err(ScalarNumeratorError::WrongLoopMomentumCount {
                 expected: family.loop_count(),
@@ -127,30 +215,12 @@ impl<'artifact> ScalarNumeratorService<'artifact> {
         }
 
         Ok(Self {
-            artifact,
             dot_head,
             loop_momenta,
             scalar_products,
             scalar_product_variables: Arc::new(variables),
             limits,
         })
-    }
-
-    pub const fn artifact(&self) -> &'artifact ClosedArtifact {
-        self.artifact
-    }
-
-    pub const fn limits(&self) -> ScalarNumeratorLimits {
-        self.limits
-    }
-
-    /// Lower an already scalarized numerator without performing tensor projection.
-    pub fn lower(
-        &self,
-        numerator: &Atom,
-        base_integral: &crate::family::IntegralKey,
-    ) -> Result<ScalarNumeratorLowering, ScalarNumeratorError> {
-        self.lower_impl(numerator, base_integral)
     }
 }
 

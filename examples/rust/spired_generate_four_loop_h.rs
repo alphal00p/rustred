@@ -53,9 +53,9 @@ fn main() -> Result<()> {
                         .map_err(|_| "permutation must be comma-separated integers".to_owned())
                 })
                 .collect::<std::result::Result<Vec<_>, _>>()?;
-            values
-                .try_into()
-                .map_err(|_: Vec<usize>| "permutation must contain exactly ten coordinates".to_owned())
+            values.try_into().map_err(|_: Vec<usize>| {
+                "permutation must contain exactly ten coordinates".to_owned()
+            })
         })
         .transpose()?;
     if args.next().is_some() || output.try_exists()? {

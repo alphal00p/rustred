@@ -132,6 +132,13 @@ impl AffineApplicationDomain {
 }
 
 impl AffineDomainRestriction {
+    /// Exact coordinate consequences retained by the existing native affine
+    /// reduction. They use physical indices, not local orthant coordinates.
+    /// This is not an integer-feasibility or box-containment certificate.
+    pub(crate) fn fixed_values(&self) -> &[Option<i16>] {
+        &self.fixed
+    }
+
     /// Transient chart of an admitted affine conjunction, not a persisted
     /// application domain. The caller owns resource preflight and all sector,
     /// context and domain obligations. `None` is a native exact contradiction;
