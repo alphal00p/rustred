@@ -80,7 +80,7 @@ fn nonlinear_guard_conjunction_uses_its_linear_sibling_and_existing_parent_excep
 }
 
 #[test]
-fn h370_guard_with_n3_zero_keeps_the_exact_integer_child() {
+fn nonlinear_guard_with_zero_axis_keeps_exact_integer_child() {
     let context = CoefficientContext::new(["n0", "n3", "n7"]);
     let indices = [0, 1, 2];
     let sector = [false; 3];
