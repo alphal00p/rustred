@@ -70,8 +70,10 @@ catalogue is rejected at the Vakint load boundary.  The finished all-parent
 run loaded the H catalogue and generated/checks the other finite terminal
 values through its explicit FMFT oracle.  The separate catalog-only rerun
 (`all-parents-catalog-only-w6.log`) is the relevant FORM-free cold-load check:
-it has loaded and passed H, FG, and BMW so far, while X is still pending in
-the live process at the time of this audit.
+its captured log loaded and passed H, FG, and BMW.  The process subsequently
+disappeared after the BMW line without writing an X section or a Rust test
+result/exit record, so it is an interrupted/incomplete run rather than a
+four-family pass.
 
 The in-progress catalog-only process was independently observed as the same
 release binary under `time -p`, with:
@@ -83,8 +85,9 @@ VAKINT_4L_CANDIDATE_CATALOG_ONLY=1
 VAKINT_4L_CANDIDATE_ORACLE_FORM_PATH=/definitely/invalid/form
 ```
 
-Its environment confirms the intended no-FORM path; its eventual completion
-must be recorded separately from the completed oracle-backed run above.
+Its environment confirmed the intended no-FORM path; because no X section or
+completion record was captured, any replacement run must be recorded
+separately from the completed oracle-backed run above.
 
 ## Native RustRed/SpIRed coefficient equality
 
