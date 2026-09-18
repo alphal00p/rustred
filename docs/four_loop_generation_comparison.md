@@ -5,8 +5,8 @@ combined comparison and current delivery status. The bounded attempts below
 are historical; the later uncapped and reconstruction sections contain the
 final checkpoint outcomes. The fresh prepared-frame matrix below supersedes the
 older same-host Rust rows for current sparse/SemiNumerical comparisons. The
-uncapped C++ X six-worker run has completed; its serial X companion is still
-running as of 2026-09-18 08:41 UTC.
+uncapped C++ X six-worker run has completed, and its serial companion has since
+also completed (the completion record is documented below).
 
 ## Scope and timing boundary
 
@@ -108,7 +108,10 @@ time is within 95--99.6% of process wall time in every row, so the measured
 work is not an output-only artifact. Relative to sparse exact at the same
 worker count, SemiNumerical is slower for H, X and BMW (except for H at six
 workers, where it is faster on this shared host) and slower for FG; these are
-single paired observations rather than confidence intervals. The matrix is
+single paired observations rather than confidence intervals. The protocol pins
+the benchmark workers and caps nested pools, but the host was shared with
+unrelated processes; it is therefore not an isolated-host confidence study.
+The matrix is
 generation evidence only and does not certify closure or establish C++
 mathematical equivalence.
 
@@ -324,11 +327,12 @@ sector-count manifest agrees exactly. This C++ candidate set differs from the
 RustRed set (RustRed's fresh matrix has 19,980 rules and 445 residuals), so
 the timing is a generation comparison only, not a symbolic identity claim.
 
-The serial X companion `cpp-x-w1-uncapped-resume3-20260917` remains live as of
-2026-09-18 08:41 UTC: one native worker has run for about 9.2 hours with
-approximately 4.3 GiB resident memory, while its `.time`, `.stdout`,
-`.status`, and output directory remain empty. It is therefore neither a
-completed timing nor a timeout; no serial estimate is inferred from X6.
+The serial X companion subsequently completed. Its recorded process time is
+44,829.03 s wall, 40,743.25 s user CPU, 127.16 s system CPU, and 5,229,744
+KiB peak RSS (exit 0); its reported solve interval was 44,791.609175 s.
+It produced the same 328-sector, 19,803-rule, 597-residual, 659-file census as
+the X6 run. This is an uncapped completion record, not a claim that the C++
+and RustRed rule sets are symbolically identical.
 
 ## Native exact application canaries
 

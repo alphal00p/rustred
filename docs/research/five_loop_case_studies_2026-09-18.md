@@ -19,8 +19,9 @@ family.  No artifact was certified, serialized, or admitted to Vakint.
 
 ## Release measurements
 
-The same prepared inputs and source policy were run with one and six workers,
-using RustRed's sparse exact backend and Symbolica's `SemiNumerical` backend
+The retained prepared-client program (`TMP/rustred-five-loop-study.rs`) ran
+the same input families with one and six workers, using RustRed's sparse exact
+backend and Symbolica's `SemiNumerical` backend
 (degree 128, 200,000 probes, four attempts, eight primes).  Wall times below
 include preparation and solve but exclude compilation.  The solve times are
 reported separately by the client in microseconds.
@@ -36,10 +37,18 @@ reported separately by the client in microseconds.
 | chain/control + ISPs | semi-numerical | 1 | 32.86 s | 14.548 s | 18.292 s | 15 | 1 |
 | chain/control + ISPs | semi-numerical | 6 | 32.68 s | 14.374 s | 18.284 s | 15 | 1 |
 
-The near-identical one/six-worker times are expected for this deliberately
-small one-sector workload: parallel scheduling cannot amortize its fixed
-family compilation and parent setup.  They are useful as regression controls,
-not as evidence of five-loop scaling.  The semi-numerical and sparse outputs
+The client submits exactly one all-positive parent sector (`solved_sectors=1`;
+`rules=15`; `finite_residuals=1`) on each run. It does not enumerate or solve
+the remaining sectors. The public `family-candidates` command has a different
+workload: its all-positive root admits every inconclusive subsector, and its
+candidate-bundle path serializes every returned solution. Therefore the
+27--34-second prepared-client rows cannot be compared with a
+`family-candidates` run that continues beyond 15 minutes; they are not a
+family-wide closure or scaling measurement. The near-identical one/six-worker
+times are expected for this deliberately small one-sector workload: parallel
+scheduling cannot amortize its fixed family compilation and parent setup. They
+are useful as parent-sector regression controls, not as evidence of five-loop
+scaling. The semi-numerical and sparse outputs
 were both generated successfully; this is a backend equivalence smoke check,
 not an exact output-equivalence or reconstruction certificate.
 
@@ -76,9 +85,11 @@ stderr before termination. Shell timing recorded `real 15m3.426s`,
 638,420 KiB immediately before SIGTERM (status 143). This is a
 resource-censored run, not a failed mathematical solve and not a replacement
 for the completed matrix above. The earlier 27--33 second measurements were
-made by a different prepared release client/build environment; until that
-binary and its exact invocation are archived, the two observations must not be
-called a regression or combined into a speedup claim. This follow-up does not
+made by the retained one-sector prepared client, not by `family-candidates`,
+and did not use a recorded CPU-affinity or isolated-host protocol. Until those
+measurements are repeated under a documented paired host/affinity setup, they
+must not be called a controlled benchmark, regression, or combined into a
+speedup claim. This follow-up does not
 establish closure, reconstruction success, or a new five-loop performance
 baseline.
 
@@ -95,7 +106,7 @@ RSS sampler. The resulting partial rerun is:
 | chain/control + ISPs | sparse | 1 | 126.023 s | 56.858 s | 69.087 s | 177,328 KiB | completed |
 
 These runs found the same `15` rules and one finite residual as the original
-matrix. They were made on a heavily shared host (load average about 95--125
+one-sector matrix. They were made on a heavily shared host (load average about 95--125
 at the time), without CPU affinity, so they are diagnostic observations and
 not a replacement for the controlled one/six-worker matrix. In particular,
 they should not be interpreted as an algorithmic slowdown until a paired,
