@@ -1,5 +1,15 @@
 # RustRed project goal
 
+## Dependency baseline — GammaLoop main and Symbolica 3.0
+
+Keep `vakint_rustred` rebased onto GammaLoop's `main`, retaining the FeynKit
+tensor prepass and existing Vakint API/defaults. RustRed's local Symbolica
+checkout must be from the Symbolica 3.0 line; use the same Symbolica revision
+for the GammaLoop integration so its rational-polynomial types agree with
+RustRed's. Published GammaLoop milestones pin a pushed RustRed revision and
+reproducible Symbolica revision, not workspace-only absolute paths. Validate
+the resolved lockfiles and focused integration tests after rebasing.
+
 ## Priority update — bounded certification and four-loop Vakint delivery
 
 The current execution priority is deliberately narrowed from unrestricted

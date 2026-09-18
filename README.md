@@ -17,6 +17,50 @@ four loops. The
 The local reference source and working notes
 `notes-spired.pdf` are ignored and are not distributed with the repository.
 
+## Symbolica 3.0 development checkout
+
+The workspace is pinned to Symbolica `3.0.0` and, by default, resolves the
+crate from the vendored `vendor/symbolica/` checkout through the
+`[patch.crates-io]` entries in the root `Cargo.toml`.  `vendor/symbolica` is a
+git submodule containing Symbolica and its graphica/numerica crates. Initialize
+it in a fresh checkout before building; no separate `cargo install symbolica`
+is needed:
+
+```bash
+git submodule update --init --recursive vendor/symbolica
+export SYMBOLICA_LICENSE="<your Symbolica 3 license>"
+cargo fetch --locked
+cargo check --workspace --locked --offline
+cargo build --release --locked --offline
+```
+
+The local checkout needs the usual native GMP/MPFR development prerequisites.
+
+To use the compatible public Symbolica 3.0 revision instead of the local
+checkout, replace the three local `[patch.crates-io]` entries in the root
+`Cargo.toml` with these pinned Git patches (leave the workspace dependency's
+version and features unchanged):
+
+```toml
+[patch.crates-io]
+graphica = { git = "https://github.com/symbolica-dev/symbolica", rev = "953e26e2754e9a4b918404fbdea590725d8e863d" }
+numerica = { git = "https://github.com/symbolica-dev/symbolica", rev = "953e26e2754e9a4b918404fbdea590725d8e863d" }
+symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "953e26e2754e9a4b918404fbdea590725d8e863d" }
+```
+
+Then refresh the dependency source entries in the lockfile and build:
+
+```bash
+cargo update -p symbolica -p graphica -p numerica
+cargo build --release --locked
+```
+
+Keep the three crates on one revision; mixing a Symbolica 2 checkout with the
+3.0 `graphica`/`numerica` pair is unsupported.  The rebased GammaLoop
+`vakint_rustred` branch uses this same Symbolica 3.0 revision and pins RustRed
+to a published commit, while local development may temporarily replace that
+git dependency with a workspace path.
+
 ## Current capability
 
 The [September 17 status report](STATUS_17_09_2026.md) and
@@ -24,8 +68,11 @@ The [September 17 status report](STATUS_17_09_2026.md) and
 latest reconstruction, C++ comparison, certification and experimental Vakint
 results. Four-loop candidate generation is usable; four-loop production
 artifacts and the complete native acceptance suite remain unfinished. Twelve
-finite-target native comparisons across H, FG, X and BMW passed against FMFT; these
-are separate from the fifteen passing legacy FMFT references. See the
+finite-target native comparisons across H, FG, X and BMW passed against FMFT;
+these are separate from the fifteen passing legacy FMFT references. The native
+inventory now includes those fifteen inputs; a logged complete-inventory rerun
+and additional expanded-numerator/pinch identities are separate validation gates.
+See the
 [matched generation measurements](docs/four_loop_generation_comparison.md)
 for completed versus interrupted runs and output-equivalence qualifications.
 
