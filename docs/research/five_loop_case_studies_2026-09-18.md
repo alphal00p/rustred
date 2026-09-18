@@ -53,3 +53,31 @@ the Symbolica license in the environment, use a release build, and request
 separate closure/certification campaign proves all reachable sectors and
 guards.
 
+## Follow-up release probe (2026-09-18)
+
+I repeated the complete-scalar-product parent command from the workspace's
+current `target/release/rustred` binary (SHA-256
+`d550c94a87c60e7afa226e8f006ddf81eba8bb8787ed7c2f62758dc5a7f767a3`) with
+`SYMBOLICA_LICENSE` set and `--n-cores 1`. The exact command was:
+
+```console
+target/release/rustred family-candidates \
+  --input examples/input/five_loop_complete_scalar_product.toml \
+  --input-format toml \
+  --output TMP/five-loop-current/complete-sparse-w1.toml \
+  --report-output TMP/five-loop-current/complete-sparse-w1.report.toml \
+  --n-cores 1 --force
+```
+
+This probe was deliberately capped at 15 minutes so it could not consume an
+unbounded worker slot. It produced no candidate bundle, report, stdout, or
+stderr before termination. Shell timing recorded `real 15m3.426s`,
+`user 14m50.209s`, and `sys 0m1.511s`; sampled peak resident memory was about
+638,420 KiB immediately before SIGTERM (status 143). This is a
+resource-censored run, not a failed mathematical solve and not a replacement
+for the completed matrix above. The earlier 27--33 second measurements were
+made by a different prepared release client/build environment; until that
+binary and its exact invocation are archived, the two observations must not be
+called a regression or combined into a speedup claim. This follow-up does not
+establish closure, reconstruction success, or a new five-loop performance
+baseline.
