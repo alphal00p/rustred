@@ -1,5 +1,24 @@
 # RustRed project goal
 
+> Quota stop requested on 2026-09-18. Do not continue implementation until the
+> user resumes. See [the current checkpoint](docs/checkpoints/2026-09-18.md);
+> the four-loop numerical delivery gate below remains incomplete.
+
+## Immediate delivery gate — four-loop numerical acceptance
+
+Finish every applicable four-loop Vakint numerical comparison between FMFT
+and the FORM-free RustRed scalar backend, including 16 additional identities
+that compare fully expanded propagator numerators with independently matched
+single- and double-pinched inputs. Keep the existing precision and tolerance
+requirements, use the FeynKit tensor prepass with an invalid FORM path in the
+native lane, and do not substitute experimental-bypass results for acceptance
+through the public `EvaluationMethod::RustRed` interface.
+
+For now, do not begin five-loop studies or new performance work. Once the
+four-loop numerical gates all pass and the result is ready for five-loop work,
+commit and push both repositories, report "Ready for five loops", and stop.
+Finite numerical acceptance is not an arbitrary-index completeness proof.
+
 ## Dependency baseline — GammaLoop main and Symbolica 3.0
 
 Keep `vakint_rustred` rebased onto GammaLoop's `main`, retaining the FeynKit

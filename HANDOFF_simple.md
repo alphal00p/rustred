@@ -1,7 +1,7 @@
 # RustRed handoff — simple overview
 
 > This is the historical September 3 overview. The
-> [September 17 checkpoint](docs/checkpoints/2026-09-17.md) is current: through
+> [September 18 checkpoint](docs/checkpoints/2026-09-18.md) is current: through
 > three loops is shipped; four-loop candidates and selected numerical comparisons
 > work, but complete four-loop certification and delivery remain unfinished.
 

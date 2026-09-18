@@ -1,7 +1,7 @@
 # RustRed session handoff — 2026-09-03
 
-> Historical snapshot. For the 2026-09-17 quota checkpoint, use
-> [the current handoff](docs/checkpoints/2026-09-17.md) and [GOAL.md](GOAL.md).
+> Historical snapshot. For the latest quota checkpoint, use
+> [the September 18 handoff](docs/checkpoints/2026-09-18.md) and [GOAL.md](GOAL.md).
 > K6 now exists; the active unresolved delivery target is four loops. The old
 > status and continuation instructions below do not supersede the new stop request.
 
