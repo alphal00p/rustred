@@ -81,3 +81,24 @@ binary and its exact invocation are archived, the two observations must not be
 called a regression or combined into a speedup claim. This follow-up does not
 establish closure, reconstruction success, or a new five-loop performance
 baseline.
+
+The retained prepared-client binary (`TMP/rustred-five-loop-study`, SHA-256
+`9a617db58c90f966c9f8e25e984ff36bedc1566fb9b38563889fa0814e8b2d08`) was
+also rerun with the `.input` (Symbolica syntax) files, using the same 0.1 s
+RSS sampler. The resulting partial rerun is:
+
+| Family | Backend | Workers | Wall | Prepare | Solve | Peak RSS | Status |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| complete scalar-product | sparse | 1 | 108.654 s | 54.736 s | 53.633 s | 166,864 KiB | completed |
+| complete scalar-product | sparse | 6 | 120.015 s | 69.568 s | 50.144 s | 190,024 KiB | completed |
+| complete scalar-product | semi-numerical | 1 | 127.514 s | 70.655 s | 56.807 s | 166,852 KiB | completed |
+| chain/control + ISPs | sparse | 1 | 126.023 s | 56.858 s | 69.087 s | 177,328 KiB | completed |
+
+These runs found the same `15` rules and one finite residual as the original
+matrix. They were made on a heavily shared host (load average about 95--125
+at the time), without CPU affinity, so they are diagnostic observations and
+not a replacement for the controlled one/six-worker matrix. In particular,
+they should not be interpreted as an algorithmic slowdown until a paired,
+isolated rerun is made under the original host and affinity conditions. The
+semi-numerical row completed successfully and used Symbolica's reconstruction
+backend; no custom reconstruction code was introduced.
