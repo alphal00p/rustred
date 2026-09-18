@@ -1,0 +1,1 @@
+I(loops(k1,k2,k3,k4,k5),externals(),dimension(d),prop(D1,k1^2-1,1),prop(D2,k2^2-1,1),prop(D3,k3^2-1,1),prop(D4,k4^2-1,1),prop(D5,k5^2-1,1),prop(D6,(k1-k2)^2-1,1),prop(D7,(k2-k3)^2-1,1),prop(D8,(k3-k4)^2-1,1),prop(D9,(k4-k5)^2-1,1),prop(D10,(k1-k5)^2-1,1),prop(D11,(k1+k3)^2-1,1),prop(D12,(k2+k4)^2-1,1),prop(D13,(k3+k5)^2-1,1),prop(D14,(k1+k4)^2-1,1),prop(D15,(k2+k5)^2-1,1))

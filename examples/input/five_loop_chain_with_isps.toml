@@ -1,0 +1,64 @@
+schema = "rustred.project.toml.v1"
+
+# A second generic five-loop vacuum family.  Ten propagator-like edges are
+# followed by five independent ISP-completing quadratic forms, retaining the
+# same K=15 scalar-product arity while changing the incidence pattern.
+[family]
+name = "five_loop_unit_mass_chain_with_isps"
+loop_momenta = ["k1", "k2", "k3", "k4", "k5"]
+external_momenta = []
+dimension = "d"
+
+[[family.denominators]]
+id = "D1"
+expression = "k1^2-1"
+[[family.denominators]]
+id = "D2"
+expression = "k2^2-1"
+[[family.denominators]]
+id = "D3"
+expression = "k3^2-1"
+[[family.denominators]]
+id = "D4"
+expression = "k4^2-1"
+[[family.denominators]]
+id = "D5"
+expression = "k5^2-1"
+[[family.denominators]]
+id = "D6"
+expression = "(k1-k2)^2-1"
+[[family.denominators]]
+id = "D7"
+expression = "(k2-k3)^2-1"
+[[family.denominators]]
+id = "D8"
+expression = "(k3-k4)^2-1"
+[[family.denominators]]
+id = "D9"
+expression = "(k4-k5)^2-1"
+[[family.denominators]]
+id = "D10"
+expression = "(k1-k5)^2-1"
+[[family.denominators]]
+id = "D11"
+expression = "(k1+k3)^2-1"
+[[family.denominators]]
+id = "D12"
+expression = "(k2+k4)^2-1"
+[[family.denominators]]
+id = "D13"
+expression = "(k3+k5)^2-1"
+[[family.denominators]]
+id = "D14"
+expression = "(k1+k4)^2-1"
+[[family.denominators]]
+id = "D15"
+expression = "(k2+k5)^2-1"
+
+[target]
+powers = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+numerator = "1"
+
+[metadata]
+description = "Five-loop K=15 chain/control vacuum family with five ISP forms"
+family_role = "input-only; bounded parent-sector case study"

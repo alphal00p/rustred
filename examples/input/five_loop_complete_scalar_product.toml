@@ -1,0 +1,64 @@
+schema = "rustred.project.toml.v1"
+
+# Generic five-loop unit-mass vacuum family with one denominator for every
+# independent scalar product (K = 5*6/2 = 15).  This is ordinary caller input;
+# RustRed does not dispatch on this name or on the graph behind it.
+[family]
+name = "five_loop_unit_mass_complete_scalar_product"
+loop_momenta = ["k1", "k2", "k3", "k4", "k5"]
+external_momenta = []
+dimension = "d"
+
+[[family.denominators]]
+id = "D1"
+expression = "k1^2-1"
+[[family.denominators]]
+id = "D2"
+expression = "k2^2-1"
+[[family.denominators]]
+id = "D3"
+expression = "k3^2-1"
+[[family.denominators]]
+id = "D4"
+expression = "k4^2-1"
+[[family.denominators]]
+id = "D5"
+expression = "k5^2-1"
+[[family.denominators]]
+id = "D6"
+expression = "(k1+k2)^2-1"
+[[family.denominators]]
+id = "D7"
+expression = "(k1+k3)^2-1"
+[[family.denominators]]
+id = "D8"
+expression = "(k1+k4)^2-1"
+[[family.denominators]]
+id = "D9"
+expression = "(k1+k5)^2-1"
+[[family.denominators]]
+id = "D10"
+expression = "(k2+k3)^2-1"
+[[family.denominators]]
+id = "D11"
+expression = "(k2+k4)^2-1"
+[[family.denominators]]
+id = "D12"
+expression = "(k2+k5)^2-1"
+[[family.denominators]]
+id = "D13"
+expression = "(k3+k4)^2-1"
+[[family.denominators]]
+id = "D14"
+expression = "(k3+k5)^2-1"
+[[family.denominators]]
+id = "D15"
+expression = "(k4+k5)^2-1"
+
+[target]
+powers = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+numerator = "1"
+
+[metadata]
+description = "Five-loop K=15 vacuum scalar-product stress family"
+family_role = "input-only; bounded parent-sector case study"
