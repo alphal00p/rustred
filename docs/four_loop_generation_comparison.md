@@ -3,7 +3,10 @@
 The [September 17 status report](../STATUS_17_09_2026.md) contains the compact
 combined comparison and current delivery status. The bounded attempts below
 are historical; the later uncapped and reconstruction sections contain the
-final checkpoint outcomes. No benchmark remains running at this checkpoint.
+final checkpoint outcomes. The fresh prepared-frame matrix below supersedes the
+older same-host Rust rows for current sparse/SemiNumerical comparisons. The
+uncapped C++ X six-worker run has completed; its serial X companion is still
+running as of 2026-09-18 08:41 UTC.
 
 ## Scope and timing boundary
 
@@ -65,6 +68,49 @@ formulas afterward. It also exposes the exact/reconstruction backend choice.
 No production limit is bypassed and no closed artifact is produced by this
 benchmark client. Counts and successful process exits are checked separately
 from the still-pending certification.
+
+## Fresh prepared-frame RustRed matrix (2026-09-18)
+
+This is a new release-build matrix from `TMP/frame-paired-matrix.aCCIva/`. The
+frozen public-library client has SHA-256
+`2bf762b72c2c35719a8e99632fc468a85474d5c481ac14b6fcb4ddbd54ad80b7`, and all
+four input digests are recorded in `input.sha256`. Runs were serially scheduled
+on the same host with one worker pinned to CPU 80 and six workers to CPUs
+80--85; nested Rayon/OMP/BLAS pools were capped at one. Every backend/worker
+output completed with exit code 0, and every output directory was checked
+against the complete saved sparse baseline. The `solve_us` column is the
+client's prepared-source-to-solution boundary; process wall time comes from
+GNU time and includes preparation and output writing. Neither includes build,
+certification or cold loading.
+
+| Parent | Backend | Workers | Sectors / rules / residuals | Files | Solve (s) | Process wall (s) | Peak RSS (KiB) | Files identical to sparse baseline |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| H | sparse exact | 1 | 314 / 21,360 / 386 | 315 | 94.888673 | 95.91 | 359,728 | true |
+| H | sparse exact | 6 | 314 / 21,360 / 386 | 315 | 26.256561 | 27.37 | 502,072 | true |
+| H | SemiNumerical | 1 | 314 / 21,360 / 386 | 315 | 129.960858 | 130.97 | 360,916 | true |
+| H | SemiNumerical | 6 | 314 / 21,360 / 386 | 315 | 22.597807 | 23.68 | 475,160 | true |
+| X | sparse exact | 1 | 328 / 19,980 / 445 | 329 | 290.342137 | 292.21 | 691,456 | true |
+| X | sparse exact | 6 | 328 / 19,980 / 445 | 329 | 102.767185 | 104.80 | 969,600 | true |
+| X | SemiNumerical | 1 | 328 / 19,980 / 445 | 329 | 423.942193 | 425.76 | 692,712 | true |
+| X | SemiNumerical | 6 | 328 / 19,980 / 445 | 329 | 118.962786 | 121.05 | 949,636 | true |
+| BMW | sparse exact | 1 | 134 / 9,024 / 179 | 135 | 113.215528 | 113.91 | 248,768 | true |
+| BMW | sparse exact | 6 | 134 / 9,024 / 179 | 135 | 53.866670 | 54.92 | 425,720 | true |
+| BMW | SemiNumerical | 1 | 134 / 9,024 / 179 | 135 | 174.121946 | 175.29 | 248,732 | true |
+| BMW | SemiNumerical | 6 | 134 / 9,024 / 179 | 135 | 65.029181 | 65.80 | 443,048 | true |
+| FG | sparse exact | 1 | 124 / 9,272 / 145 | 125 | 163.574767 | 166.62 | 164,992 | true |
+| FG | sparse exact | 6 | 124 / 9,272 / 145 | 125 | 91.163808 | 93.31 | 262,672 | true |
+| FG | SemiNumerical | 1 | 124 / 9,272 / 145 | 125 | 276.248040 | 278.60 | 164,972 | true |
+| FG | SemiNumerical | 6 | 124 / 9,272 / 145 | 125 | 97.586974 | 100.25 | 266,792 | true |
+
+The eight SemiNumerical rows are byte-identical to their same-parent sparse
+counterparts, including all rule, guard and finite-residual records. Solver
+time is within 95--99.6% of process wall time in every row, so the measured
+work is not an output-only artifact. Relative to sparse exact at the same
+worker count, SemiNumerical is slower for H, X and BMW (except for H at six
+workers, where it is faster on this shared host) and slower for FG; these are
+single paired observations rather than confidence intervals. The matrix is
+generation evidence only and does not certify closure or establish C++
+mathematical equivalence.
 
 ## Initial bounded measurements
 
@@ -204,7 +250,7 @@ ordinary sources, numerical depth two and prepared-source solver boundary.
 The original driver does not emit sector progress; CPU/RSS samples establish
 resource behavior, not completed sector counts before serialization.
 
-| Parent | Workers | C++ solve | Process wall | CPU user + system | Peak RSS (KiB) | Result |
+| Parent | Workers | C++ solve | Process wall | CPU user + system | Peak RSS (KiB) | Result (historical checkpoint rows) |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | H | 1 | 3,182.388 s | 3,186.76 s | 3,152.94 s | 920,452 | Exit 0; complete output checked |
 | H | 6 | 1,987.631 s | 1,993.00 s | 3,612.00 s | 1,414,728 | Exit 0; complete output checked |
@@ -258,6 +304,31 @@ or completed solver report had been serialized. All owned processes and the
 paused supervisor were stopped afterward. GNU time's `exit_code=0` field for
 this signaled process is not a success: its explicit `Command terminated by
 signal 15` record and absent completed output establish the censor.
+
+## Resumed uncapped C++ X evidence (2026-09-18)
+
+The six-worker X parent was subsequently allowed to finish without the former
+900-second supervisor deadline. This is a new run, not the historical
+checkpoint-censored row above. Its process prefix is
+`cpp-x-w6-uncapped-resume2-20260917` in the local evidence directory.
+
+| Parent | Workers | Solve (s) | Process wall (s) | User (s) | System (s) | Peak RSS (KiB) | Exit | Sectors / rules / residuals | Files | Output checks |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| X | 6 | 27,500.179946 | 27,512.12 | 33,450.85 | 230.33 | 8,192,404 | 0 | 328 / 19,803 / 597 | 659 | Manifest, counts, nonempty rules and arrows checked |
+
+The completed X6 output contains exactly the 328 requested masks from
+`x/sectors.dat`, 19,803 total rule arrows, 597 finite residual/unique-master
+records, and the expected `2*328+3 = 659` files (`.rules`, `.dat`, family,
+master and sector-count files). Every rule and data file is nonempty, and the
+sector-count manifest agrees exactly. This C++ candidate set differs from the
+RustRed set (RustRed's fresh matrix has 19,980 rules and 445 residuals), so
+the timing is a generation comparison only, not a symbolic identity claim.
+
+The serial X companion `cpp-x-w1-uncapped-resume3-20260917` remains live as of
+2026-09-18 08:41 UTC: one native worker has run for about 9.2 hours with
+approximately 4.3 GiB resident memory, while its `.time`, `.stdout`,
+`.status`, and output directory remain empty. It is therefore neither a
+completed timing nor a timeout; no serial estimate is inferred from X6.
 
 ## Native exact application canaries
 
