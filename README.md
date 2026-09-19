@@ -40,7 +40,8 @@ the 83-test through-three-loop selection and all 31 four-loop comparisons
 passing on RustRed `d6718733`. This completes IBP-program transport migration.
 The remaining offline terminal-value catalogs now have a generic native
 Atom/State codec: all 1,155 values are preserved exactly in 30,307 bytes instead
-of 83,020. Its pinned Vakint rollout is the remaining I/O delivery gate; see
+of 83,020. Vakint `909164121` pins RustRed `d51721b6` and passes the same
+83 lower-loop checks and all 31 four-loop comparisons, completing this I/O gate; see
 [the catalog migration](docs/research/native_terminal_catalog.md).
 Separately, [opt-in exact terminal normalization](docs/research/terminal_normalization.md)
 proves 237 product aliases and reduces the four-family output-key census to

@@ -58,8 +58,10 @@ one remaining runtime persistence exception: the four small offline terminal-val
 catalogs stored canonical-expression strings. The generic native Atom/State
 value-only codec and exact conversion now pass all 1,155 value comparisons,
 66 persistence tests and fresh-process context checks. The pinned Vakint rollout
-and its numerical gates remain pending. Complete that rollout before enabling
-terminal normalization by default. An independently audited opt-in alias service
+is pushed as `909164121`, using RustRed `d51721b6`: all 83 lower-loop checks,
+15 four-loop references and 16 numerator/pinch comparisons pass, alongside seven
+focused catalog/loader checks and three public fixture checks. The native-I/O
+delivery gate is complete. An independently audited opt-in alias service
 and candidate-reducer integration are also implemented: 237 verified product
 equalities reduce the four-family output-key census from 1,155 to 918 without
 regenerating rules. Saved-program exact application diagnostics pass; downstream

@@ -39,11 +39,12 @@ four former `.rrcat` files contained 1,155 exact projections in 83,020 bytes,
 with only 26 distinct literal values. The new generic native Atom/State
 terminal-value payload preserves every exact value in 30,307 bytes; core tests,
 fresh-process import checks and saved-program binding checks pass. Its pinned
-Vakint runtime rollout remains pending. See the
+Vakint rollout is pushed as `909164121` using RustRed `d51721b6`, with all 83
+lower-loop checks and 31 four-loop comparisons passing. See the
 [catalog implementation and measurements](native_terminal_catalog.md).
 It carries family/arity/coverage and exact keys/values, but no candidate or
 certified authority. Conversion compared all 1,155 values without rerunning
-generation or FMFT; the remaining numerical acceptance gate retains the separate
+generation or FMFT; the completed numerical acceptance gate retained the separate
 FORM-backed oracle. User-authored input, inspection output and legacy
 MATAD/FMFT master evaluation source tables are not internal RustRed codecs.
 

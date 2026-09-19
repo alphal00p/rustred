@@ -24,8 +24,10 @@ catalog keys. See [the normalization contract](research/terminal_normalization.m
 `persistence::ExactTerminalCatalog` provides the same native Atom/State strategy
 for exact offline values attached to typed integral keys. Its distinct payload
 kind carries no IBP authority; downstream consumers still verify their declared
-key sets. The codec and exact asset conversion are validated; the pinned Vakint
-runtime rollout remains a separate gate.
+key sets. The codec, exact asset conversion and pinned Vakint runtime rollout
+are validated: Vakint `909164121` uses RustRed `d51721b6`, with the 83 lower-loop
+and 31 four-loop numerical checks passing. Aliases remain opt-in and were not
+enabled for that I/O migration gate.
 
 ### Foundry mathematical spine
 

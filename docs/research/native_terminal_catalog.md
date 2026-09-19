@@ -134,10 +134,32 @@ and confirmed family identity and exact declared-key equality for 386, 145, 179
 and 445 terminals respectively. No `generate` operation was invoked. Evidence
 is retained as `{h,fg,bmw,x}.example-verify.{log,time}` beside the migration helper.
 
-Downstream pinned-Vakint validation remains a separate gate:
-this note does not yet assert its completion.
-The downstream migration retains the existing raw terminal declarations, public
-backend/default behavior, master substitutions and numerical tolerances. The
-public fifteen-reference and sixteen-expanded-propagator/pinch suites must be
-rerun after the published RustRed revision is pinned; no catalog or IBP generation
-is necessary for those runtime acceptance tests.
+The downstream gate is now complete and pushed as GammaLoop/Vakint
+`9091641210f9023d1210727f490d4f009ba5cb57` on `vakint_rustred`, with both
+RustRed dependencies pinned to published `d51721b6558d2e6bc4dfdd29c794202376b2c464`.
+The raw terminal declarations, public backend/default behavior, master
+substitutions and numerical tolerances are unchanged. No terminal aliases are
+enabled in this migration.
+
+| Runtime gate | Result | Process wall | Peak RSS |
+| --- | ---: | ---: | ---: |
+| Frozen through-three-loop selection, nine processes | 83/83 | 34.59 s summed | 250,224 KiB largest process |
+| Four-loop public reference inventory | 15/15 | 33.04 s | 1,990,636 KiB |
+| Four-loop expanded numerator/pinch pairs | 16/16 | 115.23 s | 2,689,952 KiB |
+
+All native lanes retain invalid FORM paths; separate oracle comparisons invoke
+the unchanged FORM-backed implementations. The timings therefore include oracle
+work and are correctness-gate diagnostics, not scalar-backend speed comparisons.
+Seven focused catalog/loader tests and three public fixture checks also pass.
+These focused checks overlap the broader loading coverage and are not additional
+physical integral counts. Release compilation of the feature-gated offline
+import/export maintenance tooling passes without executing generation.
+
+An independent agent ran and audited the 31 four-loop comparisons, checked the
+asset hashes and exact dependency pins, and approved the final staged migration.
+Workspace dependency checks and CI-metadata regeneration pass with no metadata
+changes; this does not claim a full workspace CI run or cache upload. Evidence,
+frozen test selections, binary hashes and all process logs are retained in
+`TMP/gamma-native-catalog-migration.jP7cXc/`. The former text catalogs were removed
+from the shipped directory only after exact conversion; they remain recoverable
+from Git history and the workspace-local conversion evidence.
