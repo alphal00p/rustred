@@ -116,17 +116,25 @@ justify its added complexity, rather than pursuing a minimal basis.
 The [finite-source study](docs/research/finite_terminal_relations.md) records
 the completed scope and measurements. The binary-I/O and exact unit-weight
 terminal-normalization delivery gates are complete at the published revisions
-above; these do not imply candidate certification. Finish the bounded native
-Symbolica factorized-denominator application experiment before resuming the
-five-loop studies. Measure conversion, arithmetic, output and memory before
-considering a coefficient-storage change; do not implement another CAS or a
-replacement rule applier. Keep the proved finite identities for a later
-weighted-application experiment, not as an unmeasured production speedup.
+above; these do not imply candidate certification. The bounded native Symbolica
+[factorized-denominator experiment](docs/research/factorized_coefficients.md)
+also completes with 1,200 exact frame comparisons passing: repeated arithmetic
+plus output is approximately 1.9 times faster, but conversion makes the first
+pass slower and replay-process memory increases. Next test a bounded persistent
+native coefficient-cache prototype inside the same applier; do not change the
+production default or infer an end-to-end speedup from frame timings.
+The two external five-loop candidate-only studies may now resume in parallel
+with this application work, with explicit physical-root ISP restrictions,
+matched exact/reconstruction settings and stated time/memory limits. Do not
+implement another CAS or a replacement rule applier. Keep the proved finite
+identities for a later weighted-application experiment, not as an unmeasured
+production speedup.
 Audit Symbolica's public API
 before introducing any algebraic primitive. Keep all scratch evidence in local
 `TMP/`, use release measurements, and commit/push coherent validated milestones
-in both repositories with the requested Git identity. Existing uncapped
-**four-loop** C++ comparisons may continue; this pause concerns five loops.
+in both repositories with the requested Git identity. The existing uncapped
+**four-loop** C++ comparison remains a separate workload from the resumed,
+explicitly resource-bounded five-loop studies.
 
 > Work resumed on 2026-09-19: complete four-loop numerical validation first,
 > then proceed to five-loop performance tests. This supersedes the quota pause
