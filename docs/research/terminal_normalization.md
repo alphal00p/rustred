@@ -276,7 +276,8 @@ persisted program and ordering. Plan preparation and installation are timed
 separately. After the timers, every raw output coefficient is independently
 coalesced through the verified representative map and compared exactly with
 the combined reducer output. Family, target, common-mass degree, and five warm
-cache results are also checked. All four comparisons pass.
+cache results are also checked. Both dotted comparisons pass; the two pinch
+comparisons below pass separately.
 
 | Family | First apply raw → combined (s) | Preparation (s) | Load + prepare + install + first apply raw → combined (s) | Output terms raw → combined | Warm lookup median raw → combined (µs) |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -308,8 +309,8 @@ also pass exact comparison and cache checks. All twelve census/application
 processes exit successfully; commands, exact outputs, resources and ten
 source/binary/input hashes are retained with the evidence README.
 
-The remaining 376 higher-active-line keys and 105 numerator-bearing keys are
-not normalized by this slice. An exact positive-power parametric-equivalence
-proposal is documented separately in
+The remaining 376 keys outside these active-line-count lanes and 105
+numerator-bearing keys are not normalized by this slice. An exact positive-power
+parametric-equivalence proposal is documented separately in
 [the next-lane study](vacuum_parametric_terminal_equivalence.md); it is not
 implemented or counted in these results.

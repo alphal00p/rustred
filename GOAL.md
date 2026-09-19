@@ -74,6 +74,10 @@ exactly, including mass homogeneity and memoization; measured preparation,
 first-application and warm-cache costs are recorded separately in the
 terminal-normalization study. Downstream activation/full numerical validation
 remain a separate gate.
+The validated core implementation and measurements are published as `f91c47ab`;
+the Vakint rollout is being built against that pinned revision, with its fresh
+runtime gate still pending. A positive-power Symanzik-polynomial equivalence lane is the next
+bounded terminal-deduplication investigation, not an already measured result.
 Keep the raw declared terminal/catalog contract unchanged while reporting
 canonical output representatives separately.
 No terminal aliases are enabled by default in the I/O rollout, and five-loop
