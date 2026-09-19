@@ -201,6 +201,67 @@ To reproduce the comparator, use the command above with **only**
 `--exact-backend semi-numerical` substituted and a fresh evidence directory.
 The actual script and raw evidence are retained under
 `TMP/five-loop-candidate-next.718HJ6/`. Both generation processes are stopped;
-no further five-loop run is included in this note. These unfinished five-loop
+no further full-family campaign was launched. These unfinished five-loop
 attempts do not change the separate validated four-loop numerical application
 results or settle the separate optional bounded-rank certification work.
+
+## Selected-sector follow-up: identify the cost before changing the algorithm
+
+A subsequent, independently audited diagnostic uses the unchanged external
+cube input and ordering, but solves only two preselected sectors: mask **3734**,
+the first completed sector in both original logs, and the unfinished physical
+parent **4095**. It links existing optimized libraries containing the new replay
+observer; it does not reuse the frozen old CLI or repeat all 2,656 sectors.
+Each backend/sector runs on one CPU (82), with a 180-second deadline and the
+same 32 GiB virtual-memory bound. The parent additionally uses 99-Hz userspace
+sampling. Observer I/O and profiling make these **diagnostic measurements**,
+not new production or completed-family timing claims.
+
+| Selected scope | Sparse exact | Semi-numerical |
+|---|---:|---:|
+| Mask 3734 result | 177 rules, 1 finite residual | Same |
+| Mask 3734 solver core | 6.668 s | 8.641 s |
+| Mask 3734 exact replay inside materialization | — | 0.224 s |
+| Mask 4095 terminal status | Timeout, 124 | Timeout, 124 |
+| Mask 4095 whole command wall | 180.56 s | 180.37 s |
+| Mask 4095 completed symbolic-rule events | 281 | 274 |
+| Mask 4095 last observed solver event | 161.439 s | 159.142 s |
+| Discovery through that event | 29.841 s | 23.514 s |
+| Materialization excluding semi-numerical replay | 130.476 s | 51.347 s |
+| Completed internal exact replay intervals | — | 83.602 s |
+
+The completed representative passes a separate **6,898-coefficient exact
+comparison**, including ordered contexts and the full case/source/guard/RHS/
+residual structure. Its symbolic discovery dominates; reconstruction does not
+provide a speed improvement in this one diagnostic observation. Both parent
+processes remain incomplete and have no saved complete sector output. Their
+different partial counts cannot be used to infer relative completed-work
+throughput or eventual closure time.
+
+For the parent prefix, exact materialization is **80.8%** of sparse's observed
+solver interval. In the semi-numerical interval, reconstruction outside replay
+is **32.3%** and retained exact replay another **52.5%**. It starts 206 replay
+checks, completes 205 without failure or support recovery, and is interrupted
+inside the remaining replay. Sparse ends with an open materialization. Open
+tails and shutdown time are not counted as completed phase intervals.
+
+The profile agrees with the phase logs: sparse lifting and semi-numerical
+replay expose native polynomial division/arithmetic and allocation, while
+reconstruction exposes native finite-field GPLU scatter, row reduction,
+coefficient evaluation and inversion. Guard extraction and exceptional geometry
+are small in this prefix. A concrete hard coordinate case has only `n0` and
+dimension active, yet selects **997 source rows and 3,458 columns**. This is
+elimination cost, not evidence that optional artifact certification is blocking
+generation.
+
+The narrow next experiment is the existing `SparseTargetOnly` lifting option
+on that frozen hard case, preserving exact row/context comparison and caps;
+no new algebra or validation weakening is implied or implemented here. Native
+reconstruction already caches complete row images across coefficients at the
+same prime and point. Further optimization should target measured remaining
+costs rather than duplicate that cache.
+
+See [the detailed selected-sector report](five_loop_selected_sector_profile.md)
+for complete boundaries, resources, per-symbol counts and qualifications.
+Evidence and independent audit: `TMP/five-loop-sector-profile.Ijiilz/`.
+All owned diagnostic clients are stopped; no further generation job was started.
