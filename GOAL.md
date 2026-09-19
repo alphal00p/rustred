@@ -1,8 +1,10 @@
 # RustRed project goal
 
-> Quota stop requested on 2026-09-18. Do not continue implementation until the
-> user resumes. See [the current checkpoint](docs/checkpoints/2026-09-18.md);
-> the four-loop numerical delivery gate below remains incomplete.
+> Work resumed on 2026-09-19: complete four-loop numerical validation first,
+> then proceed to five-loop performance tests. This supersedes the quota pause
+> and the instruction to stop after four-loop acceptance. The
+> [September 18 checkpoint](docs/checkpoints/2026-09-18.md) records the starting
+> state, including the unresolved FG numerator/pinch oracle mismatch.
 
 ## Immediate delivery gate — four-loop numerical acceptance
 
@@ -14,9 +16,10 @@ requirements, use the FeynKit tensor prepass with an invalid FORM path in the
 native lane, and do not substitute experimental-bypass results for acceptance
 through the public `EvaluationMethod::RustRed` interface.
 
-For now, do not begin five-loop studies or new performance work. Once the
-four-loop numerical gates all pass and the result is ready for five-loop work,
-commit and push both repositories, report "Ready for five loops", and stop.
+Do not begin five-loop studies before the four-loop numerical gates pass.
+Once they pass, commit and push both repositories, then continue with two
+caller-supplied five-loop vacuum families and matched sparse-exact versus
+Symbolica-reconstruction performance studies, without unrestricted certification.
 Finite numerical acceptance is not an arbitrary-index completeness proof.
 
 ## Dependency baseline — GammaLoop main and Symbolica 3.0

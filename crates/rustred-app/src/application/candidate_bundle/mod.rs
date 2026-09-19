@@ -18,7 +18,7 @@ pub use load::load_candidate_bundle;
 pub use model::{
     CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateBundleLimits,
     CandidateBundleResult, CandidateCertificationRequest, CandidateCertificationResult,
-    FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest,
+    FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest, MAX_CANDIDATE_BUNDLE_BYTES,
 };
 
 #[cfg(test)]

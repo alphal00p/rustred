@@ -21,8 +21,8 @@ mod resource_policy;
 pub use candidate_bundle::{
     CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateBundleLimits,
     CandidateBundleResult, CandidateCertificationRequest, CandidateCertificationResult,
-    FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest, certify_candidates, family_candidates,
-    load_candidate_bundle,
+    FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest, MAX_CANDIDATE_BUNDLE_BYTES,
+    certify_candidates, family_candidates, load_candidate_bundle,
 };
 pub use error::{AppError, AppErrorKind};
 pub use family_close::{
@@ -45,7 +45,7 @@ pub use rustred::foundry::campaign::{
 
 /// Maximum UTF-8 source payload accepted by every in-process application API.
 pub const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
-/// Maximum canonical TOML payload returned by every application API.
+/// Maximum canonical TOML payload except explicitly enlarged candidate bundles.
 pub const MAX_OUTPUT_BYTES: usize = 256 * 1024 * 1024;
 /// Application ceiling for one closing-artifact reduction request.
 pub const MAX_CLOSING_RULE_APPLICATIONS: usize = 1_000_000;

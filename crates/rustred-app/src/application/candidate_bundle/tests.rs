@@ -40,6 +40,45 @@ expression = "(q1-q2)^2-1"
 powers = [1, 1, 1]
 "#;
 
+#[test]
+fn candidate_byte_budget_can_grow_without_changing_artifact_defaults() {
+    let defaults = CandidateBundleLimits::default();
+    assert_eq!(
+        defaults.bundle_byte_limit(),
+        crate::MAX_CLOSING_ARTIFACT_BYTES
+    );
+    let enlarged = CandidateBundleLimits {
+        max_bundle_bytes: 512 * 1024 * 1024,
+        ..defaults
+    };
+    assert_eq!(enlarged.bundle_byte_limit(), 512 * 1024 * 1024);
+    let excessive = CandidateBundleLimits {
+        max_bundle_bytes: usize::MAX,
+        ..defaults
+    };
+    assert_eq!(excessive.bundle_byte_limit(), MAX_CANDIDATE_BUNDLE_BYTES);
+    assert_eq!(crate::MAX_CLOSING_ARTIFACT_BYTES, 256 * 1024 * 1024);
+}
+
+#[test]
+fn candidate_byte_budget_is_symmetric_at_the_serialized_boundary() {
+    let generated = family_candidates(FamilyCandidatesRequest::new(K1)).unwrap();
+    let defaults = CandidateBundleLimits::default();
+    let bundle = codec::read(generated.bundle(), defaults).unwrap();
+    let exact = CandidateBundleLimits {
+        max_bundle_bytes: generated.bundle().len(),
+        ..defaults
+    };
+    assert_eq!(codec::write(&bundle, exact).unwrap(), generated.bundle());
+    assert!(codec::read(generated.bundle(), exact).is_ok());
+    let short = CandidateBundleLimits {
+        max_bundle_bytes: generated.bundle().len() - 1,
+        ..defaults
+    };
+    assert!(codec::write(&bundle, short).is_err());
+    assert!(codec::read(generated.bundle(), short).is_err());
+}
+
 fn roundtrip<const N: usize>(source: &str) {
     let generated = family_candidates(FamilyCandidatesRequest::new(source)).unwrap();
     assert_eq!(generated.status(), "uncertified-candidates");
@@ -269,6 +308,7 @@ fn strict_schema_shapes_and_input_limits_reject_before_native_reconstruction() {
             codec::read(generated.bundle(), limited).unwrap_err().kind(),
             AppErrorKind::Limit
         );
+        assert!(codec::write(&bundle, limited).is_err());
     }
 }
 

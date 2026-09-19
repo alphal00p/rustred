@@ -8,12 +8,12 @@ use rustred::solver::{
 };
 use symbolica::prelude::AtomCore;
 
-use crate::application::{AppError, MAX_CLOSING_ARTIFACT_BYTES, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES};
+use crate::application::{AppError, MAX_INPUT_BYTES};
 
 use super::model::*;
 
 pub(super) fn read(bytes: &[u8], limits: CandidateBundleLimits) -> Result<Bundle, AppError> {
-    if bytes.len() > limits.max_bundle_bytes.min(MAX_CLOSING_ARTIFACT_BYTES) {
+    if bytes.len() > limits.bundle_byte_limit() {
         return Err(AppError::limit("candidate bundle exceeds its byte limit"));
     }
     let text = std::str::from_utf8(bytes)
@@ -28,12 +28,7 @@ pub(super) fn write(bundle: &Bundle, limits: CandidateBundleLimits) -> Result<Ve
     validate(bundle, limits)?;
     let output =
         toml::to_string(bundle).map_err(|error| AppError::serialization(error.to_string()))?;
-    if output.len()
-        > limits
-            .max_bundle_bytes
-            .min(MAX_OUTPUT_BYTES)
-            .min(MAX_CLOSING_ARTIFACT_BYTES)
-    {
+    if output.len() > limits.bundle_byte_limit() {
         return Err(AppError::output_limit(
             "candidate bundle exceeds its byte limit",
         ));

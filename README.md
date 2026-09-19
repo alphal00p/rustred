@@ -658,7 +658,9 @@ The repository root is a virtual Cargo workspace with three packages:
   primitives.
 - `crates/rustred-app` owns shared application operations and the `rustred`
   CLI. Transport schemas and presentation stay here rather than in the
-  mathematical core.
+  mathematical core. Library consumers can set `default-features = false`
+  to load/apply saved programs without the CLI's terminal-UI dependencies;
+  the default `cli` feature and executable behavior are unchanged.
 - `crates/rustred-python` is a thin PyO3 adapter over `rustred-app`. Python
   users write `import rustred`; `rustred._rustred` is a private extension
   detail, and top-level `import _rustred` is intentionally unsupported.

@@ -8,6 +8,10 @@ description = "Shared application and CLI frontend for RustRed"
 license = "MIT"
 publish = false
 
+[features]
+default = ["cli"]
+cli = ["dep:tabled", "dep:crossterm", "dep:ratatui"]
+
 [lib]
 name = "rustred_app"
 path = "src/lib.rs"
@@ -16,16 +20,50 @@ path = "src/lib.rs"
 name = "rustred"
 path = "src/main.rs"
 doc = false
+required-features = ["cli"]
 
 [[example]]
 name = "two-loop-single-mass-vacuum"
 path = "../../examples/rust/two_loop_single_mass_vacuum.rs"
 
+# These integration tests compare the library against the CLI executable.
+[[test]]
+name = "application_api"
+required-features = ["cli"]
+
+[[test]]
+name = "closing_artifact_api"
+required-features = ["cli"]
+
+[[test]]
+name = "cli_candidates"
+required-features = ["cli"]
+
+[[test]]
+name = "cli_foundry_campaign_run"
+required-features = ["cli"]
+
+[[test]]
+name = "cli_family_close"
+required-features = ["cli"]
+
+[[test]]
+name = "cli_campaign_plan"
+required-features = ["cli"]
+
+[[test]]
+name = "cli_campaign_preflight"
+required-features = ["cli"]
+
+[[test]]
+name = "cli_derive"
+required-features = ["cli"]
+
 [dependencies]
 rustred = { path = "../rustred-core" }
 serde = { version = "1", features = ["derive"] }
 symbolica.workspace = true
-tabled = { version = "0.21", default-features = false, features = ["ansi", "std"] }
-crossterm = "0.28"
-ratatui = { version = "0.29", default-features = false, features = ["crossterm"] }
+tabled = { version = "0.21", default-features = false, features = ["ansi", "std"], optional = true }
+crossterm = { version = "0.28", optional = true }
+ratatui = { version = "0.29", default-features = false, features = ["crossterm"], optional = true }
 toml = "1"

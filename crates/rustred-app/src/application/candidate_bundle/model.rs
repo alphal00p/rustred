@@ -7,6 +7,10 @@ use crate::application::InputFormat;
 pub const CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.uncertified-candidates.toml.v1";
 pub const FAMILY_CANDIDATES_SCHEMA: &str = "rustred.family-candidates-output.toml.v1";
 pub const CANDIDATE_CERTIFICATION_SCHEMA: &str = "rustred.candidate-certification-output.toml.v1";
+/// Hard ceiling for explicitly enlarged candidate ingress/output policies.
+/// Candidates retain discovery source traces and may exceed closed-artifact
+/// sizes. Defaults remain unchanged; callers must opt into the larger budget.
+pub const MAX_CANDIDATE_BUNDLE_BYTES: usize = 1024 * 1024 * 1024;
 /// Maximum semantic rank bound accepted by the (currently fail-closed)
 /// bounded-certification front end.  Keeping this cap explicit prevents a
 /// caller from accidentally turning a bounded request into an unbounded
@@ -16,6 +20,8 @@ pub(super) const STATUS: &str = "uncertified-candidates";
 pub(super) const SOLVER_POLICY: &str = "ordinary-source-port-default-v1";
 
 /// Caller-owned ingress/output policy, not data read from a candidate bundle.
+/// Byte limits bound the serialized payload, not peak RSS: TOML parsing and
+/// exact-expression reconstruction additionally allocate in-memory structures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CandidateBundleLimits {
     pub max_bundle_bytes: usize,
@@ -23,6 +29,12 @@ pub struct CandidateBundleLimits {
     pub max_coefficient_bytes: usize,
     pub max_total_coefficient_bytes: usize,
     pub exact_algebra: ExactAlgebraLimits,
+}
+
+impl CandidateBundleLimits {
+    pub(super) fn bundle_byte_limit(self) -> usize {
+        self.max_bundle_bytes.min(MAX_CANDIDATE_BUNDLE_BYTES)
+    }
 }
 
 impl Default for CandidateBundleLimits {
