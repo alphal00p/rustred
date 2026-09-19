@@ -34,6 +34,57 @@ fn success(arguments: &[&str], input: &[u8]) -> Vec<u8> {
 }
 
 #[test]
+fn explicit_reconstruction_backend_preserves_small_case_candidate_payload() {
+    let sparse = success(&["family-candidates"], INPUT.as_bytes());
+    let reconstructed = success(
+        &["family-candidates", "--exact-backend", "semi-numerical"],
+        INPUT.as_bytes(),
+    );
+    assert_eq!(sparse, reconstructed);
+    let failed = run(
+        &["family-candidates", "--exact-backend", "invalid"],
+        INPUT.as_bytes(),
+    );
+    assert!(!failed.status.success());
+    assert!(failed.stdout.is_empty());
+}
+
+#[test]
+fn candidate_progress_preserves_data_and_never_claims_certification() {
+    let quiet = success(&["family-candidates"], INPUT.as_bytes());
+    let observed = run(&["family-candidates", "--progress"], INPUT.as_bytes());
+    assert!(
+        observed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&observed.stderr)
+    );
+    assert_eq!(quiet, observed.stdout);
+    let progress = String::from_utf8(observed.stderr).unwrap();
+    assert!(progress.contains("preparing K=1"));
+    assert!(progress.contains("generated"));
+    assert!(progress.contains("output written"));
+    for forbidden in [
+        "\x1b",
+        "replay",
+        "checking",
+        "install",
+        "closed",
+        "certified",
+        "artifact written",
+    ] {
+        assert!(!progress.contains(forbidden), "{forbidden}: {progress}");
+    }
+    for args in [
+        vec!["family-candidates", "--progress", "--progress"],
+        vec!["certify-candidates", "--progress"],
+    ] {
+        let failed = run(&args, b"not parsed");
+        assert!(!failed.status.success());
+        assert!(failed.stdout.is_empty());
+    }
+}
+
+#[test]
 fn saved_candidates_are_not_artifacts_and_can_be_certified_in_a_fresh_process() {
     let bundle = success(
         &["family-candidates", "--input-format", "symbolica"],

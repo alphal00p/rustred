@@ -5,9 +5,13 @@ use std::time::Duration;
 use rustred::foundry::artifact::SourcePortInstallEvent;
 use rustred::solver::{SearchEvent, SectorEvent, SectorPhase};
 
-pub(super) type Observer<'a> = Option<&'a (dyn Fn(FamilyCloseProgress) + Send + Sync)>;
+pub(in crate::application) type Observer<'a> =
+    Option<&'a (dyn Fn(FamilyCloseProgress) + Send + Sync)>;
 
-pub(super) fn emit(observer: Observer<'_>, event: impl FnOnce() -> FamilyCloseProgress) {
+pub(in crate::application) fn emit(
+    observer: Observer<'_>,
+    event: impl FnOnce() -> FamilyCloseProgress,
+) {
     if let Some(observer) = observer {
         observer(event());
     }
@@ -37,6 +41,9 @@ pub enum FamilyCloseGenerationStage {
 }
 
 /// Lightweight live observations from complete family generation.
+/// Candidate-only generation reuses preparation, generation and encoding
+/// events, but never emits checking or installation events. No event grants
+/// closure or provenance authority.
 ///
 /// Sector masks use bit `i` for denominator coordinate `i`. Ordinals are
 /// zero-based. `elapsed` is wall time since application entry, includes
@@ -120,13 +127,13 @@ pub enum FamilyCloseProgress {
     },
 }
 
-pub(super) fn sector_mask<const N: usize>(sector: [bool; N]) -> u64 {
+pub(in crate::application) fn sector_mask<const N: usize>(sector: [bool; N]) -> u64 {
     sector.iter().enumerate().fold(0, |mask, (axis, active)| {
         mask | (u64::from(*active) << axis)
     })
 }
 
-pub(super) fn generation_stage<const N: usize>(
+pub(in crate::application) fn generation_stage<const N: usize>(
     event: SectorEvent<'_, N>,
 ) -> FamilyCloseGenerationStage {
     match event {

@@ -55,12 +55,19 @@ not an exact output-equivalence or reconstruction certificate.
 ## Reproduction
 
 The release client used for the measurements is retained only in `TMP/` and
-is not part of the repository.  A normal RustRed caller can reproduce the
-same workload through `family-candidates` or the Rust/Python family APIs.  Set
-the Symbolica license in the environment, use a release build, and request
-`n_cores=1` or `6`.  Keep the resulting bundle labelled uncertified until a
-separate closure/certification campaign proves all reachable sectors and
-guards.
+is not part of the repository. Reproducing its workload requires explicitly
+selecting only the all-positive sector in the solver API. `family-candidates`
+is **not** an equivalent workload: it also solves the admitted subsectors and
+encodes the complete candidate bundle. Set the Symbolica license in the
+environment and use a release build. Neither a parent-only solve nor saved
+candidate formulas establish closure or certification.
+
+The subsequent [connected graph inputs](../../examples/input/README.md#five-loop-connected-graph-case-studies)
+are a cube and an eight-vertex Möbius ladder, each with twelve physical
+unit-mass propagators and three auxiliary coordinates. Their physical-family
+root is `111111111111000`, with slots 12–14 nonpositive. These are the new
+five-loop pressure workloads; the algebraic all-positive controls above are
+not substituted for them. Performance results must be recorded separately.
 
 ## Follow-up release probe (2026-09-18)
 

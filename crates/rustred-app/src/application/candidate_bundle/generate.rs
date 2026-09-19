@@ -5,11 +5,31 @@ use rustred::solver::{SectorConfig, SectorExecutor, SectorSolveOptions};
 use serde::Serialize;
 
 use crate::application::AppError;
+use crate::application::family_close::progress::{
+    FamilyCloseProgress, Observer, emit, generation_stage, sector_mask,
+};
 
 use super::{codec, model::*, preparation};
 
 pub fn family_candidates(
     request: FamilyCandidatesRequest,
+) -> Result<CandidateBundleResult, AppError> {
+    generate_request(request, None)
+}
+
+/// Observe generation without enabling source replay or closure certification.
+/// Callbacks may overlap on sector workers and must synchronize their state.
+/// Only preparation, generation and encoding events are emitted.
+pub fn family_candidates_with_progress(
+    request: FamilyCandidatesRequest,
+    observe: impl Fn(FamilyCloseProgress) + Send + Sync,
+) -> Result<CandidateBundleResult, AppError> {
+    generate_request(request, Some(&observe))
+}
+
+fn generate_request(
+    request: FamilyCandidatesRequest,
+    observe: Observer<'_>,
 ) -> Result<CandidateBundleResult, AppError> {
     let started = Instant::now();
     if request.n_cores == 0 {
@@ -21,9 +41,13 @@ pub fn family_candidates(
     let n = family.denominator_count();
     let root = preparation::root(n, &request.nonpositive_indices)?;
     preparation::validate_permutation(n, request.permutation.as_deref())?;
+    emit(observe, || FamilyCloseProgress::Preparing {
+        arity: n,
+        elapsed: started.elapsed(),
+    });
     macro_rules! dispatch {
         ($($n:literal),+) => { match n {
-            $($n => generate::<$n>(family, request, &root, started),)+
+            $($n => generate::<$n>(family, request, &root, started, observe),)+
             _ => unreachable!("candidate arity checked"),
         } };
     }
@@ -35,25 +59,62 @@ fn generate<const N: usize>(
     request: FamilyCandidatesRequest,
     root: &[bool],
     started: Instant,
+    observe: Observer<'_>,
 ) -> Result<CandidateBundleResult, AppError> {
     let prepared = preparation::prepare::<N>(family, root, request.permutation.as_deref())?;
     let executor =
         SectorExecutor::new(request.n_cores).map_err(|e| AppError::execution(e.to_string()))?;
     let prepared_at = started.elapsed();
+    emit(observe, || FamilyCloseProgress::Prepared {
+        sectors: prepared.sectors.len(),
+        zero_sectors: prepared
+            .zeros
+            .iter()
+            .filter(|sector| {
+                sector
+                    .iter()
+                    .zip(prepared.root)
+                    .all(|(&active, allowed)| !active || allowed)
+            })
+            .count(),
+        global_zero_sectors: prepared.zeros.len(),
+        elapsed: prepared_at,
+    });
     let solved = executor
-        .map(
+        .map_with_observer(
             &prepared.sources,
             &prepared.sectors,
             &SectorConfig {
                 zero_sectors: prepared.zeros.clone(),
                 permutation: prepared.permutation,
+                symbolic_exact_backend: request.exact_backend.solver_backend(),
                 ..Default::default()
             },
             SectorSolveOptions::default(),
-            |done| Ok::<_, std::io::Error>((done.sector, done.solution)),
+            |ordinal, sector, event| {
+                emit(observe, || FamilyCloseProgress::Generating {
+                    ordinal,
+                    sector: sector_mask(sector),
+                    stage: generation_stage(event),
+                    elapsed: started.elapsed(),
+                })
+            },
+            |done| {
+                emit(observe, || FamilyCloseProgress::GeneratedSector {
+                    ordinal: done.ordinal,
+                    sector: sector_mask(done.sector),
+                    rules: done.solution.rules.len(),
+                    finite_residuals: done.solution.finite_residuals.len(),
+                    elapsed: started.elapsed(),
+                });
+                Ok::<_, std::io::Error>((done.sector, done.solution))
+            },
         )
         .map_err(|e| AppError::execution(e.to_string()))?;
     let solved_at = started.elapsed();
+    emit(observe, || FamilyCloseProgress::Encoding {
+        elapsed: solved_at,
+    });
     let bundle = Bundle {
         schema: CANDIDATE_BUNDLE_SCHEMA.into(),
         status: STATUS.into(),
@@ -70,6 +131,10 @@ fn generate<const N: usize>(
     };
     let bytes = codec::write(&bundle, request.bundle_limits)?;
     let elapsed = started.elapsed();
+    emit(observe, || FamilyCloseProgress::Encoded {
+        bytes: bytes.len(),
+        elapsed,
+    });
     #[derive(Serialize)]
     struct Report<'a> {
         schema: &'static str,
@@ -83,6 +148,7 @@ fn generate<const N: usize>(
         generated_rules: usize,
         finite_residuals: usize,
         workers: usize,
+        exact_backend: &'static str,
         bytes: usize,
         preparation_us: u128,
         solve_us: u128,
@@ -101,6 +167,7 @@ fn generate<const N: usize>(
         generated_rules: solved.iter().map(|(_, s)| s.rules.len()).sum(),
         finite_residuals: solved.iter().map(|(_, s)| s.finite_residuals.len()).sum(),
         workers: request.n_cores,
+        exact_backend: request.exact_backend.as_str(),
         bytes: bytes.len(),
         preparation_us: prepared_at.as_micros(),
         solve_us: (solved_at - prepared_at).as_micros(),

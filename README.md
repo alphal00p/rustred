@@ -2,9 +2,16 @@
 
 RustRed is a pre-alpha, pure-Rust and Symbolica-native project for deriving and
 applying parametric integration-by-parts identities. Its active target is
-four-loop single-scale vacuum closure and FORM-less Vakint evaluation against
-the existing FMFT examples, building on the shipped through-three-loop artifacts.
+four-loop single-scale vacuum reduction and FORM-less Vakint evaluation against
+the existing FMFT examples, followed by five-loop generation/performance studies.
+The four-loop numerical acceptance gate passes; unrestricted closure certification
+remains separate from the shipped candidate programs.
 Loop count and topology are input data, never production dispatch keys.
+
+The immediate priority is efficient, uniform Symbolica-native binary I/O,
+followed by exact terminal deduplication. Five-loop experiments wait for those
+four-loop improvements. The existing rule-application engine remains in use;
+no alternate Symbolica-replacement backend is planned.
 
 The solver implementation follows the
 [executable SpIRed reference port](docs/spired_port.md): reproduce the actual
@@ -94,7 +101,9 @@ the published Symbolica 3/RustRed stack and ships the regenerated K6 artifact.
 The full workspace compiles; focused GammaLoop, Spenso and FeynKit runtime
 checks pass. See the [dependency migration report](docs/vakint_symbolica3_migration.md).
 
-Four-loop artifacts are not yet closed or shipped. H, X, BMW and FG are
+Four-loop certified artifacts are not yet closed or shipped; the uncertified
+candidate programs and their terminal projections are shipped with Vakint.
+H, X, BMW and FG are
 [external unit-mass input families](examples/input/README.md), not hard-coded
 solver cases. Explicit caller-owned publication and cold-load resource policies,
 native coefficient-conjunction refinement and exhaustive short-axis consistency

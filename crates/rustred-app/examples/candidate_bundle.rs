@@ -82,13 +82,14 @@ fn verify<const N: usize>(bytes: &[u8], catalog: &str) -> Result<(), Box<dyn Err
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
-        Some("generate") if args.len() == 8 => {
+        Some("generate") if matches!(args.len(), 8 | 9) => {
             if Path::new(&args[6]).exists() || Path::new(&args[7]).exists() || args[6] == args[7] {
                 return Err("bundle and report paths must be distinct and new".into());
             }
             let mut request = FamilyCandidatesRequest::new(fs::read_to_string(&args[2])?);
             request.nonpositive_indices = args[3].split(',').map(str::parse).collect::<Result<_, _>>()?;
             request.n_cores = args[4].parse()?;
+            request.exact_backend = args.get(8).map(String::as_str).unwrap_or("sparse").parse()?;
             request.permutation = if args[5] == "default" { None } else {
                 Some(args[5].split(',').map(str::parse).collect::<Result<_, _>>()?)
             };
@@ -111,7 +112,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
         }
-        _ => return Err("usage: candidate_bundle generate INPUT NONPOSITIVE_INDICES WORKERS PERMUTATION_OR_default NEW_BUNDLE NEW_REPORT | verify ARITY BUNDLE TERMINAL_CATALOG".into()),
+        _ => return Err("usage: candidate_bundle generate INPUT NONPOSITIVE_INDICES WORKERS PERMUTATION_OR_default NEW_BUNDLE NEW_REPORT [sparse|semi-numerical] | verify ARITY BUNDLE TERMINAL_CATALOG".into()),
     }
     Ok(())
 }

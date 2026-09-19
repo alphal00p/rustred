@@ -20,7 +20,7 @@ use super::lowering::lower_project;
 use super::resource_policy::ResourcePolicyOutput;
 use super::{InputFormat, MAX_CLOSING_ARTIFACT_BYTES, MAX_INPUT_BYTES};
 
-mod progress;
+pub(super) mod progress;
 mod scope;
 pub use progress::{FamilyCloseGenerationStage, FamilyCloseProgress};
 use progress::{Observer, emit, generation_stage, installation_event, sector_mask};

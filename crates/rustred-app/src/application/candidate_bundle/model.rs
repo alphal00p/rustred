@@ -1,5 +1,6 @@
 use rustred::algebra::ExactAlgebraLimits;
 use rustred::foundry::artifact::{ArtifactLoadLimits, SourcePortLimits};
+use rustred::solver::SymbolicExactBackend;
 use serde::{Deserialize, Serialize};
 
 use crate::application::InputFormat;
@@ -18,6 +19,53 @@ pub const MAX_CANDIDATE_BUNDLE_BYTES: usize = 1024 * 1024 * 1024;
 pub const MAX_RANK_SCOPED_CERTIFICATION_DEGREE: usize = 30;
 pub(super) const STATUS: &str = "uncertified-candidates";
 pub(super) const SOLVER_POLICY: &str = "ordinary-source-port-default-v1";
+
+/// Exact materialization policy for candidate generation. Both choices use
+/// the same source discovery and guards; neither certifies family closure.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CandidateExactBackend {
+    #[default]
+    Sparse,
+    SemiNumerical,
+}
+
+impl CandidateExactBackend {
+    pub const EXPECTED_VALUES: &str = "sparse or semi-numerical";
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Sparse => "sparse",
+            Self::SemiNumerical => "semi-numerical",
+        }
+    }
+
+    pub(super) fn solver_backend(self) -> SymbolicExactBackend {
+        match self {
+            Self::Sparse => SymbolicExactBackend::Sparse,
+            Self::SemiNumerical => SymbolicExactBackend::SemiNumerical {
+                max_degree: 128,
+                max_probes: 200_000,
+                max_attempts: 4,
+                max_primes: 8,
+            },
+        }
+    }
+}
+
+impl std::str::FromStr for CandidateExactBackend {
+    type Err = crate::AppError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "sparse" => Ok(Self::Sparse),
+            "semi-numerical" => Ok(Self::SemiNumerical),
+            _ => Err(crate::AppError::input(format!(
+                "invalid candidate exact backend {value:?}; expected {}",
+                Self::EXPECTED_VALUES
+            ))),
+        }
+    }
+}
 
 /// Caller-owned ingress/output policy, not data read from a candidate bundle.
 /// Byte limits bound the serialized payload, not peak RSS: TOML parsing and
@@ -56,6 +104,7 @@ pub struct FamilyCandidatesRequest {
     pub source: String,
     pub input_format: InputFormat,
     pub n_cores: usize,
+    pub exact_backend: CandidateExactBackend,
     pub permutation: Option<Vec<usize>>,
     pub nonpositive_indices: Vec<usize>,
     pub bundle_limits: CandidateBundleLimits,
@@ -67,6 +116,7 @@ impl FamilyCandidatesRequest {
             source: source.into(),
             input_format: InputFormat::Auto,
             n_cores: 1,
+            exact_backend: CandidateExactBackend::default(),
             permutation: None,
             nonpositive_indices: Vec::new(),
             bundle_limits: CandidateBundleLimits::default(),

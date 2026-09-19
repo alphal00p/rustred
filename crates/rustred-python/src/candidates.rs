@@ -47,8 +47,8 @@ impl PyCandidateBundleResult {
 /// Generate unsealed formulas only; this does not certify family closure.
 #[pyfunction]
 #[pyo3(
-    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None),
-    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None)"
+    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse"),
+    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse')"
 )]
 fn family_candidates(
     py: Python<'_>,
@@ -57,10 +57,12 @@ fn family_candidates(
     n_cores: PythonInteger,
     permutation: Option<Vec<PythonInteger>>,
     nonpositive_indices: Option<Vec<PythonInteger>>,
+    exact_backend: &str,
 ) -> PyResult<PyCandidateBundleResult> {
     let mut request =
         FamilyCandidatesRequest::new(bounded_owned_input("candidate family input", source)?);
     request.input_format = parse_input_format(input_format)?;
+    request.exact_backend = exact_backend.parse().map_err(map_app_error)?;
     request.n_cores = positive_core_count("family candidates n_cores", n_cores.0)?;
     request.permutation = permutation
         .map(|values| indices("permutation", values))

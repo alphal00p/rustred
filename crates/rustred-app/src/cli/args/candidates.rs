@@ -4,7 +4,7 @@ use super::{
     ArgError, Command, ResourceLimitsArgs, StreamPath, next_utf8_value, next_value,
     parse_nonnegative_integer, parse_positive_integer, set_once,
 };
-use crate::InputFormat;
+use crate::{CandidateExactBackend, InputFormat};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FamilyCandidatesArgs {
@@ -13,6 +13,8 @@ pub(crate) struct FamilyCandidatesArgs {
     pub report_output: Option<StreamPath>,
     pub input_format: InputFormat,
     pub n_cores: usize,
+    pub exact_backend: CandidateExactBackend,
+    pub progress: bool,
     pub permutation: Option<Vec<usize>>,
     pub nonpositive_indices: Vec<usize>,
     pub force: bool,
@@ -49,6 +51,8 @@ fn parse(
     let mut report_output = None;
     let mut input_format = None;
     let mut n_cores = None;
+    let mut exact_backend = None;
+    let mut progress = false;
     let mut permutation = None;
     let mut nonpositive_indices = None;
     let mut resources = ResourceLimitsArgs::default();
@@ -58,6 +62,12 @@ fn parse(
     while let Some(option) = arguments.next() {
         let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
         match option.as_str() {
+            "--progress" if !certification => {
+                if progress {
+                    return Err(ArgError::DuplicateOption("--progress"));
+                }
+                progress = true;
+            }
             "--help" | "-h" => {
                 if help {
                     return Err(ArgError::DuplicateOption("--help"));
@@ -101,6 +111,15 @@ fn parse(
                     "--n-cores",
                     parse_positive_integer("--n-cores", value)?,
                 )?;
+            }
+            "--exact-backend" if !certification => {
+                let value = next_utf8_value(&mut arguments, "--exact-backend")?;
+                let parsed = value.parse().map_err(|_| ArgError::InvalidValue {
+                    option: "--exact-backend",
+                    value,
+                    expected: CandidateExactBackend::EXPECTED_VALUES,
+                })?;
+                set_once(&mut exact_backend, "--exact-backend", parsed)?;
             }
             "--permutation" if !certification => {
                 let value = next_utf8_value(&mut arguments, "--permutation")?;
@@ -166,6 +185,8 @@ fn parse(
             report_output,
             input_format: input_format.unwrap_or(InputFormat::Auto),
             n_cores: n_cores.unwrap_or(1),
+            exact_backend: exact_backend.unwrap_or_default(),
+            progress,
             permutation,
             nonpositive_indices: nonpositive_indices.unwrap_or_default(),
             force,
@@ -183,6 +204,38 @@ fn parse_indices(option: &'static str, value: String) -> Result<Vec<usize>, ArgE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_candidate_backend_is_separate_from_certification() {
+        let Command::FamilyCandidates(args) = parse_generation(
+            ["--exact-backend", "semi-numerical"]
+                .into_iter()
+                .map(OsString::from),
+        )
+        .unwrap() else {
+            panic!("generation expected")
+        };
+        assert_eq!(args.exact_backend, CandidateExactBackend::SemiNumerical);
+        for args in [
+            vec!["--exact-backend", "invalid"],
+            vec![
+                "--exact-backend",
+                "sparse",
+                "--exact-backend",
+                "semi-numerical",
+            ],
+        ] {
+            assert!(parse_generation(args.into_iter().map(OsString::from)).is_err());
+        }
+        assert!(
+            parse_certification(
+                ["--exact-backend", "sparse"]
+                    .into_iter()
+                    .map(OsString::from),
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn candidate_generation_and_certification_have_separate_controls() {

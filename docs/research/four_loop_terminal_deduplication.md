@@ -187,6 +187,36 @@ Neither transformation strategy is needed merely to explain the present count.
 
 ## Evidence and limits
 
+### Smallest safe integration identified by the follow-up audit
+
+The first implementation should be an immutable, verified **same-family
+terminal-alias plan**, prepared before `CandidateReducer` has cached results.
+Its existing terminal branch can return a representative instead of the raw
+key; ordinary coefficient accumulation then coalesces equivalent terms before
+memoizing every ancestor. Keep the original declared keys for catalog/provenance
+checks, and expose canonical output representatives separately. Initially map
+only to existing declared representatives, leaving unsupported numerator-bearing
+cases unchanged. An oracle projection dictionary is not a generic equality proof.
+
+Reuse the existing momentum-map verifier and factorization kinematic checks:
+exact denominator/mass/offset transport, integer loop transformation with
+determinant ±1, and disjoint loop blocks for products. Unit determinant alone
+does not establish integer entries. Requiring a full-family permutation of all
+unused ISP coordinates would miss valid sector-local changes of variables such
+as the tadpole-product example above. Extract the reusable kinematic checker
+from artifact installation instead of manufacturing closed-artifact authority.
+
+Product signatures must include typed lower-family identities, master powers
+and factor multiplicities. Embedding back into the same parent family preserves
+the existing coefficient mass factor `(m²)^(sum(rep)-sum(target))`; avoid applying
+it twice. Tests should include the A/B example, invalid Jacobians and offsets,
+dotted-power distinctions, repeated factors, alias cycles, worker determinism
+and cold loading. This post-generation pass may shrink cached decompositions;
+it cannot remove existing source-search or TOML-loading costs. Measure it before
+attempting the larger pre-generation sector-quotienting change.
+
+### Retained measurements
+
 The input is GammaLoop's corrected
 `crates/vakint/data/rustred/four_loop/{h,fg,bmw,x}.rrcat`.
 All 1,155 projections were independently re-evaluated through the corrected

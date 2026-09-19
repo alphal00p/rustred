@@ -1,0 +1,69 @@
+schema = "rustred.project.toml.v1"
+
+# A connected cubic cube graph: V=8, E=12, L=E-V+1=5.
+# D1..D12 are physical unit-mass edges. D13..D15 complete the scalar-product
+# basis and are auxiliary coordinates, not graph edges. To study the complete
+# physical family, also request nonpositive_indices=[12,13,14] explicitly.
+[family]
+name = "five_loop_unit_mass_cube"
+loop_momenta = ["k1", "k2", "k3", "k4", "k5"]
+external_momenta = []
+dimension = "d"
+
+[[family.denominators]]
+id = "D1"
+expression = "(k1+k3+k4+k5)^2-1"
+[[family.denominators]]
+id = "D2"
+expression = "(k1+k4+k5)^2-1"
+[[family.denominators]]
+id = "D3"
+expression = "(k1+k5)^2-1"
+[[family.denominators]]
+id = "D4"
+expression = "(-k3-k4-k5)^2-1"
+[[family.denominators]]
+id = "D5"
+expression = "(k2-k3-k4-k5)^2-1"
+[[family.denominators]]
+id = "D6"
+expression = "(k2-k4-k5)^2-1"
+[[family.denominators]]
+id = "D7"
+expression = "(k2-k5)^2-1"
+[[family.denominators]]
+id = "D8"
+expression = "k1^2-1"
+[[family.denominators]]
+id = "D9"
+expression = "k2^2-1"
+[[family.denominators]]
+id = "D10"
+expression = "k3^2-1"
+[[family.denominators]]
+id = "D11"
+expression = "k4^2-1"
+[[family.denominators]]
+id = "D12"
+expression = "k5^2-1"
+[[family.denominators]]
+id = "D13"
+expression = "(k1+k2)^2-1"
+[[family.denominators]]
+id = "D14"
+expression = "(k1+k3)^2-1"
+[[family.denominators]]
+id = "D15"
+expression = "(k3+k4)^2-1"
+
+[target]
+powers = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0]
+numerator = "1"
+
+[metadata]
+description = "Connected five-loop cubic cube vacuum graph; twelve physical edges plus three ISPs"
+family_role = "external input case study; no claim of closure or master independence"
+physical_root_sector = "111111111111000"
+nonpositive_indices = "12,13,14 (zero-based; request explicitly in the solver)"
+oriented_edges_D1_to_D12 = "0->1,1->2,2->3,0->4,4->5,5->6,6->7,3->0,7->4,1->5,2->6,3->7"
+loop_basis_edges = "D8=k1,D9=k2,D10=k3,D11=k4,D12=k5"

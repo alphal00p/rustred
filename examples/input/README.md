@@ -126,3 +126,95 @@ artifact binds its scope and refuses out-of-scope reductions.
 These commands are closure attempts, not shipped four-loop artifacts. See the
 [current measurements](../../docs/four_loop_parent_closure_probe.md); search
 completion alone does not establish publication or four-loop Vakint parity.
+
+## Five-loop connected graph case studies
+
+[`five_loop_cube.toml`](five_loop_cube.toml) and
+[`five_loop_mobius8.toml`](five_loop_mobius8.toml) are two distinct, connected
+cubic vacuum graphs with eight vertices, twelve physical edges, and
+`L = E - V + 1 = 5` loops. The cube consists of the squares `0-1-2-3-0` and
+`4-5-6-7-4` joined by four corresponding spokes. The Möbius ladder is the
+cycle `0-1-2-3-4-5-6-7-0` plus `0-4,1-5,2-6,3-7`. These are concrete graph
+case studies, not claims of independent master integrals or coverage of all
+five-loop topologies. Their names never select engine algorithms or rules.
+
+Each input records its directed edge list in denominator order. The first
+seven edges form a spanning tree; the remaining five carry `k1` through
+`k5`. Tree-edge momenta solve the reduced incidence system exactly, with
+outgoing minus incoming momentum zero at all eight vertices. Every
+denominator is `qi^2 - 1`; the three additional coordinates complete the
+15-dimensional scalar-product basis but are not physical graph edges.
+
+| Input | Physical root | Zero-based nonpositive slots | Physical/full basis rank | Full determinant¹ | Graph automorphism order |
+| --- | --- | --- | --- | --- | --- |
+| Cube | `111111111111000` | `12,13,14` | `12 / 15` | `1024` | `48` |
+| Möbius-8 | `111111111111000` | `12,13,14` | `12 / 15` | `-1024` | `16` |
+
+¹ Rows are `D1..D15`, and columns are `ki·kj` in lexicographic order
+`i <= j`, with cross-term coefficient `2 qi qj`. Exact ranks, incidence
+solutions, and determinants were checked with Symbolica's rational matrix
+API. Symbolica's graph API checked connectivity, cubic valence, canonical
+automorphism orders, and that the two graphs are not isomorphic. The public
+`derive` command independently accepts both full bases and generates 25
+ordinary IBP sources per family.
+
+For example, source preparation alone is:
+
+```console
+target/release/rustred derive --input examples/input/five_loop_cube.toml \
+  --input-format toml --relations ordinary --n-cores 1 \
+  --output TMP/five-loop-cube-sources.toml
+```
+
+Matching `.input` files provide the same families in compact Symbolica syntax
+without explicit parameter declarations. Their derived families and sources
+were checked identical to their TOML counterparts. A physical-family solve
+must explicitly restrict slots `12,13,14` to nonpositive powers; target
+zeros and descriptive metadata do not impose the solver's domain. The domain
+then includes the physical parent and its contractions, with arbitrary ISP
+numerators. Solving only `111111111111000` is a parent-sector diagnostic,
+not completion of that whole physical family.
+
+The older `five_loop_complete_scalar_product` and
+`five_loop_chain_with_isps` inputs remain algebraic parent-sector controls.
+Their all-positive targets are not substitutes for these twelve-edge
+physical graph workloads. No five-loop closing artifact or successful full
+family solve is claimed by the new input definitions.
+
+Candidate generation can now be steered without recompilation through the
+CLI or Python. For example, from the repository root with `TMP/` present:
+
+```console
+target/release/rustred family-candidates \
+  --input examples/input/five_loop_cube.toml \
+  --nonpositive-indices 12,13,14 --n-cores 6 \
+  --exact-backend semi-numerical --progress \
+  --output TMP/cube.candidates.toml --report-output TMP/cube.report.toml
+```
+
+The corresponding Python call is:
+
+```python
+from pathlib import Path
+import rustred
+
+result = rustred.family_candidates(
+    Path("examples/input/five_loop_cube.toml").read_text(),
+    nonpositive_indices=[12, 13, 14], n_cores=6,
+    exact_backend="semi-numerical",
+)
+Path("TMP/cube.candidates.toml").write_bytes(result.bundle)
+print(result.to_toml())
+```
+
+Use `exact_backend="sparse"` / `--exact-backend sparse` for the default exact
+materializer. Both choices retain the same source search and bounded numerical
+corner search. Semi-numerical symbolic materialization uses Symbolica's
+reconstruction API with finite degree/probe/prime limits, and reports failure
+rather than silently falling back. Candidate output is **not certified**.
+These five-loop commands are resource-intensive attempts, not promises of
+completion. In particular the default candidate-output budgets still apply;
+large outputs can require an explicitly enlarged Rust-library policy.
+Reports separate preparation, solver and encoding times and identify the
+backend. CLI progress uses an overwriting field on a terminal; `--progress`
+opts into plain stderr when redirected, leaving the data stream unchanged.

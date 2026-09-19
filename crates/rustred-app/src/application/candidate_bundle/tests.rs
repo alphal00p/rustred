@@ -41,6 +41,70 @@ powers = [1, 1, 1]
 "#;
 
 #[test]
+fn candidate_materialization_backends_keep_small_case_bundles_identical() {
+    assert_eq!("sparse".parse(), Ok(CandidateExactBackend::Sparse));
+    assert_eq!(
+        "semi-numerical".parse(),
+        Ok(CandidateExactBackend::SemiNumerical)
+    );
+    assert!(
+        "reconstruction-with-exact-fallback"
+            .parse::<CandidateExactBackend>()
+            .is_err()
+    );
+    for source in [K1, K3] {
+        let sparse = family_candidates(FamilyCandidatesRequest::new(source)).unwrap();
+        let mut request = FamilyCandidatesRequest::new(source);
+        request.exact_backend = CandidateExactBackend::SemiNumerical;
+        request.n_cores = 2;
+        let reconstructed = family_candidates(request).unwrap();
+        assert_eq!(sparse.bundle(), reconstructed.bundle());
+        let report: toml::Value = toml::from_str(reconstructed.to_toml()).unwrap();
+        assert_eq!(report["exact_backend"].as_str(), Some("semi-numerical"));
+        certify_candidates(CandidateCertificationRequest::new(reconstructed.bundle())).unwrap();
+    }
+}
+
+#[test]
+fn candidate_progress_is_observational_and_never_checks_or_installs() {
+    use crate::FamilyCloseProgress;
+    use std::sync::Mutex;
+
+    let quiet = family_candidates(FamilyCandidatesRequest::new(K3)).unwrap();
+    let events = Mutex::new(Vec::new());
+    let mut request = FamilyCandidatesRequest::new(K3);
+    request.n_cores = 2;
+    let observed = family_candidates_with_progress(request, |event| {
+        events.lock().unwrap().push(event);
+    })
+    .unwrap();
+    assert_eq!(quiet.bundle(), observed.bundle());
+    let events = events.into_inner().unwrap();
+    assert!(matches!(
+        events.first(),
+        Some(FamilyCloseProgress::Preparing { .. })
+    ));
+    assert!(matches!(
+        events.last(),
+        Some(FamilyCloseProgress::Encoded { .. })
+    ));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, FamilyCloseProgress::GeneratedSector { .. }))
+    );
+    assert!(events.iter().all(|event| matches!(
+        event,
+        FamilyCloseProgress::Preparing { .. }
+            | FamilyCloseProgress::Prepared { .. }
+            | FamilyCloseProgress::Generating { .. }
+            | FamilyCloseProgress::GeneratedSector { .. }
+            | FamilyCloseProgress::Encoding { .. }
+            | FamilyCloseProgress::Encoded { .. }
+    )));
+}
+
+#[test]
 fn candidate_byte_budget_can_grow_without_changing_artifact_defaults() {
     let defaults = CandidateBundleLimits::default();
     assert_eq!(

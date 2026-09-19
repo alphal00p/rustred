@@ -1,5 +1,50 @@
 # RustRed project goal
 
+## Current priority — binary I/O, then terminal reduction
+
+The user's corrected September 19 directive supersedes proceeding immediately
+to five loops. **Do not resume five-loop experiments or their performance
+profiling until the following work is implemented and validated, in this
+order.** The first cube diagnostic was stopped on request; its partial results
+are not completion. The user withdrew the proposed `symbolica_replacements`
+option: keep the existing rule applier and do not build an alternate backend.
+
+1. Uniform, topology- and loop-count-independent binary I/O, using Symbolica
+   Atom binary serialization (`binserde` with state as context), replaces
+   canonical expression strings. Audit Symbolica's definitions, tests and
+   examples before implementation. Preserve exact coefficients, source
+   provenance, guards, terminals and the candidate/certified distinction.
+   Share a versioned envelope/context strategy, avoid unrelated global symbol
+   state and duplicate expressions, validate bounded untrusted input once,
+   and measure on-disk size, cold-load wall/CPU and peak memory. Migrate saved
+   four-loop programs without regenerating IBPs; no RustRed schema compatibility
+   layer is required. Keep all Vakint FORM-based modes/defaults intact.
+2. Then implement exact terminal reduction informed by the local `EPSILON.md` and
+   the audited terminal study. Start with verified momentum-routing equivalence
+   and factorized products, then bounded finite-terminal IBP relations where
+   worthwhile. Use Symbolica and existing exact witness services; do not infer
+   equality from graph labels, sampled values, or FMFT master names. Preserve
+   raw terminal provenance while explicitly reporting canonical output
+   representatives. Measure reduction in terminal counts, generation overhead
+   and application/cache effects separately. A finite nonminimal basis remains
+   acceptable. Do not replace a fully massive bubble by an unjustified
+   epsilon-shifted propagator.
+
+Retain all 15 existing four-loop numerical references and all 16 additional
+numerator/pinch comparisons against FMFT, with existing tolerances and an
+invalid FORM path in the RustRed lane. Compare exact pre/post-migration results
+and report cold loading, first unseen reductions and cached repetitions
+separately. Migration and deduplication must not weaken guards, descent, mass
+normalization or the separation between candidates and certified artifacts.
+
+Delegate orthogonal implementation slices and independent
+mathematical/implementation audits, while preserving the sequence above.
+Audit Symbolica's public API
+before introducing any algebraic primitive. Keep all scratch evidence in local
+`TMP/`, use release measurements, and commit/push coherent validated milestones
+in both repositories with the requested Git identity. Existing uncapped
+**four-loop** C++ comparisons may continue; this pause concerns five loops.
+
 > Work resumed on 2026-09-19: complete four-loop numerical validation first,
 > then proceed to five-loop performance tests. This supersedes the quota pause
 > and the instruction to stop after four-loop acceptance. The
@@ -9,6 +54,11 @@
 > FMFT routing, offline catalog revalidation, saved-program loading gates,
 > and successful public-backend 15-reference/16-pinch numerical matrices.
 > GammaLoop milestone `0d7d75f33` is pushed to `vakint_rustred`.
+> Follow-up `c5db07983` adds the public scalar benchmark: all nine inputs and
+> 54 paired numerical comparisons pass. Repeated calls are faster than FMFT;
+> cold loading and first-seen targets still require optimization. Two genuine
+> connected five-loop graphs (cube and Möbius-8) are now external study inputs,
+> with the same generic solver and explicit ISP domains.
 
 **Terminal investigation:** before interpreting terminal counts as master
 counts, audit equivalences between routed integrals, factorized products and

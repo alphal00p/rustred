@@ -164,8 +164,9 @@ library run used 107.19 s process wall time, of which 105.649 s was solving and
 314 sectors, 21,360 rules, 386 residual records and 315 files. The matching CLI
 counts corroborate workload selection, not certification. Different serial
 observations on this shared host also demonstrate why one sample is not a
-performance guarantee. No completed C++/RustRed full-workload speed ratio is
-justified yet.
+performance guarantee. At that initial checkpoint no completed C++/RustRed
+full-workload speed ratio was justified; the later uncapped sections supply
+completed observations.
 
 The H reconstruction run failed in sector `0000110110`, on a coordinate case
 fixing indices 2 and 6 to zero and indices 4, 5, 7 and 8 to one (zero-based
@@ -284,9 +285,10 @@ counts. Output serialization remains outside each quoted solver interval.
 | H | 314 | 21,360 | 21,297 | 386 | 442 | 10 |
 | FG | 124 | 9,272 | 9,224 | 145 | 188 | 7 |
 | BMW | 134 | 9,024 | 8,957 | 179 | 250 | 11 |
+| X | 328 | 19,980 | 19,803 | 445 | 597 | 34 |
 
 For each completed parent, every RustRed residual key is present in the C++
-set. C++ has respectively 56, 43 and 71 additional keys. These are explicit
+set. C++ has respectively 56, 43, 71 and 152 additional keys. These are explicit
 set comparisons, not an inference from counts. The generated rule collections
 are therefore different; candidate counts or matched sectors do not establish
 mathematical equivalence. RustRed retains its intentional source-translation
@@ -317,6 +319,7 @@ checkpoint-censored row above. Its process prefix is
 
 | Parent | Workers | Solve (s) | Process wall (s) | User (s) | System (s) | Peak RSS (KiB) | Exit | Sectors / rules / residuals | Files | Output checks |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| X | 1 | 44,791.609175 | 44,829.03 | 40,743.25 | 127.16 | 5,229,744 | 0 | 328 / 19,803 / 597 | 659 | Manifest, counts, nonempty rules and arrows checked |
 | X | 6 | 27,500.179946 | 27,512.12 | 33,450.85 | 230.33 | 8,192,404 | 0 | 328 / 19,803 / 597 | 659 | Manifest, counts, nonempty rules and arrows checked |
 
 The completed X6 output contains exactly the 328 requested masks from
@@ -333,6 +336,25 @@ KiB peak RSS (exit 0); its reported solve interval was 44,791.609175 s.
 It produced the same 328-sector, 19,803-rule, 597-residual, 659-file census as
 the X6 run. This is an uncapped completion record, not a claim that the C++
 and RustRed rule sets are symbolically identical.
+
+The 2026-09-19 saved-output audit compared every X serial and six-worker file:
+all 659 files are byte-identical, including native binary rules and the family
+archive. Every RustRed residual key is present in the C++ set; C++ retains 152
+additional keys, and 34 sectors have differing rule/residual counts. The exact
+sets and complete structural census are recorded in
+`cross-output-census-with-x-20260919-validated.json`. This is deterministic
+saved-output evidence, not a proof that the two different candidate systems
+are equivalent.
+
+A new unchanged BMW six-worker run started on 2026-09-19 at 11:12:53 UTC,
+under the prefix `cpp-bmw-w6-uncapped-final-20260919-2`. It has no supervisor
+deadline and retains affinity 38--43, six OpenMP threads and the original
+nested-pool caps. Its resource log records progress only; no completed BMW6
+timing is inferred while it is running. An earlier detached-launch attempt
+with the unsuffixed prefix lost its supervisor immediately and produced no
+terminal solver record; it is not counted as a solver failure or completion.
+An independent boundary audit rechecked the frozen binary hashes, external
+inputs, sector manifests, ordering, solver controls and excluded phases.
 
 ## Native exact application canaries
 
@@ -355,6 +377,7 @@ certify every generated rule or the extra Rust rules used for basis transport.
 | H | 4 | First denominator squared | 26,956 | 248 | 285 | All coefficients equal |
 | FG | 3 | First denominator squared | 3,362 | 78 | 99 | All coefficients equal |
 | BMW | 5 | First denominator cubed | 16,113 | 179 | 217 | All coefficients equal |
+| X | 3 | First denominator squared | 82,637 | 437 | 530 | All coefficients equal |
 
 H's four targets are its parent, the squared-denominator parent, a factorized
 dotted subsector and the third-denominator pinch. The main recurrence returned
@@ -369,12 +392,24 @@ factorized dot and third-denominator pinch. Squaring the first BMW denominator
 is already a declared-terminal control; cubing it exercises 16,113 applications.
 Its C++ result contains 42 additional residual keys; native transport yields
 179 terms and zero exact differences. The factorized dot applies one new rule.
-All twelve concrete target comparisons completed with successful process exits.
+Those twelve concrete target comparisons completed with successful process
+exits at the original checkpoint. Three further X targets completed on
+2026-09-19: parent, first denominator squared and third-denominator pinch. The
+nontrivial squared-denominator target uses 82,637 native Rust rule applications;
+86 of the 530 returned C++ keys lie outside the Rust residual set. Native basis
+transport uses 95 additional rule applications and yields exactly the same
+437-term result. All exact coefficient differences vanish; parent and pinch
+are declared-terminal controls. All fifteen named comparisons now have
+successful process exits and identical direct/transported native displays.
 
-The temporary comparison harness was independently source-reviewed. Its Rust
-client is optimized but links the checkpoint's debug application/core libraries,
-so its application and reload times are correctness diagnostics and are not
-compared with optimized C++ performance. Reproducible local evidence uses the
+The temporary comparison harness was independently source-reviewed. The
+historical H/FG/BMW Rust client is optimized but links the checkpoint's debug
+application/core libraries. The new X client links compatible release libraries
+and uses the same native comparison algorithm, with explicit existing public
+loader budgets large enough for the saved X bundle. No source search is
+repeated. Application and reload times remain correctness diagnostics and are
+not compared with optimized C++ performance: basis transport and cache policies
+make the workloads different. Reproducible local evidence uses the
 `cpp-native-*-canary` and `rust-cross-*-canary` prefixes, the explicit
 `canary-*-targets.tsv` files, `rust-cross-canary.rs` and
 `NATIVE_CROSS_CANARY_PROTOCOL.md` in the same ignored evidence directory.
@@ -382,6 +417,19 @@ compared with optimized C++ performance. Reproducible local evidence uses the
 twelve successful terminal records, exact-zero difference files and complete
 native output sets. The transported and direct native displays are also
 byte-identical for every target.
+
+The X continuation uses `cpp-native-x-canary-20260919` and
+`rust-cross-x-canary-release-20260919-2`; its explicit inputs are in
+`canary-x-targets-20260919.tsv`. The same checker validates all fifteen targets
+in `native-canaries-with-x-20260919-validated.json`. The release Rust comparison
+binary has SHA-256
+`c08f07acdc8ff471fbd291a018ae6d37f02db1d5183cafc130fc1922b741a824`.
+Its completed process took 88.26 s wall with 12,945,408 KiB peak RSS, including
+35.481460 s cold loading and 50.546841 s for the direct nontrivial reduction.
+These figures characterize this diagnostic run, not generation performance
+or a general application benchmark. This extends concrete generic-`d`
+agreement evidence to all four parents; it does not prove equality for every
+generated rule or unrestricted closure.
 
 ## Reconstruction follow-up with frozen pivot2 binary
 
@@ -484,9 +532,12 @@ capped. Single observations are not confidence intervals or a scaling guarantee.
 
 Evidence directories:
 
-- RustRed: `/tmp/rustred-four-loop-generation-comparison.prqBA3/`.
+- RustRed: `TMP/rustred-four-loop-generation-comparison.prqBA3/`.
 - C++ driver, census, logs and generated output:
-  `/tmp/rustred-four-loop-cpp-matched.VRhy3D/`.
+  `TMP/rustred-four-loop-cpp-matched.VRhy3D/`.
+
+The initial evidence directories were copied into the workspace; current
+checks and uncapped continuations use these local untracked `TMP/` paths.
 
 The runtime license is supplied only through the environment; it is not stored
 in scripts or committed. Reference sources and generated rule data remain local.

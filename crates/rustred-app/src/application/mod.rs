@@ -21,8 +21,9 @@ mod resource_policy;
 pub use candidate_bundle::{
     CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateBundleLimits,
     CandidateBundleResult, CandidateCertificationRequest, CandidateCertificationResult,
-    FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest, MAX_CANDIDATE_BUNDLE_BYTES,
-    certify_candidates, family_candidates, load_candidate_bundle,
+    CandidateExactBackend, FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest,
+    MAX_CANDIDATE_BUNDLE_BYTES, certify_candidates, family_candidates,
+    family_candidates_with_progress, load_candidate_bundle,
 };
 pub use error::{AppError, AppErrorKind};
 pub use family_close::{

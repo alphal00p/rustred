@@ -12,6 +12,20 @@ from test_python_api import UNIT_MASS_PROJECT_K1, cli_bytes
 
 
 class CandidateApiTests(unittest.TestCase):
+    def test_exact_backend_selection_and_cli_parity(self) -> None:
+        sparse = rustred.family_candidates(UNIT_MASS_PROJECT_K1)
+        reconstructed = rustred.family_candidates(
+            UNIT_MASS_PROJECT_K1, exact_backend="semi-numerical", n_cores=2
+        )
+        self.assertEqual(sparse.bundle, reconstructed.bundle)
+        self.assertEqual(tomllib.loads(reconstructed.to_toml())["exact_backend"], "semi-numerical")
+        self.assertEqual(
+            reconstructed.bundle,
+            cli_bytes(["family-candidates", "--exact-backend", "semi-numerical"], UNIT_MASS_PROJECT_K1.encode()),
+        )
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.family_candidates("not parsed", exact_backend="invalid")
+
     def test_saved_candidates_and_independent_certification(self) -> None:
         generated = rustred.family_candidates(UNIT_MASS_PROJECT_K1)
         self.assertEqual(generated.status, "uncertified-candidates")

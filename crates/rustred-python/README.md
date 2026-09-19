@@ -129,10 +129,20 @@ print(certified.to_toml())  # reconstruction and exact certification timings
 print(rustred.reduce_with_closing_artifact(certified.artifact, [3]).to_toml())
 ```
 
+Select `exact_backend="semi-numerical"` to use Symbolica's rational-function
+reconstruction for symbolic target materialization; `"sparse"` remains the
+default. The equivalent CLI option is `family-candidates --exact-backend
+semi-numerical`. The same source search, numerical-corner solver and guards
+remain in use. Reconstruction has explicit bounds (degree 128, 200,000 probes,
+four attempts, eight primes), and failure is an error, not an automatic exact
+fallback. The report records the selected backend; backend selection neither
+changes the bundle schema nor certifies closure. A small case that finds only
+direct rules may never need reconstruction, despite selecting that backend.
+
 The result of successful certification is the usual
 `ClosingArtifactGenerationResult`. A modified, incomplete or inadmissible
 bundle raises an exception; it cannot grant itself closure authority.
-Generation accepts `input_format`, `n_cores`, `permutation`, and
+Generation accepts `input_format`, `n_cores`, `exact_backend`, `permutation`, and
 `nonpositive_indices`. Certification keeps the existing unit-mass vacuum
 publication admission and accepts these optional caller resource limits:
 
