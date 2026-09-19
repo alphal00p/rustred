@@ -4,6 +4,8 @@ use crate::solver::{AffineCase, AffineIntersection, CoordinateCase};
 
 #[path = "tests/atom_policy.rs"]
 mod atom_policy;
+#[path = "tests/degree.rs"]
+mod degree;
 #[path = "tests/scoped.rs"]
 mod scoped;
 

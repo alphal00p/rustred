@@ -143,6 +143,19 @@ matched exact/reconstruction settings and stated time/memory limits. Do not
 implement another CAS or a replacement rule applier. Keep the proved finite
 identities for a later weighted-application experiment, not as an unmeasured
 production speedup.
+
+The bounded-certification follow-up now distinguishes numerator-only entry
+degree from total excess (dots plus numerator powers). The Rust source-port
+audit can request total-excess coverage without enumerating the integer
+simplex; its report labels that scope, while original-source replay, guards
+and supplied-domain strict descent remain unchanged. This is a diagnostic,
+not a bounded artifact: persistence, inductive successor envelopes and runtime
+entry admission must still be connected. Real H/FG rules carry degree-30
+entries to degree-31 numerator descendants, so an entry cap cannot be imposed
+on all intermediate integrals. Pursue the finite per-sector total-excess
+envelope first, without silently narrowing numerator-only requests or chasing
+master minimality. See the updated
+[bounded-certification audit](docs/research/rank30_certification_audit_2026-09-17.md).
 Both bounded physical-cube backends reach their 1,800-second deadlines
 without saved bundles: sparse exact reports 37 completed-sector events and
 reconstruction reports 41, with different completed-sector sets. Peak RSS is

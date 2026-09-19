@@ -23,6 +23,7 @@ use crate::algebra::CoefficientPolynomial;
 use crate::foundry::completion::{BoxCover, CompletionGeometryLimits, LatticeBox};
 
 use super::AffineApplicationDomain;
+use super::scope::EntryDegreeBound;
 
 mod consistency;
 mod diagnostic;
@@ -33,6 +34,7 @@ struct TraversalWork<'a> {
     nodes: usize,
     consistency: consistency::RestrictionCache<'a>,
     required_domain: Option<&'a LatticeBox>,
+    required_degree: Option<EntryDegreeBound>,
     scoped_geometry: scope::GeometryWork,
 }
 
@@ -47,6 +49,7 @@ impl<'a> TraversalWork<'a> {
             nodes: 0,
             consistency: consistency::RestrictionCache::with_work_limit(sector, atoms, max_work),
             required_domain: None,
+            required_degree: None,
             scoped_geometry: scope::GeometryWork::default(),
         }
     }
@@ -171,7 +174,7 @@ pub(in crate::foundry::artifact) fn certify_predicate_cover(
     terminals: &[LatticeBox],
     limits: PredicateCoverLimits,
 ) -> Result<PredicateCoverCertificate, PredicateCoverError> {
-    certify_predicate_cover_impl(sector, owners, terminals, None, limits)
+    certify_predicate_cover_impl(sector, owners, terminals, None, None, limits)
 }
 
 /// Certify only a caller-required union, retaining infinite endpoints exactly.
@@ -185,7 +188,48 @@ pub(in crate::foundry::artifact) fn certify_predicate_cover_within(
     required: &[LatticeBox],
     limits: PredicateCoverLimits,
 ) -> Result<PredicateCoverCertificate, PredicateCoverError> {
-    certify_predicate_cover_impl(sector, owners, terminals, Some(required), limits)
+    certify_predicate_cover_impl(sector, owners, terminals, Some(required), None, limits)
+}
+
+/// Exact degree-scoped coverage without enumerating the integer simplex.
+/// The rectangle below is only a traversal hull: each uncovered box must
+/// intersect the actual sum-bound before it can prevent coverage. Affine
+/// predicates remain attached and receive the same fail-closed checks.
+/// This proves neither source identity nor successor closure.
+pub(in crate::foundry::artifact) fn certify_predicate_cover_up_to_degree(
+    sector: &[bool],
+    owners: &[PredicateCoveragePiece<'_>],
+    terminals: &[LatticeBox],
+    degree: EntryDegreeBound,
+    limits: PredicateCoverLimits,
+) -> Result<PredicateCoverCertificate, PredicateCoverError> {
+    if sector.is_empty() || sector.len() > limits.geometry.max_arity {
+        return Err(PredicateCoverError::InvalidDomain("sector arity"));
+    }
+    if limits.geometry.max_requested_boxes == 0
+        || sector
+            .len()
+            .checked_mul(2)
+            .is_none_or(|count| count > limits.geometry.max_requested_box_coordinate_cells)
+    {
+        return Err(PredicateCoverError::Budget("degree coverage hull"));
+    }
+    let hull = LatticeBox::try_new(
+        sector.iter().map(|_| 0),
+        sector.iter().map(|&active| match degree {
+            EntryDegreeBound::MaxNegativeIndexDegree(_) if active => None,
+            _ => Some(degree.limit()),
+        }),
+    )
+    .map_err(geometry)?;
+    certify_predicate_cover_impl(
+        sector,
+        owners,
+        terminals,
+        Some(&[hull]),
+        Some(degree),
+        limits,
+    )
 }
 
 fn certify_predicate_cover_impl(
@@ -193,6 +237,7 @@ fn certify_predicate_cover_impl(
     owners: &[PredicateCoveragePiece<'_>],
     terminals: &[LatticeBox],
     required: Option<&[LatticeBox]>,
+    required_degree: Option<EntryDegreeBound>,
     limits: PredicateCoverLimits,
 ) -> Result<PredicateCoverCertificate, PredicateCoverError> {
     if limits.max_predicates > super::SourcePortLimits::MAX_PREDICATE_ATOMS {
@@ -267,6 +312,7 @@ fn certify_predicate_cover_impl(
     }
     let mut assignments = vec![None; atoms.len()];
     let mut work = TraversalWork::with_work_limit(sector, &atoms, limits.max_consistency_work);
+    work.required_degree = required_degree;
     let result = (|| {
         if let Some(required) = &required {
             for domain in required.boxes() {
@@ -450,6 +496,16 @@ fn check_valuations(
     }
     let mut possible = Vec::new();
     for piece in complement.boxes() {
+        if let Some(degree) = work.required_degree {
+            work.scoped_geometry
+                .charge_degree_probe(sector.len(), limits.geometry)?;
+            if !degree
+                .intersects_local_box(sector, piece)
+                .map_err(|issue| PredicateCoverError::Geometry(issue.to_string()))?
+            {
+                continue;
+            }
+        }
         if constraints.iter().any(|constraint| {
             // All equalities AND the fixed face must hold before the
             // authenticated domain's emptiness service applies. An equation
@@ -484,12 +540,10 @@ fn check_valuations(
                 .iter()
                 .filter(|cell| cell.free_dimension() > 0)
                 .count(),
-            witness: Box::new(PredicateCoverWitness::capture(
-                sector,
-                possible[0],
-                atoms,
-                assignments,
-            )),
+            witness: Box::new(
+                PredicateCoverWitness::capture(sector, possible[0], atoms, assignments)
+                    .with_required_degree(work.required_degree),
+            ),
         });
     };
     assignments[atom] = Some(false);

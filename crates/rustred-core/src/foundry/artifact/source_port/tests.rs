@@ -119,6 +119,57 @@ fn ordinary_replay_and_unbounded_cover_close_the_generated_tadpole_report() {
 }
 
 #[test]
+fn total_excess_audit_labels_its_scope_and_preserves_full_identity_checks() {
+    let (audit, solution) = solved_tadpole();
+    let bounded = audit
+        .audit_sector_through_total_excess([true], None, &solution, 30)
+        .unwrap();
+    assert_eq!(bounded.max_total_excess_degree, Some(30));
+    assert_eq!(bounded.exact_replayed_rules, solution.rules.len());
+    assert_eq!(bounded.uniformly_descending_rules, solution.rules.len());
+    assert_eq!(bounded.checked_rule_uncovered_boxes, 0);
+    assert!(bounded.issues.is_empty(), "{:?}", bounded.issues);
+    assert_eq!(
+        audit
+            .audit_sector([true], None, &solution)
+            .unwrap()
+            .max_total_excess_degree,
+        None
+    );
+
+    // Even degree zero (the finite terminal alone) does not turn an invalid
+    // candidate identity into a replayed rule or skip the full identity gate.
+    let (audit, mut corrupted) = solved_tadpole();
+    corrupted.rules[0].candidate.rhs[0].coefficient =
+        -corrupted.rules[0].candidate.rhs[0].coefficient.clone();
+    let report = audit
+        .audit_sector_through_total_excess([true], None, &corrupted, 0)
+        .unwrap();
+    assert_eq!(report.max_total_excess_degree, Some(0));
+    assert_eq!(report.exact_replayed_rules, 0);
+    assert!(!report.issues.is_empty());
+}
+
+#[test]
+fn bounded_terminal_cover_is_not_unbounded_closure() {
+    let (audit, mut solution) = solved_tadpole();
+    solution.rules.clear();
+    let bounded = audit
+        .audit_sector_through_total_excess([true], None, &solution, 0)
+        .unwrap();
+    assert!(bounded.issues.is_empty());
+    assert_eq!(bounded.max_total_excess_degree, Some(0));
+    let whole = audit.audit_sector([true], None, &solution).unwrap();
+    assert!(whole.checked_rule_unbounded_boxes > 0);
+    assert!(!whole.issues.is_empty());
+    assert!(
+        audit
+            .install_complete(tadpole(), [([true], None, solution)])
+            .is_err()
+    );
+}
+
+#[test]
 fn affine_candidates_are_omitted_only_after_an_independent_complete_cover() {
     let family = crate::foundry::artifact::two_loop::canonical_family(Default::default()).unwrap();
     let zeros: Arc<[[bool; 3]]> = Arc::from([

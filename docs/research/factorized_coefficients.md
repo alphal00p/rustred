@@ -7,6 +7,25 @@ candidate applier. It does not change artifacts, public output coefficients,
 rule authority or default behavior. The original frame replay below and the
 subsequent full-application measurements have different timing boundaries.
 
+### Generation-time field feasibility
+
+A separate source audit of pinned Symbolica 3.0.0 confirms that its native
+`FactorizedRationalPolynomialField<IntegerRing, u16>` implements `Field` and
+therefore fits the generic `SparseRowReducer` interface. This has **not** been
+implemented or benchmarked in RustRed generation. The audit checked the field,
+reducer, conversion tests and public examples; no new CAS would be needed for
+a bounded experiment.
+
+The main caution is different from application: each accepted GPLU pivot uses
+field inversion, and native factorized inversion factors the pivot numerator
+and expands its old denominator. Application's measured add/multiply gains
+therefore do not predict elimination speed. A future matched-frame experiment
+should convert once at entry, preserve native factorized intermediates, and
+materialize only the target row, checking exact ordinary coefficients and
+ordered variable maps afterward. Original source poles and replay remain
+mandatory. Detailed API findings are retained in
+`TMP/factorized_exact_lift_api_findings.md`.
+
 Symbolica 3.0's `FactorizedRationalPolynomial<IntegerRing, u16>` preserves
 denominator factors and their multiplicities; its numerator remains expanded.
 Its public constructors, arithmetic implementation, constructor tests and Atom

@@ -9,6 +9,11 @@ use crate::sector::{InteriorBounds, Mask};
 
 use super::super::error::ArtifactError;
 
+mod contract;
+pub use contract::EntryDegreeBound;
+#[allow(unused_imports)]
+pub(in crate::foundry::artifact) use contract::ProposedProofEnvelope;
+
 // Internal exact entry geometry; publication wiring must additionally prove
 // successor closure and persist/enforce the scope before exposing a rank flag.
 #[allow(dead_code)]

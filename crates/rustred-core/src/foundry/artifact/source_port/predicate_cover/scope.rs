@@ -45,6 +45,24 @@ pub(super) struct GeometryWork {
 }
 
 impl GeometryWork {
+    /// Charge every monotone-degree probe before examining its coordinates.
+    /// The same ledger also pays for box subtraction across Boolean branches.
+    pub(super) fn charge_degree_probe(
+        &mut self,
+        arity: usize,
+        limits: CompletionGeometryLimits,
+    ) -> Result<(), PredicateCoverError> {
+        let next = self
+            .splits
+            .checked_add(arity)
+            .ok_or(PredicateCoverError::Budget("degree coverage work"))?;
+        if next > limits.max_split_operations {
+            return Err(PredicateCoverError::Budget("degree coverage work"));
+        }
+        self.splits = next;
+        Ok(())
+    }
+
     pub(super) fn remaining(
         &self,
         mut limits: CompletionGeometryLimits,

@@ -19,6 +19,8 @@ use crate::foundry::completion::{
 
 use super::super::geometry::sign_partition_with_limits;
 
+mod contract;
+
 /// Caller-supplied rectangular proof-domain pieces in one physical sector.
 /// Repeated sector entries contribute to the same union; none is zero evidence.
 pub(in crate::foundry::artifact) struct DestinationScope<'a> {
@@ -254,30 +256,7 @@ impl PreparedSuccessorScope {
             else {
                 return Ok(false);
             };
-            let cover = &self.destinations[index].1;
-            let remaining = self.budget.remaining()?;
-            let complement = match cover.uncovered_within_budget(
-                image,
-                remaining.max_uncovered_boxes,
-                remaining.max_uncovered_box_coordinate_cells,
-                remaining.max_split_operations,
-            ) {
-                Ok(complement) => complement,
-                Err(issue) => {
-                    // The failed geometry call does not expose its partial
-                    // work counter. Consume the remaining allowance rather
-                    // than granting it again on a caller's subsequent term.
-                    self.budget.work = limits.max_split_operations;
-                    return Err(geometry_error(issue));
-                }
-            };
-            self.budget.work = add(self.budget.work, complement.split_operations())?;
-            self.budget.uncovered_boxes =
-                add(self.budget.uncovered_boxes, complement.boxes().len())?;
-            self.budget.uncovered_coordinates = add(
-                self.budget.uncovered_coordinates,
-                mul(mul(complement.boxes().len(), arity)?, 2)?,
-            )?;
+            let complement = self.query_complement(index, image)?;
             if !complement.is_empty() {
                 return Ok(false);
             }

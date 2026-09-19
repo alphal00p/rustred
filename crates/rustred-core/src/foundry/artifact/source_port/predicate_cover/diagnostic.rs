@@ -4,6 +4,7 @@ use std::fmt::{self, Write};
 
 use crate::diagnostic::BoundedText;
 
+use super::EntryDegreeBound;
 use super::{Atom, CoefficientPolynomial, LatticeBox};
 
 const MAX_DISPLAY_BYTES: usize = 16_384;
@@ -18,6 +19,7 @@ pub(in crate::foundry::artifact) struct PredicateCoverWitness {
     lower: Box<[u64]>,
     upper: Box<[Option<u64>]>,
     atoms: Box<[WitnessAtom]>,
+    required_degree: Option<EntryDegreeBound>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -48,7 +50,13 @@ impl PredicateCoverWitness {
                     equation: atom.equation.clone(),
                 })
                 .collect(),
+            required_degree: None,
         }
+    }
+
+    pub(super) fn with_required_degree(mut self, degree: Option<EntryDegreeBound>) -> Self {
+        self.required_degree = degree;
+        self
     }
 
     fn render(&self, output: &mut BoundedText) -> fmt::Result {
@@ -58,6 +66,12 @@ impl PredicateCoverWitness {
             "sector={:?}; local coordinates: x=n-1 if active, x=-n otherwise\nfirst_local_box: lower={:?}, upper={:?} (None means mathematical infinity)\n",
             self.sector, self.lower, self.upper
         )?;
+        if let Some(degree) = self.required_degree {
+            writeln!(
+                output,
+                "required_degree={degree:?}; only the intersection with this sum-bound is requested"
+            )?;
+        }
         for (ordinal, atom) in self.atoms.iter().enumerate() {
             let assignment = match atom.assignment {
                 Some(true) => "equal_zero",

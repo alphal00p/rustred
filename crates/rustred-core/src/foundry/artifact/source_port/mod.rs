@@ -155,10 +155,15 @@ fn error(value: impl fmt::Display) -> SourcePortAuditError {
     SourcePortAuditError::message(value.to_string())
 }
 
-/// One non-authoritative report over a whole mathematical integer orthant.
+/// One non-authoritative exact rule/coverage report. The optional degree
+/// explicitly narrows coverage, never the original-source identity checks.
 #[derive(Debug)]
 pub struct SourcePortSectorAudit<const N: usize> {
     pub sector: [bool; N],
+    /// `None` means whole-orthant coverage. Otherwise only local total excess
+    /// `sum(max(n_i-1,0)+max(-n_i,0)) <= D` is requested. This says nothing
+    /// about RHS closure or entry admission and cannot authorize an artifact.
+    pub max_total_excess_degree: Option<u64>,
     pub ordering: OrderingPolicy,
     pub rules: usize,
     pub exact_replayed_rules: usize,
@@ -313,6 +318,29 @@ impl<const N: usize> SourcePortAudit<N> {
         Ok(self.check_sector(sector, permutation, solution)?.report)
     }
 
+    /// Replay the same full identities, guards and descent as the ordinary
+    /// audit, but request coverage only through a total-excess degree. This
+    /// diagnostic does not certify the reachable family or authorize durable
+    /// publication: descendants can leave the requested entry degree.
+    pub fn audit_sector_through_total_excess(
+        &self,
+        sector: [bool; N],
+        permutation: Option<[usize; N]>,
+        solution: &SectorSolution<N>,
+        max_total_excess_degree: u64,
+    ) -> Result<SourcePortSectorAudit<N>, SourcePortAuditError> {
+        Ok(self
+            .check_sector_in_degree(
+                sector,
+                permutation,
+                solution,
+                Some(max_total_excess_degree),
+                Instant::now(),
+                &mut |_| {},
+            )?
+            .report)
+    }
+
     fn check_sector(
         &self,
         sector: [bool; N],
@@ -327,6 +355,18 @@ impl<const N: usize> SourcePortAudit<N> {
         sector: [bool; N],
         permutation: Option<[usize; N]>,
         solution: &SectorSolution<N>,
+        started: Instant,
+        observe: &mut dyn FnMut(SourcePortInstallEvent<'_, N>),
+    ) -> Result<program::SectorCheck<N>, SourcePortAuditError> {
+        self.check_sector_in_degree(sector, permutation, solution, None, started, observe)
+    }
+
+    fn check_sector_in_degree(
+        &self,
+        sector: [bool; N],
+        permutation: Option<[usize; N]>,
+        solution: &SectorSolution<N>,
+        max_total_excess_degree: Option<u64>,
         started: Instant,
         observe: &mut dyn FnMut(SourcePortInstallEvent<'_, N>),
     ) -> Result<program::SectorCheck<N>, SourcePortAuditError> {
@@ -374,6 +414,7 @@ impl<const N: usize> SourcePortAudit<N> {
         }
         let mut report = SourcePortSectorAudit {
             sector,
+            max_total_excess_degree,
             ordering,
             rules: solution.rules.len(),
             exact_replayed_rules: 0,
@@ -574,17 +615,31 @@ impl<const N: usize> SourcePortAudit<N> {
                 affine_exclusions: &rule.affine_exclusions,
             })
             .collect();
-        let coverage =
-            |owners: &[PredicateCoveragePiece<'_>]| match predicate_cover::certify_predicate_cover(
-                &sector,
-                owners,
-                &terminal_boxes,
-                PredicateCoverLimits {
-                    max_predicates: self.limits.max_predicate_atoms,
-                    max_consistency_work: self.limits.max_predicate_consistency_work,
-                    ..Default::default()
-                },
-            ) {
+        let coverage = |owners: &[PredicateCoveragePiece<'_>]| {
+            let limits = PredicateCoverLimits {
+                max_predicates: self.limits.max_predicate_atoms,
+                max_consistency_work: self.limits.max_predicate_consistency_work,
+                ..Default::default()
+            };
+            let checked = match max_total_excess_degree {
+                Some(degree) => predicate_cover::certify_predicate_cover_up_to_degree(
+                    &sector,
+                    owners,
+                    &terminal_boxes,
+                    scope::EntryDegreeBound::MaxTotalExcessDegree(degree),
+                    PredicateCoverLimits {
+                        geometry: self.limits.cover_replay.geometry(),
+                        ..limits
+                    },
+                ),
+                None => predicate_cover::certify_predicate_cover(
+                    &sector,
+                    owners,
+                    &terminal_boxes,
+                    limits,
+                ),
+            };
+            match checked {
                 Ok(_) => Ok((0, 0, None)),
                 Err(issue) => match &issue {
                     predicate_cover::PredicateCoverError::Uncovered {
@@ -597,7 +652,8 @@ impl<const N: usize> SourcePortAudit<N> {
                     }
                     _ => Err(error(issue)),
                 },
-            };
+            }
+        };
         let (stored_boxes, stored_unbounded, stored_issue) = coverage(&stored_owners)?;
         let (checked_boxes, checked_unbounded, checked_issue) = coverage(&checked_owners)?;
         (

@@ -349,7 +349,8 @@ impl<const N: usize> SourcePortAudit<N> {
             });
             retain_common_order(&mut ordering, checked.report.ordering)?;
             let report = &checked.report;
-            if !report.issues.is_empty()
+            if report.max_total_excess_degree.is_some()
+                || !report.issues.is_empty()
                 || report
                     .exact_replayed_rules
                     .checked_add(report.redundant_affine_rules)
