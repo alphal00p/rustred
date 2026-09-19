@@ -20,6 +20,7 @@ pub enum ProductSkipReason {
     ConditionalMomentumMap,
     NonIntegralMomentumMap,
     NonUnimodularMomentumMap,
+    ParametricPreparationLimit,
 }
 
 /// Preparation diagnostics; no count denotes an independent-master census.
@@ -33,6 +34,10 @@ pub struct TerminalAliasStatistics {
     pub analyzed_corank_one_supports: usize,
     /// Native momentum proposals, cached per denominator within each lane.
     pub analyzed_denominators: usize,
+    /// Positive-power keys admitted to the separately selected U-polynomial lane.
+    pub eligible_parametric: usize,
+    pub analyzed_parametric_supports: usize,
+    pub parametric_canonicalizations: usize,
     pub verified_aliases: usize,
     pub canonical_terminals: usize,
     pub skipped: BTreeMap<ProductSkipReason, usize>,
@@ -45,11 +50,35 @@ impl TerminalAliasStatistics {
 }
 
 /// An exact, unit-coefficient, one-hop equality between declared terminals.
-/// The source-to-representative momentum witness is checked during preparation.
+/// The source-to-representative exact witness is checked during preparation.
 #[derive(Clone, Debug)]
 pub struct VerifiedTerminalAlias {
     pub(super) representative: IntegralKey,
-    pub(super) witness: Arc<VerifiedMap>,
+    pub(super) witness: TerminalAliasWitness,
+}
+
+/// Distinct exact justifications for the same unit-coefficient terminal API.
+/// A parameter relabeling is not claimed to be a loop-momentum transformation.
+#[derive(Clone, Debug)]
+pub enum TerminalAliasWitness {
+    Momentum(Arc<VerifiedMap>),
+    Parametric(Arc<super::parametric::VerifiedVacuumParameterMap>),
+}
+
+impl TerminalAliasWitness {
+    pub fn as_momentum(&self) -> Option<&VerifiedMap> {
+        match self {
+            Self::Momentum(map) => Some(map),
+            _ => None,
+        }
+    }
+
+    pub fn as_parametric(&self) -> Option<&super::parametric::VerifiedVacuumParameterMap> {
+        match self {
+            Self::Parametric(map) => Some(map),
+            _ => None,
+        }
+    }
 }
 
 impl VerifiedTerminalAlias {
@@ -57,7 +86,7 @@ impl VerifiedTerminalAlias {
         &self.representative
     }
 
-    pub fn witness(&self) -> &VerifiedMap {
+    pub fn witness(&self) -> &TerminalAliasWitness {
         &self.witness
     }
 }
@@ -142,6 +171,7 @@ pub enum TerminalAliasError {
     MomentumVerification(String),
     InvalidProductWitness,
     InvalidCircuitWitness,
+    InvalidParametricWitness,
 }
 
 impl fmt::Display for TerminalAliasError {
@@ -165,6 +195,9 @@ impl fmt::Display for TerminalAliasError {
             }
             Self::InvalidCircuitWitness => {
                 f.write_str("native momentum circuit failed its exact replay")
+            }
+            Self::InvalidParametricWitness => {
+                f.write_str("vacuum parameter permutation failed its exact U replay")
             }
         }
     }

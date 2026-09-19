@@ -24,6 +24,15 @@ vacuum supports with one linear momentum dependence, preserving raw catalog
 keys. Native Symbolica matrix operations propose their routings; the existing
 exact momentum-map verifier establishes every alias before installation.
 See [the normalization contract](research/terminal_normalization.md).
+The separately selected `vacuum_parametric_equivalences` factory admits
+positive-power unit-mass vacuum supports and compares their full restricted
+native Symanzik `U` polynomials under power-preserving parameter permutations.
+Symbolica graph canonicalization proposes a permutation; exact polynomial and
+variable-context replay proves it. `TerminalAliasWitness` distinguishes these
+sealed parameter-integral proofs from momentum maps. Neither kind creates a
+new terminal or claims master independence. The parameter lane's core tests
+and saved-program census/application checks are validated; its downstream activation is separate
+from the published routing rollout below.
 `persistence::ExactTerminalCatalog` provides the same native Atom/State strategy
 for exact offline values attached to typed integral keys. Its distinct payload
 kind carries no IBP authority; downstream consumers still verify their declared

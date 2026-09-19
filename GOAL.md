@@ -80,8 +80,18 @@ nine-input public benchmark also passes all 54 numerical comparisons, with
 whole-harness time 164.83 → 96.35 s and peak RSS 2.73 → 2.12 GiB. Those totals
 include both backends and comparison overhead; first unseen cubed-parent
 reductions remain slower than FMFT, while repeated cached calls are faster.
-A positive-power Symanzik-polynomial equivalence lane is the next bounded
-terminal-deduplication investigation, not an already measured four-loop result.
+A positive-power Symanzik-polynomial equivalence lane now passes its 75-test
+focused release gate and an independent all-four-family census: 976 exact
+parameter aliases reduce 1,155 keys to 179 family-local representatives, with
+all 105 numerator-bearing keys retained. All equalities agree exactly with the
+offline catalogs consulted only after independent preparation; repeated plans
+reproduce their parameter witnesses. Preparation takes 53–178 ms per family
+in the recorded release run. This is not a minimum-master count or a closure
+claim. Fresh saved-program H/X dotted and pinch applications also pass exact
+coefficient-map, homogeneity and cache checks. The two dotted first applications
+improve from 11.47 to 4.07 s and 61.56 to 20.19 s; these core-only diagnostics
+are not public Vakint timings. Complete the separate Vakint activation gate
+before attributing downstream benefits to this new lane.
 Keep the raw declared terminal/catalog contract unchanged while reporting
 canonical output representatives separately.
 Core aliases remain explicitly opt-in; the separate Vakint production loader

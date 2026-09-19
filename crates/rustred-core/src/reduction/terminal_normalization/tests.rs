@@ -68,6 +68,8 @@ fn equal_power_products_have_one_hop_descending_witnesses() {
         assert!(
             alias
                 .witness()
+                .as_momentum()
+                .unwrap()
                 .nonzero_conditions()
                 .iter()
                 .all(|condition| condition.polynomial().is_constant())
@@ -173,8 +175,12 @@ fn declaration_order_and_repeated_preparation_do_not_change_representatives() {
             second.aliases()[key].representative()
         );
         assert_eq!(
-            alias.witness().momentum(),
-            second.aliases()[key].witness().momentum()
+            alias.witness().as_momentum().unwrap().momentum(),
+            second.aliases()[key]
+                .witness()
+                .as_momentum()
+                .unwrap()
+                .momentum()
         );
     }
 }

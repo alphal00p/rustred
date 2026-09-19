@@ -1,7 +1,12 @@
 # Four-loop generation comparison: RustRed and SpIReD
 
-The [September 17 status report](../STATUS_17_09_2026.md) contains the compact
-combined comparison and current delivery status. The bounded attempts below
+The [September 17 status report](../STATUS_17_09_2026.md) contains the historical
+combined checkpoint comparison. Current Vakint application measurements and
+delivery status are in the
+[terminal-normalization rollout](research/terminal_normalization.md#vakint-routing-alias-rollout):
+the published alias-enabled backend passes the 15-reference/16-pinch matrix
+and nine-input FMFT comparison. These application measurements do not change
+the generation boundary or candidate counts below. The bounded attempts below
 are historical; the later uncapped and reconstruction sections contain the
 final checkpoint outcomes. The fresh prepared-frame matrix below supersedes the
 older same-host Rust rows for current sparse/SemiNumerical comparisons. The

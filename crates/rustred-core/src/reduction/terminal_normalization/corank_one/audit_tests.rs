@@ -55,12 +55,15 @@ fn check_aliases(family: &IntegralFamily, plan: &TerminalAliasPlan) {
             source.powers().iter().sum::<i64>(),
             target.powers().iter().sum::<i64>()
         );
-        assert!(matches!(alias.witness().jacobian(), Jacobian::Unit { .. }));
+        assert!(matches!(
+            alias.witness().as_momentum().unwrap().jacobian(),
+            Jacobian::Unit { .. }
+        ));
         for (slot, &power) in source.powers().iter().enumerate().filter(|(_, n)| **n > 0) {
             let DenominatorAction::Monomial {
                 target: mapped,
                 scale,
-            } = &alias.witness().row_actions()[slot]
+            } = &alias.witness().as_momentum().unwrap().row_actions()[slot]
             else {
                 panic!("accepted active row has no exact monomial action");
             };

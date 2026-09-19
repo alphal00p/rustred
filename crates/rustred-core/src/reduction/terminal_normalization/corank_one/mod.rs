@@ -116,7 +116,7 @@ impl TerminalAliasPlan {
                             source.key.clone(),
                             VerifiedTerminalAlias {
                                 representative: representative.key.clone(),
-                                witness: Arc::new(witness),
+                                witness: super::TerminalAliasWitness::Momentum(Arc::new(witness)),
                             },
                         );
                     }

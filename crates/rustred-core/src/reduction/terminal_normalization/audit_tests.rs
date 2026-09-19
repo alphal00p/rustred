@@ -101,7 +101,10 @@ fn primitive_integer_shears_alias_but_nonunit_jacobians_and_numerators_do_not() 
         );
     }
     for (source, alias) in plan.aliases() {
-        assert!(matches!(alias.witness().jacobian(), Jacobian::Unit { .. }));
+        assert!(matches!(
+            alias.witness().as_momentum().unwrap().jacobian(),
+            Jacobian::Unit { .. }
+        ));
         assert_eq!(
             OrderingPolicy::SpiredUncutV1
                 .compare(alias.representative().powers(), source.powers())
@@ -117,7 +120,7 @@ fn primitive_integer_shears_alias_but_nonunit_jacobians_and_numerators_do_not() 
             .filter(|(_, power)| **power > 0)
         {
             let DenominatorAction::Monomial { target, scale } =
-                &alias.witness().row_actions()[slot]
+                &alias.witness().as_momentum().unwrap().row_actions()[slot]
             else {
                 panic!("active denominator not monomial");
             };
@@ -155,7 +158,14 @@ fn epsilon_fg_products_match_without_an_isp_permutation_requirement() {
         plan.representative(&family, &first).unwrap(),
         plan.representative(&family, &second).unwrap()
     );
-    let witness = plan.aliases().values().next().unwrap().witness();
+    let witness = plan
+        .aliases()
+        .values()
+        .next()
+        .unwrap()
+        .witness()
+        .as_momentum()
+        .unwrap();
     assert!(matches!(witness.jacobian(), Jacobian::Unit { .. }));
     assert!(
         witness

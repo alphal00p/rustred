@@ -1,5 +1,6 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
+use crate::family::{IntegralFamily, IntegralKey};
 use crate::foundry::artifact::{
     derive_one_loop_unit_mass_tadpole, derive_two_loop_unit_mass_sunset,
 };
@@ -11,14 +12,33 @@ use super::{candidate, key};
 
 #[test]
 fn aliases_coalesce_exact_outputs_before_memoization_and_preserve_mass_factors() {
+    check_coalescing_and_memoization(|family, terminals, ordering| {
+        TerminalAliasPlan::independent_tadpole_products(family, terminals, ordering).unwrap()
+    });
+}
+
+#[test]
+fn parametric_aliases_coalesce_exact_outputs_and_preserve_mass_and_cache_contracts() {
+    check_coalescing_and_memoization(|family, terminals, ordering| {
+        TerminalAliasPlan::vacuum_parametric_equivalences(
+            family,
+            terminals,
+            ordering,
+            Default::default(),
+        )
+        .unwrap()
+    });
+}
+
+fn check_coalescing_and_memoization(
+    prepare: impl FnOnce(&IntegralFamily, &BTreeSet<IntegralKey>, OrderingPolicy) -> TerminalAliasPlan,
+) {
     let artifact = derive_two_loop_unit_mass_sunset().unwrap();
     let family = artifact.family();
     let limits = ReductionLimits::default();
     let mut raw = candidate::<3>(family, limits);
     let mut normalized = candidate::<3>(family, limits);
-    let plan =
-        TerminalAliasPlan::independent_tadpole_products(family, raw.terminals(), raw.ordering())
-            .unwrap();
+    let plan = prepare(family, raw.terminals(), raw.ordering());
     assert!(plan.statistics().verified_aliases > 0);
     assert!(raw.terminal_aliases().is_none());
     assert_eq!(raw.canonical_terminals(), raw.terminals());
@@ -169,6 +189,30 @@ fn alias_installation_requires_explicit_cache_clear() {
 
 #[test]
 fn corank_one_aliases_coalesce_a_nonminimal_dotted_terminal_basis() {
+    check_nonminimal_dotted_basis(|family, terminals, ordering| {
+        let plan =
+            TerminalAliasPlan::vacuum_routing_equivalences(family, terminals, ordering).unwrap();
+        assert!(plan.statistics().eligible_corank_one >= 3);
+        plan
+    });
+}
+
+#[test]
+fn parametric_aliases_coalesce_a_nonminimal_dotted_terminal_basis() {
+    check_nonminimal_dotted_basis(|family, terminals, ordering| {
+        TerminalAliasPlan::vacuum_parametric_equivalences(
+            family,
+            terminals,
+            ordering,
+            Default::default(),
+        )
+        .unwrap()
+    });
+}
+
+fn check_nonminimal_dotted_basis(
+    prepare: impl FnOnce(&IntegralFamily, &BTreeSet<IntegralKey>, OrderingPolicy) -> TerminalAliasPlan,
+) {
     let artifact = derive_two_loop_unit_mass_sunset().unwrap();
     let family = artifact.family();
     let limits = ReductionLimits::default();
@@ -199,10 +243,7 @@ fn corank_one_aliases_coalesce_a_nonminimal_dotted_terminal_basis() {
     };
     let mut raw = make();
     let mut normalized = make();
-    let plan =
-        TerminalAliasPlan::vacuum_routing_equivalences(family, raw.terminals(), raw.ordering())
-            .unwrap();
-    assert!(plan.statistics().eligible_corank_one >= 3);
+    let plan = prepare(family, raw.terminals(), raw.ordering());
     assert_eq!(
         dots.iter()
             .filter(|&&powers| plan.aliases().contains_key(&key(powers)))

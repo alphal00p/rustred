@@ -1,9 +1,11 @@
 # Exact parametric equivalence of vacuum terminals
 
-Status: read-only design study, 19 September 2026. This mechanism is **not
-implemented or enabled**. The existing momentum-routing terminal aliases and
-their four-loop measurements are a separate workstream. This note proposes a
-possible next proof type, not a closure, master-minimality, or performance claim.
+Status: focused release validation and saved four-loop measurements passed,
+19 September 2026. The new factory is opt-in and is **not enabled by default or
+in Vakint**. The existing
+momentum-routing terminal aliases and their four-loop measurements remain a
+separate workstream. No new closure, master-minimality, or high-loop scaling
+claim is made by this note; the scoped four-loop measurements are reported below.
 
 ## Mathematical basis
 
@@ -77,8 +79,9 @@ The first implementation should be deliberately restricted:
 If masses are generalized later, the permutation must preserve the whole linear
 form `sum_i m_i^2 t_i`. Merely preserving a scalar sum of masses is insufficient.
 Branch conventions and any analytic continuation also need a common owner.
-Unsupported inputs, excessive preparation work, or a failed exact replay leave
-the original terminal unchanged.
+Unsupported inputs and exhausted explicit preparation bounds leave the original
+terminal unchanged. An internal mismatch during exact replay is a typed error,
+not a silently accepted proposal or an unreported mathematical miss.
 
 ## Existing native APIs and proposed seam
 
@@ -148,3 +151,129 @@ representatives, and exact comparison with the existing saved terminal catalog.
 Such a catalog comparison is an independent check of implemented identities,
 not the source of those identities. Even a successful lane will not find every
 dimension-dependent IBP relation or establish a minimal master basis.
+
+## Implemented opt-in interface
+
+`TerminalAliasPlan::vacuum_parametric_equivalences(family, raw, ordering, limits)`
+builds a fresh plan, rather than chaining the earlier momentum aliases with a
+second proof. All representatives are existing declarations and strictly lower
+under the caller's ordering. The old product and corank-one factories retain
+their algorithms and still return momentum witnesses.
+
+`TerminalAliasWitness` distinguishes `Momentum` from `Parametric`. A sealed
+`VerifiedVacuumParameterMap` retains shared source/representative support
+polynomials and exposes the source-local to representative-local parameter
+bijection. No `VerifiedMap`, integer routing, or unit Jacobian is invented for a
+parameter-integral proof.
+
+The implementation reuses the admitted full-family native Symanzik construction
+once. Each declared positive support is restricted with native `replace` and
+`rearrange_with_growth`, then cached. Integer momentum-square admission is reused
+from the existing product service. Only after that admission does nonzero `U`
+establish active rank. Every retained coefficient is checked in the family's
+ordered coefficient context and must be a positive integer; terms must be
+squarefree of degree `L`.
+
+Native graph canonicalization colors parameter vertices by their individual
+positive powers, monomial vertices by actual exact `Integer` values, and edges
+by exponents. Its proposed bijection is independently checked, replayed using
+two-phase native `rename_variable` through collision-free temporary variables,
+and aligned using native `rearrange_with_growth`. The complete polynomial and
+ordered variable/coefficient contexts are then compared, without monic/content
+normalization.
+
+`VacuumParametricLimits` bounds the native Symanzik preparation policy, distinct
+supports, canonicalization calls, graph vertices and graph edges. Defaults allow
+4,096 supports, 16,384 graph calls, 4,096 vertices and 65,536 edges per graph.
+These are structural admission bounds, not a native graph timeout or an RSS
+guarantee. Nested exact-algebra budget errors also produce conservative raw-key
+retention; malformed contexts and internal verification failures remain errors.
+
+The API audit checked the native polynomial substitution/rename definitions,
+the constant-map and copy-on-write regression tests, and native rename callers
+in `poly/univariate/roots.rs`. Graph APIs were checked against their definitions,
+the Graphica README canonicalization example and permutation-isomorphism test.
+No RustRed determinant, factorization, substitution, graph-canonization or
+rational-reconstruction kernel was introduced.
+
+The combined release gate passed **75 tests** in 0.19 seconds: the previous 57,
+six focused parameter-proof tests, ten independently authored adversarial tests,
+and two candidate-reducer integration tests. The integration tests compare full
+exact coefficient maps, common-mass exponents and memoized reuse against the
+unchanged raw reducer. Direct verifier tests bypass graph proposals and reject
+both unequal overall U scale and foreign-map constant coefficients. This is a
+test-suite runtime, **not IBP generation or four-loop preparation time**.
+
+Evidence is `TMP/terminal-parametric-reduction-release.log`; the release test
+binary SHA-256 is
+`4fd9c8e2b809b5e46eb6736e3cc7e009013f2a64b197ff557d6783542c0c5e9a`.
+An initial compile-only integer type-inference error is preserved separately in
+`TMP/terminal-parametric-reduction-compile-failed.log`; no assertions were relaxed.
+
+## Saved four-loop census
+
+No IBPs or catalogs were regenerated. The H/FG/BMW/X native candidate programs
+were loaded once per fresh process, independently of preparation. The frozen
+native catalogs were consulted only after preparation and four repeat timings.
+Every proposed alias passed exact Symbolica comparison of its catalog projection.
+
+| Family | Raw terminals | Prior routing representatives | U representatives | Exact aliases | Positive keys / supports | First preparation | Median of four repeat preparations |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H | 386 | 176 | 52 | 334 | 356 / 314 | 147.579 ms | 124.505 ms |
+| FG | 145 | 53 | 26 | 119 | 135 / 124 | 52.677 ms | 47.731 ms |
+| BMW | 179 | 68 | 37 | 142 | 159 / 134 | 58.832 ms | 56.065 ms |
+| X | 445 | 208 | 64 | 381 | 400 / 328 | 178.404 ms | 149.593 ms |
+| Total | 1,155 | 505 | 179 | 976 | 1,050 / 900 | 437.492 ms | — |
+
+The 179 representatives comprise **74 positive-power keys and all 105 unchanged
+negative-index keys**, not 179 proven independent masters. No preparation bound
+was reached. Repeated preparations agreed in statistics, canonical sets,
+source/representative support slots and exact parameter permutations. The prior
+routing column is a count comparison on identical inputs, not a new paired
+performance benchmark against that implementation.
+
+## Exact application and cost
+
+Fresh raw and U-normalized processes used identical saved H/X programs and
+`[2,1,1,1,1,1,1,1,1,0]` targets. All output coefficients were compared exactly
+after independent raw-key coalescing, including their homogeneity exponents.
+
+| Family | Raw first apply | U first apply | U preparation | Load + preparation + install + first apply, raw → U | Output terms | Median cached lookup, raw → U |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| H | 11.472871 s | 4.070188 s | 0.146766 s | 12.614351 → 5.316594 s | 248 → 46 | 54 → 9 µs |
+| X | 61.555383 s | 20.189644 s | 0.176700 s | 63.700758 → 22.456571 s | 437 → 59 | 101 → 15 µs |
+
+These individual pairs give 2.82×/3.05× first-application ratios and 2.37×/2.84×
+ratios for the shown phase sums. H load times were 1.141480/1.099602 seconds
+(raw/U), with a 38 µs installation; X load times were 2.145375/2.090179 seconds,
+with a 48 µs installation. File reading, later exact comparison and compilation
+are outside those phases. These are not whole-process wall-time ratios.
+
+| Family | Accounted cache coefficient bytes, raw → U | Coalescing additions, raw → U | GNU whole-process peak RSS, raw → U |
+| --- | ---: | ---: | ---: |
+| H | 86,688,448 → 29,950,048 | 1,099,045 → 418,514 | 570,792 → 491,568 KiB |
+| X | 381,494,842 → 123,085,704 | 5,889,714 → 2,139,884 | 1,480,872 → 1,079,860 KiB |
+
+Accounted coefficient payload decreased by 65.45%/67.74%; these percentages are
+**not RSS reductions**. Rule applications stayed at 26,956/82,637 and cached
+integral counts at 27,306/83,082. This is coefficient-output coalescing within
+the existing applier, not a different rule search or reduction algorithm.
+
+The control target `[0,1,1,1,1,1,1,1,1,0]` was already a declared terminal:
+both H and X used zero rules and returned one term. There is no speedup claim
+for that workload. First applications were 17/401 µs for H and 18/326 µs for X
+(raw/U), while the phase sums were 1.124981/1.261440 seconds and
+2.278809/2.361002 seconds. The preparation overhead must be amortized. Cached
+lookups rounded to 0 µs at the reporting resolution; they do not take zero time.
+
+All twelve processes exited successfully with empty error logs. These are
+shared-host, single-pair release diagnostics on CPUs 74–79 with nested pools
+limited to one, not six-worker IBP-generation timings or confidence bounds.
+The previous routing measurements used different CPUs; no controlled speed
+ratio against them is claimed. Whole-process resource peaks can include
+untimed validation work. Defaults and Vakint activation remain unchanged.
+
+Commands, exact outputs, repeat values, independent audit and a checked
+13-entry source/binary/input/catalog/script hash manifest are retained in
+`TMP/terminal-parametric-census.ooS5Jl/`. The measurement executable SHA-256 is
+`ec965e9551e7c9a5de2283ab366f9e2157bf635b6f3ddfcd452b6599425336c7`.

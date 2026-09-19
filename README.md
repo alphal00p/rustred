@@ -58,6 +58,15 @@ FMFT, whereas warm calls are faster on this matrix. See
 [the measured rollout](docs/research/terminal_normalization.md#vakint-routing-alias-rollout)
 for boundaries and caveats. This does not assert a minimal master basis.
 
+The next opt-in [parameter-equivalence lane](docs/research/vacuum_parametric_terminal_equivalence.md)
+compares complete vacuum `U` polynomials under power-preserving parameter
+permutations, using native Symbolica graph canonicalization and exact replay.
+It reduces the same 1,155 keys to **179 family-local representatives**; all 976
+equalities pass independent exact catalog checks. Preparation takes 53–178 ms
+per family in the recorded release run, excluding loading. The 105
+numerator-bearing keys are retained unchanged. This new lane is not yet enabled
+in Vakint; its counts must not be attributed to the published routing rollout.
+
 The solver implementation follows the
 [executable SpIRed reference port](docs/spired_port.md): reproduce the actual
 C++ `solveSector` algorithm in Rust, using native Symbolica/numerica, and match

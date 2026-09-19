@@ -89,10 +89,13 @@ fn matching_circuits_with_coloops_and_dots_have_exact_descending_routes() {
                 .is_lt()
         );
         assert!(!plan.aliases().contains_key(alias.representative()));
-        assert!(matches!(alias.witness().jacobian(), Jacobian::Unit { .. }));
+        assert!(matches!(
+            alias.witness().as_momentum().unwrap().jacobian(),
+            Jacobian::Unit { .. }
+        ));
         for (slot, &power) in source.powers().iter().enumerate().filter(|(_, n)| **n > 0) {
             let DenominatorAction::Monomial { target, scale } =
-                &alias.witness().row_actions()[slot]
+                &alias.witness().as_momentum().unwrap().row_actions()[slot]
             else {
                 panic!("active square must replay monomially")
             };
@@ -184,8 +187,12 @@ fn combined_lane_preserves_old_products_and_keeps_unsupported_keys() {
             alias.representative()
         );
         assert_eq!(
-            new.aliases()[source].witness().momentum(),
-            alias.witness().momentum()
+            new.aliases()[source]
+                .witness()
+                .as_momentum()
+                .unwrap()
+                .momentum(),
+            alias.witness().as_momentum().unwrap().momentum()
         );
     }
     assert_eq!(new.statistics().skipped[&Skip::NumeratorPowers], 1);
@@ -213,8 +220,12 @@ fn repeated_preparation_and_input_order_preserve_full_witnesses() {
                 alias.representative()
             );
             assert_eq!(
-                next.aliases()[source].witness().momentum(),
-                alias.witness().momentum()
+                next.aliases()[source]
+                    .witness()
+                    .as_momentum()
+                    .unwrap()
+                    .momentum(),
+                alias.witness().as_momentum().unwrap().momentum()
             );
         }
     }
@@ -294,6 +305,8 @@ fn vacuum_subproducts_route_without_a_full_family_isp_permutation() {
     assert!(plan.aliases().values().all(|alias| {
         alias
             .witness()
+            .as_momentum()
+            .unwrap()
             .row_actions()
             .iter()
             .any(|action| matches!(action, DenominatorAction::Affine))
