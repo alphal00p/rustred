@@ -2,6 +2,7 @@
 
 mod context;
 mod error;
+mod factorized;
 mod limits;
 mod model;
 mod operations;
@@ -9,6 +10,7 @@ mod validation;
 
 pub use context::CoefficientContext;
 pub use error::{CoefficientContextError, ExactAlgebraError, ExactAlgebraOperation};
+pub(crate) use factorized::FactorizedCoefficient;
 pub use limits::{ExactAlgebraLimits, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT};
 pub use model::{Coefficient, CoefficientPolynomial, CoefficientPolynomialPart};
 pub(in crate::algebra) use operations::{

@@ -8,6 +8,17 @@ use crate::algebra::{
 use crate::family::IntegralKey;
 use crate::reduction::{ReductionError, ReductionStatistics};
 
+/// In-memory coefficient storage for the same candidate application engine.
+/// Artifacts and returned decompositions always use ordinary coefficients.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CandidateCacheRepresentation {
+    #[default]
+    Sparse,
+    /// Native Symbolica factorized denominators. Returned results are
+    /// transiently materialized, including on a top-level cache hit.
+    Factorized,
+}
+
 /// Exact arithmetic result of candidate formulas, not certified IBP provenance
 /// or a proof that the listed finite terminals form a complete master basis.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -123,6 +134,9 @@ impl CandidateStatistics {
     pub fn cached_integrals(self) -> usize {
         self.cached_integrals
     }
+    /// Charged sparse terms. Factorized cache mode conservatively charges at
+    /// least both stored parts and the expanded-denominator support envelope;
+    /// this is not an exact materialized term census in that mode.
     pub fn cached_coefficient_terms(self) -> usize {
         self.cached_coefficient_terms
     }

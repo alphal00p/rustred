@@ -120,15 +120,27 @@ above; these do not imply candidate certification. The bounded native Symbolica
 [factorized-denominator experiment](docs/research/factorized_coefficients.md)
 also completes with 1,200 exact frame comparisons passing: repeated arithmetic
 plus output is approximately 1.9 times faster, but conversion makes the first
-pass slower and replay-process memory increases. Next test a bounded persistent
-native coefficient-cache prototype inside the same applier; do not change the
-production default or infer an end-to-end speedup from frame timings.
+pass slower and replay-process memory increases. The bounded persistent native
+cache is now implemented as an explicit Rust-library option in the same applier.
+Its focused release and independent audit gates pass. Three paired full H/X
+saved-program measurements pass every exact output, context, homogeneity and
+cache check: median first cubed-parent applications are 4.404→3.858 s and
+24.438→21.008 s. Memory and warm materialization costs increase. Keep sparse
+storage as the default; no Vakint activation or factorized generation claim
+is implied. Any further adoption needs full public-backend acceptance and
+performance measurements, not inference from the earlier frame replay.
 The two external five-loop candidate-only studies may now resume in parallel
 with this application work, with explicit physical-root ISP restrictions,
 matched exact/reconstruction settings and stated time/memory limits. Do not
 implement another CAS or a replacement rule applier. Keep the proved finite
 identities for a later weighted-application experiment, not as an unmeasured
 production speedup.
+The first bounded physical-cube sparse attempt reaches its 1,800-second
+deadline, with 37 completed sector events but no saved bundle; the
+[five-loop baseline](docs/research/five_loop_candidate_baselines.md) records
+the exact scope, resource use and censor. This is not a completed generation
+or a closure result. The matched reconstruction comparison is a separate run
+with the same input, ordering, workers and bounds.
 Audit Symbolica's public API
 before introducing any algebraic primitive. Keep all scratch evidence in local
 `TMP/`, use release measurements, and commit/push coherent validated milestones

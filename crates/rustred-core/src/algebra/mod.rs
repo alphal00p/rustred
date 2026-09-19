@@ -11,8 +11,8 @@ pub use coefficient::{
     SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
 };
 pub(crate) use coefficient::{
-    coefficient_clone_owned_retained_byte_bound, validate_coefficient_on_map,
-    validate_polynomial_on_map,
+    FactorizedCoefficient, coefficient_clone_owned_retained_byte_bound,
+    validate_coefficient_on_map, validate_polynomial_on_map,
 };
 pub(crate) use indexed::BaseCoefficientSystem;
 pub use indexed::{

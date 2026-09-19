@@ -6,13 +6,14 @@ use crate::family::IntegralKey;
 use crate::reduction::terminal_normalization::TerminalAliasPlan;
 use crate::reduction::{
     CacheWeight, ReductionError, ReductionLimits, ReductionRequest, ReductionStatistics,
-    SharedCacheBudget, accumulate_master_in_request, coefficient_cache_weight,
+    SharedCacheBudget,
 };
 use crate::sector::{OrderingPolicy, zero};
 
+use super::cache::{self, CacheEntry, CachedTerms};
 use super::model::{
-    CandidateDecomposition, CandidateReachabilityReport, CandidateReductionError,
-    CandidateStatistics, PreparedRule,
+    CandidateCacheRepresentation, CandidateDecomposition, CandidateReachabilityReport,
+    CandidateReductionError, CandidateStatistics, PreparedRule,
 };
 
 /// Deterministic, iterative application of explicitly experimental sector
@@ -31,7 +32,8 @@ pub struct CandidateReducer<const N: usize> {
     pub(super) _zero_certificates: Vec<zero::Certificate>,
     pub(super) source_conditions: Vec<IndexedPolynomial>,
     pub(super) limits: ReductionLimits,
-    pub(super) cache: BTreeMap<IntegralKey, CandidateDecomposition>,
+    pub(super) cache: BTreeMap<IntegralKey, CacheEntry>,
+    pub(super) cache_representation: CandidateCacheRepresentation,
     pub(super) cache_weight: CacheWeight,
     pub(super) cache_budget: SharedCacheBudget,
     pub(super) statistics: ReductionStatistics,
@@ -55,6 +57,26 @@ impl<const N: usize> CandidateReducer<N> {
     pub fn limits(&self) -> ReductionLimits {
         self.limits
     }
+    pub fn cache_representation(&self) -> CandidateCacheRepresentation {
+        self.cache_representation
+    }
+
+    /// Select private cache storage before application, or after `clear_cache`.
+    /// This changes neither candidate authority nor public output coefficients.
+    /// Factorized storage charges a conservative expanded-term envelope and
+    /// materializes every requested output transiently; no second cache exists.
+    pub fn set_cache_representation(
+        &mut self,
+        representation: CandidateCacheRepresentation,
+    ) -> Result<(), CandidateReductionError> {
+        if !self.cache.is_empty() {
+            return Err(CandidateReductionError::InvalidInput(
+                "coefficient representation requires an empty reduction cache".into(),
+            ));
+        }
+        self.cache_representation = representation;
+        Ok(())
+    }
     pub fn statistics(&self) -> CandidateStatistics {
         let census = self.cache_budget.snapshot();
         CandidateStatistics {
@@ -73,9 +95,9 @@ impl<const N: usize> CandidateReducer<N> {
         target: &IntegralKey,
     ) -> Result<CandidateDecomposition, CandidateReductionError> {
         self.validate_target(target)?;
-        if let Some(cached) = self.cache.get(target) {
+        if self.cache.contains_key(target) {
             self.statistics.record_cache_hit();
-            return Ok(cached.clone());
+            return self.materialize_target(target);
         }
         let mut request = ReductionRequest::default();
         let mut stack = Vec::new();
@@ -91,7 +113,13 @@ impl<const N: usize> CandidateReducer<N> {
                     }
                     self.validate_target(&key)?;
                     if self.is_zero(&key) {
-                        self.cache_insert(key, BTreeMap::new())?;
+                        let terms = CachedTerms::from_sparse(
+                            BTreeMap::new(),
+                            self.cache_representation,
+                            self.context.base(),
+                            self.limits,
+                        )?;
+                        self.cache_insert(key, terms)?;
                         continue;
                     }
                     if self.terminals.contains(&key) {
@@ -104,6 +132,12 @@ impl<const N: usize> CandidateReducer<N> {
                             .and_then(|plan| plan.aliases().get(&key))
                             .map_or(&key, |alias| alias.representative());
                         let terms = BTreeMap::from([(terminal.clone(), self.context.base().one())]);
+                        let terms = CachedTerms::from_sparse(
+                            terms,
+                            self.cache_representation,
+                            self.context.base(),
+                            self.limits,
+                        )?;
                         self.cache_insert(key, terms)?;
                         continue;
                     }
@@ -133,31 +167,15 @@ impl<const N: usize> CandidateReducer<N> {
                     }
                 }
                 Frame::Combine { target, terms } => {
-                    let mut output = BTreeMap::new();
-                    for (child, factor) in terms {
-                        let child =
-                            self.cache
-                                .get(&child)
-                                .ok_or(ReductionError::ReducerInvariant {
-                                    detail: "candidate child is absent at combine frame",
-                                })?;
-                        for (terminal, coefficient) in child.terms() {
-                            let contribution = self.context.base().try_mul(
-                                &factor,
-                                coefficient,
-                                self.limits.exact_algebra,
-                            )?;
-                            accumulate_master_in_request(
-                                self.context.base(),
-                                &mut output,
-                                terminal,
-                                contribution,
-                                self.limits,
-                                &mut request,
-                                &mut self.statistics,
-                            )?;
-                        }
-                    }
+                    let output = cache::combine(
+                        self.context.base(),
+                        &self.cache,
+                        self.cache_representation,
+                        terms,
+                        self.limits,
+                        &mut request,
+                        &mut self.statistics,
+                    )?;
                     if !active.remove(&target) {
                         return Err(ReductionError::ReducerInvariant {
                             detail: "candidate combine target is not active",
@@ -168,12 +186,7 @@ impl<const N: usize> CandidateReducer<N> {
                 }
             }
         }
-        self.cache.get(target).cloned().ok_or_else(|| {
-            ReductionError::ReducerInvariant {
-                detail: "candidate target is absent after work stack completed",
-            }
-            .into()
-        })
+        self.materialize_target(target)
     }
 
     pub fn clear_cache(&mut self) -> Result<(), CandidateReductionError> {
@@ -246,7 +259,7 @@ impl<const N: usize> CandidateReducer<N> {
         let reachable_terminals = self
             .cache
             .values()
-            .flat_map(|decomposition| decomposition.terms().keys())
+            .flat_map(|entry| entry.terms.terminal_keys())
             .filter(|key| self.terminals.contains(*key))
             .collect::<BTreeSet<_>>()
             .len();
@@ -279,31 +292,38 @@ impl<const N: usize> CandidateReducer<N> {
     fn cache_insert(
         &mut self,
         target: IntegralKey,
-        terms: BTreeMap<IntegralKey, Coefficient>,
+        terms: CachedTerms,
     ) -> Result<(), CandidateReductionError> {
         let previous = self.cache.get(&target);
         let previous_count = usize::from(previous.is_some());
-        let previous_weight = previous
-            .map(|p| coefficient_cache_weight(p.terms.values()))
-            .transpose()?
-            .unwrap_or_default();
-        let weight = coefficient_cache_weight(terms.values())?;
+        let previous_weight = previous.map(|entry| entry.weight).unwrap_or_default();
+        let weight = terms.weight()?;
         let prospective_weight = self
             .cache_weight
             .checked_sub(previous_weight)?
             .checked_add(weight)?;
         self.cache_budget
             .replace(previous_count, previous_weight, 1, weight, self.limits)?;
-        self.cache.insert(
-            target.clone(),
-            CandidateDecomposition {
-                family_fingerprint: self.family_fingerprint.clone(),
-                target,
-                terms,
-            },
-        );
+        self.cache.insert(target, CacheEntry { terms, weight });
         self.cache_weight = prospective_weight;
         Ok(())
+    }
+
+    fn materialize_target(
+        &self,
+        target: &IntegralKey,
+    ) -> Result<CandidateDecomposition, CandidateReductionError> {
+        let entry = self
+            .cache
+            .get(target)
+            .ok_or(ReductionError::ReducerInvariant {
+                detail: "candidate target is absent after work stack completed",
+            })?;
+        Ok(CandidateDecomposition {
+            family_fingerprint: self.family_fingerprint.clone(),
+            target: target.clone(),
+            terms: entry.terms.materialize(self.context.base(), self.limits)?,
+        })
     }
 }
 

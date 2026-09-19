@@ -34,8 +34,8 @@ pub(crate) use instantiate::{
 };
 
 pub use candidate_reduction::{
-    CandidateDecomposition, CandidateReachabilityReport, CandidateReducer, CandidateReductionError,
-    CandidateStatistics,
+    CandidateCacheRepresentation, CandidateDecomposition, CandidateReachabilityReport,
+    CandidateReducer, CandidateReductionError, CandidateStatistics,
 };
 pub use case::{
     AffineCase, AffineGeometryError, AffineIntersection, Case, CaseIntersectionBudget,

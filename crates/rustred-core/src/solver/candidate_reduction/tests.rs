@@ -17,6 +17,8 @@ use crate::solver::{
 
 use super::{CandidateReducer, CandidateReductionError};
 
+#[path = "tests/factorized_audit.rs"]
+mod factorized_audit;
 #[path = "tests/terminal_alias_audit.rs"]
 mod terminal_alias_audit;
 #[path = "tests/terminal_aliases.rs"]

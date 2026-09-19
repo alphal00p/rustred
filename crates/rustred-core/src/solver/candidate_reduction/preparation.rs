@@ -9,7 +9,9 @@ use crate::reduction::{CacheWeight, ReductionLimits, ReductionStatistics, Shared
 use crate::sector::{OrderingPolicy, zero};
 use crate::solver::{SectorSolution, SourceSystem};
 
-use super::model::{CandidateReductionError, PreparedRule, PreparedTerm};
+use super::model::{
+    CandidateCacheRepresentation, CandidateReductionError, PreparedRule, PreparedTerm,
+};
 use super::reducer::CandidateReducer;
 
 impl<const N: usize> CandidateReducer<N> {
@@ -212,6 +214,7 @@ impl<const N: usize> CandidateReducer<N> {
             source_conditions,
             limits,
             cache: BTreeMap::new(),
+            cache_representation: CandidateCacheRepresentation::Sparse,
             cache_weight: CacheWeight::default(),
             cache_budget: SharedCacheBudget::default(),
             statistics: ReductionStatistics::default(),

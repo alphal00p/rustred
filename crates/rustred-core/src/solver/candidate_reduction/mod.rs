@@ -8,14 +8,15 @@
 //! Oracle comparisons can test this lane before durable publication succeeds.
 
 mod application;
+mod cache;
 mod model;
 mod preparation;
 mod reducer;
 mod terminal_aliases;
 
 pub use model::{
-    CandidateDecomposition, CandidateReachabilityReport, CandidateReductionError,
-    CandidateStatistics,
+    CandidateCacheRepresentation, CandidateDecomposition, CandidateReachabilityReport,
+    CandidateReductionError, CandidateStatistics,
 };
 pub use reducer::CandidateReducer;
 

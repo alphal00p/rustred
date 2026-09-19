@@ -8,10 +8,12 @@ The four-loop numerical acceptance gate passes; unrestricted closure certificati
 remains separate from the shipped candidate programs.
 Loop count and topology are input data, never production dispatch keys.
 
-The immediate priority is efficient, uniform Symbolica-native binary I/O,
-followed by exact terminal deduplication. Five-loop experiments wait for those
-four-loop improvements. The existing rule-application engine remains in use;
-no alternate Symbolica-replacement backend is planned.
+Uniform Symbolica-native binary I/O and the exact unit-weight terminal
+normalization gate are complete. Bounded five-loop candidate studies have
+resumed alongside four-loop application optimization; the first physical-cube
+[baseline](docs/research/five_loop_candidate_baselines.md) reached its
+30-minute limit without a saved bundle. The existing rule-application engine
+remains in use; no alternate Symbolica-replacement backend is planned.
 
 Generated candidate programs now use a shared Symbolica-native binary
 coefficient dictionary and native family geometry, rather than coefficient
@@ -72,6 +74,17 @@ routing-versus-parameter comparison, first H/X cubed-parent calls improve from
 not the larger raw-versus-normalized core speedup. The
 [public benchmark](docs/research/vacuum_parametric_terminal_equivalence.md#vakint-activation-and-matched-public-benchmark)
 keeps first use, cached calls and FMFT comparisons distinct.
+
+The same candidate applier also offers an explicit Rust-library
+`CandidateCacheRepresentation::Factorized` option using Symbolica's native
+factorized denominators. In three paired saved-program measurements, median
+first H/X cubed-parent applications take 3.86/21.01 s versus 4.40/24.44 s with
+ordinary coefficients. Retained memory and cache-hit materialization costs
+increase, so ordinary storage remains the default and Vakint is unchanged.
+See the [implementation and exact comparisons](docs/research/factorized_coefficients.md#persistent-cache-implemented-and-measured).
+These core-application measurements are distinct from the completed
+[three-mode generation matrix](docs/four_loop_generation_comparison.md#complete-three-mode-solver-time-matrix-2026-09-19),
+which now includes all four parents at one and six workers without a C++ timeout.
 
 The solver implementation follows the
 [executable SpIRed reference port](docs/spired_port.md): reproduce the actual

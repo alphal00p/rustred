@@ -119,26 +119,42 @@ pub(super) fn check_exact_resource_limit(
 pub(crate) fn coefficient_clone_owned_retained_byte_bound(
     coefficient: &Coefficient,
 ) -> Option<usize> {
-    let polynomial_bytes = |polynomial: &MultivariatePolynomial<IntegerRing, u16>| {
-        let mut bytes = polynomial
-            .coefficients
-            .capacity()
-            .checked_mul(size_of::<Integer>())?
-            .checked_add(
-                polynomial
-                    .exponents
-                    .capacity()
-                    .checked_mul(size_of::<u16>())?,
-            )?;
-        for coefficient in &polynomial.coefficients {
-            if let Integer::Large(value) = coefficient {
-                let capacity_bits = usize::try_from(value.as_raw().capacity()).ok()?;
-                bytes = bytes.checked_add(capacity_bits.checked_add(7)?.checked_div(8)?)?;
-            }
-        }
-        Some(bytes)
-    };
     size_of::<Coefficient>()
-        .checked_add(polynomial_bytes(&coefficient.numerator)?)?
-        .checked_add(polynomial_bytes(&coefficient.denominator)?)
+        .checked_add(polynomial_clone_owned_heap_byte_bound(
+            &coefficient.numerator,
+        )?)?
+        .checked_add(polynomial_clone_owned_heap_byte_bound(
+            &coefficient.denominator,
+        )?)
+}
+
+/// Owned buffers only; the caller separately counts inline polynomial storage.
+pub(super) fn polynomial_clone_owned_heap_byte_bound(
+    polynomial: &MultivariatePolynomial<IntegerRing, u16>,
+) -> Option<usize> {
+    let mut bytes = polynomial
+        .coefficients
+        .capacity()
+        .checked_mul(size_of::<Integer>())?
+        .checked_add(
+            polynomial
+                .exponents
+                .capacity()
+                .checked_mul(size_of::<u16>())?,
+        )?;
+    for coefficient in &polynomial.coefficients {
+        bytes = bytes.checked_add(integer_clone_owned_heap_byte_bound(coefficient)?)?;
+    }
+    Some(bytes)
+}
+
+pub(super) fn integer_clone_owned_heap_byte_bound(value: &Integer) -> Option<usize> {
+    if let Integer::Large(value) = value {
+        usize::try_from(value.as_raw().capacity())
+            .ok()?
+            .checked_add(7)?
+            .checked_div(8)
+    } else {
+        Some(0)
+    }
 }

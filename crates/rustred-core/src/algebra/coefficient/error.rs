@@ -53,6 +53,9 @@ pub enum ExactAlgebraError {
         term: usize,
     },
     ZeroDenominator,
+    InvalidFactorizedRepresentation {
+        detail: &'static str,
+    },
     DivisionByZero,
     ExponentLimit {
         operation: ExactAlgebraOperation,
@@ -106,6 +109,9 @@ impl fmt::Display for ExactAlgebraError {
             ),
             Self::ZeroDenominator => {
                 formatter.write_str("rational polynomial has a zero denominator")
+            }
+            Self::InvalidFactorizedRepresentation { detail } => {
+                write!(formatter, "invalid native factorized coefficient: {detail}")
             }
             Self::DivisionByZero => {
                 formatter.write_str("attempted to divide by an identically zero coefficient")

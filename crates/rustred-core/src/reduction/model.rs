@@ -13,6 +13,8 @@ pub struct ReductionLimits {
     pub max_cached_integrals: usize,
     /// Aggregate numerator-plus-denominator sparse terms retained by every
     /// coefficient in the memoization cache.
+    /// The opt-in candidate factorized cache instead charges the larger of
+    /// its stored sparse parts and a conservative expanded-term envelope.
     pub max_cached_coefficient_terms: usize,
     /// Aggregate clone-owned Symbolica coefficient payload retained by the
     /// memoization cache. This excludes map/key bookkeeping, whose counts are
