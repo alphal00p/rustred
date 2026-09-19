@@ -184,3 +184,132 @@ Jacobian, normalization, domain and power/dimension mapping. In particular, a
 fully massive bubble cannot be replaced by a single epsilon-shifted propagator.
 See [the four-loop study](four_loop_terminal_deduplication.md) for the distinction
 between raw keys, exact catalog projections and FMFT basis symbols.
+
+### Validated bounded extension: one dependence among active momenta
+
+The opt-in `TerminalAliasPlan::vacuum_routing_equivalences` implementation considers nonnegative terminal
+keys with exactly `L+1` active unit-mass propagators and momentum rank `L`.
+The saved four-loop programs contain 433 nonnegative `L+1`-active-line
+structural candidates: 328 with unit positive powers and 105 with raised
+powers. The saved-program census below independently verifies momentum rank
+`L` for every one of these candidates; structural counting alone did not
+establish that fact.
+
+There is exactly one linear dependence among those `L+1` momentum vectors.
+Symbolica's exact matrix operations construct and replay its primitive integer
+coefficients. Their absolute values, paired with the corresponding propagator
+powers, provide a cheap proposal signature. Zero coefficients identify momenta
+outside the dependent subset and must remain distinct from its members.
+
+For example, the four momenta `k1, k2, k1-k2, k3` in a three-loop integral
+have dependence coefficients `(-1, 1, 1, 0)`. The first three form a sunset
+factor, and the last an independent tadpole. Changing `k1-k2` to `k1+k2`
+changes the dependence signs but can be undone by reversing a loop momentum.
+Raising the tadpole power is not interchangeable with raising a sunset power:
+the zero/nonzero dependence coefficient is part of the signature. No subloop
+integration, Gamma prefactor or epsilon-shifted propagator is needed here.
+
+A matching signature is only a proposal, not proof of equal integrals. The
+implementation tries a deterministic signed correspondence, reconstructs its
+momentum map with native matrix operations, and requires exact active-denominator
+replay, integral map entries, unit Jacobian, matching powers and no outstanding
+symbolic conditions. A chosen momentum basis may itself have determinant other
+than one; it is the **map between the two integrals** whose determinant matters.
+Different lattice classes or tied correspondences can cause conservative misses.
+They must retain their raw keys, never become assumed equalities.
+
+Factored momentum vectors and the primitive circuit are prepared once per
+active support and reused for dotted keys. The power-colored row ordering and
+its basis inverse are still constructed for each key. This
+slice avoids factorial permutation searches and leaves higher-rank dependence
+spaces, numerator-bearing terminals and general graph proposal generation for
+separate measured work. The existing product-only factory and default applier
+behavior remain unchanged: installation of the combined plan is explicit.
+Downstream Vakint activation is a separate numerical acceptance gate.
+
+#### Saved-program census of the combined lanes
+
+The release gate passed **57/57** tests: 28 terminal-normalization tests,
+17 candidate-reducer tests, and 12 existing reducer tests. These include
+independently authored adversarial cases, rank-deficient supports, distinct
+lattice classes, bases with nonunit determinant but valid unit-Jacobian maps,
+large integer shears, dots on independent versus dependent momenta, exact
+ancestor accumulation, mass homogeneity, and memoization. A regression with
+an asymmetric unused ISP verifies that active routing need not extend to a
+full-family denominator permutation.
+
+All four unchanged native programs completed the new census. Each first
+preparation starts after native loading; four subsequent preparations compare
+statistics, representative sets, and exact routing matrices. Only afterward
+does the driver import the independently supplied native terminal catalog and
+check every alias's exact projection with Symbolica. No oracle value enters
+proposal construction or the momentum-map proof.
+
+| Family | Raw keys | Product-only representatives | Combined representatives | New circuit aliases | First combined preparation (s) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| H | 386 | 312 | 176 | 136 | 0.911487 |
+| FG | 145 | 106 | 53 | 53 | 0.367325 |
+| BMW | 179 | 135 | 68 | 67 | 0.443762 |
+| X | 445 | 365 | 208 | 157 | 1.009598 |
+| Total | 1,155 | 918 | 505 | 413 | — |
+
+The combined plan contains **650 verified aliases** (237 product aliases plus
+413 circuit aliases), and all 650 independent catalog equalities pass. The
+433 circuit candidates occupy 328 distinct active supports and retain 20
+existing representatives. The 505 remaining keys comprise those 20, four
+product representatives, 105 numerator-bearing keys, and 376 keys outside
+the two active-line-count lanes. These are family-local finite representatives,
+not a count or proof of independent masters.
+
+All four repetitions per family produce identical representative and routing
+matrix results. The census uses optimized libraries, CPU affinity 80–85 and
+nested compute pools capped at one. It is a shared-host diagnostic, not a
+six-worker scaling benchmark or a controlled timing distribution. No IBP rule
+generation or closure certification is included. Reproduction evidence is
+under `TMP/terminal-routing-census.ZU4xwc/`.
+
+#### Fresh exact application comparison
+
+The same new optimized client ran fresh raw/combined pairs for H and X with
+`[2,1,1,1,1,1,1,1,1,0]`. Each owner starts with an empty cache and the same
+persisted program and ordering. Plan preparation and installation are timed
+separately. After the timers, every raw output coefficient is independently
+coalesced through the verified representative map and compared exactly with
+the combined reducer output. Family, target, common-mass degree, and five warm
+cache results are also checked. All four comparisons pass.
+
+| Family | First apply raw → combined (s) | Preparation (s) | Load + prepare + install + first apply raw → combined (s) | Output terms raw → combined | Warm lookup median raw → combined (µs) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| H | 11.644410 → 4.185100 | 0.888323 | 12.763301 → 6.228792 | 248 → 91 | 53 → 20 |
+| X | 61.796413 → 22.521394 | 1.012318 | 63.933806 → 25.663302 | 437 → 206 | 102 → 48 |
+
+These single-pair diagnostics show 2.78×/2.74× apply-only improvements and
+2.05×/2.49× improvements including the separately measured load and preparation
+phases. They are not confidence bounds, matched FORM-backend comparisons, or
+complete process-startup timings. File reading, output reporting and the
+independent exact comparison are outside the phase sum. Earlier product-only
+timings above remain historical evidence, not this pair's comparator.
+
+| Family | Rule applications (unchanged) | Cached integrals (unchanged) | Coalescing additions raw → combined | Accounted cached coefficient bytes raw → combined | GNU whole-process peak RSS raw → combined (KiB) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| H | 26,956 | 27,306 | 1,099,045 → 432,343 | 86,688,448 → 31,262,384 | 571,348 → 490,908 |
+| X | 82,637 | 83,082 | 5,889,714 → 2,268,880 | 381,494,842 → 131,889,422 | 1,481,572 → 1,103,744 |
+
+The 63.94%/65.43% reductions concern accounted cache coefficient payload, not
+RSS. Whole-process RSS also includes native program ownership, temporaries and
+the post-timing exact comparison; it is distinct from `/proc/self/status`
+snapshots printed inside the timed phases.
+
+The matched D1-pinch control `[0,1,1,1,1,1,1,1,1,0]` is already a one-term
+declared terminal and uses zero rules. It has no reduction speedup: matched
+phase sums increase from 1.148540 to 1.970707 s (H) and 2.143164 to 3.134683 s
+(X). Preparation must be amortized over actual reductions. Its four processes
+also pass exact comparison and cache checks. All twelve census/application
+processes exit successfully; commands, exact outputs, resources and ten
+source/binary/input hashes are retained with the evidence README.
+
+The remaining 376 higher-active-line keys and 105 numerator-bearing keys are
+not normalized by this slice. An exact positive-power parametric-equivalence
+proposal is documented separately in
+[the next-lane study](vacuum_parametric_terminal_equivalence.md); it is not
+implemented or counted in these results.

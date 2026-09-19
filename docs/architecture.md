@@ -19,8 +19,11 @@ for unrestricted four-loop closure certification.
 `solver::CandidateReducer` owns the candidate rule application, mass restoration
 and memoized terminal decompositions; Vakint supplies routing and offline
 terminal evaluation. `reduction::terminal_normalization` provides a separately
-verified, opt-in plan for exactly equivalent terminal products, preserving raw
-catalog keys. See [the normalization contract](research/terminal_normalization.md).
+verified, opt-in plan for exactly equivalent terminal products and full-rank
+vacuum supports with one linear momentum dependence, preserving raw catalog
+keys. Native Symbolica matrix operations propose their routings; the existing
+exact momentum-map verifier establishes every alias before installation.
+See [the normalization contract](research/terminal_normalization.md).
 `persistence::ExactTerminalCatalog` provides the same native Atom/State strategy
 for exact offline values attached to typed integral keys. Its distinct payload
 kind carries no IBP authority; downstream consumers still verify their declared

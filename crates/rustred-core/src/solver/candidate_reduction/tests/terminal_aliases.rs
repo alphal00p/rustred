@@ -166,3 +166,76 @@ fn alias_installation_requires_explicit_cache_clear() {
     );
     assert!(!normalized.terms().contains_key(&target));
 }
+
+#[test]
+fn corank_one_aliases_coalesce_a_nonminimal_dotted_terminal_basis() {
+    let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+    let family = artifact.family();
+    let limits = ReductionLimits::default();
+    let dots: [[i64; 3]; 3] = [[2, 1, 1], [1, 2, 1], [1, 1, 2]];
+    // A deliberately nonminimal terminal policy still contains actual sunset
+    // integrals. Keep the generated ordinary rules; no invented identity is
+    // needed to exercise terminal normalization inside ancestor accumulation.
+    let make = || {
+        let (mut sectors, zeros) = super::solved::<3>(family);
+        let (_, parent) = sectors
+            .iter_mut()
+            .find(|(sector, _)| *sector == [true; 3])
+            .unwrap();
+        parent
+            .finite_residuals
+            .extend(dots.into_iter().map(|powers| {
+                crate::solver::Integral::numeric(powers.map(|n| i16::try_from(n).unwrap())).unwrap()
+            }));
+        crate::solver::CandidateReducer::try_new(
+            family,
+            [true; 3],
+            OrderingPolicy::SpiredUncutV1,
+            sectors,
+            zeros,
+            limits,
+        )
+        .unwrap()
+    };
+    let mut raw = make();
+    let mut normalized = make();
+    let plan =
+        TerminalAliasPlan::vacuum_routing_equivalences(family, raw.terminals(), raw.ordering())
+            .unwrap();
+    assert!(plan.statistics().eligible_corank_one >= 3);
+    assert_eq!(
+        dots.iter()
+            .filter(|&&powers| plan.aliases().contains_key(&key(powers)))
+            .count(),
+        2
+    );
+    normalized.install_terminal_aliases(plan.clone()).unwrap();
+    let context = family.coefficient_context();
+    for powers in dots.into_iter().chain([[2, 2, 1], [3, 2, 1]]) {
+        let target = key(powers);
+        let before = raw.reduce_unit_mass(&target).unwrap();
+        let actual = normalized.reduce_unit_mass(&target).unwrap();
+        let mut expected = BTreeMap::new();
+        for (terminal, coefficient) in before.terms() {
+            let representative = plan.representative(family, terminal).unwrap();
+            let old = expected
+                .remove(representative)
+                .unwrap_or_else(|| context.zero());
+            let sum = context
+                .try_add(&old, coefficient, limits.exact_algebra)
+                .unwrap();
+            if !sum.is_zero() {
+                expected.insert(representative.clone(), sum);
+            }
+            if actual.terms().contains_key(representative) {
+                assert_eq!(
+                    before.common_mass_squared_power(terminal).unwrap(),
+                    actual.common_mass_squared_power(representative).unwrap()
+                );
+            }
+        }
+        assert_eq!(actual.terms(), &expected);
+        assert_eq!(actual.target(), &target);
+        assert_eq!(normalized.reduce_unit_mass(&target).unwrap(), actual);
+    }
+}

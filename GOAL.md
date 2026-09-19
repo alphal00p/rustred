@@ -62,10 +62,18 @@ is pushed as `909164121`, using RustRed `d51721b6`: all 83 lower-loop checks,
 15 four-loop references and 16 numerator/pinch comparisons pass, alongside seven
 focused catalog/loader checks and three public fixture checks. The native-I/O
 delivery gate is complete. An independently audited opt-in alias service
-and candidate-reducer integration are also implemented: 237 verified product
-equalities reduce the four-family output-key census from 1,155 to 918 without
-regenerating rules. Saved-program exact application diagnostics pass; downstream
-activation and full numerical validation are a separate gate.
+and candidate-reducer integration are also implemented: the initial 237 verified
+product equalities reduce the four-family output-key census from 1,155 to 918
+without regenerating rules. The next generic routing extension covers full-rank
+supports with exactly one linear momentum dependence: its 650 total aliases
+reduce that census to 505. All 650 equalities agree exactly with the offline
+catalogs after independent preparation; repeated preparations reproduce every
+momentum witness. The combined focused release gate passes 57 tests.
+Fresh saved-program H/X dotted and pinched application comparisons also pass
+exactly, including mass homogeneity and memoization; measured preparation,
+first-application and warm-cache costs are recorded separately in the
+terminal-normalization study. Downstream activation/full numerical validation
+remain a separate gate.
 Keep the raw declared terminal/catalog contract unchanged while reporting
 canonical output representatives separately.
 No terminal aliases are enabled by default in the I/O rollout, and five-loop

@@ -44,8 +44,12 @@ of 83,020. Vakint `909164121` pins RustRed `d51721b6` and passes the same
 83 lower-loop checks and all 31 four-loop comparisons, completing this I/O gate; see
 [the catalog migration](docs/research/native_terminal_catalog.md).
 Separately, [opt-in exact terminal normalization](docs/research/terminal_normalization.md)
-proves 237 product aliases and reduces the four-family output-key census to
-918. It is not yet enabled in Vakint and does not assert a minimal master basis.
+now proves 650 routing/product aliases and reduces the four-family output-key
+census from 1,155 to 505, without regenerating rules. The product-only baseline
+found 237 aliases; the extension verifies full-rank supports with one linear
+dependence among their active momenta. All 650 equalities pass independent exact
+catalog checks. It is not yet enabled in Vakint and does not assert a minimal
+master basis.
 
 The solver implementation follows the
 [executable SpIRed reference port](docs/spired_port.md): reproduce the actual

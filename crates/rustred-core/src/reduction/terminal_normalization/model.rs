@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::family::{IntegralFamily, IntegralKey};
 use crate::sector::{OrderingPolicy, symmetry::VerifiedMap};
 
-/// Reasons why the deliberately narrow product lane leaves a terminal alone.
+/// Reasons why the deliberately narrow routing lanes leave a terminal alone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ProductSkipReason {
     ExternalMomenta,
@@ -18,6 +18,8 @@ pub enum ProductSkipReason {
     SingularMomentumBasis,
     NonUnimodularMomentumBasis,
     ConditionalMomentumMap,
+    NonIntegralMomentumMap,
+    NonUnimodularMomentumMap,
 }
 
 /// Preparation diagnostics; no count denotes an independent-master census.
@@ -25,6 +27,11 @@ pub enum ProductSkipReason {
 pub struct TerminalAliasStatistics {
     pub raw_terminals: usize,
     pub eligible_products: usize,
+    /// Full-rank `L+1`-line keys admitted by the optional routing extension.
+    pub eligible_corank_one: usize,
+    /// Distinct active supports examined by the optional routing extension.
+    pub analyzed_corank_one_supports: usize,
+    /// Native momentum proposals, cached per denominator within each lane.
     pub analyzed_denominators: usize,
     pub verified_aliases: usize,
     pub canonical_terminals: usize,
@@ -134,6 +141,7 @@ pub enum TerminalAliasError {
     ExactAlgebra(String),
     MomentumVerification(String),
     InvalidProductWitness,
+    InvalidCircuitWitness,
 }
 
 impl fmt::Display for TerminalAliasError {
@@ -154,6 +162,9 @@ impl fmt::Display for TerminalAliasError {
             }
             Self::InvalidProductWitness => {
                 f.write_str("momentum map does not prove the proposed unit terminal equality")
+            }
+            Self::InvalidCircuitWitness => {
+                f.write_str("native momentum circuit failed its exact replay")
             }
         }
     }
