@@ -254,9 +254,12 @@ dimension active, yet selects **997 source rows and 3,458 columns**. This is
 elimination cost, not evidence that optional artifact certification is blocking
 generation.
 
-The narrow next experiment is the existing `SparseTargetOnly` lifting option
-on that frozen hard case, preserving exact row/context comparison and caps;
-no new algebra or validation weakening is implied or implemented here. Native
+The narrow follow-up re-solves only that supplied coordinate case using the
+existing `SparseTargetOnly` option. The full 997-source trace, 1,489 RHS
+coefficients/contexts and three guard branches agree exactly with sparse.
+Observed exact lifting falls from **14.637 to 2.971 s**; this is one
+single-case diagnostic, not a direct frozen-frame replay, default change or
+full-family speedup. No new algebra or validation weakening is introduced. Native
 reconstruction already caches complete row images across coefficients at the
 same prime and point. Further optimization should target measured remaining
 costs rather than duplicate that cache.

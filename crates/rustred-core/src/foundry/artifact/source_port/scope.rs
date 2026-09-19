@@ -9,6 +9,8 @@ use crate::sector::{InteriorBounds, Mask};
 
 use super::super::error::ArtifactError;
 
+// Entry/envelope ownership is tested here; durable/runtime wiring is pending.
+#[allow(dead_code)]
 mod contract;
 pub use contract::EntryDegreeBound;
 #[allow(unused_imports)]

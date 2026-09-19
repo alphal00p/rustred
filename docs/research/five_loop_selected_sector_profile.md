@@ -146,7 +146,8 @@ Keep existing validation intact. The most direct next test is the already
 implemented `SparseTargetOnly` exact backend on a frozen hard case such as 265,
 with full ordinary-row/context equality and an external cap. A coefficient
 variable-order comparison on that same case is also narrower than changing the
-family search. Neither is run here.
+family search. The subsequent target-only test is recorded below; variable
+ordering was not changed or tested.
 
 For reconstruction, investigate the measured native finite-field GPLU workload
 before proposing new algebra. The current implementation **already shares a
@@ -161,3 +162,54 @@ event accounting and per-symbol memberships are retained in
 scope, exact comparison, phase sums, censored statuses, PID/clock filtering and
 profile interpretation. No additional full-family or Möbius campaign is part
 of this diagnostic.
+
+## Follow-up: re-solve only case 265 with the existing target-only backend
+
+The parent logs retain frame sizes and coordinates, **not** the selected rows
+or their seed provenance. The exact materializer dispatcher is private, so
+the public-API follow-up is not a direct replay of a frozen frame. Instead,
+each backend independently re-solves the single externally supplied coordinate
+case with identical family sources, preconditioning, ordering, prime and seed.
+There is no parent-sector queue traversal. The caller uses the existing public
+exception extractor and checks strict descent; no new production seam or CAS
+code is introduced.
+
+Both runs complete under a 60-second process cap, serial CPU 82 and 32 GiB
+virtual-memory limit. The exact comparison verifies the **complete ordered
+997-entry `SeedSource` trace**, canonical target/case, inherited source
+conditions, all **1,489 RHS coefficients and ordered variable maps**, and all
+**three exceptional guard branches**. Both discover 2,442 rows from 98 seeds.
+Thus the selected source identities/order agree exactly, although discovery is
+repeated rather than replayed from saved input rows.
+
+| One re-solved coordinate case | Sparse | SparseTargetOnly |
+|---|---:|---:|
+| Discovery before materialization | 0.482 s | 0.498 s |
+| Exact materialization | **14.637 s** | **2.971 s** |
+| Single-case core, including preconditioning | 15.129 s | 3.481 s |
+| Native guard extraction, outside core timer | 0.028 s | 0.025 s |
+| Whole process wall, including preparation/output | 36.24 s | 25.06 s |
+| User + system CPU | 34.44 + 1.45 s | 23.32 + 1.49 s |
+| Whole process peak RSS | 96,796 KiB | 73,060 KiB |
+| Process status | 0 | 0 |
+
+The observed exact-lifting ratio is approximately **4.93×** for this single
+case. Target-only first eliminates **1,297 harder/target columns** instead of
+all 3,458 columns, taking 1.929 s. Its native triangular weight solve takes
+0.590 s and yields 747 nonzero weights; multiplying back into the full selected
+source rows takes 0.422 s and restores all 1,490 terms including the pivot. These
+subphases exclude small preparation and intermediate overhead. The complete
+normalized RHS is identical, not truncated to the smaller block.
+
+This result is actionable evidence for broader tests of an **already
+implemented** backend, not an automatic default switch or a prediction of
+full-family runtime. It is one ordered observation per backend, with observer
+I/O included and no profiler attached; the whole-process interval is dominated
+in part by the unchanged family-wide zero census. Other frames may violate the
+target-only backend's independent-prefix requirement or have different costs.
+No validation was weakened, and neither artifact certification nor another
+full-family generation was run.
+
+Evidence: `TMP/five-loop-single-case.H1gcs8/`, containing the external case,
+source/client/library hashes, phase records, full source trace, native exact
+snapshots, fresh comparison and resource reports. Both processes are stopped.
