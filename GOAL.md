@@ -5,6 +5,8 @@
 > and the instruction to stop after four-loop acceptance. The
 > [September 18 checkpoint](docs/checkpoints/2026-09-18.md) records the starting
 > state, including the unresolved FG numerator/pinch oracle mismatch.
+> [September 19 progress](docs/checkpoints/2026-09-19.md) records the corrected
+> FMFT routing, offline catalog revalidation and saved-program loading gates.
 
 ## Immediate delivery gate — four-loop numerical acceptance
 

@@ -65,13 +65,17 @@ git dependency with a workspace path.
 
 The [September 17 status report](STATUS_17_09_2026.md) and
 [checkpoint ledger](docs/checkpoints/2026-09-17.md) record the
-latest reconstruction, C++ comparison, certification and experimental Vakint
+historical reconstruction, C++ comparison, certification and experimental Vakint
 results. Four-loop candidate generation is usable; four-loop production
 artifacts and the complete native acceptance suite remain unfinished. Twelve
 finite-target native comparisons across H, FG, X and BMW passed against FMFT;
 these are separate from the fifteen passing legacy FMFT references. The native
 inventory now includes those fifteen inputs; a logged complete-inventory rerun
 and additional expanded-numerator/pinch identities are separate validation gates.
+The [September 19 update](docs/checkpoints/2026-09-19.md) records saved H/FG/BMW/X
+programs, cold-load measurements, and a corrected FMFT numerator-routing error
+with revalidated offline terminal projections. The full public-backend numerical
+matrices remain separate, pending gates.
 See the
 [matched generation measurements](docs/four_loop_generation_comparison.md)
 for completed versus interrupted runs and output-equivalence qualifications.

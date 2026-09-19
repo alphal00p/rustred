@@ -18,6 +18,7 @@ use rustred_app::{
 fn limits() -> CandidateBundleLimits {
     CandidateBundleLimits {
         max_bundle_bytes: MAX_CANDIDATE_BUNDLE_BYTES,
+        max_collection_entries: 8_000_000,
         max_total_coefficient_bytes: 512 * 1024 * 1024,
         ..CandidateBundleLimits::default()
     }
