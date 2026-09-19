@@ -136,6 +136,24 @@ pub fn write_event<const N: usize>(
                         output,
                         "phase=semi-numerical-coefficient column={column} probes={probes} primes={primes}"
                     ),
+                    MaterializationEvent::SemiNumericalExactReplayStarted { support_recovery } => {
+                        writeln!(
+                            output,
+                            "phase=semi-numerical-exact-replay-start support_recovery={support_recovery}"
+                        )
+                    }
+                    MaterializationEvent::SemiNumericalExactReplayFinished { output_terms } => {
+                        match output_terms {
+                            Some(terms) => writeln!(
+                                output,
+                                "phase=semi-numerical-exact-replay-finish succeeded=true output_terms={terms}"
+                            ),
+                            None => writeln!(
+                                output,
+                                "phase=semi-numerical-exact-replay-finish succeeded=false"
+                            ),
+                        }
+                    }
                     MaterializationEvent::SemiNumericalFinished { output_terms } => {
                         writeln!(
                             output,
@@ -354,6 +372,46 @@ mod tests {
             "phase=target-weights-finish weights_nnz=240",
             "phase=target-reconstruction-start rows=298 columns=482",
             "phase=target-reconstruction-finish output_terms=20",
+        ] {
+            assert!(text.contains(expected), "{text}");
+        }
+        assert!(!text.contains("closed"));
+    }
+
+    #[test]
+    fn semi_numerical_replay_labels_distinguish_recovery_and_failure() {
+        let case = Case::<1>::generic();
+        let mut output = Vec::new();
+        for event in [
+            MaterializationEvent::SemiNumericalExactReplayStarted {
+                support_recovery: true,
+            },
+            MaterializationEvent::SemiNumericalExactReplayFinished {
+                output_terms: Some(7),
+            },
+            MaterializationEvent::SemiNumericalExactReplayStarted {
+                support_recovery: false,
+            },
+            MaterializationEvent::SemiNumericalExactReplayFinished { output_terms: None },
+        ] {
+            write_event(
+                &mut output,
+                "1",
+                Duration::ZERO,
+                SectorEvent::Search {
+                    case: &case,
+                    event: SearchEvent::ExactProgress(event),
+                },
+            )
+            .unwrap();
+        }
+        let text = String::from_utf8(output).unwrap();
+        assert_eq!(text.lines().count(), 4);
+        for expected in [
+            "phase=semi-numerical-exact-replay-start support_recovery=true",
+            "phase=semi-numerical-exact-replay-finish succeeded=true output_terms=7",
+            "phase=semi-numerical-exact-replay-start support_recovery=false",
+            "phase=semi-numerical-exact-replay-finish succeeded=false",
         ] {
             assert!(text.contains(expected), "{text}");
         }

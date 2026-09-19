@@ -266,6 +266,18 @@ attempts and prime images) are explicit and the route is never selected by
 default. An unlucky point or modular target miss is reported as a bounded
 reconstruction failure, not as an authority or closure claim.
 
+Generation currently also performs characteristic-zero sparse replay of the
+selected frame and compares the entire reconstructed row, including columns
+absent from sampled support. This internal identity check is included in
+solver-only timings; it is distinct from optional artifact certification.
+The observer brackets it with `SemiNumericalExactReplayStarted` and
+`SemiNumericalExactReplayFinished`, distinguishing a support-recovery replay
+after a reconstruction miss from the ordinary final comparison. Observers own
+timing; the no-op path adds no clock reads or expression copies. A finished
+replay is not itself an accepted reconstructed row or a closure claim. Full
+four-loop measurements predating these events do not isolate this phase's
+cost, so its share must not be inferred from total solver time.
+
 The example steering is
 `RUSTRED_SPIRED_SYMBOLIC_EXACT_BACKEND=semi-numerical`; optional controls are
 `RUSTRED_SPIRED_RECON_MAX_DEGREE`, `..._MAX_PROBES`, `..._MAX_ATTEMPTS`, and
@@ -275,8 +287,10 @@ produce byte-identical rule files. For K2 sector `111`, semi-numerical took
 39.0 ms versus 2.1 ms, including initialization); for the representative K3
 sector `111111`, it took 68.467 ms versus 64.371 ms (whole process 82 ms versus
 74 ms). These are paired single-host release observations, not a claim that
-reconstruction wins every case. Constant frames intentionally remain on the
-exact sparse path.
+reconstruction wins every case. A symbolic materialization frame with no
+active coefficient variables is rejected by this backend; the separate
+fully numerical-case solver continues to use sparse exact arithmetic. There
+is no implicit constant-frame fallback in this materializer.
 
 As a PM smoke comparison, `fam1_11` sector `111111111` produced seven
 byte-identical rules with 25.245 ms semi-numerical sector solve time versus

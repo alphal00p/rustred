@@ -196,13 +196,14 @@ fn materialize_with_support<const N: usize>(
             Ok(value) => value,
             Err(error) => {
                 if exact_support.is_none() {
-                    exact_support = Some(super::sparse_materialize(
+                    exact_support = Some(exact_replay(
                         rows,
                         columns,
                         order,
                         target_column,
                         variables,
-                        |_| {},
+                        true,
+                        &mut observe,
                     )
                     .map_err(|replay| {
                         MaterializationError::SemiNumericalReconstruction(format!(
@@ -253,12 +254,20 @@ fn materialize_with_support<const N: usize>(
     // Call the already-selected sparse backend directly. Going back through
     // the backend dispatcher here would recursively instantiate its generic
     // observer type through the semi-numerical branch at higher-arity call
-    // sites. The replay deliberately discards events and remains the same
-    // characteristic-zero sparse GPLU authority.
+    // sites. The replay exposes phase boundaries, not its individual row
+    // events, and remains the same characteristic-zero sparse GPLU authority.
     let exact = match exact_support {
         Some(exact) => exact,
-        None => super::sparse_materialize(rows, columns, order, target_column, variables, |_| {})
-            .map_err(|error| {
+        None => exact_replay(
+            rows,
+            columns,
+            order,
+            target_column,
+            variables,
+            false,
+            &mut observe,
+        )
+        .map_err(|error| {
             MaterializationError::SemiNumericalReconstruction(format!(
                 "exact characteristic-zero replay failed after reconstruction: {error}"
             ))
@@ -307,6 +316,29 @@ fn materialize_with_support<const N: usize>(
         output_terms: output.len(),
     });
     Ok(output)
+}
+
+/// Keep the exact computation and error unchanged while making its cost
+/// observable. Do not forward per-row events: one replay can contain a large
+/// frame, and observers only need the boundaries to separate this work from
+/// reconstruction. A successful replay is still compared with the proposed
+/// row by the caller before the materializer can succeed.
+fn exact_replay<const N: usize>(
+    rows: &[ExactRow<N>],
+    columns: &[Integral<N>],
+    order: &IntegralOrder<N>,
+    target_column: usize,
+    variables: &FrameVariables,
+    support_recovery: bool,
+    observe: &mut dyn FnMut(MaterializationEvent<N>),
+) -> Result<ExactRow<N>, MaterializationError> {
+    observe(MaterializationEvent::SemiNumericalExactReplayStarted { support_recovery });
+    let result =
+        super::sparse_materialize(rows, columns, order, target_column, variables, |_| {});
+    observe(MaterializationEvent::SemiNumericalExactReplayFinished {
+        output_terms: result.as_ref().ok().map(Vec::len),
+    });
+    result
 }
 
 /// Return a union of nonzero target-row columns from independent generic
@@ -484,6 +516,7 @@ mod tests {
         columns.sort_unstable_by(|left, right| order.compare(left, right));
         let variables =
             FrameVariables::try_new(&rows, CoefficientVariableOrder::Original, &[]).unwrap();
+        let mut events = Vec::new();
         let actual = materialize(
             &rows,
             &columns,
@@ -494,12 +527,84 @@ mod tests {
             2000,
             3,
             4,
-            |_| {},
+            |event| events.push(event),
         )
         .unwrap();
         assert_eq!(actual[0].integral, integral(3));
         assert!(actual[0].coefficient.is_one());
         assert!(actual.iter().any(|term| term.integral == integral(2)));
+        assert_eq!(
+            actual,
+            super::super::sparse_materialize(&rows, &columns, &order, 0, &variables, |_| {})
+                .unwrap()
+        );
+        let replay = events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    MaterializationEvent::SemiNumericalExactReplayStarted { .. }
+                        | MaterializationEvent::SemiNumericalExactReplayFinished { .. }
+                )
+            })
+            .copied()
+            .collect::<Vec<_>>();
+        assert_eq!(
+            replay,
+            [
+                MaterializationEvent::SemiNumericalExactReplayStarted {
+                    support_recovery: false,
+                },
+                MaterializationEvent::SemiNumericalExactReplayFinished {
+                    output_terms: Some(actual.len()),
+                },
+            ]
+        );
+        assert_eq!(
+            events.last(),
+            Some(&MaterializationEvent::SemiNumericalFinished {
+                output_terms: actual.len(),
+            })
+        );
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            MaterializationEvent::RowStarted { .. } | MaterializationEvent::RowFinished { .. }
+        )));
+    }
+
+    #[test]
+    fn failed_exact_replay_emits_a_failed_boundary_without_success() {
+        let context = CoefficientContext::new(["a"]);
+        let rows = vec![vec![Term {
+            integral: integral(2),
+            coefficient: context.coefficient_fixture("a"),
+        }]];
+        let order = IntegralOrder::new([true], [false]);
+        let mut columns = vec![integral(2), integral(1)];
+        columns.sort_unstable_by(|left, right| order.compare(left, right));
+        let variables =
+            FrameVariables::try_new(&rows, CoefficientVariableOrder::Original, &[]).unwrap();
+        let target = columns.iter().position(|value| *value == integral(1)).unwrap();
+        let mut events = Vec::new();
+        let result = exact_replay(
+            &rows,
+            &columns,
+            &order,
+            target,
+            &variables,
+            false,
+            &mut |event| events.push(event),
+        );
+        assert!(matches!(result, Err(MaterializationError::TargetNotPivot)));
+        assert_eq!(
+            events,
+            [
+                MaterializationEvent::SemiNumericalExactReplayStarted {
+                    support_recovery: false,
+                },
+                MaterializationEvent::SemiNumericalExactReplayFinished { output_terms: None },
+            ]
+        );
     }
 
     #[test]
@@ -555,15 +660,22 @@ mod tests {
                 symbolica::poly::reconstruction::ReconstructionError::InvalidOptions
             )
         );
-        assert_eq!(events.len(), 1);
-        assert!(matches!(
-            events[0],
-            MaterializationEvent::SemiNumericalStarted {
-                rows: 1,
-                columns: 1,
-                variables: 1,
-            }
-        ));
+        assert_eq!(
+            events,
+            [
+                MaterializationEvent::SemiNumericalStarted {
+                    rows: 1,
+                    columns: 1,
+                    variables: 1,
+                },
+                MaterializationEvent::SemiNumericalExactReplayStarted {
+                    support_recovery: true,
+                },
+                MaterializationEvent::SemiNumericalExactReplayFinished {
+                    output_terms: Some(1),
+                },
+            ]
+        );
     }
 
     #[test]

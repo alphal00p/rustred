@@ -125,7 +125,82 @@ cold-load and exact application check before being called a usable result.
 Local raw evidence is retained under
 `TMP/five-loop-candidate-next.tRR9BV/`: frozen CLI/input, hashes, progress,
 stdout, exact status, GNU resource report, and manual observations. The executed
-template is `TMP/five_loop_next_run_template.sh`; the setup and final census
-received an independent audit. No Möbius or reconstruction comparison was
-launched as part of this baseline, and no speed comparison with either is
-claimed.
+template is preserved as `run-template.sparse.sh` inside that evidence folder;
+the setup and final census received an independent audit. No Möbius run was
+launched. The separately authorized reconstruction comparator is recorded below.
+
+## Matched semi-numerical comparator
+
+After the sparse run and its independent audit, one sequential comparison used
+the **same frozen CLI hash, input bytes, physical root, default ordering, six
+workers, CPU affinity and resource limits**. Only `--exact-backend` changed to
+`semi-numerical`, and outputs used a fresh directory. This exercises the existing
+Symbolica-backed reconstruction route; no solver or algebra code was changed or
+rebuilt. It is unrelated to the separate factorized-coefficient experiment in
+the rule **application** cache.
+
+**This run also reached the 1,800-second deadline without a saved bundle.** Its
+timeout and solver PIDs (2918431 and 2918432) were checked absent afterward.
+The actual backend selection, hashes, limits, affinity, cleanup and following
+resource/count table were independently audited.
+
+| Whole bounded attempt | Sparse exact | Semi-numerical |
+|---|---:|---:|
+| Terminal status | Timeout, 124 | Timeout, 124 |
+| Measured wall | 1,800.75 s | 1,800.64 s |
+| User CPU | 10,626.24 s | 10,619.92 s |
+| System CPU | 20.56 s | 18.83 s |
+| Total CPU | 177.45 min | 177.31 min |
+| Peak RSS | 7,946,512 KiB (7.58 GiB) | 6,394,316 KiB (6.10 GiB) |
+| Preparation event | 16.1 s | 16.4 s |
+| Completed-sector events | 37 | 41 |
+| Rules in those events | 9,818 | 8,591 |
+| Finite-residual occurrences | 92 | 63 |
+| Full physical parent completed | No | No |
+| Saved bundle / phase report | Neither | Neither |
+| Cold-load or application check | Not possible: no output | Not possible: no output |
+
+The semi-numerical preparation produced the identical sector/zero census. Its
+last completion event occurred at 1,408.8 s; search/lifting events continued
+through 1,799.8 s. No swaps were reported and stdout is empty. Its progress
+stream contains depth-three searches and pending-case counts up to 107; as
+above, throttled intermediate events do not give exhaustive maxima or a profile.
+
+The two completed-sector sets **differ**. They overlap in 24 sectors, all of
+which have matching rule and residual counts. This is a limited count
+consistency observation, not an exact comparison of saved equations: neither
+run retained a candidate payload. More completed sectors but fewer rules do not
+rank the backends, and the lower measured peak RSS does not establish a memory
+ratio for an identical completed workload. Neither backend has a completed
+full-family generation timing in this experiment; no speedup is inferred from
+progress percentages, partial output counts, or these censored wall times.
+
+### Important solver-internal validation boundary
+
+The current semi-numerical materializer reconstructs the target row using
+Symbolica and then compares it with a characteristic-zero sparse target-row
+materialization of the selected source trace. If that exact row was already
+computed for support recovery it is reused. This check remains **inside the
+generation backend**, before returning the row. It is separate from the
+optional independent artifact-certification pass, which was not requested here.
+Consequently `semi-numerical` is **not reconstruction-only timing** and does not
+remove all sparse exact-lifting work from this comparison.
+
+The materializer is implemented in
+[`solver/discovery/semi_numerical.rs`](../../crates/rustred-core/src/solver/discovery/semi_numerical.rs),
+whose last recorded change before the frozen CLI build was `b77c0646`.
+These measurements predate the observer-only additions that now expose replay
+boundaries. The frozen executable
+also contains that path's distinctive exact characteristic-zero replay failure
+messages. This corroborates the retained validation path without inventing a
+full build-revision identifier. No validation was disabled or weakened during
+the paired runs, and their coarse progress logs do not split reconstruction,
+exact replay, canonicalization or other arithmetic time.
+
+To reproduce the comparator, use the command above with **only**
+`--exact-backend semi-numerical` substituted and a fresh evidence directory.
+The actual script and raw evidence are retained under
+`TMP/five-loop-candidate-next.718HJ6/`. Both generation processes are stopped;
+no further five-loop run is included in this note. These unfinished five-loop
+attempts do not change the separate validated four-loop numerical application
+results or settle the separate optional bounded-rank certification work.

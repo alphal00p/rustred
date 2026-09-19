@@ -126,6 +126,17 @@ pub enum MaterializationEvent<const N: usize> {
         probes: usize,
         primes: usize,
     },
+    /// The internal characteristic-zero comparison is part of generation,
+    /// not optional artifact certification. Observers may time this pair.
+    SemiNumericalExactReplayStarted {
+        /// True when a reconstruction miss requires exact support recovery.
+        support_recovery: bool,
+    },
+    /// Completing replay does not mean the reconstructed row agrees with it.
+    /// `None` records a failed replay; neither outcome grants rule authority.
+    SemiNumericalExactReplayFinished {
+        output_terms: Option<usize>,
+    },
     SemiNumericalFinished {
         output_terms: usize,
     },

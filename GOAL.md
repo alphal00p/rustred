@@ -135,12 +135,16 @@ matched exact/reconstruction settings and stated time/memory limits. Do not
 implement another CAS or a replacement rule applier. Keep the proved finite
 identities for a later weighted-application experiment, not as an unmeasured
 production speedup.
-The first bounded physical-cube sparse attempt reaches its 1,800-second
-deadline, with 37 completed sector events but no saved bundle; the
+Both bounded physical-cube backends reach their 1,800-second deadlines
+without saved bundles: sparse exact reports 37 completed-sector events and
+reconstruction reports 41, with different completed-sector sets. Peak RSS is
+7.58 and 6.10 GiB respectively, not a completed-workload memory comparison. The
 [five-loop baseline](docs/research/five_loop_candidate_baselines.md) records
-the exact scope, resource use and censor. This is not a completed generation
-or a closure result. The matched reconstruction comparison is a separate run
-with the same input, ordering, workers and bounds.
+the exact scope, resource use and both censored outcomes. Neither is a completed
+generation or a closure result, and no speedup follows from the partial counts.
+The reconstruction backend still includes internal exact sparse replay; this
+is distinct from optional family certification. New diagnostic observer
+boundaries expose that phase for measured optimization without removing it.
 Audit Symbolica's public API
 before introducing any algebraic primitive. Keep all scratch evidence in local
 `TMP/`, use release measurements, and commit/push coherent validated milestones
