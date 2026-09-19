@@ -72,16 +72,21 @@ momentum witness. The combined focused release gate passes 57 tests.
 Fresh saved-program H/X dotted and pinched application comparisons also pass
 exactly, including mass homogeneity and memoization; measured preparation,
 first-application and warm-cache costs are recorded separately in the
-terminal-normalization study. Downstream activation/full numerical validation
-remain a separate gate.
-The validated core implementation and measurements are published as `f91c47ab`;
-the Vakint rollout is being built against that pinned revision, with its fresh
-runtime gate still pending. A positive-power Symanzik-polynomial equivalence lane is the next
-bounded terminal-deduplication investigation, not an already measured result.
+terminal-normalization study. The core implementation is published as
+`f91c47ab`, and the pinned Vakint activation is now pushed as `8e91d32f`.
+Its unchanged 83 lower-loop checks, 15 four-loop references, 16 numerator/pinch
+comparisons, nine focused checks and three fixture checks all pass. The matched
+nine-input public benchmark also passes all 54 numerical comparisons, with
+whole-harness time 164.83 → 96.35 s and peak RSS 2.73 → 2.12 GiB. Those totals
+include both backends and comparison overhead; first unseen cubed-parent
+reductions remain slower than FMFT, while repeated cached calls are faster.
+A positive-power Symanzik-polynomial equivalence lane is the next bounded
+terminal-deduplication investigation, not an already measured four-loop result.
 Keep the raw declared terminal/catalog contract unchanged while reporting
 canonical output representatives separately.
-No terminal aliases are enabled by default in the I/O rollout, and five-loop
-work remains deferred until this second priority is completed and validated.
+Core aliases remain explicitly opt-in; the separate Vakint production loader
+now opts into the verified routing plan. Five-loop work remains deferred until
+this second priority is completed and validated.
 Audit Symbolica's public API
 before introducing any algebraic primitive. Keep all scratch evidence in local
 `TMP/`, use release measurements, and commit/push coherent validated milestones

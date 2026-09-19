@@ -29,8 +29,11 @@ for exact offline values attached to typed integral keys. Its distinct payload
 kind carries no IBP authority; downstream consumers still verify their declared
 key sets. The codec, exact asset conversion and pinned Vakint runtime rollout
 are validated: Vakint `909164121` uses RustRed `d51721b6`, with the 83 lower-loop
-and 31 four-loop numerical checks passing. Aliases remain opt-in and were not
-enabled for that I/O migration gate.
+and 31 four-loop numerical checks passing. Aliases were not enabled for that
+I/O migration gate. The separate Vakint rollout `8e91d32f`, pinning RustRed
+`f91c47ab`, now prepares the routing plan once per four-loop program and passes
+the same numerical matrix. Core factories remain opt-in; Vakint steers the
+RustRed implementation without duplicating proof or application logic.
 
 ### Foundry mathematical spine
 

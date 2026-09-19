@@ -103,8 +103,9 @@ Local evidence is retained in `TMP/terminal-alias-release-tests-final.log`,
 `TMP/terminal-alias-integration-release.log` and
 `TMP/terminal-alias-all-reduction.{log,time}`. An independent source and
 mathematical audit approved the service and application hook. Saved-four-loop
-application diagnostics are recorded below; activation in Vakint and its complete
-numerical acceptance matrix remain pending. The hook is not enabled by default.
+application diagnostics are recorded below. At this initial gate the hook was
+not enabled in Vakint; the later combined routing rollout is recorded at the
+end of this document. The core hook remains opt-in.
 
 ### Saved four-loop terminal census
 
@@ -312,5 +313,62 @@ source/binary/input hashes are retained with the evidence README.
 The remaining 376 keys outside these active-line-count lanes and 105
 numerator-bearing keys are not normalized by this slice. An exact positive-power
 parametric-equivalence proposal is documented separately in
-[the next-lane study](vacuum_parametric_terminal_equivalence.md); it is not
-implemented or counted in these results.
+[the next-lane study](vacuum_parametric_terminal_equivalence.md). Its implementation
+and focused tests are separate; it is not counted in these routing results.
+
+### Vakint routing-alias rollout
+
+GammaLoop `vakint_rustred` commit `8e91d32f659dee237b5af04c6cd3383da2ee1585`
+pins both RustRed dependencies to `f91c47abf820c9b9a376860b9c421675589b8a9c`.
+The production four-loop loader explicitly prepares and installs the verified
+routing plan before memoized application. The original constructor, other
+backends, public defaults and raw terminal/catalog declarations are unchanged.
+No rules or catalog values were regenerated or replaced.
+
+An independent audit confirmed the unchanged 83 through-three-loop checks,
+all 15 four-loop numerical references and all 16 expanded-numerator/pinch
+comparisons. Nine focused constructor/catalog checks and three public fixture
+checks also pass. The FORM-less lane uses FeynKit with invalid FORM paths;
+FORM is used only by the separate oracle. The 15/16 matrices run inside two
+test functions, not 31 separate Cargo tests. Workspace dependency generation
+and CI-metadata checks passed, but this is not a claim of the entire CI suite.
+
+The same optimized public benchmark ran in fresh processes before and after
+activation: nine inputs, six calls per backend per input, 108 timed calls and
+54 passing numerical comparisons per run. The same saved programs, ordering,
+master values and scalar inputs were used. Affinity was 88–93, one scalar caller
+and nested pools capped at one, on a shared AMD EPYC 9754 host. Other validation
+work used disjoint cores; these single pairs are diagnostics, not confidence
+bounds. Compilation, dependency-cache relocation and tensor preparation are
+outside the scalar timing boundary.
+
+| Public scalar observation | Before routing aliases | After routing aliases | FMFT after, same input |
+| --- | ---: | ---: | ---: |
+| H, cubed first propagator, first call (s) | 14.859 | 7.155 | 1.502 |
+| X, cubed first propagator, first call (s) | 84.167 | 30.990 | 4.734 |
+| H, same input, five-call warm median (ms) | 103.061 | 90.010 | 1490.813 |
+| X, same input, five-call warm median (ms) | 150.270 | 126.704 | 4726.422 |
+
+First-parent calls include lazy loading and plan preparation. Repeated calls
+reuse process-local integral caches. Other input rows may also reuse previously
+visited subproblems and are not cold-parent observations. The public backend
+timer includes scalar application, master substitution, settings validation
+and any internal dispatch; it is not a bare reducer-kernel measurement.
+These dotted targets use power three, unlike the preceding core-only power-two
+diagnostics. Numerical evaluation and comparisons lie outside
+the public scalar timer.
+
+The whole two-backend harness takes **164.83 → 96.35 s**, with user plus system
+CPU **158.66 + 4.83 → 92.19 + 3.53 s**, and peak RSS
+**2,864,780 → 2,218,696 KiB**. These include initialization and comparisons and
+must not be presented as RustRed-only times or memory. First-use cubed parents
+remain slower than FMFT; repeated calls are faster on all nine inputs. There
+is no uniform speedup: FG's first cubed-parent call slightly worsens, and the
+four-tadpole control does not benefit. All nine rows and the repeatable public
+test command are in Vakint's `data/rustred/four_loop/README.md`.
+
+Local evidence, including both immutable executable hashes, identical drivers,
+raw observations, and independently checked runtime gates, is retained in
+`TMP/gamma-terminal-alias-rollout.4Zi7ej/`. This activation uses momentum-routing
+equalities only, not the new parameter-equivalence lane. It establishes finite
+numerical acceptance, not master minimality or unrestricted family closure.

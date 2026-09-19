@@ -48,8 +48,15 @@ now proves 650 routing/product aliases and reduces the four-family output-key
 census from 1,155 to 505, without regenerating rules. The product-only baseline
 found 237 aliases; the extension verifies full-rank supports with one linear
 dependence among their active momenta. All 650 equalities pass independent exact
-catalog checks. It is not yet enabled in Vakint and does not assert a minimal
-master basis.
+catalog checks. Vakint `8e91d32f` enables this plan once per loaded four-loop
+program, pins RustRed `f91c47ab`, and passes all 83 lower-loop checks and 31
+four-loop comparisons. The matched nine-input public benchmark passes all 54
+numerical comparisons; whole-harness wall time decreases from 164.83 to 96.35 s
+and peak RSS from 2.73 to 2.12 GiB. These totals include both RustRed and FMFT,
+not just RustRed reduction. First-use cubed-parent calls remain slower than
+FMFT, whereas warm calls are faster on this matrix. See
+[the measured rollout](docs/research/terminal_normalization.md#vakint-routing-alias-rollout)
+for boundaries and caveats. This does not assert a minimal master basis.
 
 The solver implementation follows the
 [executable SpIRed reference port](docs/spired_port.md): reproduce the actual
