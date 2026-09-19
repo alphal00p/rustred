@@ -333,8 +333,7 @@ fn exact_replay<const N: usize>(
     observe: &mut dyn FnMut(MaterializationEvent<N>),
 ) -> Result<ExactRow<N>, MaterializationError> {
     observe(MaterializationEvent::SemiNumericalExactReplayStarted { support_recovery });
-    let result =
-        super::sparse_materialize(rows, columns, order, target_column, variables, |_| {});
+    let result = super::sparse_materialize(rows, columns, order, target_column, variables, |_| {});
     observe(MaterializationEvent::SemiNumericalExactReplayFinished {
         output_terms: result.as_ref().ok().map(Vec::len),
     });
@@ -584,7 +583,10 @@ mod tests {
         columns.sort_unstable_by(|left, right| order.compare(left, right));
         let variables =
             FrameVariables::try_new(&rows, CoefficientVariableOrder::Original, &[]).unwrap();
-        let target = columns.iter().position(|value| *value == integral(1)).unwrap();
+        let target = columns
+            .iter()
+            .position(|value| *value == integral(1))
+            .unwrap();
         let mut events = Vec::new();
         let result = exact_replay(
             &rows,

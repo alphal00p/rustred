@@ -2,7 +2,9 @@
 
 use symbolica::prelude::Integer;
 
-use super::Native;
+use std::sync::Arc;
+
+use super::{FactorizedCoefficient, Native};
 use crate::algebra::coefficient::validation::{
     check_exact_resource_limit, validate_polynomial_on_map,
 };
@@ -14,6 +16,11 @@ use crate::algebra::{
 pub(super) struct Shape {
     pub terms: usize,
     degrees: Vec<u64>,
+}
+
+struct OperandResources {
+    numerator: Shape,
+    denominator: Shape,
 }
 
 pub(super) fn overflow() -> ExactAlgebraError {
@@ -140,36 +147,82 @@ fn product(
     right: &Shape,
     operation: ExactAlgebraOperation,
     limits: ExactAlgebraLimits,
-) -> Result<Shape, ExactAlgebraError> {
-    let degrees = left
-        .degrees
-        .iter()
-        .zip(&right.degrees)
-        .map(|(&a, &b)| a.checked_add(b).ok_or_else(overflow))
-        .collect::<Result<Vec<_>, _>>()?;
+) -> Result<usize, ExactAlgebraError> {
     let pairs = left.terms.checked_mul(right.terms).ok_or_else(overflow)?;
     check_exact_resource_limit(
         "factorized native product term-pair envelope",
         pairs,
         limits.max_term_operations,
     )?;
-    let shape = Shape {
-        degrees,
-        terms: pairs,
-    };
-    admit_degrees(&shape, operation, limits)?;
-    Ok(shape)
+    for (variable, (&a, &b)) in left.degrees.iter().zip(&right.degrees).enumerate() {
+        let requested = a.checked_add(b).ok_or_else(overflow)?;
+        if requested > u64::from(limits.max_exponent) {
+            return Err(ExactAlgebraError::ExponentLimit {
+                operation,
+                variable,
+                requested,
+                limit: limits.max_exponent,
+            });
+        }
+    }
+    Ok(pairs)
+}
+
+/// Recheck current policy, without rescanning a sealed operand's immutable
+/// monomial layout or coefficient canonicality. Full validation remains at
+/// every native-result boundary. No resource metadata is retained in the cache.
+fn operand_resources(
+    sealed: &FactorizedCoefficient,
+    context: &CoefficientContext,
+    limits: ExactAlgebraLimits,
+) -> Result<OperandResources, ExactAlgebraError> {
+    let value = &sealed.value;
+    let variables = value.numerator.variables();
+    if !Arc::ptr_eq(variables, context.variables())
+        && variables.as_ref() != context.variables().as_ref()
+    {
+        return Err(ExactAlgebraError::VariableMapMismatch {
+            part: CoefficientPolynomialPart::Numerator,
+        });
+    }
+    // Admission bound every factor to the numerator's exact ordered map.
+    // Its positive multiplicity makes each factor degree no larger than the
+    // corresponding expanded-denominator degree checked below.
+    for polynomial in
+        std::iter::once(&value.numerator).chain(value.denominators.iter().map(|(factor, _)| factor))
+    {
+        check_exact_resource_limit(
+            "authenticated polynomial terms",
+            polynomial.nterms(),
+            limits.max_polynomial_terms,
+        )?;
+    }
+    let numerator = polynomial_shape(&value.numerator);
+    admit_degrees(&numerator, ExactAlgebraOperation::Authenticate, limits)?;
+    let denominator = denominator_shape(value)?;
+    admit_degrees(&denominator, ExactAlgebraOperation::Authenticate, limits)?;
+    check_exact_resource_limit(
+        "factorized expanded denominator term envelope",
+        denominator.terms,
+        limits.max_polynomial_terms,
+    )?;
+    Ok(OperandResources {
+        numerator,
+        denominator,
+    })
 }
 
 pub(super) fn preflight(
-    left: &Native,
-    right: &Native,
+    left: &FactorizedCoefficient,
+    right: &FactorizedCoefficient,
     context: &CoefficientContext,
     limits: ExactAlgebraLimits,
     add: bool,
 ) -> Result<(), ExactAlgebraError> {
-    validate(context, left, limits)?;
-    validate(context, right, limits)?;
+    let left_resources = operand_resources(left, context, limits)?;
+    let right_resources = operand_resources(right, context, limits)?;
+    let left = &left.value;
+    let right = &right.value;
     if left.is_zero() || right.is_zero() {
         return Ok(());
     }
@@ -178,10 +231,10 @@ pub(super) fn preflight(
     } else {
         ExactAlgebraOperation::Multiply
     };
-    let left_num = polynomial_shape(&left.numerator);
-    let right_num = polynomial_shape(&right.numerator);
-    let left_den = denominator_shape(left)?;
-    let right_den = denominator_shape(right)?;
+    let left_num = &left_resources.numerator;
+    let right_num = &right_resources.numerator;
+    let left_den = &left_resources.denominator;
+    let right_den = &right_resources.denominator;
     if add {
         // Native equal factor lists need no polynomial denominator expansion.
         // Equality is used only to tighten a resource bound, never as proof of
@@ -197,18 +250,18 @@ pub(super) fn preflight(
                 limits.max_term_operations,
             )?;
         } else {
-            let a = product(&left_num, &right_den, operation, limits)?;
-            let b = product(&right_num, &left_den, operation, limits)?;
+            let a = product(left_num, right_den, operation, limits)?;
+            let b = product(right_num, left_den, operation, limits)?;
             check_exact_resource_limit(
                 "factorized sum term envelope",
-                a.terms.checked_add(b.terms).ok_or_else(overflow)?,
+                a.checked_add(b).ok_or_else(overflow)?,
                 limits.max_term_operations,
             )?;
-            product(&left_den, &right_den, operation, limits)?;
+            product(left_den, right_den, operation, limits)?;
         }
     } else {
-        product(&left_num, &right_num, operation, limits)?;
-        product(&left_den, &right_den, operation, limits)?;
+        product(left_num, right_num, operation, limits)?;
+        product(left_den, right_den, operation, limits)?;
         // Native Mul adds powers of equal factors before any later operation.
         for (factor, power) in &left.denominators {
             if let Some((_, other)) = right
@@ -224,20 +277,16 @@ pub(super) fn preflight(
 }
 
 pub(super) fn preflight_materialization(
-    value: &Native,
+    value: &FactorizedCoefficient,
+    context: &CoefficientContext,
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
-    let shape = denominator_shape(value)?;
+    let shape = operand_resources(value, context, limits)?.denominator;
     // Every intermediate denominator lies within the final degree box. Its
     // pair envelope is deliberately conservative; CAS scratch is not bounded.
-    product(
-        &shape,
-        &Shape {
-            terms: shape.terms,
-            degrees: vec![0; shape.degrees.len()],
-        },
-        ExactAlgebraOperation::Power,
-        limits,
-    )?;
-    Ok(())
+    check_exact_resource_limit(
+        "factorized native product term-pair envelope",
+        shape.terms.checked_mul(shape.terms).ok_or_else(overflow)?,
+        limits.max_term_operations,
+    )
 }

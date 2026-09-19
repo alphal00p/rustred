@@ -25,6 +25,9 @@ use super::{Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimi
 type Native = FactorizedRationalPolynomial<IntegerRing, u16>;
 
 #[derive(Clone, Debug)]
+/// Immutable native value whose complete layout and factor maps were admitted.
+/// Each use still checks its caller's context and resource limits. There is no
+/// unchecked constructor or mutable native access outside this private module.
 pub(crate) struct FactorizedCoefficient {
     value: Native,
 }
@@ -66,7 +69,7 @@ impl FactorizedCoefficient {
         context: &CoefficientContext,
         limits: ExactAlgebraLimits,
     ) -> Result<Self, ExactAlgebraError> {
-        admission::preflight(&self.value, &other.value, context, limits, false)?;
+        admission::preflight(self, other, context, limits, false)?;
         let value = native("multiplying factorized coefficients", || {
             &self.value * &other.value
         })?;
@@ -79,7 +82,7 @@ impl FactorizedCoefficient {
         context: &CoefficientContext,
         limits: ExactAlgebraLimits,
     ) -> Result<Self, ExactAlgebraError> {
-        admission::preflight(&self.value, &other.value, context, limits, true)?;
+        admission::preflight(self, other, context, limits, true)?;
         let value = native("adding factorized coefficients", || {
             &self.value + &other.value
         })?;
@@ -91,8 +94,7 @@ impl FactorizedCoefficient {
         context: &CoefficientContext,
         limits: ExactAlgebraLimits,
     ) -> Result<Coefficient, ExactAlgebraError> {
-        admission::validate(context, &self.value, limits)?;
-        admission::preflight_materialization(&self.value, limits)?;
+        admission::preflight_materialization(self, context, limits)?;
         // Same composition of native calls as Symbolica's constructor tests.
         // Keeping `do_gcd=true` reestablishes the public Coefficient invariant.
         let result = native("materializing a factorized coefficient", || {

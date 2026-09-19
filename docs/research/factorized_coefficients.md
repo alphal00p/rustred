@@ -254,3 +254,88 @@ motivates investigating temporary allocations and redundant checks of privately
 sealed coefficient values while retaining all mathematical admission/resource
 gates. It does not justify removing original poles, guards or descent checks,
 nor predict the gain from a specific optimization.
+
+## Sealed-operand follow-up: measured, mixed gains
+
+The follow-up removes repeated structural authentication of private immutable
+factorized operands, computes each transient resource envelope once, and avoids
+discarded degree vectors. An empty child decomposition skips unused edge
+factorization only after the unchanged rule checks and cache lookup/type check.
+Every use still checks the caller's exact ordered context and **current** limits;
+every native arithmetic output and ordinary public result is fully admitted.
+No retained metadata, secondary result cache, schema, default or Vakint setting
+changes. Symbolica still owns every algebraic operation.
+
+Three fresh-process pairs compare the published **factorized** implementation
+against this follow-up, not ordinary coefficients against factorized ones.
+They use the same saved programs, unchanged client source, target lists and
+limits as above, alternating baseline-first/optimized-first/baseline-first on
+CPU 80. All **24 application processes, 72 exact output-map comparisons
+(3,015 coefficient comparisons), and 240 warm checks pass**. Each result is
+compared both with its paired result and with the frozen ordinary-coefficient
+reference. Rule/hit/coalescing counts, cached-integral counts, charged term
+counts, terminal keys and mass checks agree. No private cached-key census is
+claimed. No generation, FORM, or certification is included.
+
+| Request | Baseline factorized median | Follow-up median | Median paired baseline/follow-up ratio |
+|---|---:|---:|---:|
+| H, cold D1 cubed | 4.299076 s | 4.226170 s | 1.018× |
+| X, cold D1 cubed | 22.810243 s | 20.958826 s | 1.198× |
+| H, sequence D1 squared | 4.130236 s | 4.003661 s | 1.032× |
+| H, D1 cubed after squared | 0.271413 s | 0.262033 s | 1.131× |
+| X, sequence D1 squared | 19.623594 s | 18.395219 s | 0.996× |
+| X, D1 cubed after squared | 3.668348 s | 3.734084 s | 1.012× |
+
+Paired-ratio medians are **not ratios of separately reported medians**. The
+shared-host measurements are mixed: cold H ratios span 0.899–1.217 and cold X
+0.835–1.331. In particular, pair0 X regresses 20.880→25.005 s, and pair2 H
+regresses 3.800→4.226 s. H sequence-squared also regresses in pair1; the X
+sequence-squared median paired ratio is essentially neutral. No cause is
+assigned to the variation, and no confidence interval, universal speedup or
+Vakint performance gain follows from three pairs. Later sequence calls reuse
+the owner cache; they are not independent cold reductions. Pinches already hit
+cached one-term terminals near timer resolution, so no ratio is reported.
+
+Cold H/X warm-return medians are 225→216 µs and 378→373 µs. Charged coefficient
+byte medians are 46,615,438→46,615,386 and 232,896,292→232,895,590: the policy
+and stored representation are unchanged; small capacity differences are not a
+memory optimization claim. GNU full-process peak-RSS medians are
+503,208→503,184 KiB and 1,225,572→1,223,008 KiB. Full-process CPU medians are
+6.18→6.24 s and 26.61→23.62 s, including loading, checks and output encoding.
+
+Focused release groups pass 72 factorized, 30 candidate, 23 coefficient,
+86 reduction, 10 reconstruction and 5 example-formatter tests; filters overlap.
+Five new regressions cover stricter policies, independent equal/foreign maps,
+420 resource-admission comparisons, empty-child cache invariants and preservation
+of original poles. Independent source/mathematical audits pass. Sparse remains
+the default; this is a bounded internal cleanup, not a new backend or a claim
+that the four-loop application-performance objective is finished.
+
+Evidence: `TMP/factorized-sealed-application.igxlPp/`, including raw paired logs,
+exact snapshots, independent statistics, runtime/input hashes and unchanged
+client source reference. Baseline executable SHA256:
+`3d14ba2dad12df13e137ae9b1403b15549e09b69c399a6a46e89ae177307ff45`.
+Follow-up executable SHA256:
+`8a01902bd45511df5e4e20415263cbd8a0ca3ca24aa5a0b90a2dde08c0869381`.
+Both executables and input bytes were checked before and after the matrix.
+
+### Separate follow-up profile
+
+One subsequent X run of the optimized frozen client passes the exact 63-coefficient
+sparse-reference check with identical rule/cache/coalescing counts. Its
+instrumented first request is 20.620 s, whole-process wall 24.44 s, and GNU peak
+RSS 1,223,440 KiB; these are not an additional timing pair. The same 99-Hz
+userspace flat-self protocol records 1,755 whole-target samples and 1,576 samples
+after trimming one second from each stdout-receipt boundary, with no lost or
+unresolved records. The receipt-duration discrepancy is 0.107 ms, not a bound
+on absolute scheduling delay.
+
+Using the unchanged disjoint categories, interior validation/resource admission
+is 8.88% (previously 12.55%), including the new `operand_resources`; allocation
+is 20.18% (20.37%), native polynomial/rational services 23.29%, and named native
+factorization/construction 0.89%. These fractions describe visible exclusive
+symbols, not inclusive operation costs or a causal explanation of the mixed
+timing matrix. Inlining and shared helpers prevent that attribution; 0.89%
+does not bound total factorization cost. Independent audit verifies the exact
+result, boundaries and all category memberships. Complete evidence is preserved
+in `TMP/factorized-sealed-profile.9JYEYj/`. No new default or cache policy follows.

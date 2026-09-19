@@ -264,3 +264,137 @@ fn cache_weight_covers_stored_factors_and_expanded_payload_terms() {
         assert_eq!((terms, bytes), value.cache_weight().unwrap());
     }
 }
+
+#[test]
+fn sealed_operands_recheck_stricter_current_limits_before_zero_shortcuts() {
+    let context = CoefficientContext::new(["x"]);
+    let zero = factor(&context, "0");
+    for (expression, limits) in [
+        (
+            "x^3+1",
+            ExactAlgebraLimits {
+                max_exponent: 2,
+                ..Default::default()
+            },
+        ),
+        (
+            "1/(x+1)^3",
+            ExactAlgebraLimits {
+                max_exponent: 2,
+                ..Default::default()
+            },
+        ),
+        (
+            "x^2+x+1",
+            ExactAlgebraLimits {
+                max_polynomial_terms: 2,
+                ..Default::default()
+            },
+        ),
+        (
+            "1/(x+1)^3",
+            ExactAlgebraLimits {
+                max_polynomial_terms: 3,
+                ..Default::default()
+            },
+        ),
+    ] {
+        let value = factor(&context, expression);
+        assert!(value.materialize(&context, limits).is_err(), "{expression}");
+        for (left, right) in [(&zero, &value), (&value, &zero)] {
+            assert!(
+                left.try_add(right, &context, limits).is_err(),
+                "{expression}"
+            );
+            assert!(
+                left.try_mul(right, &context, limits).is_err(),
+                "{expression}"
+            );
+        }
+    }
+    let value = factor(&context, "x+1");
+    let no_work = ExactAlgebraLimits {
+        max_term_operations: 0,
+        ..Default::default()
+    };
+    assert!(value.try_add(&value, &context, no_work).is_err());
+    assert!(value.try_mul(&value, &context, no_work).is_err());
+    assert!(value.materialize(&context, no_work).is_err());
+}
+
+#[test]
+fn sealed_context_checks_accept_equal_maps_but_reject_foreign_zero_and_one() {
+    let context = CoefficientContext::new(["x", "y"]);
+    let equal = CoefficientContext::new(["x", "y"]);
+    assert!(!std::sync::Arc::ptr_eq(
+        context.variables(),
+        equal.variables()
+    ));
+    let value = factor(&context, "(x+y)/(x-y)");
+    same(&equal, &value, &equal.coefficient_fixture("(x+y)/(x-y)"));
+    let one = factor(&equal, "1");
+    same(
+        &equal,
+        &value.try_mul(&one, &equal, Default::default()).unwrap(),
+        &equal.coefficient_fixture("(x+y)/(x-y)"),
+    );
+    for foreign in [
+        CoefficientContext::new(["y", "x"]),
+        CoefficientContext::new(["u", "v"]),
+    ] {
+        for expression in ["0", "1"] {
+            let other = factor(&foreign, expression);
+            assert!(matches!(
+                other.materialize(&context, Default::default()),
+                Err(ExactAlgebraError::VariableMapMismatch { .. })
+            ));
+            let zero = factor(&context, "0");
+            for (left, right) in [(&zero, &other), (&other, &zero)] {
+                assert!(matches!(
+                    left.try_mul(right, &context, Default::default()),
+                    Err(ExactAlgebraError::VariableMapMismatch { .. })
+                ));
+                assert!(matches!(
+                    left.try_add(right, &context, Default::default()),
+                    Err(ExactAlgebraError::VariableMapMismatch { .. })
+                ));
+            }
+        }
+    }
+}
+
+#[test]
+fn sealed_resource_admission_matches_full_authentication_on_fixture_grid() {
+    let context = CoefficientContext::new(["x", "y"]);
+    let zero = factor(&context, "0");
+    for expression in [
+        "0",
+        "1",
+        "-3/5",
+        "x^3+y^2+1",
+        "1/(x+y+1)^3",
+        "(x+y)/(2*(x+1)^2*(y-2))",
+        "1/(x^8-1)",
+    ] {
+        let value = factor(&context, expression);
+        for max_exponent in [0, 1, 2, 4, 8] {
+            for max_polynomial_terms in [0, 1, 2, 3, 5, 10] {
+                let limits = ExactAlgebraLimits {
+                    max_exponent,
+                    max_polynomial_terms,
+                    ..Default::default()
+                };
+                let expected = admission::validate(&context, &value.value, limits)
+                    .and_then(|()| admission::validate(&context, &zero.value, limits));
+                for add in [false, true] {
+                    let actual = admission::preflight(&value, &zero, &context, limits, add);
+                    assert_eq!(
+                        actual.is_ok(),
+                        expected.is_ok(),
+                        "{expression}: {limits:?}, add={add}"
+                    );
+                }
+            }
+        }
+    }
+}

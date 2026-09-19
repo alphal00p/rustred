@@ -142,6 +142,12 @@ pub(super) fn combine(
                 let CachedTerms::Factorized(child) = &child_entry(cache, &child)?.terms else {
                     return Err(mixed_representation());
                 };
+                // Rule conditions, original poles and descent were checked by
+                // apply_candidate before this frame. An empty child requires
+                // no coefficient algebra, just as in the ordinary branch.
+                if child.is_empty() {
+                    continue;
+                }
                 // Only the specialized edge factor is converted. Descendant
                 // decompositions have never been expanded into ordinary RPs.
                 let factor =
@@ -198,4 +204,102 @@ fn mixed_representation() -> CandidateReductionError {
         detail: "candidate cache contains mixed coefficient representations",
     }
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn factorized_empty_child_skips_unneeded_conversion_but_not_cache_checks() {
+        let context = CoefficientContext::new(["x"]);
+        let key = IntegralKey::try_new([1]).unwrap();
+        let factor = context.coefficient_fixture("1/(x^8-1)");
+        let limits = ReductionLimits {
+            exact_algebra: crate::algebra::ExactAlgebraLimits {
+                max_polynomial_terms: 2,
+                ..Default::default()
+            },
+            max_coalescing_additions: 0,
+            ..Default::default()
+        };
+        context
+            .validate_with_limits(&factor, limits.exact_algebra)
+            .unwrap();
+        // The ordinary coefficient is admitted, but factoring its denominator
+        // needs a larger conservative expanded-support envelope. An empty
+        // descendant makes that unused conversion unnecessary in both modes.
+        assert!(
+            FactorizedCoefficient::from_coefficient(&context, factor.clone(), limits.exact_algebra)
+                .is_err()
+        );
+        for representation in [
+            CandidateCacheRepresentation::Sparse,
+            CandidateCacheRepresentation::Factorized,
+        ] {
+            let mut cache = BTreeMap::from([(
+                key.clone(),
+                CacheEntry {
+                    terms: CachedTerms::from_sparse(
+                        BTreeMap::new(),
+                        representation,
+                        &context,
+                        limits,
+                    )
+                    .unwrap(),
+                    weight: CacheWeight::default(),
+                },
+            )]);
+            let mut request = ReductionRequest::default();
+            let mut statistics = ReductionStatistics::default();
+            let output = combine(
+                &context,
+                &cache,
+                representation,
+                BTreeMap::from([(key.clone(), factor.clone())]),
+                limits,
+                &mut request,
+                &mut statistics,
+            )
+            .unwrap();
+            assert_eq!(output.terminal_keys().count(), 0);
+            assert_eq!(statistics, ReductionStatistics::default());
+            cache.clear();
+            assert!(matches!(
+                combine(
+                    &context,
+                    &cache,
+                    representation,
+                    BTreeMap::from([(key.clone(), factor.clone())]),
+                    limits,
+                    &mut request,
+                    &mut statistics
+                ),
+                Err(CandidateReductionError::Application(
+                    ReductionError::ReducerInvariant { .. }
+                ))
+            ));
+        }
+        let cache = BTreeMap::from([(
+            key.clone(),
+            CacheEntry {
+                terms: CachedTerms::Sparse(BTreeMap::new()),
+                weight: CacheWeight::default(),
+            },
+        )]);
+        assert!(matches!(
+            combine(
+                &context,
+                &cache,
+                CandidateCacheRepresentation::Factorized,
+                BTreeMap::from([(key, factor)]),
+                limits,
+                &mut ReductionRequest::default(),
+                &mut ReductionStatistics::default()
+            ),
+            Err(CandidateReductionError::Application(
+                ReductionError::ReducerInvariant { .. }
+            ))
+        ));
+    }
 }

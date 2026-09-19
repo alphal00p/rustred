@@ -129,6 +129,14 @@ cache check: median first cubed-parent applications are 4.404→3.858 s and
 storage as the default; no Vakint activation or factorized generation claim
 is implied. Any further adoption needs full public-backend acceptance and
 performance measurements, not inference from the earlier frame replay.
+The sealed-operand follow-up removes redundant private-value authentication and
+temporary allocations without changing caller context/limit checks, output
+admission or retained cache layout. Focused release gates and independent audits
+pass, as do all 72 paired/frozen-reference output comparisons and 240 warm checks.
+Its three-pair full-application results are mixed: median paired old/new
+factorized ratios are 1.018 for cold H and 1.198 for cold X, with individual
+regressions and largely neutral sequence cases retained in the report. This
+does not activate the mode in Vakint or complete the performance objective.
 The two external five-loop candidate-only studies may now resume in parallel
 with this application work, with explicit physical-root ISP restrictions,
 matched exact/reconstruction settings and stated time/memory limits. Do not

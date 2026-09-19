@@ -267,6 +267,34 @@ fn concrete_denominator_zero_is_not_cancelled_or_cached() {
 }
 
 #[test]
+fn factorized_empty_zero_child_does_not_hide_the_original_pole() {
+    let family = crate::solver::tests::tadpole();
+    let mut owner = candidate::<1>(&family, ReductionLimits::default());
+    owner
+        .set_cache_representation(super::CandidateCacheRepresentation::Factorized)
+        .unwrap();
+    assert!(owner.reduce_unit_mass(&key([0])).unwrap().is_zero());
+    let context = owner.coefficient_context().clone();
+    let pole = context
+        .admit_native_polynomial_result_with_limits(
+            index_offset(&context, 0, 2),
+            Default::default(),
+        )
+        .unwrap();
+    let rules = owner.rules.get_mut(&[true]).unwrap();
+    rules.truncate(1);
+    rules[0].rhs.truncate(1);
+    rules[0].rhs[0].shift = [-2];
+    rules[0].rhs[0].denominator = pole;
+    let before = owner.statistics();
+    assert!(matches!(
+        owner.reduce_unit_mass(&key([2])),
+        Err(CandidateReductionError::Uncovered { .. })
+    ));
+    assert_eq!(owner.statistics(), before);
+}
+
+#[test]
 fn non_descending_and_overflowing_candidate_children_fail_closed() {
     let family = crate::solver::tests::tadpole();
     for target in [2, i64::MAX] {
