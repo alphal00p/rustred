@@ -11,8 +11,9 @@ their shared state context, native family geometry and structural rule records.
 The candidate-format implementation and its saved-data migration are pushed.
 The subsequent certified V6 migration, described below, preserves the existing
 proof records while moving their algebra into the same native envelope and
-coefficient table. Its final validation and downstream asset rollout are
-separate gates. Transport equivalence and successful concrete reductions do
+coefficient table. Its final validation and atomic downstream asset rollout
+also pass and are pushed as RustRed `d6718733` and Vakint `39992f757`.
+Transport equivalence and successful concrete reductions do
 not certify unrestricted family closure.
 
 ## What changed
@@ -292,8 +293,7 @@ A release diagnostic on CPU affinity 50–51 measured fresh K6 decode/replay at
 K6 generation time**, nor a controlled comparison against V5. The same-process
 conversion's old/new decode observations (0.907787/0.820725 s) have different
 initialization and state histories and are not a cold speedup benchmark.
-All RustRed migration gates are complete; the converted assets await the atomic
-Vakint pin/asset update and its downstream acceptance rerun.
+All RustRed migration gates and the atomic Vakint pin/asset update are complete.
 The separate K1/K3 fresh decode-and-replay phases took 0.000697/0.003912 s.
 
 The final rebuilt Python extension also cold-loaded each migrated file in its
@@ -303,6 +303,49 @@ one and thirty output terms for K1, K3 and K6 respectively. This is an exact
 regression check, not a new generation or performance measurement.
 The final CLI independently cold-loaded and reduced those same three files;
 its complete inspection and reduction reports match the retained baseline.
+
+### Final atomic Vakint rollout
+
+GammaLoop commit `39992f757fce31acf08f075dce8fea13d7eec8d2` is pushed to
+`vakint_rustred`. Both RustRed dependencies pin the published
+`d6718733bee4d20f4554e9d694b288ddaae60475` revision. All three native certified
+files match the audited converter hashes; the four-loop candidate programs,
+master catalogs, routing and scalar applier are unchanged. Old certified files
+remain recoverable in Git and the local evidence directory.
+
+The unchanged 83-case selection passes in all nine test binaries, including
+the explicit offline MATAD comparison for all 38 K6 terminals. Its cumulative
+process wall time is 32.94 s. The independent four-loop gate passes all 15
+named numerical references and all 16 expanded-numerator/pinch cases, without
+a family filter and with invalid FORM paths in both native stages:
+
+| Fresh pinned public gate | Named cases passed | Whole-process wall | User / system CPU | Peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| Four-loop numerical references | 15 | 34.42 s | 31.27 / 2.87 s | 1,988,896 KiB |
+| Four-loop numerator/pinch comparisons | 16 | 104.55 s | 99.62 / 4.00 s | 2,696,252 KiB |
+
+These are correctness timings with oracle work included, not standalone
+RustRed performance. The two four-loop processes ran sequentially on CPUs
+80–85 with nested pools capped at one; the through-three-loop gate ran on
+CPUs 88–93. The earlier nine-input performance snapshot above was not rerun
+for this format-only certified migration.
+
+Additional focused gates pass: 26 native library tests, all 16 K6 pipeline
+tests and three four-loop fixture checks. They overlap the 83-case selection.
+The library's one normally ignored offline master check was explicitly run
+within the 83-case gate; four ignored public diagnostic/oracle/benchmark entry
+points retain their existing flags, with both required numerical entries run
+explicitly. Numerical tolerances and assertions are unchanged apart from
+format-specific schema and native semantic-identity expectations.
+
+`cargo hakari generate` reports no changes, `cargo hakari verify` passes and
+`just ci-update` passes without generated-file drift. The focused release build
+passes, formatting and Git whitespace checks are clean, and independent source
+and factual audits approved the atomic commit. This is not a whole-GammaLoop
+workspace CI claim. This establishes native IBP-program persistence. A broader
+audit subsequently identified the small text terminal-value catalogs as the
+remaining internal-algebra persistence migration; see the updated I/O plan.
+Terminal normalization remains a distinct task and is not part of these timings.
 
 ## Reproducibility evidence
 
@@ -330,3 +373,8 @@ Final rebuilt gates are recorded in
 `TMP/native-certified-cli-canary-comparison.log` and
 `TMP/native-certified-python-canary-comparison.log` record the complete
 post-fix canary comparisons. Formatting and Git whitespace checks pass.
+The final pinned Vakint build manifest, executable hashes, unchanged 83-case
+selection, all public-gate logs and resource records are under
+`TMP/gamma-certified-native-migration.XbZB8J/`. This directory also retains
+the replaced `.rr` inputs; the shipped `.rrbin` files were copied from the
+audited converter, not regenerated by the acceptance run.

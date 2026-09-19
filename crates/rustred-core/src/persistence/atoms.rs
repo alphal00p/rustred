@@ -9,7 +9,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::Write;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
@@ -17,16 +16,17 @@ use symbolica::atom::{Atom, AtomCore, AtomView};
 use symbolica::coefficient::{Coefficient as NativeCoefficient, CoefficientView};
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::prelude::{PolyVariable, Z};
-use symbolica::state::{HasStateMap, State, StateMap};
+use symbolica::state::State;
 
 use crate::algebra::{Coefficient, validate_coefficient_on_map};
 
 use super::error::check_limit;
 use super::limits::CappedWriter;
+use super::native::{
+    BorrowedStateMap, LENGTH_BYTES, NATIVE_ATOM_HEADER_BYTES, ensure_native_word_size,
+    preflight_native_frame, read_length, write_length,
+};
 use super::{BinaryIoError, BinaryIoLimits};
-
-const LENGTH_BYTES: usize = 8;
-const NATIVE_ATOM_HEADER_BYTES: usize = 9;
 
 /// A first-occurrence index into one coefficient table, not a global identity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -383,44 +383,9 @@ impl DecodedCoefficientTable {
     }
 }
 
-struct BorrowedStateMap<'a>(&'a StateMap);
-
-impl HasStateMap for BorrowedStateMap<'_> {
-    fn get_state_map(&self) -> &StateMap {
-        self.0
-    }
-}
-
 fn checked_add(left: usize, right: usize) -> Result<usize, BinaryIoError> {
     left.checked_add(right)
         .ok_or(BinaryIoError::Invalid("coefficient byte count overflow"))
-}
-
-fn ensure_native_word_size() -> Result<(), BinaryIoError> {
-    // This pinned Symbolica bincode encoder writes a usize length, whereas its
-    // decoder reads u64. Reject unsupported targets rather than corrupt frames.
-    if std::mem::size_of::<usize>() != LENGTH_BYTES {
-        return Err(BinaryIoError::Invalid(
-            "native atom bincode requires a 64-bit target",
-        ));
-    }
-    Ok(())
-}
-
-fn write_length(writer: &mut impl Write, value: usize) -> Result<(), BinaryIoError> {
-    let value = u64::try_from(value).map_err(|_| BinaryIoError::Invalid("length exceeds u64"))?;
-    writer
-        .write_all(&value.to_le_bytes())
-        .map_err(|error| BinaryIoError::Native(error.to_string()))
-}
-
-fn read_length(source: &mut &[u8]) -> Result<usize, BinaryIoError> {
-    let bytes = source
-        .get(..LENGTH_BYTES)
-        .ok_or(BinaryIoError::Invalid("truncated length"))?;
-    let value = u64::from_le_bytes(bytes.try_into().expect("checked length"));
-    *source = &source[LENGTH_BYTES..];
-    usize::try_from(value).map_err(|_| BinaryIoError::Invalid("length exceeds usize"))
 }
 
 fn take_frame<'a>(source: &mut &'a [u8], limit: usize) -> Result<&'a [u8], BinaryIoError> {
@@ -431,20 +396,6 @@ fn take_frame<'a>(source: &mut &'a [u8], limit: usize) -> Result<&'a [u8], Binar
         .ok_or(BinaryIoError::Invalid("truncated coefficient atom"))?;
     *source = &source[length..];
     Ok(frame)
-}
-
-fn preflight_native_frame(frame: &[u8]) -> Result<(), BinaryIoError> {
-    if frame.len() <= NATIVE_ATOM_HEADER_BYTES || frame[0] != 0 {
-        return Err(BinaryIoError::Invalid("invalid native atom frame"));
-    }
-    let mut length_source = &frame[1..NATIVE_ATOM_HEADER_BYTES];
-    let length = read_length(&mut length_source)?;
-    if length != frame.len() - NATIVE_ATOM_HEADER_BYTES {
-        return Err(BinaryIoError::Invalid(
-            "native atom length differs from frame",
-        ));
-    }
-    Ok(())
 }
 
 #[cfg(test)]

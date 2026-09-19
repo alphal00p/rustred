@@ -11,6 +11,7 @@ mod application;
 mod model;
 mod preparation;
 mod reducer;
+mod terminal_aliases;
 
 pub use model::{
     CandidateDecomposition, CandidateReachabilityReport, CandidateReductionError,

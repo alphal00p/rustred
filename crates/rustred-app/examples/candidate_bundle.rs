@@ -9,6 +9,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Instant;
 
+use rustred::persistence::{BinaryIoLimits, ExactTerminalCatalog, TerminalCatalogCoverage};
 use rustred::reduction::ReductionLimits;
 use rustred_app::{
     CandidateBundleLimits, FamilyCandidatesRequest, MAX_CANDIDATE_BUNDLE_BYTES, family_candidates,
@@ -33,29 +34,24 @@ fn write_new(path: &str, bytes: &[u8]) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn verify<const N: usize>(bytes: &[u8], catalog: &str) -> Result<(), Box<dyn Error>> {
+fn verify<const N: usize>(bytes: &[u8], catalog: &[u8]) -> Result<(), Box<dyn Error>> {
     let started = Instant::now();
     let (family, reducer) =
         load_generated_candidate_bundle::<N>(bytes, limits(), ReductionLimits::default())?;
-    let recorded = catalog
-        .lines()
-        .find_map(|line| line.strip_prefix("family_fingerprint="))
-        .ok_or("catalog lacks family fingerprint")?;
-    if family.fingerprint() != recorded {
-        return Err("candidate and catalog family fingerprints differ".into());
+    let catalog = ExactTerminalCatalog::decode_generated(
+        catalog,
+        family.fingerprint(),
+        N,
+        BinaryIoLimits::default(),
+    )?;
+    if catalog.coverage() != TerminalCatalogCoverage::Complete {
+        return Err("candidate verification requires a declaration-complete catalog".into());
     }
     let expected: BTreeSet<Vec<i64>> = catalog
-        .lines()
-        .filter_map(|line| line.strip_prefix("terminal="))
-        .map(|line| {
-            line.split('\t')
-                .next()
-                .expect("split yields an element")
-                .split(',')
-                .map(str::parse)
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .collect::<Result<_, _>>()?;
+        .terms()
+        .keys()
+        .map(|key| key.powers().to_vec())
+        .collect();
     let actual: BTreeSet<_> = reducer
         .terminals()
         .iter()
@@ -115,7 +111,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             let mut bytes = Vec::new();
             fs::File::open(&args[3])?.take(MAX_CANDIDATE_BUNDLE_BYTES as u64 + 1).read_to_end(&mut bytes)?;
             if bytes.len() > MAX_CANDIDATE_BUNDLE_BYTES { return Err("bundle exceeds byte cap".into()); }
-            let catalog = fs::read_to_string(&args[4])?;
+            let mut catalog = Vec::new();
+            let cap = BinaryIoLimits::default().max_program_bytes;
+            fs::File::open(&args[4])?.take(cap as u64 + 1).read_to_end(&mut catalog)?;
+            if catalog.len() > cap { return Err("catalog exceeds byte cap".into()); }
             macro_rules! dispatch {
                 ($($n:literal),+) => { match args[2].parse::<usize>()? {
                     $($n => verify::<$n>(&bytes, &catalog)?,)+

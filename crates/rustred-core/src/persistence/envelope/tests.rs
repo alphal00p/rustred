@@ -13,7 +13,11 @@ fn envelope_borrows_sections_without_algebra_or_arity_assumptions() {
             bytes: b"arbitrary family metadata",
         },
     ];
-    for kind in [BinaryProgramKind::Candidates, BinaryProgramKind::Certified] {
+    for kind in [
+        BinaryProgramKind::Candidates,
+        BinaryProgramKind::Certified,
+        BinaryProgramKind::TerminalValues,
+    ] {
         let bytes = encode_program(kind, &sections, limits).unwrap();
         let view = inspect_program(&bytes, limits).unwrap();
         assert_eq!(view.kind(), kind);

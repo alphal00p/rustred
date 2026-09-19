@@ -7,6 +7,28 @@ roadmap item is never mistaken for a capability claim.
 
 ## Current capability boundary
 
+The current producer is the generic [SpIRed port](spired_port.md), with sparse
+exact and Symbolica rational-reconstruction routes. Its exact authority path
+has published K1/K3/K6 vacuum artifacts; its saved four-loop H/X/BMW/FG programs
+remain explicitly uncertified candidates. Both program kinds share the native
+Symbolica Atom/State transport but not mathematical authority. Vakint's public
+FORM-less path passes the recorded through-three-loop selection and all 31
+four-loop reference/pinch comparisons. Numerical acceptance is not a substitute
+for unrestricted four-loop closure certification.
+
+`solver::CandidateReducer` owns the candidate rule application, mass restoration
+and memoized terminal decompositions; Vakint supplies routing and offline
+terminal evaluation. `reduction::terminal_normalization` provides a separately
+verified, opt-in plan for exactly equivalent terminal products, preserving raw
+catalog keys. See [the normalization contract](research/terminal_normalization.md).
+`persistence::ExactTerminalCatalog` provides the same native Atom/State strategy
+for exact offline values attached to typed integral keys. Its distinct payload
+kind carries no IBP authority; downstream consumers still verify their declared
+key sets. The codec and exact asset conversion are validated; the pinned Vakint
+runtime rollout remains a separate gate.
+
+### Foundry mathematical spine
+
 RustRed currently provides a topology-neutral mathematical spine for:
 
 - compiling compact, structured-text, and caller-owned Symbolica input into a
@@ -316,7 +338,9 @@ coverage.
 
 ## Stage 1 artifact and reduction owners
 
-The live core has the following Stage 1 ownership boundaries:
+The table below records the earlier foundry lane's Stage 1 checkpoints, not
+the current SpIRed producer's closure status. In particular, its old bounded
+K6 frontiers do not supersede the published K6 artifact described above.
 
 | Owner | Current responsibility | Remaining production gate |
 |---|---|---|

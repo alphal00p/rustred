@@ -121,7 +121,14 @@ already excludes points contained in pending domains, and future cases descend
 from those domains. No concrete four-loop counterexample was found. Do not
 present that suspicion as a bug or a measured optimization opportunity.
 
-## Runtime and memory implications
+## Runtime and memory implications at the pre-migration checkpoint
+
+The sizes and text-catalog reproduction below describe the earlier measurement
+inputs. Native IBP-program storage has since replaced TOML, and the
+[native terminal-value migration](native_terminal_catalog.md) preserves all
+1,155 values in 30,307 bytes. The [exact normalization implementation](terminal_normalization.md)
+now supplies an opt-in verified product pass; the remaining proposals in this
+study are not all implemented.
 
 The current reducer does combine coefficients of identical terminal keys during
 each recursive accumulation, with exact zero removal. Its memoized answers can
@@ -236,7 +243,7 @@ attempting the larger pre-generation sector-quotienting change.
 
 ### Retained measurements
 
-The input is GammaLoop's corrected
+The historical input was GammaLoop's corrected
 `crates/vakint/data/rustred/four_loop/{h,fg,bmw,x}.rrcat`.
 All 1,155 projections were independently re-evaluated through the corrected
 FMFT oracle, with four FG fixes, before the successful public 15-reference
@@ -246,12 +253,13 @@ and 16-pinch numerical matrices recorded in the
 The standalone exact Symbolica census completed in 0.33 s; this is a catalog
 analysis time, not IBP generation or reduction performance. Source and complete
 output remain in ignored `TMP/terminal-dedup-20260919/`. A literal census can be
-reproduced without a CAS from the RustRed workspace:
+reproduced without a CAS using the preserved pre-migration text inputs (not
+the new `.rrcat.bin` files) from the RustRed workspace:
 
 ```sh
 awk -F '\t' '/^terminal=/{rhs[$2]++; n++}
   END {for (s in rhs) k++; print "entries",n,"distinct_RHS",k}' \
-  FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/data/rustred/four_loop/{h,fg,bmw,x}.rrcat
+  TMP/terminal-alias-census.P5ufji/{h,fg,bmw,x}.rrcat
 ```
 
 It reports 1,155 and 26. The exact vector comparison additionally uses Symbolica

@@ -5,15 +5,18 @@
 //! import is explicitly a generated-data boundary, not a hostile-input parser.
 
 mod atoms;
+mod catalog;
 mod compare;
 mod envelope;
 mod error;
 mod family;
 mod limits;
+mod native;
 
 pub use atoms::{
     CoefficientId, CoefficientTableBuilder, DecodedCoefficientTable, EncodedCoefficientTable,
 };
+pub use catalog::{ExactTerminalCatalog, TerminalCatalogCoverage};
 pub use compare::equivalent_generated_programs;
 pub(crate) use compare::same_native_coefficient;
 pub use envelope::{

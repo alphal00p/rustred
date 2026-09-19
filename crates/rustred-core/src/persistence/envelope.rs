@@ -15,6 +15,8 @@ const SECTION_HEADER_BYTES: usize = 12;
 pub enum BinaryProgramKind {
     Candidates = 1,
     Certified = 2,
+    /// Exact externally prepared values; no reduction or closure authority.
+    TerminalValues = 3,
 }
 
 /// Structural sections shared by independently admitted program payloads.
@@ -30,6 +32,7 @@ impl SectionTag {
     pub const PROGRAM: Self = Self(4);
     pub const PROVENANCE: Self = Self(5);
     pub const CERTIFICATE: Self = Self(6);
+    pub const VALUES: Self = Self(7);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -122,6 +125,7 @@ pub fn inspect_program(
     let kind = match cursor.take(1)?[0] {
         1 => BinaryProgramKind::Candidates,
         2 => BinaryProgramKind::Certified,
+        3 => BinaryProgramKind::TerminalValues,
         _ => return Err(BinaryIoError::Invalid("unsupported binary program kind")),
     };
     require_native_word_size(usize::from(cursor.take(1)?[0]))?;

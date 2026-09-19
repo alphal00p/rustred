@@ -17,6 +17,11 @@ use crate::solver::{
 
 use super::{CandidateReducer, CandidateReductionError};
 
+#[path = "tests/terminal_alias_audit.rs"]
+mod terminal_alias_audit;
+#[path = "tests/terminal_aliases.rs"]
+mod terminal_aliases;
+
 fn key<const N: usize>(powers: [i64; N]) -> IntegralKey {
     IntegralKey::try_new(powers).unwrap()
 }

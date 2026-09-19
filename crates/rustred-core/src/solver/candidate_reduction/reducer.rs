@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::algebra::{Coefficient, IndexedCoefficientContext, IndexedPolynomial};
 use crate::family::IntegralKey;
+use crate::reduction::terminal_normalization::TerminalAliasPlan;
 use crate::reduction::{
     CacheWeight, ReductionError, ReductionLimits, ReductionRequest, ReductionStatistics,
     SharedCacheBudget, accumulate_master_in_request, coefficient_cache_weight,
@@ -25,6 +26,7 @@ pub struct CandidateReducer<const N: usize> {
     pub(super) ordering: OrderingPolicy,
     pub(super) rules: BTreeMap<[bool; N], Vec<PreparedRule<N>>>,
     pub(super) terminals: BTreeSet<IntegralKey>,
+    pub(super) terminal_aliases: Option<TerminalAliasPlan>,
     pub(super) zero_sectors: BTreeSet<[bool; N]>,
     pub(super) _zero_certificates: Vec<zero::Certificate>,
     pub(super) source_conditions: Vec<IndexedPolynomial>,
@@ -42,8 +44,13 @@ impl<const N: usize> CandidateReducer<N> {
     pub fn index_count(&self) -> usize {
         N
     }
+    /// Original declared terminals, retained even when output aliases are installed.
+    /// Offline catalogs and provenance checks should continue to use this set.
     pub fn terminals(&self) -> &BTreeSet<IntegralKey> {
         &self.terminals
+    }
+    pub fn ordering(&self) -> OrderingPolicy {
+        self.ordering
     }
     pub fn limits(&self) -> ReductionLimits {
         self.limits
@@ -88,7 +95,15 @@ impl<const N: usize> CandidateReducer<N> {
                         continue;
                     }
                     if self.terminals.contains(&key) {
-                        let terms = BTreeMap::from([(key.clone(), self.context.base().one())]);
+                        // The sealed alias plan was checked once at installation.
+                        // Its one-hop representative is also a declared terminal;
+                        // no witness replay or recursive alias expansion is needed.
+                        let terminal = self
+                            .terminal_aliases
+                            .as_ref()
+                            .and_then(|plan| plan.aliases().get(&key))
+                            .map_or(&key, |alias| alias.representative());
+                        let terms = BTreeMap::from([(terminal.clone(), self.context.base().one())]);
                         self.cache_insert(key, terms)?;
                         continue;
                     }

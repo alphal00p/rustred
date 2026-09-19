@@ -35,6 +35,16 @@ ships these native programs and passes all 15 numerical references, all 16
 expanded-numerator/pinch comparisons and 54 paired public scalar benchmark
 comparisons. The same nine-input benchmark uses 2.73 GiB peak RSS instead of
 14.0 GiB; these are shared-host diagnostics, not a controlled speedup claim.
+Vakint `39992f757` also ships the migrated certified V6 K1/K3/K6 assets, with
+the 83-test through-three-loop selection and all 31 four-loop comparisons
+passing on RustRed `d6718733`. This completes IBP-program transport migration.
+The remaining offline terminal-value catalogs now have a generic native
+Atom/State codec: all 1,155 values are preserved exactly in 30,307 bytes instead
+of 83,020. Its pinned Vakint rollout is the remaining I/O delivery gate; see
+[the catalog migration](docs/research/native_terminal_catalog.md).
+Separately, [opt-in exact terminal normalization](docs/research/terminal_normalization.md)
+proves 237 product aliases and reduces the four-family output-key census to
+918. It is not yet enabled in Vakint and does not assert a minimal master basis.
 
 The solver implementation follows the
 [executable SpIRed reference port](docs/spired_port.md): reproduce the actual
@@ -305,8 +315,10 @@ each with ten scalar-product coordinates. A single ten-coordinate root family
 is not assumed universal. The generic `family-close` CLI runs complete-sector
 generation and exact artifact installation over the declared domain (unrestricted
 by default); see [its contract](docs/CLI.md).
-Four-loop routing, offline master catalogs and FORM-less numerical parity will
-be enabled only after the required artifacts actually pass publication.
+Four-loop routing, shipped offline master catalogs and FORM-less numerical
+parity already operate through the explicitly uncertified candidate-program
+lane. Exact unrestricted artifact publication remains a separate unfinished
+gate; passing numerical comparisons does not promote those candidates.
 
 ### Earlier foundry research checkpoints
 

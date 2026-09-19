@@ -21,6 +21,32 @@ sixteen indices, or a particular loop count.
 This work is separate from terminal deduplication and changes no tensor reducer,
 replacement engine, scalar application algorithm or Vakint default backend.
 
+## Delivery status — 19 September 2026
+
+Both native-I/O slices are implemented, validated and pushed. RustRed
+`d6718733` supplies the common transport and certified V6 format; Vakint
+`39992f757` pins that revision and ships the converted K1/K3/K6 files together
+with the earlier native four-loop candidates. No shipped rules were regenerated
+and no scalar applier or terminal catalog changed. The full frozen 83-test
+through-three-loop selection and all 31 requested four-loop numerical cases
+pass, alongside focused native-asset checks and independent audit.
+The [results report](native_binary_io_results_2026-09-19.md) records exact
+boundaries, measurements and limitations. This completes the IBP-program I/O
+gate; terminal normalization is a separately validated next milestone.
+
+A subsequent broad-scope audit identified the remaining value-catalog boundary:
+four former `.rrcat` files contained 1,155 exact projections in 83,020 bytes,
+with only 26 distinct literal values. The new generic native Atom/State
+terminal-value payload preserves every exact value in 30,307 bytes; core tests,
+fresh-process import checks and saved-program binding checks pass. Its pinned
+Vakint runtime rollout remains pending. See the
+[catalog implementation and measurements](native_terminal_catalog.md).
+It carries family/arity/coverage and exact keys/values, but no candidate or
+certified authority. Conversion compared all 1,155 values without rerunning
+generation or FMFT; the remaining numerical acceptance gate retains the separate
+FORM-backed oracle. User-authored input, inspection output and legacy
+MATAD/FMFT master evaluation source tables are not internal RustRed codecs.
+
 ## API audit and representation
 
 The workspace uses Symbolica 3.0.0 from `vendor/symbolica`. Definitions were

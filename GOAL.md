@@ -47,8 +47,27 @@ tolerances, together with the nine-input/54-comparison public benchmark.
 The certified V6 codec now shares the native envelope/table and passes its
 release core, Rust/CLI/Python and fresh-process context gates. Its migrated
 K1/K3/K6 files preserve exact rules and reductions without regeneration.
-Atomic Vakint pin/asset rollout and downstream acceptance remain the final
-I/O gate before terminal work.
+The atomic Vakint rollout is now pushed as `39992f757`, pinning both RustRed
+dependencies to the published `d6718733` milestone. The unchanged 83-test
+through-three-loop selection and all 15 four-loop references plus 16
+numerator/pinch comparisons pass. Focused native asset/catalog checks, the full
+K6 pipeline and workspace dependency/CI-metadata checks also pass; an
+independent audit approved the code, saved assets and measured results.
+The IBP-program binary-I/O gate is therefore complete. A broader audit found
+one remaining runtime persistence exception: the four small offline terminal-value
+catalogs stored canonical-expression strings. The generic native Atom/State
+value-only codec and exact conversion now pass all 1,155 value comparisons,
+66 persistence tests and fresh-process context checks. The pinned Vakint rollout
+and its numerical gates remain pending. Complete that rollout before enabling
+terminal normalization by default. An independently audited opt-in alias service
+and candidate-reducer integration are also implemented: 237 verified product
+equalities reduce the four-family output-key census from 1,155 to 918 without
+regenerating rules. Saved-program exact application diagnostics pass; downstream
+activation and full numerical validation are a separate gate.
+Keep the raw declared terminal/catalog contract unchanged while reporting
+canonical output representatives separately.
+No terminal aliases are enabled by default in the I/O rollout, and five-loop
+work remains deferred until this second priority is completed and validated.
 Audit Symbolica's public API
 before introducing any algebraic primitive. Keep all scratch evidence in local
 `TMP/`, use release measurements, and commit/push coherent validated milestones

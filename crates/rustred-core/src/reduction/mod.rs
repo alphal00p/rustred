@@ -9,6 +9,7 @@
 mod error;
 mod model;
 mod reducer;
+pub mod terminal_normalization;
 
 pub use error::ReductionError;
 pub use model::{
