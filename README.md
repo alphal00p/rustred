@@ -64,8 +64,14 @@ permutations, using native Symbolica graph canonicalization and exact replay.
 It reduces the same 1,155 keys to **179 family-local representatives**; all 976
 equalities pass independent exact catalog checks. Preparation takes 53–178 ms
 per family in the recorded release run, excluding loading. The 105
-numerator-bearing keys are retained unchanged. This new lane is not yet enabled
-in Vakint; its counts must not be attributed to the published routing rollout.
+numerator-bearing keys are retained unchanged. Vakint `71e01122b` now enables
+this lane, pinning RustRed `2b50267c`, and passes the same 83 lower-loop checks,
+31 four-loop comparisons and 54 benchmark comparisons. In a fresh matched
+routing-versus-parameter comparison, first H/X cubed-parent calls improve from
+7.18/31.27 s to 6.26/29.45 s; this is a modest incremental gain over routing,
+not the larger raw-versus-normalized core speedup. The
+[public benchmark](docs/research/vacuum_parametric_terminal_equivalence.md#vakint-activation-and-matched-public-benchmark)
+keeps first use, cached calls and FMFT comparisons distinct.
 
 The solver implementation follows the
 [executable SpIRed reference port](docs/spired_port.md): reproduce the actual

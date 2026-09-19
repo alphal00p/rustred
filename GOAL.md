@@ -90,13 +90,31 @@ in the recorded release run. This is not a minimum-master count or a closure
 claim. Fresh saved-program H/X dotted and pinch applications also pass exact
 coefficient-map, homogeneity and cache checks. The two dotted first applications
 improve from 11.47 to 4.07 s and 61.56 to 20.19 s; these core-only diagnostics
-are not public Vakint timings. Complete the separate Vakint activation gate
-before attributing downstream benefits to this new lane.
+are not public Vakint timings. The separate Vakint activation gate is now
+complete and pushed as `71e01122b`, pinning RustRed `2b50267c`: all 83 lower-loop
+checks, 31 four-loop comparisons, nine focused checks and three fixture checks
+pass, along with every numerical comparison in the matched nine-input benchmark.
+Against a fresh routing-enabled control, first H/X cubed-parent calls improve
+from 7.18/31.27 s to 6.26/29.45 s. This incremental gain is modest; first-use
+cubed parents remain slower than FMFT. No saved programs or catalogs changed.
 Keep the raw declared terminal/catalog contract unchanged while reporting
 canonical output representatives separately.
-Core aliases remain explicitly opt-in; the separate Vakint production loader
-now opts into the verified routing plan. Five-loop work remains deferred until
-this second priority is completed and validated.
+Core aliases remain explicitly opt-in; the Vakint production loader now opts
+into the verified parameter-equivalence plan. A bounded direct finite-terminal
+IBP diagnostic follows, with no production behavior change: radius-zero
+ordinary rows at the 179 representatives supply no terminal-only relations,
+even after independently proved zero-sector simplifications. A bounded FG
+radius-one extension also finishes with no terminal relations, after exact
+regenerated-source replay. Before increasing search depth, test the existing
+exact parameter equivalence on generated auxiliary columns as well as declared
+terminals. Preserve the original terminal classes when forming this quotient.
+Do not confuse a miss in these source pools with master independence or a
+closure failure. The [finite-source study](docs/research/finite_terminal_relations.md)
+records the scope and completed measurements. Five-loop work remains deferred
+while this terminal-reduction follow-up is assessed. Profile actual application
+work and measure native Symbolica factorized-denominator arithmetic before
+considering a coefficient-storage change; do not implement another CAS or a
+replacement rule applier.
 Audit Symbolica's public API
 before introducing any algebraic primitive. Keep all scratch evidence in local
 `TMP/`, use release measurements, and commit/push coherent validated milestones

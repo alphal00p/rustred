@@ -1,8 +1,9 @@
 # Exact parametric equivalence of vacuum terminals
 
 Status: focused release validation and saved four-loop measurements passed,
-19 September 2026. The new factory is opt-in and is **not enabled by default or
-in Vakint**. The existing
+19 September 2026. The core factory remains opt-in. Vakint's four-loop loader
+now explicitly selects it in published revision `71e01122b`, pinning RustRed
+`2b50267c`; its separate acceptance and benchmark gate is recorded below. The existing
 momentum-routing terminal aliases and their four-loop measurements remain a
 separate workstream. No new closure, master-minimality, or high-loop scaling
 claim is made by this note; the scoped four-loop measurements are reported below.
@@ -271,9 +272,67 @@ shared-host, single-pair release diagnostics on CPUs 74–79 with nested pools
 limited to one, not six-worker IBP-generation timings or confidence bounds.
 The previous routing measurements used different CPUs; no controlled speed
 ratio against them is claimed. Whole-process resource peaks can include
-untimed validation work. Defaults and Vakint activation remain unchanged.
+untimed validation work. Core defaults are unchanged. These isolated measurements
+preceded the separate Vakint activation below.
 
 Commands, exact outputs, repeat values, independent audit and a checked
 13-entry source/binary/input/catalog/script hash manifest are retained in
 `TMP/terminal-parametric-census.ooS5Jl/`. The measurement executable SHA-256 is
 `ec965e9551e7c9a5de2283ab366f9e2157bf635b6f3ddfcd452b6599425336c7`.
+
+## Vakint activation and matched public benchmark
+
+GammaLoop `vakint_rustred` revision `71e01122b467870d351354e4809ed3fac158ef16`
+pins both RustRed dependencies to `2b50267c5b1df10e4cd2798d7863d3f8c1b47383`.
+Its explicit alias constructor now selects the parameter-equivalence factory
+with default preparation bounds. The plain constructor, public evaluation
+options, default backend order and FORM-backed modes remain unchanged. All
+proof construction and coefficient accumulation stay in RustRed. No saved
+programs, catalogs or expected numerical values changed.
+
+An independent agent ran every one of the 15 original reference comparisons
+and 16 expanded-numerator/pinch comparisons with forbidden FORM paths in the
+FeynKit/RustRed lane; all pass. The unchanged 83-test through-three-loop
+selection, nine focused constructor/catalog/loader checks and three fixture
+checks also pass. The two four-loop correctness processes take 22.56/46.90 s,
+including the separate FMFT oracle; these are not scalar-only timings. The
+runtime revision and both benchmark executables were independently checked.
+
+A fresh matched public benchmark uses the previous **routing-enabled** runtime
+as its control. Each process evaluates the same nine scalar inputs through
+both backends, with one initial pair and five alternating repeat pairs:
+108 timed calls and 54 passing numerical comparisons per process. Timers
+include scalar application, lazy loading/preparation on first parent use,
+master substitution and public dispatch. Tensor preparation and final
+numerical comparison lie outside each scalar timer. Later inputs may reuse
+subproblems, so their initial calls are not fresh-parent measurements.
+
+| Observation | Routing plan | Parameter plan | FMFT with parameter-plan run |
+| --- | ---: | ---: | ---: |
+| H, cubed first propagator, first call (s) | 7.177 | 6.263 | 1.485 |
+| X, cubed first propagator, first call (s) | 31.272 | 29.450 | 5.052 |
+| H, same input, warm median (ms) | 90.211 | 82.422 | 1476.941 |
+| X, same input, warm median (ms) | 125.005 | 116.638 | 4798.671 |
+
+These are much smaller incremental gains than the earlier raw-versus-normalized
+core comparisons. First-use cubed-parent calls remain slower than FMFT; warm
+RustRed calls are faster on the nine tested inputs. FG's expanded-D7 repeated
+cost is effectively unchanged. A smaller terminal count does not imply a
+proportional end-to-end speedup: loading, recursion and coefficient arithmetic
+remain, and cache hits are not a forecast for unseen points.
+
+Whole two-backend harness time is **98.78 → 95.83 s**, user plus system CPU
+**94.32 + 3.81 → 91.82 + 3.40 s**, and peak RSS
+**2,215,440 → 2,161,216 KiB**. These totals include both backends, initialization
+and untimed comparisons, not only RustRed. Affinity is 88–93, one scalar caller
+and nested pools capped at one. These are shared-host release diagnostics;
+other compilation/validation used disjoint cores. They are not confidence
+bounds or a claim of uniform speedup. Compilation and dependency fetches are
+excluded from every reported timer.
+
+All nine rows, the unchanged public reproduction command and the complete
+boundary are documented in Vakint's `data/rustred/four_loop/README.md`.
+Raw observations, frozen executable hashes, commands and independent audits
+are retained in `TMP/gamma-terminal-u-rollout.oFoQwr/`. This publication does
+not promote the four-loop candidates to independently certified artifacts or
+assert a minimal terminal basis.

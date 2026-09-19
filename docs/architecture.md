@@ -31,8 +31,10 @@ Symbolica graph canonicalization proposes a permutation; exact polynomial and
 variable-context replay proves it. `TerminalAliasWitness` distinguishes these
 sealed parameter-integral proofs from momentum maps. Neither kind creates a
 new terminal or claims master independence. The parameter lane's core tests
-and saved-program census/application checks are validated; its downstream activation is separate
-from the published routing rollout below.
+and saved-program census/application checks are validated. Vakint `71e01122b`
+now explicitly selects this parameter lane, pinning RustRed `2b50267c`, with
+all 83 lower-loop checks and 31 four-loop comparisons passing. This supersedes
+the earlier routing-only selection described below, not its reusable core API.
 `persistence::ExactTerminalCatalog` provides the same native Atom/State strategy
 for exact offline values attached to typed integral keys. Its distinct payload
 kind carries no IBP authority; downstream consumers still verify their declared
