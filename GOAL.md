@@ -6,7 +6,20 @@
 > [September 18 checkpoint](docs/checkpoints/2026-09-18.md) records the starting
 > state, including the unresolved FG numerator/pinch oracle mismatch.
 > [September 19 progress](docs/checkpoints/2026-09-19.md) records the corrected
-> FMFT routing, offline catalog revalidation and saved-program loading gates.
+> FMFT routing, offline catalog revalidation, saved-program loading gates,
+> and successful public-backend 15-reference/16-pinch numerical matrices.
+> GammaLoop milestone `0d7d75f33` is pushed to `vakint_rustred`.
+
+**Terminal investigation:** before interpreting terminal counts as master
+counts, audit equivalences between routed integrals, factorized products and
+remaining fixed-index IBP relations. Consult the user's local `EPSILON.md`.
+Keep literal keys, canonical integral representatives and the final evaluation
+basis distinct. Investigate first; do not replace fully massive bubbles by
+an unjustified epsilon-shifted propagator. This diagnostic complements the
+four-loop delivery and subsequent five-loop performance work.
+The [completed investigation](docs/research/four_loop_terminal_deduplication.md)
+finds 1,155 local keys, 26 exact projection vectors and 19 FMFT basis symbols;
+no new terminal-minimization code is implied by that result.
 
 ## Immediate delivery gate — four-loop numerical acceptance
 
