@@ -336,3 +336,52 @@ Raw observations, frozen executable hashes, commands and independent audits
 are retained in `TMP/gamma-terminal-u-rollout.oFoQwr/`. This publication does
 not promote the four-loop candidates to independently certified artifacts or
 assert a minimal terminal basis.
+
+## First-use application profile
+
+A separate read-only profile uses the same frozen release public executable
+and U-normalized assets. All nine inputs and 54 numerical comparisons pass.
+The first X cubed-parent call takes 29.332 s (the preceding unprofiled run took
+29.450 s). These are single shared-host observations, not a profiler-overhead
+estimate or a new speedup measurement.
+
+The 99 Hz user-CPU recording contains 7,971 samples: 3,992 in the benchmark
+process and 3,979 in separate FORM oracle processes. The analysis explicitly
+excludes the latter. Its main window starts five seconds after the X request
+and ends one second before the estimated RustRed return, retaining 2,012
+parent-process samples. Existing output plus an external monotonic-clock
+observer supplies approximate boundaries; the timing line itself appears only
+after the FMFT call, so treating that receipt as RustRed's return would be wrong.
+No samples were lost. This is a flat profile without caller stacks.
+
+| Disjoint symbol-name group | X-interior samples | Fraction |
+| --- | ---: | ---: |
+| Integer/polynomial GCD names and helpers | 220 | 10.93% |
+| Division/remainder/degree helpers | 278 | 13.82% |
+| Polynomial content | 33 | 1.64% |
+| Direct libc allocation/free/copy/set names | 307 | 15.26% |
+| RustRed coefficient validation | 65 | 3.23% |
+| RustRed indexed specialization | 82 | 4.08% |
+
+These are exclusive symbol-name groups, not an exhaustive partition or
+inclusive caller costs. Allocation may originate in arithmetic or traversal;
+inlined work cannot be cleanly separated. No single self symbol dominates.
+Decoding/inflation/graph-canonicalization names occur in the early window but
+not this interior, supporting an application-dominated interpretation without
+measuring an exact loading boundary.
+
+The active coefficient type remains native Symbolica
+`RationalPolynomial<IntegerRing, u16>`, with expanded numerator and denominator.
+Symbolica also provides `FactorizedRationalPolynomial`, retaining denominator
+factors but still expanding the numerator. The distributed arithmetic costs
+justify a controlled experiment with that native representation, not a promised
+speedup. A real coefficient-combine replay must include initial factorization,
+output materialization, exact parity and memory measurements. It must not
+replace the rule applier, weaken original denominator guards or introduce a
+custom algebra kernel. Isolated-frame savings would not by themselves measure
+a persistent factorized cache across the complete reduction DAG.
+
+The frozen executable, collection/filter commands, exact symbol-bin membership,
+raw sampling data, complete numerical output and independent audit are in
+`TMP/vakint-u-application-profile.gxZUy1/`. The profile does not alter any
+generation or certification result.

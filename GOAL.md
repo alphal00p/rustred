@@ -105,16 +105,23 @@ IBP diagnostic follows, with no production behavior change: radius-zero
 ordinary rows at the 179 representatives supply no terminal-only relations,
 even after independently proved zero-sector simplifications. A bounded FG
 radius-one extension also finishes with no terminal relations, after exact
-regenerated-source replay. Before increasing search depth, test the existing
-exact parameter equivalence on generated auxiliary columns as well as declared
-terminals. Preserve the original terminal classes when forming this quotient.
-Do not confuse a miss in these source pools with master independence or a
-closure failure. The [finite-source study](docs/research/finite_terminal_relations.md)
-records the scope and completed measurements. Five-loop work remains deferred
-while this terminal-reduction follow-up is assessed. Profile actual application
-work and measure native Symbolica factorized-denominator arithmetic before
+regenerated-source replay. Extending exact parameter equivalence to generated
+auxiliary columns then finds nine positive dotted-terminal identities in the
+original radius-zero source pools. All pass original-source replay, exact
+post-hoc catalog checks and deterministic repeats. They could reduce 179
+representatives to 170; they are not installed, and some replace one term by
+several. All 105 numerator keys remain. The independent audit recommends
+deferring a weighted-terminal production service until application measurements
+justify its added complexity, rather than pursuing a minimal basis.
+The [finite-source study](docs/research/finite_terminal_relations.md) records
+the completed scope and measurements. The binary-I/O and exact unit-weight
+terminal-normalization delivery gates are complete at the published revisions
+above; these do not imply candidate certification. Finish the bounded native
+Symbolica factorized-denominator application experiment before resuming the
+five-loop studies. Measure conversion, arithmetic, output and memory before
 considering a coefficient-storage change; do not implement another CAS or a
-replacement rule applier.
+replacement rule applier. Keep the proved finite identities for a later
+weighted-application experiment, not as an unmeasured production speedup.
 Audit Symbolica's public API
 before introducing any algebraic primitive. Keep all scratch evidence in local
 `TMP/`, use release measurements, and commit/push coherent validated milestones

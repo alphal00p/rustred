@@ -103,7 +103,7 @@ and two-million-L/U-nonzero bounds. These bounds govern this scratch diagnostic,
 not the uncapped C++ comparison or a general per-operation memory guarantee.
 No larger-radius campaign is implied by this result.
 
-## Interpretation and next bounded check
+## Generated-column equivalence: nine exact identities
 
 These misses do **not** establish master independence or show that a generated
 parametric rule is wrong. New sources or other exact integral equalities can
@@ -112,18 +112,74 @@ terminal keys. Newly generated positive-power auxiliary keys have not yet been
 quotiented by parameter equivalence, so equivalent auxiliary integrals can
 remain distinct columns.
 
-The next small test applies the existing exact parameter-equivalence service
-to the union of generated FG radius-zero columns and original terminals before
-elimination. A quotient class containing an original terminal must remain a
-terminal class even if its least representative happens to be a newly generated
-auxiliary key. Retain the exact binding to an original terminal; do not invent
-new masters or silently discard the requested terminal subspace. This test is
-separate from a deeper source search and must pass the same source replay.
+The next completed test applies the existing exact parameter-equivalence service
+to the union of generated radius-zero columns and original terminals before
+elimination, starting with FG and then repeating the same method on all parents.
+A quotient class containing an original terminal remains a terminal class even
+if its least representative is a newly generated auxiliary key. Exact bindings
+back to original terminals preserve the requested subspace: this occurs for
+3/0/2/3 classes in H/FG/BMW/X. No new masters are introduced.
+
+This change finds nine identities without adding any IBP seed:
+
+| Parent | Ordinary rows | Terminal identities | Potential representatives after these identities | Union preparation | Exact GPLU | Exact replay | Process wall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| H | 832 | 3 | 49 | 120 ms | 30 ms | 123 ms | 1.88 s |
+| FG | 416 | 1 | 25 | 54 ms | 16 ms | 48 ms | 0.85 s |
+| BMW | 592 | 2 | 35 | 68 ms | 26 ms | 87 ms | 1.29 s |
+| X | 1,024 | 3 | 61 | 138 ms | 49 ms | 223 ms | 3.38 s |
+
+For example, the independently discovered FG relation is
+
+```text
+I(0,2,1,0,1,0,1,1,0,0) = (2*d - 5)/5 * I(0,1,1,0,1,0,1,1,0,0).
+```
+
+There is a useful interpretation of this particular result. For unit-mass
+denominators `q_i^2 - 1`, the sum of diagonal momentum IBPs gives
+`sum_i a_i I(a+e_i) = (L*d/2 - sum_i a_i) I(a)`. For this symmetric five-line
+four-loop sector, exact parameter equivalence identifies the five singly
+dotted integrals, leaving `5 I_dot = (2*d-5) I_base`. The generated source
+replay, not this interpretation, is the recorded proof. At a general common
+mass the coefficient becomes `(2*d-5)/(5*m²)`: unlike unit-weight aliases,
+these relations change the terminal's total power and need the existing
+homogeneity convention to be applied correctly.
+
+FG's generated key union has 979 keys, merged into 702 classes by 277 exact
+parameter aliases. After zero pruning the matrix has 648 auxiliary and 26
+terminal columns. Its exact rank is 375: 374 auxiliary pivots and one terminal
+pivot. The original-source replay and invertible-L proof apply to the same
+verified quotient, not to an approximation or sampled graph identity.
+
+All nine relations pass strict terminal descent and exact source replay.
+Only afterward, the separate catalog checker substitutes the actual dimension
+symbol by `4-2*ep` using the catalog's imported epsilon namespace, then verifies
+each full identity with native Symbolica arithmetic. All nine checks pass.
+For the FG example, the catalog independently supplies `PR4` for the undotted
+key and `(3-4*ep)/5 * PR4` for the dotted key, agreeing exactly. These values
+were not used to construct or choose the relation.
+
+A fresh process repeats each parent and reproduces byte-identical sources,
+column bindings, A/L/U evidence, parameter/zero witnesses and identities.
+The independent audit approves the mathematical quotient, replay, catalog
+comparison and interpretation. These finite identities remain generic over
+`Q(d)`, not a certification of the saved parametric programs.
+
+## Delivery decision
+
+The nine identities reduce only positive dotted representatives. All 105
+numerator-bearing keys remain. The potential total is **170**, whereas the
+currently shipped runtime still returns up to **179** family-local
+representatives. Some identities replace one terminal by two or three others;
+a smaller label count need not reduce arithmetic or cache memory.
 
 A finite nonminimal basis remains acceptable. A production weighted-terminal
-expansion service is deferred until a bounded experiment actually finds useful
-relations at an acceptable cost. The existing exact unit-weight normalization
-and all four-loop numerical acceptance results remain valid independently.
+expansion service is therefore deferred pending a measured application benefit,
+as recommended by the independent audit. The proved corpus is retained for a
+future isolated weighted-application experiment. No larger-radius search or
+minimum-master proof is required for the already-shipped unit-weight
+normalization milestone. Its 976 exact aliases and all four-loop numerical
+acceptance results remain valid independently.
 
 ## Reproducibility
 
@@ -137,6 +193,8 @@ proof logs, resource measurements and audits are retained locally in:
 
 - `TMP/terminal-finite-relations.smcJg7/` (radius zero);
 - `TMP/terminal-finite-zero.M7UXVf/` (radius zero plus proved zeros);
-- `TMP/terminal-finite-radius1.MfBs8n/` (FG radius one).
+- `TMP/terminal-finite-radius1.MfBs8n/` (FG radius one);
+- `TMP/terminal-finite-union.U3tMEn/` (all-parent radius zero with generated-column
+  equivalence, post-hoc catalog checks and deterministic repeats).
 
 These reference/evidence directories are not distributed as RustRed source.
