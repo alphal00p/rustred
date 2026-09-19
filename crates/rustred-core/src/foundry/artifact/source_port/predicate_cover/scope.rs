@@ -3,6 +3,56 @@
 use super::*;
 use crate::foundry::completion::UncoveredPartition;
 
+/// Smallest coordinate box containing `cell ∩ degree`. This remains an
+/// overapproximation of the sum constraint: it may prove emptiness through
+/// existing exact affine checks, but never grants ownership of the whole box.
+/// Every coordinate maximum is obtained by fixing all other counted axes at
+/// their lower endpoints. Positive axes are not counted by numerator-only
+/// bounds and retain genuine infinite endpoints.
+pub(super) fn degree_hull(
+    sector: &[bool],
+    cell: &LatticeBox,
+    degree: EntryDegreeBound,
+) -> Result<Option<LatticeBox>, PredicateCoverError> {
+    if sector.len() != cell.arity() {
+        return Err(PredicateCoverError::InvalidDomain("degree hull arity"));
+    }
+    let counted =
+        |active: bool| matches!(degree, EntryDegreeBound::MaxTotalExcessDegree(_)) || !active;
+    let minimum = sector
+        .iter()
+        .zip(cell.lower())
+        .try_fold(0_u128, |sum, (&active, &lower)| {
+            sum.checked_add(if counted(active) {
+                u128::from(lower)
+            } else {
+                0
+            })
+            .ok_or(PredicateCoverError::Budget("degree hull arithmetic"))
+        })?;
+    let limit = u128::from(degree.limit());
+    if minimum > limit {
+        return Ok(None);
+    }
+    let upper =
+        sector
+            .iter()
+            .zip(cell.lower())
+            .zip(cell.upper())
+            .map(|((&active, &lower), &upper)| {
+                if !counted(active) {
+                    return upper;
+                }
+                // minimum >= lower and minimum <= limit, so this subtraction
+                // is nonnegative and bounded by the original u64 degree limit.
+                let cap = (limit - (minimum - u128::from(lower))) as u64;
+                Some(upper.map_or(cap, |end| end.min(cap)))
+            });
+    LatticeBox::try_new(cell.lower().iter().copied(), upper)
+        .map(Some)
+        .map_err(geometry)
+}
+
 pub(super) fn prepare_required(
     arity: usize,
     boxes: &[LatticeBox],
@@ -45,16 +95,20 @@ pub(super) struct GeometryWork {
 }
 
 impl GeometryWork {
-    /// Charge every monotone-degree probe before examining its coordinates.
-    /// The same ledger also pays for box subtraction across Boolean branches.
+    /// Charge minimum-degree evaluation and both coordinate vectors before
+    /// creating the tightened hull. The same ledger also pays for subtraction
+    /// across Boolean branches; it is never reset for an individual box.
     pub(super) fn charge_degree_probe(
         &mut self,
         arity: usize,
         limits: CompletionGeometryLimits,
     ) -> Result<(), PredicateCoverError> {
+        let coordinate_work = arity
+            .checked_mul(3)
+            .ok_or(PredicateCoverError::Budget("degree coverage work"))?;
         let next = self
             .splits
-            .checked_add(arity)
+            .checked_add(coordinate_work)
             .ok_or(PredicateCoverError::Budget("degree coverage work"))?;
         if next > limits.max_split_operations {
             return Err(PredicateCoverError::Budget("degree coverage work"));

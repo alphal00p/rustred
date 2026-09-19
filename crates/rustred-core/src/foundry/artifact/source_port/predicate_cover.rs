@@ -496,16 +496,18 @@ fn check_valuations(
     }
     let mut possible = Vec::new();
     for piece in complement.boxes() {
-        if let Some(degree) = work.required_degree {
+        let tightened;
+        let feasibility_box = if let Some(degree) = work.required_degree {
             work.scoped_geometry
                 .charge_degree_probe(sector.len(), limits.geometry)?;
-            if !degree
-                .intersects_local_box(sector, piece)
-                .map_err(|issue| PredicateCoverError::Geometry(issue.to_string()))?
-            {
+            let Some(hull) = scope::degree_hull(sector, piece, degree)? else {
                 continue;
-            }
-        }
+            };
+            tightened = hull;
+            &tightened
+        } else {
+            piece
+        };
         if constraints.iter().any(|constraint| {
             // All equalities AND the fixed face must hold before the
             // authenticated domain's emptiness service applies. An equation
@@ -514,8 +516,8 @@ fn check_valuations(
                 .atoms
                 .iter()
                 .all(|&atom| assignments[atom] == Some(true))
-                && contains_box(&constraint.face, piece)
-                && constraint.domain.is_proved_empty_in_box(piece)
+                && contains_box(&constraint.face, feasibility_box)
+                && constraint.domain.is_proved_empty_in_box(feasibility_box)
         }) {
             continue;
         }
@@ -524,7 +526,7 @@ fn check_valuations(
         // waiting for a leaf needlessly repeats identical exact work.
         if !work
             .consistency
-            .contradicts(piece, assignments)
+            .contradicts(feasibility_box, assignments)
             .map_err(|_| PredicateCoverError::Budget("native affine literal consistency"))?
         {
             possible.push(piece);

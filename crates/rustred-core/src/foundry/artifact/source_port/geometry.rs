@@ -521,6 +521,32 @@ fn coefficient_vanishes(
     coefficient_vanishes_in_affine_domain(coefficient, cell, sector, indices, limits, None)
 }
 
+/// Reuse exact restriction for a retained rule's potential successor escape.
+/// Source replay and guard admission precede this query. A false result is
+/// inconclusive; it cannot authorize omitting the contribution.
+pub(super) fn checked_coefficient_vanishes(
+    coefficient: &Coefficient,
+    cell: &LatticeBox,
+    sector: &[bool],
+    indices: &[usize],
+    limits: CompletionGeometryLimits,
+    affine: Option<&AffineApplicationDomain>,
+) -> Result<bool, SourcePortAuditError> {
+    validate_affine_coefficient_domain(affine, coefficient, sector, indices.iter().copied())?;
+    let restricted;
+    let coefficient = if let Some(domain) = affine {
+        restricted = domain
+            .prepare_restriction()
+            .map_err(error)?
+            .restrict_coefficient(coefficient)
+            .map_err(error)?;
+        &restricted
+    } else {
+        coefficient
+    };
+    coefficient_vanishes_in_affine_domain(coefficient, cell, sector, indices, limits, affine)
+}
+
 fn coefficient_vanishes_in_affine_domain(
     coefficient: &Coefficient,
     cell: &LatticeBox,

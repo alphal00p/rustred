@@ -316,7 +316,7 @@ impl SuccessorScopeBudget {
     }
 }
 
-fn partition_count(
+pub(in crate::foundry::artifact::source_port) fn partition_count(
     source: &LatticeBox,
     sector: &[bool],
     shifts: &[i64],

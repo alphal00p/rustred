@@ -20,6 +20,8 @@ pub use progress::SourcePortInstallEvent;
 mod replay;
 mod rule_replay;
 pub use rule_replay::{SourcePortReplayedRule, SourcePortRuleReplayAudit};
+mod total_excess;
+pub use total_excess::SourcePortTotalExcessAudit;
 pub(in crate::foundry::artifact) mod scope;
 pub(crate) use program::lower::ReplayedOriginalDomain;
 #[cfg(test)]
@@ -153,6 +155,25 @@ impl SourcePortAuditError {
 
 fn error(value: impl fmt::Display) -> SourcePortAuditError {
     SourcePortAuditError::message(value.to_string())
+}
+
+fn sector_ordering<const N: usize>(
+    sector: [bool; N],
+    permutation: Option<[usize; N]>,
+) -> Result<OrderingPolicy, SourcePortAuditError> {
+    let Some(slots) = permutation else {
+        return Ok(OrderingPolicy::SpiredUncutV1);
+    };
+    crate::solver::IntegralOrder::new(sector, [false; N])
+        .with_permutation(slots)
+        .map_err(error)?;
+    let mut ranks = [0; N];
+    for (rank, slot) in slots.into_iter().enumerate() {
+        ranks[slot] = rank;
+    }
+    let priority = CoordinatePriority::try_new(N, &ranks, CoordinatePriorityLimits::default())
+        .map_err(error)?;
+    OrderingPolicy::try_spired_with_coordinate_priority(&priority).map_err(error)
 }
 
 /// One non-authoritative exact rule/coverage report. The optional degree
@@ -384,23 +405,7 @@ impl<const N: usize> SourcePortAudit<N> {
         if self.zero_sectors.contains(&sector) {
             return Err(error("a solved sector was also declared zero"));
         }
-        let ordering = match permutation {
-            None => OrderingPolicy::SpiredUncutV1,
-            Some(slots) => {
-                // Validate the source-port permutation before indexing ranks.
-                crate::solver::IntegralOrder::new(sector, [false; N])
-                    .with_permutation(slots)
-                    .map_err(error)?;
-                let mut ranks = [0; N];
-                for (rank, slot) in slots.into_iter().enumerate() {
-                    ranks[slot] = rank;
-                }
-                let priority =
-                    CoordinatePriority::try_new(N, &ranks, CoordinatePriorityLimits::default())
-                        .map_err(error)?;
-                OrderingPolicy::try_spired_with_coordinate_priority(&priority).map_err(error)?
-            }
-        };
+        let ordering = sector_ordering(sector, permutation)?;
         let config = SectorConfig {
             permutation,
             zero_sectors: self.zero_sectors.clone(),

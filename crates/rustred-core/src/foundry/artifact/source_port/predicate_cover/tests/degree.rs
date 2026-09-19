@@ -95,20 +95,17 @@ fn degree_cover_retains_affine_exceptions() {
         Default::default(),
     )
     .unwrap();
-    // At degree one the exact diagonal has only the already owned origin,
-    // but a Boolean branch's rectangular hull can still contain (1,1).
-    // Minimum-degree pruning alone need not prove that coupled infeasibility.
-    // Preserve the conservative failure rather than erase the affine guard.
-    assert!(matches!(
-        certify_predicate_cover_up_to_degree(
-            &[false; 2],
-            &owners,
-            &terminal,
-            EntryDegreeBound::MaxTotalExcessDegree(1),
-            Default::default(),
-        ),
-        Err(PredicateCoverError::Uncovered { .. })
-    ));
+    // At degree one, x >= 1 forces y = 0 (and conversely). Tightening the
+    // remaining boxes by the exact sum bound lets the native affine service
+    // disprove the diagonal, without erasing it or enumerating simplex points.
+    certify_predicate_cover_up_to_degree(
+        &[false; 2],
+        &owners,
+        &terminal,
+        EntryDegreeBound::MaxTotalExcessDegree(1),
+        Default::default(),
+    )
+    .unwrap();
     assert!(matches!(
         certify_predicate_cover_up_to_degree(
             &[false; 2],
@@ -195,4 +192,98 @@ fn degree_cover_matches_exhaustive_small_integer_domain() {
             }
         }
     }
+}
+
+#[test]
+fn degree_hull_matches_exact_coordinate_extrema_on_small_boxes() {
+    for sector in [[false, false], [false, true], [true, false], [true, true]] {
+        for lower_x in 0..=2 {
+            for lower_y in 0..=2 {
+                for upper_x in lower_x..=3 {
+                    for upper_y in lower_y..=3 {
+                        let cell =
+                            LatticeBox::try_new([lower_x, lower_y], [Some(upper_x), Some(upper_y)])
+                                .unwrap();
+                        for limit in 0..=4 {
+                            for degree in [
+                                EntryDegreeBound::MaxTotalExcessDegree(limit),
+                                EntryDegreeBound::MaxNegativeIndexDegree(limit),
+                            ] {
+                                let mut points = Vec::new();
+                                for x in lower_x..=upper_x {
+                                    for y in lower_y..=upper_y {
+                                        let cost: u64 = [x, y]
+                                            .into_iter()
+                                            .zip(sector)
+                                            .filter(|(_, active)| {
+                                                !*active
+                                                    || matches!(
+                                                        degree,
+                                                        EntryDegreeBound::MaxTotalExcessDegree(_)
+                                                    )
+                                            })
+                                            .map(|(value, _)| value)
+                                            .sum();
+                                        if cost <= limit {
+                                            points.push([x, y]);
+                                        }
+                                    }
+                                }
+                                let actual = scope::degree_hull(&sector, &cell, degree).unwrap();
+                                assert_eq!(actual.is_none(), points.is_empty());
+                                if let Some(actual) = actual {
+                                    for axis in 0..2 {
+                                        assert_eq!(
+                                            actual.lower()[axis],
+                                            points.iter().map(|p| p[axis]).min().unwrap()
+                                        );
+                                        assert_eq!(
+                                            actual.upper()[axis],
+                                            points.iter().map(|p| p[axis]).max()
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn degree_hull_retains_uncounted_infinite_axes_and_handles_extreme_endpoints() {
+    let cell = LatticeBox::try_new([u64::MAX, 3], [None, None]).unwrap();
+    let hull = scope::degree_hull(
+        &[true, false],
+        &cell,
+        EntryDegreeBound::MaxNegativeIndexDegree(3),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(hull.lower(), &[u64::MAX, 3]);
+    assert_eq!(hull.upper(), &[None, Some(3)]);
+    assert!(
+        scope::degree_hull(
+            &[true, false],
+            &cell,
+            EntryDegreeBound::MaxTotalExcessDegree(u64::MAX),
+        )
+        .unwrap()
+        .is_none()
+    );
+    let cell = LatticeBox::try_new([u64::MAX, 0], [None, None]).unwrap();
+    let hull = scope::degree_hull(
+        &[true; 2],
+        &cell,
+        EntryDegreeBound::MaxTotalExcessDegree(u64::MAX),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(hull.upper(), &[Some(u64::MAX), Some(0)]);
+    assert!(matches!(
+        scope::degree_hull(&[false], &cell, EntryDegreeBound::MaxTotalExcessDegree(0),),
+        Err(PredicateCoverError::InvalidDomain(_))
+    ));
 }

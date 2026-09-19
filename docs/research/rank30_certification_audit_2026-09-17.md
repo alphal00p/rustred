@@ -21,12 +21,17 @@ share the existing cumulative geometry-work allowance. Numerator-only geometry
 retains genuinely unbounded positive powers; it is not silently converted into
 a total-power bound.
 
-The checker is conservative for coupled affine predicates intersected with the
-sum-bound. For example, the diagonal `x=y` inside `x+y<=1` contains only the
-origin, but a remaining rectangular hull can also contain `(1,1)`. The current
-minimum-degree filter need not discharge that infeasible Boolean branch. It
-must report an unresolved cover, not discard the diagonal or claim a complete
-general affine/simplex feasibility solver.
+The checker remains conservative for coupled affine predicates intersected
+with the sum-bound. A follow-up tightens each remaining box before the existing
+native affine checks: for counted axis `i`, its upper endpoint is at most
+`D - sum(lower_j, j != i)`. This is the exact coordinate hull of the
+box/simplex intersection, not a replacement for that intersection as an owner.
+It resolves the small diagonal example `x=y`, `x+y<=1` with an explicitly owned
+origin: `x>=1` forces `y=0`, and conversely. No new polynomial arithmetic,
+sampling, or general affine/simplex feasibility solver is introduced. The
+same cumulative geometry allowance pays for the extra coordinate work, and
+unresolved affine feasibility still fails closed. Numerator-only bounds leave
+positive axes uncapped.
 
 An internal, immutable `EntryScope` binds the family, root sector and exact
 degree convention. A proposed rectangular proof envelope composes the existing
@@ -34,6 +39,33 @@ successor-cover owner, proves entry containment by the same complement-minimum
 test, and checks source/RHS images using one cumulative budget. It is not an
 artifact certificate or a new CAS. This contract is a reusable boundary;
 full bounded installation, persistence and runtime admission are still pending.
+
+### Complete-program successor-envelope diagnostic
+
+`SourcePortAudit::audit_complete_through_total_excess(&family, sectors, D)`
+now consumes the same solved-sector tuples as the existing installer, but
+returns an immutable `SourcePortTotalExcessAudit`, not a `ClosedArtifact`.
+It validates the complete nonzero sector census beneath the root, checks the
+family and common ordering, then processes sectors from harder to easier using
+the persisted ordering's sector-corner keys. Every entry sector initially
+receives bound `D`.
+
+Each sector undergoes unchanged full original-source replay, guard checks and
+uniform strict descent, with coverage requested through its propagated degree.
+Only retained checked rules contribute edges. Their physical index shifts are
+partitioned at sign changes; independently proved zero sectors and exact empty
+or zero-coefficient branches may be removed. Same-sector descent cannot
+increase total excess. A strictly lower-sector edge propagates the bound
+derived below. An unexplained nonlower or out-of-root edge fails closed.
+The report exposes both `max_entry_total_excess_degree()` and the complete
+`successor_degrees()` map, so descendants are never silently subjected to the
+entry cap. Input mask iteration order is not used as the reduction order.
+
+One cumulative structural allowance covers the census and sign partitions.
+Existing native algebra limits remain per proof query; this is not a global
+Symbolica scratch-memory bound. Affine predicates are preserved and may still
+cause a conservative failure. No installer accepts this diagnostic as an
+artifact, and no persistence or runtime scope check is bypassed.
 
 ### Why entry bounds and descendant bounds must differ
 
@@ -70,7 +102,7 @@ Independent counterexamples and integration audit are retained in
 `TMP/bounded_certificate_math_audit_2026-09-19.md`. No four-loop bounded
 artifact is claimed at this checkpoint.
 
-The focused release gate passes **306 tests**, with five pre-existing ignored
+The preceding focused release gate passed **306 tests**, with five pre-existing ignored
 workloads. This includes ten entry/envelope contract tests, five degree-cover
 tests (one exhaustively compares all 512 subsets of a 3x3 grid at three bounds),
 and two source-port integration regressions. The first run had one overstrong
@@ -82,6 +114,50 @@ The subsequent full release core suite also passes: **2,187 passed, 31 ignored,
 zero failed** in 56.37 s (compilation excluded). Its record is
 `TMP/bounded-scope-full-core-tests.log`. This is a regression gate, not a
 four-loop artifact certification run.
+
+### Measured FG214 follow-up and regression gate
+
+The saved four-loop FG sector `0110101100` (mask 214) now passes the actual
+selected-sector exact audit through **total excess 30** with unchanged default
+proof limits. All 161 rules replay from original IBP sources and uniformly
+descend; stored and checked predicate covers both leave zero uncovered and
+zero unbounded boxes, with no issues and 11 explicit terminal declarations.
+All 43,582 saved `SeedSource` entries were retained. The resulting replay
+report counts 11,217 nonzero original-source contributions; these are different
+censuses, not contradictory source counts.
+
+The release, single-worker CPU-83 run completed in **74.837 s** for the audit
+call and **75.15 s** for the whole process, using 74.40 s user plus 0.11 s system
+CPU and 101,376 KiB peak RSS. The audit timer includes exact replay, descent
+and both coverage checks; loading, the zero-sector census and owner setup are
+outside it. No candidate search, rule regeneration or proof-budget increase
+occurred. The 300-second external limit and 32-GiB virtual-address-space cap
+were not reached. This is one completed observation, not a timing distribution.
+
+The earlier cheap probe independently passed stored-guard coverage in 0.709 s
+(1.11 s whole process), but deliberately removed source traces and proved no
+identities. It remains separate evidence, not part of the exact proof result.
+Evidence and reproducible clients are in `TMP/fg214-degree-cover.52OJcp/` and
+`TMP/fg214-original-audit.wUmO3W/`, with native input/library hashes and the
+unchanged production codec used to read the saved candidate solution.
+
+**This is not a complete FG-parent artifact.** It does not check the complete
+parent census under propagated successor degrees, lower the rules into runtime
+cells, persist the scope, cold-replay a bounded owner, or test runtime entry
+admission. Those are the next gates. In particular, degree 30 here is a
+selected-sector coverage bound, not a claim that all its descendants have
+degree at most 30.
+
+The new complete-program diagnostic is exercised on real K1 and K3 solver
+outputs, including arbitrarily ordered input sectors, propagated bounds,
+foreign/nonlower successor rejection, exact zero pruning and cumulative
+geometry limits. Exhaustive small-box tests check the tightened degree hull's
+coordinate extrema, and extreme endpoints and numerator-only infinite axes
+are covered. Independent mathematical and implementation reviews pass.
+The focused release suite now passes **319 tests, five ignored**; the full core
+release suite passes **2,200 tests, 31 ignored, zero failures**, in 41.35 s
+excluding compilation. Logs are `TMP/total-excess-focused-release-tests.log`
+and `TMP/total-excess-full-core-release-tests.log`; formatting checks pass.
 
 ## Decision
 

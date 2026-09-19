@@ -48,7 +48,7 @@ pub(crate) use source_port::ReplayedOriginalDomain;
 pub use source_port::{
     AffineApplicationDomain, AffineOwnershipRole, SourcePortAudit, SourcePortAuditError,
     SourcePortInstallEvent, SourcePortLimits, SourcePortReplayedRule, SourcePortRuleReplayAudit,
-    SourcePortSectorAudit,
+    SourcePortSectorAudit, SourcePortTotalExcessAudit,
 };
 pub use two_loop::derive_two_loop_unit_mass_sunset;
 

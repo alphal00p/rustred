@@ -1,4 +1,4 @@
-# Native factorized-denominator application experiment
+# Native factorized-denominator coefficient experiments
 
 Status: independently audited release experiments, September 19, 2026.
 **Ordinary rational polynomials remain the default, including in Vakint.**
@@ -7,23 +7,25 @@ candidate applier. It does not change artifacts, public output coefficients,
 rule authority or default behavior. The original frame replay below and the
 subsequent full-application measurements have different timing boundaries.
 
-### Generation-time field feasibility
+### Generation-time field: scoped experiment completed
 
 A separate source audit of pinned Symbolica 3.0.0 confirms that its native
 `FactorizedRationalPolynomialField<IntegerRing, u16>` implements `Field` and
-therefore fits the generic `SparseRowReducer` interface. This has **not** been
-implemented or benchmarked in RustRed generation. The audit checked the field,
-reducer, conversion tests and public examples; no new CAS would be needed for
-a bounded experiment.
+therefore fits the generic `SparseRowReducer` interface. The audit checked the
+field, reducer, conversion tests and public examples. A subsequent scratch-only
+[fixed selected-frame experiment](#fixed-selected-frame-generation-time-field-experiment)
+completed with exact parity and a substantial local gain. It is **not a
+production generation backend or a whole-family benchmark**; production
+generation and its defaults remain unchanged.
 
 The main caution is different from application: each accepted GPLU pivot uses
 field inversion, and native factorized inversion factors the pivot numerator
 and expands its old denominator. Application's measured add/multiply gains
-therefore do not predict elimination speed. A future matched-frame experiment
-should convert once at entry, preserve native factorized intermediates, and
-materialize only the target row, checking exact ordinary coefficients and
-ordered variable maps afterward. Original source poles and replay remain
-mandatory. Detailed API findings are retained in
+therefore do not predict elimination speed. The experiment converted once at
+entry, preserved native factorized intermediates, and materialized only the
+target row, checking exact ordinary coefficients and ordered variable maps
+afterward. Original source poles and replay remain mandatory for any future
+integration. Detailed API findings are retained in
 `TMP/factorized_exact_lift_api_findings.md`.
 
 Symbolica 3.0's `FactorizedRationalPolynomial<IntegerRing, u16>` preserves
@@ -31,6 +33,85 @@ denominator factors and their multiplicities; its numerator remains expanded.
 Its public constructors, arithmetic implementation, constructor tests and Atom
 conversion API were inspected before use. All algebra below uses that native
 implementation, not a RustRed factorization or cancellation kernel.
+
+## Fixed selected-frame generation-time field experiment
+
+This separate experiment uses the saved five-loop cube case
+`[n0,2,2,1,1,1,1,1,1,1,1,1,0,0,0]` from the
+[single-case study](five_loop_selected_sector_profile.md). It does **not** rerun
+discovery or a sector solve. Public family/source preparation and sector
+preconditioning regenerate the saved **997 ordered `SeedSource` rows**. Thin
+scratch coordinate bookkeeping delegates shifting, substitution, variable-map
+compaction and zero-sector decisions to existing native/public operations.
+Only sign-independent proved-zero terms are omitted. Preparation examines 77
+encountered supports instead of repeating the entire zero-sector census.
+
+The resulting frozen frame has **3,458 integral columns, 13,934 input nonzeros
+and two active variables `[d,n0]`**, in the original variable order. Its ordinary
+native reduction is first calibrated against the saved target and every one
+of the **1,489 complete RHS coefficients and keys**, including numerator and
+denominator variable maps. The raw target column is 1,296. Native Atom/State
+coefficient snapshots then supply identical inputs to all measured processes.
+A preliminary tiny native `L*U=A` parity fixture covers dependent and empty
+rows, zero/rational constants, repeated denominator factors and cancellation.
+
+Both fields use Symbolica `SparseRowReducer`, the same extra zero sentinel,
+`LuLMode::None`, ordered rows and stop-at-target condition. Factorization uses
+native `FactorizedRationalPolynomialField<IntegerRing,u16>` and native
+`from_num_den(..., do_factor=true)`; intermediates stay factorized throughout
+elimination. Only the final target row is expanded and normalized back to
+ordinary RP. No factorization, cancellation, elimination or reconstruction
+kernel was implemented in RustRed.
+
+Three fresh-process pairs alternate RP/FRP, FRP/RP, RP/FRP on CPU 82 with nested
+pools capped at one. Each process has a 120-second deadline and a 32-GiB
+**virtual-address-space** cap, not an RSS quota. All six complete successfully,
+with identical 997 accepted pivots, no dependent rows, 88,913 retained U
+nonzeros and 1,490 exact target-row entries. All pivot IDs and output
+coefficients/maps agree with the frozen ordinary result. No profiler runs in
+this matrix; optimized libraries are copied and hashed before direct linking.
+
+The table reports the median of three process measurements per field.
+Component medians are computed separately and need not sum to the median
+total. Input preparation is ordinary cloning versus native FRP conversion.
+
+| Selected-frame phase | Ordinary RP | Native factorized field |
+| --- | ---: | ---: |
+| Input conversion/preparation | 2.976 ms | 10.467 ms |
+| Native forward elimination | 16.519915 s | 4.339391 s |
+| Target-row materialization | 1.376 ms | 28.033 ms |
+| Sum of these three phases | **16.524327 s** | **4.378366 s** |
+| Whole process wall time | 16.59 s | 4.45 s |
+| Process user / system CPU time | 16.38 / 0.06 s | 4.35 / 0.05 s |
+| Process peak RSS | 58,404 KiB | 58,400 KiB |
+
+The median **paired** total-phase ratio is **3.750640×**, with individual ratios
+3.731660–4.007140×. This is a shared-host experiment, with other compilation
+active on different CPUs, not a confidence interval or a whole-generation
+speedup. Elimination includes reducer construction and pivot bookkeeping;
+the three-phase sum excludes loading, exact comparison and serialization.
+Process RSS ranges are 58,388–58,448 KiB for RP and 58,376–58,412 KiB for FRP.
+These include common ordinary input/expected snapshots, representation-specific
+prepared rows/reducer state, allocation retention and final saving; they
+demonstrate **no meaningful memory reduction**, not equal isolated field size.
+
+The result justifies a narrow **opt-in native field integration experiment**
+inside existing exact lifting, without changing the global coefficient type,
+guards, source replay, artifacts or defaults. It does not establish that FRP
+wins on other frames or replaces the separately measured target-only lifting
+optimization. That optimization has a different elimination workload; a
+controlled joint comparison is needed before choosing a default. No new
+production backend is included in this experiment.
+
+Evidence: `TMP/factorized-field-frame.iP0Mm2/` retains the native frozen frame,
+copied library/runtime/input hashes, source and reproduction scripts, all six
+resource/timing logs and `results.json`. An initial tiny-fixture harness error
+assumed that native `add_row([])` adds an L row; its logs are preserved under
+`tiny-harness-setup-error`, and the corrected explicit L-row count passes.
+That pre-measurement correction is not a field failure or an excluded timed
+sample. `independent-audit.md` records the successful independent review of
+the source boundary, original-rule parity, hashes, complete outcomes and
+reported statistics.
 
 ## Real workload and controlled boundary
 

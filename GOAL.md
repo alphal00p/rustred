@@ -137,6 +137,14 @@ Its three-pair full-application results are mixed: median paired old/new
 factorized ratios are 1.018 for cold H and 1.198 for cold X, with individual
 regressions and largely neutral sequence cases retained in the report. This
 does not activate the mode in Vakint or complete the performance objective.
+A separate fixed-frame generation experiment now instantiates Symbolica's
+native factorized rational-polynomial field in its sparse reducer. All six
+serial probes reproduce the same 997 pivots and 1,490 target coefficients/maps;
+median field time is 16.524 s for ordinary coefficients versus 4.378 s for the
+factorized field (median paired ratio 3.75), with essentially unchanged whole-
+process RSS. This supports a narrow opt-in exact-lifting integration next,
+not a production default change or a whole-family speedup. The report retains
+the frozen source frame, timing boundaries and independent audit.
 The two external five-loop candidate-only studies may now resume in parallel
 with this application work, with explicit physical-root ISP restrictions,
 matched exact/reconstruction settings and stated time/memory limits. Do not
@@ -156,6 +164,19 @@ on all intermediate integrals. Pursue the finite per-sector total-excess
 envelope first, without silently narrowing numerator-only requests or chasing
 master minimality. See the updated
 [bounded-certification audit](docs/research/rank30_certification_audit_2026-09-17.md).
+A complete-program total-excess diagnostic now connects those obligations:
+it validates the full root-sector census, checks sectors in the actual reduction
+order, and propagates conservative successor-degree bounds from retained exact
+rules. The input degree and descendant degrees are reported separately. It
+still cannot publish an artifact; persistence, cold replay of the scope, and
+runtime entry admission remain required. Degree-aware coordinate tightening
+also lets the existing native affine checks discard more impossible branches
+without replacing the simplex by a rectangular ownership claim.
+The previously difficult saved FG sector 214 now passes all 161 original-source
+replays and descent checks, with zero checked gaps through total excess 30 and
+11 finite terminals, in a 74.837-second serial release audit. This clears a
+selected-sector obstacle only; full-parent propagated coverage, runtime-cell
+lowering, persistent bounded scope and cold replay remain unfinished.
 Both bounded physical-cube backends reach their 1,800-second deadlines
 without saved bundles: sparse exact reports 37 completed-sector events and
 reconstruction reports 41, with different completed-sector sets. Peak RSS is
