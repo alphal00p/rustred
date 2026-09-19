@@ -136,6 +136,16 @@ in both repositories with the requested Git identity. The existing uncapped
 **four-loop** C++ comparison remains a separate workload from the resumed,
 explicitly resource-bounded five-loop studies.
 
+The uncapped C++ generation matrix is now complete: the final BMW six-worker
+run exits successfully after 14,480.999 seconds of solver work, and all 271
+saved files match its serial counterpart byte-for-byte. The independently
+checked [complete three-mode table](docs/four_loop_generation_comparison.md#complete-three-mode-solver-time-matrix-2026-09-19)
+combines all four parents at one and six workers with the completed RustRed
+sparse-exact and Symbolica-reconstruction measurements. C++ and RustRed have
+different rule/residual sets; the census and concrete exact canaries, not counts
+alone, support the comparison. This milestone does not certify family closure
+or resolve the separate application-performance and bounded-certification work.
+
 > Work resumed on 2026-09-19: complete four-loop numerical validation first,
 > then proceed to five-loop performance tests. This supersedes the quota pause
 > and the instruction to stop after four-loop acceptance. The
