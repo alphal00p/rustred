@@ -19,9 +19,23 @@ fn original_domain_durable_k1_roundtrip_uses_existing_reducer_and_no_anchor() {
     let artifact = installed_k1();
     let bytes = artifact.encode_durable().unwrap();
     let independent = installed_k1();
-    assert_eq!(bytes, independent.encode_durable().unwrap());
+    assert!(
+        crate::persistence::equivalent_generated_programs(
+            &bytes,
+            &independent.encode_durable().unwrap(),
+            Default::default()
+        )
+        .unwrap()
+    );
     let loaded = ClosedArtifact::decode_durable(&bytes).unwrap();
-    assert_eq!(bytes, loaded.encode_durable().unwrap());
+    assert!(
+        crate::persistence::equivalent_generated_programs(
+            &bytes,
+            &loaded.encode_durable().unwrap(),
+            Default::default()
+        )
+        .unwrap()
+    );
     assert_eq!(loaded.masters(), artifact.masters());
     assert_eq!(loaded.source_relations(), artifact.source_relations());
     let rule = loaded.rule_cells()[0].rule();
@@ -91,7 +105,14 @@ fn original_domain_durable_k3_retains_all_four_actual_terminals() {
     );
     let bytes = artifact.encode_durable().unwrap();
     let loaded = ClosedArtifact::decode_durable(&bytes).unwrap();
-    assert_eq!(bytes, loaded.encode_durable().unwrap());
+    assert!(
+        crate::persistence::equivalent_generated_programs(
+            &bytes,
+            &loaded.encode_durable().unwrap(),
+            Default::default()
+        )
+        .unwrap()
+    );
     assert_eq!(loaded.masters(), artifact.masters());
     assert_eq!(loaded.masters().len(), 4);
     let mut direct = Reducer::new(&artifact).unwrap();
@@ -120,7 +141,14 @@ fn original_domain_durable_k6_exact_keys_mass_and_cache() {
     );
     let bytes = artifact.encode_durable().unwrap();
     let loaded = ClosedArtifact::decode_durable(&bytes).unwrap();
-    assert_eq!(bytes, loaded.encode_durable().unwrap());
+    assert!(
+        crate::persistence::equivalent_generated_programs(
+            &bytes,
+            &loaded.encode_durable().unwrap(),
+            Default::default()
+        )
+        .unwrap()
+    );
     assert_eq!(loaded.masters(), artifact.masters());
     assert_eq!(loaded.masters().len(), 38);
     assert!(

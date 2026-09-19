@@ -46,9 +46,9 @@ impl<W: Write> FamilyCloseProgressMonitor<W> {
         // major boundary and the first generation event after it stay visible.
         if generating
             && self.last_was_generating
-            && self
-                .last_update
-                .is_some_and(|last| now.saturating_duration_since(last) < Duration::from_millis(100))
+            && self.last_update.is_some_and(|last| {
+                now.saturating_duration_since(last) < Duration::from_millis(100)
+            })
         {
             return;
         }

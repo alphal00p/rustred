@@ -18,6 +18,7 @@ import unittest
 from unittest import mock
 
 import rustred
+from rustred._rustred import _equivalent_generated_programs
 
 
 ONE_LOOP = r"""
@@ -192,15 +193,30 @@ def rustred_cli() -> Path | None:
     return path if path.is_file() else None
 
 
+def proof_payload_offset(artifact: bytes) -> int:
+    """Locate certified PROGRAM bytes; never decode or edit native algebra."""
+    assert artifact[:8] == b"RRPBIN\r\n" and artifact[12] == 2
+    offset = 20
+    for _ in range(int.from_bytes(artifact[16:20], "little")):
+        tag = int.from_bytes(artifact[offset : offset + 2], "little")
+        size = int.from_bytes(artifact[offset + 4 : offset + 12], "little")
+        if tag == 4:
+            assert artifact[offset + 12 : offset + 20] == b"RRPROOF\0"
+            return offset + 12
+        offset += 12 + size
+    raise AssertionError("missing certified PROGRAM section")
+
+
 def with_durable_schema(artifact: bytes, schema: int) -> bytes:
     crafted = bytearray(artifact)
-    crafted[8:12] = schema.to_bytes(4, "little")
+    offset = proof_payload_offset(artifact) + 8
+    crafted[offset : offset + 4] = schema.to_bytes(4, "little")
     return bytes(crafted)
 
 
 def with_durable_arity(artifact: bytes, arity: int) -> bytes:
     crafted = bytearray(artifact)
-    metadata_section_offset = 16
+    metadata_section_offset = proof_payload_offset(artifact) + 16
     assert int.from_bytes(
         crafted[metadata_section_offset : metadata_section_offset + 2],
         "little",
@@ -265,7 +281,27 @@ def cli_bytes(arguments: list[str], source: bytes = b"") -> bytes:
     return completed.stdout
 
 
-class PythonApiTests(unittest.TestCase):
+class GeneratedProgramAssertions(unittest.TestCase):
+    def assertProgramEqual(self, left: bytes, right: bytes) -> None:
+        # Full structure plus every exact coefficient after native StateMap
+        # remapping. Ambient Symbolica registries are not semantic identity.
+        self.assertTrue(
+            _equivalent_generated_programs(left, right),
+            "generated programs differ in structure or exact coefficients",
+        )
+
+
+class PythonApiTests(GeneratedProgramAssertions):
+    def test_native_program_comparison_checks_payload_and_not_closure(self) -> None:
+        generated = rustred.generate_closing_artifact().artifact
+        self.assertProgramEqual(generated, generated)
+        changed = with_durable_schema(generated, 5)
+        self.assertFalse(_equivalent_generated_programs(generated, changed))
+        with self.assertRaises(rustred.RustRedSchemaError):
+            rustred.inspect_closing_artifact(changed)
+        with self.assertRaises(rustred.RustRedInputError):
+            _equivalent_generated_programs(generated, b"not native framing")
+
     def test_k6_python_example_persists_before_rendering_publication_report(
         self,
     ) -> None:
@@ -769,7 +805,7 @@ class PythonApiTests(unittest.TestCase):
             ["family-close", "--input-format", "toml"],
             UNIT_MASS_PROJECT_K1.encode(),
         )
-        self.assertEqual(generated.artifact, cli_artifact)
+        self.assertProgramEqual(generated.artifact, cli_artifact)
         reduction = rustred.reduce_with_closing_artifact(generated.artifact, [3])
         self.assertEqual(
             reduction.to_toml(),
@@ -798,13 +834,13 @@ class PythonApiTests(unittest.TestCase):
             max_predicate_atoms=None,
         )
         chosen = rustred.family_close(UNIT_MASS_PROJECT_K1, **options)
-        self.assertEqual(baseline.artifact, explicit_defaults.artifact)
-        self.assertEqual(chosen.artifact, baseline.artifact)
+        self.assertProgramEqual(baseline.artifact, explicit_defaults.artifact)
+        self.assertProgramEqual(chosen.artifact, baseline.artifact)
         self.assertEqual(
             tomllib.loads(chosen.to_toml())["publication_resources"],
             {key: str(value) for key, value in options.items()},
         )
-        self.assertEqual(
+        self.assertProgramEqual(
             chosen.artifact,
             cli_bytes(["family-close", *flags], UNIT_MASS_PROJECT_K1.encode()),
         )
@@ -875,10 +911,10 @@ class PythonApiTests(unittest.TestCase):
         os.environ.get("SYMBOLICA_LICENSE") and (os.cpu_count() or 0) >= 2,
         "licensed two-core test",
     )
-    def test_family_close_worker_count_preserves_artifact_bytes(self) -> None:
+    def test_family_close_worker_count_preserves_exact_artifact(self) -> None:
         serial = rustred.family_close(UNIT_MASS_PROJECT_K3, n_cores=1)
         parallel = rustred.family_close(UNIT_MASS_PROJECT_K3, n_cores=2)
-        self.assertEqual(serial.artifact, parallel.artifact)
+        self.assertProgramEqual(serial.artifact, parallel.artifact)
 
     def test_family_close_concurrent_callers_receive_deterministic_results(self) -> None:
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as workers:
@@ -887,7 +923,8 @@ class PythonApiTests(unittest.TestCase):
                 for _ in range(4)
             ]
             artifacts = [future.result(timeout=30).artifact for future in futures]
-        self.assertTrue(all(artifact == artifacts[0] for artifact in artifacts))
+        for artifact in artifacts:
+            self.assertProgramEqual(artifact, artifacts[0])
 
     def test_family_close_validates_python_values_and_family_scope(self) -> None:
         for indices in ([True], [-1], [1 << 100], [0, 0], [1]):
@@ -919,7 +956,7 @@ class PythonApiTests(unittest.TestCase):
         cli_artifact = cli_bytes(
             ["family-close", "--nonpositive-indices", "2"], UNIT_MASS_PROJECT_K3.encode()
         )
-        self.assertEqual(generated.artifact, cli_artifact)
+        self.assertProgramEqual(generated.artifact, cli_artifact)
         inspection = tomllib.loads(rustred.inspect_closing_artifact(generated.artifact).to_toml())
         self.assertEqual(inspection["artifact"]["root_power_upper"][2], 0)
         self.assertEqual(inspection["artifact"]["in_scope_zero_sectors"], 3)
@@ -987,7 +1024,7 @@ class PythonApiTests(unittest.TestCase):
     def test_closing_artifact_python_cli_parity(self) -> None:
         selector = "unit-mass-vacuum-k1"
         generated = rustred.generate_closing_artifact(family=selector)
-        self.assertEqual(
+        self.assertProgramEqual(
             generated.artifact,
             cli_bytes(["campaign", "generate", "--family", selector]),
         )
@@ -1020,8 +1057,8 @@ class PythonApiTests(unittest.TestCase):
         self.assertEqual(selector, "unit-mass-vacuum-k3")
         generated = rustred.generate_closing_artifact(family=selector)
         document = tomllib.loads(generated.to_toml())
-        self.assertEqual(document["artifact"]["schema"], "rustred.closing-artifact.v5")
-        self.assertEqual(document["artifact"]["schema_version"], 5)
+        self.assertEqual(document["artifact"]["schema"], "rustred.closing-artifact.v6")
+        self.assertEqual(document["artifact"]["schema_version"], 6)
         self.assertEqual(document["family_selector"], "unit-mass-vacuum-k3")
         self.assertEqual(document["validation"]["source_rows"], 4)
         self.assertEqual(document["validation"]["guarded_rules"], 5)

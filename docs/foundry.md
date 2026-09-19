@@ -72,12 +72,13 @@ application cells, `S3` routing, Lee--Pomeransky zero proofs, a certified
 unimodular pinch factorization, and immutable lower-family feedback.
 `reduction::Reducer` applies either sealed owner.
 
-A deterministic schema-v5 codec persists exact family inputs, tagged source
+A deterministic-semantic schema-v6 codec persists exact family inputs, tagged source
 plans and semantic witnesses, rules/cells, symmetry and factorization data,
 masters, zero terminals, and homogeneity proofs. Bounded loading independently
 reconstructs and exactly compares the registered semantics once under the
 caller's family/source/rule policies, then returns a sealed owner. The reducer
-does not repeat artifact authentication. Three-loop `K = 6` remains open;
+does not repeat artifact authentication. The source-port producer now closes
+three-loop `K = 6`; this older registered-manifest foundry is a separate lane.
 successfully deriving one isolated rule for any other family is not a closure
 claim. Discovery cursors are not durable artifact identities, and cold proof
 replay may perform fallible O(K) allocations outside the streaming work
@@ -1017,26 +1018,28 @@ Symbolica 2.2.0 still exposes no hard scratch-memory census or cancellation
 hook for the reducer.
 
 A missing public Symbolica primitive is a typed unsupported boundary. In
-particular, the pinned Symbolica revision has no complete public integer
-normal-form/affine-lattice service or multivariate rational-function
-reconstruction service. RustRed may own orchestration around public algebraic
+particular, a complete public integer-normal-form/affine-lattice service must
+still be checked before adding local support. Symbolica's current public
+rational-function reconstruction service is used by the semi-numerical lane.
+RustRed may own orchestration around public algebraic
 primitives, but must not grow a parallel CAS.
 
 ## Artifact boundary
 
-The durable loader accepts the current schema-v5 format only. It rejects every
-obsolete version, including V1, V2, V3, and V4, with a typed schema error and
+The durable loader accepts the current schema-v6 native format only. Its proof
+grammar rejects obsolete schema identifiers, including V1 through V5, with a
+typed schema error. Obsolete transport envelopes fail native framing checks. It
 deliberately provides neither migration nor a dual decoder; RustRed artifact
 schemas have no backward-compatibility promise, including inside Vakint.
 Vakint's API/defaults and existing FORM methods retain their separate backward-
 compatibility obligation. Earlier benchmark sections retain their historical
 schema-V4 replay counts; they do not imply current byte compatibility.
-Schema V5 records the semantics needed to load and
-apply the sealed `K = 1` and `K = 3` artifacts and the registered payload for
-an eventually fully published `K = 6` proof chain:
+Schema V6 records the semantics needed to load and
+apply the sealed `K = 1` and `K = 3` artifacts, the registered `K = 6` proof
+chain, and source-port closing artifacts:
 
-- schema/algorithm identifiers and canonical bounded sparse binary Symbolica
-  rational-polynomial payloads;
+- schema/algorithm identifiers and native Symbolica Atom rational-polynomial
+  payloads with explicit State context, shared with the candidate format;
 - exact `IntegralFamily` constructor inputs, family/indexed-context
   fingerprints, and the ordering identifier;
 - a tagged complete-ordinary source derivation plan plus a full semantic
@@ -1052,19 +1055,28 @@ an eventually fully published `K = 6` proof chain:
 
 Encoding and decoding have explicit total, collection, string, per-payload and
 aggregate coefficient, aggregate semantic-witness, family, source-generation,
-relation, and rule-replay resource policies. Coefficients carry expanded
-sparse numerator/denominator terms on the family context's authenticated
-ordered variable map; bounded counts, magnitudes, and `u16` exponents are
-checked before Symbolica construction. No expression parser, process-local
-symbol identifier, or foreign symbol can enter this boundary. Source and rule
-witnesses are opaque exact-comparison bytes with their own shared monotonic
-budget, rather than being reparsed as algebra. Untrusted bytes are
-authenticated once at load/installation, and hot-path reduction does not
+relation, and rule-replay resource policies. Algebra is stored once per unique
+native coefficient, with typed rational/polynomial/integer references shared
+across families, witnesses and nested lower artifacts. Symbolica owns integer
+and polynomial serialization, State import and symbol remapping; there is no
+RustRed sparse-algebra wire codec or expression-text parser. Native values must
+match the exact admitted ordered variable map, and polynomial/integer roles
+add their own shape checks. Native input must have trusted generated provenance:
+outer framing caps do not make Symbolica's inner readers safe for malicious
+payloads. Mathematical claims are nevertheless independently authenticated.
+
+Source and rule witnesses contain typed references with a shared monotonic
+structural-byte budget. Replay resolves each regenerated value to an existing
+table ID only after full value/map equality. Final independent encoding with a
+fresh interner compares every structural byte and ordered exact table entry,
+rejecting unused or duplicate entries. Ambient State bytes are not mathematical
+identity; unrelated process history can change them. Replay runs once at
+load/installation, and hot-path reduction does not
 repeat schema round trips or whole-artifact replay. Atomic filesystem
 publication remains an application-layer responsibility. The `K = 3`
 installer independently validates its complete five-cell projection,
 symmetry, factorization, and terminal layout at this cold boundary. No such
-authentication is repeated by recursive hot-path reduction. Schema v5 records
+authentication is repeated by recursive hot-path reduction. Schema v6 records
 the generic typed dependency-master product embeddings needed by `K3 x K1`.
 Its registered `K = 6` payload now persists the exact ordinary rule-cell and
 published-owner proof data and cold-regenerates the authenticated product

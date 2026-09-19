@@ -671,6 +671,31 @@ where
         .execute(operation)
 }
 
+/// Internal regression helper: compare generated payloads after Symbolica state
+/// remapping, not process-local serialized symbol IDs. This does not certify a
+/// candidate or validate an artifact's mathematical claims. Both native inputs
+/// must come from trusted generators, just as for ordinary native loading.
+#[pyfunction]
+fn _equivalent_generated_programs(
+    py: Python<'_>,
+    left: &Bound<'_, PyBytes>,
+    right: &Bound<'_, PyBytes>,
+) -> PyResult<bool> {
+    let left = left.as_bytes().to_vec();
+    let right = right.as_bytes().to_vec();
+    py.detach(move || {
+        execute(move || {
+            rustred_app::equivalent_generated_programs(
+                &left,
+                &right,
+                rustred_app::BinaryIoLimits::default(),
+            )
+        })
+    })
+    .map_err(map_coordinator_error)?
+    .map_err(|error| RustRedInputError::new_err(error.to_string()))
+}
+
 fn parse_input_format(value: &str) -> PyResult<InputFormat> {
     InputFormat::from_str(value).map_err(|error| RustRedInputError::new_err(error.to_string()))
 }
@@ -906,6 +931,7 @@ fn _rustred(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(family_close, module)?)?;
     module.add_function(wrap_pyfunction!(inspect_closing_artifact, module)?)?;
     module.add_function(wrap_pyfunction!(reduce_with_closing_artifact, module)?)?;
+    module.add_function(wrap_pyfunction!(_equivalent_generated_programs, module)?)?;
     candidates::register(module)?;
     Ok(())
 }

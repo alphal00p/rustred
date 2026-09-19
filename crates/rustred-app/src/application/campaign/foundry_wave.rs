@@ -176,9 +176,15 @@ pub(crate) fn run_request_with_progress(
         let canonical = cold.encode_durable().map_err(|error| {
             AppError::execution(format!("cannot re-encode cold-loaded K6 artifact: {error}"))
         })?;
-        if canonical != durable {
+        if !rustred::persistence::equivalent_generated_programs(
+            &canonical,
+            &durable,
+            Default::default(),
+        )
+        .map_err(|error| AppError::internal_invariant(error.to_string()))?
+        {
             return Err(AppError::internal_invariant(
-                "cold-loaded K6 artifact did not preserve canonical durable bytes",
+                "cold-loaded K6 artifact did not preserve exact durable semantics",
             ));
         }
         Some(durable)

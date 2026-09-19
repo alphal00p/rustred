@@ -39,7 +39,7 @@ fn request_constructors_take_resource_defaults_from_core() {
 }
 
 #[test]
-fn publication_and_cold_load_report_independent_policies_without_changing_bytes() {
+fn publication_and_cold_load_report_independent_policies_without_changing_payload() {
     let baseline = family_close(FamilyCloseRequest::new(K1)).unwrap();
     let mut chosen = FamilyCloseRequest::new(K1);
     chosen
@@ -49,7 +49,14 @@ fn publication_and_cold_load_report_independent_policies_without_changing_bytes(
     chosen.publication_limits.max_predicate_consistency_work = 67_108_864;
     chosen.publication_limits.max_predicate_atoms = 64;
     let chosen = family_close(chosen).unwrap();
-    assert_eq!(baseline.artifact(), chosen.artifact());
+    assert!(
+        rustred_app::equivalent_generated_programs(
+            baseline.artifact(),
+            chosen.artifact(),
+            Default::default()
+        )
+        .unwrap()
+    );
     let publication = &report(chosen.to_toml())["publication_resources"];
     assert_eq!(publication["max_predicate_atoms"].as_str(), Some("64"));
     assert_eq!(
@@ -114,7 +121,14 @@ fn publication_and_cold_load_report_independent_policies_without_changing_bytes(
         .max_predicate_consistency_work = 0;
     no_consistency_work.publication_limits.max_predicate_atoms = 0;
     let zero = family_close(no_consistency_work).unwrap();
-    assert_eq!(zero.artifact(), baseline.artifact());
+    assert!(
+        rustred_app::equivalent_generated_programs(
+            zero.artifact(),
+            baseline.artifact(),
+            Default::default()
+        )
+        .unwrap()
+    );
     let mut zero_load = ClosingArtifactInspectRequest::new(zero.artifact());
     zero_load.load_limits.max_predicate_consistency_work = 0;
     zero_load.load_limits.max_predicate_atoms = 0;
@@ -194,5 +208,5 @@ fn restrictive_endpoint_and_byte_limits_fail_without_artifact_selected_policy() 
     })
     .unwrap_err();
     assert_eq!(error.kind(), AppErrorKind::Limit);
-    assert!(error.message().contains("artifact bytes"));
+    assert!(error.message().contains("program bytes"));
 }

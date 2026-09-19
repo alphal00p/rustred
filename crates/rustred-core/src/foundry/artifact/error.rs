@@ -212,6 +212,7 @@ artifact_from!(sector::zero::Error, ZeroAnalysis);
 /// Typed failure at the deterministic durable-artifact boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ArtifactPersistenceError {
+    NativeTransport(crate::persistence::BinaryIoError),
     InvalidMagic,
     UnsupportedSchema {
         actual: u32,
@@ -262,6 +263,7 @@ pub enum ArtifactPersistenceError {
 impl fmt::Display for ArtifactPersistenceError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::NativeTransport(error) => error.fmt(formatter),
             Self::InvalidMagic => formatter.write_str("invalid RustRed closing-artifact magic"),
             Self::UnsupportedSchema { actual } => {
                 write!(
@@ -337,6 +339,30 @@ impl fmt::Display for ArtifactPersistenceError {
 }
 
 impl std::error::Error for ArtifactPersistenceError {}
+
+impl From<crate::persistence::BinaryIoError> for ArtifactPersistenceError {
+    fn from(error: crate::persistence::BinaryIoError) -> Self {
+        match error {
+            crate::persistence::BinaryIoError::Limit {
+                resource,
+                requested,
+                limit,
+            } => Self::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            },
+            crate::persistence::BinaryIoError::Allocation {
+                resource,
+                requested,
+            } => Self::AllocationFailure {
+                resource,
+                requested,
+            },
+            error => Self::NativeTransport(error),
+        }
+    }
+}
 
 impl From<ArtifactError> for ArtifactPersistenceError {
     fn from(value: ArtifactError) -> Self {

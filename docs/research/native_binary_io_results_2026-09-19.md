@@ -1,4 +1,4 @@
-# Native candidate I/O: implementation and measured migration
+# Native program I/O: implementation and measured migration
 
 ## Scope and result
 
@@ -8,11 +8,12 @@ preserved all 59,636 rules, 1,155 declared residual keys and 1,579,493 coefficie
 uses. The new programs contain native Symbolica rational-polynomial atoms,
 their shared state context, native family geometry and structural rule records.
 
-This completes the candidate-format implementation and its saved-data migration,
-not the whole uniform-I/O roadmap. Certified artifacts still use their existing
-proof codec; migrating that codec to the common envelope must retain independent
-source replay and closure admission. Transport equivalence and successful
-concrete reductions do not certify unrestricted family closure.
+The candidate-format implementation and its saved-data migration are pushed.
+The subsequent certified V6 migration, described below, preserves the existing
+proof records while moving their algebra into the same native envelope and
+coefficient table. Its final validation and downstream asset rollout are
+separate gates. Transport equivalence and successful concrete reductions do
+not certify unrestricted family closure.
 
 ## What changed
 
@@ -159,11 +160,149 @@ gate passed 49/49 tests in release mode (0.21 s), including the dense rational
 family/Gram/shift cases. The independent fresh-process integration passed in
 0.02 s; its ignored child entry is explicitly launched by the parent test.
 
-Pending work at this checkpoint: install the native programs in Vakint and
-repeat its public numerical/pinch acceptance
-gates, and migrate certified proof-bearing artifacts into the common native
-container without weakening replay. Terminal deduplication and five-loop work
-remain separate follow-on tasks.
+The subsequent Vakint rollout passes all fifteen named numerical references
+and all sixteen expanded-numerator/single- and double-pinch comparisons, with
+unchanged tolerances. The public FeynKit/RustRed lane uses an invalid FORM
+path; real FORM is available only to the independent FMFT oracle. Three
+fixture and three native cold-load/catalog-binding checks also pass. Both
+RustRed dependencies are pinned to the pushed `3e621859` revision; no local
+source override enters this test result. No catalog, routing, or applier
+changes were needed for the binary migration.
+
+The subsequent certified migration is described below. Terminal deduplication
+and five-loop work remain separate follow-on tasks.
+
+## Certified artifact V6 follow-up
+
+Certified owners now use the same native envelope and shared Symbolica atom
+dictionary as candidates, with an explicit `Certified` kind and V6 proof-record
+schema. Base/indexed coefficients, guard polynomials and arbitrary-width affine
+matrix integers all use typed references into that dictionary. The old custom
+integer-limb/exponent algebra transport has been removed. Registered algorithm
+admission, original-source replay, guard/descent checks, root-domain coverage,
+homogeneity and nested lower-owner bindings remain unchanged.
+
+Local proof replay resolves each regenerated coefficient to an input ID only
+after complete native value and variable-map comparison. Duplicate dictionary
+entries are rejected. Final admission independently re-encodes the installed
+owner with a fresh interner and compares the complete structural proof and
+ordered native coefficient sequence, including its length. This rejects unused
+entries and makes ambient Symbolica State bytes irrelevant to mathematical
+identity. The public `equivalent_generated_programs` comparison grants no
+closure authority itself. Native payload decoding retains the documented
+trusted-generator precondition; it is not a hostile-input parser.
+The current certified final comparison imports both table snapshots again;
+unlike candidate loading, this cold proof boundary does not yet promise a
+single native decode. No such work occurs in the reducer hot path.
+
+The broad initial artifact gate passed 519 tests with 13 explicitly ignored;
+its sole failure was the expected diagnostic for a forged source being
+rejected earlier by native coefficient lookup. That assertion was updated to
+the new exact error without weakening rejection.
+
+A separate adversarial comparison test found a genuine implementation defect:
+Symbolica intentionally considers equal constants and zero polynomials equal
+even when their variable maps differ. Native algebraic equality alone was
+therefore insufficient to identify an artifact coefficient. Comparison and
+replay lookup now explicitly compare both ordered numerator/denominator maps;
+lookup hashing also includes them. Regression tests cover zero, one, negative
+constants, empty/reversed/same-width foreign maps and forced hash collisions.
+The original 57/58 persistence result is retained in the evidence. Native Atom
+interning already preserved these maps, so the saved candidate programs and
+converted certified files did not need regeneration or reconversion.
+
+The fresh-process test initially failed before artifact import because its
+deliberately reordered symbol-registration setup contained a malformed
+namespace. Only that fixture string was corrected to the actual private index
+namespace; its portability and reduction assertions are unchanged. This setup
+failure is distinct from the genuine map-identity defect above.
+
+After both corrections, the final rebuilt release persistence gate passed
+60/60 tests (0.82 s), and the broad artifact gate passed 522/522 with the same
+13 intentionally ignored research experiments (67.13 s, 149,336 KiB process
+peak RSS). The independent audit restored its source and focused-test signoff.
+The final application rerun passed 91 unit tests and 29 focused integration
+tests (7 candidate CLI, 7 family-close CLI, 11 closing-artifact API and 4
+publication-resource policy). All 34 Python API tests also pass against the
+final rebuilt CLI and native extension. Both fresh-process integration gates
+also pass: certified K1/K3 portability with reordered native symbol history
+(0.04 s) and native coefficient-context portability (0.01 s). Each parent
+explicitly launches its otherwise-ignored child entry points in new processes.
+
+## Vakint public-backend follow-up
+
+The existing nine-input scalar benchmark passed all 54 numerical comparisons
+(108 backend calls, five paired repeats after the initial pair), relative
+tolerance `1e-20` with zero uncertainty allowance. It used the same release
+configuration, CPU affinity 88–93 and one scalar caller, with nested pools
+capped at one. These are separate shared-host diagnostic observations, not a
+controlled paired statistical speedup claim.
+
+| Quantity | Previous text programs | Native programs |
+| --- | ---: | ---: |
+| Complete nine-input process wall time | 251.79 s | 167.33 s |
+| Whole-process peak RSS | 14,686,292 KiB | 2,863,816 KiB |
+| First H cubed-propagator call | 35.353 s | 15.962 s |
+| First FG cubed-propagator call | 11.450 s | 1.643 s |
+| First BMW cubed-propagator call | 20.907 s | 6.288 s |
+| First X cubed-propagator call | 127.140 s | 82.864 s |
+
+The native process used 161.29 s user CPU and 4.85 s system CPU. First-parent
+calls include lazy loading and the first uncached scalar reduction; they are
+not loader-only timings. Repeated RustRed medians range from 15.136 to
+150.665 ms, versus 132.988 to 4,662.828 ms for FMFT on those same inputs.
+Previously unseen targets remain a separate cost: the initial FG/X expanded-D7
+calls took 1.610/2.934 s even after their parent program had loaded. Neither
+cache-repeat timings nor the I/O improvement eliminate this application cost.
+
+The numerical reference suite itself took 32.45 s wall and peaked at
+1,989,496 KiB; the sixteen-pinch suite took 104.98 s and peaked at
+2,696,884 KiB. These include oracle work and must not be presented as standalone
+RustRed generation or reduction timings. Exact test invocations and the
+nine-row public timing table live with Vakint's shipped four-loop data README;
+raw local evidence is under `TMP/gamma-native-migration-20260919/`.
+
+## Certified native-format conversion
+
+A separate workspace-only converter migrates the existing shipped K1/K3/K6
+certified files, without running rule discovery. It retains the frozen V5
+decoder's complete exact replay and old-format comparison, installs the same
+semantic owner under the current schema, then uses the new V6 encoder. Shipped
+input bytes are not edited. This tool is not a runtime compatibility layer.
+
+| Shipped artifact | V5 bytes | Native V6 bytes | Unique coefficients | Rule cells | Masters |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| K1 | 2,736 | 2,790 | 9 | 0 (one direct rule) | 1 |
+| K3 | 50,525 | 36,692 | 56 | 5 | 2 |
+| K6 | 8,916,759 | 3,725,739 | 1,635 | 5,639 | 38 |
+
+The K6 file is 58.2% smaller; K1 grows by 54 bytes from native framing overhead.
+The shipped K6 census is distinct from the example's 5,640-cell producer
+snapshot. Neither is being regenerated or silently substituted for the other.
+Conversion compares complete structural/native payloads, sources, family and
+ordering, nested lower owners and exact target reductions. Fresh-process
+verification independently replays and reduces each native output.
+Canaries cover the all-one integral, all-zero integral, first-line dot and
+first-line pinch (three distinct targets at K1). The K6 dotted result has the
+same 30 exact terms before and after migration. Ordinary source counts remain
+1/4/9; K3 retains its nested K1 owner.
+
+A release diagnostic on CPU affinity 50–51 measured fresh K6 decode/replay at
+0.815396 s, 0.91 s whole-process wall and 239,640 KiB peak RSS. This is **not
+K6 generation time**, nor a controlled comparison against V5. The same-process
+conversion's old/new decode observations (0.907787/0.820725 s) have different
+initialization and state histories and are not a cold speedup benchmark.
+All RustRed migration gates are complete; the converted assets await the atomic
+Vakint pin/asset update and its downstream acceptance rerun.
+The separate K1/K3 fresh decode-and-replay phases took 0.000697/0.003912 s.
+
+The final rebuilt Python extension also cold-loaded each migrated file in its
+own process and reduced the first-line-dotted target. All exact typed-master
+coefficients and homogeneity exponents match the retained CLI baseline: one,
+one and thirty output terms for K1, K3 and K6 respectively. This is an exact
+regression check, not a new generation or performance measurement.
+The final CLI independently cold-loaded and reduced those same three files;
+its complete inspection and reduction reports match the retained baseline.
 
 ## Reproducibility evidence
 
@@ -180,3 +319,14 @@ phase counters, GNU time records and level-9 files are under
 [`native_binary_io_plan.md`](native_binary_io_plan.md). Broader previous loader
 profiling is in
 [`four_loop_cold_profile_2026-09-19.md`](four_loop_cold_profile_2026-09-19.md).
+The certified converter, unmodified-input checks, native outputs, exact-owner
+comparisons and separate verifier logs are in
+`TMP/certified-native-migrate.rRNAR9/`. The scratch snapshot's explicit legacy
+wire-schema adapter is not included in the production library.
+Final rebuilt gates are recorded in
+`TMP/native-certified-{persistence,artifact,contexts}-verified-final.log`,
+`TMP/native-certified-app-final.log`, and
+`TMP/native-certified-python-api-verified-final.log`.
+`TMP/native-certified-cli-canary-comparison.log` and
+`TMP/native-certified-python-canary-comparison.log` record the complete
+post-fix canary comparisons. Formatting and Git whitespace checks pass.

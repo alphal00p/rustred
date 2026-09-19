@@ -203,8 +203,27 @@ exact denominator/mass/offset transport, integer loop transformation with
 determinant ±1, and disjoint loop blocks for products. Unit determinant alone
 does not establish integer entries. Requiring a full-family permutation of all
 unused ISP coordinates would miss valid sector-local changes of variables such
-as the tadpole-product example above. Extract the reusable kinematic checker
-from artifact installation instead of manufacturing closed-artifact authority.
+as the tadpole-product example above. Reuse exact kinematic replay instead of
+manufacturing closed-artifact authority.
+
+A subsequent API audit narrows the first implementation further: the public
+`sector::symmetry::verify` already computes the complete denominator action
+under a proposed momentum map. For a product of exactly L active tadpole lines,
+require every active action to be a unit-scaled monomial in its paired output
+line; unused coordinates may have general affine actions because their powers
+are exactly zero. This avoids extracting the whole factorization installer.
+`FamilyPresentation` can replay caller-supplied physical momentum squares, but
+that optional presentation is not retained by native-loaded `IntegralFamily`.
+For plain loaded families, use Symbolica polynomial factorization to propose
+each linear momentum from its homogeneous quadratic, then independently replay
+the square and final momentum transformation. Retain integer entries and a
+unit absolute determinant, not merely a rational matrix with determinant one.
+The initial signature is the sorted positive-power multiset within one family;
+choose an existing declared representative using the campaign ordering.
+Negative inactive indices and nonzero analytic shifts are excluded from this
+first lane, rather than silently discarded. Deriving the immutable alias plan
+once from persisted family geometry and raw terminals requires no new artifact
+fields and no oracle coefficients.
 
 Product signatures must include typed lower-family identities, master powers
 and factor multiplicities. Embedding back into the same parent family preserves

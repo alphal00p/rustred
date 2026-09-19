@@ -45,7 +45,6 @@ pub(super) fn decode<'input>(
     expected_family_fingerprint: &str,
     expected_context_fingerprint: &str,
     limits: ArtifactLoadLimits,
-    original_bytes: &[u8],
 ) -> Result<ClosedArtifact, ArtifactPersistenceError> {
     let source_plan = decode_source_plan(parent, sources_bytes, arity)?;
     let mut family_reader = parent.child(family_bytes);
@@ -222,12 +221,7 @@ pub(super) fn decode<'input>(
         limits.max_predicate_consistency_work,
         limits.max_predicate_atoms,
     )?;
-    // Deterministic encoding validates canonical sharing/order and all stored
-    // semantic payloads, without discovery or reconstructing any other plan.
-    if super::encode_with_limits(&artifact, limits.replay_encoding())? != original_bytes {
-        return Err(ArtifactPersistenceError::SemanticMismatch {
-            field: "combined canonical artifact payload",
-        });
-    }
+    // The shared outer decoder compares the independently re-encoded complete
+    // proof and native coefficient sequence after this exact installer gate.
     Ok(artifact)
 }

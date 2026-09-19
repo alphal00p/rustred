@@ -77,13 +77,34 @@ fn generate_artifact() -> rustred_app::ClosingArtifactGenerateResult {
 
 fn with_durable_schema(artifact: &[u8], schema: u32) -> Vec<u8> {
     let mut crafted = artifact.to_vec();
-    crafted[8..12].copy_from_slice(&schema.to_le_bytes());
+    let offset = proof_payload_offset(artifact) + 8;
+    crafted[offset..offset + 4].copy_from_slice(&schema.to_le_bytes());
     crafted
+}
+
+fn proof_payload_offset(artifact: &[u8]) -> usize {
+    let envelope = rustred::persistence::inspect_program(artifact, Default::default()).unwrap();
+    assert_eq!(
+        envelope.kind(),
+        rustred::persistence::BinaryProgramKind::Certified
+    );
+    let payload = envelope
+        .section(rustred::persistence::SectionTag::PROGRAM)
+        .unwrap();
+    assert_eq!(&payload[..8], b"RRPROOF\0");
+    payload.as_ptr() as usize - artifact.as_ptr() as usize
+}
+
+fn assert_program_equal(left: &[u8], right: &[u8]) {
+    assert!(
+        rustred::persistence::equivalent_generated_programs(left, right, Default::default())
+            .unwrap()
+    );
 }
 
 fn with_durable_arity(artifact: &[u8], arity: u64) -> Vec<u8> {
     let mut crafted = artifact.to_vec();
-    let metadata_section_offset = 16;
+    let metadata_section_offset = proof_payload_offset(artifact) + 16;
     assert_eq!(
         u16::from_le_bytes(
             crafted[metadata_section_offset..metadata_section_offset + 2]
@@ -164,9 +185,9 @@ fn two_loop_generation_and_application_surfaces_publish_the_closed_sunset() {
         term.master_powers() == [0, 1, 1] && term.common_mass_squared_power() == -3
     }));
 
-    assert_eq!(
-        successful_cli(&["campaign", "generate", "--family", SUNSET_SELECTOR], b""),
-        generated.artifact()
+    assert_program_equal(
+        &successful_cli(&["campaign", "generate", "--family", SUNSET_SELECTOR], b""),
+        generated.artifact(),
     );
 }
 
@@ -174,8 +195,19 @@ fn two_loop_generation_and_application_surfaces_publish_the_closed_sunset() {
 fn generation_is_deterministic_and_owns_durable_bytes() {
     let generated = generate_artifact();
     let generated_again = generate_artifact();
-    assert_eq!(generated.artifact(), generated_again.artifact());
-    assert_eq!(generated.to_toml(), generated_again.to_toml());
+    assert_program_equal(generated.artifact(), generated_again.artifact());
+    // Transport size can depend on ambient native registries, not the proof.
+    let mut first_report: toml::Value = toml::from_str(generated.to_toml()).unwrap();
+    let mut second_report: toml::Value = toml::from_str(generated_again.to_toml()).unwrap();
+    first_report["payload"]
+        .as_table_mut()
+        .unwrap()
+        .remove("bytes");
+    second_report["payload"]
+        .as_table_mut()
+        .unwrap()
+        .remove("bytes");
+    assert_eq!(first_report, second_report);
     assert!(!generated.artifact().is_empty());
     assert_eq!(
         generated.schema(),
@@ -187,9 +219,9 @@ fn generation_is_deterministic_and_owns_durable_bytes() {
     assert!(
         generated
             .to_toml()
-            .contains("schema = \"rustred.closing-artifact.v5\"")
+            .contains("schema = \"rustred.closing-artifact.v6\"")
     );
-    assert!(generated.to_toml().contains("schema_version = 5"));
+    assert!(generated.to_toml().contains("schema_version = 6"));
     assert!(generated.to_toml().contains("source_rows = 1"));
     assert!(generated.to_toml().contains("guarded_rules = 1"));
     assert!(generated.to_toml().contains("domain_lower = [1]"));
@@ -220,9 +252,9 @@ fn inspection_authenticates_supplied_durable_bytes() {
     assert!(
         inspected
             .to_toml()
-            .contains("schema = \"rustred.closing-artifact.v5\"")
+            .contains("schema = \"rustred.closing-artifact.v6\"")
     );
-    assert!(inspected.to_toml().contains("schema_version = 5"));
+    assert!(inspected.to_toml().contains("schema_version = 6"));
 
     let invalid = closing_artifact_inspect(ClosingArtifactInspectRequest {
         load_limits: Default::default(),
@@ -238,11 +270,11 @@ fn durable_schema_and_load_resource_failures_keep_typed_categories() {
     let artifact = generate_artifact().into_artifact();
     let previous_schema = closing_artifact_inspect(ClosingArtifactInspectRequest {
         load_limits: Default::default(),
-        artifact: with_durable_schema(&artifact, 4),
+        artifact: with_durable_schema(&artifact, 5),
     })
     .unwrap_err();
     assert_eq!(previous_schema.kind(), AppErrorKind::Schema);
-    assert!(previous_schema.message().contains("schema version 4"));
+    assert!(previous_schema.message().contains("schema version 5"));
     let unsupported_schema = closing_artifact_inspect(ClosingArtifactInspectRequest {
         load_limits: Default::default(),
         artifact: with_durable_schema(&artifact, 3),

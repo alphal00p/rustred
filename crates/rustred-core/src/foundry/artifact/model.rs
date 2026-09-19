@@ -15,21 +15,21 @@ use super::factorized_product_moments::FactorizedProductMomentProgram;
 /// Stable schema identity of an installed closing artifact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ArtifactSchemaVersion {
-    V5,
+    V6,
 }
 
 impl ArtifactSchemaVersion {
-    pub const CURRENT: Self = Self::V5;
+    pub const CURRENT: Self = Self::V6;
 
     pub const fn as_u32(self) -> u32 {
         match self {
-            Self::V5 => 5,
+            Self::V6 => 6,
         }
     }
 
     pub const fn stable_id(self) -> &'static str {
         match self {
-            Self::V5 => "rustred.closing-artifact.v5",
+            Self::V6 => "rustred.closing-artifact.v6",
         }
     }
 }
@@ -192,7 +192,8 @@ impl ClosedArtifact {
     /// deliberately small admission seam for external consumers: it does not
     /// infer a topology or a supported loop count, and therefore remains
     /// usable when a new vacuum arity is shipped.  It is not a substitute for
-    /// calling [`Self::decode_durable`] at the untrusted input boundary.
+    /// calling [`Self::decode_durable`] to independently verify the mathematical
+    /// claims in a trusted-generated native payload.
     pub fn is_complete_unit_mass_vacuum(&self) -> bool {
         self.algorithm_id
             == super::COMPLETE_VACUUM_SOURCE_PORT_ALGORITHM_ID
@@ -335,7 +336,7 @@ impl ClosedArtifact {
         super::persistence::encode(self)
     }
 
-    /// Encode under explicit total, container, string, sparse-coefficient,
+    /// Encode under explicit total, container, string, native-coefficient,
     /// and semantic-witness resource policies.
     pub fn encode_durable_with_limits(
         &self,
@@ -346,13 +347,20 @@ impl ClosedArtifact {
 
     /// Load and authenticate one deterministic durable artifact under the
     /// default resource policy.
+    ///
+    /// The native Symbolica bytes must come from a trusted generator. Native
+    /// readers are not hardened against malicious internal allocation counts,
+    /// and decoding can register global symbols. Outer framing is bounded;
+    /// source identities, rules, guards, terminals and coverage are independently
+    /// replayed before this function returns a sealed owner. Serialization
+    /// status alone never establishes mathematical authority.
     pub fn decode_durable(bytes: &[u8]) -> Result<Self, ArtifactPersistenceError> {
         Self::decode_durable_with_limits(bytes, Default::default())
     }
 
     /// Load one authenticated complete unit-mass vacuum artifact.
     ///
-    /// This combines the untrusted-boundary decode with the capability check
+    /// This combines the generated-native decode and exact replay with the capability check
     /// used by topology adapters.  It deliberately accepts any source-port
     /// arity, so a newly shipped four-loop artifact does not require a RustRed
     /// release solely to extend a loop-count table.  The regular
@@ -379,9 +387,10 @@ impl ClosedArtifact {
         }
     }
 
-    /// Load and authenticate one deterministic durable artifact once at the
-    /// untrusted boundary. The returned sealed owner needs no replay or
-    /// authentication in reducer hot paths.
+    /// Load and authenticate a trusted-generated native artifact once under
+    /// caller-owned resource limits. The native decoding contract is documented
+    /// on [`Self::decode_durable`]; mathematical claims are still independently
+    /// verified. The returned owner needs no replay in reducer hot paths.
     pub fn decode_durable_with_limits(
         bytes: &[u8],
         limits: super::persistence::ArtifactLoadLimits,

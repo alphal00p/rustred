@@ -1,6 +1,11 @@
 use std::ops::Range;
 
 use crate::foundry::parametric::{ParametricRuleLimits, derive_sector_interior_rule};
+use crate::persistence::{
+    BinaryIoError, BinaryIoLimits, BinarySection, CoefficientId, CoefficientTableBuilder,
+    DecodedCoefficientTable, SectionTag, encode_program, equivalent_generated_programs,
+    inspect_program,
+};
 use crate::sector::OrderingPolicy;
 
 use super::error::{ArtifactError, ArtifactPersistenceError};
@@ -15,9 +20,16 @@ fn durable_encoding_is_deterministic_and_loads_a_sealed_equivalent() {
     let first = artifact.encode_durable().unwrap();
     let independently_derived = derive_one_loop_unit_mass_tadpole().unwrap();
     let second = independently_derived.encode_durable().unwrap();
-    assert_eq!(first, second);
+    assert!(equivalent_generated_programs(&first, &second, Default::default()).unwrap());
     let loaded = ClosedArtifact::decode_durable(&first).unwrap();
-    assert_eq!(loaded.encode_durable().unwrap(), first);
+    assert!(
+        equivalent_generated_programs(
+            &loaded.encode_durable().unwrap(),
+            &first,
+            Default::default()
+        )
+        .unwrap()
+    );
     assert_eq!(loaded.schema(), artifact.schema());
     assert_eq!(loaded.algorithm_id(), artifact.algorithm_id());
     assert_eq!(loaded.family_fingerprint(), artifact.family_fingerprint());
@@ -37,7 +49,7 @@ fn durable_encoding_is_deterministic_and_loads_a_sealed_equivalent() {
 }
 
 fn durable_section(bytes: &[u8], wanted_tag: u16) -> Range<usize> {
-    let mut offset = 16;
+    let mut offset = native_section(bytes, SectionTag::PROGRAM).start + 16;
     for _ in 0..5 {
         let tag = u16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap());
         let len = usize::try_from(u64::from_le_bytes(
@@ -52,6 +64,13 @@ fn durable_section(bytes: &[u8], wanted_tag: u16) -> Range<usize> {
         offset = end;
     }
     panic!("durable test fixture has no section tag {wanted_tag}")
+}
+
+fn native_section(bytes: &[u8], tag: SectionTag) -> Range<usize> {
+    let envelope = inspect_program(bytes, Default::default()).unwrap();
+    let section = envelope.section(tag).unwrap();
+    let start = section.as_ptr() as usize - bytes.as_ptr() as usize;
+    start..start + section.len()
 }
 
 fn encoded_usize(bytes: &[u8], offset: usize) -> usize {
@@ -83,16 +102,7 @@ fn first_family_coefficient_payload(bytes: &[u8]) -> Range<usize> {
     encoded_blob(bytes, &mut offset); // family name
     encoded_blob(bytes, &mut offset); // loop label
     encoded_blob(bytes, &mut offset); // parameter label
-    encoded_blob(bytes, &mut offset)
-}
-
-fn family_coefficient_payload_bytes(bytes: &[u8]) -> usize {
-    let family = durable_section(bytes, 2);
-    let mut offset = family.start + 7 * 8;
-    encoded_blob(bytes, &mut offset); // family name
-    encoded_blob(bytes, &mut offset); // loop label
-    encoded_blob(bytes, &mut offset); // parameter label
-    (0..4).map(|_| encoded_blob(bytes, &mut offset).len()).sum()
+    offset..offset + 5 // rational role + shared native table ID
 }
 
 fn minimum_encoding_coefficient_budget(artifact: &ClosedArtifact) -> usize {
@@ -151,19 +161,22 @@ fn durable_loader_rejects_corruption_schema_and_trailing_bytes() {
     wrong_magic[0] ^= 1;
     assert_eq!(
         ClosedArtifact::decode_durable(&wrong_magic).unwrap_err(),
-        ArtifactPersistenceError::InvalidMagic
+        ArtifactPersistenceError::NativeTransport(BinaryIoError::Invalid(
+            "magic does not identify a binary program"
+        ))
     );
 
     let mut wrong_schema = encoded.clone();
-    wrong_schema[8..12].copy_from_slice(&3_u32.to_le_bytes());
+    let schema_offset = native_section(&encoded, SectionTag::PROGRAM).start + 8;
+    wrong_schema[schema_offset..schema_offset + 4].copy_from_slice(&3_u32.to_le_bytes());
     assert_eq!(
         ClosedArtifact::decode_durable(&wrong_schema).unwrap_err(),
         ArtifactPersistenceError::UnsupportedSchema { actual: 3 }
     );
 
-    for version in [1_u32, 2, 4] {
+    for version in [1_u32, 2, 4, 5] {
         let mut obsolete_schema = encoded.clone();
-        obsolete_schema[8..12].copy_from_slice(&version.to_le_bytes());
+        obsolete_schema[schema_offset..schema_offset + 4].copy_from_slice(&version.to_le_bytes());
         assert_eq!(
             ClosedArtifact::decode_durable(&obsolete_schema).unwrap_err(),
             ArtifactPersistenceError::UnsupportedSchema { actual: version }
@@ -172,14 +185,18 @@ fn durable_loader_rejects_corruption_schema_and_trailing_bytes() {
 
     assert!(matches!(
         ClosedArtifact::decode_durable(&encoded[..encoded.len() - 1]),
-        Err(ArtifactPersistenceError::Truncated { .. })
+        Err(ArtifactPersistenceError::NativeTransport(
+            BinaryIoError::Invalid(_)
+        ))
     ));
 
     let mut trailing = encoded;
     trailing.push(0);
     assert_eq!(
         ClosedArtifact::decode_durable(&trailing).unwrap_err(),
-        ArtifactPersistenceError::TrailingBytes { remaining: 1 }
+        ArtifactPersistenceError::NativeTransport(BinaryIoError::Invalid(
+            "trailing bytes after program sections"
+        ))
     );
 }
 
@@ -251,7 +268,7 @@ fn durable_codec_enforces_encode_and_load_limits_before_work() {
     assert_eq!(
         ClosedArtifact::decode_durable_with_limits(&encoded, load_limits).unwrap_err(),
         ArtifactPersistenceError::ResourceLimit {
-            resource: "artifact bytes",
+            resource: "program bytes",
             requested: encoded.len(),
             limit: encoded.len() - 1,
         }
@@ -266,15 +283,15 @@ fn durable_codec_enforces_encode_and_load_limits_before_work() {
         Err(ArtifactPersistenceError::ResourceLimit { .. })
     ));
 
-    let first_coefficient = first_family_coefficient_payload(&encoded);
+    let atoms = native_section(&encoded, SectionTag::COEFFICIENTS);
     let aggregate_limits = ArtifactLoadLimits {
-        max_total_coefficient_bytes: first_coefficient.len(),
+        max_total_coefficient_bytes: atoms.len() - 1,
         ..ArtifactLoadLimits::default()
     };
     assert!(matches!(
         ClosedArtifact::decode_durable_with_limits(&encoded, aggregate_limits),
         Err(ArtifactPersistenceError::ResourceLimit {
-            resource: "aggregate coefficient bytes",
+            resource: "coefficient table bytes",
             ..
         })
     ));
@@ -308,17 +325,14 @@ fn durable_codec_enforces_encode_and_load_limits_before_work() {
 }
 
 #[test]
-fn load_coefficient_budget_is_shared_across_family_and_semantic_replay() {
+fn unique_native_table_budget_is_shared_across_family_and_semantic_replay() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let encoded = artifact.encode_durable().unwrap();
     let total = minimum_encoding_coefficient_budget(&artifact);
-    let family = family_coefficient_payload_bytes(&encoded);
-    let replay = total.checked_sub(family).unwrap();
+    let table_bytes = native_section(&encoded, SectionTag::COEFFICIENTS).len();
     let one_below = total - 1;
 
-    assert!(family > 0 && replay > 0);
-    assert!(one_below > family);
-    assert!(one_below > replay);
+    assert_eq!(total, table_bytes);
     assert!(matches!(
         ClosedArtifact::decode_durable_with_limits(
             &encoded,
@@ -328,7 +342,7 @@ fn load_coefficient_budget_is_shared_across_family_and_semantic_replay() {
             }
         ),
         Err(ArtifactPersistenceError::ResourceLimit {
-            resource: "aggregate coefficient bytes",
+            resource: "coefficient table bytes",
             requested,
             limit,
         }) if requested == total && limit == one_below
@@ -342,7 +356,14 @@ fn load_coefficient_budget_is_shared_across_family_and_semantic_replay() {
         },
     )
     .unwrap();
-    assert_eq!(loaded.encode_durable().unwrap(), encoded);
+    assert!(
+        equivalent_generated_programs(
+            &loaded.encode_durable().unwrap(),
+            &encoded,
+            Default::default()
+        )
+        .unwrap()
+    );
 }
 
 #[test]
@@ -395,22 +416,24 @@ fn durable_loader_rejects_a_self_consistent_forged_source_and_rule_pair() {
     })
     .unwrap();
     let encoded = forged.encode_durable().unwrap();
+    // Source regeneration requests an original coefficient that the scaled
+    // forgery did not retain. The lookup-only table rejects it before witness
+    // byte comparison; replay cannot append a matching value to repair input.
     assert_eq!(
         ClosedArtifact::decode_durable(&encoded).unwrap_err(),
         ArtifactPersistenceError::SemanticMismatch {
-            field: "source derivation witness",
+            field: "replayed coefficient absent from native table",
         }
     );
 }
 
 #[test]
-fn sparse_binary_coefficients_reject_compact_hostile_shapes_before_native_algebra() {
+fn native_references_reject_wrong_roles_and_unknown_ids() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let encoded = artifact.encode_durable().unwrap();
     let coefficient = first_family_coefficient_payload(&encoded);
 
-    // Expression-like bytes are not a grammar alternative: no Symbolica Atom
-    // parser is reachable from the durable coefficient boundary.
+    // References are typed IDs, not an alternative expression grammar.
     let mut expression_like = encoded.clone();
     expression_like[coefficient.start] = b'(';
     assert_eq!(
@@ -420,38 +443,102 @@ fn sparse_binary_coefficients_reject_compact_hostile_shapes_before_native_algebr
         }
     );
 
-    // A claimed enormous expanded product is rejected from its sparse term
-    // count before coefficient/exponent storage is allocated.
-    let mut huge_product = encoded.clone();
-    huge_product[coefficient.start + 1..coefficient.start + 9]
-        .copy_from_slice(&u64::MAX.to_le_bytes());
+    let mut unknown_id = encoded;
+    unknown_id[coefficient.start + 1..coefficient.end].copy_from_slice(&u32::MAX.to_le_bytes());
     assert!(matches!(
-        ClosedArtifact::decode_durable(&huge_product),
-        Err(ArtifactPersistenceError::ResourceLimit {
-            resource: "polynomial terms",
-            ..
-        })
+        ClosedArtifact::decode_durable(&unknown_id),
+        Err(ArtifactPersistenceError::NativeTransport(
+            BinaryIoError::Invalid(_)
+        ))
     ));
+}
 
-    // The first payload is `d`: after the tag, two counts, integer sign,
-    // integer length, and one magnitude byte comes its sole u16 exponent.
-    let exponent_offset = coefficient.start + 1 + 8 + 8 + 1 + 8 + 1;
-    let mut huge_power = encoded;
-    huge_power[exponent_offset..exponent_offset + 2].copy_from_slice(&65_u16.to_le_bytes());
+fn replace_native_value(
+    bytes: &[u8],
+    changed_id: CoefficientId,
+    replacement: &crate::algebra::Coefficient,
+) -> Vec<u8> {
+    let limits = BinaryIoLimits::default();
+    let envelope = inspect_program(bytes, limits).unwrap();
+    let table = DecodedCoefficientTable::import_generated(
+        envelope.section(SectionTag::SYMBOLICA_STATE).unwrap(),
+        envelope.section(SectionTag::COEFFICIENTS).unwrap(),
+        limits,
+    )
+    .unwrap();
+    let mut builder = CoefficientTableBuilder::new(limits);
+    for index in 0..table.len() {
+        let id = CoefficientId::try_from_index(index).unwrap();
+        let value = if id == changed_id {
+            replacement
+        } else {
+            table.coefficient(id).unwrap()
+        };
+        assert_eq!(
+            builder.intern(value).unwrap(),
+            id,
+            "test replacement must preserve IDs"
+        );
+    }
+    let encoded = builder.finish().unwrap();
+    let sections = envelope
+        .sections()
+        .iter()
+        .map(|section| BinarySection {
+            tag: section.tag,
+            bytes: if section.tag == SectionTag::SYMBOLICA_STATE {
+                &encoded.state
+            } else if section.tag == SectionTag::COEFFICIENTS {
+                &encoded.atoms
+            } else {
+                section.bytes
+            },
+        })
+        .collect::<Vec<_>>();
+    encode_program(envelope.kind(), &sections, limits).unwrap()
+}
+
+#[test]
+fn generated_native_values_remain_bound_to_exact_limits_and_context() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let encoded = artifact.encode_durable().unwrap();
+    let coefficient = first_family_coefficient_payload(&encoded);
+    let id = CoefficientId::try_from_index(u32::from_le_bytes(
+        encoded[coefficient.start + 1..coefficient.end]
+            .try_into()
+            .unwrap(),
+    ) as usize)
+    .unwrap();
+    let dimension = artifact
+        .family()
+        .coefficient_context()
+        .parameter("d")
+        .unwrap();
+    // Serialize a valid generated native Atom, not a deliberately malformed
+    // upstream binary payload: native import has a trusted-provenance contract.
+    let huge_power = replace_native_value(&encoded, id, &dimension.pow(65));
     let mut strict = ArtifactLoadLimits::default();
     strict.family.exact_algebra.max_exponent = 64;
+    let error = ClosedArtifact::decode_durable_with_limits(&huge_power, strict).unwrap_err();
+    assert!(error.to_string().contains("65"), "{error}");
+    assert!(error.to_string().contains("64"), "{error}");
+
+    let foreign = crate::algebra::CoefficientContext::new(["foreign_native_dimension"]);
+    let wrong_map = replace_native_value(
+        &encoded,
+        id,
+        &foreign.parameter("foreign_native_dimension").unwrap(),
+    );
     assert_eq!(
-        ClosedArtifact::decode_durable_with_limits(&huge_power, strict).unwrap_err(),
-        ArtifactPersistenceError::ResourceLimit {
-            resource: "coefficient exponent",
-            requested: 65,
-            limit: 64,
+        ClosedArtifact::decode_durable(&wrong_map).unwrap_err(),
+        ArtifactPersistenceError::InvalidCoefficient {
+            field: "family dimension",
         }
     );
 }
 
 #[test]
-fn one_loop_algorithm_shape_is_rejected_before_coefficient_work() {
+fn one_loop_algorithm_shape_is_rejected_before_family_construction_and_replay() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let encoded = artifact.encode_durable().unwrap();
 
@@ -499,8 +586,9 @@ fn durable_load_threads_explicit_family_source_and_rule_policies() {
 
     let mut family_limited = ArtifactLoadLimits::default();
     family_limited.family.max_scalar_products = 0;
-    // The structural preflight rejects this before any native coefficient or
-    // family construction, while retaining the caller's exact family limit.
+    // The structural preflight rejects this before family construction or
+    // source replay, retaining the caller's exact family limit. Native table
+    // restoration has already happened under its own bounded framing policy.
     assert_eq!(
         ClosedArtifact::decode_durable_with_limits(&encoded, family_limited).unwrap_err(),
         ArtifactPersistenceError::ResourceLimit {

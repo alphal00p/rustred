@@ -5,6 +5,7 @@
 //! import is explicitly a generated-data boundary, not a hostile-input parser.
 
 mod atoms;
+mod compare;
 mod envelope;
 mod error;
 mod family;
@@ -13,6 +14,8 @@ mod limits;
 pub use atoms::{
     CoefficientId, CoefficientTableBuilder, DecodedCoefficientTable, EncodedCoefficientTable,
 };
+pub use compare::equivalent_generated_programs;
+pub(crate) use compare::same_native_coefficient;
 pub use envelope::{
     BINARY_PROGRAM_VERSION, BinaryProgramKind, BinarySection, ProgramEnvelope, SectionTag,
     encode_program, inspect_program,

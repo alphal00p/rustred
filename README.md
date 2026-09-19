@@ -22,10 +22,19 @@ generated programs because Symbolica's native readers are not hostile-input
 parsers. This format change does not certify candidates or change rule
 application. Four-loop data migration and the corresponding certified-artifact
 format migration are tracked in the [binary I/O plan](docs/research/native_binary_io_plan.md).
+Certified artifacts use the same native container with a distinct certified
+kind and V6 proof records. Loading still independently replays sources, guards,
+descent and coverage before admitting the owner. Equal mathematical programs
+need not have identical file bytes when Symbolica's prior process state differs;
+the comparison checks structure, every exact coefficient and its variable map.
 The [measured candidate migration](docs/research/native_binary_io_results_2026-09-19.md)
 preserves all 59,636 saved four-loop rules: compressed size falls from 29.95 MB
 to 20.51 MB, and H/X cold-loader diagnostics improve by about 21×. This is not
-an IBP-generation or first-reduction speedup; Vakint rollout is the next gate.
+an IBP-generation or first-reduction speedup. Vakint milestone `b6b02a636`
+ships these native programs and passes all 15 numerical references, all 16
+expanded-numerator/pinch comparisons and 54 paired public scalar benchmark
+comparisons. The same nine-input benchmark uses 2.73 GiB peak RSS instead of
+14.0 GiB; these are shared-host diagnostics, not a controlled speedup claim.
 
 The solver implementation follows the
 [executable SpIRed reference port](docs/spired_port.md): reproduce the actual
@@ -732,8 +741,12 @@ python -c 'import rustred'
 
 The semantic generation selectors are `unit-mass-vacuum-k1` for the canonical
 one-loop family and `unit-mass-vacuum-k3` for the equal-mass two-loop sunset.
-They are family selectors, not Vakint topology names. Generate deterministic
-binary bytes, then inspect or apply those exact bytes:
+They are family selectors, not Vakint topology names. Generate a native binary
+program, then inspect or apply those bytes. Coefficient values and proof payloads
+are deterministic; serialized Symbolica State can include ambient registry
+entries, so byte-for-byte identity across different process histories is not
+promised. Load only trusted generated native files; exact source replay and
+closure checks still run at the mathematical admission boundary:
 
 ```bash
 rustred campaign generate \

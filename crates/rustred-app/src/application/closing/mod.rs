@@ -35,7 +35,7 @@ const GENERATED_STATUS: &str = "generated-durable";
 const INSPECTED_STATUS: &str = "inspected";
 const REDUCED_STATUS: &str = "reduced";
 const LOADED_MATERIALIZATION: &str = "decoded-authenticated-durable-bytes";
-const ARTIFACT_ENCODING: &str = "rustred.closing-artifact.binary.v1";
+const ARTIFACT_ENCODING: &str = "rustred.closing-artifact.native-binary.v1";
 
 pub(super) fn generate_request(
     request: ClosingArtifactGenerateRequest,

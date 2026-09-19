@@ -239,7 +239,14 @@ fn roundtrip<const N: usize>(source: &str) {
     assert_eq!(certified.schema(), CANDIDATE_CERTIFICATION_SCHEMA);
     assert_eq!(certified.status(), "generated-durable");
     let original = family_close(FamilyCloseRequest::new(source)).unwrap();
-    assert_eq!(certified.artifact(), original.artifact());
+    assert!(
+        crate::equivalent_generated_programs(
+            certified.artifact(),
+            original.artifact(),
+            Default::default()
+        )
+        .unwrap()
+    );
     // Cold replay is a distinct, explicit test operation, not hidden in certify.
     ClosedArtifact::decode_durable(certified.artifact()).unwrap();
 }

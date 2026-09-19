@@ -51,6 +51,7 @@ fn artifact_persistence_error_kind(
         | ArtifactPersistenceError::InvalidUtf8 { .. }
         | ArtifactPersistenceError::InvalidCoefficient { .. }
         | ArtifactPersistenceError::NonCanonicalCoefficient { .. }
+        | ArtifactPersistenceError::NativeTransport(_)
         | ArtifactPersistenceError::UnsupportedFeature { .. } => match operation {
             ArtifactCodecOperation::Encode => AppErrorKind::Serialization,
             ArtifactCodecOperation::Load => AppErrorKind::Input,

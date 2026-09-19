@@ -8,10 +8,10 @@ import unittest
 
 import rustred
 
-from test_python_api import UNIT_MASS_PROJECT_K1, cli_bytes
+from test_python_api import GeneratedProgramAssertions, UNIT_MASS_PROJECT_K1, cli_bytes
 
 
-class CandidateApiTests(unittest.TestCase):
+class CandidateApiTests(GeneratedProgramAssertions):
     def test_exact_backend_selection_and_cli_parity(self) -> None:
         sparse = rustred.family_candidates(UNIT_MASS_PROJECT_K1)
         reconstructed = rustred.family_candidates(
@@ -19,12 +19,12 @@ class CandidateApiTests(unittest.TestCase):
         )
         # Native Symbolica IDs may depend on process history. Compare exact
         # certified semantics, not dirty-process native dump bytes.
-        self.assertEqual(
+        self.assertProgramEqual(
             rustred.certify_candidates(sparse.bundle).artifact,
             rustred.certify_candidates(reconstructed.bundle).artifact,
         )
         self.assertEqual(tomllib.loads(reconstructed.to_toml())["exact_backend"], "semi-numerical")
-        self.assertEqual(
+        self.assertProgramEqual(
             rustred.certify_candidates(reconstructed.bundle).artifact,
             rustred.certify_candidates(cli_bytes(
                 ["family-candidates", "--exact-backend", "semi-numerical"],
@@ -48,13 +48,13 @@ class CandidateApiTests(unittest.TestCase):
         self.assertEqual(
             certified.schema, "rustred.candidate-certification-output.toml.v1"
         )
-        self.assertEqual(certified.artifact, rustred.family_close(UNIT_MASS_PROJECT_K1).artifact)
+        self.assertProgramEqual(certified.artifact, rustred.family_close(UNIT_MASS_PROJECT_K1).artifact)
         reduced = rustred.reduce_with_closing_artifact(certified.artifact, [3])
         self.assertEqual(reduced.status, "reduced")
 
     def test_cli_python_bundle_and_certification_parity(self) -> None:
         generated = rustred.family_candidates(UNIT_MASS_PROJECT_K1, input_format="toml")
-        self.assertEqual(
+        self.assertProgramEqual(
             rustred.certify_candidates(generated.bundle).artifact,
             rustred.certify_candidates(cli_bytes(
                 ["family-candidates", "--input-format", "toml"],
@@ -62,7 +62,7 @@ class CandidateApiTests(unittest.TestCase):
             )).artifact,
         )
         certified = rustred.certify_candidates(generated.bundle, max_predicate_atoms=64)
-        self.assertEqual(
+        self.assertProgramEqual(
             certified.artifact,
             cli_bytes(["certify-candidates", "--max-predicate-atoms", "64"], generated.bundle),
         )

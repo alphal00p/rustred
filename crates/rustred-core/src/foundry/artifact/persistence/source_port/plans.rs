@@ -686,8 +686,8 @@ mod tests {
         let (context, domain) = fixture();
         let mut writer = Writer::new(Default::default());
         encode_affine_domain(&mut writer, &domain).unwrap();
-        let bytes = writer.finish();
-        let mut reader = Reader::root(&bytes, Default::default()).unwrap();
+        let (bytes, table) = writer.finish_for_test().unwrap();
+        let mut reader = Reader::with_table(&bytes, Default::default(), table).unwrap();
         let decoded = decode_affine_domain(&mut reader, &context, 2).unwrap();
         reader.finish().unwrap();
         assert_eq!(*decoded, *domain);
@@ -701,11 +701,11 @@ mod tests {
         let (context, domain) = fixture();
         let mut writer = Writer::new(Default::default());
         encode_affine_domain(&mut writer, &domain).unwrap();
-        let mut bytes = writer.finish();
+        let (mut bytes, table) = writer.finish_for_test().unwrap();
         // sector length + two sector bytes + fixed length + two fixed tags +
         // index length place the two u64 positions at offsets 28 and 36.
         bytes[36..44].copy_from_slice(&1u64.to_le_bytes());
-        let mut reader = Reader::root(&bytes, Default::default()).unwrap();
+        let mut reader = Reader::with_table(&bytes, Default::default(), table).unwrap();
         assert_eq!(
             decode_affine_domain(&mut reader, &context, 2).unwrap_err(),
             ArtifactPersistenceError::SemanticMismatch {

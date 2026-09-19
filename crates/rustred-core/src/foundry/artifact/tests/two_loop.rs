@@ -180,7 +180,10 @@ fn sunset_durable_artifact_is_deterministic_authenticated_and_reducer_ready() {
     let artifact = derive_two_loop_unit_mass_sunset().unwrap();
     let first = artifact.encode_durable().unwrap();
     let second = artifact.encode_durable().unwrap();
-    assert_eq!(first, second);
+    assert!(
+        crate::persistence::equivalent_generated_programs(&first, &second, Default::default())
+            .unwrap()
+    );
 
     let loaded = ClosedArtifact::decode_durable(&first).unwrap();
     assert_eq!(loaded.algorithm_id(), super::two_loop::ALGORITHM_ID);
@@ -203,7 +206,7 @@ fn sunset_durable_artifact_is_deterministic_authenticated_and_reducer_ready() {
     assert!(matches!(
         ClosedArtifact::decode_durable(&corrupted),
         Err(ArtifactPersistenceError::SemanticMismatch {
-            field: "two-loop complete artifact witness"
+            field: "complete native artifact witness"
         })
     ));
 }

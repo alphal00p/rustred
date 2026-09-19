@@ -248,8 +248,12 @@ Use two distinct checks:
   changed coefficients even if local replay used the input lookup. The input
   table must not seed this final independent encoder.
 
-The fast generated-data precondition supplies normalized coefficients; native
-coefficient equality includes exact numerator, denominator and variable order.
+The fast generated-data precondition supplies normalized coefficients. Compare
+ordered numerator and denominator variable maps explicitly before native
+coefficient equality: Symbolica deliberately equates equal constants and zero
+polynomials across different maps. The artifact's context identity is stricter
+than that algebraic equality. Include the maps in lookup hashing as well, and
+still compare the full map/value pair after every hash hit.
 Tests of a deliberately nonnormalized producer should use the explicit native
 normalization path rather than silently claiming representation equality means
 general rational-function equivalence. No new GCD should run for every ID use.

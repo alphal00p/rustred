@@ -2,6 +2,8 @@ mod application;
 #[cfg(feature = "cli")]
 mod cli;
 
+pub use rustred::persistence::{BinaryIoLimits, equivalent_generated_programs};
+
 pub use application::{
     AppError, AppErrorKind, ArtifactLoadLimits, CANDIDATE_BUNDLE_SCHEMA,
     CANDIDATE_CERTIFICATION_SCHEMA, CampaignPlanRequest, CampaignPlanResult,

@@ -210,10 +210,14 @@ children back. Separately, `foundry::artifact` generates and verifies the
 canonical `K = 1` and `K = 3` closures and seals them for `reduction`; the
 reusable primitives are topology-neutral, while these first complete
 partition verifiers are registered family manifests rather than a generic
-closure search. Its schema-v5 codec owns deterministic semantic bytes and
-one-time bounded untrusted loading. It reconstructs tagged complete-ordinary
+closure search. Its schema-v6 codec shares the native Atom/State envelope and
+coefficient dictionary with candidate programs. Generated native payloads must
+come from a trusted source: Symbolica's readers are not hostile-input parsers.
+Loading checks mathematical claims independently, once. It reconstructs tagged complete-ordinary
 source plans under explicit family/generator/rule policies, compares retained
 semantics exactly, and authenticates replay before exposing a sealed owner.
+Exact payload equivalence compares all structural sections and ordered decoded
+coefficient values/maps, not ambient State bytes or process-local symbol IDs.
 The sunset pinch additionally retains and replays a unimodular loop-basis
 certificate proving its denominator blocks factor into immutable `K = 1`
 dependencies. Product-sector application is generic over multi-master lower

@@ -51,14 +51,17 @@ this example contains no additional artifact reader or reduction engine.
 The defining generation output is:
 
 ```text
-schema=rustred.closing-artifact.v5
+schema=rustred.closing-artifact.v6
 algorithm_id=rustred.source-port-original-domain.v1
-sectors=38 zero_sectors=26 generated_rules=623 rule_cells=5640 terminals=38 bytes=8917577 workers=6
+sectors=38 zero_sectors=26 generated_rules=623 rule_cells=5640 terminals=38 bytes=<native payload size> workers=6
 ```
 
 Family/context identities, all 38 typed terminal keys and preparation,
 generation, installation and encoding timings are also printed. Serial and
-six-worker runs produce identical bytes. Inspection reports those same keys;
+six-worker runs produce identical exact payloads. Native transport size and
+State bytes can depend on prior Symbolica registrations; compare decoded
+structure and exact coefficients rather than ambient symbol IDs.
+Inspection reports those same keys;
 the dotted reduction above produces 30 exact master terms, with explicit
 common-mass homogeneity powers. The example now shares the identifier-safe
 family name in `input/three_loop_k6.toml`. This intentionally changes its

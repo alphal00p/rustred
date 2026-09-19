@@ -9,8 +9,8 @@ fn complete_vacuum_inputs_roundtrip_without_topology_dispatch() {
     for family in [one.family(), &two, &three] {
         let mut writer = Writer::new(Default::default());
         super::super::encode_family(&mut writer, &family).unwrap();
-        let bytes = writer.finish();
-        let mut reader = Reader::root(&bytes, Default::default()).unwrap();
+        let (bytes, table) = writer.finish_for_test().unwrap();
+        let mut reader = Reader::with_table(&bytes, Default::default(), table).unwrap();
         let decoded = decode(
             &mut reader,
             FamilyGrammar::CompleteVacuum {

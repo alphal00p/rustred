@@ -1,9 +1,9 @@
 //! Deterministic durable ownership for sealed closing artifacts.
 //!
-//! Schema v5 persists exact family constructor inputs, one explicit ordering
+//! Schema v6 persists exact family constructor inputs, one explicit ordering
 //! authority, tagged derivation
 //! plans with complete semantic witnesses, rule plans, and terminals. Loading
-//! first bounds every byte-level shape, independently regenerates the tagged
+//! uses native Symbolica payloads from trusted generators, independently regenerates the tagged
 //! canonical ordinary source plan, compares the full retained semantics, then
 //! derives/replays rules and invokes the closing installer exactly once.
 
@@ -17,10 +17,15 @@ mod source_port;
 mod two_loop;
 
 use std::collections::BTreeSet;
+use std::rc::Rc;
 
 use crate::family::{IntegralFamily, IntegralKey};
 use crate::foundry::parametric::derive_sector_interior_rule;
 use crate::identity::{ParametricIbpGenerator, ParametricRelation};
+use crate::persistence::{
+    BinaryProgramKind, BinarySection, DecodedCoefficientTable, SectionTag, encode_program,
+    equivalent_generated_programs, inspect_program,
+};
 use crate::sector::{Mask, OrderingPolicy};
 
 use super::error::{ArtifactError, ArtifactPersistenceError};
@@ -43,7 +48,8 @@ use semantic::{
     encode_rule_snapshot,
 };
 
-const MAGIC: &[u8; 8] = b"RRIBP\0\r\n";
+// Private proof-record grammar, not a second public transport envelope.
+const MAGIC: &[u8; 8] = b"RRPROOF\0";
 const SECTION_COUNT: u32 = 5;
 const METADATA_SECTION: u16 = 1;
 const FAMILY_SECTION: u16 = 2;
@@ -81,7 +87,26 @@ pub(super) fn encode_with_limits(
 ) -> Result<Vec<u8>, ArtifactPersistenceError> {
     let mut output = Writer::new(limits);
     encode_into_writer(artifact, &mut output)?;
-    Ok(output.finish())
+    let (program, table) = output.finish_native()?;
+    encode_program(
+        BinaryProgramKind::Certified,
+        &[
+            BinarySection {
+                tag: SectionTag::SYMBOLICA_STATE,
+                bytes: &table.state,
+            },
+            BinarySection {
+                tag: SectionTag::COEFFICIENTS,
+                bytes: &table.atoms,
+            },
+            BinarySection {
+                tag: SectionTag::PROGRAM,
+                bytes: &program,
+            },
+        ],
+        limits.native_io(),
+    )
+    .map_err(Into::into)
 }
 
 fn encode_into_writer(
@@ -98,7 +123,7 @@ fn encode_into_writer(
         ONE_LOOP_ALGORITHM_ID | TWO_LOOP_ALGORITHM_ID | K6_ALGORITHM_ID | SOURCE_PORT_ALGORITHM_ID
     ) {
         return Err(ArtifactPersistenceError::UnsupportedFeature {
-            detail: "schema-v5 has no registered durable rule-cell grammar for this closing algorithm",
+            detail: "schema-v6 has no registered durable rule-cell grammar for this closing algorithm",
         });
     }
     output.raw(MAGIC)?;
@@ -184,7 +209,55 @@ pub(super) fn decode(
     bytes: &[u8],
     limits: ArtifactLoadLimits,
 ) -> Result<ClosedArtifact, ArtifactPersistenceError> {
-    let mut input = Reader::root(bytes, limits)?;
+    let envelope = inspect_program(bytes, limits.native_io())?;
+    if envelope.kind() != BinaryProgramKind::Certified
+        || envelope
+            .sections()
+            .iter()
+            .map(|section| section.tag)
+            .collect::<Vec<_>>()
+            != [
+                SectionTag::SYMBOLICA_STATE,
+                SectionTag::COEFFICIENTS,
+                SectionTag::PROGRAM,
+            ]
+    {
+        return Err(ArtifactPersistenceError::SemanticMismatch {
+            field: "certified native envelope kind or sections",
+        });
+    }
+    let table = Rc::new(DecodedCoefficientTable::import_generated(
+        envelope
+            .section(SectionTag::SYMBOLICA_STATE)
+            .expect("checked sections"),
+        envelope
+            .section(SectionTag::COEFFICIENTS)
+            .expect("checked sections"),
+        limits.native_io(),
+    )?);
+    let input = Reader::with_table(
+        envelope
+            .section(SectionTag::PROGRAM)
+            .expect("checked sections"),
+        limits,
+        table,
+    )?;
+    let artifact = decode_proof(input, limits)?;
+    // A fresh first-occurrence interner is essential: the local replay lookup
+    // cannot establish canonical order, table length or absence of unused data.
+    let regenerated = encode_with_limits(&artifact, limits.replay_encoding())?;
+    if !equivalent_generated_programs(bytes, &regenerated, limits.native_io())? {
+        return Err(ArtifactPersistenceError::SemanticMismatch {
+            field: "complete native artifact witness",
+        });
+    }
+    Ok(artifact)
+}
+
+fn decode_proof(
+    mut input: Reader<'_>,
+    limits: ArtifactLoadLimits,
+) -> Result<ClosedArtifact, ArtifactPersistenceError> {
     if input.fixed(MAGIC.len())? != MAGIC {
         return Err(ArtifactPersistenceError::InvalidMagic);
     }
@@ -250,8 +323,8 @@ pub(super) fn decode(
     if algorithm_id == TWO_LOOP_ALGORITHM_ID {
         // The anchored K=3 grammar owns complete cell/projection/factorization snapshots,
         // including its installer-compiled typed master-product embeddings.
-        // At this untrusted boundary only, regenerate the registered exact
-        // foundry plan and compare its complete deterministic encoding. The
+        // After trusted native decoding, regenerate the registered exact
+        // foundry plan and compare its complete semantic encoding. The
         // returned sealed artifact is then reused without authentication or
         // foundry work in reducer hot paths.
         let artifact = derive_two_loop_unit_mass_sunset_with_limits(
@@ -266,12 +339,6 @@ pub(super) fn decode(
         {
             return Err(ArtifactPersistenceError::SemanticMismatch {
                 field: "two-loop metadata witness",
-            });
-        }
-        let regenerated = encode_with_limits(&artifact, limits.replay_encoding())?;
-        if regenerated.as_slice() != bytes {
-            return Err(ArtifactPersistenceError::SemanticMismatch {
-                field: "two-loop complete artifact witness",
             });
         }
         return Ok(artifact);
@@ -289,7 +356,6 @@ pub(super) fn decode(
             &expected_family_fingerprint,
             &expected_context_fingerprint,
             limits,
-            bytes,
         );
     }
 
@@ -304,7 +370,6 @@ pub(super) fn decode(
             &expected_family_fingerprint,
             &expected_context_fingerprint,
             limits,
-            bytes,
         );
     }
 
@@ -744,12 +809,13 @@ mod aggregate_budget_tests {
         let mut first = root.child();
         encode_into_writer(&artifact, &mut first).unwrap();
         let mut second = root.child();
+        // Repeated nested owners share native IDs rather than charging their
+        // identical atoms twice. A genuinely new value still consumes budget.
+        encode_into_writer(&artifact, &mut second).unwrap();
+        assert_eq!(first.finish(), second.finish());
         assert!(matches!(
-            encode_into_writer(&artifact, &mut second),
-            Err(ArtifactPersistenceError::ResourceLimit {
-                resource: "aggregate coefficient bytes",
-                ..
-            })
+            root.intern_coefficient(&artifact.family().coefficient_context().integer(123456789)),
+            Err(ArtifactPersistenceError::ResourceLimit { .. })
         ));
     }
 
@@ -767,3 +833,93 @@ mod aggregate_budget_tests {
 }
 #[cfg(test)]
 mod replay_evidence_tests;
+
+#[cfg(test)]
+mod native_table_tests {
+    use super::*;
+    use crate::persistence::{CoefficientId, CoefficientTableBuilder};
+
+    fn replace_table(original: &[u8], state: &[u8], atoms: &[u8]) -> Vec<u8> {
+        let envelope = inspect_program(original, Default::default()).unwrap();
+        encode_program(
+            BinaryProgramKind::Certified,
+            &[
+                BinarySection {
+                    tag: SectionTag::SYMBOLICA_STATE,
+                    bytes: state,
+                },
+                BinarySection {
+                    tag: SectionTag::COEFFICIENTS,
+                    bytes: atoms,
+                },
+                BinarySection {
+                    tag: SectionTag::PROGRAM,
+                    bytes: envelope.section(SectionTag::PROGRAM).unwrap(),
+                },
+            ],
+            Default::default(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn certified_table_rejects_duplicate_and_unused_native_entries() {
+        let artifact = crate::foundry::artifact::derive_one_loop_unit_mass_tadpole().unwrap();
+        let original = artifact.encode_durable().unwrap();
+        let envelope = inspect_program(&original, Default::default()).unwrap();
+        let state = envelope.section(SectionTag::SYMBOLICA_STATE).unwrap();
+        let atoms = envelope.section(SectionTag::COEFFICIENTS).unwrap();
+        let count = u64::from_le_bytes(atoms[..8].try_into().unwrap());
+        let first_len = u64::from_le_bytes(atoms[8..16].try_into().unwrap()) as usize;
+        let mut duplicate = atoms.to_vec();
+        duplicate[..8].copy_from_slice(&(count + 1).to_le_bytes());
+        duplicate.extend_from_slice(&atoms[8..16 + first_len]);
+        assert!(matches!(
+            ClosedArtifact::decode_durable(&replace_table(&original, state, &duplicate)),
+            Err(ArtifactPersistenceError::SemanticMismatch {
+                field: "duplicate native coefficient table entry"
+            })
+        ));
+
+        let table =
+            DecodedCoefficientTable::import_generated(state, atoms, Default::default()).unwrap();
+        let mut builder = CoefficientTableBuilder::new(Default::default());
+        for index in 0..table.len() {
+            let id = CoefficientId::try_from_index(index).unwrap();
+            assert_eq!(builder.intern(table.coefficient(id).unwrap()).unwrap(), id);
+        }
+        assert_eq!(
+            builder
+                .intern(&artifact.family().coefficient_context().integer(123456789))
+                .unwrap()
+                .index(),
+            table.len()
+        );
+        let unused = builder.finish().unwrap();
+        assert!(matches!(
+            ClosedArtifact::decode_durable(&replace_table(&original, &unused.state, &unused.atoms)),
+            Err(ArtifactPersistenceError::SemanticMismatch {
+                field: "complete native artifact witness"
+            })
+        ));
+    }
+
+    #[test]
+    fn candidate_status_cannot_mint_a_certified_owner() {
+        let artifact = crate::foundry::artifact::derive_one_loop_unit_mass_tadpole().unwrap();
+        let original = artifact.encode_durable().unwrap();
+        let envelope = inspect_program(&original, Default::default()).unwrap();
+        let candidate = encode_program(
+            BinaryProgramKind::Candidates,
+            envelope.sections(),
+            Default::default(),
+        )
+        .unwrap();
+        assert!(matches!(
+            ClosedArtifact::decode_durable(&candidate),
+            Err(ArtifactPersistenceError::SemanticMismatch {
+                field: "certified native envelope kind or sections"
+            })
+        ));
+    }
+}

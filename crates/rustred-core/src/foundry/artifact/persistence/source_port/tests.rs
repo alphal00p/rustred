@@ -1,5 +1,10 @@
 //! Corruption tests serialize arithmetic descriptions, never private seals.
 use crate::foundry::artifact::source_port::installed_k1_for_codec_test;
+use crate::persistence::{
+    BinaryProgramKind, BinarySection, DecodedCoefficientTable, SectionTag, encode_program,
+    inspect_program,
+};
+use std::rc::Rc;
 
 use super::super::coefficient::{encode_indexed_coefficient, encode_indexed_polynomial};
 use super::super::semantic::{encode_bool_slice, encode_i64_slice};
@@ -17,7 +22,17 @@ fn changed_plan(
     artifact: &ClosedArtifact,
     change: impl FnOnce(&mut crate::sector::Mask, &mut Vec<ParentPlan>, &mut Vec<CellPlan>),
 ) -> Vec<u8> {
-    let original = artifact.encode_durable().unwrap();
+    let encoded = artifact.encode_durable().unwrap();
+    let envelope = inspect_program(&encoded, Default::default()).unwrap();
+    let table = Rc::new(
+        DecodedCoefficientTable::import_generated(
+            envelope.section(SectionTag::SYMBOLICA_STATE).unwrap(),
+            envelope.section(SectionTag::COEFFICIENTS).unwrap(),
+            Default::default(),
+        )
+        .unwrap(),
+    );
+    let original = envelope.section(SectionTag::PROGRAM).unwrap();
     let mut offset = 16;
     let (start, end) = loop {
         let tag = u16::from_le_bytes(original[offset..offset + 2].try_into().unwrap());
@@ -28,7 +43,12 @@ fn changed_plan(
         }
         offset += 10 + length;
     };
-    let mut reader = Reader::root(&original[start + 10..end], Default::default()).unwrap();
+    let mut reader = Reader::with_table(
+        &original[start + 10..end],
+        Default::default(),
+        table.clone(),
+    )
+    .unwrap();
     let (mut root, mut parents, mut cells) = plans::decode(
         &mut reader,
         &artifact.context,
@@ -37,7 +57,7 @@ fn changed_plan(
     .unwrap();
     reader.finish().unwrap();
     change(&mut root, &mut parents, &mut cells);
-    let mut writer = Writer::new(Default::default());
+    let mut writer = Writer::seeded_for_test(&table).unwrap();
     writer.u16(plans::COMBINED_ORIGINAL_PLAN).unwrap();
     encode_bool_slice(&mut writer, root.active_bits()).unwrap();
     writer.usize(parents.len(), "parents").unwrap();
@@ -82,12 +102,30 @@ fn changed_plan(
             encode_indexed_coefficient(&mut writer, &coefficient).unwrap();
         }
     }
-    let replacement = writer.finish();
+    let (replacement, native) = writer.finish_native().unwrap();
     let mut changed = original[..start + 2].to_vec();
     changed.extend_from_slice(&(replacement.len() as u64).to_le_bytes());
     changed.extend_from_slice(&replacement);
     changed.extend_from_slice(&original[end..]);
-    changed
+    encode_program(
+        BinaryProgramKind::Certified,
+        &[
+            BinarySection {
+                tag: SectionTag::SYMBOLICA_STATE,
+                bytes: &native.state,
+            },
+            BinarySection {
+                tag: SectionTag::COEFFICIENTS,
+                bytes: &native.atoms,
+            },
+            BinarySection {
+                tag: SectionTag::PROGRAM,
+                bytes: &changed,
+            },
+        ],
+        Default::default(),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -250,7 +288,7 @@ fn omitted_stored_poles_are_regenerated_before_canonical_payload_admission() {
     assert_eq!(
         ClosedArtifact::decode_durable(&bytes).unwrap_err(),
         ArtifactPersistenceError::SemanticMismatch {
-            field: "combined canonical artifact payload"
+            field: "complete native artifact witness"
         }
     );
 }
@@ -300,7 +338,7 @@ fn coupled_exclusion_fixture() -> (
 fn exclusion_plan_bytes(
     context: &crate::algebra::IndexedCoefficientContext,
     exclusions: &[Arc<crate::foundry::parametric::AffineApplicationDomain>],
-) -> Vec<u8> {
+) -> (Vec<u8>, Rc<DecodedCoefficientTable>) {
     let mut writer = Writer::new(Default::default());
     writer.u16(plans::COMBINED_ORIGINAL_PLAN).unwrap();
     encode_bool_slice(&mut writer, &vec![true; context.index_count()]).unwrap();
@@ -335,14 +373,14 @@ fn exclusion_plan_bytes(
         encode_i64_slice(&mut writer, &shift).unwrap();
         encode_indexed_coefficient(&mut writer, &context.one()).unwrap();
     }
-    writer.finish()
+    writer.finish_for_test().unwrap()
 }
 
 #[test]
 fn coupled_exclusion_plans_retain_exact_predicates_and_distinct_parents() {
     let (context, exclusions) = coupled_exclusion_fixture();
-    let bytes = exclusion_plan_bytes(&context, &exclusions);
-    let mut reader = Reader::root(&bytes, Default::default()).unwrap();
+    let (bytes, table) = exclusion_plan_bytes(&context, &exclusions);
+    let mut reader = Reader::with_table(&bytes, Default::default(), table).unwrap();
     let (_, parents, cells) = plans::decode(&mut reader, &context, 1).unwrap();
     reader.finish().unwrap();
     assert_eq!(parents.len(), 2);
@@ -369,7 +407,7 @@ fn coupled_exclusion_plans_retain_exact_predicates_and_distinct_parents() {
 #[test]
 fn affine_exclusion_codec_rejects_old_tag_wrong_axis_map_and_sector() {
     let (context, exclusions) = coupled_exclusion_fixture();
-    let original = exclusion_plan_bytes(&context, &exclusions[..1]);
+    let (original, table) = exclusion_plan_bytes(&context, &exclusions[..1]);
     // tag(2), root mask length(8)+bits, parent count(8), fixed count(8),
     // absent-target tag(1), exclusion count(8), then the exact domain payload.
     let domain = 2 + 8 + context.index_count() + 8 + 8 + 1 + 8;
@@ -392,7 +430,7 @@ fn affine_exclusion_codec_rejects_old_tag_wrong_axis_map_and_sector() {
             3 => bytes[domain + 8] = 0,
             _ => unreachable!(),
         }
-        let mut reader = Reader::root(&bytes, Default::default()).unwrap();
+        let mut reader = Reader::with_table(&bytes, Default::default(), table.clone()).unwrap();
         assert_eq!(
             plans::decode(&mut reader, &context, 1).err().unwrap(),
             ArtifactPersistenceError::SemanticMismatch { field },
@@ -404,10 +442,10 @@ fn affine_exclusion_codec_rejects_old_tag_wrong_axis_map_and_sector() {
 #[test]
 fn affine_exclusion_codec_checks_count_budget_and_truncated_predicates() {
     let (context, exclusions) = coupled_exclusion_fixture();
-    let bytes = exclusion_plan_bytes(&context, &exclusions[..1]);
+    let (bytes, table) = exclusion_plan_bytes(&context, &exclusions[..1]);
     let mut limits = ArtifactLoadLimits::default();
     limits.rule_cells.max_guards = 0;
-    let mut reader = Reader::root(&bytes, limits).unwrap();
+    let mut reader = Reader::with_table(&bytes, limits, table.clone()).unwrap();
     assert_eq!(
         plans::decode(&mut reader, &context, 1).err().unwrap(),
         ArtifactPersistenceError::ResourceLimit {
@@ -428,7 +466,8 @@ fn affine_exclusion_codec_checks_count_budget_and_truncated_predicates() {
         domain + 28,
         domain + domain_bytes.len() - 1,
     ] {
-        let mut reader = Reader::root(&bytes[..boundary], Default::default()).unwrap();
+        let mut reader =
+            Reader::with_table(&bytes[..boundary], Default::default(), table.clone()).unwrap();
         assert!(
             matches!(
                 plans::decode(&mut reader, &context, 1),
@@ -537,8 +576,8 @@ fn cold_parent_rebuilds_exclusion_matrix_and_chart_from_exact_equations() {
             correct.has_integral_chart().unwrap() ^ (mutation == 2),
         )
         .unwrap();
-        let bytes = exclusion_plan_bytes(context, &[Arc::new(domain)]);
-        let mut reader = Reader::root(&bytes, Default::default()).unwrap();
+        let (bytes, table) = exclusion_plan_bytes(context, &[Arc::new(domain)]);
+        let mut reader = Reader::with_table(&bytes, Default::default(), table).unwrap();
         let (_, mut plans, _) = plans::decode(&mut reader, context, 4).unwrap();
         reader.finish().unwrap();
         let plan = plans.pop().unwrap();

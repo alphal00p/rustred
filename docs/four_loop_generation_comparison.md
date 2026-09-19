@@ -346,13 +346,27 @@ sets and complete structural census are recorded in
 saved-output evidence, not a proof that the two different candidate systems
 are equivalent.
 
-A new unchanged BMW six-worker run started on 2026-09-19 at 11:12:53 UTC,
-under the prefix `cpp-bmw-w6-uncapped-final-20260919-2`. It has no supervisor
-deadline and retains affinity 38--43, six OpenMP threads and the original
-nested-pool caps. Its resource log records progress only; no completed BMW6
-timing is inferred while it is running. An earlier detached-launch attempt
-with the unsuffixed prefix lost its supervisor immediately and produced no
-terminal solver record; it is not counted as a solver failure or completion.
+The unchanged BMW six-worker attempt started on 2026-09-19 at 11:12:53 UTC,
+under the prefix `cpp-bmw-w6-uncapped-final-20260919-2`, is now censored with
+an **unrecorded termination reason**, not a completed solve. Its last resource
+sample at 13:15:49 UTC showed 2:02:55 elapsed, 2:21:48 cumulative process CPU,
+six threads and 3,865,272 KiB current/high-water RSS. By the 13:31 UTC audit,
+the solver, timer, supervisor and sampled worker PIDs were absent; stdout,
+stderr and the timing file remained empty, no terminal status file existed,
+and the output directory contained zero files. The samples establish only
+lower bounds on resource use. They do not identify an OOM, timeout or signal,
+and supply no completed solver time or output-equivalence result. An earlier
+detached-launch attempt with the unsuffixed prefix likewise lost its supervisor
+immediately and produced no terminal solver record.
+
+After checking that the former processes were absent, the same approved
+uncapped launcher started a fresh attempt at 13:32:17 UTC under
+`cpp-bmw-w6-uncapped-final-20260919-3`. It retains the unchanged optimized
+driver and solver, input hashes, affinity 38--43, six OpenMP threads and original
+nested-pool caps, with no supervisor deadline. Its supervisor log records all
+binary/input hashes, and its resource log records observations only. This new
+attempt is still running; no successful comparison is inferred before a
+terminal status, completed solver report and full output check exist.
 An independent boundary audit rechecked the frozen binary hashes, external
 inputs, sector manifests, ordering, solver controls and excluded phases.
 

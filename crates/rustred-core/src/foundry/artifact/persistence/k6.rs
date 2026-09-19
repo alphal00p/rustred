@@ -3,7 +3,7 @@
 //! Search chronology is intentionally absent.  Every cell stores only the
 //! canonical translated-source requests and exact derivation inputs needed to
 //! regenerate it.  The complete semantic snapshot is then compared byte for
-//! byte at the untrusted load boundary before the generic installer receives
+//! byte after trusted native decoding before the generic installer receives
 //! the cell.
 
 use std::sync::Arc;
@@ -31,7 +31,7 @@ use super::binary::{Reader, Writer, try_vec};
 use super::semantic::{encode_i64_slice, encode_rule_snapshot};
 use super::{
     ArtifactLoadLimits, K6_CLOSURE_HEADER, K6_REGENERATED_RULE_CELL_PLAN, decode_source_plan,
-    encode_family, encode_source_snapshot, encode_with_limits,
+    encode_family, encode_source_snapshot,
 };
 
 const DIRECT_SOURCES: u8 = 0;
@@ -179,7 +179,6 @@ pub(super) fn decode(
     expected_family_fingerprint: &str,
     expected_context_fingerprint: &str,
     limits: ArtifactLoadLimits,
-    original_bytes: &[u8],
 ) -> Result<ClosedArtifact, ArtifactPersistenceError> {
     let authority = derive_k6_terminal_authority_with_ordering_and_limits(
         ordering,
@@ -321,12 +320,7 @@ pub(super) fn decode(
         limits.cover_replay,
     )
     .map_err(ArtifactPersistenceError::from)?;
-    let regenerated = encode_with_limits(&artifact, limits.replay_encoding())?;
-    if regenerated.as_slice() != original_bytes {
-        return Err(ArtifactPersistenceError::SemanticMismatch {
-            field: "K6 complete artifact witness",
-        });
-    }
+    // Complete fresh-interner equality is checked by the common outer decoder.
     Ok(artifact)
 }
 
@@ -994,10 +988,20 @@ mod tests {
         let artifact = synthetic_exact_artifact();
         let first = artifact.encode_durable().unwrap();
         let second = synthetic_exact_artifact().encode_durable().unwrap();
-        assert_eq!(first, second);
+        assert!(
+            crate::persistence::equivalent_generated_programs(&first, &second, Default::default())
+                .unwrap()
+        );
         let loaded = ClosedArtifact::decode_durable(&first).unwrap();
         assert_eq!(loaded.algorithm_id(), ALGORITHM_ID);
-        assert_eq!(loaded.encode_durable().unwrap(), first);
+        assert!(
+            crate::persistence::equivalent_generated_programs(
+                &loaded.encode_durable().unwrap(),
+                &first,
+                Default::default()
+            )
+            .unwrap()
+        );
 
         let mut tampered = first;
         let last = tampered.last_mut().unwrap();
@@ -1198,17 +1202,18 @@ mod tests {
         let parts = derive_k6_terminal_authority_with_ordering(ordering)
             .unwrap()
             .into_artifact_parts();
-        let parent = Reader::root(&[], ArtifactLoadLimits::default()).unwrap();
-        let mut header = parent.replay_writer().child();
+        let mut header = Writer::new(Default::default());
         header.usize(6, "K6 root-power bounds").unwrap();
         for ordinal in 0..6 {
             header.i64(if ordinal == 0 { -1 } else { 0 }).unwrap();
             header.i64(1).unwrap();
         }
         encode_authority_tail(&mut header, &parts, ordering).unwrap();
+        let (header, table) = header.finish_for_test().unwrap();
+        let parent = Reader::with_table(&[], Default::default(), table).unwrap();
 
         assert!(matches!(
-            decode_root_bounds(&parent, &header.finish(), &parts, ordering),
+            decode_root_bounds(&parent, &header, &parts, ordering),
             Err(ArtifactPersistenceError::SemanticMismatch {
                 field: "K6 symmetry-invariant root-power bounds",
             })
@@ -1220,7 +1225,7 @@ mod tests {
         let artifact = synthetic_exact_artifact();
         let mut plan_writer = Writer::new(ArtifactEncodingLimits::default());
         encode_cell_plan(&mut plan_writer, &artifact.rule_cells()[0]).unwrap();
-        let mut forged_plan = plan_writer.finish();
+        let (mut forged_plan, table) = plan_writer.finish_for_test().unwrap();
         // The exact witness is the final length-delimited field in the cell
         // plan. Mutating its payload while calling `decode_cell` directly
         // bypasses artifact framing and its outer checksum entirely.
@@ -1236,7 +1241,7 @@ mod tests {
             .map(|ordinal| prepared.generate(ordinal))
             .collect();
         let completed = prepared.complete(rows).unwrap();
-        let parent = Reader::root(&[], ArtifactLoadLimits::default()).unwrap();
+        let parent = Reader::with_table(&[], ArtifactLoadLimits::default(), table).unwrap();
         assert!(matches!(
             decode_cell(
                 &parent,

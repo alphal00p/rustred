@@ -445,7 +445,14 @@ numerator = "1"
             .max_domain_bound_endpoint_cells = usize::MAX;
         request.publication_limits.max_predicate_consistency_work = usize::MAX;
         let chosen = family_close(request).unwrap();
-        assert_eq!(chosen.artifact(), baseline.artifact());
+        assert!(
+            crate::equivalent_generated_programs(
+                chosen.artifact(),
+                baseline.artifact(),
+                Default::default()
+            )
+            .unwrap()
+        );
         let report: toml::Value = toml::from_str(chosen.to_toml()).unwrap();
         assert_eq!(report["schema"].as_str(), Some(FAMILY_CLOSE_SCHEMA));
         for name in [
@@ -503,7 +510,14 @@ numerator = "1"
             generated.load(std::sync::atomic::Ordering::Relaxed),
             parallel.solved_sectors
         );
-        assert_eq!(result.artifact(), parallel.artifact());
+        assert!(
+            crate::equivalent_generated_programs(
+                result.artifact(),
+                parallel.artifact(),
+                Default::default()
+            )
+            .unwrap()
+        );
         let reduction = closing_artifact_reduce(ClosingArtifactReduceRequest::new(
             result.into_artifact(),
             vec![2, 2, 1],
@@ -532,7 +546,14 @@ numerator = "1"
             [true, true, false]
         );
         request.n_cores = 2;
-        assert_eq!(scoped.artifact(), family_close(request).unwrap().artifact());
+        assert!(
+            crate::equivalent_generated_programs(
+                scoped.artifact(),
+                family_close(request).unwrap().artifact(),
+                Default::default()
+            )
+            .unwrap()
+        );
 
         let inspected = crate::closing_artifact_inspect(crate::ClosingArtifactInspectRequest {
             load_limits: Default::default(),
@@ -584,7 +605,14 @@ numerator = "1"
             events.lock().unwrap().push(event);
         })
         .unwrap();
-        assert_eq!(baseline.artifact(), observed.artifact());
+        assert!(
+            crate::equivalent_generated_programs(
+                baseline.artifact(),
+                observed.artifact(),
+                Default::default()
+            )
+            .unwrap()
+        );
         let events = events.into_inner().unwrap();
         assert!(matches!(
             events.first(),

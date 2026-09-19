@@ -41,6 +41,14 @@ normalization or the separation between candidates and certified artifacts.
 
 Delegate orthogonal implementation slices and independent
 mathematical/implementation audits, while preserving the sequence above.
+The candidate-native milestone is pushed as RustRed `3e621859` and Vakint
+`b6b02a636`: all 15 references and 16 pinch comparisons pass with unchanged
+tolerances, together with the nine-input/54-comparison public benchmark.
+The certified V6 codec now shares the native envelope/table and passes its
+release core, Rust/CLI/Python and fresh-process context gates. Its migrated
+K1/K3/K6 files preserve exact rules and reductions without regeneration.
+Atomic Vakint pin/asset rollout and downstream acceptance remain the final
+I/O gate before terminal work.
 Audit Symbolica's public API
 before introducing any algebraic primitive. Keep all scratch evidence in local
 `TMP/`, use release measurements, and commit/push coherent validated milestones

@@ -1,216 +1,66 @@
-//! Bounded canonical sparse transport for Symbolica polynomials.
+//! Typed references into the program's shared native Symbolica atom table.
 //!
-//! Durable coefficients never pass through Symbolica's expression parser.
-//! The payload is an expanded sparse numerator/denominator pair on the
-//! context's already authenticated ordered variable map. Counts, exponent
-//! entries, and integer magnitudes are bounded before native construction.
-
-use std::cmp::Ordering;
-use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::Arc;
-
-use symbolica::domains::backend::integer::{from_lsf_bytes, lsf_byte_size, to_lsf_bytes};
-use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
-use symbolica::prelude::{Integer, MultivariatePolynomial, PolyVariable, Z};
-
-use crate::algebra::{
-    Coefficient, CoefficientContext, CoefficientPolynomial, IndexedCoefficient,
-    IndexedCoefficientContext, IndexedPolynomial, validate_coefficient_on_map,
-};
+//! There is no independent integer or sparse-polynomial wire representation.
+//! Native coefficients are imported and structurally checked once by the table
+//! owner. References retain payload kind and exact variable-map binding; indexed
+//! values also pass the existing context-admission seam. Generated producers
+//! supply normalized coefficients, so loading runs no per-reference GCD. The
+//! native table import is not a hostile-input parser.
 
 use super::super::error::ArtifactPersistenceError;
-use super::binary::{Reader, Writer, check_limit, try_vec};
+use super::binary::{Reader, Writer, check_limit};
+use crate::algebra::{
+    Coefficient, CoefficientContext, CoefficientPolynomial, IndexedCoefficient,
+    IndexedCoefficientContext, IndexedPolynomial,
+};
+use crate::persistence::CoefficientId;
+use std::sync::Arc;
+use symbolica::prelude::{Integer, PolyVariable, Z};
 
 const RATIONAL_PAYLOAD: u8 = 1;
 const POLYNOMIAL_PAYLOAD: u8 = 2;
-const NONNEGATIVE_INTEGER: u8 = 0;
-const NEGATIVE_INTEGER: u8 = 1;
-const LENGTH_BYTES: usize = std::mem::size_of::<u64>();
+const INTEGER_PAYLOAD: u8 = 3;
 
-fn checked_add(
-    left: usize,
-    right: usize,
-    resource: &'static str,
-) -> Result<usize, ArtifactPersistenceError> {
-    left.checked_add(right)
-        .ok_or(ArtifactPersistenceError::ResourceCountOverflow { resource })
-}
-
-fn checked_mul(
-    left: usize,
-    right: usize,
-    resource: &'static str,
-) -> Result<usize, ArtifactPersistenceError> {
-    left.checked_mul(right)
-        .ok_or(ArtifactPersistenceError::ResourceCountOverflow { resource })
-}
-
-fn primitive_magnitude_bytes(value: u128) -> usize {
-    if value == 0 {
-        0
-    } else {
-        usize::try_from((u128::BITS - value.leading_zeros()).div_ceil(u8::BITS))
-            .expect("u128 byte length fits usize")
-    }
-}
-
-fn integer_magnitude_bytes(value: &Integer) -> usize {
-    match value {
-        Integer::Single(value) => primitive_magnitude_bytes(u128::from(value.unsigned_abs())),
-        Integer::Double(value) => primitive_magnitude_bytes(value.get().unsigned_abs()),
-        Integer::Large(value) => lsf_byte_size(value),
-    }
-}
-
-fn integer_payload_size(value: &Integer) -> Result<usize, ArtifactPersistenceError> {
-    checked_add(
-        1 + LENGTH_BYTES,
-        integer_magnitude_bytes(value),
-        "integer payload bytes",
-    )
-}
-
-fn polynomial_payload_size(
-    polynomial: &CoefficientPolynomial,
-) -> Result<usize, ArtifactPersistenceError> {
-    let exponent_bytes = checked_mul(
-        polynomial.nvars(),
-        std::mem::size_of::<u16>(),
-        "polynomial exponent bytes",
-    )?;
-    let mut bytes = LENGTH_BYTES
-        .checked_mul(2)
-        .expect("two encoded lengths fit usize");
-    for coefficient in &polynomial.coefficients {
-        bytes = checked_add(
-            bytes,
-            integer_payload_size(coefficient)?,
-            "polynomial payload bytes",
-        )?;
-        bytes = checked_add(bytes, exponent_bytes, "polynomial payload bytes")?;
-    }
-    Ok(bytes)
-}
-
-fn coefficient_payload_size(value: &Coefficient) -> Result<usize, ArtifactPersistenceError> {
-    checked_add(
-        checked_add(
-            1,
-            polynomial_payload_size(&value.numerator)?,
-            "coefficient payload bytes",
-        )?,
-        polynomial_payload_size(&value.denominator)?,
-        "coefficient payload bytes",
-    )
-}
-
-fn bare_polynomial_payload_size(
-    value: &CoefficientPolynomial,
-) -> Result<usize, ArtifactPersistenceError> {
-    checked_add(
-        1,
-        polynomial_payload_size(value)?,
-        "polynomial payload bytes",
-    )
-}
-
-fn write_length(
+fn encode_reference(
     writer: &mut Writer,
-    value: usize,
-    resource: &'static str,
+    kind: u8,
+    value: &Coefficient,
 ) -> Result<(), ArtifactPersistenceError> {
-    writer.u64(
-        u64::try_from(value)
-            .map_err(|_| ArtifactPersistenceError::ResourceCountOverflow { resource })?,
-    )
+    let terms = if kind == POLYNOMIAL_PAYLOAD {
+        value.numerator.nterms()
+    } else {
+        value
+            .numerator
+            .nterms()
+            .checked_add(value.denominator.nterms())
+            .ok_or(ArtifactPersistenceError::ResourceCountOverflow {
+                resource: "coefficient polynomial terms",
+            })?
+    };
+    check_limit(
+        "coefficient polynomial terms",
+        terms,
+        writer.limits().max_collection_entries,
+    )?;
+    let id = writer.intern_coefficient(value)?;
+    writer.u8(kind)?;
+    writer.u32(id.index() as u32)
 }
 
-fn primitive_magnitude(value: u128) -> ([u8; 16], usize) {
-    let bytes = value.to_le_bytes();
-    let len = primitive_magnitude_bytes(value);
-    (bytes, len)
-}
-
+/// Store an arbitrary-width integer using Symbolica's native constant field.
 pub(super) fn encode_integer(
     writer: &mut Writer,
     value: &Integer,
 ) -> Result<(), ArtifactPersistenceError> {
-    writer.u8(if value.is_negative() {
-        NEGATIVE_INTEGER
-    } else {
-        NONNEGATIVE_INTEGER
-    })?;
-    match value {
-        Integer::Single(value) => {
-            let (bytes, len) = primitive_magnitude(u128::from(value.unsigned_abs()));
-            write_length(writer, len, "integer magnitude bytes")?;
-            writer.raw(&bytes[..len])
-        }
-        Integer::Double(value) => {
-            let (bytes, len) = primitive_magnitude(value.get().unsigned_abs());
-            write_length(writer, len, "integer magnitude bytes")?;
-            writer.raw(&bytes[..len])
-        }
-        Integer::Large(value) => {
-            let bytes = to_lsf_bytes(value);
-            write_length(writer, bytes.len(), "integer magnitude bytes")?;
-            writer.raw(&bytes)
-        }
-    }
-}
-
-fn encode_polynomial_body(
-    writer: &mut Writer,
-    polynomial: &CoefficientPolynomial,
-) -> Result<(), ArtifactPersistenceError> {
-    write_length(writer, polynomial.nterms(), "polynomial terms")?;
-    write_length(writer, polynomial.nvars(), "polynomial variables")?;
-    for (coefficient, exponents) in polynomial
-        .coefficients
-        .iter()
-        .zip(polynomial.exponents_iter())
-    {
-        encode_integer(writer, coefficient)?;
-        for &exponent in exponents {
-            writer.u16(exponent)?;
-        }
-    }
-    Ok(())
-}
-
-fn encode_payload(
-    writer: &mut Writer,
-    size: usize,
-    encode: impl FnOnce(&mut Writer) -> Result<(), ArtifactPersistenceError>,
-) -> Result<(), ArtifactPersistenceError> {
-    writer.charge_coefficient_payload(size)?;
-    let mut payload = writer.child();
-    encode(&mut payload)?;
-    let payload = payload.finish();
-    debug_assert_eq!(payload.len(), size);
-    writer.bytes(&payload, "coefficient payload bytes")
+    let polynomial = CoefficientPolynomial::new_zero(&Z).constant(value.clone());
+    encode_reference(writer, INTEGER_PAYLOAD, &polynomial.into())
 }
 
 pub(super) fn encode_base_coefficient(
     writer: &mut Writer,
     value: &Coefficient,
 ) -> Result<(), ArtifactPersistenceError> {
-    let terms = checked_add(
-        value.numerator.nterms(),
-        value.denominator.nterms(),
-        "coefficient polynomial terms",
-    )?;
-    check_limit(
-        "coefficient polynomial terms",
-        terms,
-        writer.limits().max_collection_entries,
-    )?;
-    let size = coefficient_payload_size(value)?;
-    encode_payload(writer, size, |payload| {
-        payload.u8(RATIONAL_PAYLOAD)?;
-        encode_polynomial_body(payload, &value.numerator)?;
-        encode_polynomial_body(payload, &value.denominator)
-    })
+    encode_reference(writer, RATIONAL_PAYLOAD, value)
 }
 
 pub(super) fn encode_indexed_coefficient(
@@ -231,177 +81,70 @@ pub(super) fn encode_base_polynomial(
     writer: &mut Writer,
     value: &CoefficientPolynomial,
 ) -> Result<(), ArtifactPersistenceError> {
-    check_limit(
-        "polynomial terms",
-        value.nterms(),
-        writer.limits().max_collection_entries,
-    )?;
-    let size = bare_polynomial_payload_size(value)?;
-    encode_payload(writer, size, |payload| {
-        payload.u8(POLYNOMIAL_PAYLOAD)?;
-        encode_polynomial_body(payload, value)
-    })
+    encode_reference(writer, POLYNOMIAL_PAYLOAD, &value.clone().into())
+}
+
+fn decode_reference<'reader>(
+    reader: &'reader mut Reader<'_>,
+    expected_kind: u8,
+    field: &'static str,
+) -> Result<&'reader Coefficient, ArtifactPersistenceError> {
+    if reader.u8()? != expected_kind {
+        return Err(ArtifactPersistenceError::InvalidCoefficient { field });
+    }
+    let id = CoefficientId::try_from_index(reader.u32()? as usize)
+        .map_err(|_| ArtifactPersistenceError::InvalidCoefficient { field })?;
+    let limits = reader.limits();
+    let value = reader.native_coefficient(id)?;
+    // The table owns full sparse validation. These cheap checks respect a
+    // narrower reference-reader term policy before cloning native payloads.
+    for polynomial in [&value.numerator, &value.denominator] {
+        check_limit(
+            "polynomial terms",
+            polynomial.nterms(),
+            limits.family.exact_algebra.max_polynomial_terms,
+        )?;
+    }
+    Ok(value)
+}
+
+fn require_map(
+    value: &Coefficient,
+    variables: &Arc<Vec<PolyVariable>>,
+    field: &'static str,
+) -> Result<(), ArtifactPersistenceError> {
+    if value.numerator.variables() != variables || value.denominator.variables() != variables {
+        return Err(ArtifactPersistenceError::InvalidCoefficient { field });
+    }
+    Ok(())
 }
 
 pub(super) fn decode_integer(
     reader: &mut Reader<'_>,
     field: &'static str,
 ) -> Result<Integer, ArtifactPersistenceError> {
-    let sign = reader.u8()?;
-    if sign != NONNEGATIVE_INTEGER && sign != NEGATIVE_INTEGER {
+    let value = decode_reference(reader, INTEGER_PAYLOAD, field)?;
+    if !value.numerator.variables().is_empty()
+        || !value.denominator.variables().is_empty()
+        || !value.denominator.is_one()
+        || !value.numerator.is_constant()
+    {
         return Err(ArtifactPersistenceError::InvalidCoefficient { field });
     }
-    let magnitude = reader.bytes(
-        "integer magnitude bytes",
-        reader.limits().max_coefficient_bytes,
-    )?;
-    if magnitude.last() == Some(&0) || (magnitude.is_empty() && sign == NEGATIVE_INTEGER) {
-        return Err(ArtifactPersistenceError::NonCanonicalCoefficient { field });
-    }
-    let mut value = if magnitude.is_empty() {
-        Integer::Single(0)
-    } else {
-        Integer::from(from_lsf_bytes(magnitude))
-    };
-    if sign == NEGATIVE_INTEGER {
-        value = -value;
-    }
-    Ok(value)
+    Ok(value.numerator.get_constant())
 }
 
-fn decode_polynomial_body(
-    reader: &mut Reader<'_>,
-    variables: &Arc<Vec<PolyVariable>>,
-    field: &'static str,
-) -> Result<CoefficientPolynomial, ArtifactPersistenceError> {
-    let term_count = reader.count("polynomial terms")?;
-    check_limit(
-        "polynomial terms",
-        term_count,
-        reader.limits().family.exact_algebra.max_polynomial_terms,
-    )?;
-    let variable_count = reader.count("polynomial variables")?;
-    if variable_count != variables.len() {
-        return Err(ArtifactPersistenceError::InvalidCoefficient { field });
-    }
-    let exponent_entries = checked_mul(term_count, variable_count, "polynomial exponent entries")?;
-    check_limit(
-        "polynomial exponent entries",
-        exponent_entries,
-        reader.limits().max_collection_entries,
-    )?;
-
-    let mut polynomial = MultivariatePolynomial::new(&Z, None, variables.clone());
-    polynomial
-        .coefficients
-        .try_reserve_exact(term_count)
-        .map_err(|_| ArtifactPersistenceError::AllocationFailure {
-            resource: "polynomial coefficients",
-            requested: term_count,
-        })?;
-    polynomial
-        .exponents
-        .try_reserve_exact(exponent_entries)
-        .map_err(|_| ArtifactPersistenceError::AllocationFailure {
-            resource: "polynomial exponents",
-            requested: exponent_entries,
-        })?;
-    let mut exponents = try_vec(variable_count, "polynomial term exponents")?;
-    exponents.resize(variable_count, 0);
-    let mut previous: Option<Vec<u16>> = None;
-    for _ in 0..term_count {
-        let coefficient = decode_integer(reader, field)?;
-        if coefficient.cmp(&Integer::Single(0)) == Ordering::Equal {
-            return Err(ArtifactPersistenceError::NonCanonicalCoefficient { field });
-        }
-        for exponent in &mut exponents {
-            *exponent = reader.u16()?;
-            if *exponent > reader.limits().family.exact_algebra.max_exponent {
-                return Err(ArtifactPersistenceError::ResourceLimit {
-                    resource: "coefficient exponent",
-                    requested: usize::from(*exponent),
-                    limit: usize::from(reader.limits().family.exact_algebra.max_exponent),
-                });
-            }
-        }
-        if previous
-            .as_deref()
-            .is_some_and(|prior| prior >= exponents.as_slice())
-        {
-            return Err(ArtifactPersistenceError::NonCanonicalCoefficient { field });
-        }
-        polynomial.append_monomial_back(coefficient, &exponents);
-        if let Some(prior) = &mut previous {
-            prior.copy_from_slice(&exponents);
-        } else {
-            previous = Some(exponents.clone());
-        }
-    }
-    Ok(polynomial)
-}
-
-fn decode_coefficient_on_map(
-    reader: &mut Reader<'_>,
-    variables: &Arc<Vec<PolyVariable>>,
-    field: &'static str,
-) -> Result<Coefficient, ArtifactPersistenceError> {
-    let payload = reader.coefficient_payload(field)?;
-    let mut payload_reader = reader.child(payload);
-    if payload_reader.u8()? != RATIONAL_PAYLOAD {
-        return Err(ArtifactPersistenceError::InvalidCoefficient { field });
-    }
-    let numerator = decode_polynomial_body(&mut payload_reader, variables, field)?;
-    let denominator = decode_polynomial_body(&mut payload_reader, variables, field)?;
-    payload_reader.finish()?;
-    let raw = Coefficient {
-        numerator,
-        denominator,
-    };
-    validate_coefficient_on_map(&raw, variables, reader.limits().family.exact_algebra)
-        .map_err(|_| ArtifactPersistenceError::InvalidCoefficient { field })?;
-    let normalization_operations = checked_mul(
-        raw.numerator.nterms().max(1),
-        raw.denominator.nterms().max(1),
-        "coefficient normalization term operations",
-    )?;
-    check_limit(
-        "coefficient normalization term operations",
-        normalization_operations,
-        reader.limits().family.exact_algebra.max_term_operations,
-    )?;
-    let normalized = catch_unwind(AssertUnwindSafe(|| {
-        <Coefficient as FromNumeratorAndDenominator<_, _, u16>>::from_num_den(
-            raw.numerator.clone(),
-            raw.denominator.clone(),
-            &Z,
-            true,
-        )
-    }))
-    .map_err(|_| ArtifactPersistenceError::InvalidCoefficient { field })?;
-    if normalized != raw {
-        return Err(ArtifactPersistenceError::NonCanonicalCoefficient { field });
-    }
-    Ok(raw)
-}
-
-/// Decode a bare polynomial on an already authenticated variable map.  This
-/// is used by structural evidence codecs (such as affine-domain witnesses),
-/// not by expression parsing: the variable map is supplied by the family
-/// context and the sparse payload is still subject to all native limits and
-/// canonical-order checks.
 pub(super) fn decode_base_polynomial(
     reader: &mut Reader<'_>,
     variables: &Arc<Vec<PolyVariable>>,
     field: &'static str,
 ) -> Result<CoefficientPolynomial, ArtifactPersistenceError> {
-    let payload = reader.coefficient_payload(field)?;
-    let mut payload_reader = reader.child(payload);
-    if payload_reader.u8()? != POLYNOMIAL_PAYLOAD {
+    let value = decode_reference(reader, POLYNOMIAL_PAYLOAD, field)?;
+    require_map(value, variables, field)?;
+    if !value.denominator.is_one() {
         return Err(ArtifactPersistenceError::InvalidCoefficient { field });
     }
-    let polynomial = decode_polynomial_body(&mut payload_reader, variables, field)?;
-    payload_reader.finish()?;
-    Ok(polynomial)
+    Ok(value.numerator.clone())
 }
 
 pub(super) fn decode_base_coefficient(
@@ -409,22 +152,22 @@ pub(super) fn decode_base_coefficient(
     context: &CoefficientContext,
     field: &'static str,
 ) -> Result<Coefficient, ArtifactPersistenceError> {
-    decode_coefficient_on_map(reader, context.variables(), field)
+    let value = decode_reference(reader, RATIONAL_PAYLOAD, field)?;
+    require_map(value, context.variables(), field)?;
+    Ok(value.clone())
 }
 
-/// Decode native sparse arithmetic directly onto the already authenticated
-/// positional variable map. No expression parser or symbol-name substitution
-/// is involved; the context seal is created only after canonical validation.
 pub(super) fn decode_indexed_coefficient(
     reader: &mut Reader<'_>,
     context: &IndexedCoefficientContext,
     field: &'static str,
 ) -> Result<IndexedCoefficient, ArtifactPersistenceError> {
+    let limits = reader.limits().family.exact_algebra;
+    let value = decode_reference(reader, RATIONAL_PAYLOAD, field)?;
     let template = context.one();
-    let variables = template.raw().get_variables();
-    let raw = decode_coefficient_on_map(reader, variables, field)?;
+    require_map(value, template.raw().get_variables(), field)?;
     context
-        .admit_native_result_with_limits(raw, reader.limits().family.exact_algebra)
+        .admit_native_result_with_limits(value.clone(), limits)
         .map_err(|_| ArtifactPersistenceError::InvalidCoefficient { field })
 }
 
@@ -433,20 +176,11 @@ pub(super) fn decode_indexed_polynomial(
     context: &IndexedCoefficientContext,
     field: &'static str,
 ) -> Result<IndexedPolynomial, ArtifactPersistenceError> {
-    let payload = reader.coefficient_payload(field)?;
-    let mut payload_reader = reader.child(payload);
-    if payload_reader.u8()? != POLYNOMIAL_PAYLOAD {
-        return Err(ArtifactPersistenceError::InvalidCoefficient { field });
-    }
+    let limits = reader.limits().family.exact_algebra;
     let template = context.one();
-    let polynomial =
-        decode_polynomial_body(&mut payload_reader, template.raw().get_variables(), field)?;
-    payload_reader.finish()?;
+    let polynomial = decode_base_polynomial(reader, template.raw().get_variables(), field)?;
     context
-        .admit_native_polynomial_result_with_limits(
-            polynomial,
-            reader.limits().family.exact_algebra,
-        )
+        .admit_native_polynomial_result_with_limits(polynomial, limits)
         .map_err(|_| ArtifactPersistenceError::InvalidCoefficient { field })
 }
 

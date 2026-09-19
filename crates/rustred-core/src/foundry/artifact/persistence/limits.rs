@@ -10,7 +10,7 @@ const K6_BOX_ENDPOINT_CELLS: usize = K6_ARITY * 2;
 /// Bounded exact box-cover policy used while authenticating a persisted
 /// closing artifact.
 ///
-/// These limits are public because durable input is untrusted and callers may
+/// These limits are public because durable mathematical claims are untrusted and callers may
 /// need a tighter policy.  They are separate from campaign search geometry:
 /// ordinary artifact loading only subtracts persisted rule/master boxes from
 /// one finite certified root at a time.
@@ -70,8 +70,9 @@ impl ArtifactCoverReplayLimits {
     }
 }
 
-/// Resource policy applied before durable payload allocations or native
-/// Symbolica algebra.
+/// Resource policy for structural framing, trusted native payload sizes, and
+/// independent mathematical replay. Native Symbolica internals are not a
+/// hostile-input parser; these limits do not bound every malicious inner count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ArtifactLoadLimits {
     pub max_artifact_bytes: usize,
@@ -83,8 +84,8 @@ pub struct ArtifactLoadLimits {
     pub max_total_witness_bytes: usize,
     pub max_collection_entries: usize,
     pub max_index_arity: usize,
-    /// Exact family reconstruction policy, including the coefficient limits
-    /// used while admitting the sparse binary coefficient payloads.
+    /// Exact family reconstruction policy, including unique native coefficient
+    /// admission limits after native decoding.
     pub family: IntegralFamilyLimits,
     /// Explicit context/relation policy for independently regenerating the
     /// source derivation plan recorded by the artifact.
@@ -115,8 +116,8 @@ pub struct ArtifactEncodingLimits {
     pub max_artifact_bytes: usize,
     pub max_string_bytes: usize,
     pub max_coefficient_bytes: usize,
-    /// Aggregate sparse coefficient payload bytes across the complete
-    /// artifact, shared by every nested section and semantic snapshot.
+    /// Aggregate native coefficient-table bytes across the complete artifact,
+    /// including framing. Repeated IDs and nested owners share each entry once.
     pub max_total_coefficient_bytes: usize,
     /// Aggregate source/rule semantic-witness bytes across nested plans.
     pub max_total_witness_bytes: usize,
@@ -160,6 +161,12 @@ impl Default for ArtifactLoadLimits {
 }
 
 impl ArtifactLoadLimits {
+    pub(super) fn native_io(self) -> crate::persistence::BinaryIoLimits {
+        crate::persistence::BinaryIoLimits {
+            exact_algebra: self.family.exact_algebra,
+            ..self.replay_encoding().native_io()
+        }
+    }
     pub(super) fn replay_encoding(self) -> ArtifactEncodingLimits {
         ArtifactEncodingLimits {
             max_artifact_bytes: self.max_artifact_bytes,
@@ -168,6 +175,18 @@ impl ArtifactLoadLimits {
             max_total_coefficient_bytes: self.max_total_coefficient_bytes,
             max_total_witness_bytes: self.max_total_witness_bytes,
             max_collection_entries: self.max_collection_entries,
+        }
+    }
+}
+
+impl ArtifactEncodingLimits {
+    pub(super) fn native_io(self) -> crate::persistence::BinaryIoLimits {
+        crate::persistence::BinaryIoLimits {
+            max_program_bytes: self.max_artifact_bytes,
+            max_collection_entries: self.max_collection_entries,
+            max_atom_bytes: self.max_coefficient_bytes,
+            max_total_atom_bytes: self.max_total_coefficient_bytes,
+            ..Default::default()
         }
     }
 }

@@ -118,7 +118,14 @@ fn saved_candidates_are_not_artifacts_and_can_be_certified_in_a_fresh_process() 
         &["family-close", "--input-format", "symbolica"],
         INPUT.as_bytes(),
     );
-    assert_eq!(artifact, reference);
+    assert!(
+        rustred::persistence::equivalent_generated_programs(
+            &artifact,
+            &reference,
+            Default::default(),
+        )
+        .unwrap()
+    );
     let reduction = success(
         &["campaign", "reduce", "--artifact", "-", "--powers", "3"],
         &artifact,
