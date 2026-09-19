@@ -13,6 +13,20 @@ followed by exact terminal deduplication. Five-loop experiments wait for those
 four-loop improvements. The existing rule-application engine remains in use;
 no alternate Symbolica-replacement backend is planned.
 
+Generated candidate programs now use a shared Symbolica-native binary
+coefficient dictionary and native family geometry, rather than coefficient
+strings in TOML. The original family input remains provenance, not a loading
+requirement. Timing reports and user input remain human-readable TOML.
+The new Rust loader is `load_generated_candidate_bundle`; load only trusted
+generated programs because Symbolica's native readers are not hostile-input
+parsers. This format change does not certify candidates or change rule
+application. Four-loop data migration and the corresponding certified-artifact
+format migration are tracked in the [binary I/O plan](docs/research/native_binary_io_plan.md).
+The [measured candidate migration](docs/research/native_binary_io_results_2026-09-19.md)
+preserves all 59,636 saved four-loop rules: compressed size falls from 29.95 MB
+to 20.51 MB, and H/X cold-loader diagnostics improve by about 21×. This is not
+an IBP-generation or first-reduction speedup; Vakint rollout is the next gate.
+
 The solver implementation follows the
 [executable SpIRed reference port](docs/spired_port.md): reproduce the actual
 C++ `solveSector` algorithm in Rust, using native Symbolica/numerica, and match

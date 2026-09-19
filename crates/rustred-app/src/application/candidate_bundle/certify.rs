@@ -6,10 +6,13 @@ use rustred::identity::ParametricIbpGenerator;
 use serde::Serialize;
 
 use crate::application::resource_policy::ResourcePolicyOutput;
-use crate::application::{AppError, InputFormat, MAX_CLOSING_ARTIFACT_BYTES};
+use crate::application::{AppError, MAX_CLOSING_ARTIFACT_BYTES};
 
 use super::{codec, model::*, preparation};
 
+/// Replay and certify trusted generated candidate programs. Native binary
+/// decoding requires trusted provenance independently of this mathematical
+/// proof step: neither parsing nor the saved status grants proof authority.
 pub fn certify_candidates(
     request: CandidateCertificationRequest,
 ) -> Result<CandidateCertificationResult, AppError> {
@@ -30,11 +33,14 @@ pub fn certify_candidates(
         .map_err(publication_error)?;
     let bundle = codec::read(&request.bundle, request.input_limits)?;
     let decoded_at = started.elapsed();
-    let format: InputFormat = bundle
-        .input_format
-        .parse()
-        .map_err(|e| AppError::input(format!("{e}")))?;
-    let family = preparation::family(&bundle.family_source, format)?;
+    let family = bundle
+        .family
+        .to_family(
+            &bundle.coefficients,
+            request.input_limits.family_limits(),
+            request.input_limits.binary_limits(),
+        )
+        .map_err(codec::binary_error)?;
     if family.fingerprint() != bundle.family_fingerprint
         || family.denominator_count() != bundle.root_sector.len()
     {
@@ -74,6 +80,7 @@ fn certify<const N: usize>(
         request.input_limits,
     )?;
     let reconstructed_at = started.elapsed();
+    drop(bundle);
     let permutation = prepared.permutation;
     let audit =
         SourcePortAudit::try_new_with_root_sector(&prepared.family, prepared.zeros, prepared.root)

@@ -12,6 +12,7 @@ name = "rustred"
 path = "src/lib.rs"
 
 [dependencies]
+bincode.workspace = true
 blake3 = "1"
 rand = "0.9"
 rayon = "1"

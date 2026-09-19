@@ -1,11 +1,10 @@
 use rustred::algebra::ExactAlgebraLimits;
 use rustred::foundry::artifact::{ArtifactLoadLimits, SourcePortLimits};
 use rustred::solver::SymbolicExactBackend;
-use serde::{Deserialize, Serialize};
 
 use crate::application::InputFormat;
 
-pub const CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.uncertified-candidates.toml.v1";
+pub const CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v1";
 pub const FAMILY_CANDIDATES_SCHEMA: &str = "rustred.family-candidates-output.toml.v1";
 pub const CANDIDATE_CERTIFICATION_SCHEMA: &str = "rustred.candidate-certification-output.toml.v1";
 /// Hard ceiling for explicitly enlarged candidate ingress/output policies.
@@ -19,6 +18,21 @@ pub const MAX_CANDIDATE_BUNDLE_BYTES: usize = 1024 * 1024 * 1024;
 pub const MAX_RANK_SCOPED_CERTIFICATION_DEGREE: usize = 30;
 pub(super) const STATUS: &str = "uncertified-candidates";
 pub(super) const SOLVER_POLICY: &str = "ordinary-source-port-default-v1";
+
+/// Structural metadata only: counts do not establish valid rules or closure.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CandidateBundleInspection {
+    pub schema: String,
+    pub status: String,
+    pub family_fingerprint: String,
+    pub arity: usize,
+    pub solved_sectors: usize,
+    pub generated_rules: usize,
+    pub finite_residuals: usize,
+    pub unique_coefficients: usize,
+    pub symbolica_state_bytes: usize,
+    pub coefficient_table_bytes: usize,
+}
 
 /// Exact materialization policy for candidate generation. Both choices use
 /// the same source discovery and guards; neither certifies family closure.
@@ -68,8 +82,8 @@ impl std::str::FromStr for CandidateExactBackend {
 }
 
 /// Caller-owned ingress/output policy, not data read from a candidate bundle.
-/// Byte limits bound the serialized payload, not peak RSS: TOML parsing and
-/// exact-expression reconstruction additionally allocate in-memory structures.
+/// Byte limits bound native generated-program frames, not peak RSS or every
+/// allocation inside Symbolica. Native payloads require trusted provenance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CandidateBundleLimits {
     pub max_bundle_bytes: usize,
@@ -82,6 +96,24 @@ pub struct CandidateBundleLimits {
 impl CandidateBundleLimits {
     pub(super) fn bundle_byte_limit(self) -> usize {
         self.max_bundle_bytes.min(MAX_CANDIDATE_BUNDLE_BYTES)
+    }
+
+    pub(super) fn binary_limits(self) -> rustred::persistence::BinaryIoLimits {
+        rustred::persistence::BinaryIoLimits {
+            max_program_bytes: self.bundle_byte_limit(),
+            max_collection_entries: self.max_collection_entries,
+            max_atom_bytes: self.max_coefficient_bytes,
+            max_total_atom_bytes: self.max_total_coefficient_bytes,
+            exact_algebra: self.exact_algebra,
+            ..Default::default()
+        }
+    }
+
+    pub(super) fn family_limits(self) -> rustred::family::IntegralFamilyLimits {
+        rustred::family::IntegralFamilyLimits {
+            exact_algebra: self.exact_algebra,
+            ..Default::default()
+        }
     }
 }
 
@@ -202,9 +234,38 @@ impl CandidateCertificationResult {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone)]
 pub(super) struct Bundle {
+    pub records: ProgramRecord,
+    pub family: rustred::persistence::NativeFamilyRecord,
+    pub coefficients: std::sync::Arc<rustred::persistence::DecodedCoefficientTable>,
+}
+
+impl std::fmt::Debug for Bundle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Bundle")
+            .field("records", &self.records)
+            .field("family", &self.family)
+            .field("coefficient_count", &self.coefficients.len())
+            .finish()
+    }
+}
+
+impl std::ops::Deref for Bundle {
+    type Target = ProgramRecord;
+    fn deref(&self) -> &Self::Target {
+        &self.records
+    }
+}
+
+impl std::ops::DerefMut for Bundle {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.records
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
+pub(super) struct ProgramRecord {
     pub schema: String,
     pub status: String,
     pub solver_policy: String,
@@ -212,54 +273,47 @@ pub(super) struct Bundle {
     pub input_format: String,
     pub family_fingerprint: String,
     pub root_sector: Vec<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub permutation: Option<Vec<usize>>,
     pub sectors: Vec<SectorRecord>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(super) struct SectorRecord {
     pub sector: Vec<bool>,
     pub rules: Vec<RuleRecord>,
     pub finite_residuals: Vec<IntegralRecord>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(super) struct RuleRecord {
     pub case: CaseRecord,
     pub target: IntegralRecord,
     pub rhs: Vec<TermRecord>,
     pub sources: Vec<SeedRecord>,
-    pub exclusions: Vec<Vec<String>>,
+    pub exclusions: Vec<Vec<u32>>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(super) struct CaseRecord {
     pub kind: String,
     pub fixed_axes: Vec<usize>,
     pub fixed_values: Vec<i16>,
-    pub equations: Vec<String>,
+    pub equations: Vec<u32>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(super) struct IntegralRecord {
     pub symbolic: Vec<bool>,
     pub values: Vec<i16>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(super) struct TermRecord {
     pub integral: IntegralRecord,
-    pub coefficient: String,
+    pub coefficient: u32,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub(super) struct SeedRecord {
     pub basis_row: usize,
     pub integral: IntegralRecord,

@@ -14,12 +14,12 @@ pub(super) mod preparation;
 
 pub use certify::certify_candidates;
 pub use generate::{family_candidates, family_candidates_with_progress};
-pub use load::load_candidate_bundle;
+pub use load::{inspect_generated_candidate_bundle, load_generated_candidate_bundle};
 pub use model::{
-    CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateBundleLimits,
-    CandidateBundleResult, CandidateCertificationRequest, CandidateCertificationResult,
-    CandidateExactBackend, FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest,
-    MAX_CANDIDATE_BUNDLE_BYTES,
+    CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateBundleInspection,
+    CandidateBundleLimits, CandidateBundleResult, CandidateCertificationRequest,
+    CandidateCertificationResult, CandidateExactBackend, FAMILY_CANDIDATES_SCHEMA,
+    FamilyCandidatesRequest, MAX_CANDIDATE_BUNDLE_BYTES,
 };
 
 #[cfg(test)]

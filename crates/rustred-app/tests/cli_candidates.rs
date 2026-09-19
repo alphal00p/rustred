@@ -3,6 +3,11 @@ use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use rustred::persistence::{
+    BinaryIoLimits, BinaryProgramKind, BinarySection, CoefficientId, CoefficientTableBuilder,
+    DecodedCoefficientTable, SectionTag, encode_program, inspect_program,
+};
+
 const INPUT: &str = r#"I(loops(q),externals(),dimension(d),prop(D1,q^2-1,1))"#;
 
 fn run(arguments: &[&str], input: &[u8]) -> Output {
@@ -90,12 +95,21 @@ fn saved_candidates_are_not_artifacts_and_can_be_certified_in_a_fresh_process() 
         &["family-candidates", "--input-format", "symbolica"],
         INPUT.as_bytes(),
     );
-    let report: toml::Value = toml::from_str(std::str::from_utf8(&bundle).unwrap()).unwrap();
-    assert_eq!(report["status"].as_str(), Some("uncertified-candidates"));
-    assert_eq!(
-        report["schema"].as_str(),
-        Some("rustred.uncertified-candidates.toml.v1")
-    );
+    let envelope = inspect_program(&bundle, BinaryIoLimits::default()).unwrap();
+    assert_eq!(envelope.kind(), BinaryProgramKind::Candidates);
+    assert!(envelope.section(SectionTag::SYMBOLICA_STATE).is_some());
+    assert!(envelope.section(SectionTag::COEFFICIENTS).is_some());
+    let inspection = rustred_app::inspect_generated_candidate_bundle(
+        &bundle,
+        rustred_app::CandidateBundleLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(inspection.schema, rustred_app::CANDIDATE_BUNDLE_SCHEMA);
+    assert_eq!(inspection.status, "uncertified-candidates");
+    assert_eq!(inspection.arity, 1);
+    assert_eq!(inspection.generated_rules, 1);
+    assert_eq!(inspection.finite_residuals, 1);
+    assert!(inspection.unique_coefficients > 0);
     let rejected = run(&["campaign", "inspect", "--artifact", "-"], &bundle);
     assert!(!rejected.status.success());
     assert!(rejected.stdout.is_empty());
@@ -137,13 +151,49 @@ fn certification_replays_saved_coefficients_and_honors_separate_resource_policy(
     );
     assert!(!failed.status.success());
     assert!(failed.stdout.is_empty());
-    let mut parsed: toml::Value = toml::from_str(std::str::from_utf8(&bundle).unwrap()).unwrap();
-    let sectors = parsed["sectors"].as_array_mut().unwrap();
-    let rules = sectors[0]["rules"].as_array_mut().unwrap();
-    assert!(!rules.is_empty());
-    rules[0]["rhs"][0]["coefficient"] = toml::Value::String("1".into());
-    let tampered = toml::to_string(&parsed).unwrap();
-    let failed = run(&["certify-candidates"], tampered.as_bytes());
+    // Re-encode valid native data with a false rational RHS. This exercises
+    // mathematical replay, not only corrupt-byte or wrong-envelope rejection.
+    let limits = BinaryIoLimits::default();
+    let envelope = inspect_program(&bundle, limits).unwrap();
+    let table = DecodedCoefficientTable::import_generated(
+        envelope.section(SectionTag::SYMBOLICA_STATE).unwrap(),
+        envelope.section(SectionTag::COEFFICIENTS).unwrap(),
+        limits,
+    )
+    .unwrap();
+    let mut changed = 0;
+    let mut builder = CoefficientTableBuilder::new(limits);
+    for index in 0..table.len() {
+        let id = CoefficientId::try_from_index(index).unwrap();
+        let coefficient = table.coefficient(id).unwrap();
+        let replacement = if !coefficient.denominator.is_constant() {
+            changed += 1;
+            coefficient + coefficient
+        } else {
+            coefficient.clone()
+        };
+        // This fixture has one rational RHS; all polynomial guards and any
+        // structural coefficient references retain their original IDs.
+        assert_eq!(builder.intern(&replacement).unwrap(), id);
+    }
+    assert_eq!(changed, 1, "expected one rational one-loop RHS");
+    let replacement = builder.finish().unwrap();
+    let sections: Vec<_> = envelope
+        .sections()
+        .iter()
+        .map(|section| BinarySection {
+            tag: section.tag,
+            bytes: if section.tag == SectionTag::SYMBOLICA_STATE {
+                &replacement.state
+            } else if section.tag == SectionTag::COEFFICIENTS {
+                &replacement.atoms
+            } else {
+                section.bytes
+            },
+        })
+        .collect();
+    let tampered = encode_program(envelope.kind(), &sections, limits).unwrap();
+    let failed = run(&["certify-candidates"], &tampered);
     assert!(
         !failed.status.success(),
         "modified coefficient must not retain source replay authority"

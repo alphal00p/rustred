@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use rustred::family::IntegralFamily;
+use rustred::persistence::{CoefficientTableBuilder, NativeFamilyRecord};
 use rustred::solver::{SectorConfig, SectorExecutor, SectorSolveOptions};
 use serde::Serialize;
 
@@ -115,7 +116,8 @@ fn generate<const N: usize>(
     emit(observe, || FamilyCloseProgress::Encoding {
         elapsed: solved_at,
     });
-    let bundle = Bundle {
+    let mut coefficients = CoefficientTableBuilder::new(request.bundle_limits.binary_limits());
+    let bundle = ProgramRecord {
         schema: CANDIDATE_BUNDLE_SCHEMA.into(),
         status: STATUS.into(),
         solver_policy: SOLVER_POLICY.into(),
@@ -126,10 +128,19 @@ fn generate<const N: usize>(
         permutation: request.permutation,
         sectors: solved
             .iter()
-            .map(|(sector, solution)| codec::sector_record(*sector, solution))
-            .collect(),
+            .map(|(sector, solution)| codec::sector_record(*sector, solution, &mut coefficients))
+            .collect::<Result<Vec<_>, _>>()?,
     };
-    let bytes = codec::write(&bundle, request.bundle_limits)?;
+    let family_record = NativeFamilyRecord::from_family(&prepared.family, &mut coefficients)
+        .map_err(codec::binary_error)?;
+    let coefficient_count = coefficients.len();
+    let coefficients = coefficients.finish().map_err(codec::binary_error)?;
+    let bytes = codec::write_records(
+        &bundle,
+        &family_record,
+        &coefficients,
+        request.bundle_limits,
+    )?;
     let elapsed = started.elapsed();
     emit(observe, || FamilyCloseProgress::Encoded {
         bytes: bytes.len(),
@@ -150,6 +161,9 @@ fn generate<const N: usize>(
         workers: usize,
         exact_backend: &'static str,
         bytes: usize,
+        unique_coefficients: usize,
+        coefficient_table_bytes: usize,
+        symbolica_state_bytes: usize,
         preparation_us: u128,
         solve_us: u128,
         bundle_encoding_us: u128,
@@ -169,6 +183,9 @@ fn generate<const N: usize>(
         workers: request.n_cores,
         exact_backend: request.exact_backend.as_str(),
         bytes: bytes.len(),
+        unique_coefficients: coefficient_count,
+        coefficient_table_bytes: coefficients.atoms.len(),
+        symbolica_state_bytes: coefficients.state.len(),
         preparation_us: prepared_at.as_micros(),
         solve_us: (solved_at - prepared_at).as_micros(),
         bundle_encoding_us: (elapsed - solved_at).as_micros(),

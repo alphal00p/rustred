@@ -60,6 +60,7 @@ name = "cli_derive"
 required-features = ["cli"]
 
 [dependencies]
+bincode.workspace = true
 rustred = { path = "../rustred-core" }
 serde = { version = "1", features = ["derive"] }
 symbolica.workspace = true

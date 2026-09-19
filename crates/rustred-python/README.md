@@ -110,7 +110,8 @@ rustred campaign reduce --artifact family.rr --powers 2,2,1
 the subsequent source replay and global closure proof. Its immutable result is
 `CandidateBundleResult`, with `.bundle: bytes`, `.status ==
 "uncertified-candidates"`, and a separate observational `to_toml()` timing
-report. The bundle is not a closing artifact and cannot be used by
+report. The bundle uses native Symbolica Atom binary serialization with a
+shared state context, not expression strings or TOML. It is not a closing artifact and cannot be used by
 `inspect_closing_artifact` or `reduce_with_closing_artifact`.
 
 ```python
@@ -119,15 +120,22 @@ import rustred
 
 source = "I(loops(k),externals(),dimension(d),prop(P,k^2-1,1))"
 candidates = rustred.family_candidates(source, n_cores=1)
-Path("tadpole.candidates.toml").write_bytes(candidates.bundle)
+Path("tadpole.rrcandidate").write_bytes(candidates.bundle)
 print(candidates.to_toml())  # preparation, solve and bundle-writing microseconds
 
 # Can run in a fresh Python process; this does not repeat the search.
-certified = rustred.certify_candidates(Path("tadpole.candidates.toml").read_bytes())
+certified = rustred.certify_candidates(Path("tadpole.rrcandidate").read_bytes())
 assert certified.status == "generated-durable"
 print(certified.to_toml())  # reconstruction and exact certification timings
 print(rustred.reduce_with_closing_artifact(certified.artifact, [3]).to_toml())
 ```
+
+Load only generated bundles from a trusted source: Symbolica's native state
+and Atom readers are not hardened parsers for hostile bytes. RustRed checks
+framing, structural limits and coefficient contexts; independent certification
+then checks mathematical replay and closure. Native dumps currently require
+a 64-bit host. Their bytes may vary with prior Symbolica registrations, while
+decoded coefficients and reductions must agree exactly.
 
 Select `exact_backend="semi-numerical"` to use Symbolica's rational-function
 reconstruction for symbolic target materialization; `"sparse"` remains the

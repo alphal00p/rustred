@@ -120,6 +120,10 @@ normalized generated coefficients and retains exact structural validation;
 it must not claim that a shape check proves coprimality of arbitrary forged
 arrays. A future fully adversarial native boundary belongs in a bounded
 Symbolica API. No cryptographic authentication ceremony is introduced here.
+An explicit optional import policy normalizes each unique table entry once
+using Symbolica itself. It is useful for measuring that cost or checking a
+producer without a normalization guarantee; it does not harden the native
+parser against hostile bytes.
 
 ## Implementation sequence
 
@@ -130,6 +134,11 @@ Symbolica API. No cryptographic authentication ceremony is introduced here.
 3. Replace candidate string records with coefficient IDs and native records.
    Retain all provenance and semantic admission. The evolving RustRed format
    may break compatibility; a one-off migration tool is not a permanent shim.
+   The initial candidate vertical slice retains the small family source as its
+   geometry reconstruction input while eliminating coefficient expression
+   parsing. Follow it with a native generic family record so source text becomes
+   provenance only. This intermediate slice is not the completed uniform I/O
+   migration, and the certified proof codec remains unchanged until step 6.
 4. Migrate the already saved H, FG, BMW and X programs without discovery.
    Cold-load in separate processes and compare complete native rules, guards,
    sources, terminals and exact canary reductions against the saved originals.
@@ -168,3 +177,132 @@ Every slice receives an independent API/implementation audit and semantic
 round-trip checks. Report native decoder limitations, incomplete migrations
 and measured performance honestly before committing/pushing a coherent
 milestone.
+
+## Certified-artifact migration: implementation and replay boundary
+
+The certified codec lives in
+`crates/rustred-core/src/foundry/artifact/persistence/`. Its current transport is
+already binary, but `coefficient.rs` writes each sparse numerator/denominator
+and arbitrary-precision integer separately. The migration should replace that
+algebra transport, not replace the derivation plans or mathematical verifier.
+
+A bounded implementation slice is:
+
+1. Bump the evolving artifact schema. Use the same universal envelope with
+   `BinaryProgramKind::Certified`, one Symbolica state section, one native
+   coefficient table and one structural program section. The existing private
+   metadata/family/source/rule/terminal record grammar can remain inside the
+   structural section; there must not be a second public outer file format.
+2. In `binary.rs`, share an interner between `Writer` children and a decoded
+   table between `Reader` children. Nested dependency artifacts and opaque
+   proof snapshots participate in the same table. Preserve current aggregate
+   structural and replay-work budgets; charge native algebra bytes per unique
+   table entry rather than once per reference.
+3. Replace the coefficient functions in `coefficient.rs` with typed table
+   references. Base values must match the reconstructed base variable map;
+   indexed values must match the regenerated indexed map before receiving an
+   indexed-context seal. Polynomial references additionally require a unit
+   denominator. Native structural validation is not a substitute for these
+   use-site context checks.
+4. Preserve exact integers in affine primitive matrices. The current
+   `source_port/plans.rs` calls `encode_integer` and `decode_integer` for those
+   entries. They can use native constant rational-polynomial entries on the
+   empty variable map, with explicit constant/integer admission, rather than
+   retaining a private arbitrary-precision integer codec.
+5. Keep ordinary-source regeneration, translated-source requests, original
+   domain/cell replay, exceptional guards, descent, zero-sector proofs,
+   factorization/dependency witnesses, supported root bounds, homogeneity and
+   terminal-cover installation unchanged. A certified envelope is a request
+   to replay these proofs, never itself a proof.
+
+The principal production files are `persistence/{mod,binary,coefficient}.rs`,
+`persistence/{k6,source_port,two_loop}.rs`, the limits and error definitions, and
+`artifact/model.rs` for the schema and public load documentation. Most of
+`family.rs`, `semantic.rs` and `source_port/plans.rs` should retain their existing
+mathematical structure and call the shared transport seam. This is independent
+of the application-level candidate codec.
+
+### Comparing replayed mathematics without comparing ambient state
+
+The existing loaders compare encoded source/rule snapshots and, for several
+grammars, the complete regenerated artifact against the incoming bytes. They
+must not compare complete native files after this migration: Symbolica state
+IDs and unrelated registry entries depend on process history.
+
+Use two distinct checks:
+
+- For local source/rule snapshot checks, the replay writer may use a lookup
+  built from the decoded coefficient table. A lookup hit must compare the full
+  native coefficient, including its ordered variable map; a serialized integer
+  ID is never accepted as evidence of equal coefficients. Duplicate equal table
+  values require an explicit policy, not an assumption that interning will
+  preserve their IDs. The simplest generated-format policy rejects duplicate
+  entries as noncanonical before replay. Missing replay values fail closed.
+- At the final artifact comparison, independently serialize the reconstructed,
+  installed artifact with a **fresh**, first-occurrence interner. Compare its
+  structural program with the incoming structural program and compare their
+  ordered coefficient tables by native mathematical payload, not by packed
+  Atom bytes or State bytes. This independent comparison must check table
+  lengths and every entry. It therefore rejects unused extra entries, reordered
+  or duplicate entries that violate the generated canonical dictionary, and
+  changed coefficients even if local replay used the input lookup. The input
+  table must not seed this final independent encoder.
+
+The fast generated-data precondition supplies normalized coefficients; native
+coefficient equality includes exact numerator, denominator and variable order.
+Tests of a deliberately nonnormalized producer should use the explicit native
+normalization path rather than silently claiming representation equality means
+general rational-function equivalence. No new GCD should run for every ID use.
+
+Alternatively, a future typed semantic record comparator could admit arbitrary
+dictionary ordering by resolving every reference. That is a larger change and
+is not necessary for the first generated-format migration. Do not drop existing
+source, rule or terminal witnesses merely to avoid handling the comparison.
+
+### Certified acceptance tests
+
+Retain the current K1, K3, K6 and generic source-port replay tests, including
+coordinate and affine cases and bounded root scopes. Add fresh-process loading
+with unrelated/reordered native symbol state. Compare exact reductions and
+family/ordering/scope/terminal ownership, not whole native files.
+
+Explicit mutations must still reject: a candidate envelope presented as a
+certificate; an altered source coefficient; a wrong base/indexed context ID;
+a rational-valued polynomial guard; an altered source weight or translation;
+changed affine conjunction grouping; a swapped rule coefficient reference;
+wrong nested dependency binding; an added or removed terminal; and changed root
+or mass-homogeneity metadata. Duplicate dictionary entries and unused entries
+must exercise the stated canonicality policy. A claimed `Certified` kind cannot
+bypass ordinary-source replay or the closing installer.
+
+## Follow-up experiment: native factorized rational coefficients
+
+The current applier uses Symbolica's ordinary
+`RationalPolynomial<IntegerRing, u16>`, not its
+`FactorizedRationalPolynomial<IntegerRing, u16>`. The latter stores an expanded
+numerator and scalar contents together with denominator factors and their
+multiplicities. It is not a fully factorized expression representation.
+
+The current public API already provides
+`FromNumeratorAndFactorizedDenominator::from_num_den`, native factorization,
+addition, multiplication and exact cancellation. Addition aligns matching
+denominator factors and tests divisibility after summing numerators;
+multiplication cancels against factors before multiplying numerators. There is
+no need for RustRed to implement this algebra. Initial conversion should request
+native factorization once per admitted coefficient, not once per accumulation.
+
+An internal coalescing/cache representation is a plausible future experiment:
+keep factored coefficients through repeated additions and products, then use
+native polynomial operations to return the existing ordinary coefficient at a
+public result or persistence boundary. Repeated conversion back and forth could
+erase any benefit. The observed large number of coalescing additions motivates
+measurement but is not evidence of a speedup.
+
+This is not a drop-in global type replacement: the current Atom coefficient
+enum has no factorized-rational variant, factor ordering is not a canonical
+mathematical identity, and the native `InternalOrdering` implementation is
+currently unfinished. The numerator can still swell. Any experiment needs
+exact cancellation/zero, repeated factors, differing factors, constant signs,
+context-map, master-coefficient parity, wall-time and peak-memory tests against
+the unchanged ordinary path. It remains after the binary I/O and EPSILON
+terminal-deduplication work, not part of their acceptance boundary.

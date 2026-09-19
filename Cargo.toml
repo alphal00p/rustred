@@ -24,7 +24,8 @@ authors = [
 ]
 
 [workspace.dependencies]
-symbolica = { version = "=3.0.0", default-features = false, features = ["integer-gmp", "float-mpfr", "tracing_max_level_info"] }
+bincode = "2.0.1"
+symbolica = { version = "=3.0.0", default-features = false, features = ["integer-gmp", "float-mpfr", "tracing_max_level_info", "bincode"] }
 
 [patch.crates-io]
 symbolica = { path = "vendor/symbolica" }

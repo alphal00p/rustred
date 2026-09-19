@@ -12,7 +12,7 @@ use std::time::Instant;
 use rustred::reduction::ReductionLimits;
 use rustred_app::{
     CandidateBundleLimits, FamilyCandidatesRequest, MAX_CANDIDATE_BUNDLE_BYTES, family_candidates,
-    load_candidate_bundle,
+    inspect_generated_candidate_bundle, load_generated_candidate_bundle,
 };
 
 fn limits() -> CandidateBundleLimits {
@@ -36,7 +36,7 @@ fn write_new(path: &str, bytes: &[u8]) -> Result<(), Box<dyn Error>> {
 fn verify<const N: usize>(bytes: &[u8], catalog: &str) -> Result<(), Box<dyn Error>> {
     let started = Instant::now();
     let (family, reducer) =
-        load_candidate_bundle::<N>(bytes, limits(), ReductionLimits::default())?;
+        load_generated_candidate_bundle::<N>(bytes, limits(), ReductionLimits::default())?;
     let recorded = catalog
         .lines()
         .find_map(|line| line.strip_prefix("family_fingerprint="))
@@ -82,6 +82,18 @@ fn verify<const N: usize>(bytes: &[u8], catalog: &str) -> Result<(), Box<dyn Err
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
+        Some("inspect") if args.len() == 3 => {
+            let mut bytes = Vec::new();
+            fs::File::open(&args[2])?.take(MAX_CANDIDATE_BUNDLE_BYTES as u64 + 1).read_to_end(&mut bytes)?;
+            let info = inspect_generated_candidate_bundle(&bytes, limits())?;
+            println!(
+                "schema={} status={} arity={} sectors={} rules={} terminals={} unique_coefficients={} state_bytes={} coefficient_table_bytes={} program_bytes={} fingerprint={}",
+                info.schema, info.status, info.arity, info.solved_sectors,
+                info.generated_rules, info.finite_residuals, info.unique_coefficients,
+                info.symbolica_state_bytes, info.coefficient_table_bytes, bytes.len(),
+                info.family_fingerprint,
+            );
+        }
         Some("generate") if matches!(args.len(), 8 | 9) => {
             if Path::new(&args[6]).exists() || Path::new(&args[7]).exists() || args[6] == args[7] {
                 return Err("bundle and report paths must be distinct and new".into());
@@ -112,7 +124,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
         }
-        _ => return Err("usage: candidate_bundle generate INPUT NONPOSITIVE_INDICES WORKERS PERMUTATION_OR_default NEW_BUNDLE NEW_REPORT [sparse|semi-numerical] | verify ARITY BUNDLE TERMINAL_CATALOG".into()),
+        _ => return Err("usage: candidate_bundle generate INPUT NONPOSITIVE_INDICES WORKERS PERMUTATION_OR_default NEW_BUNDLE NEW_REPORT [sparse|semi-numerical] | inspect BUNDLE | verify ARITY BUNDLE TERMINAL_CATALOG".into()),
     }
     Ok(())
 }

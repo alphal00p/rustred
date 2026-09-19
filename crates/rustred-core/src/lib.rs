@@ -14,6 +14,7 @@ pub mod family;
 pub mod foundry;
 pub mod identity;
 pub mod input;
+pub mod persistence;
 pub mod reduction;
 pub mod scalar_numerator;
 pub mod sector;

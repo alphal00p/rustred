@@ -44,7 +44,9 @@ impl PyCandidateBundleResult {
     }
 }
 
-/// Generate unsealed formulas only; this does not certify family closure.
+/// Generate unsealed formulas in a native Symbolica binary bundle.
+/// This does not certify family closure. The separate to_toml() report contains
+/// observational metadata, not the program's coefficient payload.
 #[pyfunction]
 #[pyo3(
     signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse"),
@@ -84,6 +86,9 @@ fn family_candidates(
 }
 
 /// Independently replay saved candidates and prove coverage before publication.
+/// Only supply trusted generated bundles: Symbolica's native state/Atom import
+/// is not a hardened hostile-input decoder. Mathematical certification remains
+/// independent of that native deserialization boundary.
 #[pyfunction]
 #[pyo3(
     signature=(bundle, *, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None, max_predicate_atoms=None, max_negative_index_degree=None),

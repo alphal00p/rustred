@@ -189,7 +189,7 @@ target/release/rustred family-candidates \
   --input examples/input/five_loop_cube.toml \
   --nonpositive-indices 12,13,14 --n-cores 6 \
   --exact-backend semi-numerical --progress \
-  --output TMP/cube.candidates.toml --report-output TMP/cube.report.toml
+  --output TMP/cube.rrcandidate --report-output TMP/cube.report.toml
 ```
 
 The corresponding Python call is:
@@ -203,7 +203,7 @@ result = rustred.family_candidates(
     nonpositive_indices=[12, 13, 14], n_cores=6,
     exact_backend="semi-numerical",
 )
-Path("TMP/cube.candidates.toml").write_bytes(result.bundle)
+Path("TMP/cube.rrcandidate").write_bytes(result.bundle)
 print(result.to_toml())
 ```
 

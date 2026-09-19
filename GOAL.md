@@ -14,11 +14,13 @@ option: keep the existing rule applier and do not build an alternate backend.
    canonical expression strings. Audit Symbolica's definitions, tests and
    examples before implementation. Preserve exact coefficients, source
    provenance, guards, terminals and the candidate/certified distinction.
-   Share a versioned envelope/context strategy, avoid unrelated global symbol
-   state and duplicate expressions, validate bounded untrusted input once,
+   Share a versioned envelope/context strategy, minimize unrelated global symbol
+   state and duplicate expressions, validate framing and mathematical structure once,
    and measure on-disk size, cold-load wall/CPU and peak memory. Migrate saved
    four-loop programs without regenerating IBPs; no RustRed schema compatibility
-   layer is required. Keep all Vakint FORM-based modes/defaults intact.
+   layer is required. Native Symbolica decoding currently requires trusted
+   generated provenance; outer size limits do not harden its inner readers
+   against hostile payloads. Keep all Vakint FORM-based modes/defaults intact.
 2. Then implement exact terminal reduction informed by the local `EPSILON.md` and
    the audited terminal study. Start with verified momentum-routing equivalence
    and factorized products, then bounded finite-terminal IBP relations where

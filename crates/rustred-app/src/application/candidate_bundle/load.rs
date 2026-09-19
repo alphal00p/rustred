@@ -6,9 +6,50 @@ use rustred::reduction::ReductionLimits;
 use rustred::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, OrderingPolicy, zero};
 use rustred::solver::CandidateReducer;
 
-use crate::application::{AppError, InputFormat};
+use crate::application::AppError;
 
-use super::{CandidateBundleLimits, codec, preparation};
+use super::{CandidateBundleLimits, codec, model::CandidateBundleInspection, preparation};
+
+/// Inspect candidate structure without importing Symbolica state or coefficients.
+/// Counts describe the saved payload; they do not authenticate algebra, replay
+/// sources, validate every native frame, or establish closure.
+pub fn inspect_generated_candidate_bundle(
+    bytes: &[u8],
+    input_limits: CandidateBundleLimits,
+) -> Result<CandidateBundleInspection, AppError> {
+    use rustred::persistence::SectionTag;
+    let (envelope, record, _) = codec::read_structure(bytes, input_limits)?;
+    let table = envelope
+        .section(SectionTag::COEFFICIENTS)
+        .expect("checked section");
+    let count_bytes = table
+        .get(..8)
+        .ok_or_else(|| AppError::schema("truncated coefficient count"))?;
+    let unique_coefficients = usize::try_from(u64::from_le_bytes(count_bytes.try_into().unwrap()))
+        .map_err(|_| AppError::limit("coefficient count exceeds host width"))?;
+    if unique_coefficients > input_limits.max_collection_entries {
+        return Err(AppError::limit("coefficient count exceeds input limit"));
+    }
+    Ok(CandidateBundleInspection {
+        schema: record.schema,
+        status: record.status,
+        family_fingerprint: record.family_fingerprint,
+        arity: record.root_sector.len(),
+        solved_sectors: record.sectors.len(),
+        generated_rules: record.sectors.iter().map(|s| s.rules.len()).sum(),
+        finite_residuals: record
+            .sectors
+            .iter()
+            .map(|s| s.finite_residuals.len())
+            .sum(),
+        unique_coefficients,
+        symbolica_state_bytes: envelope
+            .section(SectionTag::SYMBOLICA_STATE)
+            .expect("checked section")
+            .len(),
+        coefficient_table_bytes: table.len(),
+    })
+}
 
 /// Decode a saved candidate bundle for experimental concrete application.
 ///
@@ -17,7 +58,12 @@ use super::{CandidateBundleLimits, codec, preparation};
 /// certification. The returned [`CandidateReducer`] checks guards and descent
 /// at actual integer targets; it is never a `ClosedArtifact`. The family and
 /// reducer use the original denominator coordinates, not priority-order slots.
-pub fn load_candidate_bundle<const N: usize>(
+///
+/// Only load programs produced by the trusted matching RustRed/Symbolica stack.
+/// Native Symbolica state and Atom decoding is not a hostile-input parser.
+/// Frame and structural limits do not bound every allocation in malformed
+/// native data. Loaded coefficients must have their generated normalized form.
+pub fn load_generated_candidate_bundle<const N: usize>(
     bytes: &[u8],
     input_limits: CandidateBundleLimits,
     reduction_limits: ReductionLimits,
@@ -26,11 +72,14 @@ pub fn load_candidate_bundle<const N: usize>(
     if !(1..=16).contains(&N) || bundle.root_sector.len() != N {
         return Err(AppError::input("candidate bundle/reducer arity mismatch"));
     }
-    let format: InputFormat = bundle
-        .input_format
-        .parse()
-        .map_err(|error| AppError::input(format!("{error}")))?;
-    let family = preparation::family(&bundle.family_source, format)?;
+    let family = bundle
+        .family
+        .to_family(
+            &bundle.coefficients,
+            input_limits.family_limits(),
+            input_limits.binary_limits(),
+        )
+        .map_err(codec::binary_error)?;
     if family.fingerprint() != bundle.family_fingerprint || family.denominator_count() != N {
         return Err(AppError::input(
             "candidate family binding differs from reconstructed family",
@@ -49,6 +98,10 @@ pub fn load_candidate_bundle<const N: usize>(
         input_limits,
     )?;
     let ordering = candidate_ordering(N, bundle.permutation.as_deref())?;
+    // Native transport ownership ends here: the unchanged applier consumes
+    // the reconstructed solutions. Do not retain the dictionary alongside its
+    // prepared coefficient owners while building the reducer.
+    drop(bundle);
     // Preparation keeps a compact zero-mask census. The experimental reducer
     // takes native proof owners, not caller-asserted zero masks.
     let analyzer = zero::Analyzer::try_unrestricted(&prepared.family)

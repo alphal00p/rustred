@@ -17,11 +17,19 @@ class CandidateApiTests(unittest.TestCase):
         reconstructed = rustred.family_candidates(
             UNIT_MASS_PROJECT_K1, exact_backend="semi-numerical", n_cores=2
         )
-        self.assertEqual(sparse.bundle, reconstructed.bundle)
+        # Native Symbolica IDs may depend on process history. Compare exact
+        # certified semantics, not dirty-process native dump bytes.
+        self.assertEqual(
+            rustred.certify_candidates(sparse.bundle).artifact,
+            rustred.certify_candidates(reconstructed.bundle).artifact,
+        )
         self.assertEqual(tomllib.loads(reconstructed.to_toml())["exact_backend"], "semi-numerical")
         self.assertEqual(
-            reconstructed.bundle,
-            cli_bytes(["family-candidates", "--exact-backend", "semi-numerical"], UNIT_MASS_PROJECT_K1.encode()),
+            rustred.certify_candidates(reconstructed.bundle).artifact,
+            rustred.certify_candidates(cli_bytes(
+                ["family-candidates", "--exact-backend", "semi-numerical"],
+                UNIT_MASS_PROJECT_K1.encode(),
+            )).artifact,
         )
         with self.assertRaises(rustred.RustRedInputError):
             rustred.family_candidates("not parsed", exact_backend="invalid")
@@ -32,9 +40,7 @@ class CandidateApiTests(unittest.TestCase):
         self.assertEqual(generated.schema, "rustred.family-candidates-output.toml.v1")
         self.assertIsInstance(generated.bundle, bytes)
         self.assertIn("uncertified-candidates", repr(generated))
-        self.assertEqual(
-            tomllib.loads(generated.bundle.decode())["status"], "uncertified-candidates"
-        )
+        self.assertTrue(generated.bundle.startswith(b"RRPBIN\r\n"))
         with self.assertRaises(rustred.RustRedError):
             rustred.inspect_closing_artifact(generated.bundle)
         certified = rustred.certify_candidates(generated.bundle)
@@ -49,8 +55,11 @@ class CandidateApiTests(unittest.TestCase):
     def test_cli_python_bundle_and_certification_parity(self) -> None:
         generated = rustred.family_candidates(UNIT_MASS_PROJECT_K1, input_format="toml")
         self.assertEqual(
-            generated.bundle,
-            cli_bytes(["family-candidates", "--input-format", "toml"], UNIT_MASS_PROJECT_K1.encode()),
+            rustred.certify_candidates(generated.bundle).artifact,
+            rustred.certify_candidates(cli_bytes(
+                ["family-candidates", "--input-format", "toml"],
+                UNIT_MASS_PROJECT_K1.encode(),
+            )).artifact,
         )
         certified = rustred.certify_candidates(generated.bundle, max_predicate_atoms=64)
         self.assertEqual(
@@ -70,9 +79,11 @@ class CandidateApiTests(unittest.TestCase):
         generated = rustred.family_candidates(UNIT_MASS_PROJECT_K1)
         with self.assertRaises(rustred.RustRedError):
             rustred.certify_candidates(generated.bundle, max_domain_bound_endpoint_cells=0)
-        changed = generated.bundle.replace(
-            b'status = "uncertified-candidates"', b'status = "closed"', 1
-        )
+        # Changing a container's kind cannot turn candidates into a certificate.
+        changed = bytearray(generated.bundle)
+        self.assertEqual(changed[12], 1)
+        changed[12] = 2
+        changed = bytes(changed)
         self.assertNotEqual(changed, generated.bundle)
         with self.assertRaises(rustred.RustRedError):
             rustred.certify_candidates(changed)

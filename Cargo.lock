@@ -98,6 +98,38 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be5eb007b7cacc6c660343e96f650fedf4b5a77512399eb952ca6642cf8d13f7"
 
 [[package]]
+name = "bincode"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36eaf5d7b090263e8150820482d5d93cd964a81e4019913c972f4edcc6edb740"
+dependencies = [
+ "bincode_derive",
+ "serde",
+ "unty",
+]
+
+[[package]]
+name = "bincode-trait-derive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1f425dc6064b77d777fdecf6d1b374ae29e0be056b5ba8308a798d381e82632"
+dependencies = [
+ "bincode",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "bincode_derive"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf95709a440f45e986983918d0e8a1f30a9b1df04918fc828670606804ac3c09"
+dependencies = [
+ "virtue",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -661,6 +693,8 @@ name = "numerica"
 version = "3.0.0"
 dependencies = [
  "ahash",
+ "bincode",
+ "bincode-trait-derive",
  "colored",
  "dyn-clone",
  "gmp-mpfr-sys",
@@ -969,6 +1003,7 @@ dependencies = [
 name = "rustred"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "blake3",
  "rand",
  "rayon",
@@ -979,6 +1014,7 @@ dependencies = [
 name = "rustred-app"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "crossterm",
  "ratatui",
  "rustred",
@@ -1193,6 +1229,8 @@ version = "3.0.0"
 dependencies = [
  "ahash",
  "append-only-vec",
+ "bincode",
+ "bincode-trait-derive",
  "brotli",
  "byteorder",
  "bytes",
@@ -1437,6 +1475,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fc81956842c57dac11422a97c3b8195a1ff727f06e85c84ed2e8aa277c9a0fd"
 
 [[package]]
+name = "unty"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
+
+[[package]]
 name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1447,6 +1491,12 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "virtue"
+version = "0.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 
 [[package]]
 name = "vte"
