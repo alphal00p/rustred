@@ -148,6 +148,52 @@ admission. Those are the next gates. In particular, degree 30 here is a
 selected-sector coverage bound, not a claim that all its descendants have
 degree at most 30.
 
+### Complete FG-parent attempts (2026-09-19): structural budget, not closure
+
+Two subsequent release attempts use the unchanged saved full FG parent:
+**124 sectors, 9,272 rules, 145 terminal declarations and 126,549 source-trace
+entries**. Both start with total excess 30 in every entry sector and propagate
+larger descendant bounds in checked reduction order. These are complete-parent
+requests, not attempts on a selected easier subfamily. Neither completes.
+
+| Measurement | Default caller policy | Explicit larger caller policy |
+| --- | ---: | ---: |
+| Completed sector audit reports | 49 | 68 |
+| Completed successor-propagation stages | 48 | 67 |
+| Exact source replay and descent checks passed | 3,271 | 4,555 |
+| Gaps / issues in completed reports | 0 / 0 | 0 / 0 |
+| Largest degree among checked sectors | 96 | 106 |
+| Audit wall time | 120.768 s | 119.413 s |
+| Whole process wall time | 121.21 s | 119.97 s |
+| Peak RSS | 205,824 KiB | 205,824 KiB |
+| Exit status | 8, typed resource exhaustion | 8, typed resource exhaustion |
+
+Both stop during successor propagation with
+`ResourceBudgetExhausted { resource: "total-excess successor geometry" }`.
+The error identifies the shared structural ledger, not which individual
+subquota was exhausted. The default attempt stops after sector 115
+(`1100111000`, degree 80); the second stops after sector 158
+(`0111100100`, degree 89). Completed reports agree exactly over their common
+prefix when elapsed times are removed. No failed identity or uncovered branch
+was reported before the resource limit; unvisited sectors remain unchecked.
+
+The explicit policy changes only the cover replay allowances: requested boxes
+1,000,006 → 1,048,576, requested coordinates 12,000,072 → 16,777,216, and shared
+split work 12,000,072 → 16,777,216. These are shared coverage/descent/envelope
+allowances, not a successor-only knob. Native affine work remains 4,194,304,
+predicate atoms remain 32, and exact-algebra and uncovered-box limits remain
+unchanged. Neither production defaults nor proof semantics change.
+
+The runs use the same frozen optimized libraries, input and codec, one worker
+on CPU 83, a 600-second external deadline and a 32-GiB virtual-address-space
+cap. Neither external limit is reached. This is one observation per policy,
+not a performance comparison: the amounts of completed work differ. Raw
+evidence is in `TMP/fg-parent-degree30.PZl0OF/` and
+`TMP/fg-parent-degree30-policy.ayJHfx/`. No candidate search or rule regeneration
+is performed; original IBP sources are regenerated and replayed. Bounded
+artifact installation, persistence, cold verification
+and runtime entry checks remain pending independently of this diagnostic.
+
 The new complete-program diagnostic is exercised on real K1 and K3 solver
 outputs, including arbitrarily ordered input sectors, propagated bounds,
 foreign/nonlower successor rejection, exact zero pruning and cumulative

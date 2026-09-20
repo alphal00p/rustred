@@ -2,6 +2,30 @@
 
 ## Current priority — binary I/O, then terminal reduction
 
+### September 20 follow-up: deeper finite-terminal reduction study
+
+In parallel with the measured solver work, investigate `EPSILON.md`, current
+KIRA/Laporta-style finite-target reduction and related primary literature for
+reducing the remaining four-loop terminal basis. The deployed exact unit-weight
+normalization has already reduced 1,155 family-local keys to 179 representatives;
+105 numerator-bearing keys remain. The practical objective is **fewer than 100
+representatives**, not a proof of minimality. Keep family-local integral keys,
+globally routed representatives, topology labels and evaluated master symbols
+distinct when reporting counts.
+
+Delegate a main deep literature/local-code investigation and an independent
+mathematical/practical critique. Test recommended bounded methods on the saved
+four-loop programs before adopting them. Consider targeted additional integer
+IBPs, finite-field equation selection, exact projection through existing rules,
+cross-family routing and justified subgraph/dimension relations. Reuse
+Symbolica's arithmetic, sparse linear algebra and reconstruction; do not add a
+custom CAS kernel or regenerate all parametric rules just to compress their
+finite terminal output. FMFT supplies an independent validation oracle, not
+hidden production relations. Retain exact source/routing witnesses, existing
+guard/domain obligations and numerical acceptance tolerances. Report retained
+terminal counts, one-off generation cost, application overhead and unsuccessful
+searches; a finite nonminimal basis remains acceptable.
+
 The user's corrected September 19 directive supersedes proceeding immediately
 to five loops. **Do not resume five-loop experiments or their performance
 profiling until the following work is implemented and validated, in this
@@ -142,9 +166,24 @@ native factorized rational-polynomial field in its sparse reducer. All six
 serial probes reproduce the same 997 pivots and 1,490 target coefficients/maps;
 median field time is 16.524 s for ordinary coefficients versus 4.378 s for the
 factorized field (median paired ratio 3.75), with essentially unchanged whole-
-process RSS. This supports a narrow opt-in exact-lifting integration next,
-not a production default change or a whole-family speedup. The report retains
-the frozen source frame, timing boundaries and independent audit.
+process RSS. A narrow opt-in integration is now implemented as
+`SymbolicExactBackend::SparseFactorized`, CLI `--exact-backend sparse-factorized`
+and Python `exact_backend="sparse-factorized"`. Symbolica owns all factorization
+and field arithmetic; only the finished target row returns to ordinary
+coefficients. Discovery, source traces, guards, numerical-corner solving,
+artifact formats and the sparse default remain unchanged. The release gate
+passes 2,208 core and 91 app unit tests plus integration suites, and a freshly
+built Python extension passes all 35 tests. Independent implementation and
+mathematical reviews find no blocker. The report retains the frozen-frame
+timing boundaries and audit; neither that experiment nor the opt-in alone
+establishes a whole-family speedup.
+Three fresh-process production pairs now reproduce the same complete selected
+five-loop coordinate case: the 997-source trace, three guards and all 1,489 RHS
+coefficients/maps agree. Median exact lifting is 13.814 → 3.973 s (median paired
+ratio 3.495); the supplied-case solve is 14.296 → 4.429 s. Whole process time
+is 31.43 → 21.48 s because unchanged preparation remains, and peak RSS rises
+about 3.9%. These are completed single-case measurements, not a completed
+sector or family. Keep the new field explicitly opt-in for broader trials.
 The two external five-loop candidate-only studies may now resume in parallel
 with this application work, with explicit physical-root ISP restrictions,
 matched exact/reconstruction settings and stated time/memory limits. Do not
@@ -177,6 +216,13 @@ replays and descent checks, with zero checked gaps through total excess 30 and
 11 finite terminals, in a 74.837-second serial release audit. This clears a
 selected-sector obstacle only; full-parent propagated coverage, runtime-cell
 lowering, persistent bounded scope and cold replay remain unfinished.
+Two complete FG-parent requests subsequently pass 49 and 68 sector audits
+(3,271 and 4,555 exact rule replay/descent checks) before exhausting the shared
+successor-geometry allowance. All completed reports have zero gaps/issues;
+neither request completes the 124-sector parent. The second uses an explicit
+modest caller-budget increase, without changing defaults or proof semantics.
+The bounded-certification report records both incomplete outcomes and the
+propagated degrees; this is not a new missing-rule diagnosis or a certificate.
 Both bounded physical-cube backends reach their 1,800-second deadlines
 without saved bundles: sparse exact reports 37 completed-sector events and
 reconstruction reports 41, with different completed-sector sets. Peak RSS is
@@ -184,6 +230,14 @@ reconstruction reports 41, with different completed-sector sets. Peak RSS is
 [five-loop baseline](docs/research/five_loop_candidate_baselines.md) records
 the exact scope, resource use and both censored outcomes. Neither is a completed
 generation or a closure result, and no speedup follows from the partial counts.
+The immediate five-loop performance gate is a completed physical parent-sector
+solve with saved exact output, then a complete physical-family campaign. Test
+the opt-in native factorized field against the measured ordinary and target-only
+paths on identical supplied cases before selecting a broader run. A completed
+sector or a faster single target lift must not be reported as a completed
+family. Keep optional four-loop bounded certification separate from these
+candidate-generation experiments; do not enlarge that proof project to delay
+the requested five-loop studies.
 The reconstruction backend still includes internal exact sparse replay; this
 is distinct from optional family certification. New diagnostic observer
 boundaries expose that phase for measured optimization without removing it.

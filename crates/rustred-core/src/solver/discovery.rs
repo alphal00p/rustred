@@ -14,6 +14,7 @@ use super::{ExactRow, Integral, IntegralOrder, Term};
 type NumericalCoefficient = <Zp64 as Set>::Element;
 type ExactField = RationalPolynomialField<IntegerRing, u16>;
 
+mod factorized;
 mod fraction_free;
 mod semi_numerical;
 mod target_only;
@@ -25,6 +26,11 @@ mod variables;
 pub enum SymbolicExactBackend {
     #[default]
     Sparse,
+    /// Native sparse GPLU over Symbolica's factorized-denominator field.
+    /// Coefficients remain factorized only during this exact lift; the target
+    /// row is restored to ordinary rational polynomials before rule extraction.
+    /// This opt-in does not alter discovery, source guards or artifact authority.
+    SparseFactorized,
     /// Native GPLU on the harder/target block, followed by a native triangular
     /// weight solve and one full-row product. Requires an independent prefix.
     /// This is an opt-in scheduling experiment, not a different source search.
@@ -353,6 +359,10 @@ pub enum MaterializationError {
     },
     TargetOnlyInvalidDecomposition(&'static str),
     CoefficientVariableRemap(String),
+    FactorizedNativePanic {
+        operation: &'static str,
+    },
+    InvalidFactorizedCoefficient(&'static str),
     FractionFreeNonPolynomialCoefficient {
         row: usize,
         term: usize,
@@ -412,6 +422,15 @@ impl fmt::Display for MaterializationError {
                     f,
                     "selected exact coefficients have inconsistent variable maps"
                 )
+            }
+            Self::FactorizedNativePanic { operation } => {
+                write!(
+                    f,
+                    "native factorized exact lifting failed while {operation}"
+                )
+            }
+            Self::InvalidFactorizedCoefficient(reason) => {
+                write!(f, "invalid factorized exact-lift coefficient: {reason}")
             }
             Self::InvalidCoefficientVariablePriority => write!(
                 f,
@@ -498,6 +517,9 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
         coefficient_variables: variables.original_len(),
         active_variables: variables.active_len(),
     });
+    if backend == SymbolicExactBackend::SparseFactorized {
+        return factorized::materialize(rows, &columns, order, target_column, &variables, observe);
+    }
     if backend == SymbolicExactBackend::SparseTargetOnly {
         return target_only::materialize(rows, &columns, order, target_column, &variables, observe);
     }

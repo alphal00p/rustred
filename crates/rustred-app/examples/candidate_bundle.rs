@@ -123,7 +123,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
         }
-        _ => return Err("usage: candidate_bundle generate INPUT NONPOSITIVE_INDICES WORKERS PERMUTATION_OR_default NEW_BUNDLE NEW_REPORT [sparse|semi-numerical] | inspect BUNDLE | verify ARITY BUNDLE TERMINAL_CATALOG".into()),
+        _ => return Err("usage: candidate_bundle generate INPUT NONPOSITIVE_INDICES WORKERS PERMUTATION_OR_default NEW_BUNDLE NEW_REPORT [sparse|sparse-factorized|semi-numerical] | inspect BUNDLE | verify ARITY BUNDLE TERMINAL_CATALOG".into()),
     }
     Ok(())
 }

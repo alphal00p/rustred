@@ -47,6 +47,8 @@ impl PyCandidateBundleResult {
 /// Generate unsealed formulas in a native Symbolica binary bundle.
 /// This does not certify family closure. The separate to_toml() report contains
 /// observational metadata, not the program's coefficient payload.
+/// exact_backend selects "sparse" (default), "sparse-factorized" (native
+/// factorized denominators during exact lifting), or "semi-numerical".
 #[pyfunction]
 #[pyo3(
     signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse"),

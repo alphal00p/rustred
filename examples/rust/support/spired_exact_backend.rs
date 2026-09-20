@@ -40,8 +40,9 @@ fn parse_coefficient_order(order: Option<&str>) -> Result<CoefficientVariableOrd
 fn parse(mode: Option<&str>, limit: Option<&str>) -> Result<SymbolicExactBackend, String> {
     match mode.unwrap_or("sparse") {
         "sparse" if limit.is_none() => Ok(SymbolicExactBackend::Sparse),
+        "sparse-factorized" if limit.is_none() => Ok(SymbolicExactBackend::SparseFactorized),
         "sparse-target-only" if limit.is_none() => Ok(SymbolicExactBackend::SparseTargetOnly),
-        "sparse" | "sparse-target-only" => {
+        "sparse" | "sparse-factorized" | "sparse-target-only" => {
             Err("fraction-free entry limit requires dense-fraction-free mode".into())
         }
         "dense-fraction-free" => {
@@ -60,7 +61,7 @@ fn parse(mode: Option<&str>, limit: Option<&str>) -> Result<SymbolicExactBackend
             max_primes: env_positive_usize("RUSTRED_SPIRED_RECON_MAX_PRIMES", 8)?,
         }),
         _ => Err(
-            "symbolic exact backend must be sparse, sparse-target-only, dense-fraction-free or semi-numerical"
+            "symbolic exact backend must be sparse, sparse-factorized, sparse-target-only, dense-fraction-free or semi-numerical"
                 .into(),
         ),
     }
@@ -122,6 +123,10 @@ mod tests {
             SymbolicExactBackend::SparseTargetOnly
         );
         assert_eq!(
+            parse(Some("sparse-factorized"), None).unwrap(),
+            SymbolicExactBackend::SparseFactorized
+        );
+        assert_eq!(
             parse(Some("dense-fraction-free"), Some("143636")).unwrap(),
             SymbolicExactBackend::DenseFractionFree {
                 max_matrix_entries: 143636
@@ -138,6 +143,7 @@ mod tests {
         assert!(parse(Some("automatic"), None).is_err());
         assert!(parse(None, Some("100")).is_err());
         assert!(parse(Some("sparse-target-only"), Some("100")).is_err());
+        assert!(parse(Some("sparse-factorized"), Some("100")).is_err());
         assert!(parse(Some("dense-fraction-free"), Some("0")).is_err());
         assert!(parse(Some("dense-fraction-free"), Some("-1")).is_err());
         assert!(parse(Some("dense-fraction-free"), Some("unbounded")).is_err());

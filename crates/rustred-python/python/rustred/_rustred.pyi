@@ -166,7 +166,7 @@ def family_candidates(
     n_cores: int = 1,
     permutation: list[int] | None = None,
     nonpositive_indices: list[int] | None = None,
-    exact_backend: str = "sparse",
+    exact_backend: str = "sparse",  # sparse, sparse-factorized, or semi-numerical
 ) -> CandidateBundleResult: ...
 
 def certify_candidates(

@@ -8,31 +8,59 @@ import unittest
 
 import rustred
 
-from test_python_api import GeneratedProgramAssertions, UNIT_MASS_PROJECT_K1, cli_bytes
+from test_python_api import (
+    GeneratedProgramAssertions,
+    UNIT_MASS_PROJECT_K1,
+    UNIT_MASS_PROJECT_K3,
+    cli_bytes,
+)
 
 
 class CandidateApiTests(GeneratedProgramAssertions):
     def test_exact_backend_selection_and_cli_parity(self) -> None:
         sparse = rustred.family_candidates(UNIT_MASS_PROJECT_K1)
-        reconstructed = rustred.family_candidates(
-            UNIT_MASS_PROJECT_K1, exact_backend="semi-numerical", n_cores=2
-        )
-        # Native Symbolica IDs may depend on process history. Compare exact
-        # certified semantics, not dirty-process native dump bytes.
-        self.assertProgramEqual(
-            rustred.certify_candidates(sparse.bundle).artifact,
-            rustred.certify_candidates(reconstructed.bundle).artifact,
-        )
-        self.assertEqual(tomllib.loads(reconstructed.to_toml())["exact_backend"], "semi-numerical")
-        self.assertProgramEqual(
-            rustred.certify_candidates(reconstructed.bundle).artifact,
-            rustred.certify_candidates(cli_bytes(
-                ["family-candidates", "--exact-backend", "semi-numerical"],
-                UNIT_MASS_PROJECT_K1.encode(),
-            )).artifact,
-        )
+        self.assertEqual(tomllib.loads(sparse.to_toml())["exact_backend"], "sparse")
+        baseline = rustred.certify_candidates(sparse.bundle).artifact
+        for backend in ["semi-numerical", "sparse-factorized"]:
+            with self.subTest(backend=backend):
+                generated = rustred.family_candidates(
+                    UNIT_MASS_PROJECT_K1, exact_backend=backend, n_cores=2
+                )
+                # Native Symbolica IDs may depend on process history. Compare
+                # exact certified semantics, not native dump bytes.
+                artifact = rustred.certify_candidates(generated.bundle).artifact
+                self.assertProgramEqual(baseline, artifact)
+                self.assertEqual(
+                    tomllib.loads(generated.to_toml())["exact_backend"], backend
+                )
+                self.assertProgramEqual(
+                    artifact,
+                    rustred.certify_candidates(cli_bytes(
+                        ["family-candidates", "--exact-backend", backend],
+                        UNIT_MASS_PROJECT_K1.encode(),
+                    )).artifact,
+                )
         with self.assertRaises(rustred.RustRedInputError):
             rustred.family_candidates("not parsed", exact_backend="invalid")
+
+    def test_factorized_exact_backend_preserves_complete_sunset_generation(self) -> None:
+        self.assertEqual(
+            inspect.signature(rustred.family_candidates).parameters["exact_backend"].default,
+            "sparse",
+        )
+        sparse = rustred.family_candidates(UNIT_MASS_PROJECT_K3)
+        generated = rustred.family_candidates(
+            UNIT_MASS_PROJECT_K3, exact_backend="sparse-factorized", n_cores=2
+        )
+        self.assertEqual(generated.status, "uncertified-candidates")
+        self.assertEqual(generated.schema, sparse.schema)
+        self.assertEqual(
+            tomllib.loads(generated.to_toml())["exact_backend"], "sparse-factorized"
+        )
+        self.assertProgramEqual(
+            rustred.certify_candidates(sparse.bundle).artifact,
+            rustred.certify_candidates(generated.bundle).artifact,
+        )
 
     def test_saved_candidates_and_independent_certification(self) -> None:
         generated = rustred.family_candidates(UNIT_MASS_PROJECT_K1)

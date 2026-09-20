@@ -34,28 +34,33 @@ pub struct CandidateBundleInspection {
     pub coefficient_table_bytes: usize,
 }
 
-/// Exact materialization policy for candidate generation. Both choices use
-/// the same source discovery and guards; neither certifies family closure.
+/// Exact materialization policy for candidate generation. All choices use
+/// the same source discovery and guards; none certifies family closure.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CandidateExactBackend {
     #[default]
     Sparse,
     SemiNumerical,
+    /// Native factorized denominators throughout symbolic sparse elimination.
+    /// Rule extraction and candidate bundles retain ordinary coefficients.
+    SparseFactorized,
 }
 
 impl CandidateExactBackend {
-    pub const EXPECTED_VALUES: &str = "sparse or semi-numerical";
+    pub const EXPECTED_VALUES: &str = "sparse, sparse-factorized, or semi-numerical";
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Sparse => "sparse",
             Self::SemiNumerical => "semi-numerical",
+            Self::SparseFactorized => "sparse-factorized",
         }
     }
 
     pub(super) fn solver_backend(self) -> SymbolicExactBackend {
         match self {
             Self::Sparse => SymbolicExactBackend::Sparse,
+            Self::SparseFactorized => SymbolicExactBackend::SparseFactorized,
             Self::SemiNumerical => SymbolicExactBackend::SemiNumerical {
                 max_degree: 128,
                 max_probes: 200_000,
@@ -73,6 +78,7 @@ impl std::str::FromStr for CandidateExactBackend {
         match value {
             "sparse" => Ok(Self::Sparse),
             "semi-numerical" => Ok(Self::SemiNumerical),
+            "sparse-factorized" => Ok(Self::SparseFactorized),
             _ => Err(crate::AppError::input(format!(
                 "invalid candidate exact backend {value:?}; expected {}",
                 Self::EXPECTED_VALUES

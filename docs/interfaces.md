@@ -325,3 +325,13 @@ semi-numerical target-lifting backend. It delegates interpolation, CRT and
 rational reconstruction to Symbolica 3.0's public API; exact replay and
 publication remain the authority. The backend is diagnostic/experimental and
 does not alter RustRed's default exact sparse path.
+
+Candidate generation also accepts the opt-in native factorized-denominator
+field through Rust `CandidateExactBackend::SparseFactorized`, CLI
+`family-candidates --exact-backend sparse-factorized`, and Python
+`family_candidates(..., exact_backend="sparse-factorized")`. It changes only
+symbolic exact materialization; source discovery, guards and independent
+certification keep their existing paths. Returned coefficients use the
+ordinary representation and the existing candidate bundle schema. The
+generation report records the choice in `exact_backend`; `sparse` remains the
+default. This option does not select an application-cache representation.

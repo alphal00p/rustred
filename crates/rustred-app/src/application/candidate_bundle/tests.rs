@@ -53,10 +53,11 @@ fn assert_same_program(left: &[u8], right: &[u8]) {
     assert_eq!(left.coefficients.len(), right.coefficients.len());
     for index in 0..left.coefficients.len() {
         let id = CoefficientId::try_from_index(index).unwrap();
-        assert_eq!(
-            left.coefficients.coefficient(id).unwrap(),
-            right.coefficients.coefficient(id).unwrap()
-        );
+        let left = left.coefficients.coefficient(id).unwrap();
+        let right = right.coefficients.coefficient(id).unwrap();
+        assert_eq!(left, right);
+        assert_eq!(left.numerator.variables(), right.numerator.variables());
+        assert_eq!(left.denominator.variables(), right.denominator.variables());
     }
 }
 
@@ -94,10 +95,20 @@ fn replace_solutions<const N: usize>(
 
 #[test]
 fn candidate_materialization_backends_keep_small_case_bundles_identical() {
-    assert_eq!("sparse".parse(), Ok(CandidateExactBackend::Sparse));
     assert_eq!(
-        "semi-numerical".parse(),
-        Ok(CandidateExactBackend::SemiNumerical)
+        CandidateExactBackend::default(),
+        CandidateExactBackend::Sparse
+    );
+    for backend in [
+        CandidateExactBackend::Sparse,
+        CandidateExactBackend::SemiNumerical,
+        CandidateExactBackend::SparseFactorized,
+    ] {
+        assert_eq!(backend.as_str().parse(), Ok(backend));
+    }
+    assert_eq!(
+        CandidateExactBackend::SparseFactorized.solver_backend(),
+        rustred::solver::SymbolicExactBackend::SparseFactorized,
     );
     assert!(
         "reconstruction-with-exact-fallback"
@@ -106,14 +117,23 @@ fn candidate_materialization_backends_keep_small_case_bundles_identical() {
     );
     for source in [K1, K3] {
         let sparse = family_candidates(FamilyCandidatesRequest::new(source)).unwrap();
-        let mut request = FamilyCandidatesRequest::new(source);
-        request.exact_backend = CandidateExactBackend::SemiNumerical;
-        request.n_cores = 2;
-        let reconstructed = family_candidates(request).unwrap();
-        assert_same_program(sparse.bundle(), reconstructed.bundle());
-        let report: toml::Value = toml::from_str(reconstructed.to_toml()).unwrap();
-        assert_eq!(report["exact_backend"].as_str(), Some("semi-numerical"));
-        certify_candidates(CandidateCertificationRequest::new(reconstructed.bundle())).unwrap();
+        let baseline_report: toml::Value = toml::from_str(sparse.to_toml()).unwrap();
+        assert_eq!(baseline_report["exact_backend"].as_str(), Some("sparse"));
+        for (backend, workers) in [
+            (CandidateExactBackend::SemiNumerical, 2),
+            (CandidateExactBackend::SparseFactorized, 1),
+            (CandidateExactBackend::SparseFactorized, 2),
+        ] {
+            let mut request = FamilyCandidatesRequest::new(source);
+            request.exact_backend = backend;
+            request.n_cores = workers;
+            let generated = family_candidates(request).unwrap();
+            assert_same_program(sparse.bundle(), generated.bundle());
+            let report: toml::Value = toml::from_str(generated.to_toml()).unwrap();
+            assert_eq!(report["exact_backend"].as_str(), Some(backend.as_str()));
+            assert_eq!(report["schema"].as_str(), Some(FAMILY_CANDIDATES_SCHEMA));
+            certify_candidates(CandidateCertificationRequest::new(generated.bundle())).unwrap();
+        }
     }
 }
 

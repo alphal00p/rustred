@@ -1,22 +1,26 @@
 # Native factorized-denominator coefficient experiments
 
-Status: independently audited release experiments, September 19, 2026.
+Status: independently audited release experiments, September 19–20, 2026.
 **Ordinary rational polynomials remain the default, including in Vakint.**
 An explicit Rust-library factorized-cache option now exists in the same
 candidate applier. It does not change artifacts, public output coefficients,
 rule authority or default behavior. The original frame replay below and the
 subsequent full-application measurements have different timing boundaries.
 
-### Generation-time field: scoped experiment completed
+### Generation-time field: explicit opt-in implemented
 
 A separate source audit of pinned Symbolica 3.0.0 confirms that its native
 `FactorizedRationalPolynomialField<IntegerRing, u16>` implements `Field` and
 therefore fits the generic `SparseRowReducer` interface. The audit checked the
 field, reducer, conversion tests and public examples. A subsequent scratch-only
 [fixed selected-frame experiment](#fixed-selected-frame-generation-time-field-experiment)
-completed with exact parity and a substantial local gain. It is **not a
-production generation backend or a whole-family benchmark**; production
-generation and its defaults remain unchanged.
+completed with exact parity and a substantial local gain. The subsequent
+production integration is an explicit `SymbolicExactBackend::SparseFactorized`
+option, also exposed as `exact_backend="sparse-factorized"` in candidate
+generation APIs and `--exact-backend sparse-factorized` at the CLI.
+**Ordinary `Sparse` remains the default.** Shared numerical-tail lifting and
+semi-numerical reconstruction's internal exact replay still use ordinary
+sparse lifting; this option does not change either path or the applier cache.
 
 The main caution is different from application: each accepted GPLU pivot uses
 field inversion, and native factorized inversion factors the pivot numerator
@@ -24,8 +28,9 @@ and expands its old denominator. Application's measured add/multiply gains
 therefore do not predict elimination speed. The experiment converted once at
 entry, preserved native factorized intermediates, and materialized only the
 target row, checking exact ordinary coefficients and ordered variable maps
-afterward. Original source poles and replay remain mandatory for any future
-integration. Detailed API findings are retained in
+afterward. The integration preserves original source guards and replay;
+returned coefficients and existing artifact formats remain ordinary RP.
+Detailed API findings are retained in
 `TMP/factorized_exact_lift_api_findings.md`.
 
 Symbolica 3.0's `FactorizedRationalPolynomial<IntegerRing, u16>` preserves
@@ -100,8 +105,9 @@ inside existing exact lifting, without changing the global coefficient type,
 guards, source replay, artifacts or defaults. It does not establish that FRP
 wins on other frames or replaces the separately measured target-only lifting
 optimization. That optimization has a different elimination workload; a
-controlled joint comparison is needed before choosing a default. No new
-production backend is included in this experiment.
+controlled joint comparison is needed before choosing a default. This first
+experiment itself did not change production; the subsequent opt-in integration
+and its separate public-case validation are reported below.
 
 Evidence: `TMP/factorized-field-frame.iP0Mm2/` retains the native frozen frame,
 copied library/runtime/input hashes, source and reproduction scripts, all six
@@ -112,6 +118,75 @@ That pre-measurement correction is not a field failure or an excluded timed
 sample. `independent-audit.md` records the successful independent review of
 the source boundary, original-rule parity, hashes, complete outcomes and
 reported statistics.
+
+## Production opt-in: same-case validation and measurement
+
+The implementation adds `SymbolicExactBackend::SparseFactorized` to the core
+exact-lifting dispatcher. It streams each selected row through Symbolica's
+native factorized field, with unchanged integral columns/order, zero sentinel,
+target stopping condition and `FrameVariables` compaction/restoration. Only
+the winning target row returns to ordinary RP. Native-operation panics return
+a typed error rather than a partial result; observer panics are not intercepted.
+There is no custom `Field` wrapper, CAS kernel, new artifact representation or
+automatic default selection. Original poles/guards and exact source replay
+retain their existing authority. This does not provide a hard bound on native
+CAS scratch memory or coefficient growth.
+
+Eight new focused core tests pass, covering complete target/pivot parity,
+empty/dependent/zero rows, shifted inputs, reordered and constant variable
+maps, invalid contexts/denominators, observer behavior, fixed-face source and
+guard parity, and the complete K1/K3 test-sector censuses. Rust, CLI and Python
+expose the opt-in consistently, with `sparse` still the default. Candidate
+bundle tests compare native structure and every coefficient/map at one and
+two workers and independently certify the small cases. The combined release
+gate passes 2,208 core unit tests (31 ignored), 91 application unit tests and
+the application integration suites; the fresh Python suite passes all 35 tests.
+
+The production timing test re-solves **only the same supplied cube coordinate
+case**, using public `SectorSolver` with identical input/order/seed. It does
+not run a complete sector or family. Three fresh-process pairs alternate
+sparse/factorized, factorized/sparse, sparse/factorized on CPU 82; all nested
+pools are one. Each process has the same 120-second deadline and 32-GiB virtual
+address-space cap. No profiler is enabled. Six successful comparisons against
+the original saved reference verify the complete ordered source trace, target,
+three guard branches, and all 1,489 RHS keys/coefficients and both maps. Every
+run discovers 2,442 rows from 98 seeds and selects the same 997-source trace.
+No sample was censored, discarded or replaced.
+
+| Production single-case boundary, median of three runs | Sparse | SparseFactorized |
+| --- | ---: | ---: |
+| Exact lift, including native conversion and restoration | **13.814377 s** | **3.972927 s** |
+| Complete supplied-case solve | 14.296228 s | 4.428800 s |
+| Initial zero-sector census/preparation | 15.722290 s | 15.633062 s |
+| Whole process wall time | 31.43 s | 21.48 s |
+| Process user / system CPU time | 29.83 / 1.31 s | 20.01 / 1.28 s |
+| Process peak RSS | 96,188 KiB | 99,896 KiB |
+
+The median **paired exact-lift** ratio is **3.494936×** (individual ratios
+3.477128–3.585653×). These shared-host results confirm that the gain survives
+the production integration on this case. They do not imply a comparable
+whole-family speedup or a confidence bound. Unchanged preparation dominates
+the full process; the ratio of whole-process medians is about 1.46×. Peak RSS
+is approximately 3.9% higher for factorized lifting: ranges are 96,152–96,832
+and 99,884–99,900 KiB. These are complete-process peaks, not isolated field
+memory or a claim of memory improvement.
+
+The exact-lift timer is the observer interval from `ExactStarted` to
+`CanonicalizationStarted`. It includes production frame setup, streaming
+conversion, native elimination, target materialization, variable restoration
+and observer callbacks, but excludes later canonicalization, guard extraction,
+final saving and reference comparison. Unlike the earlier fixed-frame probe,
+it has no separate production conversion/kernel/output timers. Compilation is
+excluded. Copied optimized libraries, the client, inputs and original reference
+are hash-frozen; the six outputs are checked after timing.
+
+Keep this backend opt-in while testing larger selected scopes. The result does
+not change `SparseTargetOnly`, semi-numerical exact replay, numerical-tail
+lifting or Vakint's application-cache selection. Evidence and reproducible
+commands are in `TMP/factorized-production-case.sCu5VE/`, including all process
+logs, observer events, exact-comparison receipts, hashes and `results.json`.
+`independent-audit.md` confirms the full six-run exact comparisons, observer
+intervals, raw resource medians, paired ratios and the scoped interpretation.
 
 ## Real workload and controlled boundary
 

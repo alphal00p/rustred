@@ -363,7 +363,7 @@ FAMILY-CANDIDATES OPTIONS:
     --permutation <N,N,...>      Optional zero-based coordinate priority permutation
     --nonpositive-indices <N,N,...>  Coordinates restricted to nonpositive powers
     --n-cores <COUNT>            Maximum worker cores [default: 1]
-    --exact-backend <BACKEND>    sparse or semi-numerical [default: sparse]
+    --exact-backend <BACKEND>    sparse, sparse-factorized, or semi-numerical [default: sparse]
     --progress                  Also emit plain progress when stderr is redirected
     --force                      Atomically replace existing output files
 

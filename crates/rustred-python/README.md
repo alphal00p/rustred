@@ -137,15 +137,21 @@ then checks mathematical replay and closure. Native dumps currently require
 a 64-bit host. Their bytes may vary with prior Symbolica registrations, while
 decoded coefficients and reductions must agree exactly.
 
-Select `exact_backend="semi-numerical"` to use Symbolica's rational-function
-reconstruction for symbolic target materialization; `"sparse"` remains the
-default. The equivalent CLI option is `family-candidates --exact-backend
-semi-numerical`. The same source search, numerical-corner solver and guards
-remain in use. Reconstruction has explicit bounds (degree 128, 200,000 probes,
+Select `exact_backend="sparse-factorized"` to use Symbolica's native factorized
+denominator field during sparse exact target materialization. Coefficients
+return to the ordinary representation before rule extraction and bundle
+encoding. The equivalent CLI option is `family-candidates --exact-backend
+sparse-factorized`. This opt-in generation field is separate from the
+candidate reduction cache; `"sparse"` remains the default.
+
+Select `exact_backend="semi-numerical"` for Symbolica's rational-function
+reconstruction, or `family-candidates --exact-backend semi-numerical` at the
+CLI. Both opt-ins retain the same source search, numerical-corner solver and
+guards. Reconstruction has explicit bounds (degree 128, 200,000 probes,
 four attempts, eight primes), and failure is an error, not an automatic exact
 fallback. The report records the selected backend; backend selection neither
 changes the bundle schema nor certifies closure. A small case that finds only
-direct rules may never need reconstruction, despite selecting that backend.
+direct rules may not invoke the selected exact materialization backend.
 
 The result of successful certification is the usual
 `ClosingArtifactGenerationResult`. A modified, incomplete or inadmissible
@@ -185,11 +191,14 @@ proof of complete family coverage.
 `generate_closing_artifact()` currently accepts the semantic family selectors
 `rustred.ClosingFamily.UNIT_MASS_VACUUM_K1` and
 `rustred.ClosingFamily.UNIT_MASS_VACUUM_K3`. Its result also exposes the
-deterministic immutable encoding as `.artifact: bytes`. Inspection and
+immutable native encoding as `.artifact: bytes`. Inspection and
 reduction consume those exact bytes rather than substituting a hidden preset.
-For `K = 3`, the untrusted-load boundary cold-regenerates the registered
-derivation once and byte-compares it before returning a sealed owner; the hot
-reducer does not regenerate or reauthenticate it. Reduction terms expose typed
+For `K = 3`, the cold validation boundary regenerates the registered
+derivation once and compares the complete program structure and every exact
+coefficient, including ordered variable maps, after native state remapping.
+Ambient Symbolica registrations may change dump bytes without changing these
+semantics. The hot reducer does not regenerate or reauthenticate the sealed
+owner. Reduction terms expose typed
 master power vectors, exact unit-mass coefficients, and the signed power of
 the common mass squared that restores dimensional homogeneity.
 
@@ -224,12 +233,17 @@ three. The `K = 1` and `K = 3` artifacts are closed today. The three-loop
 example or by supplying its unit-mass family to `family_close`; no additional
 Python family selector is needed. Existing K6 examples are retained.
 The generic Python inspection and reduction functions consume
-its real V5 bytes through the shared Rust codec; they do not select or generate
-a hidden K6 preset. For these original-domain source-port artifacts, untrusted
-loading regenerates ordinary IBP rows and replays the saved exact combinations,
-not the source search. Recursive application remains in RustRed's existing
-memoized reducer. The complete recorded 83-test through-three-loop Vakint
-selection passes; four-loop acceptance remains a separate open gate.
+its V6 native Atom/State bytes through the shared Rust codec; they do not select
+or generate a hidden K6 preset. For these original-domain source-port artifacts,
+cold loading regenerates ordinary IBP rows and replays the saved exact
+combinations without repeating source search. Native payloads must come from
+a trusted source: independent mathematical validation does not make Symbolica's
+native binary reader a hardened hostile-input parser. Recursive application
+remains in RustRed's existing memoized reducer. The complete recorded 83-test through-three-loop Vakint
+selection passes. The four-loop public numerical references and pinch checks
+also pass, as recorded in the [numerical acceptance checkpoint](../../docs/checkpoints/2026-09-19.md#completed-public-numerical-acceptance).
+Optional bounded four-loop artifact certification remains unfinished; see the
+[bounded certification audit](../../docs/research/rank30_certification_audit_2026-09-17.md).
 
 Linux wheels built in the Nix development shell are development artifacts.
 Portable manylinux publication remains gated on a separate audited build and

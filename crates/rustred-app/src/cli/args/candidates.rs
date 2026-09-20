@@ -207,22 +207,48 @@ mod tests {
 
     #[test]
     fn explicit_candidate_backend_is_separate_from_certification() {
-        let Command::FamilyCandidates(args) = parse_generation(
-            ["--exact-backend", "semi-numerical"]
-                .into_iter()
-                .map(OsString::from),
-        )
-        .unwrap() else {
+        for backend in [
+            CandidateExactBackend::Sparse,
+            CandidateExactBackend::SparseFactorized,
+            CandidateExactBackend::SemiNumerical,
+        ] {
+            let Command::FamilyCandidates(args) = parse_generation(
+                ["--exact-backend", backend.as_str()]
+                    .into_iter()
+                    .map(OsString::from),
+            )
+            .unwrap() else {
+                panic!("generation expected")
+            };
+            assert_eq!(args.exact_backend, backend);
+            assert!(
+                parse_certification(
+                    ["--exact-backend", backend.as_str()]
+                        .into_iter()
+                        .map(OsString::from),
+                )
+                .is_err()
+            );
+        }
+        let Command::FamilyCandidates(default) = parse_generation(std::iter::empty()).unwrap()
+        else {
             panic!("generation expected")
         };
-        assert_eq!(args.exact_backend, CandidateExactBackend::SemiNumerical);
+        assert_eq!(default.exact_backend, CandidateExactBackend::Sparse);
         for args in [
             vec!["--exact-backend", "invalid"],
+            vec!["--exact-backend", "sparse_factorized"],
             vec![
                 "--exact-backend",
                 "sparse",
                 "--exact-backend",
                 "semi-numerical",
+            ],
+            vec![
+                "--exact-backend",
+                "sparse-factorized",
+                "--exact-backend",
+                "sparse-factorized",
             ],
         ] {
             assert!(parse_generation(args.into_iter().map(OsString::from)).is_err());

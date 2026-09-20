@@ -39,19 +39,32 @@ fn success(arguments: &[&str], input: &[u8]) -> Vec<u8> {
 }
 
 #[test]
-fn explicit_reconstruction_backend_preserves_small_case_candidate_payload() {
+fn explicit_exact_backends_preserve_small_case_candidate_payload() {
     let sparse = success(&["family-candidates"], INPUT.as_bytes());
-    let reconstructed = success(
-        &["family-candidates", "--exact-backend", "semi-numerical"],
-        INPUT.as_bytes(),
+    for backend in ["semi-numerical", "sparse-factorized"] {
+        let generated = success(
+            &["family-candidates", "--exact-backend", backend],
+            INPUT.as_bytes(),
+        );
+        assert_eq!(sparse, generated);
+    }
+    let help = success(&["--help"], b"");
+    assert!(
+        String::from_utf8(help)
+            .unwrap()
+            .contains("sparse, sparse-factorized, or semi-numerical [default: sparse]")
     );
-    assert_eq!(sparse, reconstructed);
     let failed = run(
         &["family-candidates", "--exact-backend", "invalid"],
         INPUT.as_bytes(),
     );
     assert!(!failed.status.success());
     assert!(failed.stdout.is_empty());
+    assert!(
+        String::from_utf8(failed.stderr)
+            .unwrap()
+            .contains("sparse-factorized")
+    );
 }
 
 #[test]

@@ -125,8 +125,8 @@ the search.
 
 ```console
 rustred family-candidates --input examples/input/three_loop_k6.toml \
-  --output k6.candidates.toml --report-output k6.search.toml --n-cores 1
-rustred certify-candidates --input k6.candidates.toml \
+  --output k6.rrcandidate --report-output k6.search.toml --n-cores 1
+rustred certify-candidates --input k6.rrcandidate \
   --output k6.rribp --report-output k6.certification.toml
 rustred campaign inspect --artifact k6.rribp
 ```
@@ -139,6 +139,14 @@ proof budgets. Increasing a budget never certifies an invalid formula.
 Generation supports the generic source solver; certification retains the
 current unit-mass vacuum publication admission.
 
+`--exact-backend sparse` is the unchanged generation default. The opt-in
+`sparse-factorized` choice uses Symbolica's native factorized-denominator field
+during exact symbolic materialization and restores ordinary coefficients before
+rule extraction. `semi-numerical` selects Symbolica rational reconstruction.
+The selected name appears in the report's `exact_backend` field. These choices
+retain the same discovery, guards and candidate format; they do not select an
+application cache or certify a bundle.
+
 The optional `--max-negative-index-degree N` flag is reserved for the
 rank-scoped certification contract described in
 [`rank_bounded_certification.md`](research/rank_bounded_certification.md).
@@ -146,7 +154,7 @@ It currently fails closed (for `N <= 30`) because the durable artifact schema
 and reducer do not yet persist and enforce a successor-closed entry scope;
 RustRed never silently falls back to an unbounded whole-family certificate.
 
-Bundle schema `rustred.uncertified-candidates.toml.v1` records
+Native binary bundle schema `rustred.generated-candidates.binary.v1` records
 `status = "uncertified-candidates"`, not closure. It cannot be passed to
 `campaign inspect` or `campaign reduce` as an artifact. The optional separate
 generation report (`rustred.family-candidates-output.toml.v1`) records
@@ -648,8 +656,8 @@ report has `publication = "diagnostic_only"`, `outcome = "incomplete"`,
 no artifact bytes and does not touch `--artifact-output`; the report instead
 contains the blocking wave and detached exact residual diagnostics for every
 blocking sibling. Only a fully published wave chain is installed as a K6
-artifact, deterministically encoded, decoded through the untrusted cold-load
-boundary, replayed, and canonically re-encoded before artifact bytes become
+artifact, encoded into native bytes, decoded through the cold validation
+boundary, replayed, and semantically compared with its re-encoding before artifact bytes become
 available. Report, measurement, and artifact destinations must be distinct;
 lexical aliases and aliases through existing symlinked parents are rejected
 before any write, including with `--force`.
@@ -689,7 +697,7 @@ rustred campaign reduce \
   --output two_loop_sunset.I221.toml
 ```
 
-`campaign generate` writes the deterministic binary artifact itself, not a
+`campaign generate` writes the native binary artifact itself, not a
 TOML proxy. The semantic family selectors are `unit-mass-vacuum-k1` and
 `unit-mass-vacuum-k3`. There is no preset K6 selector: use the generic
 `family-close` command with `examples/input/three_loop_k6.toml` to generate
@@ -697,8 +705,12 @@ the closed K6 artifact from its ordinary IBPs. The CLI and Python K6 examples
 include fresh-process inspection and canary application.
 `campaign inspect` and `campaign reduce` require artifact bytes from a path or
 from `--artifact -`; neither substitutes a hidden preset for those bytes. The
-`K = 3` untrusted-load boundary cold-regenerates its registered derivation once
-and requires a byte-exact comparison before returning the sealed owner; no
+`K = 3` cold validation boundary regenerates its registered derivation once
+and compares complete program structure and all exact coefficients, including
+ordered variable maps, after native state remapping. Ambient Symbolica
+registrations can change dump bytes without changing these semantics. Native
+Atom/State payloads must come from trusted generators; mathematical validation
+does not make the native binary reader a hardened hostile-input parser. No
 foundry work or authentication repeats in the reducer hot path. Generation
 output uses the existing atomic file installer, so `--force` is required to
 replace an existing file. Invalid or truncated bytes are rejected before any
@@ -768,8 +780,10 @@ calibration, task-specific estimator adapters, generic multi-family campaign
 execution, and checkpointing remain unimplemented. The
 fine-grained artifact commands are separate from roots-only planning and
 physical preflight. The generic K6 artifact and through-three-loop Vakint
-integration are available; complete four-loop publication and acceptance
-remain open gates.
+integration are available. Four-loop public numerical references and pinch
+checks pass; see the [numerical acceptance checkpoint](checkpoints/2026-09-19.md#completed-public-numerical-acceptance).
+Optional bounded four-loop artifact certification remains unfinished; see the
+[bounded certification audit](research/rank30_certification_audit_2026-09-17.md).
 
 `--n-cores` is always a ceiling. The planner derives an effective execution
 width `E` with `1 <= E <= --n-cores`. `E=1` denotes inline coordinator
