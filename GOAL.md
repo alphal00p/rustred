@@ -2,6 +2,41 @@
 
 ## Current priority — binary I/O, then terminal reduction
 
+### September 20 directive: compact delivery and a TIDE-based five-loop census
+
+Before treating the four-loop delivery as finished, trim Vakint's numerical
+catalogs to exactly the **74 canonical outputs actually used** (H 22, FG 16,
+BMW 17, X 19), not the 1,155 raw terminal keys retained in the reduction and
+normalization relations. Ship the numerical catalogs compressed and decompress
+them at runtime once, before the existing native Symbolica load validation.
+Use a generic bounded decompressor and preserve exact coefficients, precision
+metadata, public defaults and existing FORM-backed methods. Check output-set
+coverage, cold loading, corrupt-input handling, numerical parity and the full
+four-loop numerator/pinch suite. Report actual disk size and load-time changes.
+The raw-to-canonical reduction relations remain necessary and must not be
+discarded merely to reduce the numerical catalog size.
+
+For five loops, first identify **offline**, outside the RustRed engine, every
+top-level fully massive single-scale vacuum family. Read the local reference
+`FOR_REFERENCE_ONLY_DO_NOT_PUSH/TIDE_5loops.pdf` extensively and follow its
+primary references. Freeze an independently audited input manifest with graph
+or momentum definitions, sector-label conventions, physical-sector coverage,
+and the distinction between top families, auxiliary scalar-product coordinates,
+inequivalent sectors and master candidates. Never infer a complete census from
+one successful selected-sector experiment.
+
+Progressively reproduce the reference's reproducible reductions, advancing
+through the sectors of all top-level families to a practical finite terminal
+basis for later numerical evaluation. Separate TIDE's numerical-master and
+difference-equation results from RustRed's parametric-IBP closing-rule workload;
+do not compare unlike timing boundaries. Monitor each actual release solve,
+record completed versus resource-censored attempts, and use those results plus
+literature research to select generic improvements, including Symbolica-native
+rational reconstruction. No TIDE code is assumed available. All families are
+external data; every production algorithm remains loop-count- and topology-
+generic. The existing source-weight reconstruction validation can continue in
+parallel, while a dedicated subagent owns compact four-loop Vakint delivery.
+
 ### September 20 follow-up: deeper finite-terminal reduction study
 
 In parallel with the measured solver work, investigate `EPSILON.md`, current
@@ -541,6 +576,17 @@ measured frame observations, never a topology-specific algebraic shortcut.
 The reconstruction backend still includes internal exact sparse replay; this
 is distinct from optional family certification. New diagnostic observer
 boundaries expose that phase for measured optimization without removing it.
+The next opt-in implementation reconstructs target rows and source weights with
+Symbolica, using a native harder-prefix rank lower bound plus an exact full
+source product to prove equality to the ordinary sparse result. This criterion
+is generic in matrix dimensions, not a loop-count strategy. The private native
+diagnostic and independent mathematical audit pass; the opt-in Rust backend
+now passes 2,299 release core tests, including 18 new adversarial/pipeline
+tests, with independent implementation and genericity audits. No speedup or
+completed five-loop family has yet been measured for it. Keep old backends and candidate/
+publication contracts unchanged, and require explicit aggregate probe-cache
+limits, differential rule/provenance/guard tests and completed paired timing
+before rollout. See the [criterion and diagnostic](docs/research/reconstruction_exact_validation.md).
 Existing exact source-row/U/L counts and scalar stage events now reach CLI
 monitoring with correctly retained per-live-job frame context and the unchanged
 shared throttle. Observation is sampled, does not identify exact coefficients,

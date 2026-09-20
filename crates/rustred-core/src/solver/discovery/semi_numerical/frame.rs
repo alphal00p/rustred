@@ -19,6 +19,16 @@ pub(super) struct ProbeFrame {
 }
 
 impl ProbeFrame {
+    /// Prepared immutable coefficients and physical column IDs. This is layout
+    /// access, not an alternative arithmetic implementation.
+    pub(super) fn rows(&self) -> &[Vec<(u32, Coefficient)>] {
+        &self.rows
+    }
+
+    pub(super) fn columns_with_sentinel(&self) -> u32 {
+        self.columns_with_sentinel
+    }
+
     pub(super) fn new<const N: usize>(
         rows: &[ExactRow<N>],
         columns: &[Integral<N>],

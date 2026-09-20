@@ -9,7 +9,8 @@ behavior is unchanged.
 
 ## Remaining targets and exact method
 
-The shipped equivalence plan reduces 1,155 family-local declared keys to 179:
+The equivalence plan shipped at this September 19 checkpoint reduced 1,155
+family-local declared keys to 179:
 
 | Parent | Retained representatives | Positive-power representatives | Numerator-bearing keys |
 | --- | ---: | ---: | ---: |
@@ -169,7 +170,7 @@ comparison and interpretation. These finite identities remain generic over
 
 The nine identities reduce only positive dotted representatives. All 105
 numerator-bearing keys remain. The potential total is **170**, whereas the
-currently shipped runtime still returns up to **179** family-local
+runtime shipped at this checkpoint still returned up to **179** family-local
 representatives. Some identities replace one terminal by two or three others;
 a smaller label count need not reduce arithmetic or cache memory.
 
@@ -180,6 +181,13 @@ future isolated weighted-application experiment. No larger-radius search or
 minimum-master proof is required for the already-shipped unit-weight
 normalization milestone. Its 976 exact aliases and all four-loop numerical
 acceptance results remain valid independently.
+
+The later [weighted structural-symmetry delivery](weighted_terminal_normalization.md)
+separately eliminates all 105 numerator-bearing outputs and ships 74 positive
+representatives with the full numerical gate. The nine dotted identities above
+remain uninstalled: their potential further reduction must be measured for
+application cost before any new native-sidecar and Vakint rollout. The table
+and 179-to-170 comparison here are historical, not the current runtime census.
 
 ## Reproducibility
 

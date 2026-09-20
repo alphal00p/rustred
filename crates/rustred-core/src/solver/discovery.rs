@@ -20,6 +20,9 @@ mod semi_numerical;
 mod target_only;
 mod variables;
 
+#[cfg(test)]
+mod source_weight_pipeline_tests;
+
 /// Exact lifting for a single symbolic target. Shared numerical-tail lifting
 /// remains sparse; this diagnostic choice does not change source discovery.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -51,6 +54,27 @@ pub enum SymbolicExactBackend {
         max_probes: usize,
         max_attempts: usize,
         max_primes: usize,
+    },
+    /// Reconstruct both target coefficients and source weights with Symbolica.
+    /// A native modular harder-prefix rank certificate and a full exact source
+    /// product prove equality to the ordinary first-target GPLU row without
+    /// characteristic-zero elimination. An inadmissible prefix or exhausted
+    /// budget is an explicit error, never an implicit sparse fallback.
+    ///
+    /// This changes materialization only: source provenance, canonicalization,
+    /// candidate applicability conventions and independent publication remain
+    /// unchanged. It grants no stronger integer-point or closure authority.
+    SemiNumericalSourceWeights {
+        max_degree: u16,
+        max_probes: usize,
+        max_attempts: usize,
+        max_primes: usize,
+        /// Aggregate cached probe images, including unusable specializations.
+        max_cached_images: usize,
+        /// Aggregate retained scalar/index slots, not a process-memory bound.
+        max_cached_values: usize,
+        /// Maximum source-weight slots in the admitted first-hit prefix.
+        max_weight_slots: usize,
     },
 }
 
@@ -571,6 +595,32 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
             max_probes,
             max_attempts,
             max_primes,
+            observe,
+        );
+    }
+    if let SymbolicExactBackend::SemiNumericalSourceWeights {
+        max_degree,
+        max_probes,
+        max_attempts,
+        max_primes,
+        max_cached_images,
+        max_cached_values,
+        max_weight_slots,
+    } = backend
+    {
+        return semi_numerical::materialize_source_weights(
+            rows,
+            &columns,
+            order,
+            target_column,
+            &variables,
+            max_degree,
+            max_probes,
+            max_attempts,
+            max_primes,
+            max_cached_images,
+            max_cached_values,
+            max_weight_slots,
             observe,
         );
     }

@@ -1,9 +1,53 @@
 # Semi-numerical generation: exact validation and measured phase pilot
 
-2026-09-19. This is a source audit and a completed **single-sector** diagnostic,
-not a full-family benchmark, closure certificate, or implemented new backend.
+Started 2026-09-19; implementation checkpoint 2026-09-20. The completed timings
+below are a **single-sector** diagnostic of the existing backends, not a
+full-family benchmark or closure certificate. The new opt-in source-weight
+backend is implemented and has passed release compile, focused, discovery and
+full core regression checks. No speedup or high-loop family solve is claimed
+for that new backend.
 
-## What runs today
+## Current implementation checkpoint
+
+`SymbolicExactBackend::SemiNumericalSourceWeights` now composes native finite-
+field GPLU, rational reconstruction, a harder-prefix rank lower bound, and the
+exact full source product described below. Its heavy operations use physical
+column IDs and an arity-independent prepared frame. Neither loop count nor
+topology name selects a strategy. The Rust enum is an explicit experimental
+choice; the existing sparse and semi-numerical choices, defaults, candidate
+contracts, and persistence schemas are unchanged. CLI/Python selection has
+not been added for this new choice.
+
+The implementation never falls back silently to characteristic-zero GPLU.
+An inadmissible prefix, constant frame, exhausted reconstruction budget or
+cache budget is an explicit failure. The three aggregate limits count cached
+images, retained scalar/index slots, and source-weight slots; they do not
+promise a process-memory ceiling. A transient native reduction and exact
+product may still require substantial memory.
+
+Independent implementation and mathematical audits are separate from runtime
+acceptance. Eighteen new focused test functions cover adversarial prepared
+matrices and downstream small-family/provenance/exception parity. All pass in
+the optimized runtime gate: the `source_weight` filter reports 19 passes,
+including one existing test; the discovery filter reports 78 passes and one
+existing ignored diagnostic. The full core suite reports **2,299 passes,
+zero failures and 32 existing ignored diagnostics** (215.78 seconds). Source
+hashes match before and after every stage, and the gate exits zero. The frozen
+gate is `TMP/source-weight-core-gate.L1c2tT/`; the initial `cargo check --tests`
+finished successfully in 46.71 seconds and test code generation took 6m54s.
+Compilation is not solver timing, and tiny test durations are not five-loop
+performance measurements. The two separate audits are retained as
+`TMP/source-weight-backend-independent-math-closure-audit-2026-09-20.md` and
+`TMP/source-weight-production-genericity-audit-2026-09-20.md`.
+
+After acceptance, the next measurement is an input-driven matched sector
+comparison with the same numerical-tail backend, followed by a bounded
+five-loop input study. Every attempted solve must retain its actual completion
+or resource-censored status. The historical proposal and diagnostic below
+record why this design was chosen; their earlier "not implemented" labels
+describe those earlier checkpoints, not this working-tree status.
+
+## Existing semi-numerical backend (unchanged)
 
 [`search.rs`](../../crates/rustred-core/src/solver/search.rs) first tests exact
 source leading terms. A direct hit bypasses modular discovery/materialization.

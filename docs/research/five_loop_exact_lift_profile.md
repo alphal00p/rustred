@@ -137,14 +137,18 @@ a target-block regression, 395.338 versus 75.492 seconds of solver time; there
 is no automatic backend switch or general speedup claim. See the
 [factorized-field study](factorized_coefficients.md).
 
-The existing semi-numerical route remains a separate option, but currently
+The existing semi-numerical route remains a separate option, but
 combines reconstruction with full ordinary exact replay of the selected target
 row; enabling it does not
 remove all exact elimination. The
-[source-weight validation proposal](reconstruction_exact_validation.md)
-remains unimplemented. A smaller planned observability change would preserve
-existing scalar frame/row/nonzero counters through CLI progress instead of
-collapsing them all to `exact lift`; it introduces no new tracing or algebra.
+[source-weight validation implementation](reconstruction_exact_validation.md)
+is now an opt-in Rust backend with 2,299 passing release core tests, without a
+measured speedup or completed five-loop solve yet. The separate observability
+change has passed its release frontend gate: existing scalar frame/row/nonzero
+counters now reach CLI progress rather than all being collapsed to `exact
+lift`. It introduces no new algebra and cannot observe inside a long native
+call without another callback. Neither change retroactively adds frame-level
+information to these older profiles.
 
 ## Evidence
 

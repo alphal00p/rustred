@@ -220,7 +220,7 @@ fn native<T>(
 /// Transpose sparse structure only; all normalization/back substitution is
 /// native. L columns need not be sorted in pivot-acceptance order. Iterating
 /// its source rows in order nevertheless builds sorted rows of L^T.
-fn solve_transposed_lower<F: Field>(
+pub(super) fn solve_transposed_lower<F: Field>(
     lower: &SparseMatrix<F>,
     target_row: usize,
     one: F::Element,
