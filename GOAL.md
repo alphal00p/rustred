@@ -26,11 +26,32 @@ guard/domain obligations and numerical acceptance tolerances. Report retained
 terminal counts, one-off generation cost, application overhead and unsuccessful
 searches; a finite nonminimal basis remains acceptable.
 
-The user's corrected September 19 directive supersedes proceeding immediately
-to five loops. **Do not resume five-loop experiments or their performance
-profiling until the following work is implemented and validated, in this
-order.** The first cube diagnostic was stopped on request; its partial results
-are not completion. The user withdrew the proposed `symbolica_replacements`
+A dedicated four-loop subagent orchestrates this research, implementation,
+independent audit and Vakint delivery while the primary agent focuses on
+five-loop solves. Every accepted reduction of the shipped terminal basis must
+be reflected in Vakint's vendored four-loop RustRed output/artifacts, followed
+by the complete applicable numerical rerun against FMFT, including the 16
+numerator/pinch checks and invalid-FORM-path native lane. Scratch relations and
+smaller diagnostic counts are not delivered milestones. All strategies and
+implementation remain generic in loop count and arity: structural conditions
+such as rank `L` with `L+1` lines are allowed; explicit four-/five-loop dispatch
+or hard-coded topology identities are not. Concrete loop counts belong to
+external inputs and validation fixtures only.
+
+The latest instruction applies to every lane: never implement a strategy or
+production code bounded to a particular loop count. Measured four-/five-loop
+workloads are external inputs and regression fixtures, not algorithmic cases.
+Any optimized path must state and check a mathematical structural precondition
+that makes sense at arbitrary loop count; unsupported inputs retain a generic
+fallback or an explicit diagnostic rather than topology-specific dispatch.
+
+The user's corrected September 19 directive established the following
+prerequisites before resuming five-loop work. Native binary I/O and initial
+terminal normalization have since passed the delivery gates recorded below;
+the September 20 follow-up explicitly runs deeper terminal compression in
+parallel with the primary five-loop lane. The first cube diagnostic was
+stopped on request; its partial results are not completion. The user withdrew
+the proposed `symbolica_replacements`
 option: keep the existing rule applier and do not build an alternate backend.
 
 1. Uniform, topology- and loop-count-independent binary I/O, using Symbolica
@@ -64,7 +85,8 @@ separately. Migration and deduplication must not weaken guards, descent, mass
 normalization or the separation between candidates and certified artifacts.
 
 Delegate orthogonal implementation slices and independent
-mathematical/implementation audits, while preserving the sequence above.
+mathematical/implementation audits, preserving those completed prerequisite
+gates and the current parallel-lane responsibilities.
 The candidate-native milestone is pushed as RustRed `3e621859` and Vakint
 `b6b02a636`: all 15 references and 16 pinch comparisons pass with unchanged
 tolerances, together with the nine-input/54-comparison public benchmark.
