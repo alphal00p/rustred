@@ -135,6 +135,27 @@ fn format_event(event: FamilyCloseProgress) -> String {
             elapsed,
             format!("sector={sector} generated {rules} rules; {finite_residuals} finite residuals"),
         ),
+        FailedSector {
+            ordinal,
+            sector,
+            message,
+            elapsed,
+        } => {
+            // Error strings may contain input text: preserve a single progress
+            // line and never interpret terminal controls supplied by it.
+            let mut safe_message = String::with_capacity(message.len());
+            for c in message.chars() {
+                if c.is_control() {
+                    safe_message.extend(c.escape_default());
+                } else {
+                    safe_message.push(c);
+                }
+            }
+            (
+                elapsed,
+                format!("sector={sector} ordinal={ordinal} FAILED {safe_message}"),
+            )
+        }
         CheckpointPrepared {
             reused_sectors,
             pending_sectors,
@@ -221,7 +242,7 @@ mod tests {
             elapsed: Duration::ZERO,
         };
         let mut quiet = FamilyCloseProgressMonitor::new(Vec::new(), false, false, false);
-        quiet.observe(event);
+        quiet.observe(event.clone());
         assert!(quiet.plain.is_none() && quiet.terminal.is_none());
         let mut plain = FamilyCloseProgressMonitor::new(Vec::new(), false, true, false);
         plain.observe(event);
@@ -244,6 +265,37 @@ mod tests {
         });
         assert!(output.contains("uncovered=1 issues=1"));
         assert!(!output.contains("closed") && !output.contains("written"));
+    }
+
+    #[test]
+    fn failures_bypass_generation_throttle_and_escape_terminal_controls() {
+        let mut monitor = FamilyCloseProgressMonitor::new(Vec::new(), false, true, true);
+        let now = Instant::now();
+        monitor.observe_at(
+            FamilyCloseProgress::Generating {
+                ordinal: 7,
+                sector: 5,
+                stage: FamilyCloseGenerationStage::ExactMaterialization,
+                elapsed: Duration::ZERO,
+            },
+            now,
+        );
+        for ordinal in [7, 8] {
+            monitor.observe_at(
+                FamilyCloseProgress::FailedSector {
+                    ordinal,
+                    sector: 5,
+                    message: "output: quota\ninvalid\r\u{1b}[2J".into(),
+                    elapsed: Duration::ZERO,
+                },
+                now,
+            );
+        }
+        let output = String::from_utf8(monitor.plain.unwrap()).unwrap();
+        assert_eq!(output.lines().count(), 3);
+        assert!(output.contains("ordinal=7 FAILED output: quota\\ninvalid\\r\\u{1b}[2J"));
+        assert!(output.contains("ordinal=8 FAILED"));
+        assert!(!output.contains('\u{1b}') && !output.contains('\r'));
     }
 
     #[test]

@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use crate::application::AppError;
 use crate::application::family_close::progress::{
-    FamilyCloseProgress, Observer, emit, generation_stage, sector_mask,
+    FamilyCloseProgress, Observer, emit, generation_failure, generation_stage, sector_mask,
 };
 
 use super::checkpoint::{CheckpointManifest, CheckpointStore};
@@ -143,10 +143,10 @@ fn generate<const N: usize>(
                 .map_err(|e| AppError::execution(e.to_string()))?,
         };
         executor
-            .map_with_observer(
+            .map_configured_with_error_observer(
                 &prepared.sources,
                 &jobs,
-                &SectorConfig {
+                |_, _| SectorConfig {
                     zero_sectors: prepared.zeros.clone(),
                     permutation: prepared.permutation,
                     symbolic_exact_backend: request.exact_backend.solver_backend(),
@@ -163,6 +163,11 @@ fn generate<const N: usize>(
                         sector: sector_mask(sector),
                         stage: generation_stage(event),
                         elapsed: started.elapsed(),
+                    })
+                },
+                |error| {
+                    emit(observe, || {
+                        generation_failure(error, pending[error.ordinal()].0, started.elapsed())
                     })
                 },
                 |done| {

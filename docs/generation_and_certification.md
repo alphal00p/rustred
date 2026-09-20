@@ -189,6 +189,24 @@ smoke measurements do not establish an optimization speedup. Release evidence:
 `TMP/discovery-lifetime-release.yWffkZ/`; full K6 outputs and separate resource
 reports: `TMP/k6-discovery-lifetime.HO3TRk/`.
 
+### Live sector failures
+
+The generic sector executor can report a borrowed preparation, search or output
+error immediately on the failing worker. Candidate generation and complete
+family generation expose these as `FailedSector` progress events, including the
+original manifest ordinal after checkpoint resume. The CLI displays failures
+without the discovery-progress throttle and escapes terminal controls in error
+text. Successful callbacks and failures can arrive in any worker order.
+
+This is diagnostic, not fail-fast scheduling: ordinary errors still let all
+submitted jobs finish, and the returned error is selected in original manifest
+order. Observer panics propagate normally. A generated-sector event means the
+solver returned; native encoding or checkpoint publication can subsequently
+fail. Only a checkpoint-saved event reports durable sector storage. Consequently,
+counting observed sector IDs without successful completion does not measure
+simultaneously live solver frames. Progress I/O failure can still disable
+presentation without changing the underlying computation.
+
 ## Timing reports
 
 Report separately:

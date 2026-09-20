@@ -291,6 +291,15 @@ neither request completes the 124-sector parent. The second uses an explicit
 modest caller-budget increase, without changing defaults or proof semantics.
 The bounded-certification report records both incomplete outcomes and the
 propagated degrees; this is not a new missing-rule diagnosis or a certificate.
+A subsequent generic implementation slice retains the already checked rules,
+source witnesses, finite terminals and inductive degree report together in a
+private checked program. Diagnostics project their reports from that same proof
+pass; bounded programs cannot enter the unrestricted installer. This is an
+intermediate ownership change, not completed bounded certification. Scoped
+lowering, independent admission of actual executable cells and successor
+envelopes, pre-cache runtime entry checks, durable scope and cold replay remain
+required. Keeping evidence until the complete pass ends can extend diagnostic
+memory lifetimes; no memory or certification speedup is claimed from retention.
 Both bounded physical-cube backends reach their 1,800-second deadlines
 without saved bundles: sparse exact reports 37 completed-sector events and
 reconstruction reports 41, with different completed-sector sets. Peak RSS is
@@ -406,6 +415,24 @@ resume and all four cold canaries. This removes overlapping owners; it does
 not by itself establish a measured peak-memory or runtime improvement. The
 [ownership and validation note](docs/generation_and_certification.md#discovery-and-exact-lift-memory-ownership)
 retains the measured boundaries, including a certification timing outlier.
+
+Worker failures now have an immediate diagnostic callback, without changing
+manifest-ordered final error selection or cancelling remaining submitted jobs.
+Generation/checkpoint progress retains original manifest ordinals after resume
+and distinguishes solved output from durable saved output. This improves
+visibility during long resource-bounded experiments; it does not cure native
+allocation failures or turn progress counters into live-frame memory telemetry.
+
+A generic native-field refactor also permits an experimental, test-only
+factorized target-block lift. On one frozen 997-source five-loop frame, all nine
+three-way runs exactly reproduce the same full row, both maps and pivot prefix.
+Median lift times are 2.903485 s ordinary target-only, 4.164715 s full factorized
+and 1.138499 s combined; one round regresses for the combination against full
+factorized (11.165075 versus 7.457832 s), and no cause is assigned to the larger
+CPU/wall variation. No production selector/default is changed and no complete
+five-loop solve follows. The [factorized-field study](docs/research/factorized_coefficients.md#experimental-factorized-target-block-composition)
+retains every observation, timing boundary and independent audit. Broader bounded
+case evidence is needed before production activation.
 
 The reconstruction backend still includes internal exact sparse replay; this
 is distinct from optional family certification. New diagnostic observer

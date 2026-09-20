@@ -133,10 +133,37 @@ pub(super) struct SectorCheck<const N: usize> {
     pub(super) terminals: Vec<[i64; N]>,
 }
 
-struct CheckedSector<const N: usize> {
+pub(super) struct CheckedSector<const N: usize> {
     sector: [bool; N],
     rules: Vec<CheckedRule<N>>,
     terminals: Vec<[i64; N]>,
+}
+
+impl<const N: usize> CheckedSector<N> {
+    /// Representation transfer after the caller's complete coverage gate.
+    /// Preserve rule precedence; terminal identity has no chronology.
+    pub(super) fn retain(checked: SectorCheck<N>) -> (SourcePortSectorAudit<N>, Self) {
+        let sector = checked.report.sector;
+        let terminals = checked.terminals.into_iter().collect::<BTreeSet<_>>();
+        (
+            checked.report,
+            Self {
+                sector,
+                rules: checked.rules,
+                terminals: terminals.into_iter().collect(),
+            },
+        )
+    }
+}
+
+/// A retained proof's promise, never inferred from finite coordinate boxes.
+/// The bounded variant cannot use the unrestricted installer. Keeping the
+/// completed report here also preserves the exact per-sector checked degrees
+/// until scoped lowering and independent actual-cell admission are connected.
+#[allow(dead_code)] // The bounded publication bridge is a separate follow-up.
+enum CheckedProgramScope<const N: usize> {
+    Unrestricted,
+    TotalExcess(super::total_excess::SourcePortTotalExcessAudit<N>),
 }
 
 /// Sole private installation input for this producer. It owns the full family
@@ -151,6 +178,7 @@ pub(super) struct CheckedProgram<const N: usize> {
     zero_sectors: Arc<[[bool; N]]>,
     inherited_source_conditions: Vec<CoefficientPolynomial>,
     ordering: OrderingPolicy,
+    scope: CheckedProgramScope<N>,
     sectors: BTreeMap<[bool; N], CheckedSector<N>>,
     limits: SourcePortLimits,
 }
@@ -177,6 +205,11 @@ impl<const N: usize> CheckedProgram<N> {
         use crate::identity::ParametricIbpGenerator;
         use crate::sector::Mask;
 
+        if !matches!(self.scope, CheckedProgramScope::Unrestricted) {
+            return Err(error(
+                "bounded checked programs require scoped lowering and final cell admission",
+            ));
+        }
         let generator = ParametricIbpGenerator::try_new(&self.family).map_err(error)?;
         let context = self.original_sources.context().clone();
         let mut rule_cells = Vec::new();
@@ -377,16 +410,8 @@ impl<const N: usize> SourcePortAudit<N> {
                     report.issues,
                 )));
             }
-            // Preserve rule precedence, but terminal identity has no chronology.
-            let terminals = checked.terminals.into_iter().collect::<BTreeSet<_>>();
-            retained.insert(
-                sector,
-                CheckedSector {
-                    sector,
-                    rules: checked.rules,
-                    terminals: terminals.into_iter().collect(),
-                },
-            );
+            let (_, checked_sector) = CheckedSector::retain(checked);
+            retained.insert(sector, checked_sector);
         }
         self.validate_sector_masks(retained.keys().copied())?;
         if retained.is_empty() {
@@ -402,7 +427,39 @@ impl<const N: usize> SourcePortAudit<N> {
             zero_sectors: self.zero_sectors,
             inherited_source_conditions,
             ordering: ordering.unwrap_or(OrderingPolicy::SpiredUncutV1),
+            scope: CheckedProgramScope::Unrestricted,
             sectors: retained,
+            limits: self.limits,
+        })
+    }
+
+    /// Consume the complete total-excess proof and original source owners.
+    /// This private intermediate is not installation authority: bounded
+    /// lowering, actual-cell admission and durable/runtime scope are pending.
+    #[allow(dead_code)] // Retained evidence is exercised before the bridge exists.
+    pub(super) fn retain_total_excess_program_with_observer(
+        self,
+        family: IntegralFamily,
+        sectors: impl IntoIterator<Item = ([bool; N], Option<[usize; N]>, SectorSolution<N>)>,
+        max_entry_total_excess_degree: u64,
+        observe: &mut dyn FnMut(SourcePortInstallEvent<'_, N>),
+    ) -> Result<CheckedProgram<N>, SourcePortAuditError> {
+        let prepared = self.prepare_complete_through_total_excess_with_observer(
+            &family,
+            sectors,
+            max_entry_total_excess_degree,
+            observe,
+        )?;
+        let inherited_source_conditions = self.sources.conditions().to_vec();
+        Ok(CheckedProgram {
+            family,
+            root_sector: self.root_sector,
+            original_sources: self.original_sources,
+            zero_sectors: self.zero_sectors,
+            inherited_source_conditions,
+            ordering: prepared.report.ordering(),
+            scope: CheckedProgramScope::TotalExcess(prepared.report),
+            sectors: prepared.sectors,
             limits: self.limits,
         })
     }
@@ -463,6 +520,9 @@ pub(super) fn lower_sector_for_test<const N: usize>(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod total_excess_tests;
 
 #[cfg(test)]
 pub(in crate::foundry::artifact) mod scoped_tests;

@@ -181,3 +181,72 @@ fn failed_final_encoding_keeps_all_sectors_for_assembly_only_retry() {
     assert_no_search(&events);
     assert_same_program(baseline.bundle(), retry.bundle());
 }
+
+#[test]
+fn checkpoint_output_failures_are_live_and_keep_resumed_manifest_ordinals() {
+    let directory = Directory::new();
+    let mut request = FamilyCandidatesRequest::new(K3);
+    request.numerical_depth = 0;
+    let baseline = family_candidates(request.clone()).unwrap();
+    let bundle = codec::read(baseline.bundle(), request.bundle_limits).unwrap();
+    assert!(bundle.sectors.len() > 2);
+    let manifest = CheckpointManifest::for_request(
+        &request,
+        &bundle.family_fingerprint,
+        &bundle.root_sector,
+        bundle.sectors.iter().map(|s| s.sector.clone()).collect(),
+    )
+    .unwrap();
+    let mut options = directory.options();
+    let store = CheckpointStore::open(&options, manifest, request.bundle_limits).unwrap();
+    let mut first = bundle.clone();
+    first.sectors.truncate(1);
+    store
+        .publish(0, &codec::write(&first, request.bundle_limits).unwrap())
+        .unwrap();
+    // Admission fits exactly; every new sector output must fail its byte
+    // reservation. An existing shard must not be reported as newly failed.
+    options.max_total_bytes = store.charged_bytes().unwrap();
+    drop(store);
+    options.resume = true;
+    request.checkpoint = Some(options);
+    let events = Mutex::new(Vec::new());
+    let error =
+        family_candidates_with_progress(request, |event| events.lock().unwrap().push(event))
+            .unwrap_err();
+    assert_eq!(error.kind(), AppErrorKind::Limit);
+    assert!(error.to_string().contains("sector 1 output:"));
+    let events = events.into_inner().unwrap();
+    let mut failed = Vec::new();
+    for (position, event) in events.iter().enumerate() {
+        if let FamilyCloseProgress::FailedSector {
+            ordinal,
+            sector,
+            message,
+            ..
+        } = event
+        {
+            failed.push(*ordinal);
+            assert_eq!(
+                *sector,
+                bundle.sectors[*ordinal]
+                    .sector
+                    .iter()
+                    .enumerate()
+                    .fold(0_u64, |mask, (axis, &active)| mask
+                        | (u64::from(active) << axis))
+            );
+            assert!(message.starts_with("output:") && message.contains("exceed total limit"));
+            // Serial execution emits the error immediately after the solved
+            // event, before proceeding to another sector's work.
+            assert!(matches!(events[position - 1],
+                FamilyCloseProgress::GeneratedSector { ordinal: done, .. } if done == *ordinal));
+        }
+    }
+    failed.sort_unstable();
+    assert_eq!(failed, (1..bundle.sectors.len()).collect::<Vec<_>>());
+    assert!(!events.iter().any(|event| matches!(
+        event,
+        FamilyCloseProgress::Encoded { .. } | FamilyCloseProgress::CheckpointedSector { .. }
+    )));
+}

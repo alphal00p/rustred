@@ -24,7 +24,7 @@ use crate::algebra::Coefficient;
 use super::variables::FrameVariables;
 use super::{ExactRow, Integral, IntegralOrder, MaterializationError, MaterializationEvent, Term};
 
-type NativeCoefficient = FactorizedRationalPolynomial<IntegerRing, u16>;
+pub(super) type NativeCoefficient = FactorizedRationalPolynomial<IntegerRing, u16>;
 
 pub(super) fn materialize<const N: usize>(
     rows: &[ExactRow<N>],
@@ -99,16 +99,7 @@ pub(super) fn materialize_many<const N: usize>(
                 .binary_search_by(|column| order.compare(column, &term.integral))
                 .expect("exact column union contains every row integral");
             let coefficient = variables.map_coefficient(&term.coefficient)?;
-            let value = native("converting an input denominator", || {
-                NativeCoefficient::from_num_den(
-                    coefficient.numerator,
-                    vec![(coefficient.denominator, 1)],
-                    &Z,
-                    true,
-                )
-            })?;
-            validate_map(&value, &active)?;
-            values.push(value);
+            values.push(factor(coefficient, &active)?);
             column_ids.push(column as u32);
         }
         observe(MaterializationEvent::RowStarted {
@@ -151,7 +142,34 @@ pub(super) fn materialize_many<const N: usize>(
     Err(MaterializationError::TargetNotPivot)
 }
 
-fn validate_map(
+/// Convert an already frame-mapped ordinary coefficient using the native field.
+pub(super) fn factor(
+    coefficient: Coefficient,
+    variables: &Arc<Vec<PolyVariable>>,
+) -> Result<NativeCoefficient, MaterializationError> {
+    if coefficient.numerator.variables() != variables
+        || coefficient.denominator.variables() != variables
+    {
+        return Err(MaterializationError::CoefficientVariableMapMismatch);
+    }
+    if coefficient.denominator.is_zero() {
+        return Err(MaterializationError::InvalidFactorizedCoefficient(
+            "zero input denominator",
+        ));
+    }
+    let value = native("converting an input denominator", || {
+        NativeCoefficient::from_num_den(
+            coefficient.numerator,
+            vec![(coefficient.denominator, 1)],
+            &Z,
+            true,
+        )
+    })?;
+    validate_map(&value, variables)?;
+    Ok(value)
+}
+
+pub(super) fn validate_map(
     value: &NativeCoefficient,
     variables: &Arc<Vec<PolyVariable>>,
 ) -> Result<(), MaterializationError> {
@@ -176,7 +194,7 @@ fn validate_map(
     Ok(())
 }
 
-fn ordinary(
+pub(super) fn ordinary(
     value: &NativeCoefficient,
     variables: &Arc<Vec<PolyVariable>>,
 ) -> Result<Coefficient, MaterializationError> {
@@ -193,7 +211,7 @@ fn ordinary(
     })
 }
 
-fn native<T>(
+pub(super) fn native<T>(
     operation: &'static str,
     function: impl FnOnce() -> T,
 ) -> Result<T, MaterializationError> {

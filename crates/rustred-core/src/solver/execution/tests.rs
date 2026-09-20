@@ -261,6 +261,95 @@ fn manifest_first_failure_wins_even_when_later_jobs_finish_first() {
 }
 
 #[test]
+fn live_failures_precede_later_jobs_without_changing_manifest_error_selection() {
+    // Non-Display, non-Clone errors are borrowed, never stringified or cloned
+    // by the executor. The application chooses how to display them.
+    struct OpaqueError;
+    let sources = trivial_sources();
+    let sectors = [[false; 3], [true; 3]];
+    let events = Mutex::new(Vec::new());
+    let error = SectorExecutor::new(1)
+        .unwrap()
+        .map_configured_with_error_observer(
+            &sources,
+            &sectors,
+            |ordinal, _| {
+                events.lock().unwrap().push(("start", ordinal));
+                SectorConfig {
+                    permutation: (ordinal == 1).then_some([0, 0, 1]),
+                    ..Default::default()
+                }
+            },
+            SectorSolveOptions::default(),
+            |_, _, _| {},
+            |error| {
+                events.lock().unwrap().push(("failed", error.ordinal()));
+                assert_eq!(*error.sector(), sectors[error.ordinal()]);
+            },
+            |_| -> Result<(), OpaqueError> { Err(OpaqueError) },
+        )
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        SectorExecutionError::Consume { ordinal: 0, .. }
+    ));
+    assert_eq!(
+        *events.lock().unwrap(),
+        [("start", 1), ("failed", 1), ("start", 0), ("failed", 0)]
+    );
+}
+
+#[test]
+fn live_search_failures_are_reported_once_per_job_across_worker_counts() {
+    let sources = trivial_sources();
+    let sectors = [[false; 3], [true; 3], [false, true, true]];
+    for workers in [1, 2, 6] {
+        if workers > 1 && LicenseManager::max_threads(workers) < workers {
+            continue;
+        }
+        let failures = Mutex::new(Vec::new());
+        let error = SectorExecutor::new(workers)
+            .unwrap()
+            .map_configured_with_error_observer(
+                &sources,
+                &sectors,
+                |_, _| SectorConfig::default(),
+                SectorSolveOptions {
+                    max_symbolic_cases: Some(0),
+                    ..Default::default()
+                },
+                |_, _, _| {},
+                |error| {
+                    assert!(matches!(error, SectorExecutionError::Solve { .. }));
+                    failures.lock().unwrap().push(error.ordinal());
+                },
+                |_| -> Result<(), Infallible> { panic!("search must fail") },
+            )
+            .unwrap_err();
+        assert_eq!(error.ordinal(), 0);
+        let mut failures = failures.into_inner().unwrap();
+        failures.sort_unstable();
+        assert_eq!(failures, [0, 1, 2]);
+    }
+}
+
+#[test]
+#[should_panic(expected = "failure observer panic")]
+fn failure_observer_panics_propagate_without_becoming_job_errors() {
+    let _ = SectorExecutor::new(1)
+        .unwrap()
+        .map_configured_with_error_observer(
+            &trivial_sources(),
+            &[[true; 3]],
+            |_, _| SectorConfig::default(),
+            SectorSolveOptions::default(),
+            |_, _, _| {},
+            |_| panic!("failure observer panic"),
+            |_| -> Result<(), ()> { Err(()) },
+        );
+}
+
+#[test]
 fn preparation_and_search_errors_keep_their_original_ordinal() {
     let sources = trivial_sources();
     let executor = SectorExecutor::new(1).unwrap();

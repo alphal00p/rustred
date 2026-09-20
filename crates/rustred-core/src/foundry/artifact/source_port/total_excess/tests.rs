@@ -332,13 +332,23 @@ fn real_k3_complete_audit_propagates_before_checking_each_child() {
         (sector, None, solution)
     });
     let mut checked_order = Vec::new();
-    let report = audit
-        .audit_complete_through_total_excess_with_observer(&family, solutions, 2, |event| {
+    let prepared = audit
+        .prepare_complete_through_total_excess_with_observer(&family, solutions, 2, &mut |event| {
             if let SourcePortInstallEvent::CheckedSector { report, .. } = event {
                 checked_order.push((report.sector, report.max_total_excess_degree.unwrap()));
             }
         })
         .unwrap();
+    assert_eq!(prepared.sectors.len(), 4);
+    assert_eq!(
+        prepared.sectors.keys().collect::<Vec<_>>(),
+        prepared
+            .report
+            .successor_degrees()
+            .keys()
+            .collect::<Vec<_>>()
+    );
+    let report = prepared.report;
     assert_eq!(report.sectors().len(), 4);
     assert_eq!(checked_order[0], ([true; 3], 2));
     assert!(report.max_successor_total_excess_degree() > 2);
@@ -356,6 +366,8 @@ fn real_k3_complete_audit_propagates_before_checking_each_child() {
     }
     assert!(report.contains_entry(&[3, 1, 1]).unwrap());
     assert!(!report.contains_entry(&[4, 1, 1]).unwrap());
+    assert!(report.contains_entry(&[2, -1, 1]).unwrap());
+    assert!(!report.contains_entry(&[3, -1, 1]).unwrap());
 }
 
 #[test]

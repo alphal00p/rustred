@@ -2,7 +2,8 @@
 //!
 //! The simplex is never replaced by a box as a proof domain. Existing exact
 //! replay, guards, descent and predicate coverage remain the authority for each
-//! sector. This report is not a durable artifact or installation input.
+//! sector. Diagnostics and private retained programs share this single proof
+//! pass. A report alone is not a durable artifact or installation input.
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -13,7 +14,7 @@ use crate::foundry::completion::{CompletionGeometryLimits, LatticeBox};
 use crate::sector::{Mask, OrderingPolicy};
 use crate::solver::SectorSolution;
 
-use super::program::{CheckedRule, SectorCheck};
+use super::program::{CheckedRule, CheckedSector, SectorCheck};
 use super::scope::{EntryDegreeBound, EntryScope};
 use super::{
     SourcePortAudit, SourcePortAuditError, SourcePortInstallEvent, SourcePortSectorAudit, error,
@@ -30,6 +31,15 @@ pub struct SourcePortTotalExcessAudit<const N: usize> {
     ordering: OrderingPolicy,
     bounds: BTreeMap<[bool; N], u64>,
     sectors: Vec<SourcePortSectorAudit<N>>,
+}
+
+/// Successful preparation retains the exact checked rules as well as its
+/// diagnostic projection. Only the complete ordered proof below constructs
+/// this owner; a caller-editable report cannot reconstruct its evidence.
+/// Lowered-cell coverage and successor admission are still separate gates.
+pub(super) struct PreparedTotalExcess<const N: usize> {
+    pub(super) report: SourcePortTotalExcessAudit<N>,
+    pub(super) sectors: BTreeMap<[bool; N], CheckedSector<N>>,
 }
 
 impl<const N: usize> SourcePortTotalExcessAudit<N> {
@@ -100,6 +110,25 @@ impl<const N: usize> SourcePortAudit<N> {
         max_entry_total_excess_degree: u64,
         mut observe: impl FnMut(SourcePortInstallEvent<'_, N>),
     ) -> Result<SourcePortTotalExcessAudit<N>, SourcePortAuditError> {
+        self.prepare_complete_through_total_excess_with_observer(
+            family,
+            sectors,
+            max_entry_total_excess_degree,
+            &mut observe,
+        )
+        .map(|prepared| prepared.report)
+    }
+
+    /// The same complete proof feeds diagnostics and consuming retention.
+    /// Checked rules now live until the whole pass succeeds, including for a
+    /// report-only call; no second source replay or search is performed.
+    pub(super) fn prepare_complete_through_total_excess_with_observer(
+        &self,
+        family: &IntegralFamily,
+        sectors: impl IntoIterator<Item = ([bool; N], Option<[usize; N]>, SectorSolution<N>)>,
+        max_entry_total_excess_degree: u64,
+        observe: &mut dyn FnMut(SourcePortInstallEvent<'_, N>),
+    ) -> Result<PreparedTotalExcess<N>, SourcePortAuditError> {
         self.limits.validate()?;
         if family.fingerprint() != self.original_sources.family_fingerprint() {
             return Err(error(
@@ -163,6 +192,7 @@ impl<const N: usize> SourcePortAudit<N> {
             .map(|(_, sector, _, _)| (*sector, max_entry_total_excess_degree))
             .collect();
         let mut reports = Vec::with_capacity(ordered.len());
+        let mut retained = BTreeMap::new();
         let started = Instant::now();
         for (ordinal, (_, sector, permutation, solution)) in ordered.into_iter().enumerate() {
             let degree = bounds[&sector];
@@ -178,7 +208,7 @@ impl<const N: usize> SourcePortAudit<N> {
                 &solution,
                 Some(degree),
                 started,
-                &mut observe,
+                observe,
             )?;
             observe(SourcePortInstallEvent::CheckedSector {
                 ordinal,
@@ -199,13 +229,18 @@ impl<const N: usize> SourcePortAudit<N> {
                     &mut budget,
                 )?;
             }
-            reports.push(checked.report);
+            let (report, checked_sector) = CheckedSector::retain(checked);
+            reports.push(report);
+            retained.insert(sector, checked_sector);
         }
-        Ok(SourcePortTotalExcessAudit {
-            entry,
-            ordering,
-            bounds,
-            sectors: reports,
+        Ok(PreparedTotalExcess {
+            report: SourcePortTotalExcessAudit {
+                entry,
+                ordering,
+                bounds,
+                sectors: reports,
+            },
+            sectors: retained,
         })
     }
 }

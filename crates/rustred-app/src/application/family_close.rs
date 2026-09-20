@@ -23,7 +23,9 @@ use super::{InputFormat, MAX_CLOSING_ARTIFACT_BYTES, MAX_INPUT_BYTES};
 pub(super) mod progress;
 mod scope;
 pub use progress::{FamilyCloseGenerationStage, FamilyCloseProgress};
-use progress::{Observer, emit, generation_stage, installation_event, sector_mask};
+use progress::{
+    Observer, emit, generation_failure, generation_stage, installation_event, sector_mask,
+};
 
 pub const FAMILY_CLOSE_SCHEMA: &str = "rustred.family-close-output.toml.v4";
 
@@ -316,10 +318,10 @@ fn close<const N: usize>(
         elapsed: prepared_at,
     });
     let solved = executor
-        .map_with_observer(
+        .map_configured_with_error_observer(
             &sources,
             &sectors,
-            &SectorConfig {
+            |_, _| SectorConfig {
                 zero_sectors: zeros.clone(),
                 permutation,
                 ..Default::default()
@@ -331,6 +333,11 @@ fn close<const N: usize>(
                     sector: sector_mask(sector),
                     stage: generation_stage(event),
                     elapsed: start.elapsed(),
+                })
+            },
+            |error| {
+                emit(observe, || {
+                    generation_failure(error, error.ordinal(), start.elapsed())
                 })
             },
             |done| {

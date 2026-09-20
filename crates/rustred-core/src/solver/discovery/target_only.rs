@@ -7,6 +7,8 @@
 //! The final native product checks every forbidden column and the unit target.
 //! These temporary frame weights are not original-generator certificates.
 
+use symbolica::domains::Field;
+#[cfg(test)]
 use symbolica::domains::SelfRing;
 use symbolica::prelude::Z;
 use symbolica::tensors::sparse::{LuLMode, SparseMatrix, SparseRowReducer};
@@ -15,7 +17,8 @@ use crate::algebra::Coefficient;
 
 use super::variables::FrameVariables;
 use super::{
-    ExactField, ExactRow, Integral, IntegralOrder, MaterializationError, MaterializationEvent, Term,
+    ExactField, ExactRow, Integral, IntegralOrder, MaterializationError, MaterializationEvent,
+    Term, factorized,
 };
 
 fn invalid(reason: &'static str) -> MaterializationError {
@@ -28,13 +31,71 @@ pub(super) fn materialize<const N: usize>(
     order: &IntegralOrder<N>,
     target_column: usize,
     variables: &FrameVariables,
+    observe: impl FnMut(MaterializationEvent<N>),
+) -> Result<ExactRow<N>, MaterializationError> {
+    materialize_in_field(
+        rows,
+        columns,
+        order,
+        target_column,
+        ExactField::new(Z),
+        &|value| variables.map_coefficient(value),
+        &|value| variables.restore_coefficient(value),
+        false,
+        observe,
+    )
+}
+
+/// Experimental composition only. No public backend or runtime dispatch selects it.
+#[cfg(test)]
+fn materialize_factorized<const N: usize>(
+    rows: &[ExactRow<N>],
+    columns: &[Integral<N>],
+    order: &IntegralOrder<N>,
+    target_column: usize,
+    variables: &FrameVariables,
+    observe: impl FnMut(MaterializationEvent<N>),
+) -> Result<ExactRow<N>, MaterializationError> {
+    use symbolica::domains::factorized_rational_polynomial::FactorizedRationalPolynomialField;
+    let active = variables.active_variables();
+    materialize_in_field(
+        rows,
+        columns,
+        order,
+        target_column,
+        FactorizedRationalPolynomialField::<_, u16>::new(Z, active.clone()),
+        &|value| factorized::factor(variables.map_coefficient(value)?, &active),
+        &|value| variables.restore_coefficient(&factorized::ordinary(value, &active)?),
+        true,
+        observe,
+    )
+}
+
+/// Shared schedule over a native field. The closures only transport coefficients;
+/// every algebraic operation remains in Symbolica's reducer/matrix services.
+fn materialize_in_field<const N: usize, F: Field>(
+    rows: &[ExactRow<N>],
+    columns: &[Integral<N>],
+    order: &IntegralOrder<N>,
+    target_column: usize,
+    field: F,
+    import: &impl Fn(&Coefficient) -> Result<F::Element, MaterializationError>,
+    export: &impl Fn(&F::Element) -> Result<Coefficient, MaterializationError>,
+    catch_native: bool,
     mut observe: impl FnMut(MaterializationEvent<N>),
 ) -> Result<ExactRow<N>, MaterializationError> {
+    // Authenticate the entire input, including explicit zeros, tail-only terms
+    // and rows after the eventual hit, before a shortcut can omit them.
+    let one = import(&input_one(rows)?)?;
     // Common preflight checked the full column count, distinct sorted source
     // terms and every coefficient map. The trailing zero sentinel is retained.
     let block_columns =
         u32::try_from(target_column + 2).map_err(|_| MaterializationError::TooManyColumns)?;
-    let mut reducer = SparseRowReducer::new(block_columns, ExactField::new(Z), LuLMode::Full);
+    let mut reducer = native(
+        catch_native,
+        "constructing the target-block reducer",
+        || SparseRowReducer::new(block_columns, field, LuLMode::Full),
+    )?;
     observe(MaterializationEvent::TargetBlockStarted {
         columns: target_column + 1,
     });
@@ -51,7 +112,7 @@ pub(super) fn materialize<const N: usize>(
             if column > target_column {
                 break;
             }
-            values.push(variables.map_coefficient(&term.coefficient)?);
+            values.push(import(&term.coefficient)?);
             ids.push(column as u32);
         }
         observe(MaterializationEvent::RowStarted {
@@ -60,7 +121,9 @@ pub(super) fn materialize<const N: usize>(
             reducer_rows: reducer.u().nrows() as usize,
             reducer_nonzeros: reducer.u().nvalues(),
         });
-        let pivot = reducer.add_row(&values, &ids);
+        let pivot = native(catch_native, "reducing a target-block source row", || {
+            reducer.add_row(&values, &ids)
+        })?;
         observe(MaterializationEvent::RowFinished {
             row: ordinal + 1,
             pivot: pivot.map(|column| columns[column as usize]),
@@ -84,7 +147,7 @@ pub(super) fn materialize<const N: usize>(
             rows: prefix_len,
             lower_nonzeros: reducer.l().nvalues(),
         });
-        let weights = solve_transposed_lower(reducer.l(), ordinal)?;
+        let weights = solve_transposed_lower(reducer.l(), ordinal, one, catch_native)?;
         observe(MaterializationEvent::TargetWeightsFinished {
             nonzero_weights: weights.nvalues(),
         });
@@ -99,8 +162,10 @@ pub(super) fn materialize<const N: usize>(
             columns,
             order,
             target_column,
-            variables,
+            import,
+            export,
             weights,
+            catch_native,
         )?;
         observe(MaterializationEvent::TargetReconstructionFinished {
             output_terms: result.len(),
@@ -110,22 +175,63 @@ pub(super) fn materialize<const N: usize>(
     Err(MaterializationError::TargetNotPivot)
 }
 
+fn input_one<const N: usize>(rows: &[ExactRow<N>]) -> Result<Coefficient, MaterializationError> {
+    let first = rows
+        .iter()
+        .flatten()
+        .next()
+        .ok_or(MaterializationError::TargetNotPivot)?;
+    let variables = first.coefficient.numerator.variables();
+    for term in rows.iter().flatten() {
+        if term.coefficient.numerator.variables() != variables
+            || term.coefficient.denominator.variables() != variables
+        {
+            return Err(MaterializationError::CoefficientVariableMapMismatch);
+        }
+        if term.coefficient.denominator.is_zero() {
+            return Err(MaterializationError::InvalidFactorizedCoefficient(
+                "zero input denominator",
+            ));
+        }
+    }
+    // RationalPolynomialField has no registered map of its own. Its generic
+    // `one()` is not a substitute for a unit in this exact frame's context.
+    Ok(first.coefficient.numerator.one().into())
+}
+
+fn native<T>(
+    catch_native: bool,
+    operation: &'static str,
+    function: impl FnOnce() -> T,
+) -> Result<T, MaterializationError> {
+    if catch_native {
+        factorized::native(operation, function)
+    } else {
+        // Ordinary target-only preserves its original native panic behavior.
+        Ok(function())
+    }
+}
+
 /// Transpose sparse structure only; all normalization/back substitution is
 /// native. L columns need not be sorted in pivot-acceptance order. Iterating
 /// its source rows in order nevertheless builds sorted rows of L^T.
-fn solve_transposed_lower(
-    lower: &SparseMatrix<ExactField>,
+fn solve_transposed_lower<F: Field>(
+    lower: &SparseMatrix<F>,
     target_row: usize,
-) -> Result<SparseMatrix<ExactField>, MaterializationError> {
+    one: F::Element,
+    catch_native: bool,
+) -> Result<SparseMatrix<F>, MaterializationError> {
     let count = lower.nrows() as usize;
     if count == 0 || lower.ncols() as usize != count || target_row >= count {
         return Err(invalid(
             "L must be nonempty and square with a valid target row",
         ));
     }
-    let template = lower.values().first().ok_or_else(|| invalid("empty L"))?;
-    let one: Coefficient = template.numerator.one().into();
-    let mut transposed: Vec<Vec<(u32, &Coefficient)>> = vec![Vec::new(); count];
+    if lower.values().is_empty() {
+        return Err(invalid("empty L"));
+    }
+    let field = lower.field();
+    let mut transposed: Vec<Vec<(u32, &F::Element)>> = vec![Vec::new(); count];
     for source in 0..count {
         for position in lower.row_ptrs()[source]..lower.row_ptrs()[source + 1] {
             let column = lower.col_idcs()[position] as usize;
@@ -139,11 +245,13 @@ fn solve_transposed_lower(
         .ncols()
         .checked_add(1)
         .ok_or(MaterializationError::TooManyColumns)?;
-    let mut solver = SparseRowReducer::new(augmented_columns, ExactField::new(Z), LuLMode::None);
+    let mut solver = native(catch_native, "constructing the triangular reducer", || {
+        SparseRowReducer::new(augmented_columns, field.clone(), LuLMode::None)
+    })?;
     for (row, terms) in transposed.into_iter().enumerate() {
         if terms
             .first()
-            .is_none_or(|(column, value)| *column as usize != row || value.is_zero())
+            .is_none_or(|(column, value)| *column as usize != row || field.is_zero(value))
             || terms.windows(2).any(|pair| pair[0].0 >= pair[1].0)
         {
             return Err(invalid(
@@ -158,13 +266,18 @@ fn solve_transposed_lower(
         }
         // Each upper-triangular row takes the native direct-normalization path.
         // Raw nonunit pivots must not go to from_upper_triangular_matrix.
-        if solver.add_row(&values, &ids) != Some(row as u32) {
+        if native(catch_native, "normalizing a triangular row", || {
+            solver.add_row(&values, &ids)
+        })? != Some(row as u32)
+        {
             return Err(invalid(
                 "native triangular normalization changed the expected pivot",
             ));
         }
     }
-    solver.back_substitute();
+    native(catch_native, "solving target weights", || {
+        solver.back_substitute()
+    })?;
     let mut values = Vec::new();
     let mut ids = Vec::new();
     let upper = solver.u();
@@ -176,42 +289,44 @@ fn solve_transposed_lower(
             let column = upper.col_idcs()[position] as usize;
             let value = &upper.values()[position];
             if column == count {
-                if !value.is_zero() {
+                if !field.is_zero(value) {
                     values.push(value.clone());
                     ids.push(variable as u32);
                 }
-            } else if column != variable || !value.is_one() {
+            } else if column != variable || !field.is_one(value) {
                 return Err(invalid(
                     "native triangular solution retains an unsolved coefficient",
                 ));
             }
         }
     }
-    let mut result = SparseMatrix::new(0, lower.ncols(), ExactField::new(Z));
+    let mut result = SparseMatrix::new(0, lower.ncols(), field.clone());
     result.add_row(values, ids);
     Ok(result)
 }
 
-fn reconstruct<const N: usize>(
+fn reconstruct<const N: usize, F: Field>(
     rows: &[ExactRow<N>],
     columns: &[Integral<N>],
     order: &IntegralOrder<N>,
     target_column: usize,
-    variables: &FrameVariables,
-    weights: SparseMatrix<ExactField>,
+    import: &impl Fn(&Coefficient) -> Result<F::Element, MaterializationError>,
+    export: &impl Fn(&F::Element) -> Result<Coefficient, MaterializationError>,
+    weights: SparseMatrix<F>,
+    catch_native: bool,
 ) -> Result<ExactRow<N>, MaterializationError> {
     if weights.nrows() != 1 || weights.ncols() as usize != rows.len() {
         return Err(invalid(
             "source weights do not match the unchanged source prefix",
         ));
     }
-    let mut original = SparseMatrix::new(0, columns.len() as u32, ExactField::new(Z));
+    let mut original = SparseMatrix::new(0, columns.len() as u32, weights.field().clone());
     for row in rows {
         let mut values = Vec::with_capacity(row.len());
         let mut ids = Vec::with_capacity(row.len());
         for term in row {
             if !term.coefficient.is_zero() {
-                values.push(variables.map_coefficient(&term.coefficient)?);
+                values.push(import(&term.coefficient)?);
                 ids.push(column_id(columns, order, &term.integral) as u32);
             }
         }
@@ -219,9 +334,16 @@ fn reconstruct<const N: usize>(
     }
     // Native sparse multiplication accumulates only one output row. No local
     // matrix/field elimination or coefficient-combination kernel is introduced.
-    let product = &weights * &original;
+    let product = native(
+        catch_native,
+        "multiplying target weights by full sources",
+        || &weights * &original,
+    )?;
     if product.col_idcs().first().copied() != Some(target_column as u32)
-        || product.values().first().is_none_or(|value| !value.is_one())
+        || product
+            .values()
+            .first()
+            .is_none_or(|value| !product.field().is_one(value))
     {
         return Err(invalid(
             "full source product has a forbidden term or nonunit target",
@@ -234,7 +356,7 @@ fn reconstruct<const N: usize>(
         .map(|(&column, coefficient)| {
             Ok(Term {
                 integral: columns[column as usize],
-                coefficient: variables.restore_coefficient(coefficient)?,
+                coefficient: export(coefficient)?,
             })
         })
         .collect()
@@ -252,3 +374,6 @@ fn column_id<const N: usize>(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod benchmark;

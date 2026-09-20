@@ -291,6 +291,43 @@ impl SectorExecutor {
         O: Fn(usize, [bool; N], SectorEvent<'_, N>) + Send + Sync,
         F: Fn(SectorCompleted<N>) -> Result<T, E> + Send + Sync,
     {
+        self.map_configured_with_error_observer(
+            sources,
+            sectors,
+            configure,
+            options,
+            observe,
+            |_| {},
+            consume,
+        )
+    }
+
+    /// Like [`Self::map_configured_with_observer`], reporting each preparation,
+    /// search or consumer failure on its worker before that job returns.
+    ///
+    /// The borrowed error is the same error retained for ordered collection;
+    /// observing it does not cancel other jobs or change the final error's
+    /// manifest ordering. Failure callbacks may overlap. Panics, including
+    /// observer panics, propagate normally and are not reported as job errors.
+    #[allow(clippy::too_many_arguments)]
+    pub fn map_configured_with_error_observer<const N: usize, T, E, C, O, H, F>(
+        &self,
+        sources: &SourceSystem<N>,
+        sectors: &[[bool; N]],
+        configure: C,
+        options: SectorSolveOptions,
+        observe: O,
+        observe_error: H,
+        consume: F,
+    ) -> Result<Vec<T>, SectorExecutionError<N, E>>
+    where
+        T: Send,
+        E: Send,
+        C: Fn(usize, [bool; N]) -> SectorConfig<N> + Send + Sync,
+        O: Fn(usize, [bool; N], SectorEvent<'_, N>) + Send + Sync,
+        H: Fn(&SectorExecutionError<N, E>) + Send + Sync,
+        F: Fn(SectorCompleted<N>) -> Result<T, E> + Send + Sync,
+    {
         let mut jobs: Vec<_> = (0..sectors.len()).collect();
         if self.scheduling == SectorScheduling::ActiveFirst {
             jobs.sort_unstable_by_key(|&ordinal| {
@@ -332,6 +369,9 @@ impl SectorExecutor {
                     source,
                 })
             })();
+            if let Err(error) = &result {
+                observe_error(error);
+            }
             (ordinal, result)
         };
         let mut results: Vec<_> = match &self.pool {

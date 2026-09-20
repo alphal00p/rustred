@@ -35,6 +35,84 @@ returned coefficients and existing artifact formats remain ordinary RP.
 Detailed API findings are retained in
 `TMP/factorized_exact_lift_api_findings.md`.
 
+#### Experimental factorized target-block composition
+
+A separate, **test-only** composition now runs the existing target-block
+schedule over Symbolica's native factorized field. The schedule is generic in
+field and integral arity. For the unchanged independent source prefix
+`A = [F | R]`, native GPLU factors the harder/target block `F = L U`, native
+triangular solving obtains `Lᵀ w = e_j`, and native multiplication reconstructs
+the complete target row `wᵀ A`. Dependent block prefixes remain typed errors;
+there is no silent row dropping or different rule-selection policy. Input
+validation covers both variable maps and every denominator, including zero,
+tail-only and post-hit terms. Ordinary target-only retains its native panic
+semantics; the factorized native catch boundary excludes observer callbacks.
+
+The combined path has no public backend selector or automatic activation yet.
+The existing `SparseTargetOnly` and `SparseFactorized` choices remain separate,
+and defaults, source guards, proof obligations and artifact schemas are unchanged.
+Nothing dispatches on topology names or loop counts. Concrete dimensions and
+expected frame counts occur only in the external-fixture regression harness.
+
+Three rotated, fresh-process rounds compare the **same saved frame**: 997
+ordered sources, 3,458 columns, 13,934 nonzeros, target column 1,296 and two
+active variables. Every run exactly reproduces all 1,490 output entries
+(unit target plus 1,489 RHS terms), both ordered coefficient maps, every pivot
+and the complete prefix. These are not new family-generation runs.
+
+| Native exact path | Round 0 lift | Round 1 lift | Round 2 lift | Median lift | Median process peak RSS |
+|---|---:|---:|---:|---:|---:|
+| Ordinary target-only | 2.903485 s | 2.890197 s | 12.911068 s | 2.903485 s | 33,900 KiB |
+| Full factorized | 4.149734 s | 4.164715 s | 7.457832 s | 4.164715 s | 64,632 KiB |
+| Factorized target-only, experimental | 1.134046 s | 1.138499 s | 11.165075 s | 1.138499 s | 33,940 KiB |
+
+The median **within-round** baseline/combined ratios are 2.538604 and
+3.658077 for ordinary target-only and full factorized respectively. Their
+ranges are 1.156380–2.560288 and **0.667961–3.659228**: the combined path
+regresses against full factorized in round 2. All three modes' CPU as well as
+wall times increase in that round; the cause is not established. No sample
+is discarded, no confidence bound is claimed, and the result is not a
+universal speedup or a solution to the full five-loop memory failures.
+RSS includes the loaded input, expected row, result and test process, not
+isolated reducer allocations. The combined path uses approximately the same
+process memory as ordinary target-only on this fixture.
+
+The target paths retain 22,896 U nonzeros and 9,798 L nonzeros, versus 88,913 U
+nonzeros and no L in full factorized. Both target paths produce 747 nonzero
+weights. Median inclusive block/weight/reconstruction times are
+1.911060/0.572541/0.406431 s ordinary and
+0.571387/0.316911/0.246760 s factorized. Conversion counters overlap these
+intervals and must not be added: combined import/output medians are
+0.018483/0.028162 s. The reconstruction remainder after those conversions
+includes allocation and structural assembly as well as native multiplication;
+it is not a pure CAS-kernel profile. In the slow third combined run, this
+remainder reaches 10.223889 s while block/weight times remain about
+0.576/0.320 s; the phase localization does not identify its cause.
+Full-factorized conversion/output are
+included in its total but not separately timed.
+
+All runs use one fixed CPU (82), optimized locked build with LTO off, nested
+pools capped at one, a 120-second deadline plus 10-second termination grace,
+an 8-GiB virtual-address-space limit and disabled core dumps. Our build/test
+jobs finished before this matrix. Solver timing includes frame preparation,
+conversion, elimination, weights, full reconstruction and ordinary output;
+loading and exact comparison are outside it but inside process wall/CPU/RSS.
+No warmup, prior trace discovery or certification is timed. Three pairs on a
+shared host do not establish a hardware-normalized performance guarantee.
+
+The release snapshot passes 2,238 core tests (32 explicitly ignored),
+116 application unit tests, 72 integration tests and 38 freshly built Python
+tests. Its K6 regression passes all fourteen stages, including exact old/new
+candidate and certified comparisons, one-/six-worker checkpoints, resume and
+four cold canaries. Independent source and measurement audits accompany
+`TMP/target-block-factorized.4IS5Ko/`; broader gates are in
+`TMP/generic-target-field-gate.nE3pq9/` and
+`TMP/k6-target-field-gate.t8EbBs/`. A subsequent import-only cleanup limits the
+test-used `SelfRing` trait to test builds; the frozen benchmark sources remain
+alongside their binary. The next step is broader bounded case validation, not
+a default switch or an assumption that the shared multi-target numerical tail
+can be replaced by repeated independent-prefix target solves.
+
 #### Shared numerical-case extension
 
 The native field now also supports multiple exact target pivots from one

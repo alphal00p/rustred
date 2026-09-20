@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use rustred::foundry::artifact::SourcePortInstallEvent;
-use rustred::solver::{SearchEvent, SectorEvent, SectorPhase};
+use rustred::solver::{SearchEvent, SectorEvent, SectorExecutionError, SectorPhase};
 
 pub(in crate::application) type Observer<'a> =
     Option<&'a (dyn Fn(FamilyCloseProgress) + Send + Sync)>;
@@ -50,7 +50,7 @@ pub enum FamilyCloseGenerationStage {
 /// observer work, and is never encoded in artifact bytes. Generation callbacks
 /// may arrive concurrently and out of order; installation callbacks run on the
 /// calling thread. A replay report is diagnostic, not a closure claim.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FamilyCloseProgress {
     Preparing {
         arity: usize,
@@ -75,6 +75,14 @@ pub enum FamilyCloseProgress {
         sector: u64,
         rules: usize,
         finite_residuals: usize,
+        elapsed: Duration,
+    },
+    /// A worker failed; other submitted jobs still run. This includes output
+    /// failures after `GeneratedSector`, which does not imply durable storage.
+    FailedSector {
+        ordinal: usize,
+        sector: u64,
+        message: String,
         elapsed: Duration,
     },
     /// Structural reuse admission, not native algebra validation or closure.
@@ -138,6 +146,24 @@ pub enum FamilyCloseProgress {
         bytes: usize,
         elapsed: Duration,
     },
+}
+
+pub(in crate::application) fn generation_failure<const N: usize, E: std::fmt::Display>(
+    error: &SectorExecutionError<N, E>,
+    ordinal: usize,
+    elapsed: Duration,
+) -> FamilyCloseProgress {
+    let message = match error {
+        SectorExecutionError::Prepare { source, .. } => format!("preparation: {source}"),
+        SectorExecutionError::Solve { source, .. } => format!("search: {source}"),
+        SectorExecutionError::Consume { source, .. } => format!("output: {source}"),
+    };
+    FamilyCloseProgress::FailedSector {
+        ordinal,
+        sector: sector_mask(*error.sector()),
+        message,
+        elapsed,
+    }
 }
 
 pub(in crate::application) fn sector_mask<const N: usize>(sector: [bool; N]) -> u64 {
