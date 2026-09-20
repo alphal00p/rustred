@@ -164,6 +164,55 @@ after its decode/replay phase and is not a second independent cold-load sample.
 No minimal-master or complete-family reduction claim follows from this finite
 74-output convention.
 
+## Cross-family evaluation census — not a new normalization rollout
+
+A September 20 follow-up joins the **actual 74 positive output keys** to their
+existing exact offline catalog projections:
+
+| Family input | Output keys | Distinct literal catalog projections |
+| --- | ---: | ---: |
+| H | 22 | 22 |
+| FG | 16 | 16 |
+| BMW | 17 | 17 |
+| X | 19 | 19 |
+| Combined | **74** | **23** |
+
+All output keys are accounted for. There is no repeated projection within one
+family's final output set; 51 entries repeat an expression from another family.
+The union contains 19 standalone PR symbols and four additional proportional
+or linear-combination expressions. PR0–PR15 are sixteen labels, while PR4d,
+PR9d and PR11d are additional dotted integrals; PR9x is eliminated. These
+counts are not a proof of master independence or a new autonomously derived
+23-class integral quotient.
+
+The independent census rechecks all four current native catalog hashes and
+all four shipped normalization sidecars against the frozen rollout records.
+Exported and independently verified output-key rows agree. The count uses
+literal expression/key joins, not numerical sampling or custom algebra. It
+refines the earlier 1,155-raw-key/26-expression census; the two count different
+sets. Exact oracle projections can coincide because of IBPs without admitting
+a momentum or Feynman-parameter relabeling.
+
+A useful next **offline** experiment would pool these existing output supports
+across input families, reuse native power-colored graph proposals and replay
+full scale-preserving U-polynomial equality or explicit unit-Jacobian momentum
+witnesses. Families, dimensions, powers, coefficient maps and measure conventions
+must remain bound to every key. Catalogs belong only in post-hoc validation.
+The normalization plans and current U-equivalence helper are family-bound.
+The generic momentum verifier already accepts distinct source and target
+families, but its witness alone does not install cross-family output aliases;
+moving an integer vector into another family is not such a service.
+No loop count or topology name may select such an algorithm.
+
+Vakint already combines the exact PR projections before numerical evaluation.
+Consequently these repeated projections do not imply 74 separately evaluated
+independent numerical masters. A global quotient may avoid duplicate terminal
+studies, but it does not promise faster per-family memoized reductions. The
+shipped 74-output sidecars, values, dependency pins and numerical acceptance
+remain unchanged. Research and reproducible census command:
+`TMP/cross-family-positive-terminal-census-2026-09-20.md`; independent replay:
+`TMP/cross-family-positive-terminal-census-independent-audit-2026-09-20.md`.
+
 ## Delivered Vakint acceptance and public timings
 
 GammaLoop revision `fdfb0e43c297c5d78c488d73ad4be508d03de2dd` pins core

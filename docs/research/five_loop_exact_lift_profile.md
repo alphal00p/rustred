@@ -148,6 +148,27 @@ collapsing them all to `exact lift`; it introduces no new tracing or algebra.
 
 ## Evidence
 
+### Short ordinary-sparse control
+
+A separately admitted five-minute control reused the identical published CLI,
+external family, ordering and physical-root request, selecting existing
+`sparse` instead of either factorized backend. It did not wait for the pending
+frontend/progress rebuild and therefore has only the old coarse callbacks.
+No source changed and no profiler was attached. The same CPU94/one-worker,
+8 GiB address-space, 2 GiB spool and final-output policies applied.
+
+It also remained incomplete: status 124, **302.26 s wall, 298.80 s user,
+3.26 s system, 88,780 KiB peak RSS**, with zero saved sectors or final bundle.
+Hashes pass. Observations reached depth two (64 seeds, 1,575 discovered rows),
+followed by exact-lift callbacks through 271.5 s. These are coarse discovery
+counts, not the selected exact frame size, completed rules or a proof that the
+same frame/pivot was used by the other backends. The shorter deadline, ordinary
+shared numerical lane and shared host preclude a completed-workload speed ratio.
+This one-shot diagnostic is retained in
+`TMP/five-loop-banana-sparse-control.XaLf5i/`; it is not automatically resumed.
+
+### Earlier run and profile receipts
+
 The complete run, command, resource receipt and independent terminal audit are
 in `TMP/five-loop-banana-followup.viv69F/`. Frozen CLI SHA256:
 `60a4bc6f8ab89175117ee23f71c258c2a5c23d782eff36a50642475b507fb462`.

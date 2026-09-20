@@ -105,3 +105,58 @@ denominator poles cannot be discarded. Preserve the present publication and
 optional certification gates; sample agreement never supplies that authority.
 Measure weight support/reconstruction/product costs before implementing a new
 default, and expand phase sampling before attributing five-loop delays to replay.
+
+### Concrete experimental boundary — September 20
+
+A further pinned-API audit supports an internal diagnostic experiment, not a
+public backend or replacement of the existing `SemiNumerical` backend. Keep
+target-row reconstruction and add
+Symbolica reconstruction of source weights, followed by the complete native
+sparse product `W*A == r`. The new path must perform no characteristic-zero
+GPLU, including on failure; the old path remains the explicit control. This
+is proposed work, not an implemented capability or measured speedup.
+
+The important implementation details are:
+
+- Track accepted U ordinal, original source ordinal and actual native L row
+  separately. Empty inputs add no L row; nonempty dependent inputs can add L
+  rows without adding U rows. Extract the accepted square lower factor and
+  solve its transpose with existing native matrix services. With empty inputs,
+  the native rectangular identity refers to the nonempty processed source rows;
+  test the recorded row embedding, not an assumed original-row identity.
+- Cache full target/weight images by prime and evaluation point, retaining the
+  full pivot chronology. Reject unusable samples rather than combine branches.
+  Bound cached slots and scalar entries independently of native per-coefficient
+  reconstruction budgets.
+- Restore both coefficient maps and check every physical column, including
+  omitted sampled support, zero forbidden columns and unit target. Native
+  sparse multiplication performs the algebra; no private reconstruction,
+  elimination or rational-field kernel belongs in RustRed.
+- Keep heavy operations arity-independent, using the existing `ProbeFrame`,
+  CSR column IDs and a thin const-generic integral adapter. Dimensions and
+  resource ceilings are input data, never loop-count or topology dispatch.
+
+Prepared-span equality still does not prove the current publication gate's
+canonical replay row or exceptional-domain applicability. For example,
+`(1/x)*[x,x]=[1,1]` loses information on `x=0`. Retain original source traces,
+guard/pole obligations and independent publication checks. Do not promote the
+temporary weight vector into a trusted artifact witness or silently restore
+ordinary exact replay when this experimental route fails.
+
+This also matters before certification: the existing candidate applier checks
+stored rule exceptions and RHS poles, not a temporary weight vector. A later
+publication check cannot protect an uncertified candidate already used by that
+applier. Keep the first kernel internal and diagnostic. Public selection needs
+an explicit, independently audited way to preserve or discharge multiplier-pole
+conditions at the candidate boundary, as well as the canonical-row obligation;
+an `experimental` label alone is not a correctness mechanism.
+
+Required tests include empty/dependent-row chronology, nonunit pivots, bad
+primes, variable-map permutations, hidden support, tampered weights/RHS,
+surviving forbidden columns and canceled multiplier poles. Differential exact
+row comparisons and end-to-end small-family regressions precede any backend
+rollout. Weight reconstruction may cost more than it saves; the completed H
+pilot above already excludes a general speedup merely from removing replay.
+Detailed source/API review: `TMP/source-weight-reconstruction-next-slice-audit-2026-09-20.md`.
+Independent mathematical review:
+`TMP/source-weight-reconstruction-independent-math-audit-2026-09-20.md`.

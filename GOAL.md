@@ -15,6 +15,15 @@ Keep family-local integral keys,
 globally routed representatives, topology labels and evaluated master symbols
 distinct when reporting counts.
 
+The independently checked September 20 cross-family census finds 23 distinct
+literal catalog projections among those 74 shipped positive outputs, with no
+duplicates inside an individual family's final output set. This is 19 PR
+symbols plus four additional expressions, not a proved 23-class routing quotient
+or minimal-master claim. The [weighted-normalization report](docs/research/weighted_terminal_normalization.md)
+records the current asset bindings and a proposed generic offline cross-family
+proof census. No new terminal reduction or Vakint rollout follows merely from
+that catalog-content observation.
+
 Delegate a main deep literature/local-code investigation and an independent
 mathematical/practical critique. Test recommended bounded methods on the saved
 four-loop programs before adopting them. Consider targeted additional integer
