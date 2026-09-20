@@ -5,6 +5,13 @@ five-loop artifact. The broader input census and run status are in
 [the TIDE census](tide_five_loop_census.md); this note records the mathematical
 obstruction and the exact-solver authority boundary.
 
+The follow-up [TIDE strategy and bounded-point study](tide_exceptional_domain_strategy.md)
+now records three completed source-visitation alternatives (same bad locus),
+an exhaustive rank-30 census of the captured conic (six points), and five
+successful exact local fixed-index reductions. The remaining point is a
+bounded search miss. These results do not yet close the recursive RHS graph
+or the whole connected sector.
+
 ## Captured domain
 
 The selected sector is `111000000001110` in the 15-slot common family. The
@@ -418,8 +425,9 @@ replay, reverse/rotation determinism, seed fairness and an empty basis. This
 does not automatically retry a failed case or admit unsupported geometry.
 The prepared external client adds bounded identity/reverse/half-rotation
 experiments with the same integral ordering, and reports complete exceptional
-geometry separately from a returned conditional formula. Those new campaign
-results are not yet available at this checkpoint.
+geometry separately from a returned conditional formula. The subsequent
+[completed probes](tide_exceptional_domain_strategy.md#fresh-source-visitation-results)
+return different conditional rules but the same exceptional locus.
 
 ### Measured ordering experiments and bounded scope
 

@@ -2,6 +2,34 @@
 
 ## Current priority — progressive five-loop solving after compact four-loop delivery
 
+### Exceptional-domain follow-up — bounded targets alongside unrestricted research
+
+The [TIDE exceptional-domain strategy](docs/research/tide_exceptional_domain_strategy.md)
+distinguishes reusable generic rules from the integer cases where their pivots
+fail. The natural-order captured conic has exactly six points at total
+negative-index degree `R<=30`; the distinct Q-first parent has 41 (40 for
+total excess `R+D<=30`, because it has one fixed dot). These are geometry
+counts, not new masters or completed reductions. Three fresh bounded
+source-visitation probes produce different conditional formulas but identical
+bad loci, so their combination does not establish additional coverage.
+
+The fresh six-point native sparse test now returns exact descending local
+candidates for the five points at degrees 7, 7, 13, 19 and 25, with no index
+exceptions. Their core times are 2.095–6.934 seconds. The degree-1 target
+exhausts the depth-two search after 3,775 rows; this does not establish master
+independence. The test uses the input-generated preconditioned basis and is not
+an original-versus-specialized rank proof. No recursive rank-30 closure has
+yet been shown. Preserve those candidates and next resolve their deduplicated
+RHS dependencies, keeping `d` symbolic. Follow TIDE's separation between
+wanted targets and larger source
+generation bounds; use native modular selection on the actual exceptional
+case, then exact materialization/replay and complete descendant accounting.
+For a whole-family finite scope, fix/cap denominator dots too, or prove their
+parametric reduction separately. Do not substitute a per-coordinate cutoff
+for a total numerator bound or silently discard out-of-bound intermediates.
+Keep nonlinear Symbolica-native coefficient-field research as the separate
+unrestricted route. This does not replace the broader four-/five-loop goal.
+
 ### Long-running five-loop campaigns: admission and monitoring
 
 The latest directive permits runs lasting **10 hours or more**, with total
