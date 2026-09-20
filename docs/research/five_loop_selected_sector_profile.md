@@ -507,3 +507,35 @@ provenance and measurement audits pass. Full five-loop closure and a completed
 four-loop total-excess-30 certificate remain outstanding.
 Evidence: `TMP/five-loop-preparation-profile.XpucXw/` and
 `TMP/zero-census-differential.N1txma/`.
+
+## Full physical campaign: further checkpoint progress, not completion
+
+The frozen release CLI from `f49562cb` resumed the complete external cube
+campaign from 64 saved sector shards. The mathematical inputs, natural
+ordering, `sparse-factorized` backend and numerical depth zero were unchanged.
+This segment used one worker on CPU 94, nested pools capped at one, a 32 GiB
+virtual-address cap, an 8 GiB checkpoint cap and a declared 900-second deadline
+with ten-second forced-termination grace. No owned build or benchmark overlapped.
+
+It ended on September 20 at 08:56:11 UTC with **status 137** after the deadline,
+without a final family bundle. Thirteen additional sector files were saved:
+**77 of 2,656 physical nonzero sectors** are now durable. Those new files contain
+3,647 rules and 335 finite-residual occurrences, occupying 228,647,241 bytes.
+The residual count is not a deduplicated master basis. Every original shard
+and input remained unchanged. The final observed sector, 4083, was unfinished.
+
+Preparation reported its physical census at 7.5 s and checkpoint admission
+at 10.5 s (64 reused / 2,592 pending). These rounded progress timestamps do not
+isolate phase costs. Whole-command wall time was 915.91 s. Final solver CPU
+time and peak RSS are **unavailable**: forced process-group termination also
+killed the timeout supervisor before it could reap the child. GNU time's
+0.00 CPU / 3,076 KiB RSS therefore describe only the supervisor and are excluded.
+Live observations confirm solver work and modest instantaneous memory, but do
+not recover either final statistic.
+
+This is further saved candidate progress, not full-family closure or an
+old/new performance ratio: the earlier six-worker attempt used a different
+binary, prefix and deadline. The generic rank-screen preparation gain measured
+above must not be extrapolated to complete five-loop generation. Evidence and
+the measurement limitation are retained in
+`TMP/five-loop-rank-screen-resume-one.SiVaOA/`.

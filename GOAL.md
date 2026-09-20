@@ -475,6 +475,14 @@ control retained in the [measurement report](docs/research/five_loop_selected_se
 This improves zero-sector preparation; it is not a full five-loop solve,
 a memory cure, a general speed guarantee or a closure certificate.
 
+A subsequent frozen-release, one-worker full physical cube continuation saves
+13 more sector candidates: **77 of 2,656 requested nonzero sectors** are now
+durable, with 3,647 rules in the new shards. The 900-second bounded segment
+ends with deadline/forced-termination status 137, not a complete family bundle.
+Final solver CPU and peak RSS were lost by the timeout supervisor and are not
+reported as measurements. The retained prefix and original inputs pass their
+integrity checks. See the [partial-campaign result](docs/research/five_loop_selected_sector_profile.md#full-physical-campaign-further-checkpoint-progress-not-completion).
+
 The bounded-certificate lane now shares exact public-entry admission between
 the sealed reducer and scalar lowering, before cache access. Descendant degree
 envelopes remain distinct from the starting total-excess cap. Internal scoped-owner
