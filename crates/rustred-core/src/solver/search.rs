@@ -213,9 +213,59 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         &self,
         case: impl Into<Case<N>>,
         options: SearchOptions,
+        observe: impl FnMut(SearchEvent<N>),
+    ) -> Result<RuleCandidate<N>, SolverError> {
+        self.solve_case_with_visit_order(case.into(), options, None, observe)
+    }
+
+    /// Diagnose a different first-hit search by visiting the stored
+    /// preconditioned basis in `source_order` at every seed.
+    ///
+    /// The slice must be a permutation of `0..self.basis().len()`. Validation
+    /// precedes all search work and observer events. Basis storage, source
+    /// provenance, integral ordering, and seed enumeration are unchanged;
+    /// returned [`SeedSource::basis_row`] values remain stored basis indices,
+    /// not positions in this slice. Every row is visited once per seed unless
+    /// the ordinary first successful hit ends the search.
+    ///
+    /// This isolated-case diagnostic does not change sector solving defaults,
+    /// retry another schedule, analyze exceptional cases, or publish a rule.
+    pub fn solve_case_with_source_order_and_observer(
+        &self,
+        case: impl Into<Case<N>>,
+        options: SearchOptions,
+        source_order: &[usize],
+        observe: impl FnMut(SearchEvent<N>),
+    ) -> Result<RuleCandidate<N>, SolverError> {
+        if source_order.len() != self.basis.len() {
+            return Err(SolverError::InvalidInput(
+                "source visit order must contain every stored basis row exactly once".into(),
+            ));
+        }
+        let mut seen = vec![false; self.basis.len()];
+        for &ordinal in source_order {
+            let Some(visited) = seen.get_mut(ordinal) else {
+                return Err(SolverError::InvalidInput(
+                    "source visit order contains an out-of-range basis row".into(),
+                ));
+            };
+            if std::mem::replace(visited, true) {
+                return Err(SolverError::InvalidInput(
+                    "source visit order contains a repeated basis row".into(),
+                ));
+            }
+        }
+        drop(seen);
+        self.solve_case_with_visit_order(case.into(), options, Some(source_order), observe)
+    }
+
+    fn solve_case_with_visit_order(
+        &self,
+        case: Case<N>,
+        options: SearchOptions,
+        source_order: Option<&[usize]>,
         mut observe: impl FnMut(SearchEvent<N>),
     ) -> Result<RuleCandidate<N>, SolverError> {
-        let case = case.into();
         if !case.is_in_sector(self.order.sector()) {
             return Err(SolverError::InvalidInput(
                 "case lies outside its sector".into(),
@@ -290,7 +340,9 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     discovery: probe.as_ref().map(|p: &Probe<N>| p.discovery.stats()),
                 });
             }
-            for (ordinal, source) in self.basis.iter().enumerate() {
+            for position in 0..self.basis.len() {
+                let ordinal = source_order.map_or(position, |order| order[position]);
+                let source = &self.basis[ordinal];
                 let row = instantiate(
                     source,
                     &seed,
@@ -448,3 +500,6 @@ mod affine_tests;
 
 #[cfg(test)]
 mod observation_tests;
+
+#[cfg(test)]
+mod source_order_tests;

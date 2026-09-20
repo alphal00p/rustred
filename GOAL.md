@@ -110,9 +110,12 @@ in a companion equation. Generic zero-minimum constraint propagation now
 handles that branch through existing native affine admission. Its first new
 release gate exposed an incorrect regression expectation: the **whole original
 conjunction is not empty**, and retains a different indefinite nonlinear
-sibling. Exact admissible witnesses require preserving that sibling. Correct
-the regression and rerun the gate before publication; removing one empty
-factor branch is not a completion claim or a cure for the remaining conic.
+sibling. Exact admissible witnesses require preserving that sibling. The
+corrected combined release gate now passes **2,338 core tests**, with 32
+existing ignored and no failures or filtered tests, plus the CLI build and
+K1/K3 candidate smoke controls. Its 53 intersection and 14 search checks are
+overlapping subsets, not additional tests. Removing an empty factor branch
+is not a completion claim or a cure for the remaining conic.
 The reversed ordering instead exhausts a five-minute pilot in exact algebra.
 None of these connected-sector probes is a completed five-loop family.
 
@@ -125,8 +128,21 @@ independent conditional-rule/geometry oracle, not whole-sector closure. A native
 Symbolica comparison now matches all 781 physical RHS keys and exact rational
 coefficients, with proportional nonzero-constant raw denominator ratios. This
 confirms that conditional formula, not closure of its exceptional branches.
-Investigate alternative source visitation after preconditioning, as well as
-integral ordering, without discarding any genuine exceptional branch.
+A new isolated-case source-visitation API now validates arbitrary permutations
+of the stored preconditioned basis, preserving source IDs, fair seed shells,
+integral ordering and exact replay. Default sector solving is unchanged and
+no automatic retry or artifact authority is added. Six new tests are included
+in the passing gate. Use it to investigate alternative first-hit rules, as
+well as integral orderings, without discarding genuine exceptional branches.
+A shallow native finite-field screen now finds no original/preconditioned
+source-span mismatch in 84 comparisons across seven supplied points, two
+seed prefixes, two primes and three dimension samples. It omits zero-sector
+projection and does not prove all-point span preservation or irreducibility.
+Symbolica's native integer solver also describes the natural conic with two
+conditional radical branches; its integer/positivity obligations remain
+unresolved. Reuse that native capability in any future nonlinear-case service,
+but do not mistake conditional representation coverage for an admitted
+integer chart or IBP closure.
 
 The independent live monitor is now release-validated: 32 focused progress
 checks, all 141 application-library tests, and 21 candidate/family-close CLI

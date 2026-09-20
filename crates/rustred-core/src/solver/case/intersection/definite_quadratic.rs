@@ -1,10 +1,11 @@
-//! Conservative emptiness proofs for parameter-free definite quadratic guards.
+//! Exact consequences of parameter-free definite quadratic guards.
 //!
-//! This is an exact *negative* test on one equation in an AND branch. It does
-//! not describe a quadratic solution set or turn an admissible minimum into an
-//! affine case. Unknown, singular and indefinite forms retain the ordinary
-//! unsupported-geometry outcome. Symbolica owns differentiation, rational
-//! arithmetic, determinants and the stationary-point linear solve.
+//! A strictly positive minimum proves an AND branch empty. A zero minimum
+//! describes one point in the polynomial's supported coordinates, equivalently
+//! the native affine gradient equations; other coordinates remain free. Unknown,
+//! singular and indefinite forms retain the ordinary unsupported-geometry
+//! outcome. Symbolica owns differentiation, rational arithmetic, determinants
+//! and the stationary-point linear solve.
 
 use symbolica::prelude::{Integer, Matrix, Q, Rational};
 
@@ -17,13 +18,20 @@ use super::super::Case;
 /// topology, loop count and compact-power representation.
 const MAX_PRINCIPAL_MINORS: usize = 32;
 
-pub(super) fn proves_empty<const N: usize>(
+#[derive(Debug)]
+pub(super) enum QuadraticProof {
+    Empty,
+    EquivalentAffine(Vec<CoefficientPolynomial>),
+    Unknown,
+}
+
+pub(super) fn classify<const N: usize>(
     parent: &Case<N>,
     equation: &CoefficientPolynomial,
     indices: &[usize; N],
     sector: &[bool; N],
-) -> bool {
-    proof(parent, equation, indices, sector).is_some()
+) -> QuadraticProof {
+    proof(parent, equation, indices, sector).unwrap_or(QuadraticProof::Unknown)
 }
 
 fn proof<const N: usize>(
@@ -31,7 +39,7 @@ fn proof<const N: usize>(
     equation: &CoefficientPolynomial,
     indices: &[usize; N],
     sector: &[bool; N],
-) -> Option<()> {
+) -> Option<QuadraticProof> {
     let nvars = equation.nvars();
     let mut axis_of = vec![None; nvars];
     for (axis, &variable) in indices.iter().enumerate() {
@@ -119,7 +127,7 @@ fn proof<const N: usize>(
         minimum += (value * &stationary[(row as u32, 0)]) / Rational::from(2);
     }
     if minimum > Rational::zero() {
-        return Some(());
+        return Some(QuadraticProof::Empty);
     }
     if !minimum.is_zero() {
         return None;
@@ -135,10 +143,27 @@ fn proof<const N: usize>(
             || parent.fixed()[axis].is_some_and(|fixed| value != &Rational::from(fixed))
             || (value > &Rational::zero()) != sector[axis]
         {
-            return Some(());
+            return Some(QuadraticProof::Empty);
         }
     }
-    None
+    // At a definite quadratic's zero minimum, q=0 iff its gradient vanishes.
+    // Reuse the native gradient polynomials instead of constructing or rounding
+    // stationary coordinates. The ordinary affine service will intersect these
+    // exact equations with every parent constraint and the whole sector.
+    Some(QuadraticProof::EquivalentAffine(gradient_polynomials))
+}
+
+#[cfg(test)]
+fn proves_empty<const N: usize>(
+    parent: &Case<N>,
+    equation: &CoefficientPolynomial,
+    indices: &[usize; N],
+    sector: &[bool; N],
+) -> bool {
+    matches!(
+        classify(parent, equation, indices, sector),
+        QuadraticProof::Empty
+    )
 }
 
 #[cfg(test)]
@@ -146,7 +171,34 @@ mod tests {
     use crate::algebra::CoefficientContext;
     use crate::solver::{Case, CoordinateCase};
 
-    use super::proves_empty;
+    use super::{QuadraticProof, classify, proves_empty};
+
+    #[test]
+    fn zero_minimum_returns_native_gradients_on_supported_axes_only() {
+        let context = CoefficientContext::new(["d", "x", "unused", "y", "also_unused"]);
+        let indices = [1, 2, 3, 4];
+        let sector = [true, false, false, true];
+        let parent = Case::<4>::generic();
+        let equation = context
+            .coefficient_fixture("2*(x-1)^2+2*(y+2)^2+(x-y-3)^2")
+            .numerator;
+        for equation in [equation.clone(), -equation] {
+            let QuadraticProof::EquivalentAffine(gradients) =
+                classify(&parent, &equation, &indices, &sector)
+            else {
+                panic!("an admitted definite zero minimum has an affine zero set");
+            };
+            assert_eq!(
+                gradients,
+                vec![equation.derivative(1), equation.derivative(3)]
+            );
+            let child = parent
+                .intersect(&gradients, &indices, &sector)
+                .unwrap()
+                .unwrap();
+            assert_eq!(child.fixed(), &[Some(1), None, Some(-2), None]);
+        }
+    }
 
     #[test]
     fn strict_positive_and_opposite_orientation_are_empty() {

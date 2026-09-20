@@ -265,20 +265,58 @@ impl<const N: usize> Engine<'_, N> {
                 }
                 return Ok(());
             }
-            // An impossible equation empties this AND branch, not its pending
-            // OR siblings. Only an exact, parameter-free definite-quadratic
-            // certificate is admitted; all other nonlinear loci stay unknown.
-            // This new cold proof has no separate stats clock; the enclosing
-            // sector geometry/solve elapsed time still includes its work.
-            if self.current.equations.iter().any(|equation| {
-                definite_quadratic::proves_empty(
+            // An impossible equation empties only this AND branch. A definite
+            // zero minimum instead implies native affine gradient equations.
+            // Admit those constraints, then restrict the ENTIRE conjunction
+            // again; dropping its other equations would create false cases.
+            // Pending OR siblings keep their original parent and equations.
+            // The cold proof has no separate stats clock; enclosing sector
+            // geometry/solve elapsed time still includes all of its work.
+            let mut affine_refinement = None;
+            for equation in self.current.equations.iter() {
+                match definite_quadratic::classify(
                     &self.current.parent,
                     equation,
                     self.indices,
                     self.sector,
-                )
-            }) {
-                return Ok(());
+                ) {
+                    definite_quadratic::QuadraticProof::Empty => return Ok(()),
+                    definite_quadratic::QuadraticProof::EquivalentAffine(gradients) => {
+                        affine_refinement = Some(gradients);
+                        break;
+                    }
+                    definite_quadratic::QuadraticProof::Unknown => {}
+                }
+            }
+            if let Some(gradients) = affine_refinement {
+                // This transition consumes a new refinement state even though
+                // it stays in the current AND branch. Charge before admission
+                // or mutation, just as for a new factor-generated work item.
+                spend(
+                    &mut self.stats.work_items,
+                    self.limits.max_work_items,
+                    CaseIntersectionBudget::WorkItems,
+                )?;
+                self.check_terms(&gradients)?;
+                let start = Instant::now();
+                let child = self
+                    .current
+                    .parent
+                    .intersect(&gradients, self.indices, self.sector)
+                    .map_err(CaseIntersectionFailure::Admission);
+                self.stats.admission_time += start.elapsed();
+                self.stats.affine_admissions += 1;
+                let Some(child) = child? else {
+                    return Ok(());
+                };
+                if child == self.current.parent {
+                    // A nonzero restricted definite quadratic must narrow the
+                    // chart. Never erase it or loop if admission cannot do so.
+                    return Err(CaseIntersectionFailure::RepeatedState);
+                }
+                self.current.parent = child;
+                normalized = false;
+                continue;
             }
             return Err(CaseIntersectionFailure::UnsupportedGeometry);
         }

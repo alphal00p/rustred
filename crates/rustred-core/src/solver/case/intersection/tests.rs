@@ -385,16 +385,27 @@ fn definite_quadratic_discards_only_its_impossible_or_branch() {
 }
 
 #[test]
-fn admissible_zero_minimum_and_indefinite_quadratic_still_fail_closed() {
+fn admissible_zero_minimum_is_exact_but_indefinite_quadratic_stays_unsupported() {
     let context = CoefficientContext::new(["a", "b"]);
-    for input in ["(a-1)^2+(b-1)^2", "a^2-b^2+1"] {
-        let conjunction = equations(&context, &[input]);
-        let error = Case::<2>::generic()
-            .intersect_many(&conjunction, &[0, 1], &[true; 2], Default::default())
-            .unwrap_err();
-        assert_eq!(error.failure, CaseIntersectionFailure::UnsupportedGeometry);
-        assert_eq!(error.original_conjunction.as_ref(), conjunction);
-    }
+    let result = Case::<2>::generic()
+        .intersect_many(
+            &equations(&context, &["(a-1)^2+(b-1)^2"]),
+            &[0, 1],
+            &[true; 2],
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        result.cases,
+        vec![CoordinateCase::new([Some(1), Some(1)]).unwrap().into()]
+    );
+    assert_eq!(result.stats.work_items, 2);
+    let conjunction = equations(&context, &["a^2-b^2+1"]);
+    let error = Case::<2>::generic()
+        .intersect_many(&conjunction, &[0, 1], &[true; 2], Default::default())
+        .unwrap_err();
+    assert_eq!(error.failure, CaseIntersectionFailure::UnsupportedGeometry);
+    assert_eq!(error.original_conjunction.as_ref(), conjunction);
 }
 
 #[test]

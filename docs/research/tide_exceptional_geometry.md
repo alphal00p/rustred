@@ -111,10 +111,30 @@ cap without a compiler diagnostic (`exit 124`, 181.73 seconds wall including
 timeout handling, 176.94 seconds user CPU, 1,403,340 KiB peak RSS); the output
 file remained zero bytes. Its measurement is retained at
 `TMP/source-weight-sector-comparison.Xz5haO/native-geometry-compile.log`.
-Consequently the planned separate 30-second native solve could not run:
-**no `SolutionSet` result for this particular Q has yet been observed**.
-This is a direct-link compilation bottleneck, not evidence that the native
-integer solver rejects or cannot describe Q.
+Consequently that attempt could not run the planned separate 30-second native
+solve. This was a direct-link compilation bottleneck, not evidence that the
+native integer solver rejects or cannot describe Q.
+
+The subsequent lower-optimization **diagnostic adapter**, linked to the same
+frozen release Symbolica library, compiled successfully in 257.50 seconds
+(1,461,768 KiB peak RSS). Its bounded run then completed: 0.02 seconds process
+wall, 6,144 KiB peak RSS. The instrumented 12 milliseconds starts before
+parsing, substitution and exact witness checking; it is not isolated solver
+latency or an IBP-generation benchmark. Evidence and independent API/domain
+audit: `TMP/native-conic-solution-set.UWT1fj/`.
+
+The actual native result is `coverage=Complete`, an empty coverage guard,
+and **two radical-coordinate branches with two free variables**. It retains
+explicit integer-membership and positivity conditions on the radical
+coordinates, plus positivity of the free variables. Consequently
+`is_empty()` returns an unresolved-conditions error and `dimension()` returns
+`None`. This is a complete **conditional representation**, not a discharged
+integer parametrization that RustRed's affine case engine can directly seed.
+The known integer witness passes the native pre-solve checks and lies on
+the returned plus branch. All conditions must survive any future adapter;
+dropping them because the coverage enum says complete would be unsound.
+This observed API capability should be reused for a future nonlinear-case
+service instead of implementing another symbolic equation solver.
 
 ## Q-first ordering: a distinct, provably empty exception
 
@@ -147,12 +167,13 @@ The generic cold intersection refinement in
 [`definite_quadratic.rs`](../../crates/rustred-core/src/solver/case/intersection/definite_quadratic.rs)
 checks only parameter-free degree-two index polynomials. It uses native
 Symbolica derivatives, exact rational matrix determinants (Sylvester's
-criterion), and an exact matrix solve. After orienting a definite Hessian,
-it proves emptiness if the minimum is strictly positive, or if a zero
+criterion), and an exact matrix solve. The initial version, after orienting
+a definite Hessian, proved emptiness if the minimum is strictly positive, or if a zero
 minimum's unique supported-coordinate point violates integer, fixed-face,
 or sector constraints. A negative minimum, singular/indefinite Hessian,
-parameter dependence, or an admissible minimum remains unknown and retains
-the existing unsupported-geometry behavior. The test runs only after ordinary
+parameter dependence remained unknown; an admissible zero minimum initially
+remained unknown too. The subsequent propagation extension below now handles
+that zero-minimum case exactly. The test runs only after ordinary
 restriction, affine admission, normalization and factorization; it discards
 one impossible AND branch without dropping any pending OR siblings. It is
 not a polynomial-case representation or a claim of selected-sector closure.
@@ -199,7 +220,7 @@ regression analysis below exhibits exact witnesses on another child.
 
 The initial helper checks each definite quadratic for an **excluded** minimum.
 It cannot propagate an admissible zero-minimum point into the remaining
-equations. The new extension, still undergoing its release gate, uses the exact equivalence
+equations. The subsequently release-validated extension uses the exact equivalence
 `q=0 <=> gradient(q)=0` for a definite quadratic whose minimum is exactly zero,
 then invokes the existing affine admission and chart-restriction service on
 the whole conjunction. This must preserve other free coordinates, all AND
@@ -216,8 +237,8 @@ of `n3=-1`, `n10=n14=0`, and any inactive `n7<=0` disproves that expectation.
 The production routine correctly failed closed on an unresolved sibling;
 it did not publish a false empty-locus certificate. The corrected regression
 checks exact witnesses and atomic unsupported-geometry failure in both input
-orders. The corrected gate remains pending. Full core tests and a new CLI
-build were not reached by the failed gate.
+orders. Full core tests and a new CLI build were not reached by that failed
+gate; the subsequent corrected gate below completes them.
 
 As a separate diagnostic, the exact already-built test executable was then
 run across the rest of the library with **only that incorrect regression
@@ -225,6 +246,18 @@ explicitly filtered out**: 2,331 passed, 32 existing ignored, zero failures,
 one filtered, 167.57 seconds test runtime. This supports the branch-refinement
 implementation but is not a passing full gate or execution of the corrected
 test. Receipts: `TMP/propagation-existing-binary-controls.PytAS8/`.
+
+The corrected combined gate then completes successfully in
+`TMP/propagation-source-visit-gate.sr8Egb/`: **2,338 core tests passed**,
+32 existing ignored, zero failed or filtered; 199.81 seconds test runtime.
+The 53 intersection and 14 search tests also pass as focused, overlapping
+subsets. The release CLI builds and both one-worker sparse/depth-zero
+candidate-generation smoke controls pass: K1 writes one rule/one residual
+and K3 writes 18 rules/four residuals. They are explicitly uncertified
+candidates, not new certified closing artifacts. All 1,345 frozen source/
+manifest hashes and both executable hashes pass independent verification.
+The mathematical/source-provenance audit is retained in
+`TMP/propagation-source-visit-independent-audit-2026-09-20.md`.
 
 After the empty child is removed, the remaining child has
 `n3=-1-n14+2*n10`. Set `a=-n10`, `b=-n14`, `c=-n7`; the exact residual becomes
@@ -354,10 +387,10 @@ five-loop artifact. Receipts, exact exports and independent audit are in
 
 ## Narrow next steps
 
-1. Run the prepared native integer-domain probe when a reusable compiled
-   Symbolica test harness or sufficient compile budget is available. Preserve
-   every coverage guard and branch condition; use explicit integer witnesses
-   only to prove nonemptiness, not whole-locus coverage.
+1. Use the now-observed native integer-domain representation when designing
+   any nonlinear-case adapter. Preserve every coverage guard and branch
+   condition; the returned radicals are not already admissible integer charts.
+   Use explicit integer witnesses only to prove nonemptiness, not coverage.
 2. Experiment with multiple exact, strictly descending rule candidates for
    the *same parent case* by varying source support/schedule or ordering. The
    current search returns the first winning pivot
@@ -372,6 +405,21 @@ five-loop artifact. Receipts, exact exports and independent audit are in
    Full polynomial/ideal cases are a larger architectural alternative; reuse
    native Symbolica algebra, and keep integer-sector feasibility and rule
    coverage as explicit proof obligations.
+
+The new public isolated-case method
+`SectorSolver::solve_case_with_source_order_and_observer` supplies a controlled
+diagnostic for step 2. It validates the complete permutation **after basis
+preconditioning and before search**, keeps basis storage and `basis_row` IDs
+unchanged, and retains the existing native trace order with matching source
+witnesses. The default method takes the allocation-free natural path; sector
+defaults and schemas are unchanged. Six release tests cover identity
+equivalence, invalid orders before observed work, direct/provenance and GPLU
+replay, reverse/rotation determinism, seed fairness and an empty basis. This
+does not automatically retry a failed case or admit unsupported geometry.
+The prepared external client adds bounded identity/reverse/half-rotation
+experiments with the same integral ordering, and reports complete exceptional
+geometry separately from a returned conditional formula. Those new campaign
+results are not yet available at this checkpoint.
 
 ### Measured ordering experiments and bounded scope
 
@@ -466,6 +514,30 @@ not every specialized rank. Simply permuting the 25 input IBPs is not a
 controlled change because preconditioning sorts them. Any source-subset
 experiment must preserve source conditions, original-row provenance and exact
 replay; success on a subset alone is not a new coverage proof.
+
+### Pointwise original/preconditioned source-span screen
+
+A frozen-library native finite-field diagnostic now checks seven external
+integer points: three natural-order points and four Q-first points, including
+on-conic witnesses and off-conic controls. At each point it compares original,
+preconditioned and vertically stacked source spans over two primes, three
+dimension samples and two seed prefixes: **84 comparisons**. Every sampled
+rank agrees across all three matrices: 25 at the zero-seed prefix and 515
+for the 21-seed depth-at-most-one prefix (525 rows). No sampled specialized
+rank loss or extra stacked span was observed.
+
+This intentionally retains every physical integral column, with **no zero-
+sector projection**, and uses a pointwise numerical column ordering. The
+target was not a pivot in either span, even for the off-conic controls.
+Thus these shallow samples do not establish irreducibility, absence of
+deeper relations, or adequacy of the preconditioner on every exceptional
+point. They do rule out an observed source-span mismatch in this screen.
+All arithmetic and sparse reduction are native Symbolica operations; no
+custom elimination kernel or production algorithm changed. Natural and
+Q-first runs completed in 0.40 s and 13.22 s process wall respectively,
+both with 12,288 KiB peak RSS. These are rank-diagnostic timings, not sector
+generation or a speed comparison. Receipts, external points and qualified
+analysis: `TMP/native-precondition-rank.20260920/`.
 
 ## Input-only scalar-product coordinates: bounded diagnostic
 
