@@ -1,19 +1,24 @@
 # Rank-bounded entry scopes for second-stage certification
 
-Status: implementation recommendation, 2026-09-16. This note describes a new
-optional certification mode, not a capability already provided by the public
-API. Unbounded certification remains the default. See also
+Status, 2026-09-20: public Rust total-excess production and native scope/cold
+replay are implemented and release-tested. Total excess counts dots and
+negative powers. The original numerator-only recommendation below remains a
+separate proposal with unbounded positive powers. Unrestricted certification
+is still the default; CLI/Python total-excess parity remains required follow-up.
+The full saved FG E30 default-policy attempt exhausts successor work before
+publication, so no full-FG certificate is claimed. See the
+[measured audit](rank30_certification_audit_2026-09-17.md),
 [complete certification literature](complete_certification_literature.md),
 [the convergence plan](certification_convergence.md), and
 [semi-numerical proof systems](seminumerical_proof_systems.md).
 
-Implementation status: increment A below is now present as internal code,
+Historical foundation checkpoint: increment A introduced internal code,
 reusing the existing weak-composition enumerator. Its 11 rank-geometry and six
 requested-coverage regressions passed in the combined source-port gate:
 249 passed, zero failed, five existing ignored tests. No public rank flag,
 scoped artifact grammar, or rank-bounded closure claim is enabled by that gate.
 
-The next internal increment now provides `PreparedSuccessorScope`: destination
+The next historical increment introduced `PreparedSuccessorScope`: destination
 box unions are admitted, copied and sorted once, then reused for exact physical
 RHS-image containment checks. All four active/inactive coordinate maps and
 sign crossings preserve genuine infinite endpoints. Query subtraction may only
@@ -26,7 +31,7 @@ geometry service, not a public scoped artifact: original replay, predicate
 coverage, machine-index admission, cold persistence and entry enforcement have
 not been redirected to a rank-restricted publication path.
 
-The next narrow primitive is now also present internally
+The subsequent historical checkpoint introduced the internal primitive
 (`SuccessorClosedScope`, RustRed commits `fbff9fd4`/`8e22f2fb`). It owns an
 exact admitted-entry union and an immutable destination union, proves entry
 admission at construction, and checks every translated RHS image against that
@@ -40,7 +45,7 @@ around it.
 
 ### September 20: actual executable-cell gate
 
-The current internal implementation targets **total excess**,
+This checkpoint introduced internal **total-excess** checking,
 `E(n) = sum(max(n_i - 1, 0) + max(-n_i, 0))`, rather than only negative-index
 degree. Positive propagator dots are therefore included. The older
 numerator-only design below remains a distinct proposed contract; its promise
@@ -68,9 +73,9 @@ research tests. Seven new tests exercise executable/replay endpoint differences,
 coverage holes, census/root/kind/limit rejection, a terminal-only zero-degree
 scope and a real complete K3 program with coefficient/context/nonunit-mass
 parity and a larger descendant envelope. Existing unrestricted behavior is
-retained. There is **no public bounded producer or durable scoped encoding**
-yet, and encoding a bounded owner still explicitly rejects it. Neither this
-slice nor the small regression families establishes the desired FG
+retained. At that checkpoint public production and native transport were still
+pending; the follow-up below supplies that bridge. Neither this slice nor the
+small regression families establishes the desired FG
 124-sector/entry-E30 certificate. The known cumulative geometry-budget limit
 also remains unresolved.
 
@@ -87,8 +92,46 @@ The application gate also passes 117 library and 72 integration tests. The
 separate fresh-CLI K6 fourteen-stage regression passes exact old/new native
 candidate and certificate comparisons, one-/six-worker checkpoint generation,
 no-search resume and all four cold canaries. These unrestricted regressions
-preserve existing behavior; they do not supply bounded native transport or
-the missing complete FG E30 certificate.
+preserve existing behavior; at that checkpoint they did not supply bounded
+native transport or the missing complete FG E30 certificate.
+
+### September 20 follow-up: public Rust production and native cold replay
+
+`CandidateCertificationRequest::with_max_total_excess_degree(D)` now steers
+`SourcePortAudit::install_complete_through_total_excess`, retaining the existing
+unit-mass vacuum admission. It checks the complete root downset, original
+sources, guards, descent, actual executable-cell coverage and every live RHS
+against the independently checked descendant-degree map. A successful owner
+exposes `ClosedArtifact::total_excess_scope()` with root,
+`max_entry_total_excess_degree()` and `successor_degrees()` accessors.
+Descendant bounds may exceed `D`; only starting integrals receive the entry
+cap, before cache access or scalar mutation. Zero-only roots remain unsupported.
+
+The separate `BoundedCertified` native kind requires a version-1 scope section;
+the common envelope remains version 1 and the source proof remains V6. Cold
+loading reconstructs sources and actual cells, repeats coverage/successor
+checks and compares regenerated native structure, coefficients and both maps.
+Scope bytes carry no trusted proof flag, and bounded owners cannot enter the
+unrestricted vacuum-capability loader. Native Atom/State input still requires
+trusted generated provenance. `None` preserves ordinary certification; the
+numerator-only option remains unsupported and cannot be combined with total
+excess. The new `u64` degree is not subject to its old degree-30 input ceiling.
+
+Generic singleton-partition reuse and lazy immutable source ordering keys
+remove duplicate geometry work without raising quotas. Stage-specific telemetry
+reports retained and actual-cell successor work, including failed attempts.
+Independent implementation/mathematical and loop-genericity audits pass, as do
+2,281 core tests (32 ignored), two native-process tests (one child helper
+ignored), 121 app unit and 72 integration tests, eight Python-binding Rust
+tests and 38 fresh Python/CLI tests. No production strategy dispatches on a
+particular loop count or family name.
+
+The saved 124-sector FG E30 request under unchanged default policy nevertheless
+stops with typed `Limit` after 47 zero-issue/gap local reports and 46 completed
+retained successor sectors. Attempted work is 12,000,280 against 12,000,072;
+no artifact is written and cold acceptance is not reached. The measured
+12.54 s wall time is a shared-load failure observation, not a closure speedup.
+See the [full result and release evidence](rank30_certification_audit_2026-09-17.md).
 
 ### Original numerator-only recommendation
 
@@ -291,7 +334,12 @@ escapes and likely dependencies. It is not an alternative publication gate:
 its pointwise execution and search provenance do not replace original-source
 replay or a uniform coverage certificate.
 
-## 5. Current source seams and required changes
+## 5. Original numerator-only integration seams
+
+This table describes the original proposal, not the current total-excess API.
+The implementation above connects retained source proofs, actual executable
+cells, native scope replay and entry admission; it does not implement
+unbounded-dot numerator-only scope.
 
 The following paths are relative to `crates/rustred-core/src` unless marked;
 table entries beginning `source_port/` abbreviate `foundry/artifact/source_port/`,
@@ -322,6 +370,9 @@ proved and must survive serialization; an operation allowance does not. Old
 artifacts and `None` requests must retain current behavior. Adding semantic
 fields requires explicit format/report versioning and CLI/Python parity, not a
 silent change to the current durable grammar.
+The current total-excess producer is Rust-only; CLI/Python parity remains
+unfinished required follow-up. Scope and reports must retain explicit semantics;
+no frontend may silently reinterpret the existing numerator-only option.
 
 ## 6. Bounded implementation sequence
 
@@ -343,6 +394,9 @@ cannot hide outside the required scope. Existing unbounded tests must remain
 unchanged. This increment is infrastructure, not a public rank feature.
 
 ### B. A coherent uniform scoped certificate
+
+This and increment C describe the original numerator-only proposal, not the
+implemented finite total-excess contract above.
 
 Add an explicit entry bound and caller-proposed finite proof envelope. A useful
 initial convenience chooses `P=E_D`; it must fail on any live successor escape.
@@ -372,6 +426,10 @@ artifact. Modular probes may propose useful envelopes or small witnesses, but
 all final domain and polynomial claims remain exact.
 
 ## 7. Performance expectations and acceptance measurements
+
+The slice counts and proposed measurements in this section concern the original
+numerator-only design. They are not timings or enumeration requirements of the
+implemented total-excess checker.
 
 For `k=3` inactive indices, degrees `D=0,1,2,4` need `1,4,10,35` slices in one
 sector. At `k=6,D=4`, the count is `210`; at `k=10,D=4`, it is `1001`. These

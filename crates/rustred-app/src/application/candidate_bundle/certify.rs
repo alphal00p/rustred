@@ -5,6 +5,9 @@ use rustred::foundry::artifact::{SourcePortAudit, SourcePortAuditError};
 use rustred::identity::ParametricIbpGenerator;
 use serde::Serialize;
 
+use crate::application::family_close::progress::{
+    FamilyCloseProgress, Observer, emit, installation_event,
+};
 use crate::application::resource_policy::ResourcePolicyOutput;
 use crate::application::{AppError, MAX_CLOSING_ARTIFACT_BYTES};
 
@@ -16,6 +19,27 @@ use super::{codec, model::*, preparation};
 pub fn certify_candidates(
     request: CandidateCertificationRequest,
 ) -> Result<CandidateCertificationResult, AppError> {
+    certify_request(request, None)
+}
+
+/// Observe saved-program preparation, replay, installation and encoding.
+/// No generation is run or reported. The callback cannot alter proof policy.
+pub fn certify_candidates_with_progress(
+    request: CandidateCertificationRequest,
+    observe: impl Fn(FamilyCloseProgress) + Send + Sync,
+) -> Result<CandidateCertificationResult, AppError> {
+    certify_request(request, Some(&observe))
+}
+
+fn certify_request(
+    request: CandidateCertificationRequest,
+    observe: Observer<'_>,
+) -> Result<CandidateCertificationResult, AppError> {
+    if request.max_negative_index_degree.is_some() && request.max_total_excess_degree.is_some() {
+        return Err(AppError::input(
+            "numerator-only and total-excess certification bounds are mutually exclusive",
+        ));
+    }
     if let Some(degree) = request.max_negative_index_degree {
         if degree > MAX_RANK_SCOPED_CERTIFICATION_DEGREE {
             return Err(AppError::input(format!(
@@ -23,7 +47,7 @@ pub fn certify_candidates(
             )));
         }
         return Err(AppError::execution(format!(
-            "rank-scoped certification through max-negative-index-degree={degree} is not yet available: the durable artifact schema and runtime reducer do not persist or enforce a successor-closed entry scope; refusing an unbounded certification fallback"
+            "rank-scoped certification through max-negative-index-degree={degree} is not yet available: a numerator-only successor-closed entry scope leaves dots unbounded and is not implemented; refusing an unbounded certification fallback"
         )));
     }
     let started = Instant::now();
@@ -48,9 +72,13 @@ pub fn certify_candidates(
             "candidate family binding differs from reconstructed family",
         ));
     }
+    emit(observe, || FamilyCloseProgress::Preparing {
+        arity: family.denominator_count(),
+        elapsed: started.elapsed(),
+    });
     macro_rules! dispatch {
         ($($n:literal),+) => { match family.denominator_count() {
-            $($n => certify::<$n>(family, bundle, request, started, decoded_at),)+
+            $($n => certify::<$n>(family, bundle, request, started, decoded_at, observe),)+
             _ => unreachable!("candidate arity checked"),
         } };
     }
@@ -63,6 +91,7 @@ fn certify<const N: usize>(
     request: CandidateCertificationRequest,
     started: Instant,
     decoded_at: Duration,
+    observe: Observer<'_>,
 ) -> Result<CandidateCertificationResult, AppError> {
     SourcePortAudit::<N>::validate_install_family(&family)
         .map_err(|error| AppError::input(error.to_string()))?;
@@ -73,6 +102,21 @@ fn certify<const N: usize>(
         .context()
         .clone();
     let prepared_at = started.elapsed();
+    emit(observe, || FamilyCloseProgress::Prepared {
+        sectors: prepared.sectors.len(),
+        zero_sectors: prepared
+            .zeros
+            .iter()
+            .filter(|sector| {
+                sector
+                    .iter()
+                    .zip(prepared.root)
+                    .all(|(&active, allowed)| !active || allowed)
+            })
+            .count(),
+        global_zero_sectors: prepared.zeros.len(),
+        elapsed: prepared_at,
+    });
     let solved = codec::solutions::<N>(
         &bundle,
         &context,
@@ -86,15 +130,25 @@ fn certify<const N: usize>(
         SourcePortAudit::try_new_with_root_sector(&prepared.family, prepared.zeros, prepared.root)
             .map_err(publication_error)?
             .with_limits(request.publication_limits);
-    let artifact = audit
-        .install_complete(
+    let sectors = solved
+        .into_iter()
+        .map(|(sector, solution)| (sector, permutation, solution));
+    let artifact = match request.max_total_excess_degree {
+        Some(degree) => audit.install_complete_through_total_excess_with_observer(
             prepared.family,
-            solved
-                .into_iter()
-                .map(|(sector, solution)| (sector, permutation, solution)),
-        )
-        .map_err(publication_error)?;
+            sectors,
+            degree,
+            |event| emit(observe, || installation_event(event, started.elapsed())),
+        ),
+        None => audit.install_complete_with_observer(prepared.family, sectors, |event| {
+            emit(observe, || installation_event(event, started.elapsed()))
+        }),
+    }
+    .map_err(publication_error)?;
     let certified_at = started.elapsed();
+    emit(observe, || FamilyCloseProgress::Encoding {
+        elapsed: certified_at,
+    });
     let bytes = artifact
         .encode_durable()
         .map_err(|e| AppError::serialization(e.to_string()))?;
@@ -104,6 +158,10 @@ fn certify<const N: usize>(
         ));
     }
     let elapsed = started.elapsed();
+    emit(observe, || FamilyCloseProgress::Encoded {
+        bytes: bytes.len(),
+        elapsed,
+    });
     #[derive(Serialize)]
     struct Report<'a> {
         schema: &'static str,
@@ -114,6 +172,12 @@ fn certify<const N: usize>(
         rule_cells: usize,
         terminals: usize,
         bytes: usize,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_total_excess_degree: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        successor_sector_count: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_successor_total_excess_degree: Option<u64>,
         bundle_decoding_us: u128,
         preparation_us: u128,
         native_reconstruction_us: u128,
@@ -131,6 +195,15 @@ fn certify<const N: usize>(
         rule_cells: artifact.rule_cells().len(),
         terminals: artifact.masters().len(),
         bytes: bytes.len(),
+        max_total_excess_degree: artifact
+            .total_excess_scope()
+            .map(|scope| scope.max_entry_total_excess_degree()),
+        successor_sector_count: artifact
+            .total_excess_scope()
+            .map(|scope| scope.successor_degrees().len()),
+        max_successor_total_excess_degree: artifact
+            .total_excess_scope()
+            .and_then(|scope| scope.successor_degrees().values().copied().max()),
         bundle_decoding_us: decoded_at.as_micros(),
         preparation_us: (prepared_at - decoded_at).as_micros(),
         native_reconstruction_us: (reconstructed_at - prepared_at).as_micros(),

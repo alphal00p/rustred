@@ -438,17 +438,33 @@ pub(super) fn decode(
     context: &IndexedCoefficientContext,
     original_count: usize,
 ) -> Result<(crate::sector::Mask, Vec<ParentPlan>, Vec<CellPlan>), ArtifactPersistenceError> {
+    decode_with_scope(reader, context, original_count, false)
+}
+
+pub(super) fn decode_root(
+    reader: &mut Reader<'_>,
+    arity: usize,
+) -> Result<crate::sector::Mask, ArtifactPersistenceError> {
     if reader.u16()? != COMBINED_ORIGINAL_PLAN {
         return Err(invalid("combined original plan tag"));
     }
-    let arity = context.index_count();
     let root = decode_bool_vec(reader, "combined root sector")?;
     if root.len() != arity {
         return Err(invalid("combined root-sector arity"));
     }
-    let root = crate::sector::Mask::try_new(root).map_err(|_| invalid("combined root sector"))?;
+    crate::sector::Mask::try_new(root).map_err(|_| invalid("combined root sector"))
+}
+
+pub(super) fn decode_with_scope(
+    reader: &mut Reader<'_>,
+    context: &IndexedCoefficientContext,
+    original_count: usize,
+    bounded: bool,
+) -> Result<(crate::sector::Mask, Vec<ParentPlan>, Vec<CellPlan>), ArtifactPersistenceError> {
+    let arity = context.index_count();
+    let root = decode_root(reader, arity)?;
     let parent_count = reader.count("combined source parents")?;
-    if parent_count == 0 {
+    if parent_count == 0 && !bounded {
         return Err(invalid("empty combined source parents"));
     }
     let mut parents = try_vec(parent_count, "combined source parents")?;
@@ -557,6 +573,9 @@ pub(super) fn decode(
         });
     }
     let count = reader.count("combined cells")?;
+    if parent_count == 0 && count != 0 {
+        return Err(invalid("empty combined source parents with cells"));
+    }
     let geometry = reader.limits().cover_replay;
     check_limit(
         "combined mathematical boxes",

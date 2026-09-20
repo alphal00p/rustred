@@ -27,11 +27,12 @@ pub use application::{
     MAX_FOUNDRY_CAMPAIGN_PROBES, MAX_INPUT_BYTES, MAX_OUTPUT_BYTES,
     ParseClosingFamilySelectorError, ParseInputFormatError, ParseRelationSelectionError,
     RelationSelection, SourcePortLimits, campaign_plan, campaign_preflight, certify_candidates,
-    closing_artifact_generate, closing_artifact_inspect, closing_artifact_reduce, derive,
-    family_candidates, family_candidates_with_progress, family_close, family_close_with_progress,
-    family_solve, foundry_campaign_run, foundry_campaign_run_with_progress,
-    foundry_wave_campaign_run, foundry_wave_campaign_run_with_progress,
-    inspect_generated_candidate_bundle, load_generated_candidate_bundle,
+    certify_candidates_with_progress, closing_artifact_generate, closing_artifact_inspect,
+    closing_artifact_reduce, derive, family_candidates, family_candidates_with_progress,
+    family_close, family_close_with_progress, family_solve, foundry_campaign_run,
+    foundry_campaign_run_with_progress, foundry_wave_campaign_run,
+    foundry_wave_campaign_run_with_progress, inspect_generated_candidate_bundle,
+    load_generated_candidate_bundle,
 };
 
 /// Run the command-line adapter and return its stable process exit code.

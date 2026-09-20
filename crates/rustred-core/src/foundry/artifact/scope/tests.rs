@@ -1,5 +1,5 @@
 use super::*;
-use crate::foundry::artifact::{ArtifactPersistenceError, derive_one_loop_unit_mass_tadpole};
+use crate::foundry::artifact::derive_one_loop_unit_mass_tadpole;
 use crate::sector::InteriorBounds;
 
 #[test]
@@ -138,14 +138,15 @@ fn scoped_owner_cannot_claim_unrestricted_capability_or_drop_scope_on_encoding()
         )
         .unwrap()
     );
-    let scoped = artifact
-        .with_total_excess_scope_for_test(2, BTreeMap::from([(Mask::try_new([true]).unwrap(), 4)]))
-        .unwrap();
+    let scoped = super::super::persistence::bounded_tests::tadpole(2);
     assert!(!scoped.is_complete_unit_mass_vacuum());
-    assert!(matches!(
-        scoped.encode_durable(),
-        Err(ArtifactPersistenceError::UnsupportedFeature {
-            detail: "bounded artifact scope has no durable encoding yet"
-        })
-    ));
+    let bytes = scoped.encode_durable().unwrap();
+    let cold = ClosedArtifact::decode_durable(&bytes).unwrap();
+    assert_eq!(
+        cold.total_excess_scope()
+            .unwrap()
+            .max_entry_total_excess_degree(),
+        2
+    );
+    assert!(!cold.is_complete_unit_mass_vacuum());
 }

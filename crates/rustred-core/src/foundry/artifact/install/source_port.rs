@@ -16,7 +16,10 @@ use super::super::source_port::predicate_cover::{
     certify_predicate_cover_up_to_degree,
 };
 use super::super::source_port::scope;
-use super::super::source_port::{EnvelopeBudget, SourcePortAuditError, visit_successor_degrees};
+use super::super::source_port::{
+    EnvelopeBudget, SourcePortAuditError, SourcePortSuccessorSnapshot, SourcePortSuccessorStage,
+    visit_successor_degrees,
+};
 use super::{ClosingArtifactCandidate, ReplayProducer};
 
 pub(in crate::foundry::artifact) const ALGORITHM_ID: &str =
@@ -158,6 +161,7 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
         geometry,
         max_predicate_consistency_work,
         max_predicate_atoms,
+        &mut |_, _| {},
     )
 }
 
@@ -169,12 +173,33 @@ pub(in crate::foundry::artifact) fn install_source_port_through_total_excess_wit
     max_predicate_consistency_work: usize,
     max_predicate_atoms: usize,
 ) -> Result<ClosedArtifact, ArtifactError> {
+    install_source_port_through_total_excess_with_observer(
+        candidate,
+        entry,
+        degrees,
+        geometry,
+        max_predicate_consistency_work,
+        max_predicate_atoms,
+        &mut |_, _| {},
+    )
+}
+
+pub(in crate::foundry::artifact) fn install_source_port_through_total_excess_with_observer(
+    candidate: ClosingArtifactCandidate,
+    entry: scope::EntryScope,
+    degrees: Vec<(Mask, u64)>,
+    geometry: CompletionGeometryLimits,
+    max_predicate_consistency_work: usize,
+    max_predicate_atoms: usize,
+    observe: &mut dyn FnMut(Option<&[bool]>, &SourcePortSuccessorSnapshot),
+) -> Result<ClosedArtifact, ArtifactError> {
     install_source_port_impl(
         candidate,
         Some(TotalExcessProposal { entry, degrees }),
         geometry,
         max_predicate_consistency_work,
         max_predicate_atoms,
+        observe,
     )
 }
 
@@ -184,6 +209,7 @@ fn install_source_port_impl(
     geometry: CompletionGeometryLimits,
     max_predicate_consistency_work: usize,
     max_predicate_atoms: usize,
+    observe: &mut dyn FnMut(Option<&[bool]>, &SourcePortSuccessorSnapshot),
 ) -> Result<ClosedArtifact, ArtifactError> {
     let check = |resource: &'static str, requested: usize, limit: usize| {
         if requested > limit {
@@ -428,66 +454,84 @@ fn install_source_port_impl(
         })?;
     }
     let proof_scope = if let Some((entry, degrees)) = proposed {
-        let mut budget = EnvelopeBudget::new(geometry);
-        budget
-            .charge(0, candidate.arity, candidate.arity)
-            .map_err(successor_error)?;
-        let first_index = candidate.context.base().variables().len();
-        let mut indices = Vec::new();
-        indices.try_reserve_exact(candidate.arity).map_err(|_| {
-            ArtifactError::ResourceBudgetExhausted {
-                resource: "bounded index map allocation",
-            }
-        })?;
-        for axis in 0..candidate.arity {
-            indices.push(first_index.checked_add(axis).ok_or(
-                ArtifactError::ResourceCountOverflow {
-                    resource: "bounded index map",
-                },
-            )?);
-        }
-        for (cell, application) in candidate.rule_cells.iter().zip(&actual_boxes) {
-            let sector = cell.rule().sector();
-            let degree = *degrees.get(sector).ok_or(ArtifactError::InvalidRuleShape {
-                detail: "executable sector has no bounded degree",
-            })?;
-            let evidence = cell
-                .rule()
-                .replay_evidence()
-                .combined_original_domain()
-                .ok_or(ArtifactError::UnsupportedClosureShape)?;
-            for term in cell.rule().right_hand_side() {
-                visit_successor_degrees(
-                    &entry,
-                    candidate.ordering,
-                    sector.active_bits(),
-                    degree,
-                    std::slice::from_ref(application),
-                    term.shift().values(),
-                    term.coefficient().raw(),
-                    evidence.affine_application_domain(),
-                    evidence.affine_exclusions(),
-                    |child| zeros.iter().any(|zero| zero.active_bits() == child),
-                    &indices,
-                    &mut budget,
-                    |child, required| {
-                        let destination = Mask::try_new(child.iter().copied())
-                            .map_err(|e| SourcePortAuditError::message(e.to_string()))?;
-                        if degrees
-                            .get(&destination)
-                            .is_some_and(|&bound| required <= bound)
-                        {
-                            Ok(())
-                        } else {
-                            Err(SourcePortAuditError::message(
-                                "actual cell successor exceeds its immutable degree envelope",
-                            ))
-                        }
-                    },
-                )
+        let mut budget =
+            EnvelopeBudget::new_for_stage(geometry, SourcePortSuccessorStage::ActualCells);
+        let mut current_sector = None;
+        // Coverage and binding failures above are not mislabeled as successor
+        // failures. This observation covers only the actual-cell RHS pass.
+        let successor_result = (|| {
+            budget
+                .charge(0, candidate.arity, candidate.arity)
                 .map_err(successor_error)?;
+            let first_index = candidate.context.base().variables().len();
+            let mut indices = Vec::new();
+            indices.try_reserve_exact(candidate.arity).map_err(|_| {
+                ArtifactError::ResourceBudgetExhausted {
+                    resource: "bounded index map allocation",
+                }
+            })?;
+            for axis in 0..candidate.arity {
+                indices.push(first_index.checked_add(axis).ok_or(
+                    ArtifactError::ResourceCountOverflow {
+                        resource: "bounded index map",
+                    },
+                )?);
             }
+            for (cell_ordinal, (cell, application)) in
+                candidate.rule_cells.iter().zip(&actual_boxes).enumerate()
+            {
+                let sector = cell.rule().sector();
+                current_sector = Some(sector.active_bits());
+                budget.set_rule(cell_ordinal);
+                let degree = *degrees.get(sector).ok_or(ArtifactError::InvalidRuleShape {
+                    detail: "executable sector has no bounded degree",
+                })?;
+                let evidence = cell
+                    .rule()
+                    .replay_evidence()
+                    .combined_original_domain()
+                    .ok_or(ArtifactError::UnsupportedClosureShape)?;
+                for (rhs_ordinal, term) in cell.rule().right_hand_side().iter().enumerate() {
+                    budget.set_rhs(rhs_ordinal);
+                    visit_successor_degrees(
+                        &entry,
+                        candidate.ordering,
+                        sector.active_bits(),
+                        degree,
+                        std::slice::from_ref(application),
+                        term.shift().values(),
+                        term.coefficient().raw(),
+                        evidence.affine_application_domain(),
+                        evidence.affine_exclusions(),
+                        |child| zeros.iter().any(|zero| zero.active_bits() == child),
+                        &indices,
+                        &mut budget,
+                        |child, required| {
+                            let destination = Mask::try_new(child.iter().copied())
+                                .map_err(|e| SourcePortAuditError::message(e.to_string()))?;
+                            if degrees
+                                .get(&destination)
+                                .is_some_and(|&bound| required <= bound)
+                            {
+                                Ok(())
+                            } else {
+                                Err(SourcePortAuditError::message(
+                                    "actual cell successor exceeds its immutable degree envelope",
+                                ))
+                            }
+                        },
+                    )
+                    .map_err(successor_error)?;
+                }
+                budget.completed_cell();
+            }
+            Ok::<_, ArtifactError>(())
+        })();
+        if let Err(issue) = successor_result {
+            observe(current_sector, &budget.snapshot(true, false));
+            return Err(issue);
         }
+        observe(None, &budget.snapshot(false, true));
         super::super::scope::ArtifactProofScope::from_verified_total_excess(
             VerifiedTotalExcessScope { entry, degrees },
         )

@@ -431,6 +431,136 @@ fn rank_scoped_certification_rejects_without_unbounded_fallback() {
 }
 
 #[test]
+fn total_excess_saved_candidates_roundtrip_and_report_distinct_entry_and_successors() {
+    use crate::application::{ClosingArtifactInspectRequest, closing_artifact_inspect};
+    use rustred::family::IntegralKey;
+    use rustred::persistence::BinaryProgramKind;
+    use rustred::reduction::{Reducer, ReductionError};
+
+    for source in [K1, K3] {
+        let generated = family_candidates(FamilyCandidatesRequest::new(source)).unwrap();
+        let certified = certify_candidates(
+            CandidateCertificationRequest::new(generated.bundle()).with_max_total_excess_degree(2),
+        )
+        .unwrap();
+        let report: toml::Value = toml::from_str(certified.to_toml()).unwrap();
+        assert_eq!(report["max_total_excess_degree"].as_integer(), Some(2));
+        assert!(report["successor_sector_count"].as_integer().unwrap() > 0);
+        assert!(
+            report["max_successor_total_excess_degree"]
+                .as_integer()
+                .unwrap()
+                >= 2
+        );
+        assert_eq!(
+            inspect_program(certified.artifact(), Default::default())
+                .unwrap()
+                .kind(),
+            BinaryProgramKind::BoundedCertified
+        );
+        let artifact = ClosedArtifact::decode_durable(certified.artifact()).unwrap();
+        assert!(!artifact.is_complete_unit_mass_vacuum());
+        let inspected =
+            closing_artifact_inspect(ClosingArtifactInspectRequest::new(certified.artifact()))
+                .unwrap();
+        let summary: toml::Value = toml::from_str(inspected.to_toml()).unwrap();
+        assert_eq!(
+            summary["artifact"]["total_excess_scope"]["max_entry_total_excess_degree"].as_integer(),
+            Some(2)
+        );
+        let complete =
+            certify_candidates(CandidateCertificationRequest::new(generated.bundle())).unwrap();
+        assert!(!complete.to_toml().contains("max_total_excess_degree"));
+        let complete = ClosedArtifact::decode_durable(complete.artifact()).unwrap();
+        let mut bounded = Reducer::new(&artifact).unwrap();
+        let mut unbounded = Reducer::new(&complete).unwrap();
+        let mut powers = vec![1; artifact.arity()];
+        powers[0] = 3;
+        let key = IntegralKey::try_new(powers.clone()).unwrap();
+        assert_eq!(
+            bounded.reduce_unit_mass(&key).unwrap(),
+            unbounded.reduce_unit_mass(&key).unwrap()
+        );
+        powers[0] = 4;
+        let before = bounded.statistics();
+        assert_eq!(
+            bounded.reduce_unit_mass(&IntegralKey::try_new(powers).unwrap()),
+            Err(ReductionError::OutsideCertifiedTotalExcessDomain { maximum: 2 })
+        );
+        assert_eq!(bounded.statistics(), before);
+    }
+}
+
+#[test]
+fn total_excess_saved_conflicting_scopes_fail_before_native_decoding() {
+    let request = CandidateCertificationRequest::new(b"not a native bundle".to_vec())
+        .with_max_negative_index_degree(1)
+        .with_max_total_excess_degree(2);
+    let error = certify_candidates(request).unwrap_err();
+    assert_eq!(error.kind(), AppErrorKind::Input);
+    assert!(error.message().contains("mutually exclusive"));
+}
+
+#[test]
+fn total_excess_saved_progress_is_observational_and_never_generates() {
+    use crate::application::FamilyCloseProgress;
+    use rustred::foundry::artifact::SourcePortSuccessorStage;
+    use std::sync::Mutex;
+
+    let generated = family_candidates(FamilyCandidatesRequest::new(K1)).unwrap();
+    for degree in [None, Some(2)] {
+        let mut request = CandidateCertificationRequest::new(generated.bundle());
+        request.max_total_excess_degree = degree;
+        let baseline = certify_candidates(request.clone()).unwrap();
+        let events = Mutex::new(Vec::new());
+        let caller = std::thread::current().id();
+        let observed = certify_candidates_with_progress(request, |event| {
+            assert_eq!(std::thread::current().id(), caller);
+            assert!(!matches!(
+                event,
+                FamilyCloseProgress::Generating { .. }
+                    | FamilyCloseProgress::GeneratedSector { .. }
+            ));
+            events.lock().unwrap().push(event);
+        })
+        .unwrap();
+        assert!(
+            crate::equivalent_generated_programs(
+                baseline.artifact(),
+                observed.artifact(),
+                Default::default()
+            )
+            .unwrap()
+        );
+        let events = events.into_inner().unwrap();
+        assert!(matches!(
+            events.first(),
+            Some(FamilyCloseProgress::Preparing { arity: 1, .. })
+        ));
+        assert!(matches!(
+            events.last(),
+            Some(FamilyCloseProgress::Encoded { .. })
+        ));
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, FamilyCloseProgress::Installed { .. }))
+        );
+        for stage in [
+            SourcePortSuccessorStage::Retained,
+            SourcePortSuccessorStage::ActualCells,
+        ] {
+            assert_eq!(
+                events.iter().any(|event| matches!(event,
+                FamilyCloseProgress::SuccessorGeometry { snapshot, .. }
+                if snapshot.stage == stage && snapshot.traversal_complete && !snapshot.failed)),
+                degree.is_some()
+            );
+        }
+    }
+}
+
+#[test]
 fn bundles_are_deterministic_across_workers_and_explicit_root_permutation_roundtrip() {
     let serial = family_candidates(FamilyCandidatesRequest::new(K3)).unwrap();
     let mut request = FamilyCandidatesRequest::new(K3);

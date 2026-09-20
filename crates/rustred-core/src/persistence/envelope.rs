@@ -19,6 +19,9 @@ pub enum BinaryProgramKind {
     TerminalValues = 3,
     /// Finite exact output normalization, never an IBP closure certificate.
     TerminalNormalization = 4,
+    /// Source-replayed closure on an explicit total-excess entry domain.
+    /// Distinct from an unrestricted Certified promise.
+    BoundedCertified = 5,
 }
 
 /// Structural sections shared by independently admitted program payloads.
@@ -129,6 +132,7 @@ pub fn inspect_program(
         2 => BinaryProgramKind::Certified,
         3 => BinaryProgramKind::TerminalValues,
         4 => BinaryProgramKind::TerminalNormalization,
+        5 => BinaryProgramKind::BoundedCertified,
         _ => return Err(BinaryIoError::Invalid("unsupported binary program kind")),
     };
     require_native_word_size(usize::from(cursor.take(1)?[0]))?;

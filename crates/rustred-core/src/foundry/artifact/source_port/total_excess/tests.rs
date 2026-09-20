@@ -6,6 +6,9 @@ use crate::foundry::artifact::source_port::certificate::{
 };
 use crate::foundry::artifact::source_port::program::CheckedRhs;
 
+#[path = "tests/successor_reuse.rs"]
+mod successor_reuse;
+
 #[test]
 fn real_checked_tadpole_reports_exact_entry_and_successor_degree() {
     let (audit, solution) = solved_tadpole();
@@ -59,12 +62,19 @@ fn degree_audit_keeps_full_original_source_replay() {
 #[test]
 fn total_excess_geometry_budget_is_cumulative_and_never_reset() {
     let mut limits = CompletionGeometryLimits::default();
-    limits.max_requested_boxes = 3;
+    limits.max_requested_boxes = 7;
     let mut budget = EnvelopeBudget::new(limits);
     let cell = LatticeBox::try_new([0], [None]).unwrap();
-    assert_eq!(budget.partition(&cell, &[true], &[0]).unwrap().len(), 1);
-    assert!(budget.partition(&cell, &[true], &[0]).is_err());
-    assert!(budget.partition(&cell, &[true], &[0]).is_err());
+    assert_eq!(
+        budget
+            .partition(&cell, &[true], &[-1])
+            .unwrap()
+            .as_slice()
+            .len(),
+        2
+    );
+    assert!(budget.partition(&cell, &[true], &[-1]).is_err());
+    assert!(budget.partition(&cell, &[true], &[-1]).is_err());
     let (audit, solution) = solved_tadpole();
     let mut limits = super::super::SourcePortLimits::default();
     limits.cover_replay.max_requested_boxes = 0;

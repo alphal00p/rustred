@@ -48,6 +48,28 @@ generation or FMFT; the completed numerical acceptance gate retained the separat
 FORM-backed oracle. User-authored input, inspection output and legacy
 MATAD/FMFT master evaluation source tables are not internal RustRed codecs.
 
+## Bounded-owner follow-up — 20 September 2026
+
+The optional total-excess certificate now uses
+`BinaryProgramKind::BoundedCertified` in the same version-1 transport, retaining
+the V6 source proof and native coefficient dictionary. It requires a version-1
+`CERTIFICATE` section with the degree convention, root, entry degree and
+canonical descendant-sector bounds. Ordinary `Certified` payloads keep their
+existing exact section set. Structurally decidable scope shape, size, ordering,
+root and source-port producer binding are admitted before native import;
+mathematical coverage and successor containment are independently reproved
+after original-source and actual-cell reconstruction. Final native structural,
+coefficient and variable-map comparison remains mandatory. Native trust limits
+and the comparison's additional imports remain unchanged.
+
+The core/native/app/Python release chain passes. The full saved FG E30
+default-policy attempt still exhausts retained successor work before producing
+an artifact, so it supplies no four-loop certification. This is a separate
+scope capability, not a second codec or another migration of Vakint's shipped
+assets. The Rust producer is exposed; CLI/Python total-excess request parity
+remains required follow-up. See the
+[bounded-owner audit and measured outcome](rank30_certification_audit_2026-09-17.md).
+
 ## API audit and representation
 
 The workspace uses Symbolica 3.0.0 from `vendor/symbolica`. Definitions were
@@ -101,7 +123,8 @@ mandatory, but byte-for-byte canonicality across dirty processes is not claimed.
 
 A new `rustred::persistence` module owns a versioned, bounded envelope and one
 native coefficient dictionary. Application frontends only steer it. The
-envelope has a distinct candidate/certified kind and length-delimited sections
+envelope has distinct payload kinds, including candidate, unrestricted certified
+and total-excess bounded certified, with length-delimited sections
 for family data, provenance, ordering/domain data, rules/terminals, native state,
 native coefficient atoms and optional proof or alias witnesses. It carries no
 topology dispatch. Sections can be inspected as borrowed slices.

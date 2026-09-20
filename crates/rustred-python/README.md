@@ -189,11 +189,18 @@ certified = rustred.certify_candidates(
 )
 ```
 
-`max_negative_index_degree` is an opt-in request for the future bounded-rank
-certification contract.  RustRed currently rejects values up to the supported
-cap of 30 with a fail-closed diagnostic: the durable artifact schema and
-reducer do not yet persist and enforce the required successor-closed entry
-scope, and therefore no unbounded whole-family fallback is attempted.
+`max_negative_index_degree` requests the still-unsupported numerator-only
+contract, which leaves positive propagator dots unbounded. Values through 30
+fail closed; larger values are input errors. RustRed never silently substitutes
+unrestricted certification or a bound that also counts dots.
+
+The Rust application API now separately supports total excess
+`sum(max(n_i-1,0) + max(-n_i,0)) <= D` at entry, including bounded native
+scope and cold reproof. Its checked descendant degrees can exceed `D`.
+That option is not yet exposed as a Python keyword or CLI flag; frontend parity
+remains required follow-up. Existing Python inspection/reduction can load
+bounded bytes through the shared verified loader. See the
+[scope contract](../../docs/research/rank_bounded_certification.md).
 
 Those same three limits are accepted by `family_close`,
 `inspect_closing_artifact`, and `reduce_with_closing_artifact`; reapply chosen

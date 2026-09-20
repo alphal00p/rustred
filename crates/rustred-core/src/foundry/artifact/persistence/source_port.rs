@@ -13,13 +13,21 @@ use crate::sector::OrderingPolicy;
 use super::super::error::{ArtifactError, ArtifactPersistenceError};
 use super::super::install::{
     ClosingArtifactCandidate, SOURCE_PORT_ALGORITHM_ID as ALGORITHM_ID,
-    install_source_port_with_limits, validate_zero_terminal_proofs,
+    install_source_port_through_total_excess_with_limits, install_source_port_with_limits,
+    validate_zero_terminal_proofs,
 };
 use super::super::model::{ArtifactSchemaVersion, ClosedArtifact};
 use super::super::source_port::{PreparedOriginalDomain, ReplayLimits};
 use super::binary::{Reader, Writer, check_limit, try_vec};
 use super::limits::ArtifactLoadLimits;
 use super::{decode_source_plan, decode_terminals, encode_source_snapshot};
+
+pub(super) fn decode_root(
+    reader: &mut Reader<'_>,
+    arity: usize,
+) -> Result<crate::sector::Mask, ArtifactPersistenceError> {
+    plans::decode_root(reader, arity)
+}
 
 pub(super) fn encode(
     writer: &mut Writer,
@@ -45,6 +53,7 @@ pub(super) fn decode<'input>(
     expected_family_fingerprint: &str,
     expected_context_fingerprint: &str,
     limits: ArtifactLoadLimits,
+    scope: Option<super::bounded::Proposal>,
 ) -> Result<ClosedArtifact, ArtifactPersistenceError> {
     let source_plan = decode_source_plan(parent, sources_bytes, arity)?;
     let mut family_reader = parent.child(family_bytes);
@@ -83,9 +92,20 @@ pub(super) fn decode<'input>(
     // Bound/decode all cell, coefficient and terminal payloads before any
     // original-row multiplication. Every child shares the input budgets.
     let mut rules_reader = parent.child(rules_bytes);
-    let (root_sector, parent_plans, cell_plans) =
-        plans::decode(&mut rules_reader, generator.context(), expected_rows)?;
+    let (root_sector, parent_plans, cell_plans) = if scope.is_some() {
+        plans::decode_with_scope(&mut rules_reader, generator.context(), expected_rows, true)?
+    } else {
+        plans::decode(&mut rules_reader, generator.context(), expected_rows)?
+    };
     rules_reader.finish()?;
+    if scope
+        .as_ref()
+        .is_some_and(|scope| scope.root != root_sector)
+    {
+        return Err(ArtifactPersistenceError::SemanticMismatch {
+            field: "bounded scope/body root",
+        });
+    }
     let mut terminal_reader = parent.child(terminals_bytes);
     let terminals = decode_terminals(&mut terminal_reader, arity)?;
     terminal_reader.finish()?;
@@ -196,31 +216,47 @@ pub(super) fn decode<'input>(
     // Discard shared arithmetic maps, not the unchanged source Arcs now owned
     // by actual cells. This is the same producer/installer as generation.
     drop(prepared);
-    let artifact = install_source_port_with_limits(
-        ClosingArtifactCandidate {
-            schema: ArtifactSchemaVersion::CURRENT,
-            algorithm_id: ALGORITHM_ID,
-            arity,
-            ordering,
-            supported_root_power_bounds: super::super::source_port::scope::root_bounds(
-                &root_sector,
-            )?,
-            family,
-            context,
-            source_relations: completed.into_relations(),
-            rules: Vec::new(),
-            rule_cells: cells,
-            canonicalizer: None,
-            dependencies: Vec::new(),
-            factorization_rules: Vec::new(),
-            masters: terminals.masters,
-            zero_sectors: terminals.zero_sectors,
-            common_mass_homogeneity: terminals.common_mass_homogeneity,
-        },
-        limits.cover_replay.geometry(),
-        limits.max_predicate_consistency_work,
-        limits.max_predicate_atoms,
-    )?;
+    let candidate = ClosingArtifactCandidate {
+        schema: ArtifactSchemaVersion::CURRENT,
+        algorithm_id: ALGORITHM_ID,
+        arity,
+        ordering,
+        supported_root_power_bounds: super::super::source_port::scope::root_bounds(&root_sector)?,
+        family,
+        context,
+        source_relations: completed.into_relations(),
+        rules: Vec::new(),
+        rule_cells: cells,
+        canonicalizer: None,
+        dependencies: Vec::new(),
+        factorization_rules: Vec::new(),
+        masters: terminals.masters,
+        zero_sectors: terminals.zero_sectors,
+        common_mass_homogeneity: terminals.common_mass_homogeneity,
+    };
+    let artifact = if let Some(scope) = scope {
+        use super::super::source_port::scope::{EntryDegreeBound, EntryScope};
+        let entry = EntryScope::try_new(
+            &candidate.family,
+            &scope.root,
+            EntryDegreeBound::MaxTotalExcessDegree(scope.entry_degree),
+        )?;
+        install_source_port_through_total_excess_with_limits(
+            candidate,
+            entry,
+            scope.degrees,
+            limits.cover_replay.geometry(),
+            limits.max_predicate_consistency_work,
+            limits.max_predicate_atoms,
+        )?
+    } else {
+        install_source_port_with_limits(
+            candidate,
+            limits.cover_replay.geometry(),
+            limits.max_predicate_consistency_work,
+            limits.max_predicate_atoms,
+        )?
+    };
     // The shared outer decoder compares the independently re-encoded complete
     // proof and native coefficient sequence after this exact installer gate.
     Ok(artifact)

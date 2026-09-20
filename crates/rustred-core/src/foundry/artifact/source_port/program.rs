@@ -1,7 +1,7 @@
 //! Private checked input for the existing artifact installer.
 //!
-//! No public artifact, persistence format, runtime evaluator or new algebra
-//! authority is introduced here. The owner retains the evidence already checked
+//! No runtime evaluator or new algebra authority is introduced here.
+//! The owner retains the evidence already checked
 //! by the cold audit, without retaining compact search powers or a solver basis.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -159,7 +159,6 @@ impl<const N: usize> CheckedSector<N> {
 /// A retained proof's promise, never inferred from finite coordinate boxes.
 /// The bounded variant must pass scoped lowering and independent actual-cell
 /// admission; its pre-lowering report is never an installation seal.
-#[allow(dead_code)] // The bounded path is internal until public/native publication.
 enum CheckedProgramScope<const N: usize> {
     Unrestricted,
     TotalExcess(super::total_excess::SourcePortTotalExcessAudit<N>),
@@ -195,7 +194,8 @@ impl<const N: usize> CheckedProgram<N> {
     ) -> Result<super::super::ClosedArtifact, SourcePortAuditError> {
         use super::super::install::{
             ClosingArtifactCandidate, SOURCE_PORT_ALGORITHM_ID,
-            install_source_port_through_total_excess_with_limits, install_source_port_with_limits,
+            install_source_port_through_total_excess_with_observer,
+            install_source_port_with_limits,
         };
         use super::super::model::{
             ArtifactSchemaVersion, CommonMassHomogeneityProof, ZeroSectorTerminal,
@@ -318,13 +318,20 @@ impl<const N: usize> CheckedProgram<N> {
                     .iter()
                     .map(|(sector, degree)| Ok((Mask::try_new(*sector).map_err(error)?, *degree)))
                     .collect::<Result<Vec<_>, SourcePortAuditError>>()?;
-                install_source_port_through_total_excess_with_limits(
+                install_source_port_through_total_excess_with_observer(
                     candidate,
                     entry,
                     degrees,
                     self.limits.cover_replay.geometry(),
                     self.limits.max_predicate_consistency_work,
                     self.limits.max_predicate_atoms,
+                    &mut |sector, snapshot| {
+                        observe(SourcePortInstallEvent::SuccessorGeometry {
+                            sector,
+                            snapshot,
+                            elapsed: started.elapsed(),
+                        })
+                    },
                 )
             }
         }
@@ -342,6 +349,36 @@ impl<const N: usize> CheckedProgram<N> {
 }
 
 impl<const N: usize> SourcePortAudit<N> {
+    /// Consume the complete root-sector program into a total-excess bounded
+    /// artifact. Every starting integer tuple within the audit's declared root
+    /// sector domain and with
+    /// `sum(max(n_i-1,0)+max(-n_i,0)) <= degree` is covered, including dots.
+    /// Descendants use independently proved sector bounds, not this entry cap.
+    /// This replays original sources, retains the complete successor proof,
+    /// lowers scoped cells and independently checks the actual runtime cover.
+    /// Zero-only roots remain explicitly unsupported.
+    pub fn install_complete_through_total_excess(
+        self,
+        family: IntegralFamily,
+        sectors: impl IntoIterator<Item = ([bool; N], Option<[usize; N]>, SectorSolution<N>)>,
+        degree: u64,
+    ) -> Result<super::super::ClosedArtifact, SourcePortAuditError> {
+        self.install_complete_through_total_excess_with_observer(family, sectors, degree, |_| {})
+    }
+
+    /// Observe the same bounded consuming authority path without changing it.
+    pub fn install_complete_through_total_excess_with_observer(
+        self,
+        family: IntegralFamily,
+        sectors: impl IntoIterator<Item = ([bool; N], Option<[usize; N]>, SectorSolution<N>)>,
+        degree: u64,
+        mut observe: impl FnMut(SourcePortInstallEvent<'_, N>),
+    ) -> Result<super::super::ClosedArtifact, SourcePortAuditError> {
+        let started = Instant::now();
+        self.retain_total_excess_program_with_observer(family, sectors, degree, &mut observe)?
+            .install_with_observer(started, &mut observe)
+    }
+
     /// Consume complete real solver output into the existing in-memory artifact.
     /// Durable decoding replays the same exact predicates and source weights.
     pub fn install_complete(
@@ -466,8 +503,6 @@ impl<const N: usize> SourcePortAudit<N> {
     /// Consume the complete total-excess proof and original source owners.
     /// This private intermediate is not installation authority: bounded
     /// installation still requires scoped lowering and actual-cell admission.
-    /// Public publication and durable bounded encoding remain pending.
-    #[allow(dead_code)] // The bounded consuming path is not publicly exposed yet.
     pub(super) fn retain_total_excess_program_with_observer(
         self,
         family: IntegralFamily,

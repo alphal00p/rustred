@@ -97,14 +97,16 @@ fn bounded_retention_keeps_original_rules_maps_guards_and_owners() {
     }
     let installed = bounded.install().unwrap();
     assert!(!installed.is_complete_unit_mass_vacuum());
-    assert!(matches!(
-        installed.encode_durable(),
-        Err(
-            crate::foundry::artifact::ArtifactPersistenceError::UnsupportedFeature {
-                detail: "bounded artifact scope has no durable encoding yet"
-            }
-        )
-    ));
+    let bytes = installed.encode_durable().unwrap();
+    let cold = crate::foundry::artifact::ClosedArtifact::decode_durable(&bytes).unwrap();
+    assert!(!cold.is_complete_unit_mass_vacuum());
+    assert_eq!(
+        cold.total_excess_scope()
+            .unwrap()
+            .max_entry_total_excess_degree(),
+        3
+    );
+    assert_eq!(cold.source_relations(), installed.source_relations());
     assert_eq!(installed.rule_cells().len(), 1);
     let cell = &installed.rule_cells()[0];
     assert!(!cell.guards().is_empty());
@@ -143,12 +145,22 @@ fn bounded_retention_has_only_the_existing_ordered_check_events() {
                         assert_eq!(report.max_total_excess_degree, Some(2));
                         "checked"
                     }
+                    SourcePortInstallEvent::SuccessorGeometry { snapshot, .. } => {
+                        assert_eq!(
+                            snapshot.stage,
+                            crate::foundry::artifact::SourcePortSuccessorStage::Retained
+                        );
+                        assert_eq!(snapshot.completed_sectors, 1);
+                        assert!(!snapshot.failed);
+                        assert!(snapshot.traversal_complete);
+                        "successors"
+                    }
                     _ => panic!("retention must not lower or install"),
                 });
             },
         )
         .unwrap();
-    assert_eq!(events, ["sector", "rule", "checked"]);
+    assert_eq!(events, ["sector", "rule", "checked", "successors"]);
     assert_eq!(program.sectors.len(), 1);
 }
 
@@ -273,6 +285,11 @@ fn bounded_zero_degree_still_retains_original_sources_and_poles() {
     assert!(!artifact.source_relations().is_empty());
     assert!(artifact.rule_cells().is_empty());
     assert!(!artifact.is_complete_unit_mass_vacuum());
+    let artifact = crate::foundry::artifact::ClosedArtifact::decode_durable(
+        &artifact.encode_durable().unwrap(),
+    )
+    .unwrap();
+    assert!(artifact.rule_cells().is_empty());
     let mut reducer = crate::reduction::Reducer::new(&artifact).unwrap();
     reducer
         .reduce_unit_mass(&crate::family::IntegralKey::try_new([1]).unwrap())
@@ -331,7 +348,27 @@ fn bounded_real_k3_installs_larger_successor_envelope_without_widening_entry() {
     assert!(report.max_successor_total_excess_degree() > 2);
     let artifact = program.install().unwrap();
     assert!(!artifact.is_complete_unit_mass_vacuum());
-    assert!(artifact.encode_durable().is_err());
+    let bytes = artifact.encode_durable().unwrap();
+    let understated =
+        crate::foundry::artifact::persistence::bounded_tests::with_uniform_successor_degree(
+            &bytes, 2,
+        );
+    assert!(matches!(
+        crate::foundry::artifact::ClosedArtifact::decode_durable(&understated),
+        Err(
+            crate::foundry::artifact::ArtifactPersistenceError::Artifact(
+                crate::foundry::artifact::ArtifactError::InvalidRuleShape {
+                    detail: "bounded actual-cell successor envelope is not proved"
+                }
+            )
+        )
+    ));
+    let cold = crate::foundry::artifact::ClosedArtifact::decode_durable(&bytes).unwrap();
+    assert_eq!(
+        cold.total_excess_scope().unwrap().successor_degrees(),
+        artifact.total_excess_scope().unwrap().successor_degrees()
+    );
+    let artifact = cold;
     let full = super::scoped_tests::generated_scope([true; 3]);
     let mut bounded_reducer = Reducer::new(&artifact).unwrap();
     let mut full_reducer = Reducer::new(&full).unwrap();

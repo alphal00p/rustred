@@ -10,11 +10,25 @@ roadmap item is never mistaken for a capability claim.
 The current producer is the generic [SpIRed port](spired_port.md), with sparse
 exact and Symbolica rational-reconstruction routes. Its exact authority path
 has published K1/K3/K6 vacuum artifacts; its saved four-loop H/X/BMW/FG programs
-remain explicitly uncertified candidates. Both program kinds share the native
+remain explicitly uncertified candidates. Candidate and certified programs share the native
 Symbolica Atom/State transport but not mathematical authority. Vakint's public
 FORM-less path passes the recorded through-three-loop selection and all 31
 four-loop reference/pinch comparisons. Numerical acceptance is not a substitute
 for unrestricted four-loop closure certification.
+
+The optional Rust total-excess path publishes bounded owners only after
+complete source replay, scoped lowering, exact actual-cell coverage and every
+live RHS successor check. Entry scope and immutable descendant degrees belong
+to `ClosedArtifact`; the existing reducer checks entry scope before cache
+access or scalar mutation. A separate `BoundedCertified` native kind requires
+that scope and reconstructs its proof on cold loading. Bounded owners cannot
+become unrestricted vacuum capability. The saved-candidate Rust request
+defaults to the unchanged unrestricted path; CLI/Python total-excess request
+parity remains required follow-up. The core/native/app/Python release chain
+passes, but the full saved FG E30 default-policy run exhausts retained successor
+work before publication. This does not certify the shipped four-loop programs.
+See the [bounded-owner contract](research/rank_bounded_certification.md) and
+[measured acceptance boundary](research/rank30_certification_audit_2026-09-17.md).
 
 `solver::CandidateReducer` owns the candidate rule application, mass restoration
 and memoized terminal decompositions; Vakint supplies routing and offline
@@ -265,7 +279,10 @@ canonical `K = 1` and `K = 3` closures and seals them for `reduction`; the
 reusable primitives are topology-neutral, while these first complete
 partition verifiers are registered family manifests rather than a generic
 closure search. Its schema-v6 codec shares the native Atom/State envelope and
-coefficient dictionary with candidate programs. Generated native payloads must
+coefficient dictionary with candidate programs. Bounded source-port owners
+reuse the same proof body, dictionary and final exact comparator, with required
+versioned scope independently checked by the actual-cell installer.
+Generated native payloads must
 come from a trusted source: Symbolica's readers are not hostile-input parsers.
 Loading checks mathematical claims independently, once. It reconstructs tagged complete-ordinary
 source plans under explicit family/generator/rule policies, compares retained

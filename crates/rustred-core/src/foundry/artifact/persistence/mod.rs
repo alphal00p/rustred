@@ -8,6 +8,9 @@
 //! derives/replays rules and invokes the closing installer exactly once.
 
 mod binary;
+mod bounded;
+#[cfg(test)]
+pub(in crate::foundry::artifact) mod bounded_tests;
 mod coefficient;
 mod family;
 mod k6;
@@ -88,24 +91,48 @@ pub(super) fn encode_with_limits(
     limits: ArtifactEncodingLimits,
 ) -> Result<Vec<u8>, ArtifactPersistenceError> {
     let mut output = Writer::new(limits);
-    encode_into_writer(artifact, &mut output)?;
+    let scope = if let Some(scope) = artifact.total_excess_scope() {
+        if artifact.algorithm_id() != SOURCE_PORT_ALGORITHM_ID {
+            return Err(ArtifactPersistenceError::UnsupportedFeature {
+                detail: "bounded native grammar requires source-port algorithm",
+            });
+        }
+        let mut encoded = output.child();
+        bounded::encode(&mut encoded, scope)?;
+        encode_proof_into_writer(artifact, &mut output)?;
+        Some(encoded.finish())
+    } else {
+        encode_into_writer(artifact, &mut output)?;
+        None
+    };
     let (program, table) = output.finish_native()?;
+    let mut sections = vec![
+        BinarySection {
+            tag: SectionTag::SYMBOLICA_STATE,
+            bytes: &table.state,
+        },
+        BinarySection {
+            tag: SectionTag::COEFFICIENTS,
+            bytes: &table.atoms,
+        },
+        BinarySection {
+            tag: SectionTag::PROGRAM,
+            bytes: &program,
+        },
+    ];
+    if let Some(scope) = &scope {
+        sections.push(BinarySection {
+            tag: SectionTag::CERTIFICATE,
+            bytes: scope,
+        });
+    }
     encode_program(
-        BinaryProgramKind::Certified,
-        &[
-            BinarySection {
-                tag: SectionTag::SYMBOLICA_STATE,
-                bytes: &table.state,
-            },
-            BinarySection {
-                tag: SectionTag::COEFFICIENTS,
-                bytes: &table.atoms,
-            },
-            BinarySection {
-                tag: SectionTag::PROGRAM,
-                bytes: &program,
-            },
-        ],
+        if scope.is_some() {
+            BinaryProgramKind::BoundedCertified
+        } else {
+            BinaryProgramKind::Certified
+        },
+        &sections,
         limits.native_io(),
     )
     .map_err(Into::into)
@@ -117,9 +144,16 @@ fn encode_into_writer(
 ) -> Result<(), ArtifactPersistenceError> {
     if !artifact.proof_scope.is_unrestricted() {
         return Err(ArtifactPersistenceError::UnsupportedFeature {
-            detail: "bounded artifact scope has no durable encoding yet",
+            detail: "bounded artifact scope requires its native envelope",
         });
     }
+    encode_proof_into_writer(artifact, output)
+}
+
+fn encode_proof_into_writer(
+    artifact: &ClosedArtifact,
+    output: &mut Writer,
+) -> Result<(), ArtifactPersistenceError> {
     if artifact.schema() != ArtifactSchemaVersion::CURRENT {
         return Err(ArtifactPersistenceError::UnsupportedSchema {
             actual: artifact.schema().as_u32(),
@@ -217,21 +251,47 @@ pub(super) fn decode(
     limits: ArtifactLoadLimits,
 ) -> Result<ClosedArtifact, ArtifactPersistenceError> {
     let envelope = inspect_program(bytes, limits.native_io())?;
-    if envelope.kind() != BinaryProgramKind::Certified
-        || envelope
-            .sections()
-            .iter()
-            .map(|section| section.tag)
-            .collect::<Vec<_>>()
-            != [
-                SectionTag::SYMBOLICA_STATE,
-                SectionTag::COEFFICIENTS,
-                SectionTag::PROGRAM,
-            ]
+    let expected_sections: &[SectionTag] = match envelope.kind() {
+        BinaryProgramKind::Certified => &[
+            SectionTag::SYMBOLICA_STATE,
+            SectionTag::COEFFICIENTS,
+            SectionTag::PROGRAM,
+        ],
+        BinaryProgramKind::BoundedCertified => &[
+            SectionTag::SYMBOLICA_STATE,
+            SectionTag::COEFFICIENTS,
+            SectionTag::PROGRAM,
+            SectionTag::CERTIFICATE,
+        ],
+        _ => {
+            return Err(ArtifactPersistenceError::SemanticMismatch {
+                field: "certified native envelope kind or sections",
+            });
+        }
+    };
+    if envelope
+        .sections()
+        .iter()
+        .map(|section| section.tag)
+        .collect::<Vec<_>>()
+        != expected_sections
     {
         return Err(ArtifactPersistenceError::SemanticMismatch {
             field: "certified native envelope kind or sections",
         });
+    }
+    let scope = envelope
+        .section(SectionTag::CERTIFICATE)
+        .map(|bytes| bounded::decode(bytes, limits))
+        .transpose()?;
+    if let Some(scope) = &scope {
+        bounded::preflight_body(
+            envelope
+                .section(SectionTag::PROGRAM)
+                .expect("checked sections"),
+            scope,
+            limits,
+        )?;
     }
     let table = Rc::new(DecodedCoefficientTable::import_generated(
         envelope
@@ -249,7 +309,7 @@ pub(super) fn decode(
         limits,
         table,
     )?;
-    let artifact = decode_proof(input, limits)?;
+    let artifact = decode_proof(input, limits, scope)?;
     // A fresh first-occurrence interner is essential: the local replay lookup
     // cannot establish canonical order, table length or absence of unused data.
     let regenerated = encode_with_limits(&artifact, limits.replay_encoding())?;
@@ -264,6 +324,7 @@ pub(super) fn decode(
 fn decode_proof(
     mut input: Reader<'_>,
     limits: ArtifactLoadLimits,
+    scope: Option<bounded::Proposal>,
 ) -> Result<ClosedArtifact, ArtifactPersistenceError> {
     if input.fixed(MAGIC.len())? != MAGIC {
         return Err(ArtifactPersistenceError::InvalidMagic);
@@ -363,6 +424,7 @@ fn decode_proof(
             &expected_family_fingerprint,
             &expected_context_fingerprint,
             limits,
+            scope,
         );
     }
 

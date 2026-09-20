@@ -144,8 +144,10 @@ impl ArtifactValidationWitness {
 ///
 /// The runtime owner is independent of loop count and topology. Its ordered
 /// rules, exact master keys, and proof-backed zero sectors are installed only
-/// after one closure-specific verifier has discharged the whole lattice
-/// partition. Registered verifiers accept the generated unit-mass `K = 1`
+/// after one closure-specific verifier has discharged the declared entry
+/// domain and its inductive successor envelope. A bounded promise is exposed
+/// by [`Self::total_excess_scope`], never as unrestricted vacuum capability.
+/// Registered verifiers accept the generated unit-mass `K = 1`
 /// tadpole and `K = 3` sunset families, plus a `K = 6` campaign only after all
 /// six proof-bearing full-rank sector waves publish; unsupported candidate
 /// shapes never become this sealed type.

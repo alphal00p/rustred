@@ -200,12 +200,22 @@ The selected name appears in the report's `exact_backend` field. These choices
 retain the same discovery, guards and candidate format; they do not select an
 application cache or certify a bundle.
 
-The optional `--max-negative-index-degree N` flag is reserved for the
-rank-scoped certification contract described in
-[`rank_bounded_certification.md`](research/rank_bounded_certification.md).
-It currently fails closed (for `N <= 30`) because the durable artifact schema
-and reducer do not yet persist and enforce a successor-closed entry scope;
-RustRed never silently falls back to an unbounded whole-family certificate.
+The optional `--max-negative-index-degree N` still fails closed for `N <= 30`;
+larger values are input errors. This numerator-only request leaves positive
+propagator dots unbounded, and that successor-closed contract is not implemented.
+It is never reinterpreted as total excess or replaced by unrestricted
+certification.
+
+The Rust application API separately provides
+`CandidateCertificationRequest::with_max_total_excess_degree(D)` for
+`sum(max(n_i-1,0) + max(-n_i,0)) <= D` at entry. Successful certification
+produces native bounded scope and independently checked descendant degrees,
+which may exceed `D`; all replay and publication checks remain required. The
+option defaults to `None`, preserving ordinary certification. It is independent
+of resource limits and mutually exclusive with the numerator-only request.
+CLI and Python have no total-excess argument yet; exposing the same contract
+there remains required follow-up. See
+[the bounded contract](research/rank_bounded_certification.md).
 
 Native binary bundle schema `rustred.generated-candidates.binary.v1` records
 `status = "uncertified-candidates"`, not closure. It cannot be passed to
@@ -216,6 +226,11 @@ The certification report (`rustred.candidate-certification-output.toml.v1`)
 separately records bundle decoding, preparation, native reconstruction,
 certification and artifact encoding. These are observational timings, not part
 of the bundle or artifact identity, and exclude a later explicit cold reload.
+Successful bounded Rust reports additionally include optional
+`max_total_excess_degree`, `successor_sector_count` and
+`max_successor_total_excess_degree` fields; unrestricted reports omit them.
+`certify_candidates_with_progress` observes preparation, replay, lowering,
+installation and encoding without regenerating rules or changing proof policy.
 
 Both commands default to stdin/stdout and accept `--force` for atomic file
 replacement. `--report-output` must differ from the data output stream/path
@@ -785,6 +800,13 @@ string `common_mass_squared_power`. For `--powers 3`, the only master is `[1]`,
 the coefficient is
 `(-6*rustred::{}::d+8+rustred::{}::d^2)*1/8`, and the common-mass-squared
 power is `-2`.
+
+For a cold-verified bounded owner, inspection additionally reports
+`artifact.total_excess_scope` with `max_entry_total_excess_degree`,
+`successor_sector_count` and `max_successor_total_excess_degree`. This is a
+summary, not the complete persisted successor map. Existing inspection and
+reduction commands consume bounded bytes through their ordinary loader; it
+reproves the scope before exposing the owner.
 
 `--max-rule-applications N` is a nonnegative per-call ceiling, defaulting to
 and capped at 1,000,000. Durable input is bounded at 256 MiB before decode and

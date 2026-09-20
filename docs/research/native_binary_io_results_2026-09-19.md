@@ -347,6 +347,19 @@ audit subsequently identified the small text terminal-value catalogs as the
 remaining internal-algebra persistence migration; see the updated I/O plan.
 Terminal normalization remains a distinct task and is not part of these timings.
 
+## September 20 bounded-owner follow-up
+
+Total-excess bounded owners now reuse this native transport, coefficient
+dictionary and V6 source proof. Their distinct `BoundedCertified` kind requires
+entry and descendant scope, which cold loading reproves through the actual-cell
+installer. The core/native/app/Python release chain passes; the complete saved
+FG E30 default-policy attempt stops at the retained successor-work limit after
+47 successful local reports and 46 completed retained sectors, without an
+artifact or cold acceptance. The September 19 conversion sizes, load timings
+and Vakint rollout above remain their original measurements; they do not
+measure this new bounded path. No shipped Vakint asset changes. See the
+[bounded-certification audit](rank30_certification_audit_2026-09-17.md).
+
 ## Reproducibility evidence
 
 The unchanged inputs are in `TMP/vakint-four-loop-assets-20260919/`. The

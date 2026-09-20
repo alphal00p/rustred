@@ -15,7 +15,7 @@ fn scoped_owner_is_rejected_before_the_writer_receives_any_bytes() {
     assert!(matches!(
         encode_into_writer(&artifact, &mut writer),
         Err(ArtifactPersistenceError::UnsupportedFeature {
-            detail: "bounded artifact scope has no durable encoding yet"
+            detail: "bounded artifact scope requires its native envelope"
         })
     ));
     assert_eq!(writer.finish(), b"existing-prefix");
@@ -30,7 +30,7 @@ fn unrestricted_parent_cannot_silently_encode_a_scoped_dependency() {
     assert!(matches!(
         parent.encode_durable(),
         Err(ArtifactPersistenceError::UnsupportedFeature {
-            detail: "bounded artifact scope has no durable encoding yet"
+            detail: "bounded artifact scope requires its native envelope"
         })
     ));
 }

@@ -739,10 +739,8 @@ pub(super) fn sign_partition_with_limits(
     shifts: &[i64],
     limits: CompletionGeometryLimits,
 ) -> Result<Vec<LatticeBox>, SourcePortAuditError> {
-    if cell.arity() != sector.len() || shifts.len() != sector.len() {
-        return Err(error("sign partition has incompatible index arity"));
-    }
-    if sector.len() > limits.max_arity || limits.max_uncovered_boxes == 0 {
+    validate_sign_partition_shape(cell, sector, shifts, limits.max_arity)?;
+    if limits.max_uncovered_boxes == 0 {
         return Err(error("sign partition exceeds its geometry resource policy"));
     }
     if sector
@@ -752,6 +750,30 @@ pub(super) fn sign_partition_with_limits(
     {
         return Err(error("sign partition has incompatible index arity"));
     }
+    sign_partition_admitted(cell, sector, shifts, limits)
+}
+
+pub(super) fn validate_sign_partition_shape(
+    cell: &LatticeBox,
+    sector: &[bool],
+    shifts: &[i64],
+    max_arity: usize,
+) -> Result<(), SourcePortAuditError> {
+    if cell.arity() != sector.len() || shifts.len() != sector.len() {
+        return Err(error("sign partition has incompatible index arity"));
+    }
+    if sector.len() > max_arity {
+        return Err(error("sign partition exceeds its geometry resource policy"));
+    }
+    Ok(())
+}
+
+fn sign_partition_admitted(
+    cell: &LatticeBox,
+    sector: &[bool],
+    shifts: &[i64],
+    limits: CompletionGeometryLimits,
+) -> Result<Vec<LatticeBox>, SourcePortAuditError> {
     let mut pieces = vec![copy_box(cell)?];
     let mut splits = 0usize;
     for axis in 0..sector.len() {

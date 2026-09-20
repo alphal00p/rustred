@@ -319,7 +319,7 @@ pub(super) struct Reader<'input> {
 }
 
 impl<'input> Reader<'input> {
-    #[cfg(test)]
+    /// Structural cursor without a native table, also used for scope preflight.
     pub(super) fn root(
         input: &'input [u8],
         limits: ArtifactLoadLimits,

@@ -89,6 +89,43 @@ impl<W: Write> FamilyCloseProgressMonitor<W> {
 fn format_event(event: FamilyCloseProgress) -> String {
     use FamilyCloseProgress::*;
     let (elapsed, status) = match event {
+        SuccessorGeometry {
+            sector,
+            snapshot,
+            elapsed,
+        } => (
+            elapsed,
+            format!(
+                "successors stage={:?} sector={sector:?} location={:?}/{:?}/{:?}/{:?} completed_sectors={} completed_cells={} failed={} complete={} consumed={:?} limits={:?} partition_caps={}/{} max_arity={} partition_requests={} p1={} pn={} pieces={} max_p={} probes={}/{} skipped={} keys={}/{} attempt={:?} telemetry_overflow={} arithmetic_overflow={}",
+                snapshot.stage,
+                snapshot.sector_ordinal,
+                snapshot.rule_ordinal,
+                snapshot.rhs_ordinal,
+                snapshot.application_ordinal,
+                snapshot.completed_sectors,
+                snapshot.completed_cells,
+                snapshot.failed,
+                snapshot.traversal_complete,
+                snapshot.consumed,
+                snapshot.limits,
+                snapshot.max_uncovered_boxes,
+                snapshot.max_uncovered_coordinate_cells,
+                snapshot.max_arity,
+                snapshot.partition_requests,
+                snapshot.singleton_partitions,
+                snapshot.split_partitions,
+                snapshot.total_pieces,
+                snapshot.maximum_pieces,
+                snapshot.source_degree_probes,
+                snapshot.piece_degree_probes,
+                snapshot.skipped_singleton_probes,
+                snapshot.source_key_builds,
+                snapshot.child_key_builds,
+                snapshot.failed_attempt,
+                snapshot.telemetry_overflow,
+                snapshot.arithmetic_overflow
+            ),
+        ),
         Preparing { arity, elapsed } => (elapsed, format!("preparing K={arity}")),
         Prepared {
             sectors,

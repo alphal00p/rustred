@@ -24,7 +24,7 @@ use model::{
     ArtifactPayloadOutputV1, ArtifactSummaryOutputV2, ClosingRuleOutputV1, GenerateOutputV2,
     InspectOutputV4, IntegralKeyOutputV1, LifecycleOutputV1, ReduceOutputV3,
     ReductionStatisticsOutputV1, ReductionTermOutputV1, RelationTermOutputV1, RuleTermOutputV1,
-    SourceRelationOutputV1, ValidationOutputV1, ZeroTerminalOutputV1,
+    SourceRelationOutputV1, TotalExcessScopeOutputV1, ValidationOutputV1, ZeroTerminalOutputV1,
 };
 
 pub(super) const GENERATE_SCHEMA: &str = "rustred.closing-artifact-generate-output.toml.v2";
@@ -353,6 +353,17 @@ fn artifact_summary(artifact: &ClosedArtifact) -> ArtifactSummaryOutputV2 {
             .iter()
             .map(|bounds| bounds.upper())
             .collect(),
+        total_excess_scope: artifact
+            .total_excess_scope()
+            .map(|scope| TotalExcessScopeOutputV1 {
+                max_entry_total_excess_degree: scope.max_entry_total_excess_degree(),
+                successor_sector_count: scope.successor_degrees().len(),
+                max_successor_total_excess_degree: scope
+                    .successor_degrees()
+                    .values()
+                    .copied()
+                    .max(),
+            }),
         in_scope_zero_sectors: artifact
             .zero_sectors()
             .iter()

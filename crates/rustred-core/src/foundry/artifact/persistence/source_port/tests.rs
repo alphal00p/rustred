@@ -1,8 +1,7 @@
 //! Corruption tests serialize arithmetic descriptions, never private seals.
 use crate::foundry::artifact::source_port::installed_k1_for_codec_test;
 use crate::persistence::{
-    BinaryProgramKind, BinarySection, DecodedCoefficientTable, SectionTag, encode_program,
-    inspect_program,
+    BinarySection, DecodedCoefficientTable, SectionTag, encode_program, inspect_program,
 };
 use std::rc::Rc;
 
@@ -49,10 +48,11 @@ fn changed_plan(
         table.clone(),
     )
     .unwrap();
-    let (mut root, mut parents, mut cells) = plans::decode(
+    let (mut root, mut parents, mut cells) = plans::decode_with_scope(
         &mut reader,
         &artifact.context,
         artifact.source_relations().len(),
+        artifact.total_excess_scope().is_some(),
     )
     .unwrap();
     reader.finish().unwrap();
@@ -107,25 +107,27 @@ fn changed_plan(
     changed.extend_from_slice(&(replacement.len() as u64).to_le_bytes());
     changed.extend_from_slice(&replacement);
     changed.extend_from_slice(&original[end..]);
-    encode_program(
-        BinaryProgramKind::Certified,
-        &[
-            BinarySection {
-                tag: SectionTag::SYMBOLICA_STATE,
-                bytes: &native.state,
-            },
-            BinarySection {
-                tag: SectionTag::COEFFICIENTS,
-                bytes: &native.atoms,
-            },
-            BinarySection {
-                tag: SectionTag::PROGRAM,
-                bytes: &changed,
-            },
-        ],
-        Default::default(),
-    )
-    .unwrap()
+    let mut sections = vec![
+        BinarySection {
+            tag: SectionTag::SYMBOLICA_STATE,
+            bytes: &native.state,
+        },
+        BinarySection {
+            tag: SectionTag::COEFFICIENTS,
+            bytes: &native.atoms,
+        },
+        BinarySection {
+            tag: SectionTag::PROGRAM,
+            bytes: &changed,
+        },
+    ];
+    if let Some(scope) = envelope.section(SectionTag::CERTIFICATE) {
+        sections.push(BinarySection {
+            tag: SectionTag::CERTIFICATE,
+            bytes: scope,
+        });
+    }
+    encode_program(envelope.kind(), &sections, Default::default()).unwrap()
 }
 
 #[test]
@@ -303,6 +305,47 @@ fn omitted_stored_poles_are_regenerated_before_canonical_payload_admission() {
             field: "complete native artifact witness"
         }
     );
+}
+
+#[test]
+fn bounded_native_original_cells_reject_identity_pole_and_extent_corruption() {
+    let artifact = super::super::bounded_tests::tadpole(3);
+    for mutation in 0..5 {
+        let bytes = changed_rules(&artifact, |parents, cells| match mutation {
+            0 => {
+                parents[0].requests[0].1 = artifact
+                    .context
+                    .sub(&artifact.context.zero(), &parents[0].requests[0].1)
+                    .unwrap()
+            }
+            1 => {
+                cells[0].rhs[0].1 = artifact
+                    .context
+                    .sub(&artifact.context.zero(), &cells[0].rhs[0].1)
+                    .unwrap()
+            }
+            2 => parents[0].conditions.clear(),
+            3 => {
+                cells[0].application = crate::foundry::completion::LatticeBox::try_new(
+                    cells[0].application.lower().to_vec(),
+                    vec![Some(2)],
+                )
+                .unwrap()
+            }
+            4 => {
+                cells[0].application = crate::foundry::completion::LatticeBox::try_new(
+                    vec![0],
+                    cells[0].application.upper().to_vec(),
+                )
+                .unwrap()
+            }
+            _ => unreachable!(),
+        });
+        assert!(
+            ClosedArtifact::decode_durable(&bytes).is_err(),
+            "mutation {mutation}"
+        );
+    }
 }
 
 fn coupled_exclusion_fixture() -> (

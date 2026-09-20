@@ -46,11 +46,13 @@ pub use model::{
 pub use one_loop::derive_one_loop_unit_mass_tadpole;
 pub use persistence::{ArtifactCoverReplayLimits, ArtifactEncodingLimits, ArtifactLoadLimits};
 pub(crate) use scope::RootDomainError;
+pub use scope::TotalExcessProofScope;
 pub(crate) use source_port::ReplayedOriginalDomain;
 pub use source_port::{
     AffineApplicationDomain, AffineOwnershipRole, SourcePortAudit, SourcePortAuditError,
     SourcePortInstallEvent, SourcePortLimits, SourcePortReplayedRule, SourcePortRuleReplayAudit,
-    SourcePortSectorAudit, SourcePortTotalExcessAudit,
+    SourcePortSectorAudit, SourcePortSuccessorAttempt, SourcePortSuccessorCounts,
+    SourcePortSuccessorSnapshot, SourcePortSuccessorStage, SourcePortTotalExcessAudit,
 };
 pub use two_loop::derive_two_loop_unit_mass_sunset;
 

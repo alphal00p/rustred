@@ -40,7 +40,8 @@ fn bounded_actual_cell_gate_requires_complete_unique_nonzero_degree_census() {
     let control = install(k1(), 3, degree(3), Default::default()).unwrap();
     assert!(!control.proof_scope.is_unrestricted());
     assert!(!control.is_complete_unit_mass_vacuum());
-    assert!(control.encode_durable().is_err());
+    let cold = ClosedArtifact::decode_durable(&control.encode_durable().unwrap()).unwrap();
+    assert!(!cold.is_complete_unit_mass_vacuum());
     for entries in [
         vec![],
         degree(2),
@@ -158,4 +159,80 @@ fn bounded_actual_cell_gate_preserves_typed_caller_limits() {
             resource: "structural-box split operations"
         })
     ));
+}
+
+#[test]
+fn actual_cell_observer_reports_only_its_own_successor_stage() {
+    for (coordinate_limit, remove_rules) in [(usize::MAX, false), (8, false), (usize::MAX, true)] {
+        let mut candidate = k1();
+        if remove_rules {
+            candidate.rule_cells.clear();
+        }
+        let cells = candidate.rule_cells.len();
+        let entry = scope::EntryScope::try_new(
+            &candidate.family,
+            &Mask::try_new([true]).unwrap(),
+            scope::EntryDegreeBound::MaxTotalExcessDegree(3),
+        )
+        .unwrap();
+        let geometry = CompletionGeometryLimits {
+            max_requested_box_coordinate_cells: coordinate_limit,
+            ..Default::default()
+        };
+        let mut observations = Vec::new();
+        let result = install_source_port_through_total_excess_with_observer(
+            candidate,
+            entry,
+            degree(3),
+            geometry,
+            DEFAULT_PREDICATE_CONSISTENCY_WORK,
+            DEFAULT_PREDICATE_ATOMS,
+            &mut |sector, snapshot| observations.push((sector.map(<[bool]>::to_vec), *snapshot)),
+        );
+        if remove_rules {
+            assert!(result.is_err());
+            assert!(
+                observations.is_empty(),
+                "coverage failure is not successor propagation"
+            );
+        } else if coordinate_limit == 8 {
+            assert!(matches!(
+                result,
+                Err(ArtifactError::ResourceBudgetExhausted {
+                    resource: "total-excess successor geometry"
+                })
+            ));
+            assert_eq!(observations.len(), 1);
+            assert_eq!(observations[0].0, Some(vec![true]));
+            let snapshot = observations[0].1;
+            assert_eq!(snapshot.stage, SourcePortSuccessorStage::ActualCells);
+            assert!(snapshot.failed);
+            assert!(!snapshot.traversal_complete);
+            assert_eq!(snapshot.completed_cells, 0);
+            assert_eq!(snapshot.consumed.coordinate_cells, 4);
+            assert_eq!(snapshot.failed_attempt.unwrap().attempted[1], Some(10));
+            assert_eq!(
+                snapshot.failed_attempt.unwrap().exceeded,
+                [false, true, false]
+            );
+            assert_eq!(
+                (
+                    snapshot.rule_ordinal,
+                    snapshot.rhs_ordinal,
+                    snapshot.application_ordinal
+                ),
+                (Some(0), Some(0), Some(0))
+            );
+        } else {
+            result.unwrap();
+            assert_eq!(observations.len(), 1);
+            assert_eq!(observations[0].0, None);
+            let snapshot = observations[0].1;
+            assert_eq!(snapshot.stage, SourcePortSuccessorStage::ActualCells);
+            assert!(!snapshot.failed);
+            assert!(snapshot.traversal_complete);
+            assert_eq!(snapshot.completed_cells, cells);
+            assert_eq!(snapshot.completed_sectors, 0);
+        }
+    }
 }

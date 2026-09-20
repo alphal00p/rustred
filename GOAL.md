@@ -264,47 +264,46 @@ implement another CAS or a replacement rule applier. Keep the proved finite
 identities for a later weighted-application experiment, not as an unmeasured
 production speedup.
 
-The bounded-certification follow-up now distinguishes numerator-only entry
-degree from total excess (dots plus numerator powers). The Rust source-port
-audit can request total-excess coverage without enumerating the integer
-simplex; its report labels that scope, while original-source replay, guards
-and supplied-domain strict descent remain unchanged. This is a diagnostic,
-not a bounded artifact: persistence, inductive successor envelopes and runtime
-entry admission must still be connected. Real H/FG rules carry degree-30
-entries to degree-31 numerator descendants, so an entry cap cannot be imposed
-on all intermediate integrals. Pursue the finite per-sector total-excess
-envelope first, without silently narrowing numerator-only requests or chasing
-master minimality. See the updated
-[bounded-certification audit](docs/research/rank30_certification_audit_2026-09-17.md).
-A complete-program total-excess diagnostic now connects those obligations:
-it validates the full root-sector census, checks sectors in the actual reduction
-order, and propagates conservative successor-degree bounds from retained exact
-rules. The input degree and descendant degrees are reported separately. It
-still cannot publish an artifact; persistence, cold replay of the scope, and
-runtime entry admission remain required. Degree-aware coordinate tightening
-also lets the existing native affine checks discard more impossible branches
-without replacing the simplex by a rectangular ownership claim.
-The previously difficult saved FG sector 214 now passes all 161 original-source
-replays and descent checks, with zero checked gaps through total excess 30 and
-11 finite terminals, in a 74.837-second serial release audit. This clears a
-selected-sector obstacle only; full-parent propagated coverage, runtime-cell
-lowering, persistent bounded scope and cold replay remain unfinished.
-Two complete FG-parent requests subsequently pass 49 and 68 sector audits
-(3,271 and 4,555 exact rule replay/descent checks) before exhausting the shared
-successor-geometry allowance. All completed reports have zero gaps/issues;
-neither request completes the 124-sector parent. The second uses an explicit
-modest caller-budget increase, without changing defaults or proof semantics.
-The bounded-certification report records both incomplete outcomes and the
-propagated degrees; this is not a new missing-rule diagnosis or a certificate.
-A subsequent generic implementation slice retains the already checked rules,
-source witnesses, finite terminals and inductive degree report together in a
-private checked program. Diagnostics project their reports from that same proof
-pass; bounded programs cannot enter the unrestricted installer. This is an
-intermediate ownership change, not completed bounded certification. Scoped
-lowering, independent admission of actual executable cells and successor
-envelopes, pre-cache runtime entry checks, durable scope and cold replay remain
-required. Keeping evidence until the complete pass ends can extend diagnostic
-memory lifetimes; no memory or certification speedup is claimed from retention.
+The bounded-certification path now provides the public Rust request
+`CandidateCertificationRequest::with_max_total_excess_degree(D)` and consuming
+core `SourcePortAudit::install_complete_through_total_excess`. Total excess
+counts dots plus negative powers. The complete root census, original-source
+replay, guards, descent, scoped lowering, actual executable-cell coverage and
+every live RHS successor check remain mandatory. Independently checked
+descendant-sector degrees may exceed the entry degree; the existing reducer
+checks starting scope before cache access or scalar-lowering mutation.
+
+A distinct native `BoundedCertified` kind requires a versioned root/entry/
+successor scope. Cold loading reconstructs the source proof and actual cells,
+rechecks scope and compares regenerated structure, coefficients and variable
+maps. Saved scope metadata grants no authority. The ordinary `None` path and
+unrestricted native grammar are unchanged. This total-excess option is
+Rust-only; CLI/Python parity remains required follow-up. Their older
+numerator-only request still fails closed because it leaves dots unbounded.
+
+The successor pass borrows an unchanged box when exact sign partitioning
+yields one piece and lazily reuses its immutable source ordering key. It
+removes duplicate allocation and geometric work without changing quotas or
+proof semantics. Telemetry distinguishes retained propagation from the final
+actual-cell pass. These structural changes have no loop-count/topology
+dispatch or new algebra. Independent source, mathematical and genericity
+audits pass. Release validation passes 2,281 core tests (32 ignored), two
+native-process tests (one child helper ignored), 121 app unit tests, 72 app
+integration tests, eight Python-binding Rust tests and 38 fresh-extension
+Python/CLI tests, with zero failures in the final gates.
+
+The earlier FG214 audit checked all 161 rules through total excess 30 with
+zero gaps, 11 finite terminals and 74.837 s audit time. Two historical full-FG
+diagnostics checked 49 and 68 local reports before exhausting geometry work.
+The new default-policy full-FG E30 installation attempt also fails closed:
+47 local reports have zero issues/gaps, 46 retained successor sectors finish,
+then attempted work 12,000,280 exceeds 12,000,072. It exits with typed `Limit`
+after 12.54 s wall, 12.21 s user and 0.23 s system time, at 211,972 KiB peak
+RSS. This shared-load observation is not an isolated speed comparison. No
+artifact is written, and cold acceptance is not run. Full-parent certification
+remains incomplete; no missing-rule conclusion follows from this quota.
+See the [bounded-certification audit](docs/research/rank30_certification_audit_2026-09-17.md).
+
 Both bounded physical-cube backends reach their 1,800-second deadlines
 without saved bundles: sparse exact reports 37 completed-sector events and
 reconstruction reports 41, with different completed-sector sets. Peak RSS is
@@ -487,18 +486,18 @@ count remains 77. It retains complete resource accounting and a substantially
 slower, unexplained preparation observation rather than implying a uniform
 speedup. No full five-loop family or certificate has been produced.
 
-The bounded-certificate lane now shares exact public-entry admission between
-the sealed reducer and scalar lowering, before cache access. Descendant degree
-envelopes remain distinct from the starting total-excess cap. Internal scoped-owner
-fixtures cannot claim unrestricted capability or be encoded without scope;
-all existing production owners remain unrestricted. Actual executable-cell
-coverage and immutable successor-envelope checks are now connected internally
-and pass independent mathematical/genericity audits and the 2,263-test core
-release gate. The gate also preserves typed geometry resource failures and
-strengthens cold rejection of finite substitutes for mathematical infinity.
-Public bounded installation and native cold-proof transport remain unfinished;
-bounded owners still cannot be encoded. This does not complete the full
-four-loop degree-30 certificate or its unresolved geometry-resource gate.
+The bounded-certificate lane connects public Rust installation, native scope
+transport and cold reproof to the existing source, actual-cell and immutable
+successor checks. Entry admission remains before cache access; descendant
+degrees are separate, and bounded owners cannot claim unrestricted capability.
+Independent audits and the release core/native/app/Python chain pass; CLI/Python
+total-excess request parity remains required follow-up. The full saved FG E30
+default-policy attempt stops at the retained successor-work limit after 47
+successful local reports and 46 completed retained sectors, before publication
+or cold acceptance. The [detailed record](docs/research/rank30_certification_audit_2026-09-17.md)
+preserves the typed failure and earlier evidence. This is not a full four-loop
+certificate or a demonstrated performance gain; shipped Vakint assets and its
+dependency pin remain unchanged.
 
 The reconstruction backend still includes internal exact sparse replay; this
 is distinct from optional family certification. New diagnostic observer

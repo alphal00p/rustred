@@ -197,10 +197,12 @@ pub struct CandidateCertificationRequest {
     pub publication_limits: SourcePortLimits,
     /// Optional entry numerator degree requested for a future scoped proof.
     /// This is deliberately not interpreted as a whole-family certificate:
-    /// the current durable artifact schema has no persisted successor-closed
-    /// scope or runtime entry admission.  Requests are therefore rejected
-    /// before decoding until that contract is implemented end to end.
+    /// numerator-only bounds leave dots unbounded and are not implemented.
+    /// Requests are rejected before decoding, never reinterpreted as total excess.
     pub max_negative_index_degree: Option<usize>,
+    /// Bound starting roots by dots plus negative powers. Descendants receive
+    /// independently verified bounds. `None` preserves unrestricted certification.
+    pub max_total_excess_degree: Option<u64>,
 }
 
 impl CandidateCertificationRequest {
@@ -210,11 +212,17 @@ impl CandidateCertificationRequest {
             input_limits: CandidateBundleLimits::default(),
             publication_limits: SourcePortLimits::default(),
             max_negative_index_degree: None,
+            max_total_excess_degree: None,
         }
     }
 
     pub fn with_max_negative_index_degree(mut self, degree: usize) -> Self {
         self.max_negative_index_degree = Some(degree);
+        self
+    }
+
+    pub fn with_max_total_excess_degree(mut self, degree: u64) -> Self {
+        self.max_total_excess_degree = Some(degree);
         self
     }
 }

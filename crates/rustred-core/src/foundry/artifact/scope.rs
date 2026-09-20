@@ -1,7 +1,7 @@
 //! Exact public-entry admission, separate from descendant proof envelopes.
 //!
 //! Internal bounded owners require actual-cell coverage and successor checks.
-//! There is no public bounded producer or durable encoding yet.
+//! Durable bounded owners replay the same exact cell and successor obligations.
 
 use std::collections::BTreeMap;
 
@@ -16,13 +16,32 @@ pub(super) enum ArtifactProofScope {
     TotalExcess(TotalExcessProofScope),
 }
 
+/// Read-only entry domain and successor envelopes of a sealed bounded owner.
+/// Constructed only after exact source, cell-cover and successor checks.
 #[derive(Debug)]
-pub(super) struct TotalExcessProofScope {
+pub struct TotalExcessProofScope {
     entry: EntryScope,
     // This immutable map is intentionally not the public-entry bound. Runtime
     // descendants rely on the checked envelope, never on entry D.
-    #[allow(dead_code)] // Retained for the subsequent bounded persistence bridge.
     successor_degrees: BTreeMap<Mask, u64>,
+}
+
+impl TotalExcessProofScope {
+    /// Bound on starting roots: dots and negative powers both contribute.
+    pub fn max_entry_total_excess_degree(&self) -> u64 {
+        self.entry.bound().limit()
+    }
+
+    /// Sector component of the entry domain: all subsectors are included,
+    /// but their starting powers must still satisfy the entry degree bound.
+    pub fn root_sector(&self) -> &Mask {
+        self.entry.root()
+    }
+
+    /// Immutable proved bounds for nonzero descendants, not entry limits.
+    pub fn successor_degrees(&self) -> &BTreeMap<Mask, u64> {
+        &self.successor_degrees
+    }
 }
 
 /// Shared boundary errors mapped into each existing public frontend error.
@@ -79,6 +98,16 @@ impl ArtifactProofScope {
 }
 
 impl ClosedArtifact {
+    /// Inspect a sealed total-excess promise. `None` means no extra degree
+    /// bound; the declared rectangular root domain still applies. The map
+    /// cannot be mutated into a new authority.
+    pub fn total_excess_scope(&self) -> Option<&TotalExcessProofScope> {
+        match &self.proof_scope {
+            ArtifactProofScope::Unrestricted => None,
+            ArtifactProofScope::TotalExcess(scope) => Some(scope),
+        }
+    }
+
     /// Validate starting powers before canonicalization, cache lookup, or any
     /// reducer mutation. The rectangular carrier retains its old semantics and
     /// error priority; exact total excess is an additional entry-only check.
@@ -107,7 +136,8 @@ impl ClosedArtifact {
     }
 
     /// Test-only admission fixture over already verified unrestricted rules.
-    /// The supplied successor map is NOT a closure proof and cannot be encoded.
+    /// The supplied successor map is NOT a closure proof. Production callers
+    /// cannot access this helper; cold replay still validates its full claim.
     #[cfg(test)]
     pub(crate) fn with_total_excess_scope_for_test(
         mut self,

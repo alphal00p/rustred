@@ -24,8 +24,9 @@ pub use candidate_bundle::{
     CandidateBundleLimits, CandidateBundleResult, CandidateCertificationRequest,
     CandidateCertificationResult, CandidateCheckpointOptions, CandidateExactBackend,
     FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest, MAX_CANDIDATE_BUNDLE_BYTES,
-    certify_candidates, family_candidates, family_candidates_with_progress,
-    inspect_generated_candidate_bundle, load_generated_candidate_bundle,
+    certify_candidates, certify_candidates_with_progress, family_candidates,
+    family_candidates_with_progress, inspect_generated_candidate_bundle,
+    load_generated_candidate_bundle,
 };
 pub use error::{AppError, AppErrorKind};
 pub use family_close::{

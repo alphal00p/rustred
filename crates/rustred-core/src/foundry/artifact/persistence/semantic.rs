@@ -72,6 +72,15 @@ pub(super) fn decode_bool_vec(
     reader: &mut Reader<'_>,
     resource: &'static str,
 ) -> Result<Vec<bool>, ArtifactPersistenceError> {
+    decode_bool_vec_checked(reader, resource, |_| Ok(()))
+}
+
+/// Admit caller-specific structural shape/cost before allocating a mask.
+pub(super) fn decode_bool_vec_checked(
+    reader: &mut Reader<'_>,
+    resource: &'static str,
+    admit_length: impl FnOnce(usize) -> Result<(), ArtifactPersistenceError>,
+) -> Result<Vec<bool>, ArtifactPersistenceError> {
     let len = reader.count(resource)?;
     if len > reader.limits().max_index_arity {
         return Err(ArtifactPersistenceError::ResourceLimit {
@@ -80,6 +89,7 @@ pub(super) fn decode_bool_vec(
             limit: reader.limits().max_index_arity,
         });
     }
+    admit_length(len)?;
     let mut values = try_vec(len, resource)?;
     for _ in 0..len {
         values.push(match reader.u8()? {

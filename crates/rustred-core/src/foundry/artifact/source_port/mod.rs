@@ -16,7 +16,10 @@ mod ordinary;
 pub(in crate::foundry::artifact) mod predicate_cover;
 mod program;
 mod progress;
-pub use progress::SourcePortInstallEvent;
+pub use progress::{
+    SourcePortInstallEvent, SourcePortSuccessorAttempt, SourcePortSuccessorCounts,
+    SourcePortSuccessorSnapshot, SourcePortSuccessorStage,
+};
 mod replay;
 mod rule_replay;
 pub use rule_replay::{SourcePortReplayedRule, SourcePortRuleReplayAudit};

@@ -553,3 +553,13 @@ attribution nor a cause is established. Different prefixes and deadlines
 preclude a matched solver-speed ratio. Evidence:
 `TMP/five-loop-rank-screen-resume-next.7EU4nQ/`. The subsequent release build
 started only after this campaign's owned processes had exited.
+
+## Full-root exact-lift follow-up
+
+A separate 1,800-second run of the external five-loop banana input also ends
+incomplete: no saved sector or final bundle, 1,800.88 s wall and approximately
+7.56 GiB peak RSS. Short CPU recordings identify native factorized sparse-row
+addition/multiplication in the sampled interval. The
+[exact-lift report](five_loop_exact_lift_profile.md) records the full workload,
+profiling limitations, independent audits and the next existing-backend control.
+This shared-load, instrumented observation is not a completed-family benchmark.

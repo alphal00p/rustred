@@ -1,6 +1,113 @@
 # Rank-30 certification checkpoint (2026-09-17)
 
-## Follow-up: degree-scoped exact audits (2026-09-19)
+## September 20 follow-up: total-excess native owner
+
+The public Rust request
+`CandidateCertificationRequest::with_max_total_excess_degree(D)` now invokes
+the consuming `SourcePortAudit::install_complete_through_total_excess`.
+Its entry contract is `sum(max(n_i-1,0) + max(-n_i,0)) <= D` within the declared
+root downset: dots and negative powers both count. Complete source replay,
+guards, descent, actual executable-cell coverage and every live RHS successor
+check remain mandatory. Independently proved descendant-sector bounds may
+exceed the entry bound. The existing reducer and scalar lowering reject an
+out-of-scope start before cache access or mutation. `None` preserves the
+unrestricted path. CLI/Python total-excess parity remains required follow-up;
+their distinct numerator-only option still rejects because dots remain
+unbounded. Neither option is silently reinterpreted as the other.
+
+A distinct `BoundedCertified` native kind requires a version-1 scope section
+containing the degree convention, root, entry degree and canonical successor
+map. The common transport remains version 1 and the source proof remains V6.
+Cold loading reconstructs sources and actual cells, reproves their coverage
+and successor containment, then compares native structure, exact coefficients
+and both variable maps. Saved scope is not a trusted proof flag. Bounded owners
+cannot enter the unrestricted vacuum-capability loader; zero-only roots remain
+unsupported. Native State/Atom readers still require trusted generated input.
+See the [contract and interface boundary](rank_bounded_certification.md).
+
+### Release verification
+
+All final gates below pass. Counts describe distinct gate executions, not a
+new count of numerically accepted Vakint cases.
+
+| Gate | Result | Retained evidence under `TMP/` |
+| --- | --- | --- |
+| Core library | 2,281 passed, zero failed, 32 ignored; 1,021.98 s execution, excluding 55m26s compilation | `bounded-native-successor-gate.l2WF8U/core.log`, `core.status` |
+| Fresh native process | Two passed, zero failed, one child-process helper ignored; 0.12 s execution | `bounded-native-successor-gate.l2WF8U/core-native.log`, `core-native.status` |
+| Application | 121 unit and 72 integration tests passed, zero failed | `bounded-native-successor-gate-fixed.hkPJLi/app.log`, `app.status` |
+| Python binding Rust tests | Eight passed, zero failed | `bounded-native-adapter-gate.TciDG4/python.log`, `python.status` |
+| Release CLI and fresh extension | Successful CLI/extension builds and default-API smoke; 38 Python/CLI tests passed in 56.325 s | `bounded-native-adapter-gate.TciDG4/cli.status`, `python-build.status`, `python-import-default.status`, `python-tests.log`, `python-tests.status` |
+| Frozen source verification | All 40 manifest entries match | `bounded-native-adapter-gate.TciDG4/source-after.log` |
+
+The native-process tests exercise altered Symbolica registration order and
+exact bounded cold replay. Independent source/mathematical and genericity
+audits found no blocker. Singleton sign partitions now borrow their original
+box, and immutable source ordering keys are built lazily once per RHS.
+These are generic reuse changes, not topology-specific shortcuts, new algebra
+or relaxed proof budgets. Observational counters distinguish retained
+propagation from final actual-cell checks.
+
+The unchanged unrestricted K6 control also passes without rule generation:
+the new CLI cold-loads the saved certificate, recertifies saved candidates,
+and cold-applies the resulting certificate. A fresh Python process compares
+native structure, coefficients and both maps exactly, and reproduces the full
+saved canary report: 5,640 cells, 38 terminals, 30 output terms and 93 rule
+applications. All four stage statuses are zero in
+`TMP/bounded-native-k6-saved-control.HgUlGr/`. This is a compatibility regression,
+not a new generation measurement or evidence of four-loop closure.
+
+Failed setup evidence is retained, not counted as a passing execution. The
+initial app test run passed 120 tests and failed one at a new test-only
+`toml::Value::FromStr` document parse. Both such calls were changed to
+`toml::from_str` without changing assertions. The next
+isolated Python build lacked an interpreter, fixed by explicitly naming the
+existing workspace interpreter. The standalone FG client needed a harness-only
+`SmartString` error conversion for its build. These records remain in the
+original gate directories and `fg-bounded-native-acceptance.DMv9MT/CLIENT_BUILD_FIX.md`.
+
+### Complete saved FG E30 attempt: resource-limited, not certified
+
+The new consuming installation was run on the unchanged saved full FG program:
+124 nonzero sectors, 9,272 rules, 145 raw finite terminals and 126,549 source
+trace entries. No IBPs were regenerated. The entry degree is 30 and all input,
+publication and proof resource limits retain their defaults. It ran with one
+worker on CPU 93, a 600-second external deadline and 32 GiB virtual-address cap
+(not an RSS cap). Concurrent work makes this a shared-load observation, not
+an isolated benchmark or a paired comparison with earlier diagnostics.
+
+The process exits with status 1 and typed `AppErrorKind::Limit`, naming
+`total-excess successor geometry`. All 47 completed local reports have zero
+issues and zero uncovered boxes. Retained successor propagation completes 46
+sectors before stopping within sector 107; the final actual-cell pass and
+installation are not reached. The rejected charge is:
+
+| Counter | Consumed | Attempted after next charge | Limit |
+| --- | ---: | ---: | ---: |
+| Boxes | 212,518 | 212,526 | 1,000,006 |
+| Coordinate cells | 10,996,840 | 10,997,160 | 12,000,072 |
+| Work | 11,999,957 | 12,000,280 | 12,000,072 |
+
+Whole-process wall time is **12.54 s**, user CPU **12.21 s**, system CPU
+**0.23 s**, and peak RSS **211,972 KiB**. The public certifier reports failure
+after 12.349654 s; its observer reaches preparation at 0.167124 s and prepared
+sources at 0.197431 s, then the failed successor event at 12.291067 s. No
+complete replay/lowering/encoding boundary exists for this failed run.
+No bounded artifact or success report is written, and the separate cold-load
+and runtime-canary stage is not run. Input/library hash checks pass.
+
+Evidence: `TMP/fg-bounded-native-acceptance.DMv9MT/` contains `certify.log`,
+`certify.err`, `certify.status`, `certify.time`, the frozen client and hash
+records. This is neither a completed full-FG certificate nor evidence of a
+missing IBP. No four-loop Vakint asset or dependency pin changes. Any separate
+caller-resourced follow-up requires its own result; none is claimed here.
+
+## Historical checkpoint record
+
+The dated sections below preserve the earlier implementation boundaries and
+measurements. Their statements about missing total-excess publication/native
+transport describe those checkpoints, not the implementation above.
+
+### Follow-up: degree-scoped exact audits (2026-09-19)
 
 The public Rust diagnostic `SourcePortAudit::audit_sector_through_total_excess`
 now requests coverage through an explicit **total excess**
@@ -205,7 +312,7 @@ release suite passes **2,200 tests, 31 ignored, zero failures**, in 41.35 s
 excluding compilation. Logs are `TMP/total-excess-focused-release-tests.log`
 and `TMP/total-excess-full-core-release-tests.log`; formatting checks pass.
 
-## Decision
+## Original numerator-only decision (still unsupported)
 
 RustRed now exposes an explicit, fail-closed request for a bounded entry
 degree.  `max_negative_index_degree` is accepted only up to 30.  A request is
@@ -220,7 +327,7 @@ while the bounded proof path is being implemented.  The ordinary
 `certify-candidates` behavior and artifact schema remain unchanged when the
 option is omitted.
 
-## Why the existing primitives cannot yet publish a bounded artifact
+## Historical missing integration at the original checkpoint
 
 The repository already contains useful exact geometry:
 
@@ -258,7 +365,7 @@ still require the expensive unbounded certificate or publish an artifact that
 could accept an out-of-scope target.  Both outcomes would misrepresent the
 mathematical guarantee, so the new option fails closed.
 
-## Required next implementation (in order)
+## Original integration checklist
 
 The smallest sound rank-30 implementation must compose all of the following,
 without introducing a new CAS:

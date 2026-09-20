@@ -28,12 +28,21 @@ pub(super) struct ArtifactSummaryOutputV2 {
     pub(super) common_mass_homogeneity: Option<&'static str>,
     pub(super) root_power_lower: Vec<i64>,
     pub(super) root_power_upper: Vec<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) total_excess_scope: Option<TotalExcessScopeOutputV1>,
     /// Only zero sectors intersecting the declared root-power domain.
     pub(super) in_scope_zero_sectors: usize,
     pub(super) masters: Vec<IntegralKeyOutputV1>,
     /// Global zero evidence, including sectors outside the admitted root
     /// domain when translated source replay requires those certificates.
     pub(super) zero_terminals: Vec<ZeroTerminalOutputV1>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub(super) struct TotalExcessScopeOutputV1 {
+    pub(super) max_entry_total_excess_degree: u64,
+    pub(super) successor_sector_count: usize,
+    pub(super) max_successor_total_excess_degree: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]

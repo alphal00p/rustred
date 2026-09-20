@@ -226,6 +226,9 @@ fn install_observer_preserves_durable_bytes_and_runs_on_calling_thread() {
                     ("installing", elapsed)
                 }
                 SourcePortInstallEvent::Installed { elapsed } => ("installed", elapsed),
+                SourcePortInstallEvent::SuccessorGeometry { .. } => {
+                    panic!("unrestricted install must not emit bounded successor telemetry")
+                }
             };
             events.push((name, elapsed));
             // Observable caller work may perturb timings, never rule choices.

@@ -14,7 +14,7 @@ mod model;
 mod policy;
 pub(super) mod preparation;
 
-pub use certify::certify_candidates;
+pub use certify::{certify_candidates, certify_candidates_with_progress};
 pub use checkpoint::CandidateCheckpointOptions;
 pub use generate::{family_candidates, family_candidates_with_progress};
 pub use load::{inspect_generated_candidate_bundle, load_generated_candidate_bundle};
