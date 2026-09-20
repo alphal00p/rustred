@@ -326,6 +326,7 @@ mod tests {
         for backend in [
             CandidateExactBackend::Sparse,
             CandidateExactBackend::SparseFactorized,
+            CandidateExactBackend::SparseTargetOnlyFactorized,
             CandidateExactBackend::SemiNumerical,
         ] {
             let Command::FamilyCandidates(args) = parse_generation(

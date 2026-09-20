@@ -108,7 +108,7 @@ class CandidateApiTests(GeneratedProgramAssertions):
         sparse = rustred.family_candidates(UNIT_MASS_PROJECT_K1)
         self.assertEqual(tomllib.loads(sparse.to_toml())["exact_backend"], "sparse")
         baseline = rustred.certify_candidates(sparse.bundle).artifact
-        for backend in ["semi-numerical", "sparse-factorized"]:
+        for backend in ["semi-numerical", "sparse-factorized", "sparse-target-factorized"]:
             with self.subTest(backend=backend):
                 generated = rustred.family_candidates(
                     UNIT_MASS_PROJECT_K1, exact_backend=backend, n_cores=2
@@ -136,18 +136,20 @@ class CandidateApiTests(GeneratedProgramAssertions):
             "sparse",
         )
         sparse = rustred.family_candidates(UNIT_MASS_PROJECT_K3)
-        generated = rustred.family_candidates(
-            UNIT_MASS_PROJECT_K3, exact_backend="sparse-factorized", n_cores=2
-        )
-        self.assertEqual(generated.status, "uncertified-candidates")
-        self.assertEqual(generated.schema, sparse.schema)
-        self.assertEqual(
-            tomllib.loads(generated.to_toml())["exact_backend"], "sparse-factorized"
-        )
-        self.assertProgramEqual(
-            rustred.certify_candidates(sparse.bundle).artifact,
-            rustred.certify_candidates(generated.bundle).artifact,
-        )
+        for backend in ["sparse-factorized", "sparse-target-factorized"]:
+            with self.subTest(backend=backend):
+                generated = rustred.family_candidates(
+                    UNIT_MASS_PROJECT_K3, exact_backend=backend, n_cores=2
+                )
+                self.assertEqual(generated.status, "uncertified-candidates")
+                self.assertEqual(generated.schema, sparse.schema)
+                self.assertEqual(
+                    tomllib.loads(generated.to_toml())["exact_backend"], backend
+                )
+                self.assertProgramEqual(
+                    rustred.certify_candidates(sparse.bundle).artifact,
+                    rustred.certify_candidates(generated.bundle).artifact,
+                )
 
     def test_saved_candidates_and_independent_certification(self) -> None:
         generated = rustred.family_candidates(UNIT_MASS_PROJECT_K1)

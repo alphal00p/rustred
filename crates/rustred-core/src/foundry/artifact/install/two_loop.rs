@@ -79,6 +79,7 @@ pub(super) fn validate(
         arity: candidate.arity,
         ordering: candidate.ordering,
         supported_root_power_bounds: candidate.supported_root_power_bounds,
+        proof_scope: super::super::scope::ArtifactProofScope::Unrestricted,
         family_fingerprint: candidate.family.fingerprint_owner(),
         family: candidate.family,
         context: candidate.context,

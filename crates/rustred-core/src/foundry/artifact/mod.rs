@@ -19,6 +19,7 @@ mod model;
 mod multi_affine_expansion;
 mod one_loop;
 mod persistence;
+mod scope;
 mod source_port;
 mod terminal;
 mod three_loop;
@@ -44,6 +45,7 @@ pub use model::{
 };
 pub use one_loop::derive_one_loop_unit_mass_tadpole;
 pub use persistence::{ArtifactCoverReplayLimits, ArtifactEncodingLimits, ArtifactLoadLimits};
+pub(crate) use scope::RootDomainError;
 pub(crate) use source_port::ReplayedOriginalDomain;
 pub use source_port::{
     AffineApplicationDomain, AffineOwnershipRole, SourcePortAudit, SourcePortAuditError,

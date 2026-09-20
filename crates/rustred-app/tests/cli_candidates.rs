@@ -90,7 +90,11 @@ fn numerical_depth_is_explicit_and_validated_before_generation() {
 #[test]
 fn explicit_exact_backends_preserve_small_case_candidate_payload() {
     let sparse = success(&["family-candidates"], INPUT.as_bytes());
-    for backend in ["semi-numerical", "sparse-factorized"] {
+    for backend in [
+        "semi-numerical",
+        "sparse-factorized",
+        "sparse-target-factorized",
+    ] {
         let generated = success(
             &["family-candidates", "--exact-backend", backend],
             INPUT.as_bytes(),
@@ -98,11 +102,9 @@ fn explicit_exact_backends_preserve_small_case_candidate_payload() {
         assert_eq!(sparse, generated);
     }
     let help = success(&["--help"], b"");
-    assert!(
-        String::from_utf8(help)
-            .unwrap()
-            .contains("sparse, sparse-factorized, or semi-numerical [default: sparse]")
-    );
+    assert!(String::from_utf8(help).unwrap().contains(
+        "sparse, sparse-factorized, sparse-target-factorized, or semi-numerical [default: sparse]"
+    ));
     let failed = run(
         &["family-candidates", "--exact-backend", "invalid"],
         INPUT.as_bytes(),

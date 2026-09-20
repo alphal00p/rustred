@@ -390,16 +390,21 @@ fn complete_k1_and_k3_test_sector_censuses_match_ordinary_rules_guards_and_finit
                 .unwrap()
             };
             let sparse = solve(SymbolicExactBackend::Sparse);
-            let factored = solve(SymbolicExactBackend::SparseFactorized);
-            assert_eq!(sparse.finite_residuals, factored.finite_residuals);
-            assert_eq!(sparse.rules.len(), factored.rules.len());
-            for (a, b) in sparse.rules.iter().zip(&factored.rules) {
-                assert_eq!(a.candidate.case, b.candidate.case);
-                assert_eq!(a.candidate.target, b.candidate.target);
-                assert_eq!(a.candidate.sources, b.candidate.sources);
-                assert_eq!(a.candidate.stats.discovery, b.candidate.stats.discovery);
-                assert_eq!(a.exceptions, b.exceptions);
-                compare_maps(&a.candidate.rhs, &b.candidate.rhs, variables);
+            for backend in [
+                SymbolicExactBackend::SparseFactorized,
+                SymbolicExactBackend::SparseTargetOnlyFactorized,
+            ] {
+                let factored = solve(backend);
+                assert_eq!(sparse.finite_residuals, factored.finite_residuals);
+                assert_eq!(sparse.rules.len(), factored.rules.len());
+                for (a, b) in sparse.rules.iter().zip(&factored.rules) {
+                    assert_eq!(a.candidate.case, b.candidate.case);
+                    assert_eq!(a.candidate.target, b.candidate.target);
+                    assert_eq!(a.candidate.sources, b.candidate.sources);
+                    assert_eq!(a.candidate.stats.discovery, b.candidate.stats.discovery);
+                    assert_eq!(a.exceptions, b.exceptions);
+                    compare_maps(&a.candidate.rhs, &b.candidate.rhs, variables);
+                }
             }
         }
     }
@@ -442,17 +447,22 @@ fn fixed_face_source_trace_and_exceptional_guards_match_after_modular_discovery(
             .unwrap()
     };
     let sparse = solve(SymbolicExactBackend::Sparse);
-    let factored = solve(SymbolicExactBackend::SparseFactorized);
-    assert!(!sparse.stats.direct_hit && !factored.stats.direct_hit);
-    assert_eq!(sparse.target, factored.target);
-    assert_eq!(sparse.case, factored.case);
-    assert_eq!(sparse.sources, factored.sources);
-    assert_eq!(sparse.stats.discovery, factored.stats.discovery);
-    compare_maps(&sparse.rhs, &factored.rhs, context.variables());
     let guards = extract_exceptions(&sparse, &indices, &[true; 2]).unwrap();
     assert!(!guards.branches.is_empty());
-    assert_eq!(
-        guards,
-        extract_exceptions(&factored, &indices, &[true; 2]).unwrap()
-    );
+    for backend in [
+        SymbolicExactBackend::SparseFactorized,
+        SymbolicExactBackend::SparseTargetOnlyFactorized,
+    ] {
+        let factored = solve(backend);
+        assert!(!sparse.stats.direct_hit && !factored.stats.direct_hit);
+        assert_eq!(sparse.target, factored.target);
+        assert_eq!(sparse.case, factored.case);
+        assert_eq!(sparse.sources, factored.sources);
+        assert_eq!(sparse.stats.discovery, factored.stats.discovery);
+        compare_maps(&sparse.rhs, &factored.rhs, context.variables());
+        assert_eq!(
+            guards,
+            extract_exceptions(&factored, &indices, &[true; 2]).unwrap()
+        );
+    }
 }

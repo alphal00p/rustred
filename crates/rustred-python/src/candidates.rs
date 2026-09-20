@@ -51,7 +51,9 @@ impl PyCandidateBundleResult {
 /// This does not certify family closure. The separate to_toml() report contains
 /// observational metadata, not the program's coefficient payload.
 /// exact_backend selects "sparse" (default), "sparse-factorized" (native
-/// factorized denominators during exact lifting), or "semi-numerical".
+/// factorized denominators during exact lifting), "sparse-target-factorized"
+/// (factorized symbolic target-block lifting, shared full numerical lifting),
+/// or "semi-numerical". All modes retain ordinary coefficient output.
 /// numerical_depth bounds only fully fixed case searches. Zero still searches
 /// their initial seeds; finite residuals need not be independent masters.
 /// checkpoint_dir enables trusted-local native sector checkpoints. Use resume

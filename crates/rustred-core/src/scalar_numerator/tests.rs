@@ -12,6 +12,8 @@ use crate::reduction::Reducer;
 
 use super::*;
 
+mod scoped;
+
 fn symbol(name: &str) -> Symbol {
     SymbolBuilder::new(
         NamespacedSymbol::try_parse(format!("rustred_scalar_numerator_tests::{name}"))

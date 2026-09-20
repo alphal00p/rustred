@@ -15,6 +15,9 @@ use super::model::{
     ReductionLimits, ReductionStatistics,
 };
 
+#[cfg(test)]
+mod scoped_tests;
+
 /// Stateful, topology-independent memoizing applier for one sealed artifact.
 pub struct Reducer<'artifact> {
     artifact: &'artifact ClosedArtifact,
@@ -341,28 +344,9 @@ impl<'artifact> Reducer<'artifact> {
     }
 
     fn validate_target(&self, target: &IntegralKey) -> Result<(), ReductionError> {
-        if target.powers().len() != self.artifact.arity() {
-            return Err(ReductionError::WrongArity {
-                expected: self.artifact.arity(),
-                actual: target.powers().len(),
-            });
-        }
-        for (position, (&value, bounds)) in target
-            .powers()
-            .iter()
-            .zip(self.artifact.supported_root_power_bounds())
-            .enumerate()
-        {
-            if !bounds.contains(value) {
-                return Err(ReductionError::OutsideCertifiedRootDomain {
-                    position,
-                    value,
-                    lower: bounds.lower(),
-                    upper: bounds.upper(),
-                });
-            }
-        }
-        Ok(())
+        self.artifact
+            .validate_root_powers(target.powers())
+            .map_err(Into::into)
     }
 
     pub(super) fn select_first_rule(

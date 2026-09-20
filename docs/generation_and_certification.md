@@ -71,6 +71,18 @@ descent or reachable terminals. Joining this identity evidence with a concrete
 reduction trace and persisting/enforcing a certified entry scope remains work
 to do. The checkpoint does not ship a four-loop bounded or unrestricted artifact.
 
+The internal scoped-owner boundary now distinguishes exact starting total
+excess from the potentially larger certified descendant envelopes. Both the
+scalar numerator frontend and the sealed reducer share starting-key admission;
+the reducer applies it before canonicalization or cache lookup. Thus a cached
+descendant outside the starting domain cannot be reused as an admitted new
+request. Existing unrestricted owners keep their prior behavior. A bounded
+owner cannot advertise unrestricted vacuum capability or be durably encoded
+without its scope, including when nested as a dependency. Only test fixtures
+can currently attach bounded-owner metadata: actual lowered-cell coverage,
+successor closure, and native persistence still need to seal the production
+construction path. This internal preparation is not a four-loop certificate.
+
 ### Resumable candidate campaigns
 
 `FamilyCandidatesRequest::checkpoint` accepts an optional

@@ -13,7 +13,7 @@ use super::super::error::ArtifactError;
 #[allow(dead_code)]
 mod contract;
 pub use contract::EntryDegreeBound;
-pub(super) use contract::EntryScope;
+pub(in crate::foundry::artifact) use contract::EntryScope;
 #[allow(unused_imports)]
 pub(in crate::foundry::artifact) use contract::ProposedProofEnvelope;
 

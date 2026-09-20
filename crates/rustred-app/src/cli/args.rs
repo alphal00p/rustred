@@ -363,7 +363,7 @@ FAMILY-CANDIDATES OPTIONS:
     --permutation <N,N,...>      Optional zero-based coordinate priority permutation
     --nonpositive-indices <N,N,...>  Coordinates restricted to nonpositive powers
     --n-cores <COUNT>            Maximum worker cores [default: 1]
-    --exact-backend <BACKEND>    sparse, sparse-factorized, or semi-numerical [default: sparse]
+    --exact-backend <BACKEND>    sparse, sparse-factorized, sparse-target-factorized, or semi-numerical [default: sparse]
     --numerical-depth <DEPTH>    Search depth for fully fixed cases; zero keeps initial seeds [default: 2]
     --checkpoint-dir <PATH>     Dedicated trusted-local native sector checkpoint directory
     --resume                    Reuse a matching checkpoint; requires --checkpoint-dir

@@ -39,6 +39,8 @@ fn finite_depth_is_saved_inspectable_and_cold_applicable_across_backends_and_wor
             (CandidateExactBackend::Sparse, 2),
             (CandidateExactBackend::SparseFactorized, 1),
             (CandidateExactBackend::SparseFactorized, 2),
+            (CandidateExactBackend::SparseTargetOnlyFactorized, 1),
+            (CandidateExactBackend::SparseTargetOnlyFactorized, 2),
         ] {
             request.exact_backend = backend;
             request.n_cores = workers;

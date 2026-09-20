@@ -10,8 +10,8 @@ use crate::application::{AppErrorKind, FamilyCloseRequest, InputFormat, family_c
 
 use super::{codec, model::*, preparation, *};
 
-mod depth;
 mod checkpoint;
+mod depth;
 
 const K1: &str = r#"
 schema = "rustred.project.toml.v1"
@@ -106,12 +106,17 @@ fn candidate_materialization_backends_keep_small_case_bundles_identical() {
         CandidateExactBackend::Sparse,
         CandidateExactBackend::SemiNumerical,
         CandidateExactBackend::SparseFactorized,
+        CandidateExactBackend::SparseTargetOnlyFactorized,
     ] {
         assert_eq!(backend.as_str().parse(), Ok(backend));
     }
     assert_eq!(
         CandidateExactBackend::SparseFactorized.solver_backend(),
         rustred::solver::SymbolicExactBackend::SparseFactorized,
+    );
+    assert_eq!(
+        CandidateExactBackend::SparseTargetOnlyFactorized.solver_backend(),
+        rustred::solver::SymbolicExactBackend::SparseTargetOnlyFactorized,
     );
     for (backend, expected) in [
         (
@@ -124,6 +129,10 @@ fn candidate_materialization_backends_keep_small_case_bundles_identical() {
         ),
         (
             CandidateExactBackend::SparseFactorized,
+            rustred::solver::NumericalExactBackend::SparseFactorized,
+        ),
+        (
+            CandidateExactBackend::SparseTargetOnlyFactorized,
             rustred::solver::NumericalExactBackend::SparseFactorized,
         ),
     ] {
@@ -142,6 +151,9 @@ fn candidate_materialization_backends_keep_small_case_bundles_identical() {
             (CandidateExactBackend::SemiNumerical, 2),
             (CandidateExactBackend::SparseFactorized, 1),
             (CandidateExactBackend::SparseFactorized, 2),
+            (CandidateExactBackend::SparseTargetOnlyFactorized, 1),
+            (CandidateExactBackend::SparseTargetOnlyFactorized, 2),
+            (CandidateExactBackend::SparseTargetOnlyFactorized, 6),
         ] {
             let mut request = FamilyCandidatesRequest::new(source);
             request.exact_backend = backend;

@@ -19,6 +19,10 @@ pub enum ReductionError {
         lower: i64,
         upper: i64,
     },
+    OutsideCertifiedTotalExcessDomain {
+        maximum: u64,
+    },
+    CertifiedEntryScope(crate::foundry::artifact::ArtifactError),
     IndexOverflow {
         position: usize,
     },
@@ -95,6 +99,11 @@ impl fmt::Display for ReductionError {
                 formatter,
                 "integral power {value} at position {position} is outside the artifact's certified root domain [{lower}, {upper}]"
             ),
+            Self::OutsideCertifiedTotalExcessDomain { maximum } => write!(
+                formatter,
+                "integral total excess exceeds the artifact's certified entry maximum {maximum}"
+            ),
+            Self::CertifiedEntryScope(error) => write!(formatter, "certified entry scope: {error}"),
             Self::IndexOverflow { position } => {
                 write!(
                     formatter,
@@ -179,6 +188,32 @@ impl fmt::Display for ReductionError {
 }
 
 impl std::error::Error for ReductionError {}
+
+impl From<crate::foundry::artifact::RootDomainError> for ReductionError {
+    fn from(error: crate::foundry::artifact::RootDomainError) -> Self {
+        use crate::foundry::artifact::RootDomainError;
+        match error {
+            RootDomainError::WrongArity { expected, actual } => {
+                Self::WrongArity { expected, actual }
+            }
+            RootDomainError::OutsideBounds {
+                position,
+                value,
+                lower,
+                upper,
+            } => Self::OutsideCertifiedRootDomain {
+                position,
+                value,
+                lower,
+                upper,
+            },
+            RootDomainError::OutsideTotalExcess { maximum } => {
+                Self::OutsideCertifiedTotalExcessDomain { maximum }
+            }
+            RootDomainError::Scope(error) => Self::CertifiedEntryScope(error),
+        }
+    }
+}
 
 impl From<IntegralKeyError> for ReductionError {
     fn from(value: IntegralKeyError) -> Self {

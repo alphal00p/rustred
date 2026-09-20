@@ -85,6 +85,10 @@ pub enum ScalarNumeratorError {
         lower: i64,
         upper: i64,
     },
+    OutsideCertifiedTotalExcessDomain {
+        maximum: u64,
+    },
+    CertifiedEntryScope(crate::foundry::artifact::ArtifactError),
     ResourceLimit {
         resource: &'static str,
         requested: usize,
@@ -179,6 +183,11 @@ impl fmt::Display for ScalarNumeratorError {
                 formatter,
                 "lowered integral power {value} at position {position} is outside the artifact's certified root domain [{lower}, {upper}]"
             ),
+            Self::OutsideCertifiedTotalExcessDomain { maximum } => write!(
+                formatter,
+                "lowered integral total excess exceeds the artifact's certified entry maximum {maximum}"
+            ),
+            Self::CertifiedEntryScope(error) => write!(formatter, "certified entry scope: {error}"),
             Self::ResourceLimit {
                 resource,
                 requested,
@@ -211,6 +220,32 @@ impl fmt::Display for ScalarNumeratorError {
 }
 
 impl std::error::Error for ScalarNumeratorError {}
+
+impl From<crate::foundry::artifact::RootDomainError> for ScalarNumeratorError {
+    fn from(error: crate::foundry::artifact::RootDomainError) -> Self {
+        use crate::foundry::artifact::RootDomainError;
+        match error {
+            RootDomainError::WrongArity { expected, actual } => {
+                Self::WrongIntegralKeyArity { expected, actual }
+            }
+            RootDomainError::OutsideBounds {
+                position,
+                value,
+                lower,
+                upper,
+            } => Self::OutsideCertifiedRootDomain {
+                position,
+                value,
+                lower,
+                upper,
+            },
+            RootDomainError::OutsideTotalExcess { maximum } => {
+                Self::OutsideCertifiedTotalExcessDomain { maximum }
+            }
+            RootDomainError::Scope(error) => Self::CertifiedEntryScope(error),
+        }
+    }
+}
 
 impl From<ExactAlgebraError> for ScalarNumeratorError {
     fn from(value: ExactAlgebraError) -> Self {

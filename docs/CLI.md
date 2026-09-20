@@ -190,6 +190,12 @@ output-limit failure preserves the completed files for a later assembly retry.
 during exact symbolic materialization and the shared numerical-case lift, then
 restores ordinary coefficients before rule extraction. `semi-numerical` selects
 Symbolica rational reconstruction and retains ordinary exact replay.
+The experimental `sparse-target-factorized` choice instead restricts symbolic
+GPLU to the harder/target columns and reconstructs the full row using native
+factorized arithmetic; the shared numerical-case lift stays full factorized.
+It requires source prefixes independent in the harder/target block and reports
+a failure rather than silently falling back. All these strategies are
+topology/arity generic.
 The selected name appears in the report's `exact_backend` field. These choices
 retain the same discovery, guards and candidate format; they do not select an
 application cache or certify a bundle.

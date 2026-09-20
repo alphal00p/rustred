@@ -173,8 +173,14 @@ fn reduction_error_kind(error: &ReductionError) -> AppErrorKind {
             AppErrorKind::Limit
         }
         ReductionError::Ordering(error) if sector_error_is_limit(error) => AppErrorKind::Limit,
+        ReductionError::CertifiedEntryScope(error)
+            if artifact_validation_error_kind(error) == AppErrorKind::Limit =>
+        {
+            AppErrorKind::Limit
+        }
         ReductionError::WrongArity { .. }
         | ReductionError::OutsideCertifiedRootDomain { .. }
+        | ReductionError::OutsideCertifiedTotalExcessDomain { .. }
         | ReductionError::ZeroCommonMass
         | ReductionError::IntegralKey(IntegralKeyError::EmptyPowers) => AppErrorKind::Input,
         ReductionError::UncoveredIntegral { .. }
@@ -183,6 +189,7 @@ fn reduction_error_kind(error: &ReductionError) -> AppErrorKind {
             AppErrorKind::Execution
         }
         ReductionError::CycleDetected { .. }
+        | ReductionError::CertifiedEntryScope(_)
         | ReductionError::FactorizedProductMoment { .. }
         | ReductionError::ReducerInvariant { .. }
         | ReductionError::RuleCell(_)
@@ -604,6 +611,30 @@ mod tests {
         for error in resource_errors {
             assert_eq!(reduction_error_kind(&error), AppErrorKind::Limit);
         }
+    }
+
+    #[test]
+    fn bounded_entry_rejections_keep_input_resource_and_invariant_categories() {
+        assert_eq!(
+            reduction_error_kind(&ReductionError::OutsideCertifiedTotalExcessDomain {
+                maximum: 30
+            }),
+            AppErrorKind::Input
+        );
+        assert_eq!(
+            reduction_error_kind(&ReductionError::CertifiedEntryScope(
+                ArtifactError::ResourceCountOverflow {
+                    resource: "entry degree"
+                }
+            )),
+            AppErrorKind::Limit
+        );
+        assert_eq!(
+            reduction_error_kind(&ReductionError::CertifiedEntryScope(
+                ArtifactError::WrongFamily
+            )),
+            AppErrorKind::InternalInvariant
+        );
     }
 
     #[test]

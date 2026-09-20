@@ -46,9 +46,8 @@ pub(super) fn materialize<const N: usize>(
     )
 }
 
-/// Experimental composition only. No public backend or runtime dispatch selects it.
-#[cfg(test)]
-fn materialize_factorized<const N: usize>(
+/// Explicit native-field composition; no automatic backend selection.
+pub(super) fn materialize_factorized<const N: usize>(
     rows: &[ExactRow<N>],
     columns: &[Integral<N>],
     order: &IntegralOrder<N>,
@@ -84,11 +83,17 @@ fn materialize_in_field<const N: usize, F: Field>(
     catch_native: bool,
     mut observe: impl FnMut(MaterializationEvent<N>),
 ) -> Result<ExactRow<N>, MaterializationError> {
+    // Admit the full reconstruction width, not only the smaller target block.
+    // The sentinel convention is shared with the full sparse backends.
+    u32::try_from(columns.len())
+        .ok()
+        .and_then(|width| width.checked_add(1))
+        .ok_or(MaterializationError::TooManyColumns)?;
     // Authenticate the entire input, including explicit zeros, tail-only terms
     // and rows after the eventual hit, before a shortcut can omit them.
     let one = import(&input_one(rows)?)?;
-    // Common preflight checked the full column count, distinct sorted source
-    // terms and every coefficient map. The trailing zero sentinel is retained.
+    // Common preflight checked distinct sorted source terms and every
+    // coefficient map. The trailing zero sentinel is retained.
     let block_columns =
         u32::try_from(target_column + 2).map_err(|_| MaterializationError::TooManyColumns)?;
     let mut reducer = native(

@@ -12,6 +12,8 @@ mod coefficient;
 mod family;
 mod k6;
 mod limits;
+#[cfg(test)]
+mod scoped_tests;
 mod semantic;
 mod source_port;
 mod two_loop;
@@ -113,6 +115,11 @@ fn encode_into_writer(
     artifact: &ClosedArtifact,
     output: &mut Writer,
 ) -> Result<(), ArtifactPersistenceError> {
+    if !artifact.proof_scope.is_unrestricted() {
+        return Err(ArtifactPersistenceError::UnsupportedFeature {
+            detail: "bounded artifact scope has no durable encoding yet",
+        });
+    }
     if artifact.schema() != ArtifactSchemaVersion::CURRENT {
         return Err(ArtifactPersistenceError::UnsupportedSchema {
             actual: artifact.schema().as_u32(),

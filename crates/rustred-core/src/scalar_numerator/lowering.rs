@@ -238,28 +238,9 @@ pub(super) fn validate_root_key(
     artifact: &crate::foundry::artifact::ClosedArtifact,
     integral: &IntegralKey,
 ) -> Result<(), ScalarNumeratorError> {
-    if integral.powers().len() != artifact.arity() {
-        return Err(ScalarNumeratorError::WrongIntegralKeyArity {
-            expected: artifact.arity(),
-            actual: integral.powers().len(),
-        });
-    }
-    for (position, (&value, bounds)) in integral
-        .powers()
-        .iter()
-        .zip(artifact.supported_root_power_bounds())
-        .enumerate()
-    {
-        if !bounds.contains(value) {
-            return Err(ScalarNumeratorError::OutsideCertifiedRootDomain {
-                position,
-                value,
-                lower: bounds.lower(),
-                upper: bounds.upper(),
-            });
-        }
-    }
-    Ok(())
+    artifact
+        .validate_root_powers(integral.powers())
+        .map_err(Into::into)
 }
 
 fn accumulate(

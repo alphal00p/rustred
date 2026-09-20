@@ -156,6 +156,7 @@ pub struct ClosedArtifact {
     pub(super) arity: usize,
     pub(super) ordering: OrderingPolicy,
     pub(super) supported_root_power_bounds: Box<[InteriorBounds]>,
+    pub(super) proof_scope: super::scope::ArtifactProofScope,
     pub(super) family: IntegralFamily,
     pub(super) family_fingerprint: Arc<String>,
     pub(super) context: IndexedCoefficientContext,
@@ -195,7 +196,8 @@ impl ClosedArtifact {
     /// calling [`Self::decode_durable`] to independently verify the mathematical
     /// claims in a trusted-generated native payload.
     pub fn is_complete_unit_mass_vacuum(&self) -> bool {
-        self.algorithm_id
+        self.proof_scope.is_unrestricted()
+            && self.algorithm_id
             == super::COMPLETE_VACUUM_SOURCE_PORT_ALGORITHM_ID
             // `arity` is the number of scalar-product denominators (ten for
             // four loops), not the loop count itself.
@@ -224,8 +226,9 @@ impl ClosedArtifact {
         self.ordering
     }
 
-    /// Certified rectangular machine-index domain accepted at the public
-    /// reduction boundary. Descendants may temporarily reach representation
+    /// Rectangular machine-index prefilter at the public reduction boundary.
+    /// A scoped owner additionally enforces its exact entry predicate.
+    /// Descendants may temporarily reach representation
     /// endpoints outside this root box when their sealed descent proof makes
     /// that arithmetic safe.
     pub fn supported_root_power_bounds(&self) -> &[InteriorBounds] {

@@ -423,16 +423,39 @@ and distinguishes solved output from durable saved output. This improves
 visibility during long resource-bounded experiments; it does not cure native
 allocation failures or turn progress counters into live-frame memory telemetry.
 
-A generic native-field refactor also permits an experimental, test-only
+A generic native-field refactor permits an experimental, explicitly opt-in
 factorized target-block lift. On one frozen 997-source five-loop frame, all nine
 three-way runs exactly reproduce the same full row, both maps and pivot prefix.
 Median lift times are 2.903485 s ordinary target-only, 4.164715 s full factorized
 and 1.138499 s combined; one round regresses for the combination against full
 factorized (11.165075 versus 7.457832 s), and no cause is assigned to the larger
-CPU/wall variation. No production selector/default is changed and no complete
+CPU/wall variation. The follow-up exposes `sparse-target-factorized` consistently
+through Rust/CLI/Python, retaining the shared full-factorized numerical lift and
+unchanged ordinary defaults. It passes 2,477 release correctness tests and the
+fourteen-stage K6 generation/native-equivalence/certification/cold-application
+regression, including one/six workers and no-search checkpoint resume. No complete
 five-loop solve follows. The [factorized-field study](docs/research/factorized_coefficients.md#experimental-factorized-target-block-composition)
-retains every observation, timing boundary and independent audit. Broader bounded
-case evidence is needed before production activation.
+retains every observation, timing boundary and independent audit. Larger
+selected-sector evidence is required before any automatic strategy selection.
+A subsequent generic public-backend case pair reproduces all 1,489 exact RHS
+coefficients, maps, guards and source trace. Full-factorized versus target-block
+solver-core times are 4.514 versus 4.279 s, but whole-process times regress from
+34.20 to 46.90 s because preparation and output also vary; no cause or general
+speedup is established. Two bounded parent attempts both time out (304.70 and
+303.01 s observed wall), leaving only progress logs, not saved sector solutions.
+Their 164 and 264 rule events cover different prefixes and do not establish
+parent parity or closure. The report preserves the incomplete original matrix
+and separately labelled follow-up. These measurements remain distinct from the
+earlier completed depth-zero parent and frozen-frame experiments.
+
+The bounded-certificate lane now shares exact public-entry admission between
+the sealed reducer and scalar lowering, before cache access. Descendant degree
+envelopes remain distinct from the starting total-excess cap. Internal scoped-owner
+fixtures cannot claim unrestricted capability or be encoded without scope;
+all existing production owners remain unrestricted. Actual executable-cell
+coverage, successor sealing and native cold-proof transport still need to be
+connected before a bounded artifact can ship. This preparation does not complete
+the full four-loop degree-30 certificate.
 
 The reconstruction backend still includes internal exact sparse replay; this
 is distinct from optional family certification. New diagnostic observer

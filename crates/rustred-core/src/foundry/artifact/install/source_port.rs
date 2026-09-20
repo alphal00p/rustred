@@ -304,6 +304,7 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
         arity: candidate.arity,
         ordering: candidate.ordering,
         supported_root_power_bounds: candidate.supported_root_power_bounds,
+        proof_scope: super::super::scope::ArtifactProofScope::Unrestricted,
         family_fingerprint: candidate.family.fingerprint_owner(),
         family: candidate.family,
         context: candidate.context,

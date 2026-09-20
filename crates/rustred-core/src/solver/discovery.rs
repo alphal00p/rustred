@@ -35,6 +35,10 @@ pub enum SymbolicExactBackend {
     /// weight solve and one full-row product. Requires an independent prefix.
     /// This is an opt-in scheduling experiment, not a different source search.
     SparseTargetOnly,
+    /// The same independent-prefix target-block schedule over Symbolica's
+    /// native factorized field. Restores ordinary coefficients before rule
+    /// extraction. Explicitly opt-in: a smaller block need not be faster.
+    SparseTargetOnlyFactorized,
     /// Native dense polynomial elimination. The bound limits initial matrix
     /// slots, not coefficient growth or total memory. Use an external run cap.
     DenseFractionFree { max_matrix_entries: usize },
@@ -539,6 +543,16 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
     }
     if backend == SymbolicExactBackend::SparseTargetOnly {
         return target_only::materialize(rows, &columns, order, target_column, &variables, observe);
+    }
+    if backend == SymbolicExactBackend::SparseTargetOnlyFactorized {
+        return target_only::materialize_factorized(
+            rows,
+            &columns,
+            order,
+            target_column,
+            &variables,
+            observe,
+        );
     }
     if let SymbolicExactBackend::SemiNumerical {
         max_degree,

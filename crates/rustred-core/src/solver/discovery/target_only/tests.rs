@@ -33,6 +33,44 @@ fn lift(rows: &[ExactRow<1>], target: i16) -> Result<ExactRow<1>, Materializatio
 }
 
 #[test]
+fn factorized_public_dispatch_keeps_independent_prefix_and_full_input_admission() {
+    let context = CoefficientContext::new(["a"]);
+    let dispatch = |rows: &[ExactRow<1>], target| {
+        exact_materialize_using_with_observer(
+            rows,
+            &IntegralOrder::new([true], [false]),
+            integral(target),
+            SymbolicExactBackend::SparseTargetOnlyFactorized,
+            CoefficientVariableOrder::Original,
+            &[],
+            |_| {},
+        )
+    };
+    let dependent = vec![
+        row(&context, &[(3, "1"), (0, "a")]),
+        row(&context, &[(3, "2"), (0, "1")]),
+        row(&context, &[(2, "1")]),
+    ];
+    assert!(matches!(
+        dispatch(&dependent, 2),
+        Err(MaterializationError::TargetOnlyDependentPrefix { row: 2 })
+    ));
+    let valid = vec![row(&context, &[(2, "1"), (0, "a")])];
+    assert_eq!(dispatch(&valid, 2).unwrap(), valid[0]);
+    // A pivot hit in the first row must not hide a malformed later source.
+    let mut malformed = valid.clone();
+    let mut tail = row(&context, &[(0, "1")]);
+    tail[0].coefficient.denominator = context.zero().numerator;
+    malformed.push(tail);
+    assert!(matches!(
+        dispatch(&malformed, 2),
+        Err(MaterializationError::InvalidFactorizedCoefficient(
+            "zero input denominator"
+        ))
+    ));
+}
+
+#[test]
 fn native_full_product_preserves_rational_coefficients_tail_variables_and_early_stop() {
     let context = CoefficientContext::new(["unused", "a", "b", "c"]);
     let rows = vec![

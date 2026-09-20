@@ -145,9 +145,18 @@ encoding. The equivalent CLI option is `family-candidates --exact-backend
 sparse-factorized`. This opt-in generation field is separate from the
 candidate reduction cache; `"sparse"` remains the default.
 
+The experimental `exact_backend="sparse-target-factorized"` option combines
+the native factorized field with target-block symbolic elimination and a
+one-shot full-identity reconstruction. Fully fixed numerical cases still use
+the shared multi-target factorized lift. The matching CLI value is
+`sparse-target-factorized`; there is no topology-specific dispatch or automatic
+selection. A source prefix dependent in the harder/target block produces a
+typed error, not a silent fallback. Candidate output still requires separate
+certification.
+
 Select `exact_backend="semi-numerical"` for Symbolica's rational-function
 reconstruction, or `family-candidates --exact-backend semi-numerical` at the
-CLI. Both opt-ins retain the same source search, numerical-case discovery and
+CLI. These opt-ins retain the same source search, numerical-case discovery and
 guards. Reconstruction retains ordinary exact replay, including its numerical
 tail. Reconstruction has explicit bounds (degree 128, 200,000 probes,
 four attempts, eight primes), and failure is an error, not an automatic exact

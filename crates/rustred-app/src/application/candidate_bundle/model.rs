@@ -47,16 +47,21 @@ pub enum CandidateExactBackend {
     /// sparse exact elimination.
     /// Rule extraction and candidate bundles retain ordinary coefficients.
     SparseFactorized,
+    /// Factorized target-block symbolic lifting and the existing shared full
+    /// factorized numerical-tail lift. No repeated single-target numerical solves.
+    SparseTargetOnlyFactorized,
 }
 
 impl CandidateExactBackend {
-    pub const EXPECTED_VALUES: &str = "sparse, sparse-factorized, or semi-numerical";
+    pub const EXPECTED_VALUES: &str =
+        "sparse, sparse-factorized, sparse-target-factorized, or semi-numerical";
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Sparse => "sparse",
             Self::SemiNumerical => "semi-numerical",
             Self::SparseFactorized => "sparse-factorized",
+            Self::SparseTargetOnlyFactorized => "sparse-target-factorized",
         }
     }
 
@@ -64,6 +69,7 @@ impl CandidateExactBackend {
         match self {
             Self::Sparse => SymbolicExactBackend::Sparse,
             Self::SparseFactorized => SymbolicExactBackend::SparseFactorized,
+            Self::SparseTargetOnlyFactorized => SymbolicExactBackend::SparseTargetOnlyFactorized,
             Self::SemiNumerical => SymbolicExactBackend::SemiNumerical {
                 max_degree: 128,
                 max_probes: 200_000,
@@ -75,7 +81,9 @@ impl CandidateExactBackend {
 
     pub(super) fn numerical_backend(self) -> rustred::solver::NumericalExactBackend {
         match self {
-            Self::SparseFactorized => rustred::solver::NumericalExactBackend::SparseFactorized,
+            Self::SparseFactorized | Self::SparseTargetOnlyFactorized => {
+                rustred::solver::NumericalExactBackend::SparseFactorized
+            }
             Self::Sparse | Self::SemiNumerical => rustred::solver::NumericalExactBackend::Sparse,
         }
     }
@@ -89,6 +97,7 @@ impl std::str::FromStr for CandidateExactBackend {
             "sparse" => Ok(Self::Sparse),
             "semi-numerical" => Ok(Self::SemiNumerical),
             "sparse-factorized" => Ok(Self::SparseFactorized),
+            "sparse-target-factorized" => Ok(Self::SparseTargetOnlyFactorized),
             _ => Err(crate::AppError::input(format!(
                 "invalid candidate exact backend {value:?}; expected {}",
                 Self::EXPECTED_VALUES

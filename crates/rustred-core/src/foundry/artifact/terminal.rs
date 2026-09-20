@@ -295,6 +295,7 @@ pub(crate) fn k6_product_reducer_fixture() -> ClosedArtifact {
             parts.arity
         ]
         .into_boxed_slice(),
+        proof_scope: super::scope::ArtifactProofScope::Unrestricted,
         family: parts.family,
         family_fingerprint,
         context: parts.context,

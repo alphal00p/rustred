@@ -37,7 +37,7 @@ Detailed API findings are retained in
 
 #### Experimental factorized target-block composition
 
-A separate, **test-only** composition now runs the existing target-block
+A separate, **explicitly opt-in** composition runs the existing target-block
 schedule over Symbolica's native factorized field. The schedule is generic in
 field and integral arity. For the unchanged independent source prefix
 `A = [F | R]`, native GPLU factors the harder/target block `F = L U`, native
@@ -48,13 +48,109 @@ validation covers both variable maps and every denominator, including zero,
 tail-only and post-hit terms. Ordinary target-only retains its native panic
 semantics; the factorized native catch boundary excludes observer callbacks.
 
-The combined path has no public backend selector or automatic activation yet.
-The existing `SparseTargetOnly` and `SparseFactorized` choices remain separate,
-and defaults, source guards, proof obligations and artifact schemas are unchanged.
+The combined path is selected with core
+`SymbolicExactBackend::SparseTargetOnlyFactorized` or application
+`CandidateExactBackend::SparseTargetOnlyFactorized`. CLI/Python use
+`sparse-target-factorized`. It has no automatic activation. The core symbolic
+choice does not change the separately configured numerical backend; the
+application choice pairs it with the existing shared full factorized numerical
+lift, not repeated single-target solves. The existing `SparseTargetOnly` and
+`SparseFactorized` choices remain separate, and defaults, source guards, proof
+obligations and artifact schemas are unchanged.
 Nothing dispatches on topology names or loop counts. Concrete dimensions and
 expected frame counts occur only in the external-fixture regression harness.
 
-Three rotated, fresh-process rounds compare the **same saved frame**: 997
+The public integration passes 2,247 core tests, 117 application unit tests,
+72 integration tests, three example-parser tests and 38 fresh-extension Python
+tests. These include K1/K3 complete sector/rule/source/guard equivalence,
+numerical depths 0/1/2, one/two/six workers, checkpoint/no-search resume, and
+dependent-prefix/malformed-post-hit-input rejection. Independent code and
+mathematical audits preserve the same proof boundary.
+
+The separate fourteen-stage K6 CLI regression also passes. All four modes
+(plain serial, serial checkpoint, fresh six-worker checkpoint, six-worker
+resume) reproduce 38 sectors, 623 rules, 38 residuals and 1,417 coefficients.
+Native comparison to the preceding full-factorized program checks structure,
+coefficients and both maps. Each independently certifies to 5,640 executable
+cells and 38 terminals, then cold-loads and reproduces the same canary reduction.
+Complete resume admits 38 saved sectors and performs no new search.
+Plain generation takes 0.42 s process wall in this observation, distinct from
+2.30 s certification and 1.97 s cold canary; these short regression observations
+are not a controlled backend speed comparison. Evidence:
+`TMP/target-factorized-public-gate.fqm6cO` and
+`TMP/k6-target-factorized-public.6ZGK3e`.
+
+##### Public five-loop case and bounded parent follow-up
+
+A separate generic external client exercises the new public backend on
+`examples/input/five_loop_cube.toml`, sector `111111111111000`. Its saved
+coordinate case is `[n0,2,2,1,1,1,1,1,1,1,1,1,0,0,0]`. The family, sector and
+case are inputs: the client and production solver have no topology-name or
+loop-count dispatch. Both backends use the same ordering, source definitions,
+prime/seed and depth-zero shared numerical-tail policy.
+The single-case call does not exercise that shared numerical tail.
+
+Both case runs finish and pass the independent native comparison: identical
+case, target, ordered source trace, guards and RHS keys, and all 1,489 exact
+RHS coefficients with both ordered variable maps. Each discovers 2,442 rows
+from 98 seeds and selects 997 sources into 3,458 columns with two active
+variables; three exceptional guard branches remain attached to the rule.
+This is a solved coordinate case, not a whole sector or family.
+
+| Completed case, one observation per backend | Full factorized | Target-block factorized |
+|---|---:|---:|
+| Preparation, including full zero census | 18.131149 s | 28.303280 s |
+| Solver core: preconditioning plus solve | 4.513558 s | 4.279169 s |
+| Exact materialization interval, within solve | 4.052689 s | 3.043288 s |
+| Separate guard extraction | 0.027792 s | 0.027619 s |
+| Native/structural output | 11.507864 s | 14.272006 s |
+| Whole process wall | 34.20 s | 46.90 s |
+| Whole user / system CPU | 32.12 / 1.91 s | 43.85 / 2.89 s |
+| Process peak RSS | 96,676 KiB | 76,076 KiB |
+
+The target-block exact interval and core are shorter in this pair, but its
+**whole process regresses**. Preparation and output also vary; these observations
+do not identify a cause or establish a general speedup. The exact interval
+overlaps core and includes instrumentation/preflight, not just CAS arithmetic.
+The separate native comparison is outside both producer measurements.
+
+The original parent matrix stops at its first timeout. A separately labelled
+target-block follow-up also times out; it does not fill the six unstarted
+slots of the original matrix. Neither process returns a sector solution or
+writes native rule output.
+
+| Incomplete parent attempt | Full factorized, original | Target-block, separate follow-up |
+|---|---:|---:|
+| Exit / reason | 124 / deadline | 124 / deadline |
+| Whole wall | 304.70 s | 303.01 s |
+| User / system CPU | 302.58 / 1.61 s | 299.86 / 2.09 s |
+| Process peak RSS | 75,528 KiB | 136,808 KiB |
+| Preparation | 175.099257 s | 166.356631 s |
+| Observed rule events / case starts | 164 / 165 | 264 / 265 |
+| Saved sector solution | none | none |
+
+The full-factorized run last reports discovery in case 165. The target-block
+follow-up last reports exact row 960 of a 997-source frame in case 265, with
+22,483 retained U entries. Neither reaches the shared numerical tail. The
+first 164 cases have matching structural event tuples, but missing full outputs
+prevent exact parent parity or a parent speed ratio. Progress events are not
+durable checkpoints. The preparation census is the same backend-independent
+operation in every run: 32,768 masks, 5,480 proved-zero sectors and 25 ordinary
+sources. Its substantial timing variation remains unexplained.
+
+These optimized release diagnostics use one CPU (94), one compute worker,
+nested pools capped at one, an 8-GiB virtual-address-space cap and disabled
+core dumps. Deadlines are 120 seconds for cases and 300 seconds for parents,
+each with ten seconds of termination grace. All owned compilation and test
+jobs finish before measurement. Fresh locked release libraries, executable,
+inputs, protocol and output evidence are hashed. Evidence and independent
+audit: `TMP/target-factorized-sector-generic.pxwi5G/`. No complete five-loop
+generation, certification or backend-wide performance improvement is claimed.
+
+##### Earlier frozen-frame measurements
+
+The original test-only, three rotated fresh-process rounds below compare the
+**same saved frame**: 997
 ordered sources, 3,458 columns, 13,934 nonzeros, target column 1,296 and two
 active variables. Every run exactly reproduces all 1,490 output entries
 (unit target plus 1,489 RHS terms), both ordered coefficient maps, every pivot

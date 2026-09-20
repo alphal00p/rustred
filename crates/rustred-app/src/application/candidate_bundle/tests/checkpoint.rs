@@ -58,12 +58,32 @@ fn assert_no_search(events: &[FamilyCloseProgress]) {
 
 #[test]
 fn checkpoints_preserve_native_programs_and_complete_resume_never_solves() {
-    for (source, permutation, depth) in [(K1, None, 2), (K3, Some(vec![2, 0, 1]), 0)] {
+    for (source, permutation, depth, backend) in [
+        (K1, None, 2, CandidateExactBackend::SparseFactorized),
+        (
+            K3,
+            Some(vec![2, 0, 1]),
+            0,
+            CandidateExactBackend::SparseFactorized,
+        ),
+        (
+            K1,
+            None,
+            2,
+            CandidateExactBackend::SparseTargetOnlyFactorized,
+        ),
+        (
+            K3,
+            Some(vec![2, 0, 1]),
+            0,
+            CandidateExactBackend::SparseTargetOnlyFactorized,
+        ),
+    ] {
         let directory = Directory::new();
         let mut request = FamilyCandidatesRequest::new(source);
         request.permutation = permutation;
         request.numerical_depth = depth;
-        request.exact_backend = CandidateExactBackend::SparseFactorized;
+        request.exact_backend = backend;
         let plain = family_candidates(request.clone()).unwrap();
         let report: toml::Value = toml::from_str(plain.to_toml()).unwrap();
         assert!(report.get("checkpoint").is_none());
