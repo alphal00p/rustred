@@ -321,9 +321,17 @@ virtual-address cap after 1,148.08 s (signal 6, shell status 134), before its
 events, 24,070 rules and 751 residual occurrences, but writes no bundle or
 report; these are partial telemetry, not saved rules or a family result.
 The parent completion does not change that boundary. Evidence is in
-`TMP/five-loop-depth-zero-campaign.CWGK0e/`. An unchanged-policy second input,
-the Möbius ladder, is running separately on CPUs 88–93 with the same frozen
-CLI and limits; evidence is in `TMP/five-loop-mobius-depth-zero.sVP7ZX/`.
+`TMP/five-loop-depth-zero-campaign.CWGK0e/`. The unchanged-policy second input,
+the Möbius ladder on CPUs 88–93 with the same frozen CLI, reaches its declared
+timeout: status 124, wall 1,801.81 s, user/system CPU 10,568.14/46.07 s and
+peak RSS 17,063,328 KiB (16.27 GiB). It emits 11 of 2,686 scheduled-sector
+completion events, totaling 2,361 rules and 116 residual occurrences, including
+its physical parent at 1,187.5 s with 306 rules and 57 residuals. No allocation
+failure is reported, but no candidate bundle or report is saved. All known
+handles are absent and hashes remain unchanged; no restart was made. These
+are partial telemetry, not a closed or saved family, and the different
+topologies do not establish a backend speed ratio. Evidence and independent
+terminal audit are in `TMP/five-loop-mobius-depth-zero.sVP7ZX/`.
 
 The measured loss of completed work motivates an optional native per-sector
 checkpoint/resume path through the existing fallible completion consumer.
@@ -334,9 +342,23 @@ authority or supervisor framework is needed. Release each exact sector after
 persisting it, while acknowledging that worker-local solve peaks and the final
 global native dictionary still occupy memory. Checkpointing is not yet a
 demonstrated cure for this allocation failure: its retained-output versus
-active-worker contribution has not been measured. Independent design reviews
-are complete; implementation and parity/failure-path gates follow. No
-family-specific rule or loop-count dispatch is introduced for this.
+active-worker contribution has not been measured. The optional Rust/CLI/Python
+path is now implemented and independently source-audited. Its release gate
+passes 114 application unit tests, 72 integration tests and 38 fresh-extension
+Python tests, including changed-worker resume, fresh parallel generation,
+exact native structure/coefficient/map equality, cold certification/application,
+partial work, disk/aggregate limits and final-encoding retry. Fully saved resume
+constructs no worker pool and performs no search. The existing native schema,
+default algorithm and caller-owned final limits remain unchanged. Evidence:
+`TMP/candidate-checkpoint-release-fixed.Fkhysy/`. The supplemental external K6
+gate passes ordinary serial generation, fresh serial/six-worker checkpointing,
+complete resume, exact native comparisons and four independent cold
+certification/application checks: each result has 623 rules and 38 finite
+residuals across 38 sectors. Resume reuses all 38 sectors without search.
+This gate exposed and fixed an inherited atomic-output bug for bare filenames;
+the failed original observation is retained, not counted as success. No
+family-specific rule or loop-count dispatch is introduced for this. These gates
+support the next memory-observed five-loop attempt, not a five-loop closure claim.
 
 The reconstruction backend still includes internal exact sparse replay; this
 is distinct from optional family certification. New diagnostic observer

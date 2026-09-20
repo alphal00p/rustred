@@ -167,7 +167,7 @@ It is independent of worker count and arithmetic backend, and rejects negative,
 boolean, noninteger and larger-than-u32 values before generation.
 
 Generation accepts `input_format`, `n_cores`, `exact_backend`,
-`numerical_depth`, `permutation`, and
+`numerical_depth`, `permutation`, `checkpoint_dir`, `resume`, `checkpoint_max_bytes`, and
 `nonpositive_indices`. Certification keeps the existing unit-mass vacuum
 publication admission and accepts these optional caller resource limits:
 
@@ -196,6 +196,31 @@ Equivalent CLI commands are `family-candidates` and `certify-candidates`; both
 support `--report-output` for phase timings separate from their data output.
 Neither candidate generation nor a successful finite-target experiment is a
 proof of complete family coverage.
+
+Optional `checkpoint_dir=Path("saved-sectors")` saves each completed sector as an
+ordinary native uncertified candidate shard. The directory must initially be
+new or empty and is exclusively locked for the request. To continue later, use
+the same source text, input format, root, order, arithmetic backend and search
+depth with `resume=True`; worker count may change. Completed shards are reused,
+not solved again. Structural metadata is checked before native State import;
+the final assembly imports each shard once and checks its exact family/context.
+Invalid committed shards fail closed without replacement or automatic reruns.
+
+The CLI equivalents are `--checkpoint-dir`, `--resume` and
+`--checkpoint-max-bytes`. Resume or an explicit budget requires a directory.
+`checkpoint_max_bytes` is a positive platform-sized integer (not bool), default
+1 GiB. It bounds logical payload lengths of the manifest, retained/staging files
+and pending writes, not peak RAM or filesystem overhead. Existing per-shard and
+final bundle limits still apply; final assembly retains a global dictionary and
+output buffer. Keep source files, final bundles and reports **outside** the
+dedicated checkpoint directory. The CLI rejects conflicting paths even with
+`--force`; Python returns final bytes for the caller to write elsewhere.
+Checkpoints remain trusted-local generated data, not proof or closure authority.
+When enabled, the report adds a `[checkpoint]` table with reused/newly solved
+sector counts, charged disk bytes, resume-validation and assembly timings.
+`solve_us` measures current new solves plus checkpoint writes, not historical
+solving; `bundle_encoding_us` includes final assembly. Without checkpoints the
+existing report has no additional table.
 
 ## Preset generation and artifact consumption
 

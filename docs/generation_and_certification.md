@@ -56,7 +56,7 @@ do not prove the formulas' IBP provenance or whole-family closure. Numerical
 agreement with Vakint/FMFT is valuable additional evidence, not a replacement
 for certification.
 
-Rust callers can use `rustred_app::load_candidate_bundle::<N>` to load saved
+Rust callers can use `rustred_app::load_generated_candidate_bundle::<N>` to load saved
 candidate formulas into the experimental `CandidateReducer` without repeating
 sector search. The loader re-establishes family binding, zero-sector proofs,
 root scope and coordinate priority. It does **not** authenticate source identities
@@ -70,6 +70,86 @@ checking their declared guards. It omits whole-sector cover and does not certify
 descent or reachable terminals. Joining this identity evidence with a concrete
 reduction trace and persisting/enforcing a certified entry scope remains work
 to do. The checkpoint does not ship a four-loop bounded or unrestricted artifact.
+
+### Resumable candidate campaigns
+
+`FamilyCandidatesRequest::checkpoint` accepts an optional
+`CandidateCheckpointOptions::new(directory)`. Set `resume = true` explicitly
+to reuse completed sector files. The CLI exposes `--checkpoint-dir`, `--resume`
+and `--checkpoint-max-bytes`; Python exposes the matching keyword arguments.
+No core solver or algebra strategy is changed, and the mechanism is independent
+of topology and loop count. See [the operational contract](CLI.md#save-candidates-certify-independently).
+
+Completed sectors are atomically saved as ordinary native candidate bundles.
+Only small storage receipts remain in the executor; expanded exact solutions
+are released after writing. A manifest binds the exact campaign, but worker
+count and caller resource limits may change on resume. Assembly rebuilds the
+same logical program in original order, admitting cumulative structural and
+coefficient limits. It does not retain every decoded shard simultaneously.
+Native family and indexed coefficient contexts are checked on assembly;
+structural request admission precedes native import. This is restart support,
+not source replay or authority for missing sectors.
+
+The complete-resume path performs preparation/assembly only. Reports distinguish
+reused work and newly solved sectors; previous solve time is not fabricated.
+The optional disk-payload budget includes reservations and abandoned temporary
+files, but is not a filesystem-block or RSS cap. Active workers and final global
+native output can still exhaust resources. No saved files are automatically
+removed, overwritten on mismatch, or treated as a successful final bundle.
+
+The September 20 release gate passes 114 application unit tests, 72 integration
+tests and 38 fresh-extension Python tests. Small-family tests compare native
+structure, exact coefficients and both ordered variable maps across ordinary,
+serial-checkpoint, fresh six-worker checkpoint and resumed output. Fresh CLI
+processes independently certify and apply the resumed output. Store tests cover
+locking, failed/ambiguous publication, retained temporary files, mismatch and
+disk limits; integration tests cover partial original-ordinal scheduling and
+final-output-limit failure followed by assembly-only retry. These gates do not
+establish a peak-memory improvement or any new family closure. Raw evidence:
+`TMP/candidate-checkpoint-release-fixed.Fkhysy/`.
+
+### Checkpoint K6 release smoke
+
+The unchanged external `examples/input/three_loop_k6.toml`, natural full root,
+`sparse-factorized`, numerical depth two and default final-output limits pass
+four fresh-process generation modes. Each saves 623 rules and 38 finite residuals
+across 38 nonzero sectors, with 26 zero sectors and 1,417 native coefficients.
+Candidate outputs are 335,561 bytes each. Exact structural/coefficient/ordered-map
+comparison passes for every mode; ambient State bytes are not the identity.
+
+| Mode | Workers requested | Solve + sector-save (s) | Final encoding incl. assembly (s) | Application total (s) | Process CPU (s) | Peak RSS (KiB) |
+|---|---:|---:|---:|---:|---:|---:|
+| Ordinary, no checkpoints | 1 | 0.344661 | 0.010735 | 0.365647 | 0.36 | 12,288 |
+| Fresh checkpoints | 1 | 0.385074 | 0.060962 | 0.450522 | 0.43 | 12,340 |
+| Fresh checkpoints | 6 | 0.101717 | 0.061130 | 0.167381 | 0.52 | 12,352 |
+| Complete resume of serial files | 6 | 0.000028 | 0.060954 | 0.068347 | 0.07 | 12,312 |
+
+These are single release-profile observations, not a scaling confidence interval
+or a five-loop memory result. Preparation and checkpoint admission account for
+the remainder of application total. Whole-process wall times, including launch,
+final file writes and shutdown, are respectively 0.37, 0.46, 0.17 and 0.08 s;
+the CPU/RSS columns use that whole-process boundary. The last row performs **no search or worker
+pool construction**: its tiny solve field is bookkeeping, not a new solve.
+Serial native assembly is about 58 ms and is already inside final encoding,
+not an extra phase to add twice. Checkpoint encoding/filesystem I/O is inside
+the solve field for fresh saves. Each checkpoint directory retains 688,675
+logical bytes, and complete resume leaves every managed file byte-identical.
+
+Every mode then independently certifies to an equivalent V6 artifact (5,640
+rule cells, 38 terminals, 3,731,581 bytes) and cold-reduces `[2,1,1,1,1,1]`.
+Certification and cold load/reduction are **not included** in the generation
+table. All four decompositions agree, and all 14 harness stages exit zero.
+CPUs 88–93, nested pools one, per-stage 60-second deadline and 8 GiB virtual
+limit were fixed beforehand. Compilation is outside every measured boundary.
+Evidence and separate process wall/CPU/RSS reports are retained in
+`TMP/k6-checkpoint-fixed.ALZUbh/`.
+
+The first smoke in `TMP/k6-checkpoint-smoke.7148XT/` found an inherited CLI
+atomic-output bug: a bare filename supplied an empty parent path to directory
+sync. It installed a candidate file but returned exit 7 without a report, so
+no checkpoint or certification stages ran. The shared writer now treats that
+parent as `.`. Isolated subprocess regressions and the fresh smoke retain the
+same basename paths; the failure was fixed, not bypassed or relabeled success.
 
 ## Timing reports
 

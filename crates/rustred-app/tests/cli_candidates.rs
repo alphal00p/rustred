@@ -396,3 +396,311 @@ fn separate_reports_expose_phase_timings_and_never_replace_data_outputs() {
     assert!(!failed.status.success());
     assert!(failed.stdout.is_empty());
 }
+
+#[test]
+fn checkpoints_resume_across_worker_counts_with_unchanged_candidate_semantics() {
+    let directory = Directory::new();
+    let checkpoint = directory.0.join("sectors");
+    let report = directory.0.join("first.toml");
+    let resume_report = directory.0.join("resumed.toml");
+    let ordinary = success(&["family-candidates"], INPUT.as_bytes());
+    let initial = success(
+        &[
+            "family-candidates",
+            "--checkpoint-dir",
+            checkpoint.to_str().unwrap(),
+            "--checkpoint-max-bytes",
+            "1048576",
+            "--report-output",
+            report.to_str().unwrap(),
+        ],
+        INPUT.as_bytes(),
+    );
+    let before: Vec<_> = std::fs::read_dir(&checkpoint)
+        .unwrap()
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            (path.clone(), std::fs::read(path).unwrap())
+        })
+        .collect();
+    let resumed = success(
+        &[
+            "family-candidates",
+            "--checkpoint-dir",
+            checkpoint.to_str().unwrap(),
+            "--resume",
+            "--n-cores",
+            "6",
+            "--report-output",
+            resume_report.to_str().unwrap(),
+        ],
+        INPUT.as_bytes(),
+    );
+    for bytes in [&initial, &resumed] {
+        assert!(
+            rustred::persistence::equivalent_generated_programs(
+                &ordinary,
+                bytes,
+                BinaryIoLimits::default()
+            )
+            .unwrap()
+        );
+    }
+    for (path, bytes) in before {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    let report: toml::Value = toml::from_str(&std::fs::read_to_string(report).unwrap()).unwrap();
+    let resumed_report: toml::Value =
+        toml::from_str(&std::fs::read_to_string(resume_report).unwrap()).unwrap();
+    assert_eq!(report["status"].as_str(), Some("uncertified-candidates"));
+    assert_eq!(resumed_report["status"], report["status"]);
+    assert_eq!(report["checkpoint"]["reused_sectors"].as_integer(), Some(0));
+    let new_sectors = report["checkpoint"]["newly_solved_sectors"]
+        .as_integer()
+        .unwrap();
+    assert!(new_sectors > 0);
+    assert_eq!(
+        resumed_report["checkpoint"]["reused_sectors"].as_integer(),
+        Some(new_sectors)
+    );
+    assert_eq!(
+        resumed_report["checkpoint"]["newly_solved_sectors"].as_integer(),
+        Some(0)
+    );
+    for key in ["disk_bytes", "resume_validation_us", "assembly_us"] {
+        assert!(resumed_report["checkpoint"].get(key).is_some());
+    }
+    // Changed generation policy cannot reuse a previously committed sector.
+    let rejected = run(
+        &[
+            "family-candidates",
+            "--checkpoint-dir",
+            checkpoint.to_str().unwrap(),
+            "--resume",
+            "--numerical-depth",
+            "0",
+        ],
+        INPUT.as_bytes(),
+    );
+    assert!(!rejected.status.success());
+    assert!(rejected.stdout.is_empty());
+}
+
+#[test]
+fn checkpoint_flags_validate_before_input_and_preserve_default_generation() {
+    for args in [
+        vec!["family-candidates", "--resume"],
+        vec!["family-candidates", "--checkpoint-max-bytes", "1"],
+        vec![
+            "family-candidates",
+            "--checkpoint-dir",
+            "x",
+            "--checkpoint-max-bytes",
+            "0",
+        ],
+        vec![
+            "family-candidates",
+            "--checkpoint-dir",
+            "x",
+            "--checkpoint-max-bytes",
+            "-1",
+        ],
+        vec![
+            "family-candidates",
+            "--checkpoint-dir",
+            "x",
+            "--checkpoint-max-bytes",
+            "true",
+        ],
+        vec![
+            "family-candidates",
+            "--checkpoint-dir",
+            "x",
+            "--checkpoint-max-bytes",
+            "18446744073709551616",
+        ],
+        vec!["certify-candidates", "--checkpoint-dir", "x"],
+        vec!["certify-candidates", "--resume"],
+    ] {
+        let rejected = run(&args, b"not parsed");
+        assert!(!rejected.status.success());
+        assert!(rejected.stdout.is_empty());
+        assert!(
+            String::from_utf8_lossy(&rejected.stderr).contains("--checkpoint")
+                || String::from_utf8_lossy(&rejected.stderr).contains("--resume")
+        );
+    }
+    let help = String::from_utf8(success(&["--help"], b"")).unwrap();
+    assert!(help.contains("--checkpoint-dir"));
+    assert!(help.contains("--checkpoint-max-bytes"));
+    assert!(help.contains("outside that dedicated"));
+}
+
+#[test]
+fn managed_checkpoint_paths_cannot_be_used_for_final_outputs_or_input() {
+    let directory = Directory::new();
+    let checkpoint = directory.0.join("not-created-yet");
+    for option in ["--input", "--output", "--report-output"] {
+        for path in [
+            checkpoint.clone(),
+            checkpoint.join("sector-0.rrbin"),
+            checkpoint.join("missing/../checkpoint.toml"),
+        ] {
+            let rejected = run(
+                &[
+                    "family-candidates",
+                    "--checkpoint-dir",
+                    checkpoint.to_str().unwrap(),
+                    option,
+                    path.to_str().unwrap(),
+                    "--force",
+                ],
+                b"not parsed",
+            );
+            assert!(!rejected.status.success());
+            assert!(rejected.stdout.is_empty());
+            assert!(
+                String::from_utf8_lossy(&rejected.stderr)
+                    .contains("outside the dedicated checkpoint"),
+                "{}",
+                String::from_utf8_lossy(&rejected.stderr)
+            );
+            assert!(!checkpoint.exists());
+        }
+    }
+    #[cfg(unix)]
+    {
+        std::fs::create_dir(&checkpoint).unwrap();
+        let alias = directory.0.join("alias");
+        std::os::unix::fs::symlink(&checkpoint, &alias).unwrap();
+        let output = alias.join("bundle.rrbin");
+        let rejected = run(
+            &[
+                "family-candidates",
+                "--checkpoint-dir",
+                checkpoint.to_str().unwrap(),
+                "--output",
+                output.to_str().unwrap(),
+                "--force",
+            ],
+            b"not parsed",
+        );
+        assert!(!rejected.status.success());
+        assert!(
+            String::from_utf8_lossy(&rejected.stderr).contains("outside the dedicated checkpoint")
+        );
+        assert_eq!(std::fs::read_dir(&checkpoint).unwrap().count(), 0);
+        // Canonicalize the existing symlink ancestor before resolving '..':
+        // lexically collapsing alias/.. first would incorrectly permit this.
+        let inner = checkpoint.join("inner");
+        std::fs::create_dir(&inner).unwrap();
+        let inner_alias = directory.0.join("inner-alias");
+        std::os::unix::fs::symlink(&inner, &inner_alias).unwrap();
+        let escaped_lexically = inner_alias.join("../missing/final.rrbin");
+        for option in ["--input", "--output", "--report-output"] {
+            let rejected = run(
+                &[
+                    "family-candidates",
+                    "--checkpoint-dir",
+                    checkpoint.to_str().unwrap(),
+                    option,
+                    escaped_lexically.to_str().unwrap(),
+                    "--force",
+                ],
+                b"not parsed",
+            );
+            assert!(!rejected.status.success());
+            assert!(
+                String::from_utf8_lossy(&rejected.stderr)
+                    .contains("outside the dedicated checkpoint")
+            );
+            assert!(!checkpoint.join("missing").exists());
+        }
+    }
+}
+
+#[test]
+fn basename_outputs_sync_the_child_working_directory_and_cold_load() {
+    for checkpointed in [false, true] {
+        let directory = Directory::new();
+        let invoke = |arguments: &[&str], input: &[u8]| {
+            let mut child = Command::new(env!("CARGO_BIN_EXE_rustred"))
+                .args(arguments)
+                .current_dir(&directory.0)
+                .env("SYMBOLICA_HIDE_BANNER", "1")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child.stdin.take().unwrap().write_all(input).unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                output.stderr.is_empty(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            output.stdout
+        };
+        let mut args = vec![
+            "family-candidates",
+            "--output",
+            "bundle.rrbin",
+            "--report-output",
+            "report.toml",
+        ];
+        if checkpointed {
+            args.extend(["--checkpoint-dir", "sectors"]);
+        }
+        assert!(invoke(&args, INPUT.as_bytes()).is_empty());
+        let bytes = std::fs::read(directory.0.join("bundle.rrbin")).unwrap();
+        let inspection =
+            rustred_app::inspect_generated_candidate_bundle(&bytes, Default::default()).unwrap();
+        assert_eq!(inspection.arity, 1);
+        let report: toml::Value =
+            toml::from_str(&std::fs::read_to_string(directory.0.join("report.toml")).unwrap())
+                .unwrap();
+        assert_eq!(report["status"].as_str(), Some("uncertified-candidates"));
+        assert_eq!(report.get("checkpoint").is_some(), checkpointed);
+        if checkpointed {
+            assert!(directory.0.join("sectors/checkpoint.toml").is_file());
+        }
+        let report_bytes = std::fs::read(directory.0.join("report.toml")).unwrap();
+        let rejected = Command::new(env!("CARGO_BIN_EXE_rustred"))
+            .args(&args)
+            .current_dir(&directory.0)
+            .env("SYMBOLICA_HIDE_BANNER", "1")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(!rejected.status.success());
+        assert!(rejected.stdout.is_empty());
+        assert_eq!(
+            std::fs::read(directory.0.join("bundle.rrbin")).unwrap(),
+            bytes
+        );
+        assert_eq!(
+            std::fs::read(directory.0.join("report.toml")).unwrap(),
+            report_bytes
+        );
+        args.push("--force");
+        if checkpointed {
+            args.push("--resume");
+        }
+        assert!(invoke(&args, INPUT.as_bytes()).is_empty());
+        // A distinct process cold-loads the saved basename; successful native
+        // bytes are not inferred merely from the presence of an installed file.
+        let artifact = invoke(&["certify-candidates", "--input", "bundle.rrbin"], b"");
+        let reduced = invoke(
+            &["campaign", "reduce", "--artifact", "-", "--powers", "3"],
+            &artifact,
+        );
+        let reduced: toml::Value = toml::from_str(std::str::from_utf8(&reduced).unwrap()).unwrap();
+        assert_eq!(reduced["status"].as_str(), Some("reduced"));
+    }
+}

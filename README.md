@@ -15,6 +15,12 @@ resumed alongside four-loop application optimization; the first physical-cube
 30-minute limit without a saved bundle. The existing rule-application engine
 remains in use; no alternate Symbolica-replacement backend is planned.
 
+Long candidate-generation campaigns can opt into native per-sector checkpoints
+using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after
+interruption. Rust and Python expose the same controls. This saves completed
+work without changing any IBP algorithm or claiming closure; see the
+[checkpoint workflow and resource boundaries](docs/CLI.md#save-candidates-certify-independently).
+
 Generated candidate programs now use a shared Symbolica-native binary
 coefficient dictionary and native family geometry, rather than coefficient
 strings in TOML. The original family input remains provenance, not a loading

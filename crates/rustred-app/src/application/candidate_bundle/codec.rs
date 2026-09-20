@@ -18,7 +18,21 @@ use crate::application::{AppError, MAX_INPUT_BYTES};
 use super::model::*;
 
 pub(super) fn read(bytes: &[u8], limits: CandidateBundleLimits) -> Result<Bundle, AppError> {
+    read_with_budget(bytes, limits, None)
+}
+
+/// Assembly admits the cumulative structural count before importing a shard.
+pub(super) fn read_with_budget(
+    bytes: &[u8],
+    limits: CandidateBundleLimits,
+    budget: Option<&mut CollectionBudget>,
+) -> Result<Bundle, AppError> {
     let (envelope, records, family) = read_structure(bytes, limits)?;
+    if let Some(budget) = budget {
+        for sector in &records.sectors {
+            budget.admit_sector(sector)?;
+        }
+    }
     let coefficients = DecodedCoefficientTable::import_generated(
         envelope
             .section(SectionTag::SYMBOLICA_STATE)
@@ -205,8 +219,7 @@ fn validate(bundle: &ProgramRecord, limits: CandidateBundleLimits) -> Result<(),
         return Err(AppError::input("candidate root arity must be 1 through 16"));
     }
     super::preparation::validate_permutation(n, bundle.permutation.as_deref())?;
-    let mut budget = Ingress { entries: 0, limits };
-    budget.entries(bundle.sectors.len())?;
+    let mut budget = CollectionBudget::new(limits, bundle.sectors.len())?;
     let mut seen = BTreeSet::new();
     for sector in &bundle.sectors {
         if sector.sector.len() != n
@@ -221,8 +234,7 @@ fn validate(bundle: &ProgramRecord, limits: CandidateBundleLimits) -> Result<(),
                 "candidate sector is duplicate, wrong-arity, or outside root",
             ));
         }
-        budget.entries(sector.rules.len())?;
-        budget.entries(sector.finite_residuals.len())?;
+        budget.admit_sector(sector)?;
         for integral in &sector.finite_residuals {
             validate_integral(integral, n)?;
             if integral.symbolic.iter().any(|&value| value)
@@ -248,10 +260,6 @@ fn validate(bundle: &ProgramRecord, limits: CandidateBundleLimits) -> Result<(),
             {
                 return Err(AppError::input("invalid candidate case shape"));
             }
-            budget.entries(case.equations.len())?;
-            budget.entries(rule.rhs.len())?;
-            budget.entries(rule.sources.len())?;
-            budget.entries(rule.exclusions.len())?;
             for term in &rule.rhs {
                 validate_integral(&term.integral, n)?;
                 if term.integral.symbolic != rule.target.symbolic {
@@ -268,20 +276,46 @@ fn validate(bundle: &ProgramRecord, limits: CandidateBundleLimits) -> Result<(),
                     ));
                 }
             }
-            for branch in &rule.exclusions {
-                budget.entries(branch.len())?;
-            }
         }
     }
     Ok(())
 }
 
-struct Ingress {
+/// The unchanged candidate structural-entry policy, reusable incrementally
+/// while assembling checkpoint shards. Charge the final sector count once, then
+/// each sector before importing/materializing its native coefficients. This is
+/// admission only; record shape checks remain in `validate`.
+#[derive(Debug)]
+pub(super) struct CollectionBudget {
     entries: usize,
     limits: CandidateBundleLimits,
 }
 
-impl Ingress {
+impl CollectionBudget {
+    pub(super) fn new(
+        limits: CandidateBundleLimits,
+        total_sector_count: usize,
+    ) -> Result<Self, AppError> {
+        let mut budget = Self { entries: 0, limits };
+        budget.entries(total_sector_count)?;
+        Ok(budget)
+    }
+
+    pub(super) fn admit_sector(&mut self, sector: &SectorRecord) -> Result<(), AppError> {
+        self.entries(sector.rules.len())?;
+        self.entries(sector.finite_residuals.len())?;
+        for rule in &sector.rules {
+            self.entries(rule.case.equations.len())?;
+            self.entries(rule.rhs.len())?;
+            self.entries(rule.sources.len())?;
+            self.entries(rule.exclusions.len())?;
+            for branch in &rule.exclusions {
+                self.entries(branch.len())?;
+            }
+        }
+        Ok(())
+    }
+
     fn entries(&mut self, count: usize) -> Result<(), AppError> {
         self.entries = self
             .entries
@@ -293,6 +327,95 @@ impl Ingress {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod collection_budget_tests {
+    use super::*;
+    use crate::AppErrorKind;
+
+    fn sector(active: bool) -> SectorRecord {
+        let integral = IntegralRecord {
+            symbolic: vec![false],
+            values: vec![i16::from(active)],
+        };
+        SectorRecord {
+            sector: vec![active],
+            finite_residuals: vec![integral.clone(); 2],
+            rules: vec![RuleRecord {
+                case: CaseRecord {
+                    kind: "affine".into(),
+                    fixed_axes: vec![0],
+                    fixed_values: integral.values.clone(),
+                    equations: vec![0, 1],
+                },
+                target: integral.clone(),
+                rhs: vec![
+                    TermRecord {
+                        integral: integral.clone(),
+                        coefficient: 0
+                    };
+                    3
+                ],
+                sources: vec![
+                    SeedRecord {
+                        basis_row: 0,
+                        integral,
+                        shifts: vec![0]
+                    };
+                    2
+                ],
+                exclusions: vec![vec![0, 1], vec![2]],
+            }],
+        }
+    }
+
+    #[test]
+    fn individually_admissible_shards_cannot_bypass_final_aggregate_entry_limit() {
+        let sectors = vec![sector(false), sector(true)];
+        // Each sector costs 15: rule(1), residuals(2), equations(2), RHS(3),
+        // sources(2), branches(2), branch entries(3). Final count adds 2.
+        let mut limits = CandidateBundleLimits::default();
+        limits.max_collection_entries = 31;
+        for sector in &sectors {
+            let mut individual = CollectionBudget::new(limits, 1).unwrap();
+            individual.admit_sector(sector).unwrap();
+            assert_eq!(individual.entries, 16);
+        }
+        let mut aggregate = CollectionBudget::new(limits, 2).unwrap();
+        aggregate.admit_sector(&sectors[0]).unwrap();
+        assert_eq!(
+            aggregate.admit_sector(&sectors[1]).unwrap_err().kind(),
+            AppErrorKind::Limit
+        );
+        let bundle = ProgramRecord {
+            schema: CANDIDATE_BUNDLE_SCHEMA.into(),
+            status: STATUS.into(),
+            solver_policy: SOLVER_POLICY.into(),
+            family_source: String::new(),
+            input_format: "toml".into(),
+            family_fingerprint: "structural-budget-fixture".into(),
+            root_sector: vec![true],
+            permutation: None,
+            sectors,
+        };
+        assert_eq!(
+            validate(&bundle, limits).unwrap_err().kind(),
+            AppErrorKind::Limit
+        );
+        limits.max_collection_entries = 32;
+        let mut exact = CollectionBudget::new(limits, 2).unwrap();
+        for sector in &bundle.sectors {
+            exact.admit_sector(sector).unwrap();
+        }
+        assert_eq!(exact.entries, 32);
+        validate(&bundle, limits).unwrap();
+        limits.max_collection_entries = 1;
+        assert_eq!(
+            CollectionBudget::new(limits, 2).unwrap_err().kind(),
+            AppErrorKind::Limit
+        );
     }
 }
 

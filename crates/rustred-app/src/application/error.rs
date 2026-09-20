@@ -4,8 +4,8 @@ use std::fmt;
 ///
 /// Frontends map these categories to their own presentation: the CLI chooses
 /// an exit code and terminal label, while the Python adapter chooses an
-/// exception class. The application layer deliberately carries no
-/// path, terminal, process-exit, Python, or GIL policy.
+/// exception class. Errors carry no frontend-specific terminal, process-exit,
+/// Python, or GIL policy; filesystem failures retain their path context.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum AppErrorKind {

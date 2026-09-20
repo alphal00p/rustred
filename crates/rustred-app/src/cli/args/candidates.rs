@@ -1,10 +1,11 @@
 use std::ffi::OsString;
+use std::path::PathBuf;
 
 use super::{
     ArgError, Command, ResourceLimitsArgs, StreamPath, next_utf8_value, next_value,
     parse_nonnegative_integer, parse_positive_integer, set_once,
 };
-use crate::{CandidateExactBackend, InputFormat};
+use crate::{CandidateCheckpointOptions, CandidateExactBackend, InputFormat};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FamilyCandidatesArgs {
@@ -15,6 +16,7 @@ pub(crate) struct FamilyCandidatesArgs {
     pub n_cores: usize,
     pub exact_backend: CandidateExactBackend,
     pub numerical_depth: u32,
+    pub checkpoint: Option<CandidateCheckpointOptions>,
     pub progress: bool,
     pub permutation: Option<Vec<usize>>,
     pub nonpositive_indices: Vec<usize>,
@@ -54,6 +56,9 @@ fn parse(
     let mut n_cores = None;
     let mut exact_backend = None;
     let mut numerical_depth = None;
+    let mut checkpoint_dir = None;
+    let mut checkpoint_max_bytes = None;
+    let mut resume = false;
     let mut progress = false;
     let mut permutation = None;
     let mut nonpositive_indices = None;
@@ -64,6 +69,29 @@ fn parse(
     while let Some(option) = arguments.next() {
         let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
         match option.as_str() {
+            "--checkpoint-dir" if !certification => {
+                let path = next_value(&mut arguments, "--checkpoint-dir")?;
+                if path.is_empty() {
+                    return Err(ArgError::InvalidCombination(
+                        "--checkpoint-dir must not be empty",
+                    ));
+                }
+                set_once(&mut checkpoint_dir, "--checkpoint-dir", PathBuf::from(path))?;
+            }
+            "--checkpoint-max-bytes" if !certification => {
+                let value = next_utf8_value(&mut arguments, "--checkpoint-max-bytes")?;
+                set_once(
+                    &mut checkpoint_max_bytes,
+                    "--checkpoint-max-bytes",
+                    parse_positive_integer("--checkpoint-max-bytes", value)?,
+                )?;
+            }
+            "--resume" if !certification => {
+                if resume {
+                    return Err(ArgError::DuplicateOption("--resume"));
+                }
+                resume = true;
+            }
             "--progress" if !certification => {
                 if progress {
                     return Err(ArgError::DuplicateOption("--progress"));
@@ -164,6 +192,19 @@ fn parse(
     if help {
         return Ok(Command::Help);
     }
+    if checkpoint_dir.is_none() && (resume || checkpoint_max_bytes.is_some()) {
+        return Err(ArgError::InvalidCombination(
+            "--resume and --checkpoint-max-bytes require --checkpoint-dir",
+        ));
+    }
+    let checkpoint = checkpoint_dir.map(|directory| {
+        let mut options = CandidateCheckpointOptions::new(directory);
+        options.resume = resume;
+        if let Some(bytes) = checkpoint_max_bytes {
+            options.max_total_bytes = bytes;
+        }
+        options
+    });
     let input = input.unwrap_or(StreamPath::Stdio);
     let output = output.unwrap_or(StreamPath::Stdio);
     if super::campaign::same_file(&input, &output) {
@@ -199,6 +240,7 @@ fn parse(
             exact_backend: exact_backend.unwrap_or_default(),
             numerical_depth: numerical_depth
                 .unwrap_or_else(|| rustred::solver::SectorSolveOptions::default().numerical_depth),
+            checkpoint,
             progress,
             permutation,
             nonpositive_indices: nonpositive_indices.unwrap_or_default(),
@@ -217,6 +259,67 @@ fn parse_indices(option: &'static str, value: String) -> Result<Vec<usize>, ArgE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checkpoint_options_are_explicit_generation_only_and_require_a_directory() {
+        let Command::FamilyCandidates(default) = parse_generation(std::iter::empty()).unwrap()
+        else {
+            panic!("generation expected")
+        };
+        assert_eq!(default.checkpoint, None);
+        let Command::FamilyCandidates(args) = parse_generation(
+            [
+                "--checkpoint-dir",
+                "saved-sectors",
+                "--resume",
+                "--checkpoint-max-bytes",
+                "8192",
+            ]
+            .into_iter()
+            .map(OsString::from),
+        )
+        .unwrap() else {
+            panic!("generation expected")
+        };
+        let options = args.checkpoint.unwrap();
+        assert_eq!(options.directory, PathBuf::from("saved-sectors"));
+        assert!(options.resume);
+        assert_eq!(options.max_total_bytes, 8192);
+        for args in [
+            vec!["--resume"],
+            vec!["--checkpoint-max-bytes", "1"],
+            vec!["--checkpoint-dir", ""],
+            vec!["--checkpoint-dir", "x", "--checkpoint-dir", "y"],
+            vec!["--checkpoint-dir", "x", "--resume", "--resume"],
+            vec![
+                "--checkpoint-dir",
+                "x",
+                "--checkpoint-max-bytes",
+                "1",
+                "--checkpoint-max-bytes",
+                "2",
+            ],
+        ] {
+            assert!(parse_generation(args.into_iter().map(OsString::from)).is_err());
+        }
+        for value in ["0", "-1", "true", "18446744073709551616"] {
+            assert!(
+                parse_generation(
+                    ["--checkpoint-dir", "x", "--checkpoint-max-bytes", value]
+                        .into_iter()
+                        .map(OsString::from)
+                )
+                .is_err()
+            );
+        }
+        for args in [
+            vec!["--checkpoint-dir", "x"],
+            vec!["--resume"],
+            vec!["--checkpoint-max-bytes", "1"],
+        ] {
+            assert!(parse_certification(args.into_iter().map(OsString::from)).is_err());
+        }
+    }
 
     #[test]
     fn explicit_candidate_backend_is_separate_from_certification() {

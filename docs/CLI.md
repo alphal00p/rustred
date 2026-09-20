@@ -151,6 +151,40 @@ rustred family-candidates --input family.toml --numerical-depth 0 \
   --n-cores 6 --output family.rrcandidate --report-output family.report.toml
 ```
 
+For long campaigns, opt into resumable, native sector checkpoints:
+
+```console
+rustred family-candidates --input family.toml --n-cores 6 \
+  --checkpoint-dir TMP/my-campaign --output family.rrcandidate
+# After interruption, keep every semantic option identical; workers may change.
+rustred family-candidates --input family.toml --n-cores 1 \
+  --checkpoint-dir TMP/my-campaign --resume --output family.rrcandidate
+```
+
+The dedicated directory's parent must exist. Keep the input, final bundle and
+report outside it. `--checkpoint-max-bytes N` sets a positive logical disk-payload
+budget (default 1 GiB), independent of the unchanged final candidate/algebra
+limits; it is not a memory cap. `--resume` and this budget require
+`--checkpoint-dir`. Fresh creation requires an empty directory; `--force`
+applies only to final outputs, never checkpoint replacement. One process owns
+the directory at a time. No checkpoint is removed automatically.
+
+Completed sectors use the existing native candidate format. Resume checks the
+same source, family, root, ordering, backend and numerical depth, then solves
+only missing sectors. Final assembly imports one shard at a time and preserves
+original sector/coefficient order; fully saved work resumes without any search.
+Malformed committed files cause an error, not silent replacement. Native data
+still requires trusted provenance. A saved sector is not a closure certificate.
+
+The optional `[checkpoint]` report gives reused/new sector counts, charged
+disk bytes, validation time and assembly time. `solve_us` includes this
+attempt's new solves and sector writes, **not** the historical work reused.
+`bundle_encoding_us` includes native assembly. Compare solver benchmarks with
+checkpointing disabled, or explicitly include this extra I/O boundary.
+Checkpointing avoids retaining all completed expanded solutions, but worker
+frames, native state and the final global bundle still consume memory. An
+output-limit failure preserves the completed files for a later assembly retry.
+
 `--exact-backend sparse` is the unchanged generation default. The opt-in
 `sparse-factorized` choice uses Symbolica's native factorized-denominator field
 during exact symbolic materialization and the shared numerical-case lift, then

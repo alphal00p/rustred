@@ -302,7 +302,14 @@ CLI or Python request
 
 The application enforces common input/output byte ceilings and owns error
 classification so CLI and Python do not invent competing semantics. The CLI
-performs all fallible work before writing output. The Python adapter releases
+performs application work before writing the final output. Optional candidate
+checkpoints are a separate application-owned persistence boundary: completed
+sectors are atomically saved during generation through the existing native
+codec and released from worker output memory. Resume preserves manifest order
+and only schedules missing sectors. This is not a new mathematical solver or
+artifact authority; the topology-neutral core remains filesystem-independent.
+The shared atomic writer serves both CLI outputs and checkpoint publication.
+The Python adapter releases
 the GIL for application work and serializes top-level requests through one
 process coordinator. A caught native panic permanently poisons that
 coordinator, and a post-fork PID mismatch is rejected before reuse.

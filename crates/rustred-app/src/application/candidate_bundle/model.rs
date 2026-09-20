@@ -159,6 +159,9 @@ pub struct FamilyCandidatesRequest {
     pub permutation: Option<Vec<usize>>,
     pub nonpositive_indices: Vec<usize>,
     pub bundle_limits: CandidateBundleLimits,
+    /// Optional trusted-local persistence of completed sectors. Missing work
+    /// can resume without repeating completed solves; this grants no authority.
+    pub checkpoint: Option<super::CandidateCheckpointOptions>,
 }
 
 impl FamilyCandidatesRequest {
@@ -172,6 +175,7 @@ impl FamilyCandidatesRequest {
             permutation: None,
             nonpositive_indices: Vec::new(),
             bundle_limits: CandidateBundleLimits::default(),
+            checkpoint: None,
         }
     }
 }

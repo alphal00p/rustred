@@ -1,13 +1,9 @@
-use std::ffi::{OsStr, OsString};
-use std::fs::{self, File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
 
 use crate::cli::args::StreamPath;
 use crate::cli::error::CliError;
 use crate::{MAX_CLOSING_ARTIFACT_BYTES, MAX_INPUT_BYTES};
-
-const MAX_TEMPORARY_NAME_ATTEMPTS: u32 = 1_024;
 
 pub(crate) fn read_input(source: &StreamPath) -> Result<String, CliError> {
     let bytes = match source {
@@ -92,7 +88,10 @@ pub(crate) fn write_output(
                     CliError::OutputIo(format!("cannot write standard output: {error}"))
                 })
         }
-        StreamPath::File(path) => write_file_atomically(path, contents, force),
+        StreamPath::File(path) => {
+            crate::application::atomic_file::write_file_atomically(path, contents, force)
+                .map_err(CliError::OutputIo)
+        }
     }
 }
 
@@ -118,113 +117,4 @@ pub(crate) fn preflight_output_destination(
         )));
     }
     Ok(())
-}
-
-fn write_file_atomically(path: &Path, contents: &[u8], force: bool) -> Result<(), CliError> {
-    if path.file_name().is_none() {
-        return Err(CliError::OutputIo(format!(
-            "output path {} has no file name",
-            path.display()
-        )));
-    }
-    if !force && path.exists() {
-        return Err(CliError::OutputIo(format!(
-            "output {} already exists; use --force to replace it",
-            path.display()
-        )));
-    }
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let mut temporary = None;
-    for attempt in 0..MAX_TEMPORARY_NAME_ATTEMPTS {
-        let candidate = temporary_path(parent, path.file_name().unwrap(), attempt);
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
-        {
-            Ok(file) => {
-                temporary = Some((candidate, file));
-                break;
-            }
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(error) => {
-                return Err(CliError::OutputIo(format!(
-                    "cannot create an atomic output beside {}: {error}",
-                    path.display()
-                )));
-            }
-        }
-    }
-    let Some((temporary_path, mut temporary_file)) = temporary else {
-        return Err(CliError::OutputIo(format!(
-            "cannot acquire a temporary output name beside {}",
-            path.display()
-        )));
-    };
-    let result = (|| {
-        temporary_file.write_all(contents).map_err(|error| {
-            CliError::OutputIo(format!("cannot write output {}: {error}", path.display()))
-        })?;
-        temporary_file.sync_all().map_err(|error| {
-            CliError::OutputIo(format!("cannot sync output {}: {error}", path.display()))
-        })?;
-        drop(temporary_file);
-
-        if force {
-            fs::rename(&temporary_path, path).map_err(|error| {
-                CliError::OutputIo(format!(
-                    "cannot atomically install output {}: {error}",
-                    path.display()
-                ))
-            })?;
-        } else {
-            // A hard link is the stable-std create-if-absent primitive.  It
-            // installs the already synced inode atomically and cannot replace
-            // a path which appears during the write.
-            fs::hard_link(&temporary_path, path).map_err(|error| {
-                let detail = if error.kind() == io::ErrorKind::AlreadyExists {
-                    "the destination appeared while it was being prepared".to_owned()
-                } else {
-                    error.to_string()
-                };
-                CliError::OutputIo(format!(
-                    "cannot atomically install output {}: {detail}",
-                    path.display()
-                ))
-            })?;
-            fs::remove_file(&temporary_path).map_err(|error| {
-                CliError::OutputIo(format!(
-                    "output {} was installed but its staging link could not be removed: {error}",
-                    path.display()
-                ))
-            })?;
-        }
-        sync_parent_directory(parent, path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary_path);
-    }
-    result
-}
-
-fn temporary_path(parent: &Path, file_name: &OsStr, attempt: u32) -> PathBuf {
-    let mut name = OsString::from(".");
-    name.push(file_name);
-    name.push(".rustred-tmp-");
-    name.push(std::process::id().to_string());
-    name.push("-");
-    name.push(attempt.to_string());
-    parent.join(name)
-}
-
-fn sync_parent_directory(parent: &Path, path: &Path) -> Result<(), CliError> {
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| {
-            CliError::OutputIo(format!(
-                "output {} was installed but its directory could not be synced: {error}",
-                path.display()
-            ))
-        })
 }

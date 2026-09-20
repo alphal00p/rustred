@@ -77,6 +77,19 @@ pub enum FamilyCloseProgress {
         finite_residuals: usize,
         elapsed: Duration,
     },
+    /// Structural reuse admission, not native algebra validation or closure.
+    CheckpointPrepared {
+        reused_sectors: usize,
+        pending_sectors: usize,
+        elapsed: Duration,
+    },
+    /// The completed candidate sector is durably stored. No rule certification.
+    CheckpointedSector {
+        ordinal: usize,
+        sector: u64,
+        bytes: usize,
+        elapsed: Duration,
+    },
     CheckingSector {
         ordinal: usize,
         sector: u64,

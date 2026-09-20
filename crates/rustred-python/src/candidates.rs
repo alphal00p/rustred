@@ -2,7 +2,10 @@
 
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use rustred_app::{CandidateCertificationRequest, FamilyCandidatesRequest};
+use rustred_app::{
+    CandidateCertificationRequest, CandidateCheckpointOptions, FamilyCandidatesRequest,
+};
+use std::path::PathBuf;
 
 use crate::{
     PyClosingArtifactGenerationResult, PythonInteger, RustRedInputError, RustRedLimitError,
@@ -51,10 +54,14 @@ impl PyCandidateBundleResult {
 /// factorized denominators during exact lifting), or "semi-numerical".
 /// numerical_depth bounds only fully fixed case searches. Zero still searches
 /// their initial seeds; finite residuals need not be independent masters.
+/// checkpoint_dir enables trusted-local native sector checkpoints. Use resume
+/// only with the same source/root/order/backend/depth. Keep final outputs outside
+/// the dedicated directory; checkpoint_max_bytes is a positive payload budget,
+/// not a RAM limit. Checkpoints do not certify rules or family closure.
 #[pyfunction]
 #[pyo3(
-    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse", numerical_depth=PythonInteger(2)),
-    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse', numerical_depth=2)"
+    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse", numerical_depth=PythonInteger(2), checkpoint_dir=None, resume=false, checkpoint_max_bytes=None),
+    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse', numerical_depth=2, checkpoint_dir=None, resume=False, checkpoint_max_bytes=None)"
 )]
 fn family_candidates(
     py: Python<'_>,
@@ -65,11 +72,41 @@ fn family_candidates(
     nonpositive_indices: Option<Vec<PythonInteger>>,
     exact_backend: &str,
     numerical_depth: PythonInteger,
+    checkpoint_dir: Option<PathBuf>,
+    resume: bool,
+    checkpoint_max_bytes: Option<PythonInteger>,
 ) -> PyResult<PyCandidateBundleResult> {
+    if checkpoint_dir.is_none() && (resume || checkpoint_max_bytes.is_some()) {
+        return Err(RustRedInputError::new_err(
+            "resume and checkpoint_max_bytes require checkpoint_dir",
+        ));
+    }
+    let checkpoint = checkpoint_dir
+        .map(|directory| {
+            if directory.as_os_str().is_empty() {
+                return Err(RustRedInputError::new_err(
+                    "checkpoint_dir must not be empty",
+                ));
+            }
+            let mut options = CandidateCheckpointOptions::new(directory);
+            options.resume = resume;
+            if let Some(value) = checkpoint_max_bytes {
+                let bytes = nonnegative_usize("checkpoint_max_bytes", value.0)?;
+                if bytes == 0 {
+                    return Err(RustRedInputError::new_err(
+                        "checkpoint_max_bytes must be positive",
+                    ));
+                }
+                options.max_total_bytes = bytes;
+            }
+            Ok(options)
+        })
+        .transpose()?;
     let mut request =
         FamilyCandidatesRequest::new(bounded_owned_input("candidate family input", source)?);
     request.input_format = parse_input_format(input_format)?;
     request.exact_backend = exact_backend.parse().map_err(map_app_error)?;
+    request.checkpoint = checkpoint;
     request.numerical_depth = u32::try_from(numerical_depth.0).map_err(|_| {
         RustRedInputError::new_err("numerical_depth must be an integer from 0 to 4294967295")
     })?;

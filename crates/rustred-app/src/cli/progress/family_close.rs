@@ -135,6 +135,23 @@ fn format_event(event: FamilyCloseProgress) -> String {
             elapsed,
             format!("sector={sector} generated {rules} rules; {finite_residuals} finite residuals"),
         ),
+        CheckpointPrepared {
+            reused_sectors,
+            pending_sectors,
+            elapsed,
+        } => (
+            elapsed,
+            format!("checkpoint: {reused_sectors} reused; {pending_sectors} pending"),
+        ),
+        CheckpointedSector {
+            sector,
+            bytes,
+            elapsed,
+            ..
+        } => (
+            elapsed,
+            format!("sector={sector} checkpoint saved ({bytes} bytes)"),
+        ),
         CheckingSector {
             sector,
             rules,

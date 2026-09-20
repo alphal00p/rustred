@@ -55,16 +55,78 @@ releases each solution during final encoding. Its independent source audit,
 tests pass; six further Python candidate tests also agree with the frozen
 previous CLI. No peak-RSS improvement has yet been measured. Evidence is in
 `TMP/candidate-encoding-release.AxS0ih/`. An optional native checkpoint
-path is separately being implemented and must pass deterministic assembly,
-cold application, interruption and failure-path gates before another campaign.
+path now passes 114 application unit tests, 72 integration tests and 38 Python
+tests, including deterministic assembly, partial/complete resume, fresh parallel
+generation, cold certification/application and failure-path gates. These tests
+do not measure five-loop memory savings or establish five-loop completion.
+Evidence: `TMP/candidate-checkpoint-release-fixed.Fkhysy/`. An additional K6
+full-family save/resume/certification/cold-application gate passes in all four
+modes; its [phase measurements](../generation_and_certification.md#checkpoint-k6-release-smoke)
+are separate from these failed five-loop campaigns.
 
 This is a different policy/backend and CPU placement from the depth-two runs
 below, not a controlled speed ratio. Compilation, input/binary copying and hash
 checks are outside timing; no artifact, pivot trace or oracle is reused.
 Evidence: `TMP/five-loop-depth-zero-campaign.CWGK0e/`, including the frozen
 launcher, raw resource/progress logs and independent `final-result-audit.md`.
-The second Möbius-ladder input is running separately with the same frozen CLI
-and policy; it has no completed result at this checkpoint.
+The second Möbius-ladder input uses the same frozen CLI and policy, but ends at
+its wall deadline without saved output, as recorded next. Neither full physical
+family has completed, and the different topologies are not a backend comparison.
+
+## Physical Möbius-eight: bounded factorized depth-zero run, 20 September 2026
+
+This single full-family attempt **reaches its declared timeout**, returning
+status 124 without a candidate bundle or final report. It uses the exact frozen
+`2627a537` CLI/hash above and unchanged external
+[`five_loop_mobius8.toml`](../../examples/input/five_loop_mobius8.toml), SHA-256
+`1baf9dfc388c7c1def6df383493a63578c5e53e21d200ea8203e6388aff521d1`.
+The request explicitly restricts auxiliary slots 12,13,14 to nonpositive powers,
+giving physical root `111111111111000`. Natural ordering, six workers,
+`sparse-factorized`, numerical depth zero and all default algebra/output limits
+are preserved. No rules, oracle or certified artifact are reused.
+
+Affinity is CPUs 88–93 (six distinct physical cores on NUMA node 2), separately
+from the cube's 100–105; this does not eliminate shared-host contention or bind
+memory to a NUMA node. Nested pools are capped at one while the sector executor
+retains six workers. The predeclared policy sends TERM at 1,800 seconds, then
+KILL after up to ten seconds, with the same 32-GiB virtual-address cap.
+
+| Whole bounded attempt | Measured outcome |
+|---|---:|
+| Launcher / GNU-time exit status | **124 / 124** |
+| Wall time | **1,801.81 s** |
+| User / system CPU | 10,568.14 / 46.07 s |
+| Peak RSS | 17,063,328 KiB (**16.27 GiB**) |
+| Swaps reported for this command | 0 |
+| Preparation event | 22.0 s |
+| Scheduled sectors / scoped zero sectors | 2,686 / 1,410 |
+| Global zero proofs (different scope) | 4,480 |
+| Completed-sector events | **11 of 2,686** |
+| Rules / finite-residual occurrences in those events | 2,361 / 116 |
+| Saved bundle / final report | **Neither produced** |
+
+The physical parent (mask 4095) emits a completion event at 1,187.5 s with
+**306 rules and 57 finite residuals**. This is not an isolated parent timing or
+a saved exact equation comparison. The last sector completion is at 1,294.4 s,
+and ordinary solving progress continues to 1,799.7 s. All eleven completion
+masks are unique. The residual occurrences do not establish a minimal or
+independent master basis.
+
+No allocation failure, panic or other error diagnostic appears in this run's
+progress log; the observed terminal condition is the timeout. The enclosing
+launcher, GNU time, timeout and solver handles are all absent afterward, and
+input/executable/protocol hashes still match. CLI stdout is empty; there is no
+saved program to inspect or apply cold. No restart or limit change was made.
+Neither sector-completion telemetry nor the parent's result establishes full
+family coverage, a closing artifact, or eventual success with larger budgets.
+
+Whole timing includes preparation, all workers, and timeout teardown; copying,
+compilation and hash checks are excluded. RSS does not separate accumulated
+solutions from live solver frames. No profile or backend comparison was run.
+The different cube/Möbius topologies, completed work and CPU placement preclude
+a speed ratio; both are incomplete whole-family outcomes. The frozen command,
+raw logs, eleven-sector census and independent `final-result-audit.md` are in
+`TMP/five-loop-mobius-depth-zero.sVP7ZX/`.
 
 ## Physical cube: bounded sparse-exact run, 2026-09-19
 
@@ -266,8 +328,9 @@ exact replay, canonicalization or other arithmetic time.
 To reproduce the comparator, use the command above with **only**
 `--exact-backend semi-numerical` substituted and a fresh evidence directory.
 The actual script and raw evidence are retained under
-`TMP/five-loop-candidate-next.718HJ6/`. Both generation processes are stopped;
-no further full-family campaign was launched. These unfinished five-loop
+`TMP/five-loop-candidate-next.718HJ6/`. At that historical checkpoint both
+generation processes were stopped and no further full-family campaign had
+been launched; the later depth-zero attempts are recorded above. These unfinished five-loop
 attempts do not change the separate validated four-loop numerical application
 results or settle the separate optional bounded-rank certification work.
 

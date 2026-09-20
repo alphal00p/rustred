@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
+import tempfile
 import tomllib
 import unittest
 
@@ -17,6 +19,72 @@ from test_python_api import (
 
 
 class CandidateApiTests(GeneratedProgramAssertions):
+    def test_native_checkpoints_reuse_across_frontends_and_worker_counts(self) -> None:
+        signature = inspect.signature(rustred.family_candidates)
+        self.assertIsNone(signature.parameters["checkpoint_dir"].default)
+        self.assertFalse(signature.parameters["resume"].default)
+        self.assertIsNone(signature.parameters["checkpoint_max_bytes"].default)
+        # All generated test files stay in this checkout, independent of TMPDIR.
+        scratch = Path(__file__).resolve().parents[3] / "TMP"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch, prefix="python-candidate-checkpoint-") as tmp:
+            for label, source in [("k1", UNIT_MASS_PROJECT_K1), ("k3", UNIT_MASS_PROJECT_K3)]:
+                checkpoint = Path(tmp) / label
+                ordinary = rustred.family_candidates(source)
+                initial = rustred.family_candidates(source, checkpoint_dir=checkpoint, checkpoint_max_bytes=1 << 24)
+                # Fresh generation, unlike complete resume below, exercises
+                # the multi-worker solver and concurrent native shard writers.
+                parallel = rustred.family_candidates(
+                    source, checkpoint_dir=Path(tmp) / f"{label}-parallel",
+                    checkpoint_max_bytes=1 << 24, n_cores=6,
+                )
+                self.assertProgramEqual(ordinary.bundle, parallel.bundle)
+                self.assertProgramEqual(initial.bundle, parallel.bundle)
+                parallel_report = tomllib.loads(parallel.to_toml())["checkpoint"]
+                self.assertEqual(parallel_report["reused_sectors"], 0)
+                self.assertGreater(parallel_report["newly_solved_sectors"], 0)
+                before = {path.name: path.read_bytes() for path in checkpoint.iterdir()}
+                resumed = rustred.family_candidates(source, checkpoint_dir=str(checkpoint), resume=True, n_cores=6)
+                self.assertNotIn("checkpoint", tomllib.loads(ordinary.to_toml()))
+                initial_report = tomllib.loads(initial.to_toml())["checkpoint"]
+                resumed_report = tomllib.loads(resumed.to_toml())["checkpoint"]
+                self.assertEqual(initial_report["reused_sectors"], 0)
+                self.assertGreater(initial_report["newly_solved_sectors"], 0)
+                self.assertEqual(resumed_report["newly_solved_sectors"], 0)
+                self.assertEqual(resumed_report["reused_sectors"], initial_report["newly_solved_sectors"])
+                for field in ["disk_bytes", "resume_validation_us", "assembly_us"]:
+                    self.assertIn(field, resumed_report)
+                self.assertProgramEqual(ordinary.bundle, initial.bundle)
+                self.assertProgramEqual(ordinary.bundle, resumed.bundle)
+                cli_resumed = cli_bytes([
+                    "family-candidates", "--checkpoint-dir", str(checkpoint), "--resume", "--n-cores", "1",
+                ], source.encode())
+                self.assertProgramEqual(ordinary.bundle, cli_resumed)
+                # Both certification and application are fresh subprocesses,
+                # not merely a comparison of in-process native dictionaries.
+                cold_artifact = cli_bytes(["certify-candidates"], cli_resumed)
+                self.assertProgramEqual(
+                    rustred.certify_candidates(ordinary.bundle).artifact,
+                    cold_artifact,
+                )
+                powers = "3" if label == "k1" else "2,1,1"
+                cold_reduction = tomllib.loads(cli_bytes([
+                    "campaign", "reduce", "--artifact", "-", "--powers", powers,
+                ], cold_artifact).decode())
+                self.assertEqual(cold_reduction["status"], "reduced")
+                self.assertEqual(before, {path.name: path.read_bytes() for path in checkpoint.iterdir()})
+                with self.assertRaises(rustred.RustRedInputError):
+                    rustred.family_candidates(source, checkpoint_dir=checkpoint, resume=True, numerical_depth=0)
+
+    def test_checkpoint_options_reject_invalid_policy_before_source_work(self) -> None:
+        for kwargs in [{"resume": True}, {"checkpoint_max_bytes": 1}, {"checkpoint_dir": ""}]:
+            with self.subTest(kwargs=kwargs), self.assertRaises(rustred.RustRedInputError):
+                rustred.family_candidates("not parsed", **kwargs)
+        for value in [True, False, 0, -1, 1 << 64, 1 << 128, 0.5, "1"]:
+            with self.subTest(value=value), self.assertRaises(rustred.RustRedInputError):
+                rustred.family_candidates("not parsed", checkpoint_dir="unused", checkpoint_max_bytes=value)
+        self.assertNotIn("checkpoint_dir", inspect.signature(rustred.certify_candidates).parameters)
+
     def test_numerical_depth_is_generic_persisted_and_matches_cli(self) -> None:
         signature = inspect.signature(rustred.family_candidates)
         self.assertEqual(signature.parameters["numerical_depth"].default, 2)

@@ -351,3 +351,15 @@ the chosen depth, checked before Symbolica state import. Structural inspection
 and the generation report expose `numerical_depth`. Default-depth policy bytes
 are unchanged; unknown or noncanonical policy tags are rejected. The tag is
 generation metadata, never a replacement for source/guard/coverage evidence.
+
+`FamilyCandidatesRequest::checkpoint: Option<CandidateCheckpointOptions>` adds
+opt-in persistence without changing the solver or binary candidate schema.
+The CLI options are `--checkpoint-dir`, `--resume`, `--checkpoint-max-bytes`;
+Python keywords are `checkpoint_dir`, `resume`, `checkpoint_max_bytes`.
+Completed exact sectors use the existing native codec, are atomically installed,
+and are released from worker output memory. Resume only schedules missing
+manifest ordinals; changing worker count is allowed, changing source/root/
+ordering/backend/depth is not. Assembly admits cumulative limits, checks native
+family/coefficient contexts and interns sectors before the final family so the
+logical output is unchanged. Checkpoint files remain uncertified and require
+trusted generated provenance. See the [workflow and resource contract](CLI.md#save-candidates-certify-independently).
