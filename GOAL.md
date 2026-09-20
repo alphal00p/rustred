@@ -56,6 +56,11 @@ producer recipes that are not part of the generic `family_candidates` or
 new strategies: retire their specialized entry points or migrate them to
 external family inputs and the generic engine. Preserve the generic exact
 authority and artifact-loading services used by the shipped Vakint programs.
+The [producer retirement plan](docs/research/generic_producer_retirement.md)
+records the audited migration boundary: retire the obsolete compiled K6
+campaign/producer first; replace Vakint's currently specialized K1/K3 assets
+and terminal manifests through the generic engine before removing their
+loaders. This is planned work, not a completed cleanup claim.
 Do not confuse the frontend's current compiled arity range (1 through 16) with
 an algorithm specialized to a loop count; that adapter still needs extension
 before accepting a 21-coordinate input through CLI/Python. Core solver changes
