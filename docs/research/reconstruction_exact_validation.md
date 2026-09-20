@@ -168,13 +168,56 @@ took 11m52s; this is excluded from all solver measurements. Tiny test timings
 are not five-loop generation timings. The separate audit is
 `TMP/source-weight-lru-independent-audit-2026-09-20.md`.
 
-A fresh post-change comparison is prepared in
-`TMP/source-weight-lru-comparison.xSY9i1/`: repeat the matched small H sector
-and then retry the original banana parent with the original 16-million-slot
-capacity, not another capacity increase. Pending measurements must not be
-inferred from the earlier cache failures. A generic, caller-supplied coordinate
-permutation also permits separate ordering experiments on TIDE's nonlinear
-case without changing any topology-dependent production logic.
+A fresh post-change comparison in `TMP/source-weight-lru-comparison.xSY9i1/`
+repeats the matched H sector and retries the original banana parent at its
+original 16-million-slot capacity, not another capacity increase.
+
+| Post-change completed H control | Sparse core (s) | Source-weight core (s) | Exact comparison |
+| --- | ---: | ---: | --- |
+| Sparse then source weights | 0.809327 | 1.224736 | All 2,017 coefficients and structure agree |
+| Reversed execution order | 0.800264 | 1.220200 | Same exact agreement |
+
+All four processes complete with 75 rules and one residual. Source weights are
+about 1.52 times slower on this small control; the cache change does not justify
+changing the sparse default. These remain single-worker selected-sector runs,
+not a completed four-loop family benchmark.
+
+The five-loop retry now passes the former cumulative-cache failure, but reaches
+the **300-second deadline without finishing its current row**. Process wall is
+300.02 s, CPU is 296.74 s user plus 0.36 s system, and peak RSS is 208,660 KiB
+(203.77 MiB). It remains in case 122's 499-row/2,907-column/seven-variable frame.
+There are 121 earlier rules and 43 completed coefficient callbacks in that
+frame; the last is column 998 at 280.167 s. No final target row, source-weight
+reconstruction/product phase, sector snapshot or closing artifact results.
+The last callback gives only a 276.221-second lower bound on the open
+materialization interval; the completed-only interval sum excludes this work.
+The final roughly 1.5 minutes overlap a separate ordering probe on another CPU;
+this shared-host failure diagnostic is not a completed-solve speed comparison.
+
+### Native-only reconstruction directions
+
+The follow-up audit found no public cross-output known-denominator or sparse-
+support hint in the pinned Symbolica API. Its public finite-field and over-Q
+entry points take a scalar oracle; learned support and coefficient reuse live
+inside each scalar reconstruction. The low-level support/known-denominator
+helpers and multivariate polynomial reconstructor are private. Public
+one-variable Newton interpolation is not a replacement for that service.
+
+One all-public composition remains worth a bounded experiment: once a native
+reconstruction supplies a denominator `D`, reconstruct `D*f_j` for later
+outputs through the same native rational reconstructor, then divide by `D`
+with Symbolica. This may simplify a genuinely shared denominator, but `D`
+need not clear every target or source weight. Invalid/pole probes, source
+chronology, work limits and full exact `W*A=r` validation must remain intact.
+This proposal is **not implemented or measured**, and neither proves that
+the current difficult frame will finish nor warrants a RustRed interpolation,
+CRT or reconstruction kernel. A public upstream shared-denominator/vector
+service would be preferable to duplicating private Symbolica algorithms.
+
+The same generic diagnostic now accepts caller-supplied coordinate priorities
+for separate TIDE ordering studies; this does not introduce topology-dependent
+production logic. Outcomes are recorded in the
+[exceptional-geometry study](tide_exceptional_geometry.md).
 
 ## Existing semi-numerical backend (unchanged)
 

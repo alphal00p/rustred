@@ -74,10 +74,11 @@ replacement by finitely many affine cases or numerical masters.
 
 ## Native Symbolica boundary
 
-RustRed's current intersection service first restricts to the affine chart,
-admits affine equations, uses native Symbolica Gröbner normalization and
-factorization, and returns `UnsupportedGeometry` when an irreducible coupled
-nonlinear equation remains
+RustRed's intersection service first restricts to the affine chart,
+admits affine equations, and uses native Symbolica Gröbner normalization and
+factorization. The narrow definite-quadratic emptiness test described below
+cannot discard the **indefinite** original-order Q in this note, so that branch
+still returns `UnsupportedGeometry`
 ([`engine.rs`](../../crates/rustred-core/src/solver/case/intersection/engine.rs),
 [`native.rs`](../../crates/rustred-core/src/solver/case/intersection/native.rs)).
 That error is correct: an unknown nonlinear set cannot be silently discarded.
@@ -115,6 +116,51 @@ Consequently the planned separate 30-second native solve could not run:
 This is a direct-link compilation bottleneck, not evidence that the native
 integer solver rejects or cannot describe Q.
 
+## Q-first ordering: a distinct, provably empty exception
+
+The separate Q-first coordinate ordering reaches case 193 with 16-variable
+coefficient map `(d,n0,...,n14)` and parent equality
+`3-n10-n7+2*n3=0`. Its original second guard is
+
+```text
+P = 9-3*n10-n10^2-4*n7+n7*n10+14*n3
+    -2*n3*n10-4*n3*n7+5*n3^2.
+```
+
+Putting `n3=(n10+n7-3)/2` gives, by exact expansion,
+
+```text
+4*P|parent = -Q,
+Q = 3*n10^2-2*n10*n7+3*n7^2+2*n10-6*n7+3
+  = 2*n10^2 + 2*(n7-1)^2 + (n10-n7+1)^2.
+```
+
+Here `n7` is inactive, so `n7<=0` and `Q>=2` on the entire declared
+integer sector. This case is **empty**, unlike the original-order conic above.
+In native exact-matrix terms, the Hessian on `(n10,n7)` is
+`[[6,-2],[-2,6]]`, whose leading principal minors are `6` and `32`.
+Its unique stationary point is `(0,1)`, with minimum zero; `n7=1` violates
+the sector. The captured Q-first error and source ordering are in
+`TMP/source-weight-lru-comparison.xSY9i1/tide-banana-q-first-sparse.stderr`.
+
+The generic cold intersection refinement in
+[`definite_quadratic.rs`](../../crates/rustred-core/src/solver/case/intersection/definite_quadratic.rs)
+checks only parameter-free degree-two index polynomials. It uses native
+Symbolica derivatives, exact rational matrix determinants (Sylvester's
+criterion), and an exact matrix solve. After orienting a definite Hessian,
+it proves emptiness if the minimum is strictly positive, or if a zero
+minimum's unique supported-coordinate point violates integer, fixed-face,
+or sector constraints. A negative minimum, singular/indefinite Hessian,
+parameter dependence, or an admissible minimum remains unknown and retains
+the existing unsupported-geometry behavior. The test runs only after ordinary
+restriction, affine admission, normalization and factorization; it discards
+one impossible AND branch without dropping any pending OR siblings. It is
+not a polynomial-case representation or a claim of selected-sector closure.
+At most 32 native principal-minor determinants and one native linear solve
+are attempted per checked equation; larger supports return unknown. The
+existing geometry subtime counters do not separately time this narrow proof,
+but the enclosing sector solve time includes it.
+
 ## Narrow next steps
 
 1. Run the prepared native integer-domain probe when a reusable compiled
@@ -136,7 +182,7 @@ integer solver rejects or cannot describe Q.
    native Symbolica algebra, and keep integer-sector feasibility and rule
    coverage as explicit proof obligations.
 
-### Prepared ordering experiments and bounded scope
+### Measured ordering experiments and bounded scope
 
 The next input-driven portfolio keeps the supplied family and sector fixed.
 The following are zero-based coordinate-priority permutations, not changes to
@@ -148,15 +194,80 @@ the denominator definitions or physical integral keys:
 | Residual-Q support, then affine pivots | `7,8,10,3,4,0,1,2,5,6,9,11,12,13,14` |
 | Affine pivots, then residual-Q support | `3,4,7,8,10,0,1,2,5,6,9,11,12,13,14` |
 
-These are **prepared, not measured successes**. Each experiment must traverse
-the whole selected sector independently, initially with sparse arithmetic,
-one worker and a 300-second limit. Changing the permutation can change the
-case queue: getting past ordinal 195 is not itself completion. Nor can rules
+The first two probes have now run, with sparse arithmetic, one pinned worker,
+numerical depth zero and a 300-second external deadline. The third remains
+unrun. Receipts and an independent audit are retained in
+`TMP/source-weight-lru-comparison.xSY9i1/`.
+
+| Ordering | Solver core to return | Process wall | Peak RSS | Result |
+| --- | ---: | ---: | ---: | --- |
+| Natural (earlier frozen binary) | 81.514 s | 89.18 s | 199.9 MiB | Case 195: genuine nonlinear domain |
+| Reverse | No return | 300.15 s | 1,610.4 MiB | External deadline; case 177 exact frame unfinished |
+| Q support first | 172.844 s | 179.29 s | 369.0 MiB | Case 193: unsupported but provably empty domain |
+
+These are **not completed-sector timings** and cannot establish a winning
+ordering or speed ratio. Reverse and Q-first overlapped on separate pinned
+cores of the shared host; the earlier natural binary differs in source-weight
+caching, not in the sparse path used here. Reverse reached a 611-row,
+2,383-column exact frame; Q-first completed all 102 materializations before
+its geometry error, with 148.810 seconds in completed exact intervals.
+
+Changing the permutation can change the case queue: getting past ordinal 195
+is not itself completion. Nor can rules
 from different orderings be merged without proving strict descent under one
 common persisted ordering. A cheaper isolated-case prescreen may reveal a
 different guard, but cannot substitute for traversing its exceptional cases.
 The priorities above come from the observed polynomial supports, not a
 topology-name strategy or borrowed reduction relations.
+
+#### The Q-first branch is empty, unlike the natural-order conic
+
+Its exact error contains the affine equality and residual equation
+
+```text
+3 - n10 - n7 + 2*n3 = 0,
+Q = 3 + 2*n10 + 3*n10^2 - 6*n7 - 2*n7*n10 + 3*n7^2 = 0.
+```
+
+The exact identity
+
+```text
+Q = 2*n10^2 + 2*(n7-1)^2 + (n10-n7+1)^2
+```
+
+proves that its only real zero requires `n10=0,n7=1`, whereas this sector
+requires `n7<=0`. Thus this entire exceptional branch is empty, already over
+the real sector domain. Independent checks use the original logged conjunction
+and physical-index map, not just a reformatted expression. This is a limitation
+of the current conservative geometry service, not a missing IBP or a new master.
+
+A generic exact definite-quadratic emptiness test is being implemented using
+Symbolica's polynomial differentiation, rational arithmetic, determinants and
+linear solve. It must reject parameter-dependent, singular or indefinite
+forms it cannot decide, and preserve the existing fail-closed outcome for
+unknown geometry. No topology-specific polynomial is admitted in production.
+The service and the subsequent full selected-sector rerun are still pending
+their release and independent audit gates; removing this one obstruction does
+not prove that later cases close.
+
+#### What a reference SpIRed run can and cannot settle
+
+The original `dioSys::simplify` calls `simplifyNlin`, then `linearize`, with default
+`MAX_NLIN_SEARCH=30`. It enumerates active powers 1 through 30 and inactive
+powers 0 through -30 only for variables present in the remaining nonlinear
+polynomials, then checks the remaining linear relations. This is neither a
+total-numerator-power-30 contract nor necessarily a box on every original
+index. Its header explicitly warns that an infinite solution set can be
+replaced by an inequivalent finite set. A returned rule collection has no
+unrestricted-closure quality flag.
+
+Consequently reference success on the natural conic would require inspection
+of this fallback before any closure claim. A useful narrower comparison is the
+same parent rule and exceptional conditions. The prepared oracle protocol also
+accounts for sector-bit endianness (external MSB label 28686 corresponds to
+C++ integer 14343), coefficient variable names, the identical zero-mask set,
+and the same `q^2-1` convention. It is a protocol, not a completed C++ run:
+`TMP/tide-spired-oracle-proposal.T9KRZR/PROPOSAL.md`.
 
 A bound on negative index degree is `sum_i max(-n_i,0)`, not momentum tensor
 rank (quadratic numerators have twice that momentum degree). For this captured

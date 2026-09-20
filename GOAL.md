@@ -1,6 +1,36 @@
 # RustRed project goal
 
-## Current priority — binary I/O, then terminal reduction
+## Current priority — progressive five-loop solving after compact four-loop delivery
+
+### Long-running five-loop campaigns: admission and monitoring
+
+The latest directive permits runs lasting **10 hours or more**, with total
+memory strictly below **500 GB** and fewer than **50 compute cores**, when
+multiple measured optimization passes and bounded pilots show a credible
+chance of completion. These are ceilings, not default allocations. Count
+concurrent probes and nested pools together; leave headroom below the memory
+ceiling. Do not substitute a larger budget for an understood structural blocker.
+
+Before admitting such a run, document the input/sector scope, ordering,
+backend, completed pilot work, remaining work, observed fill and memory growth,
+and stop/reassessment criteria. Provide a clean overwriting TTY progress bar
+with colored header statistics and an equivalent rate-limited non-TTY record.
+Expose elapsed and phase time, current sector/case, rules and residuals,
+source rows/columns/nonzeros, reconstruction probes and exact progress, worker
+utilization, current/peak memory, and heartbeat age where measurable. Do not
+invent a completion percentage or ETA when the search has no known denominator;
+use indeterminate progress and explicit completed counters instead. Preserve
+machine-readable events so bottlenecks and stalls can be analyzed afterward.
+
+Study ordering as an input-driven strategy dimension and report both its
+performance and exceptional-domain consequences. Use the original SpIRed
+implementation as a narrowed-sector/case oracle when useful, with matched
+sources, routing, ordering and zero-sector policies. Disclose its nonlinear
+finite-power fallback: bounded reference success is not unrestricted family
+closure. Record exceptional terminals/branches and explain whether they are
+genuine infinite domains, unsupported but empty domains, or unfinished exact
+algebra. Reproduce TIDE progressively; no successful small sector establishes
+completion of all four five-loop parent families.
 
 ### September 20 directive: compact delivery and a TIDE-based five-loop census
 
@@ -62,12 +92,19 @@ The first factorized TIDE member (31744) now generates a native uncertified
 candidate bundle through the public CLI: 637 rules, one residual, one nonzero
 sector and 31 scoped zeros. Exact sparse/source-weight selected-sector outputs
 agree, and the saved bundle passes seven exact cold-application canaries with
-repeat/memoization checks. The connected six-line member 28686 reaches the same genuine
+repeat/memoization checks. With natural ordering, the connected six-line member
+28686 reaches the same genuine
 nonlinear exceptional locus with both backends; it is not complete. Preserve
 this case as a generic geometry/ordering diagnostic, seek alternative exact
 rules before a large chart extension, and label any power-bounded fallback
 explicitly rather than promoting it to unrestricted closure. See the
 [measured reconstruction study](docs/research/reconstruction_exact_validation.md).
+Subsequent ordering probes distinguish a genuine infinite exceptional conic
+from a different ordering's provably empty quadratic branch. A generic native
+exact definite-quadratic emptiness service is the next implementation slice;
+its release gate and selected-sector rerun must precede any completion claim.
+The reversed ordering instead exhausts a five-minute pilot in exact algebra.
+None of these connected-sector probes is a completed five-loop family.
 
 ### September 20 follow-up: deeper finite-terminal reduction study
 

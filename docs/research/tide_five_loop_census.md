@@ -611,9 +611,22 @@ numerator power along this ray is `6t+1`; a total-power-30 request would admit
 only `t=1..4` from this ray, but would still need to cover every other allowed
 point of the exceptional set. Sampling a few points is not that coverage.
 
-The next narrow experiments are alternative source supports/orderings which
-avoid this nonlinear pivot condition, followed by an explicitly scoped
-bounded-power fallback if necessary. A general polynomial-ideal or nonlinear
+Two alternative orderings have since been measured. Reversing coordinate
+priorities hits a 300-second deadline in exact materialization (611 rows,
+2,383 columns, about 1.57 GiB peak RSS). Prioritizing the observed quadratic
+support reaches a different unsupported branch in 172.844 seconds of solver
+time, using about 369 MiB. Its quadratic is an exact sum of squares whose only
+zero violates the sector signs: that branch is **empty**, unlike the genuine
+infinite conic above. This motivates a small generic exact emptiness service,
+currently undergoing implementation and independent audit, followed by the
+same selected-sector rerun. Neither ordering has yet completed the sector.
+The [geometry study](tide_exceptional_geometry.md) gives the full polynomials,
+permutations, timing boundaries and limitations of the reference SpIRed's
+finite-power nonlinear fallback.
+
+The next narrow experiments are the empty-branch correction and further
+alternative source supports/orderings where justified, followed by an
+explicitly scoped bounded-power fallback if necessary. A general polynomial-ideal or nonlinear
 integer-chart service is a larger architectural option, not an implemented
 shortcut. Native Symbolica exact arithmetic and Gröbner services must remain
 the algebraic foundation. Merely adding one integer seed from the ray does
