@@ -16,10 +16,10 @@ use super::super::{
 
 pub(super) type Signature = Vec<(Integer, i64)>;
 
-pub(super) struct Support {
-    slots: Vec<usize>,
-    rows: Vec<Vec<Coefficient>>,
-    circuit: Vec<Integer>,
+pub(in crate::reduction::terminal_normalization) struct Support {
+    pub(in crate::reduction::terminal_normalization) slots: Vec<usize>,
+    pub(in crate::reduction::terminal_normalization) rows: Vec<Vec<Coefficient>>,
+    pub(in crate::reduction::terminal_normalization) circuit: Vec<Integer>,
 }
 
 pub(super) struct Candidate {
@@ -31,7 +31,7 @@ pub(super) struct Candidate {
     pub pivot: usize,
 }
 
-pub(super) fn support(
+pub(in crate::reduction::terminal_normalization) fn support(
     family: &IntegralFamily,
     slots: &[usize],
     variables: &Arc<Vec<PolyVariable>>,

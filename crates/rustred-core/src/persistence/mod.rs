@@ -12,6 +12,7 @@ mod error;
 mod family;
 mod limits;
 mod native;
+pub(crate) mod terminal_normalization;
 
 pub use atoms::{
     CoefficientId, CoefficientTableBuilder, DecodedCoefficientTable, EncodedCoefficientTable,

@@ -163,6 +163,20 @@ The [finite-source study](docs/research/finite_terminal_relations.md) records
 the completed scope and measurements. The binary-I/O and exact unit-weight
 terminal-normalization delivery gates are complete at the published revisions
 above; these do not imply candidate certification. The bounded native Symbolica
+[weighted support-symmetry service](docs/research/weighted_terminal_normalization.md)
+now provides a different, independently audited reduction of every one of the
+105 numerator terminals. Its generic rank/circuit conditions apply at arbitrary
+loop count; no family name selects it. The actual native four-family corpus
+now has 74 positive output representatives (H22, FG16, BMW17, X19), with all
+1,155 raw catalog/installed rows and 1,260 coefficients/maps verified exactly
+in export and fresh-context cold replay. All 84 momentum generators and complete
+affine identities were independently rechecked. Four sidecars total 30,795
+bytes; original programs/catalogs remain unchanged. The generic core release
+and native corpus gates pass, but the pinned Vakint rollout and its full
+83+15+16 numerical suite and matched benchmark are still pending. Thus 74 is
+not yet the shipped validated Vakint convention, and neither this finite
+normalization nor the preceding aliases establish candidate closure.
+The bounded native Symbolica
 [factorized-denominator experiment](docs/research/factorized_coefficients.md)
 also completes with 1,200 exact frame comparisons passing: repeated arithmetic
 plus output is approximately 1.9 times faster, but conversion makes the first

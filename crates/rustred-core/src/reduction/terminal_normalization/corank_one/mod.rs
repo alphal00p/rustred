@@ -19,7 +19,7 @@ use super::{
     VerifiedTerminalAlias,
 };
 
-mod proposal;
+pub(super) mod proposal;
 mod verify;
 
 #[cfg(test)]

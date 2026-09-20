@@ -209,6 +209,7 @@ impl<const N: usize> CandidateReducer<N> {
             rules,
             terminals,
             terminal_aliases: None,
+            terminal_normalization: None,
             zero_sectors,
             _zero_certificates: zero_certificates,
             source_conditions,

@@ -23,6 +23,8 @@ mod factorized_audit;
 mod terminal_alias_audit;
 #[path = "tests/terminal_aliases.rs"]
 mod terminal_aliases;
+#[path = "tests/terminal_weighted_audit.rs"]
+mod terminal_weighted_audit;
 
 fn key<const N: usize>(powers: [i64; N]) -> IntegralKey {
     IntegralKey::try_new(powers).unwrap()

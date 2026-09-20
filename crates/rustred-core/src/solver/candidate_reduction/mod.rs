@@ -13,6 +13,7 @@ mod model;
 mod preparation;
 mod reducer;
 mod terminal_aliases;
+mod terminal_normalization;
 
 pub use model::{
     CandidateCacheRepresentation, CandidateDecomposition, CandidateReachabilityReport,

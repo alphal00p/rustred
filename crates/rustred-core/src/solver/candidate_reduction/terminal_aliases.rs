@@ -14,7 +14,9 @@ impl<const N: usize> CandidateReducer<N> {
     /// coalesce equivalent output keys before retaining their decompositions in
     /// the cache. Installation requires an empty cache, preventing a mixture of
     /// old and new output conventions; an explicit `clear_cache` permits a new
-    /// plan. No source identity or completeness claim is added to this candidate
+    /// plan. Successful installation replaces any weighted normalization plan;
+    /// rejected installation leaves both conventions unchanged.
+    /// No source identity or completeness claim is added to this candidate
     /// owner by installing exact terminal equalities.
     pub fn install_terminal_aliases(
         &mut self,
@@ -41,6 +43,7 @@ impl<const N: usize> CandidateReducer<N> {
             ));
         }
         self.terminal_aliases = Some(plan);
+        self.terminal_normalization = None;
         Ok(())
     }
 
@@ -52,6 +55,9 @@ impl<const N: usize> CandidateReducer<N> {
     /// Possible output representatives. This is not an independent-master basis
     /// and does not replace the raw catalog/provenance contract of `terminals`.
     pub fn canonical_terminals(&self) -> &BTreeSet<IntegralKey> {
+        if let Some(plan) = &self.terminal_normalization {
+            return plan.canonical_terminals();
+        }
         self.terminal_aliases
             .as_ref()
             .map_or(&self.terminals, TerminalAliasPlan::canonical_terminals)
