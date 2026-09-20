@@ -85,16 +85,49 @@ inversion is already computed once per accepted row, not once per row entry.
 There is no demonstrated unused normalization switch that safely removes this
 work, and no new computer-algebra kernel is warranted inside RustRed.
 
-## Next experiment and its limits
+## Target-block control: lower memory, still incomplete
 
 The existing `sparse-target-factorized` backend provides a useful control:
 reduce only the harder/target block, solve for source weights with native sparse
 linear algebra, and reconstruct the complete exact row. It preserves the same
 factorized numerical tail and requires a source prefix independent in the
-restricted harder/target block. A fresh
-full-root control with the same frozen CLI, input, ordering and resource policy
-was launched separately; it is **not yet a completed result in this report**.
-It must not reuse checkpoints bound to the other backend.
+restricted harder/target block. A fresh full-root control used the same frozen
+CLI, input, ordering and resource policy, with only the backend changed. It
+reused no checkpoints bound to the other backend. It also reached its deadline:
+
+| Observation | Target-block factorized result |
+| --- | ---: |
+| Exit | 124, deadline; TERM reported |
+| Whole wall time | 1,800.44 s |
+| User / system CPU | 1,790.02 / 6.37 s |
+| Peak RSS | 513,128 KiB, approximately 0.49 GiB |
+| Completed and saved sectors | 0 / 7 |
+| Final candidate / report | Neither produced |
+
+Frozen CLI, input and protocol hashes pass, both processes are terminal, and no
+OOM was reported.
+The two incomplete attempts have markedly different peak-memory observations,
+but neither supplies completed outputs or a measured solve-time speedup. The
+target control was also shared-load and instrumented; profiling overhead was
+not separately measured.
+
+A 49 Hz, 20.10-second user-CPU stack sample contains 332 samples and reports
+zero lost samples. Native sparse row insertion and factorized-field inversion
+appear in 97.29% of the inclusive stacks, alongside polynomial factorization.
+The native factorization/Hensel-lifting subtree dominates this interval, unlike
+the earlier full-row interval dominated by multiplication and division.
+The local native API agrees with this interpretation:
+`FactorizedRationalPolynomial::inv` explicitly factors its numerator, and the
+field's inverse delegates to it. The constructor's `do_factor=false` does not
+disable this later inversion. No replacement arithmetic or unproved shortcut
+was introduced.
+
+The target-only factorized materializer appears in 96.99% of the captured
+stacks and the outer exact-materialization dispatcher in 89.16%, not all of
+them. The summed sampling periods are about 6.776 seconds over 20.10 seconds
+of recording, not measured whole-process CPU time; that discrepancy remains
+unexplained. These observations do not prove one pivot consumed the entire run,
+nor do they establish the exact frame dimensions or a missing algebraic rule.
 
 This control can establish whole-workflow feasibility. Without capturing and
 comparing the actual exact frame, it cannot isolate which frame or omitted
@@ -125,4 +158,8 @@ Profiles are in `TMP/banana-live-profile.bdDIeY/`,
 `TMP/banana-live-stacks-small.nOE5KJ/`. Independent measurement and native API
 reviews are `TMP/banana-live-profile-independent-audit-2026-09-20.md` and
 `TMP/factorized-exact-lift-hot-path-audit-2026-09-20.md`.
+The terminal target-control receipts are in
+`TMP/five-loop-banana-target-control.hPo90N/`, its profile in
+`TMP/banana-target-live-stacks.qTFPC0/`, and its independent interpretation in
+`TMP/banana-target-profile-outcome-independent-audit-2026-09-20.md`.
 These local evidence directories are not shipped artifacts or closure proofs.

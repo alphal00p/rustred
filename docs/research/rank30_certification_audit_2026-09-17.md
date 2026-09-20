@@ -98,8 +98,37 @@ and runtime-canary stage is not run. Input/library hash checks pass.
 Evidence: `TMP/fg-bounded-native-acceptance.DMv9MT/` contains `certify.log`,
 `certify.err`, `certify.status`, `certify.time`, the frozen client and hash
 records. This is neither a completed full-FG certificate nor evidence of a
-missing IBP. No four-loop Vakint asset or dependency pin changes. Any separate
-caller-resourced follow-up requires its own result; none is claimed here.
+missing IBP. No four-loop Vakint asset or dependency pin changes.
+
+### Separately declared caller-resourced attempt: deadline, still incomplete
+
+One follow-up used the unchanged full saved program, entry E30 and frozen
+optimized libraries, with four explicit caller allowances: cover boxes
+4,194,304; cover coordinate cells and work 268,435,456 each; rule-derivation
+endpoint cells 65,536. The cold loader was prepared with matching allowances.
+Defaults, exact proof semantics, predicate/algebra limits and output ceilings
+were not changed. This was one bounded experiment, not automatic quota tuning.
+
+It reached the 600-second deadline with status 124: **600.12 s wall,
+584.92 s user, 14.55 s system, 233,476 KiB peak RSS**. All 48 completed local
+reports have zero gaps/issues and account for 3,094 replayed rules; 48 retained
+successor passes complete. The last completed sector is 203, and the last
+callback starts rule ordinal 78 of sector 115. There is no completed lowering,
+actual-cell pass, installation, artifact, or cold run. All recorded input and
+library hashes pass. A timeout is incomplete evidence, not a failed identity.
+
+The first 47 local sector/count tuples match the default-policy run exactly;
+the first 46 retained snapshots also match after excluding limits and elapsed
+time. Nevertheless this run contains substantial unexplained delays already
+in preparation, before the changed proof-work allowances can explain them.
+Do not infer a speed ratio or attribute those delays to sector reordering.
+These remain shared-load exploratory measurements.
+
+Evidence and independent interpretation are retained in
+`TMP/fg-e30-caller-policy.4Ap28o/`, including `TERMINAL_AUDIT.md`.
+No further certification retries or quota increases belong to this slice.
+The optional full-FG certificate remains unfinished; the shipped four-loop
+numerical programs, terminal catalogs and Vakint dependency pin are unchanged.
 
 ## Historical checkpoint record
 

@@ -302,6 +302,11 @@ after 12.54 s wall, 12.21 s user and 0.23 s system time, at 211,972 KiB peak
 RSS. This shared-load observation is not an isolated speed comparison. No
 artifact is written, and cold acceptance is not run. Full-parent certification
 remains incomplete; no missing-rule conclusion follows from this quota.
+One separate caller-resourced E30 attempt subsequently times out after
+600.12 s, with 48 clean local reports, 3,094 replayed rules and 48 retained
+successor passes, but no artifact or cold run. Its completed prefix matches
+the default run; unexplained early delays prevent a timing comparison.
+Do not pursue further optional certification retries in this slice.
 See the [bounded-certification audit](docs/research/rank30_certification_audit_2026-09-17.md).
 
 Both bounded physical-cube backends reach their 1,800-second deadlines
@@ -498,6 +503,16 @@ or cold acceptance. The [detailed record](docs/research/rank30_certification_aud
 preserves the typed failure and earlier evidence. This is not a full four-loop
 certificate or a demonstrated performance gain; shipped Vakint assets and its
 dependency pin remain unchanged.
+
+The full seven-sector banana input now has two recorded 1,800-second,
+instrumented release attempts: full-row factorized and target-block
+factorized. Neither saved a sector or final candidate. Peak RSS was
+7,923,228 and 513,128 KiB respectively, not a completed-solve memory bound or
+speed ratio. Native multiplication/division dominates the first sampled
+interval; native factorized pivot inversion/factorization dominates the
+second. The [profile and limits](docs/research/five_loop_exact_lift_profile.md)
+record both outcomes. Continue through existing generic native backends and
+measured frame observations, never a topology-specific algebraic shortcut.
 
 The reconstruction backend still includes internal exact sparse replay; this
 is distinct from optional family certification. New diagnostic observer
