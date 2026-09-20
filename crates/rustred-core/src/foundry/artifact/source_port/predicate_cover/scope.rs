@@ -9,7 +9,7 @@ use crate::foundry::completion::UncoveredPartition;
 /// Every coordinate maximum is obtained by fixing all other counted axes at
 /// their lower endpoints. Positive axes are not counted by numerator-only
 /// bounds and retain genuine infinite endpoints.
-pub(super) fn degree_hull(
+pub(in crate::foundry::artifact) fn degree_hull(
     sector: &[bool],
     cell: &LatticeBox,
     degree: EntryDegreeBound,

@@ -22,11 +22,14 @@ mod rule_replay;
 pub use rule_replay::{SourcePortReplayedRule, SourcePortRuleReplayAudit};
 mod total_excess;
 pub use total_excess::SourcePortTotalExcessAudit;
+pub(in crate::foundry::artifact) use total_excess::{EnvelopeBudget, visit_successor_degrees};
 pub(in crate::foundry::artifact) mod scope;
 pub(crate) use program::lower::ReplayedOriginalDomain;
 #[cfg(test)]
 pub(in crate::foundry::artifact) use program::lower::durable_tests::installed_k1 as installed_k1_for_codec_test;
 pub(in crate::foundry::artifact) use program::lower::{PreparedOriginalDomain, ReplayLimits};
+#[cfg(test)]
+pub(in crate::foundry::artifact) use program::scoped_tests::candidate as source_port_candidate_for_test;
 #[cfg(test)]
 pub(in crate::foundry::artifact) use program::scoped_tests::generated_scope as generated_scoped_k3_for_codec_test;
 

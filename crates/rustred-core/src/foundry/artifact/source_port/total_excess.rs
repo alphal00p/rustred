@@ -7,8 +7,10 @@
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::Instant;
 
+use crate::algebra::Coefficient;
 use crate::family::IntegralFamily;
 use crate::foundry::completion::{CompletionGeometryLimits, LatticeBox};
 use crate::sector::{Mask, OrderingPolicy};
@@ -17,8 +19,8 @@ use crate::solver::SectorSolution;
 use super::program::{CheckedRule, CheckedSector, SectorCheck};
 use super::scope::{EntryDegreeBound, EntryScope};
 use super::{
-    SourcePortAudit, SourcePortAuditError, SourcePortInstallEvent, SourcePortSectorAudit, error,
-    geometry, sector_ordering,
+    AffineApplicationDomain, SourcePortAudit, SourcePortAuditError, SourcePortInstallEvent,
+    SourcePortSectorAudit, error, geometry, sector_ordering,
 };
 
 /// A successful exact diagnostic over a complete root-sector census. Entry
@@ -285,82 +287,153 @@ fn propagate_rule<const N: usize>(
     budget: &mut EnvelopeBudget,
 ) -> Result<(), SourcePortAuditError> {
     for term in &rule.rhs {
-        if term.coefficient.is_zero() {
-            continue;
-        }
-        for source in &rule.application {
-            budget.charge(0, 0, N)?;
-            if !EntryDegreeBound::MaxTotalExcessDegree(degree)
-                .intersects_local_box(&sector, source)
-                .map_err(error)?
-            {
-                continue;
-            }
-            for piece in budget.partition(source, &sector, &term.shift)? {
-                if !EntryDegreeBound::MaxTotalExcessDegree(degree)
-                    .intersects_local_box(&sector, &piece)
-                    .map_err(error)?
-                {
-                    continue;
-                }
-                // These exact domain proofs can remove fictitious activating
-                // branches of rectangular prefilters, without discarding any
-                // unresolved affine predicate or excluding a sampled point.
-                if rule
-                    .affine
-                    .as_ref()
-                    .is_some_and(|domain| domain.is_proved_empty_in_box(&piece))
-                    || rule
-                        .affine_exclusions
-                        .iter()
-                        .any(|domain| domain.is_proved_to_contain_box(&piece))
-                {
-                    continue;
-                }
-                let child: [bool; N] = std::array::from_fn(|axis| {
-                    let local = i128::from(piece.lower()[axis]);
-                    let physical = if sector[axis] { 1 + local } else { -local };
-                    physical + i128::from(term.shift[axis]) > 0
-                });
-                if zero_sectors.contains(&child) {
-                    continue;
-                }
-                if child == sector {
-                    // On an unchanged sector, total excess is the first
-                    // varying Spired complexity component. Already checked
-                    // strict descent therefore implies E(child) <= E(parent).
-                    continue;
-                }
-                let lower = ordering
-                    .compare(&child.map(i64::from), &sector.map(i64::from))
-                    .map_err(error)?
-                    == Ordering::Less;
-                let admitted = entry.validate_sector(&child).is_ok();
-                if !lower || !admitted {
-                    // Whole-domain descent can rely on a coefficient that
-                    // vanishes exactly on this sign cell. Repeat its native
-                    // restriction before treating a prefilter edge as real.
-                    if geometry::checked_coefficient_vanishes(
-                        &term.coefficient,
-                        &piece,
-                        &sector,
-                        indices,
-                        budget.limits,
-                        rule.affine.as_deref(),
-                    )? {
-                        continue;
-                    }
-                    return Err(error(format!(
-                        "unresolved nonlower or out-of-root successor sector {sector:?} -> {child:?}, shift={:?}",
-                        term.shift,
-                    )));
-                }
-                let propagated = successor_degree(degree, &sector, &child, &term.shift)?;
+        visit_successor_degrees(
+            entry,
+            ordering,
+            &sector,
+            degree,
+            &rule.application,
+            &term.shift,
+            &term.coefficient,
+            rule.affine.as_deref(),
+            &rule.affine_exclusions,
+            |child| zero_sectors.iter().any(|zero| zero.as_slice() == child),
+            indices,
+            budget,
+            |child, propagated| {
+                let child: [bool; N] = child
+                    .try_into()
+                    .map_err(|_| error("successor arity differs"))?;
                 let target = bounds
                     .get_mut(&child)
                     .ok_or_else(|| error("successor sector has no checked census entry"))?;
                 *target = (*target).max(propagated);
+                Ok(())
+            },
+        )?;
+    }
+    Ok(())
+}
+
+/// Shared conservative successor obligation for retained rules and actual
+/// replayed cells. The caller supplies authenticated source predicates and
+/// checked strict descent; geometry alone never grants that authority.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::foundry::artifact) fn visit_successor_degrees(
+    entry: &EntryScope,
+    ordering: OrderingPolicy,
+    sector: &[bool],
+    degree: u64,
+    application: &[LatticeBox],
+    shift: &[i64],
+    coefficient: &Coefficient,
+    affine: Option<&AffineApplicationDomain>,
+    affine_exclusions: &[Arc<AffineApplicationDomain>],
+    mut is_zero: impl FnMut(&[bool]) -> bool,
+    indices: &[usize],
+    budget: &mut EnvelopeBudget,
+    mut require_destination: impl FnMut(&[bool], u64) -> Result<(), SourcePortAuditError>,
+) -> Result<(), SourcePortAuditError> {
+    let arity = sector.len();
+    if !ordering.is_spired() || shift.len() != arity || indices.len() != arity {
+        return Err(error(
+            "successor obligation requires matching arity and Spired ordering",
+        ));
+    }
+    entry.validate_sector(sector).map_err(error)?;
+    if coefficient.is_zero() {
+        return Ok(());
+    }
+    // Keep the dynamic adapter's three buffers for the entire traversal. The
+    // partition ledger already charges per-piece mask/comparator work.
+    budget.charge(0, mul(arity, 3)?, mul(arity, 3)?)?;
+    let mut child = Vec::new();
+    let mut child_corner = Vec::new();
+    let mut source_corner = Vec::new();
+    child
+        .try_reserve_exact(arity)
+        .map_err(|_| SourcePortAuditError::ResourceBudgetExhausted {
+            resource: "total-excess successor mask allocation",
+        })?;
+    child_corner.try_reserve_exact(arity).map_err(|_| {
+        SourcePortAuditError::ResourceBudgetExhausted {
+            resource: "total-excess successor corner allocation",
+        }
+    })?;
+    source_corner.try_reserve_exact(arity).map_err(|_| {
+        SourcePortAuditError::ResourceBudgetExhausted {
+            resource: "total-excess successor corner allocation",
+        }
+    })?;
+    child.resize(arity, false);
+    child_corner.resize(arity, 0_i64);
+    source_corner.extend(sector.iter().copied().map(i64::from));
+    for source in application {
+        budget.charge(0, 0, arity)?;
+        if !EntryDegreeBound::MaxTotalExcessDegree(degree)
+            .intersects_local_box(sector, source)
+            .map_err(error)?
+        {
+            continue;
+        }
+        for piece in budget.partition(source, sector, shift)? {
+            if !EntryDegreeBound::MaxTotalExcessDegree(degree)
+                .intersects_local_box(sector, &piece)
+                .map_err(error)?
+            {
+                continue;
             }
+            // These exact domain proofs can remove fictitious activating
+            // branches of rectangular prefilters, without discarding any
+            // unresolved affine predicate or excluding a sampled point.
+            if affine.is_some_and(|domain| domain.is_proved_empty_in_box(&piece))
+                || affine_exclusions
+                    .iter()
+                    .any(|domain| domain.is_proved_to_contain_box(&piece))
+            {
+                continue;
+            }
+            for axis in 0..arity {
+                let local = i128::from(piece.lower()[axis]);
+                let physical = if sector[axis] { 1 + local } else { -local };
+                child[axis] = physical + i128::from(shift[axis]) > 0;
+                child_corner[axis] = i64::from(child[axis]);
+            }
+            if is_zero(&child) {
+                continue;
+            }
+            if child.as_slice() == sector {
+                // On an unchanged sector, total excess is the first
+                // varying Spired complexity component. Already checked
+                // strict descent therefore implies E(child) <= E(parent).
+                continue;
+            }
+            let lower = ordering
+                .compare(&child_corner, &source_corner)
+                .map_err(error)?
+                == Ordering::Less;
+            let admitted = entry.validate_sector(&child).is_ok();
+            if !lower || !admitted {
+                // Whole-domain descent can rely on a coefficient that
+                // vanishes exactly on this sign cell. Repeat its native
+                // restriction before treating a prefilter edge as real.
+                if geometry::checked_coefficient_vanishes(
+                    coefficient,
+                    &piece,
+                    sector,
+                    indices,
+                    budget.limits,
+                    affine,
+                )? {
+                    continue;
+                }
+                return Err(error(format!(
+                    "unresolved nonlower or out-of-root successor sector {sector:?} -> {child:?}, shift={:?}",
+                    shift,
+                )));
+            }
+            let propagated = successor_degree(degree, sector, &child, shift)?;
+            require_destination(&child, propagated)?;
         }
     }
     Ok(())
@@ -389,7 +462,7 @@ fn successor_degree(
 /// One cumulative structural ledger, shared by every sector, box and term.
 /// Native coefficient restriction additionally retains its existing per-query
 /// proof limits; this ledger does not bound Symbolica's internal allocations.
-struct EnvelopeBudget {
+pub(in crate::foundry::artifact) struct EnvelopeBudget {
     limits: CompletionGeometryLimits,
     boxes: usize,
     coordinates: usize,
@@ -397,7 +470,7 @@ struct EnvelopeBudget {
 }
 
 impl EnvelopeBudget {
-    fn new(limits: CompletionGeometryLimits) -> Self {
+    pub(in crate::foundry::artifact) fn new(limits: CompletionGeometryLimits) -> Self {
         Self {
             limits,
             boxes: 0,
@@ -406,7 +479,7 @@ impl EnvelopeBudget {
         }
     }
 
-    fn charge(
+    pub(in crate::foundry::artifact) fn charge(
         &mut self,
         boxes: usize,
         coordinates: usize,

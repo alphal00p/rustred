@@ -1,7 +1,7 @@
 //! Exact public-entry admission, separate from descendant proof envelopes.
 //!
-//! No production bounded constructor exists yet. Final actual-cell coverage
-//! and successor checks must seal that path before a bounded owner can ship.
+//! Internal bounded owners require actual-cell coverage and successor checks.
+//! There is no public bounded producer or durable encoding yet.
 
 use std::collections::BTreeMap;
 
@@ -13,7 +13,6 @@ use super::{ArtifactError, ClosedArtifact};
 #[derive(Debug)]
 pub(super) enum ArtifactProofScope {
     Unrestricted,
-    #[allow(dead_code)] // Only test fixtures construct this until final admission exists.
     TotalExcess(TotalExcessProofScope),
 }
 
@@ -21,8 +20,8 @@ pub(super) enum ArtifactProofScope {
 pub(super) struct TotalExcessProofScope {
     entry: EntryScope,
     // This immutable map is intentionally not the public-entry bound. Runtime
-    // descendants rely on the eventual checked envelope, never on entry D.
-    #[allow(dead_code)] // Consumed by the subsequent actual-cell/persistence bridge.
+    // descendants rely on the checked envelope, never on entry D.
+    #[allow(dead_code)] // Retained for the subsequent bounded persistence bridge.
     successor_degrees: BTreeMap<Mask, u64>,
 }
 
@@ -46,6 +45,15 @@ pub(crate) enum RootDomainError {
 }
 
 impl ArtifactProofScope {
+    pub(super) fn from_verified_total_excess(
+        verified: super::install::VerifiedTotalExcessScope,
+    ) -> Self {
+        let (entry, successor_degrees) = verified.into_parts();
+        Self::TotalExcess(TotalExcessProofScope {
+            entry,
+            successor_degrees,
+        })
+    }
     pub(super) fn is_unrestricted(&self) -> bool {
         matches!(self, Self::Unrestricted)
     }

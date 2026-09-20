@@ -3,6 +3,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use symbolica::prelude::{Integer, Matrix, Q, Rational};
 
 mod admission;
+mod modular;
 mod native;
 
 #[cfg(test)]
@@ -34,9 +35,11 @@ pub(crate) enum RightKernelDecision {
 }
 
 /// Compute one primitive integer vector in the right kernel of an integer
-/// matrix. Symbolica owns RREF, rational primitive-part normalization, and the
+/// matrix. Symbolica owns modular rank, RREF, primitive-part normalization, and the
 /// exact integer matrix product used to replay the witness. RustRed owns only
-/// the stable convention of selecting the first free RREF column.
+/// admission and the stable convention of selecting the first free RREF column.
+/// A full-rank modular minor proves rational full column rank; every modular
+/// miss falls back to the original exact witness calculation.
 pub(crate) fn first_primitive_right_kernel(
     entries: &[u16],
     rows: usize,
@@ -105,6 +108,15 @@ fn first_primitive_right_kernel_inner(
     )?;
     let minor_bit_bound =
         preflight_rref_bits(entries, rows, columns, limits.max_rref_integer_bits)?;
+
+    // Preserve every original admission check before the shortcut. Reserve
+    // work for both native reductions in case this prime loses rank; insufficient
+    // headroom skips the screen instead of rejecting a previously valid input.
+    if modular::admitted(rows, columns, expected_entries, rank_operations, limits)
+        && modular::full_column_rank(entries, rows, columns)?
+    {
+        return Ok(RightKernelDecision::FullColumnRank { rank: columns });
+    }
 
     let mut rational_entries = try_vec(expected_entries, "rational rank matrix")?;
     rational_entries.extend(

@@ -393,3 +393,117 @@ Evidence: `TMP/numerical-depth-api-release-*.log` and
 all solver timings above. This public API milestone is not a new five-loop
 solve; the next run supplies the unchanged physical-family input through the
 CLI, rather than recompiling a fixture-specific diagnostic client.
+
+## Preparation follow-up: native modular full-rank screening
+
+The later [completed target/full-factorized parent comparison](factorized_coefficients.md#completed-selected-parent-follow-up-september-20)
+establishes exact selected-sector parity, but retains substantial variation in
+preparation as well as solver and output times. A separate user-CPU profile
+finds 614 of 1,480 interior preparation samples in native rational forward
+elimination. This motivates a generic optimization of the zero-sector analyzer,
+not another family-specific solver policy.
+
+The integer exponent matrix now first uses Symbolica's native
+`Matrix<Zp64>::partial_row_reduce` when the existing work budget can cover both
+the screen and a rational fallback. The fixed prime is authenticated once by
+Symbolica's deterministic u64 primality test. Full column rank modulo that
+prime proves a nonzero integer maximal minor and therefore full rational rank.
+Every modular miss keeps the original rational RREF, deterministic primitive
+kernel and native integer replay unchanged. Full rank still means only that
+the sufficient zero-sector test is **inconclusive**, not that the integral is
+nonzero. No reconstruction or custom elimination is introduced.
+
+Original shape, dimension, work and conservative bit admission occur before
+the screen. Its checked work reservation is `2 * rank_operations + entries`;
+insufficient allowance or arithmetic overflow skips the screen without a new
+rejection. Wide matrices also skip it. Modular storage is dropped before any
+rational fallback allocation. This depends on matrix structure, not loop count,
+sector names or a topology lookup table.
+
+The focused release tests pass for an actual-prime rank-loss counterexample,
+840 exhaustive small matrix decisions and primitive witnesses, maximal u16
+entries, rectangular/deficient cases, exact work thresholds, overflow, and
+unchanged bit/kernel errors. Independent mathematical and implementation audit
+passes. The full core release suite passes 2,263 tests with zero failures and
+32 existing ignored research tests. The application gate passes 117 library
+and 72 integration tests; the fresh release CLI build also succeeds.
+
+The frozen census harness compares every sector's full decision, exact kernel,
+raw/effective support, rank/order/row metadata, family binding and complete
+parameter-domain provenance. Nonempty domain polynomials use the existing
+native binary catalog transport, with exact cold comparison of both ordered
+maps. All family descriptions are external inputs. Analyzer construction and
+census are timed separately from rendering, native output and comparison.
+
+### Completed paired census measurements
+
+All measurements below completed on September 20 after compilation and without
+an overlapping owned build. Both clients use identical diagnostic source,
+optimized release linkage, one worker on CPU94, nested pools limited to one,
+an 8 GiB address-space cap and unchanged analyzer limits. The old core is the
+frozen published `f29d6a84` library; the new core includes the one-sided native
+rank screen. Symbolica and TOML library snapshots match exactly. The three
+cube pairs alternate old/new, new/old, old/new; no warm-up is removed.
+
+`census` includes analyzer construction and every decision, with decision
+retention but no rendering or serialization. GNU wall/CPU/RSS cover the whole
+process, including input, output and destruction. Retaining every decision is
+a harness memory cost, not a production streaming-memory measurement.
+
+| Pair | Old/new census (s) | Old/new whole wall (s) | Old/new CPU, user+system (s) | Old/new peak RSS (KiB) | Old/new census ratio |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0 | 18.086212 / 7.466656 | 18.17 / 7.55 | 18.05 / 7.49 | 71,964 / 69,584 | 2.4223 |
+| 1 | 18.514227 / 7.483701 | 18.59 / 7.56 | 18.41 / 7.50 | 73,544 / 73,136 | 2.4739 |
+| 2 | 24.306422 / 7.542163 | 24.38 / 7.61 | 24.23 / 7.55 | 72,828 / 73,636 | 3.2227 |
+
+The observed paired median ratio is **2.47394**, with median census time
+18.514227 → 7.483701 s. The slower third old observation is retained; no cause
+is assigned to its variation. These three local pairs do not establish a
+confidence bound or a universal speedup. There is no consistent RSS reduction.
+Analyzer construction remains 0.558–0.640 s across the six runs; enumeration
+falls from 17.513/17.926/23.728 s to 6.908/6.903/6.903 s.
+
+Every run visits all **32,768 raw masks** of the external 15-coordinate cube
+input, obtaining 5,480 proved-zero and 27,288 inconclusive decisions, no
+restriction exclusions and one retained coefficient-domain condition. This
+unrestricted preparation census is not the physical-root 2,656-sector solver
+campaign. Each pair and all four repeat comparisons preserve every primitive
+kernel, rank, support, parameter order, binding and native domain polynomial
+with both ordered coefficient maps. No classification becomes new closure
+authority.
+
+One fresh pair per smaller external input also completes:
+
+| Input | Raw masks | Proved zero / inconclusive | Old/new census (ms) | Old/new whole wall (s) | Old/new peak RSS (KiB) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| FG | 1,024 | 281 / 743 | 60.744691 / 26.035895 | 0.07 / 0.04 | 6,200 / 6,204 |
+| K6 | 64 | 26 / 38 | 0.933473 / 0.623472 | 0.01 / 0.01 | 6,200 / 6,180 |
+| Formally shifted tadpole | 2 | 0 / 2 | 0.029610 / 0.039540 | 0.00 / 0.00 | 3,096 / 3,084 |
+
+The last row retains a **9.93 µs regression** in this single tiny observation;
+it is not evidence of a general small-case speedup. GNU time's zero values are
+rounded, not zero work. The shifted input has two domain conditions and checks
+raw-inactive/effective-active support plus the `[d, eps]` native map. All ten
+native comparisons and all 22 census/compare stage statuses pass. Smaller-case
+CPU user/system totals are 0.06/0.00 → 0.03/0.00 s for FG and below GNU time's
+0.01 s reporting resolution for the other two inputs.
+
+The fresh-CLI fourteen-stage K6 regression also passes: ordinary generation,
+fresh one-/six-worker checkpointing, no-search complete resume, exact native
+old/new comparisons, and four independent certifications plus cold canaries.
+Each candidate contains 623 rules and 38 residuals across 38 sectors, with
+1,417 unique coefficients and 335,561 bytes. Each certificate has 5,640 cells,
+38 terminals and 3,731,581 bytes. Every canary reproduces 30 master terms and
+93 applications. Resume reuses all 38 shards without search or shard mutation.
+The frozen Python reader is an independent exact comparator, not a freshly
+built Python generation extension. This is an end-to-end correctness regression,
+not an isolated five-loop solver-speed comparison or a four-loop bounded proof.
+
+Evidence: `TMP/zero-census-differential.N1txma/`, with cube `run.nme8j1`, FG
+`run.dhs7YX`, K6 `run.tnv2Pa`, shifted input `run.j0bGqY`; release tests in
+`TMP/modular-rank-bounded-gate.Hm3zTv/`; end-to-end regression in
+`TMP/k6-modular-rank-regression.clUEcS/`. Independent source, mathematical,
+provenance and measurement audits pass. Full five-loop closure and a completed
+four-loop total-excess-30 certificate remain outstanding.
+Evidence: `TMP/five-loop-preparation-profile.XpucXw/` and
+`TMP/zero-census-differential.N1txma/`.

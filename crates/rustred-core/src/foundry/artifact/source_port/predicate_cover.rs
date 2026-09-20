@@ -20,7 +20,9 @@
 use std::{fmt, sync::Arc};
 
 use crate::algebra::CoefficientPolynomial;
-use crate::foundry::completion::{BoxCover, CompletionGeometryLimits, LatticeBox};
+use crate::foundry::completion::{
+    BoxCover, CompletionGeometryError, CompletionGeometryLimits, LatticeBox,
+};
 
 use super::AffineApplicationDomain;
 use super::scope::EntryDegreeBound;
@@ -29,6 +31,7 @@ mod consistency;
 mod diagnostic;
 mod scope;
 use diagnostic::PredicateCoverWitness;
+pub(in crate::foundry::artifact) use scope::degree_hull;
 
 struct TraversalWork<'a> {
     nodes: usize,
@@ -641,8 +644,15 @@ fn contains_box(outer: &LatticeBox, inner: &LatticeBox) -> bool {
             })
 }
 
-fn geometry(error: impl fmt::Display) -> PredicateCoverError {
-    PredicateCoverError::Geometry(error.to_string())
+fn geometry(error: CompletionGeometryError) -> PredicateCoverError {
+    match error {
+        CompletionGeometryError::ResourceLimit { resource, .. }
+        | CompletionGeometryError::ResourceCountOverflow { resource }
+        | CompletionGeometryError::AllocationFailure { resource, .. } => {
+            PredicateCoverError::Budget(resource)
+        }
+        other => PredicateCoverError::Geometry(other.to_string()),
+    }
 }
 
 #[cfg(test)]

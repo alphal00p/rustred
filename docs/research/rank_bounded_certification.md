@@ -38,6 +38,60 @@ around it.
 
 ## Recommendation and immediate implementation
 
+### September 20: actual executable-cell gate
+
+The current internal implementation targets **total excess**,
+`E(n) = sum(max(n_i - 1, 0) + max(-n_i, 0))`, rather than only negative-index
+degree. Positive propagator dots are therefore included. The older
+numerator-only design below remains a distinct proposed contract; its promise
+of unbounded positive powers must not be attributed to the total-excess path.
+
+After exact original-source checking, the private retained program now lowers
+only the coordinate hull intersecting each propagated degree envelope. This
+hull is an overapproximation, not a proof: the final installer separately
+checks exact degree-relative predicate coverage using the **actual executable
+cell bounds**, with original affine targets and exclusions. Each live RHS is
+checked against an immutable descendant-sector degree map. Same-sector strict
+SpIReD descent cannot increase total excess; lower-sector transitions use the
+generic triangle bound
+`E(child) <= E(parent) + sum(abs(shift_i)) + p(parent) - p(child)`.
+Only successful coverage and successor checks mint the private scope seal.
+
+Entry admission happens before cache access or scalar-lowering mutation.
+Descendant bounds may exceed the entry bound; applying the entry bound to
+intermediate integrals would reject valid reductions. The algorithm has no
+loop-count or named-topology dispatch and introduces no computer algebra.
+
+Independent source/mathematical and loop-genericity audits pass. The complete
+core release gate passes 2,263 tests, zero failures, with 32 existing ignored
+research tests. Seven new tests exercise executable/replay endpoint differences,
+coverage holes, census/root/kind/limit rejection, a terminal-only zero-degree
+scope and a real complete K3 program with coefficient/context/nonunit-mass
+parity and a larger descendant envelope. Existing unrestricted behavior is
+retained. There is **no public bounded producer or durable scoped encoding**
+yet, and encoding a bounded owner still explicitly rejects it. Neither this
+slice nor the small regression families establishes the desired FG
+124-sector/entry-E30 certificate. The known cumulative geometry-budget limit
+also remains unresolved.
+
+The release gate exposed an existing diagnostic erasure: predicate coverage
+converted geometry resource failures into a generic structural rejection.
+The mapper now preserves resource limit, counter-overflow and allocation
+categories. The cold infinity regression keeps a valid infinite roundtrip,
+rejects two representable finite substitutes as incomplete coverage, and
+rejects the largest finite machine endpoint with the exact successor-overflow
+resource error. It never treats that finite endpoint as mathematical infinity.
+The original failed gate logs are retained in
+`TMP/modular-rank-bounded-gate.Hm3zTv/`; the corrected `core-final` gate passes.
+The application gate also passes 117 library and 72 integration tests. The
+separate fresh-CLI K6 fourteen-stage regression passes exact old/new native
+candidate and certificate comparisons, one-/six-worker checkpoint generation,
+no-search resume and all four cold canaries. These unrestricted regressions
+preserve existing behavior; they do not supply bounded native transport or
+the missing complete FG E30 certificate.
+
+### Original numerator-only recommendation
+
 Use **finite negative-index slices with unbounded positive-index rays**, and
 certify an explicit **successor-closed proof domain** containing the requested
 entry domain. Reuse the existing exact box geometry, original-source replay,

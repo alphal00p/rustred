@@ -466,14 +466,27 @@ the next generic optimization under test is a one-sided native modular rank
 screen with unchanged exact fallback, not a topology-specific rule or CAS kernel.
 See the [completed-parent evidence](docs/research/factorized_coefficients.md#completed-selected-parent-follow-up-september-20).
 
+That generic screen now passes the complete 2,263-test core and 189-test
+application release gates, plus the fourteen-stage K6 native/cold regression.
+Three alternating one-worker cube census pairs preserve all 32,768 exact
+decisions and witnesses. Median preparation is 18.514 → 7.484 s, an observed
+paired ratio of 2.474, with every observation and the slower tiny shifted-input
+control retained in the [measurement report](docs/research/five_loop_selected_sector_profile.md#completed-paired-census-measurements).
+This improves zero-sector preparation; it is not a full five-loop solve,
+a memory cure, a general speed guarantee or a closure certificate.
+
 The bounded-certificate lane now shares exact public-entry admission between
 the sealed reducer and scalar lowering, before cache access. Descendant degree
 envelopes remain distinct from the starting total-excess cap. Internal scoped-owner
 fixtures cannot claim unrestricted capability or be encoded without scope;
 all existing production owners remain unrestricted. Actual executable-cell
-coverage, successor sealing and native cold-proof transport still need to be
-connected before a bounded artifact can ship. This preparation does not complete
-the full four-loop degree-30 certificate.
+coverage and immutable successor-envelope checks are now connected internally
+and pass independent mathematical/genericity audits and the 2,263-test core
+release gate. The gate also preserves typed geometry resource failures and
+strengthens cold rejection of finite substitutes for mathematical infinity.
+Public bounded installation and native cold-proof transport remain unfinished;
+bounded owners still cannot be encoded. This does not complete the full
+four-loop degree-30 certificate or its unresolved geometry-resource gate.
 
 The reconstruction backend still includes internal exact sparse replay; this
 is distinct from optional family certification. New diagnostic observer

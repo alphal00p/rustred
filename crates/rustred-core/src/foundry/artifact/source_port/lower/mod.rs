@@ -56,6 +56,7 @@ pub(super) fn lower_rule<const N: usize>(
     zero_sectors: &[[bool; N]],
     inherited: &[crate::algebra::CoefficientPolynomial],
     checked: CheckedRule<N>,
+    max_total_excess_degree: Option<u64>,
     rule_limits: crate::foundry::parametric::ParametricRuleLimits,
     cover_limits: crate::foundry::artifact::ArtifactCoverReplayLimits,
 ) -> Result<Vec<Arc<RuleCell>>, SourcePortAuditError> {
@@ -128,7 +129,46 @@ pub(super) fn lower_rule<const N: usize>(
         limits,
     )?;
     let mut result = Vec::new();
-    for application in checked.application {
+    for (application_ordinal, application) in checked.application.into_iter().enumerate() {
+        let application = if let Some(degree) = max_total_excess_degree {
+            // Admission of original sources, canceled poles, fixed faces and
+            // coefficient maps above is never bypassed by a small scope.
+            let count = application_ordinal
+                .checked_add(1)
+                .ok_or_else(|| error("degree hull count overflow"))?;
+            if count > limits.geometry.max_requested_boxes
+                || count
+                    .checked_mul(N)
+                    .and_then(|v| v.checked_mul(2))
+                    .is_none_or(|v| v > limits.geometry.max_requested_box_coordinate_cells)
+                || count
+                    .checked_mul(N)
+                    .and_then(|v| v.checked_mul(3))
+                    .is_none_or(|v| v > limits.geometry.max_split_operations)
+            {
+                return Err(SourcePortAuditError::ResourceBudgetExhausted {
+                    resource: "scoped lowering degree hulls",
+                });
+            }
+            use super::super::predicate_cover::{PredicateCoverError, degree_hull};
+            let Some(hull) = degree_hull(
+                &sector,
+                &application,
+                super::super::scope::EntryDegreeBound::MaxTotalExcessDegree(degree),
+            )
+            .map_err(|issue| match issue {
+                PredicateCoverError::Budget(resource) => {
+                    SourcePortAuditError::ResourceBudgetExhausted { resource }
+                }
+                other => error(other),
+            })?
+            else {
+                continue;
+            };
+            hull
+        } else {
+            application
+        };
         let mut pieces = vec![application];
         for (shift, _) in &rhs {
             let mut refined = Vec::new();

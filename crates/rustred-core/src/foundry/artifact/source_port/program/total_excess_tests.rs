@@ -1,4 +1,4 @@
-//! The retained proof is a private intermediate, not a bounded artifact.
+//! Private retained evidence and actual-cell bounded installation.
 
 use super::super::tests::{solved_tadpole, tadpole};
 use super::*;
@@ -95,13 +95,21 @@ fn bounded_retention_keeps_original_rules_maps_guards_and_owners() {
             assert_coefficient(&actual.coefficient, &expected.coefficient);
         }
     }
-    assert!(
-        bounded
-            .install()
-            .unwrap_err()
-            .to_string()
-            .contains("scoped lowering and final cell admission")
-    );
+    let installed = bounded.install().unwrap();
+    assert!(!installed.is_complete_unit_mass_vacuum());
+    assert!(matches!(
+        installed.encode_durable(),
+        Err(
+            crate::foundry::artifact::ArtifactPersistenceError::UnsupportedFeature {
+                detail: "bounded artifact scope has no durable encoding yet"
+            }
+        )
+    ));
+    assert_eq!(installed.rule_cells().len(), 1);
+    let cell = &installed.rule_cells()[0];
+    assert!(!cell.guards().is_empty());
+    assert!(!cell.rule().source_combination().is_empty());
+    assert_eq!(cell.application_domain().bounds()[0].upper(), 4);
 }
 
 #[test]
@@ -248,6 +256,150 @@ fn bounded_retention_checks_family_and_caller_limits_before_consuming_input() {
         retain(audit.with_limits(limits), tadpole(), never_read(), 2),
         Err(SourcePortAuditError::ResourceBudgetExhausted {
             resource: "total-excess successor geometry"
+        })
+    ));
+}
+
+#[test]
+fn bounded_zero_degree_still_retains_original_sources_and_poles() {
+    let (audit, solution) = solved_tadpole();
+    let program = retain(audit, tadpole(), [([true], None, solution)], 0).unwrap();
+    assert!(
+        !program.sectors[&[true]].rules[0]
+            .nonzero_conditions
+            .is_empty()
+    );
+    let artifact = program.install().unwrap();
+    assert!(!artifact.source_relations().is_empty());
+    assert!(artifact.rule_cells().is_empty());
+    assert!(!artifact.is_complete_unit_mass_vacuum());
+    let mut reducer = crate::reduction::Reducer::new(&artifact).unwrap();
+    reducer
+        .reduce_unit_mass(&crate::family::IntegralKey::try_new([1]).unwrap())
+        .unwrap();
+    assert!(matches!(
+        reducer.reduce_unit_mass(&crate::family::IntegralKey::try_new([2]).unwrap()),
+        Err(crate::reduction::ReductionError::OutsideCertifiedTotalExcessDomain { maximum: 0 })
+    ));
+}
+
+#[test]
+fn bounded_real_k3_installs_larger_successor_envelope_without_widening_entry() {
+    use crate::family::IntegralKey;
+    use crate::foundry::artifact::install::install_source_port_through_total_excess_with_limits;
+    use crate::foundry::artifact::source_port::scope::{EntryDegreeBound, EntryScope};
+    use crate::reduction::{Reducer, ReductionError};
+    use crate::sector::Mask;
+    use crate::solver::{SectorConfig, SectorSolveOptions, SectorSolver, SourceSystem};
+
+    let family = crate::foundry::artifact::two_loop::canonical_family(Default::default()).unwrap();
+    let zeros: Arc<[[bool; 3]]> = Arc::from([
+        [false; 3],
+        [true, false, false],
+        [false, true, false],
+        [false, false, true],
+    ]);
+    let sources = SourceSystem::from_family(&family).unwrap();
+    let audit = SourcePortAudit::try_new(&family, zeros.clone()).unwrap();
+    let solutions = [
+        [true, false, true],
+        [false, true, true],
+        [true, true, false],
+        [true; 3],
+    ]
+    .into_iter()
+    .map(|sector| {
+        let solution = SectorSolver::new(
+            &sources,
+            sector,
+            SectorConfig {
+                zero_sectors: zeros.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .solve_sector(SectorSolveOptions::default())
+        .unwrap();
+        (sector, None, solution)
+    })
+    .collect::<Vec<_>>();
+    let program = retain(audit, family, solutions, 2).unwrap();
+    let CheckedProgramScope::TotalExcess(report) = &program.scope else {
+        unreachable!()
+    };
+    assert_eq!(report.successor_degrees().len(), 4);
+    assert!(report.max_successor_total_excess_degree() > 2);
+    let artifact = program.install().unwrap();
+    assert!(!artifact.is_complete_unit_mass_vacuum());
+    assert!(artifact.encode_durable().is_err());
+    let full = super::scoped_tests::generated_scope([true; 3]);
+    let mut bounded_reducer = Reducer::new(&artifact).unwrap();
+    let mut full_reducer = Reducer::new(&full).unwrap();
+    for powers in [
+        [3, 1, 1],
+        [2, 2, 1],
+        [1, 1, 3],
+        [2, -1, 1],
+        [1, -2, 1],
+        [0, 1, 1],
+    ] {
+        let key = IntegralKey::try_new(powers).unwrap();
+        let actual = bounded_reducer.reduce_unit_mass(&key).unwrap();
+        let expected = full_reducer.reduce_unit_mass(&key).unwrap();
+        assert_eq!(actual.terms(), expected.terms());
+        for (master, coefficient) in actual.terms() {
+            assert_coefficient(coefficient, &expected.terms()[master]);
+        }
+    }
+    let mass_target = IntegralKey::try_new([2, -1, 1]).unwrap();
+    let actual = bounded_reducer
+        .reduce_with_common_mass_squared(&mass_target, &artifact.coefficient_context().integer(3))
+        .unwrap();
+    let expected = full_reducer
+        .reduce_with_common_mass_squared(&mass_target, &full.coefficient_context().integer(3))
+        .unwrap();
+    assert_eq!(actual.terms(), expected.terms());
+    for (master, coefficient) in actual.terms() {
+        assert_coefficient(coefficient, &expected.terms()[master]);
+    }
+    for powers in [[4, 1, 1], [3, -1, 1], [1, -3, 1]] {
+        let before = bounded_reducer.statistics();
+        assert_eq!(
+            bounded_reducer.reduce_unit_mass(&IntegralKey::try_new(powers).unwrap()),
+            Err(ReductionError::OutsideCertifiedTotalExcessDomain { maximum: 2 })
+        );
+        assert_eq!(bounded_reducer.statistics(), before);
+    }
+    drop(bounded_reducer);
+    // The same executable cells cover a smaller proposal, but its outgoing
+    // obligations cannot silently widen that immutable proposal at the gate.
+    let candidate = super::scoped_tests::candidate(artifact);
+    let entry = EntryScope::try_new(
+        &candidate.family,
+        &Mask::try_new([true; 3]).unwrap(),
+        EntryDegreeBound::MaxTotalExcessDegree(2),
+    )
+    .unwrap();
+    let degrees = [
+        [true; 3],
+        [true, true, false],
+        [true, false, true],
+        [false, true, true],
+    ]
+    .into_iter()
+    .map(|sector| (Mask::try_new(sector).unwrap(), 2))
+    .collect();
+    assert!(matches!(
+        install_source_port_through_total_excess_with_limits(
+            candidate,
+            entry,
+            degrees,
+            Default::default(),
+            super::super::DEFAULT_PREDICATE_CONSISTENCY_WORK,
+            super::super::DEFAULT_PREDICATE_ATOMS
+        ),
+        Err(crate::foundry::artifact::ArtifactError::InvalidRuleShape {
+            detail: "bounded actual-cell successor envelope is not proved"
         })
     ));
 }

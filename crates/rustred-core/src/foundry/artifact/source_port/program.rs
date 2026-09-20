@@ -157,10 +157,9 @@ impl<const N: usize> CheckedSector<N> {
 }
 
 /// A retained proof's promise, never inferred from finite coordinate boxes.
-/// The bounded variant cannot use the unrestricted installer. Keeping the
-/// completed report here also preserves the exact per-sector checked degrees
-/// until scoped lowering and independent actual-cell admission are connected.
-#[allow(dead_code)] // The bounded publication bridge is a separate follow-up.
+/// The bounded variant must pass scoped lowering and independent actual-cell
+/// admission; its pre-lowering report is never an installation seal.
+#[allow(dead_code)] // The bounded path is internal until public/native publication.
 enum CheckedProgramScope<const N: usize> {
     Unrestricted,
     TotalExcess(super::total_excess::SourcePortTotalExcessAudit<N>),
@@ -195,7 +194,8 @@ impl<const N: usize> CheckedProgram<N> {
         observe: &mut dyn FnMut(SourcePortInstallEvent<'_, N>),
     ) -> Result<super::super::ClosedArtifact, SourcePortAuditError> {
         use super::super::install::{
-            ClosingArtifactCandidate, SOURCE_PORT_ALGORITHM_ID, install_source_port_with_limits,
+            ClosingArtifactCandidate, SOURCE_PORT_ALGORITHM_ID,
+            install_source_port_through_total_excess_with_limits, install_source_port_with_limits,
         };
         use super::super::model::{
             ArtifactSchemaVersion, CommonMassHomogeneityProof, ZeroSectorTerminal,
@@ -205,17 +205,21 @@ impl<const N: usize> CheckedProgram<N> {
         use crate::identity::ParametricIbpGenerator;
         use crate::sector::Mask;
 
-        if !matches!(self.scope, CheckedProgramScope::Unrestricted) {
-            return Err(error(
-                "bounded checked programs require scoped lowering and final cell admission",
-            ));
-        }
         let generator = ParametricIbpGenerator::try_new(&self.family).map_err(error)?;
         let context = self.original_sources.context().clone();
         let mut rule_cells = Vec::new();
         let mut masters = BTreeSet::new();
         let sector_count = self.sectors.len();
         for (_, sector) in self.sectors {
+            let degree = match &self.scope {
+                CheckedProgramScope::Unrestricted => None,
+                CheckedProgramScope::TotalExcess(report) => Some(
+                    *report
+                        .successor_degrees()
+                        .get(&sector.sector)
+                        .ok_or_else(|| error("retained sector has no degree envelope"))?,
+                ),
+            };
             let cells_before = rule_cells.len();
             let total = sector.rules.len();
             for (ordinal, rule) in sector.rules.into_iter().enumerate() {
@@ -234,6 +238,7 @@ impl<const N: usize> CheckedProgram<N> {
                     &self.zero_sectors,
                     &self.inherited_source_conditions,
                     rule,
+                    degree,
                     self.limits.rule_derivation,
                     self.limits.cover_replay,
                 )
@@ -292,12 +297,37 @@ impl<const N: usize> CheckedProgram<N> {
             terminals: candidate.masters.len(),
             elapsed: started.elapsed(),
         });
-        let artifact = install_source_port_with_limits(
-            candidate,
-            self.limits.cover_replay.geometry(),
-            self.limits.max_predicate_consistency_work,
-            self.limits.max_predicate_atoms,
-        )
+        let artifact = match self.scope {
+            CheckedProgramScope::Unrestricted => install_source_port_with_limits(
+                candidate,
+                self.limits.cover_replay.geometry(),
+                self.limits.max_predicate_consistency_work,
+                self.limits.max_predicate_atoms,
+            ),
+            CheckedProgramScope::TotalExcess(report) => {
+                let entry = super::scope::EntryScope::try_new(
+                    &candidate.family,
+                    &self.root_sector,
+                    super::scope::EntryDegreeBound::MaxTotalExcessDegree(
+                        report.max_entry_total_excess_degree(),
+                    ),
+                )
+                .map_err(error)?;
+                let degrees = report
+                    .successor_degrees()
+                    .iter()
+                    .map(|(sector, degree)| Ok((Mask::try_new(*sector).map_err(error)?, *degree)))
+                    .collect::<Result<Vec<_>, SourcePortAuditError>>()?;
+                install_source_port_through_total_excess_with_limits(
+                    candidate,
+                    entry,
+                    degrees,
+                    self.limits.cover_replay.geometry(),
+                    self.limits.max_predicate_consistency_work,
+                    self.limits.max_predicate_atoms,
+                )
+            }
+        }
         .map_err(|issue| match issue {
             super::super::ArtifactError::ResourceBudgetExhausted { resource } => {
                 SourcePortAuditError::ResourceBudgetExhausted { resource }
@@ -435,8 +465,9 @@ impl<const N: usize> SourcePortAudit<N> {
 
     /// Consume the complete total-excess proof and original source owners.
     /// This private intermediate is not installation authority: bounded
-    /// lowering, actual-cell admission and durable/runtime scope are pending.
-    #[allow(dead_code)] // Retained evidence is exercised before the bridge exists.
+    /// installation still requires scoped lowering and actual-cell admission.
+    /// Public publication and durable bounded encoding remain pending.
+    #[allow(dead_code)] // The bounded consuming path is not publicly exposed yet.
     pub(super) fn retain_total_excess_program_with_observer(
         self,
         family: IntegralFamily,
@@ -509,6 +540,7 @@ pub(super) fn lower_sector_for_test<const N: usize>(
             &audit.zero_sectors,
             audit.sources.conditions(),
             rule,
+            None,
             audit.limits.rule_derivation,
             audit.limits.cover_replay,
         )

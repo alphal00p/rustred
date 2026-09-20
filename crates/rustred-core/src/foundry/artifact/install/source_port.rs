@@ -1,6 +1,7 @@
 //! Registered in-memory source-directed producer for the existing artifact.
 //! Its input rules were atomically constructed from full original-source
-//! replay. This gate checks their bindings and a complete unbounded cover;
+//! replay. This gate checks their bindings and either complete unbounded cover
+//! or exact total-excess cover with a closed, immutable successor envelope;
 //! it never accepts old wave metadata or substitutes finite sampling.
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -12,12 +13,33 @@ use super::super::error::ArtifactError;
 use super::super::model::{ArtifactValidationWitness, ClosedArtifact, CommonMassHomogeneityProof};
 use super::super::source_port::predicate_cover::{
     PredicateCoverError, PredicateCoverLimits, PredicateCoveragePiece, certify_predicate_cover,
+    certify_predicate_cover_up_to_degree,
 };
 use super::super::source_port::scope;
+use super::super::source_port::{EnvelopeBudget, SourcePortAuditError, visit_successor_degrees};
 use super::{ClosingArtifactCandidate, ReplayProducer};
 
 pub(in crate::foundry::artifact) const ALGORITHM_ID: &str =
     super::super::COMPLETE_VACUUM_SOURCE_PORT_ALGORITHM_ID;
+
+struct TotalExcessProposal {
+    entry: scope::EntryScope,
+    degrees: Vec<(Mask, u64)>,
+}
+
+/// Minted only after actual-cell coverage and all successor obligations pass.
+pub(in crate::foundry::artifact) struct VerifiedTotalExcessScope {
+    entry: scope::EntryScope,
+    degrees: BTreeMap<Mask, u64>,
+}
+
+impl VerifiedTotalExcessScope {
+    pub(in crate::foundry::artifact) fn into_parts(
+        self,
+    ) -> (scope::EntryScope, BTreeMap<Mask, u64>) {
+        (self.entry, self.degrees)
+    }
+}
 
 pub(super) fn validate_combined_rule(cell: &RuleCell) -> Result<(), ArtifactError> {
     let rule = cell.rule();
@@ -130,6 +152,39 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
     max_predicate_consistency_work: usize,
     max_predicate_atoms: usize,
 ) -> Result<ClosedArtifact, ArtifactError> {
+    install_source_port_impl(
+        candidate,
+        None,
+        geometry,
+        max_predicate_consistency_work,
+        max_predicate_atoms,
+    )
+}
+
+pub(in crate::foundry::artifact) fn install_source_port_through_total_excess_with_limits(
+    candidate: ClosingArtifactCandidate,
+    entry: scope::EntryScope,
+    degrees: Vec<(Mask, u64)>,
+    geometry: CompletionGeometryLimits,
+    max_predicate_consistency_work: usize,
+    max_predicate_atoms: usize,
+) -> Result<ClosedArtifact, ArtifactError> {
+    install_source_port_impl(
+        candidate,
+        Some(TotalExcessProposal { entry, degrees }),
+        geometry,
+        max_predicate_consistency_work,
+        max_predicate_atoms,
+    )
+}
+
+fn install_source_port_impl(
+    candidate: ClosingArtifactCandidate,
+    proposal: Option<TotalExcessProposal>,
+    geometry: CompletionGeometryLimits,
+    max_predicate_consistency_work: usize,
+    max_predicate_atoms: usize,
+) -> Result<ClosedArtifact, ArtifactError> {
     let check = |resource: &'static str, requested: usize, limit: usize| {
         if requested > limit {
             Err(ArtifactError::ResourceLimit {
@@ -199,10 +254,77 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
         .iter()
         .map(|zero| zero.sector().clone())
         .collect();
+    let proposed = proposal
+        .map(|proposal| {
+            proposal.entry.validate_binding(&candidate.family, &root)?;
+            if !candidate.ordering.is_spired()
+                || !matches!(
+                    proposal.entry.bound(),
+                    scope::EntryDegreeBound::MaxTotalExcessDegree(_)
+                )
+            {
+                return Err(ArtifactError::UnsupportedClosureShape);
+            }
+            let census = scope::sector_count(&root)?;
+            check(
+                "bounded degree census",
+                census,
+                geometry.max_requested_boxes,
+            )?;
+            let cells = census.checked_mul(candidate.arity).ok_or(
+                ArtifactError::ResourceCountOverflow {
+                    resource: "bounded degree census coordinates",
+                },
+            )?;
+            check(
+                "bounded degree census coordinates",
+                cells,
+                geometry.max_requested_box_coordinate_cells,
+            )?;
+            let mut degrees = BTreeMap::new();
+            for (sector, degree) in proposal.degrees {
+                proposal.entry.validate_sector(sector.active_bits())?;
+                if zeros.contains(&sector)
+                    || degree < proposal.entry.bound().limit()
+                    || degrees.len() >= census
+                    || degrees.insert(sector, degree).is_some()
+                {
+                    return Err(ArtifactError::InvalidRuleShape {
+                        detail: "bounded degree map has duplicate, zero or insufficient entries",
+                    });
+                }
+            }
+            let scoped_zeros = zeros.iter().try_fold(0usize, |count, sector| {
+                Ok::<_, ArtifactError>(count + usize::from(sector.is_subsector_of(&root)?))
+            })?;
+            if degrees.len().checked_add(scoped_zeros) != Some(census) {
+                return Err(ArtifactError::InvalidRuleShape {
+                    detail: "bounded degree map does not exhaust the nonzero root census",
+                });
+            }
+            Ok((proposal.entry, degrees))
+        })
+        .transpose()?;
+    // The bounded promise is about executable keys, not the potentially larger
+    // mathematical replay boxes. These endpoint buffers were precharged above.
+    let actual_boxes = if proposed.is_some() {
+        let mut boxes = Vec::new();
+        boxes
+            .try_reserve_exact(candidate.rule_cells.len())
+            .map_err(|_| ArtifactError::ResourceBudgetExhausted {
+                resource: "bounded actual-cell box allocation",
+            })?;
+        for cell in &candidate.rule_cells {
+            boxes.push(actual_application_box(cell)?);
+        }
+        boxes
+    } else {
+        Vec::new()
+    };
     let mut replayed_rows = 0usize;
     let mut replayed_columns = 0usize;
     let mut guards = 0usize;
-    for cell in &candidate.rule_cells {
+    for (cell_ordinal, cell) in candidate.rule_cells.iter().enumerate() {
         if !cell.rule().sector().is_subsector_of(&root)? {
             return Err(ArtifactError::InvalidRuleShape {
                 detail: "source-port rule sector is outside the declared root scope",
@@ -221,7 +343,11 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
             .or_default()
             .0
             .push(PredicateCoveragePiece {
-                boxes: evidence.application_boxes(),
+                boxes: if proposed.is_some() {
+                    std::slice::from_ref(&actual_boxes[cell_ordinal])
+                } else {
+                    evidence.application_boxes()
+                },
                 affine_target: evidence.affine_application_domain(),
                 affine_exclusions: evidence.affine_exclusions(),
             });
@@ -271,17 +397,29 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
         if zeros.contains(&sector) {
             return Err(ArtifactError::InvalidZeroTerminal);
         }
-        certify_predicate_cover(
-            sector.active_bits(),
-            &owners,
-            &terminals,
-            PredicateCoverLimits {
-                geometry,
-                max_predicates: max_predicate_atoms,
-                max_consistency_work: max_predicate_consistency_work,
-                ..Default::default()
-            },
-        )
+        let limits = PredicateCoverLimits {
+            geometry,
+            max_predicates: max_predicate_atoms,
+            max_consistency_work: max_predicate_consistency_work,
+            ..Default::default()
+        };
+        match &proposed {
+            None => certify_predicate_cover(sector.active_bits(), &owners, &terminals, limits),
+            Some((_, degrees)) => {
+                let degree = *degrees
+                    .get(&sector)
+                    .ok_or(ArtifactError::InvalidRuleShape {
+                        detail: "covered sector is missing from bounded degree map",
+                    })?;
+                certify_predicate_cover_up_to_degree(
+                    sector.active_bits(),
+                    &owners,
+                    &terminals,
+                    scope::EntryDegreeBound::MaxTotalExcessDegree(degree),
+                    limits,
+                )
+            }
+        }
         .map_err(|issue| match issue {
             PredicateCoverError::Budget(resource) => {
                 ArtifactError::ResourceBudgetExhausted { resource }
@@ -289,6 +427,73 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
             _ => ArtifactError::UnsupportedClosureShape,
         })?;
     }
+    let proof_scope = if let Some((entry, degrees)) = proposed {
+        let mut budget = EnvelopeBudget::new(geometry);
+        budget
+            .charge(0, candidate.arity, candidate.arity)
+            .map_err(successor_error)?;
+        let first_index = candidate.context.base().variables().len();
+        let mut indices = Vec::new();
+        indices.try_reserve_exact(candidate.arity).map_err(|_| {
+            ArtifactError::ResourceBudgetExhausted {
+                resource: "bounded index map allocation",
+            }
+        })?;
+        for axis in 0..candidate.arity {
+            indices.push(first_index.checked_add(axis).ok_or(
+                ArtifactError::ResourceCountOverflow {
+                    resource: "bounded index map",
+                },
+            )?);
+        }
+        for (cell, application) in candidate.rule_cells.iter().zip(&actual_boxes) {
+            let sector = cell.rule().sector();
+            let degree = *degrees.get(sector).ok_or(ArtifactError::InvalidRuleShape {
+                detail: "executable sector has no bounded degree",
+            })?;
+            let evidence = cell
+                .rule()
+                .replay_evidence()
+                .combined_original_domain()
+                .ok_or(ArtifactError::UnsupportedClosureShape)?;
+            for term in cell.rule().right_hand_side() {
+                visit_successor_degrees(
+                    &entry,
+                    candidate.ordering,
+                    sector.active_bits(),
+                    degree,
+                    std::slice::from_ref(application),
+                    term.shift().values(),
+                    term.coefficient().raw(),
+                    evidence.affine_application_domain(),
+                    evidence.affine_exclusions(),
+                    |child| zeros.iter().any(|zero| zero.active_bits() == child),
+                    &indices,
+                    &mut budget,
+                    |child, required| {
+                        let destination = Mask::try_new(child.iter().copied())
+                            .map_err(|e| SourcePortAuditError::message(e.to_string()))?;
+                        if degrees
+                            .get(&destination)
+                            .is_some_and(|&bound| required <= bound)
+                        {
+                            Ok(())
+                        } else {
+                            Err(SourcePortAuditError::message(
+                                "actual cell successor exceeds its immutable degree envelope",
+                            ))
+                        }
+                    },
+                )
+                .map_err(successor_error)?;
+            }
+        }
+        super::super::scope::ArtifactProofScope::from_verified_total_excess(
+            VerifiedTotalExcessScope { entry, degrees },
+        )
+    } else {
+        super::super::scope::ArtifactProofScope::Unrestricted
+    };
     let validation = ArtifactValidationWitness::new(
         candidate.source_relations.len(),
         replayed_rows,
@@ -304,7 +509,7 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
         arity: candidate.arity,
         ordering: candidate.ordering,
         supported_root_power_bounds: candidate.supported_root_power_bounds,
-        proof_scope: super::super::scope::ArtifactProofScope::Unrestricted,
+        proof_scope,
         family_fingerprint: candidate.family.fingerprint_owner(),
         family: candidate.family,
         context: candidate.context,
@@ -322,9 +527,75 @@ pub(in crate::foundry::artifact) fn install_source_port_with_limits(
     })
 }
 
+fn actual_application_box(cell: &RuleCell) -> Result<LatticeBox, ArtifactError> {
+    let endpoints = || {
+        cell.rule()
+            .sector()
+            .active_bits()
+            .iter()
+            .zip(cell.application_domain().bounds())
+            .map(|(&active, bounds)| {
+                if active {
+                    (
+                        i128::from(bounds.lower()) - 1,
+                        i128::from(bounds.upper()) - 1,
+                    )
+                } else {
+                    (-i128::from(bounds.upper()), -i128::from(bounds.lower()))
+                }
+            })
+    };
+    for (lo, hi) in endpoints() {
+        if u64::try_from(lo).is_err() || u64::try_from(hi).is_err() {
+            return Err(ArtifactError::InvalidRuleShape {
+                detail: "actual cell endpoint is outside its sector",
+            });
+        }
+    }
+    // Endpoints were checked in widened arithmetic. Let LatticeBox perform the
+    // fallible allocations directly, without duplicate temporary buffers.
+    LatticeBox::try_new(
+        endpoints().map(|(lo, _)| lo as u64),
+        endpoints().map(|(_, hi)| Some(hi as u64)),
+    )
+    .map_err(|issue| match issue {
+        crate::foundry::completion::CompletionGeometryError::AllocationFailure { .. } => {
+            ArtifactError::ResourceBudgetExhausted {
+                resource: "bounded actual-cell endpoint allocation",
+            }
+        }
+        _ => ArtifactError::InvalidRuleShape {
+            detail: "actual cell has invalid local bounds",
+        },
+    })
+}
+
+fn successor_error(issue: SourcePortAuditError) -> ArtifactError {
+    match issue {
+        SourcePortAuditError::ResourceBudgetExhausted { resource } => {
+            ArtifactError::ResourceBudgetExhausted { resource }
+        }
+        SourcePortAuditError::UnsupportedResourcePolicy {
+            resource,
+            requested,
+            supported_max,
+        } => ArtifactError::ResourceLimit {
+            resource,
+            requested,
+            limit: supported_max,
+        },
+        _ => ArtifactError::InvalidRuleShape {
+            detail: "bounded actual-cell successor envelope is not proved",
+        },
+    }
+}
+
 fn validate_unit_mass(candidate: &ClosingArtifactCandidate) -> Result<(), ArtifactError> {
     validate_unit_mass_family(&candidate.family)
 }
+
+#[cfg(test)]
+mod total_excess_tests;
 
 /// Shared early admission and final-installation check. Keeping the exact
 /// family predicate here prevents frontends from duplicating algebra policy.

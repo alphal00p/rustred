@@ -198,20 +198,32 @@ fn original_domain_cold_corruption_replays_actual_weights_rhs_and_offsets() {
 #[test]
 fn mathematical_infinity_cannot_be_replaced_by_a_large_finite_carrier_twin() {
     let artifact = installed_k1_for_codec_test();
-    let bytes = changed_rules(&artifact, |_, cells| {
-        assert_eq!(cells[0].application.upper(), &[None]);
-        cells[0].application = crate::foundry::completion::LatticeBox::try_new(
-            cells[0].application.lower().to_vec(),
-            vec![Some(u64::MAX)],
-        )
-        .unwrap();
-    });
-    assert!(matches!(
-        ClosedArtifact::decode_durable(&bytes),
-        Err(ArtifactPersistenceError::Artifact(
+    ClosedArtifact::decode_durable(&artifact.encode_durable().unwrap()).unwrap();
+    for endpoint in [i64::MAX as u64, u64::MAX - 1, u64::MAX] {
+        let bytes = changed_rules(&artifact, |_, cells| {
+            assert_eq!(cells[0].application.upper(), &[None]);
+            cells[0].application = crate::foundry::completion::LatticeBox::try_new(
+                cells[0].application.lower().to_vec(),
+                vec![Some(endpoint)],
+            )
+            .unwrap();
+        });
+        let expected = if endpoint == u64::MAX {
+            // The uncovered ray is real, but its first coordinate cannot be
+            // represented. Preserve that typed failure instead of interpreting
+            // the largest finite machine integer as mathematical infinity.
+            ArtifactError::ResourceBudgetExhausted {
+                resource: "box-intersection successor coordinate",
+            }
+        } else {
             ArtifactError::UnsupportedClosureShape
-        ))
-    ));
+        };
+        assert_eq!(
+            ClosedArtifact::decode_durable(&bytes).unwrap_err(),
+            ArtifactPersistenceError::Artifact(expected),
+            "finite endpoint {endpoint}",
+        );
+    }
 }
 
 #[test]

@@ -9,6 +9,61 @@ mod degree;
 #[path = "tests/scoped.rs"]
 mod scoped;
 
+#[test]
+fn geometry_resource_limit_preserves_budget_identity() {
+    assert_eq!(
+        geometry(CompletionGeometryError::ResourceLimit {
+            resource: "structural-box split operations",
+            requested: 1,
+            limit: 0,
+        }),
+        PredicateCoverError::Budget("structural-box split operations"),
+    );
+}
+
+#[test]
+fn geometry_count_overflow_preserves_budget_identity() {
+    assert_eq!(
+        geometry(CompletionGeometryError::ResourceCountOverflow {
+            resource: "requested structural-cover coordinate cells",
+        }),
+        PredicateCoverError::Budget("requested structural-cover coordinate cells"),
+    );
+}
+
+#[test]
+fn geometry_allocation_failure_preserves_budget_identity() {
+    assert_eq!(
+        geometry(CompletionGeometryError::AllocationFailure {
+            resource: "lattice-box lower coordinates",
+            requested: 1,
+        }),
+        PredicateCoverError::Budget("lattice-box lower coordinates"),
+    );
+}
+
+#[test]
+fn geometry_structural_failures_do_not_become_budget_failures() {
+    for error in [
+        CompletionGeometryError::InvalidBoxBounds {
+            position: 0,
+            lower: 2,
+            upper: 1,
+        },
+        CompletionGeometryError::WrongArity {
+            object: "structural cover box",
+            expected: 2,
+            actual: 1,
+        },
+        CompletionGeometryError::Invariant {
+            detail: "structural negative control",
+        },
+    ] {
+        let expected = PredicateCoverError::Geometry(error.to_string());
+        assert_eq!(geometry(error), expected);
+    }
+}
+
 fn full<const N: usize>() -> LatticeBox {
     LatticeBox::try_new([0; N], [None; N]).unwrap()
 }
