@@ -136,10 +136,14 @@ fn family_candidates(
 /// Only supply trusted generated bundles: Symbolica's native state/Atom import
 /// is not a hardened hostile-input decoder. Mathematical certification remains
 /// independent of that native deserialization boundary.
+/// max_total_excess_degree bounds sum(max(n_i-1,0) + max(-n_i,0)) at entry:
+/// dots and negative powers both count. Proved descendant bounds may be larger.
+/// None preserves unrestricted certification. This semantic scope is separate
+/// from resource limits and mutually exclusive with max_negative_index_degree.
 #[pyfunction]
 #[pyo3(
-    signature=(bundle, *, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None, max_predicate_atoms=None, max_negative_index_degree=None),
-    text_signature="(bundle, *, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None, max_predicate_atoms=None, max_negative_index_degree=None)"
+    signature=(bundle, *, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None, max_predicate_atoms=None, max_negative_index_degree=None, max_total_excess_degree=None),
+    text_signature="(bundle, *, max_domain_bound_endpoint_cells=None, max_predicate_consistency_work=None, max_predicate_atoms=None, max_negative_index_degree=None, max_total_excess_degree=None)"
 )]
 fn certify_candidates(
     py: Python<'_>,
@@ -148,6 +152,7 @@ fn certify_candidates(
     max_predicate_consistency_work: Option<PythonInteger>,
     max_predicate_atoms: Option<PythonInteger>,
     max_negative_index_degree: Option<PythonInteger>,
+    max_total_excess_degree: Option<PythonInteger>,
 ) -> PyResult<PyClosingArtifactGenerationResult> {
     let mut limits = rustred_app::SourcePortLimits::default();
     apply_resource_limits(
@@ -170,6 +175,15 @@ fn certify_candidates(
     request.publication_limits = limits;
     request.max_negative_index_degree = max_negative_index_degree
         .map(|value| nonnegative_usize("max_negative_index_degree", value.0))
+        .transpose()?;
+    request.max_total_excess_degree = max_total_excess_degree
+        .map(|value| {
+            u64::try_from(value.0).map_err(|_| {
+                RustRedInputError::new_err(
+                    "max_total_excess_degree must be an integer from 0 to 18446744073709551615",
+                )
+            })
+        })
         .transpose()?;
     let result = py
         .detach(move || execute(move || rustred_app::certify_candidates(request)))

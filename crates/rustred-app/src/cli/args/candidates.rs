@@ -30,6 +30,7 @@ pub(crate) struct CertifyCandidatesArgs {
     pub report_output: Option<StreamPath>,
     pub resources: ResourceLimitsArgs,
     pub max_negative_index_degree: Option<usize>,
+    pub max_total_excess_degree: Option<u64>,
     pub force: bool,
 }
 
@@ -64,6 +65,7 @@ fn parse(
     let mut nonpositive_indices = None;
     let mut resources = ResourceLimitsArgs::default();
     let mut max_negative_index_degree = None;
+    let mut max_total_excess_degree = None;
     let mut force = false;
     let mut help = false;
     while let Some(option) = arguments.next() {
@@ -185,12 +187,35 @@ fn parse(
                     next_utf8_value(&mut arguments, "--max-negative-index-degree")?,
                 )?,
             )?,
+            "--max-total-excess-degree" if certification => {
+                let value = next_utf8_value(&mut arguments, "--max-total-excess-degree")?;
+                let parsed = value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit())
+                    .then(|| value.parse::<u64>().ok())
+                    .flatten()
+                    .ok_or(ArgError::InvalidValue {
+                        option: "--max-total-excess-degree",
+                        value,
+                        expected: "a decimal integer from 0 to 18446744073709551615",
+                    })?;
+                set_once(
+                    &mut max_total_excess_degree,
+                    "--max-total-excess-degree",
+                    parsed,
+                )?;
+            }
             _ if option.starts_with('-') => return Err(ArgError::UnknownOption(option)),
             _ => return Err(ArgError::UnexpectedArgument(option)),
         }
     }
     if help {
         return Ok(Command::Help);
+    }
+    if max_negative_index_degree.is_some() && max_total_excess_degree.is_some() {
+        return Err(ArgError::InvalidCombination(
+            "--max-negative-index-degree and --max-total-excess-degree are mutually exclusive",
+        ));
     }
     if checkpoint_dir.is_none() && (resume || checkpoint_max_bytes.is_some()) {
         return Err(ArgError::InvalidCombination(
@@ -228,6 +253,7 @@ fn parse(
             report_output,
             resources,
             max_negative_index_degree,
+            max_total_excess_degree,
             force,
         }))
     } else {
@@ -259,6 +285,79 @@ fn parse_indices(option: &'static str, value: String) -> Result<Vec<usize>, ArgE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn total_excess_scope_is_optional_u64_and_certification_only() {
+        let Command::CertifyCandidates(default) = parse_certification(std::iter::empty()).unwrap()
+        else {
+            panic!("certification expected")
+        };
+        assert_eq!(default.max_total_excess_degree, None);
+        for degree in [0, 2, 30, 31, u64::MAX] {
+            let value = degree.to_string();
+            let Command::CertifyCandidates(arguments) = parse_certification(
+                ["--max-total-excess-degree", value.as_str()]
+                    .into_iter()
+                    .map(OsString::from),
+            )
+            .unwrap() else {
+                panic!("certification expected")
+            };
+            assert_eq!(arguments.max_total_excess_degree, Some(degree));
+            assert_eq!(arguments.max_negative_index_degree, None);
+        }
+        for value in [
+            "",
+            "-1",
+            "+1",
+            "1.0",
+            " 1",
+            "1e2",
+            "0x1",
+            "18446744073709551616",
+        ] {
+            assert!(
+                parse_certification(
+                    ["--max-total-excess-degree", value]
+                        .into_iter()
+                        .map(OsString::from)
+                )
+                .is_err(),
+                "accepted {value:?}"
+            );
+        }
+        for options in [
+            vec!["--max-total-excess-degree"],
+            vec![
+                "--max-total-excess-degree",
+                "2",
+                "--max-total-excess-degree",
+                "2",
+            ],
+            vec![
+                "--max-total-excess-degree",
+                "2",
+                "--max-negative-index-degree",
+                "1",
+            ],
+            vec![
+                "--max-negative-index-degree",
+                "1",
+                "--max-total-excess-degree",
+                "2",
+            ],
+        ] {
+            assert!(parse_certification(options.into_iter().map(OsString::from)).is_err());
+        }
+        assert!(
+            parse_generation(
+                ["--max-total-excess-degree", "2"]
+                    .into_iter()
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn checkpoint_options_are_explicit_generation_only_and_require_a_directory() {

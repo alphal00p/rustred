@@ -300,6 +300,179 @@ fn rank_scoped_certification_is_explicitly_fail_closed_without_an_unbounded_fall
 }
 
 #[test]
+fn total_excess_scope_matches_rust_and_survives_fresh_cli_loading() {
+    const SUNSET: &str = "I(loops(p,q),externals(),dimension(d),prop(A,p^2-1,1),prop(B,q^2-1,1),prop(C,(p-q)^2-1,1))";
+    for (source, admitted, outside) in [
+        (INPUT, vec!["3"], "4"),
+        (SUNSET, vec!["3,1,1", "-1,2,1"], "4,1,1"),
+    ] {
+        let directory = Directory::new();
+        let report_path = directory.0.join("bounded.toml");
+        let bundle = success(&["family-candidates"], source.as_bytes());
+        let bounded = success(
+            &[
+                "certify-candidates",
+                "--max-total-excess-degree",
+                "2",
+                "--report-output",
+                report_path.to_str().unwrap(),
+            ],
+            &bundle,
+        );
+        let rust = rustred_app::certify_candidates(
+            rustred_app::CandidateCertificationRequest::new(bundle.as_slice())
+                .with_max_total_excess_degree(2),
+        )
+        .unwrap();
+        assert!(
+            rustred::persistence::equivalent_generated_programs(
+                &bounded,
+                rust.artifact(),
+                Default::default(),
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            inspect_program(&bounded, Default::default())
+                .unwrap()
+                .kind(),
+            BinaryProgramKind::BoundedCertified
+        );
+        let report: toml::Value =
+            toml::from_str(&std::fs::read_to_string(&report_path).unwrap()).unwrap();
+        assert_eq!(report["max_total_excess_degree"].as_integer(), Some(2));
+        let inspected = success(&["campaign", "inspect", "--artifact", "-"], &bounded);
+        let inspected: toml::Value =
+            toml::from_str(std::str::from_utf8(&inspected).unwrap()).unwrap();
+        let scope = &inspected["artifact"]["total_excess_scope"];
+        assert_eq!(scope["max_entry_total_excess_degree"].as_integer(), Some(2));
+        assert_eq!(
+            scope["successor_sector_count"],
+            report["successor_sector_count"]
+        );
+        assert_eq!(
+            scope["max_successor_total_excess_degree"],
+            report["max_successor_total_excess_degree"]
+        );
+        let unbounded = success(&["certify-candidates"], &bundle);
+        for powers in admitted {
+            let command = ["campaign", "reduce", "--artifact", "-", "--powers", powers];
+            let bounded_result: toml::Value =
+                toml::from_str(std::str::from_utf8(&success(&command, &bounded)).unwrap()).unwrap();
+            let unbounded_result: toml::Value =
+                toml::from_str(std::str::from_utf8(&success(&command, &unbounded)).unwrap())
+                    .unwrap();
+            for key in [
+                "status",
+                "target",
+                "family_fingerprint",
+                "common_mass_squared_symbol",
+                "terms",
+            ] {
+                assert_eq!(bounded_result[key], unbounded_result[key]);
+            }
+        }
+        let rejected = run(
+            &["campaign", "reduce", "--artifact", "-", "--powers", outside],
+            &bounded,
+        );
+        assert!(!rejected.status.success());
+        assert!(rejected.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&rejected.stderr).contains("certified entry maximum 2"));
+        let failed = run(
+            &[
+                "certify-candidates",
+                "--max-total-excess-degree",
+                "2",
+                "--max-domain-bound-endpoint-cells",
+                "0",
+            ],
+            &bundle,
+        );
+        assert!(!failed.status.success());
+        assert!(failed.stdout.is_empty());
+    }
+
+    let bundle = success(&["family-candidates"], INPUT.as_bytes());
+    for (degree, accepted, rejected) in [("0", "1", "2"), ("31", "32", "33")] {
+        let artifact = success(
+            &["certify-candidates", "--max-total-excess-degree", degree],
+            &bundle,
+        );
+        success(
+            &[
+                "campaign",
+                "reduce",
+                "--artifact",
+                "-",
+                "--powers",
+                accepted,
+            ],
+            &artifact,
+        );
+        let output = run(
+            &[
+                "campaign",
+                "reduce",
+                "--artifact",
+                "-",
+                "--powers",
+                rejected,
+            ],
+            &artifact,
+        );
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+    }
+}
+
+#[test]
+fn total_excess_invalid_requests_fail_before_payload_decode_and_write_no_files() {
+    let directory = Directory::new();
+    let output = directory.0.join("must-not-exist.rrbin");
+    for args in [
+        vec!["certify-candidates", "--max-total-excess-degree", "-1"],
+        vec![
+            "certify-candidates",
+            "--max-total-excess-degree",
+            "18446744073709551616",
+        ],
+        vec![
+            "certify-candidates",
+            "--max-total-excess-degree",
+            "2",
+            "--max-negative-index-degree",
+            "1",
+        ],
+        vec!["family-candidates", "--max-total-excess-degree", "2"],
+    ] {
+        let mut command = args;
+        command.extend(["--output", output.to_str().unwrap()]);
+        let failure = run(&command, b"not a native bundle");
+        assert!(!failure.status.success());
+        assert!(failure.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&failure.stderr).contains("--max-total-excess-degree"));
+        assert!(!output.exists());
+    }
+    let help = success(&["--help"], b"");
+    assert!(String::from_utf8_lossy(&help).contains("--max-total-excess-degree"));
+    std::fs::write(&output, b"preserve existing output").unwrap();
+    let rejected = run(
+        &[
+            "certify-candidates",
+            "--max-total-excess-degree",
+            "2",
+            "--output",
+            output.to_str().unwrap(),
+        ],
+        b"not decoded",
+    );
+    assert!(!rejected.status.success());
+    assert!(rejected.stdout.is_empty());
+    assert_eq!(std::fs::read(&output).unwrap(), b"preserve existing output");
+}
+
+#[test]
 fn candidate_command_help_and_policy_errors_are_explicit() {
     let help = success(&["--help"], b"");
     let help = std::str::from_utf8(&help).unwrap();

@@ -379,6 +379,9 @@ CERTIFY-CANDIDATES OPTIONS:
     --max-predicate-consistency-work <N>   Certification consistency budget [core default]
     --max-predicate-atoms <N>              Certification atom limit [default: 32; maximum: 256]
     --max-negative-index-degree <N>        Request rank-scoped certification (currently fail-closed; maximum 30)
+    --max-total-excess-degree <D>          Entry sum of dots plus negative powers; unsigned 64-bit [default: unrestricted]
+                                          Descendant bounds are independently proved and may exceed D;
+                                          mutually exclusive with --max-negative-index-degree
     --force                      Atomically replace existing output files
 
 FAMILY-SOLVE OPTIONS:

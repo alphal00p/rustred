@@ -181,6 +181,7 @@ def certify_candidates(
     max_predicate_consistency_work: int | None = None,
     max_predicate_atoms: int | None = None,
     max_negative_index_degree: int | None = None,
+    max_total_excess_degree: int | None = None,
 ) -> ClosingArtifactGenerationResult: ...
 
 def inspect_closing_artifact(

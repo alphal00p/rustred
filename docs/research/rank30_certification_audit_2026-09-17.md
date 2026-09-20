@@ -11,8 +11,10 @@ guards, descent, actual executable-cell coverage and every live RHS successor
 check remain mandatory. Independently proved descendant-sector bounds may
 exceed the entry bound. The existing reducer and scalar lowering reject an
 out-of-scope start before cache access or mutation. `None` preserves the
-unrestricted path. CLI/Python total-excess parity remains required follow-up;
-their distinct numerator-only option still rejects because dots remain
+unrestricted path. The matching CLI flag
+`certify-candidates --max-total-excess-degree D` and Python keyword
+`rustred.certify_candidates(..., max_total_excess_degree=D)` steer that same
+service. Their distinct numerator-only option still rejects because dots remain
 unbounded. Neither option is silently reinterpreted as the other.
 
 A distinct `BoundedCertified` native kind requires a version-1 scope section
@@ -25,7 +27,7 @@ cannot enter the unrestricted vacuum-capability loader; zero-only roots remain
 unsupported. Native State/Atom readers still require trusted generated input.
 See the [contract and interface boundary](rank_bounded_certification.md).
 
-### Release verification
+### Initial native-bridge release verification
 
 All final gates below pass. Counts describe distinct gate executions, not a
 new count of numerically accepted Vakint cases.
@@ -64,6 +66,56 @@ isolated Python build lacked an interpreter, fixed by explicitly naming the
 existing workspace interpreter. The standalone FG client needed a harness-only
 `SmartString` error conversion for its build. These records remain in the
 original gate directories and `fg-bounded-native-acceptance.DMv9MT/CLIENT_BUILD_FIX.md`.
+
+### Frontend and progress follow-up
+
+The separate release/locked/offline gate
+`TMP/total-excess-frontends-progress-gate.B97PKw/` completes successfully. Its
+five stage statuses are zero, and the root wrapper reports
+`FRONTEND_PROGRESS_RELEASE_GATE_PASS`. No core gate was rerun during this
+follow-up; the preceding counts retain their original checkpoint meaning.
+
+| Gate | Actual result |
+| --- | --- |
+| Application | 131 unit and 74 integration tests passed; zero failures or ignored tests |
+| CLI build | Release CLI built successfully and copied into the frozen test snapshot |
+| Python binding Rust tests | Eight passed; zero failures or ignored tests |
+| Fresh extension build | Matching release extension built and copied into that snapshot |
+| Python/CLI runtime | 41 passed in 52.884 s; zero failures or skips |
+| Frozen inputs | All 13 source-manifest entries and all three executable/package snapshot entries match after execution |
+
+The frontends steer the existing consuming installer. Strict optional-u64
+validation accepts zero, 31 and the representable maximum without promising
+that any requested proof fits its resource budget; omitted/`None` remains
+unrestricted. Generation does not accept the option. Total-excess and
+numerator-only requests conflict rather than silently changing meaning.
+
+External K1/K3 fixtures establish exact native-structure, coefficient and
+variable-map equality across the public Rust request, CLI and Python. Fresh
+CLI processes load Python-produced bounded bytes and a fresh Python process
+loads CLI-produced bytes. Dotted, negative-index and pinched starts reproduce
+the unrestricted reductions inside scope; out-of-scope starts are rejected.
+Additional tests cover E0/E31, no-overwrite and restrictive proof-budget
+failures. These are small input-driven regressions, not loop-specific solver
+branches or a complete four-loop certificate.
+
+Independent source review also covers the observational progress changes:
+existing exact-materialization scalar events reach application/CLI stages;
+per-live-job frame records are updated before the unchanged shared throttle,
+invalidated on transitions and removed on completion. Exhaustive event
+projection, worker isolation, missing/overflowed headers, lazy disabled
+observation and the existing 10,000-event throttle test pass. No new exact
+callbacks, CAS work or row/expression snapshots are introduced. Progress cannot
+refresh inside a native call without a callback, and frame counters are not
+exact-input identities. Public enum variants are source-visible; persistence
+and owner authority are unchanged.
+
+The retained independent audit is
+`TMP/exact-materialization-progress-independent-audit-2026-09-20.md`; a measured
+receipt is `TMP/bounded-frontend-progress-acceptance-2026-09-20.md`. This
+follow-up has no failed stage or skipped cross-frontend subprocess test.
+Neither full-FG failure below is superseded. No Vakint asset, dependency pin
+or numerical acceptance claim changes.
 
 ### Complete saved FG E30 attempt: resource-limited, not certified
 

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import inspect
+import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import tomllib
 import unittest
@@ -19,6 +22,107 @@ from test_python_api import (
 
 
 class CandidateApiTests(GeneratedProgramAssertions):
+    def test_total_excess_validation_is_strict_and_distinct_from_numerator_rank(self) -> None:
+        signature = inspect.signature(rustred.certify_candidates)
+        parameter = signature.parameters["max_total_excess_degree"]
+        self.assertIsNone(parameter.default)
+        self.assertEqual(parameter.kind, inspect.Parameter.KEYWORD_ONLY)
+        self.assertNotIn("max_total_excess_degree", inspect.signature(rustred.family_candidates).parameters)
+        for value in [True, False, -1, 0.5, "2", 1 << 64, 1 << 128]:
+            with self.subTest(value=value), self.assertRaises(rustred.RustRedInputError):
+                rustred.certify_candidates(b"not decoded", max_total_excess_degree=value)
+        with self.assertRaisesRegex(rustred.RustRedInputError, "mutually exclusive"):
+            rustred.certify_candidates(
+                b"not decoded", max_total_excess_degree=2, max_negative_index_degree=1,
+            )
+        # Valid u64 conversion reaches native-input rejection; the old rank cap
+        # is not an argument cap for the new total-excess scope.
+        with self.assertRaises(rustred.RustRedError) as rejected:
+            rustred.certify_candidates(b"not decoded", max_total_excess_degree=(1 << 64) - 1)
+        self.assertNotIn("max_total_excess_degree must", str(rejected.exception))
+        self.assertNotIn("rank-scoped limit", str(rejected.exception))
+        with self.assertRaisesRegex(rustred.RustRedError, "refusing an unbounded certification fallback"):
+            rustred.certify_candidates(b"not decoded", max_negative_index_degree=30)
+        with self.assertRaisesRegex(rustred.RustRedInputError, "supported rank-scoped limit"):
+            rustred.certify_candidates(b"not decoded", max_negative_index_degree=31)
+
+    def test_total_excess_artifacts_match_cli_and_cold_cross_frontend_application(self) -> None:
+        for source, targets, outside in [
+            (UNIT_MASS_PROJECT_K1, [[3]], [4]),
+            (UNIT_MASS_PROJECT_K3, [[3, 1, 1], [-1, 2, 1]], [4, 1, 1]),
+        ]:
+            with self.subTest(source=source):
+                bundle = rustred.family_candidates(source).bundle
+                bounded = rustred.certify_candidates(bundle, max_total_excess_degree=2)
+                control = rustred.certify_candidates(bundle)
+                explicit_none = rustred.certify_candidates(bundle, max_total_excess_degree=None)
+                self.assertProgramEqual(control.artifact, explicit_none.artifact)
+                self.assertNotIn("max_total_excess_degree", tomllib.loads(control.to_toml()))
+                self.assertNotIn("total_excess_scope", tomllib.loads(
+                    rustred.inspect_closing_artifact(control.artifact).to_toml(),
+                )["artifact"])
+                report = tomllib.loads(bounded.to_toml())
+                self.assertEqual(report["max_total_excess_degree"], 2)
+                self.assertGreater(report["successor_sector_count"], 0)
+                self.assertGreaterEqual(report["max_successor_total_excess_degree"], 2)
+                cli_artifact = cli_bytes(
+                    ["certify-candidates", "--max-total-excess-degree", "2"], bundle,
+                )
+                self.assertProgramEqual(bounded.artifact, cli_artifact)
+                # Python-produced bytes are inspected and applied by fresh CLI
+                # processes. The scope summary is from their verified owner.
+                inspected = tomllib.loads(cli_bytes(
+                    ["campaign", "inspect", "--artifact", "-"], bounded.artifact,
+                ).decode())
+                scope = inspected["artifact"]["total_excess_scope"]
+                self.assertEqual(scope["max_entry_total_excess_degree"], 2)
+                self.assertEqual(scope["successor_sector_count"], report["successor_sector_count"])
+                self.assertEqual(scope["max_successor_total_excess_degree"], report["max_successor_total_excess_degree"])
+                for powers in targets:
+                    reference = tomllib.loads(rustred.reduce_with_closing_artifact(
+                        control.artifact, powers,
+                    ).to_toml())
+                    cold_cli = tomllib.loads(cli_bytes([
+                        "campaign", "reduce", "--artifact", "-", "--powers", ",".join(map(str, powers)),
+                    ], bounded.artifact).decode())
+                    # Inverse direction: a fresh Python interpreter cold-loads
+                    # CLI-produced bytes, not the existing process's owner.
+                    script = (
+                        "import sys, rustred\n"
+                        "artifact = sys.stdin.buffer.read()\n"
+                        "powers = [int(value) for value in sys.argv[1].split(',')]\n"
+                        "sys.stdout.write(rustred.reduce_with_closing_artifact(artifact, powers).to_toml())\n"
+                    )
+                    child = subprocess.run(
+                        [sys.executable, "-c", script, ",".join(map(str, powers))],
+                        input=cli_artifact, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        env={**os.environ, "SYMBOLICA_HIDE_BANNER": "1"}, check=False,
+                    )
+                    self.assertEqual(child.returncode, 0, child.stderr.decode(errors="replace"))
+                    self.assertEqual(child.stderr, b"")
+                    cold_python = tomllib.loads(child.stdout.decode())
+                    for result in [cold_cli, cold_python]:
+                        for key in ["status", "target", "family_fingerprint", "common_mass_squared_symbol", "terms"]:
+                            self.assertEqual(result[key], reference[key])
+                with self.assertRaisesRegex(rustred.RustRedError, "certified entry maximum 2"):
+                    rustred.reduce_with_closing_artifact(cli_artifact, outside)
+                with self.assertRaises(rustred.RustRedError):
+                    rustred.certify_candidates(
+                        bundle, max_total_excess_degree=2, max_domain_bound_endpoint_cells=0,
+                    )
+
+    def test_total_excess_zero_and_above_old_rank_cap(self) -> None:
+        bundle = rustred.family_candidates(UNIT_MASS_PROJECT_K1).bundle
+        for degree in [0, 31]:
+            bounded = rustred.certify_candidates(bundle, max_total_excess_degree=degree)
+            self.assertEqual(tomllib.loads(bounded.to_toml())["max_total_excess_degree"], degree)
+            self.assertEqual(
+                rustred.reduce_with_closing_artifact(bounded.artifact, [degree + 1]).status,
+                "reduced",
+            )
+            with self.assertRaisesRegex(rustred.RustRedError, f"certified entry maximum {degree}"):
+                rustred.reduce_with_closing_artifact(bounded.artifact, [degree + 2])
+
     def test_native_checkpoints_reuse_across_frontends_and_worker_counts(self) -> None:
         signature = inspect.signature(rustred.family_candidates)
         self.assertIsNone(signature.parameters["checkpoint_dir"].default)

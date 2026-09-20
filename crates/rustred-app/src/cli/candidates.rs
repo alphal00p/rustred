@@ -132,6 +132,7 @@ pub(super) fn certify(arguments: CertifyCandidatesArgs) -> Result<(), CliError> 
     let mut request = CandidateCertificationRequest::new(read_artifact(&arguments.input)?);
     request.publication_limits = arguments.resources.publication_limits();
     request.max_negative_index_degree = arguments.max_negative_index_degree;
+    request.max_total_excess_degree = arguments.max_total_excess_degree;
     let result = crate::certify_candidates(request)?;
     write_output(&arguments.output, result.artifact(), arguments.force)?;
     if let Some(report) = &arguments.report_output {

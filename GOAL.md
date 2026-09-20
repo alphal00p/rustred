@@ -286,9 +286,13 @@ A distinct native `BoundedCertified` kind requires a versioned root/entry/
 successor scope. Cold loading reconstructs the source proof and actual cells,
 rechecks scope and compares regenerated structure, coefficients and variable
 maps. Saved scope metadata grants no authority. The ordinary `None` path and
-unrestricted native grammar are unchanged. This total-excess option is
-Rust-only; CLI/Python parity remains required follow-up. Their older
-numerator-only request still fails closed because it leaves dots unbounded.
+unrestricted native grammar are unchanged. Rust,
+`certify-candidates --max-total-excess-degree D`, and public
+`rustred.certify_candidates(..., max_total_excess_degree=D)` now steer the same
+total-excess request. Strict u64 admission includes zero and values above 30
+without promising resource feasibility. The older numerator-only request
+still fails closed because it leaves dots unbounded; the two scopes are
+mutually exclusive.
 
 The successor pass borrows an unchanged box when exact sign partitioning
 yields one piece and lazily reuses its immutable source ordering key. It
@@ -296,10 +300,19 @@ removes duplicate allocation and geometric work without changing quotas or
 proof semantics. Telemetry distinguishes retained propagation from the final
 actual-cell pass. These structural changes have no loop-count/topology
 dispatch or new algebra. Independent source, mathematical and genericity
-audits pass. Release validation passes 2,281 core tests (32 ignored), two
-native-process tests (one child helper ignored), 121 app unit tests, 72 app
+audits pass. The initial native-bridge release validation passes 2,281 core
+tests (32 ignored), two native-process tests (one child helper ignored), 121
+app unit tests, 72 app
 integration tests, eight Python-binding Rust tests and 38 fresh-extension
 Python/CLI tests, with zero failures in the final gates.
+
+The independently audited frontend/progress follow-up passes 131 app unit and
+74 integration tests, eight Python-binding Rust tests, and 41 fresh-extension
+Python/CLI tests with no skips. Fresh processes cold-load bounded K1/K3 bytes
+in both frontend directions and preserve exact reductions for dotted and
+numerator/pinch inputs. All 13 frozen source and three executable/package
+snapshot entries match. This follow-up did not rerun the core gate or certify
+a full four-loop family; see the [acceptance record](docs/research/rank30_certification_audit_2026-09-17.md#frontend-and-progress-follow-up).
 
 The earlier FG214 audit checked all 161 rules through total excess 30 with
 zero gaps, 11 finite terminals and 74.837 s audit time. Two historical full-FG
@@ -504,9 +517,11 @@ The bounded-certificate lane connects public Rust installation, native scope
 transport and cold reproof to the existing source, actual-cell and immutable
 successor checks. Entry admission remains before cache access; descendant
 degrees are separate, and bounded owners cannot claim unrestricted capability.
-Independent audits and the release core/native/app/Python chain pass; CLI/Python
-total-excess request parity remains required follow-up. The full saved FG E30
-default-policy attempt stops at the retained successor-work limit after 47
+Independent audits and the initial release core/native/app/Python chain pass.
+The matching CLI/Python total-excess options now pass the separate 131-unit,
+74-integration, eight-binding and 41-Python-test follow-up, steering the same
+verified owner path without a new solver or persistence schema. The full saved
+FG E30 default-policy attempt stops at the retained successor-work limit after 47
 successful local reports and 46 completed retained sectors, before publication
 or cold acceptance. The [detailed record](docs/research/rank30_certification_audit_2026-09-17.md)
 preserves the typed failure and earlier evidence. This is not a full four-loop
@@ -526,8 +541,12 @@ measured frame observations, never a topology-specific algebraic shortcut.
 The reconstruction backend still includes internal exact sparse replay; this
 is distinct from optional family certification. New diagnostic observer
 boundaries expose that phase for measured optimization without removing it.
-Audit Symbolica's public API
-before introducing any algebraic primitive. Keep all scratch evidence in local
+Existing exact source-row/U/L counts and scalar stage events now reach CLI
+monitoring with correctly retained per-live-job frame context and the unchanged
+shared throttle. Observation is sampled, does not identify exact coefficients,
+and cannot refresh inside a long native call without another callback. Disabled
+observation adds no per-row work or exact-state copies. Audit Symbolica's public
+API before introducing any algebraic primitive. Keep all scratch evidence in local
 `TMP/`, use release measurements, and commit/push coherent validated milestones
 in both repositories with the requested Git identity. The existing uncapped
 **four-loop** C++ comparison remains a separate workload from the resumed,

@@ -16,19 +16,32 @@ FORM-less path passes the recorded through-three-loop selection and all 31
 four-loop reference/pinch comparisons. Numerical acceptance is not a substitute
 for unrestricted four-loop closure certification.
 
-The optional Rust total-excess path publishes bounded owners only after
+The optional total-excess path publishes bounded owners only after
 complete source replay, scoped lowering, exact actual-cell coverage and every
 live RHS successor check. Entry scope and immutable descendant degrees belong
 to `ClosedArtifact`; the existing reducer checks entry scope before cache
 access or scalar mutation. A separate `BoundedCertified` native kind requires
 that scope and reconstructs its proof on cold loading. Bounded owners cannot
-become unrestricted vacuum capability. The saved-candidate Rust request
-defaults to the unchanged unrestricted path; CLI/Python total-excess request
-parity remains required follow-up. The core/native/app/Python release chain
-passes, but the full saved FG E30 default-policy run exhausts retained successor
+become unrestricted vacuum capability. Rust, CLI and public Python steer the
+same saved-candidate request, defaulting to the unchanged unrestricted path.
+Their explicit total-excess argument changes the entry promise, not the
+proof-work allowance or owner authority. The core/native/app/Python bridge and
+the separate frontend release gates pass, but the full saved FG E30
+default-policy run exhausts retained successor
 work before publication. This does not certify the shipped four-loop programs.
 See the [bounded-owner contract](research/rank_bounded_certification.md) and
 [measured acceptance boundary](research/rank30_certification_audit_2026-09-17.md).
+
+Exact-materialization progress projects existing scalar events, including
+source-frame dimensions and sparse U/L counts, without copying expressions or
+changing solver work. The CLI retains one small frame record per live
+`(manifest ordinal, sector)` job, updates it before the unchanged shared 100 ms
+throttle, and invalidates it on phase changes or job completion. Disabled
+observation remains lazy. Progress is sampled: no refresh occurs within a long
+native call lacking callbacks, and frame numbers are run-local locators, not
+exact-input identities. Public Rust stage variants are source-visible, but no
+persisted schema changes. See the [verified follow-up](research/rank30_certification_audit_2026-09-17.md#frontend-and-progress-follow-up)
+and [exact-lift profiling limits](research/five_loop_exact_lift_profile.md).
 
 `solver::CandidateReducer` owns the candidate rule application, mass restoration
 and memoized terminal decompositions; Vakint supplies routing and offline

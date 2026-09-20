@@ -206,15 +206,25 @@ propagator dots unbounded, and that successor-closed contract is not implemented
 It is never reinterpreted as total excess or replaced by unrestricted
 certification.
 
-The Rust application API separately provides
-`CandidateCertificationRequest::with_max_total_excess_degree(D)` for
+The certification-only `--max-total-excess-degree D` option, Rust
+`CandidateCertificationRequest::with_max_total_excess_degree(D)` builder and
+Python `certify_candidates(..., max_total_excess_degree=D)` keyword request
 `sum(max(n_i-1,0) + max(-n_i,0)) <= D` at entry. Successful certification
 produces native bounded scope and independently checked descendant degrees,
 which may exceed `D`; all replay and publication checks remain required. The
-option defaults to `None`, preserving ordinary certification. It is independent
-of resource limits and mutually exclusive with the numerator-only request.
-CLI and Python have no total-excess argument yet; exposing the same contract
-there remains required follow-up. See
+option is omitted by default (`None` in Rust/Python), preserving ordinary
+certification. `D` is an unsigned 64-bit integer, including zero, with no
+degree-30 ceiling. It is independent of resource limits and mutually exclusive
+with the numerator-only request. Large accepted arguments do not promise that
+proof work fits the chosen resource limits. For example:
+
+```console
+rustred certify-candidates --input saved.candidates.rrbin \
+  --max-total-excess-degree 2 --output saved.e2.rrbin
+rustred campaign inspect --artifact saved.e2.rrbin
+```
+
+This certifies saved formulas without rerunning rule generation. See
 [the bounded contract](research/rank_bounded_certification.md).
 
 Native binary bundle schema `rustred.generated-candidates.binary.v1` records
@@ -226,7 +236,7 @@ The certification report (`rustred.candidate-certification-output.toml.v1`)
 separately records bundle decoding, preparation, native reconstruction,
 certification and artifact encoding. These are observational timings, not part
 of the bundle or artifact identity, and exclude a later explicit cold reload.
-Successful bounded Rust reports additionally include optional
+Successful bounded certification reports additionally include optional
 `max_total_excess_degree`, `successor_sector_count` and
 `max_successor_total_excess_degree` fields; unrestricted reports omit them.
 `certify_candidates_with_progress` observes preparation, replay, lowering,

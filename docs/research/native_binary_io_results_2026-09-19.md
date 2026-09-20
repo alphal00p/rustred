@@ -352,7 +352,9 @@ Terminal normalization remains a distinct task and is not part of these timings.
 Total-excess bounded owners now reuse this native transport, coefficient
 dictionary and V6 source proof. Their distinct `BoundedCertified` kind requires
 entry and descendant scope, which cold loading reproves through the actual-cell
-installer. The core/native/app/Python release chain passes; the complete saved
+installer. A separately tested frontend follow-up exposes this same contract
+through CLI/public Python without changing transport or the September 19
+measurements. The core/native/app/Python release chain passes; the complete saved
 FG E30 default-policy attempt stops at the retained successor-work limit after
 47 successful local reports and 46 completed retained sectors, without an
 artifact or cold acceptance. The September 19 conversion sizes, load timings

@@ -4,7 +4,8 @@ Status, 2026-09-20: public Rust total-excess production and native scope/cold
 replay are implemented and release-tested. Total excess counts dots and
 negative powers. The original numerator-only recommendation below remains a
 separate proposal with unbounded positive powers. Unrestricted certification
-is still the default; CLI/Python total-excess parity remains required follow-up.
+is still the default; Rust, CLI and public Python expose the same total-excess
+request.
 The full saved FG E30 default-policy attempt exhausts successor work before
 publication, so no full-FG certificate is claimed. See the
 [measured audit](rank30_certification_audit_2026-09-17.md),
@@ -132,6 +133,28 @@ retained successor sectors. Attempted work is 12,000,280 against 12,000,072;
 no artifact is written and cold acceptance is not reached. The measured
 12.54 s wall time is a shared-load failure observation, not a closure speedup.
 See the [full result and release evidence](rank30_certification_audit_2026-09-17.md).
+
+### September 20 frontend follow-up
+
+`certify-candidates --max-total-excess-degree D` and
+`rustred.certify_candidates(..., max_total_excess_degree=D)` steer the existing
+application/core installer. The optional u64 argument defaults to `None`,
+accepts zero and values above 30, rejects invalid types/ranges and conflicting
+scope kinds, and is not accepted by generation. Proof budgets remain separate
+and unchanged. The older numerator-only request still fails closed; it is not
+a synonym for total excess.
+
+The release follow-up passes 131 application unit tests, 74 integration tests,
+eight Python-binding Rust tests and 41 fresh-extension Python/CLI tests, with
+zero failures or skips. The Python runtime takes 52.884 s. All 13 frozen source and three
+executable/package snapshot entries match. Small external-input K1/K3 fixtures
+compare native structure, every coefficient and both variable maps across
+Rust/CLI/Python. Fresh processes load in both frontend directions, preserve
+dotted and numerator/pinch reductions, and reject out-of-scope starts. Tests
+also cover no-overwrite and restrictive proof-budget failures. These results
+establish frontend parity, not full four-loop closure. The previous core
+counts above are the initial bridge gate, not a rerun during this follow-up.
+See the [detailed acceptance record](rank30_certification_audit_2026-09-17.md#frontend-and-progress-follow-up).
 
 ### Original numerator-only recommendation
 
@@ -370,9 +393,10 @@ proved and must survive serialization; an operation allowance does not. Old
 artifacts and `None` requests must retain current behavior. Adding semantic
 fields requires explicit format/report versioning and CLI/Python parity, not a
 silent change to the current durable grammar.
-The current total-excess producer is Rust-only; CLI/Python parity remains
-unfinished required follow-up. Scope and reports must retain explicit semantics;
-no frontend may silently reinterpret the existing numerator-only option.
+Total-excess frontend parity is implemented by the separate follow-up above.
+Scope and reports retain explicit semantics; no frontend reinterprets the
+existing numerator-only option. The table remains the historical unbounded-dot
+proposal, not the current total-excess inventory.
 
 ## 6. Bounded implementation sequence
 

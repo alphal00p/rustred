@@ -3,7 +3,9 @@
 use std::time::Duration;
 
 use rustred::foundry::artifact::{SourcePortInstallEvent, SourcePortSuccessorSnapshot};
-use rustred::solver::{SearchEvent, SectorEvent, SectorExecutionError, SectorPhase};
+use rustred::solver::{
+    MaterializationEvent, SearchEvent, SectorEvent, SectorExecutionError, SectorPhase,
+};
 
 pub(in crate::application) type Observer<'a> =
     Option<&'a (dyn Fn(FamilyCloseProgress) + Send + Sync)>;
@@ -18,6 +20,9 @@ pub(in crate::application) fn emit(
 }
 
 /// Live generation phase. No expression or source row is copied into progress.
+/// Exact sizes count stored structure, not bytes or algebraic complexity.
+/// Source rows are one-based; integral/target columns are zero-based. A frame
+/// may stop early, so its source-row count is not a completion denominator.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FamilyCloseGenerationStage {
     Case {
@@ -28,7 +33,78 @@ pub enum FamilyCloseGenerationStage {
         seeds: usize,
         rows: usize,
     },
+    /// Coarse pre-frame boundary, also retained when no row events are emitted.
     ExactMaterialization,
+    ExactFramePrepared {
+        source_rows: usize,
+        integral_columns: usize,
+        target_column: usize,
+        input_terms: usize,
+        coefficient_variables: usize,
+        active_variables: usize,
+    },
+    ExactDenseFractionFreeStarted {
+        rows: usize,
+        columns: usize,
+        reduction_columns: usize,
+        rational_coefficients: bool,
+    },
+    ExactDenseFractionFreeFinished {
+        rank: usize,
+    },
+    ExactTargetBlockStarted {
+        columns: usize,
+    },
+    ExactTargetWeightsStarted {
+        rows: usize,
+        lower_nonzeros: usize,
+    },
+    ExactTargetWeightsFinished {
+        nonzero_weights: usize,
+    },
+    ExactTargetReconstructionStarted {
+        rows: usize,
+        columns: usize,
+    },
+    ExactTargetReconstructionFinished {
+        output_terms: usize,
+    },
+    ExactSemiNumericalStarted {
+        rows: usize,
+        columns: usize,
+        variables: usize,
+    },
+    ExactSemiNumericalCoefficient {
+        column: usize,
+        probes: usize,
+        primes: usize,
+    },
+    /// Internal generation validation, not artifact certification.
+    ExactSemiNumericalExactReplayStarted {
+        support_recovery: bool,
+    },
+    /// Completion does not assert agreement with the reconstructed row.
+    ExactSemiNumericalExactReplayFinished {
+        output_terms: Option<usize>,
+    },
+    ExactSemiNumericalFinished {
+        output_terms: usize,
+    },
+    /// Follows input coefficient conversion; not a conversion-start event.
+    ExactRowStarted {
+        row: usize,
+        input_nonzeros: usize,
+        reducer_rows: usize,
+        reducer_nonzeros: usize,
+    },
+    /// Precedes target-output conversion/restoration. An accepted pivot is not
+    /// necessarily the target, and does not imply a completed rule.
+    ExactRowFinished {
+        row: usize,
+        accepted_pivot: bool,
+        reducer_rows: usize,
+        reducer_nonzeros: usize,
+    },
     Canonicalization,
     GuardExtraction,
     ExceptionalGeometry,
@@ -187,9 +263,8 @@ pub(in crate::application) fn generation_stage<const N: usize>(
             SearchEvent::DiscoveryProgress {
                 depth, seeds, rows, ..
             } => FamilyCloseGenerationStage::Discovery { depth, seeds, rows },
-            SearchEvent::ExactStarted { .. } | SearchEvent::ExactProgress(_) => {
-                FamilyCloseGenerationStage::ExactMaterialization
-            }
+            SearchEvent::ExactStarted { .. } => FamilyCloseGenerationStage::ExactMaterialization,
+            SearchEvent::ExactProgress(event) => materialization_stage(event),
             SearchEvent::CanonicalizationStarted { .. } => {
                 FamilyCloseGenerationStage::Canonicalization
             }
@@ -202,6 +277,111 @@ pub(in crate::application) fn generation_stage<const N: usize>(
         SectorEvent::NumericalStarted { cases } => {
             FamilyCloseGenerationStage::Numerical { cases: cases.len() }
         }
+    }
+}
+
+fn materialization_stage<const N: usize>(
+    event: MaterializationEvent<N>,
+) -> FamilyCloseGenerationStage {
+    use FamilyCloseGenerationStage as Stage;
+    match event {
+        MaterializationEvent::FramePrepared {
+            source_rows,
+            integral_columns,
+            target_column,
+            input_terms,
+            coefficient_variables,
+            active_variables,
+        } => Stage::ExactFramePrepared {
+            source_rows,
+            integral_columns,
+            target_column,
+            input_terms,
+            coefficient_variables,
+            active_variables,
+        },
+        MaterializationEvent::DenseFractionFreeStarted {
+            rows,
+            columns,
+            reduction_columns,
+            rational_coefficients,
+        } => Stage::ExactDenseFractionFreeStarted {
+            rows,
+            columns,
+            reduction_columns,
+            rational_coefficients,
+        },
+        MaterializationEvent::DenseFractionFreeFinished { rank } => {
+            Stage::ExactDenseFractionFreeFinished { rank }
+        }
+        MaterializationEvent::TargetBlockStarted { columns } => {
+            Stage::ExactTargetBlockStarted { columns }
+        }
+        MaterializationEvent::TargetWeightsStarted {
+            rows,
+            lower_nonzeros,
+        } => Stage::ExactTargetWeightsStarted {
+            rows,
+            lower_nonzeros,
+        },
+        MaterializationEvent::TargetWeightsFinished { nonzero_weights } => {
+            Stage::ExactTargetWeightsFinished { nonzero_weights }
+        }
+        MaterializationEvent::TargetReconstructionStarted { rows, columns } => {
+            Stage::ExactTargetReconstructionStarted { rows, columns }
+        }
+        MaterializationEvent::TargetReconstructionFinished { output_terms } => {
+            Stage::ExactTargetReconstructionFinished { output_terms }
+        }
+        MaterializationEvent::SemiNumericalStarted {
+            rows,
+            columns,
+            variables,
+        } => Stage::ExactSemiNumericalStarted {
+            rows,
+            columns,
+            variables,
+        },
+        MaterializationEvent::SemiNumericalCoefficient {
+            column,
+            probes,
+            primes,
+        } => Stage::ExactSemiNumericalCoefficient {
+            column,
+            probes,
+            primes,
+        },
+        MaterializationEvent::SemiNumericalExactReplayStarted { support_recovery } => {
+            Stage::ExactSemiNumericalExactReplayStarted { support_recovery }
+        }
+        MaterializationEvent::SemiNumericalExactReplayFinished { output_terms } => {
+            Stage::ExactSemiNumericalExactReplayFinished { output_terms }
+        }
+        MaterializationEvent::SemiNumericalFinished { output_terms } => {
+            Stage::ExactSemiNumericalFinished { output_terms }
+        }
+        MaterializationEvent::RowStarted {
+            row,
+            input_nonzeros,
+            reducer_rows,
+            reducer_nonzeros,
+        } => Stage::ExactRowStarted {
+            row,
+            input_nonzeros,
+            reducer_rows,
+            reducer_nonzeros,
+        },
+        MaterializationEvent::RowFinished {
+            row,
+            pivot,
+            reducer_rows,
+            reducer_nonzeros,
+        } => Stage::ExactRowFinished {
+            row,
+            accepted_pivot: pivot.is_some(),
+            reducer_rows,
+            reducer_nonzeros,
+        },
     }
 }
 
@@ -294,6 +474,104 @@ pub(in crate::application) fn installation_event<const N: usize>(
 mod tests {
     use super::*;
     use rustred::foundry::artifact::{SourcePortSuccessorCounts, SourcePortSuccessorStage};
+
+    #[test]
+    fn exact_materialization_projects_every_scalar_without_copying_integrals() {
+        fn assert_copy<T: Copy>() {}
+        assert_copy::<FamilyCloseGenerationStage>();
+
+        macro_rules! scalars {
+            ($event:ident => $stage:ident { $($field:ident: $value:expr),* $(,)? }) => {
+                assert_eq!(
+                    materialization_stage::<2>(MaterializationEvent::$event {
+                        $($field: $value),*
+                    }),
+                    FamilyCloseGenerationStage::$stage { $($field: $value),* }
+                );
+            };
+        }
+        scalars!(FramePrepared => ExactFramePrepared {
+            source_rows: 11,
+            integral_columns: 17,
+            target_column: 3,
+            input_terms: 41,
+            coefficient_variables: 7,
+            active_variables: 5,
+        });
+        for rational_coefficients in [false, true] {
+            scalars!(DenseFractionFreeStarted => ExactDenseFractionFreeStarted {
+                rows: 13,
+                columns: 19,
+                reduction_columns: 4,
+                rational_coefficients: rational_coefficients,
+            });
+        }
+        scalars!(DenseFractionFreeFinished => ExactDenseFractionFreeFinished { rank: 9 });
+        scalars!(TargetBlockStarted => ExactTargetBlockStarted { columns: 4 });
+        scalars!(TargetWeightsStarted => ExactTargetWeightsStarted {
+            rows: 13,
+            lower_nonzeros: 29,
+        });
+        scalars!(TargetWeightsFinished => ExactTargetWeightsFinished { nonzero_weights: 6 });
+        scalars!(TargetReconstructionStarted => ExactTargetReconstructionStarted {
+            rows: 13,
+            columns: 19,
+        });
+        scalars!(TargetReconstructionFinished => ExactTargetReconstructionFinished {
+            output_terms: 23,
+        });
+        scalars!(SemiNumericalStarted => ExactSemiNumericalStarted {
+            rows: 13,
+            columns: 19,
+            variables: 7,
+        });
+        scalars!(SemiNumericalCoefficient => ExactSemiNumericalCoefficient {
+            column: 3,
+            probes: 11,
+            primes: 2,
+        });
+        for support_recovery in [false, true] {
+            scalars!(SemiNumericalExactReplayStarted => ExactSemiNumericalExactReplayStarted {
+                support_recovery: support_recovery,
+            });
+        }
+        for output_terms in [None, Some(23)] {
+            scalars!(SemiNumericalExactReplayFinished => ExactSemiNumericalExactReplayFinished {
+                output_terms: output_terms,
+            });
+        }
+        scalars!(SemiNumericalFinished => ExactSemiNumericalFinished { output_terms: 23 });
+        scalars!(RowStarted => ExactRowStarted {
+            row: 2,
+            input_nonzeros: 7,
+            reducer_rows: 1,
+            reducer_nonzeros: 11,
+        });
+        for pivot in [
+            None,
+            Some(rustred::solver::Integral::numeric([1, 0]).unwrap()),
+        ] {
+            assert_eq!(
+                materialization_stage(MaterializationEvent::RowFinished {
+                    row: 2,
+                    pivot,
+                    reducer_rows: 1,
+                    reducer_nonzeros: 11,
+                }),
+                FamilyCloseGenerationStage::ExactRowFinished {
+                    row: 2,
+                    accepted_pivot: pivot.is_some(),
+                    reducer_rows: 1,
+                    reducer_nonzeros: 11,
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn disabled_observer_does_not_construct_progress() {
+        emit(None, || panic!("disabled progress must remain lazy"));
+    }
 
     #[test]
     fn successor_progress_copies_only_scalars_and_preserves_stage_and_failure() {

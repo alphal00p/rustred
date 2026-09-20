@@ -194,12 +194,24 @@ contract, which leaves positive propagator dots unbounded. Values through 30
 fail closed; larger values are input errors. RustRed never silently substitutes
 unrestricted certification or a bound that also counts dots.
 
-The Rust application API now separately supports total excess
+The separate `max_total_excess_degree` keyword requests total excess
 `sum(max(n_i-1,0) + max(-n_i,0)) <= D` at entry, including bounded native
 scope and cold reproof. Its checked descendant degrees can exceed `D`.
-That option is not yet exposed as a Python keyword or CLI flag; frontend parity
-remains required follow-up. Existing Python inspection/reduction can load
-bounded bytes through the shared verified loader. See the
+The value must be a nonnegative integer fitting `u64` (not a boolean), including
+zero and values above 30. Omitted or explicit `None` preserves unrestricted
+certification. It is mutually exclusive with `max_negative_index_degree` and
+independent of proof resource limits; a large accepted degree does not promise
+successful certification under those limits.
+
+```python
+bounded = rustred.certify_candidates(candidates.bundle, max_total_excess_degree=2)
+scope = rustred.inspect_closing_artifact(bounded.artifact)
+```
+
+This replays the saved candidates without regenerating rules. The CLI's matching
+option is `certify-candidates --max-total-excess-degree 2`. Existing inspection
+and reduction APIs cold-load the bounded bytes through the shared verified
+loader and reject out-of-scope starting powers. See the
 [scope contract](../../docs/research/rank_bounded_certification.md).
 
 Those same three limits are accepted by `family_close`,

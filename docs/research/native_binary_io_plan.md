@@ -66,8 +66,9 @@ The core/native/app/Python release chain passes. The full saved FG E30
 default-policy attempt still exhausts retained successor work before producing
 an artifact, so it supplies no four-loop certification. This is a separate
 scope capability, not a second codec or another migration of Vakint's shipped
-assets. The Rust producer is exposed; CLI/Python total-excess request parity
-remains required follow-up. See the
+assets. The Rust producer and matching CLI/public-Python arguments expose the
+same total-excess contract. Their separately tested frontend follow-up changes
+neither the native schema nor cold-proof validation. See the
 [bounded-owner audit and measured outcome](rank30_certification_audit_2026-09-17.md).
 
 ## API audit and representation
