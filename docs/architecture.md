@@ -31,19 +31,32 @@ Symbolica graph canonicalization proposes a permutation; exact polynomial and
 variable-context replay proves it. `TerminalAliasWitness` distinguishes these
 sealed parameter-integral proofs from momentum maps. Neither kind creates a
 new terminal or claims master independence. The parameter lane's core tests
-and saved-program census/application checks are validated. Vakint `71e01122b`
-now explicitly selects this parameter lane, pinning RustRed `2b50267c`, with
-all 83 lower-loop checks and 31 four-loop comparisons passing. This supersedes
-the earlier routing-only selection described below, not its reusable core API.
+and saved-program census/application checks are validated. Its U-only Vakint
+rollout (`71e01122b`, RustRed `2b50267c`) is now superseded by the weighted
+normalization rollout below; the reusable core factory remains available.
+
+`TerminalNormalizationPlan::vacuum_quadratic_numerators` extends that service
+to exact weighted decompositions for structurally admitted quadratic numerators.
+Its rank/circuit conditions are independent of loop count and topology name;
+Symbolica owns the matrix arithmetic and existing witnesses prove each map.
+Vakint `fdfb0e43`, pinning RustRed `8ad62b96`, ships four native sidecars with
+**74 positive family-local output representatives**, preserving all 1,155 raw
+terminal declarations and offline catalog entries. All 83 lower-loop checks,
+15 four-loop references and 16 pinch comparisons pass, as do the focused
+loading and public numerical benchmark gates. This is a delivered finite
+output convention, not a minimal basis or a four-loop closure certificate.
+See [the weighted contract and measured rollout](research/weighted_terminal_normalization.md).
+
 `persistence::ExactTerminalCatalog` provides the same native Atom/State strategy
 for exact offline values attached to typed integral keys. Its distinct payload
 kind carries no IBP authority; downstream consumers still verify their declared
 key sets. The codec, exact asset conversion and pinned Vakint runtime rollout
-are validated: Vakint `909164121` uses RustRed `d51721b6`, with the 83 lower-loop
+are validated: the I/O rollout `909164121` used RustRed `d51721b6`, with the 83 lower-loop
 and 31 four-loop numerical checks passing. Aliases were not enabled for that
 I/O migration gate. The separate Vakint rollout `8e91d32f`, pinning RustRed
-`f91c47ab`, now prepares the routing plan once per four-loop program and passes
-the same numerical matrix. Core factories remain opt-in; Vakint steers the
+`f91c47ab`, prepared the routing plan once per four-loop program and passed
+the same numerical matrix. These earlier rollouts are superseded by the
+weighted pin above. Core factories remain opt-in; Vakint steers the
 RustRed implementation without duplicating proof or application logic.
 
 ### Foundry mathematical spine
@@ -75,9 +88,9 @@ RustRed currently provides a topology-neutral mathematical spine for:
 - a versioned immutable artifact owner whose current verifier freshly
   generates and seals the mathematically complete canonical one-loop `q^2-1`
   and equal-mass two-loop sunset vacuum partitions, plus a deterministic
-  bounded durable codec whose untrusted load boundary authenticates complete
+  bounded durable codec whose mathematical load boundary authenticates complete
   source, cell, projection, symmetry, factorization, terminal, and homogeneity
-  semantics once;
+  semantics once; native Atom/State payloads require trusted generated provenance;
 - a topology-independent deterministic memoizing reducer with canonical
   symmetry routing, guarded cells, lower-artifact factorization, explicit
   master and zero terminals, concrete strict-descent checks, retained-payload
