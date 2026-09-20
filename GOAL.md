@@ -6,10 +6,12 @@
 
 In parallel with the measured solver work, investigate `EPSILON.md`, current
 KIRA/Laporta-style finite-target reduction and related primary literature for
-reducing the remaining four-loop terminal basis. The deployed exact unit-weight
-normalization has already reduced 1,155 family-local keys to 179 representatives;
-105 numerator-bearing keys remain. The practical objective is **fewer than 100
-representatives**, not a proof of minimality. Keep family-local integral keys,
+reducing the remaining four-loop terminal basis. The preceding exact unit-weight
+normalization reduced 1,155 family-local keys to 179 representatives, retaining
+105 numerator-bearing keys. The weighted structural-symmetry milestone now
+ships **74 positive representatives** with the complete numerical gate below;
+the practical objective of fewer than 100 is met, without claiming minimality.
+Keep family-local integral keys,
 globally routed representatives, topology labels and evaluated master symbols
 distinct when reporting counts.
 
@@ -175,8 +177,14 @@ bytes; original programs/catalogs remain unchanged. The generic core release
 and native corpus gates pass. The pinned Vakint rollout now also passes all
 83 lower-loop checks, 15 original four-loop comparisons, 16 pinch comparisons,
 11 focused checks and three fixture checks, together with all 54 matched
-benchmark comparisons. Independent final review and the GammaLoop commit/push
-are pending; 74 is not yet the remotely shipped Vakint convention. Neither this finite
+benchmark comparisons. Independent implementation and measurement audits pass;
+GammaLoop `fdfb0e43c297c5d78c488d73ad4be508d03de2dd` is committed and pushed on
+`vakint_rustred`, pinning published RustRed `8ad62b96`. Thus 74 is now the
+shipped, numerically validated family-local output convention. First H/X
+cubed-parent calls change from 6.231/30.811 s to 5.587/21.411 s; FG's initial
+call and some warm controls regress. The whole paired benchmark changes from
+97.22 to 89.82 s, including both backends and comparisons; no universal speedup
+is inferred and first cubed-parent calls remain slower than FMFT. Neither this finite
 normalization nor the preceding aliases establish candidate closure.
 The bounded native Symbolica
 [factorized-denominator experiment](docs/research/factorized_coefficients.md)
@@ -304,8 +312,14 @@ Python, with an independently audited implementation and passing release gates:
 depth two and the default saved policy are unchanged; nondefault depths are
 recorded canonically and admitted before native State decoding. This changes
 neither the core search algorithm nor its exact authority gates. A frozen,
-six-worker full physical-family CLI campaign at depth zero is prepared next,
-followed by cold application gates if a complete bundle is written. No
+six-worker full physical-family CLI campaign at depth zero was launched with
+the frozen release executable from published revision `2627a537`. Its physical
+parent reports the expected 310 rules and 29 residuals at 93.9 s elapsed, but
+the full 2,656-sector run remains in progress and no complete bundle or cold
+application result is yet available. The declared limit is 1,800 s to TERM
+plus a 10 s KILL grace, with 32 GiB virtual address space, CPUs 100–105.
+Evidence is in `TMP/five-loop-depth-zero-campaign.CWGK0e/`; cold application
+gates follow only if a complete bundle is written. No
 family-specific rule or loop-count dispatch is introduced for this.
 
 The reconstruction backend still includes internal exact sparse replay; this

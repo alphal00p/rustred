@@ -1,10 +1,11 @@
 # Finite weighted terminal normalization
 
-Status: core/native milestone published as `8ad62b96`, 20 September 2026;
-downstream numerical rollout remains in progress.
-The shipped Vakint output convention still has 179 family-local representatives.
-The core implementation and native sidecars now independently reproduce 74;
-downstream numerical delivery remains a separate pending gate.
+Status: delivered, 20 September 2026. Core/native milestone `8ad62b96` and
+GammaLoop `fdfb0e43c297c5d78c488d73ad4be508d03de2dd` (`vakint_rustred`) are
+published. Vakint vendors and loads the four verified native sidecars, reducing
+its effective output convention from 179 to 74 family-local representatives
+while preserving all 1,155 raw declarations/catalog entries. The numerical
+acceptance and measured public benchmark gates below pass on the pinned runtime.
 
 ## API and authority
 
@@ -59,7 +60,7 @@ factors of scalar and pinch terms; downstream callers must not add them twice.
 kind `TerminalNormalization` (4), using Symbolica Atom/State coefficient pooling
 and standard bincode integer records. Schema 1 records arity, family fingerprint,
 saved ordering, exact ordered raw keys and output/coefficient dictionary IDs.
-Existing candidate/certified coefficient wire bytes are unchanged. Proposed
+Existing candidate/certified coefficient wire bytes are unchanged. Vendored
 four-family filenames are `h.rrnorm.bin`, `fg.rrnorm.bin`, `bmw.rrnorm.bin` and
 `x.rrnorm.bin`; filenames confer no authority.
 
@@ -91,8 +92,8 @@ added failure-path tests (162.08 seconds runtime; compilation excluded).
 The complete application gate also passes: **91 unit tests and 67 integration
 tests across ten targets**, zero failures or ignored tests; the binary and
 documentation targets contain no tests. Application runtime totals 62.54
-seconds (8m59s compilation excluded). Downstream Vakint gates remain pending
-at this checkpoint.
+seconds (8m59s compilation excluded). The downstream Vakint gates also pass,
+as recorded below.
 The initial L=5 success fixture hit the inherited U prospective-product bound
 (25,200 terms versus 20,000); that test and its cold replay now explicitly use
 larger finite Symanzik budgets. All exact assertions and production defaults
@@ -101,7 +102,7 @@ are unchanged; the initial failure and exact diagnostic are retained.
 The artifact gate below encodes and cold-reloads the four unchanged saved
 candidate programs, replays every witness, checks all final edges and all 1,155
 catalog expansions exactly, and preserves the input hashes. Catalog values are
-post-hoc checks only, never discovery inputs. Delivery additionally requires
+post-hoc checks only, never discovery inputs. Delivery additionally includes
 newly vendored sidecars and the unchanged 83 lower-loop, 15 four-loop reference
 and 16 expanded-numerator pinch numerical cases. Preparation, first application
 and warm cache timings must remain separate.
@@ -160,8 +161,47 @@ output; they are not bare sidecar-load or scalar-reduction times. Hashing and
 prior reads preclude a cold-filesystem claim. Verification preparation occurs
 after its decode/replay phase and is not a second independent cold-load sample.
 
-The Gamma numerical/public benchmark rollout is still pending. No minimal-master
-or complete-family reduction claim follows from this finite 74-output convention.
+No minimal-master or complete-family reduction claim follows from this finite
+74-output convention.
+
+## Delivered Vakint acceptance and public timings
+
+GammaLoop revision `fdfb0e43c297c5d78c488d73ad4be508d03de2dd` pins core
+`8ad62b964de6f3a508fd165dc6ac2509f25839fe` in both dependencies and lock sources.
+The thin const-N adapter delegates native proof reconstruction, weighted
+application and caching to core. No loop-count or topology-name algorithm
+dispatch, tensor reducer, default-method change or master-value update is added.
+
+The unchanged 83-case lower-loop selection, all 15 reference inventory entries,
+all 16 expanded-numerator/pinch pairs, 11 focused loader/catalog/constructor
+checks and 3 fixtures pass. Four explicitly ignored fixture tests remain visible;
+the public numerical suites and benchmark were run separately. These filters
+overlap and are not counts of distinct physical inputs. Original nonunit
+mass/scale inputs, precision and tolerances are unchanged. Both native stages
+use the existing forbidden FORM path; only the separate FMFT oracle uses FORM.
+
+A fresh frozen U-only control and the new weighted runtime each pass the same
+nine-input public benchmark: 54 numerical comparisons and 108 timed calls.
+They run sequentially on CPUs 88–93, one nested worker, each with a 600-second
+deadline and 8-GiB virtual-address cap. First H/X D1-cubed parent calls change
+from 6.230761/30.811257 s to 5.586718/21.411233 s, including lazy program loading
+and exact plan preparation. FG's first call instead changes from 1.042856 to
+1.109604 s; some warm expanded-D7 and factorized-control calls also regress.
+Five same-process warm-call medians do not represent five fresh runs.
+
+Whole-harness wall time is 97.22 -> 89.82 s, user + system CPU
+92.97 + 3.63 -> 85.44 + 3.75 s, and peak RSS 2,155,424 -> 2,039,496 KiB.
+These totals include both backends, initialization and numerical comparisons,
+not isolated RustRed reduction. FMFT's X warm median also changes from 4.780624
+to 5.857101 s; this shared-host pair cannot attribute all timing movement to
+normalization or establish a universal/statistical speedup. First cubed-parent
+RustRed calls remain slower than FMFT; output shrinkage does not imply a
+proportional runtime improvement. This D1-cubed study is distinct from D1-squared below.
+
+All observations, exact hashes, unchanged-asset checks and independent audits
+are retained in `TMP/gamma-terminal-normalization-rollout.GN7v1b/`, including
+`orchestrator-final-audit.md` and `independent-benchmark-audit.md`. GammaLoop's
+vendored asset README records every first/warm benchmark row and its boundaries.
 
 ## Bounded saved-program application comparison
 
