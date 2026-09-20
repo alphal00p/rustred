@@ -448,6 +448,19 @@ parent parity or closure. The report preserves the incomplete original matrix
 and separately labelled follow-up. These measurements remain distinct from the
 earlier completed depth-zero parent and frozen-frame experiments.
 
+A separately labelled longer parent pair now **does complete**, reproducing
+310 rules, 29 residuals and every one of 56,990 exact RHS coefficients, source
+selections, guards and both maps. Full-factorized versus target-block core times
+are 75.492 versus 395.338 s; whole wall is 190.01 versus 854.67 s. This target-block
+regression is retained, but substantial preparation/output/shared-numerical
+variation prevents attributing it solely to the backend. This is a completed
+selected sector, not a complete five-loop family or closure certificate. The
+previous timed-out attempts remain separately reported. A subsequent CPU profile
+locates substantial preparation self time in native rational forward elimination;
+the next generic optimization under test is a one-sided native modular rank
+screen with unchanged exact fallback, not a topology-specific rule or CAS kernel.
+See the [completed-parent evidence](docs/research/factorized_coefficients.md#completed-selected-parent-follow-up-september-20).
+
 The bounded-certificate lane now shares exact public-entry admission between
 the sealed reducer and scalar lowering, before cache access. Descendant degree
 envelopes remain distinct from the starting total-excess cap. Internal scoped-owner

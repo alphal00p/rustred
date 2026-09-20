@@ -147,6 +147,60 @@ inputs, protocol and output evidence are hashed. Evidence and independent
 audit: `TMP/target-factorized-sector-generic.pxwi5G/`. No complete five-loop
 generation, certification or backend-wide performance improvement is claimed.
 
+##### Completed selected-parent follow-up, September 20
+
+A separately labelled 900-second-per-producer experiment now completes both
+backends on the same external cube input, natural ordering, selected parent
+`111111111111000` and depth-zero shared numerical tail. This is **one complete
+selected sector, not a complete five-loop family or a certified artifact**.
+It does not replace the preceding censored attempts or fill their missing
+matrix slots. The unchanged frozen public client and libraries were used;
+CPU94, one worker, nested pools one, 8 GiB virtual-address ceiling, optimized
+builds and no overlapping owned build/profile workloads were retained.
+
+Target-block ran first, full factorized second. Both exit successfully with
+310 rules, 29 finite residuals and 56,990 RHS coefficients. A separate native
+comparison verifies the full structural program, original-source selections,
+guards, every exact coefficient and both ordered maps. There are 290 symbolic
+cases (69 direct, 221 exact), followed by 49 numerical inputs, 20 numerical
+rules and 29 residuals. Both retain 605 exceptional branches, 618 guard
+equations and two required affine equations.
+
+| Seconds unless stated | Full factorized | Target-block factorized |
+|---|---:|---:|
+| Family/source preparation and zero census | 44.605273 | 177.075033 |
+| Solver core, including preconditioning | 75.491568 | 395.338411 |
+| Observed symbolic exact intervals, inside core | 42.119468 | 136.375780 |
+| Shared numerical search, inside core | 0.277791 | 37.574706 |
+| Shared numerical exact lift, inside search | 0.053440 | 0.042525 |
+| Structural/native output | 69.580614 | 281.901958 |
+| Whole process | 190.01 | 854.67 |
+| User + system CPU | 123.50 + 65.16 | 566.25 + 285.36 |
+| Peak RSS, KiB | 262,984 | 271,824 |
+
+The target-block observation regresses: target/full ratios are 5.24 for core,
+3.24 for observed symbolic exact intervals and 4.50 for whole wall time.
+These are **single observations, not an isolated backend effect**. Preparation,
+output and even the identically implemented numerical search vary substantially.
+No cause is assigned; no automatic policy or default change follows. Nested
+intervals must not be added again to their containing phases.
+
+Each output contains 12,605,181 structural bytes and 17,669,443 native bytes.
+The separate native comparison completes in 3.61 s, with 130,184 KiB peak RSS.
+Frozen commands, hashes, raw events, timings and an independent exact-output
+and timing audit are in `TMP/target-factorized-parent-900.7hLTWs/`.
+
+A subsequent, separate 99-Hz user-CPU profile of the already solved coordinate
+case again passes native equality for all 1,489 coefficients. Within the
+conservatively trimmed preparation interval, 614 of 1,480 samples (41.49%)
+are self samples in Symbolica's rational forward elimination, versus 10
+(0.68%) in back substitution. Preparation takes 28.022921 s, of which the
+zero census takes 28.001366 s. These are flat exclusive samples, not inclusive
+phase costs or an explanation of the earlier timing variation. This motivates
+testing a topology-neutral native modular full-column-rank screen; a rank miss
+must retain exact rational witness generation. Raw profile data and an
+independent parser audit are in `TMP/five-loop-preparation-profile.XpucXw/`.
+
 ##### Earlier frozen-frame measurements
 
 The original test-only, three rotated fresh-process rounds below compare the
