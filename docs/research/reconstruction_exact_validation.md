@@ -40,12 +40,107 @@ performance measurements. The two separate audits are retained as
 `TMP/source-weight-backend-independent-math-closure-audit-2026-09-20.md` and
 `TMP/source-weight-production-genericity-audit-2026-09-20.md`.
 
-After acceptance, the next measurement is an input-driven matched sector
-comparison with the same numerical-tail backend, followed by a bounded
-five-loop input study. Every attempted solve must retain its actual completion
-or resource-censored status. The historical proposal and diagnostic below
-record why this design was chosen; their earlier "not implemented" labels
-describe those earlier checkpoints, not this working-tree status.
+The first input-driven comparison and bounded five-loop studies are now
+recorded below. Every attempted solve retains its actual completion or failure
+status. The historical proposal and diagnostic farther below record why this
+design was chosen; their earlier "not implemented" labels describe those
+earlier checkpoints, not the current implementation.
+
+## Source-weight backend: first measured comparisons
+
+The frozen release client in `TMP/source-weight-sector-comparison.Xz5haO/`
+uses external family/case inputs, natural ordering and one worker. Every mode
+keeps the same `Sparse` numerical tail. Core timings include sector
+preconditioning and solving, but exclude input/source/zero-census preparation,
+snapshot encoding and cold exact comparisons. Event writes and flushes remain
+inside solving and differ in number across backends. These are instrumented
+shared-host diagnostics, not a production throughput guarantee.
+
+| Completed workload | Sparse core (s) | Source-weight core (s) | Result compared exactly |
+| --- | ---: | ---: | --- |
+| H sector `0000110110`, pair 1 | 0.805809 | 1.315208 | 75 rules, 1 residual; 2,017 coefficients |
+| Same sector, reversed pair 2 | 0.791862 | 1.236301 | Same complete output |
+| TIDE factorized sector 31744 | 20.102118 | 30.870570 | 637 rules, 1 residual; 8,365 coefficients |
+| TIDE sector 28686, isolated coordinate case 195 | 20.305941 | 25.114978 | 1 guarded candidate; 781 coefficients |
+
+The existing reconstruction backend also completes the H sector in 1.174998 s
+and matches its 2,017 coefficients. Comparisons check both native coefficient
+maps and the complete source/case/guard/RHS/residual structure, not only
+numerical samples. Fresh processes decode the snapshots. The new symbolic
+backend has zero exact-elimination replay events; the existing reconstruction
+control has 36. The common numerical tail can still perform exact elimination.
+
+The new route is not uniformly faster. In particular, H remains faster with
+sparse arithmetic. The two five-loop source-weight diagnostics overlap each
+other on separate fixed CPUs, whereas their sparse controls do not; preparation
+times also vary considerably. Therefore their precise timing ratios are not
+isolated performance conclusions. A serialization outlier in one H sparse
+process lies outside core time and must not be used to advertise a speedup.
+
+The isolated case produces three guard branches but does **not** recurse over
+their intersections. Completing that candidate is not a solution of its
+exceptional boundary. Similarly, a completed selected sector is not a
+completed parent-family artifact.
+
+### First TIDE connected-sector attempt: same geometry failure
+
+Both fresh whole-sector attempts for TIDE's six-line connected representative
+28686 (`111000000001110`) stop at the identical 195th coordinate case:
+
+| Backend | Core time to error (s) | Process wall (s) | Peak RSS (KiB) | Outcome |
+| --- | ---: | ---: | ---: | --- |
+| Source weights | 66.984708 | 74.34 | 174,516 | `UnsupportedGeometry` |
+| Sparse | 81.513778 | 89.18 | 204,652 | Same `UnsupportedGeometry` |
+
+Neither 300-second deadline fires. Both finish 68 materializations and 127
+direct hits before the geometry error; the entire case sequence and unresolved
+guard payload agree. The new route spends about 50.595 s in materialization,
+versus 75.101 s for sparse, but **neither produces a sector snapshot or artifact**.
+This is less time to the same failure, not a completed five-loop speedup.
+The subsequent isolated-case comparison confirms exact equality of the final
+781-coefficient candidate without claiming to resolve its exceptional locus.
+
+Preparation enumerates all 32,768 auxiliary masks and identifies 5,566 zero
+sectors in both runs, matching the thesis's zero-count reference. It does not
+establish its physical/anti-sector partition. Numerical corner depth is zero;
+no oracle rules, saved traces, prior artifacts or numerical catalog enter the
+search. The [TIDE study](tide_five_loop_census.md) describes the exact input
+census and the distinction between routing coverage and rule closure.
+
+The separate receipt audit is
+`TMP/source-weight-sector-comparison.Xz5haO/INDEPENDENT_MEASUREMENT_AUDIT.md`.
+Frozen source, protocol, library, binary and input hashes pass. No default
+backend change is justified by these small mixed results.
+
+### Alternate banana input: reconstruction memoization pressure
+
+The older external `five_loop_banana.toml` routing supplies another diagnostic,
+not a different loop-specific strategy. Two one-worker selected-parent
+source-weight runs use the same frozen client, natural ordering, numerical
+depth zero and 300-second limits. Neither times out; both reach case 122,
+an affine face with a 499-row/2,907-column frame and seven active variables,
+then fail at the retained cached-value budget:
+
+| Cached scalar/index slot limit | Core time to error (s) | Process wall (s) | Peak RSS (KiB) |
+| --- | ---: | ---: | ---: |
+| 16,000,000 | 19.062594 | 27.68 | 201,368 |
+| 64,000,000 | 85.256889 | 94.12 | 606,812 |
+
+The larger caller-selected budget gets farther through target-coefficient
+reconstruction but still exhausts the cache; it does not complete the frame or
+sector. Both attempts start 24 materializations and finish only 23. A summed
+completed-interval counter omits the failed open interval and must not be
+reported as all materialization time. Neither creates a rule from incomplete
+reconstruction, and neither falls back to exact elimination.
+
+This failure is distinct from TIDE's unsupported quadratic geometry, and the
+two input presentations do not support a cross-basis timing ratio. Further
+blind budget increases are not the next experiment. Audit native multi-output
+reconstruction facilities and introduce a bounded reusable memoization policy
+if needed, so retained-cache capacity need not equal the cumulative number of
+allowed probe images. Such orchestration must preserve deterministic source
+chronology, exact product validation and caller memory/work limits; it must
+not implement another interpolation or rational-reconstruction kernel.
 
 ## Existing semi-numerical backend (unchanged)
 

@@ -142,8 +142,14 @@ combines reconstruction with full ordinary exact replay of the selected target
 row; enabling it does not
 remove all exact elimination. The
 [source-weight validation implementation](reconstruction_exact_validation.md)
-is now an opt-in Rust backend with 2,299 passing release core tests, without a
-measured speedup or completed five-loop solve yet. The separate observability
+is now an opt-in Rust backend with 2,299 passing release core tests. Subsequent
+TIDE-input diagnostics complete a factorized selected sector and exactly match
+the sparse result; a connected-sector attempt stops at the same nonlinear
+exceptional geometry with both backends, after 66.985/81.514 seconds respectively.
+These are different external inputs from the older banana profile above, not
+completions or speed ratios for that earlier campaign. There is still no
+completed connected five-loop family or universal source-weight speedup. The
+separate observability
 change has passed its release frontend gate: existing scalar frame/row/nonzero
 counters now reach CLI progress rather than all being collapsed to `exact
 lift`. It introduces no new algebra and cannot observe inside a long native

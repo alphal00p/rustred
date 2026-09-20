@@ -558,6 +558,67 @@ four concrete 12-line roots and a 67-class fully massive coverage ledger in a
 single 15-slot coordinate family. It also explains why a generic `K=15`
 all-positive run would be the wrong physical benchmark.
 
+### First actual RustRed runs
+
+The first factorized representative, 31744 (five tadpoles), now has a saved
+native **uncertified candidate bundle** from the public release CLI. Its
+physical downset contains one generated nonzero sector and 31 scoped zero
+sectors. It produces 637 rules and one finite residual, taking 10.177 seconds
+of solving and 17.434 seconds including preparation and encoding in this
+single run. The bundle is 612,414 bytes. This is not a connected five-loop
+parent or a certified closing artifact. A fresh matching-stack Rust consumer
+loads the unchanged bundle and passes seven exact canaries: its corner, one
+dot, two independent dots, two pair-momentum numerator powers, a three-momentum
+numerator and a scaleless pinch. Repeated applications agree with the memoized
+results. Cold loading takes 8.403 seconds here, including rebuilding the
+family/zero-sector evidence, but no rule search. Evidence:
+`TMP/tide-product-native.v6UW1p/` and
+`TMP/tide-product-cold-matching.BbhtGo/`. An earlier consumer linked to older
+application libraries rejected the depth-zero solver-policy tag before
+application; the native schema and artifact bytes did not need changing.
+
+A separate matched diagnostic compares that sector's sparse and source-weight
+backends exactly across 8,365 coefficients, guards and source records. A
+connected attempt on the six-line representative 28686 reaches 195 cases but
+stops with the **same nonlinear exceptional geometry** in both backends.
+Time to that error is 66.985 seconds with source weights and 81.514 seconds
+with sparse arithmetic. Neither produces a completed sector artifact. The
+[measurement report](reconstruction_exact_validation.md) records timing
+boundaries, shared-host caveats and exact comparisons; these observations do
+not establish a universal backend speedup.
+
+The obstacle is not an unlucky reconstruction. In one-based input indices,
+the failing case fixes `a1=a2=a3=a12=a13=a14=1` and
+`a6=a7=a10=a15=0`. Put `x=a8`, `y=a9`, `u=1+a11`. After two affine
+constraints it leaves
+
+\[
+ a_4=(2u+3y+x)/3,\qquad a_5=(-3u+y+10x)/8,
+\]
+\[
+ 164x^2-308xy+189y^2+124xu-94yu-75u^2=0.
+\]
+
+For every positive integer `t`, the original integral-index vector
+
+```text
+(1,1,1,-2t,-t,0,0,-t,-t,0,-t-1,1,1,1,0)
+```
+
+obeys these equations and the sector signs. Thus the exceptional set cannot
+be discarded as empty or treated as finitely many numerical masters. Its
+numerator power along this ray is `6t+1`; a total-power-30 request would admit
+only `t=1..4` from this ray, but would still need to cover every other allowed
+point of the exceptional set. Sampling a few points is not that coverage.
+
+The next narrow experiments are alternative source supports/orderings which
+avoid this nonlinear pivot condition, followed by an explicitly scoped
+bounded-power fallback if necessary. A general polynomial-ideal or nonlinear
+integer-chart service is a larger architectural option, not an implemented
+shortcut. Native Symbolica exact arithmetic and Gröbner services must remain
+the algebraic foundation. Merely adding one integer seed from the ray does
+not supply a parametric rule covering the entire quadratic locus.
+
 The useful near-term route is to finish and measure small complete members,
 progress through shared lower sectors, exploit modular source pruning and
 late exact/lower-tail materialization, and then take the four parents one at a
@@ -566,7 +627,9 @@ finite universal terminal basis when scalar elimination is the source of
 expression swell. It does not remove the need for exact identities or turn a
 bounded integer reduction into an unbounded parametric closure proof.
 
-The offline four-root-to-67 routing cover is independently checked. Still open
-are completed RustRed five-loop family runs, a mapped and numerically evaluated
-final terminal basis, and meaningful matched solver timings. None of those
-follows from the successful input-census check.
+The offline four-root-to-67 routing cover is independently checked, and the
+first factorized candidate bundle passes exact cold application canaries.
+Still open are completed connected five-loop families, a mapped and numerically
+evaluated final terminal basis, and matched completed-family solver timings.
+Neither the successful input census nor these finite canaries proves those
+remaining objectives.

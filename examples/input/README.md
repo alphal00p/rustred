@@ -293,3 +293,26 @@ contractions, with determinant `±1`.
 This checks the input cover, not any IBP result. See the [research and reproduction plan](../../docs/research/tide_five_loop_census.md)
 for the exact census, published scope, current checks, and progressive solve
 sequence. No completed five-loop family is claimed.
+
+For a modest **factorized** first member of this census, request the five-
+tadpole physical downset (reference sector 31744):
+
+```console
+target/release/rustred family-candidates \
+  --input examples/input/tide_five_loop.toml \
+  --nonpositive-indices 5,6,7,8,9,10,11,12,13,14 \
+  --numerical-depth 0 --exact-backend sparse --n-cores 1 --progress \
+  --output TMP/tide-product.candidates.rrbin \
+  --report-output TMP/tide-product.report.toml
+```
+
+The recorded release run completes: one nonzero sector, 31 scoped zero
+sectors, 637 rules, one finite residual, and a 612,414-byte native bundle.
+Its report remains `uncertified-candidates`: this does not claim an arbitrary-
+index closure proof, nor any solved connected five-loop parent. The global
+zero census reported separately is 5,566, not the 31 zeros in this downset.
+Do not pass the candidate bundle to certified `campaign inspect/reduce`.
+A separate fresh-process Rust-library check cold-loads the saved bytes with
+`load_generated_candidate_bundle::<15>` and passes seven exact reductions
+(dots, pair/triple-momentum numerators, and a scaleless pinch), including
+repeat/memoization checks. This is candidate application, not certification.

@@ -16,6 +16,17 @@ four-loop numerator/pinch suite. Report actual disk size and load-time changes.
 The raw-to-canonical reduction relations remain necessary and must not be
 discarded merely to reduce the numerical catalog size.
 
+This compact delivery is pushed on GammaLoop's `vakint_rustred` branch as
+`6b835ff0f`: exactly 74 values, deterministic gzip transport, once-only live
+decompression and exact output-key binding. Catalog bytes fall from 30,307 to
+3,508 (same-compressor old baseline: 6,157); the large rule archives are
+unchanged. Independent replay reproduces all 1,155 old raw projections.
+The release gate passes 83 selected lower-loop checks, 15 focused checks,
+three fixtures, all 15 four-loop numerical references, all 16 numerator/pinch
+pairs and 54 paired scalar comparisons. These are overlapping workloads, not
+an additive count of unique tests. Existing numerical precision is unchanged;
+this milestone does not supply new master values or arbitrary-index closure.
+
 For five loops, first identify **offline**, outside the RustRed engine, every
 top-level fully massive single-scale vacuum family. Read the local reference
 `FOR_REFERENCE_ONLY_DO_NOT_PUSH/TIDE_5loops.pdf` extensively and follow its
@@ -46,6 +57,17 @@ This settles the finite input-routing cover, not IBP generation, numerical
 evaluation or classification of every labelled auxiliary sector. Continue
 from the smaller complete physical families through the census strata, using
 the release solver profiles to select the next generic optimization.
+
+The first factorized TIDE member (31744) now generates a native uncertified
+candidate bundle through the public CLI: 637 rules, one residual, one nonzero
+sector and 31 scoped zeros. Exact sparse/source-weight selected-sector outputs
+agree, and the saved bundle passes seven exact cold-application canaries with
+repeat/memoization checks. The connected six-line member 28686 reaches the same genuine
+nonlinear exceptional locus with both backends; it is not complete. Preserve
+this case as a generic geometry/ordering diagnostic, seek alternative exact
+rules before a large chart extension, and label any power-bounded fallback
+explicitly rather than promoting it to unrestricted closure. See the
+[measured reconstruction study](docs/research/reconstruction_exact_validation.md).
 
 ### September 20 follow-up: deeper finite-terminal reduction study
 
