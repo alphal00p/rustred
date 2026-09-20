@@ -1,0 +1,99 @@
+schema = "rustred.project.toml.v1"
+
+# External input only: the common A5 momentum basis of Thomas Luthe,
+# "Fully massive vacuum integrals at 5 loops" (August 2015), Table A.1, p.111.
+# q14 = k1+k2-k4 is intentional; do not replace it by a pairwise difference.
+# This is not a graph with 15 physical lines. The four 12-line root sectors and
+# all 67 representative topologies are in tide_five_loop_manifest.json.
+# Audited simultaneous loop-momentum routings of all 67 representatives into
+# the four roots are in tide_five_loop_routing_witnesses.json. The full matrix
+# also transforms every numerator; a denominator permutation alone is not enough.
+#
+# This file uses RustRed's Minkowski-style D_i=q_i^2-1, while the thesis uses
+# Euclidean q_i^2+1. Routing/sector labels agree; numerical phases and the
+# thesis J^-5 normalization must be reconciled before comparing values.
+#
+# The target below is only the corner of sector 32745. It DOES NOT restrict
+# family-candidates/family-close scope. For this root explicitly request
+# --nonpositive-indices 10,12,13 (zero-based). For the other roots use:
+# 31740: 4,13,14 ; 30699: 3,10,12 ; 30527: 3,7,8.
+# Do not admit all 2^15 bit sectors as physical topology families.
+[family]
+name = "tide_five_loop_common_basis"
+loop_momenta = ["k1", "k2", "k3", "k4", "k5"]
+external_momenta = []
+dimension = "d"
+
+[[family.denominators]]
+id = "D1"
+expression = "k1^2-1"
+
+[[family.denominators]]
+id = "D2"
+expression = "k2^2-1"
+
+[[family.denominators]]
+id = "D3"
+expression = "k3^2-1"
+
+[[family.denominators]]
+id = "D4"
+expression = "k4^2-1"
+
+[[family.denominators]]
+id = "D5"
+expression = "k5^2-1"
+
+[[family.denominators]]
+id = "D6"
+expression = "(k1-k3)^2-1"
+
+[[family.denominators]]
+id = "D7"
+expression = "(k1-k4)^2-1"
+
+[[family.denominators]]
+id = "D8"
+expression = "(k1-k5)^2-1"
+
+[[family.denominators]]
+id = "D9"
+expression = "(k2-k3)^2-1"
+
+[[family.denominators]]
+id = "D10"
+expression = "(k2-k4)^2-1"
+
+[[family.denominators]]
+id = "D11"
+expression = "(k2-k5)^2-1"
+
+[[family.denominators]]
+id = "D12"
+expression = "(k3-k5)^2-1"
+
+[[family.denominators]]
+id = "D13"
+expression = "(k4-k5)^2-1"
+
+[[family.denominators]]
+id = "D14"
+expression = "(k1+k2-k4)^2-1"
+
+[[family.denominators]]
+id = "D15"
+expression = "(k3-k4)^2-1"
+
+[target]
+powers = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 1]
+numerator = "1"
+
+[metadata]
+description = "External TIDE A5 routing basis; sector 32745 corner shown only as an example target"
+source = "Thomas Luthe, Fully massive vacuum integrals at 5 loops, Table A.1 p.111; Table B.2 p.115"
+census_manifest = "tide_five_loop_manifest.json"
+routing_witnesses = "tide_five_loop_routing_witnesses.json"
+denominator_convention = "q_i^2-1 here; Euclidean q_i^2+1 in the thesis; no numerical-phase equality asserted"
+default_physical_root_sector = "111111111101001"
+nonpositive_indices = "10,12,13 (zero-based; request explicitly in the solver for root 32745)"
+coverage = "All 67 representatives have independently verified simultaneous signed momentum routings into the four roots; input coverage only, not IBP closure"

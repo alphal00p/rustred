@@ -1,0 +1,241 @@
+{
+  "schema": "rustred.offline-family-census.v1",
+  "role": "External research input data only; no production solver dispatch, closure claim, or minimal-master claim.",
+  "source": {
+    "author": "Thomas Luthe",
+    "title": "Fully massive vacuum integrals at 5 loops",
+    "type": "PhD thesis, Bielefeld University",
+    "date": "August 2015",
+    "local_reference": "FOR_REFERENCE_ONLY_DO_NOT_PUSH/TIDE_5loops.pdf",
+    "basis": "Table A.1, printed page 111, column A5",
+    "representatives": "Table B.2, printed page 115; Table B.3 dotted integrals are not included here",
+    "scope_and_results": "Section 9.1-9.2, printed pages 100-102",
+    "factorized_marker": "Asterisk on the sector ID in Table B.2",
+    "public_pdf": "https://noah.nrw/ubbihs/download/pdf/5131192",
+    "catalogue": "https://noah.nrw/ubbihs/content/structure/5131192"
+  },
+  "family_input": "tide_five_loop.toml",
+  "routing_witnesses": "tide_five_loop_routing_witnesses.json",
+  "loop_count": 5,
+  "coordinate_count": 15,
+  "sector_convention": "sID = sum_i(bit_i * 2^(15-i)), i=1..15. Bit string is written left-to-right q1 through q15; a 1 means positive propagator power.",
+  "denominator_convention": {
+    "rustred": "D_i = q_i^2 - 1",
+    "thesis": "D_i = q_i^2 + 1 (Euclidean)",
+    "warning": "The momentum routing and sector labels are transcribed exactly, but the denominator sign convention differs. No equality of numerical values or phases is asserted; a convention-aware Wick rotation and the thesis J^-5 normalization must be applied before numerical comparison.",
+    "auxiliary_rule": "Coordinates absent from a chosen physical root are numerator auxiliaries, not extra positive-power propagators."
+  },
+  "momenta": [
+    {
+      "index_one_based": 1,
+      "momentum": "k1"
+    },
+    {
+      "index_one_based": 2,
+      "momentum": "k2"
+    },
+    {
+      "index_one_based": 3,
+      "momentum": "k3"
+    },
+    {
+      "index_one_based": 4,
+      "momentum": "k4"
+    },
+    {
+      "index_one_based": 5,
+      "momentum": "k5"
+    },
+    {
+      "index_one_based": 6,
+      "momentum": "k1-k3"
+    },
+    {
+      "index_one_based": 7,
+      "momentum": "k1-k4"
+    },
+    {
+      "index_one_based": 8,
+      "momentum": "k1-k5"
+    },
+    {
+      "index_one_based": 9,
+      "momentum": "k2-k3"
+    },
+    {
+      "index_one_based": 10,
+      "momentum": "k2-k4"
+    },
+    {
+      "index_one_based": 11,
+      "momentum": "k2-k5"
+    },
+    {
+      "index_one_based": 12,
+      "momentum": "k3-k5"
+    },
+    {
+      "index_one_based": 13,
+      "momentum": "k4-k5"
+    },
+    {
+      "index_one_based": 14,
+      "momentum": "k1+k2-k4"
+    },
+    {
+      "index_one_based": 15,
+      "momentum": "k3-k4"
+    }
+  ],
+  "census": {
+    "representatives": 67,
+    "nonfactorized": 48,
+    "factorized": 19,
+    "max_physical_lines": 12,
+    "top_level_roots": 4
+  },
+  "thesis_sector_universe": {
+    "physical": 22051,
+    "zero": 5566,
+    "anti": 5151,
+    "total": 32768,
+    "status": "Historical classification in Table 9.1, printed page 101; not yet reproduced or certified by RustRed. Anti-sectors are not additional physical graph families."
+  },
+  "coverage": {
+    "representative_transcription": "All 67 undotted Table B.2 representatives are explicitly listed.",
+    "root_contraction_routing": "VERIFIED for all 67 listed representatives: the companion witness file supplies one simultaneous integer loop-momentum matrix of determinant +1 or -1 into a denominator subset of a stated root. Independent Symbolica exact replay checked all 599 active signed momentum equalities and rejected 13 corrupted witness/census controls. This is a finite input-routing cover, not IBP closure or an independent classification of all coordinate sectors.",
+    "solver_status": "Input census only: no sector has been claimed solved by this manifest.",
+    "masters": "These are topology corner integrals, not an asserted complete or minimal terminal basis. Dotted masters and later literature counts are separate."
+  },
+  "roots": [
+    {
+      "sector_id": 32745,
+      "sector_bits": "111111111101001",
+      "nonpositive_indices_zero_based": [
+        10,
+        12,
+        13
+      ],
+      "auxiliary_q_indices_one_based": [
+        11,
+        13,
+        14
+      ],
+      "scope": "Allow all pinches of this root; every auxiliary coordinate must remain nonpositive. Positive target powers alone do not restrict solver scope."
+    },
+    {
+      "sector_id": 31740,
+      "sector_bits": "111101111111100",
+      "nonpositive_indices_zero_based": [
+        4,
+        13,
+        14
+      ],
+      "auxiliary_q_indices_one_based": [
+        5,
+        14,
+        15
+      ],
+      "scope": "Allow all pinches of this root; every auxiliary coordinate must remain nonpositive. Positive target powers alone do not restrict solver scope."
+    },
+    {
+      "sector_id": 30699,
+      "sector_bits": "111011111101011",
+      "nonpositive_indices_zero_based": [
+        3,
+        10,
+        12
+      ],
+      "auxiliary_q_indices_one_based": [
+        4,
+        11,
+        13
+      ],
+      "scope": "Allow all pinches of this root; every auxiliary coordinate must remain nonpositive. Positive target powers alone do not restrict solver scope."
+    },
+    {
+      "sector_id": 30527,
+      "sector_bits": "111011100111111",
+      "nonpositive_indices_zero_based": [
+        3,
+        7,
+        8
+      ],
+      "auxiliary_q_indices_one_based": [
+        4,
+        8,
+        9
+      ],
+      "scope": "Allow all pinches of this root; every auxiliary coordinate must remain nonpositive. Positive target powers alone do not restrict solver scope."
+    }
+  ],
+  "representatives": [
+    {"table_b2_row":1,"lines":5,"sector_id":31744,"sector_bits":"111110000000000","factorized":true,"corner_powers":[1,1,1,1,1,0,0,0,0,0,0,0,0,0,0]},
+    {"table_b2_row":2,"lines":6,"sector_id":32256,"sector_bits":"111111000000000","factorized":true,"corner_powers":[1,1,1,1,1,1,0,0,0,0,0,0,0,0,0]},
+    {"table_b2_row":3,"lines":6,"sector_id":31746,"sector_bits":"111110000000010","factorized":true,"corner_powers":[1,1,1,1,1,0,0,0,0,0,0,0,0,1,0]},
+    {"table_b2_row":4,"lines":6,"sector_id":29702,"sector_bits":"111010000000110","factorized":true,"corner_powers":[1,1,1,0,1,0,0,0,0,0,0,0,1,1,0]},
+    {"table_b2_row":5,"lines":6,"sector_id":28686,"sector_bits":"111000000001110","factorized":false,"corner_powers":[1,1,1,0,0,0,0,0,0,0,0,1,1,1,0]},
+    {"table_b2_row":6,"lines":7,"sector_id":32512,"sector_bits":"111111100000000","factorized":true,"corner_powers":[1,1,1,1,1,1,1,0,0,0,0,0,0,0,0]},
+    {"table_b2_row":7,"lines":7,"sector_id":32288,"sector_bits":"111111000100000","factorized":true,"corner_powers":[1,1,1,1,1,1,0,0,0,1,0,0,0,0,0]},
+    {"table_b2_row":8,"lines":7,"sector_id":32258,"sector_bits":"111111000000010","factorized":true,"corner_powers":[1,1,1,1,1,1,0,0,0,0,0,0,0,1,0]},
+    {"table_b2_row":9,"lines":7,"sector_id":31754,"sector_bits":"111110000001010","factorized":true,"corner_powers":[1,1,1,1,1,0,0,0,0,0,0,1,0,1,0]},
+    {"table_b2_row":10,"lines":7,"sector_id":30872,"sector_bits":"111100010011000","factorized":true,"corner_powers":[1,1,1,1,0,0,0,1,0,0,1,1,0,0,0]},
+    {"table_b2_row":11,"lines":7,"sector_id":30858,"sector_bits":"111100010001010","factorized":false,"corner_powers":[1,1,1,1,0,0,0,1,0,0,0,1,0,1,0]},
+    {"table_b2_row":12,"lines":7,"sector_id":30214,"sector_bits":"111011000000110","factorized":false,"corner_powers":[1,1,1,0,1,1,0,0,0,0,0,0,1,1,0]},
+    {"table_b2_row":13,"lines":7,"sector_id":29703,"sector_bits":"111010000000111","factorized":false,"corner_powers":[1,1,1,0,1,0,0,0,0,0,0,0,1,1,1]},
+    {"table_b2_row":14,"lines":8,"sector_id":32640,"sector_bits":"111111110000000","factorized":true,"corner_powers":[1,1,1,1,1,1,1,1,0,0,0,0,0,0,0]},
+    {"table_b2_row":15,"lines":8,"sector_id":32576,"sector_bits":"111111101000000","factorized":true,"corner_powers":[1,1,1,1,1,1,1,0,1,0,0,0,0,0,0]},
+    {"table_b2_row":16,"lines":8,"sector_id":32528,"sector_bits":"111111100010000","factorized":true,"corner_powers":[1,1,1,1,1,1,1,0,0,0,1,0,0,0,0]},
+    {"table_b2_row":17,"lines":8,"sector_id":32513,"sector_bits":"111111100000001","factorized":true,"corner_powers":[1,1,1,1,1,1,1,0,0,0,0,0,0,0,1]},
+    {"table_b2_row":18,"lines":8,"sector_id":32386,"sector_bits":"111111010000010","factorized":false,"corner_powers":[1,1,1,1,1,1,0,1,0,0,0,0,0,1,0]},
+    {"table_b2_row":19,"lines":8,"sector_id":32274,"sector_bits":"111111000010010","factorized":false,"corner_powers":[1,1,1,1,1,1,0,0,0,0,1,0,0,1,0]},
+    {"table_b2_row":20,"lines":8,"sector_id":32266,"sector_bits":"111111000001010","factorized":false,"corner_powers":[1,1,1,1,1,1,0,0,0,0,0,1,0,1,0]},
+    {"table_b2_row":21,"lines":8,"sector_id":32259,"sector_bits":"111111000000011","factorized":true,"corner_powers":[1,1,1,1,1,1,0,0,0,0,0,0,0,1,1]},
+    {"table_b2_row":22,"lines":8,"sector_id":31380,"sector_bits":"111101010010100","factorized":false,"corner_powers":[1,1,1,1,0,1,0,1,0,0,1,0,1,0,0]},
+    {"table_b2_row":23,"lines":8,"sector_id":31246,"sector_bits":"111101000001110","factorized":false,"corner_powers":[1,1,1,1,0,1,0,0,0,0,0,1,1,1,0]},
+    {"table_b2_row":24,"lines":8,"sector_id":30876,"sector_bits":"111100010011100","factorized":false,"corner_powers":[1,1,1,1,0,0,0,1,0,0,1,1,1,0,0]},
+    {"table_b2_row":25,"lines":8,"sector_id":30862,"sector_bits":"111100010001110","factorized":false,"corner_powers":[1,1,1,1,0,0,0,1,0,0,0,1,1,1,0]},
+    {"table_b2_row":26,"lines":8,"sector_id":30222,"sector_bits":"111011000001110","factorized":false,"corner_powers":[1,1,1,0,1,1,0,0,0,0,0,1,1,1,0]},
+    {"table_b2_row":27,"lines":9,"sector_id":32704,"sector_bits":"111111111000000","factorized":false,"corner_powers":[1,1,1,1,1,1,1,1,1,0,0,0,0,0,0]},
+    {"table_b2_row":28,"lines":9,"sector_id":32648,"sector_bits":"111111110001000","factorized":true,"corner_powers":[1,1,1,1,1,1,1,1,0,0,0,1,0,0,0]},
+    {"table_b2_row":29,"lines":9,"sector_id":32608,"sector_bits":"111111101100000","factorized":true,"corner_powers":[1,1,1,1,1,1,1,0,1,1,0,0,0,0,0]},
+    {"table_b2_row":30,"lines":9,"sector_id":32592,"sector_bits":"111111101010000","factorized":false,"corner_powers":[1,1,1,1,1,1,1,0,1,0,1,0,0,0,0]},
+    {"table_b2_row":31,"lines":9,"sector_id":32529,"sector_bits":"111111100010001","factorized":true,"corner_powers":[1,1,1,1,1,1,1,0,0,0,1,0,0,0,1]},
+    {"table_b2_row":32,"lines":9,"sector_id":32518,"sector_bits":"111111100000110","factorized":false,"corner_powers":[1,1,1,1,1,1,1,0,0,0,0,0,1,1,0]},
+    {"table_b2_row":33,"lines":9,"sector_id":32394,"sector_bits":"111111010001010","factorized":false,"corner_powers":[1,1,1,1,1,1,0,1,0,0,0,1,0,1,0]},
+    {"table_b2_row":34,"lines":9,"sector_id":32390,"sector_bits":"111111010000110","factorized":false,"corner_powers":[1,1,1,1,1,1,0,1,0,0,0,0,1,1,0]},
+    {"table_b2_row":35,"lines":9,"sector_id":32329,"sector_bits":"111111001001001","factorized":false,"corner_powers":[1,1,1,1,1,1,0,0,1,0,0,1,0,0,1]},
+    {"table_b2_row":36,"lines":9,"sector_id":32278,"sector_bits":"111111000010110","factorized":false,"corner_powers":[1,1,1,1,1,1,0,0,0,0,1,0,1,1,0]},
+    {"table_b2_row":37,"lines":9,"sector_id":32270,"sector_bits":"111111000001110","factorized":false,"corner_powers":[1,1,1,1,1,1,0,0,0,0,0,1,1,1,0]},
+    {"table_b2_row":38,"lines":9,"sector_id":32267,"sector_bits":"111111000001011","factorized":false,"corner_powers":[1,1,1,1,1,1,0,0,0,0,0,1,0,1,1]},
+    {"table_b2_row":39,"lines":9,"sector_id":31516,"sector_bits":"111101100011100","factorized":false,"corner_powers":[1,1,1,1,0,1,1,0,0,0,1,1,1,0,0]},
+    {"table_b2_row":40,"lines":9,"sector_id":31388,"sector_bits":"111101010011100","factorized":false,"corner_powers":[1,1,1,1,0,1,0,1,0,0,1,1,1,0,0]},
+    {"table_b2_row":41,"lines":9,"sector_id":30231,"sector_bits":"111011000010111","factorized":false,"corner_powers":[1,1,1,0,1,1,0,0,0,0,1,0,1,1,1]},
+    {"table_b2_row":42,"lines":10,"sector_id":32736,"sector_bits":"111111111100000","factorized":false,"corner_powers":[1,1,1,1,1,1,1,1,1,1,0,0,0,0,0]},
+    {"table_b2_row":43,"lines":10,"sector_id":32712,"sector_bits":"111111111001000","factorized":false,"corner_powers":[1,1,1,1,1,1,1,1,1,0,0,1,0,0,0]},
+    {"table_b2_row":44,"lines":10,"sector_id":32708,"sector_bits":"111111111000100","factorized":false,"corner_powers":[1,1,1,1,1,1,1,1,1,0,0,0,1,0,0]},
+    {"table_b2_row":45,"lines":10,"sector_id":32674,"sector_bits":"111111110100010","factorized":false,"corner_powers":[1,1,1,1,1,1,1,1,0,1,0,0,0,1,0]},
+    {"table_b2_row":46,"lines":10,"sector_id":32652,"sector_bits":"111111110001100","factorized":true,"corner_powers":[1,1,1,1,1,1,1,1,0,0,0,1,1,0,0]},
+    {"table_b2_row":47,"lines":10,"sector_id":32596,"sector_bits":"111111101010100","factorized":false,"corner_powers":[1,1,1,1,1,1,1,0,1,0,1,0,1,0,0]},
+    {"table_b2_row":48,"lines":10,"sector_id":32562,"sector_bits":"111111100110010","factorized":false,"corner_powers":[1,1,1,1,1,1,1,0,0,1,1,0,0,1,0]},
+    {"table_b2_row":49,"lines":10,"sector_id":32534,"sector_bits":"111111100010110","factorized":false,"corner_powers":[1,1,1,1,1,1,1,0,0,0,1,0,1,1,0]},
+    {"table_b2_row":50,"lines":10,"sector_id":32398,"sector_bits":"111111010001110","factorized":false,"corner_powers":[1,1,1,1,1,1,0,1,0,0,0,1,1,1,0]},
+    {"table_b2_row":51,"lines":10,"sector_id":32391,"sector_bits":"111111010000111","factorized":false,"corner_powers":[1,1,1,1,1,1,0,1,0,0,0,0,1,1,1]},
+    {"table_b2_row":52,"lines":10,"sector_id":32279,"sector_bits":"111111000010111","factorized":false,"corner_powers":[1,1,1,1,1,1,0,0,0,0,1,0,1,1,1]},
+    {"table_b2_row":53,"lines":10,"sector_id":31420,"sector_bits":"111101010111100","factorized":false,"corner_powers":[1,1,1,1,0,1,0,1,0,1,1,1,1,0,0]},
+    {"table_b2_row":54,"lines":10,"sector_id":30563,"sector_bits":"111011101100011","factorized":true,"corner_powers":[1,1,1,0,1,1,1,0,1,1,0,0,0,1,1]},
+    {"table_b2_row":55,"lines":10,"sector_id":30239,"sector_bits":"111011000011111","factorized":false,"corner_powers":[1,1,1,0,1,1,0,0,0,0,1,1,1,1,1]},
+    {"table_b2_row":56,"lines":10,"sector_id":29550,"sector_bits":"111001101101110","factorized":false,"corner_powers":[1,1,1,0,0,1,1,0,1,1,0,1,1,1,0]},
+    {"table_b2_row":57,"lines":11,"sector_id":32744,"sector_bits":"111111111101000","factorized":false,"corner_powers":[1,1,1,1,1,1,1,1,1,1,0,1,0,0,0]},
+    {"table_b2_row":58,"lines":11,"sector_id":32737,"sector_bits":"111111111100001","factorized":false,"corner_powers":[1,1,1,1,1,1,1,1,1,1,0,0,0,0,1]},
+    {"table_b2_row":59,"lines":11,"sector_id":32713,"sector_bits":"111111111001001","factorized":false,"corner_powers":[1,1,1,1,1,1,1,1,1,0,0,1,0,0,1]},
+    {"table_b2_row":60,"lines":11,"sector_id":32682,"sector_bits":"111111110101010","factorized":false,"corner_powers":[1,1,1,1,1,1,1,1,0,1,0,1,0,1,0]},
+    {"table_b2_row":61,"lines":11,"sector_id":31736,"sector_bits":"111101111111000","factorized":false,"corner_powers":[1,1,1,1,0,1,1,1,1,1,1,1,0,0,0]},
+    {"table_b2_row":62,"lines":11,"sector_id":30691,"sector_bits":"111011111100011","factorized":false,"corner_powers":[1,1,1,0,1,1,1,1,1,1,0,0,0,1,1]},
+    {"table_b2_row":63,"lines":11,"sector_id":30526,"sector_bits":"111011100111110","factorized":false,"corner_powers":[1,1,1,0,1,1,1,0,0,1,1,1,1,1,0]},
+    {"table_b2_row":64,"lines":12,"sector_id":32745,"sector_bits":"111111111101001","factorized":false,"corner_powers":[1,1,1,1,1,1,1,1,1,1,0,1,0,0,1]},
+    {"table_b2_row":65,"lines":12,"sector_id":31740,"sector_bits":"111101111111100","factorized":false,"corner_powers":[1,1,1,1,0,1,1,1,1,1,1,1,1,0,0]},
+    {"table_b2_row":66,"lines":12,"sector_id":30699,"sector_bits":"111011111101011","factorized":false,"corner_powers":[1,1,1,0,1,1,1,1,1,1,0,1,0,1,1]},
+    {"table_b2_row":67,"lines":12,"sector_id":30527,"sector_bits":"111011100111111","factorized":false,"corner_powers":[1,1,1,0,1,1,1,0,0,1,1,1,1,1,1]}
+  ]
+}

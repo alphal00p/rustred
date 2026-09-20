@@ -37,6 +37,16 @@ external data; every production algorithm remains loop-count- and topology-
 generic. The existing source-weight reconstruction validation can continue in
 parallel, while a dedicated subagent owns compact four-loop Vakint delivery.
 
+The [TIDE input study](docs/research/tide_five_loop_census.md) now freezes the
+four twelve-line parent masks, the common fifteen-coordinate family and all
+67 published representatives as external data. Independent native Symbolica
+replay verifies all 67 simultaneous signed momentum routings into root
+contractions (599 active-line equalities), with 13 rejected tamper controls.
+This settles the finite input-routing cover, not IBP generation, numerical
+evaluation or classification of every labelled auxiliary sector. Continue
+from the smaller complete physical families through the census strata, using
+the release solver profiles to select the next generic optimization.
+
 ### September 20 follow-up: deeper finite-terminal reduction study
 
 In parallel with the measured solver work, investigate `EPSILON.md`, current

@@ -253,3 +253,43 @@ inputs, impose an explicit process time/memory budget when experimenting. A
 successful candidate save would still not certify closure or cover other
 five-loop topologies. See the [measured baselines](../../docs/research/five_loop_candidate_baselines.md)
 for actual outcomes rather than inferring them from the smaller sector census.
+
+### TIDE's complete five-loop reference census
+
+[`tide_five_loop.toml`](tide_five_loop.toml) supplies the fifteen ordered
+auxiliary momenta of Luthe's five-loop thesis. Its four twelve-line parents
+and all 67 published topology representatives are recorded as offline input
+data in [`tide_five_loop_manifest.json`](tide_five_loop_manifest.json).
+Neither file installs topology-specific strategies or relations in RustRed.
+
+| Reference parent ID | Positive slots, in input order | Zero-based nonpositive slots |
+| --- | --- | --- |
+| 32745 | `111111111101001` | `10,12,13` |
+| 31740 | `111101111111100` | `4,13,14` |
+| 30699 | `111011111101011` | `3,10,12` |
+| 30527 | `111011100111111` | `3,7,8` |
+
+The reference IDs use a big-endian bit convention. In particular, slot 14 is
+`k1+k2-k4`, so this is not the basis of all pairwise momentum differences.
+As with the other examples, denominators are `qi^2-1`; numerical comparisons
+with the thesis's Euclidean `qi^2+1` convention require an explicit measure
+and sign conversion.
+
+Source preparation is a short reproducible check:
+
+```console
+target/release/rustred derive --input examples/input/tide_five_loop.toml \
+  --input-format toml --relations ordinary --n-cores 1 \
+  --output TMP/tide-five-loop-sources.toml
+```
+
+Expected results are fifteen denominator coordinates, inferred parameter `d`,
+and 25 ordinary IBP sources. CLI and Python derivation agree, and Symbolica's
+exact basis determinant is `-1024`. These checks do not solve any sector.
+The manifest distinguishes the 48 nonfactorized and 19 factorized classes.
+All 67 representatives now have independently checked simultaneous integer
+momentum-routing [witnesses](tide_five_loop_routing_witnesses.json) to parent
+contractions, with determinant `±1`.
+This checks the input cover, not any IBP result. See the [research and reproduction plan](../../docs/research/tide_five_loop_census.md)
+for the exact census, published scope, current checks, and progressive solve
+sequence. No completed five-loop family is claimed.
