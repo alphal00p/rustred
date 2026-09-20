@@ -18,9 +18,11 @@ completed with exact parity and a substantial local gain. The subsequent
 production integration is an explicit `SymbolicExactBackend::SparseFactorized`
 option, also exposed as `exact_backend="sparse-factorized"` in candidate
 generation APIs and `--exact-backend sparse-factorized` at the CLI.
-**Ordinary `Sparse` remains the default.** Shared numerical-tail lifting and
-semi-numerical reconstruction's internal exact replay still use ordinary
-sparse lifting; this option does not change either path or the applier cache.
+**Ordinary `Sparse` remains the default.** The follow-up extends this candidate
+option to shared numerical-tail exact lifting; the Rust sector API selects it
+independently with `NumericalExactBackend::SparseFactorized`. Semi-numerical
+reconstruction's internal exact replay remains ordinary, and no generation
+option changes the applier cache.
 
 The main caution is different from application: each accepted GPLU pivot uses
 field inversion, and native factorized inversion factors the pivot numerator
@@ -32,6 +34,33 @@ afterward. The integration preserves original source guards and replay;
 returned coefficients and existing artifact formats remain ordinary RP.
 Detailed API findings are retained in
 `TMP/factorized_exact_lift_api_findings.md`.
+
+#### Shared numerical-case extension
+
+The native field now also supports multiple exact target pivots from one
+winning union trace. One Symbolica sparse reducer consumes the same rows and
+columns as the ordinary path. It captures each requested U row when its pivot
+appears, preserves encounter order and caller target identity, and materializes
+only those outputs. Both original coefficient maps are restored before rule
+creation. This is a coefficient-representation option, not a new search,
+terminal policy, reconstruction kernel or topology-specific strategy.
+
+The independently reviewed extension passes all **11 focused numerical tests**
+and the complete release core suite (**2,211 passed, 31 ignored**). Tests compare
+multiple target orders against ordinary and independent single-target lifts,
+dependent/empty rows, unused variable maps, missing/duplicate targets, invalid
+denominators, shared modular discovery and a real numerical IBP exception.
+These correctness gates do not establish a full five-loop completion or speedup.
+The subsequent combined terminal-normalization release gate also passes
+**2,223 core tests, 31 ignored**, **91 application unit tests**, **67 integration
+tests across ten targets**, and all **35 fresh Python/CLI tests**. An existing-depth-zero parent
+experiment completes through both numerical coefficient fields with the same
+310 rules, 29 residuals and 56,990 exact RHS coefficients; its separate
+boundaries are recorded in the parent diagnostic, not relabeled as a
+full-family or arithmetic-speed result.
+The [parent diagnostic](five_loop_selected_sector_profile.md#follow-up-factorized-symbolic-field-reaches-the-shared-numerical-tail)
+records why this path was targeted. The ordinary default, semi-numerical internal
+replay, application-cache policy and candidate schema remain unchanged.
 
 Symbolica 3.0's `FactorizedRationalPolynomial<IntegerRing, u16>` preserves
 denominator factors and their multiplicities; its numerator remains expanded.
@@ -180,9 +209,10 @@ it has no separate production conversion/kernel/output timers. Compilation is
 excluded. Copied optimized libraries, the client, inputs and original reference
 are hash-frozen; the six outputs are checked after timing.
 
-Keep this backend opt-in while testing larger selected scopes. The result does
-not change `SparseTargetOnly`, semi-numerical exact replay, numerical-tail
-lifting or Vakint's application-cache selection. Evidence and reproducible
+Keep this backend opt-in while testing larger selected scopes. These measurements
+precede the shared numerical-tail extension and concern only symbolic lifting.
+They do not change `SparseTargetOnly`, semi-numerical exact replay or Vakint's
+application-cache selection. Evidence and reproducible
 commands are in `TMP/factorized-production-case.sCu5VE/`, including all process
 logs, observer events, exact-comparison receipts, hashes and `results.json`.
 `independent-audit.md` confirms the full six-run exact comparisons, observer

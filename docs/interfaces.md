@@ -330,8 +330,13 @@ Candidate generation also accepts the opt-in native factorized-denominator
 field through Rust `CandidateExactBackend::SparseFactorized`, CLI
 `family-candidates --exact-backend sparse-factorized`, and Python
 `family_candidates(..., exact_backend="sparse-factorized")`. It changes only
-symbolic exact materialization; source discovery, guards and independent
+symbolic and shared numerical-case exact materialization; source discovery, guards and independent
 certification keep their existing paths. Returned coefficients use the
 ordinary representation and the existing candidate bundle schema. The
 generation report records the choice in `exact_backend`; `sparse` remains the
 default. This option does not select an application-cache representation.
+The Rust sector API exposes the numerical choice independently as
+`SectorConfig::numerical_exact_backend` (`NumericalExactBackend::Sparse` or
+`SparseFactorized`), preserving ordinary lifting by default. A single native
+Symbolica reducer shares elimination across requested pivots; ordinary exact
+coefficients and their original variable maps are restored before rule creation.

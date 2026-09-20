@@ -213,3 +213,159 @@ full-family generation was run.
 Evidence: `TMP/five-loop-single-case.H1gcs8/`, containing the external case,
 source/client/library hashes, phase records, full source trace, native exact
 snapshots, fresh comparison and resource reports. Both processes are stopped.
+
+## Follow-up: factorized symbolic field reaches the shared numerical tail
+
+After the independently audited factorized-field milestone `80bddadf`, the
+same public sector client was linked to frozen optimized libraries and rerun
+on the same external input, natural ordering, source definitions and depth-two
+numerical search. The only solver policy change from the original sparse
+diagnostic was `SymbolicExactBackend::SparseFactorized`. At that milestone the
+shared numerical-case exact lift still used ordinary rational polynomials.
+
+The representative sector again completes: **177 rules, one finite residual**,
+with all **6,898 exact coefficients, variable maps and complete source/case/
+guard/RHS structure** equal to the saved ordinary output. Solver core is
+6.093 s, symbolic materialization 0.188 s, whole process 25.04 s and peak RSS
+75,312 KiB. This fresh smoke check is not a paired performance comparison.
+
+The physical-parent attempt had a longer, declared **900-second process
+deadline**, still one worker on CPU 82 with the 32 GiB virtual-address cap.
+It reaches **290 completed symbolic cases in 66.965 s of solver time**, then
+starts the shared numerical solve on **49 fully fixed cases**. The process
+does not return a complete sector solution before its deadline: exit 124,
+900.11 s whole wall, 889.40 s user + 1.80 s system CPU and **1,128,984 KiB**
+peak RSS. No final coefficient/structure snapshot is written. These are 49
+inputs to an unfinished numerical solve, not 49 proved independent masters.
+
+Two short sampling attachments were added after the tail persisted. A
+15-second flat sample spans modular discovery and exact work and therefore
+does not measure a whole-phase fraction. A later five-second, 49-Hz DWARF-stack
+sample contains 232 samples with zero lost: **95.26% inclusive** lies under
+the shared exact materializer. Its native ordinary-RP GPLU stack spends most
+observed time in rational-polynomial addition/multiplication and native
+polynomial GCD/division. These are inclusive weights of a small late CPU
+sample, not percentages of the entire 900-second run. The run is an
+instrumented diagnostic, not an unprofiled production timing.
+
+The next implementation extends the existing native factorized-field adapter
+to **multiple requested pivots in one shared exact elimination**, without
+changing numerical discovery, source traces, row/column ordering or terminal
+semantics. It is generic in integral arity and loop count. Capture each requested
+native U row at its pivot, retain its caller ordinal, then restore ordinary
+coefficients and original variable maps before rule creation. It neither
+implements a new CAS kernel nor asserts that the pending cases will close.
+The extension and a new end-to-end comparison require their own tests and run;
+the completed symbolic prefix alone is not evidence of full-family closure.
+
+Evidence: `TMP/five-loop-factorized-parent.FtQ1Vs/`, including frozen library/
+client/input hashes, the exact smoke comparison, both raw sample datasets,
+observer events, process status and resource reports. All associated solver
+and sampler processes have terminated.
+
+## Shared numerical factorized field: exact gates, incomplete parent
+
+The follow-up uses `NumericalExactBackend::SparseFactorized` for the numerical
+union lift as well as factorized symbolic lifting. Source discovery and the
+depth-two finite-case search are unchanged. The 11 focused numerical tests and
+complete release core suite (2,211 passed, 31 ignored) pass. A fresh selected
+sector again returns 177 rules and one residual; post-exit cold comparison
+passes all 6,898 coefficients, both variable maps and full rule/source/guard
+structure. One comparison was accidentally launched while the producer was
+still writing its structure file; its partial-file failure is retained but
+excluded. The complete-file comparison, not that launch, is the gate.
+
+The full physical-parent sector still **does not finish** within its declared
+900-second process limit. Exit is 124, whole wall 900.48 s, CPU 890.69 user +
+3.95 system seconds and peak RSS 790,768 KiB. Its 290 symbolic cases finish at
+252.052 s of solver time, followed by the same 49 fully fixed inputs. No final
+sector snapshot is produced. These two censored runs do not establish a field
+speedup or memory saving: their completed work and runtime conditions differ.
+
+Two small late stack samples distinguish the phases. The first records 52
+samples, all in modular discovery. The second records 122 samples, with 99.18%
+inclusive under the new native factorized-field exact union lift. Native FRP
+addition, polynomial exact division and multiplication dominate that second
+window. Neither sample loses events. The 5/10-second sampler-supervisor limits
+yield only approximately 1.06/2.49 seconds of recorded CPU-event coverage;
+they are not whole-run phase percentages. The parent is an instrumented
+diagnostic, not an unprofiled timing comparison.
+
+Because even preparation slowed relative to earlier measurements, an additional
+fresh old-then-new control pair uses the same representative, CPU 82, depth two,
+120-second limits and frozen release binaries. Both complete and pass the full
+6,898-coefficient/structure comparisons:
+
+| Fresh representative control | Prior binary, ordinary numerical lift | New binary, factorized numerical lift |
+|---|---:|---:|
+| Zero-census preparation | 58.232 s | 55.421 s |
+| Solver core | 20.850 s | 20.935 s |
+
+The unchanged prior binary previously prepared the census in 15.621 s and
+solved this sector in 6.093 s. Thus the cross-run slowdown is not evidence of
+a new numerical-field regression. Its cause has not been established. This
+single fresh pair is a correctness/control check, not a general performance
+claim; its numerical exact frame has only seven source rows.
+
+The next independently reviewed experiment varies the **existing generic
+`numerical_depth` input**, not the symbolic strategy. Depth zero still processes
+each unresolved fixed center's zero-displacement seed, shared modular GPLU and
+every winning exact lift; it is not a skip. For these 49 inputs it admits at
+most 49 distinct centers and 1,225 source-row instantiations, though exact
+arithmetic can still be expensive. It may leave a larger finite residual set,
+which is acceptable under the nonminimal-basis policy. Symbolic coverage,
+geometry/guard errors, exact recovery and descent remain unchanged. A returned
+sector still requires cold admission and application/reachability checks and
+does not certify all 2,656 family sectors or master independence.
+
+Evidence: `TMP/factorized-numeric-parent.iwUFAe/`; independent interpretation
+and depth-policy audit:
+`TMP/five_loop_numerical_depth_zero_audit_2026-09-20.md`. All runs in this
+section are terminal. The depth experiment has separate frozen inputs and
+evidence in `TMP/finite-corner-depth.xL5pJk/`.
+
+## Existing depth-zero policy: first completed physical-parent sector
+
+The depth-zero run **returns successfully and completes serialization**, exit
+0, with **310 rules and 29 finite residuals**. Its 290 symbolic cases lead to
+49 fixed numerical inputs. Solver core is **66.850 s**; the shared numerical
+phase takes **0.240 s**, including **0.041 s** for native factorized exact
+lifting of 200 trace rows. The modular search sees 1,200 rows, 1,196 independent
+rows and 4,378 integral columns. This result uses the existing generic caller
+option, not a loop-specific algorithm or a relaxed exact-replay gate.
+
+Whole process wall is 133.58 s, CPU 86.20 user + 46.51 system s and peak RSS
+265,276 KiB. That boundary includes a 16.349 s family-wide zero census, verbose
+unbuffered diagnostic text output and a roughly 17 MiB native coefficient
+snapshot; it is **not** production-artifact generation time. The freshly built
+external client first passed the depth-two representative gate: all 6,898
+coefficients/maps and complete structure agree with its saved predecessor.
+
+The physical parent is one sector, not the complete 2,656-sector family. The
+29 retained integrals are explicit finite residuals, not proved independent
+masters. Full-family generation, cold rule-owner admission and recursive
+application/reachability remain separate gates. The depth-two timeout and
+depth-zero completion also have different finite search workloads and must not
+be turned into an arithmetic-backend speed ratio.
+
+A second fresh run uses the same executable, input, ordering and depth, retaining
+factorized symbolic arithmetic but using **ordinary numerical arithmetic**.
+It also finishes with 310 rules and 29 residuals. After both producers exit,
+native comparison verifies all **56,990 exact coefficients and both ordered
+maps**, plus identical source/case/guard/RHS/residual structure.
+
+| Depth-zero parent, one run per numerical field | Ordinary | Factorized |
+|---|---:|---:|
+| Solver core | 72.293 s | 66.850 s |
+| Shared numerical phase | 0.315 s | 0.240 s |
+| Exact union lift, included above | 0.115 s | 0.041 s |
+| Whole diagnostic process | 143.13 s | 133.58 s |
+| Peak RSS | 262,992 KiB | 265,276 KiB |
+| Exit status | 0 | 0 |
+
+The numerical exact subphase is now small; it cannot explain the whole-core
+timing difference. One ordered observation per field is not a general speedup
+measurement. The useful result is that a **generic, existing finite-search
+policy** permits this parent sector to return exact rules and a finite
+nonminimal residual set without searching for additional terminal relations.
+Cold coefficient comparison is not cold rule-owner admission or certification.

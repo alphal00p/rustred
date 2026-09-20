@@ -1,4 +1,4 @@
-//! Opt-in native factorized-denominator field for a single exact target lift.
+//! Opt-in native factorized-denominator field for one or several exact targets.
 //!
 //! Integral columns, row order, zero sentinel, pivot selection and stopping
 //! match the ordinary sparse backend. Symbolica owns all field operations,
@@ -34,6 +34,45 @@ pub(super) fn materialize<const N: usize>(
     variables: &FrameVariables,
     mut observe: impl FnMut(MaterializationEvent<N>),
 ) -> Result<ExactRow<N>, MaterializationError> {
+    let mut result = materialize_many(
+        rows,
+        columns,
+        order,
+        &[target_column],
+        variables,
+        &mut observe,
+    )?;
+    Ok(result.remove(0).1)
+}
+
+/// Share native elimination across requested pivots without expanding any
+/// intermediate coefficient. Results retain pivot encounter order and carry
+/// the caller's target ordinal, just like the ordinary finite-corner lift.
+pub(super) fn materialize_many<const N: usize>(
+    rows: &[ExactRow<N>],
+    columns: &[Integral<N>],
+    order: &IntegralOrder<N>,
+    target_columns: &[usize],
+    variables: &FrameVariables,
+    mut observe: impl FnMut(MaterializationEvent<N>),
+) -> Result<Vec<(usize, ExactRow<N>)>, MaterializationError> {
+    if target_columns.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut wanted = vec![None; columns.len()];
+    for (target, &column) in target_columns.iter().enumerate() {
+        let slot = wanted
+            .get_mut(column)
+            .ok_or(MaterializationError::InvalidTargetSelection(
+                "column outside frame",
+            ))?;
+        if slot.replace(target).is_some() {
+            return Err(MaterializationError::InvalidTargetSelection(
+                "duplicate target column",
+            ));
+        }
+    }
+    let mut solutions = Vec::with_capacity(target_columns.len());
     let native_columns = columns
         .len()
         .checked_add(1)
@@ -88,11 +127,11 @@ pub(super) fn materialize<const N: usize>(
             reducer_rows: reducer.u().nrows() as usize,
             reducer_nonzeros: reducer.u().nvalues(),
         });
-        if pivot == Some(target_column as u32) {
+        if let Some(target) = pivot.and_then(|column| wanted[column as usize].take()) {
             let u = reducer.u();
             let start = u.row_ptrs()[u.nrows() as usize - 1];
             let end = u.row_ptrs()[u.nrows() as usize];
-            return u.col_idcs()[start..end]
+            let solution = u.col_idcs()[start..end]
                 .iter()
                 .zip(&u.values()[start..end])
                 .map(|(&column, value)| {
@@ -102,7 +141,11 @@ pub(super) fn materialize<const N: usize>(
                         coefficient: variables.restore_coefficient(&coefficient)?,
                     })
                 })
-                .collect();
+                .collect::<Result<_, MaterializationError>>()?;
+            solutions.push((target, solution));
+            if solutions.len() == target_columns.len() {
+                return Ok(solutions);
+            }
         }
     }
     Err(MaterializationError::TargetNotPivot)

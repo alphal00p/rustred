@@ -206,6 +206,14 @@ ratio 3.495); the supplied-case solve is 14.296 → 4.429 s. Whole process time
 is 31.43 → 21.48 s because unchanged preparation remains, and peak RSS rises
 about 3.9%. These are completed single-case measurements, not a completed
 sector or family. Keep the new field explicitly opt-in for broader trials.
+The native factorized field now also supports the shared multi-target exact
+lift for fully fixed cases. The Rust API exposes the independent
+`NumericalExactBackend`; candidate CLI/Python `sparse-factorized` selects it
+alongside symbolic factorized lifting. Source discovery, target order,
+guards, schemas, ordinary defaults and semi-numerical internal replay remain
+unchanged. Independent source/mathematical review and 11 focused numerical
+tests pass; the combined release snapshot passes 2,223 core, 91 app unit,
+67 integration and 35 freshly built Python/CLI tests (31 core tests ignored).
 The two external five-loop candidate-only studies may now resume in parallel
 with this application work, with explicit physical-root ISP restrictions,
 matched exact/reconstruction settings and stated time/memory limits. Do not
@@ -260,6 +268,25 @@ sector or a faster single target lift must not be reported as a completed
 family. Keep optional four-loop bounded certification separate from these
 candidate-generation experiments; do not enlarge that proof project to delay
 the requested five-loop studies.
+
+The first physical parent-sector solve now completes using the **existing
+generic numerical-depth-zero policy**: 310 rules and 29 finite residuals after
+290 symbolic cases and 49 fixed inputs. Factorized symbolic/numerical arithmetic
+takes 66.850 s of solver time; retaining ordinary numerical arithmetic takes
+72.293 s in the separate fresh control. Both return and serialize successfully.
+A fresh native comparison verifies all 56,990 coefficients/maps and complete
+source/case/guard/RHS/residual structure. Independent bookkeeping confirms the
+49 fixed inputs partition exactly into 20 numerical rules and 29 residuals.
+This is one parent sector, not full-family closure or master minimality. The
+earlier depth-two searches time out while seeking additional finite relations;
+do not convert these different workloads into a field-speed ratio. Details
+and exact boundaries are in the
+[selected-sector report](docs/research/five_loop_selected_sector_profile.md).
+Next expose this existing search-depth input consistently in Rust, CLI and
+Python, recording the chosen policy while preserving current defaults; then
+attempt the remaining physical-family sectors and cold application gates.
+No family-specific rule or loop-count dispatch may be introduced for this.
+
 The reconstruction backend still includes internal exact sparse replay; this
 is distinct from optional family certification. New diagnostic observer
 boundaries expose that phase for measured optimization without removing it.

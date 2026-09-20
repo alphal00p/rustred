@@ -20,6 +20,15 @@ use super::{
     SearchOptions, SearchStats, SectorSolver, SeedSource, Seeds, SolverError, Term,
 };
 
+/// Coefficient representation for the shared exact finite-corner replay.
+/// Search, source traces and terminal selection do not depend on this choice.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NumericalExactBackend {
+    #[default]
+    Sparse,
+    SparseFactorized,
+}
+
 /// Aggregate work of one shared numerical-case search, not a sum of per-rule
 /// statistics (which refer to shared work and must not be added together).
 #[derive(Clone, Copy, Debug, Default)]
@@ -243,7 +252,12 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 .map(|(index, _)| cases[*index].integral())
                 .collect();
             let exact_start = Instant::now();
-            let solutions = exact_materialize_many(&selected, &self.order, &targets)?;
+            let solutions = exact_materialize_many_using(
+                &selected,
+                &self.order,
+                &targets,
+                self.config.numerical_exact_backend,
+            )?;
             let exact_elapsed = exact_start.elapsed();
             stats.modular_rules = solutions.len();
             stats.exact_materialization = exact_elapsed;
@@ -318,11 +332,24 @@ fn switch_solved_centre<const N: usize>(
 
 /// Replay a union trace once and capture each requested pivot's native U row.
 /// This is orchestration around Symbolica GPLU, not an elimination algorithm.
+#[cfg(test)]
 fn exact_materialize_many<const N: usize>(
     rows: &[ExactRow<N>],
     order: &IntegralOrder<N>,
     targets: &[Integral<N>],
 ) -> Result<Vec<(usize, ExactRow<N>)>, SolverError> {
+    exact_materialize_many_using(rows, order, targets, NumericalExactBackend::Sparse)
+}
+
+fn exact_materialize_many_using<const N: usize>(
+    rows: &[ExactRow<N>],
+    order: &IntegralOrder<N>,
+    targets: &[Integral<N>],
+    backend: NumericalExactBackend,
+) -> Result<Vec<(usize, ExactRow<N>)>, SolverError> {
+    if targets.is_empty() {
+        return Ok(Vec::new());
+    }
     let mut columns = Vec::new();
     for row in rows {
         if !row
@@ -343,6 +370,7 @@ fn exact_materialize_many<const N: usize>(
         .and_then(|count| u32::try_from(count).ok())
         .ok_or_else(|| SolverError::ExactReplay("exact column count exceeds u32".into()))?;
     let mut wanted = vec![None; columns.len()];
+    let mut target_columns = Vec::with_capacity(targets.len());
     for (index, target) in targets.iter().enumerate() {
         let column = columns
             .binary_search_by(|column| order.compare(column, target))
@@ -352,6 +380,16 @@ fn exact_materialize_many<const N: usize>(
                 "duplicate target in numerical union trace".into(),
             ));
         }
+        target_columns.push(column);
+    }
+    if backend == NumericalExactBackend::SparseFactorized {
+        return super::discovery::exact_materialize_factorized_targets(
+            rows,
+            &columns,
+            order,
+            &target_columns,
+        )
+        .map_err(|error| SolverError::ExactReplay(error.to_string()));
     }
     let mut reducer =
         SparseRowReducer::new(ncolumns, RationalPolynomialField::new(Z), LuLMode::None);

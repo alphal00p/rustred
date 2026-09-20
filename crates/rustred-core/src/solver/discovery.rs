@@ -363,6 +363,7 @@ pub enum MaterializationError {
         operation: &'static str,
     },
     InvalidFactorizedCoefficient(&'static str),
+    InvalidTargetSelection(&'static str),
     FractionFreeNonPolynomialCoefficient {
         row: usize,
         term: usize,
@@ -374,6 +375,19 @@ pub enum MaterializationError {
     },
     FractionFreeDimensionOverflow,
     SemiNumericalReconstruction(String),
+}
+
+/// Native factorized replay of a shared finite-corner trace. Column ordering
+/// and target admission belong to the common caller, not to the field choice.
+pub(super) fn exact_materialize_factorized_targets<const N: usize>(
+    rows: &[ExactRow<N>],
+    columns: &[Integral<N>],
+    order: &IntegralOrder<N>,
+    target_columns: &[usize],
+) -> Result<Vec<(usize, ExactRow<N>)>, MaterializationError> {
+    let variables =
+        variables::FrameVariables::try_new(rows, CoefficientVariableOrder::Original, &[])?;
+    factorized::materialize_many(rows, columns, order, target_columns, &variables, |_| {})
 }
 
 impl fmt::Display for MaterializationError {
@@ -431,6 +445,9 @@ impl fmt::Display for MaterializationError {
             }
             Self::InvalidFactorizedCoefficient(reason) => {
                 write!(f, "invalid factorized exact-lift coefficient: {reason}")
+            }
+            Self::InvalidTargetSelection(reason) => {
+                write!(f, "invalid exact target selection: {reason}")
             }
             Self::InvalidCoefficientVariablePriority => write!(
                 f,

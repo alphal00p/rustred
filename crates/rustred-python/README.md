@@ -138,7 +138,8 @@ a 64-bit host. Their bytes may vary with prior Symbolica registrations, while
 decoded coefficients and reductions must agree exactly.
 
 Select `exact_backend="sparse-factorized"` to use Symbolica's native factorized
-denominator field during sparse exact target materialization. Coefficients
+denominator field during symbolic target materialization and the shared exact
+lift of numerical cases. Coefficients
 return to the ordinary representation before rule extraction and bundle
 encoding. The equivalent CLI option is `family-candidates --exact-backend
 sparse-factorized`. This opt-in generation field is separate from the
@@ -146,8 +147,9 @@ candidate reduction cache; `"sparse"` remains the default.
 
 Select `exact_backend="semi-numerical"` for Symbolica's rational-function
 reconstruction, or `family-candidates --exact-backend semi-numerical` at the
-CLI. Both opt-ins retain the same source search, numerical-corner solver and
-guards. Reconstruction has explicit bounds (degree 128, 200,000 probes,
+CLI. Both opt-ins retain the same source search, numerical-case discovery and
+guards. Reconstruction retains ordinary exact replay, including its numerical
+tail. Reconstruction has explicit bounds (degree 128, 200,000 probes,
 four attempts, eight primes), and failure is an error, not an automatic exact
 fallback. The report records the selected backend; backend selection neither
 changes the bundle schema nor certifies closure. A small case that finds only

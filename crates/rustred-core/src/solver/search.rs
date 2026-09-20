@@ -28,9 +28,11 @@ pub struct SectorConfig<const N: usize> {
     pub permutation: Option<[usize; N]>,
     /// Immutable family-wide zero-sector census, shared by sector workers.
     pub zero_sectors: Arc<[[bool; N]]>,
-    /// Single-target symbolic exact lifting only. Shared finite-corner lifting
-    /// stays sparse. The default preserves the reference GPLU path.
+    /// Single-target symbolic exact lifting. The independent numerical policy
+    /// controls shared finite-corner replay; both defaults preserve sparse GPLU.
     pub symbolic_exact_backend: SymbolicExactBackend,
+    /// Native exact coefficient field for the shared finite-corner trace.
+    pub numerical_exact_backend: super::NumericalExactBackend,
     /// Native polynomial representation during single-target exact lifting;
     /// independent of the physical integral permutation and modular discovery.
     pub coefficient_variable_order: CoefficientVariableOrder,
@@ -44,6 +46,7 @@ impl<const N: usize> Default for SectorConfig<N> {
             permutation: None,
             zero_sectors: Arc::from([]),
             symbolic_exact_backend: SymbolicExactBackend::Sparse,
+            numerical_exact_backend: super::NumericalExactBackend::Sparse,
             coefficient_variable_order: CoefficientVariableOrder::Original,
         }
     }

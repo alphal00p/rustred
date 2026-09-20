@@ -89,6 +89,7 @@ fn generate<const N: usize>(
                 zero_sectors: prepared.zeros.clone(),
                 permutation: prepared.permutation,
                 symbolic_exact_backend: request.exact_backend.solver_backend(),
+                numerical_exact_backend: request.exact_backend.numerical_backend(),
                 ..Default::default()
             },
             SectorSolveOptions::default(),

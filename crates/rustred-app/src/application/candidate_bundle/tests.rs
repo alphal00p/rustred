@@ -110,6 +110,22 @@ fn candidate_materialization_backends_keep_small_case_bundles_identical() {
         CandidateExactBackend::SparseFactorized.solver_backend(),
         rustred::solver::SymbolicExactBackend::SparseFactorized,
     );
+    for (backend, expected) in [
+        (
+            CandidateExactBackend::Sparse,
+            rustred::solver::NumericalExactBackend::Sparse,
+        ),
+        (
+            CandidateExactBackend::SemiNumerical,
+            rustred::solver::NumericalExactBackend::Sparse,
+        ),
+        (
+            CandidateExactBackend::SparseFactorized,
+            rustred::solver::NumericalExactBackend::SparseFactorized,
+        ),
+    ] {
+        assert_eq!(backend.numerical_backend(), expected);
+    }
     assert!(
         "reconstruction-with-exact-fallback"
             .parse::<CandidateExactBackend>()

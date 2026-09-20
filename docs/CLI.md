@@ -141,8 +141,9 @@ current unit-mass vacuum publication admission.
 
 `--exact-backend sparse` is the unchanged generation default. The opt-in
 `sparse-factorized` choice uses Symbolica's native factorized-denominator field
-during exact symbolic materialization and restores ordinary coefficients before
-rule extraction. `semi-numerical` selects Symbolica rational reconstruction.
+during exact symbolic materialization and the shared numerical-case lift, then
+restores ordinary coefficients before rule extraction. `semi-numerical` selects
+Symbolica rational reconstruction and retains ordinary exact replay.
 The selected name appears in the report's `exact_backend` field. These choices
 retain the same discovery, guards and candidate format; they do not select an
 application cache or certify a bundle.

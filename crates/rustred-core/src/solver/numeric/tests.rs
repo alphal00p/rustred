@@ -196,6 +196,162 @@ fn exact_union_replay_solves_multiple_targets_in_one_native_system() {
 }
 
 #[test]
+fn factorized_union_matches_all_requested_pivots_and_restores_variable_maps() {
+    let context = CoefficientContext::new(["unused", "d", "unused2"]);
+    let order = IntegralOrder::new([true], [false]);
+    let exact = |terms: &[(i16, &str)]| -> ExactRow<1> {
+        terms
+            .iter()
+            .map(|(power, coefficient)| Term {
+                integral: Integral::numeric([*power]).unwrap(),
+                coefficient: context.coefficient_fixture(coefficient),
+            })
+            .collect()
+    };
+    let rows = vec![
+        exact(&[(4, "1/(d-1)"), (3, "1/(d-1)"), (1, "1/(d-1)")]),
+        exact(&[(4, "2/(d-1)"), (3, "2/(d-1)"), (1, "2/(d-1)")]),
+        vec![],
+        exact(&[(4, "1"), (3, "2"), (2, "1")]),
+        exact(&[(3, "1"), (2, "2"), (1, "d")]),
+        exact(&[(1, "1")]),
+    ];
+    for powers in [[3, 2], [2, 3], [4, 2]] {
+        let targets = powers.map(|power| Integral::numeric([power]).unwrap());
+        let sparse =
+            exact_materialize_many_using(&rows, &order, &targets, NumericalExactBackend::Sparse)
+                .unwrap();
+        let factorized = exact_materialize_many_using(
+            &rows,
+            &order,
+            &targets,
+            NumericalExactBackend::SparseFactorized,
+        )
+        .unwrap();
+        assert_eq!(factorized, sparse);
+        assert_eq!(factorized.len(), targets.len());
+        for (target, row) in &factorized {
+            assert_eq!(
+                *row,
+                super::super::discovery::exact_materialize(&rows, &order, targets[*target])
+                    .unwrap()
+            );
+            for term in row {
+                assert_eq!(term.coefficient.numerator.variables(), context.variables());
+                assert_eq!(
+                    term.coefficient.denominator.variables(),
+                    context.variables()
+                );
+            }
+        }
+    }
+    for backend in [
+        NumericalExactBackend::Sparse,
+        NumericalExactBackend::SparseFactorized,
+    ] {
+        assert!(
+            exact_materialize_many_using(&rows, &order, &[], backend)
+                .unwrap()
+                .is_empty()
+        );
+        for targets in [
+            vec![Integral::numeric([9]).unwrap()],
+            vec![Integral::numeric([4]).unwrap(); 2],
+        ] {
+            assert!(exact_materialize_many_using(&rows, &order, &targets, backend).is_err());
+        }
+        assert!(
+            exact_materialize_many_using(
+                &rows[..1],
+                &order,
+                &[Integral::numeric([3]).unwrap()],
+                backend
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn factorized_numeric_policy_preserves_shared_discovery_and_exact_source_traces() {
+    let context = CoefficientContext::new(["a", "b", "unused"]);
+    let system = SourceSystem::new(
+        vec![
+            row(&context, &[([1, 0], "1"), ([0, 0], "b")]),
+            row(&context, &[([0, 1], "1"), ([0, 0], "1")]),
+        ],
+        [0, 1],
+    )
+    .unwrap();
+    assert_eq!(
+        SectorConfig::<2>::default().numerical_exact_backend,
+        NumericalExactBackend::Sparse
+    );
+    let solve = |backend| {
+        SectorSolver::new(
+            &system,
+            [true; 2],
+            SectorConfig {
+                numerical_exact_backend: backend,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .solve_numeric_cases(vec![fixed([2, 1]), fixed([1, 1])], bounded(1))
+        .unwrap()
+    };
+    let sparse = solve(NumericalExactBackend::Sparse);
+    let factorized = solve(NumericalExactBackend::SparseFactorized);
+    assert_eq!(factorized.residuals, sparse.residuals);
+    assert_eq!(factorized.rules.len(), sparse.rules.len());
+    assert_eq!(factorized.stats.seeds, sparse.stats.seeds);
+    assert_eq!(factorized.stats.rows, sparse.stats.rows);
+    assert_eq!(factorized.stats.discovery, sparse.stats.discovery);
+    assert_eq!(
+        factorized.stats.exact_trace_rows,
+        sparse.stats.exact_trace_rows
+    );
+    assert!(factorized.stats.modular_rules > 0);
+    for (actual, expected) in factorized.rules.iter().zip(&sparse.rules) {
+        assert_eq!(actual.case, expected.case);
+        assert_eq!(actual.target, expected.target);
+        assert_eq!(actual.sources, expected.sources);
+        assert_eq!(actual.rhs, expected.rhs);
+        for term in &actual.rhs {
+            assert_eq!(term.coefficient.numerator.variables(), context.variables());
+            assert_eq!(
+                term.coefficient.denominator.variables(),
+                context.variables()
+            );
+        }
+    }
+}
+
+#[test]
+fn factorized_union_rejects_foreign_constant_maps_and_invalid_denominators() {
+    let context = CoefficientContext::new(["d", "unused"]);
+    let foreign = CoefficientContext::new(["unused", "d"]);
+    let order = IntegralOrder::new([true], [false]);
+    let target = Integral::numeric([1]).unwrap();
+    for denominator in [foreign.one().denominator, context.zero().numerator] {
+        let mut coefficient = context.one();
+        coefficient.denominator = denominator;
+        assert!(
+            exact_materialize_many_using(
+                &[vec![Term {
+                    integral: target,
+                    coefficient
+                }]],
+                &order,
+                &[target],
+                NumericalExactBackend::SparseFactorized
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
 fn exhausted_numeric_search_returns_residuals_without_master_authority() {
     let context = CoefficientContext::new(["n"]);
     let system = SourceSystem::new(vec![row(&context, &[([-1], "1")])], [0]).unwrap();
@@ -215,7 +371,7 @@ fn actual_vac3_numeric_exception_matches_the_reference_equation() {
     // strict pinch loses a loop direction and is scaleless. These test-only
     // zero sectors are constructed without reading vendored output files.
     let sector = [false, true, true, true, false, false];
-    let zero_sectors = (0..7)
+    let zero_sectors: Vec<_> = (0..7)
         .map(|mask| {
             [
                 false,
@@ -228,20 +384,33 @@ fn actual_vac3_numeric_exception_matches_the_reference_equation() {
         })
         .collect();
     let sources = SourceSystem::<6>::from_family(&crate::solver::tests::vac3()).unwrap();
-    let solver = SectorSolver::new(
-        &sources,
-        sector,
-        SectorConfig {
-            zero_sectors,
-            ..Default::default()
-        },
-    )
-    .unwrap();
     let target = fixed([0, 1, 1, 1, 0, -1]);
     let corner = fixed([0, 1, 1, 1, 0, 0]);
-    let result = solver
+    let solve = |numerical_exact_backend| {
+        SectorSolver::new(
+            &sources,
+            sector,
+            SectorConfig {
+                zero_sectors: zero_sectors.clone().into(),
+                numerical_exact_backend,
+                ..Default::default()
+            },
+        )
+        .unwrap()
         .solve_numeric_cases(vec![target, corner], bounded(3))
-        .unwrap();
+        .unwrap()
+    };
+    let result = solve(NumericalExactBackend::Sparse);
+    let factorized = solve(NumericalExactBackend::SparseFactorized);
+    assert_eq!(factorized.residuals, result.residuals);
+    assert_eq!(factorized.rules.len(), result.rules.len());
+    assert_eq!(factorized.stats.discovery, result.stats.discovery);
+    for (actual, expected) in factorized.rules.iter().zip(&result.rules) {
+        assert_eq!(actual.case, expected.case);
+        assert_eq!(actual.target, expected.target);
+        assert_eq!(actual.sources, expected.sources);
+        assert_eq!(actual.rhs, expected.rhs);
+    }
     assert_eq!(result.residuals, [corner]);
     assert_eq!(result.rules.len(), 1);
     let rule = &result.rules[0];

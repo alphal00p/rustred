@@ -41,7 +41,8 @@ pub enum CandidateExactBackend {
     #[default]
     Sparse,
     SemiNumerical,
-    /// Native factorized denominators throughout symbolic sparse elimination.
+    /// Native factorized denominators throughout symbolic and shared numerical
+    /// sparse exact elimination.
     /// Rule extraction and candidate bundles retain ordinary coefficients.
     SparseFactorized,
 }
@@ -67,6 +68,13 @@ impl CandidateExactBackend {
                 max_attempts: 4,
                 max_primes: 8,
             },
+        }
+    }
+
+    pub(super) fn numerical_backend(self) -> rustred::solver::NumericalExactBackend {
+        match self {
+            Self::SparseFactorized => rustred::solver::NumericalExactBackend::SparseFactorized,
+            Self::Sparse | Self::SemiNumerical => rustred::solver::NumericalExactBackend::Sparse,
         }
     }
 }

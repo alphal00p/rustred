@@ -55,7 +55,7 @@ pub use execution::{
 };
 pub use geometry::GeometryError;
 pub use index::{Integral, IntegralOrder, Power, PowerError};
-pub use numeric::{NumericResult, NumericStats};
+pub use numeric::{NumericResult, NumericStats, NumericalExactBackend};
 pub(crate) use precondition::PreconditionProvenance;
 pub use precondition::{precondition, precondition_with_variable_order};
 pub use row::{ExactRow, PolynomialRow, Row, Term};
