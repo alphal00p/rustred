@@ -215,8 +215,10 @@ fn forced_plain_progress_preserves_binary_stdout() {
     );
     assert_eq!(observed.stdout, baseline);
     let progress = String::from_utf8(observed.stderr).unwrap();
-    assert!(progress.contains("preparing K=1"));
-    assert!(progress.contains("checking sector=1 rule=1/1"));
+    // Coalesced heartbeat snapshots are not a full source-replay event log.
+    // The completed generation census must survive even a very short solve.
+    assert!(progress.contains("sector generation [####################] 1/1 (not closure)"));
+    assert!(progress.contains("completed-sector totals: rules=1"));
     assert!(progress.contains("output written"));
     assert!(!progress.contains('\u{1b}') && !progress.contains('\r'));
 }

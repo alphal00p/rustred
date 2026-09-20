@@ -74,22 +74,47 @@ This requests closure of the physical FG domain; it is not a claim that the
 four-loop run already passes publication. See the
 [current parent-probe evidence](four_loop_parent_closure_probe.md).
 
-On a terminal, `family-close` refreshes one inline stderr status field for
-generation, exact replay, rule lowering, installation and encoding. It does not
-enter an alternate screen. Redirected stderr is quiet by default; add
-`--progress` to request plain newline-delimited progress (no ANSI escapes):
+On a terminal, `family-close` and `family-candidates` use a bounded, overwriting
+inline stderr dashboard with a colored header and a sector-generation progress
+bar. They do not enter an alternate screen. An independent presenter refreshes
+at most every 100 ms, including during a long solver phase with no new events.
+Redirected stderr is quiet by default; add `--progress` to request plain,
+newline-delimited snapshots at most once per second (plus final status), without
+ANSI escapes:
 
 ```console
 rustred family-close --input YOUR_UNIT_MASS_FAMILY.toml \
   --n-cores 4 --progress --output family.rr 2>family.progress.log
 ```
 
-Worker progress is live and may arrive out of order. The renderer throttles
-repeated search activity, but preserves phase boundaries and each rule-lowering
-start so a long operation is labelled correctly. `NO_COLOR` disables terminal
-colors. Progress never shares artifact stdout; neither a replay observation nor
-an in-memory installation announces a written artifact. The final `artifact
-written` message is emitted only after output succeeds.
+Worker progress may arrive out of order. The dashboard retains the latest
+scalar event and coalesces intermediate details; it is **not a complete event
+journal**. Generation, checkpoint reuse, checkpoint-save and failure counters
+update before coalescing. Completed-sector rule/residual totals are separate
+from live observed rule-hit counts. Frame/source/U/L/probe details come from the
+latest available event, not an inferred view inside a silent algebra call.
+Elapsed time, time since the latest event (`quiet`), and the latest job/phase
+age remain visible during that silence. Case counts and pending queues do not
+imply a completion percentage or ETA.
+
+The bar uses generated plus reused sectors only after the prepared census
+provides a denominator; otherwise it is indeterminate. Even a full bar means
+sector generation, **not closure, certification, or durable output**. The
+resource line reports current and peak **process** RSS on Linux, not combined
+worker-process-tree memory or an enforced memory limit. Peak RSS is the OS
+process-lifetime high-water mark. CPU utilization is explicitly unavailable;
+active-worker utilization and reconstruction-cache statistics are not measured
+by this dashboard. `NO_COLOR` disables terminal colors without disabling cursor
+management.
+
+Presentation, resource sampling and stderr I/O run outside solver callbacks.
+Presentation failures never change the solve result. Final status flushes once
+without waiting for the normal refresh interval; shutdown waits at most 500 ms
+for a blocked presenter, with best-effort terminal cleanup if the writer later
+unblocks. Progress never shares artifact stdout. The final `output written`
+message is emitted only after output succeeds; an early drop reports output as
+unconfirmed rather than claiming success. Use the Rust observation API below
+when a complete per-event diagnostic record is needed.
 
 The Rust application API exposes `FamilyCloseRequest`, `family_close`, and
 `FamilyCloseResult`. The result owns durable bytes through `artifact()` and

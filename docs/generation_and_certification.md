@@ -206,9 +206,12 @@ reports: `TMP/k6-discovery-lifetime.HO3TRk/`.
 The generic sector executor can report a borrowed preparation, search or output
 error immediately on the failing worker. Candidate generation and complete
 family generation expose these as `FailedSector` progress events, including the
-original manifest ordinal after checkpoint resume. The CLI displays failures
-without the discovery-progress throttle and escapes terminal controls in error
-text. Successful callbacks and failures can arrive in any worker order.
+original manifest ordinal after checkpoint resume. The CLI updates its failure
+count and bounded latest-error text before coalescing progress snapshots, and
+escapes terminal controls in error text. Its independent heartbeat is bounded
+to 100 ms on a terminal or one second for explicit plain `--progress`; it does
+not promise a separate line for every failure. The final command error remains
+unchanged. Successful callbacks and failures can arrive in any worker order.
 
 This is diagnostic, not fail-fast scheduling: ordinary errors still let all
 submitted jobs finish, and the returned error is selected in original manifest
@@ -217,7 +220,9 @@ solver returned; native encoding or checkpoint publication can subsequently
 fail. Only a checkpoint-saved event reports durable sector storage. Consequently,
 counting observed sector IDs without successful completion does not measure
 simultaneously live solver frames. Progress I/O failure can still disable
-presentation without changing the underlying computation.
+presentation without changing the underlying computation. See the
+[CLI monitor semantics](CLI.md) for the distinction between coalesced display
+snapshots and the complete Rust observation stream.
 
 ## Timing reports
 

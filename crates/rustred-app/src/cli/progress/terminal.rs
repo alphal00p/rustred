@@ -7,8 +7,9 @@ use crossterm::{cursor, execute, style};
 use ratatui::backend::CrosstermBackend;
 #[cfg(test)]
 use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::{Terminal, TerminalOptions, Viewport};
 
 use super::model::{CampaignPhase, DashboardState};
@@ -29,18 +30,57 @@ impl<W: Write> TerminalSession<W> {
         Self::try_with_viewport(writer, Viewport::Inline(DASHBOARD_HEIGHT))
     }
 
-    pub(super) fn try_new_line(writer: W) -> io::Result<Self> {
-        Self::try_with_viewport(writer, Viewport::Inline(1))
+    pub(super) fn try_new_family(writer: W) -> io::Result<Self> {
+        Self::try_with_viewport(writer, Viewport::Inline(DASHBOARD_HEIGHT))
     }
 
-    pub(super) fn render_line(&mut self, content: &str, color: bool) -> io::Result<()> {
+    #[cfg(test)]
+    pub(super) fn try_new_family_fixed(writer: W, width: u16) -> io::Result<Self> {
+        Self::try_new_fixed(writer, width)
+    }
+
+    #[cfg(test)]
+    pub(super) fn resize_family_fixed(&mut self, width: u16) -> io::Result<()> {
+        self.terminal
+            .resize(Rect::new(0, 0, width, DASHBOARD_HEIGHT))
+    }
+
+    /// Resize-aware bounded dashboard: counters/header, three detail lines,
+    /// process resources and latest-phase age. Ratatui handles cell clipping.
+    pub(super) fn render_family(
+        &mut self,
+        lines: [&str; 6],
+        color: bool,
+        failed: bool,
+    ) -> io::Result<()> {
         self.terminal.draw(|frame| {
-            let style = if color {
-                Style::default().fg(Color::Cyan)
-            } else {
-                Style::default()
-            };
-            frame.render_widget(Paragraph::new(content).style(style), frame.area());
+            let areas = Layout::vertical([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(3),
+                Constraint::Length(1),
+                Constraint::Length(1),
+            ])
+            .split(frame.area());
+            for (index, text) in lines.into_iter().enumerate() {
+                let style = if color {
+                    match index {
+                        0 => Style::default()
+                            .fg(if failed { Color::Red } else { Color::Cyan })
+                            .add_modifier(Modifier::BOLD),
+                        1 => Style::default().fg(Color::Green),
+                        4 | 5 => Style::default().fg(Color::Gray),
+                        _ => Style::default(),
+                    }
+                } else {
+                    Style::default()
+                };
+                frame.render_widget(
+                    Paragraph::new(text).style(style).wrap(Wrap { trim: false }),
+                    areas[index],
+                );
+            }
         })?;
         Ok(())
     }

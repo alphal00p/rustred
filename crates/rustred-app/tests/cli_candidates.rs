@@ -129,8 +129,10 @@ fn candidate_progress_preserves_data_and_never_claims_certification() {
     );
     assert_eq!(quiet, observed.stdout);
     let progress = String::from_utf8(observed.stderr).unwrap();
-    assert!(progress.contains("preparing K=1"));
-    assert!(progress.contains("generated"));
+    // The independent presenter coalesces intermediate events, not aggregate
+    // counters. Short solves need not emit a Preparing/Generated snapshot.
+    assert!(progress.contains("sector generation [####################] 1/1 (not closure)"));
+    assert!(progress.contains("completed-sector totals: rules=1"));
     assert!(progress.contains("output written"));
     for forbidden in [
         "\x1b",

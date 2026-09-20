@@ -108,6 +108,18 @@ removing this one branch is not a completion claim.
 The reversed ordering instead exhausts a five-minute pilot in exact algebra.
 None of these connected-sector probes is a completed five-loop family.
 
+The independent live monitor is now release-validated: 32 focused progress
+checks, all 141 application-library tests, and 21 candidate/family-close CLI
+integration tests pass (the focused checks overlap the library suite). It
+provides a colored inline TTY dashboard or explicit one-second plain
+`--progress` snapshots, with quiet/phase clocks, known sector-generation totals,
+observed algebra work, and Linux process RSS/high-water memory. Presentation
+does not block solver callbacks on output. It is not a full event journal,
+CPU/active-worker meter or process-tree resource supervisor; those remaining
+long-campaign admission requirements must not be assumed implemented. See
+[the monitor contract](docs/CLI.md). The frozen release CLI is being used for
+a fresh, checkpointed, one-worker Q-first physical-sector downset pilot.
+
 ### September 20 follow-up: deeper finite-terminal reduction study
 
 In parallel with the measured solver work, investigate `EPSILON.md`, current
