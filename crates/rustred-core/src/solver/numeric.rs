@@ -237,9 +237,10 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
 
         stats.discovery = probe.as_ref().map(|p| p.discovery.stats());
         if !modular_hits.is_empty() {
-            let probe = probe.as_ref().expect("modular hits require a probe");
+            let active_probe = probe.as_ref().expect("modular hits require a probe");
             let roots: Vec<_> = modular_hits.iter().map(|(_, row)| *row).collect();
-            let trace = probe.discovery.trace_many(&roots);
+            let trace = active_probe.discovery.trace_many(&roots);
+            let independent_rows = active_probe.discovery.basis_len();
             stats.exact_trace_rows = trace.len();
             let selected: Vec<_> = trace
                 .iter()
@@ -251,6 +252,10 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 .iter()
                 .map(|(index, _)| cases[*index].integral())
                 .collect();
+            // The bounded discovery pass and union trace are final. Preserve
+            // their copied diagnostics, but not the modular U/L alongside
+            // the separate native exact reducer.
+            drop(probe.take());
             let exact_start = Instant::now();
             let solutions = exact_materialize_many_using(
                 &selected,
@@ -271,7 +276,7 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                     stats: SearchStats {
                         seeds: stats.seeds,
                         rows: stats.rows,
-                        independent_rows: probe.discovery.basis_len(),
+                        independent_rows,
                         exact_trace_rows: trace.len(),
                         direct_hit: false,
                         elapsed: start.elapsed(),

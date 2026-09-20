@@ -3,9 +3,10 @@
 The [September 17 status report](../STATUS_17_09_2026.md) contains the historical
 combined checkpoint comparison. Current Vakint application measurements and
 delivery status are in the
-[parameter-normalization rollout](research/vacuum_parametric_terminal_equivalence.md#vakint-activation-and-matched-public-benchmark):
-the published alias-enabled backend passes the 15-reference/16-pinch matrix
-and nine-input FMFT comparison. These application measurements do not change
+[weighted-terminal rollout](research/weighted_terminal_normalization.md#delivered-vakint-acceptance-and-public-timings):
+the published backend ships 74 positive family-local representatives and passes
+the 15-reference/16-pinch matrix and nine-input FMFT comparison. These
+application measurements do not change
 the generation boundary or candidate counts below. The bounded attempts below
 are historical; the later uncapped and reconstruction sections contain the
 final checkpoint outcomes. The fresh prepared-frame matrix below supersedes the

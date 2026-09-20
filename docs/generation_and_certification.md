@@ -151,6 +151,44 @@ no checkpoint or certification stages ran. The shared writer now treats that
 parent as `.`. Isolated subprocess regressions and the fresh smoke retain the
 same basename paths; the failure was fixed, not bypassed or relabeled success.
 
+### Discovery and exact-lift memory ownership
+
+Once a winning modular source trace is fixed, the symbolic search and shared
+finite-corner search release their modular `Probe` before constructing the
+exact reducer. Trace order, selected exact rows, target identifiers and scalar
+discovery statistics are frozen first. Exact lifting never consumes the
+modular reducer itself, and an exact failure is still an error, not a resumed
+discovery or a rule-publication shortcut. Direct-hit and exhausted-search
+behavior remain unchanged. This is a generic ownership change, not an algebra
+backend or a topology-dependent strategy.
+
+It removes simultaneous ownership of obsolete modular U/L storage and the
+new exact reducer, but does not bound exact coefficient growth or reclaim
+still-needed source rows, accumulated sector rules, native scratch, or final
+output dictionaries. An allocator need not immediately return freed memory to
+the operating system. A discovery-phase allocation failure is not cured by
+this later release. The exact-materialization timer starts after release;
+overall search time includes it. Quantified peak-RSS or speed improvements
+require a separate matched measurement, not inference from this source change.
+
+The follow-up release gate passes 296 focused solver tests, 114 application
+unit tests, 72 integration tests and 38 freshly rebuilt Python tests. The
+external K6 gate also passes all fourteen stages: ordinary serial generation,
+fresh one-/six-worker checkpoints, complete resume, native old/new program
+comparisons, four independent certifications and four cold dotted reductions.
+Every mode retains 623 rules, 38 finite residuals and 1,417 native coefficients;
+certification produces the same 5,640 cells and 38 terminals as the frozen
+previous milestone. The exact comparisons include both ordered coefficient
+variable maps and the complete canary report, not just counts or samples.
+
+Candidate-generation process walls are 0.38 / 0.48 / 0.16 / 0.10 s for ordinary,
+checkpoint-one, checkpoint-six and complete resume respectively. Certification
+process walls are 1.67 / 11.81 / 1.67 / 1.68 s; the outlier is retained, not
+removed or interpreted as a different mathematical result. These single-run
+smoke measurements do not establish an optimization speedup. Release evidence:
+`TMP/discovery-lifetime-release.yWffkZ/`; full K6 outputs and separate resource
+reports: `TMP/k6-discovery-lifetime.HO3TRk/`.
+
 ## Timing reports
 
 Report separately:

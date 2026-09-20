@@ -47,6 +47,20 @@ Any optimized path must state and check a mathematical structural precondition
 that makes sense at arbitrary loop count; unsupported inputs retain a generic
 fallback or an explicit diagnostic rather than topology-specific dispatch.
 
+A bounded September 20 source audit found no explicit loop-count or topology
+dispatch in the active source-port solver, SpIReD completion and
+terminal-normalization lanes. It also
+identifies historical compiled K6 campaign presets and one-/two-loop artifact
+producer recipes that are not part of the generic `family_candidates` or
+`family_close` path. Treat those as producer-cleanup debt, not exceptions for
+new strategies: retire their specialized entry points or migrate them to
+external family inputs and the generic engine. Preserve the generic exact
+authority and artifact-loading services used by the shipped Vakint programs.
+Do not confuse the frontend's current compiled arity range (1 through 16) with
+an algorithm specialized to a loop count; that adapter still needs extension
+before accepting a 21-coordinate input through CLI/Python. Core solver changes
+must remain const-generic, without named-topology or explicit loop-count dispatch.
+
 The user's corrected September 19 directive established the following
 prerequisites before resuming five-loop work. Native binary I/O and initial
 terminal normalization have since passed the delivery gates recorded below;
@@ -333,7 +347,29 @@ are partial telemetry, not a closed or saved family, and the different
 topologies do not establish a backend speed ratio. Evidence and independent
 terminal audit are in `TMP/five-loop-mobius-depth-zero.sVP7ZX/`.
 
-The measured loss of completed work motivates an optional native per-sector
+The published native-checkpoint path has now been exercised on the same full
+physical cube input with one worker. It times out after 1,800.22 s, preserving
+9 of 2,656 sectors containing 2,415 rules and 187 residual occurrences in
+157,877,837 bytes of native shards. Peak RSS is 335,888 KiB; no final bundle or
+report is produced. Independent audit verifies receipts, hashes and process
+termination, but this measurement contains no native cold decode or resume.
+The earlier six-worker failure completed a different prefix, so the observed
+RSS is not a controlled memory-improvement claim. Preserve that distinction
+when resuming the saved prefix with more workers. The
+[baseline report](docs/research/five_loop_candidate_baselines.md) records the
+published binary, fixed resource policy and complete evidence boundary.
+The unchanged-binary six-worker resume subsequently admits those nine shards
+and saves 55 additional sectors before another GMP allocation failure at the
+32 GiB virtual-address limit: status 134, wall 1,537.65 s including crash
+teardown, peak RSS 33,332,768 KiB. The preserved 64-sector prefix contains
+17,865 rules and 919 residual occurrences, but no final bundle or certificate.
+Checkpointing has not cured the memory failure. Separately, an external
+six-line/five-loop banana input passes preparation (seven nonzero sectors)
+but times out after its last reported parent phase was exact lifting: 600.50 s,
+no completed sector, and peak RSS 5,062,396 KiB. Both are generic input-driven experiments using
+the published pre-lifetime-change binary, not topology-specific strategies.
+
+The measured loss of completed work motivated an optional native per-sector
 checkpoint/resume path through the existing fallible completion consumer.
 Use the existing candidate/Atom-State format, explicit request/manifest binding,
 atomic writes, original-order assembly and caller-owned budgets; retain the
@@ -359,6 +395,17 @@ This gate exposed and fixed an inherited atomic-output bug for bare filenames;
 the failed original observation is retained, not counted as success. No
 family-specific rule or loop-count dispatch is introduced for this. These gates
 support the next memory-observed five-loop attempt, not a five-loop closure claim.
+
+A narrow generic follow-up releases obsolete modular discovery storage before
+exact lifting, after freezing the winning source trace and diagnostic counters.
+It changes no source search, algebra backend, rule, guard, schema or loop-count
+policy. The release gate passes 296 focused solver tests, 186 application and
+integration tests, and 38 Python tests. The full fourteen-stage K6 follow-up
+also passes exact old/new candidate and certified comparisons, changed-worker
+resume and all four cold canaries. This removes overlapping owners; it does
+not by itself establish a measured peak-memory or runtime improvement. The
+[ownership and validation note](docs/generation_and_certification.md#discovery-and-exact-lift-memory-ownership)
+retains the measured boundaries, including a certification timing outlier.
 
 The reconstruction backend still includes internal exact sparse replay; this
 is distinct from optional family certification. New diagnostic observer

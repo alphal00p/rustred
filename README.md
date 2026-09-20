@@ -6,13 +6,15 @@ four-loop single-scale vacuum reduction and FORM-less Vakint evaluation against
 the existing FMFT examples, followed by five-loop generation/performance studies.
 The four-loop numerical acceptance gate passes; unrestricted closure certification
 remains separate from the shipped candidate programs.
-Loop count and topology are input data, never production dispatch keys.
+The active generic solver treats loop count and topology as input data, not
+dispatch keys.
 
 Uniform Symbolica-native binary I/O and the exact unit-weight terminal
 normalization gate are complete. Bounded five-loop candidate studies have
-resumed alongside four-loop application optimization; the first physical-cube
-[baseline](docs/research/five_loop_candidate_baselines.md) reached its
-30-minute limit without a saved bundle. The existing rule-application engine
+resumed alongside four-loop application optimization. The recorded
+[full-family attempts](docs/research/five_loop_candidate_baselines.md) reach
+time or memory limits; checkpoints preserve partial work, but no complete
+five-loop program is claimed. The existing rule-application engine
 remains in use; no alternate Symbolica-replacement backend is planned.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints

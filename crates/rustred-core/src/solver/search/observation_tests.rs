@@ -92,6 +92,104 @@ fn modular_observation_reports_the_winning_trace_before_exact_work() {
 }
 
 #[test]
+fn frozen_discovery_diagnostics_and_trace_survive_exact_lifting() {
+    let context = crate::algebra::CoefficientContext::new(["n", "unused"]);
+    let term = |shift| Term {
+        integral: Integral::symbolic([shift]).unwrap(),
+        coefficient: context.one().numerator,
+    };
+    // The duplicate contributes an L pattern but no accepted exact row. The
+    // source list must retain basis ordinals 0,2, not accepted-bank indices 0,1.
+    let basis = vec![
+        vec![term(1), term(0)],
+        vec![term(1), term(0)],
+        vec![term(1), term(-1)],
+    ];
+    let system = SourceSystem::new(basis.clone(), [0]).unwrap();
+    let case = CoordinateCase::new([Some(1)]).unwrap();
+    for backend in [
+        SymbolicExactBackend::Sparse,
+        SymbolicExactBackend::SparseFactorized,
+    ] {
+        let solver = SectorSolver {
+            system: &system,
+            basis: basis.clone(),
+            order: IntegralOrder::new([true], [false]),
+            config: SectorConfig {
+                symbolic_exact_backend: backend,
+                ..Default::default()
+            },
+        };
+        let mut events = Vec::new();
+        let result = solver
+            .solve_case_with_observer(
+                case,
+                SearchOptions {
+                    max_depth: Some(0),
+                    ..Default::default()
+                },
+                |event| events.push(event),
+            )
+            .unwrap();
+        assert_eq!(result.target, Integral::numeric([1]).unwrap());
+        assert_eq!(result.rhs.len(), 1);
+        assert_eq!(result.rhs[0].integral, Integral::numeric([0]).unwrap());
+        assert_eq!(result.rhs[0].coefficient, context.one());
+        assert_eq!(
+            result.rhs[0].coefficient.numerator.variables(),
+            context.variables()
+        );
+        assert_eq!(
+            result.rhs[0].coefficient.denominator.variables(),
+            context.variables()
+        );
+        assert_eq!(
+            result
+                .sources
+                .iter()
+                .map(|source| source.basis_row)
+                .collect::<Vec<_>>(),
+            [0, 2]
+        );
+        assert!(
+            result
+                .sources
+                .iter()
+                .all(|source| source.seed.integral == case.integral())
+        );
+        assert_eq!(result.stats.seeds, 1);
+        assert_eq!(result.stats.rows, 3);
+        assert_eq!(result.stats.independent_rows, 2);
+        assert_eq!(result.stats.exact_trace_rows, 2);
+        assert!(!result.stats.direct_hit);
+        let discovery = result.stats.discovery.unwrap();
+        assert_eq!(discovery.rows_seen, 3);
+        assert_eq!(discovery.independent_rows, 2);
+        assert_eq!(discovery.columns, 3);
+        assert_eq!(discovery.retained_l_rows, 3);
+        assert_eq!(discovery.retained_l_entries, 4);
+        assert_eq!(discovery.dependency_edges, 1);
+        assert!(matches!(events[1], SearchEvent::ExactStarted {
+            trace_rows: 2, discovery: snapshot, ..
+        } if snapshot == discovery));
+        assert!(matches!(
+            events[2],
+            SearchEvent::ExactProgress(super::super::MaterializationEvent::FramePrepared {
+                source_rows: 2,
+                ..
+            })
+        ));
+        assert!(matches!(
+            events.last(),
+            Some(SearchEvent::CanonicalizationStarted {
+                direct_hit: false,
+                terms: 2
+            })
+        ));
+    }
+}
+
+#[test]
 fn bounded_miss_emits_progress_but_never_an_exact_hit() {
     let system = SourceSystem::<1>::from_family(&tadpole()).unwrap();
     let solver = SectorSolver::new(

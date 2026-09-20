@@ -312,11 +312,30 @@ fn factorized_numeric_policy_preserves_shared_discovery_and_exact_source_traces(
         sparse.stats.exact_trace_rows
     );
     assert!(factorized.stats.modular_rules > 0);
+    let frozen_discovery = sparse.stats.discovery.unwrap();
+    assert!(frozen_discovery.retained_l_rows >= frozen_discovery.independent_rows);
     for (actual, expected) in factorized.rules.iter().zip(&sparse.rules) {
         assert_eq!(actual.case, expected.case);
         assert_eq!(actual.target, expected.target);
         assert_eq!(actual.sources, expected.sources);
         assert_eq!(actual.rhs, expected.rhs);
+        assert_eq!(actual.stats.discovery, expected.stats.discovery);
+        assert_eq!(
+            actual.stats.independent_rows,
+            expected.stats.independent_rows
+        );
+        if !actual.stats.direct_hit {
+            assert_eq!(actual.stats.discovery, Some(frozen_discovery));
+            assert_eq!(
+                actual.stats.independent_rows,
+                frozen_discovery.independent_rows
+            );
+            assert_eq!(
+                actual.stats.exact_trace_rows,
+                factorized.stats.exact_trace_rows
+            );
+            assert_eq!(actual.sources.len(), factorized.stats.exact_trace_rows);
+        }
         for term in &actual.rhs {
             assert_eq!(term.coefficient.numerator.variables(), context.variables());
             assert_eq!(

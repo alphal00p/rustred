@@ -329,28 +329,34 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 {
                     continue;
                 }
-                let probe = probe.get_or_insert_with(|| {
+                let active_probe = probe.get_or_insert_with(|| {
                     Probe::new(self.order, self.system.variable_count, options)
                 });
-                let modular_row = probe.evaluate(&row)?;
-                if let Some(pivot) = probe.discovery.add_row(&modular_row) {
+                let modular_row = active_probe.evaluate(&row)?;
+                if let Some(pivot) = active_probe.discovery.add_row(&modular_row) {
                     original_rows.push(row);
                     original_sources.push(source);
                     stats.independent_rows += 1;
                     if case.matches(&pivot) {
-                        let trace = probe.discovery.trace(original_rows.len() - 1);
+                        let trace = active_probe.discovery.trace(original_rows.len() - 1);
+                        let discovery = active_probe.discovery.stats();
                         stats.exact_trace_rows = trace.len();
                         let selected = trace
                             .iter()
                             .map(|i| std::mem::take(&mut original_rows[*i]))
                             .collect::<Vec<_>>();
+                        let sources = trace.iter().map(|i| original_sources[*i]).collect();
                         // This case ends at the first matching pivot. Release
                         // nonwinning exact rows before the expensive native solve.
                         drop(original_rows);
+                        // The first winning trace is final: exact lifting uses
+                        // only selected rows, not the modular reducer. Release
+                        // its owning Option, not merely the borrowed probe.
+                        drop(probe.take());
                         observe(SearchEvent::ExactStarted {
                             pivot,
                             trace_rows: trace.len(),
-                            discovery: probe.discovery.stats(),
+                            discovery,
                         });
                         let exact_start = Instant::now();
                         let exact = exact_materialize_using_with_observer(
@@ -370,12 +376,12 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                         let (target, rhs) = canonicalize(exact, &self.system.indices)?;
                         stats.exact_materialization = exact_start.elapsed();
                         stats.elapsed = start.elapsed();
-                        stats.discovery = Some(probe.discovery.stats());
+                        stats.discovery = Some(discovery);
                         return Ok(RuleCandidate {
                             case,
                             target,
                             rhs,
-                            sources: trace.into_iter().map(|i| original_sources[i]).collect(),
+                            sources,
                             stats,
                         });
                     }

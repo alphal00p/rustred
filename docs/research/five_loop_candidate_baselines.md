@@ -1,6 +1,151 @@
 # Five-loop candidate-generation baselines
 
-## Latest full physical cube attempt: depth zero and factorized exact fields
+## Checkpoint-enabled serial cube: retained partial work, 20 September 2026
+
+The first full-family run with native per-sector checkpoints reaches its
+declared **1,800-second timeout**, without completing the family. Unlike the
+earlier interrupted runs below, it preserves nine completed sectors on disk.
+The unchanged external cube input uses physical root `111111111111000`,
+nonpositive coordinates 12,13,14, natural ordering, `sparse-factorized`, and
+numerical depth zero. Symbolic discovery is not restricted to depth zero.
+This is a generic campaign selected by input, not a loop-specific algorithm.
+
+The frozen release CLI is published revision
+`0bbe69fdf03c532d8cd2c4b65dddf17b051766d7`, SHA-256
+`ccc24baaa206f43c02d3f4da4bc401f542642695a0200d2d54abcd26f9978b74`.
+Input SHA-256 is
+`0247e0d8fab665a59d34cbfac0d20f94ea33e282e926870842edaaf53fcac77f`.
+It uses one worker on CPU 100, nested pools one, a 32 GiB virtual-address cap,
+an 8 GiB logical checkpoint budget, and unchanged final-output limits. Timeout
+sends TERM at 1,800 seconds with ten seconds of KILL grace. The subsequent
+discovery-owner lifetime change is **not** present in this frozen executable.
+
+| Whole bounded attempt | Measured outcome |
+|---|---:|
+| Terminal status | **124, timeout** |
+| Wall time | **1,800.22 s** |
+| User / system CPU | 1,774.15 / 5.70 s |
+| Peak RSS | **335,888 KiB (328.02 MiB)** |
+| Completed and durably saved sectors | **9 of 2,656** |
+| Rules / finite-residual occurrences in those sectors | **2,415 / 187** |
+| Saved native shards / manifest | 157,877,837 / 273,426 bytes |
+| Total installed logical checkpoint bytes | **158,151,263** |
+| Final candidate bundle / report | **Neither produced** |
+
+The parent emits its completion at 129.4 s with 310 rules and 29 residuals,
+then its durable receipt at 129.8 s. The last unfinished sector, mask 3839,
+is still in symbolic discovery at depth two near the deadline. All nine
+completion masks, manifest ordinals, publication receipts and installed lengths
+agree. Frozen input and retained-file hashes pass; no staging files remain.
+The owned wrapper, timeout, CLI and observer processes are absent afterward.
+No native cold decode or resume is included in this measurement.
+
+GNU time includes preparation, solving and checkpoint writes; no final assembly
+occurred. It excludes copying, compilation and the separate observer. The
+observer consumed 1.306 CPU seconds and 9,232 KiB peak RSS, but shared CPU 100,
+so its wall-time effect is not quantified. Independent terminal audit passes.
+Raw evidence and the full nine-sector census are in
+`TMP/five-loop-checkpoint-cube.tyhgTv/`, including `FINAL_RESULT.md` and
+`final-result-audit.md`.
+
+This establishes durable retention of partial work, **not full-family closure**,
+a master count, or a controlled memory improvement. The earlier failed
+six-worker run completed a different, much larger prefix. Active reducer frames,
+native global state and final assembly can still dominate memory. A subsequent
+six-worker resume must report its reused and newly saved work separately; its
+segment timing cannot be presented as a cold whole-family timing.
+
+### Six-worker resume: allocation failure, but 55 more sectors preserved
+
+A separate segment copies the nine saved shards and manifest without changing
+the serial evidence, then resumes with the **same frozen `0bbe69fd` executable,
+input, ordering and numerical-depth-zero policy**. Preparation admits exactly
+nine reused and 2,647 pending sectors. Six workers use CPUs 100–105; nested
+pools remain one. The new segment has a predeclared 3,600-second timeout plus
+ten-second grace, the same 32 GiB virtual-address cap and 8 GiB logical spool
+budget, with unchanged final-output limits. No strategy, allocator or code
+change is made during the run.
+
+| Resume segment only | Measured outcome |
+|---|---:|
+| Terminal status | **SIGABRT, shell 134** |
+| Diagnostic | `GNU MP: Cannot allocate memory (size=8360)` |
+| Whole-command wall, including crash teardown | **1,537.65 s** |
+| User / system CPU | 8,315.68 / 70.49 s |
+| GNU-time peak RSS | **33,332,768 KiB** |
+| Newly saved sectors / previously saved sectors | **55 / 9** |
+| New rules / new finite-residual occurrences | **15,450 / 732** |
+| Cumulative saved sectors / native payload bytes | **64 / 1,213,610,290** |
+| Final candidate bundle / report | **Neither produced** |
+
+The 64 retained sectors contain 17,865 rules and 919 residual occurrences;
+these are cumulative saved-work counts, not deduplicated masters. The total
+managed checkpoint payload including the 273,426-byte manifest is
+1,213,883,716 bytes, well below the spool allowance. No staging files remain.
+Original serial files, copied prefix and frozen inputs retain their hashes.
+All four owned wrapper/solver/observer processes are absent afterward.
+
+The last ordinary progress event is at 1,431.0 s; the failure and OS crash-dump
+teardown occur before the wrapper returns. The whole wall time is therefore
+not a solver-core timing. GNU time's trailing `Exit status: 0` accompanies its
+explicit signal-6 termination and does not override the launcher status 134.
+The `/proc` sampler separately observes a 33,345,328-KiB high-water mark and
+virtual size at the 32 GiB cap; retain that distinct observation rather than
+silently substituting it for GNU time's RSS. One sampler read fails during
+process teardown; no samples are fabricated. The OS uses a system crash-dump
+handler; no kernel setting or live resource policy was changed.
+
+Checkpointing thus preserves substantially more interrupted work, but **does
+not cure the observed allocation failure**. The logs cannot separate active
+exact frames, retained source banks, native scratch or allocator retention.
+Likewise, a sector seen in progress but lacking a generated event is not proof
+of a still-live frame: worker errors can be retained until the complete job
+collection finishes. No native cold assembly, application, closure certification
+or controlled speed/memory comparison is established. Evidence and independent
+terminal audit: `TMP/five-loop-checkpoint-resume-six.YgcRqG/`.
+
+## Smaller connected banana input: parent attempt reaches the deadline
+
+The external [`five_loop_banana.toml`](../../examples/input/five_loop_banana.toml)
+provides a different connected five-loop vacuum family: six physical massive
+lines and nine auxiliary scalar-product coordinates. It changes no production
+algorithm. Exact input review and native preparation agree on seven nonzero
+physical sectors and 57 zero sectors. It is not a replacement for the
+cube/Möbius workloads or a complete five-loop topology census.
+
+One fresh serial run uses the same frozen `0bbe69fd` executable/hash above,
+natural ordering, `sparse-factorized`, numerical depth zero, explicit
+nonpositive slots 6 through 14, CPU 94 and nested pools one. Input SHA-256 is
+`aedb3886ca8032eafbf4fb4717033c2c6a1d5da810b0a0fcdf3ad87953dfd956`.
+The predeclared cap is 600 seconds plus ten seconds of KILL grace, 8 GiB
+virtual-address space, and 2 GiB logical checkpoint storage. Other defaults
+are unchanged; the discovery-owner lifetime patch is absent from this binary.
+
+| Whole bounded attempt | Measured outcome |
+|---|---:|
+| Terminal status | **124, timeout** |
+| Wall time | **600.50 s** |
+| User / system CPU | 588.83 / 7.95 s |
+| Peak RSS | **5,062,396 KiB (4.83 GiB)** |
+| Completed / saved sectors | **0 / 0** |
+| Final candidate bundle / report | **Neither produced** |
+
+Preparation finishes at 22.5 s. The parent, mask 63, is the only observed
+sector; its last progress event is exact lifting at 146.9 s. There is no
+later phase or error diagnostic before timeout, so the logs do not identify
+the responsible native algebra primitive. No stack or allocation profile was
+taken. The smaller sector count did not make this parent fast under the
+supplied policy; it still has nine numerator coordinates.
+
+The checkpoint directory contains only its manifest and lock, with no native
+sector shards or staging remnants. Input/CLI/launcher hashes pass afterward;
+the three owned process IDs are absent. Timing includes initialization,
+preparation and solving, but not compilation or copying. No final assembly,
+cold decoding, certification, retry or strategy change occurred. Evidence:
+`TMP/five-loop-banana-depth-zero.GfRXZZ/`, including the frozen command and
+`FINAL_RESULT.md`. This is an incomplete attempt, not a generation timing.
+
+## Earlier full physical cube attempt: depth zero and factorized exact fields
 
 20 September 2026: this attempt **fails under its memory limit**, rather than
 completing or reaching the wall deadline. The frozen release CLI is from published

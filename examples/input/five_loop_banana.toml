@@ -1,0 +1,69 @@
+schema = "rustred.project.toml.v1"
+
+# External five-loop case: two vertices joined by six massive lines.
+# D1..D6 are physical. D7..D15 complete the scalar-product coordinates and
+# must remain nonpositive: request nonpositive_indices=[6,7,8,9,10,11,12,13,14].
+# This is input data for the generic engine, not a solver preset.
+[family]
+name = "five_loop_unit_mass_banana"
+loop_momenta = ["k1", "k2", "k3", "k4", "k5"]
+external_momenta = []
+dimension = "d"
+
+[[family.denominators]]
+id = "D1"
+expression = "k1^2-1"
+[[family.denominators]]
+id = "D2"
+expression = "k2^2-1"
+[[family.denominators]]
+id = "D3"
+expression = "k3^2-1"
+[[family.denominators]]
+id = "D4"
+expression = "k4^2-1"
+[[family.denominators]]
+id = "D5"
+expression = "k5^2-1"
+[[family.denominators]]
+id = "D6"
+expression = "(k1+k2+k3+k4+k5)^2-1"
+
+[[family.denominators]]
+id = "D7"
+expression = "(k1+k2)^2-1"
+[[family.denominators]]
+id = "D8"
+expression = "(k1+k3)^2-1"
+[[family.denominators]]
+id = "D9"
+expression = "(k1+k4)^2-1"
+[[family.denominators]]
+id = "D10"
+expression = "(k1+k5)^2-1"
+[[family.denominators]]
+id = "D11"
+expression = "(k2+k3)^2-1"
+[[family.denominators]]
+id = "D12"
+expression = "(k2+k4)^2-1"
+[[family.denominators]]
+id = "D13"
+expression = "(k2+k5)^2-1"
+[[family.denominators]]
+id = "D14"
+expression = "(k3+k4)^2-1"
+[[family.denominators]]
+id = "D15"
+expression = "(k3+k5)^2-1"
+
+[target]
+powers = [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+numerator = "1"
+
+[metadata]
+description = "Five-loop single-scale banana vacuum family; six physical edges and nine auxiliary coordinates"
+family_role = "external input case study; no closure or master-independence claim"
+physical_root_sector = "111111000000000"
+nonpositive_indices = "6,7,8,9,10,11,12,13,14 (zero-based; request explicitly in the solver)"
+physical_momentum_relation = "k1+k2+k3+k4+k5-(k1+k2+k3+k4+k5)=0"

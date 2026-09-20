@@ -59,7 +59,7 @@ repository root:
 ```console
 rustred derive --input examples/input/four_loop_x.toml \
   --input-format toml --relations ordinary --n-cores 1 \
-  --output /tmp/four_loop_x_sources.toml
+  --output TMP/four_loop_x_sources.toml
 ```
 
 Replace `x` with `h`, `bmw`, or `fg` to study the other inputs. Expected
@@ -94,7 +94,7 @@ permuted ordering positions. For example:
 ```console
 rustred family-close --input examples/input/four_loop_fg.toml \
   --input-format toml --nonpositive-indices 8,9 --n-cores 2 \
-  --progress --output /tmp/four_loop_fg_physical.rr
+  --progress --output TMP/four_loop_fg_physical.rr
 ```
 
 The equivalent Python request is
@@ -218,3 +218,38 @@ large outputs can require an explicitly enlarged Rust-library policy.
 Reports separate preparation, solver and encoding times and identify the
 backend. CLI progress uses an overwriting field on a terminal; `--progress`
 opts into plain stderr when redirected, leaving the data stream unchanged.
+
+### A smaller connected five-loop input
+
+[`five_loop_banana.toml`](five_loop_banana.toml) instead has two vertices joined
+by six massive lines: the five independent momenta `k1` through `k5`, and their
+sum. It is a connected five-loop graph, not a product chosen as the parent.
+Nine auxiliary pair-squares complete the fifteen scalar-product coordinates;
+the missing `k4·k5` is recovered from the total square. This is ordinary input
+data, with no special solver path or authored rule.
+
+Its physical root is `111111000000000`. Explicitly restrict zero-based slots
+`6,7,8,9,10,11,12,13,14` to nonpositive powers. Any five of the six physical
+momenta form a unimodular basis, so the six one-line pinches factor into five
+tadpoles. Supports with at most four physical lines leave a scaleless loop
+direction. Thus native preparation is expected to find seven nonzero sectors
+and 57 zero sectors in this physical downset. This sector count is not a master
+count or a guarantee of fast rule generation: the parent still has nine
+independent numerator coordinates.
+
+For a candidate-generation attempt using the unchanged generic engine:
+
+```console
+target/release/rustred family-candidates \
+  --input examples/input/five_loop_banana.toml \
+  --nonpositive-indices 6,7,8,9,10,11,12,13,14 --n-cores 1 \
+  --exact-backend sparse-factorized --numerical-depth 0 --progress \
+  --checkpoint-dir TMP/banana-sectors \
+  --output TMP/banana.rrcandidate --report-output TMP/banana.report.toml
+```
+
+Use an empty checkpoint directory for a fresh run. As with the other five-loop
+inputs, impose an explicit process time/memory budget when experimenting. A
+successful candidate save would still not certify closure or cover other
+five-loop topologies. See the [measured baselines](../../docs/research/five_loop_candidate_baselines.md)
+for actual outcomes rather than inferring them from the smaller sector census.
