@@ -315,11 +315,27 @@ neither the core search algorithm nor its exact authority gates. A frozen,
 six-worker full physical-family CLI campaign at depth zero was launched with
 the frozen release executable from published revision `2627a537`. Its physical
 parent reports the expected 310 rules and 29 residuals at 93.9 s elapsed, but
-the full 2,656-sector run remains in progress and no complete bundle or cold
-application result is yet available. The declared limit is 1,800 s to TERM
-plus a 10 s KILL grace, with 32 GiB virtual address space, CPUs 100–105.
-Evidence is in `TMP/five-loop-depth-zero-campaign.CWGK0e/`; cold application
-gates follow only if a complete bundle is written. No
+the full 2,656-sector run aborts with a GMP allocation failure under its 32 GiB
+virtual-address cap after 1,148.08 s (signal 6, shell status 134), before its
+1,800 s deadline. Peak RSS is 33,232,084 KiB. It emits 96 completed-sector
+events, 24,070 rules and 751 residual occurrences, but writes no bundle or
+report; these are partial telemetry, not saved rules or a family result.
+The parent completion does not change that boundary. Evidence is in
+`TMP/five-loop-depth-zero-campaign.CWGK0e/`. An unchanged-policy second input,
+the Möbius ladder, is running separately on CPUs 88–93 with the same frozen
+CLI and limits; evidence is in `TMP/five-loop-mobius-depth-zero.sVP7ZX/`.
+
+The measured loss of completed work motivates an optional native per-sector
+checkpoint/resume path through the existing fallible completion consumer.
+Use the existing candidate/Atom-State format, explicit request/manifest binding,
+atomic writes, original-order assembly and caller-owned budgets; retain the
+uncertified status. No custom algebra, topology-specific branch, new proof
+authority or supervisor framework is needed. Release each exact sector after
+persisting it, while acknowledging that worker-local solve peaks and the final
+global native dictionary still occupy memory. Checkpointing is not yet a
+demonstrated cure for this allocation failure: its retained-output versus
+active-worker contribution has not been measured. Independent design reviews
+are complete; implementation and parity/failure-path gates follow. No
 family-specific rule or loop-count dispatch is introduced for this.
 
 The reconstruction backend still includes internal exact sparse replay; this

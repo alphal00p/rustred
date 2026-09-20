@@ -120,6 +120,9 @@ fn generate<const N: usize>(
     emit(observe, || FamilyCloseProgress::Encoding {
         elapsed: solved_at,
     });
+    let solved_sectors = solved.len();
+    let generated_rules = solved.iter().map(|(_, s)| s.rules.len()).sum();
+    let finite_residuals = solved.iter().map(|(_, s)| s.finite_residuals.len()).sum();
     let mut coefficients = CoefficientTableBuilder::new(request.bundle_limits.binary_limits());
     let bundle = ProgramRecord {
         schema: CANDIDATE_BUNDLE_SCHEMA.into(),
@@ -131,8 +134,12 @@ fn generate<const N: usize>(
         root_sector: root.to_vec(),
         permutation: request.permutation,
         sectors: solved
-            .iter()
-            .map(|(sector, solution)| codec::sector_record(*sector, solution, &mut coefficients))
+            // Release each expanded exact solution once its compact record and
+            // native coefficients are interned. Encounter order is unchanged;
+            // keeping all solutions alive until report writing doubles up
+            // their storage with the completed native output unnecessarily.
+            .into_iter()
+            .map(|(sector, solution)| codec::sector_record(sector, &solution, &mut coefficients))
             .collect::<Result<Vec<_>, _>>()?,
     };
     let family_record = NativeFamilyRecord::from_family(&prepared.family, &mut coefficients)
@@ -181,10 +188,10 @@ fn generate<const N: usize>(
         family_fingerprint: prepared.family.fingerprint(),
         arity: N,
         root_sector: root,
-        solved_sectors: solved.len(),
+        solved_sectors,
         zero_sectors: prepared.zeros.len(),
-        generated_rules: solved.iter().map(|(_, s)| s.rules.len()).sum(),
-        finite_residuals: solved.iter().map(|(_, s)| s.finite_residuals.len()).sum(),
+        generated_rules,
+        finite_residuals,
         workers: request.n_cores,
         exact_backend: request.exact_backend.as_str(),
         numerical_depth: request.numerical_depth,

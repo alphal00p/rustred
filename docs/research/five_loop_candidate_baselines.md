@@ -1,5 +1,71 @@
 # Five-loop candidate-generation baselines
 
+## Latest full physical cube attempt: depth zero and factorized exact fields
+
+20 September 2026: this attempt **fails under its memory limit**, rather than
+completing or reaching the wall deadline. The frozen release CLI is from published
+revision `2627a53758a7307366dec3a1712340556eeaacbf`, SHA-256
+`6bf597e29e141c4a50664619ae85ce41c819e8f34a7fabcee15563ebb902487b`.
+The external cube input and complete physical root are unchanged from the
+earlier baselines below. The new public options are `--exact-backend
+sparse-factorized --numerical-depth 0`, six workers on physical cores 100–105,
+natural ordering, nested pools one. Depth zero still searches each initial
+fully fixed seed and exactly lifts discovered relations; it may retain more
+finite residuals. No loop-count or topology-name branch selects the strategy.
+
+The predeclared bounds are 1,800 seconds to TERM, ten seconds of KILL grace,
+and 32 GiB **virtual address space**. The process aborts before that deadline:
+
+| Whole bounded attempt | Measured outcome |
+|---|---:|
+| Terminal status | SIGABRT, shell **134** |
+| Diagnostic | `GNU MP: Cannot allocate memory (size=8416)` |
+| Wall time | **1,148.08 s** |
+| User / system CPU | 5,722.72 / 51.32 s |
+| Peak RSS | 33,232,084 KiB (**31.6926 GiB**) |
+| Swaps reported for this command | 0 |
+| Preparation event | 20.3 s |
+| Completed-sector events | **96 of 2,656** |
+| Rules / finite-residual occurrences in those events | 24,070 / 751 |
+| Saved bundle / final report | **Neither produced** |
+
+The last completion event is at 966.7 s and the last ordinary progress event at
+984.3 s; the logs do not establish what consumed the subsequent unreported
+interval. GNU time's trailing `Exit status: 0` accompanies an explicit signal-6
+termination and is **not success**: the enclosing launcher returns 134. All
+three owned process IDs were checked absent, both frozen hashes still match,
+and no restart was performed. Independent parsing finds no duplicate completion
+events. The 751 residual occurrences are not a deduplicated master count.
+
+The physical parent alone completes in this full CLI campaign at 93.9 s elapsed
+with the expected **310 rules and 29 residuals**, matching the preceding
+standalone counts. That event is not a saved equation comparison or the timing
+of an isolated sector. The standalone exact output comparison is documented in
+[the selected-sector study](five_loop_selected_sector_profile.md). Neither
+result establishes full-family completion, cold application or certification.
+
+No CPU or allocation profile was taken in this attempt. The source audit finds
+that the current path retains every completed exact solution until generation
+finishes, then overlaps those solutions with native encoding buffers. The run
+does not separate that cost from active worker frames or native global state.
+Therefore saving completed sectors may improve retention and restart behavior,
+but has **not** been shown to cure this allocation failure. A small follow-up
+releases each solution during final encoding. Its independent source audit,
+94 application unit tests, 68 integration tests and 36 fresh-extension Python
+tests pass; six further Python candidate tests also agree with the frozen
+previous CLI. No peak-RSS improvement has yet been measured. Evidence is in
+`TMP/candidate-encoding-release.AxS0ih/`. An optional native checkpoint
+path is separately being implemented and must pass deterministic assembly,
+cold application, interruption and failure-path gates before another campaign.
+
+This is a different policy/backend and CPU placement from the depth-two runs
+below, not a controlled speed ratio. Compilation, input/binary copying and hash
+checks are outside timing; no artifact, pivot trace or oracle is reused.
+Evidence: `TMP/five-loop-depth-zero-campaign.CWGK0e/`, including the frozen
+launcher, raw resource/progress logs and independent `final-result-audit.md`.
+The second Möbius-ladder input is running separately with the same frozen CLI
+and policy; it has no completed result at this checkpoint.
+
 ## Physical cube: bounded sparse-exact run, 2026-09-19
 
 **The complete requested family did not finish within 30 minutes on six
