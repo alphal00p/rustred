@@ -146,10 +146,12 @@ ordinary exact replay when this experimental route fails.
 This also matters before certification: the existing candidate applier checks
 stored rule exceptions and RHS poles, not a temporary weight vector. A later
 publication check cannot protect an uncertified candidate already used by that
-applier. Keep the first kernel internal and diagnostic. Public selection needs
-an explicit, independently audited way to preserve or discharge multiplier-pole
-conditions at the candidate boundary, as well as the canonical-row obligation;
-an `experimental` label alone is not a correctness mechanism.
+applier. Keep the first kernel internal and diagnostic. Before public selection,
+either prove complete output/provenance equivalence under the existing candidate
+contract, or independently audit an expanded candidate-applicability contract
+including multiplier poles. An `experimental` label alone is not a correctness
+mechanism. The sufficient canonical-equivalence criterion below provides the
+narrower nonregression route; it does not strengthen candidate applicability.
 
 Required tests include empty/dependent-row chronology, nonunit pivots, bad
 primes, variable-map permutations, hidden support, tampered weights/RHS,
@@ -160,3 +162,90 @@ pilot above already excludes a general speedup merely from removing replay.
 Detailed source/API review: `TMP/source-weight-reconstruction-next-slice-audit-2026-09-20.md`.
 Independent mathematical review:
 `TMP/source-weight-reconstruction-independent-math-audit-2026-09-20.md`.
+
+### A sufficient canonical-row certificate
+
+A second independent audit establishes a generic sufficient condition for
+replacing exact GPLU **without changing its returned row**. This is a proved
+matrix criterion, not an implemented production backend or a measured solve.
+
+Freeze the exact prepared source prefix `A` with `m` rows, ending at the
+proposed first target hit. Let `H` contain every integral column strictly
+harder than target `t`. Require both:
+
+1. At a valid finite-field point, Symbolica finds rank `m-1` for the first
+   `m-1` source rows restricted to `H`. All input denominators must be defined.
+2. A native **exact** full-column product establishes `W*A = r`, with
+   `r_H = 0` and `r_t = 1`, in the same coefficient maps.
+
+The nonzero modular minor proves characteristic-zero independence of the
+harder prefix; it is a one-sided, deterministic lower bound, not a sampled
+proof of zeros. The exact witness supplies a nontrivial relation on all `H`
+rows, so their left nullspace has dimension one. Every earlier source must
+therefore pivot in `H`, and the final row pivots at `t`. Fixing its target
+coefficient to one makes the entire returned row unique. It is exactly the
+ordinary first-target GPLU row, including the full easier tail. Intermediate
+pivot positions need not agree across fields or arrive monotonically.
+
+For instance, with columns `[h0,h1,t,e]`,
+
+```text
+A = [[0,1,1,2], [1,0,3,4], [1,1,5,9]]
+W = [-1,-1,1]
+W*A = [0,0,1,3]
+```
+
+The prefix harder rank is two although its pivots arrive in reverse column
+order. In contrast, the earlier example with a tail-only prefix row fails
+admission. A deficient sample is an admission miss, not proof that no rule
+exists. Do not silently drop rows. For a longer frozen trace, use precisely
+the consumed first-hit prefix while retaining complete caller provenance and
+whole-input validity checks.
+
+This certificate can justify a later explicit backend with the **same**
+canonicalization, exception extraction, source trace and uncertified-candidate
+contract as sparse GPLU. It need not repair an existing candidate limitation
+to prove nonregression. In particular, `[x,x]/x=[1,1]` still needs separate
+applicability treatment at `x=0`, exactly as for the ordinary sparse result.
+Strong publication retains its independent original-source/pole checks.
+No wider applicability or closure claim follows from the rank test.
+
+Next implementation must test this admission criterion, complete downstream
+equivalence and explicit misses before public selection; it must never use
+sampled rank as a substitute for the exact full product. Detailed proof and
+source-boundary audit:
+`TMP/source-weight-rank-certificate-independent-audit-2026-09-20.md`.
+
+### Completed private native-algebra diagnostic
+
+The workspace-only diagnostic in `TMP/native-weight-diagnostic.QUFbJz/` now
+passes, including an independent fresh-process repeat. It is **not** integrated
+into RustRed, does not yet implement the rank certificate above, and solves
+no integral family. It uses generic matrix dimensions and native Symbolica
+GPLU, sparse solving, multiplication and rational reconstruction only.
+
+The checks cover explicit L/source/U embeddings with empty and dependent rows,
+nonmonotone pivots, nonunit diagonals, a zero accepted weight, tampering, and a
+different valid witness. For the two-row frame
+
+```text
+A = [[x,1,y], [x,x+2,y+3]]
+W = [-1/(x+1),1/(x+1)]
+W*A = [0,1,3/(x+1)]
+```
+
+native reconstruction finds both weights with 18 probes across two primes
+each. Their 36 oracle calls share 18 modular images. Original and reversed
+variable maps, including an inactive variable, give the same exact full
+product without characteristic-zero GPLU on that reconstruction path. The
+canceled-pole and noncanonical-span counterexamples remain explicit. Native
+reconstruction also succeeds for this tiny zero oracle (10 probes/two primes);
+zero reconstruction is therefore not universally unavailable.
+
+These tiny checks take milliseconds and establish only API composition and
+bookkeeping feasibility—not K6/K15 timings, scaling, or a backend speed ratio.
+Optimized binary SHA256:
+`81145ec0599a2b35c6dfdcd8dde7188329deedc70d1f29eaf2f8d91c77a1a137`.
+The independent `root-replay.*` receipt exits zero with unchanged source and
+binary hashes. Production source admission, aggregate cache accounting and
+public integration remain future work.
