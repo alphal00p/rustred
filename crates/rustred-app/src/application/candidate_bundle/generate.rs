@@ -10,7 +10,7 @@ use crate::application::family_close::progress::{
     FamilyCloseProgress, Observer, emit, generation_stage, sector_mask,
 };
 
-use super::{codec, model::*, preparation};
+use super::{codec, model::*, policy, preparation};
 
 pub fn family_candidates(
     request: FamilyCandidatesRequest,
@@ -92,7 +92,10 @@ fn generate<const N: usize>(
                 numerical_exact_backend: request.exact_backend.numerical_backend(),
                 ..Default::default()
             },
-            SectorSolveOptions::default(),
+            SectorSolveOptions {
+                numerical_depth: request.numerical_depth,
+                ..Default::default()
+            },
             |ordinal, sector, event| {
                 emit(observe, || FamilyCloseProgress::Generating {
                     ordinal,
@@ -121,7 +124,7 @@ fn generate<const N: usize>(
     let bundle = ProgramRecord {
         schema: CANDIDATE_BUNDLE_SCHEMA.into(),
         status: STATUS.into(),
-        solver_policy: SOLVER_POLICY.into(),
+        solver_policy: policy::encode(request.numerical_depth),
         family_source: request.source,
         input_format: request.input_format.as_str().into(),
         family_fingerprint: prepared.family.fingerprint().to_owned(),
@@ -161,6 +164,7 @@ fn generate<const N: usize>(
         finite_residuals: usize,
         workers: usize,
         exact_backend: &'static str,
+        numerical_depth: u32,
         bytes: usize,
         unique_coefficients: usize,
         coefficient_table_bytes: usize,
@@ -183,6 +187,7 @@ fn generate<const N: usize>(
         finite_residuals: solved.iter().map(|(_, s)| s.finite_residuals.len()).sum(),
         workers: request.n_cores,
         exact_backend: request.exact_backend.as_str(),
+        numerical_depth: request.numerical_depth,
         bytes: bytes.len(),
         unique_coefficients: coefficient_count,
         coefficient_table_bytes: coefficients.atoms.len(),

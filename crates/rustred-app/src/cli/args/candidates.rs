@@ -14,6 +14,7 @@ pub(crate) struct FamilyCandidatesArgs {
     pub input_format: InputFormat,
     pub n_cores: usize,
     pub exact_backend: CandidateExactBackend,
+    pub numerical_depth: u32,
     pub progress: bool,
     pub permutation: Option<Vec<usize>>,
     pub nonpositive_indices: Vec<usize>,
@@ -52,6 +53,7 @@ fn parse(
     let mut input_format = None;
     let mut n_cores = None;
     let mut exact_backend = None;
+    let mut numerical_depth = None;
     let mut progress = false;
     let mut permutation = None;
     let mut nonpositive_indices = None;
@@ -121,6 +123,15 @@ fn parse(
                 })?;
                 set_once(&mut exact_backend, "--exact-backend", parsed)?;
             }
+            "--numerical-depth" if !certification => {
+                let value = next_utf8_value(&mut arguments, "--numerical-depth")?;
+                let parsed = value.parse::<u32>().map_err(|_| ArgError::InvalidValue {
+                    option: "--numerical-depth",
+                    value,
+                    expected: "an integer from 0 to 4294967295",
+                })?;
+                set_once(&mut numerical_depth, "--numerical-depth", parsed)?;
+            }
             "--permutation" if !certification => {
                 let value = next_utf8_value(&mut arguments, "--permutation")?;
                 set_once(
@@ -186,6 +197,8 @@ fn parse(
             input_format: input_format.unwrap_or(InputFormat::Auto),
             n_cores: n_cores.unwrap_or(1),
             exact_backend: exact_backend.unwrap_or_default(),
+            numerical_depth: numerical_depth
+                .unwrap_or_else(|| rustred::solver::SectorSolveOptions::default().numerical_depth),
             progress,
             permutation,
             nonpositive_indices: nonpositive_indices.unwrap_or_default(),

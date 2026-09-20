@@ -39,6 +39,55 @@ fn success(arguments: &[&str], input: &[u8]) -> Vec<u8> {
 }
 
 #[test]
+fn numerical_depth_is_explicit_and_validated_before_generation() {
+    let baseline = success(&["family-candidates"], INPUT.as_bytes());
+    assert_eq!(
+        baseline,
+        success(
+            &["family-candidates", "--numerical-depth", "2"],
+            INPUT.as_bytes()
+        )
+    );
+    for depth in ["0", "1"] {
+        let generated = success(
+            &["family-candidates", "--numerical-depth", depth],
+            INPUT.as_bytes(),
+        );
+        let inspection =
+            rustred_app::inspect_generated_candidate_bundle(&generated, Default::default())
+                .unwrap();
+        assert_eq!(inspection.numerical_depth, depth.parse::<u32>().unwrap());
+        let artifact = success(&["certify-candidates"], &generated);
+        success(
+            &["campaign", "reduce", "--artifact", "-", "--powers", "3"],
+            &artifact,
+        );
+    }
+    for args in [
+        vec!["family-candidates", "--numerical-depth", "-1"],
+        vec!["family-candidates", "--numerical-depth", "4294967296"],
+        vec!["family-candidates", "--numerical-depth", "true"],
+        vec![
+            "family-candidates",
+            "--numerical-depth",
+            "0",
+            "--numerical-depth",
+            "0",
+        ],
+        vec!["certify-candidates", "--numerical-depth", "0"],
+    ] {
+        let rejected = run(&args, b"not parsed");
+        assert!(!rejected.status.success());
+        assert!(rejected.stdout.is_empty());
+        assert!(
+            String::from_utf8(rejected.stderr)
+                .unwrap()
+                .contains("--numerical-depth")
+        );
+    }
+}
+
+#[test]
 fn explicit_exact_backends_preserve_small_case_candidate_payload() {
     let sparse = success(&["family-candidates"], INPUT.as_bytes());
     for backend in ["semi-numerical", "sparse-factorized"] {

@@ -10,6 +10,7 @@ mod codec;
 mod generate;
 mod load;
 mod model;
+mod policy;
 pub(super) mod preparation;
 
 pub use certify::certify_candidates;

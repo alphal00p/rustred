@@ -17,6 +17,25 @@ from test_python_api import (
 
 
 class CandidateApiTests(GeneratedProgramAssertions):
+    def test_numerical_depth_is_generic_persisted_and_matches_cli(self) -> None:
+        signature = inspect.signature(rustred.family_candidates)
+        self.assertEqual(signature.parameters["numerical_depth"].default, 2)
+        default = rustred.family_candidates(UNIT_MASS_PROJECT_K1)
+        explicit = rustred.family_candidates(UNIT_MASS_PROJECT_K1, numerical_depth=2)
+        self.assertProgramEqual(default.bundle, explicit.bundle)
+        for depth in [0, 1]:
+            generated = rustred.family_candidates(UNIT_MASS_PROJECT_K1, numerical_depth=depth)
+            self.assertEqual(tomllib.loads(generated.to_toml())["numerical_depth"], depth)
+            self.assertProgramEqual(generated.bundle, cli_bytes(
+                ["family-candidates", "--numerical-depth", str(depth)],
+                UNIT_MASS_PROJECT_K1.encode(),
+            ))
+            closed = rustred.certify_candidates(generated.bundle)
+            self.assertEqual(rustred.reduce_with_closing_artifact(closed.artifact, [3]).status, "reduced")
+        for value in [True, -1, 1 << 32, 1 << 128, 0.5, "0"]:
+            with self.subTest(value=value), self.assertRaises(rustred.RustRedInputError):
+                rustred.family_candidates("not parsed", numerical_depth=value)
+
     def test_exact_backend_selection_and_cli_parity(self) -> None:
         sparse = rustred.family_candidates(UNIT_MASS_PROJECT_K1)
         self.assertEqual(tomllib.loads(sparse.to_toml())["exact_backend"], "sparse")

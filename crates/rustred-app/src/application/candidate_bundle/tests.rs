@@ -10,6 +10,8 @@ use crate::application::{AppErrorKind, FamilyCloseRequest, InputFormat, family_c
 
 use super::{codec, model::*, preparation, *};
 
+mod depth;
+
 const K1: &str = r#"
 schema = "rustred.project.toml.v1"
 [family]

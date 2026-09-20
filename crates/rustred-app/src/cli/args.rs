@@ -364,6 +364,7 @@ FAMILY-CANDIDATES OPTIONS:
     --nonpositive-indices <N,N,...>  Coordinates restricted to nonpositive powers
     --n-cores <COUNT>            Maximum worker cores [default: 1]
     --exact-backend <BACKEND>    sparse, sparse-factorized, or semi-numerical [default: sparse]
+    --numerical-depth <DEPTH>    Search depth for fully fixed cases; zero keeps initial seeds [default: 2]
     --progress                  Also emit plain progress when stderr is redirected
     --force                      Atomically replace existing output files
 

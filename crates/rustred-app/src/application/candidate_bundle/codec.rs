@@ -189,14 +189,12 @@ fn validate_ids(records: &ProgramRecord, count: usize) -> Result<(), AppError> {
 }
 
 fn validate(bundle: &ProgramRecord, limits: CandidateBundleLimits) -> Result<(), AppError> {
-    if bundle.schema != CANDIDATE_BUNDLE_SCHEMA
-        || bundle.status != STATUS
-        || bundle.solver_policy != SOLVER_POLICY
-    {
+    if bundle.schema != CANDIDATE_BUNDLE_SCHEMA || bundle.status != STATUS {
         return Err(AppError::schema(
             "unsupported candidate bundle schema/status/solver policy",
         ));
     }
+    super::policy::numerical_depth(&bundle.solver_policy)?;
     if bundle.family_source.len() > MAX_INPUT_BYTES {
         return Err(AppError::limit(
             "candidate family input exceeds its byte limit",

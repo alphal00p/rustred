@@ -139,6 +139,18 @@ proof budgets. Increasing a budget never certifies an invalid formula.
 Generation supports the generic source solver; certification retains the
 current unit-mass vacuum publication admission.
 
+`--numerical-depth N` controls the signed-L1 search around fully fixed cases
+(default `2`). Zero still searches each unresolved initial seed; it can retain
+more finite residuals without changing symbolic search, guards or exact rule
+checks. It does not claim the retained integrals are independent masters. The
+choice is saved in the bundle's versioned solver policy and reported as
+`numerical_depth`. It is independent of loop count, workers and exact backend:
+
+```console
+rustred family-candidates --input family.toml --numerical-depth 0 \
+  --n-cores 6 --output family.rrcandidate --report-output family.report.toml
+```
+
 `--exact-backend sparse` is the unchanged generation default. The opt-in
 `sparse-factorized` choice uses Symbolica's native factorized-denominator field
 during exact symbolic materialization and the shared numerical-case lift, then

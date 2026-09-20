@@ -18,6 +18,7 @@ pub(super) fn generate(arguments: FamilyCandidatesArgs) -> Result<(), CliError> 
     request.input_format = arguments.input_format;
     request.n_cores = arguments.n_cores;
     request.exact_backend = arguments.exact_backend;
+    request.numerical_depth = arguments.numerical_depth;
     request.permutation = arguments.permutation;
     request.nonpositive_indices = arguments.nonpositive_indices;
     let terminal = std::io::stderr().is_terminal();

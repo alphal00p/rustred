@@ -340,3 +340,14 @@ The Rust sector API exposes the numerical choice independently as
 `SparseFactorized`), preserving ordinary lifting by default. A single native
 Symbolica reducer shares elimination across requested pivots; ordinary exact
 coefficients and their original variable maps are restored before rule creation.
+
+`FamilyCandidatesRequest::numerical_depth`, CLI `--numerical-depth` and Python
+`family_candidates(..., numerical_depth=...)` expose the same existing generic
+finite-case search depth. Default two is unchanged; zero still processes the
+initial seeds and may retain a larger finite nonminimal residual set. It does
+not change the preceding symbolic traversal, exact rule checks or certification.
+The native record layout is unchanged: its versioned solver-policy tag records
+the chosen depth, checked before Symbolica state import. Structural inspection
+and the generation report expose `numerical_depth`. Default-depth policy bytes
+are unchanged; unknown or noncanonical policy tags are rejected. The tag is
+generation metadata, never a replacement for source/guard/coverage evidence.

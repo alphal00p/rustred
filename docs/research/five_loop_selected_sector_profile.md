@@ -369,3 +369,27 @@ measurement. The useful result is that a **generic, existing finite-search
 policy** permits this parent sector to return exact rules and a finite
 nonminimal residual set without searching for additional terminal relations.
 Cold coefficient comparison is not cold rule-owner admission or certification.
+
+## Public finite-case depth control
+
+The existing generic finite-case search bound is now available as
+`FamilyCandidatesRequest::numerical_depth`, CLI `--numerical-depth`, and Python
+`family_candidates(..., numerical_depth=...)`. The default remains two, and
+zero still searches initial fixed seeds. It neither disables exact lifting nor
+asserts that retained finite residuals are independent masters. No production
+algorithm is selected by loop count or topology name.
+
+The default policy tag and native program layout remain unchanged. Nondefault
+depths have canonical policy metadata; malformed tags are rejected before
+native State import. Generation reports and cold inspection expose the chosen
+depth. Release validation passes 94 application unit tests, 68 integration
+tests and 36 Python tests using a freshly built CLI and extension. Shared
+fixtures check same-depth ordinary/factorized arithmetic and one/two-worker
+results, exact cold coefficient maps, defaults, policy admission and public
+input errors. An independent implementation/mathematical audit finds no blocker.
+
+Evidence: `TMP/numerical-depth-api-release-*.log` and
+`TMP/numerical-depth-public-interface-audit.md`. Compilation is excluded from
+all solver timings above. This public API milestone is not a new five-loop
+solve; the next run supplies the unchanged physical-family input through the
+CLI, rather than recompiling a fixture-specific diagnostic client.

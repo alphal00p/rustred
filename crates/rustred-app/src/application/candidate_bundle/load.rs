@@ -30,11 +30,13 @@ pub fn inspect_generated_candidate_bundle(
     if unique_coefficients > input_limits.max_collection_entries {
         return Err(AppError::limit("coefficient count exceeds input limit"));
     }
+    let numerical_depth = super::policy::numerical_depth(&record.solver_policy)?;
     Ok(CandidateBundleInspection {
         schema: record.schema,
         status: record.status,
         family_fingerprint: record.family_fingerprint,
         arity: record.root_sector.len(),
+        numerical_depth,
         solved_sectors: record.sectors.len(),
         generated_rules: record.sectors.iter().map(|s| s.rules.len()).sum(),
         finite_residuals: record

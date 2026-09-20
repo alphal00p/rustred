@@ -158,7 +158,16 @@ direct rules may not invoke the selected exact materialization backend.
 The result of successful certification is the usual
 `ClosingArtifactGenerationResult`. A modified, incomplete or inadmissible
 bundle raises an exception; it cannot grant itself closure authority.
-Generation accepts `input_format`, `n_cores`, `exact_backend`, `permutation`, and
+`numerical_depth=2` is the default signed-L1 search depth around fully fixed
+cases. Use `numerical_depth=0` to search only their initial seeds and potentially
+retain more finite residuals. Symbolic search and exact rule checks are unchanged;
+this never proves residual independence or family closure. The value is saved
+in the native bundle's versioned generation policy and appears in `to_toml()`.
+It is independent of worker count and arithmetic backend, and rejects negative,
+boolean, noninteger and larger-than-u32 values before generation.
+
+Generation accepts `input_format`, `n_cores`, `exact_backend`,
+`numerical_depth`, `permutation`, and
 `nonpositive_indices`. Certification keeps the existing unit-mass vacuum
 publication admission and accepts these optional caller resource limits:
 

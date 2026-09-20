@@ -5,9 +5,9 @@ use pyo3::types::PyBytes;
 use rustred_app::{CandidateCertificationRequest, FamilyCandidatesRequest};
 
 use crate::{
-    PyClosingArtifactGenerationResult, PythonInteger, RustRedLimitError, apply_resource_limits,
-    bounded_owned_input, execute, map_app_error, map_coordinator_error, nonnegative_usize,
-    parse_input_format, positive_core_count,
+    PyClosingArtifactGenerationResult, PythonInteger, RustRedInputError, RustRedLimitError,
+    apply_resource_limits, bounded_owned_input, execute, map_app_error, map_coordinator_error,
+    nonnegative_usize, parse_input_format, positive_core_count,
 };
 
 #[pyclass(frozen, module = "rustred", name = "CandidateBundleResult")]
@@ -49,10 +49,12 @@ impl PyCandidateBundleResult {
 /// observational metadata, not the program's coefficient payload.
 /// exact_backend selects "sparse" (default), "sparse-factorized" (native
 /// factorized denominators during exact lifting), or "semi-numerical".
+/// numerical_depth bounds only fully fixed case searches. Zero still searches
+/// their initial seeds; finite residuals need not be independent masters.
 #[pyfunction]
 #[pyo3(
-    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse"),
-    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse')"
+    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse", numerical_depth=PythonInteger(2)),
+    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse', numerical_depth=2)"
 )]
 fn family_candidates(
     py: Python<'_>,
@@ -62,11 +64,15 @@ fn family_candidates(
     permutation: Option<Vec<PythonInteger>>,
     nonpositive_indices: Option<Vec<PythonInteger>>,
     exact_backend: &str,
+    numerical_depth: PythonInteger,
 ) -> PyResult<PyCandidateBundleResult> {
     let mut request =
         FamilyCandidatesRequest::new(bounded_owned_input("candidate family input", source)?);
     request.input_format = parse_input_format(input_format)?;
     request.exact_backend = exact_backend.parse().map_err(map_app_error)?;
+    request.numerical_depth = u32::try_from(numerical_depth.0).map_err(|_| {
+        RustRedInputError::new_err("numerical_depth must be an integer from 0 to 4294967295")
+    })?;
     request.n_cores = positive_core_count("family candidates n_cores", n_cores.0)?;
     request.permutation = permutation
         .map(|values| indices("permutation", values))

@@ -172,9 +172,11 @@ now has 74 positive output representatives (H22, FG16, BMW17, X19), with all
 in export and fresh-context cold replay. All 84 momentum generators and complete
 affine identities were independently rechecked. Four sidecars total 30,795
 bytes; original programs/catalogs remain unchanged. The generic core release
-and native corpus gates pass, but the pinned Vakint rollout and its full
-83+15+16 numerical suite and matched benchmark are still pending. Thus 74 is
-not yet the shipped validated Vakint convention, and neither this finite
+and native corpus gates pass. The pinned Vakint rollout now also passes all
+83 lower-loop checks, 15 original four-loop comparisons, 16 pinch comparisons,
+11 focused checks and three fixture checks, together with all 54 matched
+benchmark comparisons. Independent final review and the GammaLoop commit/push
+are pending; 74 is not yet the remotely shipped Vakint convention. Neither this finite
 normalization nor the preceding aliases establish candidate closure.
 The bounded native Symbolica
 [factorized-denominator experiment](docs/research/factorized_coefficients.md)
@@ -296,10 +298,15 @@ earlier depth-two searches time out while seeking additional finite relations;
 do not convert these different workloads into a field-speed ratio. Details
 and exact boundaries are in the
 [selected-sector report](docs/research/five_loop_selected_sector_profile.md).
-Next expose this existing search-depth input consistently in Rust, CLI and
-Python, recording the chosen policy while preserving current defaults; then
-attempt the remaining physical-family sectors and cold application gates.
-No family-specific rule or loop-count dispatch may be introduced for this.
+The existing search-depth input is now exposed consistently in Rust, CLI and
+Python, with an independently audited implementation and passing release gates:
+94 application unit tests, 68 integration tests and 36 Python tests. Default
+depth two and the default saved policy are unchanged; nondefault depths are
+recorded canonically and admitted before native State decoding. This changes
+neither the core search algorithm nor its exact authority gates. A frozen,
+six-worker full physical-family CLI campaign at depth zero is prepared next,
+followed by cold application gates if a complete bundle is written. No
+family-specific rule or loop-count dispatch is introduced for this.
 
 The reconstruction backend still includes internal exact sparse replay; this
 is distinct from optional family certification. New diagnostic observer
