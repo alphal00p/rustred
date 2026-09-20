@@ -100,9 +100,11 @@ rules before a large chart extension, and label any power-bounded fallback
 explicitly rather than promoting it to unrestricted closure. See the
 [measured reconstruction study](docs/research/reconstruction_exact_validation.md).
 Subsequent ordering probes distinguish a genuine infinite exceptional conic
-from a different ordering's provably empty quadratic branch. A generic native
-exact definite-quadratic emptiness service is the next implementation slice;
-its release gate and selected-sector rerun must precede any completion claim.
+from a different ordering's provably empty quadratic branch. The generic native
+exact definite-quadratic emptiness service now passes 46 focused release tests
+and the full core suite (2,325 passed, 32 existing ignored, zero failures), with
+an independent mathematical audit. The selected-sector rerun remains pending;
+removing this one branch is not a completion claim.
 The reversed ordering instead exhausts a five-minute pilot in exact algebra.
 None of these connected-sector probes is a completed five-loop family.
 

@@ -7,7 +7,7 @@ use crate::algebra::CoefficientPolynomial;
 use super::super::Case;
 use super::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
-    CaseIntersectionResult, CaseIntersectionStats, native,
+    CaseIntersectionResult, CaseIntersectionStats, definite_quadratic, native,
 };
 
 /// Ancestry is shared by siblings. A repeated state along one refinement path
@@ -263,6 +263,21 @@ impl<const N: usize> Engine<'_, N> {
                         ancestry: self.current.ancestry.clone(),
                     });
                 }
+                return Ok(());
+            }
+            // An impossible equation empties this AND branch, not its pending
+            // OR siblings. Only an exact, parameter-free definite-quadratic
+            // certificate is admitted; all other nonlinear loci stay unknown.
+            // This new cold proof has no separate stats clock; the enclosing
+            // sector geometry/solve elapsed time still includes its work.
+            if self.current.equations.iter().any(|equation| {
+                definite_quadratic::proves_empty(
+                    &self.current.parent,
+                    equation,
+                    self.indices,
+                    self.sector,
+                )
+            }) {
                 return Ok(());
             }
             return Err(CaseIntersectionFailure::UnsupportedGeometry);

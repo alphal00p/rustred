@@ -617,9 +617,10 @@ priorities hits a 300-second deadline in exact materialization (611 rows,
 support reaches a different unsupported branch in 172.844 seconds of solver
 time, using about 369 MiB. Its quadratic is an exact sum of squares whose only
 zero violates the sector signs: that branch is **empty**, unlike the genuine
-infinite conic above. This motivates a small generic exact emptiness service,
-currently undergoing implementation and independent audit, followed by the
-same selected-sector rerun. Neither ordering has yet completed the sector.
+infinite conic above. The resulting generic exact emptiness service passes
+46 focused release tests and the full core suite (2,325 passed, 32 existing
+ignored), plus independent mathematical review. The selected-sector rerun is
+still pending; neither ordering has yet completed the sector.
 The [geometry study](tide_exceptional_geometry.md) gives the full polynomials,
 permutations, timing boundaries and limitations of the reference SpIRed's
 finite-power nonlinear fallback.

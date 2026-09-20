@@ -367,6 +367,88 @@ fn admission_rejects_parameter_or_mismatched_index_maps_even_for_zero_work() {
 }
 
 #[test]
+fn definite_quadratic_discards_only_its_impossible_or_branch() {
+    let context = CoefficientContext::new(["a", "b"]);
+    let result = Case::<2>::generic()
+        .intersect_many(
+            &equations(&context, &["(a-1)*(a^2+b^2+1)"]),
+            &[0, 1],
+            &[true, false],
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        result.cases,
+        vec![CoordinateCase::new([Some(1), None]).unwrap().into()]
+    );
+    assert_eq!(result.stats.factor_children, 2);
+}
+
+#[test]
+fn admissible_zero_minimum_and_indefinite_quadratic_still_fail_closed() {
+    let context = CoefficientContext::new(["a", "b"]);
+    for input in ["(a-1)^2+(b-1)^2", "a^2-b^2+1"] {
+        let conjunction = equations(&context, &[input]);
+        let error = Case::<2>::generic()
+            .intersect_many(&conjunction, &[0, 1], &[true; 2], Default::default())
+            .unwrap_err();
+        assert_eq!(error.failure, CaseIntersectionFailure::UnsupportedGeometry);
+        assert_eq!(error.original_conjunction.as_ref(), conjunction);
+    }
+}
+
+#[test]
+fn q_first_tide_affine_parent_has_no_sector_integer_point_after_quadratic_guard() {
+    // The 16 coefficient variables are (d,n0,...,n14): polynomial position
+    // 11 denotes n10, not n11. This test uses the captured original guard,
+    // not only the already restricted and sign-normalized residual.
+    let names = ["d".to_owned()]
+        .into_iter()
+        .chain((0..15).map(|axis| format!("n{axis}")))
+        .collect::<Vec<_>>();
+    let context = CoefficientContext::new(names.iter().map(String::as_str));
+    let indices = std::array::from_fn(|axis| axis + 1);
+    let sector = std::array::from_fn(|axis| b"111000000001110"[axis] == b'1');
+    let face: Case<15> = CoordinateCase::new([
+        Some(2),
+        Some(1),
+        Some(1),
+        None,
+        Some(0),
+        Some(0),
+        Some(0),
+        None,
+        Some(0),
+        Some(0),
+        None,
+        Some(1),
+        Some(1),
+        Some(1),
+        None,
+    ])
+    .unwrap()
+    .into();
+    let parent = face
+        .intersect(&equations(&context, &["3-n10-n7+2*n3"]), &indices, &sector)
+        .unwrap()
+        .unwrap();
+    assert!(parent.affine().is_some());
+    let result = parent
+        .intersect_many(
+            &equations(
+                &context,
+                &["9-3*n10-n10^2-4*n7+n7*n10+14*n3-2*n3*n10-4*n3*n7+5*n3^2"],
+            ),
+            &indices,
+            &sector,
+            Default::default(),
+        )
+        .unwrap();
+    assert!(result.cases.is_empty());
+    assert_eq!(result.stats.factorizations, 1);
+}
+
+#[test]
 fn actual_fam112_conjunction_splits_after_its_fixed_coordinate_is_absorbed() {
     // Captured sector 111100001010111; indices are not the variable-map prefix.
     let names = ["d".to_owned(), "x".to_owned()]

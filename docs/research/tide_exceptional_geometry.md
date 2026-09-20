@@ -161,6 +161,16 @@ are attempted per checked equation; larger supports return unknown. The
 existing geometry subtime counters do not separately time this narrow proof,
 but the enclosing sector solve time includes it.
 
+The frozen release gate `TMP/definite-quadratic-gate.k9FOXi/` passes its compile
+check, all **46** focused intersection tests, and the full core suite:
+**2,325 passed, 32 existing ignored, zero failed**, with 171.87 seconds of
+full-suite runtime. Nine added adversarial tests come from an independent
+auditor. All frozen source/manifest hashes remain unchanged through the gate.
+The independent proof/API audit is
+`TMP/definite-quadratic-independent-audit-2026-09-20.md`.
+These tests include the exact captured Q-first parent and guard; they do not
+replace a fresh selected-sector solve or assert that its later cases close.
+
 ## Narrow next steps
 
 1. Run the prepared native integer-domain probe when a reusable compiled
@@ -220,35 +230,13 @@ different guard, but cannot substitute for traversing its exceptional cases.
 The priorities above come from the observed polynomial supports, not a
 topology-name strategy or borrowed reduction relations.
 
-#### The Q-first branch is empty, unlike the natural-order conic
-
-Its exact error contains the affine equality and residual equation
-
-```text
-3 - n10 - n7 + 2*n3 = 0,
-Q = 3 + 2*n10 + 3*n10^2 - 6*n7 - 2*n7*n10 + 3*n7^2 = 0.
-```
-
-The exact identity
-
-```text
-Q = 2*n10^2 + 2*(n7-1)^2 + (n10-n7+1)^2
-```
-
-proves that its only real zero requires `n10=0,n7=1`, whereas this sector
-requires `n7<=0`. Thus this entire exceptional branch is empty, already over
-the real sector domain. Independent checks use the original logged conjunction
-and physical-index map, not just a reformatted expression. This is a limitation
-of the current conservative geometry service, not a missing IBP or a new master.
-
-A generic exact definite-quadratic emptiness test is being implemented using
-Symbolica's polynomial differentiation, rational arithmetic, determinants and
-linear solve. It must reject parameter-dependent, singular or indefinite
-forms it cannot decide, and preserve the existing fail-closed outcome for
-unknown geometry. No topology-specific polynomial is admitted in production.
-The service and the subsequent full selected-sector rerun are still pending
-their release and independent audit gates; removing this one obstruction does
-not prove that later cases close.
+The Q-first failure is the empty domain proved above, not a missing IBP or a
+new master. The exact trace still had 68 queued cases at case 193; exceptions
+can create more, so that queue length is not a fixed completion denominator.
+After the release-tested correction, the next pilot will traverse the same
+physical root and its pinches through the public CLI, with completed-sector
+checkpoints and a bounded initial time/memory allocation. That full-downset
+workload is different from the selected-sector timings in this table.
 
 #### What a reference SpIRed run can and cannot settle
 
