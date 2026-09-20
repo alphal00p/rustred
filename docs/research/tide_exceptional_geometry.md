@@ -171,6 +171,187 @@ The independent proof/API audit is
 These tests include the exact captured Q-first parent and guard; they do not
 replace a fresh selected-sector solve or assert that its later cases close.
 
+### Fresh public-CLI retry: a second empty factor branch, still case 193
+
+The frozen release CLI with the first quadratic fix and independent progress
+monitor was run on the complete downset of physical sector 28686 (internal
+14343): seven nonzero jobs, sparse exact, Q-first ordering, numerical depth
+zero, one CPU, an 8 GiB address-space cap and an initial 900-second deadline.
+The preliminary K1/K3 candidate controls passed. Evidence is retained in
+`TMP/tide-qfirst-public-pilot.lcnStQ/`; the binary is frozen under
+`TMP/family-heartbeat-qualified-gate.Q1pFqz/`.
+
+The parent still failed at **case 193**, with 192 prior observed rules. Removing
+one empty exceptional branch did not finish all its siblings. The next
+reported native Gröbner conjunction includes, with `x=n10`, `w=n14`, `y=n7`,
+
+```text
+25*w^2 - 100*x*w + 102*x^2 = 0,
+102 - 25*w^2 + 68*x + 100*x*w - 204*y - 68*x*y + 102*y^2 = 0.
+```
+
+The first is `(5*w-10*x)^2+2*x^2=0`, so it forces `x=w=0` over the reals.
+The second then forces `102*(y-1)^2=0`. Since `n7` is inactive, `y<=0`:
+this normalized factor branch is empty. An independent audit checked this
+deduction. It must not be extended to the **whole original conjunction**:
+normalization and factor splitting leave other OR children. The corrected
+regression analysis below exhibits exact witnesses on another child.
+
+The initial helper checks each definite quadratic for an **excluded** minimum.
+It cannot propagate an admissible zero-minimum point into the remaining
+equations. The new extension, still undergoing its release gate, uses the exact equivalence
+`q=0 <=> gradient(q)=0` for a definite quadratic whose minimum is exactly zero,
+then invokes the existing affine admission and chart-restriction service on
+the whole conjunction. This must preserve other free coordinates, all AND
+equations and every OR sibling, with strict refinement and existing budgets.
+It does not apply to the natural ordering's indefinite infinite conic.
+
+#### New propagation gate: sound branch refinement, incorrect test expectation
+
+The first gate for this extension (`TMP/quadratic-propagation-gate.mWqql1/`)
+passed the release compile check, then **52 focused tests passed and one
+failed**. The failure was an overly broad test expectation that the original
+two cubic/quadratic equations had no admissible solutions. Exact substitution
+of `n3=-1`, `n10=n14=0`, and any inactive `n7<=0` disproves that expectation.
+The production routine correctly failed closed on an unresolved sibling;
+it did not publish a false empty-locus certificate. The corrected regression
+checks exact witnesses and atomic unsupported-geometry failure in both input
+orders. The corrected gate remains pending. Full core tests and a new CLI
+build were not reached by the failed gate.
+
+As a separate diagnostic, the exact already-built test executable was then
+run across the rest of the library with **only that incorrect regression
+explicitly filtered out**: 2,331 passed, 32 existing ignored, zero failures,
+one filtered, 167.57 seconds test runtime. This supports the branch-refinement
+implementation but is not a passing full gate or execution of the corrected
+test. Receipts: `TMP/propagation-existing-binary-controls.PytAS8/`.
+
+After the empty child is removed, the remaining child has
+`n3=-1-n14+2*n10`. Set `a=-n10`, `b=-n14`, `c=-n7`; the exact residual becomes
+
+```text
+(7*a-4*b)*(c+1) = 15*a^2-18*a*b+5*b^2,
+a,b,c >= 0, b <= 2*a+1.
+```
+
+It is not empty or a finite collection of affine faces. For every integer
+`t>=1`, `a=b=3*t`, `c=2*t-1` gives an admissible ray, or in original indices
+`(n3,n7,n10,n14)=(-3*t-1,1-2*t,-3*t,-3*t)`. More generally, for
+`0<m<=n` and integer `t>=1`, put
+
+```text
+D = 7*n-4*m,
+a = t*n*D, b = t*m*D,
+c+1 = t*(15*n^2-18*m*n+5*m^2).
+```
+
+These obey the full sector inequalities and equation; distinct rational
+ratios `m/n` give infinitely many conic directions. With `w=c+1`, the doubled
+homogeneous matrix has determinant 38 and rank three, ruling out a product
+of linear factors. The earlier empty-branch proof remains valid, but cannot
+make this sibling disappear. This strengthens the reason to test alternative
+exact rules/source visitation rather than repeatedly extending an emptiness
+test to nonempty domains.
+
+The executor continued its pinches after the parent error. Internal sector
+14342 completed with **206 rules and four finite residuals**, saved as a
+20,336,506-byte checkpoint. In sector 14341, case 130 reached a 547-row,
+1,903-column exact frame with five active variables; its last row consumed
+several minutes and memory continued growing. Root stopped the pilot
+adaptively because the already-failed parent prevented a complete output.
+The final receipt is **534.51 s wall**, **530.04 s CPU**, **2,391,020 KiB peak
+RSS**, shell status **143/SIGTERM**. This is an interruption, not expiry of the
+900-second deadline, memory exhaustion or completed-family timing.
+
+There was late progress before termination: exact elimination reached
+canonicalization at elapsed 531.7 s. Thus it is wrong to describe that row as
+never returning. The second sector did not finish; no assembled candidate
+bundle or closing artifact was written. The single completed checkpoint is
+preserved. These measurements cover preparation and several downset jobs and
+must not be compared as a speed ratio with the earlier selected-sector core
+timings. The monitor provides bounded snapshots, not a full event journal;
+coalesced events do not permit an exact aggregate phase-time decomposition.
+
+### Narrowed original-SpIRed oracle
+
+An input-driven, workspace-only adapter invokes the unchanged original C++
+`family::init`, `generateIBPs(true)`, ordering lookup and public `solveSector`.
+Before execution, a native RustRed exporter checked every supplied momentum
+row against the lowered family and wrote exactly **5,566** unique proved-zero
+masks. The family fingerprint, physical sector bits and Q-first permutation
+match the Rust diagnostic. Preparation is not included in C++ solver timing.
+
+The original optimized C++ selected-sector process was pinned to one CPU,
+with numerical depth zero, an 8 GiB address-space ceiling and a 900-second
+pilot deadline. It **timed out without returning a sector result or writing
+rules**: 900.02 s process wall, 893.82 s user plus 5.10 s system CPU,
+144,000 KiB peak RSS, exit 124. Its output directory is empty. External
+resource observations show continuing CPU activity and modest memory use;
+the release solver supplied no per-case trace, so they establish neither
+which case it reached nor a completion forecast. No larger run was admitted.
+Receipts are in `TMP/tide-spired-zero-oracle-prep.20260920/`.
+
+This is not a speed comparison: Rust's public CLI attempted the whole
+downset, whereas this C++ adapter attempted only its parent, and neither
+produced a completed parent result. Further, original SpIRed's nonlinear
+fallback enumerates each involved coordinate only through its default power
+range 30; even a future completed reference solve would not establish
+unrestricted parametric closure. The reference remains useful for narrower
+case/rule investigations, but this run has not supplied a missing relation.
+
+#### Completed isolated natural-order case
+
+The next narrower adapter calls the original `rowReduce` and `solveCase` on
+the exact natural-order parent `[1,1,1,*,*,0,0,*,*,0,*,1,1,1,0]`, with the same
+25 ordinary sources and audited 5,566-mask zero census. It does not invoke
+`solveSector`, nonlinear `linearize`, or a finite-power scan. The original
+C++ solver and library are unchanged. The adapter only exports the returned
+conditional rule, physical integral keys, raw exact numerator/denominator
+coefficients, and all exceptional OR branches.
+
+The optimized one-CPU run **completed with exit zero**:
+
+| Boundary / result | Measurement |
+| --- | ---: |
+| Preparation | 0.022805 s |
+| Preconditioning | 0.002337 s |
+| `solveCase`, including guard extraction | 52.063474 s |
+| Preconditioning plus case/guards | 52.065811 s |
+| Process wall / CPU | 52.17 s / 52.05 s |
+| Peak RSS | 103,860 KiB |
+| RHS terms / exceptional OR branches | 781 / 7 |
+| Formally non-descending RHS terms | 0 |
+
+Its fifth exceptional branch, under the explicit map `Cpp n_i -> Rust n_(i-1)`,
+is **exactly the same two affine equations and indefinite Q** displayed at
+the start of this note. This is direct evidence that the obstruction is not
+unique to RustRed. C++'s seven branches and Rust's three raw guard branches
+use different intermediate nonlinear decompositions; counts alone neither
+prove nor disprove equivalent bad loci.
+
+The subsequent independent native Symbolica comparison **passes all 781
+coefficients and physical RHS keys**, with no missing keys, no nonzero exact
+differences and no nonproportional denominators. It decodes the Rust binary
+coefficient catalog, checks family identity, joins physical rather than
+ordinal integral keys, and applies a bijective simultaneous symbol map.
+Each equality is checked by native rational normal form and by a full exact
+polynomial cross-product. Every raw C++ denominator divided by its Rust
+canonical counterpart is a nonzero constant, preserving the coefficient
+pole loci rather than merely comparing numerical samples. It also checks
+the physical target key and inverse symbol-map round trips. The checker
+uses only native Symbolica CAS operations; its internal runtime is 1.306 s,
+not part of either solver timing. Results are retained under
+`coefficient-comparison/` in the oracle directory. This proves the conditional
+formula match, not equality of the complete seven-versus-three guard
+decompositions or whole-sector closure.
+
+The saved Rust isolated case returned 781 terms with 20.3059412 seconds core
+and 0.0112739 seconds guard extraction outside that core boundary. This older
+frozen-binary measurement is not a paired, reproduced speed comparison with
+the new C++ run. Neither isolated result is a completed sector or a closing
+five-loop artifact. Receipts, exact exports and independent audit are in
+`TMP/tide-spired-isolated-case-prep.20260920/`.
+
 ## Narrow next steps
 
 1. Run the prepared native integer-domain probe when a reusable compiled
@@ -204,16 +385,20 @@ the denominator definitions or physical integral keys:
 | Residual-Q support, then affine pivots | `7,8,10,3,4,0,1,2,5,6,9,11,12,13,14` |
 | Affine pivots, then residual-Q support | `3,4,7,8,10,0,1,2,5,6,9,11,12,13,14` |
 
-The first two probes have now run, with sparse arithmetic, one pinned worker,
-numerical depth zero and a 300-second external deadline. The third remains
-unrun. Receipts and an independent audit are retained in
-`TMP/source-weight-lru-comparison.xSY9i1/`.
+The first two probes reached search with sparse arithmetic, one pinned worker,
+numerical depth zero and a 300-second external deadline. A later third probe
+using the same frozen binary exhausted that process deadline during family
+preparation, before search. It therefore supplies no ordering verdict.
+Receipts and an independent audit for the first pair are retained in
+`TMP/source-weight-lru-comparison.xSY9i1/`; the third receipt is in
+`TMP/tide-affine-first-pilot.SJ3wBI/`.
 
 | Ordering | Solver core to return | Process wall | Peak RSS | Result |
 | --- | ---: | ---: | ---: | --- |
 | Natural (earlier frozen binary) | 81.514 s | 89.18 s | 199.9 MiB | Case 195: genuine nonlinear domain |
 | Reverse | No return | 300.15 s | 1,610.4 MiB | External deadline; case 177 exact frame unfinished |
 | Q support first | 172.844 s | 179.29 s | 369.0 MiB | Case 193: unsupported but provably empty domain |
+| Affine support first (later preparation-censored probe) | Not entered | 309.48 s | 68.4 MiB | External deadline before preparation completed; no solver event |
 
 These are **not completed-sector timings** and cannot establish a winning
 ordering or speed ratio. Reverse and Q-first overlapped on separate pinned
@@ -221,6 +406,12 @@ cores of the shared host; the earlier natural binary differs in source-weight
 caching, not in the sparse path used here. Reverse reached a 611-row,
 2,383-column exact frame; Q-first completed all 102 materializations before
 its geometry error, with 148.810 seconds in completed exact intervals.
+The later affine-first probe produced only the event-file header, no source/
+zero-census completion summary or rule output. Its 303.41 s user plus 5.98 s
+system CPU does not establish which preparation substage dominated. Do not
+attribute this setup-only timeout to its ordering; that remains untested in
+the actual search. Reuse input-bound prepared data and separate setup/core
+budgets before repeating the ordering comparison.
 
 Changing the permutation can change the case queue: getting past ordinal 195
 is not itself completion. Nor can rules
@@ -275,3 +466,85 @@ not every specialized rank. Simply permuting the 25 input IBPs is not a
 controlled change because preconditioning sorts them. Any source-subset
 experiment must preserve source conditions, original-row provenance and exact
 replay; success on a subset alone is not a new coverage proof.
+
+## Input-only scalar-product coordinates: bounded diagnostic
+
+The connected six-line representative also admits the unit-Jacobian routing
+`p=(k1,k2,-k3,k3-k5,-k4+k5)`, with determinant +1, into the five-loop banana
+presentation. Its physical denominators are `D_i=p_i^2-1` for `i=1,...,5`
+and `D_6=(sum p_i)^2-1`. Keeping these six denominators unchanged, a separate
+external input replaces nine inactive pair-square auxiliaries with pure
+scalar products `S_ij=sp(p_i,p_j)`, omitting `S_45`. The exact identities are
+
+```text
+(p_i+p_j)^2-1 = D_i+D_j+1+2*S_ij
+S_45 = (D_6-sum(D_1,...,D_5)-4)/2-sum(other nine S_ij).
+```
+
+This is an input-basis experiment, not a topology-dependent engine change.
+The full auxiliary-sector zero census must be recomputed; positive powers of
+these new auxiliaries describe different formal sectors. It returns 20,065
+proved-zero masks out of 32,768, rather than the TIDE presentation's 5,566.
+Concrete polynomial numerators can be transported exactly between bases, but
+arbitrary symbolic negative powers cannot be relabeled by a fixed-size key
+map. Rule counts or raw coefficients across presentations are therefore not
+direct equality tests.
+
+Three one-worker, release, old-binary probes used an 8 GiB address-space
+ceiling and nominal 180-second process deadline. They predate the new
+quadratic propagation and do not validate it. Actual terminal receipts are:
+
+| Backend | Workload | Process wall | Preparation | Peak RSS | Outcome |
+| --- | --- | ---: | ---: | ---: | --- |
+| Sparse exact | Entire selected parent | 188.78 s | 4.170 s | 156,732 KiB | Timeout; 134 preceding rules, case 135 unfinished |
+| Factorized exact | Isolated case 135 | 187.20 s | 125.837 s | 21,540 KiB | Timeout during discovery; exact algebra not started |
+| Source-weight reconstruction | Same isolated case | 189.74 s | 65.364 s | 33,904 KiB | Timeout during reconstruction; no returned rule |
+
+The isolated face is `[1,1,1,1,1,1,*,*,*,0,0,*,*,0,*]`, without additional
+affine equations. Sparse and source-weight runs expose a 550-row, 2,041-column
+frame with seven active variables. No completed candidate or sector output
+exists. In particular the factorized result says nothing about the cost of
+factorized exact algebra, because that stage was not reached.
+
+The unexplained preparation variance consumed unequal fractions of the
+process deadlines. These are censored diagnostics, **not a backend speed
+comparison or evidence of successful closure**. The next controlled
+comparison must reuse identical prepared data or give each solver the same
+core-time budget, with a separate process safety ceiling. Preserve both
+preparation and core timings; do not remove initialization costs from the
+logical-cold workload. Receipts and independent audits remain in
+`TMP/banana-dot-isp-baseline.bVIpL9/`,
+`TMP/banana-dot-isp-factorized.RRPLRG/`,
+`TMP/banana-dot-isp-weights.5o0P68/` and
+`TMP/five-loop-sector-local-isp-audit-2026-09-20.md`.
+
+### Preparation-only native profile and reuse
+
+A separate sampled rerun of the **unchanged native preparation exporter**
+completed on one pinned CPU in 15.11 s wall, 14.58 s user plus 0.20 s system,
+with 63,368 KiB peak RSS. Its zero list and family manifest are byte-identical
+to the earlier 4.62-second export. It performed preparation only, not IBP
+search. The profile has 240 user-cycle samples, zero reported lost samples:
+about 40% is attributed to `Analyzer::analyze`, 35% to Symbolica/Numerica's
+native finite-field `Matrix::partial_row_reduce`, and 5% to RustRed's modular
+full-column-rank adapter. These are coarse sampled symbol attributions, not
+exact phase durations; inlining and sampling overhead matter. The original
+predicate and native matrix implementation were not changed. Receipts:
+`TMP/tide-preparation-profile.IdhCGM/`.
+
+This completed control does not explain the much longer censored preparation
+in the other binary and does not establish a backend speed ratio. A trusted
+workspace-only comparison loader now allows reuse of the already generated
+global zero census for the *identical* family. It checks the freshly lowered
+fingerprint, arity and loop count, strict binary row framing, unique ascending
+bit-i order and count; run scripts pin the audited native producer output.
+Four standalone optimized parser tests and independent source review pass.
+This is not a new production format or a proof checker for untrusted zeros.
+The selected-parent executable using it is still awaiting its build and run.
+
+Report native preparation, prepared-data loading and solver-core time
+separately. Reusing the census is appropriate for repeated solver/ordering
+experiments, but does not make the original preparation disappear from a
+logical-cold end-to-end benchmark. No mathematics, rule or search result is
+cached by this diagnostic loader. It must reject the different pure-ISP
+presentation rather than reuse the TIDE zero set there.

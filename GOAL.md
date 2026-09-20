@@ -103,10 +103,30 @@ Subsequent ordering probes distinguish a genuine infinite exceptional conic
 from a different ordering's provably empty quadratic branch. The generic native
 exact definite-quadratic emptiness service now passes 46 focused release tests
 and the full core suite (2,325 passed, 32 existing ignored, zero failures), with
-an independent mathematical audit. The selected-sector rerun remains pending;
-removing this one branch is not a completion claim.
+an independent mathematical audit. The fresh public-CLI downset retry still
+fails at case 193 on another provably empty factor branch: a definite quadratic
+forces two indices to zero, exposing an incompatible positive inactive index
+in a companion equation. Generic zero-minimum constraint propagation now
+handles that branch through existing native affine admission. Its first new
+release gate exposed an incorrect regression expectation: the **whole original
+conjunction is not empty**, and retains a different indefinite nonlinear
+sibling. Exact admissible witnesses require preserving that sibling. Correct
+the regression and rerun the gate before publication; removing one empty
+factor branch is not a completion claim or a cure for the remaining conic.
 The reversed ordering instead exhausts a five-minute pilot in exact algebra.
 None of these connected-sector probes is a completed five-loop family.
+
+A narrowed original-SpIRed natural-order case now **returns** in 52.066 seconds
+including preconditioning and guard extraction (52.17 seconds process wall,
+103,860 KiB peak RSS). It produces 781 RHS terms and seven exceptional branches;
+one is exactly the same indefinite conic found by RustRed. This run deliberately
+does not invoke the reference's finite-power fallback. Thus it supplies an
+independent conditional-rule/geometry oracle, not whole-sector closure. A native
+Symbolica comparison now matches all 781 physical RHS keys and exact rational
+coefficients, with proportional nonzero-constant raw denominator ratios. This
+confirms that conditional formula, not closure of its exceptional branches.
+Investigate alternative source visitation after preconditioning, as well as
+integral ordering, without discarding any genuine exceptional branch.
 
 The independent live monitor is now release-validated: 32 focused progress
 checks, all 141 application-library tests, and 21 candidate/family-close CLI
@@ -117,8 +137,12 @@ observed algebra work, and Linux process RSS/high-water memory. Presentation
 does not block solver callbacks on output. It is not a full event journal,
 CPU/active-worker meter or process-tree resource supervisor; those remaining
 long-campaign admission requirements must not be assumed implemented. See
-[the monitor contract](docs/CLI.md). The frozen release CLI is being used for
-a fresh, checkpointed, one-worker Q-first physical-sector downset pilot.
+[the monitor contract](docs/CLI.md). The fresh one-worker Q-first downset pilot
+preserved one completed pinch checkpoint (206 rules, four residuals), then was
+adaptively interrupted at 534.51 seconds / 2,391,020 KiB peak RSS after the
+parent error and a costly pinched-sector exact frame. No completed connected
+five-loop bundle resulted. The exact row did reach canonicalization just
+before termination; this is not a 900-second timeout or memory-limit failure.
 
 ### September 20 follow-up: deeper finite-terminal reduction study
 
