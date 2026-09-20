@@ -515,11 +515,25 @@ fn nonzero_cache_limits_charge_repeated_and_invalid_images_correctly() {
             .unwrap()
             .is_some()
     );
-    assert!(one_image.image(&field, &[field.to_element(2)]).is_err());
+    // Capacity is retained storage, not a cumulative-sample ceiling. The next
+    // point evicts the first and remains usable with exactly the same budget.
+    assert!(
+        one_image
+            .image(&field, &[field.to_element(2)])
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        one_image
+            .image(&field, &[field.to_element(1)])
+            .unwrap()
+            .is_some()
+    );
 
-    // A failed pole image still owns its key. Two coordinates (prime+point)
-    // fit, but another point must exceed this three-slot aggregate budget.
-    let mut invalid_images = super::ImageCache::new(&frame, 0, cache_limits(100, 3, 100));
+    // A failed pole image still owns its key and two recency IDs. It fits in
+    // five slots; a single successful native image does not fit, even if every
+    // previous cached image were evicted.
+    let mut invalid_images = super::ImageCache::new(&frame, 0, cache_limits(100, 5, 100));
     assert!(
         invalid_images
             .image(&field, &[field.to_element(0)])

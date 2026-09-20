@@ -135,12 +135,46 @@ reconstruction, and neither falls back to exact elimination.
 
 This failure is distinct from TIDE's unsupported quadratic geometry, and the
 two input presentations do not support a cross-basis timing ratio. Further
-blind budget increases are not the next experiment. Audit native multi-output
-reconstruction facilities and introduce a bounded reusable memoization policy
-if needed, so retained-cache capacity need not equal the cumulative number of
-allowed probe images. Such orchestration must preserve deterministic source
-chronology, exact product validation and caller memory/work limits; it must
-not implement another interpolation or rational-reconstruction kernel.
+blind budget increases are not the next experiment. The resulting bounded-
+cache implementation and its separate verification are described next.
+
+### Bounded native-image reuse
+
+The new backend now uses deterministic least-recently-used eviction instead
+of treating cache capacity as a cumulative sample budget. Hits refresh recency;
+old images may be discarded and recomputed by the unchanged native Symbolica
+oracle. Both retained-image and retained scalar/index-slot limits still apply.
+One individually oversized key or image remains an explicit error. Transient
+native probe storage and whole-process RSS are not covered by these retained
+storage limits.
+
+The public native API audit checked the reconstruction entry point, its option
+types and the native multi-output benchmark example. The available public
+entry point reconstructs one scalar rational function per call; the example
+shares vector images through a caller-owned cache. RustRed adds only that
+bounded orchestration, not interpolation, CRT or another reconstruction
+kernel. Frozen source chronology, native rank admission, exact full-column
+`W*A=r` validation, existing backends, defaults and persistence schemas are
+unchanged. Eviction can increase CPU cost through recomputation and does not
+itself promise a completed solve or speedup.
+
+The independent implementation/mathematical audit adds seven adversarial tests
+alongside four implementation tests. The release gate
+`TMP/source-weight-lru-gate.xgSynn/` passes its compile check, **30 focused tests**,
+**89 discovery tests** (one existing ignored diagnostic), and **2,310 core
+tests** (32 existing ignored diagnostics, zero failures; 291.84 seconds).
+Source hashes match before and after the gate. Its optimized test compilation
+took 11m52s; this is excluded from all solver measurements. Tiny test timings
+are not five-loop generation timings. The separate audit is
+`TMP/source-weight-lru-independent-audit-2026-09-20.md`.
+
+A fresh post-change comparison is prepared in
+`TMP/source-weight-lru-comparison.xSY9i1/`: repeat the matched small H sector
+and then retry the original banana parent with the original 16-million-slot
+capacity, not another capacity increase. Pending measurements must not be
+inferred from the earlier cache failures. A generic, caller-supplied coordinate
+permutation also permits separate ordering experiments on TIDE's nonlinear
+case without changing any topology-dependent production logic.
 
 ## Existing semi-numerical backend (unchanged)
 

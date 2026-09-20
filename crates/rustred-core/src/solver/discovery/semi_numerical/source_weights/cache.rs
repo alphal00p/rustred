@@ -1,6 +1,13 @@
 //! Bounded sharing of full native images between scalar reconstruction calls.
+//!
+//! The limits bound retained images/slots, not cumulative probes. Deterministic
+//! least-recently-used eviction may recompute an image through the unchanged
+//! native oracle; it cannot alter a value, the frozen chronology, or authority.
+//! An individual image too large for the cache still fails explicitly. Native
+//! per-coefficient reconstruction budgets and transient probe memory are separate.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
 
 use super::super::{CacheKey, Fp};
@@ -14,11 +21,21 @@ pub(super) enum Slot {
     Weight(usize),
 }
 
+struct CachedImage {
+    image: Option<WeightImage>,
+    charged_slots: usize,
+    last_access: usize,
+}
+
 pub(super) struct ImageCache<'a> {
     frame: &'a ProbeFrame,
     target: usize,
     limits: Limits,
-    images: HashMap<CacheKey, Option<WeightImage>>,
+    images: HashMap<Arc<CacheKey>, CachedImage>,
+    // Both indexes share the same immutable key allocation. Tree order depends
+    // only on request order, never randomized HashMap iteration order.
+    recency: BTreeMap<usize, Arc<CacheKey>>,
+    next_access: usize,
     scalar_slots: usize,
     chronology: Option<Vec<Option<u32>>>,
     failure: Option<MaterializationError>,
@@ -31,6 +48,8 @@ impl<'a> ImageCache<'a> {
             target,
             limits,
             images: HashMap::new(),
+            recency: BTreeMap::new(),
+            next_access: 0,
             scalar_slots: 0,
             chronology: None,
             failure: None,
@@ -46,25 +65,44 @@ impl<'a> ImageCache<'a> {
         field: &Zp64,
         point: &[Fp],
     ) -> Result<Option<&WeightImage>, MaterializationError> {
+        if self.limits.max_cached_images == 0 || self.limits.max_cached_values == 0 {
+            return Err(invalid("cache budgets must be positive"));
+        }
+        // On theoretical counter exhaustion drop memoized data, not the frozen
+        // mathematical branch. This avoids a cumulative-call ceiling as well as
+        // wrapping two access IDs onto the same LRU position.
+        if self.next_access == usize::MAX {
+            self.images.clear();
+            self.recency.clear();
+            self.scalar_slots = 0;
+            self.next_access = 0;
+        }
+        let access = self.next_access;
+        self.next_access += 1;
         let key = (
             field.get_prime(),
             point.iter().map(|value| *value.inner()).collect::<Vec<_>>(),
         );
-        if !self.images.contains_key(&key) {
-            if self.images.len() >= self.limits.max_cached_images {
-                return Err(invalid("cached-image budget exceeded"));
-            }
+        if let Some((shared_key, entry)) = self.images.get_key_value(&key) {
+            let shared_key = Arc::clone(shared_key);
+            let old_access = entry.last_access;
+            self.recency.remove(&old_access);
+            self.recency.insert(access, Arc::clone(&shared_key));
+            self.images
+                .get_mut(&shared_key)
+                .expect("cached entry exists")
+                .last_access = access;
+        } else {
             // Charge key coordinates even for unusable samples. Check the
-            // cheap lower bound before running another modular reduction.
+            // cheap single-entry lower bound before another modular reduction.
+            // Include both stored recency IDs, in addition to prime+point.
             let key_slots = point
                 .len()
-                .checked_add(1)
+                .checked_add(3)
                 .ok_or_else(|| invalid("cache key accounting overflow"))?;
-            let base = self
-                .scalar_slots
-                .checked_add(key_slots)
-                .filter(|sum| *sum <= self.limits.max_cached_values)
-                .ok_or_else(|| invalid("cached-value budget exceeded by probe key"))?;
+            if key_slots > self.limits.max_cached_values {
+                return Err(invalid("single probe key exceeds cached-value capacity"));
+            }
             let source_limit = self
                 .chronology
                 .as_ref()
@@ -92,14 +130,41 @@ impl<'a> ImageCache<'a> {
             } else {
                 0
             };
-            let total = base
+            let charged_slots = key_slots
                 .checked_add(slots)
                 .filter(|sum| *sum <= self.limits.max_cached_values)
-                .ok_or_else(|| invalid("cached-value budget exceeded by native image"))?;
-            self.scalar_slots = total;
-            self.images.insert(key.clone(), image);
+                .ok_or_else(|| invalid("single native image exceeds cached-value capacity"))?;
+            // Subtraction is safe after the single-image admission above. Check
+            // capacity without overflowing a prospective aggregate sum.
+            while self.images.len() >= self.limits.max_cached_images
+                || self.scalar_slots > self.limits.max_cached_values - charged_slots
+            {
+                let (_, evicted_key) = self
+                    .recency
+                    .pop_first()
+                    .ok_or_else(|| invalid("cache recency/accounting invariant mismatch"))?;
+                let evicted = self
+                    .images
+                    .remove(&evicted_key)
+                    .ok_or_else(|| invalid("cache recency names an absent image"))?;
+                self.scalar_slots = self
+                    .scalar_slots
+                    .checked_sub(evicted.charged_slots)
+                    .ok_or_else(|| invalid("cache retained-slot accounting underflow"))?;
+            }
+            self.scalar_slots += charged_slots;
+            let shared_key = Arc::new(key.clone());
+            self.recency.insert(access, Arc::clone(&shared_key));
+            self.images.insert(
+                shared_key,
+                CachedImage {
+                    image,
+                    charged_slots,
+                    last_access: access,
+                },
+            );
         }
-        let image = self.images.get(&key).and_then(Option::as_ref);
+        let image = self.images.get(&key).and_then(|entry| entry.image.as_ref());
         Ok(image.filter(|image| {
             self.chronology
                 .as_ref()
@@ -134,3 +199,9 @@ impl<'a> ImageCache<'a> {
         self.failure.take().map_or(Ok(()), Err)
     }
 }
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+mod adversarial_tests;
