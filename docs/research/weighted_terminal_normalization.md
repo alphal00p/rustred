@@ -1,6 +1,7 @@
 # Finite weighted terminal normalization
 
-Status: implementation and release validation in progress, 20 September 2026.
+Status: core/native milestone published as `8ad62b96`, 20 September 2026;
+downstream numerical rollout remains in progress.
 The shipped Vakint output convention still has 179 family-local representatives.
 The core implementation and native sidecars now independently reproduce 74;
 downstream numerical delivery remains a separate pending gate.
@@ -159,7 +160,69 @@ output; they are not bare sidecar-load or scalar-reduction times. Hashing and
 prior reads preclude a cold-filesystem claim. Verification preparation occurs
 after its decode/replay phase and is not a second independent cold-load sample.
 
-The separate U-only versus weighted application diagnostic and the Gamma
-numerical/public benchmark rollout are still pending. No minimal-master,
-complete-family reduction or application-performance claim follows from this
-finite 74-output convention alone.
+The Gamma numerical/public benchmark rollout is still pending. No minimal-master
+or complete-family reduction claim follows from this finite 74-output convention.
+
+## Bounded saved-program application comparison
+
+Eight fresh serial processes compare U-only and weighted normalization using
+the same frozen release core/application/Symbolica libraries and unchanged H/X
+programs. Both lanes explicitly use the ordinary Sparse coefficient cache.
+The recurrence target is **D1 squared**, `[2,1,1,1,1,1,1,1,1,0]`, not the public
+Vakint cubed-parent benchmark. The control pinch
+`[0,1,1,1,1,1,1,1,1,0]` is already a raw terminal. Each process runs the first
+application and five same-point cache hits on CPU 83, nested pools one, with a
+120-second external deadline and 8-GiB virtual-address cap.
+
+All eight processes exit zero with empty stderr. All four full postprojection
+comparisons and 40 warm-result checks pass, including both ordered native
+coefficient maps and mass-exponent telescoping from the original target. The
+control output is transported through the shared native Atom/State coefficient
+pool, never printed/reparsed algebra. Exact independent accumulation checks run
+after all timed calls; no catalog or new IBP generation participates. Every
+source, executable, library, program and sidecar hash remains unchanged.
+
+Each table cell is **U-only → weighted**. Preparation is the existing U factory
+versus actual sidecar decoding plus exact regeneration, excluding separate
+file-read/installation phases. Warm values are medians of five cache hits in
+one process; first calls are single paired observations, not statistical medians.
+
+| Input | Plan preparation (ms) | First application (ms) | Warm median (µs) | Output terms |
+|---|---:|---:|---:|---:|
+| H D1² | 152.364 → 438.096 | 4,366.809 → 3,454.494 | 10.330 → 3.390 | 46 → 15 |
+| H terminal pinch | 144.216 → 368.493 | 0.011700 → 0.009950 | 0.300 → 0.500 | 1 → 1 |
+| X D1² | 175.612 → 472.471 | 20,655.892 → 17,782.452 | 11.720 → 4.060 | 59 → 14 |
+| X terminal pinch | 195.299 → 483.190 | 0.014771 → 0.010660 | 0.351 → 0.651 | 1 → 1 |
+
+H applies exactly 26,956 rules and retains 27,306 cached integrals in both
+lanes; X applies 82,637 and retains 83,082. Coalescing additions fall from
+418,514 to 312,147 (H) and 2,139,884 to 1,535,210 (X). Retained coefficient
+terms fall from 583,892 to 438,759 and 2,391,387 to 1,705,348 respectively;
+the corresponding byte counters fall from 29,950,048 to 22,715,736 and
+123,085,704 to 88,775,062. These are coefficient-payload counters, not full
+allocator memory. Each pinch applies zero rules and retains one integral,
+two coefficient terms and 164 coefficient bytes in either lane.
+
+| Input | Whole wall (s) | Whole user + system CPU (s) | Whole peak RSS (KiB) |
+|---|---:|---:|---:|
+| H D1² | 6.63 → 5.30 | 6.06 + 0.50 → 4.89 + 0.37 | 488,448 → 491,556 |
+| H terminal pinch | 1.40 → 1.60 | 1.07 + 0.31 → 1.30 + 0.28 | 491,528 → 491,548 |
+| X D1² | 23.38 → 20.84 | 22.33 + 0.83 → 19.80 + 0.86 | 1,070,432 → 1,038,392 |
+| X terminal pinch | 2.55 → 2.86 | 1.89 + 0.63 → 2.18 + 0.65 | 1,038,396 → 1,038,348 |
+
+Whole-process resources also include loading, validation, comparison and output.
+The higher preparation cost dominates the trivial controls: both pinch processes
+become slower overall. H's peak RSS slightly increases despite its smaller
+coefficient payload, so no universal memory improvement is claimed. This is a
+single-pair shared-host experiment, not an all-target or end-to-end Vakint speedup
+claim. Pre-run hashes read the inputs, so it is not cold-filesystem timing.
+Nanosecond timer units do not imply that accuracy; especially the tiny pinch
+and warm measurements include ordinary timer/call overhead. CPU tick rounding
+can report zero on those short phases.
+
+Evidence and complete per-phase snapshots are in
+`TMP/terminal-weighted-application.fs03hf/`, including `results.json`, the
+reproducible client/driver, raw logs and `independent-audit.md`. Independent
+review recomputed all warm medians/counter invariants and checked statuses,
+native comparison markers, output snapshots and hashes. No production source
+was modified by this diagnostic.
