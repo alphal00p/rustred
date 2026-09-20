@@ -539,3 +539,17 @@ binary, prefix and deadline. The generic rank-screen preparation gain measured
 above must not be extrapolated to complete five-loop generation. Evidence and
 the measurement limitation are retained in
 `TMP/five-loop-rank-screen-resume-one.SiVaOA/`.
+
+A separately declared 600-second continuation from those 77 shards, using
+the identical frozen CLI/input and one-worker policy, also ends incomplete:
+status 124, **zero additional saved sectors**, still working on sector 4083.
+Foreground timeout preserves supervisor reaping this time. Its whole-process
+measurements are **600.15 s wall, 576.25 s user + 22.34 s system CPU, and
+163,652 KiB peak RSS**. All input/prefix checks pass; no final bundle exists.
+The census timestamp is **172.0 s**, versus 7.5 s in the preceding segment,
+with checkpoint admission at 184.2 s. This much slower preparation is retained
+as unexplained variability: no owned build overlapped, but neither phase CPU
+attribution nor a cause is established. Different prefixes and deadlines
+preclude a matched solver-speed ratio. Evidence:
+`TMP/five-loop-rank-screen-resume-next.7EU4nQ/`. The subsequent release build
+started only after this campaign's owned processes had exited.

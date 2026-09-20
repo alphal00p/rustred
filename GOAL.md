@@ -482,6 +482,10 @@ ends with deadline/forced-termination status 137, not a complete family bundle.
 Final solver CPU and peak RSS were lost by the timeout supervisor and are not
 reported as measurements. The retained prefix and original inputs pass their
 integrity checks. See the [partial-campaign result](docs/research/five_loop_selected_sector_profile.md#full-physical-campaign-further-checkpoint-progress-not-completion).
+A separate 600-second continuation adds no saved sector (status 124); the
+count remains 77. It retains complete resource accounting and a substantially
+slower, unexplained preparation observation rather than implying a uniform
+speedup. No full five-loop family or certificate has been produced.
 
 The bounded-certificate lane now shares exact public-entry admission between
 the sealed reducer and scalar lowering, before cache access. Descendant degree
