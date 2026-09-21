@@ -6,8 +6,9 @@ use crate::foundry::artifact::SourcePortAudit;
 use crate::identity::ParametricIbpGenerator;
 use crate::reduction::ReductionLimits;
 use crate::sector::zero;
-use crate::solver::{SectorSolution, SourceSystem};
+use crate::solver::{Integral, SectorRule, SectorSolution, SourceSystem};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 #[cfg(test)]
 std::thread_local! { pub(in crate::solver::candidate_reduction) static PREPARATION_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
@@ -19,6 +20,7 @@ pub(in crate::solver::candidate_reduction) struct PreparedFamily<const N: usize>
     pub source_conditions: Vec<IndexedPolynomial>,
     pub zero_sectors: BTreeSet<[bool; N]>,
     pub zero_certificates: Vec<zero::Certificate>,
+    pub sources: Arc<SourceSystem<N>>,
 }
 pub(in crate::solver::candidate_reduction) fn prepare_family<const N: usize>(
     family: &IntegralFamily,
@@ -76,6 +78,7 @@ pub(in crate::solver::candidate_reduction) fn prepare_family<const N: usize>(
         source_conditions,
         zero_sectors,
         zero_certificates,
+        sources: Arc::new(sources),
     })
 }
 
@@ -88,119 +91,137 @@ pub(in crate::solver::candidate_reduction) fn prepare_records<const N: usize>(
     records: BTreeMap<[bool; N], SectorSolution<N>>,
     limits: ReductionLimits,
 ) -> Result<PreparedRecords<N>, CandidateReductionError> {
-    let context = &shared.context;
-    let zero_sectors = &shared.zero_sectors;
     let mut rules = BTreeMap::new();
     let mut terminals = BTreeSet::new();
     let mut ordinal = 0_usize;
     for (sector, solution) in records {
-        if zero_sectors.contains(&sector) {
+        let (prepared, finite) = prepare_batch(
+            shared,
+            sector,
+            solution.rules,
+            solution.finite_residuals,
+            limits,
+            &mut ordinal,
+        )?;
+        rules.insert(sector, prepared);
+        terminals.extend(finite);
+    }
+    Ok(PreparedRecords { rules, terminals })
+}
+
+/// Shared native conversion for complete records and source-bound partial jobs.
+/// This helper confers no completeness or source authority on its caller.
+pub(in crate::solver::candidate_reduction) fn prepare_batch<const N: usize>(
+    shared: &PreparedFamily<N>,
+    sector: [bool; N],
+    source_rules: Vec<SectorRule<N>>,
+    residuals: Vec<Integral<N>>,
+    limits: ReductionLimits,
+    ordinal: &mut usize,
+) -> Result<(Vec<PreparedRule<N>>, BTreeSet<IntegralKey>), CandidateReductionError> {
+    let context = &shared.context;
+    let mut terminals = BTreeSet::new();
+    if shared.zero_sectors.contains(&sector) {
+        return Err(CandidateReductionError::InvalidInput(
+            "a solved sector record also has zero-sector evidence".into(),
+        ));
+    }
+    for residual in residuals {
+        if residual.powers().iter().any(|p| p.is_symbolic()) {
             return Err(CandidateReductionError::InvalidInput(
-                "a solved sector record also has zero-sector evidence".into(),
+                "a symbolic residual is not a finite candidate terminal".into(),
             ));
         }
-        for residual in solution.finite_residuals {
-            if residual.powers().iter().any(|p| p.is_symbolic()) {
-                return Err(CandidateReductionError::InvalidInput(
-                    "a symbolic residual is not a finite candidate terminal".into(),
-                ));
-            }
-            let key = IntegralKey::try_new(residual.powers().iter().map(|p| i64::from(p.value())))
-                .map_err(crate::reduction::ReductionError::IntegralKey)?;
-            if key
-                .powers()
-                .iter()
-                .zip(sector)
-                .any(|(&n, active)| (n > 0) != active)
-            {
-                return Err(CandidateReductionError::InvalidInput(
-                    "finite candidate terminal does not belong to its sector record".into(),
-                ));
-            }
-            terminals.insert(key);
+        let key = IntegralKey::try_new(residual.powers().iter().map(|p| i64::from(p.value())))
+            .map_err(crate::reduction::ReductionError::IntegralKey)?;
+        if key
+            .powers()
+            .iter()
+            .zip(sector)
+            .any(|(&n, active)| (n > 0) != active)
+        {
+            return Err(CandidateReductionError::InvalidInput(
+                "finite candidate terminal does not belong to its sector record".into(),
+            ));
         }
-        let mut prepared = Vec::new();
-        for rule in solution.rules {
-            let candidate = rule.candidate;
-            if !candidate.case.is_in_sector(&sector)
-                || candidate.target != candidate.case.integral()
-            {
+        terminals.insert(key);
+    }
+    let mut prepared = Vec::new();
+    for rule in source_rules {
+        let candidate = rule.candidate;
+        if !candidate.case.is_in_sector(&sector) || candidate.target != candidate.case.integral() {
+            return Err(CandidateReductionError::InvalidInput(
+                "candidate target is not its canonical case in the supplied sector".into(),
+            ));
+        }
+        let equalities = if let Some(affine) = candidate.case.affine() {
+            if affine.index_variables() != &shared.index_variables {
                 return Err(CandidateReductionError::InvalidInput(
-                    "candidate target is not its canonical case in the supplied sector".into(),
+                    "candidate affine chart has a different index-variable map".into(),
                 ));
             }
-            let equalities = if let Some(affine) = candidate.case.affine() {
-                if affine.index_variables() != &shared.index_variables {
-                    return Err(CandidateReductionError::InvalidInput(
-                        "candidate affine chart has a different index-variable map".into(),
-                    ));
-                }
-                affine
-                    .equations()
-                    .iter()
-                    .cloned()
+            affine
+                .equations()
+                .iter()
+                .cloned()
+                .map(|p| {
+                    context.admit_native_polynomial_result_with_limits(p, limits.exact_algebra)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            Vec::new()
+        };
+        let exceptions = rule
+            .exceptions
+            .branches
+            .into_iter()
+            .map(|branch| {
+                branch
+                    .into_iter()
                     .map(|p| {
                         context.admit_native_polynomial_result_with_limits(p, limits.exact_algebra)
                     })
-                    .collect::<Result<Vec<_>, _>>()?
-            } else {
-                Vec::new()
-            };
-            let exceptions = rule
-                .exceptions
-                .branches
-                .into_iter()
-                .map(|branch| {
-                    branch
-                        .into_iter()
-                        .map(|p| {
-                            context
-                                .admit_native_polynomial_result_with_limits(p, limits.exact_algebra)
-                        })
-                        .collect::<Result<Vec<_>, _>>()
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            let mut rhs = Vec::new();
-            for term in candidate.rhs {
-                if term
-                    .integral
-                    .powers()
-                    .iter()
-                    .zip(candidate.target.powers())
-                    .any(|(child, target)| child.is_symbolic() != target.is_symbolic())
-                {
-                    return Err(CandidateReductionError::InvalidInput(
-                        "candidate RHS changes symbolic versus fixed coordinate layout".into(),
-                    ));
-                }
-                let denominator = context.admit_native_polynomial_result_with_limits(
-                    term.coefficient.denominator.clone(),
-                    limits.exact_algebra,
-                )?;
-                let coefficient = context
-                    .admit_native_result_with_limits(term.coefficient, limits.exact_algebra)?;
-                let shift = std::array::from_fn(|i| {
-                    i64::from(term.integral[i].value()) - i64::from(candidate.target[i].value())
-                });
-                rhs.push(PreparedTerm {
-                    shift,
-                    coefficient,
-                    denominator,
-                });
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut rhs = Vec::new();
+        for term in candidate.rhs {
+            if term
+                .integral
+                .powers()
+                .iter()
+                .zip(candidate.target.powers())
+                .any(|(child, target)| child.is_symbolic() != target.is_symbolic())
+            {
+                return Err(CandidateReductionError::InvalidInput(
+                    "candidate RHS changes symbolic versus fixed coordinate layout".into(),
+                ));
             }
-            prepared.push(PreparedRule {
-                ordinal,
-                fixed: *candidate.case.fixed(),
-                equalities,
-                exceptions,
-                rhs,
+            let denominator = context.admit_native_polynomial_result_with_limits(
+                term.coefficient.denominator.clone(),
+                limits.exact_algebra,
+            )?;
+            let coefficient =
+                context.admit_native_result_with_limits(term.coefficient, limits.exact_algebra)?;
+            let shift = std::array::from_fn(|i| {
+                i64::from(term.integral[i].value()) - i64::from(candidate.target[i].value())
             });
-            ordinal = ordinal.checked_add(1).ok_or_else(|| {
-                CandidateReductionError::InvalidInput("candidate rule ordinal overflow".into())
-            })?;
+            rhs.push(PreparedTerm {
+                shift,
+                coefficient,
+                denominator,
+            });
         }
-        rules.insert(sector, prepared);
+        prepared.push(PreparedRule {
+            ordinal: *ordinal,
+            fixed: *candidate.case.fixed(),
+            equalities,
+            exceptions,
+            rhs,
+        });
+        *ordinal = ordinal.checked_add(1).ok_or_else(|| {
+            CandidateReductionError::InvalidInput("candidate rule ordinal overflow".into())
+        })?;
     }
-
-    Ok(PreparedRecords { rules, terminals })
+    Ok((prepared, terminals))
 }

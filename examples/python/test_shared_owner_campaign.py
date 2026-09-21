@@ -8,11 +8,27 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SOURCE=Path(__file__).with_name("shared_owner_campaign.py")
 SPEC=importlib.util.spec_from_file_location("campaign",SOURCE)
 CAMPAIGN=importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CAMPAIGN)
+
+
+def fake_process(root, pid, parent, start, children=(), tgid=None, task_children=None):
+    directory=root/str(pid)
+    directory.mkdir(exist_ok=True)
+    fields=["0"]*22
+    fields[0]="S"; fields[1]=str(parent); fields[2]=str(pid)
+    fields[11]="10"; fields[12]="5"; fields[19]=str(start); fields[21]="3"
+    (directory/"stat").write_text(f"{pid} (name with ) space) "+" ".join(fields))
+    (directory/"status").write_text(f"Tgid:\t{pid if tgid is None else tgid}\n")
+    tasks={pid:children, **(task_children or {})}
+    for tid, descendants in tasks.items():
+        task=directory/"task"/str(tid)
+        task.mkdir(parents=True,exist_ok=True)
+        (task/"children").write_text(" ".join(map(str,descendants)))
 
 
 class SteeringTests(unittest.TestCase):
@@ -49,10 +65,91 @@ class SteeringTests(unittest.TestCase):
                     {next(iter(os.sched_getaffinity(0)))},stop) as child:
                 raise OSError("journal failure")
         self.assertIsNotNone(child.returncode)
-    def test_overlapping_roots_deduplicate_and_reused_pid_is_excluded(self):
-        rows={1:{"ppid":0,"start":11},2:{"ppid":1,"start":22},3:{"ppid":2,"start":33}}
-        self.assertEqual(set(CAMPAIGN.selected_tree(rows,{1:11,2:22})),{1,2,3})
-        self.assertEqual(CAMPAIGN.selected_tree(rows,{1:999}),{})
+    def test_rooted_collection_threads_overlaps_and_known_reparenting(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            fake_process(root,1,0,11,[99],task_children={17:[2]})
+            fake_process(root,2,1,22,[3])
+            fake_process(root,3,2,33)
+            fake_process(root,99,1,99,tgid=1)  # Never sum a task as another process.
+            fake_process(root,9000,0,9000)  # Unrelated host PID must not be visited.
+            collector=CAMPAIGN.ProcessTreeCollector(root)
+            collector.register(1)
+            actual_iterdir=Path.iterdir
+            visited=[]
+            def bounded_iterdir(path):
+                self.assertNotEqual(path,root,"collector scanned all host processes")
+                visited.append(path)
+                return actual_iterdir(path)
+            with patch.object(Path,"iterdir",bounded_iterdir):
+                rows,stats=collector.sample()
+            self.assertEqual(set(rows),{1,2,3})
+            self.assertEqual(stats["task_directories"],3)
+            self.assertEqual(stats["children_files"],4)
+            self.assertFalse(any("9000" in path.parts for path in visited))
+            collector.register(2)  # Explicit overlapping root still counts once.
+            self.assertEqual(set(collector.sample()[0]),{1,2,3})
+            fake_process(root,2,1,22)
+            fake_process(root,3,0,33)  # Observed child remains tracked after reparenting.
+            self.assertEqual(set(collector.sample()[0]),{1,2,3})
+
+    def test_rooted_collection_retains_unreadable_but_prunes_dead_and_reused(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            fake_process(root,2,0,22)
+            collector=CAMPAIGN.ProcessTreeCollector(root)
+            collector.register(2)
+            with patch.object(collector,"_stat",side_effect=PermissionError("transient")):
+                rows,stats=collector.sample()
+            self.assertEqual(rows,{})
+            self.assertEqual(collector.identities,{2:22})
+            self.assertEqual(stats["read_races"],1)
+            self.assertEqual(set(collector.sample()[0]),{2})
+            fake_process(root,2,0,222)
+            self.assertEqual(collector.sample()[0],{})
+            self.assertEqual(collector.identities,{})
+            collector.register(2)
+            (root/"2").rename(root/"removed")
+            self.assertEqual(collector.sample()[0],{})
+            self.assertEqual(collector.identities,{})
+
+    def test_rooted_collection_checks_discovery_parent_and_tolerates_task_races(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            fake_process(root,1,0,11,[2,3])
+            fake_process(root,2,999,22)  # Child already reparented before first observation.
+            fake_process(root,3,1,33)
+            (root/"1"/"task"/"disappeared").mkdir()
+            (root/"1"/"task"/"18").mkdir()  # No children file after task exit.
+            collector=CAMPAIGN.ProcessTreeCollector(root)
+            collector.register(1)
+            original=collector._stat
+            def raced(pid):
+                row=original(pid)
+                if pid==1 and calls[0]:
+                    row["start"]=111
+                if pid==1:
+                    calls[0]+=1
+                return row
+            calls=[0]
+            with patch.object(collector,"_stat",side_effect=raced):
+                rows,stats=collector.sample()
+            self.assertEqual(set(rows),{1})
+            self.assertEqual(set(collector.identities),{1})
+            self.assertGreaterEqual(stats["read_races"],1)
+
+    def test_per_process_cpu_deltas_separate_roles_and_do_not_charge_history(self):
+        def row(parent,start,cpu):
+            return {"ppid":parent,"start":start,"cpu_seconds":cpu,"rss_bytes":4096}
+        table={1:row(0,11,100.2),2:row(1,22,52),3:row(2,333,900)}
+        delta,current,rows=CAMPAIGN.process_cpu_sample(
+            table,{(1,11):100,(2,22):50,(3,33):1},2,1,2)
+        self.assertAlmostEqual(delta,2.2)
+        self.assertEqual([r["role"] for r in rows],["supervisor","owned_native","registered_descendant"])
+        self.assertAlmostEqual(rows[0]["observed_busy_cores"],0.1)
+        self.assertEqual(rows[1]["observed_busy_cores"],1)
+        self.assertIsNone(rows[2]["sampled_cpu_delta_seconds"])
+        self.assertNotIn((3,33),current)
 
     def test_fake_child_soft_stop_writes_incomplete_receipt_without_license(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -79,6 +176,12 @@ class SteeringTests(unittest.TestCase):
             self.assertNotIn("SYMBOLICA_LICENSE",(receipt/"request.json").read_text())
             self.assertIn(str(request["supervisor_pid"]),request["registered_roots"])
             self.assertGreater(request["child_rlimit_as_bytes"],0)
+            resources=[json.loads(line) for line in (receipt/"resources.jsonl").read_text().splitlines()]
+            self.assertTrue(resources)
+            self.assertEqual({row["role"] for row in resources[0]["process_cpu"]},
+                             {"supervisor","owned_native"})
+            self.assertEqual(resources[0]["processes"],2)
+            self.assertIn("stat_reads",resources[0]["collection"])
 
     def test_global_workers_rejected_before_launch(self):
         result=subprocess.run([sys.executable,str(SOURCE),"--executable","missing","--manifest","missing",

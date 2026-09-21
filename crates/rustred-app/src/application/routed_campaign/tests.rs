@@ -2,6 +2,41 @@ use super::*;
 use crate::{FamilyCandidatesRequest, family_candidates, inspect_generated_candidate_bundle};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[test]
+fn shared_snapshot_exposes_first_failure_while_native_calls_drain() {
+    let snapshot = CandidateRoutedCampaignSnapshot::<3> {
+        active_nodes: 2,
+        failed_nodes: 1,
+        first_failure: Some(CandidateRoutedCampaignFailure::Trace(
+            rustred::solver::CandidateRoutedError::ResourceLimit {
+                resource: "transport endpoints",
+                requested: 101,
+                limit: 100,
+            },
+        )),
+        first_failure_work: Some(CandidateRoutedWork::Apply {
+            owner_sector: [true, false, true],
+            target: rustred::family::IntegralKey::try_new([2, -1, 3]).unwrap(),
+        }),
+        ..Default::default()
+    };
+    let value = snapshot_json(&snapshot);
+    assert_eq!(value["first_failure"]["kind"], "trace");
+    let detail = value["first_failure"]["detail"].as_str().unwrap();
+    assert!(detail.contains("transport endpoints"));
+    assert!(detail.contains("requested: 101"));
+    assert!(detail.contains("limit: 100"));
+    assert_eq!(value["first_failure_work"]["phase"], "apply");
+    assert_eq!(value["first_failure_work"]["owner_mask"], "101");
+    assert_eq!(value["first_failure_work"]["target"], json!([2, -1, 3]));
+    assert_eq!(value["active_nodes"], 2);
+    assert_eq!(value["finished"], false);
+    assert_eq!(value["target_completion_known"], false);
+    let empty = snapshot_json(&CandidateRoutedCampaignSnapshot::<3>::default());
+    assert!(empty["first_failure"].is_null());
+    assert!(empty["first_failure_work"].is_null());
+}
+
 const K1: &str = r#"
 schema="rustred.project.toml.v1"
 [family]

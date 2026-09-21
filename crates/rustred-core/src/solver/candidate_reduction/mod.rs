@@ -24,7 +24,10 @@ pub use model::{
     CandidateReductionError, CandidateStatistics,
 };
 pub use owners::{
-    CandidateOwnerContext, CandidateOwnerInput, CandidateOwnerPrograms, CandidateOwnerScope,
+    BoundOwnerOverlay, BoundOwnerSearch, CandidateOwnerContext, CandidateOwnerInput,
+    CandidateOwnerPrograms, CandidateOwnerScope, OwnerDomainAttemptLimits, OwnerDomainScope,
+    OwnerFeedbackError, OwnerFeedbackPolicy, OwnerOverlayLimits, OwnerOverlayMetadata,
+    OwnerOverlayUsage,
 };
 pub use reducer::CandidateReducer;
 pub use routed::{

@@ -17,6 +17,50 @@ pub(crate) enum Chart {
 }
 
 impl Chart {
+    pub(super) fn native_payload_bytes(&self) -> Option<usize> {
+        use crate::algebra::{
+            integer_clone_owned_heap_byte_bound as integer_bytes,
+            polynomial_clone_owned_heap_byte_bound as polynomial_bytes,
+        };
+        match self {
+            Self::Integral(rows) => {
+                let mut bytes = rows
+                    .capacity()
+                    .checked_mul(size_of::<(usize, CoefficientPolynomial)>())?;
+                for (_, polynomial) in rows {
+                    bytes = bytes.checked_add(polynomial_bytes(polynomial)?)?;
+                }
+                Some(bytes)
+            }
+            Self::Rational(rows) => {
+                let mut bytes = rows
+                    .capacity()
+                    .checked_mul(size_of::<(usize, RationalPolynomial)>())?;
+                for (_, polynomial) in rows {
+                    bytes = bytes
+                        .checked_add(
+                            polynomial
+                                .coefficients
+                                .capacity()
+                                .checked_mul(size_of::<Rational>())?,
+                        )?
+                        .checked_add(
+                            polynomial
+                                .exponents
+                                .capacity()
+                                .checked_mul(size_of::<u16>())?,
+                        )?;
+                    for value in &polynomial.coefficients {
+                        bytes = bytes
+                            .checked_add(integer_bytes(value.numerator_ref())?)?
+                            .checked_add(integer_bytes(value.denominator_ref())?)?;
+                    }
+                }
+                Some(bytes)
+            }
+        }
+    }
+
     pub(crate) fn new(
         template: &CoefficientPolynomial,
         matrix: &Matrix<Q>,

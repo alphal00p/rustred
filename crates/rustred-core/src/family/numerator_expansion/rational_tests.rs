@@ -7,6 +7,39 @@ use symbolica::prelude::{Integer, IntegerRing, RationalPolynomialField, Z};
 
 use super::*;
 
+#[test]
+fn native_heap_pow_many_variable_square_matches_native_multiplication() {
+    // Public native regression: the old u32 radix accumulator wrapped here
+    // (3^21 > 2^32), despite a result with only 253 exact terms.
+    let variables = Arc::new((0..22).map(PolyVariable::Temporary).collect());
+    let mut affine = MultivariatePolynomial::<_, u32>::new(&Q, None, variables);
+    for axis in 0..22 {
+        let mut exponents = vec![0; 22];
+        exponents[axis] = 1;
+        affine.append_monomial(Rational::one(), &exponents);
+    }
+    let expected = &affine * &affine;
+    assert_eq!(expected.nterms(), 253);
+    assert_eq!(affine.pow(2), expected);
+}
+
+#[test]
+fn native_heap_pow_rational_affine_nonuniform_degree_and_zero_gaps_match_multiplication() {
+    let variables = Arc::new((0..26).map(PolyVariable::Temporary).collect());
+    let mut affine = MultivariatePolynomial::<_, u32>::new(&Q, None, variables);
+    affine.append_monomial(Rational::from((-3, 7)), &vec![0; 26]);
+    // Zero-degree gaps give radix one; alternating degree one/two gives
+    // nonuniform radices. Every degree is <=2 so native pow takes heap_pow.
+    for axis in (0..26).filter(|axis| axis % 5 != 2) {
+        let mut exponents = vec![0; 26];
+        exponents[axis] = if axis % 2 == 0 { 1 } else { 2 };
+        affine.append_monomial(Rational::from((axis as i64 + 1, 11)), &exponents);
+    }
+    let expected = &affine * &affine;
+    assert_eq!(affine.pow(2), expected);
+    assert!(expected.nterms() < 300);
+}
+
 fn family() -> IntegralFamily {
     crate::foundry::artifact::canonical_three_loop_family().unwrap()
 }

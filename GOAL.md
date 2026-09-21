@@ -74,8 +74,30 @@ external sweep used separate calls. The new driver batches those requests and
 adds concurrent work, live counters and cancellation. Missing-domain source
 feedback and durable queue resume remain separate implementation work. A finite
 batch, including one spanning all 67 classes, is not the complete parametric R10
-campaign. The next measured rollout compares one and six workers, then exercises
-joint R10 pressure without a fixed short timeout.
+campaign. The first matched finite control completes in 82.645 s with one worker
+and 34.973 s with six (shared traversal only, one observation each). The subsequent
+50-worker rank-ten pressure test is **stopped, not completed**: it queues
+36.7 million dependencies, reports worker failures and reaches about 275 GB
+peak RSS while eight native routing calls keep running. Independent inspection
+finds a native Symbolica polynomial-power mixed-radix overflow; test and correct
+that defect before retrying. A no-power native diagnostic reconstructs the two
+affected numerator maps and confirms overflowing weights in all eight stalled
+calls. All six corrected power-seven/eight/nine expansions then exactly match
+native multiplication, taking about 0.2/0.6/1.6 seconds per native power on one
+core; these are not full reductions or a closure timing. The run has no 30-minute deadline and
+produces no complete result or resumable graph. See
+[the measured diagnostic](docs/research/shared_rank10_pressure_2026-09-21.md).
+
+The corrective milestone passes **2,533 core tests** (zero failures; 32 existing
+ignored), **261 application/integration tests**, and **10 Python supervisor
+tests**. The Rust API now supports source-bound, directed owner-domain searches
+and ordered immutable rule overlays, sharing the ordinary/LI source definitions,
+unchanged rules and verified routes. It preserves base-rule priority and retains
+above-entry-rank successor scopes. Automatic frontier nomination, durable overlay
+resume and the full parametric campaign remain unfinished; the finite driver
+does not silently generate rules. New live reports expose the first worker
+failure during drain, and the supervisor no longer scans every process on the
+host. Corrected one-/six-worker controls and the joint R10 retry follow this gate.
 
 ### Previous measured checkpoint — September 21, 18:15 UTC
 

@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use super::super::CandidateReductionError;
 use super::super::evaluator::{CandidateEvaluator, validate_entry_rank};
+use super::super::owners::OwnerStep;
 use super::model::*;
 use crate::family::IntegralKey;
 use crate::reduction::{ReductionRequest, ReductionStatistics};
@@ -298,24 +299,27 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                     let owner = self.programs.owners.get(owner_sector).ok_or_else(|| {
                         CandidateRoutedError::InvalidInput("admitted owner disappeared".into())
                     })?;
-                    if owner.terminals.contains(key) {
+                    if owner.batches[0].terminals.contains(key) {
                         report.declared_terminals.insert(key.clone());
                         continue;
                     }
                     traversal
                         .request
                         .record_rule_application(limits.max_rule_applications)?;
-                    let evaluator = CandidateEvaluator {
-                        context: &shared.context,
-                        root_sector: owner.root,
-                        ordering: owner.ordering,
-                        rules: &owner.rules,
-                        source_conditions: &shared.source_conditions,
-                        zero_sectors: &shared.zero_sectors,
-                        limits,
-                    };
-                    match evaluator.apply(key, &mut traversal.request, &mut statistics) {
-                        Ok(terms) => {
+                    let result = owner.evaluate_step::<CandidateReductionError>(key, |batch| {
+                        let evaluator = CandidateEvaluator {
+                            context: &shared.context,
+                            root_sector: owner.root,
+                            ordering: owner.ordering,
+                            rules: &batch.rules,
+                            source_conditions: &shared.source_conditions,
+                            zero_sectors: &shared.zero_sectors,
+                            limits,
+                        };
+                        Ok(evaluator.apply(key, &mut traversal.request, &mut statistics))
+                    })?;
+                    match result {
+                        OwnerStep::Applied(terms) => {
                             charge(
                                 &mut report.rule_applications,
                                 1,
@@ -348,15 +352,17 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                                 )?;
                             }
                         }
-                        Err(CandidateReductionError::Uncovered { target }) => {
+                        OwnerStep::Terminal => {
+                            report.declared_terminals.insert(key.clone());
+                        }
+                        OwnerStep::Uncovered => {
                             report.frontier.insert(CandidateRoutedFrontier {
-                                target,
+                                target: key.clone(),
                                 reason: CandidateRoutedFrontierReason::MissingRule {
                                     owner_sector: *owner_sector,
                                 },
                             });
                         }
-                        Err(error) => return Err(error.into()),
                     }
                 }
             }

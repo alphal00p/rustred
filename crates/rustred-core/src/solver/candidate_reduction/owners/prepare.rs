@@ -83,12 +83,15 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                 .expect("one admitted sector");
             owners.insert(
                 input.sector,
-                PreparedOwner {
+                Arc::new(PreparedOwner {
                     root: input.saved_root,
                     ordering: input.ordering,
-                    rules,
-                    terminals: prepared.terminals,
-                },
+                    batches: vec![Arc::new(PreparedOwnerBatch::new(
+                        rules,
+                        prepared.terminals,
+                        None,
+                    ))],
+                }),
             );
         }
         if owners.is_empty() {
@@ -96,6 +99,11 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                 "candidate owner collection is empty".into(),
             ));
         }
-        Ok(Self { context, owners })
+        Ok(Self {
+            context,
+            owners,
+            lineage: Arc::new(()),
+            overlay_usage: Default::default(),
+        })
     }
 }

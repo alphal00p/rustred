@@ -10,7 +10,6 @@ use super::RoutedCandidateReducer;
 use crate::family::IntegralKey;
 pub use model::*;
 use scheduler::{Failure, Shared};
-use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
@@ -54,33 +53,12 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             );
             return result;
         }
-        // Exact output keys are n + shift; equal shifts are the only possible
-        // collisions. Skipped zeros and cancellation can only lower this bound.
-        // This scans borrowed metadata once, not formula copies per worker.
-        let coalescing_bounds: BTreeMap<_, _> = self
-            .programs
-            .owners
-            .iter()
-            .map(|(mask, owner)| {
-                let bound = owner
-                    .rules
-                    .iter()
-                    .map(|rule| {
-                        let unique: BTreeSet<_> = rule.rhs.iter().map(|term| &term.shift).collect();
-                        rule.rhs.len() - unique.len()
-                    })
-                    .max()
-                    .unwrap_or(0);
-                (*mask, bound)
-            })
-            .collect();
         observer(&shared.snapshot());
         std::thread::scope(|scope| {
             for _ in 0..workers {
                 let shared = &shared;
-                let bounds = &coalescing_bounds;
                 if let Err(error) = std::thread::Builder::new()
-                    .spawn_scoped(scope, move || worker::run(self, shared, bounds))
+                    .spawn_scoped(scope, move || worker::run(self, shared))
                 {
                     shared.fail(Failure::Trace(super::CandidateRoutedError::InvalidInput(
                         format!("cannot start campaign worker: {error}"),

@@ -185,6 +185,25 @@ pub struct RoutedCandidateReducer<const N: usize> {
     pub(super) limits: RoutedCandidateLimits,
 }
 impl<const N: usize> RoutedCandidateReducer<N> {
+    /// Reuse the already verified transport objects with an appended immutable
+    /// program snapshot. A separately constructed library, even in the same
+    /// family, is not an admitted replacement. No old traversal cache is reused.
+    pub fn with_programs(
+        &self,
+        programs: Arc<CandidateOwnerPrograms<N>>,
+    ) -> Result<Self, CandidateRoutedError> {
+        if !programs.extends(&self.programs) {
+            return Err(CandidateRoutedError::InvalidInput(
+                "replacement programs are not an append-only extension of this owner snapshot"
+                    .into(),
+            ));
+        }
+        Ok(Self {
+            programs,
+            routes: self.routes.clone(),
+            limits: self.limits,
+        })
+    }
     pub fn programs(&self) -> &Arc<CandidateOwnerPrograms<N>> {
         &self.programs
     }

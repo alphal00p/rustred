@@ -12,6 +12,7 @@ pub use coefficient::{
 };
 pub(crate) use coefficient::{
     FactorizedCoefficient, coefficient_clone_owned_retained_byte_bound,
+    integer_clone_owned_heap_byte_bound, polynomial_clone_owned_heap_byte_bound,
     validate_coefficient_on_map, validate_polynomial_on_map,
 };
 pub(crate) use indexed::BaseCoefficientSystem;

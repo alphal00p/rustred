@@ -45,6 +45,17 @@ gate also passes all 259 tests. The shared finite-target traversal is not yet th
 loop or a resumable parametric campaign; neither its completion percentage nor
 zero sampled frontiers may be reported as full R10 closure.
 
+The first shared rank-one control completes in 82.645 s with one worker and
+34.973 s with six, with matching reported counters. These are single observations
+of traversal time, not total solver speedups. The first 50-worker R10 pressure
+batch is deliberately stopped after worker failures and continued native-call
+memory growth; it peaks near 275 GB without a complete Rust result. Independent
+reviews identify a native Symbolica polynomial-power mixed-radix overflow that
+must be corrected and tested before retrying. A native map-only diagnostic
+confirms that all eight stalled calls encounter the overflow; this does not yet
+measure the corrected expansion or eliminate genuine dependency breadth. See the
+[pressure-test evidence](research/shared_rank10_pressure_2026-09-21.md).
+
 ## Implementation slices
 
 1. **Shared canonical work.** Install saved representative programs once.

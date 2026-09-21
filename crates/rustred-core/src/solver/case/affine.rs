@@ -187,6 +187,47 @@ impl<const N: usize> AffineCase<N> {
         self.chart.is_integral()
     }
 
+    /// Retained native payload census, without cloning or native arithmetic.
+    /// Shared variable maps, allocator overhead and hidden Matrix spare capacity
+    /// are excluded. Matrix occupied elements and all exposed limb/polynomial
+    /// capacities are counted. This is not a transient allocation/RSS bound.
+    pub(crate) fn native_payload_bytes(&self) -> Option<usize> {
+        use crate::algebra::{
+            integer_clone_owned_heap_byte_bound as integer_bytes,
+            polynomial_clone_owned_heap_byte_bound as polynomial_bytes,
+        };
+        use symbolica::prelude::Rational;
+        let mut bytes = size_of::<Self>().checked_add(
+            self.equations
+                .capacity()
+                .checked_mul(size_of::<CoefficientPolynomial>())?,
+        )?;
+        for equation in &self.equations {
+            bytes = bytes.checked_add(polynomial_bytes(equation)?)?;
+        }
+        bytes = bytes.checked_add(
+            self.matrix
+                .iter()
+                .len()
+                .checked_mul(size_of::<Rational>())?,
+        )?;
+        for value in self.matrix.iter() {
+            bytes = bytes
+                .checked_add(integer_bytes(value.numerator_ref())?)?
+                .checked_add(integer_bytes(value.denominator_ref())?)?;
+        }
+        bytes = bytes.checked_add(
+            self.primitive_matrix
+                .iter()
+                .len()
+                .checked_mul(size_of::<Integer>())?,
+        )?;
+        for value in self.primitive_matrix.iter() {
+            bytes = bytes.checked_add(integer_bytes(value)?)?;
+        }
+        bytes.checked_add(self.chart.native_payload_bytes()?)
+    }
+
     /// A necessary row-bound test, not a complete integer feasibility solver.
     /// Retained cases may still be empty for joint inequality/congruence reasons.
     /// Prove that this exact affine locus has no point in the declared

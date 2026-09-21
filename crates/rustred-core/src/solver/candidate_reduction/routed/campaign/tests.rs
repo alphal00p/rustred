@@ -494,3 +494,59 @@ fn shared_scheduler_cannot_return_success_with_unfinished_work() {
     shared.prepare(&reducer, [key([6])]).unwrap();
     assert!(shared.into_result().is_err());
 }
+
+#[test]
+fn first_typed_failure_and_work_are_visible_before_native_drain_finishes() {
+    let reducer = diamond(Default::default(), Default::default());
+    let cancel = AtomicBool::new(false);
+    let shared = scheduler::Shared::new(&reducer, 2, &cancel);
+    shared.prepare(&reducer, [key([6]), key([5])]).unwrap();
+    let failed = shared.take().unwrap();
+    let draining = shared.take().unwrap();
+    let original =
+        CandidateRoutedCampaignFailure::Trace(super::super::CandidateRoutedError::ResourceLimit {
+            resource: "typed failure fixture",
+            requested: 7,
+            limit: 6,
+        });
+    shared.finish(failed.clone(), Err(original.clone()));
+    let (snapshot, done) = shared.wait_snapshot(Duration::from_millis(1));
+    assert!(!done);
+    assert!(!snapshot.finished);
+    assert_eq!(snapshot.active_nodes, 1);
+    assert_eq!(snapshot.failed_nodes, 1);
+    assert_eq!(snapshot.first_failure.as_ref(), Some(&original));
+    assert_eq!(snapshot.first_failure_work.as_ref(), Some(&failed));
+    // Later local cancellation/panic reports must not obscure the first cause.
+    shared.finish(
+        draining,
+        Err(CandidateRoutedCampaignFailure::WorkerPanicked),
+    );
+    let error = shared.into_result().unwrap_err();
+    assert_eq!(error.reason(), &original);
+    assert_eq!(error.snapshot().first_failure.as_ref(), Some(&original));
+    assert_eq!(error.snapshot().first_failure_work.as_ref(), Some(&failed));
+    assert_eq!(error.snapshot().failed_nodes, 2);
+    assert_eq!(error.snapshot().active_nodes, 0);
+}
+
+#[test]
+fn external_cancellation_has_no_fabricated_worker_origin() {
+    let reducer = diamond(Default::default(), Default::default());
+    let cancel = AtomicBool::new(false);
+    let shared = scheduler::Shared::new(&reducer, 1, &cancel);
+    shared.prepare(&reducer, [key([6])]).unwrap();
+    let node = shared.take().unwrap();
+    cancel.store(true, Ordering::Release);
+    assert!(shared.check().is_err());
+    let snapshot = shared.snapshot();
+    assert_eq!(
+        snapshot.first_failure,
+        Some(CandidateRoutedCampaignFailure::Cancelled)
+    );
+    assert!(snapshot.first_failure_work.is_none());
+    shared.finish(node, Err(CandidateRoutedCampaignFailure::WorkerPanicked));
+    let error = shared.into_result().unwrap_err();
+    assert_eq!(error.reason(), &CandidateRoutedCampaignFailure::Cancelled);
+    assert!(error.snapshot().first_failure_work.is_none());
+}

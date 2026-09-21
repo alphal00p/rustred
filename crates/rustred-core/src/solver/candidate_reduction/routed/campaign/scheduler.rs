@@ -50,11 +50,13 @@ struct State<const N: usize> {
     missing_owners: usize,
     missing_rules: usize,
     failure: Option<Failure>,
+    first_failure_work: Option<Work<N>>,
 }
 
 pub(super) struct Shared<'a, const N: usize> {
     state: Mutex<State<N>>,
     wake: Condvar,
+    progress: Condvar,
     start: Instant,
     workers: usize,
     cancellation: &'a AtomicBool,
@@ -85,8 +87,10 @@ impl<'a, const N: usize> Shared<'a, N> {
                 missing_owners: 0,
                 missing_rules: 0,
                 failure: None,
+                first_failure_work: None,
             }),
             wake: Condvar::new(),
+            progress: Condvar::new(),
             start: Instant::now(),
             workers,
             cancellation,
@@ -103,6 +107,7 @@ impl<'a, const N: usize> Shared<'a, N> {
         if self.cancellation.load(Ordering::Acquire) && state.failure.is_none() {
             state.failure = Some(Failure::Cancelled);
             self.wake.notify_all();
+            self.progress.notify_one();
         }
         match &state.failure {
             Some(error) => Err(error.clone()),
@@ -115,6 +120,7 @@ impl<'a, const N: usize> Shared<'a, N> {
     pub(super) fn fail(&self, error: Failure) {
         self.lock().failure.get_or_insert(error);
         self.wake.notify_all();
+        self.progress.notify_one();
     }
     pub(super) fn prepare(
         &self,
@@ -221,15 +227,22 @@ impl<'a, const N: usize> Shared<'a, N> {
     pub(super) fn finish(&self, node: Work<N>, result: Result<(), Failure>) {
         let mut state = self.lock();
         state.active.remove(&node);
+        let already_failed = state.failure.is_some();
         match result {
             Ok(()) => state.completed += 1,
             Err(error) => {
                 state.failed += 1;
+                if state.failure.is_none() {
+                    state.first_failure_work = Some(node);
+                }
                 state.failure.get_or_insert(error);
             }
         }
         self.check_locked(&mut state).ok();
         self.wake.notify_all();
+        if Self::done(&state) || (!already_failed && state.failure.is_some()) {
+            self.progress.notify_one();
+        }
     }
     pub(super) fn degrees(&self, key: &IntegralKey) -> Result<(), Failure> {
         let mut rank = 0u128;
@@ -321,6 +334,17 @@ impl<'a, const N: usize> Shared<'a, N> {
         state.trace.transport_endpoints = ends;
         Ok(())
     }
+    pub(super) fn begin_apply(&self) -> Result<(), Failure> {
+        let mut state = self.lock();
+        self.check_locked(&mut state)?;
+        state.rule_attempts = limit(
+            state.rule_attempts,
+            1,
+            self.reduction.max_rule_applications,
+            "rule attempts",
+        )?;
+        Ok(())
+    }
     pub(super) fn reserve_apply(&self, bound: usize) -> Result<(), Failure> {
         let mut state = self.lock();
         loop {
@@ -332,14 +356,7 @@ impl<'a, const N: usize> Shared<'a, N> {
                 "conservative coalescing reservation",
             )?;
             if state.reserved_coalescing <= self.reduction.max_coalescing_additions - needed {
-                let attempts = limit(
-                    state.rule_attempts,
-                    1,
-                    self.reduction.max_rule_applications,
-                    "rule attempts",
-                )?;
                 state.reserved_coalescing += bound;
-                state.rule_attempts = attempts;
                 return Ok(());
             }
             state = self
@@ -406,6 +423,8 @@ impl<'a, const N: usize> Shared<'a, N> {
             max_numerator_rank: state.trace.max_numerator_rank,
             max_dot_excess: state.trace.max_dot_excess,
             active: state.active.iter().cloned().collect(),
+            first_failure: state.failure.clone(),
+            first_failure_work: state.first_failure_work.clone(),
             finished: Self::done(state) && state.failure.is_none(),
         }
     }
@@ -418,13 +437,17 @@ impl<'a, const N: usize> Shared<'a, N> {
     ) -> (CandidateRoutedCampaignSnapshot<N>, bool) {
         let deadline = Instant::now() + interval;
         let mut state = self.lock();
+        let already_failed = state.failure.is_some();
         loop {
             self.check_locked(&mut state).ok();
-            if Self::done(&state) || Instant::now() >= deadline {
+            if Self::done(&state)
+                || (!already_failed && state.failure.is_some())
+                || Instant::now() >= deadline
+            {
                 return (self.snapshot_locked(&state), Self::done(&state));
             }
             state = self
-                .wake
+                .progress
                 .wait_timeout(state, deadline.saturating_duration_since(Instant::now()))
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .0;

@@ -69,6 +69,21 @@ progress, deduplication, uncovered dependencies and cooperative cancellation.
 The release gates pass **2,515 core tests and 259 application/integration tests**.
 This driver does not yet perform missing-domain generation or persist its work
 queue; finite-target success is explicitly not a complete R10 family solve.
+The first matched shared rank-one traversal takes 82.645 s with one worker and
+34.973 s with six, with identical reported counters. The first 50-worker rank-ten
+pressure batch is stopped after failures and continued native-call memory growth
+(about 275 GB peak RSS), not completed. The
+[diagnostic and next correction](docs/research/shared_rank10_pressure_2026-09-21.md)
+identify a native Symbolica power-encoding defect in all eight stalled routing
+calls. Corrected-run performance and remaining dependency breadth still require
+measurement.
+
+The corrective release gate passes **2,533 core tests**, **261 application/
+integration tests** and **10 Python supervisor tests**. The Rust owner API also
+supports directed source searches and immutable partial-domain overlays: new
+rules are shared by every compatible routed request, without copying the saved
+library. Automated missing-frontier feedback and durable queue resume are still
+pending. See [the API boundary](docs/shared_owner_campaign_driver.md#directed-owner-search-and-shared-rule-installation).
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after
@@ -179,6 +194,8 @@ is needed:
 
 ```bash
 git submodule update --init --recursive vendor/symbolica
+git -C vendor/symbolica apply --check ../../patches/symbolica/heap-pow-wide-radix.patch
+git -C vendor/symbolica apply ../../patches/symbolica/heap-pow-wide-radix.patch
 export SYMBOLICA_LICENSE="<your Symbolica 3 license>"
 cargo fetch --locked
 cargo check --workspace --locked --offline
@@ -186,18 +203,15 @@ cargo build --release --locked --offline
 ```
 
 The local checkout needs the usual native GMP/MPFR development prerequisites.
+The required [heap-power radix correction](patches/symbolica/README.md) is applied
+once to a clean submodule; if patch admission fails, check for an already-applied
+fix or a different revision rather than overwriting vendor changes.
 
-To use the compatible public Symbolica 3.0 revision instead of the local
-checkout, replace the three local `[patch.crates-io]` entries in the root
-`Cargo.toml` with these pinned Git patches (leave the workspace dependency's
-version and features unchanged):
-
-```toml
-[patch.crates-io]
-graphica = { git = "https://github.com/symbolica-dev/symbolica", rev = "953e26e2754e9a4b918404fbdea590725d8e863d" }
-numerica = { git = "https://github.com/symbolica-dev/symbolica", rev = "953e26e2754e9a4b918404fbdea590725d8e863d" }
-symbolica = { git = "https://github.com/symbolica-dev/symbolica", rev = "953e26e2754e9a4b918404fbdea590725d8e863d" }
-```
+The public base revision `953e26e2754e9a4b918404fbdea590725d8e863d` does not
+contain that correction; using its unmodified Git dependencies is not equivalent
+to this patched checkout. To use Git dependencies instead, select one compatible
+fixed revision (or your patched fork) for all three `[patch.crates-io]` entries:
+`symbolica`, `numerica`, and `graphica`. Leave versions and features unchanged.
 
 Then refresh the dependency source entries in the lockfile and build:
 

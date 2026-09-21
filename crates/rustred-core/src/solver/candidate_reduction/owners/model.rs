@@ -60,18 +60,44 @@ impl<const N: usize> CandidateOwnerContext<N> {
 pub(in crate::solver::candidate_reduction) struct PreparedOwner<const N: usize> {
     pub root: [bool; N],
     pub ordering: OrderingPolicy,
+    pub batches: Vec<Arc<PreparedOwnerBatch<N>>>,
+}
+
+#[derive(Debug)]
+pub(in crate::solver::candidate_reduction) struct PreparedOwnerBatch<const N: usize> {
     pub rules: Vec<PreparedRule<N>>,
     pub terminals: BTreeSet<IntegralKey>,
+    pub coalescing_bound: usize,
+    pub overlay: Option<super::feedback::OwnerOverlayMetadata<N>>,
 }
 
 /// Atomically admitted immutable owner collection in one common family.
 #[derive(Debug)]
 pub struct CandidateOwnerPrograms<const N: usize> {
     pub(in crate::solver::candidate_reduction) context: Arc<CandidateOwnerContext<N>>,
-    pub(in crate::solver::candidate_reduction) owners: BTreeMap<[bool; N], PreparedOwner<N>>,
+    pub(in crate::solver::candidate_reduction) owners: BTreeMap<[bool; N], Arc<PreparedOwner<N>>>,
+    pub(super) lineage: Arc<()>,
+    pub(super) overlay_usage: super::feedback::OverlayUsage,
 }
 
 impl<const N: usize> CandidateOwnerPrograms<N> {
+    pub(in crate::solver::candidate_reduction) fn extends(&self, previous: &Self) -> bool {
+        Arc::ptr_eq(&self.lineage, &previous.lineage)
+            && Arc::ptr_eq(&self.context, &previous.context)
+            && self.owners.len() == previous.owners.len()
+            && previous.owners.iter().all(|(sector, before)| {
+                self.owners.get(sector).is_some_and(|after| {
+                    before.root == after.root
+                        && before.ordering == after.ordering
+                        && after.batches.len() >= before.batches.len()
+                        && before
+                            .batches
+                            .iter()
+                            .zip(&after.batches)
+                            .all(|(a, b)| Arc::ptr_eq(a, b))
+                })
+            })
+    }
     pub fn context(&self) -> &Arc<CandidateOwnerContext<N>> {
         &self.context
     }
@@ -84,7 +110,18 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
     pub fn terminal_count(&self) -> usize {
         self.owners
             .values()
-            .map(|owner| owner.terminals.len())
+            .map(|owner| {
+                let base = &owner.batches[0].terminals;
+                if owner.batches.len() == 1 {
+                    return base.len();
+                }
+                let additional: BTreeSet<_> = owner.batches[1..]
+                    .iter()
+                    .flat_map(|batch| &batch.terminals)
+                    .filter(|key| !base.contains(*key))
+                    .collect();
+                base.len() + additional.len()
+            })
             .sum()
     }
 }

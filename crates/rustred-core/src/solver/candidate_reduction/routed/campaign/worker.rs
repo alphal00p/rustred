@@ -2,8 +2,8 @@ use super::super::{CandidateRoutedError, CandidateRoutedFrontierReason};
 use super::scheduler::{Failure, Shared, Work};
 use super::*;
 use crate::reduction::{ReductionRequest, ReductionStatistics};
-use crate::solver::candidate_reduction::CandidateReductionError;
 use crate::solver::candidate_reduction::evaluator::CandidateEvaluator;
+use crate::solver::candidate_reduction::owners::OwnerStep;
 
 pub(super) fn base<const N: usize>(
     reducer: &RoutedCandidateReducer<N>,
@@ -49,15 +49,11 @@ fn child<const N: usize>(
     .into())
 }
 
-pub(super) fn run<const N: usize>(
-    reducer: &RoutedCandidateReducer<N>,
-    shared: &Shared<'_, N>,
-    bounds: &BTreeMap<[bool; N], usize>,
-) {
+pub(super) fn run<const N: usize>(reducer: &RoutedCandidateReducer<N>, shared: &Shared<'_, N>) {
     // An unexpected native panic must leave a typed incomplete result and wake
     // peers/coordinator, not strand an active node or detach a worker.
     while let Some(node) = shared.take() {
-        run_one(shared, node, |node| process(reducer, shared, bounds, node));
+        run_one(shared, node, |node| process(reducer, shared, node));
     }
 }
 
@@ -74,7 +70,6 @@ pub(super) fn run_one<const N: usize>(
 fn process<const N: usize>(
     reducer: &RoutedCandidateReducer<N>,
     shared: &Shared<'_, N>,
-    bounds: &BTreeMap<[bool; N], usize>,
     node: &Work<N>,
 ) -> Result<(), Failure> {
     shared.check()?;
@@ -133,36 +128,41 @@ fn process<const N: usize>(
                     "admitted owner disappeared".into(),
                 ))
             })?;
-            if owner.terminals.contains(key) {
+            if owner.batches[0].terminals.contains(key) {
                 shared.terminal(key);
                 return Ok(());
             }
-            let bound = bounds[owner_sector];
-            shared.reserve_apply(bound)?;
+            shared.begin_apply()?;
             let context = &reducer.programs.context.shared;
-            let mut local_limits = reducer.programs.context.limits;
-            local_limits.max_coalescing_additions = bound;
-            let evaluator = CandidateEvaluator {
-                context: &context.context,
-                root_sector: owner.root,
-                ordering: owner.ordering,
-                rules: &owner.rules,
-                source_conditions: &context.source_conditions,
-                zero_sectors: &context.zero_sectors,
-                limits: local_limits,
-            };
-            let mut request = ReductionRequest::default();
-            let mut stats = ReductionStatistics::default();
-            // Account/refund the reservation even if native evaluation panics.
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                evaluator.apply(key, &mut request, &mut stats)
-            }));
-            let successful = matches!(&result, Ok(Ok(_)));
-            shared.settle_apply(bound, stats.coalescing_additions(), successful)?;
-            let result = result.map_err(|_| Failure::WorkerPanicked)?;
+            let result = owner.evaluate_step::<Failure>(key, |batch| {
+                let bound = batch.coalescing_bound;
+                shared.reserve_apply(bound)?;
+                let mut local_limits = reducer.programs.context.limits;
+                local_limits.max_coalescing_additions = bound;
+                let evaluator = CandidateEvaluator {
+                    context: &context.context,
+                    root_sector: owner.root,
+                    ordering: owner.ordering,
+                    rules: &batch.rules,
+                    source_conditions: &context.source_conditions,
+                    zero_sectors: &context.zero_sectors,
+                    limits: local_limits,
+                };
+                let mut request = ReductionRequest::default();
+                let mut stats = ReductionStatistics::default();
+                // Settle each batch even on a native panic. A later expensive
+                // batch cannot enlarge an earlier formula's reservation.
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    evaluator.apply(key, &mut request, &mut stats)
+                }));
+                let successful = matches!(&result, Ok(Ok(_)));
+                shared.settle_apply(bound, stats.coalescing_additions(), successful)?;
+                shared.check()?;
+                result.map_err(|_| Failure::WorkerPanicked)
+            })?;
             shared.check()?;
             match result {
-                Ok(terms) => {
+                OwnerStep::Applied(terms) => {
                     // Native exact local coalescing precedes global key dedup.
                     // Stream/drop coefficients; no persistent expression cache.
                     for target in terms.into_keys() {
@@ -170,13 +170,13 @@ fn process<const N: usize>(
                         shared.schedule(child(key, target, *owner_sector)?)?;
                     }
                 }
-                Err(CandidateReductionError::Uncovered { target }) => shared.frontier(
-                    target,
+                OwnerStep::Terminal => shared.terminal(key),
+                OwnerStep::Uncovered => shared.frontier(
+                    key.clone(),
                     CandidateRoutedFrontierReason::MissingRule {
                         owner_sector: *owner_sector,
                     },
                 ),
-                Err(error) => return Err(error.into()),
             }
         }
     }

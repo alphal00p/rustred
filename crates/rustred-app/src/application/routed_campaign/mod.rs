@@ -12,8 +12,8 @@ use std::time::Instant;
 use crate::AppError;
 use rustred::reduction::ReductionLimits;
 use rustred::solver::{
-    CandidateRoutedCampaignSnapshot, CandidateRoutedFrontierReason, CandidateRoutedWork,
-    RoutedCandidateLimits,
+    CandidateRoutedCampaignFailure, CandidateRoutedCampaignSnapshot, CandidateRoutedFrontierReason,
+    CandidateRoutedWork, RoutedCandidateLimits,
 };
 use serde_json::{Value, json};
 
@@ -167,10 +167,24 @@ fn snapshot_json<const N: usize>(s: &CandidateRoutedCampaignSnapshot<N>) -> Valu
         "reserved_coalescing_additions":s.reserved_coalescing_additions, "declared_terminals":s.declared_terminals,
         "visited_zeros":s.visited_zeros, "missing_owners":s.missing_owners, "missing_rules":s.missing_rules,
         "max_numerator_rank":s.max_numerator_rank.to_string(), "max_dot_excess":s.max_dot_excess.to_string(),
+        "first_failure":s.first_failure.as_ref().map(|failure| json!({
+            "kind":match failure { CandidateRoutedCampaignFailure::Trace(_) => "trace",
+                CandidateRoutedCampaignFailure::Cancelled => "cancelled",
+                CandidateRoutedCampaignFailure::WorkerPanicked => "worker_panicked" },
+            "detail":format!("{failure:?}")})),
+        "first_failure_work":s.first_failure_work.as_ref().map(work_json),
         "finished":s.finished, "completed_nodes_are_local_expansions":true, "target_completion_known":s.finished,
-        "active":s.active.iter().map(|work| match work {
-            CandidateRoutedWork::Route(target) => json!({"phase":"route","target":target.powers()}),
-            CandidateRoutedWork::Apply{owner_sector,target} => json!({"phase":"apply","target":target.powers(),
-                "owner_mask":owner_sector.iter().map(|&b| if b {'1'} else {'0'}).collect::<String>()}),
-        }).collect::<Vec<_>>()})
+        "active":s.active.iter().map(work_json).collect::<Vec<_>>()})
+}
+
+fn work_json<const N: usize>(work: &CandidateRoutedWork<N>) -> Value {
+    match work {
+        CandidateRoutedWork::Route(target) => json!({"phase":"route","target":target.powers()}),
+        CandidateRoutedWork::Apply {
+            owner_sector,
+            target,
+        } => json!({"phase":"apply",
+            "target":target.powers(), "owner_mask":owner_sector.iter()
+                .map(|&b| if b {'1'} else {'0'}).collect::<String>()}),
+    }
 }

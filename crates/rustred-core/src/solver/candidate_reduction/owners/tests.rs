@@ -23,7 +23,7 @@ fn common_context_prepares_sources_once_for_multiple_owners_and_keeps_above_rank
     assert_eq!(programs.owner_count(), 2);
     assert_eq!(programs.terminal_count(), 2);
     assert!(
-        programs.owners[&[true, true, false]]
+        programs.owners[&[true, true, false]].batches[0]
             .terminals
             .contains(&key([1, 1, -2]))
     );

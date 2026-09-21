@@ -34,14 +34,15 @@ pub(crate) use instantiate::{
 };
 
 pub use candidate_reduction::{
-    CandidateCacheRepresentation, CandidateDecomposition, CandidateOwnerContext,
-    CandidateOwnerInput, CandidateOwnerPrograms, CandidateOwnerRoute, CandidateOwnerScope,
-    CandidateReachabilityReport, CandidateReducer, CandidateReductionError,
+    BoundOwnerOverlay, BoundOwnerSearch, CandidateCacheRepresentation, CandidateDecomposition,
+    CandidateOwnerContext, CandidateOwnerInput, CandidateOwnerPrograms, CandidateOwnerRoute,
+    CandidateOwnerScope, CandidateReachabilityReport, CandidateReducer, CandidateReductionError,
     CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,
     CandidateRoutedCampaignSnapshot, CandidateRoutedError, CandidateRoutedFrontier,
     CandidateRoutedFrontierReason, CandidateRoutedTraceReport, CandidateRoutedWork,
-    CandidateStatistics, CandidateTraceLimits, CandidateTraceReport, RoutedCandidateLimits,
-    RoutedCandidateReducer,
+    CandidateStatistics, CandidateTraceLimits, CandidateTraceReport, OwnerDomainAttemptLimits,
+    OwnerDomainScope, OwnerFeedbackError, OwnerFeedbackPolicy, OwnerOverlayLimits,
+    OwnerOverlayMetadata, OwnerOverlayUsage, RoutedCandidateLimits, RoutedCandidateReducer,
 };
 pub use case::{
     AffineCase, AffineGeometryError, AffineIntersection, Case, CaseIntersectionBudget,

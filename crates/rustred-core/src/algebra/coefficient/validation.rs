@@ -129,7 +129,7 @@ pub(crate) fn coefficient_clone_owned_retained_byte_bound(
 }
 
 /// Owned buffers only; the caller separately counts inline polynomial storage.
-pub(super) fn polynomial_clone_owned_heap_byte_bound(
+pub(crate) fn polynomial_clone_owned_heap_byte_bound(
     polynomial: &MultivariatePolynomial<IntegerRing, u16>,
 ) -> Option<usize> {
     let mut bytes = polynomial
@@ -148,7 +148,7 @@ pub(super) fn polynomial_clone_owned_heap_byte_bound(
     Some(bytes)
 }
 
-pub(super) fn integer_clone_owned_heap_byte_bound(value: &Integer) -> Option<usize> {
+pub(crate) fn integer_clone_owned_heap_byte_bound(value: &Integer) -> Option<usize> {
     if let Integer::Large(value) = value {
         usize::try_from(value.as_raw().capacity())
             .ok()?

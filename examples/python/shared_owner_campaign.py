@@ -8,6 +8,7 @@ The 15-hour objective is telemetry, NOT a timeout. No license is persisted.
 from __future__ import annotations
 
 import argparse
+from collections import deque
 from contextlib import contextmanager
 import json
 import math
@@ -37,38 +38,114 @@ def nonnegative(text: str) -> int:
     return value
 
 
-def process_table() -> dict[int, dict]:
-    """Kernel PID/start identity, CPU ticks and resident bytes; no child sums."""
-    result = {}
-    page = os.sysconf("SC_PAGE_SIZE")
-    ticks = os.sysconf("SC_CLK_TCK")
-    for entry in Path("/proc").iterdir():
-        if not entry.name.isdecimal():
-            continue
-        try:
-            stat = (entry / "stat").read_text()
-            fields = stat[stat.rfind(")") + 2:].split()
-            result[int(entry.name)] = {
-                "ppid": int(fields[1]), "pgrp": int(fields[2]),
-                "start": int(fields[19]),
-                "cpu_seconds": (int(fields[11]) + int(fields[12])) / ticks,
-                "rss_bytes": max(0, int(fields[21])) * page,
-            }
-        except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError, IndexError):
-            continue
-    return result
+class ProcessTreeCollector:
+    """Sample explicit roots and observed descendants, never the whole host.
+
+    Known descendants survive reparenting; never-observed children that reparent
+    between samples may be missed. This is sampled accounting, not a cgroup.
+    """
+    def __init__(self, proc_root=Path("/proc")):
+        self.proc_root = proc_root
+        self.identities = {}
+        self.page = os.sysconf("SC_PAGE_SIZE")
+        self.ticks = os.sysconf("SC_CLK_TCK")
+
+    def _stat(self, pid):
+        stat = (self.proc_root / str(pid) / "stat").read_text()
+        fields = stat[stat.rfind(")") + 2:].split()
+        return {"ppid": int(fields[1]), "pgrp": int(fields[2]), "start": int(fields[19]),
+                "cpu_seconds": (int(fields[11]) + int(fields[12])) / self.ticks,
+                "rss_bytes": max(0, int(fields[21])) * self.page}
+
+    def _leader(self, pid):
+        status = (self.proc_root / str(pid) / "status").read_text()
+        return next(int(line.split()[1]) for line in status.splitlines()
+                    if line.startswith("Tgid:")) == pid
+
+    def register(self, pid):
+        first = self._stat(pid)
+        if not self._leader(pid) or self._stat(pid)["start"] != first["start"]:
+            raise ValueError(f"PID {pid} is not a stable process leader")
+        self.identities[pid] = first["start"]
+
+    def sample(self):
+        diagnostics = {"stat_reads": 0, "task_directories": 0, "children_files": 0,
+                       "read_races": 0, "reused_pids": 0}
+        result = {}
+        pending = deque((pid, start, None) for pid, start in self.identities.items())
+        considered = set()
+        read_errors = (OSError, ValueError, IndexError, StopIteration)
+
+        def read_stat(pid):
+            diagnostics["stat_reads"] += 1
+            return self._stat(pid)
+
+        while pending:
+            pid, expected_start, parent = pending.popleft()
+            if pid in considered:
+                continue
+            considered.add(pid)
+            try:
+                row = read_stat(pid)
+                if expected_start is not None and row["start"] != expected_start:
+                    self.identities.pop(pid, None)
+                    diagnostics["reused_pids"] += 1
+                    continue
+                if parent is not None:
+                    parent_pid, parent_start = parent
+                    if (row["ppid"] != parent_pid or not self._leader(pid)
+                            or read_stat(parent_pid)["start"] != parent_start):
+                        continue
+                    confirmed = read_stat(pid)
+                    if (confirmed["start"] != row["start"]
+                            or confirmed["ppid"] != parent_pid):
+                        continue
+                    row = confirmed
+                self.identities[pid] = row["start"]
+                result[pid] = row
+                diagnostics["task_directories"] += 1
+                for task in (self.proc_root / str(pid) / "task").iterdir():
+                    if not task.name.isdecimal():
+                        continue
+                    try:
+                        diagnostics["children_files"] += 1
+                        children = (task / "children").read_text().split()
+                        for child in children:
+                            pending.append((int(child), None, (pid, row["start"])))
+                    except read_errors:
+                        diagnostics["read_races"] += 1
+            except read_errors:
+                diagnostics["read_races"] += 1
+                # Preserve unreadable live identities for a later sample.
+                # Only confirmed disappearance or a changed start time prunes.
+                try:
+                    (self.proc_root / str(pid)).stat()
+                except (FileNotFoundError, ProcessLookupError):
+                    self.identities.pop(pid, None)
+                except OSError:
+                    pass
+        diagnostics["known_identities"] = len(self.identities)
+        return result, diagnostics
 
 
-def selected_tree(table: dict[int, dict], identities: dict[int, int]) -> dict[int, dict]:
-    """Deduplicate overlapping roots; never follow a reused root PID."""
-    selected = {pid for pid, start in identities.items()
-                if pid in table and table[pid]["start"] == start}
-    while True:
-        children = {pid for pid, row in table.items() if row["ppid"] in selected}
-        enlarged = selected | children
-        if enlarged == selected:
-            return {pid: table[pid] for pid in sorted(selected)}
-        selected = enlarged
+def process_cpu_sample(table, previous, elapsed, supervisor_pid, owned_pid):
+    """Per-process deltas expose supervisor cost without another proc read."""
+    rows = []
+    current = {}
+    delta = 0.0
+    for pid, row in sorted(table.items()):
+        identity = (pid, row["start"])
+        cpu = row["cpu_seconds"]
+        sampled_delta = max(0.0, cpu - previous[identity]) if identity in previous else None
+        current[identity] = cpu
+        delta += sampled_delta or 0.0
+        rows.append({"pid": pid, "start": row["start"], "ppid": row["ppid"],
+                     "role": "supervisor" if pid == supervisor_pid else
+                             "owned_native" if pid == owned_pid else "registered_descendant",
+                     "rss_bytes": row["rss_bytes"], "cpu_seconds": cpu,
+                     "sampled_cpu_delta_seconds": sampled_delta,
+                     "observed_busy_cores": None if sampled_delta is None else sampled_delta / elapsed})
+    return delta, current, rows
 
 
 def append_record(stream, record: dict) -> None:
@@ -158,15 +235,16 @@ def main() -> int:
     cpus = set(map(int, args.cpus.split(","))) if args.cpus else set(sorted(os.sched_getaffinity(0))[:args.workers])
     if len(cpus) != args.workers or not cpus <= os.sched_getaffinity(0):
         parser.error("CPU set must contain exactly --workers permitted CPU IDs")
-    table = process_table()
-    registered = {}
+    collector = ProcessTreeCollector()
     for pid in args.registered_pid:
-        if pid not in table:
-            parser.error(f"registered PID {pid} is not alive")
-        registered[pid] = table[pid]["start"]
+        try:
+            collector.register(pid)
+        except (OSError, ValueError, IndexError, StopIteration):
+            parser.error(f"registered PID {pid} is not a readable stable process")
     if (args.registered_pid or args.other_workers) and not args.reserved_other_memory_bytes:
         parser.error("concurrent jobs require positive --reserved-other-memory-bytes")
-    external_rss = sum(row["rss_bytes"] for pid, row in selected_tree(table, registered).items()
+    external, _ = collector.sample()
+    external_rss = sum(row["rss_bytes"] for pid, row in external.items()
                        if pid != os.getpid())
     try:
         child_as, monitor_headroom = address_space_envelope(args.max_memory_bytes,
@@ -175,7 +253,7 @@ def main() -> int:
     except ValueError as error:
         parser.error(str(error))
     # Include the supervisor without treating it as an external reservation.
-    registered[os.getpid()] = table[os.getpid()]["start"]
+    collector.register(os.getpid())
     os.sched_setaffinity(0, cpus)
     for path in (args.manifest, args.targets, args.executable):
         if not path.is_file():
@@ -194,7 +272,7 @@ def main() -> int:
         command.append("--no-progress")
     # Never include the process environment or license in provenance.
     (output / "request.json").write_text(json.dumps({
-        "command": command, "cpus": sorted(cpus), "registered_roots": registered,
+        "command": command, "cpus": sorted(cpus), "registered_roots": collector.identities,
         "workers": args.workers, "other_workers": args.other_workers,
         "hard_memory_bytes": args.max_memory_bytes, "soft_memory_bytes": args.soft_memory_bytes,
         "child_rlimit_as_bytes": child_as, "monitor_headroom_bytes": monitor_headroom,
@@ -228,39 +306,37 @@ def main() -> int:
     # pools exist; the new session makes hard-stop ownership unambiguous.
     with owned_process(command, env, cpus, request_stop, child_as) as child:
         (output / "run.pid").write_text(str(child.pid) + "\n")
-        initial = process_table()
-        if child.pid in initial:
-            registered[child.pid] = initial[child.pid]["start"]
+        try:
+            collector.register(child.pid)
+        except (OSError, ValueError, IndexError, StopIteration):
+            if child.poll() is None:
+                raise
+        initial, _ = collector.sample()
         print(f"Campaign receipts: {output}", flush=True)
         peak = 0
         seen_cpu = {(pid, row["start"]): row["cpu_seconds"]
-                    for pid, row in selected_tree(initial, registered).items()}
+                    for pid, row in initial.items()}
         cumulative_cpu = 0.0
-        last_time = started
+        last_time = time.monotonic()
         previous_rss = None
         hard_stopped = False
         with (output / "resources.jsonl").open("x") as resources:
             while child.poll() is None:
                 if stop_file.exists() and stop_reason is None:
                     request_stop("existing_operator_stop_file")
-                table = process_table()
-                tree = selected_tree(table, registered)
-                # Remember descendants after parent exit, retaining PID/start.
-                registered.update({pid: row["start"] for pid, row in tree.items()})
+                tree, collection = collector.sample()
                 rss = sum(row["rss_bytes"] for row in tree.values())
-                delta_cpu = 0.0
-                for pid, row in tree.items():
-                    identity = (pid, row["start"])
-                    delta_cpu += max(0.0, row["cpu_seconds"] - seen_cpu.get(identity, row["cpu_seconds"]))
-                    seen_cpu[identity] = row["cpu_seconds"]
-                cumulative_cpu += delta_cpu
                 now = time.monotonic()
+                delta_cpu, seen_cpu, process_rows = process_cpu_sample(
+                    tree, seen_cpu, now-last_time, os.getpid(), child.pid)
+                cumulative_cpu += delta_cpu
                 peak = max(peak, rss)
                 append_record(resources, {"event": "resources", "elapsed_seconds": now-started,
                     "aggregate_rss_bytes": rss, "peak_observed_rss_bytes": peak,
                     "sampled_cpu_seconds_since_start": cumulative_cpu, "observed_busy_cores": delta_cpu/(now-last_time),
                     "rss_growth_bytes_per_second": None if previous_rss is None else (rss-previous_rss)/(now-last_time),
-                    "processes": len(tree), "configured_workers": args.workers+args.other_workers,
+                    "processes": len(tree), "process_cpu": process_rows, "collection": collection,
+                    "configured_workers": args.workers+args.other_workers,
                     "objective_hours": args.objective_hours, "past_objective": now-started > args.objective_hours*3600,
                     "cancel_reason": stop_reason, "registered_scope_only": True})
                 last_time = now
@@ -269,7 +345,7 @@ def main() -> int:
                     request_stop("aggregate_rss_soft_limit")
                 if rss >= args.max_memory_bytes and not hard_stopped:
                     # Other registered jobs are measured, never signalled.
-                    if child.pid in table and table[child.pid]["start"] == registered.get(child.pid):
+                    if child.pid in tree and tree[child.pid]["start"] == collector.identities.get(child.pid):
                         request_stop("aggregate_rss_hard_limit")
                         try:
                             os.killpg(child.pid, signal.SIGKILL)

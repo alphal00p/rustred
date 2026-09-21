@@ -18,7 +18,8 @@ pub(in crate::algebra) use operations::{
     trusted_coefficient_neg_on_map, trusted_coefficient_sub_on_map,
 };
 pub(crate) use validation::{
-    coefficient_clone_owned_retained_byte_bound, validate_coefficient_on_map,
+    coefficient_clone_owned_retained_byte_bound, integer_clone_owned_heap_byte_bound,
+    polynomial_clone_owned_heap_byte_bound, validate_coefficient_on_map,
     validate_polynomial_on_map,
 };
 

@@ -51,6 +51,12 @@ pub struct CandidateRoutedCampaignSnapshot<const N: usize> {
     pub max_dot_excess: u128,
     /// At most `workers` descriptors; no formulas/coefficients are cloned.
     pub active: Vec<CandidateRoutedWork<N>>,
+    /// First typed failure, exposed while other native calls are still draining.
+    /// Later failed nodes do not replace this cause. None does not imply closure.
+    pub first_failure: Option<CandidateRoutedCampaignFailure>,
+    /// Originating node when failure was first reported by a worker; absent for
+    /// preflight, external cancellation, spawn or final invariant failures.
+    pub first_failure_work: Option<CandidateRoutedWork<N>>,
     /// True only after every scheduled node completed without error/cancel.
     /// Even true does not mean zero frontier or parametric family coverage.
     pub finished: bool,

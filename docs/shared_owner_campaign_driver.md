@@ -38,6 +38,11 @@ identity; it cannot account for unrelated unregistered jobs. It never signals
 the additional registered roots. Its own PID/start and RSS/CPU are included,
 and its affinity is restricted to the chosen Rust CPU set. Linux `/proc` and CPU-affinity support are
 required by this example, not by the transport-neutral Rust API.
+Collection reads only registered/previously observed processes and their
+per-thread child lists, not every host PID. Previously observed descendants
+remain tracked after reparenting. Children born and reparented between samples
+before first observation can be missed; this is not universal descendant
+capture. Transient unreadable live identities are retained for later retry.
 
 Defaults are at most 50 outer workers, all native/BLAS/Rayon inner pools fixed
 to one before exec, a **decimal 450 GB** measured aggregate RSS soft stop and
@@ -60,6 +65,11 @@ CPU utilization, memory growth and progress age before deciding to continue.
 The compact bar is labelled `expanded / currently discovered`: its denominator
 can grow and it is not a closure percentage. Heartbeats expose recent expanded
 nodes/second and queue growth/second; Python resource records expose RSS slope.
+Each resource record also includes per-PID/start CPU deltas and RSS, with the
+supervisor and owned native process labelled separately. Newly observed or
+temporarily unreadable processes have no CPU delta until a fresh baseline is
+available; their historic CPU usage is never charged as current utilization.
+Collector read/race counts make monitoring cost and incomplete reads visible.
 
 Ctrl-C or SIGTERM to the **Python supervisor** creates a cooperative stop file.
 The CLI polls it even during native preparation; core workers observe
@@ -136,3 +146,84 @@ per group, explicitly `frontier_details_complete=false`.
 Fast supervisor tests: `python -m unittest examples/python/test_shared_owner_campaign.py`.
 Native small-fixture tests live in the application shared-campaign module;
 serial/parallel parity and cancellation are validated before any large run.
+
+## First measured saved-owner control (September 21)
+
+The same concrete rank-one input was run with all 67 saved representative
+programs and 8,179 verified nonidentity routes, using the frozen release CLI
+from `6c53b3a`. Both fresh processes completed successfully. Native inner pools
+were one; CPU affinities were 84 and 84–89 respectively. There was no solve
+deadline, with a 32 GB RSS threshold and 28.8 GB child address-space ceiling.
+
+| Outer workers | Preparation (s) | Shared traversal (s) | Whole command wall (s) | Whole command CPU (s) | Peak RSS (GiB) |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 198.853 | 82.645 | 288.36 | 284.71 | 5.53 |
+| 6 | 151.752 | 34.973 | 190.11 | 305.85 | 5.53 |
+
+Whole-command measurements include the Python supervisor, cold loading,
+verification, reporting and shutdown. Preparation is the application total
+minus its measured traversal interval; it is not parallelized by this slice.
+This is one pair of shared-host observations, not a statistically controlled
+scaling claim. The observed traversal ratio is **2.36×**, not sixfold. The old
+native-only serial DFS control took 42.022 s for traversal, so the new one-worker
+scheduler/monitoring stack regresses on this input and needs profiling. Setup
+timing also varies; do not attribute the whole-command ratio to worker scaling.
+
+Both runs have identical reported counters: 541,889 distinct integral keys,
+544,228 operational nodes, 219,003 successful rule applications, 210,751
+transports, 321 declared terminals, 111,814 zeros, 7,458,443 deduplication hits,
+and no missing owner/rule. Maximum reached rank is five and dot excess ten.
+Small-fixture tests compare exact terminal/frontier sets; the large CLI summary
+records counters, not a persisted full graph or full terminal-set comparison.
+The one-second sampled queue peaks are 46,307 and 41,028; they are not exact
+high-water marks. No new IBPs were generated and no parametric coverage claim
+follows from this finite control.
+
+Evidence: `TMP/shared-campaign-controls.olWsx7/`, with native/frontend gates in
+`TMP/shared-routed-core.p87lO3/` and `TMP/shared-campaign-frontend.TLRUXi/`.
+
+## Directed owner search and shared rule installation
+
+The Rust core now retains common ordinary/LI source definitions alongside the
+saved owner programs. `CandidateOwnerPrograms::bind_owner_search` binds a new
+search to the admitted family, owner and original ordering. The caller supplies
+an explicit prospective `OwnerFeedbackPolicy`; absent historical settings are
+not guessed. `BoundOwnerSearch::solve_domains_with_observer` solves nominated
+native `Case` domains and returns a distinct `BoundOwnerOverlay`, not a complete
+sector or closed-family artifact.
+
+The actual `OwnerDomainScope` is separate from the campaign entry rank: an R11
+successor discovered from an R10 input remains R11 (or explicitly unbounded),
+never clipped to ten. Positive indices can remain symbolic. Unsupported cases
+and resource limits return errors, not invented masters.
+
+`append_domain_overlays` atomically publishes successful results in the caller's
+deterministic order. Unchanged owners, sources and base formula batches are
+Arc-shared. Dispatch tries the original terminal/rules before each later batch;
+a new terminal cannot shadow an older applicable formula. Only a true uncovered
+result advances to the next batch—arithmetic, descent or resource errors do not.
+`RoutedCandidateReducer::with_programs` reuses verified route handles for an
+append-only snapshot from the same lineage, avoiding another family load or map
+verification. Existing graph work is not persisted or reused by that rebind.
+
+Cumulative overlay limits cover retained domains, rules, RHS entries, terminals
+and measured native payload. The census excludes allocator/native temporary
+overhead and hidden matrix spare capacity; it is not a replacement for OS/RSS
+resource enforcement. Searches currently share source definitions, not each
+sector's preconditioned basis. This core API does not yet give the CLI/Python
+driver automatic nomination, durable overlay loading, or a complete R10 solve.
+
+The complete corrected release gate passes 2,533 core tests, with zero failures
+and 32 pre-existing ignored diagnostics; app/integration tests pass 261 and the
+Python supervisor passes ten. Fourteen focused tests cover real source search,
+above-entry-rank domains, immutable reuse, priority, ordering, limits and native
+chart storage. A new test initially compared opposite ordering conventions; its
+expected direction was corrected after independent review, with all pairwise
+assertions retained. No production ordering changed to satisfy that test.
+
+The native dependency correction and affected-map timings are documented in
+[the pressure report](research/shared_rank10_pressure_2026-09-21.md). Core receipts
+are in `TMP/source-bound-overlay-corrected.3DtdEI/`; the corrected frontend build
+and runtime are in `TMP/shared-campaign-corrected-frontend.oAhpcl/` and
+`TMP/shared-campaign-corrected-runtime.oMmXaO/`. These gates do not turn the
+previous stopped 50-worker diagnostic into a completed campaign.

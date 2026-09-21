@@ -135,6 +135,18 @@ fn dashboard(record: &Value) -> [String; 6] {
         (20.0 * (done as f64 / total as f64).min(1.0)) as usize
     };
     let bar = format!("[{}{}]", "#".repeat(filled), "-".repeat(20 - filled));
+    let last_line = if let Some(detail) = p["first_failure"]["detail"].as_str() {
+        let summary: String = detail.chars().take(200).collect();
+        format!(
+            "First failure ({} native calls draining): {summary}; full cause/origin in JSON",
+            number("active_nodes")
+        )
+    } else {
+        format!(
+            "Last update {:.1}s ago; parametric family closure NOT established",
+            record["progress_age_seconds"].as_f64().unwrap_or(0.)
+        )
+    };
     [
         format!(
             "RustRed shared finite-target campaign — {}",
@@ -171,10 +183,7 @@ fn dashboard(record: &Value) -> [String; 6] {
             record["process_rss_bytes"].as_u64().unwrap_or(0) as f64 / 1e9,
             record["cancel_requested"]
         ),
-        format!(
-            "Last update {:.1}s ago; parametric family closure NOT established",
-            record["progress_age_seconds"].as_f64().unwrap_or(0.)
-        ),
+        last_line,
     ]
 }
 
@@ -187,5 +196,16 @@ mod tests {
         assert!(text.contains("42/0 expanded"));
         assert!(text.contains("not per-target closure"));
         assert!(text.contains("NOT established"));
+    }
+
+    #[test]
+    fn dashboard_displays_first_cause_before_other_native_calls_finish() {
+        let text = dashboard(&json!({"progress":{"active_nodes":2,"failed_nodes":1,
+            "first_failure":{"kind":"trace","detail":"ResourceLimit: transport endpoints"}}}))
+        .join("\n");
+        assert!(text.contains("First failure (2 native calls draining)"));
+        assert!(text.contains("ResourceLimit: transport endpoints"));
+        assert!(text.contains("full cause/origin in JSON"));
+        assert!(text.contains("not per-target closure"));
     }
 }
