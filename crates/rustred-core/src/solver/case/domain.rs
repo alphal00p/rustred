@@ -101,10 +101,24 @@ impl<const N: usize> Case<N> {
         indices: &[usize; N],
         sector: &[bool; N],
     ) -> Result<Option<Self>, AffineGeometryError> {
+        self.intersect_in_rank(equations, indices, sector, None)
+    }
+
+    pub(crate) fn intersect_in_rank(
+        &self,
+        equations: &[CoefficientPolynomial],
+        indices: &[usize; N],
+        sector: &[bool; N],
+        max_numerator_rank: Option<u32>,
+    ) -> Result<Option<Self>, AffineGeometryError> {
         let result = match self {
-            Self::Coordinate(case) => {
-                AffineCase::from_coordinate(case, equations, indices, sector)?
-            }
+            Self::Coordinate(case) => AffineCase::from_coordinate_in_rank(
+                case,
+                equations,
+                indices,
+                sector,
+                max_numerator_rank,
+            )?,
             Self::Affine(case) => {
                 if case.index_variables() != indices {
                     return Err(AffineGeometryError::InvalidInput(
@@ -117,7 +131,7 @@ impl<const N: usize> Case<N> {
                 if equations.is_empty() {
                     return Ok(Some(self.clone()));
                 }
-                case.intersect(equations, sector)?
+                case.intersect_in_rank(equations, sector, max_numerator_rank)?
             }
         };
         Ok(match result {

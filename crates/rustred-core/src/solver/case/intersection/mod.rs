@@ -43,8 +43,9 @@ impl<const N: usize> Case<N> {
     ///
     /// Only a still-unsupported nonlinear branch is refined into bounded
     /// inactive-coordinate slices. Positive powers remain symbolic. Native
-    /// affine admission, factorization and substitution are unchanged, and
-    /// every refinement shares the same work budget. Unsupported positive-
+    /// affine algebra, factorization and substitution are unchanged. Forced
+    /// negative coordinates are checked against the rank before compact-key
+    /// conversion, and every refinement shares the same work budget. Unsupported positive-
     /// power geometry still fails atomically. Returned equality cases can
     /// over-cover outside the explicit rank scope; this is not family closure.
     pub fn intersect_many_with_max_numerator_rank(
@@ -73,3 +74,6 @@ mod univariate_tests;
 
 #[cfg(test)]
 mod rank_tests;
+
+#[cfg(test)]
+mod rank_overflow_tests;

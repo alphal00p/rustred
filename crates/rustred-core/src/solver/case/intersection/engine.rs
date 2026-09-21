@@ -105,7 +105,7 @@ impl<const N: usize> Engine<'_, N> {
             let admitted = self
                 .current
                 .parent
-                .intersect(&[], self.indices, self.sector)
+                .intersect_in_rank(&[], self.indices, self.sector, self.max_numerator_rank)
                 .map_err(CaseIntersectionFailure::Admission);
             self.stats.admission_time += start.elapsed();
             if let Some(parent) = admitted? {
@@ -145,7 +145,12 @@ impl<const N: usize> Engine<'_, N> {
             let child = self
                 .current
                 .parent
-                .intersect(&self.current.equations, self.indices, self.sector)
+                .intersect_in_rank(
+                    &self.current.equations,
+                    self.indices,
+                    self.sector,
+                    self.max_numerator_rank,
+                )
                 .map_err(CaseIntersectionFailure::Admission);
             self.stats.admission_time += start.elapsed();
             self.stats.affine_admissions += 1;
@@ -194,7 +199,7 @@ impl<const N: usize> Engine<'_, N> {
                 let child = self
                     .current
                     .parent
-                    .intersect(&affine, self.indices, self.sector)
+                    .intersect_in_rank(&affine, self.indices, self.sector, self.max_numerator_rank)
                     .map_err(CaseIntersectionFailure::Admission);
                 self.stats.admission_time += start.elapsed();
                 self.stats.affine_admissions += 1;
@@ -317,7 +322,12 @@ impl<const N: usize> Engine<'_, N> {
                 let child = self
                     .current
                     .parent
-                    .intersect(&gradients, self.indices, self.sector)
+                    .intersect_in_rank(
+                        &gradients,
+                        self.indices,
+                        self.sector,
+                        self.max_numerator_rank,
+                    )
                     .map_err(CaseIntersectionFailure::Admission);
                 self.stats.admission_time += start.elapsed();
                 self.stats.affine_admissions += 1;

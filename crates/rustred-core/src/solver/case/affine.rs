@@ -95,15 +95,31 @@ impl<const N: usize> AffineCase<N> {
         indices: &[usize; N],
         sector: &[bool; N],
     ) -> Result<AffineIntersection<N>, AffineGeometryError> {
+        Self::from_coordinate_in_rank(parent, equations, indices, sector, None)
+    }
+
+    pub(crate) fn from_coordinate_in_rank(
+        parent: &CoordinateCase<N>,
+        equations: &[CoefficientPolynomial],
+        indices: &[usize; N],
+        sector: &[bool; N],
+        max_numerator_rank: Option<u32>,
+    ) -> Result<AffineIntersection<N>, AffineGeometryError> {
         // This also performs variable-map/shape/parameter admission checks.
-        match geometry::intersect(parent, equations, indices, sector) {
+        let coordinate = match max_numerator_rank {
+            None => geometry::intersect(parent, equations, indices, sector),
+            Some(_) => {
+                geometry::intersect_in_rank(parent, equations, indices, sector, max_numerator_rank)
+            }
+        };
+        match coordinate {
             Ok(Some(face)) => return Ok(AffineIntersection::Coordinate(face)),
             Ok(None) => return Ok(AffineIntersection::Empty),
             Err(GeometryError::UnsupportedGeometry { .. }) => {}
             Err(error) => return Err(AffineGeometryError::Coordinate(error)),
         }
         catch_unwind(AssertUnwindSafe(|| {
-            intersect_native(parent, equations, indices, sector)
+            intersect_native(parent, equations, indices, sector, max_numerator_rank)
         }))
         .map_err(|_| AffineGeometryError::NativeAlgebra)?
     }
@@ -229,11 +245,26 @@ impl<const N: usize> AffineCase<N> {
         equations: &[CoefficientPolynomial],
         sector: &[bool; N],
     ) -> Result<AffineIntersection<N>, AffineGeometryError> {
+        self.intersect_in_rank(equations, sector, None)
+    }
+
+    pub(crate) fn intersect_in_rank(
+        &self,
+        equations: &[CoefficientPolynomial],
+        sector: &[bool; N],
+        max_numerator_rank: Option<u32>,
+    ) -> Result<AffineIntersection<N>, AffineGeometryError> {
         let mut combined = self.equations.clone();
         for equation in equations {
             combined.push(self.restrict_equation(equation)?);
         }
-        Self::from_coordinate(&self.face, &combined, &self.indices, sector)
+        Self::from_coordinate_in_rank(
+            &self.face,
+            &combined,
+            &self.indices,
+            sector,
+            max_numerator_rank,
+        )
     }
 
     /// Whether a displacement preserves every equality, including fixed axes.
@@ -323,6 +354,7 @@ fn intersect_native<const N: usize>(
     equations: &[CoefficientPolynomial],
     indices: &[usize; N],
     sector: &[bool; N],
+    max_numerator_rank: Option<u32>,
 ) -> Result<AffineIntersection<N>, AffineGeometryError> {
     let Some(template) = equations.first() else {
         return Ok(AffineIntersection::Coordinate(*parent));
@@ -336,6 +368,20 @@ fn intersect_native<const N: usize>(
         .row_iter()
         .any(|row| bounds::excludes_rhs(row, parent, sector))
     {
+        return Ok(AffineIntersection::Empty);
+    }
+    // Native RREF includes the parent fixed rows and has distinct original
+    // coordinate pivots. Only singleton rows fix an original index; coupled
+    // chart RHSs are not coordinate values. Check all such values before
+    // converting ANY row, so an unrelated positive overflow cannot obscure
+    // an exact proof that this entire AND branch lies outside the rank scope.
+    if geometry::fixed_rank_exceeds(
+        matrix.row_iter().filter_map(|row| {
+            (row[..N].iter().filter(|entry| !entry.is_zero()).count() == 1 && row[N].is_integer())
+                .then(|| row[N].numerator_ref())
+        }),
+        max_numerator_rank,
+    ) {
         return Ok(AffineIntersection::Empty);
     }
     let mut fixed = [None; N];

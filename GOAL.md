@@ -158,14 +158,25 @@ the sparse default for that observed workload. See the rank-scope notes for
 the measured boundaries and limitations. No five-loop minimization, numerical
 master catalog or Vakint integration begins before bounded coverage succeeds.
 
-The 09:55:06–09:55:07 UTC non-atomic broad-search refresh saves **4,889/8,246**
+The 10:32:25 UTC non-atomic broad-search refresh saves **5,234/8,246**
 distinct labelled sectors, representing **65/67** census classes. Separate
-finite-retention probes are excluded. All six continuations now have explicit
+finite-retention probes are excluded; the preceding 09:55 snapshot had 4,889
+distinct saved sectors. All six continuations now have explicit
 four-hour deadlines, 64 solver workers in total and aggregate memory monitoring;
 30527 has a 128 GiB process allowance after its smaller allowance remained under
 pressure. Longer time/memory allowances do not change source, rank, ordering or
 generation policy. Individual allowances are not simultaneous RAM reservations:
 the 450 GB aggregate soft stop remains below the user's 500 GB limit.
+
+The expanded run identifies an admission-ordering defect: a branch forcing
+negative degree119 is rejected for compact-index overflow before the R=10
+filter can prove it empty. Generic native-integer rank admission now precedes
+compact conversion, including affine singleton values from Symbolica RREF.
+Valid sibling branches and in-scope overflow errors are preserved. Independent
+review, eight captured/adversarial tests and the full core release gate pass:
+**2,401 passed, zero failed, 32 existing ignored**. A fresh executable will
+retry the actual failed sector; running campaigns retain their frozen binaries.
+No new CAS primitive or loop-count-specific solver logic was introduced.
 
 A generic Rust application loader now consumes every sector of a complete
 trusted-local checkpoint directly into one shared candidate reducer, without
@@ -176,8 +187,13 @@ Five concrete checks, including raised powers, a numerator and pinches, reduce
 exactly with memoized equality and zero uncovered trace entries. Two R=10
 checks exceed the explicit 100,000-node trace limit, so that seven-case driver
 correctly returns failure rather than claiming completion. Its whole process
-takes 332.45 s and peaks at 8,355,028 KiB RSS. Larger, trace-only boundary checks
-are the next diagnostic; they are not a new generation or minimization stage.
+takes 332.45 s and peaks at 8,355,028 KiB RSS. Subsequent trace-only rank-10
+checks complete dependency graphs of 697,556, 430,467 and 80,584 distinct keys
+with zero uncovered entries. A harder three-dot, split-numerator input still
+exceeds an explicitly raised four-million-node allowance after 346.00 s tracing;
+its full process takes 496.51 s with 7,215,308 KiB peak RSS. This is work-budget
+exhaustion, not evidence of a missing rule. No rules are regenerated and no
+coefficient back-substitution is attempted in those larger traces.
 No recursive rank-10 family closure is claimed. Evidence and precise timing
 boundaries are in the rank-scope notes.
 

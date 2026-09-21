@@ -268,18 +268,19 @@ Continuation receipts are in `TMP/tide-r10-30527-resultant-resume.tm5KX0/`,
 `TMP/tide-r10-29550-resultant-resume.M5CZF6/` and
 `TMP/tide-r10-root30231-resultant-resume.LIPE76/`.
 
-A later metadata-only broad-search inventory, sampled non-atomically at
-**09:55:06–09:55:07 UTC**, has the following counts:
+A later metadata-only broad-search inventory, sampled non-atomically during
+**10:32:25 UTC**, has the following counts:
 
 | Parent input | Saved sectors / scheduled |
 |---|---:|
-| 30527 | 487 / 2,686 |
-| 30699 | 1,773 / 2,580 |
-| 31740 | 1,274 / 2,656 |
-| 32745 | 2,241 / 2,478 |
+| 30527 | 572 / 2,686 |
+| 30699 | 1,886 / 2,580 |
+| 31740 | 1,533 / 2,656 |
+| 32745 | 2,254 / 2,478 |
 
-Their 5,775 occurrences comprise **4,889 distinct labelled sectors / 8,246**,
-leaving 3,357 unsaved and 886 repeated occurrences. Exact input routing maps
+Their 6,245 occurrences comprise **5,234 distinct labelled sectors / 8,246**,
+leaving 3,012 unsaved and 1,011 repeated occurrences. This adds 345 distinct
+saved sectors to the 09:55 inventory. Exact input routing maps
 these saved sectors to **65/67** census representatives; 29550 and 30231 remain
 absent from this search-policy inventory. Different-policy finite-retention
 probes are not merged into it. All four original parent shards are now present,
@@ -287,7 +288,13 @@ but that does not establish coverage of their descendant sectors or entry rays.
 The six live campaigns use four-hour deadlines and 64 solver workers; all are
 checkpoint continuations, not fresh regeneration. The global 450 GB soft stop
 supervises actual RSS, since individual address-space caps are not simultaneous
-RAM reservations. Evidence: `TMP/rank10-search-refresh.007AMj/REPORT.md`.
+RAM reservations. At this snapshot actual registered RSS is 324.31 GB, with no
+aggregate resource stop. One current-run failure is explicitly bound to native
+sector 7749 (published 20796), an out-of-rank branch encountering compact-index
+conversion before rank admission; the remaining campaigns report no new
+mathematical failure. Its fix is tested separately, without changing a live
+executable. Evidence: `TMP/rank10-search-refresh-1030.6PaFV5/REPORT.md`;
+the earlier snapshot remains in `TMP/rank10-search-refresh.007AMj/REPORT.md`.
 
 Two distinct failures have appeared in the frozen broad-run executable. A
 nonlinear exceptional equality `8-3*n6-6*n2+2*n2*n6=0` is unsupported there.
@@ -412,11 +419,39 @@ No fixed master evaluations or numerical comparisons are involved.
 The successful raised-power traces already reach numerator degree2, illustrating
 why entry rank must not clip successors. Neither limit-hit R=10 trace returns
 a complete frontier; it cannot establish either missing rules or closure.
-The next bounded diagnostic increases the explicit reachable-key allowance and
-uses trace-only boundary inputs, without changing generated rules or minimizing
-terminals. Arbitrarily raised positive powers still require a generic
-successor-coverage argument. Evidence:
+Arbitrarily raised positive powers still require a generic successor-coverage
+argument. Evidence for that first application run:
 `TMP/tide-r10-30563-checkpoint-load.6FFOty/`.
+
+Subsequent fresh-process **trace-only** diagnostics reuse exactly those rules
+and terminals. Here the common sector corner has unit positive powers at
+indices `0,1,2,4,5,6,8,9,13,14` and zero elsewhere. Input A changes `n0=2,
+n3=-10`; input B changes `n0=3, n1=2, n3=n7=-5`. Both have entry rank10.
+
+| Input | Unique reachable keys | Rule applications | Distinct terminals | Result |
+|---|---:|---:|---:|---|
+| A | 697,556 | 628,559 | 68,997 | Complete trace, zero uncovered |
+| A with `n14=0` | 430,467 | 387,582 | 42,885 | Complete trace, zero uncovered |
+| B with `n13=n14=0` | 80,584 | 74,026 | 6,558 | Complete trace, zero uncovered |
+| B, first allowance | Limit 1,000,000 reached | — | — | Incomplete work-budget result |
+| B, explicit larger allowance | Limit 4,000,000 reached | 3,497,280 before failure | — | Still incomplete |
+
+The three completed traces observe maximum numerator rank10; the A traces
+reach thirteen total dots and the pinched B trace eleven. Their trace times
+are 58.348, 31.207 and 5.51 seconds respectively. The first four-target process
+takes **343.49 s wall / 340.93 CPU-s**, peaking at **6,638,552 KiB RSS**;
+its initial checkpoint load takes 154.369 s. The isolated four-million-node B
+retry takes **346.001 s tracing**, with a 142.606 s cold load and **496.51 s
+whole-process wall / 492.83 CPU-s / 7,215,308 KiB peak RSS**. Both drivers
+correctly exit1 because an input remains incomplete. Input/checkpoint hashes
+are unchanged. The incomplete trace returns no partial frontier or maximum
+rank, so it cannot establish either a missing rule or its absence.
+
+These checks perform no coefficient back-substitution, original-source replay,
+master evaluation or rule generation. They show concrete dependency coverage,
+not universal rank-10 family closure. Receipts:
+`TMP/tide-r10-30563-boundary-trace.d5plSz/` and
+`TMP/tide-r10-30563-four-million.0NT7FB/`.
 
 ## How nonlinear exceptions are handled
 
@@ -476,6 +511,33 @@ byte-identical to the prior CLI bundle. This is a source-consistent integration
 regression, not a controlled speedup claim; it does not show that the new
 resultant branch was visited. The captured guard's focused test establishes
 that separately. Evidence: `TMP/linear-resultant-r10-pilot.3FeIfD/`.
+
+### Rank admission before compact index conversion
+
+The broad run for parent 31740 exposed a different admission-ordering defect,
+not another nonlinear solver limitation. One exceptional AND branch already
+fixes `n1=-8` and forces `n13=-66, n5=-45`. Its negative degree is 119, so it
+cannot intersect the requested rank-10 domain. The former path tried to encode
+`-66` as a compact power before checking that scope and failed the whole sector.
+
+The correction keeps the already available native Symbolica integer values
+until their forced negative-degree lower bound has been checked. Affine
+admission similarly checks singleton rows of the existing native RREF before
+converting any coordinate. Only distinct, fixed **original** indices count;
+coupled chart constants are not index values. Complete input validation still
+comes first. This prunes only the impossible AND branch, not a whole original
+guard or its valid OR siblings. In-scope and unbounded overflows remain typed
+errors. There is no wider packed-index format or additional CAS implementation.
+
+Independent implementation/mathematical review and all eight new focused
+release tests pass, including the captured 15-axis branch and exact enumeration
+of all 286 points in the original three-index rank-10 simplex. The unchanged
+geometry, affine, intersection and solver focused suites also pass. The full
+source-consistent core release gate passes **2,401 tests, zero failures,
+32 existing ignored tests**. An actual failed-sector retry is a separate check;
+the already running campaigns continue using their immutable older executable.
+Evidence: `TMP/rank-before-compact.fZmoU7/` and
+`TMP/rank-overflow-independent-audit.iFN2cn/`.
 
 If exact geometry reaches a genuinely
 unsupported nonlinear branch and a rank was supplied, it fixes one still-free

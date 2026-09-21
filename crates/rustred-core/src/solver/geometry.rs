@@ -70,18 +70,30 @@ pub(super) fn intersect<const N: usize>(
     indices: &[usize; N],
     sector: &[bool; N],
 ) -> Result<Option<CoordinateCase<N>>, GeometryError> {
+    intersect_in_rank(parent, conjunction, indices, sector, None)
+}
+
+/// Scoped admission differs only in rejecting an exactly forced negative
+/// degree above the caller's bound before compact coordinate conversion.
+pub(super) fn intersect_in_rank<const N: usize>(
+    parent: &CoordinateCase<N>,
+    conjunction: &[CoefficientPolynomial],
+    indices: &[usize; N],
+    sector: &[bool; N],
+    max_numerator_rank: Option<u32>,
+) -> Result<Option<CoordinateCase<N>>, GeometryError> {
     preflight(conjunction, indices)?;
     if !parent.is_in_sector(sector) {
         return Ok(None);
     }
     catch_unwind(AssertUnwindSafe(|| {
-        let result = intersect_native(parent, conjunction, indices, sector);
+        let result = intersect_native(parent, conjunction, indices, sector, max_numerator_rank);
         if let Err(GeometryError::UnsupportedGeometry { .. }) = &result
             && let Some(normalized) = normalization::normalize(parent, conjunction, indices)?
         {
             // Deliberately call the primitive, not this entry point: no
             // normalization recursion and no change to unsupported provenance.
-            match intersect_native(parent, &normalized, indices, sector) {
+            match intersect_native(parent, &normalized, indices, sector, max_numerator_rank) {
                 Err(GeometryError::UnsupportedGeometry { .. }) => result,
                 retry => retry,
             }
@@ -141,12 +153,16 @@ fn intersect_native<const N: usize>(
     conjunction: &[CoefficientPolynomial],
     indices: &[usize; N],
     sector: &[bool; N],
+    max_numerator_rank: Option<u32>,
 ) -> Result<Option<CoordinateCase<N>>, GeometryError> {
     // Keep native integers until every equation is checked. A large value
     // can prove a later contradiction even though it cannot become a key.
     let mut fixed: [Option<Integer>; N] =
         std::array::from_fn(|axis| parent.fixed()[axis].map(Integer::from));
     loop {
+        if fixed_rank_exceeds(fixed.iter().flatten(), max_numerator_rank) {
+            return Ok(None);
+        }
         let mut changed = false;
         let mut unsupported = false;
         for source in conjunction {
@@ -212,6 +228,30 @@ fn intersect_native<const N: usize>(
             CoordinateCase::new(compact).expect("each coordinate was checked for compactness"),
         ));
     }
+}
+
+/// Every supplied value must fix a DISTINCT original integral coordinate.
+/// Their negative degrees give only a necessary lower bound; no coupled
+/// chart coordinate or free-axis assumption belongs in this sum. Native
+/// integers avoid both compact-key and machine-integer overflow.
+pub(super) fn fixed_rank_exceeds<'a>(
+    fixed: impl IntoIterator<Item = &'a Integer>,
+    maximum: Option<u32>,
+) -> bool {
+    let Some(maximum) = maximum else {
+        return false;
+    };
+    let maximum = Integer::from(maximum);
+    let mut lower_bound = Integer::zero();
+    for value in fixed {
+        if value.is_negative() {
+            lower_bound -= value;
+            if lower_bound > maximum {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Whether the second case implies every coordinate equality of the first.
