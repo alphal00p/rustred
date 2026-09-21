@@ -90,14 +90,42 @@ transport. The full parametric campaign still needs a domain-level successor
 worklist; do not substitute a concrete target batch or repeated small-dot
 samples. Independent certification remains deferred.
 
-The matched controls now complete in **24.690 / 11.538 seconds** of traversal
-with one/six workers and unchanged graph counters. The 50-worker retry passes
+The visitor matched controls complete in **20.437 / 8.067 seconds** of traversal
+with one/six workers and unchanged graph counters. The 50-worker visitor retry passes
 the old resource failure but is cooperatively stopped for optimization after
-332.873 seconds of traversal: 53.7 million queued nodes, 67,182 completed local
-expansions, approximately 32.26 GB peak RSS, and no observed missing rule/owner.
-This is neither a timeout nor completion. Reuse additional compatible saved
-literal owners to avoid hot affine transports before another attempt; benchmark
-native powering and repeated support materialization if those remain costly.
+854.064 seconds of traversal: 42.7 million queued nodes, 216,040 completed local
+expansions, approximately 25.47 GB peak RSS, and no observed missing rule/owner.
+This is neither a timeout nor completion. It uses 75 compatible saved programs
+for the same 67 classes, avoiding eight formerly expensive routes. Sharded
+duplicate admission and a streamed saved-rule domain scan are the next audited
+implementation slices. Their release gates now pass **2,576 core tests** and
+**281 application/integration tests**, with zero failures; the 32 existing core
+ignored diagnostics remain unchanged. Matched performance controls and a real
+67-owner domain scan follow this gate. The latter must retain
+unbounded positive powers and actual successor ranks, not mistake conservative
+potential edges for proven missing rules or complete parametric coverage.
+
+The sharded controls now complete with all 16 graph and two prospective
+counters unchanged: **20.978 / 7.153 seconds** traversal and **124.10 / 114.08
+seconds** whole command. Serial traversal does not improve; six-worker
+traversal is about 11% shorter in this shared-host observation, but whole-command
+time does not improve. No 50-worker scaling claim follows. The first streamed
+domain inventory reaches its default report-group cap after seven complete
+owners and one partial owner, in 1.165 seconds after preparation. Increase the
+explicit reporting allowance and keep live completion summaries compact before
+the full inventory retry; this is not a source-search or closure failure.
+That reporting correction now passes all **283 application/integration tests**,
+while the core remains unchanged; the Python drivers pass **12 tests**. The
+full saved report remains detailed. Only progress payloads are compact, and
+larger explicitly selected summary allowances do not alter rule mathematics.
+The full stored-rule inventory now completes on all **67 owners**, scanning
+**17,975 rules / 1,667,335 RHS terms / 4,758,436 potential successor regions**.
+It takes **11.009 s** after preparation, **123.13 s** whole-command time and
+about **6.45 GB** peak RSS on one core. This inventories every stored rule, not
+first-applicable or recursively complete coverage. Use the actual guarded
+successor data to drive the remaining shared-domain feedback work, rather than
+launch another larger finite-dot batch as a substitute for parametric R10.
+See [the measured inventory](docs/research/shared_owner_domain_inventory_2026-09-21.md).
 
 ### Shared-campaign implementation checkpoint — September 21
 

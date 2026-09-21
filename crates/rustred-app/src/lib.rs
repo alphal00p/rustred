@@ -3,8 +3,9 @@ mod application;
 mod cli;
 
 pub use application::{
-    RoutedCampaignRequest, RoutedCampaignResult, RoutedFeedbackOptions, RoutedFeedbackRoundResult,
-    RoutedFeedbackSession, routed_campaign_with_progress,
+    OwnerDomainScanRequest, OwnerDomainScanResult, RoutedCampaignRequest, RoutedCampaignResult,
+    RoutedFeedbackOptions, RoutedFeedbackRoundResult, RoutedFeedbackSession,
+    owner_domain_scan_with_progress, routed_campaign_with_progress,
 };
 pub use rustred::persistence::{BinaryIoLimits, equivalent_generated_programs};
 

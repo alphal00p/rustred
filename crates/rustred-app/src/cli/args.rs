@@ -3,8 +3,10 @@ mod candidates;
 mod derive;
 mod family_close;
 mod family_solve;
+mod owner_domains;
 mod resource_limits;
 mod routed;
+pub(crate) use owner_domains::OwnerDomainScanArgs;
 pub(crate) use routed::RoutedCampaignArgs;
 
 pub(crate) use candidates::{CertifyCandidatesArgs, FamilyCandidatesArgs};
@@ -142,6 +144,7 @@ pub(crate) enum ColorPolicy {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Command {
+    OwnerDomainScan(OwnerDomainScanArgs),
     RoutedCampaign(RoutedCampaignArgs),
     Derive(DeriveArgs),
     FamilySolve(FamilySolveArgs),
@@ -256,6 +259,7 @@ pub(crate) fn parse_args(
         "certify-candidates" => candidates::parse_certification(arguments),
         "campaign" => campaign::parse(arguments),
         "routed-campaign" => routed::parse(arguments),
+        "owner-domain-scan" => owner_domains::parse(arguments),
         _ => Err(ArgError::UnknownCommand(command)),
     }
 }
@@ -325,6 +329,7 @@ pub(crate) const HELP: &str = "\
 RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 
 USAGE:
+    rustred owner-domain-scan --manifest SELECTION.json --max-numerator-rank R --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--max-rules-per-owner N] [--max-terms-per-owner N] [--max-regions-per-owner N] [--max-total-regions N] [--max-summary-groups N]
     rustred routed-campaign --manifest SELECTION.json --targets TARGETS.csv --output RESULT.json [--events EVENTS.jsonl] [--owner-base DIR] [--workers 1..50] [--stop-file PATH] [--expansion-limits LIMITS.json] [--max-nodes N] [--max-input-targets N] [--max-transport-operations N] [--max-transport-endpoints N] [--max-coalescing-additions N] [--max-rule-applications N]
     rustred derive [OPTIONS]
     rustred family-solve [OPTIONS]

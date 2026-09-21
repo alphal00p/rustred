@@ -141,6 +141,159 @@ fn shared_owner_campaign_cancel_and_tiny_budget_are_incomplete() {
 }
 
 #[test]
+fn owner_domain_scan_keeps_positive_rays_without_concrete_target_input() {
+    let fixture = Fixture::new();
+    let before = std::fs::read(fixture.directory.join("owner.rrbin")).unwrap();
+    let mut request = OwnerDomainScanRequest::new(fixture.request.selection_json.clone(), Some(10));
+    request.owner_base = fixture.directory.clone();
+    let events = std::cell::RefCell::new(Vec::new());
+    let result =
+        owner_domain_scan_with_progress(request.clone(), &AtomicBool::new(false), |event| {
+            events.borrow_mut().push(event);
+        })
+        .unwrap();
+    assert!(result.scan_complete);
+    assert_eq!(result.document["family_closure_claim"], false);
+    assert_eq!(result.document["positive_powers_unbounded"], true);
+    assert_eq!(result.document["priority_overapproximation"], true);
+    assert_eq!(result.document["guard_satisfiability_decided"], false);
+    assert_eq!(result.document["requested_max_numerator_rank"], 10);
+    assert_eq!(result.document["saved_entry_rank"], 2);
+    assert_eq!(result.document["installed_owners"], 1);
+    assert!(result.document["retained_regions"].as_u64().unwrap() > 1);
+    assert!(
+        !result.document["owners"][0]["successor_groups"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let events = events.into_inner();
+    let final_event = events.last().unwrap();
+    assert_eq!(final_event["event"], "finished");
+    assert_eq!(final_event["scan_complete"], true);
+    assert_eq!(
+        final_event["retained_regions"],
+        result.document["retained_regions"]
+    );
+    assert_eq!(
+        final_event["summary_groups"],
+        result.document["summary_groups"]
+    );
+    assert_eq!(final_event["completed_owners"], 1);
+    assert!(final_event.get("owners").is_none());
+    assert!(
+        events
+            .iter()
+            // Existing preparation events legitimately use a scalar owner count.
+            .all(|event| !event["owners"].is_array() && event.get("successor_groups").is_none())
+    );
+    assert!(serde_json::to_vec(final_event).unwrap().len() < 8192);
+    assert_eq!(
+        std::fs::read(fixture.directory.join("owner.rrbin")).unwrap(),
+        before
+    );
+
+    let mut region_limited = request.clone();
+    region_limited.max_total_regions = 1;
+    let partial =
+        owner_domain_scan_with_progress(region_limited, &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(!partial.scan_complete);
+    assert_eq!(partial.document["retained_regions"], 1);
+    assert_eq!(
+        partial.document["owners"][0]["summary_limit"],
+        "total successor regions"
+    );
+    assert_eq!(partial.document["owners"][0]["regions"], 2);
+    let mut group_limited = request.clone();
+    group_limited.max_summary_groups = 1;
+    let partial =
+        owner_domain_scan_with_progress(group_limited, &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(!partial.scan_complete);
+    assert_eq!(partial.document["summary_groups"], 1);
+    assert_eq!(
+        partial.document["owners"][0]["summary_limit"],
+        "summary groups"
+    );
+
+    request.scan_limits.max_terms = 0;
+    let limited =
+        owner_domain_scan_with_progress(request, &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(!limited.scan_complete);
+    assert_eq!(limited.document["status"], "incomplete");
+    assert!(
+        limited.document["owners"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("terms")
+    );
+}
+
+#[test]
+fn owner_domain_scan_cancel_and_bad_summary_budget_do_not_claim_success() {
+    let fixture = Fixture::new();
+    let mut request = OwnerDomainScanRequest::new(fixture.request.selection_json.clone(), Some(0));
+    request.owner_base = fixture.directory.clone();
+    let stopped =
+        owner_domain_scan_with_progress(request.clone(), &AtomicBool::new(true), |_| {}).unwrap();
+    assert!(!stopped.scan_complete);
+    assert_eq!(stopped.document["status"], "cancelled_during_preparation");
+    request.max_summary_groups = 0;
+    assert!(
+        owner_domain_scan_with_progress(request.clone(), &AtomicBool::new(false), |_| {}).is_err()
+    );
+    request.max_summary_groups = 1_000_001;
+    assert!(
+        owner_domain_scan_with_progress(request.clone(), &AtomicBool::new(false), |_| {}).is_err()
+    );
+    for maximum in [100_001, 1_000_000] {
+        request.max_summary_groups = maximum;
+        let stopped =
+            owner_domain_scan_with_progress(request.clone(), &AtomicBool::new(true), |_| {})
+                .unwrap();
+        assert!(!stopped.scan_complete); // New ceiling admitted, no native load.
+    }
+    assert_eq!(
+        OwnerDomainScanRequest::new(String::new(), Some(10)).max_summary_groups,
+        16_384
+    );
+}
+
+#[test]
+fn owner_domain_completion_progress_is_bounded_and_preserves_full_failure_document() {
+    let error = "\0\n\"\\😀".repeat(10_000);
+    let document = json!({"schema":"rustred.owner-domain-scan.json.v1", "status":"incomplete",
+        "scan_complete":false, "family_closure_claim":false, "priority_overapproximation":true,
+        "guard_satisfiability_decided":false, "installed_owners":67, "retained_regions":12345,
+        "summary_groups":1234, "owners":[
+            {"owner":"1", "scan_complete":true, "successor_groups":[{"payload":"x".repeat(1_000_000)}]},
+            {"owner":"0", "scan_complete":false, "rules":12,"terms":100,"regions":12346,
+             "split_operations":17,"summary_limit":"summary groups", "error":error,
+             "successor_groups":[{"payload":"y".repeat(1_000_000)}]}]});
+    let before = document.clone();
+    let event = OwnerDomainScanResult::completion_progress(&document);
+    assert_eq!(event["scan_complete"], false);
+    assert_eq!(event["completed_owners"], 1);
+    assert_eq!(event["total_owners"], 67);
+    assert_eq!(event["retained_regions"], 12345);
+    assert_eq!(event["incomplete_owner"], "0");
+    assert_eq!(event["summary_limit"], "summary groups");
+    assert_eq!(event["regions"], 12346);
+    assert_eq!(event["error_truncated"], true);
+    assert_eq!(event["error"].as_str().unwrap().chars().count(), 512);
+    assert!(event.get("owners").is_none());
+    assert!(event.get("successor_groups").is_none());
+    assert!(serde_json::to_vec(&event).unwrap().len() < 8192);
+    assert_eq!(document, before);
+    // The CLI also uses this projection for preparation errors.
+    let failure = json!({"status":"preparation_error", "scan_complete":false,
+        "error_kind":"input", "error":"bad input"});
+    let event = OwnerDomainScanResult::completion_progress(&failure);
+    assert_eq!(event["error_kind"], "input");
+    assert_eq!(event["error"], "bad input");
+    assert_eq!(event["error_truncated"], false);
+}
+
+#[test]
 fn shared_owner_campaign_admits_all_steering_before_native_load() {
     let fixture = Fixture::new();
     let mut broken = fixture.request.clone();

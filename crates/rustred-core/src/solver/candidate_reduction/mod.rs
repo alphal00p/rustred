@@ -27,7 +27,8 @@ pub use owners::{
     BoundOwnerOverlay, BoundOwnerSearch, CandidateOwnerContext, CandidateOwnerInput,
     CandidateOwnerPrograms, CandidateOwnerScope, OwnerDomainAttemptLimits, OwnerDomainScope,
     OwnerFeedbackError, OwnerFeedbackPolicy, OwnerOverlayLimits, OwnerOverlayMetadata,
-    OwnerOverlayUsage,
+    OwnerOverlayUsage, OwnerSuccessorError, OwnerSuccessorFailure, OwnerSuccessorLimits,
+    OwnerSuccessorRegion, OwnerSuccessorStats, OwnerSuccessorTransition,
 };
 pub use reducer::CandidateReducer;
 pub use routed::{

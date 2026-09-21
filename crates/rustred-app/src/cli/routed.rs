@@ -14,6 +14,11 @@ mod expansion_policy;
 use expansion_policy::ExpansionPolicy;
 
 pub(super) fn run(args: RoutedCampaignArgs) -> Result<(), CliError> {
+    preflight_inner_pools()?;
+    run_admitted(args)
+}
+
+pub(super) fn preflight_inner_pools() -> Result<(), CliError> {
     // Outer scheduling owns the worker budget; configure native pools before
     // launching the process, never by mutating the environment after threads.
     for name in [
@@ -31,6 +36,10 @@ pub(super) fn run(args: RoutedCampaignArgs) -> Result<(), CliError> {
             )));
         }
     }
+    Ok(())
+}
+
+fn run_admitted(args: RoutedCampaignArgs) -> Result<(), CliError> {
     let output = StreamPath::File(args.output.clone());
     preflight_output_destination(&output, false)?;
     if let Some(path) = &args.events {

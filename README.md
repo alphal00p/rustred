@@ -59,15 +59,15 @@ claim parametric closure from a finite trace. Directed Rust owner searches can
 publish immutable partial-domain rule overlays without copying the saved
 library; see [the API boundary](docs/shared_owner_campaign_driver.md#directed-owner-search-and-shared-rule-installation).
 
-The latest completed release gate passes **2,554 core tests** and **276
+The latest completed release gate passes **2,576 core tests** and **283
 application/integration tests**; the unchanged Python supervisor's latest gate
 passes **10 tests**. The preceding matched finite
-rank-one controls complete in 24.690/11.538 seconds of traversal with one/six
-workers (130.11/118.09 seconds including preparation), with identical reported
+rank-one controls complete in 20.437/8.067 seconds of traversal with one/six
+workers (126.11/112.08 seconds including preparation), with identical reported
 graph counters and zero missing rules. The latest 50-worker R10 diagnostic gets
 past the earlier expansion-budget failure, but is cooperatively stopped for
-optimization after 332.873 seconds of traversal: 53.7 million queued nodes and
-32.26 GB peak RSS. This is not a timeout or completed reduction.
+optimization after 854.064 seconds of traversal: 42.7 million queued nodes and
+25.47 GB peak RSS. This is not a timeout or completed reduction.
 [The profile and next improvements](docs/research/shared_rank10_pressure_2026-09-21.md)
 target expensive routing, native powering and limited effective parallelism.
 No full five-loop R10 completion is claimed.
@@ -77,11 +77,30 @@ indexes, tighten structural expansion bounds and expose explicit per-call
 budgets. Dependency tracing now visits Symbolica's exact coalesced numerator
 support without constructing coefficient wrappers it would discard. This
 preserves the coefficient-returning reducer, endpoint ordering and per-call
-budget behavior; matched campaign timings for this latest slice are pending.
+budget behavior; the matched controls above include this visitor.
 An opt-in Rust [`RoutedFeedbackSession`](docs/owner_source_feedback.md)
 retains source-generated parametric rules between rounds; automatic CLI feedback
 and durable graph resume remain unfinished. New performance measurements must
 be reported separately from the preceding corrected-run timings.
+
+The new [`owner-domain-scan`](docs/owner_domain_scan.md) Rust/CLI service and
+Python example stream the saved rules' possible successor domains without
+enumerating positive powers. It retains actual intermediate-rank requirements
+and native guard predicates. This conservative one-hop inventory is not yet
+the full-domain feedback worklist: finishing a scan does not establish closure
+or identify every reported edge as a genuine missing rule. The same release
+gate includes sharded duplicate preprobes, with ordered global budget admission.
+Their matched traversal times are **20.978 / 7.153 seconds** with one/six workers;
+all 18 reported counters match. Six-worker tracing improves modestly, but serial
+tracing and total command time do not. These are individual shared-host
+observations, not evidence of full R10 closure or fifty-worker scaling.
+The domain-scan Python steering adds two passing tests. Its live completion
+summary is compact even when the separately saved result is large; explicit
+reporting allowances can be raised without changing the mathematical rank scope.
+The [complete stored-rule inventory](docs/research/shared_owner_domain_inventory_2026-09-21.md)
+scans all 67 owners in 11.009 seconds after preparation (123.13 seconds whole
+command, about 6.45 GB peak RSS), retaining 4.76 million potential successor
+regions. This is not yet recursive rank-ten closure.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after

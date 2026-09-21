@@ -136,3 +136,94 @@ fn cli_routed_rejects_invalid_public_limits_before_loading() {
         assert_eq!(result.status.code(), Some(2));
     }
 }
+
+#[test]
+fn cli_owner_domain_scan_reuses_saved_program_without_targets() {
+    let directory = fixture();
+    let source = r#"
+schema="rustred.project.toml.v1"
+[family]
+name="public_domain_scan_cli"
+loop_momenta=["q"]
+external_momenta=[]
+dimension="d"
+[[family.denominators]]
+id="P"
+expression="q^2-1"
+[target]
+powers=[1]
+"#;
+    let bundle = family_candidates(FamilyCandidatesRequest::new(source)).unwrap();
+    let inspection =
+        inspect_generated_candidate_bundle(bundle.bundle(), Default::default()).unwrap();
+    std::fs::write(directory.0.join("owner.rrbin"), bundle.bundle()).unwrap();
+    let selection = json!({"family_fingerprint":inspection.family_fingerprint,
+        "owners":[{"path":"owner.rrbin","bytes":bundle.bundle().len(),"mask":"1"}],"initial_frontier_routes":[]});
+    std::fs::write(directory.0.join("selection.json"), selection.to_string()).unwrap();
+    let args = |output: &str| {
+        vec![
+            "owner-domain-scan".to_owned(),
+            "--manifest".into(),
+            directory.0.join("selection.json").display().to_string(),
+            "--owner-base".into(),
+            directory.0.display().to_string(),
+            "--max-numerator-rank".into(),
+            "10".into(),
+            "--output".into(),
+            directory.0.join(output).display().to_string(),
+        ]
+    };
+    let run = |arguments: Vec<String>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_rustred"));
+        for name in [
+            "RAYON_NUM_THREADS",
+            "OMP_NUM_THREADS",
+            "OMP_THREAD_LIMIT",
+            "OPENBLAS_NUM_THREADS",
+            "MKL_NUM_THREADS",
+            "BLIS_NUM_THREADS",
+            "SYMBOLICA_HIDE_BANNER",
+        ] {
+            command.env(name, "1");
+        }
+        command.args(arguments).output().unwrap()
+    };
+    let output = run(args("domains.json"));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value =
+        serde_json::from_slice(&std::fs::read(directory.0.join("domains.json")).unwrap()).unwrap();
+    assert_eq!(report["scan_complete"], true);
+    assert_eq!(report["positive_powers_unbounded"], true);
+    assert_eq!(report["family_closure_claim"], false);
+    assert_eq!(report["ibp_generation"], false);
+    let heartbeats: Vec<Value> = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert!(!heartbeats.is_empty());
+    assert!(
+        heartbeats
+            .iter()
+            .all(|record| record["event"] == "heartbeat")
+    );
+    assert_eq!(
+        heartbeats.last().unwrap()["progress"]["operation"],
+        "owner_domain_scan"
+    );
+    assert!(!run(args("domains.json")).status.success());
+    let stop = directory.0.join("stop");
+    std::fs::write(&stop, "stop").unwrap();
+    let mut stopped = args("cancelled-domains.json");
+    stopped.extend(["--stop-file".into(), stop.display().to_string()]);
+    assert!(!run(stopped).status.success());
+    let report: Value =
+        serde_json::from_slice(&std::fs::read(directory.0.join("cancelled-domains.json")).unwrap())
+            .unwrap();
+    assert_eq!(report["scan_complete"], false);
+    assert_eq!(report["status"], "cancelled_during_preparation");
+}

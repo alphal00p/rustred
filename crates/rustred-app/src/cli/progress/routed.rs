@@ -117,6 +117,9 @@ impl Drop for RoutedProgress {
 
 fn dashboard(record: &Value) -> [String; 6] {
     let outer = &record["progress"];
+    if outer["operation"].as_str() == Some("owner_domain_scan") {
+        return domain_dashboard(record);
+    }
     let p = if outer.get("snapshot").is_some() {
         &outer["snapshot"]
     } else {
@@ -187,9 +190,55 @@ fn dashboard(record: &Value) -> [String; 6] {
     ]
 }
 
+fn domain_dashboard(record: &Value) -> [String; 6] {
+    let p = &record["progress"];
+    let done = p["completed_owners"].as_u64().unwrap_or_else(|| {
+        p["owners"].as_array().map_or(0, |owners| {
+            owners
+                .iter()
+                .filter(|owner| owner["scan_complete"] == true)
+                .count() as u64
+        })
+    });
+    let total = p["total_owners"]
+        .as_u64()
+        .or(p["installed_owners"].as_u64())
+        .unwrap_or(0);
+    let filled = if total == 0 {
+        0
+    } else {
+        ((20.0 * done as f64 / total as f64).min(20.0)) as usize
+    };
+    [
+        format!("RustRed saved-rule domain scan — {}", p["status"].as_str()
+            .or(p["phase"].as_str()).or(p["event"].as_str()).unwrap_or("working")),
+        format!("[{}{}] {done}/{total} installed owners scanned", "#".repeat(filled), "-".repeat(20-filled)),
+        format!("Owner {}  potential regions {}  retained summary groups {}",
+            p["owner"].as_str().unwrap_or("—"), p["retained_regions"].as_u64().unwrap_or(0),
+            p["summary_groups"].as_u64().unwrap_or(0)),
+        "Positive powers remain parametric. Guard satisfiability and recursive closure are NOT established.\nNo concrete-target expansion or IBP regeneration.".into(),
+        format!("Elapsed {:.1}s  process RSS {:.3} GB  cancel {}",
+            record["elapsed_seconds"].as_f64().unwrap_or(0.),
+            record["process_rss_bytes"].as_u64().unwrap_or(0) as f64 / 1e9, record["cancel_requested"]),
+        format!("Last update {:.1}s ago; one-hop all-rule overapproximation, not a missing-rule verdict",
+            record["progress_age_seconds"].as_f64().unwrap_or(0.)),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn owner_scan_dashboard_reports_domains_not_concrete_reductions() {
+        let text = dashboard(&json!({"progress":{"operation":"owner_domain_scan",
+            "event":"owner_scan_progress","completed_owners":2,"total_owners":7,
+            "retained_regions":1234}}))
+        .join("\n");
+        assert!(text.contains("2/7 installed owners scanned"));
+        assert!(text.contains("potential regions 1234"));
+        assert!(text.contains("NOT established"));
+        assert!(!text.contains("expanded / currently discovered"));
+    }
     #[test]
     fn dashboard_does_not_label_local_expansions_as_solved_targets() {
         let text = dashboard(&json!({"progress":{"completed_nodes":42}})).join("\n");

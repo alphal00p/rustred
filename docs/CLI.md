@@ -11,6 +11,12 @@ backend; there is no `no_gmp` mode.
 
 ## Shared saved-owner dependency campaign
 
+`rustred owner-domain-scan` inventories possible parametric successors of saved
+rules without enumerating positive powers or generating IBPs. Its bounded,
+Python-steerable report retains actual intermediate-rank requirements but is
+not a recursive closure result or a proven missing-rule list; see
+[the domain-scan interface](owner_domain_scan.md).
+
 `rustred routed-campaign` loads an externally supplied owner/routing manifest
 once and follows a batch of concrete targets with a shared parallel work queue.
 It reports uncovered rules/owners, resource failures and live progress rather

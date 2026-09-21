@@ -244,6 +244,59 @@ coefficient-returning reduction remains unchanged. Any later support cache must
 bind the exact prepared route and full negative-power pattern; equal rank alone
 is insufficient.
 
+### Native support visitor: longer same-input pressure observation
+
+The `c6fd89b7` visitor passes the full release gates and matched controls before
+repeating the same 75-owner selection and 134 concrete entries. The driver has
+50 workers, unchanged expansion allowances, a 450/500 GB sampled soft/hard RSS
+envelope and no elapsed deadline. It is cooperatively stopped for optimization,
+not completed, after a longer observation of the expanding graph.
+
+| Measurement | Support-only visitor retry |
+|---|---:|
+| Whole command wall / CPU | 973.45 / 1,778.91 s |
+| Shared traversal through cooperative drain | 854.064 s |
+| GNU-time peak RSS | 24,869,796 KiB (25.47 decimal GB) |
+| Sampled aggregate peak RSS | 25,470,410,752 bytes |
+| Completed local expansions / queued nodes | 216,040 / 42,689,512 |
+| Distinct keys / scheduled phases | 42,862,435 / 42,905,602 |
+| Deduplication hits | 1,233,173,882 |
+| Rule applications / transports | 16,534 / 64,605 |
+| Observed declared terminals / zeros | 5 / 126,092 |
+| Observed missing rules / owners | 0 / 0 |
+
+At the stop-decision observation, traversal has run for 812.178 s, completed
+208,313 local expansions and queued 42,548,520 nodes. Earlier snapshots at
+60/180/560/801 s show approximately 32.4/37.9/41.0/42.5 million queued nodes.
+The backlog does not become sustained drainage, and sampled native utilization
+is usually about 1.4–3 cores. This motivates testing a reviewed scheduling
+change; it is not a linear ETA, an exhausted 15-hour objective, or evidence that
+all unseen work has equal cost. The 50 failed in-flight items in the final
+report are cancellation, not independent mathematical failures. No forced kill
+or memory-limit failure occurs; the saved owner programs are unchanged.
+
+A 20-second, 49-Hz user-cycle sample records 19,187 samples and no lost samples.
+Leading self samples include allocator freeing (14.10%), native polynomial
+`heap_mul` (11.28%), integral-key equality (9.07%), byte comparison (4.37%),
+membership lookup (2.60%) and batch scheduling (2.36%). Two adjacent thread
+snapshots show 51 and 48 threads in futex waits. The sample is phase-specific;
+these are not wall-time shares or a complete attribution of the waits. It
+supports moving known-duplicate lookup and disposal outside the global queue
+lock while preserving ordered resource admission and exact key identity.
+
+Receipts: `TMP/trace-support-hot75-pressure.V85g1e/`,
+`TMP/shared-owner-campaign.9h6ey2mk/`, and
+`TMP/support-visitor-pressure-profile.CfZMW8/`. Both this and the preceding
+75-owner attempt are incomplete, with different stop times and schedules:
+their terminal counters are not a matched completed-workload speed comparison.
+The completed one-/six-worker controls are separately documented.
+
+The complementary next step scans saved **rule domains** and their one-hop
+successor requirements, preserving unbounded positive powers instead of
+enumerating concrete dots. A conservative potential successor is not yet a
+proved missing-rule domain. This is campaign construction, not a new independent
+source-replay certification project. Full recursive R10 completion remains open.
+
 1. Keep the completed native correction and full core/frontend gates as the
    baseline. Do not regenerate the saved owner programs.
 2. Audit/test the observed scheduler and structural-envelope improvements,

@@ -1,7 +1,9 @@
 //! Input-driven shared finite-target inspection, not parametric family closure.
+mod domains;
 mod feedback;
 mod input;
 mod prepare;
+pub use domains::{OwnerDomainScanRequest, OwnerDomainScanResult, owner_domain_scan_with_progress};
 pub use feedback::{RoutedFeedbackOptions, RoutedFeedbackRoundResult, RoutedFeedbackSession};
 #[cfg(test)]
 mod tests;

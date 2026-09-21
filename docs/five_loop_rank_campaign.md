@@ -119,12 +119,15 @@ silently substituted for the complete parametric campaign.
 The batched and additional-direct-owner diagnostics both finish with an explicit
 operator cancellation for optimization, not a timeout or missing-rule failure.
 See the [measured outcomes](research/shared_rank10_pressure_2026-09-21.md).
-The latest narrow slice streams the exact native-coalesced support needed by
+The native-support slice streams the exact native-coalesced support needed by
 dependency tracing instead of building coefficient wrappers that it discards;
 the public coefficient-returning reducer and all virtual per-call budgets stay
 unchanged. Independent static and runtime reviews pass, including nine added
-regressions and the full release suites. Matched performance measurements are
-pending; this correctness gate does not establish a campaign speedup.
+regressions and the full release suites. Matched one/six-worker traversal times
+are 20.437/8.067 seconds, with all reported graph counters unchanged. The
+subsequent 50-worker finite R10 diagnostic is stopped for optimization after
+854.064 seconds of traversal, at 42.7 million queued nodes and 25.47 GB peak RSS.
+Neither measurement is a complete parametric-family solve.
 
 Do not let concrete pressure diagnostics replace the main implementation task:
 use saved owner domains and shared successor obligations to retain unbounded
@@ -133,12 +136,24 @@ provides new rules for genuine gaps; the missing full-domain worklist must reuse
 those primitives rather than regenerate all owners or launch an independent
 certification project.
 
-If that still leaves duplicate admission dominant, investigate a fixed-shard
-membership preprobe while retaining one ordered, exact global admission step.
-The prior run's 423.9 million duplicate joins versus 53.8 million scheduled
-nodes motivate this study, but no speedup is established. Preserve full-key
-equality, phase identity, per-node budgets, valid-prefix errors and cancellation;
-do not introduce a separate algebra implementation or unbounded worker caches.
+The new fixed-shard membership preprobe retains one ordered, exact global
+admission step. Positive duplicate hints are monotonic; misses are rechecked
+before insertion. Full-key equality, phase identity, per-node budgets,
+valid-prefix errors and cancellation are preserved. A complementary streamed
+[owner-domain scan](owner_domain_scan.md) retains unbounded positive powers,
+source-rank predicates and native guard references. It inventories potential
+successors, not exact first-applicable regions or proven missing jobs. The
+combined release gates pass **2,576 core tests** (32 existing ignored) and
+**281 application/integration tests**, zero failures. Performance measurements
+and the real 67-owner domain inventory must precede the next large retry.
+
+That inventory now completes: 17,975 rules, 1,667,335 RHS terms and 4,758,436
+potential sign-cell successors across all 67 installed owners, in 11.009 seconds
+after preparation. The reporting-only follow-up passes all 283 app tests and
+12 Python steering tests. See the [full measurement and boundaries](research/shared_owner_domain_inventory_2026-09-21.md).
+The next implementation priority is the shared parametric-domain feedback
+worklist, using native guards and the existing source-search service. A complete
+stored-rule scan or another finite target expansion cannot substitute for it.
 
 ## Resource and monitoring policy
 

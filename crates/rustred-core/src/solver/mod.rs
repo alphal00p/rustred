@@ -42,7 +42,9 @@ pub use candidate_reduction::{
     CandidateRoutedFrontierReason, CandidateRoutedTraceReport, CandidateRoutedWork,
     CandidateStatistics, CandidateTraceLimits, CandidateTraceReport, OwnerDomainAttemptLimits,
     OwnerDomainScope, OwnerFeedbackError, OwnerFeedbackPolicy, OwnerOverlayLimits,
-    OwnerOverlayMetadata, OwnerOverlayUsage, RoutedCandidateLimits, RoutedCandidateReducer,
+    OwnerOverlayMetadata, OwnerOverlayUsage, OwnerSuccessorError, OwnerSuccessorFailure,
+    OwnerSuccessorLimits, OwnerSuccessorRegion, OwnerSuccessorStats, OwnerSuccessorTransition,
+    RoutedCandidateLimits, RoutedCandidateReducer,
 };
 pub use case::{
     AffineCase, AffineGeometryError, AffineIntersection, Case, CaseIntersectionBudget,

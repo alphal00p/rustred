@@ -249,6 +249,78 @@ receipts `TMP/shared-owner-campaign.gziecd_7/` and
 `TMP/shared-owner-campaign.90p94uc7/`. The following 50-worker pressure run uses
 the same default per-call limits and is a distinct workload.
 
+### Native-support visitor matched controls
+
+The trace-only visitor avoids constructing contextual coefficient wrappers and
+the full endpoint vector that dependency traversal immediately discarded. It
+still performs the same exact native polynomial arithmetic and cancellation,
+checks every virtual output/storage budget before exposing keys, and preserves
+sorted endpoint order. The coefficient-returning reduction API is unchanged.
+The coherent release gates passed 2,554 core tests (32 existing ignored) and
+276 application/integration tests, including all nine new visitor regressions.
+
+The same 67-owner rank-one controls completed with all 16 reported graph fields
+**and both prospective counters** equal to the batched-scheduler baseline:
+35,437,782 projected operations and 7,700,656 projected endpoints. Both runs
+again reached 541,889 physical keys and 321 declared terminals with no missing
+owner/rule, pending work, failure or operator stop.
+
+| Outer workers | Preparation (s) | Shared traversal (s) | Whole command wall (s) | Whole command CPU (s) | Peak RSS (KiB) |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 102.466 | 20.437 | 126.11 | 125.12 | 5,805,236 |
+| 6 | 100.470 | 8.067 | 112.08 | 142.40 | 5,804,864 |
+
+Previous traversal times were 24.690/11.538 seconds. The observed one-to-six
+worker traversal ratio is 2.53×, not sixfold. These are single shared-host
+measurements, not a statistically isolated speedup or a full-R10 completion
+estimate. Preparation still dominates these small controls. The large harness
+compares counters; exact ordered-key/terminal parity remains covered by focused
+native tests. No new IBP generation or coefficient back-substitution occurred.
+
+Evidence: `TMP/trace-support-matched-controls.vaYQDj/`, actual receipts
+`TMP/shared-owner-campaign.6cz81qtg/` and
+`TMP/shared-owner-campaign.p1mmc8h2/`, with coherent gates
+`TMP/trace-support-core.sWtUZO/` and `TMP/trace-support-app.Z19PgH/`.
+The separate 75-owner, 134-input pressure run measures a much larger dependency
+graph; these completed rank-one controls do not establish its completion.
+
+### Sharded-membership preprobe matched controls
+
+The next frozen release adds bounded membership preprobes outside the global
+queue lock, while retaining exact full-key/phase equality, race rechecks, FIFO
+admission and the same budgets. Full gates passed 2,576 core tests (32 existing
+ignored) and 281 application/integration tests. The matched controls use the
+same 67 owners, input, frozen Python driver, CPU affinities and limits as the
+visitor controls above. All 16 graph counters and both prospective counters
+match those controls and the earlier batched baseline exactly; both queues
+drain without failure or missing frontier.
+
+| Outer workers | Preparation (s) | Shared traversal (s) | Whole command wall (s) | Whole command CPU (s) | Peak RSS (KiB) |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 99.862 | 20.978 | 124.10 | 123.06 | 5,802,000 |
+| 6 | 102.210 | 7.153 | 114.08 | 144.84 | 5,804,828 |
+
+Against the visitor's 20.437/8.067-second traversal, serial time is about 2.6%
+longer: **no serial improvement observed**. Six-worker traversal is about 11.3%
+shorter, but its whole-command time increases from 112.08 to 114.08 seconds.
+This is not an overall-run improvement. The new one-to-six traversal ratio is
+2.93×, not sixfold. Preparation remains dominant and variable.
+
+These are single shared-host observations, with no compilation or elapsed
+deadline. A separately bounded one-core domain census on CPU40 overlapped the
+first run's preparation; it finished before either measured traversal. The
+control supervisor retained its original resource policy and did not include
+that separate census in its own process-tree measurements. No 50-worker or
+parametric R10 completion claim follows, and full terminal sets were not
+persisted for this counter comparison.
+
+Evidence: `TMP/membership-matched-controls.O3oJC2/`, including the six-way
+comparison against both prior control pairs, and actual process receipts
+`TMP/shared-owner-campaign.rh58lcl9/` and
+`TMP/shared-owner-campaign.dpdieb3e/`. Frozen gates are
+`TMP/membership-domain-core.sOjXbE/` and
+`TMP/membership-domain-app.LtMTsi/`.
+
 ## Directed owner search and shared rule installation
 
 The Rust core now retains common ordinary/LI source definitions alongside the

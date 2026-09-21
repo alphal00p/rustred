@@ -4,7 +4,7 @@ use super::super::{
 };
 use super::*;
 use crate::reduction::ReductionLimits;
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeSet, VecDeque};
 use std::sync::atomic::Ordering;
 use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::Instant;
@@ -12,29 +12,22 @@ use std::time::Instant;
 pub(super) type Failure = CandidateRoutedCampaignFailure;
 pub(super) type Work<const N: usize> = CandidateRoutedWork<N>;
 
+#[path = "membership.rs"]
+mod membership;
+use membership::Membership;
+
 /// Bounds publication work and transient child staging, not native expansion.
 /// Hash-table/queue growth can occasionally reallocate more than one batch.
 pub(super) const PUBLICATION_BATCH_SIZE: usize = 256;
 
-#[derive(Default)]
-struct SeenPhases<const N: usize> {
-    route: bool,
-    apply_owner: Option<[bool; N]>,
+// Ordered markers, never a reordered/grouped-by-shard queue. Only preprobe_batch
+// constructs these, after the same bounded-batch and intrinsic input admission.
+enum ProbedWork<const N: usize> {
+    KnownPresent,
+    NeedsCommit { node: Work<N>, shard: usize },
+    Invalid(Failure),
 }
-impl<const N: usize> SeenPhases<N> {
-    fn contains(&self, node: &Work<N>) -> bool {
-        match node {
-            Work::Route(_) => self.route,
-            Work::Apply { owner_sector, .. } => self.apply_owner.as_ref() == Some(owner_sector),
-        }
-    }
-    fn insert(&mut self, node: &Work<N>) {
-        match node {
-            Work::Route(_) => self.route = true,
-            Work::Apply { owner_sector, .. } => self.apply_owner = Some(*owner_sector),
-        }
-    }
-}
+struct ProbedBatch<const N: usize>(Vec<ProbedWork<N>>);
 
 pub(super) fn limit(
     value: usize,
@@ -61,9 +54,9 @@ fn resource_error(resource: &'static str, requested: usize, limit: usize) -> Fai
 
 struct State<const N: usize> {
     queue: VecDeque<Work<N>>,
-    // Membership only: hash iteration never determines traversal or reports.
-    // One physical key can have Route and its exact positive-support Apply.
-    seen: HashMap<IntegralKey, SeenPhases<N>>,
+    // Updated atomically with first-key admission, so snapshots never acquire
+    // every membership shard. Operational phases remain counted in scheduled.
+    physical_seen: usize,
     scheduled: usize,
     active: BTreeSet<Work<N>>,
     trace: CandidateRoutedTraceReport<N>,
@@ -81,6 +74,7 @@ struct State<const N: usize> {
 
 pub(super) struct Shared<'a, const N: usize> {
     state: Mutex<State<N>>,
+    membership: Membership<N>,
     wake: Condvar,
     progress: Condvar,
     start: Instant,
@@ -100,7 +94,7 @@ impl<'a, const N: usize> Shared<'a, N> {
         Self {
             state: Mutex::new(State {
                 queue: VecDeque::new(),
-                seen: HashMap::new(),
+                physical_seen: 0,
                 scheduled: 0,
                 active: BTreeSet::new(),
                 trace,
@@ -115,6 +109,7 @@ impl<'a, const N: usize> Shared<'a, N> {
                 failure: None,
                 first_failure_work: None,
             }),
+            membership: Membership::new(),
             wake: Condvar::new(),
             progress: Condvar::new(),
             start: Instant::now(),
@@ -219,7 +214,10 @@ impl<'a, const N: usize> Shared<'a, N> {
     /// join is not a cycle; support/phase/order descent proves acyclicity.
     pub(super) fn schedule(&self, node: Work<N>) -> Result<(), Failure> {
         let mut state = self.lock();
-        let admitted = self.schedule_locked(&mut state, node)?;
+        self.check_locked(&mut state)?;
+        Self::validate_node(&node)?;
+        let shard = self.membership.shard_index(&node);
+        let admitted = self.schedule_locked(&mut state, node, shard)?;
         drop(state);
         if admitted {
             self.wake.notify_all();
@@ -229,17 +227,53 @@ impl<'a, const N: usize> Shared<'a, N> {
     /// The Vec contains already-validated children, not a lazy iterator that
     /// could execute native validation while holding the scheduler mutex.
     pub(super) fn schedule_batch(&self, nodes: Vec<Work<N>>) -> Result<(), Failure> {
+        let batch = self.preprobe_batch(nodes)?;
+        self.commit_batch(batch)
+    }
+    fn preprobe_batch(&self, nodes: Vec<Work<N>>) -> Result<ProbedBatch<N>, Failure> {
         limit(
             0,
             nodes.len(),
             self.publication_capacity(),
             "publication batch",
         )?;
+        let mut batch = Vec::with_capacity(nodes.len());
+        for node in nodes {
+            // Intrinsic validation is before membership, even for a duplicate.
+            // Keep an error marker instead of returning early: earlier valid
+            // nodes must still commit exactly their old prefix.
+            if let Err(error) = Self::validate_node(&node) {
+                batch.push(ProbedWork::Invalid(error));
+                break;
+            }
+            let (shard, present) = self.membership.probe(&node);
+            if present {
+                batch.push(ProbedWork::KnownPresent);
+                // Discard duplicate key storage outside the global state lock.
+            } else {
+                batch.push(ProbedWork::NeedsCommit { node, shard });
+            }
+        }
+        Ok(ProbedBatch(batch))
+    }
+    fn commit_batch(&self, batch: ProbedBatch<N>) -> Result<(), Failure> {
         let mut state = self.lock();
         let mut published = false;
         let mut result = Ok(());
-        for node in nodes {
-            match self.schedule_locked(&mut state, node) {
+        for marker in batch.0 {
+            // Do not aggregate duplicate counters ahead of a possible cap,
+            // invalid-input or cancellation failure later in this same batch.
+            let admitted = self.check_locked(&mut state).and_then(|()| match marker {
+                ProbedWork::KnownPresent => {
+                    state.dedup = limit(state.dedup, 1, usize::MAX, "deduplication counter")?;
+                    Ok(false)
+                }
+                ProbedWork::NeedsCommit { node, shard } => {
+                    self.schedule_locked(&mut state, node, shard)
+                }
+                ProbedWork::Invalid(error) => Err(error),
+            });
+            match admitted {
                 Ok(admitted) => published |= admitted,
                 Err(error) => {
                     result = Err(error);
@@ -254,8 +288,7 @@ impl<'a, const N: usize> Shared<'a, N> {
         }
         result
     }
-    fn schedule_locked(&self, state: &mut State<N>, node: Work<N>) -> Result<bool, Failure> {
-        self.check_locked(state)?;
+    fn validate_node(node: &Work<N>) -> Result<(), Failure> {
         let key = node.target();
         if key.powers().len() != N {
             return Err(CandidateRoutedError::InvalidInput(
@@ -263,7 +296,7 @@ impl<'a, const N: usize> Shared<'a, N> {
             )
             .into());
         }
-        if let Work::Apply { owner_sector, .. } = &node {
+        if let Work::Apply { owner_sector, .. } = node {
             if key
                 .powers()
                 .iter()
@@ -276,8 +309,19 @@ impl<'a, const N: usize> Shared<'a, N> {
                 .into());
             }
         }
-        let phases = state.seen.get_mut(key);
-        if phases.as_ref().is_some_and(|phases| phases.contains(&node)) {
+        Ok(())
+    }
+    fn schedule_locked(
+        &self,
+        state: &mut State<N>,
+        node: Work<N>,
+        shard_index: usize,
+    ) -> Result<bool, Failure> {
+        // The only nesting order is global state -> one membership shard.
+        // A preprobe never retains its shard while waiting for global state.
+        // Recheck absent hints: another batch or an earlier slot can now own it.
+        let mut shard = self.membership.lock_shard(shard_index);
+        if shard.contains(&node) {
             state.dedup = limit(state.dedup, 1, usize::MAX, "deduplication counter")?;
             return Ok(false);
         }
@@ -294,13 +338,10 @@ impl<'a, const N: usize> Shared<'a, N> {
             self.reduction.max_pending_frames,
             "pending nodes",
         )?;
-        if let Some(phases) = phases {
-            phases.insert(&node);
-        } else {
-            let mut phases = SeenPhases::default();
-            phases.insert(&node);
-            state.seen.insert(key.clone(), phases);
-        }
+        let new_physical = shard.insert(&node);
+        // physical_seen <= old scheduled < admitted scheduled, so this cannot
+        // overflow or introduce a separate unadmitted resource dimension.
+        state.physical_seen += usize::from(new_physical);
         state.scheduled = scheduled;
         state.queue.push_back(node);
         Ok(true)
@@ -509,7 +550,7 @@ impl<'a, const N: usize> Shared<'a, N> {
             completed_nodes: state.completed,
             failed_nodes: state.failed,
             deduplication_hits: state.dedup,
-            reachable_integrals: state.seen.len(),
+            reachable_integrals: state.physical_seen,
             rule_attempts: state.rule_attempts,
             rule_applications: state.trace.rule_applications,
             transport_calls: state.trace.transport_calls,
@@ -579,7 +620,7 @@ impl<'a, const N: usize> Shared<'a, N> {
             .into_inner()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.trace.operational_nodes = state.scheduled;
-        state.trace.reachable_integrals = state.seen.len();
+        state.trace.reachable_integrals = state.physical_seen;
         let report = CandidateRoutedCampaignReport {
             trace: state.trace,
             snapshot,
@@ -593,3 +634,7 @@ impl<'a, const N: usize> Shared<'a, N> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "membership_tests.rs"]
+mod membership_tests;
