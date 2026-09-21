@@ -60,11 +60,29 @@ struct FactorPlan {
 /// A monomial `prod_i D_i^e_i` lowers the corresponding base-key powers by
 /// `e_i`. Returned endpoints are sorted by [`IntegralKey`] and exactly
 /// coalesced. This function owns no rule or artifact semantics.
+#[cfg(test)]
 pub(crate) fn try_expand_multi_affine_numerator(
     family: &IntegralFamily,
     base: &IntegralKey,
     factors: &[MultiAffineNumeratorFactor],
     limits: MultiAffineNumeratorExpansionLimits,
+) -> Result<Box<[MultiAffineNumeratorEndpoint]>, MultiAffineNumeratorExpansionError> {
+    try_expand_multi_affine_numerator_with_usage(family, base, factors, limits, |_| Ok(()))
+}
+
+/// Prospective structural work, not a measured count of native operations.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ExpansionUsage {
+    pub operations: usize,
+    pub endpoints: usize,
+}
+
+pub(crate) fn try_expand_multi_affine_numerator_with_usage(
+    family: &IntegralFamily,
+    base: &IntegralKey,
+    factors: &[MultiAffineNumeratorFactor],
+    limits: MultiAffineNumeratorExpansionLimits,
+    reserve: impl FnOnce(ExpansionUsage) -> Result<(), MultiAffineNumeratorExpansionError>,
 ) -> Result<Box<[MultiAffineNumeratorEndpoint]>, MultiAffineNumeratorExpansionError> {
     let arity = family.denominator_count();
     if base.powers().len() != arity {
@@ -97,8 +115,12 @@ pub(crate) fn try_expand_multi_affine_numerator(
     }
 
     let context = family.coefficient_context();
-    let (plans, projected_support, zero_product, input_weight) =
+    let (plans, projected_support, zero_product, input_weight, operation_bound) =
         preflight_factors(context, factors, arity, total_power, limits)?;
+    reserve(ExpansionUsage {
+        operations: operation_bound,
+        endpoints: if zero_product { 0 } else { projected_support },
+    })?;
     if zero_product {
         return Ok(Box::new([]));
     }
@@ -172,7 +194,10 @@ fn preflight_factors(
     arity: usize,
     total_power: u64,
     limits: MultiAffineNumeratorExpansionLimits,
-) -> Result<(Vec<FactorPlan>, usize, bool, CoefficientWeight), MultiAffineNumeratorExpansionError> {
+) -> Result<
+    (Vec<FactorPlan>, usize, bool, CoefficientWeight, usize),
+    MultiAffineNumeratorExpansionError,
+> {
     let mut plans = Vec::new();
     plans.try_reserve_exact(factors.len()).map_err(|_| {
         MultiAffineNumeratorExpansionError::AllocationFailure {
@@ -302,7 +327,13 @@ fn preflight_factors(
         limits.max_native_exponent_entries,
     )?;
     admit_live_coefficients(input_weight, limits)?;
-    Ok((plans, projected_support, zero_product, input_weight))
+    Ok((
+        plans,
+        projected_support,
+        zero_product,
+        input_weight,
+        operation_bound,
+    ))
 }
 
 fn affine_polynomial(

@@ -1,6 +1,7 @@
 use crate::family::IntegralKey;
 use crate::family::numerator_expansion::{
-    MultiAffineNumeratorFactor, preflight_coefficient_clones, try_expand_multi_affine_numerator,
+    ExpansionUsage, MultiAffineNumeratorFactor, preflight_coefficient_clones,
+    try_expand_multi_affine_numerator_with_usage,
 };
 
 use super::compile::{admit, overflow, reserved};
@@ -18,6 +19,17 @@ impl Prepared {
         &self,
         source: &IntegralKey,
         limits: ExpansionLimits,
+    ) -> Result<TransportedIntegral, Error> {
+        self.transport_with_usage(source, limits, |_| Ok(()))
+    }
+
+    /// Reserve shared work before native polynomial expansion and endpoint
+    /// allocation. Earlier coefficient clones retain their per-call preflight.
+    pub(crate) fn transport_with_usage(
+        &self,
+        source: &IntegralKey,
+        limits: ExpansionLimits,
+        reserve: impl FnOnce(ExpansionUsage) -> Result<(), ExpansionError>,
     ) -> Result<TransportedIntegral, Error> {
         let arity = self.source_root.arity();
         if source.powers().len() != arity {
@@ -110,7 +122,13 @@ impl Prepared {
             }
         }
         let base = IntegralKey::try_from_preallocated(base).map_err(ExpansionError::IntegralKey)?;
-        let terms = try_expand_multi_affine_numerator(&self.target, &base, &factors, limits)?;
+        let terms = try_expand_multi_affine_numerator_with_usage(
+            &self.target,
+            &base,
+            &factors,
+            limits,
+            reserve,
+        )?;
         Ok(TransportedIntegral {
             source: IntegralKey::try_new(source.powers().iter().copied())
                 .map_err(ExpansionError::IntegralKey)?,

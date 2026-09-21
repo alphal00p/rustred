@@ -119,4 +119,50 @@ fn saved_saturatable_affine_chart_keeps_declared_layout_and_exact_application() 
     let outside = IntegralKey::try_new([2, 1, 1]).unwrap();
     assert!(matches!(reducer.reduce_unit_mass(&outside),
         Err(CandidateReductionError::Uncovered { target }) if target == outside));
+
+    // The selective immutable loader uses the same strict declared-chart
+    // decoder, including target/RHS/source layout. Deliberately different
+    // saved roots and priorities are carried by the two synthetic owners.
+    let saved = decoded
+        .sectors
+        .iter()
+        .map(|sector| {
+            let mut shard = decoded.clone();
+            shard.sectors = vec![sector.clone()];
+            if sector.sector != [true; 3] {
+                shard.root_sector = sector.sector.clone();
+                shard.permutation = Some(vec![2, 0, 1]);
+            }
+            (
+                rustred::sector::Mask::try_new(sector.sector.clone()).unwrap(),
+                codec::write(&shard, limits).unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let input = saved
+        .iter()
+        .map(|(mask, bytes)| CandidateOwnerBundle {
+            bytes,
+            owner_sector: mask,
+        })
+        .collect::<Vec<_>>();
+    let (_, owners) =
+        load_generated_candidate_owners::<3>(&input, Default::default(), Default::default())
+            .unwrap();
+    let routed = rustred::solver::RoutedCandidateReducer::try_new(
+        std::sync::Arc::new(owners),
+        [],
+        Default::default(),
+    )
+    .unwrap();
+    let trace = routed.trace_targets([root]).unwrap();
+    assert!(trace.frontier().is_empty());
+    assert_eq!(trace.rule_applications(), 1);
+    assert_eq!(
+        trace.declared_terminals(),
+        &std::collections::BTreeSet::from([child])
+    );
+    let trace = routed.trace_targets([outside.clone()]).unwrap();
+    assert_eq!(trace.frontier().len(), 1);
+    assert_eq!(trace.frontier().first().unwrap().target, outside);
 }

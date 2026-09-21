@@ -9,9 +9,12 @@
 
 mod application;
 mod cache;
+mod evaluator;
 mod model;
+mod owners;
 mod preparation;
 mod reducer;
+mod routed;
 mod terminal_aliases;
 mod terminal_normalization;
 mod trace;
@@ -20,8 +23,18 @@ pub use model::{
     CandidateCacheRepresentation, CandidateDecomposition, CandidateReachabilityReport,
     CandidateReductionError, CandidateStatistics,
 };
+pub use owners::{
+    CandidateOwnerContext, CandidateOwnerInput, CandidateOwnerPrograms, CandidateOwnerScope,
+};
 pub use reducer::CandidateReducer;
+pub use routed::{
+    CandidateOwnerRoute, CandidateRoutedError, CandidateRoutedFrontier,
+    CandidateRoutedFrontierReason, CandidateRoutedTraceReport, RoutedCandidateLimits,
+    RoutedCandidateReducer,
+};
 pub use trace::{CandidateTraceLimits, CandidateTraceReport};
 
+#[cfg(test)]
+mod owner_test_support;
 #[cfg(test)]
 mod tests;

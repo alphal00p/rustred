@@ -19,8 +19,9 @@ pub use certify::{certify_candidates, certify_candidates_with_progress};
 pub use checkpoint::CandidateCheckpointOptions;
 pub use generate::{family_candidates, family_candidates_with_progress};
 pub use load::{
-    inspect_generated_candidate_bundle, load_generated_candidate_bundle,
-    load_generated_candidate_checkpoint,
+    CandidateOwnerBundle, CandidateOwnerLoadLimits, inspect_generated_candidate_bundle,
+    load_generated_candidate_bundle, load_generated_candidate_checkpoint,
+    load_generated_candidate_owners,
 };
 pub use model::{
     CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateBundleInspection,

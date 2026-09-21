@@ -43,8 +43,15 @@ application regression gates pass. All topologies remain external inputs.
 The Rust library also provides bounded
 [integral-key transport through verified momentum maps](docs/research/rank_scoped_owner_reuse.md),
 including affine numerator expansion and induced pinches. This is groundwork
-for reusing solved sectors across equivalent routings, not yet a recursive
-owner-library reducer or a five-loop closure claim.
+for reusing solved sectors across equivalent routings. The experimental
+`load_generated_candidate_owners` and `RoutedCandidateReducer::trace_targets`
+now share saved programs and follow routed successors without regeneration,
+distinguishing missing programs from missing rules. This is exact local
+dependency tracing, not yet routed coefficient back-substitution or a
+five-loop closure claim. The release gates pass 2,474 core tests and 251
+application/integration tests. Real pilots load 66 saved class programs and
+verify 8,149 composed routes, but recursive coverage remains an open acceptance
+gate; bounded application runs still report resource limits.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after

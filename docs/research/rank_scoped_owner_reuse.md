@@ -1,10 +1,116 @@
 # Reusing sector programs through verified momentum maps
 
 Status: the bounded **concrete integral-key transporter is implemented** and
-passes independent review and the release core gate. Recursive owner dispatch,
-selective program loading and whole-family coverage remain a reviewed design,
-not implemented functionality. This work avoids repeated sector search; it is
-not terminal minimization or a closure proof.
+passes independent review and the release core gate. A trace-only saved-owner
+dispatcher and selective loader are now implemented and pass independent
+review and full release runtime gates. Coefficient back-substitution
+through routed owners and whole-family coverage are not delivered capabilities.
+This work avoids repeated sector search; it is not terminal minimization or a
+closure proof.
+
+## Trace-first implementation boundary
+
+The new Rust-library surface deliberately separates three responsibilities:
+
+- `CandidateOwnerContext` shares one immutable family, coefficient context,
+  source conditions, zero certificates, input rank scope and request limits.
+- `CandidateOwnerPrograms` prepares the selected saved sector programs without
+  changing their original roots, rule orderings, guards or explicit terminals.
+- `RoutedCandidateReducer::trace_targets` traverses exact local successors
+  using already-verified `CandidateOwnerRoute` maps. It reports missing owners
+  separately from missing rules in an installed owner.
+
+The application crate's `load_generated_candidate_owners` takes borrowed bytes
+and explicit masks for immutable, single-sector candidate bundles. It admits
+all structural metadata and aggregate byte/collection limits before importing
+native Symbolica state. The selected owners must share the family and the exact
+saved solver policy; roots and orderings may differ. Zero-sector analysis uses
+the deduplicated union of the actual saved-root downsets with an explicit work
+limit. It does not scan all possible masks regardless of those roots. The
+complete-checkpoint loader retains its separate locking/all-shards semantics.
+
+One request shares rule-application, pending-state, node and expansion budgets
+across all owners. Routing's conservative native-expansion operation/endpoint
+bounds are charged before the expansion. Bounds on encoded input bytes are not
+claims about peak decoded memory. An unsupported map, invalid support change,
+failed guard or exhausted resource limit cannot create a terminal.
+
+Traversal states distinguish `Route(key)` and `Apply(owner, key)`. A literal
+owner applies directly; otherwise an exact map produces a finite combination
+in its target owner's coordinates. Same-support IBP successors stay with that
+owner and must descend in its saved ordering. Only strict support drops may
+route again. This makes routing a one-way phase between successive reductions
+in active-line count; a same-count change to another support is rejected.
+
+The public rank bound is checked at input admission only. All internally
+required successors remain visible, including above-rank intermediates. The
+dispatcher reuses the existing exact first-applicable-rule evaluator; it does
+not add a CAS implementation, search for rules or rematch graphs. A trace
+coalesces each local expression, but does not back-substitute coefficients or
+globally cancel a frontier. Even an empty finite trace is not a proof for
+arbitrary positive denominator powers.
+
+The first real-data pilot reuses twelve saved SearchFinite
+programs (78,139,434 encoded bytes) for the same three class-29550 targets
+previously traced with only one owner. Offline witness matrices are composed
+with native Symbolica matrix operations and then verified again against the
+actual loaded family. Its runtime measurements are separate from the release
+test gates; no outcome is assumed from the metadata alone.
+
+The source-consistent release core gate passes **2,474 tests, zero failures,
+32 existing ignored**, including 17 new owner/dispatcher tests. It takes
+133.48 s wall /132.46 CPU-s, with 159,904 KiB peak RSS. All **251 application
+and integration tests** pass (174 unit plus 77 integration): 63.54 s wall,
+62.34 CPU-s, 194,384 KiB peak RSS. The focused selected-owner, declared-affine
+and complete-checkpoint tests also pass. Compilation is excluded from those
+test timings, and these are regression tests, not solver benchmarks.
+Independent reviews cover the implementation and the actual release receipts.
+Evidence: `TMP/routed-owner-core-gate.zu7s29/` and
+`TMP/selected-owner-app-gate.VafMK4/`.
+
+## Actual five-loop reuse pilots
+
+The first launch cold-loads the twelve programs and verifies all 37 maps but
+then rejects the external CSV's old `trace,` command prefix. An input-only
+correction removes precisely that prefix, preserving the same three integral
+keys and the frozen executable; the failed setup receipt is retained.
+
+The corrected run loads twelve owners in 3.251 s and verifies their 37 maps
+in 0.393 s. Its rank-one target traces 12,253 distinct keys with 1,304 rule
+applications and 361 transports in 0.269 s. It reaches 111 declared terminals
+and 10,477 missing-owner keys across 125 supports, with no missing-rule groups.
+Observed maximum rank is two, below the generation scope R10. These new
+obligations are pinches exposed beyond the initial route set, not 10,477 proven
+missing IBPs. The next rank-ten target reaches the one-million operational-node
+allowance without a complete report; the third target is not attempted.
+Whole process: 35.37 s wall /35.11 CPU-s /934,456 KiB peak RSS, status 1.
+
+An expanded offline selection reuses one saved program for each of the 66
+represented classes, retaining the exact original primary owner for comparison.
+The 463,527,220 encoded bytes are larger than the unconstrained minimum-owner
+sum because that primary is deliberately fixed. There are 8,215 covered-label
+route records: 66 identities and 8,149 nonidentity maps. All 31 labels belonging
+to still-missing class 30231 are explicitly omitted. This selection is neither
+a terminal-minimality step nor a family-closure assertion.
+
+Three independent processes cold-load that same selection successfully in
+8.17–8.50 s and verify **all 8,149 composed maps** in 87.46–88.10 s. They then
+hit the existing four-million *conservative cumulative endpoint estimate*,
+not an observed four-million-node frontier:
+
+| Input | Whole wall time | CPU seconds | Peak RSS, KiB | First rejected endpoint charge |
+|---|---:|---:|---:|---:|
+| rank one | 127.08 s | 126.19 | 3,035,980 | 4,000,073 |
+| rank ten, one numerator axis | 117.41 s | 116.56 | 3,070,864 | 4,070,370 |
+| rank ten, two numerator axes | 121.64 s | 120.76 | 3,073,916 | 4,174,774 |
+
+All exit with status 1 and no complete trace report. These measurements include
+each process's own loading and route preparation; they are not shared-cache
+timings or completed reductions. The next explicitly budgeted diagnostic raises
+aggregate work allowances while retaining time, per-call and memory limits.
+No source search, back-substitution, master evaluation or regeneration occurs.
+Evidence: `TMP/routed-owner-input.1hzrSj/` and
+`TMP/routed-all-saved-owners.Hw5g0s/`.
 
 ## Implemented transport seam
 
@@ -77,9 +183,9 @@ have missing successors, but every missing key has strictly lower support.
 Across those traces there are 38 missing supports: 17 have an already saved
 program in exactly those coordinates, and all 38 route to 11 represented
 graph classes. This is direct motivation for selective program loading and
-the cycle-free dispatcher below. Neither facility is implemented yet; the
-availability of those programs does not prove that their recursive application
-will close. No same-support or above-rank missing key appears in these three
+the cycle-free dispatcher below. Their trace-only implementation is described
+above; the availability of those programs does not prove that their recursive
+application will close. No same-support or above-rank missing key appears in these three
 checks; this observation is not a uniform bound on arbitrary input powers.
 Evidence: `TMP/class29550-frontier.mInPtQ/`.
 

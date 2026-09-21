@@ -2,17 +2,17 @@
 
 use rustred::family::IntegralFamily;
 use rustred::identity::ParametricIbpGenerator;
-use rustred::persistence::SectionTag;
 use rustred::reduction::ReductionLimits;
 use rustred::solver::CandidateReducer;
 
 use crate::application::AppError;
 
 use super::super::{
-    CandidateBundleLimits, FamilyCandidatesRequest,
+    FamilyCandidatesRequest,
     checkpoint::{CheckpointManifest, CheckpointStore},
     codec, preparation,
 };
+use super::ingress::IngressBudget;
 
 /// Load every expected sector of an existing trusted-local generation campaign
 /// into one experimental concrete reducer, without solving or re-encoding.
@@ -140,65 +140,4 @@ pub fn load_generated_candidate_checkpoint<const N: usize>(
         request.max_numerator_rank,
         reduction_limits,
     )
-}
-
-struct IngressBudget {
-    limits: CandidateBundleLimits,
-    collections: codec::CollectionBudget,
-    coefficient_entries: usize,
-    coefficient_bytes: usize,
-}
-
-impl IngressBudget {
-    fn new(limits: CandidateBundleLimits, sectors: usize) -> Result<Self, AppError> {
-        Ok(Self {
-            limits,
-            collections: codec::CollectionBudget::new(limits, sectors)?,
-            coefficient_entries: 0,
-            coefficient_bytes: 0,
-        })
-    }
-
-    fn admit(&mut self, bytes: &[u8]) -> Result<(), AppError> {
-        let (envelope, record, _) = codec::read_structure(bytes, self.limits)?;
-        for sector in &record.sectors {
-            self.collections.admit_sector(sector)?;
-        }
-        let table = envelope
-            .section(SectionTag::COEFFICIENTS)
-            .expect("checked section");
-        let count_bytes = table
-            .get(..8)
-            .ok_or_else(|| AppError::schema("truncated coefficient count"))?;
-        let count = usize::try_from(u64::from_le_bytes(count_bytes.try_into().unwrap()))
-            .map_err(|_| AppError::limit("coefficient count exceeds host width"))?;
-        charge(
-            &mut self.coefficient_entries,
-            count,
-            self.limits.max_collection_entries,
-            "checkpoint aggregate coefficient-entry budget exceeded",
-        )?;
-        charge(
-            &mut self.coefficient_bytes,
-            table.len(),
-            self.limits.max_total_coefficient_bytes,
-            "checkpoint aggregate coefficient-table byte budget exceeded",
-        )
-    }
-}
-
-fn charge(
-    total: &mut usize,
-    amount: usize,
-    limit: usize,
-    message: &'static str,
-) -> Result<(), AppError> {
-    let next = total
-        .checked_add(amount)
-        .ok_or_else(|| AppError::limit(message))?;
-    if next > limit {
-        return Err(AppError::limit(message));
-    }
-    *total = next;
-    Ok(())
 }

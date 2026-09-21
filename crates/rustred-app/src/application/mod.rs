@@ -23,11 +23,12 @@ pub use candidate_bundle::{
     CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateBundleInspection,
     CandidateBundleLimits, CandidateBundleResult, CandidateCertificationRequest,
     CandidateCertificationResult, CandidateCheckpointOptions, CandidateExactBackend,
-    CaseIntersectionLimits, FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest, FiniteCaseLimits,
-    FiniteCasePolicy, MAX_CANDIDATE_BUNDLE_BYTES, certify_candidates,
-    certify_candidates_with_progress, encode_generated_candidate_sector, family_candidates,
-    family_candidates_with_progress, inspect_generated_candidate_bundle,
-    load_generated_candidate_bundle, load_generated_candidate_checkpoint,
+    CandidateOwnerBundle, CandidateOwnerLoadLimits, CaseIntersectionLimits,
+    FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest, FiniteCaseLimits, FiniteCasePolicy,
+    MAX_CANDIDATE_BUNDLE_BYTES, certify_candidates, certify_candidates_with_progress,
+    encode_generated_candidate_sector, family_candidates, family_candidates_with_progress,
+    inspect_generated_candidate_bundle, load_generated_candidate_bundle,
+    load_generated_candidate_checkpoint, load_generated_candidate_owners,
 };
 pub use error::{AppError, AppErrorKind};
 pub use family_close::{

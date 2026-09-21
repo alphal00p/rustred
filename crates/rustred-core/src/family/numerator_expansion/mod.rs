@@ -18,7 +18,10 @@ mod limits;
 mod model;
 
 pub use error::MultiAffineNumeratorExpansionError;
-pub(crate) use expand::{preflight_coefficient_clones, try_expand_multi_affine_numerator};
+pub(crate) use expand::preflight_coefficient_clones;
+#[cfg(test)]
+pub(crate) use expand::try_expand_multi_affine_numerator;
+pub(crate) use expand::{ExpansionUsage, try_expand_multi_affine_numerator_with_usage};
 pub use limits::MultiAffineNumeratorExpansionLimits;
 pub use model::MultiAffineNumeratorEndpoint;
 pub(crate) use model::MultiAffineNumeratorFactor;

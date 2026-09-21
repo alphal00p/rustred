@@ -13,13 +13,13 @@ terminal minimization, published numerical master values and Vakint five-loop
 integration. Small examples and isolated exceptional branches do not satisfy
 the complete census milestone.
 
-## Latest parallel-campaign snapshot — September 21, 14:56 UTC
+## Latest parallel-campaign snapshot — September 21, 15:39 UTC
 
 Under the authorized 100-core/500-GB aggregate ceiling, the four broad
-SearchFinite campaigns have saved **6,084/8,246 distinct labelled sectors**,
+SearchFinite campaigns have saved **6,221/8,246 distinct labelled sectors**,
 representing **66/67 graph classes**. This snapshot excludes the separate
-finite-retention experiments. The 7,390 saved occurrences include 1,306
-duplicates; 2,162 distinct labels remain unsaved. Only class 30231 is not yet
+finite-retention experiments. The 7,596 saved occurrences include 1,375
+duplicates; 2,025 distinct labels remain unsaved. Only class 30231 is not yet
 represented in these broad-search checkpoints. These are generation counts,
 not proof of recursive rank-10 closure or a complete universal artifact.
 
@@ -27,18 +27,23 @@ These are durable-file counts, not the progress display's generation counts:
 
 | Published input parent | Saved / scheduled sectors |
 |---|---:|
-| 30527 | 884 / 2,686 |
-| 30699 | 2,130 / 2,580 |
-| 31740 | 1,956 / 2,656 |
-| 32745 | 2,420 / 2,478 |
+| 30527 | 1,016 / 2,686 |
+| 30699 | 2,142 / 2,580 |
+| 31740 | 2,002 / 2,656 |
+| 32745 | 2,436 / 2,478 |
 
 The sector sets overlap between parents; their sum is not the distinct union.
-Two generated solutions, native 3010 and native 3822,
+Four generated solutions, native 3010, 3822, 31780 and 14343,
 failed coefficient-table output admission and therefore do not appear among
 saved sectors. Their first rejected table additions slightly exceed 512 MiB;
 that is **not** a measurement of their complete encoded size. Native 3822
 belongs to the last unrepresented class. An isolated explicit-budget retry is
 separate from the original campaign and must actually publish before it counts.
+The other three output failures belong to already represented classes, so
+saved alternatives are preferred to regenerating their large expressions.
+This durable-only snapshot was read between 15:39:57.137 and 15:39:57.541 UTC;
+standalone retries and retained-policy checkpoints are not silently merged.
+Evidence: `TMP/rank10-owner-milestone-inventory.3tBRix/`.
 
 The new class 29550 owner is a different label: external 13887/native 32310,
 parent 30527 shard 1091. Its 40,697,123-byte program has 487 rules and 56 finite
@@ -161,12 +166,70 @@ application/integration tests** pass too. The fresh public seven-sector CLI
 regression reproduces the previous 41,971,427-byte output exactly in
 37.25 s wall /41.13 CPU-s, with 356,384 KiB peak RSS; compilation is separate.
 This is an integration regression, not a matched speed comparison. Actual
-full-sector retries of the captured failures are separate acceptance steps
-and remain pending at this checkpoint. Passing captured geometry cases is not
-a completed family. Evidence: `TMP/geometry-three-slice-release.hVECOq/`,
+full-sector retries of the captured failures are separate acceptance steps.
+Passing captured geometry cases is not a completed family.
+Evidence: `TMP/geometry-three-slice-release.hVECOq/`,
 `TMP/geometry-three-slice-app-cli.w9PTom/`,
 `TMP/geometry-public-r10-pilot.dCYG5k/` and the independent positive-slack,
 finite-rank-priority and compact-overflow design/audit receipts.
+
+The first actual retry, native 2678 with the unchanged SearchFinite/R10/natural/
+depth-zero/sparse policy and 8,192-item geometry allowance, subsequently
+**finishes and saves its program**: 1,007.895 s solver time, 1,008 rules,
+54 finite terminals and 211,758 RHS terms. It passes the former case 345
+failure and completes 997 cases. Exceptional geometry takes 1.274 s versus
+991.172 s of symbolic search; resolving the geometry exposes the substantial
+remaining algebra workload rather than making the whole solve instantaneous.
+The 149,605,286-byte file cold-loads in 8.987 s. Three declared-terminal
+identity/repeat checks pass, but three nontrivial traces remain partial with
+2,332 /6,176 /10,682 missing keys. The diagnostic's successful exit does not
+make those complete reductions or prove recursive rank-10 closure.
+
+Solve plus export takes 1,016.25 s wall /1,008.50 CPU-s, with 1,096,584 KiB
+peak RSS; the separate cold diagnostic takes 9.90 s wall /9.83 CPU-s,
+799,400 KiB peak RSS. No output allowance was raised for this retry.
+Evidence: `TMP/geometry-native2678-search.N6un9u/`.
+
+The native 1484 SearchFinite retry passes its former exceptional-geometry
+failure, then reaches its unchanged 1,800-second deadline during exact lifting:
+1,800.11 s wall /1,787.17 CPU-s /1,104,520 KiB peak RSS, status 124, no output.
+Case 525 finishes after roughly 1,142 s; case 526 reaches row 999 of a
+1,021-row frame before the deadline. This is algebraic expression cost, not a
+new unsupported exceptional domain or an out-of-memory failure. Both captured
+faces have fixed positive indices and the relation `v+w=2u+1` on three
+nonnegative numerator coordinates. Their rank-10 domains have only 20 and 12
+integer points respectively, so the already-implemented finite-retention
+policy is a possible separate experiment, not the policy of this censored run.
+
+More importantly, offline verified routing puts native 1484 in already
+represented class 28686. Three saved SearchFinite owners are available, the
+smallest 101,599,848 bytes. The next action is exact reuse, not another solve.
+The same distinction applies to the old broad executable subsequently failing
+on native 2678: the successful new standalone output is already preserved,
+and that graph class also has saved alternative owners.
+Evidence: `TMP/geometry-native1484-search.ztN5er/` and its saved-owner metadata.
+
+The natural-order native 29751 retained-policy control then reaches its exact
+one-hour deadline: 3,600 s wall /3,573.13 CPU-s /1,833,392 KiB peak RSS, status
+124, no candidate and no cold phase. Both former geometry failures were passed.
+Its last event is case 391, row 4,388 of 4,427, with 470,697 reducer nonzeros.
+This is deadline-censored exact elimination, not a new unsupported guard or
+memory failure. The captured affine chart has only three positive free indices
+and equations `n0=3*n2-6`, `n1=4-n2`. Positivity forces `n2>=3` and `n2<=3`,
+hence exactly `(n0,n1,n2)=(3,1,3)`. Recognizing this finite positive chart before
+symbolic elimination is the next generic refinement to investigate; it is not
+implemented by the owner-reuse milestone. Evidence:
+`TMP/geometry-native29751-retain.YGc5XI/`.
+
+A separately timed half-rotation run uses the same rank, finite-case policy,
+geometry allowance and frozen geometry implementation. Its deliberate
+output-only allowance is larger than the prior default: 1 GiB whole file and
+aggregate coefficients, 32 million collection entries, 16 MiB per coefficient.
+This protects a successful solve from the earlier small export budget; it does
+not justify a matched output-pipeline speed comparison. The one-hour run starts
+at 15:55:05 UTC with one CPU and a 32 GiB address-space cap and is still running
+at this checkpoint. No checkpoint shard is overwritten.
+Evidence: `TMP/native29751-current-rotate-half.c4VGp3/`.
 
 ## Public interfaces
 

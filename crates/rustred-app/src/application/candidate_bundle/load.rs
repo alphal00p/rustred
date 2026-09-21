@@ -11,7 +11,10 @@ use crate::application::AppError;
 use super::{CandidateBundleLimits, codec, model::CandidateBundleInspection, preparation};
 
 mod checkpoint;
+mod ingress;
+mod owners;
 pub use checkpoint::load_generated_candidate_checkpoint;
+pub use owners::{CandidateOwnerBundle, CandidateOwnerLoadLimits, load_generated_candidate_owners};
 
 /// Inspect candidate structure without importing Symbolica state or coefficients.
 /// Counts describe the saved payload; they do not authenticate algebra, replay

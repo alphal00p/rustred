@@ -2,9 +2,9 @@
 
 ## Current priority — rank-bounded five-loop closure, with sequential delivery gates
 
-### Current measured checkpoint — September 21, 14:56 UTC
+### Current measured checkpoint — September 21, 15:39 UTC
 
-The four parallel SearchFinite campaigns have **6,084 of 8,246 distinct
+The four parallel SearchFinite campaigns have **6,221 of 8,246 distinct
 labelled sectors durably saved**, representing **66 of 67 graph classes**.
 The policy-specific inventory excludes separate finite-retention experiments
 and solutions that finished generation but failed binary output admission.
@@ -19,9 +19,23 @@ generic geometry refinements pass independent audits and the full release
 core gate: **2,457 passed, zero failed, 32 existing ignored**. All 246 release
 application tests pass, and the public seven-sector CLI regression reproduces
 its prior output byte-for-byte. Actual full-sector retries remain separate
-acceptance steps. Exact transport is
-implemented; cycle-free routed owner application is still the next work-reuse
-slice, not a delivered closure capability. Do not proceed to minimization,
+acceptance steps. The first, native 2678, now completes and saves 1,008 rules
+and 54 finite terminals in 1,007.895 s solver time; cold loading passes but its
+isolated application traces still have uncovered successors. Native 1484 then
+reaches its 1,800-second limit during exact lifting, beyond its former geometry
+failure, with no output; three equivalent saved owners are available for reuse.
+Native 29751's natural-order retry reaches its one-hour limit in exact
+elimination, with no output; a separately bounded half-rotation run continues.
+Its last affine chart actually has one positive integer point, identifying
+a concrete next refinement to investigate. Exact transport and
+trace-only routed owner application pass independent review and the new full
+release gates: **2,474 core and 251 application/integration tests**, zero
+failures. The first real twelve-program load and 37 exact routes succeed;
+its finite traces expose further absent routes and a node-budget limit, not
+complete recursive coverage. Expanded pilots load all 66 saved class programs
+and verify 8,149 composed routes, then hit conservative aggregate expansion
+allowances at about 3 GiB peak RSS each. Larger explicitly bounded work-budget
+checks are next; no rules are regenerated for these checks. Do not proceed to minimization,
 master lookup or five-loop Vakint before bounded coverage succeeds. Detailed
 measurements and limitations are in the
 [rank-scope notes](docs/rank_scoped_generation.md).
