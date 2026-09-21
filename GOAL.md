@@ -1,6 +1,59 @@
 # RustRed project goal
 
-## Current priority — progressive five-loop solving after compact four-loop delivery
+## Current priority — rank-bounded five-loop closure, with sequential delivery gates
+
+### September 21 directive: finish bounded coverage before minimizing or integrating
+
+The user's latest directive supersedes parallel advancement into later five-loop
+stages. Add an optional maximum numerator rank alongside the input family and
+proceed in this order:
+
+1. Solve the complete frozen census of five-loop single-scale vacuum families
+   within the declared input scope, accepting a finite, nonminimal set of
+   explicit terminal integrals. Cover every parent and its relevant contracted
+   sectors; one completed example or exceptional branch is not this milestone.
+2. Establish that coverage for **at least `R=10`**, then attempt **`R=20`** or
+   higher. Small-rank pilots are implementation checks, not substitutes for
+   the requested rank-10 result.
+3. Only after bounded family coverage succeeds, reduce the number of terminal
+   integrals. Minimality is not a prerequisite for steps 1–2.
+4. Only after that reduction, identify published TIDE or other five-loop master
+   evaluations, ideally at least 32 decimal digits, and derive the required
+   mapping and precision-qualified numerical catalog. Do not silently assign
+   numerical values to unmatched terminals.
+5. Only then extend Vakint's RustRed mode to five loops and validate numerical
+   consistency, including expanded numerators cancelling one or more
+   denominators. Preserve existing modes, API conventions and defaults.
+
+Do not start a later gate while an earlier one remains incomplete. Parallel
+agents may implement and independently audit orthogonal work **within the
+current gate**. Existing four-loop delivery and measurement evidence remains
+part of the broader project goal; it is not redefined as five-loop completion.
+
+The rank contract is `R(n) = sum_i max(-n_i, 0)` in the supplied scalar-product
+coordinate presentation. This counts numerator scalar-product degree, not
+twice that degree as a tensor momentum rank. Positive denominator powers are
+not bounded by this option. Their rays must be reduced parametrically; if a
+finite pilot also fixes or caps those powers, disclose that narrower scope.
+Never substitute total excess `R+D`, per-coordinate power caps, or a finite
+sample for the requested total-numerator bound. The bound describes input
+integrals, not a cutoff on source seeds or intermediate dependencies: retain
+and resolve all required successors, including those above the input rank.
+
+Reuse current parametric rules and native Symbolica arithmetic. At nonlinear
+exceptional loci, solve the in-scope cases and their complete dependency
+frontier; enumerate only when the remaining integer domain is genuinely
+finite. A rank-only bound does not make unfixed positive-power directions
+finite. Budget exhaustion is an incomplete result, never an inferred terminal
+or a completeness claim. A fully fixed terminal may be retained without a
+minimality proof, but the final terminal set must be finite and universal for
+the declared scope rather than a list of all unreduced requested inputs.
+
+The immediate implementation work is generic rank-scope plumbing, bounded
+exceptional-case handling and reusable dependency-frontier accounting. First
+exercise the saved five-loop rules without regenerating completed sectors.
+No numerical-master search, terminal-minimization campaign or five-loop Vakint
+implementation is admitted before the preceding gates succeed.
 
 ### Exceptional-domain follow-up — bounded targets alongside unrestricted research
 
