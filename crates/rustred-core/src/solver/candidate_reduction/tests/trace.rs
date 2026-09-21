@@ -48,6 +48,7 @@ fn partial(specification: &[(i16, &[(i16, i64)])]) -> CandidateReducer<1> {
     from_one_rule(
         &family,
         SectorSolution {
+            finite_case_policy: Default::default(),
             rules,
             finite_residuals: Vec::new(),
             stats: SectorStats::default(),
@@ -397,6 +398,7 @@ fn pending_application_and_coalescing_caps_span_the_whole_batch() {
 fn descending_pinch_can_increase_numerator_degree() {
     let family = crate::solver::tests::sunset();
     let solution = SectorSolution {
+        finite_case_policy: Default::default(),
         rules: vec![fixed(&family, [1, 1, 1], vec![([-3, 1, 1], 1)])],
         finite_residuals: Vec::new(),
         stats: SectorStats::default(),
@@ -424,12 +426,14 @@ fn entry_rank_admission_precedes_cache_mutation_but_does_not_clip_descendants() 
     let root = key([1, 1, 1]);
     let child = key([-3, 1, 1]);
     let parent_solution = SectorSolution {
+        finite_case_policy: Default::default(),
         rules: vec![fixed(&family, [1, 1, 1], vec![([-3, 1, 1], 1)])],
         finite_residuals: Vec::new(),
         stats: Default::default(),
         max_numerator_rank: Some(0),
     };
     let child_solution = SectorSolution {
+        finite_case_policy: Default::default(),
         rules: Vec::new(),
         finite_residuals: vec![Integral::numeric([-3, 1, 1]).unwrap()],
         stats: Default::default(),
@@ -508,6 +512,7 @@ fn entry_rank_admission_precedes_cache_mutation_but_does_not_clip_descendants() 
 fn constructor_infers_consistent_scope_and_explicit_scope_survives_empty_records() {
     let family = crate::solver::tests::tadpole();
     let solution = |rank| SectorSolution::<1> {
+        finite_case_policy: Default::default(),
         rules: Vec::new(),
         finite_residuals: Vec::new(),
         stats: Default::default(),
@@ -586,4 +591,106 @@ fn constructor_infers_consistent_scope_and_explicit_scope_survives_empty_records
     )
     .unwrap();
     assert_eq!(unscoped.max_numerator_rank(), None);
+}
+
+#[test]
+fn constructor_rejects_missing_retention_rank_and_mixed_finite_policies() {
+    use crate::solver::FiniteCasePolicy;
+    let family = crate::solver::tests::tadpole();
+    let solution = |policy, rank| SectorSolution::<1> {
+        finite_case_policy: policy,
+        max_numerator_rank: rank,
+        rules: vec![],
+        finite_residuals: vec![],
+        stats: Default::default(),
+    };
+    assert!(matches!(CandidateReducer::try_new(
+        &family, [true], OrderingPolicy::SpiredUncutV1,
+        [([true], solution(FiniteCasePolicy::RetainRankFinite, None))],
+        vec![], Default::default(),
+    ), Err(CandidateReductionError::InvalidInput(message)) if message.contains("explicit numerator rank")));
+    assert!(matches!(
+        CandidateReducer::try_new(
+            &family,
+            [true],
+            OrderingPolicy::SpiredUncutV1,
+            [
+                ([true], solution(FiniteCasePolicy::SearchFinite, Some(1))),
+                (
+                    [false],
+                    solution(FiniteCasePolicy::RetainRankFinite, Some(1))
+                )
+            ],
+            vec![],
+            Default::default(),
+        ),
+        Err(CandidateReductionError::InconsistentFiniteCasePolicy {
+            expected: FiniteCasePolicy::SearchFinite,
+            actual: FiniteCasePolicy::RetainRankFinite,
+        })
+    ));
+}
+
+#[test]
+fn retention_provenance_does_not_clip_or_promote_above_entry_rank_successors() {
+    use crate::solver::FiniteCasePolicy;
+    let family = crate::solver::tests::sunset();
+    let solution = SectorSolution {
+        finite_case_policy: FiniteCasePolicy::RetainRankFinite,
+        max_numerator_rank: Some(0),
+        rules: vec![fixed(&family, [1, 1, 1], vec![([-3, 1, 1], 1)])],
+        finite_residuals: vec![],
+        stats: Default::default(),
+    };
+    let mut owner = CandidateReducer::try_new(
+        &family,
+        [true; 3],
+        OrderingPolicy::SpiredUncutV1,
+        [([true; 3], solution)],
+        vec![],
+        Default::default(),
+    )
+    .unwrap();
+    let report = owner
+        .trace_targets([key([1, 1, 1])], Default::default())
+        .unwrap();
+    assert_eq!(report.max_negative_index_degree(), 3);
+    assert_eq!(report.uncovered(), &BTreeSet::from([key([-3, 1, 1])]));
+    assert!(report.declared_terminals().is_empty());
+    assert!(matches!(owner.reduce_unit_mass(&key([1, 1, 1])),
+        Err(CandidateReductionError::Uncovered { target }) if target == key([-3, 1, 1])));
+}
+
+#[test]
+fn retained_terminal_still_checks_source_conditions_before_a_warm_cache_hit() {
+    let family = crate::solver::tests::tadpole();
+    let solution = SectorSolution {
+        finite_case_policy: crate::solver::FiniteCasePolicy::RetainRankFinite,
+        max_numerator_rank: Some(0),
+        rules: vec![],
+        finite_residuals: vec![Integral::numeric([1]).unwrap()],
+        stats: Default::default(),
+    };
+    let mut owner = from_one_rule(&family, solution);
+    owner.reduce_unit_mass(&key([1])).unwrap();
+    let context = ParametricIbpGenerator::try_new(&family)
+        .unwrap()
+        .context()
+        .clone();
+    owner.source_conditions.push(
+        context
+            .admit_native_polynomial_result_with_limits(
+                index_offset(&context, 0, 1),
+                Default::default(),
+            )
+            .unwrap(),
+    );
+    assert!(matches!(
+        owner.reduce_unit_mass(&key([1])),
+        Err(CandidateReductionError::SourceConditionVanished { .. })
+    ));
+    assert!(matches!(
+        owner.trace_targets([key([1])], Default::default()),
+        Err(CandidateReductionError::SourceConditionVanished { .. })
+    ));
 }

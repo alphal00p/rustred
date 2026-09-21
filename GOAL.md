@@ -63,13 +63,36 @@ nonlinear locus at R=10 and R=20. The first serial public R=10 six-line/downset
 solve times out in exact elimination after 248 observed rule hits and before
 completing any sector; a reconstruction repeat times out in common preparation
 before its backend is entered. A subsequent six-worker reconstruction pilot
-has completed three of its seven nonzero sectors as of 07:07 UTC, with 1,234
-saved rules and three residuals; the other sectors are still running. Five
-fresh-process application canaries on one shard pass, but do not prove family
-coverage. No complete five-loop candidate bundle or all-family coverage is
+stops at its one-hour deadline with three of seven nonzero sectors completed,
+1,234 saved rules and three residuals. It uses 12,102.89 CPU seconds and peaks
+at 6,351,772 KiB RSS; a short attached profile makes this an instrumented
+diagnostic. Ten fresh-process application canaries across two shards pass,
+but do not prove family coverage. No complete five-loop candidate bundle or
+all-family coverage is
 claimed. Preserve these distinct receipts; preparation time is not a backend
 comparison. See the
 [rank-scope implementation notes](docs/rank_scoped_generation.md).
+
+The next coverage-first slice now implements an explicit finite-leaf retention policy:
+once all positive original indices are fixed, enumerate the complete admitted
+rank-bounded numerator simplex and keep its points without minimization.
+Unfixed positive rays still require parametric rules. Independent design review
+accepts this as local candidate generation, not recursive closure; above-R
+successors must remain visible and resolved. Keep enumeration/storage limits
+explicit and fail atomically on exhaustion. Its independent release gate passes
+2,373 core tests (32 existing ignored), 152 application tests, 15 CLI tests and
+43 Python API tests. A malformed test fixture was corrected without changing
+its assertions; the original failure receipt is retained. The first selected
+six-line R=10 pilot saves six of seven sectors in 50.93 seconds wall time,
+with 1,044 rules and 1,024,045 explicitly retained terminals; the seventh
+exceeds the cumulative one-million-point enumeration budget. No assembled
+bundle or recursive closure is claimed for that first attempt. A fresh retry
+with ten million allowed visited points and larger explicit transport budgets
+writes all seven candidate sectors in 38.84 seconds wall time: 1,299 rules,
+1,208,801 nonminimal terminals and a 41,971,427-byte bundle. Cold dependency
+checks are the next gate; generation completion is not recursive closure.
+These timings are not a controlled comparison to the earlier reconstruction
+pilot, and this selected family does not replace the full census.
 
 The September 21 offline input-routing milestone now covers all **8,246**
 labelled jobs in the four-parent downset union after the saved zero screening,
@@ -110,12 +133,30 @@ unrestricted route. This does not replace the broader four-/five-loop goal.
 
 ### Long-running five-loop campaigns: admission and monitoring
 
-The latest directive permits runs lasting **10 hours or more**, with total
-memory strictly below **500 GB** and fewer than **50 compute cores**, when
+The latest resource directive permits runs lasting **10 hours or more**, with
+total memory at most **500 GB** and up to **100 compute cores**, when
 multiple measured optimization passes and bounded pilots show a credible
 chance of completion. These are ceilings, not default allocations. Count
 concurrent probes and nested pools together; leave headroom below the memory
 ceiling. Do not substitute a larger budget for an understood structural blocker.
+Use the expanded budget to run independent five-loop families and sectors in
+parallel, checkpoint successes, and keep an explicit outstanding/error ledger.
+The September 21 broad rank-10 batch initially reserves 80 sector workers
+across the four input parents, with 16 cores reserved for the independent
+release gate. Per-process address-space limits and disjoint affinity keep the
+combined configured memory/compute below the ceilings. This is a coverage
+campaign, not a matched performance comparison. The new finite-retention
+implementation must pass its own tests before replacing the validated solver.
+The independent 07:48 UTC inventory records 779 distinct saved masks out of
+8,246, including all four 12-line parents. Those masks represent 52 of the 67
+published classes, not 52 closed families. Continue the campaigns and cold
+successor checks. Separate unsupported integer geometry from transport-budget
+failures: the current sweep has exposed both a finite bilinear exceptional
+condition and the default 128 MiB coefficient-table export cap. The former
+has two integer pairs but is not yet admitted by the geometry service; the
+latter is an explicit output limit, not a mathematical relation gap. Preserve
+sector identity in failure diagnostics and expose existing caller-owned
+native output budgets consistently rather than conflating them with RAM.
 
 Before admitting such a run, document the input/sector scope, ordering,
 backend, completed pilot work, remaining work, observed fill and memory growth,

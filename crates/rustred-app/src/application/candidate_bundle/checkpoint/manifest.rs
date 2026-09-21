@@ -46,10 +46,7 @@ impl CheckpointManifest {
             family_fingerprint: family_fingerprint.into(),
             root_sector: root_sector.to_vec(),
             permutation: request.permutation.clone(),
-            solver_policy: policy::encode_scoped(
-                request.numerical_depth,
-                request.max_numerator_rank,
-            ),
+            solver_policy: policy::encode_request(request),
             exact_backend: request.exact_backend.as_str().into(),
             sectors,
         };

@@ -392,6 +392,7 @@ fn census_and_priority_fail_before_untrusted_sector_rules_are_checked() {
     ]);
     let audit = SourcePortAudit::try_new(&family, zeros).unwrap();
     let empty = || SectorSolution {
+        finite_case_policy: Default::default(),
         max_numerator_rank: None,
         rules: Vec::new(),
         finite_residuals: Vec::new(),

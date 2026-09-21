@@ -397,9 +397,11 @@ impl<const N: usize> SourcePortAudit<N> {
         started: Instant,
         observe: &mut dyn FnMut(SourcePortInstallEvent<'_, N>),
     ) -> Result<program::SectorCheck<N>, SourcePortAuditError> {
-        if solution.max_numerator_rank.is_some() {
+        if solution.max_numerator_rank.is_some()
+            || solution.finite_case_policy == crate::solver::FiniteCasePolicy::RetainRankFinite
+        {
             return Err(error(
-                "numerator-rank-scoped candidate requires a compatible successor-scope proof; unrestricted and total-excess installation cannot consume it",
+                "numerator-rank-scoped or retained-finite candidate requires a compatible successor-scope proof; unrestricted and total-excess installation cannot consume it",
             ));
         }
         self.limits.validate()?;

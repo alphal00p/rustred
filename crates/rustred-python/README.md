@@ -189,8 +189,19 @@ rank; missing successor formulas still fail. Rank-scoped candidates currently
 reject certification, even with a separate total-excess request. The flag does
 not itself establish completion of any five-loop family.
 
+`finite_case_policy="retain-rank-finite"` opts into keeping all admitted finite
+leaves without numerical-case minimization. It requires `max_numerator_rank`:
+all active original axes must be fixed before the remaining numerator simplex
+is enumerated and filtered against the complete case. The default `"search"`
+keeps the existing behavior. Optional positive `finite_max_visited_points` and
+`finite_max_retained_terminals` (default 1,000,000 each) are per-sector work and
+storage budgets, not mathematical cutoffs. Exhaustion fails atomically; internal
+descendants remain unclipped. This follow-up is awaiting release validation.
+
 Generation accepts `input_format`, `n_cores`, `exact_backend`,
-`numerical_depth`, `max_numerator_rank`, `permutation`, `checkpoint_dir`, `resume`, `checkpoint_max_bytes`, and
+`numerical_depth`, `max_numerator_rank`, `finite_case_policy`,
+`finite_max_visited_points`, `finite_max_retained_terminals`, `permutation`,
+`checkpoint_dir`, `resume`, `checkpoint_max_bytes`, and
 `nonpositive_indices`. Certification keeps the existing unit-mass vacuum
 publication admission and accepts these optional caller resource limits:
 

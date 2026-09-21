@@ -57,6 +57,42 @@ fn assert_no_search(events: &[FamilyCloseProgress]) {
 }
 
 #[test]
+fn finite_retention_checkpoint_binds_policy_and_enumeration_limits() {
+    let directory = Directory::new();
+    let mut request = FamilyCandidatesRequest::new(K1);
+    request.max_numerator_rank = Some(10);
+    request.finite_case_policy = FiniteCasePolicy::RetainRankFinite;
+    request.checkpoint = Some(directory.options());
+    let (original, _) = observed(request.clone());
+    request.checkpoint.as_mut().unwrap().resume = true;
+    let (resumed, events) = observed(request.clone());
+    assert_no_search(&events);
+    assert_same_program(original.bundle(), resumed.bundle());
+    let mut changed = request.clone();
+    changed.finite_case_policy = FiniteCasePolicy::SearchFinite;
+    assert!(
+        family_candidates(changed)
+            .unwrap_err()
+            .message()
+            .contains("manifest differs")
+    );
+    for changed_limit in [true, false] {
+        let mut changed = request.clone();
+        if changed_limit {
+            changed.finite_case_limits.max_visited_points += 1;
+        } else {
+            changed.finite_case_limits.max_retained_terminals += 1;
+        }
+        assert!(
+            family_candidates(changed)
+                .unwrap_err()
+                .message()
+                .contains("manifest differs")
+        );
+    }
+}
+
+#[test]
 fn numerator_rank_checkpoint_reuses_exact_scope_and_rejects_changed_scope() {
     let directory = Directory::new();
     let mut request = FamilyCandidatesRequest::new(K3);

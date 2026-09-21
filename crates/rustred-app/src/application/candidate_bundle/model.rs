@@ -1,6 +1,7 @@
 use rustred::algebra::ExactAlgebraLimits;
 use rustred::foundry::artifact::{ArtifactLoadLimits, SourcePortLimits};
 use rustred::solver::SymbolicExactBackend;
+pub use rustred::solver::{FiniteCaseLimits, FiniteCasePolicy};
 
 use crate::application::InputFormat;
 
@@ -31,6 +32,10 @@ pub struct CandidateBundleInspection {
     /// Declared generation entry scope, `sum(max(-n_i, 0)) <= R`.
     /// Positive powers remain unbounded; this is not certified coverage.
     pub max_numerator_rank: Option<u32>,
+    /// Search finite cases or deliberately retain finite rank-bounded leaves.
+    pub finite_case_policy: FiniteCasePolicy,
+    /// Generation work limits, not coverage bounds.
+    pub finite_case_limits: FiniteCaseLimits,
     pub solved_sectors: usize,
     pub generated_rules: usize,
     pub finite_residuals: usize,
@@ -172,6 +177,10 @@ pub struct FamilyCandidatesRequest {
     /// positive powers. Separate from search depth and resource limits.
     /// `None` preserves unrestricted generation; output remains uncertified.
     pub max_numerator_rank: Option<u32>,
+    /// Optional nonminimal terminal policy; retention requires an explicit R.
+    pub finite_case_policy: FiniteCasePolicy,
+    /// Per-sector work/storage limits for finite retention. Exhaustion fails.
+    pub finite_case_limits: FiniteCaseLimits,
     pub permutation: Option<Vec<usize>>,
     pub nonpositive_indices: Vec<usize>,
     pub bundle_limits: CandidateBundleLimits,
@@ -189,6 +198,8 @@ impl FamilyCandidatesRequest {
             exact_backend: CandidateExactBackend::default(),
             numerical_depth: rustred::solver::SectorSolveOptions::default().numerical_depth,
             max_numerator_rank: None,
+            finite_case_policy: FiniteCasePolicy::default(),
+            finite_case_limits: FiniteCaseLimits::default(),
             permutation: None,
             nonpositive_indices: Vec::new(),
             bundle_limits: CandidateBundleLimits::default(),

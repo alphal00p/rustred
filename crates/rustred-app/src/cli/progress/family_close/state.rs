@@ -207,6 +207,7 @@ impl Tracker {
                     | Canonicalization
                     | GuardExtraction
                     | ExceptionalGeometry
+                    | FiniteRetention
                     | RuleFound { .. }
                     | Numerical { .. } => {
                         if let Some(job) = self.jobs.get_mut(&key) {
@@ -276,6 +277,7 @@ fn phase(event: &FamilyCloseProgress) -> &'static str {
             G::ExactSemiNumericalFinished { .. } => "reconstruction finished",
             G::GuardExtraction => "guard extraction",
             G::ExceptionalGeometry => "exceptional geometry",
+            G::FiniteRetention => "finite terminal enumeration",
             G::RuleFound { .. } => "rule found",
             G::Numerical { .. } => "numerical cases",
         },

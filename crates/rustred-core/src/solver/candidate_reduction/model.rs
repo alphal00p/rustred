@@ -7,6 +7,7 @@ use crate::algebra::{
 };
 use crate::family::IntegralKey;
 use crate::reduction::{ReductionError, ReductionStatistics};
+use crate::solver::FiniteCasePolicy;
 
 /// In-memory coefficient storage for the same candidate application engine.
 /// Artifacts and returned decompositions always use ordinary coefficients.
@@ -154,6 +155,10 @@ pub enum CandidateReductionError {
         expected: Option<u32>,
         actual: Option<u32>,
     },
+    InconsistentFiniteCasePolicy {
+        expected: FiniteCasePolicy,
+        actual: FiniteCasePolicy,
+    },
     OutsideNumeratorRank {
         target: IntegralKey,
         rank: u128,
@@ -199,6 +204,12 @@ impl fmt::Display for CandidateReductionError {
             Self::InconsistentNumeratorRank { expected, actual } => write!(
                 f,
                 "candidate entry rank scope {actual:?} differs from required scope {expected:?}"
+            ),
+            Self::InconsistentFiniteCasePolicy { expected, actual } => write!(
+                f,
+                "candidate finite-case policy {} differs from required policy {}",
+                actual.as_str(),
+                expected.as_str()
             ),
             Self::OutsideNumeratorRank {
                 target,

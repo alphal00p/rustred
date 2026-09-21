@@ -11,6 +11,9 @@ use super::{
     RuleCandidate, SearchEvent, SearchOptions, SectorSolver, SolverError, extract_exceptions,
 };
 
+mod finite;
+pub use finite::{FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError};
+
 /// A solved equation together with the exact exceptional index conditions
 /// on which it must NOT be applied. Coefficient parameters remain generic.
 #[derive(Debug)]
@@ -93,6 +96,10 @@ pub struct SectorSolveOptions {
     /// Optional input negative-index degree `sum(max(-n_i,0))`. Positive
     /// powers remain symbolic; source seeds and RHS successors are NOT cut.
     pub max_numerator_rank: Option<u32>,
+    /// Explicit nonminimal finite-leaf retention, separate from search depth.
+    pub finite_case_policy: FiniteCasePolicy,
+    /// Aggregate work/storage limits for finite retention, not coverage.
+    pub finite_case_limits: FiniteCaseLimits,
     /// Symbolic search is unbounded by default, as in the reference.
     pub symbolic: SearchOptions,
     /// Search radius for fully fixed cases, not a master-independence test.
@@ -105,6 +112,8 @@ impl Default for SectorSolveOptions {
     fn default() -> Self {
         Self {
             max_numerator_rank: None,
+            finite_case_policy: FiniteCasePolicy::default(),
+            finite_case_limits: FiniteCaseLimits::default(),
             symbolic: SearchOptions::default(),
             numerical_depth: 2,
             max_symbolic_cases: None,
@@ -122,6 +131,9 @@ pub struct SectorStats {
     pub exception_extraction: Duration,
     pub geometry: Duration,
     pub numerical_search: Duration,
+    pub finite_points_visited: usize,
+    pub retained_finite_terminals: usize,
+    pub finite_enumeration: Duration,
     pub elapsed: Duration,
 }
 
@@ -130,13 +142,15 @@ pub struct SectorStats {
 /// Every exceptional symbolic branch within `max_numerator_rank` (unrestricted
 /// when absent) has been traversed if this is returned successfully. This does
 /// not prove coverage of recursive successors above the input rank.
-/// `finite_residuals` are the fixed cases for which the bounded
-/// numerical search found no rule; this neither proves their independence nor
+/// `finite_residuals` are fixed cases left by bounded numerical search or
+/// deliberately retained without search under `finite_case_policy`;
+/// this neither proves their independence nor
 /// declares them to be certified master terminals. Inherited source conditions
 /// and parameter poles of RHS coefficients remain separate obligations.
 #[derive(Debug)]
 pub struct SectorSolution<const N: usize> {
     pub max_numerator_rank: Option<u32>,
+    pub finite_case_policy: FiniteCasePolicy,
     pub rules: Vec<SectorRule<N>>,
     pub finite_residuals: Vec<Integral<N>>,
     pub stats: SectorStats,
@@ -170,6 +184,7 @@ pub enum SectorEvent<'a, const N: usize> {
 pub enum SectorPhase {
     GuardExtraction,
     ExceptionalGeometry,
+    FiniteRetention,
 }
 
 #[derive(Debug)]
@@ -198,6 +213,10 @@ pub enum SectorSolveError<const N: usize> {
         pending: usize,
     },
     Numeric(SolverError),
+    FiniteRetention {
+        case: Case<N>,
+        source: FiniteRetentionError,
+    },
 }
 
 impl<const N: usize> fmt::Display for SectorSolveError<N> {
@@ -217,6 +236,9 @@ impl<const N: usize> fmt::Display for SectorSolveError<N> {
                 )
             }
             Self::Numeric(source) => write!(f, "numerical case search: {source}"),
+            Self::FiniteRetention { case, source } => {
+                write!(f, "finite candidate retention on {case:?}: {source}")
+            }
         }
     }
 }
@@ -242,6 +264,14 @@ impl<const N: usize> SectorSolver<'_, N> {
         options: SectorSolveOptions,
         mut observe: impl FnMut(SectorEvent<'_, N>),
     ) -> Result<SectorSolution<N>, SectorSolveError<N>> {
+        if options.finite_case_policy == FiniteCasePolicy::RetainRankFinite
+            && options.max_numerator_rank.is_none()
+        {
+            return Err(SectorSolveError::FiniteRetention {
+                case: Case::generic(),
+                source: FiniteRetentionError::MissingNumeratorRank,
+            });
+        }
         let start = Instant::now();
         let initial = CoordinateCase::new(std::array::from_fn(|i| {
             self.config.removed_deltas[i].then_some(1)
@@ -256,7 +286,42 @@ impl<const N: usize> SectorSolver<'_, N> {
         }
         let mut rules = Vec::new();
         let mut stats = SectorStats::default();
+        let mut retained = finite::Retention::default();
         while !pending.is_empty() {
+            if options.finite_case_policy == FiniteCasePolicy::RetainRankFinite
+                && self
+                    .order
+                    .sector()
+                    .iter()
+                    .zip(pending[0].fixed())
+                    .all(|(&active, value)| !active || value.is_some())
+            {
+                let current = pending.remove(0);
+                observe(SectorEvent::CaseStarted {
+                    case: current.clone(),
+                    pending: pending.len(),
+                });
+                observe(SectorEvent::PhaseStarted {
+                    case: &current,
+                    phase: SectorPhase::FiniteRetention,
+                });
+                let finite_start = Instant::now();
+                let is_finite = retained
+                    .retain_case(
+                        &current,
+                        &self.system.indices,
+                        self.order.sector(),
+                        options.max_numerator_rank.expect("checked retention rank"),
+                        options.finite_case_limits,
+                    )
+                    .map_err(|source| SectorSolveError::FiniteRetention {
+                        case: current.clone(),
+                        source,
+                    })?;
+                stats.finite_enumeration += finite_start.elapsed();
+                debug_assert!(is_finite, "checked all active coordinates are fixed");
+                continue;
+            }
             if options
                 .max_symbolic_cases
                 .is_some_and(|limit| stats.symbolic_cases >= limit)
@@ -321,6 +386,41 @@ impl<const N: usize> SectorSolver<'_, N> {
             });
             rules.push(rule);
         }
+        if options.finite_case_policy == FiniteCasePolicy::RetainRankFinite {
+            let finite_start = Instant::now();
+            for point in numerical {
+                let case = Case::from(point);
+                observe(SectorEvent::CaseStarted {
+                    case: case.clone(),
+                    pending: 0,
+                });
+                observe(SectorEvent::PhaseStarted {
+                    case: &case,
+                    phase: SectorPhase::FiniteRetention,
+                });
+                let is_finite = retained
+                    .retain_case(
+                        &case,
+                        &self.system.indices,
+                        self.order.sector(),
+                        options.max_numerator_rank.expect("checked retention rank"),
+                        options.finite_case_limits,
+                    )
+                    .map_err(|source| SectorSolveError::FiniteRetention { case, source })?;
+                debug_assert!(is_finite, "fully fixed cases are finite at bounded rank");
+            }
+            stats.finite_enumeration += finite_start.elapsed();
+            stats.finite_points_visited = retained.visited();
+            stats.retained_finite_terminals = retained.len();
+            stats.elapsed = start.elapsed();
+            return Ok(SectorSolution {
+                max_numerator_rank: options.max_numerator_rank,
+                finite_case_policy: options.finite_case_policy,
+                rules,
+                finite_residuals: retained.into_points(),
+                stats,
+            });
+        }
         stats.numerical_cases = numerical.len();
         observe(SectorEvent::NumericalStarted { cases: &numerical });
         let numeric_start = Instant::now();
@@ -352,6 +452,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         stats.elapsed = start.elapsed();
         Ok(SectorSolution {
             max_numerator_rank: options.max_numerator_rank,
+            finite_case_policy: options.finite_case_policy,
             rules,
             finite_residuals: result
                 .residuals

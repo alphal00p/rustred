@@ -245,6 +245,7 @@ fn every_coarse_transition_invalidates_old_frame_without_reusing_its_sequence() 
         Canonicalization,
         GuardExtraction,
         ExceptionalGeometry,
+        FiniteRetention,
         RuleFound { pending: 1 },
         Numerical { cases: 4 },
     ] {

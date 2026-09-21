@@ -552,7 +552,9 @@ pub(super) fn solutions<const N: usize>(
     limits: CandidateBundleLimits,
 ) -> Result<Vec<([bool; N], SectorSolution<N>)>, AppError> {
     validate(bundle, limits)?;
-    let max_numerator_rank = super::policy::parse(&bundle.solver_policy)?.max_numerator_rank;
+    let generation_policy = super::policy::parse(&bundle.solver_policy)?;
+    let max_numerator_rank = generation_policy.max_numerator_rank;
+    let finite_case_policy = generation_policy.finite_case_policy;
     if bundle.root_sector.len() != N {
         return Err(AppError::input("candidate reconstruction arity"));
     }
@@ -598,7 +600,7 @@ pub(super) fn solutions<const N: usize>(
             })
         }).collect::<Result<Vec<_>, AppError>>()?;
         let finite_residuals = record.finite_residuals.iter().map(integral).collect::<Result<Vec<_>, _>>()?;
-        Ok((sector, SectorSolution { rules, finite_residuals, stats: SectorStats::default(), max_numerator_rank }))
+        Ok((sector, SectorSolution { rules, finite_residuals, stats: SectorStats::default(), max_numerator_rank, finite_case_policy }))
     }).collect()
 }
 

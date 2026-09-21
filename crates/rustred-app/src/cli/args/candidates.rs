@@ -5,7 +5,10 @@ use super::{
     ArgError, Command, ResourceLimitsArgs, StreamPath, next_utf8_value, next_value,
     parse_nonnegative_integer, parse_positive_integer, set_once,
 };
-use crate::{CandidateCheckpointOptions, CandidateExactBackend, InputFormat};
+use crate::{
+    CandidateCheckpointOptions, CandidateExactBackend, FiniteCaseLimits, FiniteCasePolicy,
+    InputFormat,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FamilyCandidatesArgs {
@@ -17,6 +20,8 @@ pub(crate) struct FamilyCandidatesArgs {
     pub exact_backend: CandidateExactBackend,
     pub numerical_depth: u32,
     pub max_numerator_rank: Option<u32>,
+    pub finite_case_policy: FiniteCasePolicy,
+    pub finite_case_limits: FiniteCaseLimits,
     pub checkpoint: Option<CandidateCheckpointOptions>,
     pub progress: bool,
     pub permutation: Option<Vec<usize>>,
@@ -59,6 +64,9 @@ fn parse(
     let mut exact_backend = None;
     let mut numerical_depth = None;
     let mut max_numerator_rank = None;
+    let mut finite_case_policy = None;
+    let mut finite_max_visited_points = None;
+    let mut finite_max_retained_terminals = None;
     let mut checkpoint_dir = None;
     let mut checkpoint_max_bytes = None;
     let mut resume = false;
@@ -178,6 +186,31 @@ fn parse(
                     })?;
                 set_once(&mut max_numerator_rank, "--max-numerator-rank", parsed)?;
             }
+            "--finite-case-policy" if !certification => {
+                let value = next_utf8_value(&mut arguments, "--finite-case-policy")?;
+                let parsed = value.parse().map_err(|_| ArgError::InvalidValue {
+                    option: "--finite-case-policy",
+                    value,
+                    expected: FiniteCasePolicy::EXPECTED_VALUES,
+                })?;
+                set_once(&mut finite_case_policy, "--finite-case-policy", parsed)?;
+            }
+            "--finite-max-visited-points" if !certification => {
+                let value = next_utf8_value(&mut arguments, "--finite-max-visited-points")?;
+                set_once(
+                    &mut finite_max_visited_points,
+                    "--finite-max-visited-points",
+                    parse_positive_integer("--finite-max-visited-points", value)?,
+                )?;
+            }
+            "--finite-max-retained-terminals" if !certification => {
+                let value = next_utf8_value(&mut arguments, "--finite-max-retained-terminals")?;
+                set_once(
+                    &mut finite_max_retained_terminals,
+                    "--finite-max-retained-terminals",
+                    parse_positive_integer("--finite-max-retained-terminals", value)?,
+                )?;
+            }
             "--permutation" if !certification => {
                 let value = next_utf8_value(&mut arguments, "--permutation")?;
                 set_once(
@@ -228,6 +261,26 @@ fn parse(
     if help {
         return Ok(Command::Help);
     }
+    let finite_case_policy = finite_case_policy.unwrap_or_default();
+    if finite_case_policy == FiniteCasePolicy::RetainRankFinite && max_numerator_rank.is_none() {
+        return Err(ArgError::InvalidCombination(
+            "--finite-case-policy retain-rank-finite requires --max-numerator-rank",
+        ));
+    }
+    if finite_case_policy != FiniteCasePolicy::RetainRankFinite
+        && (finite_max_visited_points.is_some() || finite_max_retained_terminals.is_some())
+    {
+        return Err(ArgError::InvalidCombination(
+            "finite retention limits require --finite-case-policy retain-rank-finite",
+        ));
+    }
+    let default_finite_limits = FiniteCaseLimits::default();
+    let finite_case_limits = FiniteCaseLimits {
+        max_visited_points: finite_max_visited_points
+            .unwrap_or(default_finite_limits.max_visited_points),
+        max_retained_terminals: finite_max_retained_terminals
+            .unwrap_or(default_finite_limits.max_retained_terminals),
+    };
     if max_negative_index_degree.is_some() && max_total_excess_degree.is_some() {
         return Err(ArgError::InvalidCombination(
             "--max-negative-index-degree and --max-total-excess-degree are mutually exclusive",
@@ -283,6 +336,8 @@ fn parse(
             numerical_depth: numerical_depth
                 .unwrap_or_else(|| rustred::solver::SectorSolveOptions::default().numerical_depth),
             max_numerator_rank,
+            finite_case_policy,
+            finite_case_limits,
             checkpoint,
             progress,
             permutation,
@@ -302,6 +357,75 @@ fn parse_indices(option: &'static str, value: String) -> Result<Vec<usize>, ArgE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finite_retention_requires_rank_and_owns_only_positive_work_limits() {
+        let parse_args = |args: &[&str]| parse_generation(args.iter().map(OsString::from));
+        for args in [
+            vec!["--finite-case-policy", "retain-rank-finite"],
+            vec![
+                "--finite-case-policy",
+                "unknown",
+                "--max-numerator-rank",
+                "10",
+            ],
+            vec!["--finite-max-visited-points", "1"],
+            vec!["--finite-max-retained-terminals", "1"],
+            vec![
+                "--finite-case-policy",
+                "retain-rank-finite",
+                "--max-numerator-rank",
+                "10",
+                "--finite-max-visited-points",
+                "0",
+            ],
+            vec![
+                "--finite-case-policy",
+                "retain-rank-finite",
+                "--max-numerator-rank",
+                "10",
+                "--finite-max-retained-terminals",
+                "0",
+            ],
+            vec![
+                "--finite-case-policy",
+                "search",
+                "--finite-case-policy",
+                "search",
+            ],
+        ] {
+            assert!(parse_args(&args).is_err(), "{args:?}");
+        }
+        let Command::FamilyCandidates(args) = parse_args(&[
+            "--finite-case-policy",
+            "retain-rank-finite",
+            "--max-numerator-rank",
+            "0",
+            "--finite-max-visited-points",
+            "123",
+            "--finite-max-retained-terminals",
+            "45",
+        ])
+        .unwrap() else {
+            panic!("generation expected")
+        };
+        assert_eq!(args.finite_case_policy, FiniteCasePolicy::RetainRankFinite);
+        assert_eq!(
+            args.finite_case_limits,
+            FiniteCaseLimits {
+                max_visited_points: 123,
+                max_retained_terminals: 45
+            }
+        );
+        assert!(
+            parse_certification(
+                ["--finite-case-policy", "search"]
+                    .into_iter()
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn numerator_rank_is_optional_strict_u32_and_generation_only() {

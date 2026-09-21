@@ -41,6 +41,22 @@ fn generate_request(
             "candidate generation n_cores must be positive",
         ));
     }
+    if request.finite_case_policy == FiniteCasePolicy::RetainRankFinite {
+        if request.max_numerator_rank.is_none() {
+            return Err(AppError::input(
+                "retain-rank-finite requires max_numerator_rank",
+            ));
+        }
+        if request.finite_case_limits.max_visited_points == 0
+            || request.finite_case_limits.max_retained_terminals == 0
+        {
+            return Err(AppError::input("finite retention limits must be positive"));
+        }
+    } else if request.finite_case_limits != FiniteCaseLimits::default() {
+        return Err(AppError::input(
+            "finite retention limits require retain-rank-finite",
+        ));
+    }
     let family = preparation::family(&request.source, request.input_format)?;
     let n = family.denominator_count();
     let root = preparation::root(n, &request.nonpositive_indices)?;
@@ -156,6 +172,8 @@ fn generate<const N: usize>(
                 SectorSolveOptions {
                     numerical_depth: request.numerical_depth,
                     max_numerator_rank: request.max_numerator_rank,
+                    finite_case_policy: request.finite_case_policy,
+                    finite_case_limits: request.finite_case_limits,
                     ..Default::default()
                 },
                 |ordinal, sector, event| {
@@ -175,6 +193,11 @@ fn generate<const N: usize>(
                     if done.solution.max_numerator_rank != request.max_numerator_rank {
                         return Err(AppError::internal_invariant(
                             "generated sector numerator-rank scope differs from its request",
+                        ));
+                    }
+                    if done.solution.finite_case_policy != request.finite_case_policy {
+                        return Err(AppError::internal_invariant(
+                            "generated sector finite-case policy differs from its request",
                         ));
                     }
                     emit(observe, || FamilyCloseProgress::GeneratedSector {
@@ -262,6 +285,9 @@ fn generate<const N: usize>(
         numerical_depth: u32,
         #[serde(skip_serializing_if = "Option::is_none")]
         max_numerator_rank: Option<u32>,
+        finite_case_policy: &'static str,
+        finite_max_visited_points: usize,
+        finite_max_retained_terminals: usize,
         bytes: usize,
         unique_coefficients: usize,
         coefficient_table_bytes: usize,
@@ -288,6 +314,9 @@ fn generate<const N: usize>(
         exact_backend: request.exact_backend.as_str(),
         numerical_depth: request.numerical_depth,
         max_numerator_rank: request.max_numerator_rank,
+        finite_case_policy: request.finite_case_policy.as_str(),
+        finite_max_visited_points: request.finite_case_limits.max_visited_points,
+        finite_max_retained_terminals: request.finite_case_limits.max_retained_terminals,
         bytes: bytes.len(),
         unique_coefficients: coefficient_count,
         coefficient_table_bytes: coefficients.atoms.len(),
@@ -354,7 +383,7 @@ fn program_record(
     ProgramRecord {
         schema: CANDIDATE_BUNDLE_SCHEMA.into(),
         status: STATUS.into(),
-        solver_policy: policy::encode_scoped(request.numerical_depth, request.max_numerator_rank),
+        solver_policy: policy::encode_request(request),
         family_source: request.source.clone(),
         input_format: request.input_format.as_str().into(),
         family_fingerprint: family.fingerprint().to_owned(),

@@ -64,8 +64,8 @@ pub use search::{
     RuleCandidate, SearchEvent, SearchOptions, SearchStats, SectorConfig, SectorSolver, SeedSource,
 };
 pub use sector::{
-    SectorEvent, SectorPhase, SectorRule, SectorSolution, SectorSolveError, SectorSolveOptions,
-    SectorStats,
+    FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError, SectorEvent, SectorPhase, SectorRule,
+    SectorSolution, SectorSolveError, SectorSolveOptions, SectorStats,
 };
 pub use seed::{Seed, Seeds};
 pub use source::SourceSystem;

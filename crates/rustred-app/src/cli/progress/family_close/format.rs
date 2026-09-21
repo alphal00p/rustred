@@ -180,6 +180,7 @@ fn format_generation_stage(stage: FamilyCloseGenerationStage, frame: Option<Exac
         Canonicalization => return "canonicalization".into(),
         GuardExtraction => return "guards".into(),
         ExceptionalGeometry => return "exceptional geometry".into(),
+        FiniteRetention => return "finite terminal enumeration".into(),
         RuleFound { pending } => return format!("rule found; {pending} pending"),
         Numerical { cases } => return format!("finite search; {cases} cases"),
         ExactMaterialization => "lift".into(),

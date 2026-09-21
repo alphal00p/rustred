@@ -38,6 +38,8 @@ pub fn inspect_generated_candidate_bundle(
         arity: record.root_sector.len(),
         numerical_depth: policy.numerical_depth,
         max_numerator_rank: policy.max_numerator_rank,
+        finite_case_policy: policy.finite_case_policy,
+        finite_case_limits: policy.finite_case_limits,
         solved_sectors: record.sectors.len(),
         generated_rules: record.sectors.iter().map(|s| s.rules.len()).sum(),
         finite_residuals: record

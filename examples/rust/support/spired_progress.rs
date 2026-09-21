@@ -196,6 +196,7 @@ pub fn write_event<const N: usize>(
             match phase {
                 SectorPhase::GuardExtraction => "guard-extraction",
                 SectorPhase::ExceptionalGeometry => "exceptional-geometry",
+                SectorPhase::FiniteRetention => "finite-retention",
             }
         ),
         SectorEvent::RuleFound { rule, pending } => writeln!(

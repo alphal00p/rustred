@@ -7,7 +7,7 @@ use crate::foundry::artifact::SourcePortAudit;
 use crate::identity::ParametricIbpGenerator;
 use crate::reduction::{CacheWeight, ReductionLimits, ReductionStatistics, SharedCacheBudget};
 use crate::sector::{OrderingPolicy, zero};
-use crate::solver::{SectorSolution, SourceSystem};
+use crate::solver::{FiniteCasePolicy, SectorSolution, SourceSystem};
 
 use super::model::{
     CandidateCacheRepresentation, CandidateReductionError, PreparedRule, PreparedTerm,
@@ -117,7 +117,26 @@ impl<const N: usize> CandidateReducer<N> {
             zero_sectors.insert(mask);
         }
         let mut records = BTreeMap::new();
+        let mut finite_case_policy = None;
         for (sector, solution) in sectors {
+            if solution.finite_case_policy == FiniteCasePolicy::RetainRankFinite
+                && solution.max_numerator_rank.is_none()
+            {
+                return Err(CandidateReductionError::InvalidInput(
+                    "retain-rank-finite candidate solution requires an explicit numerator rank"
+                        .into(),
+                ));
+            }
+            if let Some(expected) = finite_case_policy {
+                if solution.finite_case_policy != expected {
+                    return Err(CandidateReductionError::InconsistentFiniteCasePolicy {
+                        expected,
+                        actual: solution.finite_case_policy,
+                    });
+                }
+            } else {
+                finite_case_policy = Some(solution.finite_case_policy);
+            }
             if let Some(expected) = scope {
                 if solution.max_numerator_rank != expected {
                     return Err(CandidateReductionError::InconsistentNumeratorRank {

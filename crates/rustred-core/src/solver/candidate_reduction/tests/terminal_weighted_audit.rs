@@ -80,6 +80,7 @@ fn owner(
             (
                 sector,
                 SectorSolution {
+                    finite_case_policy: Default::default(),
                     max_numerator_rank: None,
                     rules: vec![],
                     finite_residuals,

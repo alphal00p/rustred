@@ -31,6 +31,11 @@ pub(super) fn encode_sector<const N: usize>(
             "checkpoint sector numerator-rank scope differs from its request",
         ));
     }
+    if solution.finite_case_policy != request.finite_case_policy {
+        return Err(AppError::input(
+            "checkpoint sector finite-case policy differs from its request",
+        ));
+    }
     let mut coefficients = CoefficientTableBuilder::new(request.bundle_limits.binary_limits());
     let sector = codec::sector_record(sector, solution, &mut coefficients)?;
     let program = super::program_record(request, family, root, vec![sector]);

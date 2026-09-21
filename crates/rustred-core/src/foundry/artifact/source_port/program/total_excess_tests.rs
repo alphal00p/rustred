@@ -195,6 +195,7 @@ fn bounded_retention_rejects_census_and_order_before_check_events() {
         [false, false, true],
     ]);
     let empty = || SectorSolution {
+        finite_case_policy: Default::default(),
         max_numerator_rank: None,
         rules: Vec::new(),
         finite_residuals: Vec::new(),

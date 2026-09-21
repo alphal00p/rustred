@@ -108,6 +108,7 @@ pub enum FamilyCloseGenerationStage {
     Canonicalization,
     GuardExtraction,
     ExceptionalGeometry,
+    FiniteRetention,
     RuleFound {
         pending: usize,
     },
@@ -272,6 +273,7 @@ pub(in crate::application) fn generation_stage<const N: usize>(
         SectorEvent::PhaseStarted { phase, .. } => match phase {
             SectorPhase::GuardExtraction => FamilyCloseGenerationStage::GuardExtraction,
             SectorPhase::ExceptionalGeometry => FamilyCloseGenerationStage::ExceptionalGeometry,
+            SectorPhase::FiniteRetention => FamilyCloseGenerationStage::FiniteRetention,
         },
         SectorEvent::RuleFound { pending, .. } => FamilyCloseGenerationStage::RuleFound { pending },
         SectorEvent::NumericalStarted { cases } => {

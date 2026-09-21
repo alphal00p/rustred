@@ -4,6 +4,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use rustred_app::{
     CandidateCertificationRequest, CandidateCheckpointOptions, FamilyCandidatesRequest,
+    FiniteCasePolicy,
 };
 use std::path::PathBuf;
 
@@ -59,14 +60,17 @@ impl PyCandidateBundleResult {
 /// max_numerator_rank bounds sum(max(-n_i,0)) at entry, with unbounded positive
 /// powers. It is an experimental candidate scope, not certified closure, tensor
 /// rank, a per-axis bound, or numerical_depth. None preserves the previous scope.
+/// finite_case_policy="retain-rank-finite" deliberately keeps every finite
+/// in-scope leaf once all positive axes are fixed, without minimizing it.
+/// It requires max_numerator_rank; finite_* limits bound work, not the domain.
 /// checkpoint_dir enables trusted-local native sector checkpoints. Use resume
 /// only with the same source/root/order/backend/depth/rank. Keep final outputs outside
 /// the dedicated directory; checkpoint_max_bytes is a positive payload budget,
 /// not a RAM limit. Checkpoints do not certify rules or family closure.
 #[pyfunction]
 #[pyo3(
-    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse", numerical_depth=PythonInteger(2), max_numerator_rank=None, checkpoint_dir=None, resume=false, checkpoint_max_bytes=None),
-    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse', numerical_depth=2, max_numerator_rank=None, checkpoint_dir=None, resume=False, checkpoint_max_bytes=None)"
+    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse", numerical_depth=PythonInteger(2), max_numerator_rank=None, finite_case_policy="search", finite_max_visited_points=None, finite_max_retained_terminals=None, checkpoint_dir=None, resume=false, checkpoint_max_bytes=None),
+    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse', numerical_depth=2, max_numerator_rank=None, finite_case_policy='search', finite_max_visited_points=None, finite_max_retained_terminals=None, checkpoint_dir=None, resume=False, checkpoint_max_bytes=None)"
 )]
 fn family_candidates(
     py: Python<'_>,
@@ -78,10 +82,28 @@ fn family_candidates(
     exact_backend: &str,
     numerical_depth: PythonInteger,
     max_numerator_rank: Option<PythonInteger>,
+    finite_case_policy: &str,
+    finite_max_visited_points: Option<PythonInteger>,
+    finite_max_retained_terminals: Option<PythonInteger>,
     checkpoint_dir: Option<PathBuf>,
     resume: bool,
     checkpoint_max_bytes: Option<PythonInteger>,
 ) -> PyResult<PyCandidateBundleResult> {
+    let finite_case_policy: FiniteCasePolicy = finite_case_policy
+        .parse()
+        .map_err(RustRedInputError::new_err)?;
+    if finite_case_policy == FiniteCasePolicy::RetainRankFinite && max_numerator_rank.is_none() {
+        return Err(RustRedInputError::new_err(
+            "retain-rank-finite requires max_numerator_rank",
+        ));
+    }
+    if finite_case_policy != FiniteCasePolicy::RetainRankFinite
+        && (finite_max_visited_points.is_some() || finite_max_retained_terminals.is_some())
+    {
+        return Err(RustRedInputError::new_err(
+            "finite retention limits require retain-rank-finite",
+        ));
+    }
     if checkpoint_dir.is_none() && (resume || checkpoint_max_bytes.is_some()) {
         return Err(RustRedInputError::new_err(
             "resume and checkpoint_max_bytes require checkpoint_dir",
@@ -112,6 +134,29 @@ fn family_candidates(
         FamilyCandidatesRequest::new(bounded_owned_input("candidate family input", source)?);
     request.input_format = parse_input_format(input_format)?;
     request.exact_backend = exact_backend.parse().map_err(map_app_error)?;
+    request.finite_case_policy = finite_case_policy;
+    for (name, value, slot) in [
+        (
+            "finite_max_visited_points",
+            finite_max_visited_points,
+            &mut request.finite_case_limits.max_visited_points,
+        ),
+        (
+            "finite_max_retained_terminals",
+            finite_max_retained_terminals,
+            &mut request.finite_case_limits.max_retained_terminals,
+        ),
+    ] {
+        if let Some(value) = value {
+            let limit = nonnegative_usize(name, value.0)?;
+            if limit == 0 {
+                return Err(RustRedInputError::new_err(format!(
+                    "{name} must be positive"
+                )));
+            }
+            *slot = limit;
+        }
+    }
     request.checkpoint = checkpoint;
     request.numerical_depth = u32::try_from(numerical_depth.0).map_err(|_| {
         RustRedInputError::new_err("numerical_depth must be an integer from 0 to 4294967295")

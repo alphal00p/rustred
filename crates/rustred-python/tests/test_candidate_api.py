@@ -22,6 +22,36 @@ from test_python_api import (
 
 
 class CandidateApiTests(GeneratedProgramAssertions):
+    def test_finite_retention_is_explicit_rank_scoped_and_matches_cli(self) -> None:
+        signature = inspect.signature(rustred.family_candidates)
+        self.assertEqual(signature.parameters["finite_case_policy"].default, "search")
+        self.assertIsNone(signature.parameters["finite_max_visited_points"].default)
+        for kwargs in [
+            {"finite_case_policy": "unknown"},
+            {"finite_case_policy": "retain-rank-finite"},
+            {"finite_max_visited_points": 10},
+            {"finite_max_retained_terminals": 10},
+        ]:
+            with self.subTest(kwargs=kwargs), self.assertRaises(rustred.RustRedInputError):
+                rustred.family_candidates("not parsed", **kwargs)
+        for key in ["finite_max_visited_points", "finite_max_retained_terminals"]:
+            for value in [True, False, 0, -1, 0.5, "2", 1 << 128]:
+                with self.subTest(key=key, value=value), self.assertRaises(rustred.RustRedInputError):
+                    rustred.family_candidates("not parsed", max_numerator_rank=10,
+                        finite_case_policy="retain-rank-finite", **{key: value})
+        generated = rustred.family_candidates(UNIT_MASS_PROJECT_K3, max_numerator_rank=2,
+            finite_case_policy="retain-rank-finite", finite_max_visited_points=10000,
+            finite_max_retained_terminals=10000)
+        report = tomllib.loads(generated.to_toml())
+        self.assertEqual(report["finite_case_policy"], "retain-rank-finite")
+        self.assertGreater(report["finite_residuals"], 0)
+        via_cli = cli_bytes(["family-candidates", "--max-numerator-rank", "2",
+            "--finite-case-policy", "retain-rank-finite", "--finite-max-visited-points", "10000",
+            "--finite-max-retained-terminals", "10000"], UNIT_MASS_PROJECT_K3.encode())
+        self.assertProgramEqual(generated.bundle, via_cli)
+        with self.assertRaisesRegex(rustred.RustRedError, "rank-scoped candidates cannot be certified"):
+            rustred.certify_candidates(generated.bundle)
+
     def test_generation_numerator_rank_is_optional_strict_and_not_certification(self) -> None:
         parameter = inspect.signature(rustred.family_candidates).parameters["max_numerator_rank"]
         self.assertIsNone(parameter.default)

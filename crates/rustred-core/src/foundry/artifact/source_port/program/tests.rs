@@ -24,6 +24,27 @@ fn numerator_rank_candidate_cannot_be_installed_under_another_scope() {
 }
 
 #[test]
+fn contradictory_retention_provenance_cannot_bypass_scope_installation_firewall() {
+    for excess in [None, Some(3)] {
+        let (audit, mut solution) = solved_tadpole();
+        assert_eq!(solution.max_numerator_rank, None);
+        solution.finite_case_policy = crate::solver::FiniteCasePolicy::RetainRankFinite;
+        let result = match excess {
+            None => audit.audit_sector([true], None, &solution),
+            Some(maximum) => {
+                audit.audit_sector_through_total_excess([true], None, &solution, maximum)
+            }
+        };
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("compatible successor-scope proof")
+        );
+    }
+}
+
+#[test]
 fn source_port_rule_policy_survives_retention_and_matches_cold_loading() {
     use crate::foundry::artifact::{ArtifactLoadLimits, ClosedArtifact};
 

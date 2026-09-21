@@ -254,6 +254,7 @@ fn sector_observation_forwards_case_and_preserves_phase_order() {
                 phases.push(match phase {
                     SectorPhase::GuardExtraction => "guards",
                     SectorPhase::ExceptionalGeometry => "geometry",
+                    SectorPhase::FiniteRetention => "finite-retention",
                 });
             }
             SectorEvent::RuleFound { .. } => phases.push("rule"),

@@ -366,6 +366,9 @@ FAMILY-CANDIDATES OPTIONS:
     --exact-backend <BACKEND>    sparse, sparse-factorized, sparse-target-factorized, or semi-numerical [default: sparse]
     --numerical-depth <DEPTH>    Search depth for fully fixed cases; zero keeps initial seeds [default: 2]
     --max-numerator-rank <R>     Experimental entry sum(max(-n_i,0)) bound; positive powers unbounded
+    --finite-case-policy <MODE>  search (default) or retain-rank-finite (requires R)
+    --finite-max-visited-points <N>      Per-sector finite enumeration budget (default 1000000)
+    --finite-max-retained-terminals <N> Per-sector retained terminal limit (default 1000000)
     --checkpoint-dir <PATH>     Dedicated trusted-local native sector checkpoint directory
     --resume                    Reuse a matching checkpoint; requires --checkpoint-dir
     --checkpoint-max-bytes <N>  Positive total checkpoint payload budget [default: 1073741824]

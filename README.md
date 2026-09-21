@@ -26,6 +26,10 @@ positive denominator powers or intermediate dependencies. Nonlinear exceptions
 can be refined into exhaustive bounded numerator slices while retaining
 symbolic denominator powers. Rank-scoped candidates are explicitly experimental,
 not certified closed artifacts; see [the scope and workflow](docs/rank_scoped_generation.md).
+The experimental `--finite-case-policy retain-rank-finite` option keeps finite
+rank-bounded leaves without trying to minimize their count. It requires an
+explicit R, never truncates positive rays, and reports exhausted work limits
+as incomplete. Its follow-up release validation is still pending.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after
