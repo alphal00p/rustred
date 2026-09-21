@@ -117,6 +117,17 @@ audit exact exceptional-domain refinement and public export-budget controls
 while the frozen broad campaigns continue; do not mix their different generation
 policies into one claimed artifact.
 
+The later **13:46:35 UTC** policy-specific inventory reaches **5,916/8,246
+distinct saved labelled sectors and 66/67 represented graph classes**. Only
+class 30231 lacks a saved broad-search owner; the other 2,330 unsaved labels and
+recursive dependency coverage still matter. The new class29550 owner
+cold-loads with 487 rules/56 finite residuals; its nontrivial application canary
+still needs lower-sector programs. Continue the independent family workers,
+targeted exceptional-domain fixes and bounded ordering/reconstruction probes.
+Do not confuse local generation or cold admission with the required complete
+rank-10 artifact. Detailed receipts and censored ordering outcomes are in the
+[rank-scope notes](docs/rank_scoped_generation.md).
+
 The exact two-index bilinear exceptional-domain refinement is now committed
 and pushed as `e34df18e`, with independent mathematical/implementation review
 and a source-consistent release core gate of **2,385 passed, zero failed,

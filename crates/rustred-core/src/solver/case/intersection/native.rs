@@ -2,7 +2,7 @@
 
 use symbolica::domains::InternalOrdering;
 use symbolica::poly::groebner::GroebnerBasis;
-use symbolica::poly::{GrevLexOrder, LexOrder};
+use symbolica::poly::{GrevLexOrder, LexOrder, MonomialOrder};
 use symbolica::prelude::{Factorize, Integer, Q, Rational, Z};
 
 use crate::algebra::CoefficientPolynomial;
@@ -10,6 +10,8 @@ use crate::algebra::CoefficientPolynomial;
 use super::super::super::{GeometryError, geometry};
 use super::super::{AffineGeometryError, Case};
 use super::CaseIntersectionFailure;
+
+mod lex;
 
 pub(super) fn preflight<const N: usize>(
     parent: &Case<N>,
@@ -118,12 +120,37 @@ pub(super) fn is_affine(polynomial: &CoefficientPolynomial) -> bool {
 pub(super) fn normalize(
     equations: &[CoefficientPolynomial],
 ) -> Result<Vec<CoefficientPolynomial>, CaseIntersectionFailure> {
+    normalize_in_order::<GrevLexOrder>(equations)
+}
+
+/// Structural admission only: native F4 itself has no cancellation callback.
+pub(super) fn lex_eligible(equations: &[CoefficientPolynomial]) -> bool {
+    lex::eligible(equations)
+}
+
+/// An exceptional representation fallback, not a different authority path.
+pub(super) fn normalize_lex(
+    equations: &[CoefficientPolynomial],
+) -> Result<Vec<CoefficientPolynomial>, CaseIntersectionFailure> {
+    #[cfg(test)]
+    lex::record_call();
+    normalize_in_order::<LexOrder>(equations)
+}
+
+#[cfg(test)]
+pub(super) fn take_lex_calls() -> usize {
+    lex::take_calls()
+}
+
+fn normalize_in_order<O: MonomialOrder>(
+    equations: &[CoefficientPolynomial],
+) -> Result<Vec<CoefficientPolynomial>, CaseIntersectionFailure> {
     let ideal: Vec<_> = equations
         .iter()
         .map(|polynomial| {
             polynomial
                 .map_coeff(|value| Rational::from(value), Q)
-                .reorder::<GrevLexOrder>()
+                .reorder::<O>()
         })
         .collect();
     let basis = GroebnerBasis::new(&ideal, false);

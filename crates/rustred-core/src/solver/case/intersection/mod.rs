@@ -77,3 +77,6 @@ mod rank_tests;
 
 #[cfg(test)]
 mod rank_overflow_tests;
+
+#[cfg(test)]
+mod lex_tests;

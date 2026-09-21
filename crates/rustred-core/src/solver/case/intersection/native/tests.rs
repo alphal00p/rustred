@@ -7,6 +7,30 @@ use crate::solver::{Case, CaseIntersectionLimits, CoordinateCase};
 
 use super::{canonicalize, normalize};
 
+#[test]
+fn late_native_lex_preserves_the_complete_ideal_and_shared_variable_context() {
+    let context = CoefficientContext::new(["d", "x", "y", "z", "unused"]);
+    for input in [
+        vec!["-65537*(x-y)*(z-1)", "257*(x-y)*(z-2)"],
+        vec!["2*x^2+2*y^2-10", "-3*x^2+3*y^2-9"],
+        vec!["x*y-1", "y^2-x"],
+    ] {
+        let original = equations(&context, &input);
+        let result = super::normalize_lex(&original).unwrap();
+        same_ideal(&original, &result);
+        let lex: Vec<_> = result
+            .iter()
+            .map(|p| p.map_coeff(|v| Rational::from(v), Q))
+            .collect();
+        assert!(GroebnerBasis::is_groebner_basis(&lex));
+        for p in result {
+            assert_eq!(p.variables(), original[0].variables());
+            assert!(!p.lcoeff().is_negative());
+            assert_eq!(p.clone().make_primitive(), p);
+        }
+    }
+}
+
 fn equations(context: &CoefficientContext, expressions: &[&str]) -> Vec<CoefficientPolynomial> {
     expressions
         .iter()

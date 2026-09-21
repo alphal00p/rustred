@@ -70,6 +70,19 @@ search. It does not establish coverage of arbitrary positive powers or of
 all recursive descendants. The separate finite-retention campaigns must not
 be silently merged into the broad-search campaign's single-policy artifact.
 
+A later 13:46 UTC inventory reaches 5,916 saved labels and 66 represented
+classes. The newly saved class-29550 owner cold-loads with 487 rules and
+56 terminals. Three finite traces (one rank-one and two rank-ten inputs) all
+have missing successors, but every missing key has strictly lower support.
+Across those traces there are 38 missing supports: 17 have an already saved
+program in exactly those coordinates, and all 38 route to 11 represented
+graph classes. This is direct motivation for selective program loading and
+the cycle-free dispatcher below. Neither facility is implemented yet; the
+availability of those programs does not prove that their recursive application
+will close. No same-support or above-rank missing key appears in these three
+checks; this observation is not a uniform bound on arbitrary input powers.
+Evidence: `TMP/class29550-frontier.mInPtQ/`.
+
 ## Route concrete integral keys, not every symbolic rule
 
 Keep each owner's program, guards and ordering in its original coordinates.

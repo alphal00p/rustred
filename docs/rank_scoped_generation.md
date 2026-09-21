@@ -13,6 +13,69 @@ terminal minimization, published numerical master values and Vakint five-loop
 integration. Small examples and isolated exceptional branches do not satisfy
 the complete census milestone.
 
+## Latest parallel-campaign snapshot — September 21, 13:46 UTC
+
+Under the authorized 100-core/500-GB aggregate ceiling, the four broad
+SearchFinite campaigns have saved **5,916/8,246 distinct labelled sectors**,
+representing **66/67 graph classes**. This snapshot excludes the separate
+finite-retention experiments. The 7,193 saved occurrences include 1,277
+duplicates; 2,330 distinct labels remain unsaved. Only class30231 is not yet
+represented in these broad-search checkpoints. These are generation counts,
+not proof of recursive rank-10 closure or a complete universal artifact.
+
+The new class 29550 owner is a different label: external 13887/native 32310,
+parent 30527 shard 1091. Its 40,697,123-byte program has 487 rules and 56 finite
+residuals. Fresh-process admission takes 8.467 s; the whole diagnostic takes
+8.62 s and 259,464 KiB peak RSS. Declared-terminal identities pass. A nontrivial
+rank-one input traces 370 keys, applies 2 rules, and leaves 361 uncovered successors
+because only that one sector is loaded. The successful diagnostic exit is
+not a complete reduction. Saved lower-sector work must be reused to resolve
+the frontier; no IBPs were regenerated for this check.
+
+Two isolated ordering alternatives for native 29751 both reach their explicit
+900 s deadlines without exporting a sector: reverse ordering stops after
+900.04 s wall/892.98 s CPU/390,108 KiB peak RSS, and half-rotation after 900.09 s
+wall/892.92 s CPU/813,912 KiB. The former remains in exceptional geometry;
+the latter continues exact elimination. These censored observations establish
+neither a successful speed comparison nor impossibility of those orderings.
+Natural ordering's separately captured residual is integer-empty; a bounded
+native-Lex fallback now proves that exact conjunction empty without bounding
+its positive-power directions. The independently reviewed release core gate
+passes **2,438 tests, zero failures, 32 existing ignored**; all **246 release
+application/integration tests** also pass. Full-sector reruns using the
+coherently rebuilt frontend remain pending; a passing guard test is not a
+completed sector.
+The public seven-sector R10 regression reproduces the previous candidate
+bundle byte-for-byte: 1,299 rules, 1,208,801 retained terminals and
+41,971,427 bytes, in 37.02 s wall/40.88 CPU-s with 373,984 KiB peak RSS.
+This is a regression check, not a matched performance comparison.
+
+The fallback is generic: native GrevLex remains the normal form used first.
+Only after the existing exact refinements decline an unsupported conjunction
+does a structurally small input receive one native Lex attempt per work item.
+Admission allows 2–8 equations, at most 3 used variables, 128 terms, degree 4
+and 128-bit coefficients. The complete ideal and parent remain authoritative;
+guard factors do not discard other conjuncts or siblings. Work/normalization
+budgets are shared. These input caps are not a hard time or memory bound on
+Symbolica's native F4 call. No new CAS operation or topology-specific rule is
+implemented. Gate receipts: `TMP/late-lex-release.OVV0ET/`,
+`TMP/late-lex-app-cli-gate.gqCIYf/` and `TMP/late-lex-public-pilot.89wPKx/`.
+
+A 20 s/49 Hz attached profile of the surviving native 29748 sparse-exact run has
+967 samples and no lost samples. Almost the whole sampled window is in exact
+materialization; native factorized addition is the dominant inclusive path.
+This is a local phase profile, not a whole-campaign time fraction. The existing
+Symbolica source-weight reconstruction backend is running as a separate
+bounded alternative on the same input and ordering; it has not yet completed.
+No replacement CAS arithmetic is introduced.
+
+Local receipts: `TMP/rank10-search-refresh-afternoon.PofOf9/`,
+`TMP/class29550-owner-cold.TdVOH0/`,
+`TMP/root29751-ordering-portfolio.JEqDKU/`, and
+`TMP/root30231-grevlex-exact-profile.pmo9qr/`. Current registered RSS at the
+inventory snapshot is 46.37 GB; the historical sampled peak is 337.95 GB.
+The aggregate 450 GB soft stop remains below the user's 500 GB ceiling.
+
 ## Public interfaces
 
 The existing Rust application request adds one optional field:

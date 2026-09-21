@@ -161,6 +161,10 @@ impl<const N: usize> Engine<'_, N> {
             return Ok(());
         }
         let mut normalized = false;
+        // One elimination-order attempt per work item, including any in-place
+        // chart strengthening. Strict queued children share ancestry/budgets
+        // but may merit a new attempt on their smaller exact conjunction.
+        let mut lex_attempted = false;
         loop {
             if !rank::in_scope(&self.current.parent, self.max_numerator_rank) {
                 return Ok(());
@@ -402,6 +406,28 @@ impl<const N: usize> Engine<'_, N> {
             }
             if self.split_rank_coordinate(pending)? {
                 return Ok(());
+            }
+            if !lex_attempted && native::lex_eligible(&self.current.equations) {
+                lex_attempted = true;
+                spend(
+                    &mut self.stats.normalizations,
+                    self.limits.max_normalizations,
+                    CaseIntersectionBudget::Normalizations,
+                )?;
+                let start = Instant::now();
+                let basis = native::normalize_lex(&self.current.equations);
+                self.stats.normalization_time += start.elapsed();
+                let basis = basis?;
+                self.check_terms(&basis)?;
+                if basis.as_slice() == self.current.equations.as_ref() {
+                    return Err(CaseIntersectionFailure::UnsupportedGeometry);
+                }
+                self.current.equations = basis.into();
+                // Preserve the elimination generators long enough for the
+                // existing exact admission/factor services to use them. An
+                // immediate Grev normalization would hide them again.
+                normalized = true;
+                continue;
             }
             return Err(CaseIntersectionFailure::UnsupportedGeometry);
         }
