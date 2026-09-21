@@ -175,8 +175,22 @@ in the native bundle's versioned generation policy and appears in `to_toml()`.
 It is independent of worker count and arithmetic backend, and rejects negative,
 boolean, noninteger and larger-than-u32 values before generation.
 
+`max_numerator_rank=None` preserves the existing generation scope. An explicit
+nonnegative `u32` bounds the **total scalar negative-index degree**
+`R = sum(max(-n_i,0))` at entry, keeping positive powers unbounded. For example,
+`rustred.family_candidates(source, max_numerator_rank=20)` matches
+`family-candidates --max-numerator-rank 20` alongside the same family input.
+This experimental candidate scope is not a tensor momentum rank, per-coordinate
+cutoff, dot bound, search-depth limit, or certified-closure claim. Rank is bound
+into saved generation policy and checkpoint identity; a changed rank cannot
+resume the same checkpoint. Cold candidate loading restores the entry check
+before cached application. Intermediates are not silently clipped to the entry
+rank; missing successor formulas still fail. Rank-scoped candidates currently
+reject certification, even with a separate total-excess request. The flag does
+not itself establish completion of any five-loop family.
+
 Generation accepts `input_format`, `n_cores`, `exact_backend`,
-`numerical_depth`, `permutation`, `checkpoint_dir`, `resume`, `checkpoint_max_bytes`, and
+`numerical_depth`, `max_numerator_rank`, `permutation`, `checkpoint_dir`, `resume`, `checkpoint_max_bytes`, and
 `nonpositive_indices`. Certification keeps the existing unit-mass vacuum
 publication admission and accepts these optional caller resource limits:
 

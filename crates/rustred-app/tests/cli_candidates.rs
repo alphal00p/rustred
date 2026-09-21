@@ -19,8 +19,17 @@ fn run(arguments: &[&str], input: &[u8]) -> Output {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(input).unwrap();
-    child.wait_with_output().unwrap()
+    let write_result = child.stdin.take().unwrap().write_all(input);
+    let output = child.wait_with_output().unwrap();
+    if let Err(error) = write_result {
+        // Invalid arguments can be rejected before the child reads stdin.
+        assert!(
+            error.kind() == std::io::ErrorKind::BrokenPipe && !output.status.success(),
+            "failed to send CLI test input: {error}; child status: {}",
+            output.status
+        );
+    }
+    output
 }
 
 fn success(arguments: &[&str], input: &[u8]) -> Vec<u8> {
@@ -84,6 +93,56 @@ fn numerical_depth_is_explicit_and_validated_before_generation() {
                 .unwrap()
                 .contains("--numerical-depth")
         );
+    }
+}
+
+#[test]
+fn numerator_rank_survives_fresh_cli_generation_and_rejects_certification() {
+    use rustred::family::IntegralKey;
+    use rustred::solver::CandidateReductionError;
+    let generated = success(
+        &["family-candidates", "--max-numerator-rank", "0"],
+        INPUT.as_bytes(),
+    );
+    let inspected =
+        rustred_app::inspect_generated_candidate_bundle(&generated, Default::default()).unwrap();
+    assert_eq!(inspected.max_numerator_rank, Some(0));
+    let (_, mut reducer) = rustred_app::load_generated_candidate_bundle::<1>(
+        &generated,
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(reducer.max_numerator_rank(), Some(0));
+    reducer
+        .reduce_unit_mass(&IntegralKey::try_new([4]).unwrap())
+        .unwrap();
+    let before = reducer.statistics();
+    assert!(matches!(
+        reducer.reduce_unit_mass(&IntegralKey::try_new([-1]).unwrap()),
+        Err(CandidateReductionError::OutsideNumeratorRank { .. })
+    ));
+    assert_eq!(reducer.statistics(), before);
+    for arguments in [
+        vec!["certify-candidates"],
+        vec!["certify-candidates", "--max-total-excess-degree", "0"],
+    ] {
+        let rejected = run(&arguments, &generated);
+        assert!(!rejected.status.success());
+        assert!(rejected.stdout.is_empty());
+        assert!(
+            String::from_utf8_lossy(&rejected.stderr)
+                .contains("rank-scoped candidates cannot be certified")
+        );
+    }
+    for value in ["-1", "+1", "true", "4294967296"] {
+        let rejected = run(
+            &["family-candidates", "--max-numerator-rank", value],
+            b"not parsed",
+        );
+        assert!(!rejected.status.success());
+        assert!(rejected.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&rejected.stderr).contains("--max-numerator-rank"));
     }
 }
 

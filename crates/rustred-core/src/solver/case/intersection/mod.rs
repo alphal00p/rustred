@@ -33,7 +33,26 @@ impl<const N: usize> Case<N> {
         sector: &[bool; N],
         limits: CaseIntersectionLimits,
     ) -> Result<CaseIntersectionResult<N>, CaseIntersectionError<N>> {
-        engine::intersect(self, conjunction, indices, sector, limits)
+        engine::intersect(self, conjunction, indices, sector, limits, None)
+    }
+
+    /// Exact exceptional geometry within `sum(max(-n_i,0)) <= maximum`.
+    ///
+    /// Only a still-unsupported nonlinear branch is refined into bounded
+    /// inactive-coordinate slices. Positive powers remain symbolic. Native
+    /// affine admission, factorization and substitution are unchanged, and
+    /// every refinement shares the same work budget. Unsupported positive-
+    /// power geometry still fails atomically. Returned equality cases can
+    /// over-cover outside the explicit rank scope; this is not family closure.
+    pub fn intersect_many_with_max_numerator_rank(
+        &self,
+        conjunction: &[CoefficientPolynomial],
+        indices: &[usize; N],
+        sector: &[bool; N],
+        limits: CaseIntersectionLimits,
+        maximum: u32,
+    ) -> Result<CaseIntersectionResult<N>, CaseIntersectionError<N>> {
+        engine::intersect(self, conjunction, indices, sector, limits, Some(maximum))
     }
 }
 
@@ -48,3 +67,6 @@ mod captured_tests;
 
 #[cfg(test)]
 mod univariate_tests;
+
+#[cfg(test)]
+mod rank_tests;

@@ -22,6 +22,28 @@ from test_python_api import (
 
 
 class CandidateApiTests(GeneratedProgramAssertions):
+    def test_generation_numerator_rank_is_optional_strict_and_not_certification(self) -> None:
+        parameter = inspect.signature(rustred.family_candidates).parameters["max_numerator_rank"]
+        self.assertIsNone(parameter.default)
+        self.assertEqual(parameter.kind, inspect.Parameter.KEYWORD_ONLY)
+        self.assertNotIn("max_numerator_rank", inspect.signature(rustred.certify_candidates).parameters)
+        for value in [True, False, -1, 0.5, "2", 1 << 32, 1 << 128]:
+            with self.subTest(value=value), self.assertRaises(rustred.RustRedInputError):
+                rustred.family_candidates("not parsed", max_numerator_rank=value)
+        ordinary = rustred.family_candidates(UNIT_MASS_PROJECT_K1)
+        explicit_none = rustred.family_candidates(UNIT_MASS_PROJECT_K1, max_numerator_rank=None)
+        self.assertProgramEqual(ordinary.bundle, explicit_none.bundle)
+        self.assertNotIn("max_numerator_rank", tomllib.loads(ordinary.to_toml()))
+        for rank in [0, 10, 20, (1 << 32) - 1]:
+            with self.subTest(rank=rank):
+                bounded = rustred.family_candidates(UNIT_MASS_PROJECT_K1, max_numerator_rank=rank)
+                self.assertEqual(tomllib.loads(bounded.to_toml())["max_numerator_rank"], rank)
+                via_cli = cli_bytes(["family-candidates", "--max-numerator-rank", str(rank)], UNIT_MASS_PROJECT_K1.encode())
+                self.assertProgramEqual(bounded.bundle, via_cli)
+                for total_excess in [None, 0, 30]:
+                    with self.assertRaisesRegex(rustred.RustRedError, "rank-scoped candidates cannot be certified"):
+                        rustred.certify_candidates(bounded.bundle, max_total_excess_degree=total_excess)
+
     def test_total_excess_validation_is_strict_and_distinct_from_numerator_rank(self) -> None:
         signature = inspect.signature(rustred.certify_candidates)
         parameter = signature.parameters["max_total_excess_degree"]

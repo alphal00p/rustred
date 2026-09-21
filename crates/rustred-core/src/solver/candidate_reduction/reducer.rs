@@ -24,6 +24,7 @@ pub struct CandidateReducer<const N: usize> {
     pub(super) family_fingerprint: Arc<String>,
     pub(super) context: IndexedCoefficientContext,
     pub(super) root_sector: [bool; N],
+    pub(super) max_numerator_rank: Option<u32>,
     pub(super) ordering: OrderingPolicy,
     pub(super) rules: BTreeMap<[bool; N], Vec<PreparedRule<N>>>,
     pub(super) terminals: BTreeSet<IntegralKey>,
@@ -54,6 +55,11 @@ impl<const N: usize> CandidateReducer<N> {
     }
     pub fn ordering(&self) -> OrderingPolicy {
         self.ordering
+    }
+    /// Optional entry-domain bound on `sum(max(-n_i, 0))`. This is not a
+    /// successor bound: valid reductions may visit integrals above this rank.
+    pub fn max_numerator_rank(&self) -> Option<u32> {
+        self.max_numerator_rank
     }
     pub fn limits(&self) -> ReductionLimits {
         self.limits
@@ -95,7 +101,7 @@ impl<const N: usize> CandidateReducer<N> {
         &mut self,
         target: &IntegralKey,
     ) -> Result<CandidateDecomposition, CandidateReductionError> {
-        self.validate_target(target)?;
+        self.validate_entry_target(target)?;
         if self.cache.contains_key(target) {
             self.statistics.record_cache_hit();
             return self.materialize_target(target);
@@ -226,11 +232,12 @@ impl<const N: usize> CandidateReducer<N> {
         &mut self,
         targets: impl IntoIterator<Item = IntegralKey>,
     ) -> Result<CandidateReachabilityReport, CandidateReductionError> {
-        self.clear_cache()?;
         let mut requested = BTreeSet::new();
         for target in targets {
+            self.validate_entry_target(&target)?;
             requested.insert(target);
         }
+        self.clear_cache()?;
         for target in &requested {
             self.reduce_unit_mass(target)?;
         }

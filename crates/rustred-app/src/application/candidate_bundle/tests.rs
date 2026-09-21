@@ -12,6 +12,7 @@ use super::{codec, model::*, preparation, *};
 
 mod checkpoint;
 mod depth;
+mod rank;
 
 const K1: &str = r#"
 schema = "rustred.project.toml.v1"

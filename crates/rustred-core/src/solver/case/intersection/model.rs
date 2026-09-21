@@ -44,6 +44,9 @@ pub struct CaseIntersectionStats {
     pub normalizations: usize,
     pub factorizations: usize,
     pub factor_children: usize,
+    /// Exact bounded-negative-coordinate refinements, not sampled solutions.
+    pub rank_splits: usize,
+    pub rank_children: usize,
     pub peak_conjunction_terms: usize,
     pub restriction_time: Duration,
     pub admission_time: Duration,
@@ -54,8 +57,11 @@ pub struct CaseIntersectionStats {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CaseIntersectionResult<const N: usize> {
-    /// Exact OR of admitted cases. An empty vector means proved empty.
+    /// Exact OR after intersection with `max_numerator_rank`, when present.
+    /// Cases may over-cover outside that scope. An empty vector proves only
+    /// the declared scope empty, not the unrestricted exceptional locus.
     pub cases: Vec<Case<N>>,
+    pub max_numerator_rank: Option<u32>,
     pub stats: CaseIntersectionStats,
 }
 
@@ -79,6 +85,7 @@ pub enum CaseIntersectionFailure {
 /// as a successful cover. Coefficient polynomials are equations equal to zero.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CaseIntersectionError<const N: usize> {
+    pub max_numerator_rank: Option<u32>,
     pub original_parent: Case<N>,
     pub original_conjunction: Arc<[CoefficientPolynomial]>,
     pub unresolved_parent: Case<N>,

@@ -155,6 +155,7 @@ fn generate<const N: usize>(
                 },
                 SectorSolveOptions {
                     numerical_depth: request.numerical_depth,
+                    max_numerator_rank: request.max_numerator_rank,
                     ..Default::default()
                 },
                 |ordinal, sector, event| {
@@ -171,6 +172,11 @@ fn generate<const N: usize>(
                     })
                 },
                 |done| {
+                    if done.solution.max_numerator_rank != request.max_numerator_rank {
+                        return Err(AppError::internal_invariant(
+                            "generated sector numerator-rank scope differs from its request",
+                        ));
+                    }
                     emit(observe, || FamilyCloseProgress::GeneratedSector {
                         ordinal: pending[done.ordinal].0,
                         sector: sector_mask(done.sector),
@@ -254,6 +260,8 @@ fn generate<const N: usize>(
         workers: usize,
         exact_backend: &'static str,
         numerical_depth: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_numerator_rank: Option<u32>,
         bytes: usize,
         unique_coefficients: usize,
         coefficient_table_bytes: usize,
@@ -279,6 +287,7 @@ fn generate<const N: usize>(
         workers: request.n_cores,
         exact_backend: request.exact_backend.as_str(),
         numerical_depth: request.numerical_depth,
+        max_numerator_rank: request.max_numerator_rank,
         bytes: bytes.len(),
         unique_coefficients: coefficient_count,
         coefficient_table_bytes: coefficients.atoms.len(),
@@ -345,7 +354,7 @@ fn program_record(
     ProgramRecord {
         schema: CANDIDATE_BUNDLE_SCHEMA.into(),
         status: STATUS.into(),
-        solver_policy: policy::encode(request.numerical_depth),
+        solver_policy: policy::encode_scoped(request.numerical_depth, request.max_numerator_rank),
         family_source: request.source.clone(),
         input_format: request.input_format.as_str().into(),
         family_fingerprint: family.fingerprint().to_owned(),

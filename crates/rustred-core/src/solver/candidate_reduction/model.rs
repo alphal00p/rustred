@@ -150,6 +150,23 @@ impl CandidateStatistics {
 pub enum CandidateReductionError {
     InvalidInput(String),
     UnsupportedFamily(String),
+    InconsistentNumeratorRank {
+        expected: Option<u32>,
+        actual: Option<u32>,
+    },
+    OutsideNumeratorRank {
+        target: IntegralKey,
+        rank: u128,
+        limit: u32,
+    },
+    TraceInputLimit {
+        requested: usize,
+        limit: usize,
+    },
+    TraceIntegralLimit {
+        requested: usize,
+        limit: usize,
+    },
     OutsideRoot {
         target: IntegralKey,
     },
@@ -179,6 +196,27 @@ impl fmt::Display for CandidateReductionError {
         match self {
             Self::InvalidInput(s) => write!(f, "invalid candidate program: {s}"),
             Self::UnsupportedFamily(s) => write!(f, "unsupported candidate family: {s}"),
+            Self::InconsistentNumeratorRank { expected, actual } => write!(
+                f,
+                "candidate entry rank scope {actual:?} differs from required scope {expected:?}"
+            ),
+            Self::OutsideNumeratorRank {
+                target,
+                rank,
+                limit,
+            } => write!(
+                f,
+                "candidate target {:?} has numerator rank {rank}, exceeding entry limit {limit}",
+                target.powers()
+            ),
+            Self::TraceInputLimit { requested, limit } => write!(
+                f,
+                "candidate traversal received {requested} input targets, exceeding limit {limit}"
+            ),
+            Self::TraceIntegralLimit { requested, limit } => write!(
+                f,
+                "candidate traversal needs {requested} distinct integrals, exceeding limit {limit}"
+            ),
             Self::OutsideRoot { target } => write!(
                 f,
                 "candidate target {:?} is outside the supplied root",

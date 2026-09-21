@@ -57,6 +57,37 @@ fn assert_no_search(events: &[FamilyCloseProgress]) {
 }
 
 #[test]
+fn numerator_rank_checkpoint_reuses_exact_scope_and_rejects_changed_scope() {
+    let directory = Directory::new();
+    let mut request = FamilyCandidatesRequest::new(K3);
+    request.max_numerator_rank = Some(1);
+    request.numerical_depth = 0;
+    request.checkpoint = Some(directory.options());
+    let (original, _) = observed(request.clone());
+    request.checkpoint.as_mut().unwrap().resume = true;
+    request.n_cores = 2;
+    let (resumed, events) = observed(request.clone());
+    assert_no_search(&events);
+    assert_same_program(original.bundle(), resumed.bundle());
+    assert_eq!(
+        inspect_generated_candidate_bundle(resumed.bundle(), Default::default())
+            .unwrap()
+            .max_numerator_rank,
+        Some(1)
+    );
+    for rank in [None, Some(0), Some(2)] {
+        request.max_numerator_rank = rank;
+        let events = Mutex::new(Vec::new());
+        let rejected = family_candidates_with_progress(request.clone(), |event| {
+            events.lock().unwrap().push(event)
+        })
+        .unwrap_err();
+        assert!(rejected.message().contains("manifest differs"));
+        assert_no_search(&events.into_inner().unwrap());
+    }
+}
+
+#[test]
 fn checkpoints_preserve_native_programs_and_complete_resume_never_solves() {
     for (source, permutation, depth, backend) in [
         (K1, None, 2, CandidateExactBackend::SparseFactorized),

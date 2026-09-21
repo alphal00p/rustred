@@ -39,6 +39,9 @@ pub(super) fn write_context<const N: usize>(
 ) -> fmt::Result {
     let mut context = BoundedText::new(MAX_CONTEXT_BYTES);
     let rendered = (|| {
+        if let Some(maximum) = error.max_numerator_rank {
+            write!(context, "\nmaximum numerator rank: {maximum}")?;
+        }
         // Put the final unresolved branch first: this is the small exact
         // diagnostic most useful when the original conjunction was large.
         context.write_str("\nunresolved_parent: ")?;
@@ -72,6 +75,7 @@ mod tests {
         let context = CoefficientContext::new(["a", "b"]);
         let equations = [context.coefficient_fixture("a^2+b^2+1").numerator];
         CaseIntersectionError {
+            max_numerator_rank: None,
             original_parent: Case::generic(),
             original_conjunction: equations.to_vec().into(),
             unresolved_parent: Case::generic(),

@@ -21,6 +21,7 @@ pub(super) fn generate(arguments: FamilyCandidatesArgs) -> Result<(), CliError> 
     request.n_cores = arguments.n_cores;
     request.exact_backend = arguments.exact_backend;
     request.numerical_depth = arguments.numerical_depth;
+    request.max_numerator_rank = arguments.max_numerator_rank;
     request.permutation = arguments.permutation;
     request.nonpositive_indices = arguments.nonpositive_indices;
     request.checkpoint = arguments.checkpoint;

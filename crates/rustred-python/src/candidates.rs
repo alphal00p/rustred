@@ -56,14 +56,17 @@ impl PyCandidateBundleResult {
 /// or "semi-numerical". All modes retain ordinary coefficient output.
 /// numerical_depth bounds only fully fixed case searches. Zero still searches
 /// their initial seeds; finite residuals need not be independent masters.
+/// max_numerator_rank bounds sum(max(-n_i,0)) at entry, with unbounded positive
+/// powers. It is an experimental candidate scope, not certified closure, tensor
+/// rank, a per-axis bound, or numerical_depth. None preserves the previous scope.
 /// checkpoint_dir enables trusted-local native sector checkpoints. Use resume
-/// only with the same source/root/order/backend/depth. Keep final outputs outside
+/// only with the same source/root/order/backend/depth/rank. Keep final outputs outside
 /// the dedicated directory; checkpoint_max_bytes is a positive payload budget,
 /// not a RAM limit. Checkpoints do not certify rules or family closure.
 #[pyfunction]
 #[pyo3(
-    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse", numerical_depth=PythonInteger(2), checkpoint_dir=None, resume=false, checkpoint_max_bytes=None),
-    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse', numerical_depth=2, checkpoint_dir=None, resume=False, checkpoint_max_bytes=None)"
+    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse", numerical_depth=PythonInteger(2), max_numerator_rank=None, checkpoint_dir=None, resume=false, checkpoint_max_bytes=None),
+    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse', numerical_depth=2, max_numerator_rank=None, checkpoint_dir=None, resume=False, checkpoint_max_bytes=None)"
 )]
 fn family_candidates(
     py: Python<'_>,
@@ -74,6 +77,7 @@ fn family_candidates(
     nonpositive_indices: Option<Vec<PythonInteger>>,
     exact_backend: &str,
     numerical_depth: PythonInteger,
+    max_numerator_rank: Option<PythonInteger>,
     checkpoint_dir: Option<PathBuf>,
     resume: bool,
     checkpoint_max_bytes: Option<PythonInteger>,
@@ -112,6 +116,15 @@ fn family_candidates(
     request.numerical_depth = u32::try_from(numerical_depth.0).map_err(|_| {
         RustRedInputError::new_err("numerical_depth must be an integer from 0 to 4294967295")
     })?;
+    request.max_numerator_rank = max_numerator_rank
+        .map(|value| {
+            u32::try_from(value.0).map_err(|_| {
+                RustRedInputError::new_err(
+                    "max_numerator_rank must be an integer from 0 to 4294967295",
+                )
+            })
+        })
+        .transpose()?;
     request.n_cores = positive_core_count("family candidates n_cores", n_cores.0)?;
     request.permutation = permutation
         .map(|values| indices("permutation", values))

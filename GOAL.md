@@ -55,6 +55,22 @@ exercise the saved five-loop rules without regenerating completed sectors.
 No numerical-master search, terminal-minimization campaign or five-loop Vakint
 implementation is admitted before the preceding gates succeed.
 
+The rank-scope implementation now passes the release core gate (2,360 tests,
+zero failures, 32 existing ignored), 147 application unit tests, all 15 CLI
+candidate tests in five consecutive runs, and all 42 Python API tests with
+the optimized extension. Exact bounded admission reproduces the captured
+nonlinear locus at R=10 and R=20. The first serial public R=10 six-line/downset
+solve times out in exact elimination after 248 observed rule hits and before
+completing any sector; a reconstruction repeat times out in common preparation
+before its backend is entered. A subsequent six-worker reconstruction pilot
+has completed three of its seven nonzero sectors as of 07:07 UTC, with 1,234
+saved rules and three residuals; the other sectors are still running. Five
+fresh-process application canaries on one shard pass, but do not prove family
+coverage. No complete five-loop candidate bundle or all-family coverage is
+claimed. Preserve these distinct receipts; preparation time is not a backend
+comparison. See the
+[rank-scope implementation notes](docs/rank_scoped_generation.md).
+
 The September 21 offline input-routing milestone now covers all **8,246**
 labelled jobs in the four-parent downset union after the saved zero screening,
 with exact routes to all **67** published representatives. Independent native

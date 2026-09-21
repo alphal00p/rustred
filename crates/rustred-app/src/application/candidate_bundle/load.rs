@@ -30,13 +30,14 @@ pub fn inspect_generated_candidate_bundle(
     if unique_coefficients > input_limits.max_collection_entries {
         return Err(AppError::limit("coefficient count exceeds input limit"));
     }
-    let numerical_depth = super::policy::numerical_depth(&record.solver_policy)?;
+    let policy = super::policy::parse(&record.solver_policy)?;
     Ok(CandidateBundleInspection {
         schema: record.schema,
         status: record.status,
         family_fingerprint: record.family_fingerprint,
         arity: record.root_sector.len(),
-        numerical_depth,
+        numerical_depth: policy.numerical_depth,
+        max_numerator_rank: policy.max_numerator_rank,
         solved_sectors: record.sectors.len(),
         generated_rules: record.sectors.iter().map(|s| s.rules.len()).sum(),
         finite_residuals: record
@@ -100,6 +101,7 @@ pub fn load_generated_candidate_bundle<const N: usize>(
         input_limits,
     )?;
     let ordering = candidate_ordering(N, bundle.permutation.as_deref())?;
+    let max_numerator_rank = super::policy::parse(&bundle.solver_policy)?.max_numerator_rank;
     // Native transport ownership ends here: the unchanged applier consumes
     // the reconstructed solutions. Do not retain the dictionary alongside its
     // prepared coefficient owners while building the reducer.
@@ -124,13 +126,14 @@ pub fn load_generated_candidate_bundle<const N: usize>(
         }
     }
     drop(analyzer);
-    let reducer = CandidateReducer::try_new(
+    let reducer = CandidateReducer::try_new_with_numerator_rank(
         &prepared.family,
         prepared.root,
         ordering,
         solutions,
         certificates,
         reduction_limits,
+        max_numerator_rank,
     )
     .map_err(|error| AppError::execution(error.to_string()))?;
     Ok((prepared.family, reducer))

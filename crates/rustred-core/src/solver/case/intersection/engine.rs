@@ -10,6 +10,8 @@ use super::{
     CaseIntersectionResult, CaseIntersectionStats, definite_quadratic, native,
 };
 
+mod rank;
+
 /// Ancestry is shared by siblings. A repeated state along one refinement path
 /// is incomplete, whereas coincident states on different siblings are harmless.
 struct Ancestry<const N: usize> {
@@ -31,6 +33,7 @@ struct Engine<'a, const N: usize> {
     indices: &'a [usize; N],
     sector: &'a [bool; N],
     limits: CaseIntersectionLimits,
+    max_numerator_rank: Option<u32>,
     stats: CaseIntersectionStats,
 }
 
@@ -40,6 +43,7 @@ pub(super) fn intersect<const N: usize>(
     indices: &[usize; N],
     sector: &[bool; N],
     limits: CaseIntersectionLimits,
+    max_numerator_rank: Option<u32>,
 ) -> Result<CaseIntersectionResult<N>, CaseIntersectionError<N>> {
     let equations: Arc<[CoefficientPolynomial]> = conjunction.to_vec().into();
     let mut engine = Engine {
@@ -53,6 +57,7 @@ pub(super) fn intersect<const N: usize>(
         indices,
         sector,
         limits,
+        max_numerator_rank,
         stats: CaseIntersectionStats::default(),
     };
     let outcome = catch_unwind(AssertUnwindSafe(|| {
@@ -62,6 +67,7 @@ pub(super) fn intersect<const N: usize>(
     match outcome {
         Ok(Ok(cases)) => Ok(CaseIntersectionResult {
             cases,
+            max_numerator_rank,
             stats: engine.stats,
         }),
         Ok(Err(failure)) => Err(engine.error(failure)),
@@ -72,6 +78,7 @@ pub(super) fn intersect<const N: usize>(
 impl<const N: usize> Engine<'_, N> {
     fn error(&self, failure: CaseIntersectionFailure) -> CaseIntersectionError<N> {
         CaseIntersectionError {
+            max_numerator_rank: self.max_numerator_rank,
             original_parent: self.original_parent.clone(),
             original_conjunction: self.original_conjunction.clone(),
             unresolved_parent: self.current.parent.clone(),
@@ -110,6 +117,7 @@ impl<const N: usize> Engine<'_, N> {
             }
         }
         let start = Instant::now();
+        resolved.retain(|case| rank::in_scope(case, self.max_numerator_rank));
         let result = canonical_union(resolved);
         self.stats.union_time += start.elapsed();
         result
@@ -120,6 +128,9 @@ impl<const N: usize> Engine<'_, N> {
         pending: &mut Vec<WorkItem<N>>,
         resolved: &mut Vec<Case<N>>,
     ) -> Result<(), CaseIntersectionFailure> {
+        if !rank::in_scope(&self.current.parent, self.max_numerator_rank) {
+            return Ok(());
+        }
         // Public preflight, incoming-domain emptiness and work/term budgets
         // have already been checked. Keep the common coordinate/affine lane
         // on its existing native admission path, without primitive content,
@@ -144,6 +155,9 @@ impl<const N: usize> Engine<'_, N> {
         }
         let mut normalized = false;
         loop {
+            if !rank::in_scope(&self.current.parent, self.max_numerator_rank) {
+                return Ok(());
+            }
             let start = Instant::now();
             let restricted =
                 native::restrict(&self.current.parent, &self.current.equations, self.indices);
@@ -317,6 +331,9 @@ impl<const N: usize> Engine<'_, N> {
                 self.current.parent = child;
                 normalized = false;
                 continue;
+            }
+            if self.split_rank_coordinate(pending)? {
+                return Ok(());
             }
             return Err(CaseIntersectionFailure::UnsupportedGeometry);
         }

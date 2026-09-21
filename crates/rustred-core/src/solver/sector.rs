@@ -51,14 +51,34 @@ impl<const N: usize> SectorRule<N> {
         indices: &[usize; N],
         sector: &[bool; N],
     ) -> Result<(Vec<Case<N>>, usize), SectorSolveError<N>> {
+        self.admit_exceptional_cases_in_scope(indices, sector, None)
+    }
+
+    fn admit_exceptional_cases_in_scope(
+        &self,
+        indices: &[usize; N],
+        sector: &[bool; N],
+        max_numerator_rank: Option<u32>,
+    ) -> Result<(Vec<Case<N>>, usize), SectorSolveError<N>> {
         let mut cases = Vec::new();
         let mut discarded = 0;
         for branch in &self.exceptions.branches {
-            let intersection = self
-                .candidate
-                .case
-                .intersect_many(branch, indices, sector, CaseIntersectionLimits::default())
-                .map_err(|source| SectorSolveError::Intersection(Box::new(source)))?;
+            let intersection = match max_numerator_rank {
+                None => self.candidate.case.intersect_many(
+                    branch,
+                    indices,
+                    sector,
+                    CaseIntersectionLimits::default(),
+                ),
+                Some(maximum) => self.candidate.case.intersect_many_with_max_numerator_rank(
+                    branch,
+                    indices,
+                    sector,
+                    CaseIntersectionLimits::default(),
+                    maximum,
+                ),
+            }
+            .map_err(|source| SectorSolveError::Intersection(Box::new(source)))?;
             if intersection.cases.is_empty() {
                 discarded += 1;
             }
@@ -70,6 +90,9 @@ impl<const N: usize> SectorRule<N> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct SectorSolveOptions {
+    /// Optional input negative-index degree `sum(max(-n_i,0))`. Positive
+    /// powers remain symbolic; source seeds and RHS successors are NOT cut.
+    pub max_numerator_rank: Option<u32>,
     /// Symbolic search is unbounded by default, as in the reference.
     pub symbolic: SearchOptions,
     /// Search radius for fully fixed cases, not a master-independence test.
@@ -81,6 +104,7 @@ pub struct SectorSolveOptions {
 impl Default for SectorSolveOptions {
     fn default() -> Self {
         Self {
+            max_numerator_rank: None,
             symbolic: SearchOptions::default(),
             numerical_depth: 2,
             max_symbolic_cases: None,
@@ -103,13 +127,16 @@ pub struct SectorStats {
 
 /// Source-port sector output, NOT an authenticated family-closing artifact.
 ///
-/// Every exceptional symbolic branch has been traversed if this is returned
-/// successfully. `finite_residuals` are the fixed cases for which the bounded
+/// Every exceptional symbolic branch within `max_numerator_rank` (unrestricted
+/// when absent) has been traversed if this is returned successfully. This does
+/// not prove coverage of recursive successors above the input rank.
+/// `finite_residuals` are the fixed cases for which the bounded
 /// numerical search found no rule; this neither proves their independence nor
 /// declares them to be certified master terminals. Inherited source conditions
 /// and parameter poles of RHS coefficients remain separate obligations.
 #[derive(Debug)]
 pub struct SectorSolution<const N: usize> {
+    pub max_numerator_rank: Option<u32>,
     pub rules: Vec<SectorRule<N>>,
     pub finite_residuals: Vec<Integral<N>>,
     pub stats: SectorStats,
@@ -208,7 +235,8 @@ impl<const N: usize> SectorSolver<'_, N> {
     /// case, intersect each exact exceptional conjunction, remove subsumed
     /// work, then store the rule. Fully fixed cases share the later numerical
     /// solve. Admitted affine cases retain their exact charts. Unsupported
-    /// geometry is never replaced by sampled coordinate faces.
+    /// geometry is never replaced by sampled coordinate faces. An explicit
+    /// numerator rank permits exhaustive in-scope negative-coordinate splits.
     pub fn solve_sector_with_observer(
         &self,
         options: SectorSolveOptions,
@@ -272,8 +300,11 @@ impl<const N: usize> SectorSolver<'_, N> {
             // Admit every exceptional sibling before mutating the queue or
             // publishing the parent. A newly discovered child is not covered
             // by this rule itself, so only earlier rules may suppress it.
-            let (children, discarded) =
-                rule.admit_exceptional_cases(&self.system.indices, self.order.sector())?;
+            let (children, discarded) = rule.admit_exceptional_cases_in_scope(
+                &self.system.indices,
+                self.order.sector(),
+                options.max_numerator_rank,
+            )?;
             stats.discarded_cases += discarded;
             if children.iter().any(|child| child == &current) {
                 return Err(SectorSolveError::NonProgress { case: current });
@@ -320,6 +351,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         }
         stats.elapsed = start.elapsed();
         Ok(SectorSolution {
+            max_numerator_rank: options.max_numerator_rank,
             rules,
             finite_residuals: result
                 .residuals

@@ -27,6 +27,49 @@ impl<const N: usize> CandidateReducer<N> {
         zero_certificates: Vec<zero::Certificate>,
         limits: ReductionLimits,
     ) -> Result<Self, CandidateReductionError> {
+        Self::prepare(
+            family,
+            root_sector,
+            ordering,
+            sectors,
+            zero_certificates,
+            limits,
+            None,
+        )
+    }
+
+    /// Prepare with an explicit entry-domain scope, including when no nonzero
+    /// sector records exist. Every supplied solution must have exactly this
+    /// scope. This is metadata/admission only, not a coverage certificate.
+    pub fn try_new_with_numerator_rank(
+        family: &IntegralFamily,
+        root_sector: [bool; N],
+        ordering: OrderingPolicy,
+        sectors: impl IntoIterator<Item = ([bool; N], SectorSolution<N>)>,
+        zero_certificates: Vec<zero::Certificate>,
+        limits: ReductionLimits,
+        max_numerator_rank: Option<u32>,
+    ) -> Result<Self, CandidateReductionError> {
+        Self::prepare(
+            family,
+            root_sector,
+            ordering,
+            sectors,
+            zero_certificates,
+            limits,
+            Some(max_numerator_rank),
+        )
+    }
+
+    fn prepare(
+        family: &IntegralFamily,
+        root_sector: [bool; N],
+        ordering: OrderingPolicy,
+        sectors: impl IntoIterator<Item = ([bool; N], SectorSolution<N>)>,
+        zero_certificates: Vec<zero::Certificate>,
+        limits: ReductionLimits,
+        mut scope: Option<Option<u32>>,
+    ) -> Result<Self, CandidateReductionError> {
         if N == 0 || family.denominator_count() != N {
             return Err(CandidateReductionError::InvalidInput(format!(
                 "candidate arity {N} does not match family arity {}",
@@ -75,6 +118,16 @@ impl<const N: usize> CandidateReducer<N> {
         }
         let mut records = BTreeMap::new();
         for (sector, solution) in sectors {
+            if let Some(expected) = scope {
+                if solution.max_numerator_rank != expected {
+                    return Err(CandidateReductionError::InconsistentNumeratorRank {
+                        expected,
+                        actual: solution.max_numerator_rank,
+                    });
+                }
+            } else {
+                scope = Some(solution.max_numerator_rank);
+            }
             if sector.iter().zip(root_sector).any(|(&s, root)| s && !root) {
                 return Err(CandidateReductionError::InvalidInput(
                     "candidate sector lies outside the supplied root".into(),
@@ -205,6 +258,7 @@ impl<const N: usize> CandidateReducer<N> {
             family_fingerprint: Arc::new(family.fingerprint().to_owned()),
             context,
             root_sector,
+            max_numerator_rank: scope.flatten(),
             ordering,
             rules,
             terminals,

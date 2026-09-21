@@ -2,8 +2,8 @@
 
 RustRed is a pre-alpha, pure-Rust and Symbolica-native project for deriving and
 applying parametric integration-by-parts identities. Its active target is
-four-loop single-scale vacuum reduction and FORM-less Vakint evaluation against
-the existing FMFT examples, followed by five-loop generation/performance studies.
+rank-bounded five-loop single-scale vacuum reduction, building on the completed
+four-loop FORM-less Vakint numerical comparisons against FMFT.
 The four-loop numerical acceptance gate passes; unrestricted closure certification
 remains separate from the shipped candidate programs.
 The active generic solver treats loop count and topology as input data, not
@@ -11,11 +11,21 @@ dispatch keys.
 
 Uniform Symbolica-native binary I/O and the exact unit-weight terminal
 normalization gate are complete. Bounded five-loop candidate studies have
-resumed alongside four-loop application optimization. The recorded
+resumed with the explicit goal of covering all input five-loop families through
+numerator degree 10, ideally 20. Terminal minimization, numerical master lookup
+and five-loop Vakint integration follow only after that coverage succeeds. The recorded
 [full-family attempts](docs/research/five_loop_candidate_baselines.md) reach
 time or memory limits; checkpoints preserve partial work, but no complete
 five-loop program is claimed. The existing rule-application engine
 remains in use; no alternate Symbolica-replacement backend is planned.
+
+Candidate generation accepts an optional `--max-numerator-rank R`, also exposed
+as `max_numerator_rank` in the Rust request and `import rustred` Python API.
+It bounds the **sum of negative index powers** of starting integrals, not
+positive denominator powers or intermediate dependencies. Nonlinear exceptions
+can be refined into exhaustive bounded numerator slices while retaining
+symbolic denominator powers. Rank-scoped candidates are explicitly experimental,
+not certified closed artifacts; see [the scope and workflow](docs/rank_scoped_generation.md).
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after

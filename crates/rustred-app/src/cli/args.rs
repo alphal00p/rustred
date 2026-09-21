@@ -365,6 +365,7 @@ FAMILY-CANDIDATES OPTIONS:
     --n-cores <COUNT>            Maximum worker cores [default: 1]
     --exact-backend <BACKEND>    sparse, sparse-factorized, sparse-target-factorized, or semi-numerical [default: sparse]
     --numerical-depth <DEPTH>    Search depth for fully fixed cases; zero keeps initial seeds [default: 2]
+    --max-numerator-rank <R>     Experimental entry sum(max(-n_i,0)) bound; positive powers unbounded
     --checkpoint-dir <PATH>     Dedicated trusted-local native sector checkpoint directory
     --resume                    Reuse a matching checkpoint; requires --checkpoint-dir
     --checkpoint-max-bytes <N>  Positive total checkpoint payload budget [default: 1073741824]
@@ -480,10 +481,15 @@ publication pipeline without running search again; incomplete inputs fail.
 Optional --report-output records phase timings separately from bundle/artifact
 bytes. Data is written before its report; destinations must differ.
 Optional --checkpoint-dir stores completed sectors without certifying them.
-Use --resume with the same source/root/order/backend/depth; worker count may
+Use --resume with the same source/root/order/backend/depth/rank; worker count may
 change. Input, final bundle and report paths must be outside that dedicated
 directory. Its byte budget includes retained/staging payloads and pending writes,
 not peak RAM or filesystem overhead; final bundle limits remain unchanged.
+Optional --max-numerator-rank declares candidate generation/application entry
+scope, not certified coverage or a finite dot bound. It is distinct from search
+depth, per-coordinate limits and tensor momentum rank. Omission preserves the
+existing unrestricted scope. Rank-scoped candidate bundles cannot currently be
+certified, including by the separate total-excess certification path.
 
 `campaign plan` authenticates and interns only the supplied campaign roots.
 It does not discover dependencies, derive relations, prove closure, or publish

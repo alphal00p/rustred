@@ -485,6 +485,7 @@ fn run<const N: usize>(
             },
             numerical_depth,
             max_symbolic_cases: None,
+            max_numerator_rank: None,
         },
         |_, sector, event| {
             if !progress {

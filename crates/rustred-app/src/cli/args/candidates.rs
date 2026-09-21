@@ -16,6 +16,7 @@ pub(crate) struct FamilyCandidatesArgs {
     pub n_cores: usize,
     pub exact_backend: CandidateExactBackend,
     pub numerical_depth: u32,
+    pub max_numerator_rank: Option<u32>,
     pub checkpoint: Option<CandidateCheckpointOptions>,
     pub progress: bool,
     pub permutation: Option<Vec<usize>>,
@@ -57,6 +58,7 @@ fn parse(
     let mut n_cores = None;
     let mut exact_backend = None;
     let mut numerical_depth = None;
+    let mut max_numerator_rank = None;
     let mut checkpoint_dir = None;
     let mut checkpoint_max_bytes = None;
     let mut resume = false;
@@ -162,6 +164,20 @@ fn parse(
                 })?;
                 set_once(&mut numerical_depth, "--numerical-depth", parsed)?;
             }
+            "--max-numerator-rank" if !certification => {
+                let value = next_utf8_value(&mut arguments, "--max-numerator-rank")?;
+                let parsed = value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit())
+                    .then(|| value.parse::<u32>().ok())
+                    .flatten()
+                    .ok_or(ArgError::InvalidValue {
+                        option: "--max-numerator-rank",
+                        value,
+                        expected: "a decimal integer from 0 to 4294967295",
+                    })?;
+                set_once(&mut max_numerator_rank, "--max-numerator-rank", parsed)?;
+            }
             "--permutation" if !certification => {
                 let value = next_utf8_value(&mut arguments, "--permutation")?;
                 set_once(
@@ -266,6 +282,7 @@ fn parse(
             exact_backend: exact_backend.unwrap_or_default(),
             numerical_depth: numerical_depth
                 .unwrap_or_else(|| rustred::solver::SectorSolveOptions::default().numerical_depth),
+            max_numerator_rank,
             checkpoint,
             progress,
             permutation,
@@ -285,6 +302,57 @@ fn parse_indices(option: &'static str, value: String) -> Result<Vec<usize>, ArgE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn numerator_rank_is_optional_strict_u32_and_generation_only() {
+        let Command::FamilyCandidates(default) = parse_generation(std::iter::empty()).unwrap()
+        else {
+            panic!("generation expected")
+        };
+        assert_eq!(default.max_numerator_rank, None);
+        for rank in [0, 10, 20, u32::MAX] {
+            let value = rank.to_string();
+            let Command::FamilyCandidates(args) = parse_generation(
+                ["--max-numerator-rank", &value]
+                    .into_iter()
+                    .map(OsString::from),
+            )
+            .unwrap() else {
+                panic!("generation expected")
+            };
+            assert_eq!(args.max_numerator_rank, Some(rank));
+            assert_eq!(args.numerical_depth, 2);
+        }
+        for value in ["", "-1", "+1", "1.0", " 1", "true", "4294967296"] {
+            assert!(
+                parse_generation(
+                    ["--max-numerator-rank", value]
+                        .into_iter()
+                        .map(OsString::from)
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            parse_generation(["--max-numerator-rank"].into_iter().map(OsString::from)).is_err()
+        );
+        assert!(
+            parse_generation(
+                ["--max-numerator-rank", "1", "--max-numerator-rank", "1"]
+                    .into_iter()
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+        assert!(
+            parse_certification(
+                ["--max-numerator-rank", "1"]
+                    .into_iter()
+                    .map(OsString::from)
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn total_excess_scope_is_optional_u64_and_certification_only() {

@@ -9,6 +9,37 @@ use super::CandidateReductionError;
 use super::reducer::CandidateReducer;
 
 impl<const N: usize> CandidateReducer<N> {
+    /// Entry admission is separate from successor validation: a valid
+    /// descending edge may increase numerator rank by pinching a propagator.
+    pub(super) fn validate_entry_target(
+        &self,
+        target: &IntegralKey,
+    ) -> Result<(), CandidateReductionError> {
+        self.validate_target(target)?;
+        if let Some(limit) = self.max_numerator_rank {
+            let rank = target
+                .powers()
+                .iter()
+                .filter(|&&n| n < 0)
+                .try_fold(0_u128, |sum, &n| {
+                    sum.checked_add(u128::from(n.unsigned_abs()))
+                })
+                .ok_or_else(|| {
+                    CandidateReductionError::InvalidInput(
+                        "candidate entry numerator rank overflow".into(),
+                    )
+                })?;
+            if rank > u128::from(limit) {
+                return Err(CandidateReductionError::OutsideNumeratorRank {
+                    target: target.clone(),
+                    rank,
+                    limit,
+                });
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn validate_target(
         &self,
         target: &IntegralKey,

@@ -56,6 +56,14 @@ fn certify_request(
         .validate()
         .map_err(publication_error)?;
     let bundle = codec::read(&request.bundle, request.input_limits)?;
+    if super::policy::parse(&bundle.solver_policy)?
+        .max_numerator_rank
+        .is_some()
+    {
+        return Err(AppError::execution(
+            "numerator-rank-scoped candidates cannot be certified: a compatible successor-closed proof owner is not implemented; refusing unrestricted or total-excess fallback",
+        ));
+    }
     let decoded_at = started.elapsed();
     let family = bundle
         .family

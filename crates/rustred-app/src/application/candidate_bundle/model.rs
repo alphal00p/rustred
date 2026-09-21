@@ -28,6 +28,9 @@ pub struct CandidateBundleInspection {
     pub arity: usize,
     /// Saved finite-case search depth; this does not establish coverage.
     pub numerical_depth: u32,
+    /// Declared generation entry scope, `sum(max(-n_i, 0)) <= R`.
+    /// Positive powers remain unbounded; this is not certified coverage.
+    pub max_numerator_rank: Option<u32>,
     pub solved_sectors: usize,
     pub generated_rules: usize,
     pub finite_residuals: usize,
@@ -165,6 +168,10 @@ pub struct FamilyCandidatesRequest {
     /// Signed-L1 search depth around fully fixed cases. Zero still searches
     /// their initial seeds; finite residuals need not be independent masters.
     pub numerical_depth: u32,
+    /// Experimental entry scope `sum(max(-n_i, 0)) <= R`, with unbounded
+    /// positive powers. Separate from search depth and resource limits.
+    /// `None` preserves unrestricted generation; output remains uncertified.
+    pub max_numerator_rank: Option<u32>,
     pub permutation: Option<Vec<usize>>,
     pub nonpositive_indices: Vec<usize>,
     pub bundle_limits: CandidateBundleLimits,
@@ -181,6 +188,7 @@ impl FamilyCandidatesRequest {
             n_cores: 1,
             exact_backend: CandidateExactBackend::default(),
             numerical_depth: rustred::solver::SectorSolveOptions::default().numerical_depth,
+            max_numerator_rank: None,
             permutation: None,
             nonpositive_indices: Vec::new(),
             bundle_limits: CandidateBundleLimits::default(),

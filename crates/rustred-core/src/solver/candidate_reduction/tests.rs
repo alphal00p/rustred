@@ -25,6 +25,8 @@ mod terminal_alias_audit;
 mod terminal_aliases;
 #[path = "tests/terminal_weighted_audit.rs"]
 mod terminal_weighted_audit;
+#[path = "tests/trace.rs"]
+mod trace;
 
 fn key<const N: usize>(powers: [i64; N]) -> IntegralKey {
     IntegralKey::try_new(powers).unwrap()
@@ -378,6 +380,7 @@ fn affine_test_owner(block: bool) -> CandidateReducer<3> {
         },
     };
     let solution = SectorSolution {
+        max_numerator_rank: None,
         rules: vec![rule],
         finite_residuals: vec![Integral::numeric([1, 2, 1]).unwrap()],
         stats: SectorStats::default(),

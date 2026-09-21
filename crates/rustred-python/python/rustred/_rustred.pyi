@@ -169,6 +169,7 @@ def family_candidates(
     nonpositive_indices: list[int] | None = None,
     exact_backend: str = "sparse",  # sparse, sparse-factorized, sparse-target-factorized, semi-numerical
     numerical_depth: int = 2,
+    max_numerator_rank: int | None = None,
     checkpoint_dir: str | os.PathLike[str] | None = None,
     resume: bool = False,
     checkpoint_max_bytes: int | None = None,

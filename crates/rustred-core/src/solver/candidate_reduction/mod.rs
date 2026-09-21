@@ -14,12 +14,14 @@ mod preparation;
 mod reducer;
 mod terminal_aliases;
 mod terminal_normalization;
+mod trace;
 
 pub use model::{
     CandidateCacheRepresentation, CandidateDecomposition, CandidateReachabilityReport,
     CandidateReductionError, CandidateStatistics,
 };
 pub use reducer::CandidateReducer;
+pub use trace::{CandidateTraceLimits, CandidateTraceReport};
 
 #[cfg(test)]
 mod tests;
