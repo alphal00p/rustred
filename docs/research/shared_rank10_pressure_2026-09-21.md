@@ -214,6 +214,36 @@ the complete parametric R10 domain.
 
 ### Continuing priorities
 
+Before another code change, a separate input-policy experiment installed eight
+additional compatible saved literal owners (75 programs covering the same 67
+graph classes). Six cheap additions account for 44.56% of sampled active-route
+occupancy in the preceding run; two earlier problematic supports are included
+too. This is an occupancy-biased selection, not a claim about call frequency or
+CPU cost. Input grows by 98,312,571 bytes to 1,379,167,166 bytes, below the
+unchanged 2 GiB encoded-input allowance. All original 134 targets remain.
+
+Native loading and routing admission succeed. The run is again cooperatively
+stopped for optimization, without a deadline, forced kill, or resource-limit
+error. It takes 312.28 s whole-command wall / 689.75 s CPU, including 192.772 s
+traversal through drain. GNU-time peak is 28,566,656 KiB (29.25 decimal GB);
+sampled aggregate peak is 29,042,987,008 bytes. At termination there are 38,617
+completed local expansions, 38,219,901 queued nodes, 234,012,066 deduplication
+hits, 8,216 rule applications, 13,757 transports and no observed missing rule
+or owner. The three observed declared terminals are not a complete terminal
+basis. The altered graph is smaller at these observation boundaries, but the
+run still has low throughput/utilization; neither observation is a completed
+timing or an equal-workload speedup. The 68/69-owner alternatives were prepared
+but not run.
+
+Evidence: `TMP/routed-hot-direct-owner75.xXUTLg/`,
+`TMP/shared-r10-direct75-pressure.S7XQ7r/`, and
+`TMP/shared-owner-campaign.cuf8ej3c/`. The next narrow implementation target is
+trace-only consumption of native coalesced support without constructing exact
+coefficient wrappers that the dependency trace immediately discards. Public
+coefficient-returning reduction remains unchanged. Any later support cache must
+bind the exact prepared route and full negative-power pattern; equal rank alone
+is insufficient.
+
 1. Keep the completed native correction and full core/frontend gates as the
    baseline. Do not regenerate the saved owner programs.
 2. Audit/test the observed scheduler and structural-envelope improvements,
