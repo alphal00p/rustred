@@ -9,12 +9,12 @@ use symbolica::prelude::Integer;
 use super::CoordinateCase;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum RowBounds {
+pub(super) enum RowBounds<const N: usize> {
     Excluded,
     Unresolved,
-    /// Every unfixed original axis with a nonzero coefficient is at its sector
-    /// endpoint (one for active indices, zero for inactive indices).
-    Saturated,
+    /// These free original axes must be at their integer sector endpoints:
+    /// one for active indices, zero for inactive indices.
+    Endpoints([bool; N]),
 }
 
 /// Prove `a.n = b` impossible using the independent sector bounds of each axis.
@@ -27,18 +27,19 @@ pub(super) fn excludes_rhs<const N: usize>(
     classify(row, face, sector) == RowBounds::Excluded
 }
 
-/// At an attained finite extremum, every individual nonnegative slack is zero.
-/// Hence all nonzero unfixed terms attain their unique half-line endpoints.
+/// With a finite row bound, every free integer coordinate consumes at least
+/// the absolute value of its coefficient per step away from its endpoint.
+/// A coefficient strictly larger than the remaining slack forces that axis
+/// to its endpoint. Zero slack recovers complete endpoint saturation.
 /// This is an exact consequence of one row, not a general feasibility claim.
 pub(super) fn classify<const N: usize>(
     row: &[Integer],
     face: &CoordinateCase<N>,
     sector: &[bool; N],
-) -> RowBounds {
+) -> RowBounds<N> {
     debug_assert_eq!(row.len(), N + 1);
     let mut lower = Some(Integer::zero());
     let mut upper = Some(Integer::zero());
-    let mut has_unfixed_term = false;
     for (axis, coefficient) in row[..N].iter().enumerate() {
         if coefficient.is_zero() {
             continue;
@@ -52,7 +53,6 @@ pub(super) fn classify<const N: usize>(
                 *bound += &contribution;
             }
         } else {
-            has_unfixed_term = true;
             // Positive indices start at one; inactive indices end at zero.
             // Multiplication by a negative coefficient reverses the bounds.
             if sector[axis] != coefficient.is_negative() {
@@ -75,12 +75,23 @@ pub(super) fn classify<const N: usize>(
     if lower.as_ref().is_some_and(|bound| row[N] < *bound)
         || upper.as_ref().is_some_and(|bound| row[N] > *bound)
     {
-        RowBounds::Excluded
-    } else if has_unfixed_term
-        && (lower.as_ref().is_some_and(|bound| row[N] == *bound)
-            || upper.as_ref().is_some_and(|bound| row[N] == *bound))
-    {
-        RowBounds::Saturated
+        return RowBounds::Excluded;
+    }
+    // There is no finite slack if opposing unbounded contributions can
+    // cancel. Do not use only a subset of the row to invent a bound.
+    let slack = if let Some(bound) = lower {
+        &row[N] - bound
+    } else if let Some(bound) = upper {
+        bound - &row[N]
+    } else {
+        return RowBounds::Unresolved;
+    };
+    debug_assert!(!slack.is_negative());
+    let endpoints = std::array::from_fn(|axis| {
+        face.fixed()[axis].is_none() && !row[axis].is_zero() && row[axis].abs_cmp(&slack).is_gt()
+    });
+    if endpoints.iter().any(|&forced| forced) {
+        RowBounds::Endpoints(endpoints)
     } else {
         RowBounds::Unresolved
     }

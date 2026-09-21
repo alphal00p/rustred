@@ -13,15 +13,32 @@ terminal minimization, published numerical master values and Vakint five-loop
 integration. Small examples and isolated exceptional branches do not satisfy
 the complete census milestone.
 
-## Latest parallel-campaign snapshot — September 21, 13:46 UTC
+## Latest parallel-campaign snapshot — September 21, 14:56 UTC
 
 Under the authorized 100-core/500-GB aggregate ceiling, the four broad
-SearchFinite campaigns have saved **5,916/8,246 distinct labelled sectors**,
+SearchFinite campaigns have saved **6,084/8,246 distinct labelled sectors**,
 representing **66/67 graph classes**. This snapshot excludes the separate
-finite-retention experiments. The 7,193 saved occurrences include 1,277
-duplicates; 2,330 distinct labels remain unsaved. Only class30231 is not yet
+finite-retention experiments. The 7,390 saved occurrences include 1,306
+duplicates; 2,162 distinct labels remain unsaved. Only class 30231 is not yet
 represented in these broad-search checkpoints. These are generation counts,
 not proof of recursive rank-10 closure or a complete universal artifact.
+
+These are durable-file counts, not the progress display's generation counts:
+
+| Published input parent | Saved / scheduled sectors |
+|---|---:|
+| 30527 | 884 / 2,686 |
+| 30699 | 2,130 / 2,580 |
+| 31740 | 1,956 / 2,656 |
+| 32745 | 2,420 / 2,478 |
+
+The sector sets overlap between parents; their sum is not the distinct union.
+Two generated solutions, native 3010 and native 3822,
+failed coefficient-table output admission and therefore do not appear among
+saved sectors. Their first rejected table additions slightly exceed 512 MiB;
+that is **not** a measurement of their complete encoded size. Native 3822
+belongs to the last unrepresented class. An isolated explicit-budget retry is
+separate from the original campaign and must actually publish before it counts.
 
 The new class 29550 owner is a different label: external 13887/native 32310,
 parent 30527 shard 1091. Its 40,697,123-byte program has 487 rules and 56 finite
@@ -42,9 +59,22 @@ Natural ordering's separately captured residual is integer-empty; a bounded
 native-Lex fallback now proves that exact conjunction empty without bounding
 its positive-power directions. The independently reviewed release core gate
 passes **2,438 tests, zero failures, 32 existing ignored**; all **246 release
-application/integration tests** also pass. Full-sector reruns using the
-coherently rebuilt frontend remain pending; a passing guard test is not a
-completed sector.
+application/integration tests** also pass. Its full native 29751 retry passes
+the former case 285 blocker, but fails later at case 288 on compact index 156:
+265.431 s solver time, 272.94 s process wall, 270.81 CPU-s and 429,796 KiB
+peak RSS. It writes no sector program. The complete captured conjunction
+forces n2=113 and n1=156, yet another retained equation evaluates to 596904;
+native Symbolica returns the unit ideal in 69.871 microseconds. This proves
+that particular conjunctive branch empty, not its parent or valid siblings.
+It does not justify clipping or bounding positive indices.
+
+The same-policy native 24996 SearchFinite regression does complete:
+57.952 s solver time, 64.91 s process wall, 64.43 CPU-s, 192,336 KiB peak RSS,
+530 rules and 27 finite residuals. Its candidate bytes exactly match the
+earlier successful GrevLex output. Fresh loading and three declared-terminal
+identity canaries pass; three nontrivial traces remain partial, with 1,060 /
+2,835 /5,093 uncovered keys. Lower-sector dependencies still preclude a
+family-closure claim.
 The public seven-sector R10 regression reproduces the previous candidate
 bundle byte-for-byte: 1,299 rules, 1,208,801 retained terminals and
 41,971,427 bytes, in 37.02 s wall/40.88 CPU-s with 373,984 KiB peak RSS.
@@ -65,16 +95,78 @@ A 20 s/49 Hz attached profile of the surviving native 29748 sparse-exact run has
 967 samples and no lost samples. Almost the whole sampled window is in exact
 materialization; native factorized addition is the dominant inclusive path.
 This is a local phase profile, not a whole-campaign time fraction. The existing
-Symbolica source-weight reconstruction backend is running as a separate
-bounded alternative on the same input and ordering; it has not yet completed.
-No replacement CAS arithmetic is introduced.
+Symbolica source-weight reconstruction backend's separate same-input/order
+control reaches its one-hour deadline without a candidate: 3,600 s wall,
+3,570.95 CPU-s and 338,172 KiB peak RSS, status 124. It completes 177 of 178
+observed exact reconstruction frames; the unfinished case 325 last reports
+column 3018 at 3,553.635 s. This is a censored diagnostic, not a successful
+solver timing, a proved reconstruction failure or a matched speed ratio.
+Evidence: `TMP/native29748-source-weights.DHS24K/`.
+No replacement CAS arithmetic is introduced. The original sparse-exact
+continuation subsequently saves native 29748, leaving its selected downset at
+**197/198 saved sectors**, with native 29751 still missing. The instrumented
+whole continuation takes 1:23:16 wall and 5,117.65 CPU seconds; this is not an
+isolated-sector benchmark. The new shard is 231,082,534 bytes with 355 rules
+and 44,164 declared terminals. An explicit ingress allowance cold-loads it in
+9.017 s. Three complete finite traces visit 43,892 /219,476 /45,011 keys and
+leave 39,614 /180,598 /40,592 missing keys. Every observed missing key is in a
+strictly lower support and within R10. These are partial reductions, not
+proof of universal same-sector coverage; no coefficient back-substitution
+was attempted. This retained-policy shard is excluded from the broad-search
+inventory above.
 
-Local receipts: `TMP/rank10-search-refresh-afternoon.PofOf9/`,
+Local receipts: `TMP/rank10-durable-commit.b44EpN/`,
 `TMP/class29550-owner-cold.TdVOH0/`,
 `TMP/root29751-ordering-portfolio.JEqDKU/`, and
-`TMP/root30231-grevlex-exact-profile.pmo9qr/`. Current registered RSS at the
-inventory snapshot is 46.37 GB; the historical sampled peak is 337.95 GB.
+`TMP/root30231-grevlex-exact-profile.pmo9qr/`,
+`TMP/late-lex-native29751-retain.DAkEC4/`,
+`TMP/late-lex-native24996-regression.SMAvLT/`, and
+`TMP/native29748-cold-explicit.Qr6lIO/`. Current registered RSS at the
+inventory snapshot is 70.85 GB; the historical sampled peak is 337.95 GB.
 The aggregate 450 GB soft stop remains below the user's 500 GB ceiling.
+
+### Exceptional-case scheduling and admission follow-up
+
+Three generic refinements address actual failures without changing the rank,
+source, finite-retention policy, or positive-power domain:
+
+1. **Integer endpoint slack.** If a row has a finite sector bound, write its
+   distance from that bound as a sum of nonnegative integer contributions.
+   A coefficient larger than the available slack forces that coordinate to
+   its endpoint. For example, the narrowed native 2678 branch requires
+   `12u + 5v = 9`, with integer `u,v >= 0`. Hence `u=0`, then `5v=9` is
+   impossible. This avoids a 20,736-signed-divisor proposal; it does not prove
+   the different, wider original parent empty. Existing Symbolica integer
+   arithmetic and RREF perform the algebra. Saved declared charts are unchanged.
+2. **Finite rank splitting before expensive elimination.** Only when every
+   positive original coordinate is fixed, an explicit rank bound makes the
+   remaining numerator simplex finite. If its conservative whole refinement
+   tree fits the remaining work allowance, reuse the existing exact splitter
+   earlier. The narrowed native 1484 case has three free inactive axes and
+   remaining rank 8: 165 simplex points and 220 tree nodes, before its affine
+   constraints. Its parent admits 12 integer points; the new guard admits one.
+   No positive ray is enumerated, and no leaf is automatically a terminal.
+3. **Full-conjunction inconsistency before false compact overflow.** When a
+   mixed affine/nonlinear branch proposes an unrepresentable coordinate,
+   normalize its entire restricted conjunction with native Symbolica. Discard
+   it only if the exact basis contains a nonzero constant. Otherwise preserve
+   the original typed overflow. The native 29751 example above exercises this
+   path; the valid example `x=156, y^2=1` still fails rather than being clipped.
+
+All work uses existing shared budgets; the native F4 call is not a hard
+wall-time/RAM-bounded operation. Independent implementation and mathematical
+audits, nineteen new focused tests, and the complete release core gate pass:
+**2,457 tests passed, zero failed, 32 existing ignored**. All **246 release
+application/integration tests** pass too. The fresh public seven-sector CLI
+regression reproduces the previous 41,971,427-byte output exactly in
+37.25 s wall /41.13 CPU-s, with 356,384 KiB peak RSS; compilation is separate.
+This is an integration regression, not a matched speed comparison. Actual
+full-sector retries of the captured failures are separate acceptance steps
+and remain pending at this checkpoint. Passing captured geometry cases is not
+a completed family. Evidence: `TMP/geometry-three-slice-release.hVECOq/`,
+`TMP/geometry-three-slice-app-cli.w9PTom/`,
+`TMP/geometry-public-r10-pilot.dCYG5k/` and the independent positive-slack,
+finite-rank-priority and compact-overflow design/audit receipts.
 
 ## Public interfaces
 

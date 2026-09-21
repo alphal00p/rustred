@@ -4,12 +4,13 @@ use std::time::Instant;
 
 use crate::algebra::CoefficientPolynomial;
 
-use super::super::Case;
+use super::super::{AffineGeometryError, Case};
 use super::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
     CaseIntersectionResult, CaseIntersectionStats, bilinear_integer, definite_quadratic,
     linear_resultant, native,
 };
+use crate::solver::GeometryError;
 
 mod rank;
 
@@ -208,7 +209,24 @@ impl<const N: usize> Engine<'_, N> {
                     .map_err(CaseIntersectionFailure::Admission);
                 self.stats.admission_time += start.elapsed();
                 self.stats.affine_admissions += 1;
-                let Some(child) = child? else {
+                let child = match child {
+                    Err(
+                        error @ CaseIntersectionFailure::Admission(AffineGeometryError::Coordinate(
+                            GeometryError::CompactOverflow { .. },
+                        )),
+                    ) => {
+                        // An affine proposal may be incompatible with another
+                        // conjunct before its integer fits compact storage.
+                        // Only exact inconsistency of the WHOLE restricted AND
+                        // can discharge that overflow; never clip the index.
+                        if self.compact_overflow_conjunction_is_empty()? {
+                            return Ok(());
+                        }
+                        return Err(error);
+                    }
+                    other => other?,
+                };
+                let Some(child) = child else {
                     return Ok(());
                 };
                 if child == self.current.parent {
@@ -221,6 +239,16 @@ impl<const N: usize> Engine<'_, N> {
                 self.current.equations = nonlinear.into();
                 normalized = false;
                 continue;
+            }
+
+            // When every positive original coordinate is fixed, a small
+            // rank simplex can be cheaper than symbolic elimination or an
+            // exhaustive signed-divisor pass. This only changes refinement
+            // priority: preserve the existing full-conjunction rank splitter.
+            if self.prefer_finite_rank_split(pending.len())
+                && self.split_rank_coordinate(pending)?
+            {
+                return Ok(());
             }
 
             if !normalized {
@@ -431,6 +459,22 @@ impl<const N: usize> Engine<'_, N> {
             }
             return Err(CaseIntersectionFailure::UnsupportedGeometry);
         }
+    }
+
+    fn compact_overflow_conjunction_is_empty(&mut self) -> Result<bool, CaseIntersectionFailure> {
+        spend(
+            &mut self.stats.normalizations,
+            self.limits.max_normalizations,
+            CaseIntersectionBudget::Normalizations,
+        )?;
+        let start = Instant::now();
+        let basis = native::normalize(&self.current.equations);
+        self.stats.normalization_time += start.elapsed();
+        let basis = basis?;
+        self.check_terms(&basis)?;
+        Ok(basis
+            .iter()
+            .any(|equation| equation.is_constant() && !equation.is_zero()))
     }
 
     fn check_terms(

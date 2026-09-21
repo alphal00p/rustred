@@ -98,7 +98,7 @@ fn lower_upper_and_huge_coefficient_endpoints_are_exact() {
     ];
     assert_eq!(
         bounds::classify(&row, &face, &[false, true, true]),
-        bounds::RowBounds::Saturated
+        bounds::RowBounds::Endpoints([false, false, true])
     );
     assert_eq!(
         bounds::classify(
@@ -106,7 +106,7 @@ fn lower_upper_and_huge_coefficient_endpoints_are_exact() {
             &face,
             &[false, true, true]
         ),
-        bounds::RowBounds::Saturated
+        bounds::RowBounds::Endpoints([false, false, true])
     );
 }
 
@@ -232,7 +232,7 @@ fn slack_and_both_infinite_rows_remain_unresolved() {
             panic!("unsaturated case must remain affine: {expression}");
         };
         assert!(case.contains_coordinate(&CoordinateCase::new(witness.map(Some)).unwrap()));
-        assert!(!case.has_saturated_sector_row(&sector));
+        assert!(!case.has_sector_endpoint_refinement(&sector));
     }
 }
 

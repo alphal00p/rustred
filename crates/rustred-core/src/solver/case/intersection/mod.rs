@@ -41,8 +41,9 @@ impl<const N: usize> Case<N> {
 
     /// Exact exceptional geometry within `sum(max(-n_i,0)) <= maximum`.
     ///
-    /// Only a still-unsupported nonlinear branch is refined into bounded
-    /// inactive-coordinate slices. Positive powers remain symbolic. Native
+    /// Unsupported nonlinear branches are refined into bounded inactive-
+    /// coordinate slices. Small fully rank-finite scopes may use those same
+    /// slices before symbolic elimination. Positive powers remain symbolic. Native
     /// affine algebra, factorization and substitution are unchanged. Forced
     /// negative coordinates are checked against the rank before compact-key
     /// conversion, and every refinement shares the same work budget. Unsupported positive-
@@ -80,3 +81,9 @@ mod rank_overflow_tests;
 
 #[cfg(test)]
 mod lex_tests;
+
+#[cfg(test)]
+mod rank_priority_tests;
+
+#[cfg(test)]
+mod overflow_consistency_tests;

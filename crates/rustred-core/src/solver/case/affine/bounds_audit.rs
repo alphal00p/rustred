@@ -46,10 +46,11 @@ fn constructed_integer_witnesses_are_never_excluded() {
                             assert!(!excludes_rhs(&row, &face, &sector));
                             assert!(!excludes_rhs(&negated, &face, &sector));
                             for test_row in [&row, &negated] {
-                                if classify(test_row, &face, &sector) == RowBounds::Saturated {
+                                if let RowBounds::Endpoints(endpoints) =
+                                    classify(test_row, &face, &sector)
+                                {
                                     for axis in 0..3 {
-                                        if face.fixed()[axis].is_none() && !test_row[axis].is_zero()
-                                        {
+                                        if endpoints[axis] {
                                             assert_eq!(witness[axis], i16::from(sector[axis]));
                                         }
                                     }

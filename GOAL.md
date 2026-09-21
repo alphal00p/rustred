@@ -2,6 +2,30 @@
 
 ## Current priority — rank-bounded five-loop closure, with sequential delivery gates
 
+### Current measured checkpoint — September 21, 14:56 UTC
+
+The four parallel SearchFinite campaigns have **6,084 of 8,246 distinct
+labelled sectors durably saved**, representing **66 of 67 graph classes**.
+The policy-specific inventory excludes separate finite-retention experiments
+and solutions that finished generation but failed binary output admission.
+Class 30231 still lacks a saved broad-search owner. The selected retained-policy
+30231 downset has separately reached 197/198 saved sectors. Neither figure is
+recursive rank-10 closure.
+
+Continue the independent parent jobs within the authorized 100-core/500-GB
+ceiling, with the existing 450-GB aggregate soft stop. In parallel, resolve the
+isolated exceptional cases and reuse saved lower-sector programs. Three new
+generic geometry refinements pass independent audits and the full release
+core gate: **2,457 passed, zero failed, 32 existing ignored**. All 246 release
+application tests pass, and the public seven-sector CLI regression reproduces
+its prior output byte-for-byte. Actual full-sector retries remain separate
+acceptance steps. Exact transport is
+implemented; cycle-free routed owner application is still the next work-reuse
+slice, not a delivered closure capability. Do not proceed to minimization,
+master lookup or five-loop Vakint before bounded coverage succeeds. Detailed
+measurements and limitations are in the
+[rank-scope notes](docs/rank_scoped_generation.md).
+
 ### September 21 directive: finish bounded coverage before minimizing or integrating
 
 The user's latest directive supersedes parallel advancement into later five-loop

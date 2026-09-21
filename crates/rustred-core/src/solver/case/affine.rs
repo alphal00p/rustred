@@ -199,12 +199,15 @@ impl<const N: usize> AffineCase<N> {
                 .any(|row| bounds::excludes_rhs(row, &self.face, sector))
     }
 
-    /// A stored affine case may acquire endpoint equalities under a different
+    /// A stored affine case may acquire integer endpoint equalities in this
     /// sector. Such a case must be recanonicalized even without new guards.
-    pub(crate) fn has_saturated_sector_row(&self, sector: &[bool; N]) -> bool {
-        self.primitive_matrix
-            .row_iter()
-            .any(|row| bounds::classify(row, &self.face, sector) == bounds::RowBounds::Saturated)
+    pub(crate) fn has_sector_endpoint_refinement(&self, sector: &[bool; N]) -> bool {
+        self.primitive_matrix.row_iter().any(|row| {
+            matches!(
+                bounds::classify(row, &self.face, sector),
+                bounds::RowBounds::Endpoints(_)
+            )
+        })
     }
 
     /// Restrict an equation interpreted as zero. Nonzero rational scalar
@@ -409,14 +412,14 @@ fn intersect_native<const N: usize>(
         for row in primitive_matrix.row_iter() {
             match bounds::classify(row, &refined, sector) {
                 bounds::RowBounds::Excluded => return Ok(AffineIntersection::Empty),
-                bounds::RowBounds::Saturated if refine_sector_endpoints => {
-                    for (axis, coefficient) in row[..N].iter().enumerate() {
-                        if fixed[axis].is_none() && !coefficient.is_zero() {
+                bounds::RowBounds::Endpoints(endpoints) if refine_sector_endpoints => {
+                    for (axis, &forced) in endpoints.iter().enumerate() {
+                        if fixed[axis].is_none() && forced {
                             fixed[axis] = Some(i16::from(sector[axis]));
                         }
                     }
                 }
-                bounds::RowBounds::Unresolved | bounds::RowBounds::Saturated => {}
+                bounds::RowBounds::Unresolved | bounds::RowBounds::Endpoints(_) => {}
             }
         }
         if &fixed == refined.fixed() {
@@ -522,3 +525,7 @@ mod rational_audit;
 #[cfg(test)]
 #[path = "affine/saturation_tests.rs"]
 mod saturation_tests;
+
+#[cfg(test)]
+#[path = "affine/positive_slack_tests.rs"]
+mod positive_slack_tests;
