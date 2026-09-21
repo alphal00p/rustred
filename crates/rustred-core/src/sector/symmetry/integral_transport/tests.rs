@@ -8,6 +8,9 @@ use crate::sector::symmetry::{CoefficientMatrix, Limits, MomentumMap, verify};
 
 use super::{Error, ExpansionError, ExpansionLimits, Prepared, compile};
 
+#[path = "trace_support_tests.rs"]
+mod trace_support_tests;
+
 fn family(
     name: &str,
     context: &CoefficientContext,

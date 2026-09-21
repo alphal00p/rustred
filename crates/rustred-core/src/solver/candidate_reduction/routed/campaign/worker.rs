@@ -119,7 +119,7 @@ fn process<const N: usize>(
                 shared.transport_call()?;
                 let mapped = route
                     .transport
-                    .transport_with_usage(key, reducer.limits.expansion, |usage| {
+                    .transport_support_with_usage(key, reducer.limits.expansion, |usage| {
                         shared.transport_usage(usage.operations, usage.endpoints)
                     })
                     .map_err(|error| Failure::from(CandidateRoutedError::Transport(error)))?;
@@ -135,9 +135,12 @@ fn process<const N: usize>(
                 }
                 publish(
                     shared,
-                    mapped.terms().iter().map(|endpoint| {
-                        base.validate_target(endpoint.key())?;
-                        child(key, endpoint.key().clone(), owner)
+                    mapped.map(|endpoint| {
+                        let endpoint = endpoint.map_err(|error| {
+                            Failure::from(CandidateRoutedError::Transport(error.into()))
+                        })?;
+                        base.validate_target(&endpoint)?;
+                        child(key, endpoint, owner)
                     }),
                 )?;
             } else {

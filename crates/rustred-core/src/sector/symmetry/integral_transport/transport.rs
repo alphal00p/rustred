@@ -1,7 +1,7 @@
 use crate::family::IntegralKey;
 use crate::family::numerator_expansion::{
-    ExpansionUsage, MultiAffineNumeratorFactor, preflight_coefficient_clones,
-    try_expand_multi_affine_numerator_with_usage,
+    AdmittedSupport, ExpansionUsage, MultiAffineNumeratorFactor, preflight_coefficient_clones,
+    try_expand_multi_affine_numerator_with_usage, try_expand_multi_affine_support_with_usage,
 };
 
 use super::compile::{admit, overflow, reserved};
@@ -31,6 +31,47 @@ impl Prepared {
         limits: ExpansionLimits,
         reserve: impl FnOnce(ExpansionUsage) -> Result<(), ExpansionError>,
     ) -> Result<TransportedIntegral, Error> {
+        let (base, factors) = self.expansion_input(source, limits)?;
+        let terms = try_expand_multi_affine_numerator_with_usage(
+            &self.target,
+            &base,
+            &factors,
+            limits,
+            reserve,
+        )?;
+        Ok(TransportedIntegral {
+            source: IntegralKey::try_new(source.powers().iter().copied())
+                .map_err(ExpansionError::IntegralKey)?,
+            source_fingerprint: self.source_fingerprint.clone(),
+            target_fingerprint: self.target.fingerprint_owner(),
+            terms,
+        })
+    }
+
+    /// Trace-only support: native algebra and every virtual output limit are
+    /// admitted before returning any keys. Real coefficient reduction must use
+    /// `transport`; this iterator is not an integral combination.
+    pub(crate) fn transport_support_with_usage(
+        &self,
+        source: &IntegralKey,
+        limits: ExpansionLimits,
+        reserve: impl FnOnce(ExpansionUsage) -> Result<(), ExpansionError>,
+    ) -> Result<AdmittedSupport, Error> {
+        let (base, factors) = self.expansion_input(source, limits)?;
+        Ok(try_expand_multi_affine_support_with_usage(
+            &self.target,
+            &base,
+            &factors,
+            limits,
+            reserve,
+        )?)
+    }
+
+    fn expansion_input(
+        &self,
+        source: &IntegralKey,
+        limits: ExpansionLimits,
+    ) -> Result<(IntegralKey, Vec<MultiAffineNumeratorFactor>), Error> {
         let arity = self.source_root.arity();
         if source.powers().len() != arity {
             return Err(Error::WrongInputArity {
@@ -122,19 +163,6 @@ impl Prepared {
             }
         }
         let base = IntegralKey::try_from_preallocated(base).map_err(ExpansionError::IntegralKey)?;
-        let terms = try_expand_multi_affine_numerator_with_usage(
-            &self.target,
-            &base,
-            &factors,
-            limits,
-            reserve,
-        )?;
-        Ok(TransportedIntegral {
-            source: IntegralKey::try_new(source.powers().iter().copied())
-                .map_err(ExpansionError::IntegralKey)?,
-            source_fingerprint: self.source_fingerprint.clone(),
-            target_fingerprint: self.target.fingerprint_owner(),
-            terms,
-        })
+        Ok((base, factors))
     }
 }

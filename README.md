@@ -59,8 +59,9 @@ claim parametric closure from a finite trace. Directed Rust owner searches can
 publish immutable partial-domain rule overlays without copying the saved
 library; see [the API boundary](docs/shared_owner_campaign_driver.md#directed-owner-search-and-shared-rule-installation).
 
-The latest completed release gate passes **2,545 core tests**, **276
-application/integration tests** and **10 Python supervisor tests**. Matched finite
+The latest completed release gate passes **2,554 core tests** and **276
+application/integration tests**; the unchanged Python supervisor's latest gate
+passes **10 tests**. The preceding matched finite
 rank-one controls complete in 24.690/11.538 seconds of traversal with one/six
 workers (130.11/118.09 seconds including preparation), with identical reported
 graph counters and zero missing rules. The latest 50-worker R10 diagnostic gets
@@ -71,9 +72,13 @@ optimization after 332.873 seconds of traversal: 53.7 million queued nodes and
 target expensive routing, native powering and limited effective parallelism.
 No full five-loop R10 completion is claimed.
 
-The delivered slice batches shared work publication, combines duplicate-work
-indexes, tightens structural expansion bounds and exposes explicit per-call
-budgets. An opt-in Rust [`RoutedFeedbackSession`](docs/owner_source_feedback.md)
+The delivered slices batch shared work publication, combine duplicate-work
+indexes, tighten structural expansion bounds and expose explicit per-call
+budgets. Dependency tracing now visits Symbolica's exact coalesced numerator
+support without constructing coefficient wrappers it would discard. This
+preserves the coefficient-returning reducer, endpoint ordering and per-call
+budget behavior; matched campaign timings for this latest slice are pending.
+An opt-in Rust [`RoutedFeedbackSession`](docs/owner_source_feedback.md)
 retains source-generated parametric rules between rounds; automatic CLI feedback
 and durable graph resume remain unfinished. New performance measurements must
 be reported separately from the preceding corrected-run timings.

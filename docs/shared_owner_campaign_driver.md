@@ -323,3 +323,23 @@ full positional-array regression was added. The corrected full release gate is
 `TMP/shared-campaign-feedback-app-fixed.DEwkOr/`; the core runtime gate is
 `TMP/shared-campaign-batched-core.EWNFkj/`. Its initial build-log parser failed
 after compilation; the existing frozen binary subsequently passed every test.
+
+### Native support-only traversal
+
+The shared trace now consumes the exact coalesced support of Symbolica's native
+rational polynomial directly. It no longer builds contextual coefficient
+wrappers or a complete endpoint vector merely to discard the coefficients.
+The public coefficient-returning transport and numerical reducer are unchanged.
+Admission checks the entire native support before exposing keys, preserves
+ascending integral-key order and charges the same conservative virtual output
+budgets. Later allocation or publication failure still returns an incomplete
+trace, never successful partial output.
+
+Nine added regressions cover cancellation inside the polynomial, zero and
+constant products, large rationals, ordered keys, malformed native layout,
+overflow, caps and parity with full coefficient transport. The complete release
+gates pass **2,554 core tests** (32 existing ignored) and **276 application and
+integration tests**, with zero failures and independent reviews. Receipts are
+`TMP/trace-support-core.sWtUZO/` and `TMP/trace-support-app.Z19PgH/`.
+Matched one-/six-worker timing and a subsequent 50-worker pressure retry remain
+separate measurements; test success does not establish R10 campaign closure.

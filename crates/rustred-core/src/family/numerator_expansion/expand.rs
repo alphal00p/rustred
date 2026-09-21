@@ -26,6 +26,9 @@ use native_rational::{authenticated_rational, contextual_coefficient, rational_w
 #[path = "support.rs"]
 mod support;
 use support::PrefixSupport;
+#[path = "visit.rs"]
+mod visit;
+pub(crate) use visit::{AdmittedSupport, try_expand_multi_affine_support_with_usage};
 
 // Input admission below already restricts every scalar to Q. Keeping that
 // native field here avoids polynomial variable-map unification and polynomial
@@ -93,6 +96,33 @@ pub(crate) fn try_expand_multi_affine_numerator_with_usage(
     limits: MultiAffineNumeratorExpansionLimits,
     reserve: impl FnOnce(ExpansionUsage) -> Result<(), MultiAffineNumeratorExpansionError>,
 ) -> Result<Box<[MultiAffineNumeratorEndpoint]>, MultiAffineNumeratorExpansionError> {
+    let Some(expanded) = expand_native(family, base, factors, limits, reserve)? else {
+        return Ok(Box::new([]));
+    };
+    materialize_endpoints(
+        family.coefficient_context(),
+        base,
+        &expanded.polynomial,
+        expanded.input_weight,
+        expanded.constant_wrapper_bytes,
+        limits,
+    )
+}
+
+/// Shared native algebra, before choosing coefficient output or trace support.
+struct NativeExpansion {
+    polynomial: EndpointPolynomial,
+    input_weight: CoefficientWeight,
+    constant_wrapper_bytes: usize,
+}
+
+fn expand_native(
+    family: &IntegralFamily,
+    base: &IntegralKey,
+    factors: &[MultiAffineNumeratorFactor],
+    limits: MultiAffineNumeratorExpansionLimits,
+    reserve: impl FnOnce(ExpansionUsage) -> Result<(), MultiAffineNumeratorExpansionError>,
+) -> Result<Option<NativeExpansion>, MultiAffineNumeratorExpansionError> {
     let arity = family.denominator_count();
     if base.powers().len() != arity {
         return Err(MultiAffineNumeratorExpansionError::WrongBaseArity {
@@ -131,7 +161,7 @@ pub(crate) fn try_expand_multi_affine_numerator_with_usage(
         endpoints: if zero_product { 0 } else { projected_support },
     })?;
     if zero_product {
-        return Ok(Box::new([]));
+        return Ok(None);
     }
     preflight_power_shifts(base, factors)?;
     admit_limit(
@@ -199,14 +229,11 @@ pub(crate) fn try_expand_multi_affine_numerator_with_usage(
         polynomial = next;
     }
 
-    materialize_endpoints(
-        context,
-        base,
-        &polynomial,
+    Ok(Some(NativeExpansion {
+        polynomial,
         input_weight,
         constant_wrapper_bytes,
-        limits,
-    )
+    }))
 }
 
 fn preflight_factors(

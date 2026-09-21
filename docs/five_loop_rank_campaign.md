@@ -95,7 +95,8 @@ measure the corrected expansion or eliminate genuine dependency breadth. See the
 The generic core now publishes validated children in bounded batches and uses
 one full-integral-key membership index instead of two ordered indexes. Exact
 native arithmetic and per-edge descent checks remain unchanged. The release
-gate passes **2,545 core tests**, with zero failures and 32 existing ignored
+gate, including the subsequent native support visitor, passes **2,554 core
+tests**, with zero failures and 32 existing ignored
 diagnostics. A structural degree/variable support bound reduces unnecessary
 output-size overestimates; multiplication work retains a separate allowance.
 
@@ -114,6 +115,30 @@ compatible owners may be installed as alternative routing representatives if
 they avoid expensive numerator expansion; that is a distinct input-policy
 experiment, not a same-workload speedup. None of these finite diagnostics is
 silently substituted for the complete parametric campaign.
+
+The batched and additional-direct-owner diagnostics both finish with an explicit
+operator cancellation for optimization, not a timeout or missing-rule failure.
+See the [measured outcomes](research/shared_rank10_pressure_2026-09-21.md).
+The latest narrow slice streams the exact native-coalesced support needed by
+dependency tracing instead of building coefficient wrappers that it discards;
+the public coefficient-returning reducer and all virtual per-call budgets stay
+unchanged. Independent static and runtime reviews pass, including nine added
+regressions and the full release suites. Matched performance measurements are
+pending; this correctness gate does not establish a campaign speedup.
+
+Do not let concrete pressure diagnostics replace the main implementation task:
+use saved owner domains and shared successor obligations to retain unbounded
+positive powers parametrically. The retained source-search service already
+provides new rules for genuine gaps; the missing full-domain worklist must reuse
+those primitives rather than regenerate all owners or launch an independent
+certification project.
+
+If that still leaves duplicate admission dominant, investigate a fixed-shard
+membership preprobe while retaining one ordered, exact global admission step.
+The prior run's 423.9 million duplicate joins versus 53.8 million scheduled
+nodes motivate this study, but no speedup is established. Preserve full-key
+equality, phase identity, per-node budgets, valid-prefix errors and cancellation;
+do not introduce a separate algebra implementation or unbounded worker caches.
 
 ## Resource and monitoring policy
 

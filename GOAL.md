@@ -66,12 +66,16 @@ Detailed implementation sequencing is in
 ### Current implementation slice — shared scheduling and retained source feedback
 
 The batched shared scheduler, single full-key membership index and tighter
-native expansion support envelope pass **2,545 release core tests**, with zero
+native expansion support envelope, together with native support-only tracing,
+pass **2,554 release core tests**, with zero
 failures and 32 existing ignored diagnostics. Per-call CLI/Python expansion
 budgets are now explicit and separate from aggregate campaign budgets; defaults
 are unchanged. The application release gate passes **276 tests** and the Python
 supervisor passes **10 tests**, with zero failures. Independent implementation
-and runtime reviews accompany this milestone.
+and runtime reviews accompany this milestone. Support-only tracing avoids
+building discarded coefficient wrappers but preserves native exact cancellation,
+endpoint order and all existing per-call admission limits. Its matched timing
+controls are separate from the preceding scheduler measurements below.
 
 The new opt-in Rust `RoutedFeedbackSession` retains generated parametric owner
 overlays between rounds. Only actual missing-rule frontiers nominate source
