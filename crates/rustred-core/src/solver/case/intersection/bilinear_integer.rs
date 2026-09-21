@@ -6,15 +6,12 @@
 //! Every output is an AND of affine equations; the caller must retain the
 //! complete parent and original conjunction on each OR branch.
 
-use std::time::Instant;
-
 use symbolica::prelude::Integer;
 
 use crate::algebra::CoefficientPolynomial;
 
 use super::{
-    CaseIntersectionBudget, CaseIntersectionFailure, CaseIntersectionLimits, CaseIntersectionStats,
-    engine::spend,
+    CaseIntersectionFailure, CaseIntersectionLimits, CaseIntersectionStats, integer_divisors,
 };
 
 struct Bilinear {
@@ -99,93 +96,20 @@ pub(super) fn refine<const N: usize>(
             vec![linear(equation, y, a, b)],
         ]));
     }
-    let magnitude = k.abs();
-    if u64::try_from(magnitude.clone()).is_err() {
-        return Ok(None);
-    }
-    let factors = if magnitude.is_one() {
-        Vec::new()
-    } else {
-        spend(
-            &mut stats.factorizations,
-            limits.max_factorizations,
-            CaseIntersectionBudget::Factorizations,
-        )?;
-        stats.integer_factorizations += 1;
-        let start = Instant::now();
-        let factors = magnitude.factor();
-        stats.factorization_time += start.elapsed();
-        factors
-    };
-
-    let budget_error = || CaseIntersectionFailure::Budget {
-        kind: CaseIntersectionBudget::WorkItems,
-        limit: limits.max_work_items,
-    };
-    let mut divisor_count = 1usize;
-    let mut product = Integer::one();
-    let mut exponents = Vec::with_capacity(factors.len());
-    for (prime, exponent) in &factors {
-        // Product equality alone would not prove completeness if an opaque
-        // composite were returned as a factor. Native primality is exact here.
-        if u64::try_from(prime.clone()).is_err() || !prime.is_prime(0) {
+    let mut points = Vec::new();
+    if !integer_divisors::visit(&k, limits, stats, pending, |u| {
+        let (v, remainder) = k.quot_rem(u);
+        if !remainder.is_zero() {
             return Err(CaseIntersectionFailure::NativeAlgebra);
         }
-        let exponent = u32::try_from(exponent.clone())
-            .ok()
-            .filter(|&e| e > 0 && e <= 64)
-            .ok_or(CaseIntersectionFailure::NativeAlgebra)?;
-        product *= prime.pow(exponent as u64);
-        divisor_count = divisor_count
-            .checked_mul(exponent as usize + 1)
-            .ok_or_else(budget_error)?;
-        exponents.push(exponent);
-    }
-    if product != magnitude || factors.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
-        return Err(CaseIntersectionFailure::NativeAlgebra);
-    }
-    let visits = divisor_count.checked_mul(2).ok_or_else(budget_error)?;
-    if stats
-        .work_items
-        .checked_add(pending)
-        .and_then(|n| n.checked_add(visits))
-        .is_none_or(|n| n > limits.max_work_items)
-    {
-        return Err(budget_error());
-    }
-
-    // Enumerating native prime powers is finite combinatorial orchestration,
-    // not a new integer factoring or polynomial-algebra implementation.
-    let mut divisors = vec![Integer::one()];
-    for ((prime, _), exponent) in factors.iter().zip(exponents) {
-        let previous = divisors.len();
-        let mut power = Integer::one();
-        for _ in 0..exponent {
-            power *= prime;
-            for position in 0..previous {
-                divisors.push(&divisors[position] * &power);
-            }
+        let (x_value, x_remainder) = (u - &c).quot_rem(&a);
+        let (y_value, y_remainder) = (&v - &b).quot_rem(&a);
+        if x_remainder.is_zero() && y_remainder.is_zero() {
+            points.push((x_value, y_value));
         }
-    }
-    let mut points = Vec::new();
-    for positive in divisors {
-        for u in [positive.clone(), -positive] {
-            spend(
-                &mut stats.work_items,
-                limits.max_work_items,
-                CaseIntersectionBudget::WorkItems,
-            )?;
-            stats.integer_divisors += 1;
-            let (v, remainder) = k.quot_rem(&u);
-            if !remainder.is_zero() {
-                return Err(CaseIntersectionFailure::NativeAlgebra);
-            }
-            let (x_value, x_remainder) = (&u - &c).quot_rem(&a);
-            let (y_value, y_remainder) = (&v - &b).quot_rem(&a);
-            if x_remainder.is_zero() && y_remainder.is_zero() {
-                points.push((x_value, y_value));
-            }
-        }
+        Ok(())
+    })? {
+        return Ok(None);
     }
     points.sort();
     points.dedup();

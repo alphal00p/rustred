@@ -104,8 +104,10 @@ These timings are not a controlled comparison to the earlier reconstruction
 pilot, and this selected family does not replace the full census.
 
 The latest resource authorization is **100 compute cores and 500 GB aggregate
-RAM**. Four checkpointed parent campaigns currently use 20 sector workers each;
-the remaining allocation serves bounded release builds and diagnostics. Native
+RAM**. Four checkpointed parent campaigns initially use 20 sector workers each;
+after individual memory-cap aborts, resume preserved shards with fewer workers
+and explicitly larger startup allowances. The remaining allocation serves
+bounded release builds and diagnostics. Native
 inner pools remain capped, and an aggregate monitor includes registered build
 and diagnostic process trees with a 450 GB soft stop. Preserve completed sector
 shards and distinguish unscheduled/running work, mathematical failures, export
@@ -121,8 +123,12 @@ and a source-consistent release core gate of **2,385 passed, zero failed,
 32 existing ignored**. It resolves the three captured bilinear guards using
 native Symbolica integer factoring and complete signed-divisor enumeration;
 it does not resolve arbitrary nonlinear cases or prove family closure. A
-separate linear/quadratic condition has an exact native-resultant follow-up
-design but is not implemented. Public export-budget and failure-sector
+separate linear/quadratic condition now has a generic native-resultant integer
+refinement: its independent mathematical audit and the release core gate pass
+with **2,393 tests passed, zero failed, 32 existing ignored**. Its fresh public
+CLI regression passes all seven selected sectors in 34.50 seconds and produces
+the same byte-identical candidate bundle; the exact captured-guard microtest,
+not that regression, demonstrates the new refinement. Public export-budget and failure-sector
 diagnostic improvements pass independent review, all 231 application tests,
 eight Python Rust-side tests and all 45 Python API tests. The new public CLI
 regenerates the selected seven-sector R10 bundle in 49.13 seconds and produces
@@ -130,6 +136,24 @@ byte-identical output to the earlier public Rust driver. These are single-run
 regression observations, not a controlled speed comparison. The hourly broad
 inventory saves 2,941 of 8,246 distinct labelled sectors and reaches 63 of 67
 graph classes; all four parent campaigns are still incomplete.
+
+Later separate finite-retention probes save 364/462 sectors for representative
+29550 before their deadline, 172/198 for 30231 before a 16 GiB allocation abort,
+and all 328/328 for 30563 before final export limits. The latter's assembly-only
+retry reuses every shard but exceeds the 1 GiB binary-program section limit;
+it has 30,431,209 declared nonminimal terminals, not a published closing family.
+Preserve these outputs and do not confuse resource/export failures with
+missing rules. Broad parent 30699 and 32745 continuations reuse saved work
+after their individual 80 GiB allocation aborts; parent 30527 also reached that
+cap and is being resumed at lower concurrency. A separate non-atomic inventory
+at 09:05–09:07 UTC finds **3,601 distinct saved labelled sectors of 8,246** and
+representations of **64/67** classes in the broad-search checkpoints, excluding
+all different-policy finite-retention pilots. This is still not closure. The application-cache
+comparison on the existing seven-target diagnostic completes in 371.19 s
+with sparse coefficients versus 738.55 s with factorized coefficients; keep
+the sparse default for that observed workload. See the rank-scope notes for
+the measured boundaries and limitations. No five-loop minimization, numerical
+master catalog or Vakint integration begins before bounded coverage succeeds.
 
 The September 21 offline input-routing milestone now covers all **8,246**
 labelled jobs in the four-parent downset union after the saved zero screening,

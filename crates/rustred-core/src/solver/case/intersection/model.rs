@@ -49,6 +49,9 @@ pub struct CaseIntersectionStats {
     /// Signed divisors tested exhaustively (also included in `work_items`).
     pub integer_divisors: usize,
     pub bilinear_children: usize,
+    /// Native integer resultants (also included in `normalizations`).
+    pub integer_resultants: usize,
+    pub resultant_children: usize,
     /// Exact bounded-negative-coordinate refinements, not sampled solutions.
     pub rank_splits: usize,
     pub rank_children: usize,

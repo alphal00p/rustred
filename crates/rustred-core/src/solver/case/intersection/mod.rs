@@ -8,6 +8,8 @@ mod bilinear_integer;
 mod definite_quadratic;
 mod diagnostic;
 mod engine;
+mod integer_divisors;
+mod linear_resultant;
 mod model;
 mod native;
 

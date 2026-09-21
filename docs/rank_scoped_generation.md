@@ -129,6 +129,23 @@ performance comparison. This is a five-loop end-to-end regression of the
 implemented slice, not new all-family closure. Evidence:
 `TMP/tide-r10-updated-cli.MW0dOB/RESULTS.md`.
 
+The same frozen seven-target application driver also completed with the
+existing factorized-denominator cache, without regenerating any rules:
+
+| Application-cache representation | Wall seconds | CPU seconds | Peak RSS GiB |
+|---|---:|---:|---:|
+| Sparse, existing default | 371.19 | 367.56 | 5.328 |
+| Symbolica factorized | 738.55 | 729.41 | 7.519 |
+
+Both runs pass all seven reductions and their immediate exact same-mode
+memoized repeats, with identical trace frontiers and output-term counts.
+The diagnostic does not serialize the coefficient maps, so these counts are
+not a new independent coefficient-by-coefficient comparison between modes.
+The hard second target takes 351.90 versus 705.95 seconds. This is one matched
+observation per mode on a shared host, not a general benchmark or a comparison
+of generation backends. Retain the sparse default for this workload. Evidence:
+`TMP/rank10-factorized-canary.vojes3/AUDIT.md`.
+
 ### Four-parent coverage campaign
 
 The expanded user budget permits up to100 compute cores and500GB aggregate
@@ -162,12 +179,73 @@ occurrences and representations of **63/67** published classes:
 The four unrepresented classes in this particular batch are 28686, 29550,
 30231 and 30563. The separately generated finite-retention example covers a
 selected 28686 input, but uses another generation policy and is not silently
-merged into these checkpoints. All four broad campaigns are still running;
-the saved counts are not final results. Aggregate sampled memory is about
+merged into these checkpoints. At that snapshot all four broad campaigns were
+still running; these were not final counts. Aggregate sampled memory was about
 214 GB. Parent 30527 has about 12.5 GB virtual-address headroom beneath its
 80 GiB process cap; the 450 GB aggregate soft stop is a separate limit.
 Evidence: `TMP/rank10-one-hour-inventory.i4Eqtc/REPORT.md`, with the earlier
 47-minute snapshot separately preserved.
+
+#### Resource outcomes and preserved progress after the hourly snapshot
+
+Three original broad jobs subsequently exhausted their **individual 80 GiB
+virtual-address caps**, not the 500 GB aggregate user allowance:
+
+| Parent | Terminal wall time | CPU seconds | Peak RSS KiB | Outcome |
+|---|---:|---:|---:|---|
+| 30527 | 1:28:38 | 100,501.95 | 82,902,040 | Allocation abort, signal 6 / launcher 134 |
+| 30699 | 1:02:34 | 74,129.96 | 81,627,544 | Allocation abort, signal 6 / launcher 134 |
+| 32745 | 1:21:07 | 96,236.79 | 82,934,636 | Allocation abort, signal 6 / launcher 134 |
+
+GNU time's trailing `Exit status: 0` must not override its explicit signal-6
+report and the launcher's status 134. Their completed native shards survive.
+Explicit resumptions reuse 1,096 and 1,552 saved sectors, respectively, with
+16 workers and new startup caps of 112 and 96 GiB. The rank, source input,
+ordering, backend and `search` finite-case policy remain unchanged; the tested
+new CLI adds the already audited bilinear refinement and public transport
+budgets. These are separately timed bounded continuations, not uninterrupted
+successful original runs. Evidence: `TMP/tide-r10-30699-resume.lTUYyJ/` and
+`TMP/tide-r10-32745-resume.haTZFg/`.
+Parent 30527 is being prepared for a separately recorded lower-concurrency
+resume; its failed original timing must remain separate. The aggregate
+monitor's soft-stop selection covers registered frozen-CLI continuations as
+well as original solvers, with process-tree ownership and PID/start-time
+revalidation before signalling. This is workspace-local runtime supervision,
+not a change to the mathematical search or a 450 GB per-process allowance.
+
+A new independent **09:05:30–09:06:55 UTC** non-atomic inventory observes
+4,076 durable shard occurrences, **3,601 distinct labelled sectors / 8,246**,
+and representations of **64/67** published classes. It excludes all
+different-policy finite-retention pilots. The remaining 4,645 labelled masks
+are not all demonstrated hard cases: many are unscheduled or still running.
+Original and resumed shard histories are not independent completed artifacts.
+
+Separate `retain-rank-finite` probes targeted the other three representatives
+absent from the hourly broad inventory. Each used five workers, R=10, a
+900-second deadline, 16 GiB address-space cap and fresh checkpoints:
+
+| Root input | Saved / scheduled sectors | Saved rules | Declared terminals | Outcome |
+|---|---:|---:|---:|---|
+| 29550 | 364 / 462 | 68,132 | 41,835,853 | Deadline, status 124 |
+| 30231 | 172 / 198 | 34,694 | 21,930,362 | Allocation abort, status 134 |
+| 30563 | 328 / 328 | 70,482 | 30,431,209 | Generation finished; aggregate entry export cap |
+
+The 29550 and 30563 root shards are present; the 30231 root is not. None of
+these three probes wrote a complete assembled bundle. For 30563, an explicit
+assembly-only retry with a 64-million entry limit reused all 328 shards,
+performed no new sector search and preserved their hashes. It then reached
+the separate binary-program section limit: 1,074,983,118 required bytes versus
+1,073,741,824 allowed bytes. This is not a mathematical missing-rule failure,
+nor a successful final bundle size. Native per-sector candidate shards remain
+readable; cross-sector reduction still requires a coherent shared reducer,
+not unrelated per-shard applications with reset budgets or rank checks.
+
+These large finite terminal lists are accepted nonminimal candidate output,
+not minimal masters. They expose storage/application costs which cannot be
+fixed merely by granting more solver RAM. No terminal minimization is started
+before the requested family-coverage gate. Evidence:
+`TMP/tide-r10-three-missing-roots.fGDaNV/snapshot-terminal.json` and
+`TMP/tide-r10-root30563-assembly64m.zTcZUV/`.
 
 Two distinct failures have appeared in the frozen broad-run executable. A
 nonlinear exceptional equality `8-3*n6-6*n2+2*n2*n6=0` is unsupported there.
@@ -237,6 +315,36 @@ One initially incorrect no-integer test fixture was corrected; its failed
 receipt is retained. Evidence: `TMP/bilinear-release-final.MYtg1P/RESULTS.md`.
 The already running broad campaigns remain on their
 frozen older executable and do not inherit this change mid-run.
+
+An additional exact refinement handles authenticated integer equations
+`(a*y+b)*x+Q(y)=0`, where `a` is nonzero and `Q` is univariate of degree greater
+than one. Symbolica computes `S=Res(a*y+b,Q)`. When `S` is nonzero and its
+absolute value is in the supported exact native factorization range, every
+integer solution has `u=a*y+b` dividing `S`. Exhaust all signed divisors and
+use native zero-remainder checks for `y=(u-b)/a` and `x=-Q(y)/u`. This is a
+complete finite integer refinement for the authenticated form, without
+assuming coprimality, bounding positive powers, or implementing a resultant
+kernel in RustRed. For example, the observed condition
+`37-17*y+2*y^2-14*x+4*x*y=0` has resultant 32 and the sole integer pair `(2,3)`;
+the full original parent still decides whether that pair is admissible.
+
+Zero resultant, unsupported support, nonlinear coefficient of `x`, or an
+out-of-range constant returns no finite inference. Every child retains the
+complete conjunction. Dense conversion, native calls and divisor visits share
+existing work budgets; exhaustion remains atomic failure. The independent
+mathematical and implementation audit passes, as do all eight new focused
+tests, all twelve unchanged bilinear tests and the source-consistent release
+core gate: **2,393 passed, zero failed, 32 existing ignored**. This does not
+solve arbitrary nonlinear Diophantine loci or establish family closure.
+Evidence: `TMP/linear-resultant-release.IQkBpR/` and
+`TMP/rank10-inventory-audit.9t07iu/LINEAR_RESULTANT_IMPLEMENTATION_AUDIT.md`.
+The fresh production CLI also passes the seven-sector R=10 regression without
+reusing checkpoints: **34.50 s wall, 39.80 s CPU, 362,116 KiB peak RSS**,
+1,299 rules and 1,208,801 declared terminals. Its 41,971,427-byte output is
+byte-identical to the prior CLI bundle. This is a source-consistent integration
+regression, not a controlled speedup claim; it does not show that the new
+resultant branch was visited. The captured guard's focused test establishes
+that separately. Evidence: `TMP/linear-resultant-r10-pilot.3FeIfD/`.
 
 If exact geometry reaches a genuinely
 unsupported nonlinear branch and a rank was supplied, it fixes one still-free
