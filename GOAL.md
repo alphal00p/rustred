@@ -94,7 +94,10 @@ application canaries pass. Seven stronger raised-denominator targets trace
 47,397 reachable keys with 43,863 rule applications and zero uncovered entries;
 coefficient back-substitution succeeds for two and exceeds the default cache
 term budget for five. A larger-cache repeat reuses the same bundle and passes
-six of seven; the seventh reaches the separate coalescing-addition work cap. These
+six of seven; the seventh reaches the separate coalescing-addition work cap.
+A final fresh-process check, with that work cap explicitly raised too, passes
+all seven exact reductions and their memoized repeats in 371.19 seconds wall
+time, peaking at 5,587,220 KiB RSS. No IBPs were regenerated for these checks. These
 finite checks do not establish arbitrary-positive-power coverage, and
 generation completion is not recursive closure.
 These timings are not a controlled comparison to the earlier reconstruction

@@ -107,8 +107,15 @@ These are application-resource failures, not five missing-rule cases or seven
 successful reductions. A separate explicit larger-cache repeat uses the same
 bundle, without regeneration: six of seven pass with repeat equality in
 274.62 s wall / 271.51 s CPU, at 3,182,164 KiB peak RSS. The remaining input
-hits the separate unchanged 16-million coalescing-addition work limit. Thus it
-is still not a seven-input success. None of these finite target lists proves coverage
+hits the separate unchanged 16-million coalescing-addition work limit. That
+repeat is therefore not a seven-input success. Finally, a fresh-process run
+raises the explicit work allowance to 128 million additions as well and passes
+**all seven exact reductions and their memoized repeats**, using the same
+saved bundle: **371.19 s wall / 367.56 s CPU**, 5,587,220 KiB peak RSS. Its
+cached output uses 63,207,570 coefficient terms and 3,433,282,950 coefficient
+payload bytes. The hard numerator target dominates this run; later targets
+reuse its cache, so their short per-request times are not independent cold
+measurements. Compilation is separate. None of these finite target lists proves coverage
 for arbitrary positive powers. Evidence:
 `TMP/tide-r10-finite-larger-budget.9QDI7r/`.
 
