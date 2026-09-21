@@ -369,6 +369,10 @@ FAMILY-CANDIDATES OPTIONS:
     --finite-case-policy <MODE>  search (default) or retain-rank-finite (requires R)
     --finite-max-visited-points <N>      Per-sector finite enumeration budget (default 1000000)
     --finite-max-retained-terminals <N> Per-sector retained terminal limit (default 1000000)
+    --bundle-max-bytes <N>       Native bundle byte budget (default 268435456; hard maximum 1073741824)
+    --bundle-max-entries <N>     Native collection-entry budget (default 1000000)
+    --bundle-max-coefficient-bytes <N>       Per-coefficient byte budget (default 16777216)
+    --bundle-max-total-coefficient-bytes <N> Total coefficient-table byte budget (default 134217728)
     --checkpoint-dir <PATH>     Dedicated trusted-local native sector checkpoint directory
     --resume                    Reuse a matching checkpoint; requires --checkpoint-dir
     --checkpoint-max-bytes <N>  Positive total checkpoint payload budget [default: 1073741824]

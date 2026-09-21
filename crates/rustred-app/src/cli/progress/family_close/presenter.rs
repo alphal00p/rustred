@@ -341,15 +341,16 @@ impl Display {
                 format!("last event: {}", format_event(s.event.clone(), s.frame))
             },
         );
-        let last_failure = snapshot.and_then(|s| s.last_failure.as_deref());
+        let last_failure = snapshot.and_then(|s| s.last_failure.as_ref());
         let footer = format!(
             "phase={phase} age={:.1}s case={}{}",
             phase_age.as_secs_f64(),
             snapshot
                 .and_then(|s| s.case)
                 .map_or_else(|| "unknown".into(), |v| v.to_string()),
-            last_failure.map_or_else(String::new, |message| {
-                let safe: String = message
+            last_failure.map_or_else(String::new, |failure| {
+                let safe: String = failure
+                    .message
                     .chars()
                     .flat_map(|c| {
                         if c.is_control() {
@@ -359,7 +360,10 @@ impl Display {
                         }
                     })
                     .collect();
-                format!(" | last failure={safe}")
+                format!(
+                    " | last failure: sector={} ordinal={} message={safe}",
+                    failure.sector, failure.ordinal
+                )
             })
         );
         Self {

@@ -95,9 +95,32 @@ bundle. Its reported preparation/generation/encoding times are9.337/27.183/1.792
 no checkpoint was reused. The small external driver and native libraries are
 optimized; compilation is outside this process measurement. This demonstrates
 completion of local candidate generation for this selected family, not all
-five-loop topologies or recursive rank10 closure. Cold loading and actual
-successor checks are required next. Evidence:
+five-loop topologies or recursive rank10 closure. Nine native cold-load and
+application canaries pass, including memoized repeats (9.31 s wall, 9.23 s CPU,
+300,672 KiB peak RSS); most are already retained leaves. Seven stronger inputs
+with raised positive powers and rank-10 numerators trace 47,397 keys, 43,863
+rule applications and 3,534 terminals, with zero uncovered keys. The maximum
+observed numerator degree is 10 and dot excess is 7. Exact back-substitution
+passes only two of these seven inputs: five hit the default 16-million cached
+coefficient-term budget (93.66 s wall, 92.80 s CPU, 1,628,572 KiB peak RSS).
+These are application-resource failures, not five missing-rule cases or seven
+successful reductions. A separate explicit larger-cache repeat uses the same
+bundle, without regeneration: six of seven pass with repeat equality in
+274.62 s wall / 271.51 s CPU, at 3,182,164 KiB peak RSS. The remaining input
+hits the separate unchanged 16-million coalescing-addition work limit. Thus it
+is still not a seven-input success. None of these finite target lists proves coverage
+for arbitrary positive powers. Evidence:
 `TMP/tide-r10-finite-larger-budget.9QDI7r/`.
+
+The updated release CLI independently regenerates this same selected family
+with the public budget switches in **49.13 s wall / 56.89 s CPU**, peaking at
+397,992 KiB RSS. It saves all seven sectors and produces a byte-identical bundle
+to the earlier public Rust driver: the same 1,299 rules and 1,208,801 terminals.
+No checkpoint is reused. These single runs use different interfaces and a
+shared host with other active campaigns, so their time ratio is not a controlled
+performance comparison. This is a five-loop end-to-end regression of the
+implemented slice, not new all-family closure. Evidence:
+`TMP/tide-r10-updated-cli.MW0dOB/RESULTS.md`.
 
 ### Four-parent coverage campaign
 
@@ -118,14 +141,52 @@ Many pending masks have not started, so they must not be labelled hard cases.
 See `TMP/rank10-inventory-audit.9t07iu/AUDIT.md` and the ongoing batch in
 `TMP/tide-r10-four-parent-batch.yGOAw6/`.
 
-Two distinct failures have appeared. A nonlinear exceptional equality
-`8-3*n6-6*n2+2*n2*n6=0` remains unsupported. Its equivalent integer equation
+A later independent, non-atomic snapshot at **08:38:44–45 UTC**, about one hour
+after launch, finds **2,941 distinct saved sectors**, 3,281 saved
+occurrences and representations of **63/67** published classes:
+
+| Parent input | Durable sectors / scheduled | Logical checkpoint GB |
+|---|---:|---:|
+| 30527 | 287 / 2,686 | 3.246 |
+| 30699 | 1,069 / 2,580 | 7.216 |
+| 31740 | 727 / 2,656 | 7.948 |
+| 32745 | 1,198 / 2,478 | 4.279 |
+
+The four unrepresented classes in this particular batch are 28686, 29550,
+30231 and 30563. The separately generated finite-retention example covers a
+selected 28686 input, but uses another generation policy and is not silently
+merged into these checkpoints. All four broad campaigns are still running;
+the saved counts are not final results. Aggregate sampled memory is about
+214 GB. Parent 30527 has about 12.5 GB virtual-address headroom beneath its
+80 GiB process cap; the 450 GB aggregate soft stop is a separate limit.
+Evidence: `TMP/rank10-one-hour-inventory.i4Eqtc/REPORT.md`, with the earlier
+47-minute snapshot separately preserved.
+
+Two distinct failures have appeared in the frozen broad-run executable. A
+nonlinear exceptional equality `8-3*n6-6*n2+2*n2*n6=0` is unsupported there.
+Its equivalent integer equation
 `(2*n2-3)*(n6-3)=1` admits only the pairs `(2,4)` and `(1,2)`, subject to the
 full original case; this is a missing exact finite-case refinement, not proof
 of an infinite residual direction. Separately, some native exports exceed
 the default128MiB total coefficient-table budget. The Rust request already
 exposes `bundle_limits.max_total_coefficient_bytes`; increasing checkpoint
 disk space or process RAM does not increase that independent limit.
+The frontend follow-up exposes the existing transport controls as
+`--bundle-max-bytes`, `--bundle-max-entries`, `--bundle-max-coefficient-bytes`
+and `--bundle-max-total-coefficient-bytes`, with corresponding underscore-named
+Python keywords. Defaults and payload schemas are unchanged. Raising a
+transport allowance does not change the generation policy and can reuse a
+matching checkpoint; changing the rank or finite-leaf policy cannot. The
+coalesced progress display also retains the failed sector and ordinal with its
+bounded message, avoiding attribution to a different worker's latest event.
+It is still a last-error display, not a complete failure journal.
+Independent frontend review passes. Release validation passes all 231 app
+tests (154 unit and 77 integration), eight Python Rust-side tests and 45 Python
+API tests. No assertions were removed or tests skipped. The initial Python
+packaging attempt failed in an unrelated Nix dependency refresh before building
+the extension; the preserved retry uses the installed Maturin binary and passes
+with unchanged source. Evidence: `TMP/frontend-bundle-gate.fjnL8o/VALIDATION.md`
+and `TMP/frontend-python-retry.oDspIu/`.
 
 A preparation-only control using the same input, an empty root and the frozen
 CLI completes in6.60s with Rayon1 and8.35s with Rayon4 (both on the same four
@@ -143,7 +204,34 @@ must still have an applicable rule or an explicitly declared terminal.
 
 ## How nonlinear exceptions are handled
 
-The ordinary exact geometry path is unchanged. If it reaches a genuinely
+The ordinary exact geometry path first uses native normalization and affine or
+factor refinements. A follow-up service covers the authenticated two-index
+integer form `A*x*y+B*x+C*y+D=0`, with nonzero `A`, by
+`(A*x+C)*(A*y+B)=B*C-A*D`. For a nonzero right-hand side within the exact native
+u64-primality range, Symbolica integer factorization and exact quotient/remainder
+operations enumerate every signed divisor and enforce both congruences. For a
+zero right-hand side, the result is two affine faces, not two fixed points.
+Every child retains the full original parent and conjunction. Larger constants,
+other coefficient variables and other nonlinear forms are not silently sampled
+or declared empty. This implementation is topology- and loop-count independent;
+the captured five-loop guards are regression inputs, not dispatch keys.
+
+This refinement's work and factorization limits are shared with the enclosing
+intersection. Exhaustion invalidates the whole result, never just the remaining
+children. The focused release gate checks signed divisors, congruences, zero
+product faces, parent restrictions, compact-index limits and adversarial work
+limits. The source-consistent release core gate passes **2,385 tests**, with
+zero failures and 32 existing ignored tests; all 12 focused bilinear tests
+pass. Independent mathematical/implementation review also passes. The core
+slice is committed and pushed as `e34df18e`; frontend gates are separate.
+Formerly unsupported bilinear regression fixtures were changed to genuine
+unsupported Pell loci without altering their no-partial-publication assertions.
+One initially incorrect no-integer test fixture was corrected; its failed
+receipt is retained. Evidence: `TMP/bilinear-release-final.MYtg1P/RESULTS.md`.
+The already running broad campaigns remain on their
+frozen older executable and do not inherit this change mid-run.
+
+If exact geometry reaches a genuinely
 unsupported nonlinear branch and a rank was supplied, it fixes one still-free
 inactive original coordinate to each possible value allowed by the remaining
 total numerator degree. Existing Symbolica substitution, affine admission,
@@ -158,9 +246,10 @@ sets. The returned equality domains may cover more points outside R, but their
 claimed completeness is only their intersection with the stated rank bound.
 Raw nonlinear rule guards remain intact for exact concrete application.
 
-This service does not introduce a Diophantine solver, interpolation or rational
-reconstruction kernel. Polynomial operations use the existing Symbolica API;
-the new code controls a finite case queue in original integral coordinates.
+This service does not introduce a general Diophantine solver, interpolation or
+rational reconstruction kernel. Polynomial and integer algebra use the existing
+Symbolica API; RustRed orchestrates a finite case queue in original coordinates
+and the narrow exhaustive divisor refinement described above.
 
 ## Dependency inspection and limits of the claim
 
@@ -264,8 +353,9 @@ A 20-second userspace sampling profile across the live process collects 3,871
 samples with no reported lost samples. Native integer multiplication, polynomial
 division and Groebner arithmetic appear prominently. It is a local late-phase
 sample, not a whole-run attribution; the campaign is consequently instrumented,
-not a clean solver-throughput comparison. No complete seven-sector candidate
-bundle is claimed. Original CLI/input hashes still match after termination.
+not a clean solver-throughput comparison. That reconstruction campaign produced
+no complete seven-sector candidate bundle. Original CLI/input hashes still match
+after termination.
 
 Positive-power and above-entry-rank successor coverage remain open; terminal
 minimization, numerical-master lookup and Vakint five-loop integration have

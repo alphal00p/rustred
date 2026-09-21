@@ -6,8 +6,8 @@ use super::{
     parse_nonnegative_integer, parse_positive_integer, set_once,
 };
 use crate::{
-    CandidateCheckpointOptions, CandidateExactBackend, FiniteCaseLimits, FiniteCasePolicy,
-    InputFormat,
+    CandidateBundleLimits, CandidateCheckpointOptions, CandidateExactBackend, FiniteCaseLimits,
+    FiniteCasePolicy, InputFormat, MAX_CANDIDATE_BUNDLE_BYTES,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,6 +22,7 @@ pub(crate) struct FamilyCandidatesArgs {
     pub max_numerator_rank: Option<u32>,
     pub finite_case_policy: FiniteCasePolicy,
     pub finite_case_limits: FiniteCaseLimits,
+    pub bundle_limits: CandidateBundleLimits,
     pub checkpoint: Option<CandidateCheckpointOptions>,
     pub progress: bool,
     pub permutation: Option<Vec<usize>>,
@@ -67,6 +68,10 @@ fn parse(
     let mut finite_case_policy = None;
     let mut finite_max_visited_points = None;
     let mut finite_max_retained_terminals = None;
+    let mut bundle_max_bytes = None;
+    let mut bundle_max_entries = None;
+    let mut bundle_max_coefficient_bytes = None;
+    let mut bundle_max_total_coefficient_bytes = None;
     let mut checkpoint_dir = None;
     let mut checkpoint_max_bytes = None;
     let mut resume = false;
@@ -81,6 +86,27 @@ fn parse(
     while let Some(option) = arguments.next() {
         let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
         match option.as_str() {
+            "--bundle-max-bytes"
+            | "--bundle-max-entries"
+            | "--bundle-max-coefficient-bytes"
+            | "--bundle-max-total-coefficient-bytes"
+                if !certification =>
+            {
+                let (name, slot) = match option.as_str() {
+                    "--bundle-max-bytes" => ("--bundle-max-bytes", &mut bundle_max_bytes),
+                    "--bundle-max-entries" => ("--bundle-max-entries", &mut bundle_max_entries),
+                    "--bundle-max-coefficient-bytes" => (
+                        "--bundle-max-coefficient-bytes",
+                        &mut bundle_max_coefficient_bytes,
+                    ),
+                    _ => (
+                        "--bundle-max-total-coefficient-bytes",
+                        &mut bundle_max_total_coefficient_bytes,
+                    ),
+                };
+                let value = next_utf8_value(&mut arguments, name)?;
+                set_once(slot, name, parse_positive_integer(name, value)?)?;
+            }
             "--checkpoint-dir" if !certification => {
                 let path = next_value(&mut arguments, "--checkpoint-dir")?;
                 if path.is_empty() {
@@ -281,6 +307,21 @@ fn parse(
         max_retained_terminals: finite_max_retained_terminals
             .unwrap_or(default_finite_limits.max_retained_terminals),
     };
+    if bundle_max_bytes.is_some_and(|bytes| bytes > MAX_CANDIDATE_BUNDLE_BYTES) {
+        return Err(ArgError::InvalidCombination(
+            "--bundle-max-bytes exceeds the hard 1073741824-byte (1 GiB) candidate limit",
+        ));
+    }
+    let defaults = CandidateBundleLimits::default();
+    let bundle_limits = CandidateBundleLimits {
+        max_bundle_bytes: bundle_max_bytes.unwrap_or(defaults.max_bundle_bytes),
+        max_collection_entries: bundle_max_entries.unwrap_or(defaults.max_collection_entries),
+        max_coefficient_bytes: bundle_max_coefficient_bytes
+            .unwrap_or(defaults.max_coefficient_bytes),
+        max_total_coefficient_bytes: bundle_max_total_coefficient_bytes
+            .unwrap_or(defaults.max_total_coefficient_bytes),
+        ..defaults
+    };
     if max_negative_index_degree.is_some() && max_total_excess_degree.is_some() {
         return Err(ArgError::InvalidCombination(
             "--max-negative-index-degree and --max-total-excess-degree are mutually exclusive",
@@ -338,6 +379,7 @@ fn parse(
             max_numerator_rank,
             finite_case_policy,
             finite_case_limits,
+            bundle_limits,
             checkpoint,
             progress,
             permutation,
@@ -357,6 +399,51 @@ fn parse_indices(option: &'static str, value: String) -> Result<Vec<usize>, ArgE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bundle_transport_limits_are_positive_optional_and_generation_only() {
+        let parse_args = |args: &[&str]| parse_generation(args.iter().map(OsString::from));
+        let Command::FamilyCandidates(defaults) = parse_args(&[]).unwrap() else {
+            panic!("generation expected")
+        };
+        assert_eq!(defaults.bundle_limits, CandidateBundleLimits::default());
+        for option in [
+            "--bundle-max-bytes",
+            "--bundle-max-entries",
+            "--bundle-max-coefficient-bytes",
+            "--bundle-max-total-coefficient-bytes",
+        ] {
+            for value in ["0", "-1", "+1", "true", "0.5", "", "184467440737095516160"] {
+                assert!(parse_args(&[option, value]).is_err(), "{option} {value}");
+            }
+            assert!(parse_args(&[option, "1", option, "1"]).is_err());
+            assert!(parse_certification([option, "1"].into_iter().map(OsString::from)).is_err());
+        }
+        assert!(parse_args(&["--bundle-max-bytes", "1073741825"]).is_err());
+        let Command::FamilyCandidates(parsed) = parse_args(&[
+            "--bundle-max-bytes",
+            "1073741824",
+            "--bundle-max-entries",
+            "32000000",
+            "--bundle-max-coefficient-bytes",
+            "33554432",
+            "--bundle-max-total-coefficient-bytes",
+            "536870912",
+        ])
+        .unwrap() else {
+            panic!("generation expected")
+        };
+        assert_eq!(
+            parsed.bundle_limits.max_bundle_bytes,
+            MAX_CANDIDATE_BUNDLE_BYTES
+        );
+        assert_eq!(parsed.bundle_limits.max_collection_entries, 32_000_000);
+        assert_eq!(parsed.bundle_limits.max_coefficient_bytes, 32 * 1024 * 1024);
+        assert_eq!(
+            parsed.bundle_limits.max_total_coefficient_bytes,
+            512 * 1024 * 1024
+        );
+    }
 
     #[test]
     fn finite_retention_requires_rank_and_owns_only_positive_work_limits() {

@@ -9,6 +9,8 @@ use rustred::persistence::{
 };
 
 const INPUT: &str = r#"I(loops(q),externals(),dimension(d),prop(D1,q^2-1,1))"#;
+const K3_INPUT: &str =
+    r#"I(loops(p,q),externals(),dimension(d),prop(A,p^2-1,1),prop(B,q^2-1,1),prop(C,(p-q)^2-1,1))"#;
 
 fn run(arguments: &[&str], input: &[u8]) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_rustred"))
@@ -45,6 +47,109 @@ fn success(arguments: &[&str], input: &[u8]) -> Vec<u8> {
         String::from_utf8_lossy(&output.stderr)
     );
     output.stdout
+}
+
+#[test]
+fn bundle_limits_validate_and_tiny_budgets_fail_without_output() {
+    let help = String::from_utf8(success(&["--help"], b"")).unwrap();
+    for option in [
+        "--bundle-max-bytes",
+        "--bundle-max-entries",
+        "--bundle-max-coefficient-bytes",
+        "--bundle-max-total-coefficient-bytes",
+    ] {
+        assert!(help.contains(option));
+        for value in ["0", "-1", "+1", "true", "0.5", "184467440737095516160"] {
+            let rejected = run(&["family-candidates", option, value], b"not parsed");
+            assert!(!rejected.status.success(), "{option} {value}");
+            assert!(rejected.stdout.is_empty());
+            assert!(String::from_utf8_lossy(&rejected.stderr).contains(option));
+        }
+        let rejected = run(
+            &["family-candidates", option, "1", option, "1"],
+            b"not parsed",
+        );
+        assert!(!rejected.status.success());
+        let tiny = run(&["family-candidates", option, "1"], INPUT.as_bytes());
+        assert!(!tiny.status.success(), "{option}");
+        assert!(tiny.stdout.is_empty());
+        assert!(
+            String::from_utf8_lossy(&tiny.stderr).contains("limit"),
+            "{}",
+            String::from_utf8_lossy(&tiny.stderr)
+        );
+    }
+    let rejected = run(
+        &["family-candidates", "--bundle-max-bytes", "1073741825"],
+        b"not parsed",
+    );
+    assert!(!rejected.status.success());
+    assert!(rejected.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("hard 1073741824-byte"));
+}
+
+#[test]
+fn enlarged_bundle_limits_preserve_k3_finite_output_and_checkpoint_reuse() {
+    let directory = Directory::new();
+    let checkpoint = directory.0.join("sectors");
+    let report = directory.0.join("resume.toml");
+    let generation = [
+        "family-candidates",
+        "--max-numerator-rank",
+        "2",
+        "--finite-case-policy",
+        "retain-rank-finite",
+    ];
+    let baseline = success(&generation, K3_INPUT.as_bytes());
+    let mut initial_args = generation.to_vec();
+    initial_args.extend(["--checkpoint-dir", checkpoint.to_str().unwrap()]);
+    let initial = success(&initial_args, K3_INPUT.as_bytes());
+    let before: Vec<_> = std::fs::read_dir(&checkpoint)
+        .unwrap()
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            (path.clone(), std::fs::read(path).unwrap())
+        })
+        .collect();
+    let mut enlarged = generation.to_vec();
+    enlarged.extend([
+        "--bundle-max-bytes",
+        "1073741824",
+        "--bundle-max-entries",
+        "32000000",
+        "--bundle-max-coefficient-bytes",
+        "33554432",
+        "--bundle-max-total-coefficient-bytes",
+        "536870912",
+    ]);
+    let fresh_enlarged = success(&enlarged, K3_INPUT.as_bytes());
+    enlarged.extend([
+        "--checkpoint-dir",
+        checkpoint.to_str().unwrap(),
+        "--resume",
+        "--report-output",
+        report.to_str().unwrap(),
+    ]);
+    let resumed = success(&enlarged, K3_INPUT.as_bytes());
+    for generated in [&initial, &fresh_enlarged, &resumed] {
+        assert!(
+            rustred::persistence::equivalent_generated_programs(
+                &baseline,
+                generated,
+                BinaryIoLimits::default(),
+            )
+            .unwrap()
+        );
+    }
+    for (path, bytes) in before {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    let report: toml::Value = toml::from_str(&std::fs::read_to_string(report).unwrap()).unwrap();
+    assert_eq!(
+        report["checkpoint"]["newly_solved_sectors"].as_integer(),
+        Some(0)
+    );
+    assert_eq!(report["checkpoint"]["reused_sectors"].as_integer(), Some(4));
 }
 
 #[test]

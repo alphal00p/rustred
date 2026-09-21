@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use crate::{FamilyCloseGenerationStage as Stage, FamilyCloseProgress as Event};
 
 use super::format::format_event;
-use super::presenter::FamilyCloseProgressMonitor;
+use super::presenter::{Display, FamilyCloseProgressMonitor};
 use super::resources::Resources;
 use super::state::{MAX_TRACKED_JOBS, Tracker};
 
@@ -188,11 +188,57 @@ fn failure_retains_only_bounded_utf8_text_and_bounded_string_capacity() {
             "retained capacity={}",
             message.capacity()
         );
-        assert!(snapshot.last_failure.as_ref().unwrap().len() <= 1_027);
+        let failure = snapshot.last_failure.as_ref().unwrap();
+        assert_eq!((failure.ordinal, failure.sector), (0, 9));
+        assert!(failure.message.len() <= 1_027);
+        assert!(failure.message.capacity() <= 2_054);
         let rendered = format_event(snapshot.event, snapshot.frame);
         assert!(!rendered.contains('\x1b'));
         assert!(!rendered.contains('\n'));
         assert!(!rendered.contains('\r'));
+    }
+}
+
+#[test]
+fn failure_identity_survives_coalescing_with_another_workers_event() {
+    let now = Instant::now();
+    let mut tracker = Tracker::default();
+    tracker.observe(
+        Event::FailedSector {
+            ordinal: 17,
+            sector: 14343,
+            message: "first failure".into(),
+            elapsed: Duration::ZERO,
+        },
+        now,
+    );
+    tracker.observe(
+        Event::FailedSector {
+            ordinal: 28,
+            sector: 27639,
+            message: "é\x1b[31m\n\r".repeat(50_000),
+            elapsed: Duration::ZERO,
+        },
+        now,
+    );
+    let snapshot = tracker.observe(generation(99, 123, Stage::GuardExtraction), now);
+    assert_eq!(snapshot.counts.failures, 2);
+    let failure = snapshot.last_failure.as_ref().unwrap();
+    assert_eq!((failure.ordinal, failure.sector), (28, 27639));
+    assert!(failure.message.len() <= 1_027);
+    assert!(failure.message.capacity() <= 2_054);
+    let display = Display::new(Some(&snapshot), Resources::default(), now, now, None);
+    assert!(display.detail.contains("sector=123"));
+    assert!(
+        display
+            .footer
+            .contains("last failure: sector=27639 ordinal=28 message=")
+    );
+    assert!(!display.footer.contains("sector=123"));
+    assert!(!display.footer.contains("first failure"));
+    assert!(display.footer.contains('é'));
+    for control in ['\x1b', '\n', '\r'] {
+        assert!(!display.footer.contains(control));
     }
 }
 

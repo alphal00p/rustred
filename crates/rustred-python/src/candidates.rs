@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use rustred_app::{
     CandidateCertificationRequest, CandidateCheckpointOptions, FamilyCandidatesRequest,
-    FiniteCasePolicy,
+    FiniteCasePolicy, MAX_CANDIDATE_BUNDLE_BYTES,
 };
 use std::path::PathBuf;
 
@@ -63,14 +63,20 @@ impl PyCandidateBundleResult {
 /// finite_case_policy="retain-rank-finite" deliberately keeps every finite
 /// in-scope leaf once all positive axes are fixed, without minimizing it.
 /// It requires max_numerator_rank; finite_* limits bound work, not the domain.
+/// bundle_max_* are optional positive native transport/output budgets (bytes,
+/// collection entries, per-coefficient bytes, and total coefficient-table bytes).
+/// They do not change the rules or checkpoint generation identity. The whole
+/// bundle has a hard 1 GiB ceiling; these are not RAM or checkpoint-directory limits.
 /// checkpoint_dir enables trusted-local native sector checkpoints. Use resume
-/// only with the same source/root/order/backend/depth/rank. Keep final outputs outside
+/// only with the same source/root/order/backend/depth/rank and finite-case
+/// policy/work limits. Transport budgets and worker count may change on resume.
+/// Keep final outputs outside
 /// the dedicated directory; checkpoint_max_bytes is a positive payload budget,
 /// not a RAM limit. Checkpoints do not certify rules or family closure.
 #[pyfunction]
 #[pyo3(
-    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse", numerical_depth=PythonInteger(2), max_numerator_rank=None, finite_case_policy="search", finite_max_visited_points=None, finite_max_retained_terminals=None, checkpoint_dir=None, resume=false, checkpoint_max_bytes=None),
-    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse', numerical_depth=2, max_numerator_rank=None, finite_case_policy='search', finite_max_visited_points=None, finite_max_retained_terminals=None, checkpoint_dir=None, resume=False, checkpoint_max_bytes=None)"
+    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse", numerical_depth=PythonInteger(2), max_numerator_rank=None, finite_case_policy="search", finite_max_visited_points=None, finite_max_retained_terminals=None, bundle_max_bytes=None, bundle_max_entries=None, bundle_max_coefficient_bytes=None, bundle_max_total_coefficient_bytes=None, checkpoint_dir=None, resume=false, checkpoint_max_bytes=None),
+    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse', numerical_depth=2, max_numerator_rank=None, finite_case_policy='search', finite_max_visited_points=None, finite_max_retained_terminals=None, bundle_max_bytes=None, bundle_max_entries=None, bundle_max_coefficient_bytes=None, bundle_max_total_coefficient_bytes=None, checkpoint_dir=None, resume=False, checkpoint_max_bytes=None)"
 )]
 fn family_candidates(
     py: Python<'_>,
@@ -85,6 +91,10 @@ fn family_candidates(
     finite_case_policy: &str,
     finite_max_visited_points: Option<PythonInteger>,
     finite_max_retained_terminals: Option<PythonInteger>,
+    bundle_max_bytes: Option<PythonInteger>,
+    bundle_max_entries: Option<PythonInteger>,
+    bundle_max_coefficient_bytes: Option<PythonInteger>,
+    bundle_max_total_coefficient_bytes: Option<PythonInteger>,
     checkpoint_dir: Option<PathBuf>,
     resume: bool,
     checkpoint_max_bytes: Option<PythonInteger>,
@@ -146,6 +156,26 @@ fn family_candidates(
             finite_max_retained_terminals,
             &mut request.finite_case_limits.max_retained_terminals,
         ),
+        (
+            "bundle_max_bytes",
+            bundle_max_bytes,
+            &mut request.bundle_limits.max_bundle_bytes,
+        ),
+        (
+            "bundle_max_entries",
+            bundle_max_entries,
+            &mut request.bundle_limits.max_collection_entries,
+        ),
+        (
+            "bundle_max_coefficient_bytes",
+            bundle_max_coefficient_bytes,
+            &mut request.bundle_limits.max_coefficient_bytes,
+        ),
+        (
+            "bundle_max_total_coefficient_bytes",
+            bundle_max_total_coefficient_bytes,
+            &mut request.bundle_limits.max_total_coefficient_bytes,
+        ),
     ] {
         if let Some(value) = value {
             let limit = nonnegative_usize(name, value.0)?;
@@ -156,6 +186,11 @@ fn family_candidates(
             }
             *slot = limit;
         }
+    }
+    if request.bundle_limits.max_bundle_bytes > MAX_CANDIDATE_BUNDLE_BYTES {
+        return Err(RustRedInputError::new_err(
+            "bundle_max_bytes exceeds the hard 1073741824-byte (1 GiB) candidate limit",
+        ));
     }
     request.checkpoint = checkpoint;
     request.numerical_depth = u32::try_from(numerical_depth.0).map_err(|_| {

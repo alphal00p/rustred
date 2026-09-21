@@ -250,11 +250,23 @@ support `--report-output` for phase timings separate from their data output.
 Neither candidate generation nor a successful finite-target experiment is a
 proof of complete family coverage.
 
+Candidate output budgets can be explicitly adjusted with `bundle_max_bytes`
+(default 256 MiB; hard maximum 1 GiB), `bundle_max_entries` (default 1,000,000),
+`bundle_max_coefficient_bytes` (default 16 MiB per coefficient), and
+`bundle_max_total_coefficient_bytes` (default 128 MiB for the whole coefficient
+table). Each is a positive platform-sized integer, not bool; `None` retains
+the default. CLI equivalents replace underscores with hyphens, e.g.
+`--bundle-max-total-coefficient-bytes 536870912`. These bounds apply to each
+native shard and the final assembled bundle, not to RAM. They do not change
+rules, rank scope, or checkpoint generation identity. A larger checkpoint
+directory budget alone does not enlarge a per-bundle coefficient limit.
+
 Optional `checkpoint_dir=Path("saved-sectors")` saves each completed sector as an
 ordinary native uncertified candidate shard. The directory must initially be
 new or empty and is exclusively locked for the request. To continue later, use
-the same source text, input format, root, order, arithmetic backend and search
-depth with `resume=True`; worker count may change. Completed shards are reused,
+the same source text, input format, root, order, arithmetic backend, search
+depth, rank scope, and finite-case policy/work limits with `resume=True`;
+worker count and transport/output budgets may change. Completed shards are reused,
 not solved again. Structural metadata is checked before native State import;
 the final assembly imports each shard once and checks its exact family/context.
 Invalid committed shards fail closed without replacement or automatic reruns.

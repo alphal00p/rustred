@@ -14,7 +14,8 @@ const DEFAULT_DEPTH: u32 = 2;
 const RANK_SEPARATOR: &str = "-max-numerator-rank-";
 const RETAIN_SEPARATOR: &str = "-retain-rank-finite-points-";
 
-/// Declared generation coverage, not a certificate or a resource budget.
+/// Generation scope and finite-case policy, including its work limits.
+/// Not a certificate. Transport/output budgets are deliberately excluded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct GenerationPolicy {
     pub numerical_depth: u32,

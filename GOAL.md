@@ -67,9 +67,9 @@ stops at its one-hour deadline with three of seven nonzero sectors completed,
 1,234 saved rules and three residuals. It uses 12,102.89 CPU seconds and peaks
 at 6,351,772 KiB RSS; a short attached profile makes this an instrumented
 diagnostic. Ten fresh-process application canaries across two shards pass,
-but do not prove family coverage. No complete five-loop candidate bundle or
-all-family coverage is
-claimed. Preserve these distinct receipts; preparation time is not a backend
+but do not prove family coverage. That earlier reconstruction pilot produced
+no complete bundle; no all-family coverage is claimed. Preserve these distinct
+receipts; preparation time is not a backend
 comparison. See the
 [rank-scope implementation notes](docs/rank_scoped_generation.md).
 
@@ -89,10 +89,44 @@ exceeds the cumulative one-million-point enumeration budget. No assembled
 bundle or recursive closure is claimed for that first attempt. A fresh retry
 with ten million allowed visited points and larger explicit transport budgets
 writes all seven candidate sectors in 38.84 seconds wall time: 1,299 rules,
-1,208,801 nonminimal terminals and a 41,971,427-byte bundle. Cold dependency
-checks are the next gate; generation completion is not recursive closure.
+1,208,801 nonminimal terminals and a 41,971,427-byte bundle. Nine fresh-process
+application canaries pass. Seven stronger raised-denominator targets trace
+47,397 reachable keys with 43,863 rule applications and zero uncovered entries;
+coefficient back-substitution succeeds for two and exceeds the default cache
+term budget for five. A larger-cache repeat reuses the same bundle and passes
+six of seven; the seventh reaches the separate coalescing-addition work cap. These
+finite checks do not establish arbitrary-positive-power coverage, and
+generation completion is not recursive closure.
 These timings are not a controlled comparison to the earlier reconstruction
 pilot, and this selected family does not replace the full census.
+
+The latest resource authorization is **100 compute cores and 500 GB aggregate
+RAM**. Four checkpointed parent campaigns currently use 20 sector workers each;
+the remaining allocation serves bounded release builds and diagnostics. Native
+inner pools remain capped, and an aggregate monitor includes registered build
+and diagnostic process trees with a 450 GB soft stop. Preserve completed sector
+shards and distinguish unscheduled/running work, mathematical failures, export
+limits and application limits. Do not label a saved shard or represented graph
+class as complete recursive rank-10 closure. Independent agents implement and
+audit exact exceptional-domain refinement and public export-budget controls
+while the frozen broad campaigns continue; do not mix their different generation
+policies into one claimed artifact.
+
+The exact two-index bilinear exceptional-domain refinement is now committed
+and pushed as `e34df18e`, with independent mathematical/implementation review
+and a source-consistent release core gate of **2,385 passed, zero failed,
+32 existing ignored**. It resolves the three captured bilinear guards using
+native Symbolica integer factoring and complete signed-divisor enumeration;
+it does not resolve arbitrary nonlinear cases or prove family closure. A
+separate linear/quadratic condition has an exact native-resultant follow-up
+design but is not implemented. Public export-budget and failure-sector
+diagnostic improvements pass independent review, all 231 application tests,
+eight Python Rust-side tests and all 45 Python API tests. The new public CLI
+regenerates the selected seven-sector R10 bundle in 49.13 seconds and produces
+byte-identical output to the earlier public Rust driver. These are single-run
+regression observations, not a controlled speed comparison. The hourly broad
+inventory saves 2,941 of 8,246 distinct labelled sectors and reaches 63 of 67
+graph classes; all four parent campaigns are still incomplete.
 
 The September 21 offline input-routing milestone now covers all **8,246**
 labelled jobs in the four-parent downset union after the saved zero screening,

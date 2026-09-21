@@ -22,6 +22,53 @@ from test_python_api import (
 
 
 class CandidateApiTests(GeneratedProgramAssertions):
+    def test_bundle_output_limits_are_strict_optional_and_fail_closed(self) -> None:
+        signature = inspect.signature(rustred.family_candidates)
+        keywords = ["bundle_max_bytes", "bundle_max_entries", "bundle_max_coefficient_bytes",
+                    "bundle_max_total_coefficient_bytes"]
+        for key in keywords:
+            self.assertIsNone(signature.parameters[key].default)
+            self.assertEqual(signature.parameters[key].kind, inspect.Parameter.KEYWORD_ONLY)
+            for value in [True, False, 0, -1, 0.5, "2", 1 << 128]:
+                with self.subTest(key=key, value=value), self.assertRaises(rustred.RustRedInputError):
+                    rustred.family_candidates("not parsed", **{key: value})
+            with self.subTest(tiny=key), self.assertRaisesRegex(rustred.RustRedError, "limit"):
+                rustred.family_candidates(UNIT_MASS_PROJECT_K1, **{key: 1})
+        with self.assertRaisesRegex(rustred.RustRedInputError, "hard 1073741824-byte"):
+            rustred.family_candidates("not parsed", bundle_max_bytes=(1 << 30) + 1)
+        ordinary = rustred.family_candidates(UNIT_MASS_PROJECT_K1)
+        explicit_none = rustred.family_candidates(UNIT_MASS_PROJECT_K1, **dict.fromkeys(keywords))
+        self.assertProgramEqual(ordinary.bundle, explicit_none.bundle)
+
+    def test_larger_bundle_budgets_preserve_k3_finite_output_and_checkpoint_identity(self) -> None:
+        finite = {"max_numerator_rank": 2, "finite_case_policy": "retain-rank-finite"}
+        enlarged = {"bundle_max_bytes": 1 << 30, "bundle_max_entries": 32_000_000,
+                    "bundle_max_coefficient_bytes": 32 << 20,
+                    "bundle_max_total_coefficient_bytes": 512 << 20}
+        ordinary = rustred.family_candidates(UNIT_MASS_PROJECT_K3, **finite)
+        fresh_enlarged = rustred.family_candidates(UNIT_MASS_PROJECT_K3, **finite, **enlarged)
+        self.assertProgramEqual(ordinary.bundle, fresh_enlarged.bundle)
+        scratch = Path(__file__).resolve().parents[3] / "TMP"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch, prefix="python-candidate-budgets-") as tmp:
+            checkpoint = Path(tmp) / "sectors"
+            initial = rustred.family_candidates(UNIT_MASS_PROJECT_K3, checkpoint_dir=checkpoint, **finite)
+            before = {path.name: path.read_bytes() for path in checkpoint.iterdir()}
+            resumed = rustred.family_candidates(UNIT_MASS_PROJECT_K3, checkpoint_dir=checkpoint,
+                resume=True, **finite, **enlarged)
+            self.assertProgramEqual(ordinary.bundle, initial.bundle)
+            self.assertProgramEqual(ordinary.bundle, resumed.bundle)
+            report = tomllib.loads(resumed.to_toml())["checkpoint"]
+            self.assertEqual(report["newly_solved_sectors"], 0)
+            self.assertEqual(report["reused_sectors"], 4)
+            arguments = ["family-candidates", "--max-numerator-rank", "2",
+                "--finite-case-policy", "retain-rank-finite", "--checkpoint-dir", str(checkpoint), "--resume"]
+            for key, value in enlarged.items():
+                arguments.extend(["--" + key.replace("_", "-"), str(value)])
+            cli_resumed = cli_bytes(arguments, UNIT_MASS_PROJECT_K3.encode())
+            self.assertProgramEqual(ordinary.bundle, cli_resumed)
+            self.assertEqual(before, {path.name: path.read_bytes() for path in checkpoint.iterdir()})
+
     def test_finite_retention_is_explicit_rank_scoped_and_matches_cli(self) -> None:
         signature = inspect.signature(rustred.family_candidates)
         self.assertEqual(signature.parameters["finite_case_policy"].default, "search")

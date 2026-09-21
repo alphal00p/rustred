@@ -71,6 +71,14 @@ impl Counts {
     }
 }
 
+/// Last bounded failure retained across coalescing, not a failure journal.
+#[derive(Clone, Debug)]
+pub(super) struct Failure {
+    pub(super) ordinal: usize,
+    pub(super) sector: u64,
+    pub(super) message: String,
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct Snapshot {
     pub(super) event: FamilyCloseProgress,
@@ -78,7 +86,7 @@ pub(super) struct Snapshot {
     pub(super) frame: Option<ExactFrame>,
     pub(super) case: Option<usize>,
     pub(super) counts: Counts,
-    pub(super) last_failure: Option<String>,
+    pub(super) last_failure: Option<Failure>,
     pub(super) phase: &'static str,
     pub(super) phase_since: Instant,
 }
@@ -87,7 +95,7 @@ pub(super) struct Snapshot {
 pub(super) struct Tracker {
     pub(super) jobs: BTreeMap<(usize, u64), ExactJob>,
     pub(super) counts: Counts,
-    last_failure: Option<String>,
+    last_failure: Option<Failure>,
     phase: Option<(Option<(usize, u64)>, &'static str, Instant)>,
 }
 
@@ -101,7 +109,13 @@ impl Tracker {
 
     pub(super) fn observe(&mut self, mut event: FamilyCloseProgress, at: Instant) -> Snapshot {
         use FamilyCloseGenerationStage::*;
-        if let FamilyCloseProgress::FailedSector { message, .. } = &mut event {
+        if let FamilyCloseProgress::FailedSector {
+            ordinal,
+            sector,
+            message,
+            ..
+        } = &mut event
+        {
             // Bound retained error text without splitting UTF-8. Escaping is
             // deferred to the presenter; no formatting happens in this callback.
             let mut end = message.len().min(MAX_FAILURE_BYTES);
@@ -115,7 +129,11 @@ impl Tracker {
             // `truncate` alone would retain an arbitrarily large allocation,
             // including a short message with a caller-reserved large capacity.
             *message = bounded;
-            self.last_failure = Some(message.clone());
+            self.last_failure = Some(Failure {
+                ordinal: *ordinal,
+                sector: *sector,
+                message: message.clone(),
+            });
         }
         let phase = phase(&event);
         let phase_job = match &event {
