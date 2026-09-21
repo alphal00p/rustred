@@ -2,41 +2,110 @@
 
 ## Current priority — rank-bounded five-loop closure, with sequential delivery gates
 
-### Current measured checkpoint — September 21, 15:39 UTC
+### Authoritative September 21 update — shared campaign, 50 cores, 500 GB
 
-The four parallel SearchFinite campaigns have **6,221 of 8,246 distinct
-labelled sectors durably saved**, representing **66 of 67 graph classes**.
-The policy-specific inventory excludes separate finite-retention experiments
-and solutions that finished generation but failed binary output admission.
-Class 30231 still lacks a saved broad-search owner. The selected retained-policy
-30231 downset has separately reached 197/198 saved sectors. Neither figure is
-recursive rank-10 closure.
+The following sequence supersedes earlier parallel advancement into later
+five-loop stages and the earlier 100-core allocation:
 
-Continue the independent parent jobs within the authorized 100-core/500-GB
-ceiling, with the existing 450-GB aggregate soft stop. In parallel, resolve the
-isolated exceptional cases and reuse saved lower-sector programs. Three new
-generic geometry refinements pass independent audits and the full release
-core gate: **2,457 passed, zero failed, 32 existing ignored**. All 246 release
-application tests pass, and the public seven-sector CLI regression reproduces
-its prior output byte-for-byte. Actual full-sector retries remain separate
-acceptance steps. The first, native 2678, now completes and saves 1,008 rules
-and 54 finite terminals in 1,007.895 s solver time; cold loading passes but its
-isolated application traces still have uncovered successors. Native 1484 then
-reaches its 1,800-second limit during exact lifting, beyond its former geometry
-failure, with no output; three equivalent saved owners are available for reuse.
-Native 29751's natural-order retry reaches its one-hour limit in exact
-elimination, with no output; a separately bounded half-rotation run continues.
-Its last affine chart actually has one positive integer point, identifying
-a concrete next refinement to investigate. Exact transport and
-trace-only routed owner application pass independent review and the new full
-release gates: **2,474 core and 251 application/integration tests**, zero
-failures. The first real twelve-program load and 37 exact routes succeed;
-its finite traces expose further absent routes and a node-budget limit, not
-complete recursive coverage. Expanded pilots load all 66 saved class programs
-and verify 8,149 composed routes, then hit conservative aggregate expansion
-allowances at about 3 GiB peak RSS each. Larger explicitly bounded work-budget
-checks are next; no rules are regenerated for these checks. Do not proceed to minimization,
-master lookup or five-loop Vakint before bounded coverage succeeds. Detailed
+(a) Solve the complete five-loop census with an optional input numerator-rank
+bound, accepting a finite, nonminimal set of terminals. Reuse saved parametric
+IBPs and canonical subtopology owners across all four parents and all 67 graph
+classes; do not solve equivalent labelled sectors independently by default.
+
+(b) Complete that solve for at least **R=10**, then aim for **R=20**. R=10 is
+the first campaign, so its successful completion satisfies (a) and the minimum
+of (b). Positive denominator powers remain parametric and unbounded; an input
+rank bound never clips intermediate dependencies.
+
+(c) Only then minimize the finite terminal set at an acceptable generation
+cost. No minimal-master requirement is imposed on (a) or (b).
+
+(d) Only then find published TIDE/other numerical five-loop master values,
+ideally at least 32 digits, and map the retained terminals to a usable catalog.
+
+(e) Only then integrate five-loop support in Vakint and test numerical
+consistency, including expanded numerators cancelling denominators.
+
+**Independent certification is deferred and is not a gate for this campaign.**
+Keep ordinary exact arithmetic, guard applicability, descent, valid routing,
+and explicit missing-rule/error handling; do not conflate a sampled target
+sweep or an interrupted run with the requested complete parametric solve.
+
+Before the large run, implement shared canonical-owner rule reuse and shared
+dependency work across sectors, with bounded parallel scheduling. Workers
+share immutable program/source/routing data and completed reusable work rather
+than cloning the full rule library or repeating an independent reduction for
+each topology. Missing-owner/rule frontiers are explicit requests for further
+generic source search, not new masters. Completed owners are installed through
+deterministic snapshots. Do not regenerate already usable rules by default.
+
+Expose a **Python-steered, input-driven campaign**, backed by RustRed's generic
+Rust implementation and CLI/API. Topology lists and routing witnesses are
+external input, not hard-coded engine knowledge. Include resume/checkpoints,
+shared-work/cache counts, per-sector state, and truthful completion status.
+
+The complete campaign, including nested Symbolica/Rayon/BLAS pools, uses at
+most **50 compute cores and 500 GB aggregate resident memory**. Keep a 450 GB
+soft stop to leave recovery headroom. There is **no 30-minute hard deadline**.
+The performance objective is a complete R=10 solve in **15 hours or less**;
+it is not permission to run a visibly hopeless attempt for that long. Use live
+TTY overwrite/progress rendering and equivalent structured non-TTY events to
+report elapsed/CPU time, aggregate RSS, active/queued/completed work, new rule
+and terminal counts, deduplication/cache hits, missing frontiers, expansion
+growth, and worker utilization. ETA is reported only when supported by actual
+completed work; stalled progress and memory/fill trends stay visible.
+
+Monitor the running campaign, checkpoint and stop when evidence indicates it
+cannot meet the resource/time objective, profile the bottleneck, optimize and
+retry from reusable work. Do not substitute another fixed short timeout or
+claim success from the monitor's estimate. Review and test each implementation
+slice independently before a larger attempt; commit/push coherent milestones.
+Detailed implementation sequencing is in
+[the shared-campaign plan](docs/five_loop_rank_campaign.md).
+
+### Current measured checkpoint — September 21, 18:15 UTC
+
+All **67 graph classes now have a saved SearchFinite R10 owner** when the
+new standalone native-3822 result is included. Its generation and export
+complete with **841 rules and 113 finite terminals**, taking **3,911.021 s
+solver time** and producing an 817,327,375-byte program. Cold import succeeds.
+This is not yet recursive rank-10 closure, and the standalone file has not
+been silently inserted into the broad checkpoints.
+
+Reuse of 66 saved owners already completes one concrete rank-one dependency
+trace: **541,889 keys, 219,003 rule applications, 321 declared terminals and
+zero uncovered successors**, in 51.184 s trace time. Intermediate rank reaches
+five; no dependency is clipped to the input's rank. Subsequent 67-owner pilots
+load every class and verify all 8,179 nonidentity routes, but both rank-ten
+pressure tests reach their 1,800-second deadlines without complete reports.
+A broader rank-one/dot-one sweep finishes 11 of 67 targets before its shared
+deadline: ten nontrivial traces and one terminal identity, all with zero
+uncovered successors. These finite checks are not universal rank-ten coverage.
+No IBPs are regenerated for these application checks. A short sampled profile identifies native numerator
+expansion as the main local cost, motivating an independently audited use of
+Symbolica's native rational-number polynomial coefficient domain. A separate
+one-parameter affine-interval refinement addresses a captured singleton case
+that previously triggered expensive symbolic elimination. Both changes require
+full release runtime gates before being called delivered. Those gates now pass:
+2,492 core tests (32 pre-existing ignored diagnostics) and 251 application tests,
+zero failures. The corrected optimization passes all 16 native-expansion tests
+and all ten new affine tests. These are validation results, not a measured
+rank-ten performance improvement. The separate half-rotation
+sector experiment completes and cold-loads with 2,116.906 s solver time,
+541 rules and 10,151 retained terminals; it remains a distinct generation policy.
+
+The separate **15:39 UTC** broad-checkpoint snapshot contains **6,221 of
+8,246 distinct labelled sectors**, representing 66 classes. It excludes
+standalone retries, finite-retention experiments and unsaved output failures.
+Graph-class representation, finite trace success and complete
+arbitrary-positive-power rank-bounded closure are distinct milestones.
+
+The next run replaces independent parent jobs with shared-owner application
+and canonical-sector scheduling under the **50-core/500-GB** ceiling and
+**450-GB aggregate soft stop** above. The delivered owner-reuse implementation passes independent audits
+and the full release gates: **2,474 core and 251 application/integration
+tests**, zero failures. Do not proceed to minimization, master lookup or
+five-loop Vakint before bounded coverage succeeds. Detailed actual retries,
 measurements and limitations are in the
 [rank-scope notes](docs/rank_scoped_generation.md).
 

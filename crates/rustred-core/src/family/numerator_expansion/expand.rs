@@ -9,9 +9,7 @@ use std::mem::size_of;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use symbolica::prelude::{
-    IntegerRing, MultivariatePolynomial, PolyVariable, RationalPolynomialField, Z,
-};
+use symbolica::prelude::{MultivariatePolynomial, PolyVariable, Q, Rational};
 
 use crate::algebra::{
     Coefficient, CoefficientContext, coefficient_clone_owned_retained_byte_bound,
@@ -22,7 +20,14 @@ use super::error::MultiAffineNumeratorExpansionError;
 use super::limits::MultiAffineNumeratorExpansionLimits;
 use super::model::{MultiAffineNumeratorEndpoint, MultiAffineNumeratorFactor};
 
-type EndpointPolynomial = MultivariatePolynomial<RationalPolynomialField<IntegerRing, u16>, u32>;
+#[path = "native_rational.rs"]
+mod native_rational;
+use native_rational::{authenticated_rational, contextual_coefficient, rational_weight};
+
+// Input admission below already restricts every scalar to Q. Keeping that
+// native field here avoids polynomial variable-map unification and polynomial
+// GCDs for each scalar operation during sparse powers/products.
+type EndpointPolynomial = MultivariatePolynomial<Q, u32>;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct CoefficientWeight {
@@ -133,12 +138,21 @@ pub(crate) fn try_expand_multi_affine_numerator_with_usage(
     preflight_endpoint_key_storage(projected_support, arity, limits)?;
 
     let variables = try_temporary_variables(arity)?;
-    let field = RationalPolynomialField::new(Z);
-    let template = EndpointPolynomial::new(&field, None, Arc::new(variables));
-    let mut polynomial = template.constant(context.one());
-    validate_polynomial(context, &polynomial, limits)?;
+    // Preserve the original constant-coefficient authentication and a
+    // conservative legacy-wrapper charge, without retaining that wrapper in
+    // every native arithmetic operation. This temporary is dropped here.
+    let constant_wrapper_bytes = {
+        let one = context.one();
+        context.validate_with_limits(&one, limits.exact_algebra)?;
+        coefficient_weight(&one)?
+            .clone_owned_bytes
+            .max(size_of::<Rational>())
+    };
+    let template = EndpointPolynomial::new(&Q, None, Arc::new(variables));
+    let mut polynomial = template.constant(Rational::one());
+    validate_polynomial(&polynomial, limits)?;
     admit_live_coefficients(
-        input_weight.checked_add(polynomial_weight(&polynomial)?)?,
+        input_weight.checked_add(polynomial_weight(&polynomial, constant_wrapper_bytes)?)?,
         limits,
     )?;
 
@@ -146,10 +160,10 @@ pub(crate) fn try_expand_multi_affine_numerator_with_usage(
     for plan in plans {
         let factor = &factors[plan.ordinal];
         let affine = affine_polynomial(&template, factor, arity)?;
-        validate_polynomial(context, &affine, limits)?;
+        validate_polynomial(&affine, limits)?;
         let powered = catch_unwind(AssertUnwindSafe(|| affine.pow(plan.native_power)))
             .map_err(|_| MultiAffineNumeratorExpansionError::NativePolynomialPanic)?;
-        validate_polynomial(context, &powered, limits)?;
+        validate_polynomial(&powered, limits)?;
         if powered.nterms() > plan.support_bound {
             return Err(
                 MultiAffineNumeratorExpansionError::NativePolynomialSupportExceeded {
@@ -165,7 +179,7 @@ pub(crate) fn try_expand_multi_affine_numerator_with_usage(
             })?;
         let next = catch_unwind(AssertUnwindSafe(|| &polynomial * &powered))
             .map_err(|_| MultiAffineNumeratorExpansionError::NativePolynomialPanic)?;
-        validate_polynomial(context, &next, limits)?;
+        validate_polynomial(&next, limits)?;
         if next.nterms() > accumulated_support_bound
             || next.nterms() > limits.max_native_polynomial_terms
         {
@@ -177,15 +191,22 @@ pub(crate) fn try_expand_multi_affine_numerator_with_usage(
             );
         }
         let live_weight = input_weight
-            .checked_add(polynomial_weight(&polynomial)?)?
-            .checked_add(polynomial_weight(&affine)?)?
-            .checked_add(polynomial_weight(&powered)?)?
-            .checked_add(polynomial_weight(&next)?)?;
+            .checked_add(polynomial_weight(&polynomial, constant_wrapper_bytes)?)?
+            .checked_add(polynomial_weight(&affine, constant_wrapper_bytes)?)?
+            .checked_add(polynomial_weight(&powered, constant_wrapper_bytes)?)?
+            .checked_add(polynomial_weight(&next, constant_wrapper_bytes)?)?;
         admit_live_coefficients(live_weight, limits)?;
         polynomial = next;
     }
 
-    materialize_endpoints(context, base, &polynomial, input_weight, limits)
+    materialize_endpoints(
+        context,
+        base,
+        &polynomial,
+        input_weight,
+        constant_wrapper_bytes,
+        limits,
+    )
 }
 
 fn preflight_factors(
@@ -344,7 +365,7 @@ fn affine_polynomial(
     catch_unwind(AssertUnwindSafe(|| {
         let mut affine = template.zero();
         if !factor.constant().is_zero() {
-            affine = &affine + &template.constant(factor.constant().clone());
+            affine = &affine + &template.constant(authenticated_rational(factor.constant()));
         }
         for (position, coefficient) in factor.denominator_coefficients().iter().enumerate() {
             if coefficient.is_zero() {
@@ -359,7 +380,7 @@ fn affine_polynomial(
             })?;
             exponents.resize(arity, 0_u32);
             exponents[position] = 1;
-            affine = &affine + &template.monomial(coefficient.clone(), exponents);
+            affine = &affine + &template.monomial(authenticated_rational(coefficient), exponents);
         }
         Ok::<_, MultiAffineNumeratorExpansionError>(affine)
     }))
@@ -371,6 +392,7 @@ fn materialize_endpoints(
     base: &IntegralKey,
     polynomial: &EndpointPolynomial,
     input_weight: CoefficientWeight,
+    constant_wrapper_bytes: usize,
     limits: MultiAffineNumeratorExpansionLimits,
 ) -> Result<Box<[MultiAffineNumeratorEndpoint]>, MultiAffineNumeratorExpansionError> {
     let arity = base.powers().len();
@@ -384,7 +406,7 @@ fn materialize_endpoints(
     // of zero coefficients. The exponent-vector-to-key map `e -> base-e` is
     // injective, so no second coefficient-addition layer is needed. Keep the
     // native polynomial in the live census while cloning output coefficients.
-    let native_weight = polynomial_weight(polynomial)?;
+    let native_weight = polynomial_weight(polynomial, constant_wrapper_bytes)?;
     let live_base = input_weight.checked_add(native_weight)?;
     admit_live_coefficients(live_base, limits)?;
     let requested = polynomial.nterms();
@@ -407,7 +429,6 @@ fn materialize_endpoints(
                 actual: exponents.len(),
             });
         }
-        context.validate_with_limits(coefficient, limits.exact_algebra)?;
         if coefficient.is_zero() {
             continue;
         }
@@ -416,14 +437,25 @@ fn materialize_endpoints(
             let decrement = u64::from(exponent);
             powers[position] = checked_lower_power(position, powers[position], decrement)?;
         }
-        let retained = coefficient_weight(coefficient)?;
+        let retained = rational_weight(coefficient, constant_wrapper_bytes)?;
         let prospective = live_base
             .checked_add(output_weight)?
             .checked_add(retained)?;
         admit_live_coefficients(prospective, limits)?;
+        // Native Q owns normalization. Its numerator and denominator are
+        // already coprime; reconstruct only the public output wrapper on the
+        // ORIGINAL family map, after admitting its prospective clone storage.
+        let coefficient = contextual_coefficient(context, coefficient);
+        context.validate_with_limits(&coefficient, limits.exact_algebra)?;
+        let actual = coefficient_weight(&coefficient)?;
+        if actual.terms > retained.terms || actual.clone_owned_bytes > retained.clone_owned_bytes {
+            return Err(MultiAffineNumeratorExpansionError::Invariant {
+                detail: "constant rational wrapper exceeded its prospective ownership bound",
+            });
+        }
         endpoints.push(MultiAffineNumeratorEndpoint {
             key: IntegralKey::try_from_preallocated(powers)?,
-            coefficient: coefficient.clone(),
+            coefficient,
         });
         output_weight = output_weight.checked_add(retained)?;
     }
@@ -443,7 +475,6 @@ fn materialize_endpoints(
 }
 
 fn validate_polynomial(
-    context: &CoefficientContext,
     polynomial: &EndpointPolynomial,
     limits: MultiAffineNumeratorExpansionLimits,
 ) -> Result<(), MultiAffineNumeratorExpansionError> {
@@ -456,19 +487,27 @@ fn validate_polynomial(
         );
     }
     for coefficient in &polynomial.coefficients {
-        context.validate_with_limits(coefficient, limits.exact_algebra)?;
+        if coefficient.is_zero()
+            || coefficient.denominator_ref().is_zero()
+            || coefficient.denominator_ref().is_negative()
+        {
+            return Err(MultiAffineNumeratorExpansionError::Invariant {
+                detail: "native Q returned a zero or noncanonical sparse coefficient",
+            });
+        }
     }
     Ok(())
 }
 
 fn polynomial_weight(
     polynomial: &EndpointPolynomial,
+    constant_wrapper_bytes: usize,
 ) -> Result<CoefficientWeight, MultiAffineNumeratorExpansionError> {
     polynomial
         .coefficients
         .iter()
         .try_fold(CoefficientWeight::default(), |weight, coefficient| {
-            weight.checked_add(coefficient_weight(coefficient)?)
+            weight.checked_add(rational_weight(coefficient, constant_wrapper_bytes)?)
         })
 }
 
@@ -668,3 +707,7 @@ fn admit_product_limit(
         .ok_or(MultiAffineNumeratorExpansionError::ResourceCountOverflow { resource })?;
     admit_limit(resource, requested, limit)
 }
+
+#[cfg(test)]
+#[path = "rational_tests.rs"]
+mod rational_tests;

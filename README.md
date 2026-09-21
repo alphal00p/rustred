@@ -48,10 +48,18 @@ for reusing solved sectors across equivalent routings. The experimental
 now share saved programs and follow routed successors without regeneration,
 distinguishing missing programs from missing rules. This is exact local
 dependency tracing, not yet routed coefficient back-substitution or a
-five-loop closure claim. The release gates pass 2,474 core tests and 251
-application/integration tests. Real pilots load 66 saved class programs and
-verify 8,149 composed routes, but recursive coverage remains an open acceptance
-gate; bounded application runs still report resource limits.
+five-loop closure claim. The latest release gates, including native rational
+numerator expansion and affine-interval refinement, pass 2,492 core tests and
+251 application/integration tests. All 67 five-loop graph classes now have saved
+programs, including a separately generated final owner. A real 66-owner pilot
+verifies 8,149 composed routes and completes a concrete rank-one trace with
+541,889 keys and zero uncovered successors. Rank-ten traces still reach work
+limits and later 30-minute diagnostic deadlines; full recursive rank-10
+coverage remains an open acceptance gate. The current
+[shared five-loop campaign plan](docs/five_loop_rank_campaign.md) replaces
+independent probes with cross-sector shared work, Python steering and live
+progress monitoring, aiming for R=10 within 15 hours on at most 50 cores and
+500 GB. Certification is deferred; this is a plan, not a completed campaign.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after

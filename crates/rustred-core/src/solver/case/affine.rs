@@ -8,6 +8,7 @@
 //! that arbitrary integer free coordinates give integer dependent coordinates.
 //! General integer-lattice and sector-inequality feasibility is not decided.
 
+use std::borrow::Cow;
 use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -25,6 +26,9 @@ pub(crate) use chart::{Chart as AffineRestrictionChart, canonical_equalities};
 
 #[path = "affine/bounds.rs"]
 mod bounds;
+
+#[path = "affine/one_parameter.rs"]
+mod one_parameter;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AffineGeometryError {
@@ -208,6 +212,15 @@ impl<const N: usize> AffineCase<N> {
                 bounds::RowBounds::Endpoints(_)
             )
         })
+    }
+
+    /// Search-only strengthening; saved declared charts remain immutable.
+    pub(crate) fn has_sector_refinement(&self, sector: &[bool; N]) -> bool {
+        self.has_sector_endpoint_refinement(sector)
+            || !matches!(
+                one_parameter::classify(&self.primitive_matrix, sector),
+                one_parameter::Refinement::Unresolved
+            )
     }
 
     /// Restrict an equation interpreted as zero. Nonzero rational scalar
@@ -402,9 +415,10 @@ fn intersect_native<const N: usize>(
         return Ok(AffineIntersection::Coordinate(*parent));
     };
     let mut refined = *parent;
+    let mut conjunction = Cow::Borrowed(equations);
     let (matrix, primitive_matrix) = loop {
         let Some((matrix, primitive_matrix)) =
-            canonical_equalities(refined.fixed(), equations, indices)?
+            canonical_equalities(refined.fixed(), &conjunction, indices)?
         else {
             return Ok(AffineIntersection::Empty);
         };
@@ -422,13 +436,32 @@ fn intersect_native<const N: usize>(
                 bounds::RowBounds::Unresolved | bounds::RowBounds::Endpoints(_) => {}
             }
         }
-        if &fixed == refined.fixed() {
-            break (matrix, primitive_matrix);
+        if &fixed != refined.fixed() {
+            // Each endpoint round fixes at least one previously free ORIGINAL
+            // coordinate. Retain the whole conjunction on every elimination.
+            refined = CoordinateCase::new(fixed).map_err(|_| AffineGeometryError::NativeAlgebra)?;
+            continue;
         }
-        // Each successful round fixes at least one previously free ORIGINAL
-        // coordinate. There can be at most N rounds. Retain the entire input
-        // conjunction on every native elimination; no row or sibling is lost.
-        refined = CoordinateCase::new(fixed).map_err(|_| AffineGeometryError::NativeAlgebra)?;
+        if refine_sector_endpoints {
+            match one_parameter::classify(&primitive_matrix, sector) {
+                one_parameter::Refinement::Empty => return Ok(AffineIntersection::Empty),
+                one_parameter::Refinement::Fix { axis, value } => {
+                    // Do not compact-convert a possibly huge integer yet.
+                    // The full native conjunction still owns divisibility,
+                    // consistency and rank-before-compact admission. Adding
+                    // this equality removes the sole free original axis, so
+                    // at most one such extra canonicalization can occur.
+                    let mut equality = template.constant(-value);
+                    let mut exponents = vec![0; template.nvars()];
+                    exponents[indices[axis]] = 1;
+                    equality.append_monomial(Integer::one(), &exponents);
+                    conjunction.to_mut().push(equality);
+                    continue;
+                }
+                one_parameter::Refinement::Unresolved => {}
+            }
+        }
+        break (matrix, primitive_matrix);
     };
     // Native RREF includes the parent fixed rows and has distinct original
     // coordinate pivots. Only singleton rows fix an original index; coupled
@@ -529,3 +562,7 @@ mod saturation_tests;
 #[cfg(test)]
 #[path = "affine/positive_slack_tests.rs"]
 mod positive_slack_tests;
+
+#[cfg(test)]
+#[path = "affine/one_parameter_tests.rs"]
+mod one_parameter_tests;

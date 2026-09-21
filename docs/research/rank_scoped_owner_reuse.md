@@ -112,6 +112,123 @@ No source search, back-substitution, master evaluation or regeneration occurs.
 Evidence: `TMP/routed-owner-input.1hzrSj/` and
 `TMP/routed-all-saved-owners.Hw5g0s/`.
 
+### Larger work allowances: one complete finite trace
+
+The same 66-owner selection, with unchanged rules and inputs, is retested using
+explicitly larger aggregate transport allowances. The rank-one input
+`[-1,2,1,0,1,1,0,0,0,1,1,1,1,1,1]` now completes:
+
+| Quantity | Measured result |
+|---|---:|
+| Cold import / verify 8,149 maps | 8.203 / 87.114 s |
+| Dependency trace | 51.184 s |
+| Distinct keys / phase nodes | 541,889 / 544,228 |
+| Rule applications / transport calls | 219,003 / 210,751 |
+| Declared terminals / uncovered keys | 321 / **0** |
+| Maximum encountered numerator rank / dot excess | 5 / 10 |
+| Whole process wall / CPU | 148.33 / 147.16 s |
+| Peak RSS | 3,103,304 KiB |
+
+This is finite reachability under the candidate formulas, not coefficient
+back-substitution, source-identity certification or arbitrary-dot family
+closure. In particular, the input's rank one is not an internal cutoff.
+The conservative cumulative endpoint charge is 8,557,491, explaining the
+earlier four-million allowance failure; it is not an emitted-term count.
+
+The two rank-ten inputs still stop at the explicit 64-million cumulative
+endpoint allowance, requesting 64,223,654 and 64,044,620 respectively. Whole
+times are 282.43 and 280.52 s, with roughly 3.12 GiB peak RSS each. Neither
+returns a completed trace/frontier. The first includes a 20-second attached
+profile and is therefore instrumented. That local 952-sample, zero-loss window
+attributes about 74% inclusive samples to transport and 72% to native numerator
+expansion; inclusive shares overlap and are not whole-process timings.
+Symbolica's native rational coefficient domain is being evaluated to remove
+unnecessary rational-function wrapper work from this already-constant domain.
+No speedup is claimed until matched measurements exist.
+
+The first focused release gate for this optimization passes fourteen of fifteen
+expansion tests but correctly rejects the large-rational differential fixture:
+its prospective output-storage estimate is too small. Symbolica's native
+integer clone can reuse a larger cached GMP allocation, so source capacity is
+not an upper bound on clone capacity. The runtime fails closed; it does not
+return an incorrect polynomial. The failed receipt is preserved, and a native
+output-allocation correction must pass the unchanged assertion before release.
+Existing parallel campaigns and the measurements below use the earlier tested
+implementation, not this unaccepted optimization.
+Evidence: `TMP/affine-interval-native-q-core.SSsyiW/`.
+
+The corrected boundary copy uses Symbolica's public native raw ownership APIs,
+avoiding the larger pooled allocation without changing arithmetic or relaxing
+the assertion. Its fresh focused release gate passes all 16 native-expansion
+tests, including the original failure and an explicit warmed-cache regression.
+All ten one-parameter geometry tests pass too. The subsequent full core suite
+was initially interrupted; the runtime-only continuation now passes **2,492
+core tests, zero failures, 32 existing ignored diagnostics**, followed by
+**251 application tests, zero failures**. Source and frozen-binary checks pass.
+Evidence: `TMP/affine-q-core-runtime-resume.QLBUYL/` and
+`TMP/affine-interval-native-q-app-runtime.VycAew/`. This validates the corrected
+implementation, not its speed on a rank-ten campaign.
+
+The completed standalone native-3822 owner then permits a 67-program selection:
+1,280,854,595 encoded bytes, all 8,246 census labels and 8,179 nonidentity maps.
+The original 66 owners and routes are unchanged. Fresh bounded checks use the
+existing explicit ingress fields (1 GiB per file, 2 GiB aggregate input), not
+a new schema or relaxed mathematical admission. No rule regeneration occurs.
+All 67 programs cold-load and all 8,179 composed nonidentity maps verify.
+The rank-one control then reproduces exactly the earlier 541,889 keys,
+219,003 applications, 321 terminals and zero frontier: 54.968 s trace time,
+160.34 s whole-process wall, 159.15 CPU-s and 5,815,792 KiB peak RSS. Loading
+the newly included large program increases setup/storage; this is a functional
+control, not a claimed speed comparison. The two rank-ten runs subsequently
+reach their 1,800-second deadlines without a complete trace report:
+1,800.61 / 1,800.60 s wall, 1,786.65 / 1,786.59 CPU-s, and
+5,974,040 / 5,887,956 KiB peak RSS respectively, both status 124. Neither
+completed coverage nor a missing-rule frontier can be inferred from these
+deadline-censored runs. They used the previous tested arithmetic, not the
+pending native-Q specialization.
+An additional 67-owner corner sweep completes too, but **every corner is
+already a declared terminal**: 67 keys, zero rule applications and zero
+frontier. Its 105.92 s whole-process time is dominated by loading and map
+preparation. This is a catalogue/admission check, not new nontrivial reduction
+coverage. Evidence: `TMP/routed-owner-corners.lw3Zhu/`.
+
+A stronger generic sweep raises each owner's first active power to two and
+sets its first inactive power to minus one. Before its shared 1,800-second
+deadline, **11 of 67 targets finish**: ten nontrivial traces and one terminal
+identity, all with zero frontier. Their summed per-target counts are
+7,480,370 keys and 2,954,033 rule applications (not a deduplicated union).
+Maximum encountered rank is six. One completed target alone visits 4,490,126
+keys and takes 1,149.372 s. Target 11 is unfinished and targets 12–66 are
+unattempted, not failed mathematical coverage. This motivates concurrent target
+scheduling with one shared immutable program library, so an expensive early
+target does not hide the remaining classes. Evidence:
+`TMP/routed-owner-rank1-dot1.SGSe5o/`.
+Evidence: `TMP/routed-work-limits.dGzynx/`,
+`TMP/routed-application-profile.sK4PVQ/`,
+`TMP/routed-all67-owners.WkZDFn/` and
+`TMP/routed-full-census.GqXBUQ/`.
+
+### Follow-up optimization boundary
+
+For a fixed admitted route, numerator expansion is
+`P(D) = product_i L_i(D)^max(-n_i,0)`. Positive input powers determine only
+the mapped base key `b`; each expanded monomial `c_e D^e` gives `c_e I(b-e)`.
+This permits a future bounded cache keyed by the exact route and full negative
+degree vector, storing exponent offsets rather than concrete integral keys.
+It cannot be keyed just by total rank, masks or graph class. Every hit must
+still check the current base, overflow, support changes and request limits;
+cached coefficients and outputs must fit a shared live-memory allowance.
+Under unchanged conservative budget semantics, hits still incur the existing
+prospective work charges. Such a cache can save CPU but would not itself cure
+a cumulative work-cap failure.
+
+This is an independently reviewed design observation, **not an implemented
+cache or measured speedup**. Current traces do not record degree signatures,
+so they establish no hit rate. First measure the native-Q specialization;
+only then decide whether signature measurement and memoization are worthwhile.
+Local design audit:
+`TMP/selective-owner-dispatch-design.ooqQyX/NUMERATOR_PATTERN_MEMO_AUDIT.md`.
+
 ## Implemented transport seam
 
 `sector::symmetry::integral_transport::compile` binds an exact `VerifiedMap`

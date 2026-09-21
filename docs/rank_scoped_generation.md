@@ -13,7 +13,37 @@ terminal minimization, published numerical master values and Vakint five-loop
 integration. Small examples and isolated exceptional branches do not satisfy
 the complete census milestone.
 
-## Latest parallel-campaign snapshot — September 21, 15:39 UTC
+## Latest result — all 67 graph classes represented, not yet rank-10 closure
+
+The standalone native-3822 retry now supplies the last missing SearchFinite
+R10 graph-class owner. It completes generation, durable export and fresh
+loading: **841 rules, 113 finite terminals, 399,788 RHS terms**, with
+**3,911.021281 s solver time**. Encoding takes 4.911 s and writing 0.176 s;
+the resulting file is **817,327,375 bytes**. The solve/export process takes
+3,923 s wall and 3,894.22 CPU-s, peaking at 4,698,856 KiB RSS. Only the output
+resource allowance was raised; input sources, ordering, rank and finite-case
+policy were preserved. The retry used the newer gated geometry build, so this
+is not a matched timing comparison to the original export failure. Cold import
+takes 12.473 s. Three declared-terminal
+identity/repeat checks pass, but optional nontrivial traces remain partial
+when only this owner is installed.
+
+Thus the combined selection represents **67/67 classes**; the original broad
+checkpoints below still represent 66/67. No file was injected into them.
+The selected 67 programs occupy 1,280,854,595 encoded bytes and require
+explicit existing ingress allowances. Their offline selection lists all
+8,246 census labels, with 8,179 nonidentity routes. This is a routing selection,
+not proof that all those programs recursively cover every rank-ten input.
+Evidence: `TMP/native3822-output-retry.dX6Q42/` and
+`TMP/routed-all67-owners.WkZDFn/`.
+
+Actual [saved-owner reuse](research/rank_scoped_owner_reuse.md) already completes
+one rank-one trace with 541,889 keys, 321 declared terminals and no uncovered
+successor. Rank-ten traces still exhaust work allowances; the full 67-owner
+checks retain explicit time, memory and cumulative work bounds. No source
+search, coefficient back-substitution or universal certification is implied.
+
+## Broad-checkpoint snapshot — September 21, 15:39 UTC
 
 Under the authorized 100-core/500-GB aggregate ceiling, the four broad
 SearchFinite campaigns have saved **6,221/8,246 distinct labelled sectors**,
@@ -37,8 +67,8 @@ Four generated solutions, native 3010, 3822, 31780 and 14343,
 failed coefficient-table output admission and therefore do not appear among
 saved sectors. Their first rejected table additions slightly exceed 512 MiB;
 that is **not** a measurement of their complete encoded size. Native 3822
-belongs to the last unrepresented class. An isolated explicit-budget retry is
-separate from the original campaign and must actually publish before it counts.
+belongs to the last unrepresented class in these checkpoints. Its later
+successful explicit-budget retry is reported separately above.
 The other three output failures belong to already represented classes, so
 saved alternatives are preferred to regenerating their large expressions.
 This durable-only snapshot was read between 15:39:57.137 and 15:39:57.541 UTC;
@@ -217,8 +247,13 @@ This is deadline-censored exact elimination, not a new unsupported guard or
 memory failure. The captured affine chart has only three positive free indices
 and equations `n0=3*n2-6`, `n1=4-n2`. Positivity forces `n2>=3` and `n2<=3`,
 hence exactly `(n0,n1,n2)=(3,1,3)`. Recognizing this finite positive chart before
-symbolic elimination is the next generic refinement to investigate; it is not
-implemented by the owner-reuse milestone. Evidence:
+symbolic elimination motivates the next generic refinement: use native RREF
+to bound its one free original integer coordinate, recognize an empty interval
+or singleton, and recanonicalize the whole original conjunction. Multi-point
+intervals, rays and higher-dimensional cases remain unresolved by this narrow
+service. Declared charts are unchanged. This slice has passed independent
+static review and release typechecking; full runtime gates are pending.
+Evidence:
 `TMP/geometry-native29751-retain.YGc5XI/`.
 
 A separately timed half-rotation run uses the same rank, finite-case policy,
@@ -227,8 +262,20 @@ output-only allowance is larger than the prior default: 1 GiB whole file and
 aggregate coefficients, 32 million collection entries, 16 MiB per coefficient.
 This protects a successful solve from the earlier small export budget; it does
 not justify a matched output-pipeline speed comparison. The one-hour run starts
-at 15:55:05 UTC with one CPU and a 32 GiB address-space cap and is still running
-at this checkpoint. No checkpoint shard is overwritten.
+at 15:55:05 UTC with one CPU and a 32 GiB address-space cap and **finishes
+without extending that deadline**. It saves **541 rules, 10,151 retained
+terminals and 258,731 RHS terms**, taking **2,116.906286 s solver time**.
+Encoding takes 3.201 s; the standalone candidate is 489,837,517 bytes. Whole
+process: 2,127.41 s wall, 2,111.55 CPU-s and 2,858,168 KiB peak RSS, status 0.
+The completed ordering experiment does not provide a speed ratio to the
+deadline-censored natural run. Fresh cold import subsequently passes in
+10.457 s, preserving every rule and terminal; three rank-ten declared-terminal
+identity/repeat checks pass. The whole cold process takes 11.47 s wall with
+2,246,436 KiB peak RSS. These are terminal identities, not nontrivial reductions;
+no optional dependency traces or source replay were requested in that check.
+No checkpoint shard is overwritten, and this retained-policy program is not
+silently mixed into the SearchFinite 67-owner selection or the natural-order
+197/198 checkpoint.
 Evidence: `TMP/native29751-current-rotate-half.c4VGp3/`.
 
 ## Public interfaces

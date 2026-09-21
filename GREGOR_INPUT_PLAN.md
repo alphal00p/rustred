@@ -1,5 +1,17 @@
 # GOAL
 
+Current execution priority is the September 21 shared five-loop campaign in
+[GOAL.md](GOAL.md) and [its implementation plan](docs/five_loop_rank_campaign.md):
+finish a nonminimal R=10 solve across the complete input census using shared
+subtopology rules and parallel dependency work, at most 50 cores/500 GB, aiming
+for completion within 15 hours. Monitor and optimize instead of imposing
+30-minute deadlines. Independent certification is deferred. The sequential
+gates are (a) complete bounded solve, (b) at least R=10/ideally R=20, (c) terminal
+minimization, (d) numerical master catalog, (e) five-loop Vakint integration.
+The original design below remains background where it does not conflict with
+that current directive. Symbolica's native reconstruction API is now available
+and already used; the original prohibition concerned implementing our own CAS.
+
 Implement Gregor Kälin's SpIReD-inspired, case-directed strategy as RustRed's
 primary parametric-IBP closure engine. Prioritize a dedicated high-performance
 single-scale/no-scale vacuum lane capable of closing K6, while preserving a
