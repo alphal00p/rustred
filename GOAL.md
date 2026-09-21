@@ -63,7 +63,21 @@ slice independently before a larger attempt; commit/push coherent milestones.
 Detailed implementation sequencing is in
 [the shared-campaign plan](docs/five_loop_rank_campaign.md).
 
-### Current measured checkpoint — September 21, 18:15 UTC
+### Shared-campaign implementation checkpoint — September 21
+
+The shared parallel dependency scheduler and directed parametric-domain search
+pass **2,515 release core tests**, with zero failures and 32 pre-existing ignored
+diagnostics. The Rust application service, `routed-campaign` CLI and Python
+steering/monitoring layer pass **259 release application/integration tests**.
+The old serial API already shared dependencies within a batch; the earlier
+external sweep used separate calls. The new driver batches those requests and
+adds concurrent work, live counters and cancellation. Missing-domain source
+feedback and durable queue resume remain separate implementation work. A finite
+batch, including one spanning all 67 classes, is not the complete parametric R10
+campaign. The next measured rollout compares one and six workers, then exercises
+joint R10 pressure without a fixed short timeout.
+
+### Previous measured checkpoint — September 21, 18:15 UTC
 
 All **67 graph classes now have a saved SearchFinite R10 owner** when the
 new standalone native-3822 result is included. Its generation and export

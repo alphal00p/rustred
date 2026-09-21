@@ -9,6 +9,17 @@ recurrences, or reduce a concrete target.
 The CLI never invokes FORM. The RustRed crate and binary use Symbolica's GMP
 backend; there is no `no_gmp` mode.
 
+## Shared saved-owner dependency campaign
+
+`rustred routed-campaign` loads an externally supplied owner/routing manifest
+once and follows a batch of concrete targets with a shared parallel work queue.
+It reports uncovered rules/owners, resource failures and live progress rather
+than regenerating saved IBPs. The standard-library Python driver adds process
+and memory supervision, with no fixed short timeout. See the
+[driver, input format and scope](shared_owner_campaign_driver.md).
+This is finite dependency inspection, not complete parametric-family generation,
+coefficient back-substitution or a resumable work cache.
+
 ## Generic complete artifact generation
 
 `rustred family-close` uses the family supplied in the input, not a built-in

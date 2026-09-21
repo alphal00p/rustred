@@ -36,8 +36,10 @@ pub(crate) use instantiate::{
 pub use candidate_reduction::{
     CandidateCacheRepresentation, CandidateDecomposition, CandidateOwnerContext,
     CandidateOwnerInput, CandidateOwnerPrograms, CandidateOwnerRoute, CandidateOwnerScope,
-    CandidateReachabilityReport, CandidateReducer, CandidateReductionError, CandidateRoutedError,
-    CandidateRoutedFrontier, CandidateRoutedFrontierReason, CandidateRoutedTraceReport,
+    CandidateReachabilityReport, CandidateReducer, CandidateReductionError,
+    CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,
+    CandidateRoutedCampaignSnapshot, CandidateRoutedError, CandidateRoutedFrontier,
+    CandidateRoutedFrontierReason, CandidateRoutedTraceReport, CandidateRoutedWork,
     CandidateStatistics, CandidateTraceLimits, CandidateTraceReport, RoutedCandidateLimits,
     RoutedCandidateReducer,
 };
@@ -67,8 +69,8 @@ pub use search::{
     RuleCandidate, SearchEvent, SearchOptions, SearchStats, SectorConfig, SectorSolver, SeedSource,
 };
 pub use sector::{
-    FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError, SectorEvent, SectorPhase, SectorRule,
-    SectorSolution, SectorSolveError, SectorSolveOptions, SectorStats,
+    FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError, SectorDomainSolution, SectorEvent,
+    SectorPhase, SectorRule, SectorSolution, SectorSolveError, SectorSolveOptions, SectorStats,
 };
 pub use seed::{Seed, Seeds};
 pub use source::SourceSystem;

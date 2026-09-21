@@ -22,15 +22,28 @@ every progress report even while independent certification is deferred.
 ## Starting point
 
 There are saved candidate programs for all 67 representative classes and exact
-routes covering all census labels. The existing routed engine shares immutable
-rules but currently traces each request independently. Two R=10 probes stopped
+routes covering all census labels. The existing serial routed API already
+deduplicates all targets supplied in one call, but the earlier external sweep
+called it separately for each target. The new campaign must batch requests as
+well as add concurrent scheduling, cancellation, and live progress. Two R=10 probes stopped
 at 30-minute deadlines without completed frontier reports. This does not show
 whether additional rules are needed. The first improvement must remove repeated
 cross-request work and expose progress before launching another long attempt.
 
 The latest native rational-coefficient numerator expansion and one-parameter
 affine refinement pass 2,492 release core tests and 251 application tests.
-Their effect on the saved-owner workload has not yet been measured.
+A subsequent single-target control finishes the same dependency graph in
+42.022 s trace time versus the earlier 54.968 s, but whole-process time is
+220.97 s versus 160.34 s because preparation is slower in this observation.
+These are single shared-host observations, not a controlled overall speedup.
+
+The next shared-scheduler and directed-domain-search slice passes 2,515 core
+release tests (zero failures; 32 existing ignored diagnostics), including
+serial/parallel result equivalence, cancellation, above-entry-rank successors,
+and preserved symbolic positive-power rays. The application/frontend release
+gate also passes all 259 tests. The shared finite-target traversal is not yet the source-feedback
+loop or a resumable parametric campaign; neither its completion percentage nor
+zero sampled frontiers may be reported as full R10 closure.
 
 ## Implementation slices
 

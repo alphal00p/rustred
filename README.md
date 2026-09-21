@@ -61,6 +61,15 @@ independent probes with cross-sector shared work, Python steering and live
 progress monitoring, aiming for R=10 within 15 hours on at most 50 cores and
 500 GB. Certification is deferred; this is a plan, not a completed campaign.
 
+The next slice provides a [shared-owner campaign driver](docs/shared_owner_campaign_driver.md):
+`rustred routed-campaign`, the Rust `routed_campaign_with_progress` service, and
+`examples/python/shared_owner_campaign.py`. It batches concrete targets in one
+parallel dependency queue, shares immutable saved programs, and reports live
+progress, deduplication, uncovered dependencies and cooperative cancellation.
+The release gates pass **2,515 core tests and 259 application/integration tests**.
+This driver does not yet perform missing-domain generation or persist its work
+queue; finite-target success is explicitly not a complete R10 family solve.
+
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after
 interruption. Rust and Python expose the same controls. This saves completed

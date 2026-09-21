@@ -18,6 +18,11 @@ mod model;
 mod options;
 mod producer;
 mod resource_policy;
+mod routed_campaign;
+
+pub use routed_campaign::{
+    RoutedCampaignRequest, RoutedCampaignResult, routed_campaign_with_progress,
+};
 
 pub use candidate_bundle::{
     CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateBundleInspection,

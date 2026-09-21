@@ -231,6 +231,30 @@ Local design audit:
 
 ## Implemented transport seam
 
+### Native-rational control before shared scheduling (September 21)
+
+The same rank-one input, 67 owner programs, 8,179 routes and work allowances
+were rerun with the newly gated native-rational numerator expansion. It again
+reaches 541,889 keys, applies 219,003 rules and reaches 321 terminals with zero
+frontier; maximum intermediate rank/dot excess remain 5/10. No new rules were
+generated, and coefficient back-substitution was not run.
+
+| Boundary | Earlier implementation | Native-rational control |
+| --- | ---: | ---: |
+| Load owner programs | 13.273 s | 15.516 s |
+| Verify/prepare routing | 88.933 s | 157.033 s |
+| Dependency trace | 54.968 s | 42.022 s |
+| Whole process wall | 160.34 s | 220.97 s |
+| Whole process CPU | 159.15 s | 218.75 s |
+| Peak RSS | 5,815,792 KiB | 5,810,440 KiB |
+
+Both are completed release, one-worker observations on the shared host, not
+paired confidence intervals. The trace is faster in this observation but the
+whole process is slower: do not claim an overall speedup or attribute the
+preparation difference without a profile. The control has no short process
+deadline. Evidence: `TMP/shared-campaign-native-q-baseline.axxR6b/`; prior
+control: `TMP/routed-full-census.GqXBUQ/rank1/`.
+
 `sector::symmetry::integral_transport::compile` binds an exact `VerifiedMap`
 to its source/target families and active roots, returning a shared immutable
 `Prepared` object. `Prepared::transport` returns exact typed target integral

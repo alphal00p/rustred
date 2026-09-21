@@ -1,7 +1,9 @@
 mod family_close;
 mod model;
 mod render;
+mod routed;
 mod terminal;
+pub(crate) use routed::RoutedProgress;
 
 pub(crate) use family_close::FamilyCloseProgressMonitor;
 

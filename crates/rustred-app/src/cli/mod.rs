@@ -3,6 +3,7 @@ mod candidates;
 pub(crate) mod error;
 mod io;
 mod progress;
+mod routed;
 
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
@@ -48,6 +49,7 @@ pub(crate) fn main_entry() -> i32 {
 
 fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
     match parse_args(arguments)? {
+        Command::RoutedCampaign(arguments) => routed::run(arguments),
         Command::Help => write_informational_output(HELP),
         Command::Version => {
             write_informational_output(concat!("RustRed ", env!("CARGO_PKG_VERSION"), "\n"))

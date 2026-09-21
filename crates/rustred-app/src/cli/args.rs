@@ -4,6 +4,8 @@ mod derive;
 mod family_close;
 mod family_solve;
 mod resource_limits;
+mod routed;
+pub(crate) use routed::RoutedCampaignArgs;
 
 pub(crate) use candidates::{CertifyCandidatesArgs, FamilyCandidatesArgs};
 use resource_limits::ResourceLimitsArgs;
@@ -140,6 +142,7 @@ pub(crate) enum ColorPolicy {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Command {
+    RoutedCampaign(RoutedCampaignArgs),
     Derive(DeriveArgs),
     FamilySolve(FamilySolveArgs),
     FamilyClose(FamilyCloseArgs),
@@ -252,6 +255,7 @@ pub(crate) fn parse_args(
         "family-candidates" => candidates::parse_generation(arguments),
         "certify-candidates" => candidates::parse_certification(arguments),
         "campaign" => campaign::parse(arguments),
+        "routed-campaign" => routed::parse(arguments),
         _ => Err(ArgError::UnknownCommand(command)),
     }
 }
@@ -321,6 +325,7 @@ pub(crate) const HELP: &str = "\
 RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 
 USAGE:
+    rustred routed-campaign --manifest SELECTION.json --targets TARGETS.csv --output RESULT.json [--events EVENTS.jsonl] [--owner-base DIR] [--workers 1..50] [--stop-file PATH] [--max-nodes N] [--max-input-targets N] [--max-transport-operations N] [--max-transport-endpoints N] [--max-coalescing-additions N] [--max-rule-applications N]
     rustred derive [OPTIONS]
     rustred family-solve [OPTIONS]
     rustred family-close [OPTIONS]

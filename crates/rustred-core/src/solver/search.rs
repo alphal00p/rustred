@@ -266,6 +266,17 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
         source_order: Option<&[usize]>,
         mut observe: impl FnMut(SearchEvent<N>),
     ) -> Result<RuleCandidate<N>, SolverError> {
+        self.validate_case(&case)?;
+        if options.prime < 3 || !Integer::from(options.prime).is_prime(0) {
+            return Err(SolverError::InvalidInput(
+                "modular probe requires an odd prime".into(),
+            ));
+        }
+        self.search_validated_case(case, options, source_order, &mut observe)
+    }
+
+    /// Bind a queued case to this source system before any work or publication.
+    pub(super) fn validate_case(&self, case: &Case<N>) -> Result<(), SolverError> {
         if !case.is_in_sector(self.order.sector()) {
             return Err(SolverError::InvalidInput(
                 "case lies outside its sector".into(),
@@ -295,11 +306,16 @@ impl<'a, const N: usize> SectorSolver<'a, N> {
                 ));
             }
         }
-        if options.prime < 3 || !Integer::from(options.prime).is_prime(0) {
-            return Err(SolverError::InvalidInput(
-                "modular probe requires an odd prime".into(),
-            ));
-        }
+        Ok(())
+    }
+
+    fn search_validated_case(
+        &self,
+        case: Case<N>,
+        options: SearchOptions,
+        source_order: Option<&[usize]>,
+        mut observe: impl FnMut(SearchEvent<N>),
+    ) -> Result<RuleCandidate<N>, SolverError> {
         let start = Instant::now();
         let mut stats = SearchStats::default();
         let mut probe = None;

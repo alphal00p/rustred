@@ -12,6 +12,8 @@ use super::{
 };
 
 mod finite;
+mod domains;
+pub use domains::SectorDomainSolution;
 pub use finite::{FiniteCaseLimits, FiniteCasePolicy, FiniteRetentionError};
 
 /// A solved equation together with the exact exceptional index conditions
@@ -267,6 +269,21 @@ impl<const N: usize> SectorSolver<'_, N> {
     pub fn solve_sector_with_observer(
         &self,
         options: SectorSolveOptions,
+        observe: impl FnMut(SectorEvent<'_, N>),
+    ) -> Result<SectorSolution<N>, SectorSolveError<N>> {
+        let initial = CoordinateCase::new(std::array::from_fn(|i| {
+            self.config.removed_deltas[i].then_some(1)
+        }))
+        .expect("one is a representable compact fixed power");
+        self.solve_case_queue(vec![Case::from(initial)], options, observe)
+    }
+
+    /// Common queue machinery; callers own the distinction between a full
+    /// sector and a fragment nominated by a shared campaign's missing frontier.
+    fn solve_case_queue(
+        &self,
+        initial: Vec<Case<N>>,
+        options: SectorSolveOptions,
         mut observe: impl FnMut(SectorEvent<'_, N>),
     ) -> Result<SectorSolution<N>, SectorSolveError<N>> {
         if options.finite_case_policy == FiniteCasePolicy::RetainRankFinite
@@ -278,16 +295,16 @@ impl<const N: usize> SectorSolver<'_, N> {
             });
         }
         let start = Instant::now();
-        let initial = CoordinateCase::new(std::array::from_fn(|i| {
-            self.config.removed_deltas[i].then_some(1)
-        }))
-        .expect("one is a representable compact fixed power");
         let mut pending = Vec::new();
         let mut numerical = Vec::new();
-        if initial.is_numerical() {
-            numerical.push(initial);
-        } else {
-            pending.push(Case::from(initial));
+        for case in initial {
+            self.enqueue(
+                case,
+                &mut pending,
+                &mut numerical,
+                &[],
+                options.case_intersection_limits,
+            )?;
         }
         let mut rules = Vec::new();
         let mut stats = SectorStats::default();

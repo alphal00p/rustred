@@ -28,9 +28,10 @@ pub use owners::{
 };
 pub use reducer::CandidateReducer;
 pub use routed::{
-    CandidateOwnerRoute, CandidateRoutedError, CandidateRoutedFrontier,
-    CandidateRoutedFrontierReason, CandidateRoutedTraceReport, RoutedCandidateLimits,
-    RoutedCandidateReducer,
+    CandidateOwnerRoute, CandidateRoutedCampaignError, CandidateRoutedCampaignFailure,
+    CandidateRoutedCampaignReport, CandidateRoutedCampaignSnapshot, CandidateRoutedError,
+    CandidateRoutedFrontier, CandidateRoutedFrontierReason, CandidateRoutedTraceReport,
+    CandidateRoutedWork, RoutedCandidateLimits, RoutedCandidateReducer,
 };
 pub use trace::{CandidateTraceLimits, CandidateTraceReport};
 
