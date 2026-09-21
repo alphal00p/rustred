@@ -11,9 +11,9 @@ use super::super::checkpoint::{CheckpointManifest, CheckpointStore};
 use super::*;
 use crate::FamilyCloseProgress;
 
-struct Directory(PathBuf);
+pub(super) struct Directory(pub(super) PathBuf);
 impl Directory {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../TMP");
         fs::create_dir_all(&base).unwrap();
@@ -31,7 +31,7 @@ impl Directory {
         }
         panic!("failed to reserve test directory")
     }
-    fn options(&self) -> CandidateCheckpointOptions {
+    pub(super) fn options(&self) -> CandidateCheckpointOptions {
         CandidateCheckpointOptions::new(self.0.join("checkpoint"))
     }
 }

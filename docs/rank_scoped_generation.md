@@ -268,6 +268,27 @@ Continuation receipts are in `TMP/tide-r10-30527-resultant-resume.tm5KX0/`,
 `TMP/tide-r10-29550-resultant-resume.M5CZF6/` and
 `TMP/tide-r10-root30231-resultant-resume.LIPE76/`.
 
+A later metadata-only broad-search inventory, sampled non-atomically at
+**09:55:06–09:55:07 UTC**, has the following counts:
+
+| Parent input | Saved sectors / scheduled |
+|---|---:|
+| 30527 | 487 / 2,686 |
+| 30699 | 1,773 / 2,580 |
+| 31740 | 1,274 / 2,656 |
+| 32745 | 2,241 / 2,478 |
+
+Their 5,775 occurrences comprise **4,889 distinct labelled sectors / 8,246**,
+leaving 3,357 unsaved and 886 repeated occurrences. Exact input routing maps
+these saved sectors to **65/67** census representatives; 29550 and 30231 remain
+absent from this search-policy inventory. Different-policy finite-retention
+probes are not merged into it. All four original parent shards are now present,
+but that does not establish coverage of their descendant sectors or entry rays.
+The six live campaigns use four-hour deadlines and 64 solver workers; all are
+checkpoint continuations, not fresh regeneration. The global 450 GB soft stop
+supervises actual RSS, since individual address-space caps are not simultaneous
+RAM reservations. Evidence: `TMP/rank10-search-refresh.007AMj/REPORT.md`.
+
 Two distinct failures have appeared in the frozen broad-run executable. A
 nonlinear exceptional equality `8-3*n6-6*n2+2*n2*n6=0` is unsupported there.
 Its equivalent integer equation
@@ -307,6 +328,95 @@ loader restores the bound even for a zero-only program. Starting integrals
 outside the declared rank are rejected before memoization access or mutation.
 Successors above the input rank are **not clipped**: every required descendant
 must still have an applicable rule or an explicitly declared terminal.
+
+## Applying a complete checkpoint directory
+
+The Rust application API can consume a complete trusted-local generation
+checkpoint directly:
+
+```rust,ignore
+use rustred_app::load_generated_candidate_checkpoint;
+
+// The same source, root, ordering, rank, finite-case policy and exact backend
+// used to generate this directory, with checkpoint.resume explicitly true.
+let (family, mut reducer) =
+    load_generated_candidate_checkpoint::<N>(&request, reduction_limits)?;
+let result = reducer.reduce_unit_mass(&target)?;
+```
+
+It prepares the family once, checks the existing manifest and expected sector
+set under the cooperative checkpoint lock, then imports the native sector
+records into **one** existing `CandidateReducer`. No solver worker, sector
+search, monolithic encoding or terminal minimization is invoked. The directory
+is not modified, and missing, inconsistent or corrupt sectors fail rather than
+being silently regenerated. Internal dependencies remain in the shared reducer;
+entering another sector does not reset limits or reapply the public input-rank
+check. Native zero-sector evidence is reconstructed as with the bundle loader.
+
+All collection counts and cumulative coefficient-table entries/bytes are
+preflighted across the complete directory before the first native shard import.
+The existing per-shard and total checkpoint-byte bounds still apply. Increase
+these explicit transport limits only for a measured input that needs them;
+the API does not silently raise them. Per-shard native Symbolica state limits
+plus the directory-byte limit bound state ingress, not every native allocation.
+As for other native loaders, accept only trusted matching-stack outputs.
+
+This avoids the large single-program encoding limit and buffer, **not** the
+in-memory cost of the rules and explicit terminal set. Every required terminal
+is retained. Loading is structural admission, not regenerated-source replay,
+recursive coverage certification or a claim that the terminals are independent
+masters. A successful concrete reduction demonstrates only its own reachable
+dependency graph. CLI/Python generation and their checkpoint-resume behavior
+are unchanged; this additional direct-load surface is currently the Rust
+application API.
+
+The source-consistent release gate passes all **237 application tests**
+(160 unit and 77 integration), including six new loader tests. They exercise
+exact monolithic/sharded parity, cross-sector traversal, above-entry-rank
+successors and genuine uncovered children, zero-only rank preservation,
+aggregate limits before native import, no-write behavior, identity changes,
+locks and incomplete/corrupt input. Independent implementation and mathematical
+audits pass. An initial test expected the later manifest-mismatch message for
+root narrowing; existing ordinal admission correctly rejects it earlier. Only
+that diagnostic expectation was corrected, retaining the rejection kind and
+no-write assertions. The failed receipt is preserved separately from the
+passing gate in `TMP/checkpoint-load-gate-fixed.mZqdwA/`.
+
+### Real 328-sector application check
+
+The first optimized fresh-process check loads the complete 30563 checkpoint,
+including all **30,431,209** explicit nonminimal terminals, in **124.614 s**.
+No saved sector is regenerated, and all checkpoint hashes remain unchanged.
+The 64-million collection allowance is explicit; the mathematical request and
+generation policy remain the original R=10 finite-retention request.
+
+| Starting input | Trace result | Exact terminal output |
+|---|---|---:|
+| Unit positive powers, R=0 (declared terminal) | 1 key, no uncovered entry | 1 term |
+| One raised denominator, R=0 | 56,697 keys, 53,768 applications, no uncovered entry | 1,214 terms |
+| One raised denominator, R=1 | 73,942 keys, 70,888 applications, no uncovered entry | 1,257 terms |
+| One raised denominator, R=10 | 100,001st key exceeds 100,000 limit | Not attempted |
+| Three total dots, split R=10 numerator | Same explicit trace-node limit | Not attempted |
+| One pinch, one dot, R=1 | 4,794 keys, no uncovered entry | 180 terms |
+| Two pinches, one dot, R=1 | 3,548 keys, no uncovered entry | 155 terms |
+
+All five successful reductions return only declared terminals and pass their
+exact memoized repeats. The process correctly exits1 for the two incomplete
+checks. Whole-process time is **332.45 s wall / 330.19 CPU-s**, with
+**8,355,028 KiB peak RSS**. The one-dot R=0/R=1 per-target intervals are
+89.446/101.081 s, including trace, exact coefficient accumulation and repeat;
+they share one reducer/cache and are not independent cold scalar timings.
+The internal timer excludes final teardown, unlike the whole-process receipt.
+No fixed master evaluations or numerical comparisons are involved.
+
+The successful raised-power traces already reach numerator degree2, illustrating
+why entry rank must not clip successors. Neither limit-hit R=10 trace returns
+a complete frontier; it cannot establish either missing rules or closure.
+The next bounded diagnostic increases the explicit reachable-key allowance and
+uses trace-only boundary inputs, without changing generated rules or minimizing
+terminals. Arbitrarily raised positive powers still require a generic
+successor-coverage argument. Evidence:
+`TMP/tide-r10-30563-checkpoint-load.6FFOty/`.
 
 ## How nonlinear exceptions are handled
 

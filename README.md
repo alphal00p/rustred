@@ -29,13 +29,19 @@ not certified closed artifacts; see [the scope and workflow](docs/rank_scoped_ge
 The experimental `--finite-case-policy retain-rank-finite` option keeps finite
 rank-bounded leaves without trying to minimize their count. It requires an
 explicit R, never truncates positive rays, and reports exhausted work limits
-as incomplete. Its follow-up release validation is still pending.
+as incomplete. Its release regressions pass; complete five-loop coverage
+remains an open goal.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after
 interruption. Rust and Python expose the same controls. This saves completed
 work without changing any IBP algorithm or claiming closure; see the
 [checkpoint workflow and resource boundaries](docs/CLI.md#save-candidates-certify-independently).
+For a complete checkpoint directory, the Rust application API also offers
+`load_generated_candidate_checkpoint`: load the saved sectors into one shared
+experimental reducer without regenerating rules or assembling a monolithic
+bundle. It requires the matching generation request and explicit resume;
+missing sectors are errors. See [checkpoint application](docs/rank_scoped_generation.md#applying-a-complete-checkpoint-directory).
 
 Generated candidate programs now use a shared Symbolica-native binary
 coefficient dictionary and native family geometry, rather than coefficient

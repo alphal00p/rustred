@@ -4,11 +4,14 @@ use rustred::family::IntegralFamily;
 use rustred::identity::ParametricIbpGenerator;
 use rustred::reduction::ReductionLimits;
 use rustred::sector::{CoordinatePriority, CoordinatePriorityLimits, Mask, OrderingPolicy, zero};
-use rustred::solver::CandidateReducer;
+use rustred::solver::{CandidateReducer, SectorSolution};
 
 use crate::application::AppError;
 
 use super::{CandidateBundleLimits, codec, model::CandidateBundleInspection, preparation};
+
+mod checkpoint;
+pub use checkpoint::load_generated_candidate_checkpoint;
 
 /// Inspect candidate structure without importing Symbolica state or coefficients.
 /// Counts describe the saved payload; they do not authenticate algebra, replay
@@ -77,19 +80,7 @@ pub fn load_generated_candidate_bundle<const N: usize>(
     if !(1..=16).contains(&N) || bundle.root_sector.len() != N {
         return Err(AppError::input("candidate bundle/reducer arity mismatch"));
     }
-    let family = bundle
-        .family
-        .to_family(
-            &bundle.coefficients,
-            input_limits.family_limits(),
-            input_limits.binary_limits(),
-        )
-        .map_err(codec::binary_error)?;
-    if family.fingerprint() != bundle.family_fingerprint || family.denominator_count() != N {
-        return Err(AppError::input(
-            "candidate family binding differs from reconstructed family",
-        ));
-    }
+    let family = reconstruct_family::<N>(&bundle, input_limits)?;
     let prepared =
         preparation::prepare::<N>(family, &bundle.root_sector, bundle.permutation.as_deref())?;
     let context = ParametricIbpGenerator::try_new(&prepared.family)
@@ -108,6 +99,42 @@ pub fn load_generated_candidate_bundle<const N: usize>(
     // the reconstructed solutions. Do not retain the dictionary alongside its
     // prepared coefficient owners while building the reducer.
     drop(bundle);
+    finish_reducer(
+        prepared,
+        solutions,
+        ordering,
+        max_numerator_rank,
+        reduction_limits,
+    )
+}
+
+fn reconstruct_family<const N: usize>(
+    bundle: &super::model::Bundle,
+    input_limits: CandidateBundleLimits,
+) -> Result<IntegralFamily, AppError> {
+    let family = bundle
+        .family
+        .to_family(
+            &bundle.coefficients,
+            input_limits.family_limits(),
+            input_limits.binary_limits(),
+        )
+        .map_err(codec::binary_error)?;
+    if family.fingerprint() != bundle.family_fingerprint || family.denominator_count() != N {
+        return Err(AppError::input(
+            "candidate family binding differs from reconstructed family",
+        ));
+    }
+    Ok(family)
+}
+
+fn finish_reducer<const N: usize>(
+    prepared: preparation::Prepared<N>,
+    solutions: Vec<([bool; N], SectorSolution<N>)>,
+    ordering: OrderingPolicy,
+    max_numerator_rank: Option<u32>,
+    reduction_limits: ReductionLimits,
+) -> Result<(IntegralFamily, CandidateReducer<N>), AppError> {
     // Preparation keeps a compact zero-mask census. The experimental reducer
     // takes native proof owners, not caller-asserted zero masks.
     let analyzer = zero::Analyzer::try_unrestricted(&prepared.family)

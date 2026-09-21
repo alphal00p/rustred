@@ -11,6 +11,7 @@ use crate::application::{AppErrorKind, FamilyCloseRequest, InputFormat, family_c
 use super::{codec, model::*, preparation, *};
 
 mod checkpoint;
+mod checkpoint_load;
 mod depth;
 mod finite;
 mod rank;

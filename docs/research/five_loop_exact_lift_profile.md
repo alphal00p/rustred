@@ -158,6 +158,37 @@ information to these older profiles.
 
 ## Evidence
 
+### September 21: rank-10 TIDE subfamily, twelve unsaved sectors
+
+A later **different-input** diagnostic samples the live four-worker TIDE
+subfamily 30231 continuation with natural ordering, `sparse-factorized` and
+`retain-rank-finite` at R=10. It has admitted 172 previous sectors and saved
+14 more; 12 of 198 remain unsaved. This is not a completed family, an isolated
+case benchmark or a comparison against the older banana experiments above.
+
+A 20-second, 49 Hz user-space sample on 2026-09-21 records 3,875 samples and
+reports zero lost samples. Leading exclusive shares are native packed
+polynomial division **18.09%**, GMP basecase multiplication **9.69%**, native
+polynomial BTree search/insertion/removal **8.10/6.89/5.62%**, dense integer
+polynomial multiplication **6.53%**, and integer-ring exact division **4.37%**.
+Resolved stacks connect that arithmetic to factorized sparse row reduction;
+the outer materializer/reducer appears in only 959 of 3,875 captured blocks,
+so complete outer unwinding is not established. Do not sum inclusive stack
+costs with these exclusive percentages or call this a whole-run breakdown.
+
+Coalesced progress shows one frame advancing from row 2400 to 2406 of 2456,
+with roughly 223k–227k upper nonzeros; another simultaneous frame is at row
+3810 of 4130, with 465,189 upper nonzeros and 10,644 integral columns. The
+process-wide sample cannot assign its shares to a particular worker/case.
+These are ongoing exact-arithmetic/fill costs, not a new demonstrated missing
+IBP or exceptional-domain failure. The recording spans only 20 seconds and
+does not establish how long either frame or family will take to finish.
+
+The continuation is consequently an instrumented resource diagnostic.
+Evidence: `TMP/tide-r10-root30231-profile.4nE5LU/RESULTS.md`; the profiler/report
+clock interval is 09:23:56–09:24:21 UTC, including report generation. No native
+algebra kernel, exactness shortcut or automatic backend switch was added.
+
 ### Short ordinary-sparse control
 
 A separately admitted five-minute control reused the identical published CLI,

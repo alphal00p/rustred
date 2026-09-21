@@ -54,6 +54,30 @@ impl CheckpointStore {
         manifest: CheckpointManifest,
         limits: CandidateBundleLimits,
     ) -> Result<Self, AppError> {
+        Self::open_impl(options, manifest, limits, true)
+    }
+
+    /// Read an installed campaign without creating even its cooperative lock.
+    /// The existing lock is still held exclusively for the whole load.
+    pub(in crate::application::candidate_bundle) fn open_existing(
+        options: &CandidateCheckpointOptions,
+        manifest: CheckpointManifest,
+        limits: CandidateBundleLimits,
+    ) -> Result<Self, AppError> {
+        if !options.resume {
+            return Err(AppError::input(
+                "checkpoint loading requires explicit resume",
+            ));
+        }
+        Self::open_impl(options, manifest, limits, false)
+    }
+
+    fn open_impl(
+        options: &CandidateCheckpointOptions,
+        manifest: CheckpointManifest,
+        limits: CandidateBundleLimits,
+        create_lock: bool,
+    ) -> Result<Self, AppError> {
         manifest.validate(limits)?;
         if options.max_total_bytes == 0 || options.directory.as_os_str().is_empty() {
             return Err(AppError::input(
@@ -87,7 +111,7 @@ impl CheckpointStore {
         let lock = OpenOptions::new()
             .read(true)
             .write(true)
-            .create(true)
+            .create(create_lock)
             .truncate(false)
             .open(&lock_path)
             .map_err(|error| io_error("open lock", &lock_path, error))?;

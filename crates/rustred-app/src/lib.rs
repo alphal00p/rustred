@@ -32,7 +32,7 @@ pub use application::{
     family_close, family_close_with_progress, family_solve, foundry_campaign_run,
     foundry_campaign_run_with_progress, foundry_wave_campaign_run,
     foundry_wave_campaign_run_with_progress, inspect_generated_candidate_bundle,
-    load_generated_candidate_bundle,
+    load_generated_candidate_bundle, load_generated_candidate_checkpoint,
 };
 
 /// Run the command-line adapter and return its stable process exit code.
