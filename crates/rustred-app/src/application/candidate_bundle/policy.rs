@@ -15,7 +15,10 @@ const RANK_SEPARATOR: &str = "-max-numerator-rank-";
 const RETAIN_SEPARATOR: &str = "-retain-rank-finite-points-";
 
 /// Generation scope and finite-case policy, including its work limits.
-/// Not a certificate. Transport/output budgets are deliberately excluded.
+/// Not a certificate. Transport/output and exact case-intersection work
+/// budgets are deliberately excluded: a completed exact shard stays reusable
+/// under different resource allowances. Intersection limits may change
+/// conservative coverage scheduling, not the mathematical saved scope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct GenerationPolicy {
     pub numerical_depth: u32,

@@ -74,6 +74,82 @@ fn natural_locus(powers: [i16; 5]) -> bool {
 }
 
 #[test]
+fn captured_five_axis_guard_closes_only_with_explicit_larger_work_allowance() {
+    // External 15-coordinate face: only n0,n1,n3,n6,n10 are free (all
+    // nonpositive); every active power is fixed to one, all other powers to
+    // zero. Dropping those fixed unused axes preserves the original guard
+    // and total-negative-power simplex, not just a sampled subcase.
+    let context = CoefficientContext::new(["d", "n0", "n1", "n3", "n6", "n10"]);
+    let indices = [1, 2, 3, 4, 5];
+    let conjunction = equations(
+        &context,
+        &[
+            "4*n10-2*n10^2+4*n6*n10+2*n3*n10+n1+n1*n10+n1*n6+2*n1*n3-n1^2-n0-3*n0*n10-n0*n6-2*n0*n3+n0^2",
+        ],
+    );
+    let parent = Case::<5>::generic();
+    let sector = [false; 5];
+    let default_error = parent
+        .intersect_many_with_max_numerator_rank(
+            &conjunction,
+            &indices,
+            &sector,
+            Default::default(),
+            10,
+        )
+        .unwrap_err();
+    assert_eq!(
+        default_error.failure,
+        CaseIntersectionFailure::Budget {
+            kind: CaseIntersectionBudget::WorkItems,
+            limit: 4096,
+        }
+    );
+    assert_eq!(default_error.limits, CaseIntersectionLimits::default());
+    let limits = CaseIntersectionLimits {
+        max_work_items: 262_144,
+        max_terms_per_conjunction: 1_000_000,
+        max_normalizations: 65_536,
+        max_factorizations: 65_536,
+    };
+    let started = std::time::Instant::now();
+    let result = parent
+        .intersect_many_with_max_numerator_rank(&conjunction, &indices, &sector, limits, 10)
+        .unwrap();
+    eprintln!(
+        "captured five-axis R10 intersection: {:?}, {} cases, {:?}",
+        started.elapsed(),
+        result.cases.len(),
+        result.stats
+    );
+    assert_eq!(result.max_numerator_rank, Some(10));
+    assert!(result.stats.work_items > CaseIntersectionLimits::default().max_work_items);
+    for case in &result.cases {
+        assert!(case.is_in_sector(&sector));
+        assert!(implies(case, &conjunction[0], &indices));
+    }
+    let mut visited = 0;
+    let mut zeros = 0;
+    visit_simplex(10, |powers| {
+        visited += 1;
+        // Native polynomial evaluation is independent of the returned OR;
+        // this enumerates the entire finite input simplex, never a sample.
+        let value = indices
+            .iter()
+            .zip(powers)
+            .fold(conjunction[0].clone(), |value, (&axis, power)| {
+                value.replace(axis, &Integer::from(power))
+            });
+        let expected = value.is_zero();
+        zeros += usize::from(expected);
+        assert_eq!(covers(&result.cases, powers), expected, "{powers:?}");
+    });
+    assert_eq!(visited, 3003);
+    assert!(zeros > 0);
+    eprintln!("captured five-axis R10 complete simplex: {zeros}/{visited} exact zeros");
+}
+
+#[test]
 fn natural_conic_rank_ten_and_twenty_match_the_entire_original_integer_simplex() {
     // These five original inactive coordinates are the only free coordinates
     // of the captured face; all six positive denominator powers are fixed at

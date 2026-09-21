@@ -42,6 +42,13 @@ pub(super) fn write_context<const N: usize>(
         if let Some(maximum) = error.max_numerator_rank {
             write!(context, "\nmaximum numerator rank: {maximum}")?;
         }
+        // Fixed-size resource evidence precedes geometry: a long polynomial
+        // must not hide the effective budget or where its work was charged.
+        write!(
+            context,
+            "\nshared per-conjunction limits: {:?}\nshared per-conjunction stats: {:?}",
+            error.limits, error.stats,
+        )?;
         // Put the final unresolved branch first: this is the small exact
         // diagnostic most useful when the original conjunction was large.
         context.write_str("\nunresolved_parent: ")?;
@@ -69,13 +76,14 @@ pub(super) fn write_context<const N: usize>(
 mod tests {
     use super::*;
     use crate::algebra::CoefficientContext;
-    use crate::solver::{CaseIntersectionFailure, CaseIntersectionStats};
+    use crate::solver::{CaseIntersectionFailure, CaseIntersectionLimits, CaseIntersectionStats};
 
     fn example() -> CaseIntersectionError<2> {
         let context = CoefficientContext::new(["a", "b"]);
         let equations = [context.coefficient_fixture("a^2+b^2+1").numerator];
         CaseIntersectionError {
             max_numerator_rank: None,
+            limits: CaseIntersectionLimits::default(),
             original_parent: Case::generic(),
             original_conjunction: equations.to_vec().into(),
             unresolved_parent: Case::generic(),
@@ -108,6 +116,11 @@ mod tests {
         let before = error.clone();
         let text = error.to_string();
         assert!(text.contains("case diagnostic truncated at 16384 bytes"));
+        assert!(text.contains(&format!(
+            "shared per-conjunction limits: {:?}",
+            error.limits
+        )));
+        assert!(text.contains(&format!("shared per-conjunction stats: {:?}", error.stats)));
         assert!(text.len() <= MAX_CONTEXT_BYTES + 256);
         assert_eq!(error, before);
     }

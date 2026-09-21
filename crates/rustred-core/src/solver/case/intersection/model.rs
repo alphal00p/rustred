@@ -94,6 +94,8 @@ pub enum CaseIntersectionFailure {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CaseIntersectionError<const N: usize> {
     pub max_numerator_rank: Option<u32>,
+    /// Effective resources for this complete conjunction, not a domain bound.
+    pub limits: CaseIntersectionLimits,
     pub original_parent: Case<N>,
     pub original_conjunction: Arc<[CoefficientPolynomial]>,
     pub unresolved_parent: Case<N>,

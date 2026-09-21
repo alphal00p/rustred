@@ -10,8 +10,10 @@ use crate::application::{AppErrorKind, FamilyCloseRequest, InputFormat, family_c
 
 use super::{codec, model::*, preparation, *};
 
+mod case_limits;
 mod checkpoint;
 mod checkpoint_load;
+mod declared_affine;
 mod depth;
 mod finite;
 mod rank;

@@ -1,12 +1,21 @@
-//! Necessary sector-sign bounds for native integer affine rows.
+//! Exact sector-sign bounds for native integer affine rows.
 //!
-//! Symbolica's public inequality solver currently reports
-//! `InequalitiesNotSupported`. This is only domain bookkeeping over its native
-//! `Integer` arithmetic, not an LP or general integer-polyhedron solver.
+//! Symbolica's public equation solver retains unresolved positivity conditions
+//! and does not accept general inequality systems. This is domain bookkeeping
+//! over its native `Integer` arithmetic, not an LP or polyhedron solver.
 
 use symbolica::prelude::Integer;
 
 use super::CoordinateCase;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RowBounds {
+    Excluded,
+    Unresolved,
+    /// Every unfixed original axis with a nonzero coefficient is at its sector
+    /// endpoint (one for active indices, zero for inactive indices).
+    Saturated,
+}
 
 /// Prove `a.n = b` impossible using the independent sector bounds of each axis.
 /// `None` bounds mean unbounded, never a sampled or compact-encoding endpoint.
@@ -15,9 +24,21 @@ pub(super) fn excludes_rhs<const N: usize>(
     face: &CoordinateCase<N>,
     sector: &[bool; N],
 ) -> bool {
+    classify(row, face, sector) == RowBounds::Excluded
+}
+
+/// At an attained finite extremum, every individual nonnegative slack is zero.
+/// Hence all nonzero unfixed terms attain their unique half-line endpoints.
+/// This is an exact consequence of one row, not a general feasibility claim.
+pub(super) fn classify<const N: usize>(
+    row: &[Integer],
+    face: &CoordinateCase<N>,
+    sector: &[bool; N],
+) -> RowBounds {
     debug_assert_eq!(row.len(), N + 1);
     let mut lower = Some(Integer::zero());
     let mut upper = Some(Integer::zero());
+    let mut has_unfixed_term = false;
     for (axis, coefficient) in row[..N].iter().enumerate() {
         if coefficient.is_zero() {
             continue;
@@ -31,6 +52,7 @@ pub(super) fn excludes_rhs<const N: usize>(
                 *bound += &contribution;
             }
         } else {
+            has_unfixed_term = true;
             // Positive indices start at one; inactive indices end at zero.
             // Multiplication by a negative coefficient reverses the bounds.
             if sector[axis] != coefficient.is_negative() {
@@ -50,8 +72,18 @@ pub(super) fn excludes_rhs<const N: usize>(
             }
         }
     }
-    lower.as_ref().is_some_and(|bound| row[N] < *bound)
+    if lower.as_ref().is_some_and(|bound| row[N] < *bound)
         || upper.as_ref().is_some_and(|bound| row[N] > *bound)
+    {
+        RowBounds::Excluded
+    } else if has_unfixed_term
+        && (lower.as_ref().is_some_and(|bound| row[N] == *bound)
+            || upper.as_ref().is_some_and(|bound| row[N] == *bound))
+    {
+        RowBounds::Saturated
+    } else {
+        RowBounds::Unresolved
+    }
 }
 
 #[cfg(test)]

@@ -89,13 +89,18 @@ impl<const N: usize> AffineCase<N> {
     /// consistency is not asserted to prove integer feasibility: every row
     /// receives native gcd/divisibility checks, but unresolved congruences
     /// remain implicit in the original exact integer-coordinate equalities.
+    /// This preserves the declared equality chart, including its symbolic
+    /// target, for exact saved-rule reconstruction. Sector-implied endpoint
+    /// refinements belong to [`super::Case::intersect`], not chart import.
     pub fn from_coordinate(
         parent: &CoordinateCase<N>,
         equations: &[CoefficientPolynomial],
         indices: &[usize; N],
         sector: &[bool; N],
     ) -> Result<AffineIntersection<N>, AffineGeometryError> {
-        Self::from_coordinate_in_rank(parent, equations, indices, sector, None)
+        Self::from_coordinate_with_sector_refinement(
+            parent, equations, indices, sector, None, false,
+        )
     }
 
     pub(crate) fn from_coordinate_in_rank(
@@ -104,6 +109,24 @@ impl<const N: usize> AffineCase<N> {
         indices: &[usize; N],
         sector: &[bool; N],
         max_numerator_rank: Option<u32>,
+    ) -> Result<AffineIntersection<N>, AffineGeometryError> {
+        Self::from_coordinate_with_sector_refinement(
+            parent,
+            equations,
+            indices,
+            sector,
+            max_numerator_rank,
+            true,
+        )
+    }
+
+    fn from_coordinate_with_sector_refinement(
+        parent: &CoordinateCase<N>,
+        equations: &[CoefficientPolynomial],
+        indices: &[usize; N],
+        sector: &[bool; N],
+        max_numerator_rank: Option<u32>,
+        refine_sector_endpoints: bool,
     ) -> Result<AffineIntersection<N>, AffineGeometryError> {
         // This also performs variable-map/shape/parameter admission checks.
         let coordinate = match max_numerator_rank {
@@ -119,7 +142,14 @@ impl<const N: usize> AffineCase<N> {
             Err(error) => return Err(AffineGeometryError::Coordinate(error)),
         }
         catch_unwind(AssertUnwindSafe(|| {
-            intersect_native(parent, equations, indices, sector, max_numerator_rank)
+            intersect_native(
+                parent,
+                equations,
+                indices,
+                sector,
+                max_numerator_rank,
+                refine_sector_endpoints,
+            )
         }))
         .map_err(|_| AffineGeometryError::NativeAlgebra)?
     }
@@ -167,6 +197,14 @@ impl<const N: usize> AffineCase<N> {
                 .primitive_matrix
                 .row_iter()
                 .any(|row| bounds::excludes_rhs(row, &self.face, sector))
+    }
+
+    /// A stored affine case may acquire endpoint equalities under a different
+    /// sector. Such a case must be recanonicalized even without new guards.
+    pub(crate) fn has_saturated_sector_row(&self, sector: &[bool; N]) -> bool {
+        self.primitive_matrix
+            .row_iter()
+            .any(|row| bounds::classify(row, &self.face, sector) == bounds::RowBounds::Saturated)
     }
 
     /// Restrict an equation interpreted as zero. Nonzero rational scalar
@@ -355,21 +393,40 @@ fn intersect_native<const N: usize>(
     indices: &[usize; N],
     sector: &[bool; N],
     max_numerator_rank: Option<u32>,
+    refine_sector_endpoints: bool,
 ) -> Result<AffineIntersection<N>, AffineGeometryError> {
     let Some(template) = equations.first() else {
         return Ok(AffineIntersection::Coordinate(*parent));
     };
-    let Some((matrix, primitive_matrix)) =
-        canonical_equalities(parent.fixed(), equations, indices)?
-    else {
-        return Ok(AffineIntersection::Empty);
+    let mut refined = *parent;
+    let (matrix, primitive_matrix) = loop {
+        let Some((matrix, primitive_matrix)) =
+            canonical_equalities(refined.fixed(), equations, indices)?
+        else {
+            return Ok(AffineIntersection::Empty);
+        };
+        let mut fixed = *refined.fixed();
+        for row in primitive_matrix.row_iter() {
+            match bounds::classify(row, &refined, sector) {
+                bounds::RowBounds::Excluded => return Ok(AffineIntersection::Empty),
+                bounds::RowBounds::Saturated if refine_sector_endpoints => {
+                    for (axis, coefficient) in row[..N].iter().enumerate() {
+                        if fixed[axis].is_none() && !coefficient.is_zero() {
+                            fixed[axis] = Some(i16::from(sector[axis]));
+                        }
+                    }
+                }
+                bounds::RowBounds::Unresolved | bounds::RowBounds::Saturated => {}
+            }
+        }
+        if &fixed == refined.fixed() {
+            break (matrix, primitive_matrix);
+        }
+        // Each successful round fixes at least one previously free ORIGINAL
+        // coordinate. There can be at most N rounds. Retain the entire input
+        // conjunction on every native elimination; no row or sibling is lost.
+        refined = CoordinateCase::new(fixed).map_err(|_| AffineGeometryError::NativeAlgebra)?;
     };
-    if primitive_matrix
-        .row_iter()
-        .any(|row| bounds::excludes_rhs(row, parent, sector))
-    {
-        return Ok(AffineIntersection::Empty);
-    }
     // Native RREF includes the parent fixed rows and has distinct original
     // coordinate pivots. Only singleton rows fix an original index; coupled
     // chart RHSs are not coordinate values. Check all such values before
@@ -461,3 +518,7 @@ mod tests;
 #[cfg(test)]
 #[path = "affine/rational_audit.rs"]
 mod rational_audit;
+
+#[cfg(test)]
+#[path = "affine/saturation_tests.rs"]
+mod saturation_tests;

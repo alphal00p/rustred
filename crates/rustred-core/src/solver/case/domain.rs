@@ -128,7 +128,7 @@ impl<const N: usize> Case<N> {
                 if case.is_proved_empty_in_sector(sector) {
                     return Ok(None);
                 }
-                if equations.is_empty() {
+                if equations.is_empty() && !case.has_saturated_sector_row(sector) {
                     return Ok(Some(self.clone()));
                 }
                 case.intersect_in_rank(equations, sector, max_numerator_rank)?

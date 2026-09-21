@@ -54,7 +54,12 @@ impl<const N: usize> SectorRule<N> {
         indices: &[usize; N],
         sector: &[bool; N],
     ) -> Result<(Vec<Case<N>>, usize), SectorSolveError<N>> {
-        self.admit_exceptional_cases_in_scope(indices, sector, None)
+        self.admit_exceptional_cases_in_scope(
+            indices,
+            sector,
+            None,
+            CaseIntersectionLimits::default(),
+        )
     }
 
     fn admit_exceptional_cases_in_scope(
@@ -62,23 +67,18 @@ impl<const N: usize> SectorRule<N> {
         indices: &[usize; N],
         sector: &[bool; N],
         max_numerator_rank: Option<u32>,
+        limits: CaseIntersectionLimits,
     ) -> Result<(Vec<Case<N>>, usize), SectorSolveError<N>> {
         let mut cases = Vec::new();
         let mut discarded = 0;
         for branch in &self.exceptions.branches {
             let intersection = match max_numerator_rank {
-                None => self.candidate.case.intersect_many(
-                    branch,
-                    indices,
-                    sector,
-                    CaseIntersectionLimits::default(),
-                ),
+                None => self
+                    .candidate
+                    .case
+                    .intersect_many(branch, indices, sector, limits),
                 Some(maximum) => self.candidate.case.intersect_many_with_max_numerator_rank(
-                    branch,
-                    indices,
-                    sector,
-                    CaseIntersectionLimits::default(),
-                    maximum,
+                    branch, indices, sector, limits, maximum,
                 ),
             }
             .map_err(|source| SectorSolveError::Intersection(Box::new(source)))?;
@@ -100,6 +100,10 @@ pub struct SectorSolveOptions {
     pub finite_case_policy: FiniteCasePolicy,
     /// Aggregate work/storage limits for finite retention, not coverage.
     pub finite_case_limits: FiniteCaseLimits,
+    /// Shared work budget for each exceptional AND conjunction and its exact
+    /// refinement branches, including conservative queued-case coverage tests.
+    /// Not a sector-wide counter, coverage bound, or hard native memory limit.
+    pub case_intersection_limits: CaseIntersectionLimits,
     /// Symbolic search is unbounded by default, as in the reference.
     pub symbolic: SearchOptions,
     /// Search radius for fully fixed cases, not a master-independence test.
@@ -114,6 +118,7 @@ impl Default for SectorSolveOptions {
             max_numerator_rank: None,
             finite_case_policy: FiniteCasePolicy::default(),
             finite_case_limits: FiniteCaseLimits::default(),
+            case_intersection_limits: CaseIntersectionLimits::default(),
             symbolic: SearchOptions::default(),
             numerical_depth: 2,
             max_symbolic_cases: None,
@@ -369,13 +374,20 @@ impl<const N: usize> SectorSolver<'_, N> {
                 &self.system.indices,
                 self.order.sector(),
                 options.max_numerator_rank,
+                options.case_intersection_limits,
             )?;
             stats.discarded_cases += discarded;
             if children.iter().any(|child| child == &current) {
                 return Err(SectorSolveError::NonProgress { case: current });
             }
             for child in children {
-                if !self.enqueue(child, &mut pending, &mut numerical, &rules)? {
+                if !self.enqueue(
+                    child,
+                    &mut pending,
+                    &mut numerical,
+                    &rules,
+                    options.case_intersection_limits,
+                )? {
                     stats.discarded_cases += 1;
                 }
             }
@@ -498,6 +510,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         pending: &mut Vec<Case<N>>,
         numerical: &mut Vec<CoordinateCase<N>>,
         rules: &[SectorRule<N>],
+        limits: CaseIntersectionLimits,
     ) -> Result<bool, SectorSolveError<N>> {
         if !prune_subsumed(pending, &case).map_err(|source| SectorSolveError::Geometry {
             case: case.clone(),
@@ -506,7 +519,7 @@ impl<const N: usize> SectorSolver<'_, N> {
             return Ok(false);
         }
         for rule in rules {
-            if self.rule_covers(rule, &case)? {
+            if self.rule_covers(rule, &case, limits)? {
                 return Ok(false);
             }
         }
@@ -535,6 +548,7 @@ impl<const N: usize> SectorSolver<'_, N> {
         &self,
         rule: &SectorRule<N>,
         case: &Case<N>,
+        limits: CaseIntersectionLimits,
     ) -> Result<bool, SectorSolveError<N>> {
         if !rule
             .candidate
@@ -548,12 +562,7 @@ impl<const N: usize> SectorSolver<'_, N> {
             return Ok(false);
         }
         for branch in &rule.exceptions.branches {
-            match case.intersect_many(
-                branch,
-                &self.system.indices,
-                self.order.sector(),
-                CaseIntersectionLimits::default(),
-            ) {
+            match case.intersect_many(branch, &self.system.indices, self.order.sector(), limits) {
                 Ok(result) if result.cases.is_empty() => (),
                 Ok(_) => return Ok(false),
                 // Failure to prove an exceptional intersection empty must

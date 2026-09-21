@@ -24,8 +24,9 @@ pub use load::{
 pub use model::{
     CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_CERTIFICATION_SCHEMA, CandidateBundleInspection,
     CandidateBundleLimits, CandidateBundleResult, CandidateCertificationRequest,
-    CandidateCertificationResult, CandidateExactBackend, FAMILY_CANDIDATES_SCHEMA,
-    FamilyCandidatesRequest, FiniteCaseLimits, FiniteCasePolicy, MAX_CANDIDATE_BUNDLE_BYTES,
+    CandidateCertificationResult, CandidateExactBackend, CaseIntersectionLimits,
+    FAMILY_CANDIDATES_SCHEMA, FamilyCandidatesRequest, FiniteCaseLimits, FiniteCasePolicy,
+    MAX_CANDIDATE_BUNDLE_BYTES,
 };
 
 #[cfg(test)]

@@ -22,6 +22,64 @@ from test_python_api import (
 
 
 class CandidateApiTests(GeneratedProgramAssertions):
+    def test_case_intersection_limits_are_strict_optional_and_match_cli(self) -> None:
+        signature = inspect.signature(rustred.family_candidates)
+        resources = {"case_max_work_items": 16384, "case_max_terms_per_conjunction": 400000,
+                     "case_max_normalizations": 4096, "case_max_factorizations": 16384}
+        for key in resources:
+            self.assertIsNone(signature.parameters[key].default)
+            self.assertEqual(signature.parameters[key].kind, inspect.Parameter.KEYWORD_ONLY)
+            self.assertNotIn(key, inspect.signature(rustred.certify_candidates).parameters)
+            for value in [True, False, 0, -1, 0.5, "2", 1 << 128]:
+                with self.subTest(key=key, value=value), self.assertRaises(rustred.RustRedInputError):
+                    rustred.family_candidates("not parsed", **{key: value})
+        ordinary = rustred.family_candidates(UNIT_MASS_PROJECT_K3, max_numerator_rank=2,
+                                            finite_case_policy="retain-rank-finite")
+        explicit_none = rustred.family_candidates(UNIT_MASS_PROJECT_K3, max_numerator_rank=2,
+                            finite_case_policy="retain-rank-finite", **dict.fromkeys(resources))
+        raised = rustred.family_candidates(UNIT_MASS_PROJECT_K3, max_numerator_rank=2,
+                                          finite_case_policy="retain-rank-finite", **resources)
+        self.assertProgramEqual(ordinary.bundle, explicit_none.bundle)
+        self.assertProgramEqual(ordinary.bundle, raised.bundle)
+        report = tomllib.loads(raised.to_toml())
+        for key, value in resources.items():
+            self.assertEqual(report[key], value)
+        arguments = ["family-candidates", "--max-numerator-rank", "2",
+                     "--finite-case-policy", "retain-rank-finite"]
+        for key, value in resources.items():
+            arguments.extend(["--" + key.replace("_", "-"), str(value)])
+        via_cli = cli_bytes(arguments, UNIT_MASS_PROJECT_K3.encode())
+        self.assertProgramEqual(raised.bundle, via_cli)
+        # This positive resource cap reaches native guard admission; unlike
+        # a zero argument it must not be rejected by Python input parsing.
+        with self.assertRaisesRegex(rustred.RustRedError, "ConjunctionTerms budget 1 exhausted"):
+            rustred.family_candidates(UNIT_MASS_PROJECT_K1, case_max_terms_per_conjunction=1)
+
+    def test_case_resource_only_resume_preserves_existing_shards(self) -> None:
+        scratch = Path(__file__).resolve().parents[3] / "TMP"
+        scratch.mkdir(exist_ok=True)
+        options = {"max_numerator_rank": 2, "finite_case_policy": "retain-rank-finite"}
+        resources = {"case_max_work_items": 16384, "case_max_terms_per_conjunction": 400000,
+                     "case_max_normalizations": 4096, "case_max_factorizations": 16384}
+        with tempfile.TemporaryDirectory(dir=scratch, prefix="python-case-budgets-") as tmp:
+            checkpoint = Path(tmp) / "sectors"
+            original = rustred.family_candidates(UNIT_MASS_PROJECT_K3, checkpoint_dir=checkpoint, **options)
+            before = {path.name: path.read_bytes() for path in checkpoint.iterdir()}
+            resumed = rustred.family_candidates(UNIT_MASS_PROJECT_K3, checkpoint_dir=checkpoint,
+                                               resume=True, **options, **resources)
+            self.assertProgramEqual(original.bundle, resumed.bundle)
+            report = tomllib.loads(resumed.to_toml())
+            self.assertEqual(report["checkpoint"]["reused_sectors"], 4)
+            self.assertEqual(report["checkpoint"]["newly_solved_sectors"], 0)
+            self.assertEqual(report["case_max_work_items"], 16384)
+            arguments = ["family-candidates", "--max-numerator-rank", "2",
+                         "--finite-case-policy", "retain-rank-finite", "--checkpoint-dir",
+                         str(checkpoint), "--resume"]
+            for key, value in resources.items():
+                arguments.extend(["--" + key.replace("_", "-"), str(value)])
+            self.assertProgramEqual(original.bundle, cli_bytes(arguments, UNIT_MASS_PROJECT_K3.encode()))
+            self.assertEqual(before, {path.name: path.read_bytes() for path in checkpoint.iterdir()})
+
     def test_bundle_output_limits_are_strict_optional_and_fail_closed(self) -> None:
         signature = inspect.signature(rustred.family_candidates)
         keywords = ["bundle_max_bytes", "bundle_max_entries", "bundle_max_coefficient_bytes",

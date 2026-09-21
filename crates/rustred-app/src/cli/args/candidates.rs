@@ -6,8 +6,9 @@ use super::{
     parse_nonnegative_integer, parse_positive_integer, set_once,
 };
 use crate::{
-    CandidateBundleLimits, CandidateCheckpointOptions, CandidateExactBackend, FiniteCaseLimits,
-    FiniteCasePolicy, InputFormat, MAX_CANDIDATE_BUNDLE_BYTES,
+    CandidateBundleLimits, CandidateCheckpointOptions, CandidateExactBackend,
+    CaseIntersectionLimits, FiniteCaseLimits, FiniteCasePolicy, InputFormat,
+    MAX_CANDIDATE_BUNDLE_BYTES,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,6 +23,7 @@ pub(crate) struct FamilyCandidatesArgs {
     pub max_numerator_rank: Option<u32>,
     pub finite_case_policy: FiniteCasePolicy,
     pub finite_case_limits: FiniteCaseLimits,
+    pub case_intersection_limits: CaseIntersectionLimits,
     pub bundle_limits: CandidateBundleLimits,
     pub checkpoint: Option<CandidateCheckpointOptions>,
     pub progress: bool,
@@ -68,6 +70,10 @@ fn parse(
     let mut finite_case_policy = None;
     let mut finite_max_visited_points = None;
     let mut finite_max_retained_terminals = None;
+    let mut case_max_work_items = None;
+    let mut case_max_terms_per_conjunction = None;
+    let mut case_max_normalizations = None;
+    let mut case_max_factorizations = None;
     let mut bundle_max_bytes = None;
     let mut bundle_max_entries = None;
     let mut bundle_max_coefficient_bytes = None;
@@ -86,6 +92,26 @@ fn parse(
     while let Some(option) = arguments.next() {
         let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
         match option.as_str() {
+            "--case-max-work-items"
+            | "--case-max-terms-per-conjunction"
+            | "--case-max-normalizations"
+            | "--case-max-factorizations"
+                if !certification =>
+            {
+                let (name, slot) = match option.as_str() {
+                    "--case-max-work-items" => ("--case-max-work-items", &mut case_max_work_items),
+                    "--case-max-terms-per-conjunction" => (
+                        "--case-max-terms-per-conjunction",
+                        &mut case_max_terms_per_conjunction,
+                    ),
+                    "--case-max-normalizations" => {
+                        ("--case-max-normalizations", &mut case_max_normalizations)
+                    }
+                    _ => ("--case-max-factorizations", &mut case_max_factorizations),
+                };
+                let value = next_utf8_value(&mut arguments, name)?;
+                set_once(slot, name, parse_positive_integer(name, value)?)?;
+            }
             "--bundle-max-bytes"
             | "--bundle-max-entries"
             | "--bundle-max-coefficient-bytes"
@@ -301,6 +327,16 @@ fn parse(
         ));
     }
     let default_finite_limits = FiniteCaseLimits::default();
+    let default_case_limits = CaseIntersectionLimits::default();
+    let case_intersection_limits = CaseIntersectionLimits {
+        max_work_items: case_max_work_items.unwrap_or(default_case_limits.max_work_items),
+        max_terms_per_conjunction: case_max_terms_per_conjunction
+            .unwrap_or(default_case_limits.max_terms_per_conjunction),
+        max_normalizations: case_max_normalizations
+            .unwrap_or(default_case_limits.max_normalizations),
+        max_factorizations: case_max_factorizations
+            .unwrap_or(default_case_limits.max_factorizations),
+    };
     let finite_case_limits = FiniteCaseLimits {
         max_visited_points: finite_max_visited_points
             .unwrap_or(default_finite_limits.max_visited_points),
@@ -379,6 +415,7 @@ fn parse(
             max_numerator_rank,
             finite_case_policy,
             finite_case_limits,
+            case_intersection_limits,
             bundle_limits,
             checkpoint,
             progress,
@@ -399,6 +436,52 @@ fn parse_indices(option: &'static str, value: String) -> Result<Vec<usize>, ArgE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn case_intersection_resources_are_positive_optional_and_generation_only() {
+        let parse_args = |args: &[&str]| parse_generation(args.iter().map(OsString::from));
+        let Command::FamilyCandidates(defaults) = parse_args(&[]).unwrap() else {
+            panic!("generation expected")
+        };
+        assert_eq!(
+            defaults.case_intersection_limits,
+            CaseIntersectionLimits::default()
+        );
+        for option in [
+            "--case-max-work-items",
+            "--case-max-terms-per-conjunction",
+            "--case-max-normalizations",
+            "--case-max-factorizations",
+        ] {
+            for value in ["0", "-1", "+1", "true", "0.5", "", "184467440737095516160"] {
+                assert!(parse_args(&[option, value]).is_err(), "{option} {value}");
+            }
+            assert!(parse_args(&[option, "1", option, "1"]).is_err());
+            assert!(parse_certification([option, "1"].into_iter().map(OsString::from)).is_err());
+        }
+        let Command::FamilyCandidates(parsed) = parse_args(&[
+            "--case-max-work-items",
+            "8192",
+            "--case-max-terms-per-conjunction",
+            "123456",
+            "--case-max-normalizations",
+            "2345",
+            "--case-max-factorizations",
+            "6789",
+        ])
+        .unwrap() else {
+            panic!("generation expected")
+        };
+        assert_eq!(
+            parsed.case_intersection_limits,
+            CaseIntersectionLimits {
+                max_work_items: 8192,
+                max_terms_per_conjunction: 123456,
+                max_normalizations: 2345,
+                max_factorizations: 6789,
+            }
+        );
+    }
 
     #[test]
     fn bundle_transport_limits_are_positive_optional_and_generation_only() {

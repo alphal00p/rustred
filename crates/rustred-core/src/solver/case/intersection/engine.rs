@@ -80,6 +80,7 @@ impl<const N: usize> Engine<'_, N> {
     fn error(&self, failure: CaseIntersectionFailure) -> CaseIntersectionError<N> {
         CaseIntersectionError {
             max_numerator_rank: self.max_numerator_rank,
+            limits: self.limits,
             original_parent: self.original_parent.clone(),
             original_conjunction: self.original_conjunction.clone(),
             unresolved_parent: self.current.parent.clone(),

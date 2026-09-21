@@ -1,7 +1,7 @@
 use rustred::algebra::ExactAlgebraLimits;
 use rustred::foundry::artifact::{ArtifactLoadLimits, SourcePortLimits};
 use rustred::solver::SymbolicExactBackend;
-pub use rustred::solver::{FiniteCaseLimits, FiniteCasePolicy};
+pub use rustred::solver::{CaseIntersectionLimits, FiniteCaseLimits, FiniteCasePolicy};
 
 use crate::application::InputFormat;
 
@@ -181,6 +181,11 @@ pub struct FamilyCandidatesRequest {
     pub finite_case_policy: FiniteCasePolicy,
     /// Per-sector work/storage limits for finite retention. Exhaustion fails.
     pub finite_case_limits: FiniteCaseLimits,
+    /// Exact intersection work resources shared by each exceptional AND
+    /// conjunction's branches, not a coverage bound or per-sector counter.
+    /// Not part of checkpoint identity: completed shards remain reusable.
+    /// Changes may affect conservative coverage checks and search chronology.
+    pub case_intersection_limits: CaseIntersectionLimits,
     pub permutation: Option<Vec<usize>>,
     pub nonpositive_indices: Vec<usize>,
     pub bundle_limits: CandidateBundleLimits,
@@ -200,6 +205,7 @@ impl FamilyCandidatesRequest {
             max_numerator_rank: None,
             finite_case_policy: FiniteCasePolicy::default(),
             finite_case_limits: FiniteCaseLimits::default(),
+            case_intersection_limits: CaseIntersectionLimits::default(),
             permutation: None,
             nonpositive_indices: Vec::new(),
             bundle_limits: CandidateBundleLimits::default(),

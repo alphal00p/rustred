@@ -57,6 +57,51 @@ fn assert_no_search(events: &[FamilyCloseProgress]) {
 }
 
 #[test]
+fn case_intersection_resources_do_not_change_saved_identity_or_regenerate_shards() {
+    let directory = Directory::new();
+    let mut request = FamilyCandidatesRequest::new(K3);
+    request.max_numerator_rank = Some(2);
+    request.finite_case_policy = FiniteCasePolicy::RetainRankFinite;
+    request.checkpoint = Some(directory.options());
+    let (original, _) = observed(request.clone());
+    let path = request.checkpoint.as_ref().unwrap().directory.clone();
+    let files = || {
+        fs::read_dir(&path)
+            .unwrap()
+            .map(|entry| {
+                let entry = entry.unwrap();
+                (entry.file_name(), fs::read(entry.path()).unwrap())
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
+    let before = files();
+    request.checkpoint.as_mut().unwrap().resume = true;
+    request.case_intersection_limits = CaseIntersectionLimits {
+        max_work_items: 16_384,
+        max_terms_per_conjunction: 400_000,
+        max_normalizations: 4096,
+        max_factorizations: 16_384,
+    };
+    let (resumed, events) = observed(request.clone());
+    assert_no_search(&events);
+    assert_same_program(original.bundle(), resumed.bundle());
+    let report: toml::Value = toml::from_str(resumed.to_toml()).unwrap();
+    assert_eq!(report["checkpoint"]["reused_sectors"].as_integer(), Some(4));
+    assert_eq!(
+        report["checkpoint"]["newly_solved_sectors"].as_integer(),
+        Some(0)
+    );
+    assert_eq!(report["case_max_work_items"].as_integer(), Some(16_384));
+    // A zero-work Rust diagnostic would fail any new intersection but must
+    // not invalidate or regenerate complete saved sectors.
+    request.case_intersection_limits.max_work_items = 0;
+    let (zero, events) = observed(request);
+    assert_no_search(&events);
+    assert_same_program(original.bundle(), zero.bundle());
+    assert_eq!(before, files());
+}
+
+#[test]
 fn finite_retention_checkpoint_binds_policy_and_enumeration_limits() {
     let directory = Directory::new();
     let mut request = FamilyCandidatesRequest::new(K1);

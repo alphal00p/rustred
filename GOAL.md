@@ -170,6 +170,17 @@ Longer time/memory allowances do not change source, rank, ordering or
 generation policy. Individual allowances are not simultaneous RAM reservations:
 the 450 GB aggregate soft stop remains below the user's 500 GB limit.
 
+The next non-atomic refresh, at **11:12:48–11:12:49 UTC**, reaches
+**5,404/8,246 distinct saved labelled sectors**, with 6,526 occurrences across
+the four parent checkpoints. This is 170 more distinct saved sectors than the
+10:32 snapshot. Class representation remains **65/67**; only 29 literal census
+representatives are saved, with other represented classes using different
+labels. Keep exact numerator transport and acyclic owner routing as a reviewed
+work-reuse design, not an implemented shortcut or a closure claim. Actual
+registered RSS is 216.90 GB at this snapshot; the historical sampled peak is
+337.95 GB. Fifty solver workers remain active alongside separately bounded
+builds, within the new 100-core/500-GB authorization.
+
 The expanded run identifies an admission-ordering defect: a branch forcing
 negative degree119 is rejected for compact-index overflow before the R=10
 filter can prove it empty. Generic native-integer rank admission now precedes
@@ -183,13 +194,27 @@ Its fresh seven-sector CLI regression produces byte-identical output in 33.79 s
 No new CAS primitive or loop-count-specific solver logic was introduced.
 
 The next observed performance correction concerns affine sign bounds. An
-isolated reconstruction probe times out at900 s on a nominal four-variable
-case whose sector inequalities actually force a single rank-zero point.
-Implement and independently audit exact finite-endpoint propagation using the
-existing native integer row bounds and Symbolica RREF, then rerun that actual
-sector. Also expose existing geometry work limits through production requests:
-another captured sector reaches the currently hardcoded4096-item allowance.
-Do not silently increase defaults or interpret either limit as a new master.
+isolated reconstruction probe times out at 900 s on a four-coefficient-variable
+frame whose sector inequalities actually force a single rank-zero index point.
+Exact finite-endpoint propagation now uses the existing native integer row
+bounds and Symbolica RREF. Independent review caught a representation issue:
+saved affine charts must preserve their symbolic targets. The correction keeps
+declared-chart construction unchanged and refines endpoints only during search
+and intersection. The corrected full core gate passes **2,413 tests, zero
+failures, 32 existing ignored**, without weakening the two original assertions
+that caught this distinction. Production Rust/CLI/Python requests now expose
+the existing geometry work limits, with unchanged defaults; **242 application
+tests, eight Python Rust-side tests and all 47 Python API tests pass**. The
+fresh seven-sector CLI regression writes the same byte-identical candidate
+bundle in 35.92 s wall time (not a controlled speed comparison). A production
+parent31740 resume reuses all 1,533 saved shards with the new executable and
+then saves new sectors, confirming that declared-chart preservation protects
+checkpoint reuse. Isolated actual-sector reruns remain separate. The captured
+five-index R10 guard closes in 15.40 ms with
+5,235 work items and matches all 274 zeros among 3,003 in-scope points. Its
+default 4,096-item attempt correctly fails. Rerun the actual failed/stalled
+sectors after these gates; neither microtest is family closure or a new
+master.
 
 A generic Rust application loader now consumes every sector of a complete
 trusted-local checkpoint directly into one shared candidate reducer, without

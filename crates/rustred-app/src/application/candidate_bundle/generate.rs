@@ -174,6 +174,7 @@ fn generate<const N: usize>(
                     max_numerator_rank: request.max_numerator_rank,
                     finite_case_policy: request.finite_case_policy,
                     finite_case_limits: request.finite_case_limits,
+                    case_intersection_limits: request.case_intersection_limits,
                     ..Default::default()
                 },
                 |ordinal, sector, event| {
@@ -288,6 +289,11 @@ fn generate<const N: usize>(
         finite_case_policy: &'static str,
         finite_max_visited_points: usize,
         finite_max_retained_terminals: usize,
+        // Invocation resources, not historical allowances for reused shards.
+        case_max_work_items: usize,
+        case_max_terms_per_conjunction: usize,
+        case_max_normalizations: usize,
+        case_max_factorizations: usize,
         bytes: usize,
         unique_coefficients: usize,
         coefficient_table_bytes: usize,
@@ -317,6 +323,10 @@ fn generate<const N: usize>(
         finite_case_policy: request.finite_case_policy.as_str(),
         finite_max_visited_points: request.finite_case_limits.max_visited_points,
         finite_max_retained_terminals: request.finite_case_limits.max_retained_terminals,
+        case_max_work_items: request.case_intersection_limits.max_work_items,
+        case_max_terms_per_conjunction: request.case_intersection_limits.max_terms_per_conjunction,
+        case_max_normalizations: request.case_intersection_limits.max_normalizations,
+        case_max_factorizations: request.case_intersection_limits.max_factorizations,
         bytes: bytes.len(),
         unique_coefficients: coefficient_count,
         coefficient_table_bytes: coefficients.atoms.len(),

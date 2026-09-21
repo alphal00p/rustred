@@ -63,20 +63,26 @@ impl PyCandidateBundleResult {
 /// finite_case_policy="retain-rank-finite" deliberately keeps every finite
 /// in-scope leaf once all positive axes are fixed, without minimizing it.
 /// It requires max_numerator_rank; finite_* limits bound work, not the domain.
+/// case_max_* are optional positive exact-intersection work resources shared
+/// by each exceptional AND conjunction and its refinement branches. They are
+/// not per-sector counters, coverage bounds or hard native memory limits.
+/// They may change conservative coverage scheduling but not checkpoint identity;
+/// the report records this invocation, not historic resources of reused shards.
 /// bundle_max_* are optional positive native transport/output budgets (bytes,
 /// collection entries, per-coefficient bytes, and total coefficient-table bytes).
 /// They do not change the rules or checkpoint generation identity. The whole
 /// bundle has a hard 1 GiB ceiling; these are not RAM or checkpoint-directory limits.
 /// checkpoint_dir enables trusted-local native sector checkpoints. Use resume
 /// only with the same source/root/order/backend/depth/rank and finite-case
-/// policy/work limits. Transport budgets and worker count may change on resume.
+/// policy/work limits. Transport/intersection budgets and worker count may
+/// change on resume without regenerating completed shards.
 /// Keep final outputs outside
 /// the dedicated directory; checkpoint_max_bytes is a positive payload budget,
 /// not a RAM limit. Checkpoints do not certify rules or family closure.
 #[pyfunction]
 #[pyo3(
-    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse", numerical_depth=PythonInteger(2), max_numerator_rank=None, finite_case_policy="search", finite_max_visited_points=None, finite_max_retained_terminals=None, bundle_max_bytes=None, bundle_max_entries=None, bundle_max_coefficient_bytes=None, bundle_max_total_coefficient_bytes=None, checkpoint_dir=None, resume=false, checkpoint_max_bytes=None),
-    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse', numerical_depth=2, max_numerator_rank=None, finite_case_policy='search', finite_max_visited_points=None, finite_max_retained_terminals=None, bundle_max_bytes=None, bundle_max_entries=None, bundle_max_coefficient_bytes=None, bundle_max_total_coefficient_bytes=None, checkpoint_dir=None, resume=False, checkpoint_max_bytes=None)"
+    signature=(source, *, input_format="auto", n_cores=PythonInteger(1), permutation=None, nonpositive_indices=None, exact_backend="sparse", numerical_depth=PythonInteger(2), max_numerator_rank=None, finite_case_policy="search", finite_max_visited_points=None, finite_max_retained_terminals=None, case_max_work_items=None, case_max_terms_per_conjunction=None, case_max_normalizations=None, case_max_factorizations=None, bundle_max_bytes=None, bundle_max_entries=None, bundle_max_coefficient_bytes=None, bundle_max_total_coefficient_bytes=None, checkpoint_dir=None, resume=false, checkpoint_max_bytes=None),
+    text_signature="(source, *, input_format='auto', n_cores=1, permutation=None, nonpositive_indices=None, exact_backend='sparse', numerical_depth=2, max_numerator_rank=None, finite_case_policy='search', finite_max_visited_points=None, finite_max_retained_terminals=None, case_max_work_items=None, case_max_terms_per_conjunction=None, case_max_normalizations=None, case_max_factorizations=None, bundle_max_bytes=None, bundle_max_entries=None, bundle_max_coefficient_bytes=None, bundle_max_total_coefficient_bytes=None, checkpoint_dir=None, resume=False, checkpoint_max_bytes=None)"
 )]
 fn family_candidates(
     py: Python<'_>,
@@ -91,6 +97,10 @@ fn family_candidates(
     finite_case_policy: &str,
     finite_max_visited_points: Option<PythonInteger>,
     finite_max_retained_terminals: Option<PythonInteger>,
+    case_max_work_items: Option<PythonInteger>,
+    case_max_terms_per_conjunction: Option<PythonInteger>,
+    case_max_normalizations: Option<PythonInteger>,
+    case_max_factorizations: Option<PythonInteger>,
     bundle_max_bytes: Option<PythonInteger>,
     bundle_max_entries: Option<PythonInteger>,
     bundle_max_coefficient_bytes: Option<PythonInteger>,
@@ -146,6 +156,26 @@ fn family_candidates(
     request.exact_backend = exact_backend.parse().map_err(map_app_error)?;
     request.finite_case_policy = finite_case_policy;
     for (name, value, slot) in [
+        (
+            "case_max_work_items",
+            case_max_work_items,
+            &mut request.case_intersection_limits.max_work_items,
+        ),
+        (
+            "case_max_terms_per_conjunction",
+            case_max_terms_per_conjunction,
+            &mut request.case_intersection_limits.max_terms_per_conjunction,
+        ),
+        (
+            "case_max_normalizations",
+            case_max_normalizations,
+            &mut request.case_intersection_limits.max_normalizations,
+        ),
+        (
+            "case_max_factorizations",
+            case_max_factorizations,
+            &mut request.case_intersection_limits.max_factorizations,
+        ),
         (
             "finite_max_visited_points",
             finite_max_visited_points,

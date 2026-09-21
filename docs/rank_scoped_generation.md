@@ -74,6 +74,37 @@ recurrences but lose useful above-R coverage from those recurrences. Internal
 successors remain unclipped and must still be resolved: finite local retention
 is not a successor-closure proof.
 
+### Exceptional-geometry work allowances
+
+The Rust request's `case_intersection_limits: CaseIntersectionLimits` controls
+the existing exact exceptional-case service. CLI switches and corresponding
+Python keywords are:
+
+| CLI switch | Python keyword | Default |
+|---|---|---:|
+| `--case-max-work-items` | `case_max_work_items` | 4,096 |
+| `--case-max-terms-per-conjunction` | `case_max_terms_per_conjunction` | 100,000 |
+| `--case-max-normalizations` | `case_max_normalizations` | 1,024 |
+| `--case-max-factorizations` | `case_max_factorizations` | 4,096 |
+
+Each exceptional AND conjunction gets a fresh budget shared by its refinement
+branches. Work items include refinement and divisor visits, not just distinct
+integer points. These are neither whole-sector counters nor hard wall-time or
+memory limits; native operations are not interrupted halfway through. Exhaustion
+returns an incomplete result with the effective limits and work statistics.
+An unsuccessful auxiliary coverage check never suppresses a pending case.
+
+These execution allowances are not part of mathematical checkpoint identity.
+A retry with larger allowances can reuse complete saved shards. The reported
+limits describe the current invocation, not historical settings for those
+shards. Changed allowances can affect redundant scheduling and the particular
+rules discovered, so arbitrary-limit runs are not promised byte-identical.
+Rank, ordering and finite-retention policy remain separately bound as before.
+CLI and Python require positive integers; Rust also permits zero for an explicit
+no-work diagnostic. The independently reviewed release gates now pass for
+core, application and Python; no new algebra or binary payload schema is
+introduced.
+
 The first selected six-line five-loop pilot through R=10 saved six of its
 seven nonzero sectors, including the parent, in **50.93 s wall / 59.35 s CPU**,
 peaking at **261,212 KiB RSS**. It saved **1,044 rules and 1,024,045 finite
@@ -319,11 +350,88 @@ Independent inspection exposes avoidable dimensionality in that frame. Its
 case equality is `1+n0-n1+n3+n4=0`, with `n0,n3,n4<=0` and `n1>=1`; all other
 indices are fixed. The four nonnegative slacks `-n0,n1-1,-n3,-n4` sum to zero,
 so every one is zero. The case is a single integer point, independent of R,
-not a genuine four-variable reduction domain. The current affine bound check
-excludes impossible rows but does not propagate equality at a finite sector
+not a positive-dimensional index domain. Four original indices are unfixed
+before using the signs, with one affine equality between them; the frame's
+four coefficient variables can also include the dimension d and must not be
+read as four independent index directions. That probe's affine bound check
+excluded impossible rows but did not propagate equality at a finite sector
 bound. A narrowly scoped native-integer endpoint-propagation fix is now being
-implemented and independently audited. The failed probe remains a timeout;
+independently release-tested. It fixes each participating original coordinate
+to its sector endpoint, retains the full conjunction, and repeats Symbolica
+RREF until no new coordinate is fixed. There are at most as many successful
+rounds as integral coordinates. This is an exact row-extremum consequence,
+not a general inequality or integer-feasibility solver. The failed probe remains a timeout;
 no anticipated speedup or completed sector is reported from this diagnosis.
+
+The first joint release gate exposes an important representation boundary:
+2,410 tests pass and two existing declared-chart tests fail when endpoint
+inference is applied during chart construction. Independent review also finds
+the same risk for saved candidate rules: simplifying a stored affine chart
+must not silently change its symbolic target or right-hand side. The correction
+preserves exact declared-chart construction and keeps endpoint inference in
+search/intersection admission. Existing codec checks and mathematical test
+assertions stay intact. The corrected release core gate passes **2,413 tests,
+zero failed, 32 existing ignored**, including all 13 affine box-bound tests and
+the new declared-chart/search distinction. The full suite takes 134.24 s wall
+and 133.19 CPU-s, at 161,548 KiB peak RSS; compilation is separate. The 1,273
+source checks and frozen binary check pass. Both the initial failure receipt and corrected
+gate are preserved at `TMP/affine-saturation-release.ErPjLt/` and
+`TMP/affine-saturation-corrected.iy3ZrG/`.
+
+The frontend release gates pass **242 application tests** (165 unit and 77
+integration), eight Python Rust-side tests and **47 public Python API tests**.
+The application regression preserves a saved affine rule's target, right-hand
+side, source layout and concrete application while separately demonstrating
+the stronger search inference. Initial Python packaging fails on an unavailable
+Nix dependency; using the already-installed Maturin binary passes on unchanged
+source, without escalation or dependency changes. Evidence:
+`TMP/case-intersection-frontends-fixed.4teMyS/` and
+`TMP/case-intersection-python-packaging.tzmJtQ/`.
+
+A fresh production CLI regression solves the selected seven-sector R10 input
+in **35.92 s wall / 43.56 CPU-s**, at **353,820 KiB peak RSS**. Its 1,299 rules,
+1,208,801 terminals and 41,971,427-byte bundle are byte-identical to the previous
+pilot. There is no checkpoint reuse or compilation in that timing. Concurrent
+host activity and changed affinity prohibit treating it as a controlled speed
+ratio. Evidence: `TMP/affine-saturation-pilot.pit4e5/`.
+
+The previous 31740 campaign later reaches its individual 80 GiB allocation
+limit after saving 1,533 sectors. Its fresh corrected-CLI continuation starts
+at 11:41:17 UTC with eight workers and 144 GiB operating AS, reuses all 1,533
+shards, and begins saving additional sectors with no initial import failures.
+This is production checkpoint-resume evidence, not independent source replay
+of every saved rule. Six campaigns now use 46 solver workers; separate bounded
+controls and builds remain under aggregate monitoring. Evidence:
+`TMP/tide-r10-31740-eight-worker.izpFjC/`. The three isolated failed/stalled-sector
+controls still have separate pending outcomes.
+
+The independent captured geometry test already resolves the separate
+five-free-index guard from native sector 24996 with explicitly larger resources:
+**94 exact cases in 15.40 ms**, consuming 5,235 work items. Exhaustive native
+evaluation of all 3,003 R10 simplex points agrees with the returned union,
+including all 274 zeros. All other measured counters fit their original
+defaults. The default 4,096-work-item attempt still correctly fails. This is
+an exact exceptional-domain result, not a completed sector or solver timing.
+Evidence: `TMP/affine-saturation-release.ErPjLt/`.
+
+The next metadata-only snapshot, **11:12:48.843–11:12:49.220 UTC**, saves
+**5,404 / 8,246 distinct labelled sectors**, leaving 2,842 unsaved. There are
+6,526 saved parent occurrences, including 1,122 duplicate occurrences:
+30527 has 655/2,686, 30699 has 1,957/2,580, 31740 has 1,533/2,656 and 32745
+has 2,381/2,478. This adds 170 distinct saved sectors since 10:32. All four
+parent roots are saved. Still only **65/67 graph classes** are represented,
+and only 29 literal published representative masks have saved shards; the
+other 36 represented classes use different labels. Exact momentum-map-based
+reuse of those owners is a reviewed design, not yet an implemented reduction
+path. Different-policy finite-retention probes remain excluded.
+
+Actual registered process-tree RSS is 216.90 GB at this snapshot, with a
+sampled historical peak of 337.95 GB and no aggregate stop. Six solver pools
+still use 50 workers; bounded compilation uses separate cores. The two known
+failures remain explicit: the old executable's rank-before-compact failure
+and the newer executable's 4,096-item geometry-work limit. Saved sectors,
+represented classes and finite dependency traces do not prove arbitrary-dot
+rank-10 closure. Evidence: `TMP/rank10-search-refresh-1112.ygPIqd/REPORT.md`.
 
 Two earlier failures appeared in the original frozen broad-run executable. A
 nonlinear exceptional equality `8-3*n6-6*n2+2*n2*n6=0` is unsupported there.

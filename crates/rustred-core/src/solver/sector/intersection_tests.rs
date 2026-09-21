@@ -46,6 +46,87 @@ fn source(context: &CoefficientContext, pivot: &str) -> SourceSystem<3> {
 }
 
 #[test]
+fn sector_options_transport_intersection_limits_and_fail_atomically() {
+    let system = SourceSystem::<1>::from_family(&crate::solver::tests::tadpole()).unwrap();
+    let solver = SectorSolver::new(&system, [true], SectorConfig::default()).unwrap();
+    let limits = CaseIntersectionLimits {
+        max_work_items: 0,
+        max_terms_per_conjunction: 101,
+        max_normalizations: 17,
+        max_factorizations: 19,
+    };
+    for rank in [None, Some(10)] {
+        let mut published = 0;
+        let error = solver
+            .solve_sector_with_observer(
+                SectorSolveOptions {
+                    max_numerator_rank: rank,
+                    case_intersection_limits: limits,
+                    ..Default::default()
+                },
+                |event| {
+                    if matches!(event, SectorEvent::RuleFound { .. }) {
+                        published += 1;
+                    }
+                },
+            )
+            .unwrap_err();
+        let SectorSolveError::Intersection(error) = error else {
+            panic!("expected real sector intersection failure: {error:?}");
+        };
+        assert_eq!(error.max_numerator_rank, rank);
+        assert_eq!(error.limits, limits);
+        assert_eq!(error.stats.work_items, 0);
+        assert_eq!(
+            error.failure,
+            CaseIntersectionFailure::Budget {
+                kind: crate::solver::CaseIntersectionBudget::WorkItems,
+                limit: 0,
+            }
+        );
+        assert_eq!(published, 0);
+    }
+    assert_eq!(
+        solver.solve_sector(Default::default()).unwrap().rules.len(),
+        1
+    );
+}
+
+#[test]
+fn coverage_uses_selected_intersection_limits_without_suppressing_unproved_work() {
+    let context = CoefficientContext::new(["a", "b", "c"]);
+    let sources = source(&context, "1");
+    let solver = SectorSolver::new(&sources, [true; 3], SectorConfig::default()).unwrap();
+    let rule = guarded::<3>(&context, &[&["a"]]);
+    let target = Case::generic();
+    assert!(
+        solver
+            .rule_covers(&rule, &target, Default::default())
+            .unwrap()
+    );
+    let limits = CaseIntersectionLimits {
+        max_work_items: 0,
+        ..Default::default()
+    };
+    assert!(!solver.rule_covers(&rule, &target, limits).unwrap());
+    let mut pending = Vec::new();
+    let mut numerical = Vec::new();
+    assert!(
+        solver
+            .enqueue(
+                target.clone(),
+                &mut pending,
+                &mut numerical,
+                &[rule],
+                limits
+            )
+            .unwrap()
+    );
+    assert_eq!(pending, [target]);
+    assert!(numerical.is_empty());
+}
+
+#[test]
 fn the_queue_retains_both_factors_exposed_by_a_coupled_affine_sibling() {
     let context = CoefficientContext::new(["a", "b", "c", "d"]);
     // This homogeneous identity has a generic parameter d. Its exceptional
@@ -165,7 +246,13 @@ fn coordinate_branch_chronology_matches_the_original_queue_for_every_permutation
                             .unwrap()
                         {
                             if !solver
-                                .enqueue(child, &mut old_pending, &mut old_numerical, &[])
+                                .enqueue(
+                                    child,
+                                    &mut old_pending,
+                                    &mut old_numerical,
+                                    &[],
+                                    Default::default(),
+                                )
                                 .unwrap()
                             {
                                 old_discarded += 1;
@@ -183,7 +270,13 @@ fn coordinate_branch_chronology_matches_the_original_queue_for_every_permutation
                         let mut numerical = Vec::new();
                         for child in children {
                             if !solver
-                                .enqueue(child, &mut pending, &mut numerical, &[])
+                                .enqueue(
+                                    child,
+                                    &mut pending,
+                                    &mut numerical,
+                                    &[],
+                                    Default::default(),
+                                )
                                 .unwrap()
                             {
                                 discarded += 1;
@@ -217,12 +310,32 @@ fn disjunctive_rule_coverage_proves_empty_not_merely_one_empty_factor() {
     let admitted: Case<3> = CoordinateCase::new([Some(3), Some(4), None])
         .unwrap()
         .into();
-    assert!(!solver.rule_covers(&rule, &excluded_a).unwrap());
-    assert!(!solver.rule_covers(&rule, &excluded_b).unwrap());
-    assert!(solver.rule_covers(&rule, &admitted).unwrap());
-    assert!(!solver.rule_covers(&rule, &Case::generic()).unwrap());
+    assert!(
+        !solver
+            .rule_covers(&rule, &excluded_a, Default::default())
+            .unwrap()
+    );
+    assert!(
+        !solver
+            .rule_covers(&rule, &excluded_b, Default::default())
+            .unwrap()
+    );
+    assert!(
+        solver
+            .rule_covers(&rule, &admitted, Default::default())
+            .unwrap()
+    );
+    assert!(
+        !solver
+            .rule_covers(&rule, &Case::generic(), Default::default())
+            .unwrap()
+    );
     let unsupported = guarded::<3>(&context, &[&["(a-1)*(a^2+b^2-5)"]]);
-    assert!(!solver.rule_covers(&unsupported, &Case::generic()).unwrap());
+    assert!(
+        !solver
+            .rule_covers(&unsupported, &Case::generic(), Default::default())
+            .unwrap()
+    );
 }
 
 #[test]
@@ -237,7 +350,11 @@ fn root_free_exceptional_factors_preserve_other_or_branches_and_rule_coverage() 
             .unwrap()
             .is_empty()
     );
-    assert!(solver.rule_covers(&empty, &Case::generic()).unwrap());
+    assert!(
+        solver
+            .rule_covers(&empty, &Case::generic(), Default::default())
+            .unwrap()
+    );
 
     let mixed = guarded::<3>(&context, &[&["a^2-3*a+4"], &["(a-1)*(b^2-2)"]]);
     let retained: Case<3> = CoordinateCase::new([Some(1), None, None]).unwrap().into();
@@ -245,7 +362,11 @@ fn root_free_exceptional_factors_preserve_other_or_branches_and_rule_coverage() 
         mixed.exceptional_cases(&[0, 1, 2], &[true; 3]).unwrap(),
         [retained]
     );
-    assert!(!solver.rule_covers(&mixed, &Case::generic()).unwrap());
+    assert!(
+        !solver
+            .rule_covers(&mixed, &Case::generic(), Default::default())
+            .unwrap()
+    );
 }
 
 #[test]
@@ -262,7 +383,7 @@ fn distinct_finite_factor_leaves_enter_only_the_numerical_queue() {
         assert!(child.is_numerical());
         assert!(
             solver
-                .enqueue(child, &mut pending, &mut numerical, &[])
+                .enqueue(child, &mut pending, &mut numerical, &[], Default::default())
                 .unwrap()
         );
     }

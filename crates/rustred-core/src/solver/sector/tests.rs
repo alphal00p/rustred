@@ -41,12 +41,20 @@ fn stored_generic_rule_does_not_cover_its_exceptional_face() {
     let (rule, _) = solver.finish_rule(candidate).unwrap();
     assert!(
         !solver
-            .rule_covers(&rule, &CoordinateCase::new([Some(1)]).unwrap().into())
+            .rule_covers(
+                &rule,
+                &CoordinateCase::new([Some(1)]).unwrap().into(),
+                Default::default()
+            )
             .unwrap()
     );
     assert!(
         solver
-            .rule_covers(&rule, &CoordinateCase::new([Some(2)]).unwrap().into())
+            .rule_covers(
+                &rule,
+                &CoordinateCase::new([Some(2)]).unwrap().into(),
+                Default::default()
+            )
             .unwrap()
     );
 }
@@ -62,36 +70,72 @@ fn pending_queue_subsumption_preserves_broader_and_incomparable_cases() {
     let mut numerical = Vec::new();
     assert!(
         solver
-            .enqueue(broad.into(), &mut pending, &mut numerical, &[])
+            .enqueue(
+                broad.into(),
+                &mut pending,
+                &mut numerical,
+                &[],
+                Default::default()
+            )
             .unwrap()
     );
     assert_eq!(pending, [Case::from(broad)]);
     assert!(
         !solver
-            .enqueue(narrow.into(), &mut pending, &mut numerical, &[])
+            .enqueue(
+                narrow.into(),
+                &mut pending,
+                &mut numerical,
+                &[],
+                Default::default()
+            )
             .unwrap()
     );
     assert!(
         solver
-            .enqueue(other.into(), &mut pending, &mut numerical, &[])
+            .enqueue(
+                other.into(),
+                &mut pending,
+                &mut numerical,
+                &[],
+                Default::default()
+            )
             .unwrap()
     );
     assert_eq!(pending, [Case::from(other), Case::from(broad)]);
     let corner = CoordinateCase::new([Some(1); 3]).unwrap();
     assert!(
         !solver
-            .enqueue(corner.into(), &mut pending, &mut numerical, &[])
+            .enqueue(
+                corner.into(),
+                &mut pending,
+                &mut numerical,
+                &[],
+                Default::default()
+            )
             .unwrap()
     );
     pending.clear();
     assert!(
         solver
-            .enqueue(corner.into(), &mut pending, &mut numerical, &[])
+            .enqueue(
+                corner.into(),
+                &mut pending,
+                &mut numerical,
+                &[],
+                Default::default()
+            )
             .unwrap()
     );
     assert!(
         !solver
-            .enqueue(corner.into(), &mut pending, &mut numerical, &[])
+            .enqueue(
+                corner.into(),
+                &mut pending,
+                &mut numerical,
+                &[],
+                Default::default()
+            )
             .unwrap()
     );
     assert_eq!(numerical, [corner]);
@@ -180,31 +224,61 @@ fn affine_queue_subsumption_preserves_rays_and_routes_fixed_leaves_to_numeric() 
     let mut numerical = Vec::new();
     assert!(
         solver
-            .enqueue(broad.clone(), &mut pending, &mut numerical, &[])
+            .enqueue(
+                broad.clone(),
+                &mut pending,
+                &mut numerical,
+                &[],
+                Default::default()
+            )
             .unwrap()
     );
     assert_eq!(pending, [broad.clone()]);
     assert!(
         !solver
-            .enqueue(narrow, &mut pending, &mut numerical, &[])
+            .enqueue(
+                narrow,
+                &mut pending,
+                &mut numerical,
+                &[],
+                Default::default()
+            )
             .unwrap()
     );
     assert!(
         solver
-            .enqueue(incomparable.clone(), &mut pending, &mut numerical, &[])
+            .enqueue(
+                incomparable.clone(),
+                &mut pending,
+                &mut numerical,
+                &[],
+                Default::default()
+            )
             .unwrap()
     );
     assert_eq!(pending, [broad, incomparable]);
     let corner = CoordinateCase::new([Some(1); 3]).unwrap();
     assert!(
         !solver
-            .enqueue(corner.into(), &mut pending, &mut numerical, &[])
+            .enqueue(
+                corner.into(),
+                &mut pending,
+                &mut numerical,
+                &[],
+                Default::default()
+            )
             .unwrap()
     );
     pending.clear();
     assert!(
         solver
-            .enqueue(corner.into(), &mut pending, &mut numerical, &[])
+            .enqueue(
+                corner.into(),
+                &mut pending,
+                &mut numerical,
+                &[],
+                Default::default()
+            )
             .unwrap()
     );
     assert_eq!(numerical, [corner]);
@@ -229,9 +303,21 @@ fn affine_rule_coverage_respects_the_exceptional_fixed_point() {
     let (rule, _) = solver.finish_rule(candidate).unwrap();
     let excluded: Case<2> = CoordinateCase::new([Some(1); 2]).unwrap().into();
     let admitted: Case<2> = CoordinateCase::new([Some(2); 2]).unwrap().into();
-    assert!(!solver.rule_covers(&rule, &excluded).unwrap());
-    assert!(solver.rule_covers(&rule, &admitted).unwrap());
-    assert!(!solver.rule_covers(&rule, &domain).unwrap());
+    assert!(
+        !solver
+            .rule_covers(&rule, &excluded, Default::default())
+            .unwrap()
+    );
+    assert!(
+        solver
+            .rule_covers(&rule, &admitted, Default::default())
+            .unwrap()
+    );
+    assert!(
+        !solver
+            .rule_covers(&rule, &domain, Default::default())
+            .unwrap()
+    );
     assert_eq!(
         rule.exceptional_cases(&[0, 1], &[true; 2]).unwrap(),
         [excluded]
@@ -285,7 +371,11 @@ fn unsupported_guard_intersection_cannot_suppress_pending_work() {
             branches: vec![vec![context.coefficient_fixture("a^2-2*b^2-1").numerator]],
         },
     };
-    assert!(!solver.rule_covers(&rule, &Case::generic()).unwrap());
+    assert!(
+        !solver
+            .rule_covers(&rule, &Case::generic(), Default::default())
+            .unwrap()
+    );
     assert!(matches!(
         rule.exceptional_cases(&[0, 1], &[true; 2]),
         Err(SectorSolveError::Intersection(source))
