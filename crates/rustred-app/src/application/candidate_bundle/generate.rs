@@ -11,7 +11,7 @@ use crate::application::family_close::progress::{
 };
 
 use super::checkpoint::{CheckpointManifest, CheckpointStore};
-use super::{codec, model::*, policy, preparation};
+use super::{codec, model::*, policy, preparation, save};
 
 mod checkpoint;
 
@@ -41,22 +41,7 @@ fn generate_request(
             "candidate generation n_cores must be positive",
         ));
     }
-    if request.finite_case_policy == FiniteCasePolicy::RetainRankFinite {
-        if request.max_numerator_rank.is_none() {
-            return Err(AppError::input(
-                "retain-rank-finite requires max_numerator_rank",
-            ));
-        }
-        if request.finite_case_limits.max_visited_points == 0
-            || request.finite_case_limits.max_retained_terminals == 0
-        {
-            return Err(AppError::input("finite retention limits must be positive"));
-        }
-    } else if request.finite_case_limits != FiniteCaseLimits::default() {
-        return Err(AppError::input(
-            "finite retention limits require retain-rank-finite",
-        ));
-    }
+    policy::validate_request_scope(&request)?;
     let family = preparation::family(&request.source, request.input_format)?;
     let n = family.denominator_count();
     let root = preparation::root(n, &request.nonpositive_indices)?;
@@ -209,7 +194,7 @@ fn generate<const N: usize>(
                         elapsed: started.elapsed(),
                     });
                     if let Some(store) = &store {
-                        let bytes = checkpoint::encode_sector(
+                        let bytes = save::encode_sector(
                             &request,
                             &prepared.family,
                             root,
@@ -253,7 +238,7 @@ fn generate<const N: usize>(
     let solved_sectors = sectors.len();
     let generated_rules = sectors.iter().map(|s| s.rules.len()).sum();
     let finite_residuals = sectors.iter().map(|s| s.finite_residuals.len()).sum();
-    let bundle = program_record(&request, &prepared.family, root, sectors);
+    let bundle = save::program_record(&request, &prepared.family, root, sectors);
     let family_record = NativeFamilyRecord::from_family(&prepared.family, &mut coefficients)
         .map_err(codec::binary_error)?;
     let coefficient_count = coefficients.len();
@@ -382,23 +367,4 @@ fn execution_error<const N: usize>(
         },
     };
     AppError::new(kind, error.to_string())
-}
-
-fn program_record(
-    request: &FamilyCandidatesRequest,
-    family: &IntegralFamily,
-    root: &[bool],
-    sectors: Vec<SectorRecord>,
-) -> ProgramRecord {
-    ProgramRecord {
-        schema: CANDIDATE_BUNDLE_SCHEMA.into(),
-        status: STATUS.into(),
-        solver_policy: policy::encode_request(request),
-        family_source: request.source.clone(),
-        input_format: request.input_format.as_str().into(),
-        family_fingerprint: family.fingerprint().to_owned(),
-        root_sector: root.to_vec(),
-        permutation: request.permutation.clone(),
-        sectors,
-    }
 }

@@ -29,9 +29,9 @@ pub use application::{
     ParseClosingFamilySelectorError, ParseInputFormatError, ParseRelationSelectionError,
     RelationSelection, SourcePortLimits, campaign_plan, campaign_preflight, certify_candidates,
     certify_candidates_with_progress, closing_artifact_generate, closing_artifact_inspect,
-    closing_artifact_reduce, derive, family_candidates, family_candidates_with_progress,
-    family_close, family_close_with_progress, family_solve, foundry_campaign_run,
-    foundry_campaign_run_with_progress, foundry_wave_campaign_run,
+    closing_artifact_reduce, derive, encode_generated_candidate_sector, family_candidates,
+    family_candidates_with_progress, family_close, family_close_with_progress, family_solve,
+    foundry_campaign_run, foundry_campaign_run_with_progress, foundry_wave_campaign_run,
     foundry_wave_campaign_run_with_progress, inspect_generated_candidate_bundle,
     load_generated_candidate_bundle, load_generated_candidate_checkpoint,
 };

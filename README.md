@@ -42,6 +42,11 @@ For a complete checkpoint directory, the Rust application API also offers
 experimental reducer without regenerating rules or assembling a monolithic
 bundle. It requires the matching generation request and explicit resume;
 missing sectors are errors. See [checkpoint application](docs/rank_scoped_generation.md#applying-a-complete-checkpoint-directory).
+For isolated Rust-library experiments, `encode_generated_candidate_sector`
+saves an already-returned `SectorSolution` in the same native candidate format,
+without another solve or any checkpoint mutation. A one-sector export remains
+partial: absent successor sectors are uncovered, not inferred terminals. See
+[saving an isolated sector](docs/rank_scoped_generation.md#saving-an-isolated-sector).
 
 Generated candidate programs now use a shared Symbolica-native binary
 coefficient dictionary and native family geometry, rather than coefficient

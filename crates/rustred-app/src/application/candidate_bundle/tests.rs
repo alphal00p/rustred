@@ -15,6 +15,7 @@ mod checkpoint;
 mod checkpoint_load;
 mod declared_affine;
 mod depth;
+mod export;
 mod finite;
 mod rank;
 

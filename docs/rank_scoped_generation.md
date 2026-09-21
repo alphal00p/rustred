@@ -355,7 +355,7 @@ before using the signs, with one affine equality between them; the frame's
 four coefficient variables can also include the dimension d and must not be
 read as four independent index directions. That probe's affine bound check
 excluded impossible rows but did not propagate equality at a finite sector
-bound. A narrowly scoped native-integer endpoint-propagation fix is now being
+bound. A narrowly scoped native-integer endpoint-propagation fix was
 independently release-tested. It fixes each participating original coordinate
 to its sector endpoint, retains the full conjunction, and repeats Symbolica
 RREF until no new coordinate is fixed. There are at most as many successful
@@ -403,7 +403,84 @@ This is production checkpoint-resume evidence, not independent source replay
 of every saved rule. Six campaigns now use 46 solver workers; separate bounded
 controls and builds remain under aggregate monitoring. Evidence:
 `TMP/tide-r10-31740-eight-worker.izpFjC/`. The three isolated failed/stalled-sector
-controls still have separate pending outcomes.
+controls have separate outcomes, reported below.
+
+The corrected one-worker native29734 control **completes in 157.128 s solver
+time**, or **163.32 s process wall / 162.11 CPU-s**, at **185,232 KiB peak RSS**.
+It returns 318 rules, 44,148 finite residuals and 38,965 RHS terms with strict
+descent checked. All 197 Symbolica source-weight reconstructions finish and
+their native exact source products validate. The input, natural ordering,
+R10 finite-retention policy, reconstruction options and 900 s deadline match
+the earlier censored probe; the corrected core now finishes within that limit.
+This is an actual sector result, not the endpoint microtest. The earlier
+timeout cannot supply a completed speed ratio, and case ordinals change when
+geometry is refined. The separate native7749 sparse-factorized, search-policy
+control also completes: **227.235 s solver / 233.59 s process wall / 231.75
+CPU-s**, **372,340 KiB peak RSS**, 629 rules and 88 finite residuals. It no
+longer fails on compact conversion of an out-of-scope rank119 branch.
+
+Neither of these initial diagnostic clients saves its returned sector program;
+they check strict descent but do not perform independent artifact source replay
+or prove recursive family closure. Source preparation and helper compilation
+are outside the solver timings. Their receipts are in
+`TMP/rank10-affine-controls-licensed.sEIi07/`. Earlier malformed-license launch
+failures are preserved separately and are not counted as solver failures.
+
+The native24996 search-policy retry, with only its work-item allowance raised
+to 8,192, reaches a different exceptional conjunction at case439. A 20 s
+attached profile records 961 samples with no losses, dominated by GMP
+large-integer arithmetic; recovered call stacks identify Symbolica's exact
+rational Lex-order F4 normalization in the exceptional-case engine. Unwinding
+is incomplete, so the recovered caller percentages are not whole-phase time
+fractions. It is intentionally stopped after **1,162.98 s wall / 1,153.35 CPU-s**,
+at **703,108 KiB peak RSS**, to prioritize the finite-retention experiment;
+status143 is an intervention, not its3600s timeout or a CAS failure. No sector
+solution or program is returned. Its current affine
+case is actually finite at R10: all positive indices are fixed to one, and
+the only free indices satisfy `2+3*n0-n1-4*n6=0` with all three nonpositive.
+There are eight admitted integer points. The existing explicit finite-retention
+policy can bypass symbolic search on this domain; a separately labelled
+retention-policy retry is the next experiment. Do not silently substitute that
+policy into the broad search-policy checkpoints. Evidence:
+`TMP/native24996-geometry-profile.6NKfyH/`.
+
+A separate public single-case solve reproduces the same230-source-row,
+726-column exact frame in **3.190 s**, with **0.021 s** guard extraction. Its
+captured exceptional union has three simple coordinate branches and one AND
+of nine bivariate polynomials in `n1,n6`, of maximum total degree14. The latter
+is the native F4 pressure case. The complete capture takes9.40s including
+6.155s family/source/zero-census preparation, at94,448KiB RSS. It neither runs
+exceptional geometry nor publishes a rule/artifact; the full sector remains
+incomplete in the search-policy lane. The next isolated experiment compares
+native Symbolica ideal ordering on this actual conjunction, not a synthetic
+substitute. Evidence: `TMP/native-case-guard-run.XdGFYz/`.
+
+That native ordering experiment **completes**: Symbolica Q-F4 in graded reverse
+lexicographic order reduces the full nine-polynomial,608-term conjunction to
+four basis polynomials with26terms in **8.323 s**. All nine original generators
+then reduce exactly to zero in1.06ms. The whole isolated process takes8.33s
+wall/8.27CPU-s with12,288KiB peak RSS. The earlier full search-policy Lex run is
+censored and includes other work, so this is not a completed end-to-end speed
+ratio. It identifies a promising native ordering correction, not integer-case
+coverage. At this checkpoint the production normalizer is still unchanged;
+the proposed change computes the native GrevLex basis, then reorders its
+polynomials for existing Lex storage without claiming that the result is a
+Lex Groebner basis. No custom CAS or FGLM conversion is needed for the
+normalizer's equal-ideal contract. Evidence:
+`TMP/native-guard-grevlex.G2pmjY/grevlex/`.
+
+At **11:59:45 UTC**, a fresh non-atomic metadata inventory records **5,546 /
+8,246 distinct saved labelled sectors**, 142 more than at11:12. It still
+represents65/67 physical classes; 2,700 labelled jobs remain unsaved. The
+four parent counts are691/2686,1970/2580,1638/2656 and2388/2478. The separate
+finite-retention campaigns are excluded from this union. Parent32745's
+16-worker continuation has meanwhile hit its160GiB individual allocation
+cap after saving2,381 sectors; a new8-worker/144GiB continuation reuses them
+and begins completing more. The six campaigns now allocate38 solver workers
+plus bounded diagnostics/builds. Registered actual RSS is140.10GB at the
+snapshot, with337.95GB historical sampled peak and450GB aggregate soft stop.
+Evidence: `TMP/rank10-search-refresh-noon.w9RDVn/`. Neither represented classes
+nor completed labelled sectors establish recursive family closure.
 
 The independent captured geometry test already resolves the separate
 five-free-index guard from native sector 24996 with explicitly larger resources:
@@ -472,6 +549,53 @@ loader restores the bound even for a zero-only program. Starting integrals
 outside the declared rank are rejected before memoization access or mutation.
 Successors above the input rank are **not clipped**: every required descendant
 must still have an applicable rule or an explicitly declared terminal.
+
+## Saving an isolated sector
+
+Use the Rust application API to keep the result of a public-core single-sector
+solve, including an ordering or materializer experiment:
+
+```rust,ignore
+use rustred_app::encode_generated_candidate_sector;
+
+// request describes the actual source, root, ordering and finite policy used.
+// family, sector and solution are from the completed public-core solve.
+let bytes = encode_generated_candidate_sector(
+    &request, &family, sector, &solution,
+)?;
+std::fs::write("TMP/isolated-sector.rrbin", bytes)?;
+```
+
+This uses the existing native Symbolica coefficient table, family record and
+candidate schema. It performs no source search, zero census, replay or file
+operation itself; the example explicitly chooses where to write. The usual
+candidate inspection, cold loader and guarded applier consume the result.
+Encoding and writing should be timed separately from solving.
+
+The helper checks the supplied family's fingerprint against the input, arity,
+root containment, coordinate priority, rank and finite policy, with the usual
+transport limits. This is trusted generated transport, not authentication of
+solver history: the caller must supply the actual ordering, numerical depth
+and other recorded settings. `SectorSolution` does not retain all of that
+history. Backend choices remain in the run receipt; they do not change the
+semantics of the saved exact formulas. No checkpoint is opened or amended.
+
+Only the supplied sector is stored. A root with a larger downset does not
+make that downset complete; missing lower-sector successors remain explicit
+`Uncovered` errors. Terminal identity canaries establish basic loading and
+application, not recursive reduction or family closure. This surface lets
+diagnostic runs keep their successful exact work without inventing a second
+serialization format or upgrading candidate authority.
+
+The independent implementation audit and release gate pass all four focused
+export tests and **246 application/integration tests** (169unit+77integration),
+with zero failures. The full test execution takes63.47s wall/62.30CPU-s at
+194,292KiB peak RSS; compilation is separate. Tests preserve exact native
+formula/source layouts and nontrivial coordinate priority, reject mismatched
+source/scope/transport bounds, preserve missing successors as uncovered, and
+verify that export does not open a requested checkpoint or launch search.
+Evidence: `TMP/single-sector-export-release.0ROvqw/`. This adds no core,
+artifact-schema, CLI or Python behavior change.
 
 ## Applying a complete checkpoint directory
 

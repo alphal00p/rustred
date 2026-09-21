@@ -212,9 +212,32 @@ then saves new sectors, confirming that declared-chart preservation protects
 checkpoint reuse. Isolated actual-sector reruns remain separate. The captured
 five-index R10 guard closes in 15.40 ms with
 5,235 work items and matches all 274 zeros among 3,003 in-scope points. Its
-default 4,096-item attempt correctly fails. Rerun the actual failed/stalled
-sectors after these gates; neither microtest is family closure or a new
-master.
+default 4,096-item attempt correctly fails. The actual native29734
+source-weight reconstruction sector now completes in **157.128 s solver time**
+(163.32 s process wall), returning 318 rules and 44,148 finite residuals; its
+earlier run timed out at 900 s. Native7749 also completes in **227.235 s solver
+time**, returning 629 rules and 88 residuals. These first isolated diagnostics
+check strict descent but do not save their returned programs or independently
+replay source identities; they are not full family closure. Add native
+single-sector export through the existing binary codec before subsequent
+ordering and backend experiments, so successful work remains reusable.
+
+The separate native24996 search-policy retry progresses into expensive native
+Q-F4 exceptional-conjunction normalization and is deliberately stopped after
+1,162.98s of incomplete diagnostic work, not reported as a successful solve.
+Its observed case has all positive indices fixed and only eight integer points
+under R10; the existing explicit
+finite-retention policy should bypass that search. Test this as a separate
+policy-labelled run, without silently replacing broad-search checkpoints.
+No new integer-algebra kernel or inferred terminals are needed for this
+experiment. The generic single-sector native export now passes independent
+review and all246 release application/integration tests; it reuses the existing
+binary format and does not change candidate authority. Persisted repetitions
+of the successful diagnostics and the finite-policy experiment follow.
+An isolated Symbolica GrevLex-F4 computation finishes the captured nine-equation
+conjunction in8.323s; audit and regression-test that generic ordering improvement
+before changing production normalization. Continue the broad checkpointed campaigns under the authorized
+100-core/500-GB aggregate limits while isolating these remaining cases.
 
 A generic Rust application loader now consumes every sector of a complete
 trusted-local checkpoint directly into one shared candidate reducer, without

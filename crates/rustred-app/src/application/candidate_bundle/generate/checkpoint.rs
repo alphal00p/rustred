@@ -1,10 +1,8 @@
 //! Reuse the native candidate codec, one completed sector at a time. Checkpoint
 //! transport never changes candidate authority or performs source replay.
 
-use rustred::family::IntegralFamily;
 use rustred::identity::ParametricIbpGenerator;
-use rustred::persistence::{CoefficientTableBuilder, NativeFamilyRecord};
-use rustred::solver::SectorSolution;
+use rustred::persistence::CoefficientTableBuilder;
 use serde::Serialize;
 
 use super::super::{checkpoint::CheckpointStore, codec, model::*, preparation::Prepared};
@@ -17,36 +15,6 @@ pub(super) struct Report {
     pub disk_bytes: usize,
     pub resume_validation_us: u128,
     pub assembly_us: u128,
-}
-
-pub(super) fn encode_sector<const N: usize>(
-    request: &FamilyCandidatesRequest,
-    family: &IntegralFamily,
-    root: &[bool],
-    sector: [bool; N],
-    solution: &SectorSolution<N>,
-) -> Result<Vec<u8>, AppError> {
-    if solution.max_numerator_rank != request.max_numerator_rank {
-        return Err(AppError::input(
-            "checkpoint sector numerator-rank scope differs from its request",
-        ));
-    }
-    if solution.finite_case_policy != request.finite_case_policy {
-        return Err(AppError::input(
-            "checkpoint sector finite-case policy differs from its request",
-        ));
-    }
-    let mut coefficients = CoefficientTableBuilder::new(request.bundle_limits.binary_limits());
-    let sector = codec::sector_record(sector, solution, &mut coefficients)?;
-    let program = super::program_record(request, family, root, vec![sector]);
-    let family =
-        NativeFamilyRecord::from_family(family, &mut coefficients).map_err(codec::binary_error)?;
-    codec::write_records(
-        &program,
-        &family,
-        &coefficients.finish().map_err(codec::binary_error)?,
-        request.bundle_limits,
-    )
 }
 
 pub(super) fn assemble<const N: usize>(

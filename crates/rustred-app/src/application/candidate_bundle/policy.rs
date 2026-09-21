@@ -14,6 +14,26 @@ const DEFAULT_DEPTH: u32 = 2;
 const RANK_SEPARATOR: &str = "-max-numerator-rank-";
 const RETAIN_SEPARATOR: &str = "-retain-rank-finite-points-";
 
+pub(super) fn validate_request_scope(request: &FamilyCandidatesRequest) -> Result<(), AppError> {
+    if request.finite_case_policy == FiniteCasePolicy::RetainRankFinite {
+        if request.max_numerator_rank.is_none() {
+            return Err(AppError::input(
+                "retain-rank-finite requires max_numerator_rank",
+            ));
+        }
+        if request.finite_case_limits.max_visited_points == 0
+            || request.finite_case_limits.max_retained_terminals == 0
+        {
+            return Err(AppError::input("finite retention limits must be positive"));
+        }
+    } else if request.finite_case_limits != FiniteCaseLimits::default() {
+        return Err(AppError::input(
+            "finite retention limits require retain-rank-finite",
+        ));
+    }
+    Ok(())
+}
+
 /// Generation scope and finite-case policy, including its work limits.
 /// Not a certificate. Transport/output and exact case-intersection work
 /// budgets are deliberately excluded: a completed exact shard stays reusable
