@@ -4,6 +4,7 @@
 //! factorization/ideal normalization. It does not approximate irreducible
 //! geometry by a bounded integer search, create rules, or establish closure.
 
+mod bilinear_integer;
 mod definite_quadratic;
 mod diagnostic;
 mod engine;

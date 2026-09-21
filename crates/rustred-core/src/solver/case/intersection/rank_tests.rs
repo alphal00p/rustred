@@ -342,7 +342,8 @@ fn a_nonlinear_positive_power_ray_stays_unsupported_after_all_numerators_are_fix
 fn compact_negative_boundary_is_exact_and_a_larger_split_is_not_truncated() {
     assert_eq!(Power::MIN, -64);
     let context = CoefficientContext::new(["x", "y"]);
-    let conjunction = equations(&context, &["x*y-1"]);
+    // Cubic support deliberately remains outside exact bilinear refinement.
+    let conjunction = equations(&context, &["x^2*y+1"]);
     let parent = Case::<2>::generic();
     let result = parent
         .intersect_many_with_max_numerator_rank(

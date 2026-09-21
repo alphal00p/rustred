@@ -280,7 +280,9 @@ fn unsupported_guard_intersection_cannot_suppress_pending_work() {
             stats: SearchStats::default(),
         },
         exceptions: ExceptionalConditions {
-            branches: vec![vec![context.coefficient_fixture("a*b-2").numerator]],
+            // Bilinear integer guards are now exactly refined. This Pell
+            // curve still has unsupported, genuinely unbounded positive rays.
+            branches: vec![vec![context.coefficient_fixture("a^2-2*b^2-1").numerator]],
         },
     };
     assert!(!solver.rule_covers(&rule, &Case::generic()).unwrap());

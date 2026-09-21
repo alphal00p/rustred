@@ -44,6 +44,11 @@ pub struct CaseIntersectionStats {
     pub normalizations: usize,
     pub factorizations: usize,
     pub factor_children: usize,
+    /// Native integer factorizations (also included in `factorizations`).
+    pub integer_factorizations: usize,
+    /// Signed divisors tested exhaustively (also included in `work_items`).
+    pub integer_divisors: usize,
+    pub bilinear_children: usize,
     /// Exact bounded-negative-coordinate refinements, not sampled solutions.
     pub rank_splits: usize,
     pub rank_children: usize,

@@ -7,7 +7,7 @@ use crate::algebra::CoefficientPolynomial;
 use super::super::Case;
 use super::{
     CaseIntersectionBudget, CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits,
-    CaseIntersectionResult, CaseIntersectionStats, definite_quadratic, native,
+    CaseIntersectionResult, CaseIntersectionStats, bilinear_integer, definite_quadratic, native,
 };
 
 mod rank;
@@ -332,6 +332,44 @@ impl<const N: usize> Engine<'_, N> {
                 normalized = false;
                 continue;
             }
+            for equation in self.current.equations.iter() {
+                let Some(branches) = bilinear_integer::refine(
+                    equation,
+                    self.indices,
+                    self.limits,
+                    &mut self.stats,
+                    pending.len(),
+                )?
+                else {
+                    continue;
+                };
+                if self
+                    .stats
+                    .work_items
+                    .checked_add(pending.len())
+                    .and_then(|n| n.checked_add(branches.len()))
+                    .is_none_or(|n| n > self.limits.max_work_items)
+                {
+                    return Err(CaseIntersectionFailure::Budget {
+                        kind: CaseIntersectionBudget::WorkItems,
+                        limit: self.limits.max_work_items,
+                    });
+                }
+                self.stats.bilinear_children += branches.len();
+                for affine in branches.into_iter().rev() {
+                    // Keep the selected original equation too: native
+                    // restriction will replay it on the admitted child.
+                    let mut equations = self.current.equations.to_vec();
+                    equations.extend(affine);
+                    native::canonicalize(&mut equations);
+                    pending.push(WorkItem {
+                        parent: self.current.parent.clone(),
+                        equations: equations.into(),
+                        ancestry: self.current.ancestry.clone(),
+                    });
+                }
+                return Ok(());
+            }
             if self.split_rank_coordinate(pending)? {
                 return Ok(());
             }
@@ -376,7 +414,7 @@ impl<const N: usize> Engine<'_, N> {
     }
 }
 
-fn spend(
+pub(super) fn spend(
     count: &mut usize,
     limit: usize,
     kind: CaseIntersectionBudget,
