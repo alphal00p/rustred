@@ -41,6 +41,8 @@ pub use candidate_reduction::{
     CandidateRoutedCampaignSnapshot, CandidateRoutedError, CandidateRoutedFrontier,
     CandidateRoutedFrontierReason, CandidateRoutedTraceReport, CandidateRoutedWork,
     CandidateStatistics, CandidateTraceLimits, CandidateTraceReport, OwnerDomainAttemptLimits,
+    OwnerDomainMatchDisposition, OwnerDomainMatchError, OwnerDomainMatchFailure,
+    OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats, OwnerDomainPredicate,
     OwnerDomainScope, OwnerFeedbackError, OwnerFeedbackPolicy, OwnerOverlayLimits,
     OwnerOverlayMetadata, OwnerOverlayUsage, OwnerSuccessorError, OwnerSuccessorFailure,
     OwnerSuccessorLimits, OwnerSuccessorRegion, OwnerSuccessorStats, OwnerSuccessorTransition,

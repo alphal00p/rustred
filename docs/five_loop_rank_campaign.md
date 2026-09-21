@@ -157,6 +157,16 @@ stored-rule scan or another finite target expansion cannot substitute for it.
 
 ## Resource and monitoring policy
 
+The next ordered local-domain matcher now passes 2,588 core, 296 application
+and 16 Python steering tests. Its real three-owner experiment finds existing
+rules for all three examined rank-11 child boxes. An unresolved source guard
+is resolved by ten exact finite-numerator slices while retaining its infinite
+positive-power ray; no new IBPs are generated. This demonstrates a useful
+bounded-rank worklist refinement, not full recursive coverage. Incorporate that
+generic refinement and continue actual successor/source feedback; do not resume
+large concrete-dot expansion as a replacement for the symbolic campaign.
+See [the complete measurement and scope](research/shared_owner_domain_matching_2026-09-21.md).
+
 - At most 50 compute cores for the aggregate campaign; cap native inner pools.
 - At most 500 GB aggregate resident memory, with a 450 GB soft stop and
   attributable process-tree monitoring. Include helper jobs and compilation

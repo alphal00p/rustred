@@ -59,9 +59,9 @@ claim parametric closure from a finite trace. Directed Rust owner searches can
 publish immutable partial-domain rule overlays without copying the saved
 library; see [the API boundary](docs/shared_owner_campaign_driver.md#directed-owner-search-and-shared-rule-installation).
 
-The latest completed release gate passes **2,576 core tests** and **283
-application/integration tests**; the unchanged Python supervisor's latest gate
-passes **10 tests**. The preceding matched finite
+The latest completed release gate passes **2,588 core tests** and **296
+application/integration tests**; the shared-campaign and domain-query Python
+steering tests pass **16 tests**. The preceding matched finite
 rank-one controls complete in 20.437/8.067 seconds of traversal with one/six
 workers (126.11/112.08 seconds including preparation), with identical reported
 graph counters and zero missing rules. The latest 50-worker R10 diagnostic gets
@@ -101,6 +101,21 @@ The [complete stored-rule inventory](docs/research/shared_owner_domain_inventory
 scans all 67 owners in 11.009 seconds after preparation (123.13 seconds whole
 command, about 6.45 GB peak RSS), retaining 4.76 million potential successor
 regions. This is not yet recursive rank-ten closure.
+
+[`owner-domain-match`](docs/shared_owner_domain_matching.md) and
+`examples/python/match_shared_owner_domains.py` then classify explicitly supplied
+symbolic index boxes against the saved rules' actual priority and native guards.
+Positive powers can stay unbounded, and successor rank is not clipped to the
+saved entry rank. The result distinguishes selected rules, terminals, genuine
+local gaps, invalid source conditions and unresolved geometry. This reuses saved
+programs; it does not regenerate IBPs or claim recursive closure. A local gap in
+a conservative successor box still needs its predecessor conditions checked
+before being treated as an actually reached missing-rule frontier.
+The [first real five-loop query study](docs/research/shared_owner_domain_matching_2026-09-21.md)
+finds applicable existing rules for all three examined rank-11 child boxes.
+Ten exact finite-numerator slices resolve one remaining source-guard ambiguity
+without bounding positive powers or generating new IBPs. The full R10 campaign
+is still unfinished; these are selected local examples, not closure timings.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after

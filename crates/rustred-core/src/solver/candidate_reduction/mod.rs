@@ -25,10 +25,12 @@ pub use model::{
 };
 pub use owners::{
     BoundOwnerOverlay, BoundOwnerSearch, CandidateOwnerContext, CandidateOwnerInput,
-    CandidateOwnerPrograms, CandidateOwnerScope, OwnerDomainAttemptLimits, OwnerDomainScope,
-    OwnerFeedbackError, OwnerFeedbackPolicy, OwnerOverlayLimits, OwnerOverlayMetadata,
-    OwnerOverlayUsage, OwnerSuccessorError, OwnerSuccessorFailure, OwnerSuccessorLimits,
-    OwnerSuccessorRegion, OwnerSuccessorStats, OwnerSuccessorTransition,
+    CandidateOwnerPrograms, CandidateOwnerScope, OwnerDomainAttemptLimits,
+    OwnerDomainMatchDisposition, OwnerDomainMatchError, OwnerDomainMatchFailure,
+    OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats, OwnerDomainPredicate,
+    OwnerDomainScope, OwnerFeedbackError, OwnerFeedbackPolicy, OwnerOverlayLimits,
+    OwnerOverlayMetadata, OwnerOverlayUsage, OwnerSuccessorError, OwnerSuccessorFailure,
+    OwnerSuccessorLimits, OwnerSuccessorRegion, OwnerSuccessorStats, OwnerSuccessorTransition,
 };
 pub use reducer::CandidateReducer;
 pub use routed::{

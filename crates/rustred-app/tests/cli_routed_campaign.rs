@@ -227,3 +227,106 @@ powers=[1]
     assert_eq!(report["scan_complete"], false);
     assert_eq!(report["status"], "cancelled_during_preparation");
 }
+
+#[test]
+fn cli_owner_domain_match_emits_compact_local_results_and_retains_cancelled_prefix() {
+    let directory = fixture();
+    let source = r#"
+schema="rustred.project.toml.v1"
+[family]
+name="public_domain_match_cli"
+loop_momenta=["q"]
+external_momenta=[]
+dimension="d"
+[[family.denominators]]
+id="P"
+expression="q^2-1"
+[target]
+powers=[1]
+"#;
+    let bundle = family_candidates(FamilyCandidatesRequest::new(source)).unwrap();
+    let inspection =
+        inspect_generated_candidate_bundle(bundle.bundle(), Default::default()).unwrap();
+    std::fs::write(directory.0.join("owner.rrbin"), bundle.bundle()).unwrap();
+    let selection = json!({"family_fingerprint":inspection.family_fingerprint,
+        "owners":[{"path":"owner.rrbin","bytes":bundle.bundle().len(),"mask":"1"}],
+        "initial_frontier_routes":[]});
+    let queries = json!({"schema":"rustred.owner-domain-queries.json.v1", "queries":[
+        {"id":"unbounded-ray", "owner":"1", "lower":[0], "upper":[null],
+            "max_numerator_rank":11}]});
+    std::fs::write(directory.0.join("selection.json"), selection.to_string()).unwrap();
+    std::fs::write(directory.0.join("queries.json"), queries.to_string()).unwrap();
+    let invoke = |name: &str, extra: &[&str]| {
+        let mut process = Command::new(env!("CARGO_BIN_EXE_rustred"));
+        for variable in [
+            "RAYON_NUM_THREADS",
+            "OMP_NUM_THREADS",
+            "OMP_THREAD_LIMIT",
+            "OPENBLAS_NUM_THREADS",
+            "MKL_NUM_THREADS",
+            "BLIS_NUM_THREADS",
+            "SYMBOLICA_HIDE_BANNER",
+        ] {
+            process.env(variable, "1");
+        }
+        process
+            .arg("owner-domain-match")
+            .arg("--manifest")
+            .arg(directory.0.join("selection.json"))
+            .arg("--queries")
+            .arg(directory.0.join("queries.json"))
+            .arg("--owner-base")
+            .arg(&directory.0)
+            .arg("--output")
+            .arg(directory.0.join(name))
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let output = invoke("matched.json", &[]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value =
+        serde_json::from_slice(&std::fs::read(directory.0.join("matched.json")).unwrap()).unwrap();
+    assert_eq!(report["classification_complete"], true);
+    assert_eq!(report["all_queries_locally_applicable"], true);
+    for flag in [
+        "family_closure_claim",
+        "ibp_generation",
+        "rhs_successors_expanded",
+    ] {
+        assert_eq!(report[flag], false);
+    }
+    let heartbeats: Vec<Value> = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert!(!heartbeats.is_empty());
+    let final_event = &heartbeats.last().unwrap()["progress"];
+    assert_eq!(final_event["operation"], "owner_domain_match");
+    assert!(final_event.get("queries").is_none());
+    assert!(serde_json::to_vec(final_event).unwrap().len() < 8192);
+    assert!(!invoke("matched.json", &[]).status.success());
+    let limited = invoke("limited.json", &["--max-total-pieces", "1"]);
+    assert!(!limited.status.success());
+    let report: Value =
+        serde_json::from_slice(&std::fs::read(directory.0.join("limited.json")).unwrap()).unwrap();
+    assert_eq!(report["classification_complete"], false);
+    assert_eq!(report["retained_pieces"], 1);
+    let stop = directory.0.join("stop");
+    std::fs::write(&stop, "stop").unwrap();
+    assert!(
+        !invoke("cancelled.json", &["--stop-file", stop.to_str().unwrap()])
+            .status
+            .success()
+    );
+    let report: Value =
+        serde_json::from_slice(&std::fs::read(directory.0.join("cancelled.json")).unwrap())
+            .unwrap();
+    assert_eq!(report["classification_complete"], false);
+    assert_eq!(report["status"], "cancelled_during_preparation");
+}

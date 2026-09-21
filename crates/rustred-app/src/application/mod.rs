@@ -21,9 +21,10 @@ mod resource_policy;
 mod routed_campaign;
 
 pub use routed_campaign::{
-    OwnerDomainScanRequest, OwnerDomainScanResult, RoutedCampaignRequest, RoutedCampaignResult,
-    RoutedFeedbackOptions, RoutedFeedbackRoundResult, RoutedFeedbackSession,
-    owner_domain_scan_with_progress, routed_campaign_with_progress,
+    OwnerDomainMatchRequest, OwnerDomainMatchResult, OwnerDomainScanRequest, OwnerDomainScanResult,
+    RoutedCampaignRequest, RoutedCampaignResult, RoutedFeedbackOptions, RoutedFeedbackRoundResult,
+    RoutedFeedbackSession, owner_domain_match_with_progress, owner_domain_scan_with_progress,
+    routed_campaign_with_progress,
 };
 
 pub use candidate_bundle::{

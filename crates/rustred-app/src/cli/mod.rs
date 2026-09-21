@@ -3,6 +3,7 @@ mod candidates;
 pub(crate) mod error;
 mod io;
 mod owner_domains;
+mod owner_match;
 mod progress;
 mod routed;
 
@@ -50,6 +51,7 @@ pub(crate) fn main_entry() -> i32 {
 
 fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
     match parse_args(arguments)? {
+        Command::OwnerDomainMatch(arguments) => owner_match::run(arguments),
         Command::OwnerDomainScan(arguments) => owner_domains::run(arguments),
         Command::RoutedCampaign(arguments) => routed::run(arguments),
         Command::Help => write_informational_output(HELP),

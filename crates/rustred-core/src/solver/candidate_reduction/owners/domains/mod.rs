@@ -5,8 +5,14 @@
 //! boxes alone are only prefilters. Earlier formulas/terminals and coefficient
 //! cancellations can remove these conservative obligations.
 
+mod matching;
 mod model;
 mod scan;
+
+pub use matching::{
+    OwnerDomainMatchDisposition, OwnerDomainMatchError, OwnerDomainMatchFailure,
+    OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats, OwnerDomainPredicate,
+};
 
 pub use model::{
     OwnerSuccessorError, OwnerSuccessorFailure, OwnerSuccessorLimits, OwnerSuccessorRegion,

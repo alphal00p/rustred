@@ -63,7 +63,38 @@ slice independently before a larger attempt; commit/push coherent milestones.
 Detailed implementation sequencing is in
 [the shared-campaign plan](docs/five_loop_rank_campaign.md).
 
-### Current implementation slice — shared scheduling and retained source feedback
+### Current implementation slice — ordered symbolic successor matching
+
+The generic local-domain matcher now follows installed batch/rule priority,
+source conditions, exceptional conjunctions and original denominators through
+the existing Symbolica-backed guard service. It retains the actual inactive
+rank simplex and unbounded positive powers. Exact gaps, invalid conditions and
+unresolved geometry are distinct; none silently becomes a master. Rust,
+`owner-domain-match` CLI and Python steering interfaces reuse unchanged saved
+programs. The release gate passes **2,588 core tests** (32 existing ignored),
+**296 application/integration tests**, and **16 Python steering tests**, with
+zero failures and independent implementation/mathematical audits.
+
+This is work discovery for the shared solve, not the deferred certification
+project. Local guard applicability alone does not establish RHS cancellation,
+descent or recursive coverage. Test the recorded higher-rank successor inputs
+before expanding the shared symbolic worklist and source feedback. In
+particular, a gap in an overapproximated child box is not automatically a
+reachable missing-rule frontier. Positive powers and intermediate ranks must
+not be clipped to make a campaign appear complete. See
+[the matcher interface](docs/shared_owner_domain_matching.md).
+
+The real three-owner diagnostic now matches every examined full rank-11 child
+box using existing rules. One source box initially has a coupled unresolved
+guard; ten exact slices of its bounded inactive coordinate resolve it, with
+positive powers still unbounded, in **1.209 s matching / 4.80 s whole command**.
+No rules were generated. These are three recorded examples, not all successor
+obligations or complete R10 closure. Generalize the bounded-coordinate refinement
+into the shared worklist, then continue native RHS/routing and genuine source
+feedback; retain the unfinished scope explicitly. See
+[the measured results](docs/research/shared_owner_domain_matching_2026-09-21.md).
+
+### Shared scheduling and retained source feedback checkpoints
 
 The batched shared scheduler, single full-key membership index and tighter
 native expansion support envelope, together with native support-only tracing,

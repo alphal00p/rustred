@@ -4,9 +4,11 @@ mod derive;
 mod family_close;
 mod family_solve;
 mod owner_domains;
+mod owner_match;
 mod resource_limits;
 mod routed;
 pub(crate) use owner_domains::OwnerDomainScanArgs;
+pub(crate) use owner_match::OwnerDomainMatchArgs;
 pub(crate) use routed::RoutedCampaignArgs;
 
 pub(crate) use candidates::{CertifyCandidatesArgs, FamilyCandidatesArgs};
@@ -144,6 +146,7 @@ pub(crate) enum ColorPolicy {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Command {
+    OwnerDomainMatch(OwnerDomainMatchArgs),
     OwnerDomainScan(OwnerDomainScanArgs),
     RoutedCampaign(RoutedCampaignArgs),
     Derive(DeriveArgs),
@@ -260,6 +263,7 @@ pub(crate) fn parse_args(
         "campaign" => campaign::parse(arguments),
         "routed-campaign" => routed::parse(arguments),
         "owner-domain-scan" => owner_domains::parse(arguments),
+        "owner-domain-match" => owner_match::parse(arguments),
         _ => Err(ArgError::UnknownCommand(command)),
     }
 }
@@ -329,6 +333,7 @@ pub(crate) const HELP: &str = "\
 RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 
 USAGE:
+    rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N]
     rustred owner-domain-scan --manifest SELECTION.json --max-numerator-rank R --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--max-rules-per-owner N] [--max-terms-per-owner N] [--max-regions-per-owner N] [--max-total-regions N] [--max-summary-groups N]
     rustred routed-campaign --manifest SELECTION.json --targets TARGETS.csv --output RESULT.json [--events EVENTS.jsonl] [--owner-base DIR] [--workers 1..50] [--stop-file PATH] [--expansion-limits LIMITS.json] [--max-nodes N] [--max-input-targets N] [--max-transport-operations N] [--max-transport-endpoints N] [--max-coalescing-additions N] [--max-rule-applications N]
     rustred derive [OPTIONS]
@@ -534,6 +539,14 @@ a complete atomic wave. After complete publication, `--artifact-output`
 writes bytes only after exact installation and one successful cold reload. Its
 terminal-only dashboard aggregates detached sibling telemetry and is quiet
 when stderr is redirected.
+
+`owner-domain-match` classifies explicit parametric boxes against saved owners.
+Each query JSON supplies its own rank cap (or null) and unbounded upper bounds.
+Exit 0 means exact local classification, which may include gaps or invalid source
+conditions; inspect all_queries_locally_applicable separately. Unresolved,
+cancelled or resource-limited classification exits nonzero with a partial report.
+No RHS expansion, IBP generation or recursive closure is claimed. Outputs are
+fresh paths; stop-file cancellation and compact heartbeat events remain active.
 
 `campaign generate` writes a deterministic durable artifact encoding.
 `campaign inspect` loads and authenticates durable artifact bytes once, then

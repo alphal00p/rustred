@@ -2,6 +2,8 @@
 mod domains;
 mod evaluation;
 pub use domains::{
+    OwnerDomainMatchDisposition, OwnerDomainMatchError, OwnerDomainMatchFailure,
+    OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats, OwnerDomainPredicate,
     OwnerSuccessorError, OwnerSuccessorFailure, OwnerSuccessorLimits, OwnerSuccessorRegion,
     OwnerSuccessorStats, OwnerSuccessorTransition,
 };

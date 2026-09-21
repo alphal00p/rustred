@@ -86,6 +86,125 @@ impl Drop for Fixture {
     }
 }
 
+fn match_request(fixture: &Fixture) -> OwnerDomainMatchRequest {
+    let queries = json!({"schema":"rustred.owner-domain-queries.json.v1", "queries":[
+        {"id":"positive-ray", "owner":"1", "lower":[0], "upper":[null],
+            "max_numerator_rank":11}]});
+    let mut request =
+        OwnerDomainMatchRequest::new(fixture.request.selection_json.clone(), queries.to_string());
+    request.owner_base = fixture.directory.clone();
+    request
+}
+
+#[test]
+fn owner_domain_match_classifies_unbounded_ray_without_generation_or_rhs_claim() {
+    let fixture = Fixture::new();
+    let before = std::fs::read(fixture.directory.join("owner.rrbin")).unwrap();
+    let request = match_request(&fixture);
+    let events = std::cell::RefCell::new(Vec::new());
+    let first =
+        owner_domain_match_with_progress(request.clone(), &AtomicBool::new(false), |event| {
+            events.borrow_mut().push(event);
+        })
+        .unwrap();
+    let repeated =
+        owner_domain_match_with_progress(request, &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(first.classification_complete, "{}", first.document);
+    assert!(first.all_queries_locally_applicable, "{}", first.document);
+    assert_eq!(first.document["queries"], repeated.document["queries"]);
+    assert_eq!(first.document["counts"], repeated.document["counts"]);
+    assert_eq!(first.document["completed_queries"], 1);
+    for flag in [
+        "family_closure_claim",
+        "ibp_generation",
+        "rhs_successors_expanded",
+    ] {
+        assert_eq!(first.document[flag], false, "{flag}");
+    }
+    let pieces = first.document["queries"][0]["pieces"].as_array().unwrap();
+    assert!(pieces.iter().all(|p| p["max_numerator_rank"] == 11));
+    assert!(pieces.iter().any(|p| p["upper"][0].is_null()));
+    assert!(
+        pieces
+            .iter()
+            .any(|p| p["disposition"]["kind"] == "selected_rule")
+    );
+    assert!(
+        pieces
+            .iter()
+            .any(|p| p["disposition"]["kind"] == "terminal")
+    );
+    let final_event = events.borrow().last().unwrap().clone();
+    assert_eq!(final_event["classification_complete"], true);
+    assert!(final_event.get("queries").is_none());
+    assert!(serde_json::to_vec(&final_event).unwrap().len() < 8192);
+    assert_eq!(
+        std::fs::read(fixture.directory.join("owner.rrbin")).unwrap(),
+        before
+    );
+}
+
+#[test]
+fn owner_domain_match_cancellation_and_piece_budget_remain_incomplete() {
+    let fixture = Fixture::new();
+    let request = match_request(&fixture);
+    let cancelled =
+        owner_domain_match_with_progress(request.clone(), &AtomicBool::new(true), |_| {}).unwrap();
+    assert!(!cancelled.classification_complete);
+    assert!(!cancelled.all_queries_locally_applicable);
+    assert_eq!(cancelled.document["family_closure_claim"], false);
+    let mut limited = request.clone();
+    limited.max_total_pieces = 1;
+    let partial =
+        owner_domain_match_with_progress(limited, &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(!partial.classification_complete, "{}", partial.document);
+    assert!(!partial.all_queries_locally_applicable);
+    assert_eq!(partial.document["retained_pieces"], 1);
+    assert_eq!(partial.document["completed_queries"], 0);
+    assert_eq!(partial.document["processed_queries"], 1);
+    assert_eq!(partial.document["error_kind"], "consumer_limit");
+    assert_eq!(partial.document["error_query_id"], "positive-ray");
+    assert_eq!(partial.document["queries"][0]["summary_limit"], true);
+    assert_eq!(partial.document["queries"][0]["stats"]["pieces"], 2);
+    assert!(
+        partial.document["queries"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("StoppedByConsumer")
+    );
+    let mut zero_budget = request;
+    zero_budget.max_queries = 0;
+    assert!(owner_domain_match_with_progress(zero_budget, &AtomicBool::new(true), |_| {}).is_err());
+}
+
+#[test]
+fn owner_domain_match_rejects_queries_before_loading_owners() {
+    let fixture = Fixture::new();
+    let mut request = match_request(&fixture);
+    request.queries_json = "{}".into();
+    let events = std::cell::RefCell::new(Vec::new());
+    let error = owner_domain_match_with_progress(request, &AtomicBool::new(false), |event| {
+        events.borrow_mut().push(event);
+    })
+    .unwrap_err();
+    assert!(error.to_string().contains("query schema"));
+    assert!(events.borrow().is_empty());
+}
+
+#[test]
+fn owner_domain_match_final_progress_has_no_large_query_payload() {
+    let document = json!({"schema":"rustred.owner-domain-match.json.v1", "status":"incomplete",
+        "classification_complete":false, "all_queries_locally_applicable":false,
+        "queries":[{"pieces":vec![json!({"lower":[0], "upper":[null]});10000]}],
+        "counts":{"unresolved":1}, "error":"x".repeat(10000), "family_closure_claim":false});
+    let event = OwnerDomainMatchResult::completion_progress(&document);
+    assert!(event.get("queries").is_none());
+    assert_eq!(event["error_truncated"], true);
+    assert_eq!(event["error"].as_str().unwrap().len(), 512);
+    assert_eq!(event["classification_complete"], false);
+    assert!(serde_json::to_vec(&event).unwrap().len() < 8192);
+}
+
 #[test]
 fn shared_owner_campaign_is_generic_deduplicated_and_never_claims_family_closure() {
     let fixture = Fixture::new();

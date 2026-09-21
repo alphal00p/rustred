@@ -120,6 +120,9 @@ fn dashboard(record: &Value) -> [String; 6] {
     if outer["operation"].as_str() == Some("owner_domain_scan") {
         return domain_dashboard(record);
     }
+    if outer["operation"].as_str() == Some("owner_domain_match") {
+        return match_dashboard(record);
+    }
     let p = if outer.get("snapshot").is_some() {
         &outer["snapshot"]
     } else {
@@ -225,9 +228,88 @@ fn domain_dashboard(record: &Value) -> [String; 6] {
     ]
 }
 
+fn match_dashboard(record: &Value) -> [String; 6] {
+    let p = &record["progress"];
+    let done = p["completed_queries"].as_u64().unwrap_or(0);
+    let processed = p["processed_queries"].as_u64().unwrap_or(done);
+    let total = p["query_count"].as_u64().unwrap_or(0);
+    let count = |name| p["counts"][name].as_u64().unwrap_or(0);
+    // External IDs are labels, not terminal control sequences.
+    let id: String = p["id"]
+        .as_str()
+        .unwrap_or("—")
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(64)
+        .collect();
+    [
+        format!(
+            "RustRed local owner-domain classification — {}",
+            p["status"]
+                .as_str()
+                .or(p["phase"].as_str())
+                .or(p["event"].as_str())
+                .unwrap_or("working")
+        ),
+        format!(
+            "{processed}/{total} queries processed; {done} exactly classified; classification complete: {}",
+            p["classification_complete"].as_bool().unwrap_or(false)
+        ),
+        format!(
+            "Query {id}  pieces {}  selected rules {}  terminals {}  zero {}",
+            p["retained_pieces"].as_u64().unwrap_or(0),
+            count("selected_rule"),
+            count("terminal"),
+            count("exact_zero_sector")
+        ),
+        format!(
+            "Exact gaps {}  unresolved {}  invalid conditions {}\nA classified gap is not applicability; RHS successors and recursive closure are NOT established.",
+            count("exact_gap"),
+            count("unresolved"),
+            count("invalid_source_condition")
+        ),
+        format!(
+            "Elapsed {:.1}s  process RSS {:.3} GB  cancel {}",
+            record["elapsed_seconds"].as_f64().unwrap_or(0.),
+            record["process_rss_bytes"].as_u64().unwrap_or(0) as f64 / 1e9,
+            record["cancel_requested"]
+        ),
+        format!(
+            "Last update {:.1}s ago; positive powers may remain unbounded. IBP generation disabled.",
+            record["progress_age_seconds"].as_f64().unwrap_or(0.)
+        ),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn owner_domain_match_dashboard_keeps_completed_gaps_distinct_from_coverage() {
+        let text = dashboard(&json!({"progress":{"operation":"owner_domain_match",
+            "status":"classified_with_gaps_or_invalid_conditions", "classification_complete":true,
+            "completed_queries":2,"processed_queries":2,"query_count":2,"retained_pieces":3,
+            "counts":{"selected_rule":1,"exact_gap":2}}}))
+        .join("\n");
+        assert!(text.contains("2/2 queries processed; 2 exactly classified"));
+        assert!(text.contains("classification complete: true"));
+        assert!(text.contains("Exact gaps 2"));
+        assert!(text.contains("closure are NOT established"));
+        assert!(!text.contains("expanded / currently discovered"));
+    }
+
+    #[test]
+    fn owner_domain_match_dashboard_is_bounded_and_strips_label_controls() {
+        let text = dashboard(&json!({"progress":{"operation":"owner_domain_match",
+            "id":format!("\u{1b}[bad\n{}", "x".repeat(10000)),
+            "processed_queries":2,"completed_queries":1,"query_count":3,
+            "counts":{"unresolved":1}}}))
+        .join("\n");
+        assert!(!text.contains('\u{1b}'));
+        assert!(text.contains("unresolved 1"));
+        assert!(text.contains("2/3 queries processed; 1 exactly classified"));
+        assert!(text.len() < 1000);
+    }
     #[test]
     fn owner_scan_dashboard_reports_domains_not_concrete_reductions() {
         let text = dashboard(&json!({"progress":{"operation":"owner_domain_scan",
