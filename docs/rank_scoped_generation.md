@@ -296,7 +296,36 @@ mathematical failure. Its fix is tested separately, without changing a live
 executable. Evidence: `TMP/rank10-search-refresh-1030.6PaFV5/REPORT.md`;
 the earlier snapshot remains in `TMP/rank10-search-refresh.007AMj/REPORT.md`.
 
-Two distinct failures have appeared in the frozen broad-run executable. A
+Subsequent individual allocation aborts preserve 2,262 sectors for32745,
+1,886 for30699 and 574 for30527. They are explicit GNU MP allocation failures
+(signal6 /wrapper134), not four-hour timeouts or successful generation.
+32745 resumes with 16 workers and 160 GiB operating AS;30699/30527 resume with 8/6
+workers and 144 GiB each. The latter use the freshly gated rank-admission fix;
+completed shards are not regenerated. This reduces the six concurrent solver
+pools to 50 workers; all remain under aggregate 450 GB actual-RSS supervision.
+The larger hard AS ceilings are not additional RAM reservations. A new30699
+sector fails the independent 4096-item exact-geometry work budget, not RAM;
+that failed branch remains explicit and cannot be counted as a terminal.
+
+An isolated one-worker source-weight reconstruction probe of the still-missing
+native sector29734 (published12823) reaches its15-minute deadline rather than a
+CAS failure: **900.03 s wall /893.33 CPU-s /299,768 KiB peak RSS**. It starts247
+cases and validates107 native exact source products, but returns no completed
+sector or artifact. Its last large frame has2,426 rows,6,773 columns and four
+coefficient variables. This is not a completed comparison against the parallel
+sparse-exact campaign. Evidence: `TMP/rank10-single-sector-control.6jITZ6/`.
+
+Independent inspection exposes avoidable dimensionality in that frame. Its
+case equality is `1+n0-n1+n3+n4=0`, with `n0,n3,n4<=0` and `n1>=1`; all other
+indices are fixed. The four nonnegative slacks `-n0,n1-1,-n3,-n4` sum to zero,
+so every one is zero. The case is a single integer point, independent of R,
+not a genuine four-variable reduction domain. The current affine bound check
+excludes impossible rows but does not propagate equality at a finite sector
+bound. A narrowly scoped native-integer endpoint-propagation fix is now being
+implemented and independently audited. The failed probe remains a timeout;
+no anticipated speedup or completed sector is reported from this diagnosis.
+
+Two earlier failures appeared in the original frozen broad-run executable. A
 nonlinear exceptional equality `8-3*n6-6*n2+2*n2*n6=0` is unsupported there.
 Its equivalent integer equation
 `(2*n2-3)*(n6-3)=1` admits only the pairs `(2,4)` and `(1,2)`, subject to the
@@ -435,6 +464,7 @@ n3=-10`; input B changes `n0=3, n1=2, n3=n7=-5`. Both have entry rank10.
 | B with `n13=n14=0` | 80,584 | 74,026 | 6,558 | Complete trace, zero uncovered |
 | B, first allowance | Limit 1,000,000 reached | — | — | Incomplete work-budget result |
 | B, explicit larger allowance | Limit 4,000,000 reached | 3,497,280 before failure | — | Still incomplete |
+| B, final explicit 16-million allowance | 5,239,566 | 4,804,421 | 435,145 | Complete trace, zero uncovered |
 
 The three completed traces observe maximum numerator rank10; the A traces
 reach thirteen total dots and the pinched B trace eleven. Their trace times
@@ -447,11 +477,20 @@ correctly exit1 because an input remains incomplete. Input/checkpoint hashes
 are unchanged. The incomplete trace returns no partial frontier or maximum
 rank, so it cannot establish either a missing rule or its absence.
 
+A final isolated B trace, using the same frozen client and a sixteen-million
+allowance, finishes successfully rather than hitting another cap. It takes
+**425.529 s tracing**, observes maximum rank10 and thirteen dots, and finds
+zero uncovered keys. The cold load takes 181.470 s; whole process is
+**615.53 s wall /611.00 CPU-s /7,417,280 KiB peak RSS** with status0. The earlier
+failures were work-budget limits for this input, not missing rules. None of
+these traces accumulates its 435,145 terminal coefficients.
+
 These checks perform no coefficient back-substitution, original-source replay,
 master evaluation or rule generation. They show concrete dependency coverage,
 not universal rank-10 family closure. Receipts:
 `TMP/tide-r10-30563-boundary-trace.d5plSz/` and
-`TMP/tide-r10-30563-four-million.0NT7FB/`.
+`TMP/tide-r10-30563-four-million.0NT7FB/`; the successful final retry is in
+`TMP/tide-r10-30563-sixteen-million.azFTOj/`.
 
 ## How nonlinear exceptions are handled
 
@@ -536,6 +575,11 @@ geometry, affine, intersection and solver focused suites also pass. The full
 source-consistent core release gate passes **2,401 tests, zero failures,
 32 existing ignored tests**. An actual failed-sector retry is a separate check;
 the already running campaigns continue using their immutable older executable.
+The fresh public CLI also passes the seven-sector R=10 regression in 33.79 s
+wall /39.72 CPU-s /356,960 KiB peak RSS, producing exactly the prior 1,299 rules,
+1,208,801 terminals and 41,971,427-byte bundle. Byte equivalence is checked;
+this is not a controlled speed comparison or a claim to have visited the new
+captured-guard branch. Evidence: `TMP/rank-before-compact-pilot.Z3b4kG/`.
 Evidence: `TMP/rank-before-compact.fZmoU7/` and
 `TMP/rank-overflow-independent-audit.iFN2cn/`.
 
