@@ -6,7 +6,7 @@ use crate::algebra::ExactAlgebraError;
 use crate::family::IntegralKeyError;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MultiAffineNumeratorExpansionError {
+pub enum MultiAffineNumeratorExpansionError {
     IntegralKey(IntegralKeyError),
     ExactAlgebra(ExactAlgebraError),
     WrongBaseArity {

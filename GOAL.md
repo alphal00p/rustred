@@ -265,13 +265,33 @@ monolithic export. Preserve these native shards and use the existing direct
 checkpoint loader: export hits its512MiB coefficient-table cap, not an IBP gap.
 An explicit 1 GiB cold-load allowance admits its measured 1,047,043,921 coefficient
 bytes and successfully loads all 45,127,877 retained terminals in 217.446 s.
-The first R10 trace hits its one-million-key work cap; a separate larger
-trace-only retry retains the original candidate programs and scope.
+The first R10 trace hits its one-million-key work cap. A separate larger
+trace-only retry retains the original candidate programs and scope but also
+hits its sixteen-million-key cap, after 13,843,476 applications and 1,214.584 s
+of tracing. Its whole process takes 1,473.67 s and peaks at 15,826,160 KiB RSS.
+No partial dependency frontier is returned, so this is a work-limit result,
+not evidence of a specific missing rule or complete closure.
 Representative30231 has196/198 saved
 at12:32UTC; a bounded independent existing source-weight reconstruction probe
 targets its missing root while the original sparse-exact run continues. All
 four broad parent campaigns also continue, with aggregate monitoring and no
 mixed-policy publication. No whole-census recursive rank-10 closure is claimed.
+
+After refreshing all four broad campaigns to the validated native GrevLex
+normalizer, the **13:14:14 UTC** policy-specific inventory reaches
+**5,731/8,246 distinct saved labelled sectors**, still representing 65/67 classes.
+Thirty broad sector workers plus four configured targeted workers preserve
+aggregate memory headroom under the authorized 100-core/500-GB ceiling.
+The targeted 30231 run now isolates an unsupported nonlinear conjunction in
+three unbounded positive propagator powers. Its face has numerator rank zero:
+the rank option does not justify enumerating those directions. Native Lex
+factorization and complete branch analysis now show that the captured residual
+has no positive-integer points. Implement and test a generic, structurally
+bounded order fallback through the existing exact intersection machinery,
+then rerun the actual sector; the standalone diagnosis is not a solved family.
+The other campaigns continue. The separate source-weight diagnostic passed
+its reconstruction frame but was stopped in the old shared Lex normalization;
+do not misreport it as a reconstruction failure or completed comparison.
 
 A generic Rust application loader now consumes every sector of a complete
 trusted-local checkpoint directly into one shared candidate reducer, without
@@ -298,10 +318,20 @@ The September 21 offline input-routing milestone now covers all **8,246**
 labelled jobs in the four-parent downset union after the saved zero screening,
 with exact routes to all **67** published representatives. Independent native
 Symbolica replay checks all 57,890 active-momentum equalities and rejects the
-thirteen tamper/census controls. This is input coverage, not IBP closure or an
-implemented numerator transporter. Numerator expansion and induced pinches
-still need correct routing during application; IBP descendants above the entry
-rank still need coverage. See the [census report](docs/research/tide_five_loop_census.md).
+thirteen tamper/census controls. This is input coverage, not IBP closure.
+The subsequent generic verified-map integral-key transporter now passes
+independent review and **2,430 release core tests** (zero failures, 32 existing
+ignored). It preserves exact affine numerator expansion and induced pinches
+using the shared native Symbolica service. Recursive owner selection/loading
+and acyclic routed rule application remain to be implemented; IBP descendants
+above the entry rank still need coverage. See the
+[reuse design and implemented seam](docs/research/rank_scoped_owner_reuse.md)
+and the [census report](docs/research/tide_five_loop_census.md).
+The subsequent input-driven transport pilot passes607 concrete cases across
+67 selected actual routing maps, including67 rank-10 forward checks and540
+exact inverse compositions, in13.60s single-worker process time. No IBP search
+or routed candidate application occurs in that pilot; its success does not
+replace the unfinished recursive family-coverage gate.
 
 ### Exceptional-domain follow-up — bounded targets alongside unrestricted research
 

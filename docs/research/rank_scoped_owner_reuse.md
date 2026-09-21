@@ -1,9 +1,56 @@
 # Reusing sector programs through verified momentum maps
 
-Status: independently reviewed design, **not implemented**. This is a route to
-avoiding repeated sector search, not terminal minimization or a closure proof.
-Complete the observed exceptional-geometry fixes and their end-to-end reruns
-before starting this implementation.
+Status: the bounded **concrete integral-key transporter is implemented** and
+passes independent review and the release core gate. Recursive owner dispatch,
+selective program loading and whole-family coverage remain a reviewed design,
+not implemented functionality. This work avoids repeated sector search; it is
+not terminal minimization or a closure proof.
+
+## Implemented transport seam
+
+`sector::symmetry::integral_transport::compile` binds an exact `VerifiedMap`
+to its source/target families and active roots, returning a shared immutable
+`Prepared` object. `Prepared::transport` returns exact typed target integral
+keys and coefficients after bounded native Symbolica numerator expansion.
+It does not search for IBPs or apply sector programs.
+
+Admission checks family fingerprints, coefficient contexts, equal integration
+dimensions, zero analytic power shifts, unit Jacobian, no unresolved conditions,
+a unit active-line bijection and rational-constant affine numerator images.
+The independent audit caught the need to check dimensions explicitly: an
+algebraically valid denominator substitution alone does not authorize replacing
+an integral in dimension `d` by one in `d+2`. It also prompted cumulative
+coefficient-memory admission before selected numerator rows are cloned.
+
+The existing native numerator-expansion module now lives in
+`family::numerator_expansion`, with its former artifact callers using that
+shared implementation. No polynomial engine or rational reconstruction code
+was introduced. Positive powers are transported without expansion; finite
+negative powers use native polynomial powers/products/coalescing. Bounds and
+unsupported maps fail explicitly without returning partial combinations.
+
+The source-consistent release core gate passes **2,430 tests, zero failures,
+32 existing ignored**, including 13 new transporter tests, all eight existing
+native-expansion tests and all eight old matcher-transport tests. The full
+suite takes 132.70 s wall / 131.66 CPU-s with 188,652 KiB peak RSS; compilation
+is separate. Focused tests cover inverse cancellation, constants, multiple
+numerator factors, pinches, arbitrary positive powers, admission failures,
+overflow/budgets and deterministic shared-owner use. This verifies the local
+transport service, not application through a routed program library.
+
+An input-driven five-loop integration pilot subsequently checks one witnessed
+map into each of the 67 census classes. All **607 concrete transports pass**:
+corners, raised positive powers, every inactive coordinate at rank one, and
+one rank-10 numerator per map. The 540 lower-rank/corner cases also compose
+with independently verified native inverse maps and exactly recover their
+original integral after coefficient coalescing; the 67 rank-10 cases check
+forward transport, exact repeat, rank/dot bounds and support containment.
+The pilot emits 220,195 terms in total, at most 8,008 in one expansion. Whole
+optimized single-worker process time is **13.60 s wall / 13.45 CPU-s**, with
+15,360 KiB peak RSS, including input reading, family construction, map
+verification and repeated expansion. Compilation is outside that boundary.
+This exercises 67 selected maps, not all 8,246 labelled routes or any IBP
+application. Evidence: `TMP/integral-transport-real-routes.DuIDt1/`.
 
 ## Motivation and existing evidence
 
@@ -32,7 +79,8 @@ copying and re-expressing every symbolic rule under every routing.
 
 For the first implementation, admit only verified maps with:
 
-- authenticated source/target families and no unresolved conditions;
+- authenticated source/target families, equal integration dimensions and no
+  unresolved conditions (native-proved nonzero constants are harmless);
 - unit Jacobian and zero analytic power shifts;
 - a unit-coefficient bijection of source active denominators onto the owner's
   active denominators;
@@ -124,9 +172,9 @@ this additional admission condition.
 ## Reuse existing components
 
 - `VerifiedMap` already owns exact denominator images, conditions and Jacobian.
-- The native `multi_affine_expansion` helper already implements bounded
-  numerator expansion. Move it mechanically to a lower shared family module
-  if needed; do not implement a second polynomial engine.
+- The native numerator-expansion helper has moved mechanically to the shared
+  family layer. Its powers/products/coalescing remain Symbolica-owned; do not
+  implement a second polynomial engine.
 - The existing candidate reducer owns exact guards, coefficient specialization,
   strict descent, zero handling and memoization. Reuse its internal one-step
   operation and successor checks rather than recursively calling its public
@@ -159,4 +207,5 @@ Neither 67 saved owners nor master-count agreement proves this.
 
 Local design evidence: `TMP/full-routing-owner-audit.84kF2V/RECOMMENDATION.md`
 and `TMP/verified-key-transporter.3AmZKz/API_DESIGN.md`. No reference-only source
-code or unpublished PDF content is included in this design.
+code or unpublished PDF content is included in this design. The implementation
+gate and independent audit are recorded in `TMP/integral-transport-gate.sknvDG/`.

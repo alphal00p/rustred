@@ -1,11 +1,11 @@
 //! Exact fixed-sample chart-transport regressions.
 
 use crate::algebra::Coefficient;
-use crate::family::{IntegralFamily, IntegralKey};
-use crate::foundry::artifact::{
+use crate::family::numerator_expansion::{
     MultiAffineNumeratorEndpoint, MultiAffineNumeratorExpansionLimits,
     try_expand_multi_affine_numerator,
 };
+use crate::family::{IntegralFamily, IntegralKey};
 use crate::identity::{
     IntegralShift, ParametricIbpConfig, ParametricIbpGenerator, TranslatedSourceLimits,
     TranslatedSourceRequest,

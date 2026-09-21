@@ -15,8 +15,6 @@ pub(crate) mod factorized_numerator_lift;
 mod factorized_product_moments;
 mod install;
 mod model;
-#[allow(dead_code)]
-mod multi_affine_expansion;
 mod one_loop;
 mod persistence;
 mod scope;
@@ -67,12 +65,6 @@ pub fn install_published_k6_sector_waves(
 }
 
 pub(crate) use factorized_product_moments::ProductApplicationDomain;
-#[allow(unused_imports)]
-pub(crate) use multi_affine_expansion::{
-    MultiAffineNumeratorEndpoint, MultiAffineNumeratorExpansionError,
-    MultiAffineNumeratorExpansionLimits, MultiAffineNumeratorFactor,
-    try_expand_multi_affine_numerator,
-};
 #[allow(unused_imports)] // Used by the next production SpIReD campaign slice.
 pub(crate) use one_loop::derive_one_loop_unit_mass_tadpole_terminal_authority;
 pub(crate) use terminal::{ClosedTerminalAuthority, DeclaredMasterManifest};

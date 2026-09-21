@@ -40,6 +40,12 @@ closure. A separate native Symbolica Gröbner-ordering correction completes a
 previously stalled search-policy sector in 57.4 seconds; the complete core and
 application regression gates pass. All topologies remain external inputs.
 
+The Rust library also provides bounded
+[integral-key transport through verified momentum maps](docs/research/rank_scoped_owner_reuse.md),
+including affine numerator expansion and induced pinches. This is groundwork
+for reusing solved sectors across equivalent routings, not yet a recursive
+owner-library reducer or a five-loop closure claim.
+
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after
 interruption. Rust and Python expose the same controls. This saves completed

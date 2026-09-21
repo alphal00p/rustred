@@ -462,6 +462,20 @@ fn coefficient_weight(
     })
 }
 
+/// Admit borrowed ingress before callers clone the selected coefficient rows.
+/// Uses the same cumulative ownership accounting as native expansion itself.
+pub(crate) fn preflight_coefficient_clones<'a>(
+    coefficients: impl IntoIterator<Item = &'a Coefficient>,
+    limits: MultiAffineNumeratorExpansionLimits,
+) -> Result<(), MultiAffineNumeratorExpansionError> {
+    let weight = coefficients
+        .into_iter()
+        .try_fold(CoefficientWeight::default(), |weight, coefficient| {
+            weight.checked_add(coefficient_weight(coefficient)?)
+        })?;
+    admit_live_coefficients(weight, limits)
+}
+
 fn admit_live_coefficients(
     weight: CoefficientWeight,
     limits: MultiAffineNumeratorExpansionLimits,

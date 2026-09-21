@@ -718,7 +718,9 @@ coefficients in0.002325s; the split input gives1,317 after exact coalescing,
 in2.036167s. Both traces again have zero uncovered keys. Whole fresh process:
 10.74s wall/10.66CPU-s,438,524KiB peak RSS, including8.123s cold load. The two
 inputs share a reducer/cache, so these per-input intervals are not independent
-cold benchmarks. Default coefficient-cache/work limits remain unchanged;
+cold benchmarks. Default coefficient-term, coefficient-byte and coalescing
+allowances remain unchanged; the trace/application/pending limits are explicitly
+sixteen million, as recorded by the driver.
 no source search, terminal minimization or numerical evaluation is performed.
 
 Evidence: `TMP/tide-24996-retained-downset.uuiRMj/`,
@@ -876,13 +878,93 @@ completed frontier is returned. Whole process: 291.29 s wall / 288.97 CPU-s,
 12,869,504 KiB peak RSS, status 1 for the incomplete trace. The preserved
 candidate data is unchanged. A fresh trace-only retry uses the same client
 with sixteen million keys/applications; it neither recompiles nor regenerates
-IBPs. Saved generation, cold-load admission and recursive application are
-distinct gates; no uniform rank-10 family closure is claimed here.
+IBPs. That retry also reaches its explicit key limit: 16,000,001 requested
+keys after 13,843,476 rule applications and 1,214.584 s of tracing. Cold load
+takes 240.477 s; the whole process takes 1,473.67 s wall / 1,461.61 CPU-s and
+peaks at 15,826,160 KiB RSS. Neither its memory nor time ceiling is reached.
+The typed failure returns no partial frontier, so it establishes neither a
+particular missing rule nor zero uncovered successors. No further automatic
+cap increase is made. Saved generation, cold-load admission and recursive
+application are distinct gates; no uniform rank-10 family closure is claimed.
 
 Evidence: `TMP/tide-r10-29550-affine-refresh.1stuqI/`,
 `TMP/tide-r10-29550-cold-trace.y3zvc5/` and
 `TMP/tide-r10-29550-coefficient-budget.1mNno7/`; the larger trace receipt is
 `TMP/tide-r10-29550-sixteen-million.dlwmIQ/`.
+
+### Parallel progress and a positive-power exceptional face
+
+All four broad SearchFinite campaigns now run the validated GrevLex executable,
+reusing their previously saved compatible shards. A non-atomic metadata census
+at **September 21, 13:14:14 UTC** finds **5,731/8,246 distinct saved labels**:
+
+| Published parent | Saved / scheduled | Reused on restart | Workers |
+| --- | ---: | ---: | ---: |
+| 30527 | 767 / 2,686 | 723 | 6 |
+| 30699 | 2,052 / 2,580 | 1,970 | 8 |
+| 31740 | 1,721 / 2,656 | 1,667 | 8 |
+| 32745 | 2,414 / 2,478 | 2,396 | 8 |
+
+The 6,954 parent occurrences include 1,223 duplicate labels. These saved
+programs represent 65 of 67 routed graph classes; the two absent classes in
+this policy-specific inventory are 29550 and 30231. The separate finite-retention
+programs are excluded rather than silently relabelled or merged. Saved sectors
+and represented classes are not recursive closure. Actual registered RSS is
+18.26 GB at this snapshot, with a historical sampled peak of 337.95 GB. Worker
+counts are deliberately below the authorized 100 cores to limit memory growth;
+the aggregate monitor's 450 GB soft stop remains in force below the 500 GB ceiling.
+
+The separate 30231 finite-retention campaign has 196/198 saved sectors. Its
+refreshed run exposes an unsupported nonlinear equality conjunction in native
+sector 29751, rather than a time or work-limit failure. An isolated reproduction
+captures the full original and unresolved branch constraints in 154.257 s solver time.
+The unresolved face leaves only `n0,n1,n2` free, all positive propagator powers;
+every numerator coordinate is fixed to zero. Thus even an input-rank-zero
+restriction leaves these directions unbounded. A rank cap alone cannot turn
+this face into a finite collection of terminals. Subsequent exact native
+analysis finds that this particular residual has **no positive-integer points**,
+despite its positive algebraic dimension. The other unsaved sector remains in
+exact elimination. No failed branch is classified as a master.
+
+Write the free indices as `x=n0,y=n1,z=n2`. Direct native Lex normalization
+takes about 1.1 ms and exposes the necessary factor equation
+
+```text
+(z-3) * (1828627*z^2-9250536*z+11488176)
+      * (y-2*z+2) * (y+z-3) = 0.
+```
+
+Retaining the full original and unresolved conjunction in every branch gives:
+
+- `y-2*z+2=0` forces `x=0`, outside the positive sector.
+- `y+z=3` allows only positive integer `(y,z)=(2,1),(1,2)`; their exact `x`
+  values are `8/3` and `-1`, both inadmissible.
+- `z=3` gives exactly `(-3,0,3)`, `(0,4,3)` and
+  `(-90547/258172,2,3)`, none positive integral.
+- The quadratic factor in `z` is irreducible over the rationals under native
+  factorization, so cannot have an integer root.
+
+An earlier diagnostic using only the wider original conjunction found a ray;
+that provisional interpretation was withdrawn once the narrowed residual's
+additional equations were retained. This is why whole-conjunction preservation
+matters. The production correction is still pending: keep the fast GrevLex
+path, and test a structurally bounded native Lex fallback only when the
+existing refinements would otherwise report unsupported geometry. The native
+algebra diagnosis is not yet a completed sector rerun or a closure artifact.
+
+A separate source-weight reconstruction diagnostic on the older executable
+successfully reconstructs a 1,254-term target frame at 834.267 s, then stalls
+in the shared old Lex-F4 exceptional normalizer. It is intentionally stopped
+at 1,537.54 s wall / 1,526.03 CPU-s, 12,227,744 KiB peak RSS (status 143),
+before its one-hour deadline. A 20-second profile confirms that shared geometry
+bottleneck. This is neither a reconstruction API failure nor a completed
+backend timing comparison; no candidate file is produced.
+
+Receipts: `TMP/rank10-search-refresh-grevlex.qT9JMZ/`,
+`TMP/native29751-nonlinear-capture.X5gihG/`,
+`TMP/native29751-residual-branches.q0WpkX/`,
+`TMP/tide-r10-30231-grevlex-corrected.U3MZvm/`, and
+`TMP/tide-root30231-source-weights.efvT5i/`.
 
 ## How nonlinear exceptions are handled
 

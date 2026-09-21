@@ -17,10 +17,11 @@ mod expand;
 mod limits;
 mod model;
 
-pub(crate) use error::MultiAffineNumeratorExpansionError;
-pub(crate) use expand::try_expand_multi_affine_numerator;
-pub(crate) use limits::MultiAffineNumeratorExpansionLimits;
-pub(crate) use model::{MultiAffineNumeratorEndpoint, MultiAffineNumeratorFactor};
+pub use error::MultiAffineNumeratorExpansionError;
+pub(crate) use expand::{preflight_coefficient_clones, try_expand_multi_affine_numerator};
+pub use limits::MultiAffineNumeratorExpansionLimits;
+pub use model::MultiAffineNumeratorEndpoint;
+pub(crate) use model::MultiAffineNumeratorFactor;
 
 #[cfg(test)]
 mod tests;

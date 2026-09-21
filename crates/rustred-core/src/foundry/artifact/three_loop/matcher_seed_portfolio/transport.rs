@@ -15,11 +15,11 @@ use crate::algebra::{
     Coefficient, CoefficientPolynomial, ExactAlgebraError, IndexedAlgebraError,
     IndexedAlgebraLimits, coefficient_clone_owned_retained_byte_bound,
 };
-use crate::family::{IntegralFamily, IntegralKey, IntegralKeyError};
-use crate::foundry::artifact::{
+use crate::family::numerator_expansion::{
     MultiAffineNumeratorExpansionError, MultiAffineNumeratorExpansionLimits,
     MultiAffineNumeratorFactor, try_expand_multi_affine_numerator,
 };
+use crate::family::{IntegralFamily, IntegralKey, IntegralKeyError};
 use crate::identity::{
     IntegralShift, ParametricIbpConfig, ParametricIbpGenerator, RowId, TranslatedSourceError,
     TranslatedSourceLimits, TranslatedSourceRequest,

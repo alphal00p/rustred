@@ -310,8 +310,10 @@ The replayed witness JSONL SHA256 is
 `355f190e1210e1ed1c11ec63527ff012bacbaf4b4ecd1a394abf0875315efd56`.
 
 For the rank-bounded programme this supplies an exact route to reducing
-duplicate labelled work, but **not yet an implemented numerator transporter
-or a completed family solve**. A homogeneous linear loop map sends each
+duplicate labelled work, but not a completed family solve. The subsequent
+[verified-map transporter](rank_scoped_owner_reuse.md) now implements the
+local exact numerator expansion; routed owner-program application is still
+pending. A homogeneous linear loop map sends each
 quadratic numerator factor to an affine-linear combination of the complete
 target denominator basis. Expanding an input of total numerator degree `R`
 therefore produces monomials of degree at most `R`; cancellation against

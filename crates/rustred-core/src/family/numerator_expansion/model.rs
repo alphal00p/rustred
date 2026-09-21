@@ -56,17 +56,17 @@ impl MultiAffineNumeratorFactor {
 
 /// One exactly coalesced endpoint of a cold structural identity.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct MultiAffineNumeratorEndpoint {
+pub struct MultiAffineNumeratorEndpoint {
     pub(super) key: IntegralKey,
     pub(super) coefficient: Coefficient,
 }
 
 impl MultiAffineNumeratorEndpoint {
-    pub(crate) fn key(&self) -> &IntegralKey {
+    pub fn key(&self) -> &IntegralKey {
         &self.key
     }
 
-    pub(crate) fn coefficient(&self) -> &Coefficient {
+    pub fn coefficient(&self) -> &Coefficient {
         &self.coefficient
     }
 }

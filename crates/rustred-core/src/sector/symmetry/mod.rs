@@ -15,6 +15,7 @@
 pub mod canonical;
 mod condition;
 mod error;
+pub mod integral_transport;
 mod limits;
 mod model;
 pub mod permutation;
