@@ -104,14 +104,65 @@ were deliberately not replayed. The correction fixes an actual defect in the
 stalled inputs, but a full corrected dependency traversal, its remaining
 resource limits, and R=10 closure remain unmeasured here.
 
+## Corrected 50-worker retry: explicit per-call resource failure
+
+The corrected release executable from `59d0ab2` reused the exact same 134
+entries, saved owners, routing witnesses, CPU affinity and resource envelope.
+Both matched small controls passed first. The new run has **no wall-time
+deadline** and exits normally with an incomplete result (status 4), without an
+operator/resource kill. It is not a successful solve.
+
+| Measurement | Corrected retry |
+|---|---:|
+| Whole command wall / CPU | 240.20 / 580.30 s |
+| Shared traversal until all workers drained | 119.231 s |
+| GNU-time peak RSS | 23,931,876 KiB (24.51 decimal GB) |
+| Sampled aggregate peak RSS | 24,298,639,360 bytes |
+| Completed local expansions / queued nodes | 3,750 / 27,162,551 |
+| Distinct integral keys / dedup hits | 27,147,906 / 23,862,056 |
+| Rule applications / transports | 985 / 2,544 |
+| Missing rules / owners observed | 0 / 0 |
+| Complete Rust diagnostic / resumable graph | Yes / no |
+
+The first live error appears at 118.777 s of traversal while 49 other workers
+are draining. All workers have returned by 119.231 s; the final 50 failed-node
+count includes peers observing the shared failure, not 50 independent causes.
+The originating route is
+`[2,1,0,1,0,-4,1,-5,1,1,0,2,0,0,1]` (numerator rank nine).
+Its **projected polynomial support** is 4,241,160 against a per-call default of
+4,000,000. This is the product of separate factor support estimates, not an
+observed native polynomial of that size. Increasing an aggregate campaign
+budget does not alter that separate per-call allowance.
+
+The corrected run no longer exhibits the eight runaway powers. It does expose
+genuine scheduling overhead: a 20-second/49-Hz profile has 31,596 samples and
+zero lost samples; about 20.0% self samples lie in mutex contention, 15.6% in
+the shared work-tree search, and 5.3% in integer-vector comparisons. The profile
+also records throttle/unthrottle events: zero lost samples does not imply
+unthrottled or unbiased sampling, and these hotspots are descriptive. Sampled
+utilization during this phase is only about 3–5 cores despite 50 workers.
+This is an instrumented, resource-censored diagnostic—not a completed timing
+comparison or evidence that the 27-million-key queue finishes within 15 hours.
+
+The next changes therefore target bounded batch publication and a smaller
+shared membership index. Separately, a tighter generic support envelope can
+account for the common variable set and total degree: nine powers in fifteen
+variables have at most `binomial(24,9) = 1,307,504` monomials of degree at most
+nine. Pairwise multiplication work remains separately bounded; an output-size
+bound is not a claim about arithmetic cost. Explicit per-call CLI/Python budget
+steering also remains useful. No new IBP search is justified by this resource
+failure; directed source feedback must use actual missing-rule domains.
+
+Receipts: `TMP/shared-r10-corrected-pressure.ynEtcB/` and
+`TMP/shared-owner-campaign.nobl7q4b/`. The corrected native powers, matched
+controls and this failed large traversal have distinct timing boundaries.
+
 ## Next measured iteration
 
-1. Finish the complete release gate for the independently audited native
-   correction and shared-rule installation changes. The isolated native
-   regressions and six affected-map expansion replays already pass.
-2. Validate live first-failure reporting, a separate progress wakeup channel,
-   and the cheaper process-tree monitor. These improvements do not eliminate
-   mathematically distinct dependency work.
+1. Keep the completed native correction and full core/frontend gates as the
+   baseline. Do not regenerate the saved owner programs.
+2. Audit/test the observed scheduler and structural-envelope improvements,
+   retaining exact native arithmetic, cancellation and separate resource caps.
 3. Repeat matched small controls, then the joint rank-ten pressure workload.
    Keep true completed timings distinct from interrupted/resource outcomes.
 4. Use actual remaining frontiers to drive shared parametric owner searches;

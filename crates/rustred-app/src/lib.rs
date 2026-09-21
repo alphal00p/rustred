@@ -2,7 +2,10 @@ mod application;
 #[cfg(feature = "cli")]
 mod cli;
 
-pub use application::{RoutedCampaignRequest, RoutedCampaignResult, routed_campaign_with_progress};
+pub use application::{
+    RoutedCampaignRequest, RoutedCampaignResult, RoutedFeedbackOptions, RoutedFeedbackRoundResult,
+    RoutedFeedbackSession, routed_campaign_with_progress,
+};
 pub use rustred::persistence::{BinaryIoLimits, equivalent_generated_programs};
 
 pub use application::{

@@ -4,13 +4,37 @@ use super::super::{
 };
 use super::*;
 use crate::reduction::ReductionLimits;
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::sync::atomic::Ordering;
 use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::Instant;
 
 pub(super) type Failure = CandidateRoutedCampaignFailure;
 pub(super) type Work<const N: usize> = CandidateRoutedWork<N>;
+
+/// Bounds publication work and transient child staging, not native expansion.
+/// Hash-table/queue growth can occasionally reallocate more than one batch.
+pub(super) const PUBLICATION_BATCH_SIZE: usize = 256;
+
+#[derive(Default)]
+struct SeenPhases<const N: usize> {
+    route: bool,
+    apply_owner: Option<[bool; N]>,
+}
+impl<const N: usize> SeenPhases<N> {
+    fn contains(&self, node: &Work<N>) -> bool {
+        match node {
+            Work::Route(_) => self.route,
+            Work::Apply { owner_sector, .. } => self.apply_owner.as_ref() == Some(owner_sector),
+        }
+    }
+    fn insert(&mut self, node: &Work<N>) {
+        match node {
+            Work::Route(_) => self.route = true,
+            Work::Apply { owner_sector, .. } => self.apply_owner = Some(*owner_sector),
+        }
+    }
+}
 
 pub(super) fn limit(
     value: usize,
@@ -37,9 +61,11 @@ fn resource_error(resource: &'static str, requested: usize, limit: usize) -> Fai
 
 struct State<const N: usize> {
     queue: VecDeque<Work<N>>,
-    seen: BTreeSet<Work<N>>,
+    // Membership only: hash iteration never determines traversal or reports.
+    // One physical key can have Route and its exact positive-support Apply.
+    seen: HashMap<IntegralKey, SeenPhases<N>>,
+    scheduled: usize,
     active: BTreeSet<Work<N>>,
-    physical: BTreeSet<IntegralKey>,
     trace: CandidateRoutedTraceReport<N>,
     completed: usize,
     failed: usize,
@@ -74,9 +100,9 @@ impl<'a, const N: usize> Shared<'a, N> {
         Self {
             state: Mutex::new(State {
                 queue: VecDeque::new(),
-                seen: BTreeSet::new(),
+                seen: HashMap::new(),
+                scheduled: 0,
                 active: BTreeSet::new(),
-                physical: BTreeSet::new(),
                 trace,
                 completed: 0,
                 failed: 0,
@@ -116,6 +142,19 @@ impl<'a, const N: usize> Shared<'a, N> {
     }
     pub(super) fn check(&self) -> Result<(), Failure> {
         self.check_locked(&mut self.lock())
+    }
+    /// Cheap cancellation checks while staging a bounded batch outside the
+    /// mutex. Peer failures are checked at each chunk and each locked admission.
+    pub(super) fn check_cancellation(&self) -> Result<(), Failure> {
+        if self.cancellation.load(Ordering::Acquire) {
+            self.check()?;
+        }
+        Ok(())
+    }
+    pub(super) fn publication_capacity(&self) -> usize {
+        PUBLICATION_BATCH_SIZE
+            .min(self.limits.max_unique_nodes.max(1))
+            .min(self.reduction.max_pending_frames.max(1))
     }
     pub(super) fn fail(&self, error: Failure) {
         self.lock().failure.get_or_insert(error);
@@ -180,13 +219,70 @@ impl<'a, const N: usize> Shared<'a, N> {
     /// join is not a cycle; support/phase/order descent proves acyclicity.
     pub(super) fn schedule(&self, node: Work<N>) -> Result<(), Failure> {
         let mut state = self.lock();
-        self.check_locked(&mut state)?;
-        if state.seen.contains(&node) {
-            state.dedup = limit(state.dedup, 1, usize::MAX, "deduplication counter")?;
-            return Ok(());
+        let admitted = self.schedule_locked(&mut state, node)?;
+        drop(state);
+        if admitted {
+            self.wake.notify_all();
         }
+        Ok(())
+    }
+    /// The Vec contains already-validated children, not a lazy iterator that
+    /// could execute native validation while holding the scheduler mutex.
+    pub(super) fn schedule_batch(&self, nodes: Vec<Work<N>>) -> Result<(), Failure> {
         limit(
-            state.seen.len(),
+            0,
+            nodes.len(),
+            self.publication_capacity(),
+            "publication batch",
+        )?;
+        let mut state = self.lock();
+        let mut published = false;
+        let mut result = Ok(());
+        for node in nodes {
+            match self.schedule_locked(&mut state, node) {
+                Ok(admitted) => published |= admitted,
+                Err(error) => {
+                    result = Err(error);
+                    break;
+                }
+            }
+        }
+        drop(state);
+        // A valid prefix must wake workers even when a later node hit a cap.
+        if published {
+            self.wake.notify_all();
+        }
+        result
+    }
+    fn schedule_locked(&self, state: &mut State<N>, node: Work<N>) -> Result<bool, Failure> {
+        self.check_locked(state)?;
+        let key = node.target();
+        if key.powers().len() != N {
+            return Err(CandidateRoutedError::InvalidInput(
+                "scheduled work has the wrong integral arity".into(),
+            )
+            .into());
+        }
+        if let Work::Apply { owner_sector, .. } = &node {
+            if key
+                .powers()
+                .iter()
+                .zip(owner_sector)
+                .any(|(&power, &active)| (power > 0) != active)
+            {
+                return Err(CandidateRoutedError::InvalidInput(
+                    "scheduled apply owner differs from integral support".into(),
+                )
+                .into());
+            }
+        }
+        let phases = state.seen.get_mut(key);
+        if phases.as_ref().is_some_and(|phases| phases.contains(&node)) {
+            state.dedup = limit(state.dedup, 1, usize::MAX, "deduplication counter")?;
+            return Ok(false);
+        }
+        let scheduled = limit(
+            state.scheduled,
             1,
             self.limits.max_unique_nodes,
             "operational nodes",
@@ -198,11 +294,16 @@ impl<'a, const N: usize> Shared<'a, N> {
             self.reduction.max_pending_frames,
             "pending nodes",
         )?;
-        state.physical.insert(node.target().clone());
-        state.seen.insert(node.clone());
+        if let Some(phases) = phases {
+            phases.insert(&node);
+        } else {
+            let mut phases = SeenPhases::default();
+            phases.insert(&node);
+            state.seen.insert(key.clone(), phases);
+        }
+        state.scheduled = scheduled;
         state.queue.push_back(node);
-        self.wake.notify_all();
-        Ok(())
+        Ok(true)
     }
     pub(super) fn take(&self) -> Option<Work<N>> {
         let mut state = self.lock();
@@ -402,13 +503,13 @@ impl<'a, const N: usize> Shared<'a, N> {
             workers: self.workers,
             input_targets: state.trace.input_targets,
             requested_targets: state.trace.requested_targets,
-            scheduled_nodes: state.seen.len(),
+            scheduled_nodes: state.scheduled,
             queued_nodes: state.queue.len(),
             active_nodes: state.active.len(),
             completed_nodes: state.completed,
             failed_nodes: state.failed,
             deduplication_hits: state.dedup,
-            reachable_integrals: state.physical.len(),
+            reachable_integrals: state.seen.len(),
             rule_attempts: state.rule_attempts,
             rule_applications: state.trace.rule_applications,
             transport_calls: state.trace.transport_calls,
@@ -461,7 +562,7 @@ impl<'a, const N: usize> Shared<'a, N> {
             self.check_locked(&mut state).ok();
             if state.failure.is_none()
                 && (!Self::done(&state)
-                    || state.completed != state.seen.len()
+                    || state.completed != state.scheduled
                     || state.reserved_coalescing != 0)
             {
                 state.failure = Some(
@@ -477,8 +578,8 @@ impl<'a, const N: usize> Shared<'a, N> {
             .state
             .into_inner()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.trace.operational_nodes = state.seen.len();
-        state.trace.reachable_integrals = state.physical.len();
+        state.trace.operational_nodes = state.scheduled;
+        state.trace.reachable_integrals = state.seen.len();
         let report = CandidateRoutedCampaignReport {
             trace: state.trace,
             snapshot,

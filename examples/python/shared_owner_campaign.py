@@ -203,6 +203,8 @@ def main() -> int:
     parser.add_argument("--targets", type=Path, required=True)
     parser.add_argument("--executable", type=Path, required=True)
     parser.add_argument("--owner-base", type=Path, default=Path.cwd())
+    parser.add_argument("--expansion-limits", type=Path,
+                        help="optional per-call native expansion JSON policy; parsed by Rust")
     parser.add_argument("--workers", type=positive, default=min(50, len(os.sched_getaffinity(0))))
     parser.add_argument("--cpus", help="comma-separated permitted CPU IDs; at most --workers")
     parser.add_argument("--registered-pid", type=positive, action="append", default=[])
@@ -255,7 +257,10 @@ def main() -> int:
     # Include the supervisor without treating it as an external reservation.
     collector.register(os.getpid())
     os.sched_setaffinity(0, cpus)
-    for path in (args.manifest, args.targets, args.executable):
+    inputs = [args.manifest, args.targets, args.executable]
+    if args.expansion_limits is not None:
+        inputs.append(args.expansion_limits)
+    for path in inputs:
         if not path.is_file():
             parser.error(f"not a file: {path}")
     args.tmp_root.mkdir(parents=True, exist_ok=True)
@@ -268,6 +273,8 @@ def main() -> int:
     for field in ("max_nodes", "max_input_targets", "max_transport_operations", "max_transport_endpoints",
                   "max_coalescing_additions", "max_rule_applications"):
         command += ["--" + field.replace("_", "-"), str(getattr(args, field))]
+    if args.expansion_limits is not None:
+        command += ["--expansion-limits", str(args.expansion_limits.resolve())]
     if args.no_progress:
         command.append("--no-progress")
     # Never include the process environment or license in provenance.

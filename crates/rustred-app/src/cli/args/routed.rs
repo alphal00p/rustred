@@ -9,6 +9,7 @@ pub(crate) struct RoutedCampaignArgs {
     pub events: Option<PathBuf>,
     pub owner_base: PathBuf,
     pub stop_file: Option<PathBuf>,
+    pub expansion_limits: Option<PathBuf>,
     pub workers: usize,
     pub nodes: usize,
     pub input_targets: usize,
@@ -27,6 +28,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         events: None,
         owner_base: PathBuf::from("."),
         stop_file: None,
+        expansion_limits: None,
         workers: 1,
         nodes: 1_000_000,
         input_targets: 100_000,
@@ -47,6 +49,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--events" => "--events",
             "--owner-base" => "--owner-base",
             "--stop-file" => "--stop-file",
+            "--expansion-limits" => "--expansion-limits",
             "--workers" => "--workers",
             "--max-nodes" => "--max-nodes",
             "--max-input-targets" => "--max-input-targets",
@@ -68,7 +71,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         let value = next_utf8_value(&mut arguments, name)?;
         match name {
             "--manifest" | "--targets" | "--output" | "--events" | "--owner-base"
-            | "--stop-file" => {
+            | "--stop-file" | "--expansion-limits" => {
                 if value.is_empty() || value == "-" {
                     return Err(ArgError::InvalidValue {
                         option: name,
@@ -83,6 +86,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                     "--output" => result.output = path,
                     "--events" => result.events = Some(path),
                     "--owner-base" => result.owner_base = path,
+                    "--expansion-limits" => result.expansion_limits = Some(path),
                     _ => result.stop_file = Some(path),
                 }
             }
@@ -125,14 +129,26 @@ mod tests {
             panic!()
         };
         assert_eq!(args.workers, 50);
+        assert_eq!(args.expansion_limits, None);
         for suffix in [
             "--workers 0",
             "--workers 51",
             "--max-nodes -1",
             "--workers 2 --workers 3",
             "--timeout 1800",
+            "--expansion-limits -",
+            "--expansion-limits a --expansion-limits b",
         ] {
             assert!(parse_words(&format!("--manifest m --targets t --output o {suffix}")).is_err());
         }
+    }
+
+    #[test]
+    fn explicit_per_call_limits_are_a_path_not_an_aggregate_override() {
+        let Command::RoutedCampaign(args) = parse_words(
+            "--manifest m --targets t --output o --expansion-limits limits.json --max-transport-operations 9",
+        ).unwrap() else { panic!() };
+        assert_eq!(args.expansion_limits, Some(PathBuf::from("limits.json")));
+        assert_eq!(args.transport_operations, 9);
     }
 }

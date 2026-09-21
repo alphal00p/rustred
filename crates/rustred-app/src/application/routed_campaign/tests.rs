@@ -214,6 +214,41 @@ powers=[0,1,1]
             .unwrap()
             > 0
     );
+    // Per-native-call and aggregate allowances are independent. A genuine
+    // nonidentity numerator map must report the narrow native budget first;
+    // an explicit sufficient native policy then permits the same exact trace.
+    let mut ranked = request.clone();
+    ranked.targets_csv = "2,2,-1\n".into();
+    ranked
+        .trace_limits
+        .expansion
+        .max_native_polynomial_operations = 1;
+    let limited =
+        routed_campaign_with_progress(ranked.clone(), &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(!limited.completed_finite_trace);
+    assert!(
+        limited.document["error"]
+            .as_str()
+            .unwrap()
+            .contains("multi-affine native polynomial operations"),
+        "{}",
+        limited.document
+    );
+    ranked.trace_limits.expansion = Default::default();
+    let enough =
+        routed_campaign_with_progress(ranked.clone(), &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(enough.completed_finite_trace, "{}", enough.document);
+    ranked.trace_limits.max_transport_operations = 1;
+    let aggregate = routed_campaign_with_progress(ranked, &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(!aggregate.completed_finite_trace);
+    assert!(
+        aggregate.document["error"]
+            .as_str()
+            .unwrap()
+            .contains("aggregate routed operations"),
+        "{}",
+        aggregate.document
+    );
     selection["initial_frontier_routes"][0]["owner_to_representative"] =
         json!([["1", "0"], ["0", "0"]]);
     request.selection_json = selection.to_string();

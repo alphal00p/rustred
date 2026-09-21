@@ -125,11 +125,28 @@ not clipped.
 `RoutedCampaignRequest` and `routed_campaign_with_progress` are the public Rust
 application interface. `rustred routed-campaign --help` lists the CLI flags.
 The CLI exposes campaign-aggregate node/rule/transport/coalescing budgets and
-uses existing native per-operation defaults; custom Rust callers may supply
-the full `RoutedCandidateLimits` and `ReductionLimits`. CLI direct invocation
+uses existing native per-operation defaults. An optional `--expansion-limits
+LIMITS.json` (also accepted by the Python driver) overrides explicit per-call
+native fields; custom Rust callers already supply the full
+`RoutedCandidateLimits` and `ReductionLimits`. CLI direct invocation
 requires the same six inner-pool environment variables and
 `SYMBOLICA_HIDE_BANNER=1` (to keep stdout JSON-only). Python
 sets them automatically and needs no rebuilt Python extension.
+
+The expansion-policy file is a flat JSON object of positive integers, at most
+16 KiB. Allowed names are `max_factors`, `max_relation_coefficient_entries`,
+`max_total_power`, `max_native_polynomial_terms`,
+`max_native_polynomial_operations`, `max_native_exponent_entries`,
+`max_endpoints`, `max_endpoint_power_entries`, `max_retained_endpoint_key_bytes`,
+`max_retained_coefficient_terms`, and
+`max_retained_coefficient_clone_owned_bytes`. Missing fields keep native defaults;
+unknown/duplicate fields, nulls and noninteger values are errors before loading.
+For example, `{"max_native_polynomial_operations":500000000}` changes only that
+per-call allowance, not aggregate work or physical memory caps. Fully resolved
+values appear as `native_expansion_limits` in CLI admission and result records.
+Exact-algebra policy is excluded from this transport-only option: it must agree
+with the common owner context. This is resource steering, not a mathematical
+rank cutoff or permission to turn an interrupted solve into a closure claim.
 
 Interactive stderr reuses the inline, resize-aware colored terminal display;
 `NO_COLOR` disables color and `--no-progress` disables only that presentation.
@@ -182,6 +199,29 @@ follows from this finite control.
 Evidence: `TMP/shared-campaign-controls.olWsx7/`, with native/frontend gates in
 `TMP/shared-routed-core.p87lO3/` and `TMP/shared-campaign-frontend.TLRUXi/`.
 
+### Corrected matched controls
+
+The `59d0ab2` release executable, native polynomial-power fix and rooted process
+monitor were rerun with the identical inputs, limits and affinities. Both
+processes completed with all the counters above unchanged, including zero
+missing owners/rules. Before/after input hashes and independent review pass.
+
+| Outer workers | Preparation (s) | Shared traversal (s) | Whole command wall (s) | Whole command CPU (s) | Peak RSS (KiB) |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 103.550 | 28.253 | 136.11 | 133.99 | 5,805,364 |
+| 6 | 103.989 | 12.181 | 120.08 | 168.97 | 5,807,888 |
+
+The observed traversal ratio is **2.32×** for six versus one worker. Relative to
+the earlier shared implementation, traversal is 2.93×/2.87× faster respectively;
+several changes were combined, so this does not isolate any single optimization.
+Preparation remains serial and dominates these small controls. These are single
+shared-host observations, not confidence-qualified scaling results or an R10
+closure timing. Equal large-run counters do not replace exact terminal-set
+comparisons in the focused tests. The corrected joint pressure run is separate.
+
+Evidence: `TMP/shared-campaign-corrected-controls.9WwlVA/`, particularly
+`INDEPENDENT_RESULTS_AUDIT.md` and its two complete process receipts.
+
 ## Directed owner search and shared rule installation
 
 The Rust core now retains common ordinary/LI source definitions alongside the
@@ -227,3 +267,32 @@ are in `TMP/source-bound-overlay-corrected.3DtdEI/`; the corrected frontend buil
 and runtime are in `TMP/shared-campaign-corrected-frontend.oAhpcl/` and
 `TMP/shared-campaign-corrected-runtime.oMmXaO/`. These gates do not turn the
 previous stopped 50-worker diagnostic into a completed campaign.
+
+### Retained application feedback and batched scheduling
+
+The opt-in Rust application `RoutedFeedbackSession` now retains successful
+source-derived overlays between rounds. It traces first, nominates only genuine
+missing-rule domains, leaves positive powers symbolic, and republishes through
+the existing shared-owner interface. The [feedback boundary](owner_source_feedback.md)
+documents admission, cancellation, partial failure and result ownership. This
+service is not yet automatically enabled by the trace-only CLI/Python driver;
+resource exhaustion never silently launches source search.
+
+The scheduler publishes up to 256 validated children per lock acquisition and
+deduplicates both operational phases through one full-integral-key membership
+index. Hash iteration does not select work or determine result ordering. Native
+arithmetic, per-edge descent, and exact key equality remain authoritative. The
+core release suite passes 2,545 tests (32 existing ignored); all 276 application
+and integration tests and ten Python supervisor tests pass. Independent source
+and runtime reviews accompany the slice; new measured controls are pending.
+Do not infer a performance
+improvement or parametric coverage from these implementation changes alone.
+
+The first new frontend gate caught an input-boundary defect: Serde's default
+struct visitor accepted an empty positional array as the named budget object.
+The production reader now explicitly requires an object and retains direct
+duplicate-field rejection; the original failing assertion is unchanged and a
+full positional-array regression was added. The corrected full release gate is
+`TMP/shared-campaign-feedback-app-fixed.DEwkOr/`; the core runtime gate is
+`TMP/shared-campaign-batched-core.EWNFkj/`. Its initial build-log parser failed
+after compilation; the existing frozen binary subsequently passed every test.

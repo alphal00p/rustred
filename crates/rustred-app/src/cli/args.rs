@@ -325,7 +325,7 @@ pub(crate) const HELP: &str = "\
 RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 
 USAGE:
-    rustred routed-campaign --manifest SELECTION.json --targets TARGETS.csv --output RESULT.json [--events EVENTS.jsonl] [--owner-base DIR] [--workers 1..50] [--stop-file PATH] [--max-nodes N] [--max-input-targets N] [--max-transport-operations N] [--max-transport-endpoints N] [--max-coalescing-additions N] [--max-rule-applications N]
+    rustred routed-campaign --manifest SELECTION.json --targets TARGETS.csv --output RESULT.json [--events EVENTS.jsonl] [--owner-base DIR] [--workers 1..50] [--stop-file PATH] [--expansion-limits LIMITS.json] [--max-nodes N] [--max-input-targets N] [--max-transport-operations N] [--max-transport-endpoints N] [--max-coalescing-additions N] [--max-rule-applications N]
     rustred derive [OPTIONS]
     rustred family-solve [OPTIONS]
     rustred family-close [OPTIONS]

@@ -1,6 +1,8 @@
 //! Input-driven shared finite-target inspection, not parametric family closure.
+mod feedback;
 mod input;
 mod prepare;
+pub use feedback::{RoutedFeedbackOptions, RoutedFeedbackRoundResult, RoutedFeedbackSession};
 #[cfg(test)]
 mod tests;
 
@@ -157,6 +159,22 @@ fn run<const N: usize>(
 }
 
 fn snapshot_json<const N: usize>(s: &CandidateRoutedCampaignSnapshot<N>) -> Value {
+    let failure = s.first_failure.as_ref().map(|failure| {
+        json!({
+        "kind":match failure { CandidateRoutedCampaignFailure::Trace(_) => "trace",
+            CandidateRoutedCampaignFailure::Cancelled => "cancelled",
+            CandidateRoutedCampaignFailure::WorkerPanicked => "worker_panicked" },
+        "detail":format!("{failure:?}")})
+    });
+    snapshot_json_with_failure(s, failure)
+}
+
+// Shared scalar projection; feedback supplies an already bounded error value.
+// The default trace-only formatter retains its existing complete Debug field.
+fn snapshot_json_with_failure<const N: usize>(
+    s: &CandidateRoutedCampaignSnapshot<N>,
+    failure: Option<Value>,
+) -> Value {
     json!({"event":"shared_progress", "elapsed_seconds":s.elapsed.as_secs_f64(), "workers":s.workers,
         "input_targets":s.input_targets, "requested_targets":s.requested_targets,
         "scheduled_nodes":s.scheduled_nodes, "queued_nodes":s.queued_nodes, "active_nodes":s.active_nodes,
@@ -167,11 +185,7 @@ fn snapshot_json<const N: usize>(s: &CandidateRoutedCampaignSnapshot<N>) -> Valu
         "reserved_coalescing_additions":s.reserved_coalescing_additions, "declared_terminals":s.declared_terminals,
         "visited_zeros":s.visited_zeros, "missing_owners":s.missing_owners, "missing_rules":s.missing_rules,
         "max_numerator_rank":s.max_numerator_rank.to_string(), "max_dot_excess":s.max_dot_excess.to_string(),
-        "first_failure":s.first_failure.as_ref().map(|failure| json!({
-            "kind":match failure { CandidateRoutedCampaignFailure::Trace(_) => "trace",
-                CandidateRoutedCampaignFailure::Cancelled => "cancelled",
-                CandidateRoutedCampaignFailure::WorkerPanicked => "worker_panicked" },
-            "detail":format!("{failure:?}")})),
+        "first_failure":failure,
         "first_failure_work":s.first_failure_work.as_ref().map(work_json),
         "finished":s.finished, "completed_nodes_are_local_expansions":true, "target_completion_known":s.finished,
         "active":s.active.iter().map(work_json).collect::<Vec<_>>()})

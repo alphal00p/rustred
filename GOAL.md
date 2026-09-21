@@ -63,6 +63,29 @@ slice independently before a larger attempt; commit/push coherent milestones.
 Detailed implementation sequencing is in
 [the shared-campaign plan](docs/five_loop_rank_campaign.md).
 
+### Current implementation slice — shared scheduling and retained source feedback
+
+The batched shared scheduler, single full-key membership index and tighter
+native expansion support envelope pass **2,545 release core tests**, with zero
+failures and 32 existing ignored diagnostics. Per-call CLI/Python expansion
+budgets are now explicit and separate from aggregate campaign budgets; defaults
+are unchanged. The application release gate passes **276 tests** and the Python
+supervisor passes **10 tests**, with zero failures. Independent implementation
+and runtime reviews accompany this milestone.
+
+The new opt-in Rust `RoutedFeedbackSession` retains generated parametric owner
+overlays between rounds. Only actual missing-rule frontiers nominate source
+searches, with symbolic positive powers and unclipped successor ranks. Resource
+failures do not become masters or source requests. This application service is
+not yet an automatic CLI feedback campaign or durable graph checkpoint.
+
+Run matched one-/six-worker controls, then repeat the joint 50-worker finite
+R10 pressure batch before judging scalability. A separately measured routing
+policy may add compatible already-saved owners to avoid expensive numerator
+transport. The full parametric campaign still needs a domain-level successor
+worklist; do not substitute a concrete target batch or repeated small-dot
+samples. Independent certification remains deferred.
+
 ### Shared-campaign implementation checkpoint — September 21
 
 The shared parallel dependency scheduler and directed parametric-domain search
@@ -97,7 +120,13 @@ above-entry-rank successor scopes. Automatic frontier nomination, durable overla
 resume and the full parametric campaign remain unfinished; the finite driver
 does not silently generate rules. New live reports expose the first worker
 failure during drain, and the supervisor no longer scans every process on the
-host. Corrected one-/six-worker controls and the joint R10 retry follow this gate.
+host. Corrected one-/six-worker controls now complete with unchanged counters
+in 28.253/12.181 s shared traversal (136.11/120.08 s whole command). The corrected
+50-worker retry returns an explicit per-call projected-support limit after
+119.231 s traversal, at 24.51 GB peak RSS; it is incomplete, not a timeout or
+a missing-rule result. Its profile exposes queue contention and repeated tree
+lookups. Improve those and the conservative support envelope before retrying;
+neither finite diagnostic establishes the full R10 solve.
 
 ### Previous measured checkpoint — September 21, 18:15 UTC
 

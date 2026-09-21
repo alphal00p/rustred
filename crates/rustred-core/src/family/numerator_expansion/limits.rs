@@ -8,8 +8,10 @@ pub struct MultiAffineNumeratorExpansionLimits {
     pub max_factors: usize,
     pub max_relation_coefficient_entries: usize,
     pub max_total_power: u64,
-    /// Conservative product of the individual multinomial supports, before
-    /// Symbolica coalesces collisions and cancellations.
+    /// Conservative output support: the smaller of the prefix pair-product
+    /// and total-degree/used-variable monomial bounds, before Symbolica
+    /// coalesces collisions and cancellations. Multiplication work retains
+    /// its separate pair-product bound.
     pub max_native_polynomial_terms: usize,
     pub max_native_polynomial_operations: usize,
     /// Peak conservative sparse exponent-row payload across native inputs and

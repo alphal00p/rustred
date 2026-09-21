@@ -67,6 +67,32 @@ pub(super) fn run_one<const N: usize>(
     shared.finish(node, result);
 }
 
+/// Validate children outside the lock and publish their original order in
+/// bounded chunks. A late validation failure cannot hide an admitted prefix.
+pub(super) fn publish<const N: usize>(
+    shared: &Shared<'_, N>,
+    mut children: impl Iterator<Item = Result<Work<N>, Failure>>,
+) -> Result<(), Failure> {
+    let capacity = shared.publication_capacity();
+    loop {
+        shared.check()?;
+        let mut batch =
+            Vec::with_capacity(capacity.min(children.size_hint().1.unwrap_or(capacity)));
+        while batch.len() < capacity {
+            shared.check_cancellation()?;
+            match children.next() {
+                Some(Ok(node)) => batch.push(node),
+                Some(Err(error)) => {
+                    shared.schedule_batch(batch)?;
+                    return Err(error);
+                }
+                None => return shared.schedule_batch(batch),
+            }
+        }
+        shared.schedule_batch(batch)?;
+    }
+}
+
 fn process<const N: usize>(
     reducer: &RoutedCandidateReducer<N>,
     shared: &Shared<'_, N>,
@@ -107,11 +133,13 @@ fn process<const N: usize>(
                     )
                     .into());
                 }
-                for endpoint in mapped.terms() {
-                    shared.check()?;
-                    base.validate_target(endpoint.key())?;
-                    shared.schedule(child(key, endpoint.key().clone(), owner)?)?;
-                }
+                publish(
+                    shared,
+                    mapped.terms().iter().map(|endpoint| {
+                        base.validate_target(endpoint.key())?;
+                        child(key, endpoint.key().clone(), owner)
+                    }),
+                )?;
             } else {
                 shared.frontier(key.clone(), CandidateRoutedFrontierReason::MissingOwner);
             }
@@ -165,10 +193,12 @@ fn process<const N: usize>(
                 OwnerStep::Applied(terms) => {
                     // Native exact local coalescing precedes global key dedup.
                     // Stream/drop coefficients; no persistent expression cache.
-                    for target in terms.into_keys() {
-                        shared.check()?;
-                        shared.schedule(child(key, target, *owner_sector)?)?;
-                    }
+                    publish(
+                        shared,
+                        terms
+                            .into_keys()
+                            .map(|target| child(key, target, *owner_sector)),
+                    )?;
                 }
                 OwnerStep::Terminal => shared.terminal(key),
                 OwnerStep::Uncovered => shared.frontier(

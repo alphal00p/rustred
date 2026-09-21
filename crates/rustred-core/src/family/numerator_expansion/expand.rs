@@ -23,6 +23,9 @@ use super::model::{MultiAffineNumeratorEndpoint, MultiAffineNumeratorFactor};
 #[path = "native_rational.rs"]
 mod native_rational;
 use native_rational::{authenticated_rational, contextual_coefficient, rational_weight};
+#[path = "support.rs"]
+mod support;
+use support::PrefixSupport;
 
 // Input admission below already restricts every scalar to Q. Keeping that
 // native field here avoids polynomial variable-map unification and polynomial
@@ -58,6 +61,7 @@ struct FactorPlan {
     ordinal: usize,
     native_power: usize,
     support_bound: usize,
+    prefix_support_bound: usize,
 }
 
 /// Expand a fixed product of affine parent-denominator numerators exactly.
@@ -156,7 +160,6 @@ pub(crate) fn try_expand_multi_affine_numerator_with_usage(
         limits,
     )?;
 
-    let mut accumulated_support_bound = 1_usize;
     for plan in plans {
         let factor = &factors[plan.ordinal];
         let affine = affine_polynomial(&template, factor, arity)?;
@@ -172,21 +175,18 @@ pub(crate) fn try_expand_multi_affine_numerator_with_usage(
                 },
             );
         }
-        accumulated_support_bound = accumulated_support_bound
-            .checked_mul(plan.support_bound)
-            .ok_or(MultiAffineNumeratorExpansionError::ResourceCountOverflow {
-                resource: "multi-affine projected polynomial support",
-            })?;
         let next = catch_unwind(AssertUnwindSafe(|| &polynomial * &powered))
             .map_err(|_| MultiAffineNumeratorExpansionError::NativePolynomialPanic)?;
         validate_polynomial(&next, limits)?;
-        if next.nterms() > accumulated_support_bound
+        if next.nterms() > plan.prefix_support_bound
             || next.nterms() > limits.max_native_polynomial_terms
         {
             return Err(
                 MultiAffineNumeratorExpansionError::NativePolynomialSupportExceeded {
                     actual: next.nterms(),
-                    limit: accumulated_support_bound.min(limits.max_native_polynomial_terms),
+                    limit: plan
+                        .prefix_support_bound
+                        .min(limits.max_native_polynomial_terms),
                 },
             );
         }
@@ -227,6 +227,7 @@ fn preflight_factors(
         }
     })?;
     let mut projected_support = 1_usize;
+    let mut prefix = PrefixSupport::try_new(arity)?;
     let mut operation_bound = 0_usize;
     let mut exponent_rows_peak = 1_usize;
     let mut zero_product = false;
@@ -295,11 +296,16 @@ fn preflight_factors(
             limits.max_native_polynomial_terms,
         )?;
         let prior_support = projected_support;
-        projected_support = projected_support.checked_mul(support_bound).ok_or(
+        // Every pair may contribute native multiplication work, even when
+        // many pairs collide into the same output monomial. Never replace
+        // this operation bound with the smaller output-support envelope.
+        let multiply_operations = prior_support.checked_mul(support_bound).ok_or(
             MultiAffineNumeratorExpansionError::ResourceCountOverflow {
-                resource: "multi-affine projected polynomial support",
+                resource: "multi-affine native polynomial operations",
             },
         )?;
+        prefix.include(factor)?;
+        projected_support = prefix.refine(multiply_operations);
         admit_limit(
             "multi-affine projected polynomial support",
             projected_support,
@@ -311,11 +317,6 @@ fn preflight_factors(
             .ok_or(MultiAffineNumeratorExpansionError::ResourceCountOverflow {
                 resource: "multi-affine native polynomial operations",
             })?;
-        let multiply_operations = prior_support.checked_mul(support_bound).ok_or(
-            MultiAffineNumeratorExpansionError::ResourceCountOverflow {
-                resource: "multi-affine native polynomial operations",
-            },
-        )?;
         operation_bound = operation_bound
             .checked_add(power_operations)
             .and_then(|value| value.checked_add(multiply_operations))
@@ -339,6 +340,7 @@ fn preflight_factors(
             ordinal,
             native_power,
             support_bound,
+            prefix_support_bound: projected_support,
         });
     }
     admit_product_limit(
@@ -711,3 +713,7 @@ fn admit_product_limit(
 #[cfg(test)]
 #[path = "rational_tests.rs"]
 mod rational_tests;
+
+#[cfg(test)]
+#[path = "support_tests.rs"]
+mod support_tests;

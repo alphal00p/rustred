@@ -43,7 +43,11 @@ pub(crate) fn read_artifact(source: &StreamPath) -> Result<Vec<u8>, CliError> {
     }
 }
 
-fn read_bounded(mut reader: impl Read, label: &str, max_bytes: usize) -> Result<Vec<u8>, CliError> {
+pub(super) fn read_bounded(
+    mut reader: impl Read,
+    label: &str,
+    max_bytes: usize,
+) -> Result<Vec<u8>, CliError> {
     let mut bytes = Vec::new();
     let mut buffer = [0_u8; 8 * 1024];
     loop {

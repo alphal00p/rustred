@@ -162,9 +162,10 @@ class SteeringTests(unittest.TestCase):
             child.chmod(0o700)
             manifest=directory/"selection.json"; manifest.write_text("{}")
             targets=directory/"targets.csv"; targets.write_text("1\n")
+            policy=directory/"limits.json"; policy.write_text('{"max_native_polynomial_operations":1234}')
             result=subprocess.run([sys.executable,str(SOURCE),"--executable",str(child),"--manifest",str(manifest),
                 "--targets",str(targets),"--workers","1","--soft-memory-bytes","1","--sample-seconds","0.1",
-                "--tmp-root",str(directory/"receipts"),"--no-progress"],capture_output=True,text=True,timeout=10)
+                "--tmp-root",str(directory/"receipts"),"--no-progress","--expansion-limits",str(policy)],capture_output=True,text=True,timeout=10)
             self.assertEqual(result.returncode,4,result.stderr)
             receipt=next((directory/"receipts").iterdir())
             summary=json.loads((receipt/"supervisor-result.json").read_text())
@@ -173,6 +174,8 @@ class SteeringTests(unittest.TestCase):
             self.assertFalse(summary["family_closure_claim"])
             self.assertFalse(summary["work_checkpoint"])
             self.assertIsNone(request["hard_timeout"])
+            option=request["command"].index("--expansion-limits")
+            self.assertEqual(request["command"][option+1],str(policy.resolve()))
             self.assertNotIn("SYMBOLICA_LICENSE",(receipt/"request.json").read_text())
             self.assertIn(str(request["supervisor_pid"]),request["registered_roots"])
             self.assertGreater(request["child_rlimit_as_bytes"],0)

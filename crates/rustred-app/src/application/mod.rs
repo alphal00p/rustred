@@ -21,7 +21,8 @@ mod resource_policy;
 mod routed_campaign;
 
 pub use routed_campaign::{
-    RoutedCampaignRequest, RoutedCampaignResult, routed_campaign_with_progress,
+    RoutedCampaignRequest, RoutedCampaignResult, RoutedFeedbackOptions, RoutedFeedbackRoundResult,
+    RoutedFeedbackSession, routed_campaign_with_progress,
 };
 
 pub use candidate_bundle::{

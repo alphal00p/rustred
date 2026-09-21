@@ -90,6 +90,33 @@ measure the corrected expansion or eliminate genuine dependency breadth. See the
 
 ## Operational policy
 
+### Current implementation and next measured retry
+
+The generic core now publishes validated children in bounded batches and uses
+one full-integral-key membership index instead of two ordered indexes. Exact
+native arithmetic and per-edge descent checks remain unchanged. The release
+gate passes **2,545 core tests**, with zero failures and 32 existing ignored
+diagnostics. A structural degree/variable support bound reduces unnecessary
+output-size overestimates; multiplication work retains a separate allowance.
+
+The Rust application also has an opt-in retained
+[`RoutedFeedbackSession`](owner_source_feedback.md): completed finite traces
+nominate actual missing-rule rays, whose positive powers stay symbolic, and
+new source-derived rules are installed in immutable shared overlays. It does
+not yet enumerate the complete R10 domain, persist the dependency queue, or
+provide an automatic CLI source-feedback loop. Resource failures do not
+nominate rules. The application release gate passes **276 tests**, and all
+**10 Python supervisor tests** pass. Independent source/runtime reviews pass.
+
+The next operational retry uses the same saved owners and rank-ten pressure
+inputs after matched one-/six-worker controls. Additional already-saved
+compatible owners may be installed as alternative routing representatives if
+they avoid expensive numerator expansion; that is a distinct input-policy
+experiment, not a same-workload speedup. None of these finite diagnostics is
+silently substituted for the complete parametric campaign.
+
+## Resource and monitoring policy
+
 - At most 50 compute cores for the aggregate campaign; cap native inner pools.
 - At most 500 GB aggregate resident memory, with a 450 GB soft stop and
   attributable process-tree monitoring. Include helper jobs and compilation

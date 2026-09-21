@@ -60,7 +60,7 @@ fn factor(
 
 /// Small test-only oracle using the PREVIOUS native Symbolica coefficient
 /// field. Symbolica still owns every expansion/coalescing operation here.
-fn legacy_native_reference(
+pub(super) fn legacy_native_reference(
     family: &IntegralFamily,
     base: &IntegralKey,
     factors: &[MultiAffineNumeratorFactor],
@@ -344,8 +344,10 @@ fn reservation_callback_keeps_conservative_work_and_can_reject_before_native_wor
         },
     )
     .unwrap();
-    assert_eq!(usage.get(), Some((58, 12)));
-    assert!(actual.len() <= 12);
+    // Pairwise multiplication work stays 58; the output envelope improves
+    // from 6*2=12 to C(3+2,2)=10 without predicting native cancellations.
+    assert_eq!(usage.get(), Some((58, 10)));
+    assert!(actual.len() <= 10);
     let rejected = Cell::new(false);
     assert_eq!(
         try_expand_multi_affine_numerator_with_usage(

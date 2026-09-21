@@ -10,6 +10,9 @@ use std::fs::OpenOptions;
 use std::io::{self, IsTerminal, Write};
 use std::sync::{Arc, atomic::AtomicBool};
 
+mod expansion_policy;
+use expansion_policy::ExpansionPolicy;
+
 pub(super) fn run(args: RoutedCampaignArgs) -> Result<(), CliError> {
     // Outer scheduling owns the worker budget; configure native pools before
     // launching the process, never by mutating the environment after threads.
@@ -42,12 +45,19 @@ pub(super) fn run(args: RoutedCampaignArgs) -> Result<(), CliError> {
             "event, result and stop paths must differ".into(),
         ));
     }
+    let expansion_policy = args
+        .expansion_limits
+        .as_deref()
+        .map(ExpansionPolicy::read)
+        .transpose()?
+        .unwrap_or_default();
     let mut request = RoutedCampaignRequest::new(
         read_input(&StreamPath::File(args.manifest))?,
         read_input(&StreamPath::File(args.targets))?,
     );
     request.owner_base = args.owner_base;
     request.workers = args.workers;
+    request.trace_limits.expansion = expansion_policy.limits();
     request.trace_limits.max_unique_nodes = args.nodes;
     request.trace_limits.max_input_targets = args.input_targets;
     request.trace_limits.max_transport_calls = args.nodes;
@@ -75,9 +85,13 @@ pub(super) fn run(args: RoutedCampaignArgs) -> Result<(), CliError> {
         Arc::clone(&cancellation),
         args.stop_file,
     );
-    let result =
-        routed_campaign_with_progress(request, &cancellation, |event| monitor.observe(event));
-    let document = match &result {
+    let result = routed_campaign_with_progress(request, &cancellation, |mut event| {
+        if matches!(event["event"].as_str(), Some("admitted" | "finished")) {
+            event["native_expansion_limits"] = expansion_policy.json();
+        }
+        monitor.observe(event)
+    });
+    let mut document = match &result {
         Ok(result) => result.document.clone(),
         Err(error) => {
             json!({"schema":"rustred.routed-campaign.json.v1","event":"finished","status":"preparation_error",
@@ -85,6 +99,7 @@ pub(super) fn run(args: RoutedCampaignArgs) -> Result<(), CliError> {
             "error_kind":error.kind().as_str(),"error":error.to_string()})
         }
     };
+    document["native_expansion_limits"] = expansion_policy.json();
     monitor.observe(document.clone());
     let presentation = monitor.finish();
     let bytes =

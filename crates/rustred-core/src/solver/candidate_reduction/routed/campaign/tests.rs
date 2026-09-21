@@ -550,3 +550,235 @@ fn external_cancellation_has_no_fabricated_worker_origin() {
     assert_eq!(error.reason(), &CandidateRoutedCampaignFailure::Cancelled);
     assert!(error.snapshot().first_failure_work.is_none());
 }
+
+#[test]
+fn publication_identity_keeps_both_phases_in_either_order_and_rejects_wrong_owner() {
+    use scheduler::{Shared, Work};
+    let reducer = diamond(Default::default(), Default::default());
+    let cancel = AtomicBool::new(false);
+    let route = Work::Route(key([1]));
+    let apply = Work::Apply {
+        owner_sector: [true],
+        target: key([1]),
+    };
+    for nodes in [
+        [route.clone(), apply.clone()],
+        [apply.clone(), route.clone()],
+    ] {
+        let shared = Shared::new(&reducer, 1, &cancel);
+        shared.schedule_batch(nodes.to_vec()).unwrap();
+        shared.schedule_batch(nodes.to_vec()).unwrap();
+        let snapshot = shared.snapshot();
+        assert_eq!(snapshot.scheduled_nodes, 2);
+        assert_eq!(snapshot.reachable_integrals, 1);
+        assert_eq!(snapshot.deduplication_hits, 2);
+        let error = shared
+            .schedule(Work::Apply {
+                owner_sector: [false],
+                target: key([1]),
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            CandidateRoutedCampaignFailure::Trace(
+                super::super::CandidateRoutedError::InvalidInput(_)
+            )
+        ));
+        assert_eq!(shared.snapshot().scheduled_nodes, 2);
+        assert_eq!(shared.snapshot().deduplication_hits, 2);
+        for expected in nodes {
+            let actual = shared.take().unwrap();
+            assert_eq!(actual, expected);
+            shared.finish(actual, Ok(()));
+        }
+        assert!(shared.into_result().unwrap().snapshot().finished);
+    }
+}
+
+#[test]
+fn publication_chunks_preserve_fifo_and_single_admission_counters() {
+    use scheduler::{Shared, Work};
+    let reducer = diamond(Default::default(), Default::default());
+    let cancel = AtomicBool::new(false);
+    let count = scheduler::PUBLICATION_BATCH_SIZE * 2 + 19;
+    let nodes: Vec<_> = (1..=count)
+        .map(|value| Work::Route(key([value as i64])))
+        .collect();
+    let single = Shared::new(&reducer, 1, &cancel);
+    let batched = Shared::new(&reducer, 1, &cancel);
+    for node in nodes.iter().chain(&nodes) {
+        single.schedule(node.clone()).unwrap();
+    }
+    worker::publish(&batched, nodes.iter().chain(&nodes).cloned().map(Ok)).unwrap();
+    for shared in [&single, &batched] {
+        let snapshot = shared.snapshot();
+        assert_eq!(snapshot.scheduled_nodes, count);
+        assert_eq!(snapshot.queued_nodes, count);
+        assert_eq!(snapshot.reachable_integrals, count);
+        assert_eq!(snapshot.deduplication_hits, count);
+        for expected in &nodes {
+            let actual = shared.take().unwrap();
+            assert_eq!(&actual, expected);
+            shared.finish(actual, Ok(()));
+        }
+    }
+    assert_eq!(
+        single.into_result().unwrap().trace(),
+        batched.into_result().unwrap().trace()
+    );
+}
+
+#[test]
+fn publication_mid_chunk_limits_keep_exact_prefix_and_allow_exhausted_cap_joins() {
+    use super::super::{CandidateRoutedError, RoutedCandidateLimits};
+    use scheduler::{Shared, Work};
+    for pending_limit in [false, true] {
+        let reducer = diamond(
+            ReductionLimits {
+                max_pending_frames: if pending_limit { 4 } else { 100 },
+                ..Default::default()
+            },
+            RoutedCandidateLimits {
+                max_unique_nodes: if pending_limit { 100 } else { 4 },
+                ..Default::default()
+            },
+        );
+        let cancel = AtomicBool::new(false);
+        let shared = Shared::new(&reducer, 1, &cancel);
+        for value in [1, 2] {
+            shared.schedule(Work::Route(key([value]))).unwrap();
+        }
+        let active = shared.take().unwrap();
+        let error = shared
+            .schedule_batch([3, 3, 4, 5].map(|value| Work::Route(key([value]))).to_vec())
+            .unwrap_err();
+        assert_eq!(
+            error,
+            CandidateRoutedCampaignFailure::Trace(CandidateRoutedError::ResourceLimit {
+                resource: if pending_limit {
+                    "pending nodes"
+                } else {
+                    "operational nodes"
+                },
+                requested: 5,
+                limit: 4,
+            })
+        );
+        let snapshot = shared.snapshot();
+        assert_eq!(snapshot.scheduled_nodes, 4);
+        assert_eq!(snapshot.reachable_integrals, 4);
+        assert_eq!(snapshot.queued_nodes, 3);
+        assert_eq!(snapshot.active_nodes, 1);
+        assert_eq!(snapshot.deduplication_hits, 1);
+        shared
+            .schedule_batch(vec![active.clone(), Work::Route(key([4]))])
+            .unwrap();
+        assert_eq!(shared.snapshot().deduplication_hits, 3);
+        // A production caller settles its active parent with the typed error.
+        shared.finish(active.clone(), Err(error.clone()));
+        let result = shared.into_result().unwrap_err();
+        assert_eq!(result.reason(), &error);
+        assert_eq!(result.snapshot().first_failure_work.as_ref(), Some(&active));
+        assert!(!result.snapshot().finished);
+    }
+}
+
+#[test]
+fn publication_oversized_or_invalid_arity_batch_cannot_bypass_admission() {
+    use scheduler::{Shared, Work};
+    let reducer = diamond(Default::default(), Default::default());
+    let cancel = AtomicBool::new(false);
+    let shared = Shared::new(&reducer, 1, &cancel);
+    assert!(
+        shared
+            .schedule_batch(vec![
+                Work::Route(key([1]));
+                scheduler::PUBLICATION_BATCH_SIZE + 1
+            ])
+            .is_err()
+    );
+    assert_eq!(shared.snapshot().scheduled_nodes, 0);
+    assert!(shared.schedule(Work::Route(key([1, 1]))).is_err());
+    assert_eq!(shared.snapshot().scheduled_nodes, 0);
+}
+
+#[test]
+fn publication_late_validation_failure_preserves_prefix_and_cancellation_stops_staging() {
+    use scheduler::{Shared, Work};
+    let reducer = diamond(Default::default(), Default::default());
+    let cancel = AtomicBool::new(false);
+    let shared = Shared::new(&reducer, 1, &cancel);
+    let original = CandidateRoutedCampaignFailure::Trace(
+        super::super::CandidateRoutedError::InvalidInput("late child fixture".into()),
+    );
+    let children = [
+        Ok(Work::Route(key([1]))),
+        Err(original.clone()),
+        Ok(Work::Route(key([2]))),
+    ];
+    assert_eq!(
+        worker::publish(&shared, children.into_iter()),
+        Err(original.clone())
+    );
+    assert_eq!(shared.snapshot().scheduled_nodes, 1);
+    shared.fail(original.clone());
+    assert_eq!(shared.into_result().unwrap_err().reason(), &original);
+
+    let shared = Shared::new(&reducer, 1, &cancel);
+    let mut pulled = 0;
+    let children = std::iter::from_fn(|| {
+        pulled += 1;
+        cancel.store(true, Ordering::Release);
+        Some(Ok(Work::Route(key([1]))))
+    });
+    assert_eq!(
+        worker::publish(&shared, children),
+        Err(CandidateRoutedCampaignFailure::Cancelled)
+    );
+    assert_eq!(pulled, 1);
+    assert_eq!(shared.snapshot().scheduled_nodes, 0);
+    let error = shared.into_result().unwrap_err();
+    assert_eq!(error.reason(), &CandidateRoutedCampaignFailure::Cancelled);
+    assert!(!error.snapshot().finished);
+}
+
+#[test]
+fn publication_large_exact_rhs_matches_legacy_for_serial_and_parallel_workers() {
+    let family = Arc::new(crate::solver::tests::sunset());
+    let terminals: Vec<_> = (1..=8)
+        .flat_map(|x| (1..=8).flat_map(move |y| (1..=8).map(move |z| [x, y, z])))
+        .collect();
+    let rhs: Vec<_> = terminals.iter().map(|&target| (target, 1)).collect();
+    assert!(rhs.len() > scheduler::PUBLICATION_BATCH_SIZE);
+    let owner = input(
+        [true; 3],
+        Some(0),
+        vec![rule(&family, [10, 10, 10], &rhs)],
+        &terminals,
+    );
+    let reducer = RoutedCandidateReducer::try_new(
+        programs(family, Some(0), vec![owner], Default::default()),
+        [],
+        Default::default(),
+    )
+    .unwrap();
+    let targets = [key([10, 10, 10]), key([10, 10, 10])];
+    let legacy = reducer.trace_targets(targets.clone()).unwrap();
+    for workers in [1, 6] {
+        let result = reducer
+            .trace_targets_parallel_with_observer(
+                targets.clone(),
+                workers,
+                &AtomicBool::new(false),
+                |_| {},
+            )
+            .unwrap();
+        assert_eq!(result.trace(), &legacy);
+        assert_eq!(result.snapshot().scheduled_nodes, 514);
+        assert_eq!(result.snapshot().completed_nodes, 514);
+        assert_eq!(result.snapshot().reachable_integrals, 513);
+        assert_eq!(result.snapshot().deduplication_hits, 1);
+        assert_eq!(result.snapshot().declared_terminals, 512);
+        assert_eq!(result.snapshot().rule_applications, 1);
+    }
+}

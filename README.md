@@ -40,50 +40,42 @@ closure. A separate native Symbolica Gröbner-ordering correction completes a
 previously stalled search-policy sector in 57.4 seconds; the complete core and
 application regression gates pass. All topologies remain external inputs.
 
-The Rust library also provides bounded
-[integral-key transport through verified momentum maps](docs/research/rank_scoped_owner_reuse.md),
-including affine numerator expansion and induced pinches. This is groundwork
-for reusing solved sectors across equivalent routings. The experimental
-`load_generated_candidate_owners` and `RoutedCandidateReducer::trace_targets`
-now share saved programs and follow routed successors without regeneration,
-distinguishing missing programs from missing rules. This is exact local
-dependency tracing, not yet routed coefficient back-substitution or a
-five-loop closure claim. The latest release gates, including native rational
-numerator expansion and affine-interval refinement, pass 2,492 core tests and
-251 application/integration tests. All 67 five-loop graph classes now have saved
-programs, including a separately generated final owner. A real 66-owner pilot
-verifies 8,149 composed routes and completes a concrete rank-one trace with
-541,889 keys and zero uncovered successors. Rank-ten traces still reach work
-limits and later 30-minute diagnostic deadlines; full recursive rank-10
-coverage remains an open acceptance gate. The current
-[shared five-loop campaign plan](docs/five_loop_rank_campaign.md) replaces
-independent probes with cross-sector shared work, Python steering and live
-progress monitoring, aiming for R=10 within 15 hours on at most 50 cores and
-500 GB. Certification is deferred; this is a plan, not a completed campaign.
+All 67 five-loop graph classes now have saved candidate programs. The experimental
+`load_generated_candidate_owners` and `RoutedCandidateReducer` share them across
+verified equivalent routings, including affine numerator expansion and pinches.
+Missing owners and missing rules remain distinct outcomes; saved local programs
+are not yet a recursively complete R10 family solve. The
+[shared five-loop campaign plan](docs/five_loop_rank_campaign.md) targets R=10
+within 15 hours on at most 50 cores and 500 GB. Certification is deferred and
+there is no inherited 30-minute deadline.
 
-The next slice provides a [shared-owner campaign driver](docs/shared_owner_campaign_driver.md):
-`rustred routed-campaign`, the Rust `routed_campaign_with_progress` service, and
-`examples/python/shared_owner_campaign.py`. It batches concrete targets in one
-parallel dependency queue, shares immutable saved programs, and reports live
-progress, deduplication, uncovered dependencies and cooperative cancellation.
-The release gates pass **2,515 core tests and 259 application/integration tests**.
-This driver does not yet perform missing-domain generation or persist its work
-queue; finite-target success is explicitly not a complete R10 family solve.
-The first matched shared rank-one traversal takes 82.645 s with one worker and
-34.973 s with six, with identical reported counters. The first 50-worker rank-ten
-pressure batch is stopped after failures and continued native-call memory growth
-(about 275 GB peak RSS), not completed. The
-[diagnostic and next correction](docs/research/shared_rank10_pressure_2026-09-21.md)
-identify a native Symbolica power-encoding defect in all eight stalled routing
-calls. Corrected-run performance and remaining dependency breadth still require
-measurement.
+The [shared-owner campaign driver](docs/shared_owner_campaign_driver.md) exposes
+`rustred routed-campaign`, the Rust `routed_campaign_with_progress` service and
+`examples/python/shared_owner_campaign.py`. Concrete targets share one parallel
+dependency queue, immutable programs and duplicate-work suppression. Live TTY
+and structured non-TTY monitoring report progress, resources and the first
+failure during native-call drain. The driver does not yet persist its queue or
+claim parametric closure from a finite trace. Directed Rust owner searches can
+publish immutable partial-domain rule overlays without copying the saved
+library; see [the API boundary](docs/shared_owner_campaign_driver.md#directed-owner-search-and-shared-rule-installation).
 
-The corrective release gate passes **2,533 core tests**, **261 application/
-integration tests** and **10 Python supervisor tests**. The Rust owner API also
-supports directed source searches and immutable partial-domain overlays: new
-rules are shared by every compatible routed request, without copying the saved
-library. Automated missing-frontier feedback and durable queue resume are still
-pending. See [the API boundary](docs/shared_owner_campaign_driver.md#directed-owner-search-and-shared-rule-installation).
+The latest completed release gate passes **2,545 core tests**, **276
+application/integration tests** and **10 Python supervisor tests**. Matched finite
+rank-one controls complete in 28.253/12.181 seconds of traversal with one/six
+workers (136.11/120.08 seconds including preparation), with identical reported
+counters and zero missing rules. The corrected 50-worker R10 diagnostic stops
+on a conservative per-call expansion limit, after 119.231 seconds of traversal
+and at 24.51 GB peak RSS. This is an incomplete resource outcome, not a timeout
+or a missing IBP. [The profile and next improvements](docs/research/shared_rank10_pressure_2026-09-21.md)
+identify shared-queue contention and an unnecessarily loose product-support
+estimate. No full five-loop R10 completion is claimed.
+
+The next tested slice batches shared work publication, combines duplicate-work
+indexes, tightens structural expansion bounds and exposes explicit per-call
+budgets. An opt-in Rust [`RoutedFeedbackSession`](docs/owner_source_feedback.md)
+retains source-generated parametric rules between rounds; automatic CLI feedback
+and durable graph resume remain unfinished. New performance measurements must
+be reported separately from the preceding corrected-run timings.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after
