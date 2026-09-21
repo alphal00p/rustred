@@ -55,6 +55,15 @@ exercise the saved five-loop rules without regenerating completed sectors.
 No numerical-master search, terminal-minimization campaign or five-loop Vakint
 implementation is admitted before the preceding gates succeed.
 
+The September 21 offline input-routing milestone now covers all **8,246**
+labelled jobs in the four-parent downset union after the saved zero screening,
+with exact routes to all **67** published representatives. Independent native
+Symbolica replay checks all 57,890 active-momentum equalities and rejects the
+thirteen tamper/census controls. This is input coverage, not IBP closure or an
+implemented numerator transporter. Numerator expansion and induced pinches
+still need correct routing during application; IBP descendants above the entry
+rank still need coverage. See the [census report](docs/research/tide_five_loop_census.md).
+
 ### Exceptional-domain follow-up — bounded targets alongside unrestricted research
 
 The [TIDE exceptional-domain strategy](docs/research/tide_exceptional_domain_strategy.md)

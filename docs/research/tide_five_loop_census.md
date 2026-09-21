@@ -268,6 +268,66 @@ denominator/numerator routing checks. The graph census is offline input
 preparation; do not put the 67 IDs, four masks, or a loop-count switch into a
 production strategy.
 
+### Complete four-parent labelled worklist: independent replay, September 21
+
+The earlier 67 forward witnesses show how each published representative fits
+inside a parent contraction. A new **reverse routing census** now covers every
+labelled job in the union of the four parent downsets after the saved native
+zero-sector screening:
+
+| Input-routing obligation | Count |
+|---|---:|
+| Distinct labelled masks in the four-parent downset union | 11,904 |
+| Masks in that union present in the saved zero list | 3,658 |
+| Remaining masks with independently replayed exact routes | 8,246 |
+| Published representatives used as complete targets | 67 |
+| Signed active-momentum equalities replayed | 57,890 |
+| Missing routes | 0 |
+
+This reused the existing offline Symbolica-native circuit/graph producer;
+there was no solver change or new algebra kernel. The proposed targets were
+the published representatives in increasing line count. All 8,246 accepted
+targets are exactly the complete named representative, not merely a subset
+of it. The independent checker recomputed the source mask set, checked its
+exact equality with the witness set, replayed every integer unimodular loop
+map using native rational matrix arithmetic, and checked the momenta against
+the manifest and family TOML. All thirteen corruption, missing-witness and
+duplicate-witness controls were rejected. The producer's own verification
+flag was not trusted. The saved zero list was an input to this check; it was
+not independently regenerated here. This does not classify all 32,768 masks
+of the auxiliary family or prove pairwise inequivalence of the 67 targets.
+
+The optimized single-worker producer completed in **262.89 s process wall**
+(262.83 s CPU, 58,372 KiB peak RSS); independent replay completed in **20.36 s**
+(20.35 s CPU, 61,284 KiB peak RSS). Compilation is outside those boundaries.
+These are offline **input-routing** measurements, not parametric-IBP generation
+or closure timings. Evidence is in `TMP/tide-full-job-routing.1Gc4K2/` and
+`TMP/tide-full-job-routing-audit.0Dz3Dz/`. The producer input SHA256 is
+`93699d5157b59a80938a649500fc0eb0c5852c6c06a1e0b829a0c98d835da647`;
+the saved zero-list SHA256 is
+`c9b032acb3e06cd1cea9817e6bca8a8210ca2e8664c92383e789360c3a03bae7`.
+The replayed witness JSONL SHA256 is
+`355f190e1210e1ed1c11ec63527ff012bacbaf4b4ecd1a394abf0875315efd56`.
+
+For the rank-bounded programme this supplies an exact route to reducing
+duplicate labelled work, but **not yet an implemented numerator transporter
+or a completed family solve**. A homogeneous linear loop map sends each
+quadratic numerator factor to an affine-linear combination of the complete
+target denominator basis. Expanding an input of total numerator degree `R`
+therefore produces monomials of degree at most `R`; cancellation against
+positive denominator powers cannot increase their negative-index degree.
+It can pinch active lines. A pinch of a published representative need not
+itself lie in the four-parent labelled worklist: restrict that representative's
+existing forward map into a parent contraction, then use the reverse routing
+catalogue or valid zero evidence. Actual application must implement this
+composition and numerator expansion, rather than just permuting indices.
+
+These statements concern momentum transport only. They neither bound rank
+growth under subsequent IBPs nor establish a finite terminal basis. All-family
+rank-10/20 generation, coverage of required successors and exact recursive
+application remain separate obligations. No terminal minimization or numerical
+master lookup is implied by this census milestone.
+
 ## 5. How many masters, and what was actually evaluated?
 
 There is a real distinction between published basis counts:
