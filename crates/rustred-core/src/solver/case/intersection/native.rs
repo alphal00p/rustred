@@ -2,6 +2,7 @@
 
 use symbolica::domains::InternalOrdering;
 use symbolica::poly::groebner::GroebnerBasis;
+use symbolica::poly::{GrevLexOrder, LexOrder};
 use symbolica::prelude::{Factorize, Integer, Q, Rational, Z};
 
 use crate::algebra::CoefficientPolynomial;
@@ -110,17 +111,25 @@ pub(super) fn is_affine(polynomial: &CoefficientPolynomial) -> bool {
 }
 
 /// Preserve the entire transformed basis, including newly exposed coupled
-/// affine equations. Native Q-F4 owns every ideal operation.
+/// affine equations. Native Q/GrevLex-F4 owns every ideal operation. The
+/// returned generators use the usual Lex polynomial storage, but are not
+/// asserted to be a Lex Groebner basis: consumers need the same ideal, not
+/// an elimination order or Lex normal forms.
 pub(super) fn normalize(
     equations: &[CoefficientPolynomial],
 ) -> Result<Vec<CoefficientPolynomial>, CaseIntersectionFailure> {
     let ideal: Vec<_> = equations
         .iter()
-        .map(|polynomial| polynomial.map_coeff(|value| Rational::from(value), Q))
+        .map(|polynomial| {
+            polynomial
+                .map_coeff(|value| Rational::from(value), Q)
+                .reorder::<GrevLexOrder>()
+        })
         .collect();
     let basis = GroebnerBasis::new(&ideal, false);
     let mut normalized = Vec::with_capacity(basis.system.len());
     for polynomial in basis.system {
+        let polynomial = polynomial.reorder::<LexOrder>();
         if polynomial.is_zero() {
             continue;
         }
@@ -138,6 +147,10 @@ pub(super) fn normalize(
     canonicalize(&mut normalized);
     Ok(normalized)
 }
+
+#[cfg(test)]
+#[path = "native/tests.rs"]
+mod tests;
 
 /// Distinct nonconstant zero-locus factors. A zero input must be removed by
 /// the caller, and nonzero scalar content/multiplicities create no branches.

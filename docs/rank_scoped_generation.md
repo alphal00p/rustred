@@ -462,12 +462,39 @@ then reduce exactly to zero in1.06ms. The whole isolated process takes8.33s
 wall/8.27CPU-s with12,288KiB peak RSS. The earlier full search-policy Lex run is
 censored and includes other work, so this is not a completed end-to-end speed
 ratio. It identifies a promising native ordering correction, not integer-case
-coverage. At this checkpoint the production normalizer is still unchanged;
-the proposed change computes the native GrevLex basis, then reorders its
+coverage. The subsequent production change computes the native GrevLex basis, then reorders its
 polynomials for existing Lex storage without claiming that the result is a
 Lex Groebner basis. No custom CAS or FGLM conversion is needed for the
 normalizer's equal-ideal contract. Evidence:
 `TMP/native-guard-grevlex.G2pmjY/grevlex/`.
+
+That generic change passes independent implementation/mathematical review and
+the complete optimized core gate: **2,417 passed, zero failed, 32 existing
+ignored**, in132.31s wall/131.29CPU-s, at162,832KiB peak RSS. Four new tests
+check exact ideal equivalence in both directions, primitive integer output,
+inconsistent/empty inputs and preservation of affine consequences and siblings.
+One explicitly verifies that reordering the resulting generators into Lex
+storage does **not** make them a Lex Groebner basis. Existing assertions remain
+unchanged. Focused intersection/affine/solver selections overlap the full gate.
+The application gate also passes all 246 tests; the fresh public seven-sector
+regression returns the byte-identical 41,971,427-byte bundle in 35.11 s wall /
+40.62 CPU-s, with 381,504 KiB peak RSS. Receipts:
+`TMP/grevlex-core-checked.l4kKiV/`, `TMP/grevlex-app-cli-gate.PjWrRV/` and
+`TMP/grevlex-public-pilot.HHonuH/`.
+
+The actual **same-policy SearchFinite** sector rerun subsequently completes:
+**57.435 s solver time**, 530 rules, 27 finite residuals and 28,996 RHS terms.
+It retains the original natural ordering, depth zero, sparse-factorized backend,
+R10 and 8,192-item geometry allowance. In the former bottleneck, case439 enters
+exceptional geometry at30.127s and publishes its candidate at38.468s; total
+geometry work over the sector takes8.674s. Whole solve/export process:
+64.73s wall /64.28CPU-s,193,100KiB peak RSS. The native bundle is22,162,261bytes
+and cold-loads in8.143s. All three terminal-identity/repeat checks pass; the
+nontrivial standalone traces still lack their lower-sector programs and are
+not complete reductions. No finite-retention override is used. The original
+Lex attempt is censored, so do not report a completed speed ratio. This is
+an actual end-to-end sector improvement, not a full-family closure claim.
+Evidence: `TMP/grevlex-native24996-search.EfN5LQ/`.
 
 At **11:59:45 UTC**, a fresh non-atomic metadata inventory records **5,546 /
 8,246 distinct saved labelled sectors**, 142 more than at11:12. It still
@@ -481,6 +508,15 @@ plus bounded diagnostics/builds. Registered actual RSS is140.10GB at the
 snapshot, with337.95GB historical sampled peak and450GB aggregate soft stop.
 Evidence: `TMP/rank10-search-refresh-noon.w9RDVn/`. Neither represented classes
 nor completed labelled sectors establish recursive family closure.
+
+The later **12:42:49 UTC** non-atomic inventory reaches **5,588 / 8,246**
+distinct saved labelled sectors: 723/2,686, 1,970/2,580, 1,648/2,656 and
+2,396/2,478 in the four parents. There are 6,737 saved occurrences, including
+1,149 duplicates; the 2,658 unsaved labels are not necessarily distinct
+mathematical problems. Broad-search representation remains 65/67 classes,
+excluding separate finite-retention programs. Actual registered RSS is
+243.78 GB at this snapshot, below the 450 GB soft stop and 500 GB ceiling.
+Evidence: `TMP/rank10-search-refresh-midday.NoKSis/`.
 
 The independent captured geometry test already resolves the separate
 five-free-index guard from native sector 24996 with explicitly larger resources:
@@ -596,6 +632,98 @@ source/scope/transport bounds, preserve missing successors as uncovered, and
 verify that export does not open a requested checkpoint or launch search.
 Evidence: `TMP/single-sector-export-release.0ROvqw/`. This adds no core,
 artifact-schema, CLI or Python behavior change.
+
+### Persisted five-loop controls
+
+The generic optimized helper now saves two actual isolated results using the
+already validated affine-endpoint core, **before** the GrevLex change:
+
+| Native sector and policy | Solver time | Whole solve/export wall / CPU | Peak RSS KiB | Rules / explicit residuals | Bundle bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 7749, SearchFinite | 185.488s | 192.30 / 190.97s | 611,312 | 629 / 88 | 77,843,492 |
+| 24996, RetainRankFinite | 10.227s | 16.31 / 16.18s | 77,932 | 348 / 93,392 | 3,877,836 |
+
+The first has the same counts as the earlier227.235s isolated run; shared-host
+activity and a non-matched repeat do not establish a speedup. The second
+deliberately uses R10 finite retention with10million visited points,1million
+retained terminals and8,192 geometry work items. Its93,392 fully fixed leaves
+are acceptable nonminimal candidates, not inferred masters. It bypasses the
+search-policy stall using a **different policy**, not a faster same-workload
+materializer. No broad-search checkpoint is overwritten or relabelled.
+Encoding takes0.687s and0.078s respectively, separate from solving.
+
+Both bundles cold-load and pass three terminal-identity/repeat checks. Three
+nontrivial inputs per bundle instead expose missing successors: the standalone
+7749 traces contain2,433/7,024/13,553 uncovered keys, and the24996 traces
+1,057/2,832/5,090. These initial bundles therefore pass **zero of three complete
+nontrivial reductions each**, despite successful import and terminal canaries.
+
+A subsequent native read-only census classifies **every**24996 frontier key:
+all belong to exactly five strict lower supports, with maximum numerator rank2.
+There are no same-support, outside-support or above-R gaps in these three
+traces. They perform162/596/1,440 rule applications and reach
+1,241/3,450/6,552 keys. This justifies completing the missing downset for those
+inputs; it does not establish all-R10 or arbitrary-positive-power coverage.
+The full-frontier diagnostic takes7.32s wall/7.26CPU-s, mostly cold loading,
+at82,484KiB peak RSS. It regenerates no rules.
+
+The planned source-weight29734 repeat is skipped because its original
+sparse-factorized campaign shard becomes available first. That existing shard
+is cold-loaded directly; no backend provenance is changed. Its three small
+raised-power checks are themselves declared terminals and make zero IBP
+applications. The earlier157.128s reconstruction result remains a separate
+in-memory-only measurement, not the provenance of this saved shard.
+
+Evidence: `TMP/rank10-sector-export-controls.8ikTZq/` and
+`TMP/candidate-frontier-fixed.uYSlMl/`. Independent audits confirm the complete
+frontier classification and the distinction between saved candidates, terminal
+identity checks and actual recursive reduction.
+
+### Completing and applying that six-sector downset
+
+A separate public RetainRankFinite campaign generates the root plus its five
+nonzero pinches: **six of six sectors**, 1,196 rules, 1,017,172 explicit terminals,
+and a34,118,966-byte native bundle. It takes17.50s wall/22.30CPU-s at340,544KiB
+peak RSS with four workers. This is the pre-GrevLex affine-endpoint executable,
+matching the isolated finite-policy experiment. The root is regenerated
+because the current checkpoint interface cannot ingest an isolated exported
+program; no broad-search shard is retagged.
+
+The first cold helper rejects the saved terminal collection at its implicit
+one-million-entry ingress cap, before native import. A separately recorded
+retry explicitly matches the producer's32million collection allowance and
+leaves its other binary limits unchanged. It cold-loads in8.197s and completes
+all five requested successor graphs with zero uncovered keys:
+
+| Concrete input | Reachable keys | Rule applications | Reached terminals | Maximum rank |
+| --- | ---: | ---: | ---: | ---: |
+| All six positive powers2; no numerator | 1,469 | 1,413 | 56 | 2 |
+| All six positive powers3; no numerator | 3,906 | 3,850 | 56 | 2 |
+| All six positive powers4; no numerator | 7,261 | 7,205 | 56 | 2 |
+| R10 in one numerator, one dot | 69 | 38 | 31 | 10 |
+| R10 split across two numerators, three dots | 7,494 | 6,155 | 1,339 | 10 |
+
+The active original axes are2,5,7,8,13,14. The fourth input changes corner
+`n2=2,n0=-10`; the fifth changes `n2=3,n5=2,n0=n6=-5`. Tracing the two R10
+inputs takes0.001790s and0.292616s respectively. These are finite concrete
+tests, not a sample-based proof of all positive-power rays. The modest first
+input also completes exact coefficient back-substitution to37 declared
+terminals, with an equal memoized repeat, in0.179s. Total cold/check process:
+9.39s wall/9.31CPU-s,263,548KiB peak RSS. No rules are regenerated during these
+checks and no original-source replay is performed.
+
+The separate exact R10 continuation also **passes both reductions and their
+memoized repeats**: the one-numerator input gives31 declared-terminal
+coefficients in0.002325s; the split input gives1,317 after exact coalescing,
+in2.036167s. Both traces again have zero uncovered keys. Whole fresh process:
+10.74s wall/10.66CPU-s,438,524KiB peak RSS, including8.123s cold load. The two
+inputs share a reducer/cache, so these per-input intervals are not independent
+cold benchmarks. Default coefficient-cache/work limits remain unchanged;
+no source search, terminal minimization or numerical evaluation is performed.
+
+Evidence: `TMP/tide-24996-retained-downset.uuiRMj/`,
+`TMP/tide-24996-downset-cold.k7mhsk/` and
+`TMP/tide-24996-r10-backsub.cvorto/`.
 
 ## Applying a complete checkpoint directory
 
@@ -723,6 +851,38 @@ not universal rank-10 family closure. Receipts:
 `TMP/tide-r10-30563-boundary-trace.d5plSz/` and
 `TMP/tide-r10-30563-four-million.0NT7FB/`; the successful final retry is in
 `TMP/tide-r10-30563-sixteen-million.azFTOj/`.
+
+### A second complete saved generation census
+
+Representative29550 now has **462/462** required sector programs saved under
+its original R10 finite-retention policy. The refreshed campaign reuses459
+and generates the last three with the validated affine-endpoint executable,
+not the later GrevLex implementation. The new sectors contribute882 rules
+and138,307 explicit residuals; these are additions, not full-family totals.
+The whole four-worker process takes463.36s wall/626.86CPU-s and peaks at
+5,043,424KiB RSS.
+
+Final monolithic export hits its512MiB coefficient-table cap and exits4.
+All462 native shards remain saved. This is an output limit, not a missing
+sector, and does not justify regenerating them. A separate complete-checkpoint
+cold-load attempt likewise stops at its explicit512MiB aggregate ingress cap
+before native import or tracing. Inspection finds1,047,043,921 coefficient-table
+bytes across2,697,574,447 total shard bytes. A separately labelled 1 GiB ingress
+retry successfully loads all 462 shards and **45,127,877 explicit terminals**
+in 217.446 s, without changing generation policy or the 4 GiB checkpoint /
+64-million collection bounds. Its R10 one-dot target then reaches the explicit
+one-million-key trace cap after 60.255 s and 697,289 rule applications. No
+completed frontier is returned. Whole process: 291.29 s wall / 288.97 CPU-s,
+12,869,504 KiB peak RSS, status 1 for the incomplete trace. The preserved
+candidate data is unchanged. A fresh trace-only retry uses the same client
+with sixteen million keys/applications; it neither recompiles nor regenerates
+IBPs. Saved generation, cold-load admission and recursive application are
+distinct gates; no uniform rank-10 family closure is claimed here.
+
+Evidence: `TMP/tide-r10-29550-affine-refresh.1stuqI/`,
+`TMP/tide-r10-29550-cold-trace.y3zvc5/` and
+`TMP/tide-r10-29550-coefficient-budget.1mNno7/`; the larger trace receipt is
+`TMP/tide-r10-29550-sixteen-million.dlwmIQ/`.
 
 ## How nonlinear exceptions are handled
 

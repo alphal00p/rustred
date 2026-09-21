@@ -15,8 +15,8 @@ resumed with the explicit goal of covering all input five-loop families through
 numerator degree 10, ideally 20. Terminal minimization, numerical master lookup
 and five-loop Vakint integration follow only after that coverage succeeds. The recorded
 [full-family attempts](docs/research/five_loop_candidate_baselines.md) reach
-time or memory limits; checkpoints preserve partial work, but no complete
-five-loop program is claimed. The existing rule-application engine
+time or memory limits; checkpoints preserve partial work, but complete
+coverage of the frozen five-loop census is not yet established. The existing rule-application engine
 remains in use; no alternate Symbolica-replacement backend is planned.
 
 Candidate generation accepts an optional `--max-numerator-rank R`, also exposed
@@ -31,6 +31,14 @@ rank-bounded leaves without trying to minimize their count. It requires an
 explicit R, never truncates positive rays, and reports exhausted work limits
 as incomplete. Its release regressions pass; complete five-loop coverage
 remains an open goal.
+
+The latest [five-loop checks](docs/rank_scoped_generation.md#completing-and-applying-that-six-sector-downset)
+generate a complete selected six-sector candidate bundle and exactly reduce
+two rank-10 inputs to declared terminals, with memoized equality and no uncovered
+dependencies. These finite checks are not all-family or arbitrary-positive-power
+closure. A separate native Symbolica Gröbner-ordering correction completes a
+previously stalled search-policy sector in 57.4 seconds; the complete core and
+application regression gates pass. All topologies remain external inputs.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after

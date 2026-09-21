@@ -239,6 +239,40 @@ conjunction in8.323s; audit and regression-test that generic ordering improvemen
 before changing production normalization. Continue the broad checkpointed campaigns under the authorized
 100-core/500-GB aggregate limits while isolating these remaining cases.
 
+The generic GrevLex change subsequently passes independent review and the full
+release core suite: **2,417 passed, zero failed, 32 existing ignored**, plus all
+246 application tests and a byte-identical public seven-sector regression.
+The actual same-policy native24996 SearchFinite rerun now completes in
+**57.435 s solver time**, saves530 rules and27 finite terminals, and cold-loads;
+the previous Lex run was still unfinished when stopped at1,162.98s.
+This validates the generic ordering improvement on its real pressure case,
+without a finite-retention policy change or full-family closure claim. The persisted
+native24996 finite-retention control already saves348 rules and93,392 explicit
+terminals in10.227s solver time, using the prior affine-endpoint core. Complete
+inspection of three nontrivial application frontiers finds only five missing
+strict-lower supports, no same-support or above-R gaps in those finite tests.
+That separate finite-policy downset now generates all six sectors in17.50s,
+saving1,196 rules and1,017,172 terminals. All five concrete dependency checks,
+including two rank-10 targets, finish with zero uncovered keys. A modest
+exact reduction and memoized repeat pass; both R10 exact back-substitutions
+and memoized repeats subsequently pass too, returning31 and1,317 declared
+terminal coefficients without regenerating rules. Do not promote these finite
+checks into an arbitrary-positive-power or whole-census closure claim.
+
+The representative29550 continuation now saves **all462/462 sector programs**;
+the last three require463.36s whole-process time including the failed final
+monolithic export. Preserve these native shards and use the existing direct
+checkpoint loader: export hits its512MiB coefficient-table cap, not an IBP gap.
+An explicit 1 GiB cold-load allowance admits its measured 1,047,043,921 coefficient
+bytes and successfully loads all 45,127,877 retained terminals in 217.446 s.
+The first R10 trace hits its one-million-key work cap; a separate larger
+trace-only retry retains the original candidate programs and scope.
+Representative30231 has196/198 saved
+at12:32UTC; a bounded independent existing source-weight reconstruction probe
+targets its missing root while the original sparse-exact run continues. All
+four broad parent campaigns also continue, with aggregate monitoring and no
+mixed-policy publication. No whole-census recursive rank-10 closure is claimed.
+
 A generic Rust application loader now consumes every sector of a complete
 trusted-local checkpoint directly into one shared candidate reducer, without
 monolithic re-encoding or rule regeneration. Independent implementation and
