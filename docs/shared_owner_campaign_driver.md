@@ -222,6 +222,33 @@ comparisons in the focused tests. The corrected joint pressure run is separate.
 Evidence: `TMP/shared-campaign-corrected-controls.9WwlVA/`, particularly
 `INDEPENDENT_RESULTS_AUDIT.md` and its two complete process receipts.
 
+### Batched-scheduler matched controls
+
+The release executable from `6d01349` completes the same controls with the same
+67 owners, 8,179 verified transports, targets, affinities and resource limits.
+All reported actual graph/rule/terminal/frontier counters match both previous
+corrected runs. The tighter prospective resource envelopes intentionally change
+from 35,598,393 to 35,437,782 operations and from 8,557,491 to 7,700,656 endpoints;
+these are not measured monomial or completed-integral counts.
+
+| Outer workers | Preparation (s) | Shared traversal (s) | Whole command wall (s) | Whole command CPU (s) | Peak RSS (KiB) |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 101.619 | 24.690 | 130.11 | 128.45 | 5,804,908 |
+| 6 | 102.837 | 11.538 | 118.09 | 141.71 | 5,804,748 |
+
+These are completed single shared-host observations, without profiling or an
+elapsed deadline. The observed traversal ratio is 2.14×; compared with the prior
+corrected controls, serial/six-worker traversal decreases by about 12.6%/5.3%.
+Do not infer a statistically isolated optimization effect or extrapolate these
+small controls to a full R10 solve. The finite graph contains 541,889 keys and
+321 declared terminals, with no missing owner/rule. Exact full terminal sets are
+compared in small regressions, not persisted by these large summary receipts.
+
+Evidence: `TMP/shared-campaign-batched-controls.BKNOrt/`, with complete process
+receipts `TMP/shared-owner-campaign.gziecd_7/` and
+`TMP/shared-owner-campaign.90p94uc7/`. The following 50-worker pressure run uses
+the same default per-call limits and is a distinct workload.
+
 ## Directed owner search and shared rule installation
 
 The Rust core now retains common ordinary/LI source definitions alongside the
@@ -284,9 +311,9 @@ index. Hash iteration does not select work or determine result ordering. Native
 arithmetic, per-edge descent, and exact key equality remain authoritative. The
 core release suite passes 2,545 tests (32 existing ignored); all 276 application
 and integration tests and ten Python supervisor tests pass. Independent source
-and runtime reviews accompany the slice; new measured controls are pending.
-Do not infer a performance
-improvement or parametric coverage from these implementation changes alone.
+and runtime reviews accompany the slice. The matched controls above measure
+performance separately; implementation tests alone imply no speedup or
+parametric coverage.
 
 The first new frontend gate caught an input-boundary defect: Serde's default
 struct visitor accepted an empty positional array as the named budget object.

@@ -159,6 +159,61 @@ controls and this failed large traversal have distinct timing boundaries.
 
 ## Next measured iteration
 
+### Batched retry: cooperatively stopped for optimization
+
+The `6d01349` binary passes the matched controls and proceeds beyond the
+previous projected-support failure on the same 134 rank-ten entries and
+67-owner selection. The 50-worker run has no elapsed deadline and hits neither
+its RSS threshold nor a native expansion allowance. The operator instead
+requests a cooperative optimization stop after observing persistently poor
+useful throughput and more than 53 million queued dependencies. It returns a
+complete diagnostic with `Cancelled`, not a completed reduction.
+
+| Measurement | Batched retry |
+|---|---:|
+| Whole command wall / CPU | 468.76 / 1,115.50 s |
+| Shared traversal through native-call drain | 332.873 s |
+| GNU-time peak RSS | 31,504,664 KiB (32.26 decimal GB) |
+| Sampled aggregate peak RSS | 32,209,813,504 bytes |
+| Completed local expansions / queued nodes | 67,182 / 53,696,854 |
+| Distinct integral keys / dedup hits | 53,725,660 / 423,873,438 |
+| Rule applications / transports | 10,636 / 21,539 |
+| Declared terminals / zeros visited | 3 / 34,649 |
+| Missing rules / owners observed | 0 / 0 |
+| Complete Rust diagnostic / resumable graph | Yes / no |
+
+At the decision snapshot (301.623 seconds of traversal), only 62,370 local
+expansions have finished while 53,573,903 nodes remain queued. Recent measured
+throughput is hundreds of expansions per second and sampled utilization is
+only a few cores. These observations motivate an optimization checkpoint, not
+a mathematically proved remaining runtime or an exhausted 15-hour deadline.
+No IBPs are regenerated or lost; the original saved programs remain reusable.
+The final 49 failed-node reports reflect cancellation of in-flight work, not
+49 independent mathematical failures. No process is force-killed.
+
+A single 20-second/49-Hz attached user-cycle profile now highlights native
+`Integer` comparison (17.51% self), the native integer-key tree used by powering
+(9.86%), `heap_pow` (8.46%) and radix decoding (5.74%). Shared membership-table
+rehashing accounts for another 5.74%. These are on-CPU samples, not wall-time
+fractions: a separate live observation finds 49 threads sleeping in futex
+waits. The profile alone cannot attribute those waits or prove contention has
+disappeared. It records 13,896 samples, throttle activity, and zero lost samples;
+event encoding and sampled phase differ from the earlier profile.
+
+The immediate next experiment changes only the external owner-selection policy:
+reuse cheap, compatible, already-saved literal owners for frequently observed
+routing supports. This can bypass numerator transport altogether. It must be
+reported as a different rule/route selection, not identical-workload scaling.
+Native powering and support-only transport reuse remain separately identified
+optimization candidates, not implemented speedups.
+
+Receipts: `TMP/shared-r10-batched-pressure.tVw9tr/` and
+`TMP/shared-owner-campaign.el9oduxq/`, including the explicit operator stop
+reason, complete result and sampled resources. This run still does not cover
+the complete parametric R10 domain.
+
+### Continuing priorities
+
 1. Keep the completed native correction and full core/frontend gates as the
    baseline. Do not regenerate the saved owner programs.
 2. Audit/test the observed scheduler and structural-envelope improvements,

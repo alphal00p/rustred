@@ -86,6 +86,15 @@ transport. The full parametric campaign still needs a domain-level successor
 worklist; do not substitute a concrete target batch or repeated small-dot
 samples. Independent certification remains deferred.
 
+The matched controls now complete in **24.690 / 11.538 seconds** of traversal
+with one/six workers and unchanged graph counters. The 50-worker retry passes
+the old resource failure but is cooperatively stopped for optimization after
+332.873 seconds of traversal: 53.7 million queued nodes, 67,182 completed local
+expansions, approximately 32.26 GB peak RSS, and no observed missing rule/owner.
+This is neither a timeout nor completion. Reuse additional compatible saved
+literal owners to avoid hot affine transports before another attempt; benchmark
+native powering and repeated support materialization if those remain costly.
+
 ### Shared-campaign implementation checkpoint — September 21
 
 The shared parallel dependency scheduler and directed parametric-domain search

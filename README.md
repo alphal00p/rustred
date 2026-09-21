@@ -61,16 +61,17 @@ library; see [the API boundary](docs/shared_owner_campaign_driver.md#directed-ow
 
 The latest completed release gate passes **2,545 core tests**, **276
 application/integration tests** and **10 Python supervisor tests**. Matched finite
-rank-one controls complete in 28.253/12.181 seconds of traversal with one/six
-workers (136.11/120.08 seconds including preparation), with identical reported
-counters and zero missing rules. The corrected 50-worker R10 diagnostic stops
-on a conservative per-call expansion limit, after 119.231 seconds of traversal
-and at 24.51 GB peak RSS. This is an incomplete resource outcome, not a timeout
-or a missing IBP. [The profile and next improvements](docs/research/shared_rank10_pressure_2026-09-21.md)
-identify shared-queue contention and an unnecessarily loose product-support
-estimate. No full five-loop R10 completion is claimed.
+rank-one controls complete in 24.690/11.538 seconds of traversal with one/six
+workers (130.11/118.09 seconds including preparation), with identical reported
+graph counters and zero missing rules. The latest 50-worker R10 diagnostic gets
+past the earlier expansion-budget failure, but is cooperatively stopped for
+optimization after 332.873 seconds of traversal: 53.7 million queued nodes and
+32.26 GB peak RSS. This is not a timeout or completed reduction.
+[The profile and next improvements](docs/research/shared_rank10_pressure_2026-09-21.md)
+target expensive routing, native powering and limited effective parallelism.
+No full five-loop R10 completion is claimed.
 
-The next tested slice batches shared work publication, combines duplicate-work
+The delivered slice batches shared work publication, combines duplicate-work
 indexes, tightens structural expansion bounds and exposes explicit per-call
 budgets. An opt-in Rust [`RoutedFeedbackSession`](docs/owner_source_feedback.md)
 retains source-generated parametric rules between rounds; automatic CLI feedback
