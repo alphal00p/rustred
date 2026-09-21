@@ -188,13 +188,14 @@ Evidence: `TMP/rank10-one-hour-inventory.i4Eqtc/REPORT.md`, with the earlier
 
 #### Resource outcomes and preserved progress after the hourly snapshot
 
-Three original broad jobs subsequently exhausted their **individual 80 GiB
+All four original broad jobs subsequently exhausted their **individual 80 GiB
 virtual-address caps**, not the 500 GB aggregate user allowance:
 
 | Parent | Terminal wall time | CPU seconds | Peak RSS KiB | Outcome |
 |---|---:|---:|---:|---|
 | 30527 | 1:28:38 | 100,501.95 | 82,902,040 | Allocation abort, signal 6 / launcher 134 |
 | 30699 | 1:02:34 | 74,129.96 | 81,627,544 | Allocation abort, signal 6 / launcher 134 |
+| 31740 | 1:34:56 | 112,056.64 | 82,326,068 | Allocation abort, signal 6 / launcher 134 |
 | 32745 | 1:21:07 | 96,236.79 | 82,934,636 | Allocation abort, signal 6 / launcher 134 |
 
 GNU time's trailing `Exit status: 0` must not override its explicit signal-6
@@ -206,12 +207,20 @@ new CLI adds the already audited bilinear refinement and public transport
 budgets. These are separately timed bounded continuations, not uninterrupted
 successful original runs. Evidence: `TMP/tide-r10-30699-resume.lTUYyJ/` and
 `TMP/tide-r10-32745-resume.haTZFg/`.
-Parent 30527 is being prepared for a separately recorded lower-concurrency
-resume; its failed original timing must remain separate. The aggregate
+Parents 30527 and 31740 subsequently resume with the validated resultant CLI,
+12 workers each and unchanged 80 GiB caps, admitting 305 and 961 prior shards.
+Their failed original timings remain separate. The aggregate
 monitor's soft-stop selection covers registered frozen-CLI continuations as
 well as original solvers, with process-tree ownership and PID/start-time
 revalidation before signalling. This is workspace-local runtime supervision,
 not a change to the mathematical search or a 450 GB per-process allowance.
+At 09:17 UTC six continuations allocate 64 disjoint compute workers in total:
+four parent searches and the 29550/30231 finite-retention retries. The latter
+use four workers each and 32/64 GiB startup caps, preserving their 364/172
+previous shards and all original generation-policy settings. The new geometry
+only applies to newly solved sectors; mixed-generation provenance is explicit.
+These continuation budgets are bounded reassessments, not promised completion
+times. No terminal-minimization or five-loop numerical-integration lane starts.
 
 A new independent **09:05:30–09:06:55 UTC** non-atomic inventory observes
 4,076 durable shard occurrences, **3,601 distinct labelled sectors / 8,246**,
@@ -219,6 +228,14 @@ and representations of **64/67** published classes. It excludes all
 different-policy finite-retention pilots. The remaining 4,645 labelled masks
 are not all demonstrated hard cases: many are unscheduled or still running.
 Original and resumed shard histories are not independent completed artifacts.
+The independent inventory, resource review and documentation audit are saved
+in `TMP/rank10-broad-inventory.2HII5h/AUDIT.md`. In checkpoint mode the reviewed
+implementation does not accumulate completed `SectorSolution` values.
+Some live exact frames reach more than 1.5 million upper-matrix nonzeros;
+coalesced logs do not identify the allocation-aborting worker or separate
+live coefficient growth from allocator high-water retention. Reduced worker
+concurrency is therefore a measured-risk continuation policy, not a proved
+memory-leak diagnosis.
 
 Separate `retain-rank-finite` probes targeted the other three representatives
 absent from the hourly broad inventory. Each used five workers, R=10, a
@@ -246,6 +263,10 @@ fixed merely by granting more solver RAM. No terminal minimization is started
 before the requested family-coverage gate. Evidence:
 `TMP/tide-r10-three-missing-roots.fGDaNV/snapshot-terminal.json` and
 `TMP/tide-r10-root30563-assembly64m.zTcZUV/`.
+Continuation receipts are in `TMP/tide-r10-30527-resultant-resume.tm5KX0/`,
+`TMP/tide-r10-31740-resultant-resume.R4Hpsa/`,
+`TMP/tide-r10-29550-resultant-resume.M5CZF6/` and
+`TMP/tide-r10-root30231-resultant-resume.LIPE76/`.
 
 Two distinct failures have appeared in the frozen broad-run executable. A
 nonlinear exceptional equality `8-3*n6-6*n2+2*n2*n6=0` is unsupported there.

@@ -145,7 +145,10 @@ it has 30,431,209 declared nonminimal terminals, not a published closing family.
 Preserve these outputs and do not confuse resource/export failures with
 missing rules. Broad parent 30699 and 32745 continuations reuse saved work
 after their individual 80 GiB allocation aborts; parent 30527 also reached that
-cap and is being resumed at lower concurrency. A separate non-atomic inventory
+cap and has resumed at lower concurrency. Parent 31740 later also reaches its
+individual cap and resumes preserved shards. Six continuations now allocate
+64 solver workers, including the two targeted finite-retention retries, with
+disjoint affinities and aggregate memory supervision. A separate non-atomic inventory
 at 09:05–09:07 UTC finds **3,601 distinct saved labelled sectors of 8,246** and
 representations of **64/67** classes in the broad-search checkpoints, excluding
 all different-policy finite-retention pilots. This is still not closure. The application-cache
