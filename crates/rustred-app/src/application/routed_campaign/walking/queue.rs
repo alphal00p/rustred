@@ -18,8 +18,9 @@ pub(super) struct Domain<const N: usize> {
 }
 
 impl<const N: usize> Domain<N> {
-    /// Prospective source orthant for the admitted-route rank bound. Enclosed
-    /// points are not necessarily reached by nonzero coefficients.
+    /// Full-orthant fixture for the unbounded special case. Production routing
+    /// retains the actual supplied box instead of widening it here.
+    #[cfg(test)]
     pub fn route_cover(owner: [bool; N], rank: Option<u32>) -> Self {
         Self {
             phase: Phase::Route,

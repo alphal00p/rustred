@@ -129,14 +129,17 @@ is still unfinished; these are selected local examples, not closure timings.
 The implementation includes opt-in `--max-bounded-refinement-cells-per-query`
 to perform those finite inactive-coordinate splits automatically. Add
 `--bounded-refinement-axes finite-axes` to also use explicitly bounded positive
-coordinates; unbounded powers remain symbolic, and this does not extend routing
-or establish recursive closure. With
+coordinates; unbounded powers remain symbolic. This refinement option alone
+does not change routing or establish recursive closure. With
 `--follow-successors`, it also inspects selected RHSs and shares containing
 owner/box/rank domains through one worklist. Conditional coefficients and
 unresolved routing remain explicit; neither queue exhaustion nor a local match
 alone is presented as full closure. Add `--route-domain-overcover` to share
 conservative domain images through already admitted momentum
-maps, without expanding numerator polynomials. Unchecked source conditions or
+maps, without expanding numerator polynomials. These images now preserve mapped
+finite positive-power bounds and account for the numerator degree consumed by
+each pinch. Bounds also survive IBP-successor routing and reentry; original
+entry restrictions are never reapplied to descendants. Unchecked source conditions or
 missing maps remain explicit obligations. Native algebra preflight refusals can
 use the same bounded inactive-coordinate refinement as unresolved guards;
 actual backend errors cannot. The same Python steering accepts these

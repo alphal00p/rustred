@@ -281,8 +281,13 @@ fn inspect_native<const N: usize>(
                         if initial.contains(Phase::Route, child.target_sector, child.target_rank_limit) {
                             return emit(Event::one(Effect::PreAdmittedOrthantReuse { successor: true, conditional }));
                         }
-                        Effect::Admit { successor: true, conditional,
-                            domain: Domain::route_cover(*child.target_sector, child.target_rank_limit) }
+                        // Routing must see the actual successor box. Widening it
+                        // to a full orthant discards finite starting-power bounds
+                        // before the admitted native map can transport them.
+                        Effect::Admit { successor: true, conditional, domain: Domain {
+                            phase: Phase::Route, owner: *child.target_sector,
+                            lower: child.target_lower.to_vec(),
+                            upper: child.target_upper.to_vec(), rank: child.target_rank_limit } }
                     } else {
                         Effect::Frontier { successor: true, conditional,
                             value: json!({"kind":"routing_frontier", "target_owner":mask(child.target_sector),

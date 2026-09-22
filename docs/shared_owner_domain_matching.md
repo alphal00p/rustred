@@ -163,9 +163,9 @@ be classified by exact finite-coordinate faces. This is not sampling, and
 does not permit splitting an unbounded positive axis. Results record the
 requested policy and allowance, including preparation errors and compact
 progress; successor reports also retain them in `applied_limits.matching`.
-This extends **local matching**, not domain routing. The existing routing
-overcover can lose finite positive bounds; enabling this flag therefore does
-not establish a finite recursive campaign or family closure.
+This option controls **local matching**, separately from the bounded native
+routing described below. Enabling refinement alone does not establish a finite
+recursive campaign or family closure.
 
 Per-query `stats.refinement_steps` counts admitted coordinate splits, while
 `stats.refinement_cells` counts all admitted singleton faces across levels,
@@ -332,7 +332,7 @@ incoming numerator rank `D`, every surviving monomial has degree `|e|<=D` and
 endpoint `B-e`. Its numerator rank is
 `|e| - sum_i min(e_i, B_i)`. Losing `k` active denominators consumes at least
 `k` units of that degree, so a strict pinched support needs rank at most `R-k`
-when the **actual incoming** rank is bounded by `R`. The service streams only
+when the **actual incoming** rank is bounded by `R`. This special case streams only
 supports with at most `R` lost active axes. The full mapped root retains `R`;
 an unbounded incoming rank stays unbounded. R11/R12 successors of an R10 input
 are tightened from their actual rank, never from the saved generation scope.
@@ -341,8 +341,26 @@ endpoints; neither enlarges this bound.
 
 The full mapped root goes directly to `Apply`; strict subsupports reenter
 `Route`. Route/Apply are distinct queue keys. Pending containing domains can
-reuse work but do not count as completed. The route queue shares full source
-orthants at each rank instead of repeating equivalent small boxes. Every
+reuse work but do not count as completed. The route queue preserves supplied
+finite boxes instead of replacing them with full orthants. Literal owners
+retain the complete box. For a nonliteral map, each surviving positive
+coordinate keeps the upper bound from its mapped source axis; its lower bound
+becomes zero because numerator cancellation can lower a positive power.
+Inactive coordinate bounds cannot generally be permuted through an affine
+numerator substitution and are conservatively controlled by the actual rank.
+
+The bounded native visitor `visit_bounded_domain_route_overcover` also tightens
+pinches by their minimum required powers. For a lost source subset P,
+`R_child <= R - sum(source_local_lower[j]+1 for j in P)`. For example, minimum
+positive powers two and four cost six degree units to pinch simultaneously:
+at incoming R6 their simultaneous-pinch child has R0, not the old R4 bound.
+An impossible weighted pinch is skipped, never saturated to R0. Unbounded rank
+remains unbounded. The full-orthant visitor delegates with zero lowers and
+unbounded uppers, recovering the usual R-minus-number-of-pinches bound.
+
+The application retains boxes on initial nonliteral admission, every RHS
+successor, mapped Apply and subsequent Route reentry. Empty rank intersections
+emit no work; inverted/wrong-arity boxes fail explicitly. Every
 over-covered point need not be reached, and an uncovered point is not thereby
 a reached missing rule or a new terminal.
 
@@ -352,7 +370,8 @@ reentries with unchecked source conditions remain explicit obligations; known
 zero sectors do not bypass them. Missing maps likewise remain frontiers.
 
 `--max-route-masks-per-query` defaults to 100,000 and requires the route option.
-It caps each route call; aggregate events and admitted-domain budgets still
+It caps examined candidates, including weighted-impossible pinches; per-domain
+`masks_pruned` distinguishes these from emitted `events`. Aggregate events and admitted-domain budgets still
 apply. The native visitor has a separate logical coordinate-cell budget. No
 native expansion counts are fabricated: `routing_expanded` remains false,
 while `route_domain_overcover`, `routed_domains` and `route_masks` report this

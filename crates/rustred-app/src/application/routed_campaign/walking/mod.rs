@@ -234,7 +234,10 @@ fn run<const N: usize>(
                     );
                     continue;
                 }
-                Domain::route_cover(domain.owner, domain.rank)
+                Domain {
+                    phase: Phase::Route,
+                    ..domain
+                }
             } else {
                 domain
             };

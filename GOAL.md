@@ -64,6 +64,18 @@ Graph/forest-specific profile tightening is documented without assuming an
 observable-specific catalogue, support-size-based power bounds, or minimal
 terminals. Terminal minimization/evaluation remain deferred.
 
+Bounded routing is now implemented: mapped surviving positive powers retain
+their finite upper bounds, and pinches consume their actual minimum positive
+powers from the current numerator budget. Initial routing, IBP-successor
+routing and route reentry preserve these boxes. The new release core gate
+passes 2,720 tests (32 existing diagnostics ignored); application/integration
+tests pass 422, and the Python API/CLI and steering gates pass all 72 tests.
+Independent code and mathematical audits pass. These are
+implementation gates, not a five-loop closure result. The next saved-rule
+pilots measure recursive growth before a larger campaign. Compact total-power
+and A-R constraints are independently designed but not yet implemented;
+coordinate bounds alone can remain a very loose physical overcover.
+
 The older sequence and measurements below are retained as history; statements
 requiring unbounded positive starting powers are no longer authoritative.
 

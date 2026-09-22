@@ -105,6 +105,8 @@ fn route_overcover_literal_owner_and_above_entry_rank_keep_apply_phase() {
                 cover: CandidateDomainRouteCover {
                     source_sector: TARGET,
                     target_root: TARGET,
+                    lower: [0; 3],
+                    upper: [None; 3],
                     actual_rank: rank,
                     conservative: true,
                 }
@@ -115,6 +117,9 @@ fn route_overcover_literal_owner_and_above_entry_rank_keep_apply_phase() {
         assert_eq!(stats.coordinate_cells, 6);
     }
 }
+
+#[path = "bounded_tests.rs"]
+mod bounded;
 
 #[test]
 fn route_overcover_rank_zero_and_degree_bounded_pinches_subtract_only_lost_support() {

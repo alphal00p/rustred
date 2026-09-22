@@ -263,7 +263,8 @@ impl<const N: usize> State<N> {
     }
 }
 fn route_stats(s: rustred::solver::CandidateDomainRouteStats) -> Value {
-    json!({"masks_examined":s.masks_examined, "events":s.events, "apply_domains":s.apply_domains,
+    json!({"masks_examined":s.masks_examined, "masks_pruned":s.masks_pruned,
+        "events":s.events, "apply_domains":s.apply_domains,
         "route_domains":s.route_domains, "zero_sectors":s.zero_sectors, "missing_routes":s.missing_routes,
         "coordinate_cells":s.coordinate_cells})
 }

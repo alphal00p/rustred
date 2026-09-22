@@ -311,8 +311,8 @@ to inactive coordinates and never manufacture a positive-coordinate bound.
 This reuses Symbolica-backed guard algebra. It preserves first-rule priority,
 whole excluded conjunctions, denominator/source guards and cancellation. It
 is exact local dispatch classification, not a routing extension or a closure
-claim. In particular, the existing route-overcover path must not be mistaken
-for preservation of finite positive-power bounds across owners. The focused
+claim. Bound preservation across owners is handled separately by the bounded
+routing implementation below, not by the refinement flag alone. The focused
 release gate passes 84 matching tests, including ten new finite-axis tests and
 the full `u64`-width overflow boundary. The subsequent complete release core
 gate passes **2,710 tests**, zero failures and 32 existing ignored diagnostics
@@ -356,9 +356,13 @@ whole five-loop physical envelope. The saved candidate rule IDs were not
 forced: each query used ordinary ordered dispatch. Evidence:
 `TMP/finite-entry-gate.2GG13m/bounded-guard-{queries,owners,result}.json`.
 
-### Audited next integration: bounded routing
+### Bounded routing implementation
 
-This is a design, **not implemented in the current milestone**. Existing
+The audited design is now implemented. The complete release core gate passes
+2,720 tests (32 existing diagnostics ignored) in 161.61 s, including the 21
+focused native routing tests. Application/integration tests pass 422; all 72
+Python API/CLI, matcher-steering and supervisor tests pass against the matching
+release build. Existing
 admitted `Prepared` maps already store an active-row unit bijection. Their
 endpoints have powers `n'=B-e`, where B copies positive source powers and the
 affine inactive numerator substitution gives `|e|<=R`. Thus surviving positive
@@ -378,17 +382,66 @@ and do not preserve positive lower bounds after numerator cancellation.
 Literal-owner routing can preserve the original box exactly. Source validity
 remains a separate mandatory obligation, even for known-zero destinations.
 
-Use the already compiled `Prepared.active_target` map, not another routing or
-CAS implementation. Extend the native route-cover interface and carry its boxes
-through both successor admission and route reentry; the application `Domain`
-already supports bounded boxes. Full-orthant calls can remain the unbounded
-special case. Weighted subset pruning must charge examined candidates, not
-only emitted covers, to avoid unmetered enumeration of impossible subsets.
-Differential tests should compare emitted covers with native `Prepared::transport`
-endpoints, including affine constants, multi-pinches, rank zero, unbounded rank,
-overflow, cancellation and source guards. Independent mathematical/source
-review confirms this bound for the currently admitted map class; it is not a
-claim for arbitrary nonlinear denominator transformations.
+`visit_bounded_domain_route_overcover` uses the already compiled
+`Prepared.active_target` map, not another routing or CAS implementation. Bounds
+are carried through initial nonliteral admission, RHS successor admission,
+mapped Apply and route reentry. Full-orthant calls delegate to the same visitor
+with zero lowers and unbounded uppers. Weighted subset pruning charges examined
+candidates, not only emitted covers; `masks_pruned` records impossible weighted
+pinches separately from emitted events. Invalid boxes fail before dispatch and
+rank-empty intersections emit nothing.
+
+Ten new native differential/boundary tests compare covers with actual
+`Prepared::transport` endpoints and cover affine constants, multi-pinches, rank
+zero, unbounded rank, overflow, cancellation and source guards. Application
+tests exercise both initial and genuine generated-IBP successor routing, source
+obligations, above-entry rank and worker-count parity. Independent mathematical
+and source review confirms the bound for the currently admitted map class; it
+is not a claim for arbitrary nonlinear denominator transformations or global
+recursive closure. No polynomial algebra kernel was introduced. An initial new
+application test supplied a multi-sector bundle to a single-owner loader; its
+fixture was corrected to use the existing single-sector native solver/exporter,
+without weakening the bound assertions. Gate evidence is in
+`TMP/bounded-route-gate.clR7HK/`; the shared working tree also contains unrelated
+scheduler edits, which are not part of the bounded-routing commit.
+
+### Retaining total-power correlations
+
+Even finite coordinate bounds can be a very loose overcover. The 67-owner
+rectangular A24/R10 control contains 91,254,043,244,510,861 index tuples: separate
+coordinate caps allow total A as high as 156, instead of 24. Such boxes are
+diagnostics, not a faithful enumeration of the physical input envelope. If the
+bounded-routing pilots show excessive growth, the next minimal extension is
+to retain `A<=A_max` and a band `D_min<=D=A-R<=D_max` alongside each box and
+the existing rank cap. These constraints must survive tightening and participate
+in equality, containment, reuse and reported domain provenance.
+
+For a fixed support, active and inactive sums range over independent integer
+intervals. Their aggregate feasibility and coordinate projections can be
+computed in O(N) with checked integer arithmetic and explicit infinity; no
+general polyhedral solver or CAS kernel is needed. Include the active offset
+`A=t+sum(active_local_coordinates)`. Tightened coordinate bounds alone do not
+replace the A/D predicates: e.g. two powers in 1..3 still include (3,3), which
+violates A<=4.
+
+After the existing sign-crossing coordinates are fixed, native
+`applied/geometry.rs::image` already computes exact delta_R. For a fixed IBP
+shift s, `delta_D=sum(s)` and `delta_A=delta_R+delta_D`, so translate the
+constraints with the image. Do not reapply original entry caps to descendants.
+Admitted affine routing obeys `A_child<=A_source`, `D_child>=D_source`; a
+weighted pinch cost C tightens A and R upper bounds by C. Preserve D_min but
+generally widen D_max, because affine constants can lower numerator degree.
+Literal routing preserves the entire contract. Effective projected caps, such
+as `R<=A_max-D_min`, should be used before costly candidate enumeration.
+
+An exact decomposition into independent axis boxes is not a practical
+alternative: distinct positive tuples on A=24 cannot share a contained box.
+Thus support size t alone requires at least `binomial(23,t-1)` boxes, totaling
+37,167,402 across the present census even at R0. This is a lower bound on exact
+box representation, not a lower bound on solving the parametric problem.
+The compact-constraint proposal has independent mathematical/source review;
+it is **not yet implemented**. Workspace design and audit evidence is in
+`TMP/bounded-routing-pilot.4kY19R/CORRELATIONS{,_AUDIT,_IMPLEMENTATION}.md`.
 
 Local verification evidence is in `TMP/finite-entry-gate.2GG13m/` (untracked).
 The passing app gate took 64.97 s wall / 61.52 s user CPU, and the Python gate

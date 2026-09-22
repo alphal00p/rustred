@@ -49,11 +49,43 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         actual_rank: Option<u32>,
         limits: CandidateDomainRouteLimits,
         cancellation: &AtomicBool,
+        visit: impl FnMut(CandidateDomainRouteEvent<N>) -> ControlFlow<()>,
+    ) -> Result<CandidateDomainRouteStats, CandidateDomainRouteError> {
+        self.visit_bounded_domain_route_overcover(
+            source,
+            &[0; N],
+            &[None; N],
+            actual_rank,
+            limits,
+            cancellation,
+            visit,
+        )
+    }
+
+    /// Stream a conservative image of a local-coordinate source box. Literal
+    /// owners retain that exact box. Verified nonliteral maps preserve mapped
+    /// positive upper bounds, but numerator cancellation can lower positive
+    /// powers, and affine numerator substitution does not permute inactive
+    /// bounds. The latter coordinates are conservatively rank-bounded only.
+    ///
+    /// Inverted or wrong-arity boxes fail explicitly. A box whose inactive
+    /// lower bounds exceed its rank budget is empty and emits no events.
+    /// Source validity is a separate obligation even for known-zero sectors.
+    pub fn visit_bounded_domain_route_overcover(
+        &self,
+        source: [bool; N],
+        lower: &[u64],
+        upper: &[Option<u64>],
+        actual_rank: Option<u32>,
+        limits: CandidateDomainRouteLimits,
+        cancellation: &AtomicBool,
         mut visit: impl FnMut(CandidateDomainRouteEvent<N>) -> ControlFlow<()>,
     ) -> Result<CandidateDomainRouteStats, CandidateDomainRouteError> {
         let mut stats = CandidateDomainRouteStats::default();
         let result = self.route_cover(
             source,
+            lower,
+            upper,
             actual_rank,
             limits,
             cancellation,
@@ -68,6 +100,8 @@ impl<const N: usize> RoutedCandidateReducer<N> {
     fn route_cover(
         &self,
         source: [bool; N],
+        lower: &[u64],
+        upper: &[Option<u64>],
         actual_rank: Option<u32>,
         limits: CandidateDomainRouteLimits,
         cancellation: &AtomicBool,
@@ -75,6 +109,34 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         stats: &mut CandidateDomainRouteStats,
     ) -> Result<(), CandidateDomainRouteFailure> {
         cancelled(cancellation)?;
+        let lower: [u64; N] = lower.try_into().map_err(|_| {
+            CandidateDomainRouteFailure::InvalidDomain("source lower-bound arity differs")
+        })?;
+        let upper: [Option<u64>; N] = upper.try_into().map_err(|_| {
+            CandidateDomainRouteFailure::InvalidDomain("source upper-bound arity differs")
+        })?;
+        if lower
+            .iter()
+            .zip(upper)
+            .any(|(&lo, hi)| hi.is_some_and(|hi| lo > hi))
+        {
+            return Err(CandidateDomainRouteFailure::InvalidDomain(
+                "source lower bound exceeds upper bound",
+            ));
+        }
+        if let Some(rank) = actual_rank {
+            // Subtraction avoids an overflowing sum of otherwise valid u64
+            // coordinate bounds. Failure here means an empty intersection.
+            let mut remaining = u64::from(rank);
+            for (axis, &on) in source.iter().enumerate() {
+                if !on {
+                    let Some(next) = remaining.checked_sub(lower[axis]) else {
+                        return cancelled(cancellation);
+                    };
+                    remaining = next;
+                }
+            }
+        }
         // Source validity precedes zero in concrete evaluation. We report its
         // remaining obligation rather than treating a zero census as validity.
         if self.programs.context.shared.zero_sectors.contains(&source) {
@@ -97,6 +159,8 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                     cover: CandidateDomainRouteCover {
                         source_sector: source,
                         target_root: source,
+                        lower,
+                        upper,
                         actual_rank,
                         conservative: true,
                     },
@@ -126,9 +190,42 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 "active-root cardinality differs",
             ));
         }
+        let active_target = route.transport.active_target_axes();
+        if active_target.len() != N {
+            return Err(CandidateDomainRouteFailure::InvalidAdmittedRoute(
+                "active-map arity differs",
+            ));
+        }
+        let mut target_upper = [None; N];
+        let mut target_lower_cost = [0_u64; N];
+        let mut seen = [false; N];
+        for (axis, &target) in active_target.iter().enumerate() {
+            match (source[axis], target) {
+                (false, None) => {}
+                (true, Some(target)) if target < N && root[target] && !seen[target] => {
+                    seen[target] = true;
+                    target_upper[target] = upper[axis];
+                    // Keep the local lower bound without forming lower+1;
+                    // finite-rank admission below checks subtraction first.
+                    target_lower_cost[target] = lower[axis];
+                }
+                _ => {
+                    return Err(CandidateDomainRouteFailure::InvalidAdmittedRoute(
+                        "active map is not a source-to-root bijection",
+                    ));
+                }
+            }
+        }
+        if seen != root {
+            return Err(CandidateDomainRouteFailure::InvalidAdmittedRoute(
+                "active map does not cover the target root",
+            ));
+        }
         let cover = CandidateDomainRouteCover {
             source_sector: source,
             target_root: root,
+            lower: [0; N],
+            upper: target_upper,
             actual_rank,
             conservative: true,
         };
@@ -146,8 +243,9 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         // Prepared::compile admits a unit active-row bijection and only affine
         // inactive rows. Endpoints B-e have B>=0 and |e|<=D, so their numerator
         // rank is |e|-sum_j min(e_j,B_j). Removing k positive axes consumes
-        // at least k degree because each lost axis has e_j>=B_j>=1. Thus the
-        // strict-pinch endpoint rank is <=D-k<=R-k, even for unbounded positive
+        // at least sum_j(lower_j+1) degree because each lost axis has
+        // e_j>=B_j>=lower_j+1. Thus the strict-pinch endpoint rank is at most
+        // D-sum_j(lower_j+1)<=R-sum_j(lower_j+1), even for unbounded positive
         // powers. Affine constants can only lower monomial degree; native
         // cancellation can only remove endpoints.
         // Enumerate only combinations of at most R removed axes.
@@ -178,43 +276,60 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             }
         })?;
         for removed in 1..=max_removed {
-            let pinched_rank = match actual_rank {
-                Some(rank) => Some(
-                    u32::try_from(removed)
-                        .ok()
-                        .and_then(|lost| rank.checked_sub(lost))
-                        .ok_or(CandidateDomainRouteFailure::InvalidAdmittedRoute(
-                            "removed support exceeds incoming numerator rank",
-                        ))?,
-                ),
-                None => None,
-            };
-            let pinched_cover = CandidateDomainRouteCover {
-                actual_rank: pinched_rank,
-                ..cover
-            };
             positions.clear();
             positions.extend(0..removed);
             loop {
                 cancelled(cancellation)?;
+                // Charge every examined complete subset, including impossible
+                // weighted pinches. Preflight before scanning its coordinates.
+                let masks = admit(stats.masks_examined, 1, limits.max_masks, "route masks")?;
                 let mut sector = root;
+                let mut pinched_rank = actual_rank;
+                let mut possible = true;
                 for &position in &positions {
-                    sector[active[position]] = false;
+                    let axis = active[position];
+                    sector[axis] = false;
+                    if let Some(remaining) = pinched_rank {
+                        // lower>=remaining implies lower+1>remaining, even at
+                        // u64::MAX. Never saturate an impossible pinch to rank 0.
+                        if target_lower_cost[axis] >= u64::from(remaining) {
+                            possible = false;
+                            break;
+                        }
+                        pinched_rank = Some(remaining - target_lower_cost[axis] as u32 - 1);
+                    }
                 }
                 // Even an installed/known-zero subsupport reenters Route. The
                 // caller MUST admit source conditions before further routing;
                 // this cover is not a validated original RHS child. Literal
                 // Apply uses the ordinary matcher to establish its validity.
-                emit(
-                    CandidateDomainRouteEvent::Route {
-                        sector,
-                        cover: pinched_cover,
-                    },
-                    limits,
-                    cancellation,
-                    visit,
-                    stats,
-                )?;
+                if possible {
+                    let mut pinched_upper = target_upper;
+                    for (axis, &on) in sector.iter().enumerate() {
+                        if !on {
+                            // An inactive source bound cannot be carried
+                            // through an affine map as if it were a permutation.
+                            pinched_upper[axis] = None;
+                        }
+                    }
+                    emit(
+                        CandidateDomainRouteEvent::Route {
+                            sector,
+                            cover: CandidateDomainRouteCover {
+                                actual_rank: pinched_rank,
+                                upper: pinched_upper,
+                                ..cover
+                            },
+                        },
+                        limits,
+                        cancellation,
+                        visit,
+                        stats,
+                    )?;
+                } else {
+                    stats.masks_examined = masks;
+                    stats.masks_pruned += 1;
+                }
                 let Some(index) = (0..removed)
                     .rev()
                     .find(|&i| positions[i] < count - removed + i)
@@ -260,7 +375,7 @@ fn emit<const N: usize>(
     )?;
     stats.masks_examined = masks;
     stats.coordinate_cells = cells;
-    stats.events = masks;
+    stats.events += 1;
     match event {
         CandidateDomainRouteEvent::Apply { .. } => stats.apply_domains += 1,
         CandidateDomainRouteEvent::Route { .. } => stats.route_domains += 1,

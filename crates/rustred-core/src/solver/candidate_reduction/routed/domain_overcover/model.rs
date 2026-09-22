@@ -6,7 +6,7 @@ pub struct CandidateDomainRouteLimits {
     /// Candidate support masks examined, including literal/missing/zero entries.
     pub max_masks: usize,
     /// Cumulative logical lower/upper coordinate cells (2*N) for emitted domains.
-    /// Domains are implicit full orthants, so this is not retained allocation.
+    /// This accounts for emitted bounds, not native expansion usage or RSS.
     pub max_coordinate_cells: usize,
 }
 impl Default for CandidateDomainRouteLimits {
@@ -18,9 +18,9 @@ impl Default for CandidateDomainRouteLimits {
     }
 }
 
-/// A sufficient full-orthant cover in destination indexed coordinates.
-/// Lower bounds are all zero, upper bounds all mathematical infinity; the
-/// inactive-coordinate sum is bounded by actual_rank, or unbounded for None.
+/// A sufficient box cover in destination indexed coordinates. Positive axes
+/// use n=x+1, inactive axes n=-x. The inactive-coordinate sum is additionally
+/// bounded by actual_rank, or unbounded for None.
 /// This does not establish source validity, a reached endpoint, nonzero
 /// coefficients, target applicability, or family closure. Gaps in extra points
 /// are NOT automatically reached missing-rule frontiers.
@@ -28,9 +28,12 @@ impl Default for CandidateDomainRouteLimits {
 pub struct CandidateDomainRouteCover<const N: usize> {
     pub source_sector: [bool; N],
     pub target_root: [bool; N],
+    pub lower: [u64; N],
+    pub upper: [Option<u64>; N],
     /// Rank bound of this emitted orthant, not necessarily the incoming bound:
-    /// full-root/literal Apply keeps R; strict Route losing k positive axes uses
-    /// R-k. None remains unbounded. This is never clipped to saved entry rank.
+    /// full-root/literal Apply keeps R; strict Route losing a positive source
+    /// subset P uses R-sum(source_lower[j]+1 for j in P). None stays unbounded.
+    /// This is never clipped to saved entry rank.
     pub actual_rank: Option<u32>,
     pub conservative: bool,
 }
@@ -65,6 +68,8 @@ pub enum CandidateDomainRouteEvent<const N: usize> {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CandidateDomainRouteStats {
     pub masks_examined: usize,
+    /// Weighted pinches excluded because their minimum cost exceeds rank.
+    pub masks_pruned: usize,
     pub events: usize,
     pub apply_domains: usize,
     pub route_domains: usize,
@@ -89,6 +94,7 @@ pub enum CandidateDomainRouteFailure {
         resource: &'static str,
     },
     InvalidAdmittedRoute(&'static str),
+    InvalidDomain(&'static str),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CandidateDomainRouteError {

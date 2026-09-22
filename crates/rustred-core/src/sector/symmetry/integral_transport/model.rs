@@ -38,6 +38,11 @@ impl Prepared {
     pub fn target_root(&self) -> &Mask {
         &self.target_root
     }
+    /// The already admitted unit active-row bijection, indexed by source axis.
+    /// Inactive numerator rows are affine and deliberately have no such target.
+    pub(crate) fn active_target_axes(&self) -> &[Option<usize>] {
+        &self.active_target
+    }
 }
 
 /// Exact finite combination in the prepared target family's coefficient context.
