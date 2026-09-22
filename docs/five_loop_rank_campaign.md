@@ -90,6 +90,15 @@ measure the corrected expansion or eliminate genuine dependency breadth. See the
 
 ## Operational policy
 
+The input numerator-rank limit need not bound every intermediate rank uniformly
+when positive powers remain unbounded. A finite set of descending parametric
+rules can solve every concrete input even while a finite-rank-layer dependency
+worklist keeps growing. Diagnose a repeated growth pattern with a bounded
+parent/rule/shift/routing witness before committing to larger allowances. Reuse
+native cases and tighter routing where needed; do not turn the solve into an
+unlimited rectangular-partition certification project. See the
+[rank-growth audit](research/rank_bounded_dependency_growth_2026-09-22.md).
+
 ### September 22: move shared work to symbolic domains
 
 The next shared control starts all 67 input R10 owner orthants together, so

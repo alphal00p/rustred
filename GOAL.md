@@ -65,6 +65,15 @@ Detailed implementation sequencing is in
 
 ### Current implementation slice — ordered symbolic successor matching
 
+An independent source/mathematical audit now distinguishes input rank from
+uniform intermediate-rank bounds. Strict concrete descent alone does not imply
+that a finite-rank-layer symbolic worklist exhausts. Inspect causal rule/routing
+witnesses if rank layers keep growing, and reuse the saved native affine cases
+and valid alternative reductions rather than clipping ranks or expanding an
+independent certification project. This does not establish an infinite chain
+in the current run or weaken the requested R10 solve; see
+[the audit](docs/research/rank_bounded_dependency_growth_2026-09-22.md).
+
 The next slice now has the generic strict-pinch **R-k** routing bound and
 bounded parallel symbolic inspection under independent audit. The core release
 gate passes **2,663 tests**, zero failures and 32 existing ignored diagnostics;
