@@ -112,3 +112,89 @@ Evidence: `TMP/domain-admission-index.jygnmr/` contains the gate, frozen CLI,
 runner, result, timings and independent reviews. The earlier baseline is
 `TMP/six-query-routed-owner-walk.yOCjF1/`. Both native processes are terminal
 and reaped; neither reached its RSS boundary.
+
+## Expanded aggregate control
+
+A subsequent run of the same frozen CLI raises only aggregate allowances to
+one million admitted domains, ten million callback events and ten billion
+general containment comparisons. The six inputs, complete owner library,
+per-query native policies, CPU41 and memory envelope are unchanged. This is
+not another matched-workload speedup measurement.
+
+The larger prefix completes **3,886 domains**, with **31,710 admitted and
+27,823 queued**, then stops at the unchanged per-query matcher allowance:
+`rules: requested 100001, limit 100000`. The failed job is Apply domain 3886,
+owner `110010101101011`, with the full R11 orthant. This counter measures
+repeated rule visits while partitioning the requested domain, not 100,000
+distinct generated IBPs. The local inspection ran 2.336 seconds; no new rule
+was generated and no missing-rule conclusion follows from this refusal.
+
+The run inspects 812,490 RHS successors, reuses 791,794 requests and performs
+716,747,943 general containment comparisons, below the raised ten-billion
+allowance. It records zero frontiers in its processed prefix. Its 34 routed
+jobs emit 11,008 masks; the scheduling ledger closes exactly:
+6 + 812,490 + 11,008 = 31,710 + 791,794. Rank R12 remains a scheduled overcover
+bound, not a reached-rank witness or a truncation of input R10 dependencies.
+
+Preparation takes **105.53 s**, traversal **40.44 s**, whole command **150.21 s**,
+CPU **147.26 s**, and peak RSS **5,808,368 KiB**. No elapsed or RSS stop occurs;
+the process is terminal and reaped. The first 1,055 completed records agree
+with the preceding indexed trial apart from elapsed seconds. Evidence and
+independent review: `TMP/six-query-index-expanded.g2mRlZ/`. An earlier
+preparation-only license setup cancellation is separate and excluded.
+
+## Isolated replay of the stopped R11 domain
+
+The exact full R11 orthant of owner `110010101101011` completes local matching
+with the larger allowances already used by the full-census study: 32 million
+rule visits and predicates, one million terminal checks and pieces, 100 million
+cells, three billion coordinate cells, 100 million splits, and 65,536 bounded
+refinement steps; the guard degree allowance remains 64. These are operational
+work allowances, not restrictions on the requested integral domain.
+
+It yields **6,309 selected-rule regions and 43 declared-terminal regions**,
+with zero local gaps, unresolved predicates, invalid source conditions or
+exact-zero regions. The native work includes 212,438 rule visits, 301,027
+predicates, 963,981 cells and 96,480 splits; no bounded refinement is needed.
+The earlier 100,000-rule-visit allowance was simply too small for this query.
+
+Preparation takes **1.091 s**, local matching **1.680 s**, whole command
+**3.04 s**, CPU **2.88 s**, and peak RSS **103,076 KiB**. The process exits 0
+and is reaped, with no elapsed or RSS stop. Its unchanged saved payload is
+5,416,079 bytes; no IBPs are regenerated. Evidence:
+`TMP/failed-orthant-local-match.9lBujm/`.
+
+This isolated run loads one owner with its family and saved-root zero context,
+not the full 67-owner routed snapshot. It does not evaluate RHS coefficients,
+check recursive descent/application, route successors or establish complete R11
+closure. Its matching time is therefore not comparable to the earlier shared
+matching-plus-RHS traversal.
+
+## Shared retry with sufficient local matching allowances
+
+The subsequent full-snapshot retry uses the same six queries, frozen CLI,
+expanded aggregate allowances and native RHS budgets, but adopts the larger
+matching allowances above. It stops in the same Apply domain 3886, now during
+RHS inspection: `guard separable factor work`, requested 134,217,728 versus
+the 64,000,000 native guard allowance. This is distinct from both the earlier
+rule-visit limit and the successful matching-only replay. Local applicability
+does not discharge every original RHS guard or recursive successor obligation.
+
+The prefix still completes **3,886 domains**, with **31,850 admitted and 27,963
+queued**. It inspects 906,826 RHS successors, reuses 885,990 requests and records
+zero frontiers. The ledger remains exact:
+6 inputs + 906,826 RHS requests + 11,008 route requests =
+31,850 admissions + 885,990 reuses. Its largest scheduled finite overcover is
+now R13; intermediate rank is not clipped to entry rank R10. The queue has not
+been exhausted, and no complete-family or reached-rank conclusion follows.
+
+Preparation takes **103.81 s**, traversal **44.96 s**, whole command **152.19 s**,
+CPU **151.06 s**, and peak RSS **5,807,780 KiB**. The process exits incomplete
+status 4 and is reaped, with no elapsed, operator or RSS stop. Evidence:
+`TMP/six-query-generous-match.SzCKVZ/`. The next task is to inspect the actual
+refused guard expression and test the narrow native guard improvements, not
+regenerate the saved rule library.
+
+Separately, [inspection of the actual guard expressions](guard_obstruction_triage_2026-09-22.md)
+identifies inexpensive native guard improvements and distinguishes existing
+affine branch representation from genuine missing-rule discovery.

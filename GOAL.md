@@ -85,6 +85,18 @@ with 9,417 queued. Its 8.74 s traversal is an incomplete prefix, not a complete-
 workload speedup. The next control raises aggregate work allowances on the same
 binary to expose the next actual obstacle; see
 [the indexed-queue result](docs/research/shared_domain_index_2026-09-22.md).
+That expanded control now completes 3,886 domains in 40.44 s traversal, then
+stops at the unchanged per-query 100,000 rule-visit allowance with 27,823 queued.
+No missing-rule frontier is observed. An isolated replay of that R11 full-owner
+query with larger matching allowances completes in **1.68 s**, selecting 6,309
+rule regions and 43 terminal regions with no local gaps or unresolved guards.
+That test inspects applicability only, not recursive RHS coverage. The shared
+retry with those allowances now stops in RHS inspection at a native guard
+factor-work limit: still 3,886 completed domains, 27,963 queued, no observed
+missing-rule frontier. Its 44.96 s traversal and scheduled R13 overcover are
+not complete R10 reduction. Isolate that expression while implementing the
+native guard cost-ordering and affine sign checks identified by
+[the actual-expression study](docs/research/guard_obstruction_triage_2026-09-22.md).
 Address positive-coupled guard selection without
 turning uncertain cases into gaps, terminals or bounded-positive surrogates.
 

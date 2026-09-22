@@ -143,7 +143,14 @@ gates pass 2,623 core, 314 application and 19 Python tests, with no failures
 passes 320 application tests and reaches 1,055 completed domains at the same
 comparison allowance; it still leaves recursive work queued. All 870 earlier
 completed records match exactly apart from timing. A larger-budget control,
-not regeneration of saved IBPs, is the next diagnostic.
+without regenerating saved IBPs, reaches 3,886 completed domains in 40.44 s of
+traversal before the per-query rule-visit allowance; it is still incomplete.
+The stopped query passes an isolated applicability replay in 1.68 s with a
+larger allowance, without new rules. The shared retry then reaches a native
+RHS guard-factor-work limit; recursive traversal remains unfinished.
+The [guard-expression study](docs/research/guard_obstruction_triage_2026-09-22.md)
+separates avoidable native work and affine-domain matcher limitations from
+actual missing IBPs.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after
