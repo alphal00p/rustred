@@ -1,13 +1,20 @@
 # Finite starting domains and fixed-target repair
 
-## Execution resumed from the September 22 checkpoint
+## Current checkpoint — stopped at user request
 
-The user has explicitly resumed work from the tested and pushed checkpoint.
-The matched maximal-index pilot and all-owner R0 control have now run, both
-resource-incomplete. Their audits direct the next work toward compact correlated
-domains and serial admission cost, before larger controls. The objective below
-is **unfinished**, not complete or mathematically blocked. Current evidence and
-resume steps are in the [bounded-routing pilot report](research/bounded_routing_pilot_2026-09-22.md).
+The user requested a committed checkpoint and stop after the safe parallel-
+admission implementation. Its full release Rust and Python gates pass. The
+matched 60,000-domain prefix is unchanged and runs 1.54–1.64x faster in observed
+traversal time; this is not a full-family or whole-launch timing. The pilot
+stopped cooperatively with 97,814 completed domains, 132,653 pending and one
+cancelled partial. No solver or build remains active, and the full 67-owner
+input has not been launched. Resume only after a new user instruction.
+
+The objective below is **unfinished**, not complete or mathematically blocked.
+The next work remains the broader shared-root diagnostic, explicit finite-root
+admission, actual-root witness feedback and complete finite-envelope handling.
+Evidence and resume steps are in the
+[bounded-routing pilot report](research/bounded_routing_pilot_2026-09-22.md).
 
 ## Objective
 
@@ -676,9 +683,15 @@ queue tests and eight new execution tests, stale hits/misses, retirement,
 foreign-queue tokens, counter overflow, event-limit prefixes and helper-panic
 cleanup. A separate optimized gate using the committed scheduler (without the
 pre-existing escrow changes) passes 89 tests, one ignored, including all sixteen
-new queue/execution tests. These are focused integration results, not full release acceptance.
-The full release Rust/Python gates and a matched live pilot are still pending.
-No performance gain from this slice is assumed yet. Progress distinguishes
+new queue/execution tests. The subsequent full release gates pass 470 Rust
+application/integration tests (one existing diagnostic ignored) and 72
+Python/steering tests. The matched 50-worker pilot has stopped cooperatively.
+Its identical 60,000-domain prefix takes 48.272–50.279 s of traversal versus
+77.319–79.328 s before this change: an observational 1.54–1.64x improvement,
+not a controlled statistical estimate or whole-launch speedup. Late sampled
+utilization averages 7.610 busy cores, including 4.753 lookup-helper cores;
+the full 50-core allocation is not saturated and pending work still grows.
+Progress distinguishes
 active native workers from reserved lookup slots; it does not invent a busy
 helper count. Speculative comparisons include discarded work and overlap the
 committed comparison counter when reused, so the two must not be summed.
@@ -695,7 +708,11 @@ A follow-up source audit separates the remaining integration obligations:
   active upper `24-t`, inactive upper 15, rank 15, and retained `A<=24,D>=9`.
   All 67 queries are now prepared and validated under
   `TMP/full-jet-symbolic67.CwBp4L/`, together with an explicit-budget planning
-  specification and deferred Python steering command. Coordinate conventions
+  specification and deferred Python steering command. The existing release
+  `entry-domain-plan` now counts **3,258,551,484,224 starting keys** across these
+  disjoint supports, with no target enumeration or solver run. This count
+  concerns the conservative supplied envelope, not an actual QCD diagram list
+  or distinct descendants. Coordinate conventions
   and 249,744 boundary/control membership comparisons pass. This is input
   preparation, not a native run, wider concrete admission or completed campaign.
 - Wider symbolic matching is intentionally allowed by
@@ -719,6 +736,35 @@ A follow-up source audit separates the remaining integration obligations:
 
 Do not treat index speedups as completion of these tasks or move to terminal
 minimization/evaluation before the requested finite starting domain is handled.
+
+Two isolated implementation prototypes now validate the next connection; they
+are not yet wired into production. A finite-root policy uses existing native
+`DomainPowerSummary` projection and singleton containment, without duplicating
+the application budget arithmetic. Seven optimized tests include 1,277,760
+comparisons with existing application membership and all 67 prepared full-jet
+regions. It accepts selected routing-source supports without requiring a
+literal Apply owner; normal routing remains responsible for missing owners.
+The proposed integration changes only initial-root admission, leaving saved
+generation scope, source checks and all descendant handling untouched.
+
+The other prototype selects a deterministic integer point by successively
+fixing a current projected coordinate minimum and reprojecting. It does not
+combine separately attainable minima. Seven tests cover 466,560 small-domain
+configurations, 82,944 intersections and integer-representability boundaries.
+The combined 18-test gate also checks 3,624 nonempty intersection witnesses
+against the original entry policy and 1,632 empty intersections. Independent
+review passes for both prototypes; production integration remains pending.
+
+If a symbolic frontier intersects an actual starting region, such a point is
+already an allowed root, irrespective of the conservative path that discovered
+the frontier. Exact concrete tracing can then nominate only an actual native
+`MissingRule` result. An unresolved guard, a successful point reduction or a
+bounded witness search finding no gap is never a region-coverage proof.
+Outside-entry frontiers still require a genuinely replayable ancestry.
+No new CAS, source search or solver campaign was introduced by these prototype
+tests. Local source, tests and audit notes are in
+`TMP/explicit-entry-policy.qJ4dZd/` and
+`TMP/parallel-admission-gate.53B924/ENTRY_WITNESS_CANDIDATE.md`.
 
 The all-owner input has a concrete reuse advantage worth testing after the
 matched index pilot. Sufficient implication of the recorded coordinate and

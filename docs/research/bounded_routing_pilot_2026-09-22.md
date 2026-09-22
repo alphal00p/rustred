@@ -2,6 +2,16 @@
 
 ## Outcome
 
+**Latest checkpoint — parallel admission:** the identical first 60,000 completed
+domain records now take 48.272–50.279 s of traversal, versus 77.319–79.328 s for
+the aggregate index alone: **1.54–1.64× faster** in these single shared-host runs.
+Measured steady-window utilization is about 7.61 busy cores, not 50-core
+saturation. The run stops incomplete with 97,814 completed domains, 132,653
+pending and one cancelled partial domain. Release gates pass 470 Rust and 72
+Python/steering tests. Work is stopped at the user's requested checkpoint;
+the full 67-owner diagnostic remains unlaunched. See
+[the parallel-admission measurements](#safe-parallel-admission-release-gates-and-matched-pilot-passed).
+
 **Aggregate-index update:** the new release pilot preserves every field of the
 first 60,000 completed domain records except timing. That identical prefix takes
 77.319–79.328 s traversal, versus 109.413–111.448 s with the support-aware linear
@@ -712,6 +722,15 @@ successful inspection, and broader roots can themselves produce expensive
 partitions and new descendants. The all-owner run is a new diagnostic workload,
 not an equal-work performance comparison or an already completed physical proof.
 
+The previously gated release `entry-domain-plan` has now counted this input:
+**3,258,551,484,224 starting keys**, without enumerating targets or running the
+solver. Its explicit budget is A<=24, R<=15, D>=9 across 67 disjoint supports.
+The result is retained in
+`TMP/full-jet-symbolic67.CwBp4L/full-jet-entry-plan.json`; the manifest and input
+checksums remain unchanged. This is a conservative mathematical-envelope count,
+not a QCD diagram count, a descendant count, a timing prediction or a closure
+claim. It motivates compact shared traversal rather than flat enumeration.
+
 Matched receipt:
 `TMP/correlated-routing-pilots.jw6Bwo/shared-owner-campaign.ucztswaj/`.
 Its result SHA-256 is
@@ -722,7 +741,7 @@ independent integer checks are under `TMP/aggregate-admission-gate.HrfYdG/`:
 `indexed-pilot-thread-samples.json`, `FULL_JET_CONTAINMENT_AUDIT.md`, and
 `full-jet-containment-{census,handchecks}.{jq,json}`.
 
-## Safe parallel admission: implemented, measurement pending
+## Safe parallel admission: release gates and matched pilot passed
 
 The user's next requested slice parallelizes the expensive read-only part of
 admission, not concurrent mutation of the rule/domain ledger. Its queue token
@@ -767,8 +786,67 @@ scheduler and committed execution tests with the new admission code, proving
 that the intended milestone does not depend on the pre-existing escrow edits.
 The first temporary harness build had an incorrect relocated test-module path;
 fixing that harness-only path exposed the intended tests without changing any
-production code or assertions. Full Cargo release, CLI/Python and
-matched live-pilot results remain pending; no speedup is claimed yet.
+production code or assertions. The full release Cargo gate subsequently passes
+388 application-library tests and 82 integration tests, zero failures and one
+existing diagnostic ignored. The matching release extension/CLI passes all 50
+public Python tests, ten matcher tests and twelve supervisor tests. The frozen
+CLI SHA-256 is
+`6e3791ad6a4aee482b5486ddf8946bee101da4fd2992c91364b550455c8a713a`.
+The matched 50-worker pilot has stopped cooperatively in
+`TMP/correlated-routing-pilots.jw6Bwo/shared-owner-campaign.x5yw13_m/`.
+Independent comparison passes: all 60,000 completed domain records match the
+indexed baseline except their top-level elapsed seconds; normalized request,
+initial IDs and frontiers match too. Both comparison prefixes precede
+cancellation. Other long-running Python workloads share overlapping host CPUs,
+so these single-pilot bounds are observational, not controlled statistical
+estimates or confidence intervals.
+
+| Identical completed work | Indexed serial admission | Parallel preparation | Observed ratio |
+| --- | ---: | ---: | ---: |
+| Traversal start to domain 60,000 | 77.319–79.328 s | 48.272–50.279 s | 1.538–1.643x |
+| Domain 10,000 to domain 60,000 | 70.278–72.291 s | 40.224–42.236 s | 1.664–1.797x |
+
+Preparation itself is slower in this run: 124.798 s versus the baseline's
+105.873 s. Do not present traversal-only improvement as a whole-launch speedup.
+Both executables include the same pre-existing escrow working-tree changes;
+the isolated committed scheduler was tested separately, not benchmarked here.
+
+Final stop accounting is **230,468 scheduled: 97,814 complete, 132,653 pending
+and one cancelled partial**. The run reports 4,891,183 committed events, zero
+observed unresolved frontiers and maximum descendant rank cap 11. Zero
+frontiers does not discharge the pending obligations. This is an incomplete
+diagnostic, not a new closing artifact or durable pending-work checkpoint.
+
+The application records 124.798 s preparation, 98.882 s traversal including
+stop/drain work, and 223.680 s total; the supervisor takes 232.292 s. Sampled
+aggregate CPU is 1,015.15 CPU-s and peak RSS is 10.162 GB. These final counters
+cover more work than the earlier stopped run and are not equal-prefix resource
+ratios. A two-second sampler is not an exact memory high-water mark.
+
+During 66.003 sampled seconds aligned with heartbeat times 155.382–218.739 s,
+mean actual process utilization is 7.610 cores: 4.753 lookup helpers, 2.403
+inspectors and 0.450 coordinator, plus small monitoring and sampling differences.
+All 24 helper and 25 native
+threads are observed with the expected affinity, but reservation is not
+saturation. Completed work rises from 36,287 to 96,462 while pending work rises
+from 95,027 to 132,367; the 65,536-entry completed-result escrow remains full.
+This confirms a useful partial improvement, not evidence that the whole queue
+will drain or that five-loop completion fits fifteen hours.
+
+Final preparation telemetry records 48,096 parallel batches, 3,634,334 attempted
+admission preparations and 8,165,488,667 speculative containment comparisons.
+Preparation takes 52.016 coordinator-wall seconds and ordered commit 32.417 s;
+dispatch, observation, native waits and stop/drain work are outside those
+timers. Committed comparison accounting is 8,964,461,507, including 419,658,575
+reverse-maintenance comparisons; it overlaps speculative accounting and must
+not be added to it. The separate thread sampler costs 0.606 CPU-s.
+
+The operator stop file is written at 21:30:40.704 UTC after the required
+comparison prefix and sustained queue-growth measurements, following the
+user's checkpoint request. The result follows 9.288 s later; the supervisor
+finishes after 12.275 s. Exit status is 4, `hard_stopped=false`, and both native
+and supervisor processes are confirmed absent. No elapsed deadline caused the
+stop, and no other campaign is launched.
 
 Independent integration review finds no correctness blocker. Its performance
 cautions are explicit: helpers are reserved even while batches are too small,
@@ -784,10 +862,34 @@ wall time and ordered-commit wall time. Speculative comparisons include work
 discarded during revalidation and overlap the existing committed comparison
 counter when reused: **do not add the two counters**. TTY and non-TTY monitoring
 label active native inspectors and reserved lookup helpers separately. The
-planned comparison uses the same diagonal input and saved owners as the indexed
+completed comparison uses the same diagonal input and saved owners as the indexed
 receipt above, validates identical completed records excluding only elapsed
 time, and records actual native/helper/coordinator CPU use. A full 67-owner
-launch remains deferred until this focused implementation is validated.
+launch remains deferred at the user's new stopping checkpoint.
+
+### Current stopping checkpoint and next resumption
+
+The user requested commit/push and stop after this measurement. All owned
+solver, sampler, prototype-test and build processes have exited. Full five-loop
+closure is still unproved; do not resume runs or implementation without a new
+user instruction. The implementation commit is `1fbc663e`; this report records
+its subsequent complete gates and combined-tree matched measurement.
+
+On resumption, the prepared 67-owner A24/R15/D9 diagnostic is the next new input
+to study; it has not run. The exact planner counts 3,258,551,484,224 starting
+keys, so shared regions and actual missing-target feedback remain essential.
+Explicit finite-root admission and deterministic intersection witnesses have
+independently audited, passing **local prototypes**, not production wiring.
+Their source/tests remain in ignored `TMP/explicit-entry-policy.qJ4dZd/` and
+`TMP/parallel-admission-gate.53B924/`; see the authoritative finite-domain plan
+for test counts and the precise distinction between a geometric witness and
+an actually reached missing rule. Outside-entry frontiers still need real
+ancestry. Do not turn a successful point reduction into region closure.
+
+Pre-existing scheduler/escrow edits, vendor edits and reference-only files
+remain untouched and uncommitted by this milestone. The published admission
+code passes its independent clean-scheduler gate; the measured live pilot
+deliberately retains the same pre-existing scheduler as its baseline.
 
 ## Historical pause and resumed sequence
 

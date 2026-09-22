@@ -1,6 +1,15 @@
 # RustRed project goal
 
-**Execution resumed by user instruction:** continue from the September 22
+**Current checkpoint — stopped at user request (September 22):** parallel
+admission is implemented and pushed as `1fbc663e`, with 470 release Rust tests
+and 72 Python/steering tests passing. The identical 60,000-domain traversal
+prefix improves observationally by 1.54–1.64x on the shared host. The stopped
+run retains 97,814 complete domains, 132,653 pending and one cancelled partial;
+there is no five-loop closure claim. No solver or build remains running.
+The prepared full-67-owner run is still unlaunched. Resume only after a new
+user instruction. The full objective below remains unfinished, not narrowed.
+
+**Resumed work leading to this checkpoint:** continued from the September 22
 bounded-routing checkpoint. Correlated-domain propagation passes its release
 gates (2,748 core, 435 application/integration and 72 Python/steering tests).
 The subsequent semantic-containment slice passes 2,758 core tests and 443
@@ -14,7 +23,7 @@ tests. Its matched pilot stopped cooperatively after 121.100 s traversal with
 63,913 completed domains and 113,500 pending. Tighter covers did not cure serial
 admission pressure and increased candidate diversity in the observed prefix;
 do not present this as a campaign speedup. Neither slice establishes five-loop
-closure. Aggregate filtering has now been measured; parallel admission is next.
+closure. Aggregate filtering and the parallel-admission follow-up are now measured.
 On 5,910 identical routed source queries, the new support bounds reduce emitted
 Route descendants by 81.90%; this local pruning does not override the observed
 global admission bottleneck.
@@ -40,8 +49,14 @@ helpers within the same total worker budget as native inspections. The code is
 implemented and the actual-source optimized walking gate passes 98 tests (one
 diagnostic ignored). For a requested budget of 50, 25 native inspectors, 24
 lookup helpers and one ordered coordinator are reserved. The full release
-Rust/Python gates and matched live measurement remain pending; no
-parallel-admission speedup is claimed yet.
+gates now pass 470 application/integration tests (one existing diagnostic
+ignored) and 72 Python/steering tests. Independent comparison confirms every
+completed record in the fixed 60,000-domain prefix matches except elapsed time.
+Traversal to that prefix improves from 77.319–79.328 s to 48.272–50.279 s;
+these single-run observation bounds are not confidence intervals or a whole-
+process speedup. Preparation is slower in this run (124.798 s versus 105.873 s).
+Actual late utilization averages 7.610 cores, not the reserved 50; the pending
+queue still grows. Both runs include unchanged pre-existing escrow work.
 The matched maximal-index pilot
 measures a 2.88–2.92× improvement on the identical completed traversal prefix;
 it and the subsequent all-owner control remain incomplete at diagnostic caps.
