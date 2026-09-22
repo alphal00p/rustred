@@ -149,13 +149,14 @@ powers=[1]
 }
 fn initial_state() -> State<1> {
     let mut queue = Queue::new(100, None);
-    for (lower, upper, rank) in [
-        (2, Some(2), Some(11)),
-        (3, Some(3), Some(11)),
-        (0, None, Some(11)),
-        (0, None, None),
+    for (lower, upper, rank, expected_admission) in [
+        (2, Some(2), Some(11), (0, true)),
+        (3, Some(3), Some(11), (1, true)),
+        (0, None, Some(11), (2, true)),
+        // There are no inactive axes, so both rays have exactly R=0.
+        (0, None, None, (2, false)),
     ] {
-        queue
+        let admission = queue
             .admit(super::super::queue::Domain {
                 powers: Default::default(),
                 phase: Phase::Apply,
@@ -165,10 +166,15 @@ fn initial_state() -> State<1> {
                 rank,
             })
             .unwrap();
+        assert_eq!(admission, expected_admission);
     }
-    queue
-        .admit(super::super::queue::Domain::route_cover([true], Some(11)))
-        .unwrap();
+    assert_eq!(
+        queue
+            .admit(super::super::queue::Domain::route_cover([true], Some(11)))
+            .unwrap(),
+        (3, true)
+    );
+    assert_eq!(queue.domains.len(), 4); // Narrow pending jobs were not retired.
     assert_eq!(queue.next, 0);
     State::new(queue, 0, None)
 }
@@ -228,7 +234,7 @@ fn initial_orthants_native_off_on_full_queue_and_serial_parallel_are_equivalent(
         false,
     );
     assert!(baseline.error.is_none(), "{:?}", baseline.error);
-    assert_eq!(baseline.completed, 5);
+    assert_eq!(baseline.completed, 4);
     assert_eq!(baseline.queue.next, baseline.queue.domains.len());
     assert_eq!(baseline.routed, 1);
     assert_eq!(baseline.frontiers, 0);

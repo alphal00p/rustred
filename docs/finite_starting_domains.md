@@ -499,9 +499,15 @@ one partial cancelled domain and zero observed frontiers. It spent 4.972 billion
 containment comparisons, including 0.988 billion reverse maintenance, with
 9.589 GB sampled peak RSS. Correlation fidelity alone does not remove redundant
 domain representations or conservative routing fanout. Independent review
-recommends measuring cached semantic inclusion next, followed by recognition
-of exact full-permutation routes where available. These are proposals, not
-measured improvements. Neither input covers the full marginal R14 or full-jet
+initially recommended measuring cached semantic inclusion, followed by a census
+of exact full-permutation routes. The subsequent audit now measures a 4.27-fold
+index-only replay gain, while the map census rules out full-permutation routing
+for the observed traffic. Support-aware affine bounds instead tighten 62.23%
+of projected root covers in a native diagnostic. Finish the integrated
+semantic-containment gate, measure it recursively, then implement that narrower
+support-aware routing slice. These are not end-to-end speedups; details and
+validation caveats are in the [parallel audit](research/finite_domain_parallel_audit_2026-09-22.md).
+Neither input covers the full marginal R14 or full-jet
 R15 envelope. Local receipts are under
 `TMP/correlated-routing-pilots.jw6Bwo/match-probe.hQCWzw/`; the independent
 verification is recorded in `LOCAL_MATCH_AUDIT.md` in the parent directory.
@@ -509,6 +515,26 @@ The recursive receipt is `shared-owner-campaign.jtsg2q0t/` in the same parent;
 the [pilot report](research/bounded_routing_pilot_2026-09-22.md) gives complete
 boundaries and audit findings. No durable pending-work resume or closing
 artifact is claimed from the interrupted run.
+
+### Cached semantic containment checkpoint
+
+The queue now caches exact coordinate/A/R/D extrema for its admitted domain
+vocabulary. This recognizes equivalent or containing regions missed by raw
+optional-bound comparisons, without changing raw keys or cancelling pending
+obligations. Six completed-descriptor replays measure a 4.27-fold median paired
+index-time improvement and approximately fivefold fewer comparisons; they do
+not replay every original admission or establish an end-to-end speedup.
+
+The release core gate passes 2,758 tests (32 diagnostics ignored), and the
+application/integration gates pass 443 (one replay diagnostic ignored).
+Two initially failing fixture counts were corrected with explicit shared-ID
+assertions: a fully active owner has actual R=0 regardless of its rank label.
+All original worker-count and initial-orthant equivalence checks pass. The
+same-input 980-point recursive pilot uses a frozen semantic-only binary,
+independent of the subsequent support-aware native routing implementation.
+Its receipts are `TMP/correlated-routing-pilots.jw6Bwo/shared-owner-campaign.r8txq1a3/`;
+this implementation checkpoint does not claim that pilot or the full physical
+five-loop envelope has closed. See the [audit synthesis](research/finite_domain_parallel_audit_2026-09-22.md).
 
 Local verification evidence is in `TMP/finite-entry-gate.2GG13m/` (untracked).
 The passing app gate took 64.97 s wall / 61.52 s user CPU, and the Python gate

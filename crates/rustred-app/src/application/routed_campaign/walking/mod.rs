@@ -83,6 +83,9 @@ impl OwnerDomainWalkResult {
             "containment_checks",
             "containment_maintenance_checks",
             "containment_retired_candidates",
+            "containment_summary_builds",
+            "containment_semantic_hits",
+            "containment_semantic_retirements",
             "containment_candidates",
             "containment_index_policy",
             "max_containment_checks",
@@ -306,6 +309,9 @@ fn run<const N: usize>(
     document["max_containment_checks"] = json!(request.max_containment_checks);
     document["containment_maintenance_checks"] = json!(state.queue.containment_maintenance_checks);
     document["containment_retired_candidates"] = json!(state.queue.containment_retired_candidates);
+    document["containment_summary_builds"] = json!(state.queue.containment_summary_builds);
+    document["containment_semantic_hits"] = json!(state.queue.containment_semantic_hits);
+    document["containment_semantic_retirements"] = json!(state.queue.containment_semantic_retirements);
     document["containment_candidates"] = json!(state.queue.containment_candidate_count());
     document["containment_index_policy"] = json!(state.queue.containment_index_policy());
     document["containment_check_policy"] =
@@ -415,6 +421,8 @@ mod policy_tests {
                 "containment_check_policy":"general_comparisons_only; null_is_unlimited; checked_counter",
                 "containment_checks":19, "pre_admitted_orthant_hits":3,
                 "containment_maintenance_checks":4, "containment_retired_candidates":2,
+                "containment_summary_builds":11, "containment_semantic_hits":7,
+                "containment_semantic_retirements":1,
                 "containment_candidates":5, "containment_index_policy":"test_policy"});
             let completion = OwnerDomainWalkResult::completion_progress(&document);
             assert_eq!(completion["max_containment_checks"], json!(limit));
@@ -426,6 +434,9 @@ mod policy_tests {
             for key in [
                 "containment_maintenance_checks",
                 "containment_retired_candidates",
+                "containment_summary_builds",
+                "containment_semantic_hits",
+                "containment_semantic_retirements",
                 "containment_candidates",
                 "containment_index_policy",
             ] {

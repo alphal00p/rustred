@@ -1,9 +1,13 @@
 # RustRed project goal
 
 **Execution resumed by user instruction:** continue from the September 22
-bounded-routing checkpoint. Correlated-domain propagation now passes release
-gates (2,748 core, 435 application/integration and 72 Python/steering tests;
-32 existing core diagnostics ignored). The matched maximal-index pilot
+bounded-routing checkpoint. Correlated-domain propagation passes its release
+gates (2,748 core, 435 application/integration and 72 Python/steering tests).
+The subsequent semantic-containment slice passes 2,758 core tests and 443
+application/integration tests, including full serial/parallel checks (32 core
+diagnostics and one index-replay diagnostic ignored). Its same-input recursive
+pilot is being measured separately from the new support-aware routing slice.
+The matched maximal-index pilot
 measures a 2.88–2.92× improvement on the identical completed traversal prefix;
 it and the subsequent all-owner control remain incomplete at diagnostic caps.
 Three independent audit lanes recommend retaining total-power correlations,
@@ -94,9 +98,15 @@ regions. Its recursive 50-worker pilot was stopped cooperatively for renewed
 serial admission pressure: 49,686 complete, 145,431 queued, 4.972 billion
 containment comparisons after 106.956 s traversal, with zero observed frontiers.
 This is a smaller, more faithful domain representation, not a completed
-five-loop solve. Next measure cached semantic containment, then exact
-permutation routing where structurally available; do not widen the campaign
-or generate new IBPs solely because conservative work remains unfinished.
+five-loop solve. The subsequent three-lane audit measures a 4.27-fold
+index-only semantic-containment replay gain, not a campaign speedup. Native
+map-support bounds tighten 62.23% of the observed projected root covers;
+full-permutation maps apply to none of the observed nonliteral calls. Next
+finish the semantic-containment validation gate and measure the same recursive
+pilot, then implement and measure support-aware affine routing. Defer another
+index until scans remain dominant. Do not widen the campaign or generate new
+IBPs solely because conservative work remains unfinished. See the
+[independent audit synthesis](docs/research/finite_domain_parallel_audit_2026-09-22.md).
 
 The older sequence and measurements below are retained as history; statements
 requiring unbounded positive starting powers are no longer authoritative.

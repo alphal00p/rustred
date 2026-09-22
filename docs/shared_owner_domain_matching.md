@@ -281,18 +281,32 @@ allowance and does not replace the worklist's aggregate event limit. These are
 not hard memory bounds. Stop-file cancellation, fresh atomic output, and compact
 progress remain active; the full output document is the source of truth.
 
-Unlimited-comparison mode maintains a stable maximal-box containment index.
+Unlimited-comparison mode maintains a stable maximal-domain containment index
+using cached exact coordinate, A, R and D extrema. Raw descriptions that imply
+the same set need not have the same fields: a numerator coordinate bounded by
+four implies R<=4 even if its supplied rank cap is ten. The fixed-template
+summary recognizes this without running geometry or algebra per comparison.
+It retains true infinities, wide aggregate bounds and explicit empty sets;
+invalid geometry fails rather than becoming an empty-domain shortcut.
 When a new domain contains an earlier one, only the earlier lookup candidate
 is retired: its exact key, original ID and pending FIFO inspection remain.
-This preserves admission decisions while avoiding repeated searches through
-redundant history. Exact lookup still returns the original ID; a nonexact hit
+This can avoid admissions that the former componentwise comparison retained.
+Exact lookup still returns the original ID; a nonexact hit
 may return another valid containing domain. Pending work is never counted as
-completed. Explicit finite comparison caps retain the historical scan policy.
+completed. Explicit finite comparison caps retain the historical raw scan
+policy and do not construct summaries; their diagnostic comparison prefix is
+unchanged. Phase, owner and immutable program snapshot still delimit reuse.
 
 Live and final reports expose `containment_index_policy`,
 `containment_candidates`, `containment_retired_candidates` and
 `containment_maintenance_checks`. The last counter measures reverse-dominance
 maintenance and is **included** in total `containment_checks`, not free work.
+The unlimited policy label is `maximal_candidates_semantic_unlimited`.
+`containment_summary_builds` counts successful projections after exact-key
+misses, including requests later reused or rejected. `containment_semantic_hits`
+and `containment_semantic_retirements` count forward reuse and reverse retirement
+respectively that the old raw predicate would miss. Summaries are cached once
+per admitted ID, outside the raw diagnostic descriptor and exact-key identity.
 Counter/allocation checks precede candidate retirement. A large incomparable
 set can still be expensive; this index does not establish closure or preserve
 physical sum constraints that were absent from an input box.

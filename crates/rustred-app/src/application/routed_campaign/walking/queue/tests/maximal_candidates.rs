@@ -21,7 +21,10 @@ fn assert_maximal_index(queue: &Queue<2>) {
         for &left in &bucket.ids {
             for &right in &bucket.ids {
                 if left != right {
-                    assert!(!queue.domains[left].contains(&queue.domains[right]));
+                    assert!(!semantic_contains(
+                        &queue.domains[left],
+                        &queue.domains[right]
+                    ));
                 }
             }
         }
@@ -34,7 +37,7 @@ fn assert_maximal_index(queue: &Queue<2>) {
                 bucket
                     .ids
                     .iter()
-                    .any(|&id| queue.domains[id].contains(historic))
+                    .any(|&id| semantic_contains(&queue.domains[id], historic))
             );
         }
     }
@@ -45,7 +48,7 @@ fn maximal_candidates_retire_only_index_entries_and_keep_exact_ids_and_pending_w
     let mut queue = Queue::new(8, None);
     assert_eq!(
         queue.containment_index_policy(),
-        "maximal_candidates_unlimited"
+        "maximal_candidates_semantic_unlimited"
     );
     let narrow = bounded(Some(11), 3, 9);
     let broad = bounded(Some(11), 0, 12);
@@ -70,7 +73,9 @@ fn maximal_candidates_retire_only_index_entries_and_keep_exact_ids_and_pending_w
 fn maximal_candidates_keep_high_rank_finite_boxes_beside_lower_rank_orthants() {
     let mut queue = Queue::new(8, None);
     assert_eq!(queue.admit(domain(Some(5))), Ok((0, true)));
-    let high = bounded(Some(10), 2, 8);
+    let mut high = bounded(Some(10), 2, 8);
+    // This box must really contain R>5, not merely carry a redundant rank10 label.
+    high.upper[1] = Some(10);
     assert_eq!(queue.admit(high.clone()), Ok((1, true)));
     assert_eq!(queue.admit(domain(Some(7))), Ok((2, true)));
     let bucket = &queue.by_owner[&(Phase::Apply, high.owner)];
@@ -78,7 +83,9 @@ fn maximal_candidates_keep_high_rank_finite_boxes_beside_lower_rank_orthants() {
     assert_eq!(bucket.orthant, Some(2));
     assert_eq!(queue.containment_retired_candidates, 1);
     assert_eq!(queue.containment_candidate_count(), 2);
-    assert_eq!(queue.admit(bounded(Some(8), 3, 7)), Ok((1, false)));
+    let mut high_child = bounded(Some(8), 3, 7);
+    high_child.upper[1] = Some(8);
+    assert_eq!(queue.admit(high_child), Ok((1, false)));
     assert_eq!(queue.admit(domain(Some(5))), Ok((0, false)));
     assert_maximal_index(&queue);
 }
@@ -86,8 +93,10 @@ fn maximal_candidates_keep_high_rank_finite_boxes_beside_lower_rank_orthants() {
 #[test]
 fn maximal_candidates_distinguish_rank_and_coordinate_infinity() {
     let mut queue = Queue::new(8, None);
-    let finite_rank = bounded(Some(u32::MAX), 0, u64::MAX);
-    let unbounded_rank = bounded(None, 0, u64::MAX);
+    let mut finite_rank = bounded(Some(u32::MAX), 0, u64::MAX);
+    finite_rank.upper[1] = None;
+    let mut unbounded_rank = bounded(None, 0, u64::MAX);
+    unbounded_rank.upper[1] = None;
     assert_eq!(queue.admit(finite_rank.clone()), Ok((0, true)));
     assert_eq!(queue.admit(unbounded_rank.clone()), Ok((1, true)));
     assert_eq!(
@@ -201,13 +210,13 @@ fn maximal_candidates_match_naive_fifo_for_overlapping_incomparable_and_expandin
         }
     }
     for request in requests {
-        let expected_new = !baseline.iter().any(|old| old.contains(&request));
+        let expected_new = !baseline.iter().any(|old| semantic_contains(old, &request));
         if expected_new {
             baseline.push(request.clone());
         }
         let (id, is_new) = queue.admit(request.clone()).unwrap();
         assert_eq!(is_new, expected_new);
-        assert!(queue.domains[id].contains(&request));
+        assert!(semantic_contains(&queue.domains[id], &request));
         if is_new {
             assert_eq!(id, baseline.len() - 1);
         }

@@ -1,5 +1,5 @@
 //! Inclusion reuse for one immutable program snapshot, not solved-state reuse.
-use rustred::solver::DomainPowerBounds;
+use rustred::solver::{DomainPowerBounds, DomainPowerError, DomainPowerSummary};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -34,6 +34,8 @@ impl<const N: usize> Domain<N> {
         }
     }
 
+    /// Sufficient syntactic implication, retained for the explicitly capped
+    /// historical scan and to measure additional semantic reuse.
     fn contains(&self, other: &Self) -> bool {
         self.phase == other.phase
             && self.owner == other.owner
@@ -87,12 +89,21 @@ pub(super) struct Queue<const N: usize> {
     /// Cumulative IDs removed only from the containment candidate index.
     /// Every corresponding domain/exact key/FIFO obligation remains retained.
     pub containment_retired_candidates: usize,
+    /// Successfully constructed cached geometry, including rejected/reused
+    /// requests. Exact-key hits do not construct another summary.
+    pub containment_summary_builds: usize,
+    /// Successful forward/reverse implications missed by the old raw bounds.
+    pub containment_semantic_hits: usize,
+    pub containment_semantic_retirements: usize,
     pub exact_hits: usize,
     pub orthant_hits: usize,
     pub max_finite_rank: Option<u32>,
     pub unbounded_rank_domains: usize,
     exact: HashMap<Arc<Domain<N>>, usize>,
     by_owner: HashMap<(Phase, [bool; N]), OwnerBucket>,
+    /// One immutable native summary per admitted ID in the unlimited lane.
+    /// Raw domains, exact keys and scheduling obligations remain unchanged.
+    summaries: Vec<DomainPowerSummary<N>>,
     max_domains: usize,
     max_checks: Option<usize>,
 }
@@ -109,7 +120,7 @@ impl<const N: usize> Queue<N> {
 
     pub fn containment_index_policy(&self) -> &'static str {
         if self.max_checks.is_none() {
-            "maximal_candidates_unlimited"
+            "maximal_candidates_semantic_unlimited"
         } else {
             "historical_candidates_finite_cap"
         }
@@ -133,12 +144,16 @@ impl<const N: usize> Queue<N> {
             containment_checks: 0,
             containment_maintenance_checks: 0,
             containment_retired_candidates: 0,
+            containment_summary_builds: 0,
+            containment_semantic_hits: 0,
+            containment_semantic_retirements: 0,
             exact_hits: 0,
             orthant_hits: 0,
             max_finite_rank: None,
             unbounded_rank_domains: 0,
             exact: HashMap::new(),
             by_owner: HashMap::new(),
+            summaries: Vec::new(),
             max_domains,
             max_checks,
         }
@@ -152,9 +167,10 @@ impl<const N: usize> Queue<N> {
     /// None means no policy cap, but counter overflow remains an explicit error.
     /// A dominant orthant or maximal candidate can return a different valid
     /// containing ID than the historical first-match scan. Exact IDs and all
-    /// new-domain IDs/FIFO obligations remain unchanged with unlimited checks.
-    /// Finite-cap mode deliberately keeps its existing full-scan policy and
-    /// performs no reverse maintenance work.
+    /// already admitted IDs/FIFO obligations remain unchanged. Stronger exact
+    /// inclusion may avoid admissions that the former raw predicate retained.
+    /// Finite-cap mode deliberately keeps its existing raw full-scan policy
+    /// and performs no reverse maintenance or summary construction work.
     pub fn admit(&mut self, domain: Domain<N>) -> Result<(usize, bool), &'static str> {
         debug_assert_eq!(domain.lower.len(), N);
         debug_assert_eq!(domain.upper.len(), N);
@@ -165,6 +181,24 @@ impl<const N: usize> Queue<N> {
             self.deduplicated += 1;
             return Ok((id, false));
         }
+        let summary = if self.max_checks.is_none() {
+            let builds = self
+                .containment_summary_builds
+                .checked_add(1)
+                .ok_or("domain summary counter overflow")?;
+            let summary = DomainPowerSummary::try_new(
+                domain.owner,
+                &domain.lower,
+                &domain.upper,
+                domain.rank,
+                domain.powers,
+            )
+            .map_err(summary_error)?;
+            self.containment_summary_builds = builds;
+            Some(summary)
+        } else {
+            None
+        };
         let key = (domain.phase, domain.owner);
         if let Some(bucket) = self.by_owner.get(&key) {
             if let Some(id) = bucket.orthant
@@ -185,7 +219,17 @@ impl<const N: usize> Queue<N> {
                     .containment_checks
                     .checked_add(1)
                     .ok_or("domain containment counter overflow")?;
-                if self.domains[id].contains(&domain) {
+                let contained = summary.as_ref().map_or_else(
+                    || self.domains[id].contains(&domain),
+                    |candidate| self.summaries[id].contains(candidate),
+                );
+                if contained {
+                    if summary.is_some() && !self.domains[id].contains(&domain) {
+                        self.containment_semantic_hits = self
+                            .containment_semantic_hits
+                            .checked_add(1)
+                            .ok_or("semantic containment hit counter overflow")?;
+                    }
                     self.deduplicated += 1;
                     return Ok((id, false));
                 }
@@ -201,6 +245,11 @@ impl<const N: usize> Queue<N> {
         self.exact
             .try_reserve(1)
             .map_err(|_| "exact domain index allocation")?;
+        if summary.is_some() {
+            self.summaries
+                .try_reserve(1)
+                .map_err(|_| "domain summary allocation")?;
+        }
         // Reserve every fallible collection slot before publishing the domain,
         // either index, or rank telemetry. Failed reserves may change capacity,
         // never logical admission state. Occasional native HashMap rehash is
@@ -246,24 +295,34 @@ impl<const N: usize> Queue<N> {
         self.containment_retired_candidates
             .checked_add(maintenance)
             .ok_or("domain containment retired-candidate counter overflow")?;
+        self.containment_semantic_retirements
+            .checked_add(maintenance)
+            .ok_or("semantic containment retirement counter overflow")?;
         let domain = Arc::new(domain);
         if let Some(bucket) = new_bucket {
             self.by_owner.insert(key, bucket);
         }
         let bucket = self.by_owner.get_mut(&key).expect("reserved owner bucket");
         let previous_candidates = bucket.ids.len();
+        let mut extra_retired = 0;
         if maintenance != 0 {
             // All retained candidates and the new domain belong to this same
             // immutable phase/owner snapshot. Transitivity preserves a retained
             // containing representative for every retired candidate. Keep the
             // old domains/exact entries/FIFO jobs, whether pending or finished.
-            bucket
-                .ids
-                .retain(|&old| !domain.contains(&self.domains[old]));
+            let summary = summary.as_ref().expect("unlimited lane summary");
+            bucket.ids.retain(|&old| {
+                let retire = summary.contains(&self.summaries[old]);
+                if retire && !domain.contains(&self.domains[old]) {
+                    extra_retired += 1; // preflighted by the maintenance bound
+                }
+                !retire
+            });
         }
         self.containment_checks = total_checks;
         self.containment_maintenance_checks = maintenance_checks;
         self.containment_retired_candidates += previous_candidates - bucket.ids.len();
+        self.containment_semantic_retirements += extra_retired;
         bucket.ids.push(id);
         if full_orthant
             && bucket
@@ -279,7 +338,21 @@ impl<const N: usize> Queue<N> {
         }
         self.exact.insert(Arc::clone(&domain), id);
         self.domains.push(domain);
+        if let Some(summary) = summary {
+            self.summaries.push(summary);
+        }
         Ok((id, true))
+    }
+}
+
+fn summary_error(error: DomainPowerError) -> &'static str {
+    match error {
+        DomainPowerError::InvalidArity => "invalid domain summary arity",
+        DomainPowerError::InvertedCoordinate { .. } => "inverted domain summary coordinate bounds",
+        DomainPowerError::InvertedDifferenceBounds => "inverted domain summary difference bounds",
+        DomainPowerError::ArithmeticOverflow(context) | DomainPowerError::OutOfRange(context) => {
+            context
+        }
     }
 }
 

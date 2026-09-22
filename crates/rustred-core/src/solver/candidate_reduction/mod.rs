@@ -38,7 +38,9 @@ pub use owners::{
     OwnerSuccessorError, OwnerSuccessorFailure, OwnerSuccessorLimits, OwnerSuccessorRegion,
     OwnerSuccessorStats, OwnerSuccessorTransition,
 };
-pub use power_domain::{DomainPowerBounds, DomainPowerError};
+pub use power_domain::{
+    DomainPowerBounds, DomainPowerError, DomainPowerExtrema, DomainPowerSummary,
+};
 pub use reducer::CandidateReducer;
 pub use routed::{
     CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,

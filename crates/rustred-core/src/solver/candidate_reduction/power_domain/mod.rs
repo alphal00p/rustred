@@ -5,8 +5,10 @@
 //! generally a strict overcover of the represented integer domain.
 
 mod geometry;
+mod summary;
 
 pub(crate) use geometry::project;
+pub use summary::{DomainPowerExtrema, DomainPowerSummary};
 
 /// Additional physical-index predicates A <= maximum and lower <= D <= upper,
 /// where A=sum(max(n_i,0)) and D=sum(n_i)=A-R. Positive local coordinates are

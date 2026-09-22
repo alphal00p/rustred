@@ -80,6 +80,9 @@ fn bounded_initial_route_keeps_boxes_and_worker_independent_reduction_graph() {
             "containment_checks",
             "containment_maintenance_checks",
             "containment_retired_candidates",
+            "containment_summary_builds",
+            "containment_semantic_hits",
+            "containment_semantic_retirements",
             "containment_candidates",
             "containment_index_policy",
         ] {

@@ -44,7 +44,19 @@ fn owner_domain_walk_parallel_stable_domains_and_native_counters_match_serial() 
         "{}",
         baseline.document
     );
-    assert_eq!(baseline.document["scheduled_nodes"], 4);
+    // This owner has no inactive axes: both rank labels describe R=0.
+    // The two rays reuse one job, while already admitted narrow jobs remain.
+    assert_eq!(baseline.document["scheduled_nodes"], 3);
+    assert_eq!(
+        baseline.document["inputs"],
+        json!([
+            {"id":"narrow-a","domain":0},
+            {"id":"narrow-b","domain":1},
+            {"id":"whole-ray","domain":2},
+            {"id":"duplicate","domain":0},
+            {"id":"unbounded-rank","domain":2}
+        ])
+    );
     for workers in [2, 6] {
         if rustred::campaign::ParallelExecution::preflight_requested_core_budget(workers).is_err() {
             continue;
@@ -74,6 +86,9 @@ fn owner_domain_walk_parallel_stable_domains_and_native_counters_match_serial() 
             "exact_domain_hits",
             "full_orthant_hits",
             "containment_checks",
+            "containment_summary_builds",
+            "containment_semantic_hits",
+            "containment_semantic_retirements",
             "max_scheduled_finite_rank",
             "unbounded_rank_domains",
             "optional_coefficient_refusals",

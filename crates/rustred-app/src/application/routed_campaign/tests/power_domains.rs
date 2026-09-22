@@ -67,6 +67,9 @@ fn constrained_walk_translates_bounds_and_reaches_terminals_outside_entry_band()
             "events",
             "frontiers",
             "successors",
+            "containment_summary_builds",
+            "containment_semantic_hits",
+            "containment_semantic_retirements",
         ] {
             assert_eq!(
                 result.document[field], serial.document[field],

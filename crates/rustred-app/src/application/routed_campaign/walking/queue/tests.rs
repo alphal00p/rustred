@@ -25,6 +25,17 @@ fn power_predicates_participate_in_identity_and_dominance_without_dropping_work(
 }
 
 mod maximal_candidates;
+mod replay;
+mod semantic;
+
+fn semantic_contains<const N: usize>(container: &Domain<N>, candidate: &Domain<N>) -> bool {
+    let summary = |d: &Domain<N>| {
+        DomainPowerSummary::try_new(d.owner, &d.lower, &d.upper, d.rank, d.powers).unwrap()
+    };
+    container.phase == candidate.phase
+        && container.owner == candidate.owner
+        && summary(container).contains(&summary(candidate))
+}
 
 fn domain(rank: Option<u32>) -> Domain<2> {
     Domain {
@@ -318,7 +329,7 @@ fn failed_comparison_admission_does_not_publish_dominant_orthant() {
 }
 
 #[test]
-fn indexed_admission_matches_naive_admitted_fifo_for_mixed_domains() {
+fn indexed_admission_matches_naive_semantic_fifo_for_mixed_domains() {
     let mut queue = Queue::new(10_000, None);
     let mut baseline: Vec<Domain<2>> = Vec::new();
     let mut naive_checks = 0usize;
@@ -377,7 +388,7 @@ fn indexed_admission_matches_naive_admitted_fifo_for_mixed_domains() {
                 return false;
             }
             naive_checks += 1;
-            container.contains(&request)
+            semantic_contains(container, &request)
         });
         let expected_new = prior.is_none();
         if expected_new {
@@ -385,7 +396,7 @@ fn indexed_admission_matches_naive_admitted_fifo_for_mixed_domains() {
         }
         let (id, is_new) = queue.admit(request.clone()).unwrap();
         assert_eq!(is_new, expected_new);
-        assert!(queue.domains[id].contains(&request));
+        assert!(semantic_contains(&queue.domains[id], &request));
         if is_new {
             assert_eq!(id, baseline.len() - 1);
         }
