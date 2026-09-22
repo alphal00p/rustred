@@ -101,6 +101,7 @@ pub fn compile(
     let mut seen = reserved(target_arity, "transport target active map")?;
     seen.resize(target_arity, false);
     let one = target.coefficient_context().one();
+    let mut numerator_entries = 0_usize;
     for row in 0..arity {
         target
             .coefficient_context()
@@ -125,6 +126,11 @@ pub fn compile(
                     column: Some(column),
                 });
             }
+            if !source_root.active_bits()[row] && !coefficient.is_zero() {
+                numerator_entries = numerator_entries
+                    .checked_add(1)
+                    .ok_or_else(|| overflow("transport numerator support"))?;
+            }
         }
         if source_root.active_bits()[row] {
             let DenominatorAction::Monomial {
@@ -147,6 +153,32 @@ pub fn compile(
     if seen.as_slice() != target_root.active_bits() {
         return Err(Error::ActiveBijection);
     }
+    // Both allocations are bounded by the already admitted map dimensions;
+    // support storage contains indices only, never cloned CAS expressions.
+    let mut numerator_support_offsets = reserved(
+        target_arity
+            .checked_add(1)
+            .ok_or_else(|| overflow("transport numerator support offsets"))?,
+        "transport numerator support offsets",
+    )?;
+    let mut numerator_support_sources =
+        reserved(numerator_entries, "transport numerator support sources")?;
+    numerator_support_offsets.push(0);
+    for column in 0..target_arity {
+        for row in 0..arity {
+            if !source_root.active_bits()[row]
+                && !map
+                    .denominators()
+                    .linear()
+                    .get(row, column)
+                    .expect("verified matrix shape")
+                    .is_zero()
+            {
+                numerator_support_sources.push(row);
+            }
+        }
+        numerator_support_offsets.push(numerator_support_sources.len());
+    }
     Ok(Prepared {
         source_fingerprint: source.fingerprint_owner(),
         target,
@@ -154,6 +186,8 @@ pub fn compile(
         source_root,
         target_root,
         active_target: active_target.into_boxed_slice(),
+        numerator_support_offsets: numerator_support_offsets.into_boxed_slice(),
+        numerator_support_sources: numerator_support_sources.into_boxed_slice(),
     })
 }
 

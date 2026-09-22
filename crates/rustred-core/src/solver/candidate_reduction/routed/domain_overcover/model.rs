@@ -75,7 +75,8 @@ pub enum CandidateDomainRouteEvent<const N: usize> {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CandidateDomainRouteStats {
     pub masks_examined: usize,
-    /// Examined masks excluded by weighted pinch cost or empty power geometry.
+    /// Examined masks excluded by numerator support, weighted pinch cost or
+    /// empty power geometry.
     /// These masks still consume the mask allowance.
     pub masks_pruned: usize,
     pub events: usize,

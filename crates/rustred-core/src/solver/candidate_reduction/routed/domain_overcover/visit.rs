@@ -1,6 +1,7 @@
 use super::super::RoutedCandidateReducer;
 use super::model::*;
 use super::power::{mapped_bounds, project_cover};
+use super::support::NumeratorDegrees;
 use crate::solver::candidate_reduction::power_domain::{
     DomainPowerBounds, DomainPowerError, project,
 };
@@ -99,6 +100,9 @@ impl<const N: usize> RoutedCandidateReducer<N> {
 
     /// Route a box intersected with retained total-positive-power and A-R bounds.
     /// Source and mapped covers are projected before enumerating further masks;
+    /// verified inactive-row support bounds each active target's cancellable
+    /// degree, retaining surviving positive lowers and rejecting impossible
+    /// pinches without expanding numerator polynomials.
     /// omitted masks are proved empty, not missing-rule or terminal claims.
     /// The unconstrained bounds value retains the existing bounded visitor's
     /// exact output and accounting, including its unbounded-rank representation.
@@ -289,10 +293,31 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 "active map does not cover the target root",
             ));
         }
+        let degrees = projection
+            .as_ref()
+            .map(|projected| {
+                NumeratorDegrees::from_source(
+                    &route.transport,
+                    &source,
+                    &root,
+                    &projected.lower,
+                    &projected.upper,
+                    projected.numerator_upper,
+                )
+            })
+            .transpose()?;
+        let target_lower = std::array::from_fn(|axis| {
+            degrees
+                .as_ref()
+                .filter(|_| root[axis])
+                .map_or(0, |degrees| {
+                    degrees.surviving_lower(axis, target_lower_cost[axis])
+                })
+        });
         let cover = CandidateDomainRouteCover {
             source_sector: source,
             target_root: root,
-            lower: [0; N],
+            lower: target_lower,
             upper: target_upper,
             actual_rank,
             power_bounds: if constrained {
@@ -364,7 +389,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             loop {
                 cancelled(cancellation)?;
                 // Charge every examined complete subset, including impossible
-                // weighted pinches. Preflight before scanning its coordinates.
+                // support/weighted pinches. Preflight before scanning its coordinates.
                 let masks = admit(stats.masks_examined, 1, limits.max_masks, "route masks")?;
                 let mut sector = root;
                 let mut pinched_rank = actual_rank;
@@ -373,6 +398,13 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 for &position in &positions {
                     let axis = active[position];
                     sector[axis] = false;
+                    if degrees
+                        .as_ref()
+                        .is_some_and(|degrees| !degrees.can_pinch(axis, target_lower_cost[axis]))
+                    {
+                        possible = false;
+                        break;
+                    }
                     if constrained {
                         pinch_cost = pinch_cost
                             .checked_add(u128::from(target_lower_cost[axis]) + 1)
@@ -396,15 +428,21 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 // Apply uses the ordinary matcher to establish its validity.
                 if possible {
                     let mut pinched_upper = target_upper;
+                    // Use source-derived lower bounds, never the additional
+                    // projection of the all-positive root. A removed axis now
+                    // measures excess numerator degree and must start at zero.
+                    let mut pinched_lower = target_lower;
                     for (axis, &on) in sector.iter().enumerate() {
                         if !on {
                             // An inactive source bound cannot be carried
                             // through an affine map as if it were a permutation.
                             pinched_upper[axis] = None;
+                            pinched_lower[axis] = 0;
                         }
                     }
                     let pinched = CandidateDomainRouteCover {
                         actual_rank: pinched_rank,
+                        lower: pinched_lower,
                         upper: pinched_upper,
                         ..cover
                     };

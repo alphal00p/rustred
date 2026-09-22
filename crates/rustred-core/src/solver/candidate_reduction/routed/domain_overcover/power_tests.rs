@@ -1,6 +1,9 @@
 use super::*;
 use crate::solver::{DomainPowerBounds, DomainPowerError};
 
+#[path = "support_tests.rs"]
+mod support_tests;
+
 fn constrained(
     reducer: &RoutedCandidateReducer<3>,
     source: [bool; 3],

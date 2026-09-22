@@ -395,7 +395,7 @@ python examples/python/match_shared_owner_domains.py \
 
 An admitted map permutes positive denominator powers into a nonnegative base
 `B` and substitutes degree-at-most-one polynomials for numerator factors. For
-incoming numerator rank `D`, every surviving monomial has degree `|e|<=D` and
+incoming numerator rank `R`, every surviving monomial has degree `|e|<=R` and
 endpoint `B-e`. Its numerator rank is
 `|e| - sum_i min(e_i, B_i)`. Losing `k` active denominators consumes at least
 `k` units of that degree, so a strict pinched support needs rank at most `R-k`
@@ -411,8 +411,10 @@ The full mapped root goes directly to `Apply`; strict subsupports reenter
 reuse work but do not count as completed. The route queue preserves supplied
 finite boxes instead of replacing them with full orthants. Literal owners
 retain the complete box. For a nonliteral map, each surviving positive
-coordinate keeps the upper bound from its mapped source axis; its lower bound
-becomes zero because numerator cancellation can lower a positive power.
+coordinate keeps the upper bound from its mapped source axis. Unconstrained
+routing uses lower bound zero because numerator cancellation can lower a
+positive power; the power-bounded lane uses the tighter support-aware bound
+below.
 Inactive coordinate bounds cannot generally be permuted through an affine
 numerator substitution and are conservatively controlled by the actual rank.
 
@@ -424,6 +426,35 @@ at incoming R6 their simultaneous-pinch child has R0, not the old R4 bound.
 An impossible weighted pinch is skipped, never saturated to R0. Unbounded rank
 remains unbounded. The full-orthant visitor delegates with zero lowers and
 unbounded uppers, recovering the usual R-minus-number-of-pinches bound.
+
+With nondefault `power_bounds`, the native power-bounded visitor also uses the
+verified affine numerator map's exact support. For inactive source row i,
+write `Q_i=c_i+sum_j M_ij T_j`, with source powers `L_i<=t_i<=U_i`. Only rows
+with nonzero `M_ij` can supply numerator degree on target axis j, so
+
+```
+C_j = min(sum(U_i for M_ij != 0),
+          source_R_max - sum(L_i for M_ij == 0)).
+```
+
+All sums here run over inactive source rows. They use the source domain's
+implied bounds, not the original starting restrictions. A surviving mapped
+positive axis with source local lower l keeps lower `max(0,l-C_j)`, and cannot
+be pinched if `C_j<l+1`. For example, `(T1+1)^3/(T0^2*T1)` cannot pinch T0:
+its column has zero numerator support even though the total source rank is
+three. Empty supports, genuinely infinite bounds and checked wide sums retain
+their mathematical meanings.
+
+The prepared map caches only source-axis incidence using the existing native
+Symbolica coefficient zero test. There is no numerator expansion, coefficient
+cloning per worker, new CAS kernel, or new artifact/schema requirement.
+Each child derives its bounds from the source, independently of projecting
+the all-positive root; pinched axes reset their local lower to zero. The
+existing joint weighted pinch-cost check remains necessary because separate
+column maxima need not be jointly attainable. Every examined candidate still
+counts against the mask allowance, even when support proves it impossible.
+Calls without additional power predicates keep the former bounded visitor's
+behavior. These bounds reduce overcoverage; they do not make the image exact.
 
 The application retains boxes on initial nonliteral admission, every RHS
 successor, mapped Apply and subsequent Route reentry. Empty rank intersections

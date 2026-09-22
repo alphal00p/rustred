@@ -6,7 +6,18 @@ gates (2,748 core, 435 application/integration and 72 Python/steering tests).
 The subsequent semantic-containment slice passes 2,758 core tests and 443
 application/integration tests, including full serial/parallel checks (32 core
 diagnostics and one index-replay diagnostic ignored). Its same-input recursive
-pilot is being measured separately from the new support-aware routing slice.
+pilot stopped cooperatively with 125,503 completed domains and 103,626 pending,
+after 169.163 s traversal; serial admission pressure remained. The next
+support-aware affine-routing slice passes independent mathematical review,
+2,768 core tests, 443 application/integration tests and all 72 Python/steering
+tests. Its matched pilot stopped cooperatively after 121.100 s traversal with
+63,913 completed domains and 113,500 pending. Tighter covers did not cure serial
+admission pressure and increased candidate diversity in the observed prefix;
+do not present this as a campaign speedup. Neither slice establishes five-loop
+closure. Next measure exact-safe aggregate filtering of the admission index.
+On 5,910 identical routed source queries, the new support bounds reduce emitted
+Route descendants by 81.90%; this local pruning does not override the observed
+global admission bottleneck.
 The matched maximal-index pilot
 measures a 2.88–2.92× improvement on the identical completed traversal prefix;
 it and the subsequent all-owner control remain incomplete at diagnostic caps.
@@ -101,10 +112,15 @@ This is a smaller, more faithful domain representation, not a completed
 five-loop solve. The subsequent three-lane audit measures a 4.27-fold
 index-only semantic-containment replay gain, not a campaign speedup. Native
 map-support bounds tighten 62.23% of the observed projected root covers;
-full-permutation maps apply to none of the observed nonliteral calls. Next
-finish the semantic-containment validation gate and measure the same recursive
-pilot, then implement and measure support-aware affine routing. Defer another
-index until scans remain dominant. Do not widen the campaign or generate new
+full-permutation maps apply to none of the observed nonliteral calls. The
+semantic-containment gate and recursive measurement are complete; admission
+still dominated its later interval (about 2.08 busy cores of 50 configured).
+Support-aware affine routing is now implemented and gated; its matched pilot
+still spends billions of comparisons on linear admission scans. Test
+conservative aggregate-extremum filtering with exact containment still
+authoritative, including reverse retirement and deterministic containing-ID
+selection. See the [bounded index proposal](docs/research/domain_admission_index_next_step_2026-09-22.md).
+Do not widen the campaign or generate new
 IBPs solely because conservative work remains unfinished. See the
 [independent audit synthesis](docs/research/finite_domain_parallel_audit_2026-09-22.md).
 

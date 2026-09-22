@@ -2,6 +2,14 @@
 
 ## Outcome
 
+**Support-aware routing update:** exact numerator-support caps now remove
+81.90% of routed descendants on 5,910 identical source queries shared with the
+semantic-only pilot. However, the recursive run still suffers serial admission
+pressure and shows worse queue/throughput trends: tighter conservative boxes do
+not automatically make global subsumption cheaper. It stops incomplete with
+63,913 complete and 113,500 pending domains. See
+[the matched support pilot](#support-aware-routing-pilot-local-pruning-global-admission-regression).
+
 **Correlated-domain update:** A/R/D predicates now survive matching, shifts,
 routing and queue/cache reuse. The 980-point constrained diagonal agrees with
 the saved singleton oracle locally, but recursive traversal still develops
@@ -364,6 +372,206 @@ the larger rectangular runs above.
 Recursive receipts: `TMP/correlated-routing-pilots.jw6Bwo/shared-owner-campaign.jtsg2q0t/`.
 The result is diagnostic, not a durable pending-work checkpoint or a closing
 artifact. No solver remains running from this pilot; the project goal is active.
+
+## Semantic-only correlated rerun: useful reuse, still incomplete
+
+The integrated release gate now passes 361 application tests (one replay
+diagnostic ignored), including both actual serial/parallel equivalence test
+loops. The prior two failures were corrected fixed-count fixture expectations;
+explicit equivalent-domain reuse assertions were added. Core passes 2,758
+tests (32 ignored), the isolated queue harness 27 (one ignored), and the
+separately run integration suite all 82 tests. This resolves the gate status
+recorded in the earlier performance-audit snapshot.
+
+The next run uses the **same 980-point A24/D10/R10 input**, saved 67-owner
+manifest, 8,246 routes, 50 workers, CPUs 0–49 and 500/450 GB hard/soft RSS
+allowances. Normalized supervisor requests compare identically; no elapsed
+deadline or changed diagnostic cap is introduced. The frozen release CLI is
+`TMP/semantic-containment-gate.qn9MTE/rustred`, SHA-256
+`891cf5ae621760c653645e3ae17e9246111f803f2d8684d8cad942eb85648d10`.
+The audit verified the hash through the running process executable and checked
+its actual affinity and process start identity. This is the semantic-index-only
+baseline: pending affine-support routing edits were **not** compiled into it.
+No root-owned build overlaps the measured traversal.
+
+| Measurement | Earlier correlated pilot | Semantic-only rerun |
+|---|---:|---:|
+| Preparation | 102.701 s | 104.124 s |
+| Traversal including cooperative stop | 106.956 s | 169.163 s |
+| Application / supervisor time | 209.657 / 216.138 s | 273.287 / 282.206 s |
+| Sampled aggregate CPU | 650.32 s | 1,219.85 s |
+| Sampled peak aggregate RSS | 9.589 GB | 11.515 GB |
+| Completed / scheduled domains | 49,686 / 195,118 | 125,503 / 229,130 |
+| Queued / partial cancelled domains | 145,431 / 1 | 103,626 / 1 |
+| Committed events | 3,518,508 | 10,656,512 |
+| Comparisons, including maintenance | 4,971,600,936 | 8,157,472,074 |
+| Included reverse maintenance | 987,619,360 | 1,407,523,725 |
+| Additional semantic reuse hits | — | 2,790,937 |
+| Additional semantic retirements | — | 6,136 |
+| Live / retired lookup candidates | 58,169 / 136,949 | 65,855 / 163,275 |
+| Observed unresolved frontiers | 0 | 0 |
+
+The new semantic index performs useful extra reuse, but these are **different
+partial prefixes** with different admission histories. The table does not
+establish a complete-campaign speedup. The approximately 4.27-fold speedup
+measured by replaying only 49,686 saved completed descriptors is a separate
+index microbenchmark and must not be extrapolated into a closure ETA.
+
+Early traversal uses the worker pool effectively: at 116 s total the rerun has
+19,112 completed, 41,101 pending and 29.10 busy cores. Serial admission pressure
+then returns. At total times 140.295, 180.456 and 257.766 s, the pending queue
+grows from 67,230 to 81,538 to 100,947, while comparisons rise from 1.365 to
+3.490 to 7.518 billion. The completed-result escrow remains at its 65,536-entry
+ceiling; its peak accounted memory is only 3.878 GB of the 8.590-GB byte limit.
+Across 28 samples from 212–266 s, mean utilization is 2.075 busy cores (range
+1.279–3.287). A thread snapshot finds the coordinator runnable and all 51 other
+threads waiting in futex calls. No draining phase has yet appeared.
+
+Root therefore requests a **cooperative optimization stop**, not a timeout,
+missing-rule stop or resource-cap stop. The cancellation is acknowledged;
+the first finished-result heartbeat follows that acknowledgement by 5.026 s.
+The result file is written 9.799 s after stop-file creation and the supervisor
+receipt 12.919 s after it. Both owned PIDs are confirmed absent. Exit is 4,
+`hard_stopped=false`; no support build starts until after termination.
+This decision does not prove the pilot could never finish or would exceed
+fifteen hours. It provides a measured reason to reduce the conservative work
+feeding serial admission before another attempt.
+
+All 125,504 committed records, including the cancelled partial record, retain
+power metadata and finite positive coordinate uppers. A upper ranges 9–25,
+D lower 7–15, and the maximum admitted descendant rank cap is 11. There are
+2,895 records with A upper>24 and 1,328 with rank cap>10. These are legitimate
+translated domain bounds, not reapplication of the starting caps or proof
+that every point in a conservative overcover is concretely reachable.
+Node accounting is exact:
+229,130 scheduled = 125,503 complete + 103,626 pending + one partial. Zero
+observed frontiers does not discharge the pending obligations. Neither a
+closed five-loop artifact nor a durable pending-work checkpoint is produced.
+
+The next isolated slice is **support-aware affine routing**, not full-family
+permutation specialization. The native census found that none of the 32
+actually used nonliteral maps is a full denominator permutation. By contrast,
+support-aware numerator degree budgets strictly tighten 17,304 of 27,807
+observed root covers after native projection. That diagnostic is not an
+end-to-end speedup or an exact count of removable successors. The next run must
+measure actual route fanout, queue growth and admission cost after its own
+endpoint tests and independent audit. Do not regenerate rules without a
+reachable concrete rule gap.
+
+Receipts: `TMP/correlated-routing-pilots.jw6Bwo/shared-owner-campaign.r8txq1a3/`.
+Independent launch/protocol/final audit:
+`TMP/semantic-d10-pilot-audit.X9KVDj/`. The semantic-only pilot has stopped;
+the goal remains active and implementation proceeds to the separate routing
+slice.
+
+## Support-aware routing pilot: local pruning, global admission regression
+
+The new release gate passes 2,768 core tests (32 ignored), 361 application
+tests (one ignored), all 82 application integration tests and all 72 freshly
+built Python/API/steering tests. The focused route-cover gate passes 40 tests;
+an independent source/mathematical audit passes. This slice derives numerator
+degree caps from Symbolica-verified affine-map support and the source power
+domain. It tightens surviving denominator lower bounds and rejects impossible
+pinches; it neither expands numerators nor regenerates IBPs.
+
+The frozen executable is `TMP/affine-support-gate.cv24Y0/rustred`, SHA-256
+`e870efc3a51f8ec515b7efffcee087e98620c4c5e4dc2639325af0cb6d163a0a`.
+The audit verified that hash through the actual running executable, actual
+affinity on 50 distinct physical CPUs 0–49, nested pools of one and the 480 GB
+child address-space limit. The request matches the semantic-only baseline
+after normalizing only executable, receipt paths and process identities.
+Query and manifest hashes remain `541d14fb...220085` and `d2de7341...7f7f`.
+There is no elapsed deadline, changed diagnostic allowance or root-owned build
+overlapping traversal. Both binaries include the same separate scheduler/escrow
+work; these are combined-tree measurements, not isolated clean-commit timings.
+
+| Measurement | Semantic-only baseline | Support-aware routing |
+|---|---:|---:|
+| Preparation | 104.124 s | 103.737 s |
+| Traversal including cooperative stop | 169.163 s | 121.100 s |
+| Application / supervisor lifetime | 273.287 / 282.206 s | 224.836 / 232.155 s |
+| Sampled aggregate CPU | 1,219.85 s | 591.78 s |
+| Sampled peak aggregate RSS | 11.515 GB | 8.666 GB |
+| Complete / scheduled domains | 125,503 / 229,130 | 63,913 / 177,414 |
+| Pending / cancelled partial domains | 103,626 / 1 | 113,500 / 1 |
+| Committed events | 10,656,512 | 3,020,915 |
+| Containment comparisons, including maintenance | 8,157,472,074 | 6,886,904,922 |
+| Included maintenance comparisons | 1,407,523,725 | 1,469,956,434 |
+| Live / retired lookup candidates | 65,855 / 163,275 | 83,753 / 93,661 |
+| Semantic hits / retirements | 2,790,937 / 6,136 | 1,012,817 / 7,058 |
+| Committed Route inspections | 71,749 | 40,637 |
+| Route masks examined / pruned | 2,355,356 / 1,161,021 | 2,006,778 / 1,696,703 |
+| Route-emitted descendants | 1,122,586 | 269,438 |
+| Observed unresolved frontiers | 0 | 0 |
+
+These totals are different stopped prefixes. Their smaller time, event count
+or memory does **not** establish a full-campaign improvement. At approximately
+20, 40 and 60 seconds after each first nonzero traversal heartbeat, the support
+run has only 16,794 / 26,588 / 37,551 completed domains, versus the baseline's
+30,037 / 51,871 / 65,634. Its pending queue grows to 59,623 / 81,410 / 97,450,
+versus 60,975 / 69,106 / 75,794. Live candidates are also higher at each window:
+42,250 / 55,308 / 67,585 versus 30,690 / 39,265 / 43,202. These observations
+show an unfavorable admission/queue trend, not an equal-work speedup ratio.
+Tighter boxes can reduce subsumption and change the traversal history; this is
+a plausible explanation supported by index growth, not a causal profile of
+every extra comparison.
+
+### Equal-source comparison: the local routing improvement is real
+
+Match completed Route records by the entire source descriptor: owner, phase,
+coordinate lower/upper bounds, rank cap and every A/D predicate. There are
+5,910 identical descriptors in both results. On this common set:
+
+| Committed native routing statistic | Baseline | Support-aware |
+|---|---:|---:|
+| Masks examined | 221,692 | 221,692 |
+| Masks pruned | 113,977 | 197,353 |
+| Emitted Apply domains | 4,367 | 4,367 |
+| Emitted Route descendants | 101,805 | 18,429 |
+| Emitted zero sectors | 1,543 | 1,543 |
+| Total emitted events | 107,715 | 24,339 |
+
+Thus 2,867 common queries emit strictly fewer events and none emits more;
+routed descendants fall **81.90%**, total events **77.40%**. For example, the
+same first Route descriptor (owner `111010100100100`, rank cap 9, A<=23,
+D>=10) examines 128 masks in both implementations. Its old 63 Route children
+and one Apply image become just the Apply image. This is removal of a
+conservative overcover, not deletion of 63 established reachable integrals.
+Equal-source pruning is demonstrated, but it does not cure global admission.
+
+### Stop, integrity and next step
+
+At total time 204.505 s the support pilot has 56,500 complete and 111,573
+pending domains, 5.866 billion comparisons and 79,704 live candidates. The
+65,536-entry result escrow is full while its peak accounted memory remains
+only 2.149 GB against an 8.590 GB byte allowance. Across 38 resource samples
+between 140 and 216 s, mean busy-core use is 2.231 (range 1.174–5.828).
+Snapshots show a runnable coordinator with most workers waiting. Root requests
+a cooperative optimization stop; no resource allowance or elapsed deadline
+triggers it. The sample does not prove a fifteen-hour completion impossible.
+
+The stop file is created at 19:39:01.287 UTC; the result is written 7.751 s
+later and supervisor completion follows after 10.539 s. On the separate
+heartbeat clock, first cancellation acknowledgement to first finished result
+takes 3.015 s. Both owned processes have exited, exit status is 4 and
+`hard_stopped=false`. Accounting is exact:
+177,414 scheduled = 63,913 complete + 113,500 pending + one partial.
+No pending-work checkpoint or closing artifact is produced.
+
+All 63,914 committed records retain finite coordinate uppers and A/D metadata.
+A upper ranges 9–25, D lower 8–14 and maximum descendant rank cap is 11;
+975 records have A upper>24 and 270 rank cap>10. These are legitimate translated
+bounds, not proof that every point in each conservative cover is reachable.
+Zero frontiers does not discharge unfinished obligations.
+
+The immediate next performance target is the serial containment lookup and
+its growing candidate sets: add cheap sound filters or a measured selective
+index before exact semantic inclusion, while preserving deterministic order
+and all pending obligations. Keep the support bounds for their demonstrated
+mathematical precision, but do not advertise an end-to-end improvement yet.
+Do not widen the physical envelope or regenerate rules without an actual
+reachable missing target. Receipt:
+`TMP/correlated-routing-pilots.jw6Bwo/shared-owner-campaign.ujyk56ua/`.
 
 ## Historical pause and resumed sequence
 

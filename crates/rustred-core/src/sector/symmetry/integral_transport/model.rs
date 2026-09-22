@@ -20,6 +20,10 @@ pub struct Prepared {
     pub(super) source_root: Mask,
     pub(super) target_root: Mask,
     pub(super) active_target: Box<[Option<usize>]>,
+    /// Sparse target-column incidence of the verified inactive linear rows.
+    /// Coefficients stay in `map`; routing geometry shares only source axes.
+    pub(super) numerator_support_offsets: Box<[usize]>,
+    pub(super) numerator_support_sources: Box<[usize]>,
 }
 
 impl Prepared {
@@ -42,6 +46,14 @@ impl Prepared {
     /// Inactive numerator rows are affine and deliberately have no such target.
     pub(crate) fn active_target_axes(&self) -> &[Option<usize>] {
         &self.active_target
+    }
+    /// Inactive source rows with a nonzero linear coefficient in this target
+    /// column, in strictly increasing source-axis order. Affine constants do
+    /// not supply target degree. Built once with Symbolica's exact zero test.
+    pub(crate) fn numerator_sources_for_target(&self, target: usize) -> Option<&[usize]> {
+        let start = *self.numerator_support_offsets.get(target)?;
+        let end = *self.numerator_support_offsets.get(target.checked_add(1)?)?;
+        self.numerator_support_sources.get(start..end)
     }
 }
 

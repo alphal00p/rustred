@@ -503,9 +503,10 @@ initially recommended measuring cached semantic inclusion, followed by a census
 of exact full-permutation routes. The subsequent audit now measures a 4.27-fold
 index-only replay gain, while the map census rules out full-permutation routing
 for the observed traffic. Support-aware affine bounds instead tighten 62.23%
-of projected root covers in a native diagnostic. Finish the integrated
-semantic-containment gate, measure it recursively, then implement that narrower
-support-aware routing slice. These are not end-to-end speedups; details and
+of projected root covers in a native diagnostic. The integrated
+semantic-containment gate and recursive measurement are now complete; the
+narrower support-aware routing slice has also passed its release gate and its
+separate recursive pilot is now measured. These are not end-to-end speedups; details and
 validation caveats are in the [parallel audit](research/finite_domain_parallel_audit_2026-09-22.md).
 Neither input covers the full marginal R14 or full-jet
 R15 envelope. Local receipts are under
@@ -535,6 +536,69 @@ independent of the subsequent support-aware native routing implementation.
 Its receipts are `TMP/correlated-routing-pilots.jw6Bwo/shared-owner-campaign.r8txq1a3/`;
 this implementation checkpoint does not claim that pilot or the full physical
 five-loop envelope has closed. See the [audit synthesis](research/finite_domain_parallel_audit_2026-09-22.md).
+
+That semantic-only pilot stopped cooperatively after 169.163 s traversal with
+125,503 completed domains, 103,626 pending and one partial cancelled domain.
+It observed no frontier, but spent 8.157 billion containment comparisons and
+averaged about 2.08 busy cores in its late interval. Peak sampled RSS was
+11.515 GB. This is unfinished conservative traversal, not a missing-rule
+diagnosis, a completed envelope, or an end-to-end speedup versus the differently
+scheduled earlier prefix.
+
+### Support-aware affine routing checkpoint
+
+Prepared native maps now cache which inactive source rows can contribute to
+each target denominator, using Symbolica's exact coefficient zero test. For
+target j, the source-derived degree bound is
+`C_j=min(sum(relevant upper_i), R_max-sum(irrelevant lower_i))`.
+A surviving positive local coordinate retains lower bound
+`max(0, source_lower_j-C_j)`; a pinch is impossible if `C_j<=source_lower_j`.
+Simultaneous pinches still consume their full combined weighted cost. Each
+child uses source-derived bounds rather than the projected all-positive
+sibling's bounds, and newly inactive axes reset their local lower to zero.
+These are necessary support conditions, not assertions of actual reachability.
+
+The unconstrained wrapper's behavior and artifact schemas are unchanged.
+There is no numerator expansion or new CAS primitive, and no entry caps are
+reapplied to descendants. The release gate passes **2,768 core tests** (32
+existing diagnostics ignored), **443 application/integration tests** (one
+index-replay diagnostic ignored), and all **72 Python/steering tests** against
+the matching release CLI and extension. The focused routing gate passes 40
+tests. Independent mathematical and source review passes; see the
+[routing audit](research/affine_support_routing_audit_2026-09-22.md).
+
+The same-input 50-worker pilot is recorded separately under
+`TMP/correlated-routing-pilots.jw6Bwo/shared-owner-campaign.ujyk56ua/` with
+release-gate evidence in `TMP/affine-support-gate.cv24Y0/`. Measurements include
+the pre-existing scheduler/escrow working-tree changes used by both compared
+pilots, not just the clean native-routing commit. No full-envelope completion
+or fifteen-hour forecast follows from passing these implementation gates.
+
+The pilot stopped cooperatively for optimization after **121.100 s traversal**:
+63,913 domains complete, 113,500 pending, one partial cancelled domain and zero
+observed frontiers. Preparation was 103.737 s, application total 224.836 s and
+supervisor total 232.155 s; sampled peak RSS was 8.666 GB. It spent 6.887 billion
+containment comparisons. The completed-result buffer again filled while the
+queue grew and only 1–3 cores were typically busy late in the run. Stronger
+bounds also distinguish more domains and can reduce reuse by containing boxes;
+the observed prefix did not establish a traversal benefit. Stopped runs with
+different admission histories do not define a campaign-speed ratio.
+
+Independent comparison of 5,910 **identical Route source descriptors** present
+in both completed prefixes does establish local pruning: emitted Route
+descendants fall from 101,805 to 18,429 (81.90% fewer), with unchanged Apply/zero
+counts and identical examined-mask counts. This is a per-query result, not a
+full-campaign reduction factor. The index must handle the resulting more varied
+domain descriptions efficiently before that local gain can improve traversal.
+
+The next bounded step is an aggregate-extremum filter over cached native
+summaries, preserving exact containment, the earliest valid retained candidate,
+all pending jobs and fallible-allocation semantics. Both forward lookup and
+reverse retirement must avoid unconditional scans. Measure complete admission
+streams and memory/selectivity before adoption; see the
+[independent index recommendation](research/domain_admission_index_next_step_2026-09-22.md).
+This is not a reason to widen the physical envelope, generate new rules, or
+begin terminal evaluation.
 
 Local verification evidence is in `TMP/finite-entry-gate.2GG13m/` (untracked).
 The passing app gate took 64.97 s wall / 61.52 s user CPU, and the Python gate
