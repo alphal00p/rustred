@@ -143,3 +143,48 @@ behavioral assertions. Raw receipts and independent runtime review are in
 
 This is tested dispatcher functionality, not a claim that all real five-loop
 guard frontiers disappeared. That needs the new integrated saved-program run.
+
+## Actual-input correction: optional rejection is not a mandatory guard check
+
+The first actual 67-owner check stopped in owner `000011001001011` at a
+separable-factor-work preflight for rule 405 / term 1. All fifteen integer
+points of that R10 cell had selected rule 405 in the previous result. Retrying
+the original unknown guard through exact bounded refinement fixed this case,
+but a second run stopped at owner `111101111111100`, rule 252 / term 3. That
+second cell has three unbounded positive axes and no varying inactive axis:
+finite numerator refinement cannot help. It is exactly an earlier unresolved
+excluded-conjunction region (rule 252 / branch 3 / atom 0), not a missing-rule
+counterexample. These were operational regressions caused by optional lookahead.
+
+The corrected policy treats the shared closed class of native next-operation
+preflight refusals from **optional rejection probes** as inconclusive. It
+retains the original predicate, bounds, rank and refinement cursor. The existing
+exact bounded split is used when admitted; otherwise the original Unknown is
+reported. No refusal proves rejection, applicability, nonzero or closure. All
+already-spent predicate and geometry work stays charged. Mandatory denominator
+and source checks, cumulative budgets, cancellation, input/output limits,
+allocation and backend errors remain strict. The existing same-AND witness
+path is unchanged. No CAS implementation or native allowance was added/raised.
+
+The corrected core passes **2,700 release tests**, zero failures and 32 existing
+ignored diagnostics, including six refinement regressions. A mandatory guard
+test still fails at the same factor-work allowance that the optional probe can
+leave inconclusive. Other tests retain the original fifteen-point geometry,
+explicit-face/concrete parity, positive-only unknowns, work accounting and
+cancellation. Raw core evidence: `TMP/optional-rejection-core.4h4f00/`.
+
+The new actual check processes **all 67 owners without a native error**, finding
+213,030 selected-rule pieces, 900 terminal pieces and **57 unresolved regions**.
+Sixty owners are locally covered, as before. Against the earlier 81 Unknowns,
+51 records are identical, 30 old predicate identities disappear and six later
+predicates are exposed on exactly the same six previously unknown boxes. These
+are not six newly unknown geometries. The previous fifteen points all still
+select rule 405, and the second failed cell again reports its original Unknown.
+
+This is local applicability, not recursive R10 closure, rule generation or a
+performance comparison. The run overlapped release validation on disjoint CPUs.
+It returns incomplete because the 57 Unknowns remain, not because of a fatal
+refusal. Evidence: `TMP/optional-rejection-local.UBJDgj/`, including independent
+comparison with the saved baseline. The earlier failed attempts remain saved
+as `TMP/rejection-full67-local.isowEn/` and
+`TMP/rejection-refinement-local.O5Mrky/`.

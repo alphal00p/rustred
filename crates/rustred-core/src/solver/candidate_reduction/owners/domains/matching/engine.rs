@@ -671,6 +671,15 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
             match self.rejection_lookahead(&cell, resume) {
                 Ok(Some(next)) => return self.push(cell, next),
                 Ok(None) => {}
+                Err((_, failure)) if guards::permits_bounded_refinement(&failure) => {
+                    // A speculative later guard can be more expensive on this
+                    // broad cell than after the ORIGINAL unknown is refined.
+                    // This optional rejection attempt is merely inconclusive:
+                    // retain the original identity, support and resume. Refine
+                    // exactly if admitted; otherwise keep the original Unknown.
+                    // Prior probe work stays charged. The refusal never proves
+                    // rejection/applicability, nor bypasses a mandatory guard.
+                }
                 Err((predicate, failure)) => {
                     return self.fail_predicate(cell, predicate, failure);
                 }

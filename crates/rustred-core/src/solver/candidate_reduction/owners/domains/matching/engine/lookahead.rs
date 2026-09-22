@@ -8,7 +8,10 @@ where
 {
     /// Only ordinary Unknown equality/exclusion predicates reach this helper.
     /// Source validity and operational refusals never enable lookahead. Any
-    /// encountered failure remains strict, with its actual predicate identity.
+    /// encountered failure retains its actual predicate identity. The caller
+    /// treats only eligible native preflight refusals of this OPTIONAL probe as
+    /// inconclusive and resumes the ORIGINAL refinement/Unknown path. A refusal
+    /// is never a witness; all other failures remain strict.
     pub(super) fn rejection_lookahead(
         &mut self,
         cell: &LatticeBox,

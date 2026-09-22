@@ -2,6 +2,9 @@
 //! alternate sufficient-rule policy or a claim to solve positive diagonals.
 use super::*;
 
+#[path = "rejection_refinement.rs"]
+mod refinement;
+
 fn diagonal(c: &IndexedCoefficientContext) -> IndexedPolynomial {
     poly(
         c,
@@ -363,7 +366,7 @@ fn rejection_lookahead_never_bypasses_source_unknown_or_native_refusal() {
 }
 
 #[test]
-fn rejection_lookahead_native_errors_retain_initial_or_later_predicate_and_cell() {
+fn rejection_lookahead_optional_preflight_is_inconclusive_but_mandatory_error_stays_typed() {
     for stage in 0..4 {
         let mut p = fixture();
         let c = p.context.coefficient_context().clone();
@@ -413,6 +416,25 @@ fn rejection_lookahead_native_errors_retain_initial_or_later_predicate_and_cell(
             ..Default::default()
         };
         limits.guard_algebra.max_univariate_degree = 1;
+        if stage != 0 {
+            // These are speculative rejection probes behind an unresolved
+            // required equality, not mandatory checks establishing a formula.
+            // Even the later zero witness is not scanned past a refused probe.
+            let (stats, pieces) = refined(&p, [0; 3], [None, None, Some(0)], Some(11), limits);
+            assert_eq!(pieces.len(), 1);
+            assert_eq!(
+                pieces[0].disposition(),
+                OwnerDomainMatchDisposition::Unresolved {
+                    predicate: equality(0),
+                }
+            );
+            assert_eq!(pieces[0].lower(), &[0; 3]);
+            assert_eq!(pieces[0].upper(), &[None, None, Some(0)]);
+            assert_eq!(pieces[0].max_numerator_rank(), Some(11));
+            assert_eq!(stats.predicates, 2);
+            assert_eq!(stats.refinement_cells, 0);
+            continue;
+        }
         let error = refusal(&p, limits);
         assert_eq!(
             error.failure,

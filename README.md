@@ -174,10 +174,11 @@ The reuse-only retry still used about one busy core out of six. The subsequent
 initial-domain sharing and larger bounded worker buffers pass **377 application/
 integration tests and 27 Python tests**. General containment comparisons are now
 unlimited by default; finite diagnostic budgets remain optional. The next full
-campaign targets **50 workers, 500 GB**, not six. A real-input check first exposed
-an avoidable guard-work refusal in the new lookahead, which is being corrected
-before that run. These are incomplete application diagnostics, not full R10
-closure. See [the milestone](docs/research/guarded_owner_application_2026-09-22.md)
+campaign uses **50 workers, 500 GB**, not six, and is now launched. The corrected
+optional guard lookahead passes **2,700 core tests**; the real all-67 check
+finishes without native errors and retains **57 unresolved regions rather than
+81**. Required guards remain strict. These are incomplete application
+diagnostics, not full R10 closure. See [the milestone](docs/research/guarded_owner_application_2026-09-22.md)
 and [current scheduling results](docs/research/parallel_symbolic_domains_2026-09-22.md).
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints

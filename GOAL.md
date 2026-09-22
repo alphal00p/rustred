@@ -99,22 +99,27 @@ earlier guard as unknown; it does not establish missing rules or closure.
 Scheduling performance after the larger-lookahead change remains to be measured. See
 [the core milestone](docs/research/guarded_owner_application_2026-09-22.md).
 
-The follow-up core dispatcher now rejects an otherwise ambiguous candidate
-when a later necessary guard is uniformly false on the same exact cell/rank.
-It passes **2,694 core release tests**, zero failures and 32 existing ignored
-diagnostics. This preserves first-applicable priority and native errors; actual
-full-census effects await the integrated run. The reuse-only six-worker retry
+The follow-up core dispatcher rejects an otherwise ambiguous candidate when a
+later necessary guard is uniformly false on the same exact cell/rank. An
+eligible preflight refusal from this optional probe now preserves the original
+Unknown/refinement path instead of causing a new fatal error; mandatory guards
+and source validity remain strict. It passes **2,700 core release tests**, zero
+failures and 32 existing ignored diagnostics. The actual all-67 local check now
+finishes without native errors, with **57 unresolved regions rather than 81**;
+60 owners are locally covered. This is not recursive R10 closure.
+The reuse-only six-worker retry
 still averaged approximately one busy core despite 3.98 million job-local reuse
 hits, so it was stopped for optimization. Initial admitted-domain sharing and
 larger bounded transport lookahead now pass the joint application release
 gate: **377 application/integration tests and 27 Python tests**, together with
 the unlimited comparison policy and removal of a hidden one-million-domain
-ceiling on explicit storage budgets. An actual-input local control then stopped
-in the first owner on an optional lookahead's native factor-work preflight;
-the fifteen points in that cell had valid selected rules in the earlier run.
-Correct this operational regression before the next integrated attempt with
-the requested 50 workers under the 450/500 GB RSS policy. No complete R10 solve
-or improved parallel utilization is claimed yet.
+ceiling on explicit storage budgets. The successor integrated gate also passes
+377 application/integration and 27 Python tests. The **50-worker full-census
+traversal is now launched**, using the same saved rules and R10 entry domains,
+unlimited containment comparisons, no practical domain-count cutoff, and the
+450/500 GB sampled RSS thresholds (480 GB child address-space envelope). It has
+no elapsed deadline. Native/per-query and retained-frontier safeguards remain
+explicit. No complete R10 solve or measured parallel speedup is claimed yet.
 
 The preceding shared-walk baseline includes the generic strict-pinch **R-k**
 routing bound and bounded parallel symbolic inspection. Its core release

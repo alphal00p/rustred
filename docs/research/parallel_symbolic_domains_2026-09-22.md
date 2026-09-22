@@ -342,3 +342,38 @@ unlimited containment comparisons, explicit 10-million-domain storage, and
 450/500 GB aggregate RSS monitoring. No elapsed deadline is introduced. Launch
 remains held for the actual-input regression above; this preparation is not
 itself an R10 closure result.
+
+## Regression corrected; 50-worker traversal launched
+
+The two actual-input refusals and their correction are recorded in
+[the guard report](guarded_owner_application_2026-09-22.md#actual-input-correction-optional-rejection-is-not-a-mandatory-guard-check).
+Optional rejection probes now leave the original refinement/Unknown path intact
+when a permitted native next-operation preflight cannot be admitted. Mandatory
+checks and other native errors remain strict. Release validation passes
+**2,700 core tests** (32 existing ignored), **377 application/integration tests**
+and **27 Python tests**, zero failures. Receipts are in
+`TMP/optional-rejection-core.4h4f00/` and
+`TMP/optional-rejection-app.Q1xgRA/`.
+
+The new local control processes all 67 owners without errors: 60 locally covered,
+213,030 selected pieces, 900 terminal pieces and 57 Unknowns (previously 81).
+This clears the operational regression, not the recursive-closure objective.
+It is not a speed comparison because it overlapped release validation.
+
+The full 50-worker traversal has now launched with the same saved input and
+frozen release CLI
+`8077f3b421dcff03856845649ffcfa59ed2f03a3e487031457fd439805edd5b2`.
+The formerly proposed ten-million-domain storage ceiling was also removed from
+this production request: domain/event counters use the 64-bit maximum, with
+incremental allocation rather than preallocation. Comparisons are unlimited.
+One million retained frontier records and explicit native/per-query/scratch
+limits remain separate. The CPU set is 0–49, nested pools are one, RSS has
+450/500-GB soft/hard-stop thresholds, and child address space is 480 GB. RSS
+supervision is sampled, not a kernel guarantee; allocation/address-space stops
+remain possible and mean incomplete work. Fifteen hours is an objective, not
+a timer.
+
+Live receipts: `TMP/shared-all67-fifty.bxsTQ4/trial/shared-owner-campaign.7cd_7g_r/`.
+No other owned native workload or compilation overlaps the traversal. Its
+outcome, utilization and domain-growth assessment remain to be measured; merely
+starting 50 workers is not a speedup or an R10 solve.
