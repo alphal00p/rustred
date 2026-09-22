@@ -635,8 +635,11 @@ A follow-up source audit separates the remaining integration obligations:
 - The complete conservative full-jet input is representable with existing
   query fields: for each census owner of support size t, use zero local lowers,
   active upper `24-t`, inactive upper 15, rank 15, and retained `A<=24,D>=9`.
-  This is an input specification, not a completed campaign. Current prepared
-  pilot files contain smaller controls, not these full all-owner queries.
+  All 67 queries are now prepared and validated under
+  `TMP/full-jet-symbolic67.CwBp4L/`, together with an explicit-budget planning
+  specification and deferred Python steering command. Coordinate conventions
+  and 249,744 boundary/control membership comparisons pass. This is input
+  preparation, not a native run, wider concrete admission or completed campaign.
 - Wider symbolic matching is intentionally allowed by
   `walking/mod.rs`, but public concrete root admission still enforces saved
   R10 context scope in the native campaign scheduler. An above-entry overlay
@@ -658,6 +661,20 @@ A follow-up source audit separates the remaining integration obligations:
 
 Do not treat index speedups as completion of these tasks or move to terminal
 minimization/evaluation before the requested finite starting domain is handled.
+
+The all-owner input has a concrete reuse advantage worth testing after the
+matched index pilot. Sufficient implication of the recorded coordinate and
+A/R/D bounds proves that **23,206 of 23,276 completed Apply regions (99.699%)**
+in the support-aware diagonal pilot lie inside their corresponding prepared
+full-jet starting regions. They account for 97.827% of that prefix's Apply
+events. Its 40,637 Route obligations are separate and cannot be discharged by
+an Apply root alone. The remaining 70 Apply descriptors fail this sufficient
+test (65 have an A25 cap and five a D8 lower bound); no descendant may be
+clipped to make it fit the starting envelope. Broader initial regions may
+therefore suppress repeated inspection, but can also introduce new guard
+partitions and descendants. This census justifies a full shared diagnostic;
+it predicts neither its running time nor closure. Reproducible read-only
+evidence is in `TMP/aggregate-admission-gate.HrfYdG/FULL_JET_CONTAINMENT_AUDIT.md`.
 
 Local verification evidence is in `TMP/finite-entry-gate.2GG13m/` (untracked).
 The passing app gate took 64.97 s wall / 61.52 s user CPU, and the Python gate
