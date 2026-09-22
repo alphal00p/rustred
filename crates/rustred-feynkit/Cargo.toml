@@ -1,0 +1,13 @@
+[package]
+name = "rustred-feynkit"
+version.workspace = true
+authors.workspace = true
+edition = "2024"
+rust-version = "1.89"
+description = "Native RustRed IBP bridge for Feynkit and symbolica.community.hep"
+license = "MIT"
+
+[dependencies]
+rustred = { path = "../rustred-core", default-features = false }
+symbolica = { workspace = true, features = ["python_export"] }
+pyo3 = { version = "0.28" }

@@ -172,6 +172,11 @@ impl<const N: usize> SourceSystem<N> {
     pub fn index_variables(&self) -> &[usize; N] {
         &self.indices
     }
+    /// Shared native coefficient variables, including physical parameters and
+    /// symbolic indices, retained even when preparation removes every row.
+    pub fn coefficient_variables(&self) -> &[PolyVariable] {
+        &self.variables
+    }
     pub fn fixed(&self) -> &[Option<i16>; N] {
         &self.fixed
     }

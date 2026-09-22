@@ -1,5 +1,9 @@
 # RustRed
 
+The [Feynkit bridge](crates/rustred-feynkit/README.md) adds native parametric
+and Laporta IBP solving to `symbolica.community.hep`, including multiscale
+two-loop graph tests and a [FeynCalc phi4 reproduction notebook](examples/notebooks/feyncalc_phi4_two_loop.ipynb).
+
 RustRed is a pre-alpha, pure-Rust and Symbolica-native project for deriving and
 applying parametric integration-by-parts identities. Its active target is
 rank-bounded five-loop single-scale vacuum reduction, building on the completed

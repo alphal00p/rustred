@@ -3,6 +3,7 @@ members = [
     "crates/rustred-core",
     "crates/rustred-app",
     "crates/rustred-python",
+    "crates/rustred-feynkit",
 ]
 default-members = [
     "crates/rustred-core",

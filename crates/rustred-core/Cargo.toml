@@ -11,6 +11,12 @@ license = "MIT"
 name = "rustred"
 path = "src/lib.rs"
 
+[features]
+# Experimental reconstruction needs the newer vendored Symbolica API. Exact
+# sparse IBP solving can also be embedded in hosts using released Symbolica 3.
+default = ["reconstruction"]
+reconstruction = []
+
 [dependencies]
 bincode.workspace = true
 blake3 = "1"

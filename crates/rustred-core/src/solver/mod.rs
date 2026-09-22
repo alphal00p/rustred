@@ -6,6 +6,7 @@
 //! result is not, by itself, a certified family-closing artifact.
 
 mod candidate_reduction;
+pub mod bridge;
 mod case;
 mod cuts;
 mod discovery;

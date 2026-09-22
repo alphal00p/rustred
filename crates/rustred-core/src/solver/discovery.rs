@@ -16,11 +16,12 @@ type ExactField = RationalPolynomialField<IntegerRing, u16>;
 
 mod factorized;
 mod fraction_free;
+#[cfg(feature = "reconstruction")]
 mod semi_numerical;
 mod target_only;
 mod variables;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "reconstruction"))]
 mod source_weight_pipeline_tests;
 
 /// Exact lifting for a single symbolic target. Shared numerical-tail lifting
@@ -49,6 +50,7 @@ pub enum SymbolicExactBackend {
     /// using Symbolica's native multivariate rational reconstruction. This is
     /// SpIReD's semi-numerical route; reconstructed rows still pass the normal
     /// exact replay/publication gates. The bounds are deliberately explicit.
+    #[cfg(feature = "reconstruction")]
     SemiNumerical {
         max_degree: u16,
         max_probes: usize,
@@ -64,6 +66,7 @@ pub enum SymbolicExactBackend {
     /// This changes materialization only: source provenance, canonicalization,
     /// candidate applicability conventions and independent publication remain
     /// unchanged. It grants no stronger integer-point or closure authority.
+    #[cfg(feature = "reconstruction")]
     SemiNumericalSourceWeights {
         max_degree: u16,
         max_probes: usize,
@@ -402,6 +405,7 @@ pub enum MaterializationError {
         limit: usize,
     },
     FractionFreeDimensionOverflow,
+    #[cfg(feature = "reconstruction")]
     SemiNumericalReconstruction(String),
 }
 
@@ -456,6 +460,7 @@ impl fmt::Display for MaterializationError {
             Self::FractionFreeDimensionOverflow => {
                 write!(f, "fraction-free matrix dimensions overflow native storage")
             }
+            #[cfg(feature = "reconstruction")]
             Self::SemiNumericalReconstruction(reason) => {
                 write!(f, "semi-numerical reconstruction failed: {reason}")
             }
@@ -578,6 +583,7 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
             observe,
         );
     }
+    #[cfg(feature = "reconstruction")]
     if let SymbolicExactBackend::SemiNumerical {
         max_degree,
         max_probes,
@@ -598,6 +604,7 @@ pub(super) fn exact_materialize_using_with_observer<const N: usize>(
             observe,
         );
     }
+    #[cfg(feature = "reconstruction")]
     if let SymbolicExactBackend::SemiNumericalSourceWeights {
         max_degree,
         max_probes,
