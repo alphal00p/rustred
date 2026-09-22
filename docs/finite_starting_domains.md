@@ -1,5 +1,13 @@
 # Finite starting domains and fixed-target repair
 
+## Execution checkpoint — September 22
+
+The user requested a quota-driven stop after a tested, committed and pushed
+checkpoint. The release gates pass; do not launch another campaign or
+start further implementation until the user resumes work. The objective below
+is **unfinished**, not complete or mathematically blocked. Current evidence and
+resume steps are in the [bounded-routing pilot report](research/bounded_routing_pilot_2026-09-22.md).
+
 ## Objective
 
 Generate a closing finite IBP program for a generic, finite envelope of
@@ -404,6 +412,18 @@ fixture was corrected to use the existing single-sector native solver/exporter,
 without weakening the bound assertions. Gate evidence is in
 `TMP/bounded-route-gate.clR7HK/`; the shared working tree also contains unrelated
 scheduler edits, which are not part of the bounded-routing commit.
+
+The first 50-worker recursive diagonal-box pilot then stopped for optimization:
+74,326 of 159,344 scheduled domains completed with zero observed frontiers, but
+85,017 remained queued. It spent 321.095 s in traversal and reached 15.301 GB
+sampled peak RSS. Its 6.091 billion general containment comparisons saturated
+serial publication throughput. Every committed record retained finite positive
+bounds. This is incomplete diagnostic evidence, not a closed domain. A small
+maximal-candidate lookup optimization is implemented and independently audited;
+its release gate passes 428 application/integration and all 72 Python/steering
+tests. The core is unchanged from the passing 2,720-test gate. The index retires
+only redundant lookup entries, never pending work. The matched
+end-to-end rerun is deferred until the requested pause ends.
 
 ### Retaining total-power correlations
 

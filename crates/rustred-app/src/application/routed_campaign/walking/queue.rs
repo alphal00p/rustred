@@ -57,7 +57,9 @@ fn rank_contains(container: Option<u32>, candidate: Option<u32>) -> bool {
 
 #[derive(Default)]
 struct OwnerBucket {
-    /// Original admission order for the unchanged arbitrary-box fallback.
+    /// Stable admission order. With unlimited comparisons, retain only maximal
+    /// containment candidates; finite-cap mode keeps the historical full scan.
+    /// Retiring an index candidate never removes its exact key or queued work.
     ids: Vec<usize>,
     /// Largest admitted full-orthant rank; None rank dominates every finite R.
     orthant: Option<usize>,
@@ -69,8 +71,15 @@ pub(super) struct Queue<const N: usize> {
     pub domains: Vec<Arc<Domain<N>>>,
     pub next: usize,
     pub deduplicated: usize,
-    /// General box comparisons only, not hash equality or indexed rank checks.
+    /// All general box comparisons, including reverse maintenance comparisons;
+    /// not hash equality or indexed rank checks.
     pub containment_checks: usize,
+    /// Reverse comparisons used to maintain maximal candidates, included in
+    /// containment_checks. Zero in the unchanged finite-comparison-cap lane.
+    pub containment_maintenance_checks: usize,
+    /// Cumulative IDs removed only from the containment candidate index.
+    /// Every corresponding domain/exact key/FIFO obligation remains retained.
+    pub containment_retired_candidates: usize,
     pub exact_hits: usize,
     pub orthant_hits: usize,
     pub max_finite_rank: Option<u32>,
@@ -84,6 +93,19 @@ pub(super) struct Queue<const N: usize> {
 impl<const N: usize> Queue<N> {
     pub fn containment_limit(&self) -> Option<usize> {
         self.max_checks
+    }
+
+    /// Current indexed candidate count, without scanning owner buckets.
+    pub fn containment_candidate_count(&self) -> usize {
+        self.domains.len() - self.containment_retired_candidates
+    }
+
+    pub fn containment_index_policy(&self) -> &'static str {
+        if self.max_checks.is_none() {
+            "maximal_candidates_unlimited"
+        } else {
+            "historical_candidates_finite_cap"
+        }
     }
 
     /// Checked aggregate accounting for a producer's earlier ordered Admit.
@@ -102,6 +124,8 @@ impl<const N: usize> Queue<N> {
             next: 0,
             deduplicated: 0,
             containment_checks: 0,
+            containment_maintenance_checks: 0,
+            containment_retired_candidates: 0,
             exact_hits: 0,
             orthant_hits: 0,
             max_finite_rank: None,
@@ -119,9 +143,11 @@ impl<const N: usize> Queue<N> {
     /// Exact/full-orthant index proofs do not spend general containment checks,
     /// so they can still succeed at a finite comparison cap or counter maximum.
     /// None means no policy cap, but counter overflow remains an explicit error.
-    /// A dominant orthant can
-    /// return a different valid containing ID than the legacy first-match scan;
-    /// new-domain IDs/FIFO order remain unchanged with unlimited comparisons.
+    /// A dominant orthant or maximal candidate can return a different valid
+    /// containing ID than the historical first-match scan. Exact IDs and all
+    /// new-domain IDs/FIFO obligations remain unchanged with unlimited checks.
+    /// Finite-cap mode deliberately keeps its existing full-scan policy and
+    /// performs no reverse maintenance work.
     pub fn admit(&mut self, domain: Domain<N>) -> Result<(usize, bool), &'static str> {
         debug_assert_eq!(domain.lower.len(), N);
         debug_assert_eq!(domain.upper.len(), N);
@@ -190,11 +216,47 @@ impl<const N: usize> Queue<N> {
             Some(bucket)
         };
         let full_orthant = domain.is_full_orthant();
+        // Preflight all reverse comparisons before changing the candidate
+        // index or publishing this admission. A failed allocation above or a
+        // counter overflow here can only alter reserved capacity/work counters,
+        // never retire an obligation's only indexed representative.
+        let maintenance = if self.max_checks.is_none() {
+            self.by_owner.get(&key).map_or(0, |bucket| bucket.ids.len())
+        } else {
+            0
+        };
+        let total_checks = self
+            .containment_checks
+            .checked_add(maintenance)
+            .ok_or("domain containment counter overflow")?;
+        let maintenance_checks = self
+            .containment_maintenance_checks
+            .checked_add(maintenance)
+            .ok_or("domain containment maintenance counter overflow")?;
+        // At most every examined candidate can be retired. Preflight that
+        // upper bound so the in-place retain needs no fallible post-mutation
+        // accounting or a second geometry scan just to count removals.
+        self.containment_retired_candidates
+            .checked_add(maintenance)
+            .ok_or("domain containment retired-candidate counter overflow")?;
         let domain = Arc::new(domain);
         if let Some(bucket) = new_bucket {
             self.by_owner.insert(key, bucket);
         }
         let bucket = self.by_owner.get_mut(&key).expect("reserved owner bucket");
+        let previous_candidates = bucket.ids.len();
+        if maintenance != 0 {
+            // All retained candidates and the new domain belong to this same
+            // immutable phase/owner snapshot. Transitivity preserves a retained
+            // containing representative for every retired candidate. Keep the
+            // old domains/exact entries/FIFO jobs, whether pending or finished.
+            bucket
+                .ids
+                .retain(|&old| !domain.contains(&self.domains[old]));
+        }
+        self.containment_checks = total_checks;
+        self.containment_maintenance_checks = maintenance_checks;
+        self.containment_retired_candidates += previous_candidates - bucket.ids.len();
         bucket.ids.push(id);
         if full_orthant
             && bucket

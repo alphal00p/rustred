@@ -78,6 +78,10 @@ fn bounded_initial_route_keeps_boxes_and_worker_independent_reduction_graph() {
             "exact_domain_hits",
             "full_orthant_hits",
             "containment_checks",
+            "containment_maintenance_checks",
+            "containment_retired_candidates",
+            "containment_candidates",
+            "containment_index_policy",
         ] {
             assert_eq!(
                 without_seconds(parallel.document[field].clone()),

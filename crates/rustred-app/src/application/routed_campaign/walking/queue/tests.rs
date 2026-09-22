@@ -1,5 +1,7 @@
 use super::*;
 
+mod maximal_candidates;
+
 fn domain(rank: Option<u32>) -> Domain<2> {
     Domain {
         phase: Phase::Apply,
@@ -368,7 +370,10 @@ fn indexed_admission_matches_naive_admitted_fifo_for_mixed_domains() {
     assert_eq!(queue.exact.len(), baseline.len());
     assert_eq!(queue.next, 0);
     assert!(queue.exact_hits > 0 && queue.orthant_hits > 0);
-    assert!(queue.containment_checks < naive_checks);
+    // Query comparisons and optional reverse index maintenance are both
+    // accounted. This fixture compares the former with the naive search.
+    assert!(queue.containment_checks - queue.containment_maintenance_checks < naive_checks);
+    assert!(queue.containment_maintenance_checks > 0);
     assert_eq!(
         queue.max_finite_rank,
         baseline.iter().filter_map(|d| d.rank).max()

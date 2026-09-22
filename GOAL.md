@@ -1,5 +1,12 @@
 # RustRed project goal
 
+**Execution checkpoint requested September 22:** bounded-routing and
+containment-index work passes the release gates (2,720 core, 428 application/
+integration and 72 Python/steering tests), with the incomplete five-loop pilot
+evidence preserved. Work stops after pushing this checkpoint. Do not restart campaigns or
+feature development until the user resumes. The finite-domain objective remains
+unfinished; see [the checkpoint report](docs/research/bounded_routing_pilot_2026-09-22.md).
+
 ## Current priority — finite renormalizable starting-domain five-loop closure
 
 ### Authoritative September 22 refinement — finite inputs, concrete repair

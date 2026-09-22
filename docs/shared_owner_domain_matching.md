@@ -244,6 +244,22 @@ allowance and does not replace the worklist's aggregate event limit. These are
 not hard memory bounds. Stop-file cancellation, fresh atomic output, and compact
 progress remain active; the full output document is the source of truth.
 
+Unlimited-comparison mode maintains a stable maximal-box containment index.
+When a new domain contains an earlier one, only the earlier lookup candidate
+is retired: its exact key, original ID and pending FIFO inspection remain.
+This preserves admission decisions while avoiding repeated searches through
+redundant history. Exact lookup still returns the original ID; a nonexact hit
+may return another valid containing domain. Pending work is never counted as
+completed. Explicit finite comparison caps retain the historical scan policy.
+
+Live and final reports expose `containment_index_policy`,
+`containment_candidates`, `containment_retired_candidates` and
+`containment_maintenance_checks`. The last counter measures reverse-dominance
+maintenance and is **included** in total `containment_checks`, not free work.
+Counter/allocation checks precede candidate retirement. A large incomparable
+set can still be expensive; this index does not establish closure or preserve
+physical sum constraints that were absent from an input box.
+
 The per-domain RHS budgets `--max-rhs-cells-per-query` (default 100,000),
 `--max-term-visits-per-query` (1,000,000),
 `--max-native-operations-per-query` (4,000,000),

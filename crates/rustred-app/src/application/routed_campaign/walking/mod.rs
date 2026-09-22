@@ -80,6 +80,10 @@ impl OwnerDomainWalkResult {
             "job_local_reuse_hits",
             "pre_admitted_orthant_hits",
             "containment_checks",
+            "containment_maintenance_checks",
+            "containment_retired_candidates",
+            "containment_candidates",
+            "containment_index_policy",
             "max_containment_checks",
             "containment_check_policy",
             "bounded_refinement_axes",
@@ -295,6 +299,10 @@ fn run<const N: usize>(
     document["max_events"] = json!(request.max_events);
     document["max_frontiers"] = json!(request.max_frontiers);
     document["max_containment_checks"] = json!(request.max_containment_checks);
+    document["containment_maintenance_checks"] = json!(state.queue.containment_maintenance_checks);
+    document["containment_retired_candidates"] = json!(state.queue.containment_retired_candidates);
+    document["containment_candidates"] = json!(state.queue.containment_candidate_count());
+    document["containment_index_policy"] = json!(state.queue.containment_index_policy());
     document["containment_check_policy"] =
         json!("general_comparisons_only; null_is_unlimited; checked_counter");
     document["applied_limits"] = limits_json(request);
@@ -400,7 +408,9 @@ mod policy_tests {
         for limit in [None, Some(17)] {
             let document = json!({"max_containment_checks":limit,
                 "containment_check_policy":"general_comparisons_only; null_is_unlimited; checked_counter",
-                "containment_checks":19, "pre_admitted_orthant_hits":3});
+                "containment_checks":19, "pre_admitted_orthant_hits":3,
+                "containment_maintenance_checks":4, "containment_retired_candidates":2,
+                "containment_candidates":5, "containment_index_policy":"test_policy"});
             let completion = OwnerDomainWalkResult::completion_progress(&document);
             assert_eq!(completion["max_containment_checks"], json!(limit));
             assert_eq!(
@@ -408,6 +418,14 @@ mod policy_tests {
                 document["containment_check_policy"]
             );
             assert_eq!(completion["containment_checks"], 19);
+            for key in [
+                "containment_maintenance_checks",
+                "containment_retired_candidates",
+                "containment_candidates",
+                "containment_index_policy",
+            ] {
+                assert_eq!(completion[key], document[key]);
+            }
             assert_eq!(completion["pre_admitted_orthant_hits"], 3);
         }
     }
