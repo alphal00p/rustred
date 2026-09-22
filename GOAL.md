@@ -78,9 +78,14 @@ The next slice now has the generic strict-pinch **R-k** routing bound and
 bounded parallel symbolic inspection under independent audit. The core release
 gate passes **2,663 tests**, zero failures and 32 existing ignored diagnostics;
 the integrated application suite passes **341 tests**, and the CLI/Python
-work-policy changes pass **22 Python tests**, all with zero failures. Matched
-serial/six-worker campaign controls are still pending, so there is no new
-parallel-performance or full-closure result. See
+work-policy changes pass **22 Python tests**, all with zero failures. The matched
+serial/six-worker campaign comparison is still pending, so there is no new
+parallel-performance or full-closure result. The subsequent all-67 serial
+control stops incomplete at ten billion containment checks after 55.89 minutes,
+197,302 completed domains and 8.241 GB sampled peak RSS; 61,284 domains remain
+queued and 449 guard regions unresolved. A six-worker control is now running.
+This is reuse/traversal of saved rules, not IBP regeneration; its conservative
+R20 dependency envelope does not mean R20 input is solved. See
 [the implementation and validation report](docs/research/parallel_symbolic_domains_2026-09-22.md).
 The public Python resource supervisor now also accepts symbolic `--queries`.
 It separates per-domain native work, aggregate streamed work and retained

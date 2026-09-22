@@ -97,3 +97,65 @@ unresolved guard or conservative overcover is not automatically a reached
 missing rule; source feedback must preserve that distinction. Independent
 certification remains deferred, and later five-loop stages still wait for the
 actual R10 solve.
+
+## Full-census serial control: stopped on shared admission work
+
+The frozen release executable has now completed its first all-67 R10 control
+with **incomplete status (exit 4)**. It stopped at exactly **10 billion domain
+containment checks**, not an elapsed deadline, memory failure or external kill.
+The process has been reaped, and the input/executable hashes still match.
+This is traversal of saved candidate programs, not regeneration of their IBPs.
+
+| Measurement | Serial observation |
+| --- | ---: |
+| Prepared owner/map data | 109.231 s |
+| Shared dependency traversal | 3,237.317 s |
+| External whole-command wall time | 3,353.39 s (55.89 min) |
+| External user + system CPU | 3,322.78 s |
+| Sampled peak owned aggregate RSS | 8.241 GB |
+| Completed dependency domains | 197,302 |
+| Failed current domain / still queued | 1 / 61,284 |
+| Admitted domains | 258,587 |
+| Streamed callbacks / successors | 77,141,157 / 70,293,651 |
+| Reused domain requests | 73,977,351 |
+| Retained unresolved guard regions | 449 |
+| Largest scheduled rank envelope | R20 |
+
+The 449 frontiers are all local dispatch Unknowns: 74 equality regions and
+375 excluded-conjunction regions. No `MissingRule` frontier is reported in
+this prefix. This does **not** prove that no additional rules will be needed;
+queued and unresolved work remains. These are domain records, not 449 distinct
+missing IBPs, graph classes or masters.
+
+The scheduled R20 envelope is a conservative dependency bound, not a concrete
+reached rank or completion of R20 input. Broad routed domains can discard
+correlations and generate further requests; unbounded positive powers also
+mean concrete strict descent alone does not guarantee exhaustion of finite
+rank layers. See the [rank-growth audit](rank_bounded_dependency_growth_2026-09-22.md).
+Do not clip intermediates or declare them masters to make this worklist finite.
+
+The containment allowance is the measured stopping condition. Without a CPU
+profile it is not a claim that containment accounts for all, or a measured
+percentage of, runtime. Exact-domain and full-orthant indexes already provide
+42,156,631 and 31,516,026 reuse hits respectively; the remaining general
+containment scans still reach their cap. Optimize repeated admission work and
+preserve native coupled-case information before simply increasing allowances.
+
+This is one shared-host observation. During the serial control, an unintended
+Nix development-shell setup attempted derivations and failed fetching
+`bash53-012`; it never reached the requested formatter or a RustRed build.
+The enclosing observation window was 04:53:43–04:55:25 UTC, not a measured
+101-second CPU cost. Consequently this serial timing is **not an uncontaminated
+benchmark**. No such environment setup is allowed during the following control.
+
+The identical-policy six-worker diagnostic has been launched separately. Its
+measurement is pending; there is no completed serial/parallel speedup result.
+Neither a resource-censored prefix nor worklist exhaustion with unresolved
+guards establishes full R10 closure. The next guarded-application and
+excluded-conjunction changes remain unvalidated work in progress and are not
+part of the release test counts above.
+
+Local evidence: `TMP/symbolic-all67-parallel-controls.vrST2S/serial/`, including
+`summary.json`, `whole.time`, input hash checks, and the native/supervisor
+reports under `shared-owner-campaign.0axcvvnv/`. The frozen executable SHA-256 is
+`dafa29c6d259973a2a023876ccb2a925b6c79ca379802bb56bb88d792169c586`.
