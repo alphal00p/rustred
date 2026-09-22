@@ -356,6 +356,40 @@ whole five-loop physical envelope. The saved candidate rule IDs were not
 forced: each query used ordinary ordered dispatch. Evidence:
 `TMP/finite-entry-gate.2GG13m/bounded-guard-{queries,owners,result}.json`.
 
+### Audited next integration: bounded routing
+
+This is a design, **not implemented in the current milestone**. Existing
+admitted `Prepared` maps already store an active-row unit bijection. Their
+endpoints have powers `n'=B-e`, where B copies positive source powers and the
+affine inactive numerator substitution gives `|e|<=R`. Thus surviving positive
+axes can retain their mapped source upper bounds, with physical lower bound one
+(local lower zero). For a pinched source subset P, each lost positive axis
+consumes at least `local_lower_j+1` numerator degree, giving the conservative
+residual rank bound
+
+```
+R_child <= R - sum(local_lower_j + 1 for j in P).
+```
+
+If that sum exceeds R, the subset is impossible; do not saturate the residual
+rank to zero. Affine constants can only lower the monomial degree. Do not
+permute inactive-coordinate bounds as if the numerator map were a bijection,
+and do not preserve positive lower bounds after numerator cancellation.
+Literal-owner routing can preserve the original box exactly. Source validity
+remains a separate mandatory obligation, even for known-zero destinations.
+
+Use the already compiled `Prepared.active_target` map, not another routing or
+CAS implementation. Extend the native route-cover interface and carry its boxes
+through both successor admission and route reentry; the application `Domain`
+already supports bounded boxes. Full-orthant calls can remain the unbounded
+special case. Weighted subset pruning must charge examined candidates, not
+only emitted covers, to avoid unmetered enumeration of impossible subsets.
+Differential tests should compare emitted covers with native `Prepared::transport`
+endpoints, including affine constants, multi-pinches, rank zero, unbounded rank,
+overflow, cancellation and source guards. Independent mathematical/source
+review confirms this bound for the currently admitted map class; it is not a
+claim for arbitrary nonlinear denominator transformations.
+
 Local verification evidence is in `TMP/finite-entry-gate.2GG13m/` (untracked).
 The passing app gate took 64.97 s wall / 61.52 s user CPU, and the Python gate
 50.20 s wall / 48.89 s user CPU; these are test-suite times, not solver benchmarks.
