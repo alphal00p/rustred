@@ -81,6 +81,16 @@ pub(super) struct Queue<const N: usize> {
 }
 
 impl<const N: usize> Queue<N> {
+    /// Checked aggregate accounting for a producer's earlier ordered Admit.
+    /// Exact/orthant counters are deliberately unchanged: the bypassed lookup
+    /// might instead have needed arbitrary-box comparisons.
+    pub fn count_known_reuse(&mut self, count: usize) -> Result<(), &'static str> {
+        self.deduplicated = self
+            .deduplicated
+            .checked_add(count)
+            .ok_or("reuse counter overflow")?;
+        Ok(())
+    }
     pub fn new(max_domains: usize, max_checks: usize) -> Self {
         Self {
             domains: Vec::new(),

@@ -77,9 +77,14 @@ in the current run or weaken the requested R10 solve; see
 The saved guarded-case core now passes **2,684 release tests**, zero failures
 and 32 existing ignored diagnostics. It retains native affine cases, whole
 guards and exact successor images while reusing the existing RHS engine; it
-also handles uniformly satisfied later atoms in excluded conjunctions. CLI
-integration and bounded reuse-stream optimization are still in their own
-release gates; actual saved diagonal controls follow. See
+also handles uniformly satisfied later atoms in excluded conjunctions. The
+CLI/Python integration and bounded job-local reuse stream now pass **362
+application/integration tests and 26 Python steering tests**, with zero failures.
+The two actual saved diagonal controls complete their inspections but both
+candidates are rejected by later exclusions before any RHS is applied. This
+identifies an opportunity to skip impossible candidates before reporting an
+earlier guard as unknown; it does not establish missing rules or closure.
+Scheduling performance after the reuse change remains to be measured. See
 [the core milestone](docs/research/guarded_owner_application_2026-09-22.md).
 
 The preceding shared-walk baseline includes the generic strict-pinch **R-k**

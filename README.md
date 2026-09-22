@@ -163,9 +163,15 @@ No saved IBPs are regenerated merely to repeat these application diagnostics.
 
 The subsequent saved guarded-case core passes **2,684 release tests**, with
 zero failures and 32 existing ignored diagnostics. It applies native affine
-cases while retaining whole guards and exact successor images; its CLI and
-optimized scheduling gates are separate and still pending. This is not full
-R10 closure. See [the core milestone](docs/research/guarded_owner_application_2026-09-22.md).
+cases while retaining whole guards and exact successor images. Its application
+and bounded job-local reuse changes pass **362 Rust application/integration
+tests and 26 Python tests**. The new
+[`owner-guarded-apply` diagnostic](docs/guarded_owner_rule_diagnostics.md)
+and Python steering expose saved-rule conditions without regenerating IBPs.
+Both actual diagonal controls are rejected by later necessary exclusions before
+RHS application; successful diagnostic exit does not mean successful reduction.
+Scheduling performance after the reuse change remains to be measured. This is
+not full R10 closure. See [the milestone](docs/research/guarded_owner_application_2026-09-22.md).
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after

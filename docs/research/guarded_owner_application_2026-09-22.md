@@ -71,6 +71,48 @@ RSS. These are test-suite costs, **not IBP-generation timings**. Compilation
 is separate. Receipts are in `TMP/guarded-core-retry.lHXWlG/`; the preceding
 failed fixture receipt remains under `TMP/guarded-core-gate.1DOmRR/`.
 
-CLI/Python integration, the bounded reuse-stream optimization and the two real
-saved-rule diagonal controls are separate gates. No full R10 closure, new
-terminal basis, parallel speedup or five-loop Vakint result is claimed here.
+## Application and real saved-case controls
+
+The Rust service, `owner-guarded-apply` CLI and Python steering are now available;
+see [the interface](../guarded_owner_rule_diagnostics.md). The separate release
+application gate passes **362 tests** (280 library and 82 integration), with
+zero failures. Its focused guarded and walking selections pass 9 and 36 tests
+respectively; these overlap the full suite. All **26 Python owner-steering
+tests** also pass. The application suite takes 63.80 s wall / 62.80 s CPU with
+218,720 KiB peak RSS; compilation is separate. These are test costs, not solver
+performance. Receipts: `TMP/guarded-reuse-app-retry.Sas0k6/`.
+
+Two explicitly selected actual five-loop candidates were then inspected using
+the same full saved 67-owner context. Both inspections finish, but **neither
+candidate applies**:
+
+- Owner `111010100100101`, rule 239 retains the equality `n0=n1`, but also
+  requires `n13 != 0`; the supplied cell fixes `n13=0`.
+- Owner `011011000111111`, rule 183 includes three excluded conjunctions.
+  Although the first contains the apparently difficult diagonal condition,
+  the second requires `n4 != 1` while this cell fixes `n4=1`. A further
+  exclusion requires `n0 != 0` while this cell fixes `n0=0`.
+
+Each query therefore reports its incoming complement and an excluded-conjunction
+residual. There are zero admitted pieces, RHS term visits or successors. All
+65/104 original term denominators remain visible. Exit zero means diagnostic
+inspection/rendering completed, not a positive one-hop application, integer
+feasibility, recursive closure or a missing-rule finding.
+
+The observed command takes 112.61 s wall / 111.81 s CPU, with 5,810,876 KiB peak
+RSS. Shared preparation accounts for 109.48255 s; both native inspections
+together take 0.001485 s. **The latter is not an IBP solve time.** Inputs,
+raw output and independent review are in `TMP/guarded-diagonal-controls.C43MmJ/`.
+
+This evidence changes the immediate next step: use later uniformly false
+necessary guards to reject impossible candidates before an earlier unknown
+predicate obstructs dispatch. Keep first-applicable priority and all native
+source/error behavior. Genuine admitted guarded successors still require the
+continuation work described above; these negative controls do not validate it.
+
+The same application gate also covers optional bounded job-local duplicate
+suppression and counted callback streaming. Native algebra still runs, and
+ordered publication still admits the first occurrence before any reuse marker.
+This has not yet been shown to improve full-census scheduling performance.
+No full R10 closure, new terminal basis, parallel speedup or five-loop Vakint
+result is claimed here.

@@ -4,10 +4,12 @@ mod derive;
 mod family_close;
 mod family_solve;
 mod owner_domains;
+mod owner_guarded;
 mod owner_match;
 mod resource_limits;
 mod routed;
 pub(crate) use owner_domains::OwnerDomainScanArgs;
+pub(crate) use owner_guarded::OwnerGuardedApplyArgs;
 pub(crate) use owner_match::OwnerDomainMatchArgs;
 pub(crate) use routed::RoutedCampaignArgs;
 
@@ -146,6 +148,7 @@ pub(crate) enum ColorPolicy {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Command {
+    OwnerGuardedApply(OwnerGuardedApplyArgs),
     OwnerDomainMatch(OwnerDomainMatchArgs),
     OwnerDomainScan(OwnerDomainScanArgs),
     RoutedCampaign(RoutedCampaignArgs),
@@ -264,6 +267,7 @@ pub(crate) fn parse_args(
         "routed-campaign" => routed::parse(arguments),
         "owner-domain-scan" => owner_domains::parse(arguments),
         "owner-domain-match" => owner_match::parse(arguments),
+        "owner-guarded-apply" => owner_guarded::parse(arguments),
         _ => Err(ArgError::UnknownCommand(command)),
     }
 }
@@ -333,6 +337,7 @@ pub(crate) const HELP: &str = "\
 RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 
 USAGE:
+    rustred owner-guarded-apply --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--work-limits LIMITS.json] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-report-events N] [--max-report-bytes N] [--max-expression-bytes N]
     rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N] [--max-bounded-refinement-cells-per-query N] [--max-guard-univariate-degree N] [--follow-successors [--workers N] [--max-domains N] [--max-frontiers N] [--max-successor-events N] [--max-containment-checks N] [--max-rhs-cells-per-query N] [--max-term-visits-per-query N] [--max-native-operations-per-query N] [--max-rhs-events-per-query N] [--max-shift-groups-per-query N] [--route-domain-overcover [--max-route-masks-per-query N]]]
     rustred owner-domain-scan --manifest SELECTION.json --max-numerator-rank R --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--max-rules-per-owner N] [--max-terms-per-owner N] [--max-regions-per-owner N] [--max-total-regions N] [--max-summary-groups N]
     rustred routed-campaign --manifest SELECTION.json --targets TARGETS.csv --output RESULT.json [--events EVENTS.jsonl] [--owner-base DIR] [--workers 1..50] [--stop-file PATH] [--expansion-limits LIMITS.json] [--max-nodes N] [--max-input-targets N] [--max-transport-operations N] [--max-transport-endpoints N] [--max-coalescing-additions N] [--max-rule-applications N]
@@ -539,6 +544,14 @@ a complete atomic wave. After complete publication, `--artifact-output`
 writes bytes only after exact installation and one successful cold reload. Its
 terminal-only dashboard aggregates detached sibling telemetry and is quiet
 when stderr is redirected.
+
+`owner-guarded-apply` inspects explicitly selected saved candidates on their own
+guarded one-hop domains. Exit 0 means diagnostic inspections/rendering finished;
+complements and RHS problems can remain. It does NOT mean first-priority
+applicability, integer feasibility, recursive coverage or closure. Native
+expression text is display-only, not an artifact codec. Strict --work-limits
+JSON forwards bounded native allowances; report/event/expression limits bound
+retained diagnostics. No algebra or queue policy is implemented in Python.
 
 `owner-domain-match` classifies explicit parametric boxes against saved owners.
 Each query JSON supplies its own rank cap (or null) and unbounded upper bounds.

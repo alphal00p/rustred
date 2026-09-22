@@ -1,5 +1,7 @@
 //! Stable bounded streaming slots. Native work never holds this scheduler lock.
-use super::inspection::{Effect, Event, Finished};
+#[cfg(test)]
+use super::inspection::Effect;
+use super::inspection::{Event, Finished};
 use super::queue::{Domain, Phase};
 use serde_json::{Value, json};
 use std::ops::ControlFlow;
@@ -7,7 +9,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-pub(super) const CHUNK_EVENTS: usize = 64;
+pub(super) const CHUNK_RECORDS: usize = 64;
+pub(super) const CHUNK_EVENTS: usize = 65_536;
 pub(super) const CHUNK_BYTES: usize = 256 * 1024;
 
 #[derive(Clone)]
@@ -276,7 +279,8 @@ impl<const N: usize> Pool<N> {
             "worker_buffered_events":self.buffered_events.load(Ordering::Relaxed),
             "worker_buffered_logical_bytes":self.buffered_bytes.load(Ordering::Relaxed),
             "peak_worker_buffered_logical_bytes":self.peak_bytes.load(Ordering::Relaxed),
-            "per_worker_chunk_events":CHUNK_EVENTS, "per_worker_chunk_logical_bytes":CHUNK_BYTES,
+            "per_worker_chunk_events":CHUNK_EVENTS, "per_worker_chunk_records":CHUNK_RECORDS,
+            "per_worker_chunk_logical_bytes":CHUNK_BYTES,
             "first_failure":state.failure.as_ref().map(Failure::json)})
     }
     /// Called after join. At most W summaries; no speculative event stream is
@@ -345,25 +349,31 @@ impl<const N: usize> Emitter<'_, N> {
             return ControlFlow::Break(());
         }
         let weight = event.weight();
-        if weight > CHUNK_BYTES {
+        if weight > CHUNK_BYTES || event.count == 0 || event.count > CHUNK_EVENTS {
             self.pool.fail(Failure {
                 id: Some(self.id),
                 phase: Some(self.phase),
                 kind: "buffer_limit",
-                detail: "single symbolic descriptor exceeds worker chunk allowance".into(),
+                detail:
+                    "single symbolic descriptor exceeds worker chunk allowance or has invalid count"
+                        .into(),
             });
             return ControlFlow::Break(());
         }
-        if (self.events >= CHUNK_EVENTS || self.bytes + weight > CHUNK_BYTES) && !self.flush() {
+        let merges = self.chunk.last().is_some_and(|last| last.mergeable(&event));
+        if (self.events + event.count > CHUNK_EVENTS
+            || (!merges && self.chunk.len() >= CHUNK_RECORDS)
+            || (!merges && self.bytes + weight > CHUNK_BYTES))
+            && !self.flush()
+        {
             return ControlFlow::Break(());
         }
         self.pool
             .buffered_events
             .fetch_add(event.count, Ordering::Relaxed);
         self.events += event.count;
-        if matches!(event.effect, Effect::Count)
-            && let Some(last) = self.chunk.last_mut()
-            && matches!(last.effect, Effect::Count)
+        if let Some(last) = self.chunk.last_mut()
+            && last.mergeable(&event)
         {
             last.count += event.count;
         } else {

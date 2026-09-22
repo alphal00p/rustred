@@ -40,6 +40,111 @@ fn command() -> Command {
 }
 
 #[test]
+fn cli_owner_guarded_apply_preserves_complement_and_partial_diagnostic_status() {
+    use rustred_app::{OwnerDomainMatchRequest, owner_domain_match_with_progress};
+    let directory = fixture();
+    let source = r#"
+schema="rustred.project.toml.v1"
+[family]
+name="guarded_cli_one_hop"
+loop_momenta=["q"]
+external_momenta=[]
+dimension="d"
+[[family.denominators]]
+id="P"
+expression="q^2-1"
+[target]
+powers=[1]
+"#;
+    let bundle = family_candidates(FamilyCandidatesRequest::new(source)).unwrap();
+    let inspection =
+        inspect_generated_candidate_bundle(bundle.bundle(), Default::default()).unwrap();
+    std::fs::write(directory.0.join("owner.rrbin"), bundle.bundle()).unwrap();
+    let selection = json!({"family_fingerprint":inspection.family_fingerprint,"owners":[{"path":"owner.rrbin","bytes":bundle.bundle().len(),"mask":"1"}],"initial_frontier_routes":[]});
+    std::fs::write(directory.0.join("selection.json"), selection.to_string()).unwrap();
+    let mut local = OwnerDomainMatchRequest::new(
+        selection.to_string(),
+        json!({"schema":"rustred.owner-domain-queries.json.v1","queries":[{
+        "id":"local","owner":"1","lower":[1],"upper":[null],"max_numerator_rank":11}]})
+        .to_string(),
+    );
+    local.owner_base = directory.0.clone();
+    let classified =
+        owner_domain_match_with_progress(local, &std::sync::atomic::AtomicBool::new(false), |_| {})
+            .unwrap();
+    let selector = &classified.document["queries"][0]["pieces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["disposition"]["kind"] == "selected_rule")
+        .unwrap()["disposition"];
+    let queries = json!({"schema":"rustred.owner-guarded-rule-queries.json.v1","queries":[{
+        "id":"own\"rule\\display","owner":"1","lower":[1],"upper":[null],"max_numerator_rank":11,
+        "batch":selector["batch"],"rule":selector["rule"]}]});
+    std::fs::write(directory.0.join("queries.json"), queries.to_string()).unwrap();
+    std::fs::write(
+        directory.0.join("limits.json"),
+        r#"{"max_events":12345,"applied":{"max_events":23456}}"#,
+    )
+    .unwrap();
+    let run = |output: &str, extra: &[&str]| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_rustred"));
+        for key in [
+            "RAYON_NUM_THREADS",
+            "OMP_NUM_THREADS",
+            "OMP_THREAD_LIMIT",
+            "OPENBLAS_NUM_THREADS",
+            "MKL_NUM_THREADS",
+            "BLIS_NUM_THREADS",
+            "SYMBOLICA_HIDE_BANNER",
+        ] {
+            c.env(key, "1");
+        }
+        c.arg("owner-guarded-apply")
+            .arg("--manifest")
+            .arg(directory.0.join("selection.json"))
+            .arg("--queries")
+            .arg(directory.0.join("queries.json"))
+            .arg("--owner-base")
+            .arg(&directory.0)
+            .arg("--output")
+            .arg(directory.0.join(output))
+            .arg("--work-limits")
+            .arg(directory.0.join("limits.json"))
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let done = run("done.json", &[]);
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
+    let bytes = std::fs::read(directory.0.join("done.json")).unwrap();
+    let document: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(document["diagnostic_complete"], true);
+    assert_eq!(document["family_closure_claim"], false);
+    assert_eq!(document["work_limits"]["max_events"], 12345);
+    assert_eq!(document["work_limits"]["applied"]["max_events"], 23456);
+    assert!(bytes.len() <= document["report_payload_bytes_charged"].as_u64().unwrap() as usize);
+    assert!(
+        document["queries"][0]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["residual"] == "IncomingComplement")
+    );
+    let partial = run("partial.json", &["--max-report-events", "1"]);
+    assert_eq!(partial.status.code(), Some(4));
+    let document: Value =
+        serde_json::from_slice(&std::fs::read(directory.0.join("partial.json")).unwrap()).unwrap();
+    assert_eq!(document["diagnostic_complete"], false);
+    assert_eq!(document["retained_events"], 1);
+    assert_eq!(document["queries"][0]["inspection_finished"], false);
+}
+
+#[test]
 fn cli_routed_writes_truthful_non_tty_result_and_cancel_receipt() {
     let directory = fixture();
     let source = r#"

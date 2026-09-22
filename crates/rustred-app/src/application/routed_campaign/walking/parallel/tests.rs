@@ -28,6 +28,92 @@ fn licensed() -> bool {
 fn count() -> Event<1> {
     Event::one(Effect::Count)
 }
+
+#[test]
+fn job_local_reuse_compaction_uses_physical_and_logical_limits_separately() {
+    let pool = Pool::<1>::new(1);
+    assert!(pool.dispatch(0, domain(0)));
+    let mut emitter = Emitter {
+        pool: &pool,
+        slot: 0,
+        id: 0,
+        phase: Phase::Apply,
+        chunk: Vec::new(),
+        bytes: 0,
+        events: 0,
+    };
+    let reused = || {
+        Event::one(Effect::KnownReuse {
+            successor: true,
+            conditional: true,
+        })
+    };
+    for _ in 0..1000 {
+        assert!(emitter.emit(reused()).is_continue());
+    }
+    assert_eq!(emitter.chunk.len(), 1);
+    assert_eq!(emitter.events, 1000);
+    assert!(matches!(pool.poll(0), Poll::Waiting)); // no flush at64 logical callbacks
+    for _ in 1000..CHUNK_EVENTS {
+        assert!(emitter.emit(reused()).is_continue());
+    }
+    let Poll::Events(chunk) = pool.poll(0) else {
+        panic!("logical bound must flush");
+    };
+    assert_eq!(chunk.len(), 1);
+    assert_eq!(chunk[0].count, CHUNK_EVENTS);
+    assert_eq!(pool.snapshot()["worker_buffered_events"], 0);
+    // Alternating charge vectors cannot compact and hit the physical cap.
+    for i in 0..=CHUNK_RECORDS {
+        assert!(
+            emitter
+                .emit(Event::one(Effect::KnownReuse {
+                    successor: true,
+                    conditional: i % 2 == 0
+                }))
+                .is_continue()
+        );
+    }
+    let Poll::Events(chunk) = pool.poll(0) else {
+        panic!("physical bound must flush");
+    };
+    assert_eq!(chunk.len(), CHUNK_RECORDS);
+    assert_eq!(emitter.chunk.len(), 1);
+    assert!(emitter.flush());
+    assert!(matches!(pool.poll(0), Poll::Events(_)));
+}
+
+#[test]
+fn job_local_reuse_byte_bound_still_flushes_noncompact_records() {
+    let pool = Pool::<1>::new(1);
+    assert!(pool.dispatch(0, domain(0)));
+    let mut emitter = Emitter {
+        pool: &pool,
+        slot: 0,
+        id: 0,
+        phase: Phase::Apply,
+        chunk: Vec::new(),
+        bytes: 0,
+        events: 0,
+    };
+    let large = || {
+        Event::one(Effect::Frontier {
+            value: json!("x".repeat(CHUNK_BYTES * 3 / 4)),
+            successor: false,
+            conditional: false,
+        })
+    };
+    assert!(emitter.emit(large()).is_continue());
+    assert!(emitter.emit(large()).is_continue());
+    let Poll::Events(chunk) = pool.poll(0) else {
+        panic!("byte bound must flush");
+    };
+    assert_eq!(chunk.len(), 1);
+    assert!(emitter.bytes <= CHUNK_BYTES);
+    assert!(emitter.flush());
+    assert!(matches!(pool.poll(0), Poll::Events(_)));
+    assert_eq!(pool.snapshot()["worker_buffered_events"], 0);
+}
 fn wait_until(pool: &Pool<1>, predicate: impl Fn(&Value) -> bool) {
     let started = Instant::now();
     while !predicate(&pool.snapshot()) {
@@ -54,7 +140,7 @@ fn symbolic_parallel_stream_is_bounded_and_commits_in_requested_order() {
                     std::thread::yield_now();
                 }
             }
-            for _ in 0..1000 {
+            for _ in 0..(2 * CHUNK_EVENTS + 1) {
                 if emit(count()).is_break() {
                     return finished(Some("stopped"));
                 }
@@ -89,9 +175,9 @@ fn symbolic_parallel_stream_is_bounded_and_commits_in_requested_order() {
             counts
         },
     );
-    assert_eq!(counts, [1000, 1000]);
+    assert_eq!(counts, [2 * CHUNK_EVENTS + 1, 2 * CHUNK_EVENTS + 1]);
     assert!(leftovers.is_empty());
-    assert_eq!(snapshot["attempted_events"], 2000);
+    assert_eq!(snapshot["attempted_events"], 4 * CHUNK_EVENTS + 2);
     assert_eq!(snapshot["returned_inspections"], 2);
     assert_eq!(snapshot["worker_buffered_events"], 0);
     assert_eq!(snapshot["active_workers"], 0);
@@ -150,7 +236,7 @@ fn symbolic_parallel_observer_panic_unblocks_full_mailboxes_and_joins() {
             |_, _, emit| {
                 living.fetch_add(1, Ordering::Relaxed);
                 let _guard = Guard(&living);
-                for _ in 0..10000 {
+                for _ in 0..(2 * CHUNK_EVENTS + 1) {
                     if emit(count()).is_break() {
                         break;
                     }

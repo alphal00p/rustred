@@ -190,7 +190,9 @@ or a performance ratio.
 During elapsed 130.052–298.134 s, 83 resource samples average **1.048 busy
 cores**, ranging from 0.999 to 1.079 despite six requested workers. In the
 heartbeat window 105.109–333.841 s, 225 of 228 samples report five blocked
-workers and three report six. This quantifies the saturation of this prefix;
+workers and three report six. These counts use the literal inclusive cutoffs
+against the unrounded recorded timestamps, not rounded displayed endpoints.
+This quantifies the saturation of this prefix;
 it is not a CPU profile of every native call or a claim about all future jobs.
 
 The implementation flushes at 64 logical callbacks even when repeated requests
@@ -209,3 +211,34 @@ coverage. This is implementation in progress, not an established speedup.
 Evidence is under `TMP/symbolic-all67-parallel-controls.vrST2S/six/`, with
 `shared-owner-campaign.nhy__25f/stop-request.json` recording the operator's
 reason. Both runs retain their incomplete statuses; neither is a full R10 solve.
+
+## Tested follow-up: job-local duplicate suppression and counted streaming
+
+The next application slice is implemented and independently reviewed. Each
+native domain inspection may remember up to 4,096 exact request keys and 2 MiB
+of logical key payload. A key includes phase, owner, every bound and actual
+finite/unbounded rank. The first request is sent normally; only later identical
+requests in that job can use a compact reuse marker. Ordered publication ensures
+the first admission succeeds before a dependent marker commits. This is reuse
+of scheduled work, not evidence that it is already solved. Native guard,
+coefficient, source, routing and descent work still runs.
+
+Adjacent compatible markers are counted together. Chunks are now limited
+separately to 64 physical records, 256 KiB accounted payload and 65,536 logical
+callbacks. Per-worker published/private buffers remain bounded. Optional cache
+saturation or allocation failure falls back to ordinary admission. The logical
+key allowance excludes HashSet spare capacity and allocator/native overhead;
+it is not a process-RSS bound.
+
+The release application gate passes **362 tests**, including 11 new reuse tests
+and existing serial/parallel lifecycle checks. A private cache-off reference
+checks the native small-family result and accounting. All **26 Python steering
+tests** pass. See `TMP/guarded-reuse-app-retry.Sas0k6/` for raw test receipts and
+independent runtime review. Preparation and actual five-loop scheduling effects
+remain to be measured; these test results establish no full-campaign speedup.
+
+The next full-census control must report `job_local_reuse_hits`, containment
+work, logical callbacks, bounded buffering, blocked workers, CPU and RSS. Its
+binary also includes the newer excluded-conjunction matcher behavior, so it
+must not be presented as an isolated same-workload cache comparison with the
+old stopped controls above.

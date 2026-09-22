@@ -4,10 +4,11 @@ mod cli;
 
 pub use application::{
     OwnerDomainMatchRequest, OwnerDomainMatchResult, OwnerDomainScanRequest, OwnerDomainScanResult,
-    OwnerDomainWalkRequest, OwnerDomainWalkResult, RoutedCampaignRequest, RoutedCampaignResult,
-    RoutedFeedbackOptions, RoutedFeedbackRoundResult, RoutedFeedbackSession,
-    owner_domain_match_with_progress, owner_domain_scan_with_progress,
-    owner_domain_walk_with_progress, routed_campaign_with_progress,
+    OwnerDomainWalkRequest, OwnerDomainWalkResult, OwnerGuardedApplyRequest,
+    OwnerGuardedApplyResult, RoutedCampaignRequest, RoutedCampaignResult, RoutedFeedbackOptions,
+    RoutedFeedbackRoundResult, RoutedFeedbackSession, owner_domain_match_with_progress,
+    owner_domain_scan_with_progress, owner_domain_walk_with_progress,
+    owner_guarded_apply_with_progress, routed_campaign_with_progress,
 };
 pub use rustred::persistence::{BinaryIoLimits, equivalent_generated_programs};
 

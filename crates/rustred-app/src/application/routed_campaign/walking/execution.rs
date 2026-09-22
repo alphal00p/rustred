@@ -1,11 +1,13 @@
 //! Single publisher for stable domain admission and bounded retained reports.
+#[cfg(test)]
+use super::queue::Phase;
 use super::{
     OwnerDomainWalkRequest,
     diagnostics::{OptionalCounts, OptionalRefusals},
     inspection::{self, Effect, Event, Finished, NativeStats},
     mask,
     parallel::{self, Failure, Poll},
-    queue::{Phase, Queue},
+    queue::Queue,
     stats_json,
 };
 use rustred::solver::RoutedCandidateReducer;
@@ -20,6 +22,7 @@ pub(super) struct State<const N: usize> {
     pub events: usize,
     pub successors: usize,
     pub conditional: usize,
+    pub job_local_reuse_hits: usize,
     pub optional: OptionalCounts,
     pub frontiers: usize,
     pub completed: usize,
@@ -39,6 +42,7 @@ impl<const N: usize> State<N> {
             events: 0,
             successors: 0,
             conditional: 0,
+            job_local_reuse_hits: 0,
             optional: OptionalCounts::default(),
             frontiers,
             completed: 0,
@@ -60,6 +64,7 @@ impl<const N: usize> State<N> {
             "queued_nodes":self.queue.domains.len().saturating_sub(self.queue.next),
             "deduplication_hits":self.queue.deduplicated, "exact_domain_hits":self.queue.exact_hits,
             "full_orthant_hits":self.queue.orthant_hits, "containment_checks":self.queue.containment_checks,
+            "job_local_reuse_hits":self.job_local_reuse_hits,
             "max_scheduled_finite_rank":self.queue.max_finite_rank, "unbounded_rank_domains":self.queue.unbounded_rank_domains,
             "successors":self.successors, "conditional_successors":self.conditional,
             "frontiers":self.frontiers, "events":self.events, "committed_events":self.events,
@@ -84,15 +89,79 @@ impl<const N: usize> State<N> {
         event: Event<N>,
         request: &OwnerDomainWalkRequest,
     ) -> Result<(), &'static str> {
-        let remaining = request.max_events - self.events;
+        let remaining = request
+            .max_events
+            .checked_sub(self.events)
+            .ok_or("event counter invariant")?;
+        if let Effect::KnownReuse {
+            successor,
+            conditional,
+        } = &event.effect
+        {
+            // Preserve the exact accepted logical prefix even inside a run.
+            // Compute all next counters before any publication (including the
+            // aggregate queue counter); an overflow leaves a coherent prefix.
+            let mut accepted = event.count;
+            let mut refusal = None;
+            for (available, reason) in [
+                (remaining, "aggregate successor event allowance"),
+                (
+                    if *successor {
+                        usize::MAX - self.successors
+                    } else {
+                        usize::MAX
+                    },
+                    "successor counter overflow",
+                ),
+                (
+                    if *conditional {
+                        usize::MAX - self.conditional
+                    } else {
+                        usize::MAX
+                    },
+                    "conditional successor counter overflow",
+                ),
+                (
+                    usize::MAX - self.job_local_reuse_hits,
+                    "job-local reuse counter overflow",
+                ),
+                (
+                    usize::MAX - self.queue.deduplicated,
+                    "reuse counter overflow",
+                ),
+            ] {
+                if available < accepted {
+                    accepted = available;
+                    refusal = Some(reason);
+                }
+            }
+            let successors = self
+                .successors
+                .checked_add(if *successor { accepted } else { 0 })
+                .ok_or("successor counter overflow")?;
+            let conditional = self
+                .conditional
+                .checked_add(if *conditional { accepted } else { 0 })
+                .ok_or("conditional successor counter overflow")?;
+            let hits = self
+                .job_local_reuse_hits
+                .checked_add(accepted)
+                .ok_or("job-local reuse counter overflow")?;
+            self.queue.count_known_reuse(accepted)?;
+            self.events += accepted;
+            self.successors = successors;
+            self.conditional = conditional;
+            self.job_local_reuse_hits = hits;
+            return refusal.map_or(Ok(()), Err);
+        }
         if event.count > remaining {
-            // Compacted Count-only markers preserve the exact logical cap.
             self.events += remaining;
             return Err("aggregate successor event allowance");
         }
         self.events += event.count;
         match event.effect {
             Effect::Count => {}
+            Effect::KnownReuse { .. } => unreachable!("handled counted reuse"),
             Effect::Admit {
                 domain,
                 successor,

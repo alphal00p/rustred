@@ -58,6 +58,12 @@ pub(super) struct OptionalDiagnostic {
 
 pub(super) enum Effect<const N: usize> {
     Count,
+    /// This job emitted an identical scheduling request earlier, in order.
+    /// Pending reuse only; this does not certify completed coverage.
+    KnownReuse {
+        successor: bool,
+        conditional: bool,
+    },
     Admit {
         domain: Domain<N>,
         successor: bool,
@@ -72,13 +78,30 @@ pub(super) enum Effect<const N: usize> {
 }
 
 pub(super) struct Event<const N: usize> {
-    /// Adjacent no-effect callbacks may be compacted without changing caps.
+    /// Adjacent homogeneous callback charge vectors may be compacted while
+    /// preserving their exact ordered prefix at every cap.
     pub count: usize,
     pub effect: Effect<N>,
 }
 impl<const N: usize> Event<N> {
     pub fn one(effect: Effect<N>) -> Self {
         Self { count: 1, effect }
+    }
+    pub fn mergeable(&self, other: &Self) -> bool {
+        match (&self.effect, &other.effect) {
+            (Effect::Count, Effect::Count) => true,
+            (
+                Effect::KnownReuse {
+                    successor: a,
+                    conditional: b,
+                },
+                Effect::KnownReuse {
+                    successor: c,
+                    conditional: d,
+                },
+            ) => a == c && b == d,
+            _ => false,
+        }
     }
     /// Conservative logical owned-storage charge, NOT an allocator/RSS bound.
     pub fn weight(&self) -> usize {
@@ -98,7 +121,7 @@ impl<const N: usize> Event<N> {
         }
         std::mem::size_of::<Self>()
             + match &self.effect {
-                Effect::Count => 0,
+                Effect::Count | Effect::KnownReuse { .. } => 0,
                 Effect::Admit { domain, .. } => {
                     domain.lower.capacity() * 8
                         + domain.upper.capacity() * std::mem::size_of::<Option<u64>>()
@@ -134,6 +157,32 @@ impl Finished {
 }
 
 pub(super) fn inspect<const N: usize>(
+    reducer: &RoutedCandidateReducer<N>,
+    domain: &Domain<N>,
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+    emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
+) -> Finished {
+    inspect_with_reuse(reducer, domain, request, cancellation, true, emit)
+}
+
+/// Private cache-off reference seam for tests/controlled experiments. No new
+/// public request/CLI policy or native applicability mode is introduced.
+pub(super) fn inspect_with_reuse<const N: usize>(
+    reducer: &RoutedCandidateReducer<N>,
+    domain: &Domain<N>,
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+    enabled: bool,
+    emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
+) -> Finished {
+    let mut cache = super::reuse::Cache::new(enabled);
+    inspect_native(reducer, domain, request, cancellation, &mut |event| {
+        cache.forward(event, emit)
+    })
+}
+
+fn inspect_native<const N: usize>(
     reducer: &RoutedCandidateReducer<N>,
     domain: &Domain<N>,
     request: &OwnerDomainWalkRequest,

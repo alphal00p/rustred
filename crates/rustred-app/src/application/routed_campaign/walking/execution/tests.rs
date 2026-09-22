@@ -5,6 +5,148 @@ fn request() -> OwnerDomainWalkRequest {
         String::new(),
     ))
 }
+
+#[test]
+fn job_local_reuse_counted_runs_preserve_every_event_cap_prefix() {
+    for (successor, conditional) in [(false, false), (true, false), (true, true)] {
+        for cap in 0..=6 {
+            let mut request = request();
+            request.max_events = cap;
+            let mut state = State::new(Queue::<1>::new(5, 5), 0, None);
+            let result = state.accept(
+                Event {
+                    count: 5,
+                    effect: Effect::KnownReuse {
+                        successor,
+                        conditional,
+                    },
+                },
+                &request,
+            );
+            let accepted = cap.min(5);
+            assert_eq!(result.is_ok(), cap >= 5);
+            assert_eq!(state.events, accepted);
+            assert_eq!(state.successors, if successor { accepted } else { 0 });
+            assert_eq!(state.conditional, if conditional { accepted } else { 0 });
+            assert_eq!(state.queue.deduplicated, accepted);
+            assert_eq!(state.job_local_reuse_hits, accepted);
+            assert_eq!(state.queue.exact_hits, 0);
+            assert_eq!(state.queue.orthant_hits, 0);
+            assert_eq!(state.completed, 0);
+        }
+    }
+}
+
+#[test]
+fn job_local_reuse_overflow_keeps_sequential_prefix_and_atomic_counters() {
+    for (field, expected) in [
+        (0, "successor counter overflow"),
+        (1, "conditional successor counter overflow"),
+        (2, "job-local reuse counter overflow"),
+        (3, "reuse counter overflow"),
+    ] {
+        let request = request();
+        let mut state = State::new(Queue::<1>::new(5, 5), 0, None);
+        match field {
+            0 => state.successors = usize::MAX - 2,
+            1 => state.conditional = usize::MAX - 2,
+            2 => state.job_local_reuse_hits = usize::MAX - 2,
+            _ => state.queue.deduplicated = usize::MAX - 2,
+        }
+        assert_eq!(
+            state.accept(
+                Event {
+                    count: 5,
+                    effect: Effect::KnownReuse {
+                        successor: true,
+                        conditional: true
+                    }
+                },
+                &request
+            ),
+            Err(expected)
+        );
+        assert_eq!(state.events, 2);
+        assert_eq!(state.successors, if field == 0 { usize::MAX } else { 2 });
+        assert_eq!(state.conditional, if field == 1 { usize::MAX } else { 2 });
+        assert_eq!(
+            state.job_local_reuse_hits,
+            if field == 2 { usize::MAX } else { 2 }
+        );
+        assert_eq!(
+            state.queue.deduplicated,
+            if field == 3 { usize::MAX } else { 2 }
+        );
+        // No additional callback can be partially counted after the refusal.
+        assert!(
+            state
+                .accept(
+                    Event::one(Effect::KnownReuse {
+                        successor: true,
+                        conditional: true
+                    }),
+                    &request
+                )
+                .is_err()
+        );
+        assert_eq!(state.events, 2);
+    }
+}
+
+#[test]
+fn job_local_reuse_mixed_runs_do_not_erase_frontier_or_current_conditional_flag() {
+    let mut request = request();
+    request.max_events = 6;
+    let mut state = State::new(Queue::<1>::new(5, 5), 0, None);
+    state
+        .accept(
+            Event {
+                count: 2,
+                effect: Effect::KnownReuse {
+                    successor: true,
+                    conditional: false,
+                },
+            },
+            &request,
+        )
+        .unwrap();
+    state
+        .accept(
+            Event::one(Effect::Frontier {
+                value: json!({"kind":"kept"}),
+                successor: false,
+                conditional: false,
+            }),
+            &request,
+        )
+        .unwrap();
+    state.accept(Event::one(Effect::Count), &request).unwrap();
+    assert!(
+        state
+            .accept(
+                Event {
+                    count: 3,
+                    effect: Effect::KnownReuse {
+                        successor: true,
+                        conditional: true
+                    }
+                },
+                &request
+            )
+            .is_err()
+    );
+    assert_eq!(
+        (
+            state.events,
+            state.successors,
+            state.conditional,
+            state.job_local_reuse_hits
+        ),
+        (6, 4, 2, 4)
+    );
+    assert_eq!(state.details[0]["kind"], "kept");
+    assert_eq!(state.frontiers, 1);
+}
 #[test]
 fn symbolic_stream_compact_counts_keep_exact_event_cap() {
     let mut request = request();

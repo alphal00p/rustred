@@ -5,6 +5,7 @@ mod execution;
 mod inspection;
 mod parallel;
 mod queue;
+mod reuse;
 mod routing;
 
 use super::{OwnerDomainMatchRequest, RoutedCampaignRequest, input, matching, prepare};
@@ -73,6 +74,7 @@ impl OwnerDomainWalkResult {
             "deduplication_hits",
             "exact_domain_hits",
             "full_orthant_hits",
+            "job_local_reuse_hits",
             "containment_checks",
             "routed_domains",
             "route_masks",
@@ -259,6 +261,14 @@ fn run<const N: usize>(
         "traversal_seconds":started.elapsed().as_secs_f64()-prepared,"elapsed_seconds":started.elapsed().as_secs_f64()});
     // Keep macro expansion bounded without a crate-wide recursion allowance.
     document["workers"] = json!(request.workers);
+    document["job_local_reuse_hits"] = json!(state.job_local_reuse_hits);
+    document["job_local_reuse_policy"] =
+        json!("per_inspection_after_ordered_emit; pending_not_completed");
+    document["job_local_reuse_limits"] = json!({"max_keys":reuse::MAX_KEYS,
+        "max_logical_key_bytes":reuse::MAX_KEY_BYTES,"container_overhead_and_rss_excluded":true});
+    document["reuse_counter_scope"] = json!(
+        "job_local hits increment aggregate reuse only; skipped exact/orthant/general lookups are not attributed"
+    );
     document["max_events"] = json!(request.max_events);
     document["max_frontiers"] = json!(request.max_frontiers);
     document["applied_limits"] = limits_json(request);

@@ -116,6 +116,9 @@ impl Drop for RoutedProgress {
 }
 
 fn dashboard(record: &Value) -> [String; 6] {
+    if record["progress"]["operation"].as_str() == Some("owner_guarded_apply") {
+        return guarded_dashboard(record);
+    }
     let outer = &record["progress"];
     if outer["operation"].as_str() == Some("owner_domain_walk") {
         return walk_dashboard(record);
@@ -302,6 +305,24 @@ fn domain_dashboard(record: &Value) -> [String; 6] {
     ]
 }
 
+fn guarded_dashboard(record: &Value) -> [String; 6] {
+    let p = &record["progress"];
+    let n = |key| p[key].as_u64().unwrap_or(0);
+    let id: String = p["id"]
+        .as_str()
+        .unwrap_or("—")
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(64)
+        .collect();
+    [format!("RustRed conditional own-rule diagnostic — {}",p["status"].as_str().or(p["event"].as_str()).unwrap_or("working")),
+        format!("{} / {} requested inspections finished; {} processed",n("completed_queries"),n("query_count"),n("processed_queries")),
+        format!("Query {id}  retained events {}  payload charged {} bytes",n("retained_events"),n("report_payload_bytes_charged")),
+        "Residual complements / RHS problems remain explicit; NOT first-priority applicability or closure.".into(),
+        format!("Elapsed {:.1}s  process RSS {:.3} GB  cancel {}",record["elapsed_seconds"].as_f64().unwrap_or(0.),record["process_rss_bytes"].as_u64().unwrap_or(0) as f64/1e9,record["cancel_requested"]),
+        "Completion means diagnostic collection only; no shared work queue or feasibility claim.".into()]
+}
+
 fn match_dashboard(record: &Value) -> [String; 6] {
     let p = &record["progress"];
     let done = p["completed_queries"].as_u64().unwrap_or(0);
@@ -358,6 +379,17 @@ fn match_dashboard(record: &Value) -> [String; 6] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn guarded_dashboard_is_conditional_bounded_and_not_a_campaign_fraction() {
+        let text=dashboard(&json!({"progress":{"operation":"owner_guarded_apply","event":"guarded_query_progress",
+            "query_count":2,"completed_queries":1,"processed_queries":1,"retained_events":17,"id":format!("bad\u{1b}{}","x".repeat(1000))}})).join("\n");
+        assert!(text.contains("1 / 2 requested inspections"));
+        assert!(text.contains("retained events 17"));
+        assert!(text.contains("diagnostic collection only"));
+        assert!(!text.contains("finite-target"));
+        assert!(!text.contains('\u{1b}'));
+        assert!(text.len() < 1000);
+    }
     #[test]
     fn owner_domain_walk_dashboard_reports_provisional_domain_work() {
         let text = dashboard(&json!({"progress":{"operation":"owner_domain_walk",
