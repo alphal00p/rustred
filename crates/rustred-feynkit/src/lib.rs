@@ -336,7 +336,12 @@ impl PyIbpRule {
             .collect()
     }
 
-    fn instantiate(&self, powers: &[i64]) -> PyResult<Option<Vec<ConcreteTerm>>> {
+    fn instantiate(
+        &self,
+        py: Python<'_>,
+        powers: &[i64],
+        integral: Option<Symbol>,
+    ) -> PyResult<Option<Py<PyAny>>> {
         if powers.len() != self.target.len() {
             return Err(PyValueError::new_err(
                 "one integer power is required per denominator",
@@ -376,7 +381,8 @@ impl PyIbpRule {
         {
             return Ok(None);
         }
-        self.rhs
+        let terms = self
+            .rhs
             .iter()
             .map(|(term, coefficient)| {
                 let result = term
@@ -394,8 +400,24 @@ impl PyIbpRule {
                     .collect::<PyResult<Vec<_>>>()?;
                 Ok((result, specialize(coefficient).into()))
             })
-            .collect::<PyResult<Vec<_>>>()
-            .map(Some)
+            .collect::<PyResult<Vec<ConcreteTerm>>>()?;
+        let result = if let Some(integral) = integral {
+            let expression = terms
+                .into_iter()
+                .fold(Atom::Zero, |sum, (powers, coefficient)| {
+                    sum + coefficient.expr
+                        * FunctionBuilder::new(integral)
+                            .add_args(powers.into_iter().map(Atom::num))
+                            .finish()
+                });
+            PythonExpression::from(expression)
+                .into_pyobject(py)?
+                .unbind()
+                .into_any()
+        } else {
+            terms.into_pyobject(py)?.unbind().into_any()
+        };
+        Ok(Some(result))
     }
 }
 
@@ -434,9 +456,27 @@ impl PyIbpRule {
 
     /// Substitute concrete indices, rejecting an incompatible sector or exception.
     /// Conditions remaining symbolic in kinematic parameters must still be nonzero.
-    fn apply(&self, powers: Vec<PythonPower>) -> PyResult<Vec<ConcreteTerm>> {
+    /// Return ``(powers, coefficient)`` terms by default. Pass a bare Symbolica
+    /// symbol as ``integral`` to return the sum ``coefficient * integral(*powers)``.
+    #[pyo3(signature = (powers, *, integral=None))]
+    fn apply(
+        &self,
+        py: Python<'_>,
+        powers: Vec<PythonPower>,
+        integral: Option<&PythonExpression>,
+    ) -> PyResult<Py<PyAny>> {
+        let integral = integral
+            .map(|head| {
+                let AtomView::Var(symbol) = head.expr.as_view() else {
+                    return Err(PyValueError::new_err(
+                        "integral must be a bare Symbolica symbol",
+                    ));
+                };
+                Ok(symbol.get_symbol())
+            })
+            .transpose()?;
         let powers = powers.into_iter().map(|power| power.0).collect::<Vec<_>>();
-        self.instantiate(&powers)?.ok_or_else(|| {
+        self.instantiate(py, &powers, integral)?.ok_or_else(|| {
             PyValueError::new_err(
                 "rule does not apply to these powers or lies on an exceptional locus",
             )
@@ -482,7 +522,26 @@ impl PyIbpSolution {
     /// Apply the first valid solved rule; leave unresolved integrals unchanged.
     /// Laporta rules have already been back-substituted through solved targets.
     /// Parametric rules perform one recurrence step per call.
-    fn reduce(&self, powers: Vec<PythonPower>) -> PyResult<Vec<ConcreteTerm>> {
+    /// Return ``(powers, coefficient)`` terms by default. Pass a bare Symbolica
+    /// symbol as ``integral`` to return the sum ``coefficient * integral(*powers)``.
+    /// Unresolved integrals remain explicit, and symbolic rule conditions still apply.
+    #[pyo3(signature = (powers, *, integral=None))]
+    fn reduce(
+        &self,
+        py: Python<'_>,
+        powers: Vec<PythonPower>,
+        integral: Option<&PythonExpression>,
+    ) -> PyResult<Py<PyAny>> {
+        let integral = integral
+            .map(|head| {
+                let AtomView::Var(symbol) = head.expr.as_view() else {
+                    return Err(PyValueError::new_err(
+                        "integral must be a bare Symbolica symbol",
+                    ));
+                };
+                Ok(symbol.get_symbol())
+            })
+            .transpose()?;
         let powers = powers.into_iter().map(|power| power.0).collect::<Vec<_>>();
         if powers.len() != self.arity {
             return Err(PyValueError::new_err(
@@ -490,11 +549,22 @@ impl PyIbpSolution {
             ));
         }
         for rule in &self.rules {
-            if let Some(terms) = rule.instantiate(&powers)? {
+            if let Some(terms) = rule.instantiate(py, &powers, integral)? {
                 return Ok(terms);
             }
         }
-        Ok(vec![(powers, Atom::num(1).into())])
+        if let Some(integral) = integral {
+            let expression = FunctionBuilder::new(integral)
+                .add_args(powers.into_iter().map(Atom::num))
+                .finish();
+            Ok(PythonExpression::from(expression)
+                .into_pyobject(py)?
+                .unbind()
+                .into_any())
+        } else {
+            let terms: Vec<ConcreteTerm> = vec![(powers, Atom::num(1).into())];
+            Ok(terms.into_pyobject(py)?.unbind().into_any())
+        }
     }
 
     fn __repr__(&self) -> String {
