@@ -1,10 +1,11 @@
 # Finite starting domains and fixed-target repair
 
-## Execution checkpoint — September 22
+## Execution resumed from the September 22 checkpoint
 
-The user requested a quota-driven stop after a tested, committed and pushed
-checkpoint. The release gates pass; do not launch another campaign or
-start further implementation until the user resumes work. The objective below
+The user has explicitly resumed work from the tested and pushed checkpoint.
+The matched maximal-index pilot and all-owner R0 control have now run, both
+resource-incomplete. Their audits direct the next work toward compact correlated
+domains and serial admission cost, before larger controls. The objective below
 is **unfinished**, not complete or mathematically blocked. Current evidence and
 resume steps are in the [bounded-routing pilot report](research/bounded_routing_pilot_2026-09-22.md).
 
@@ -422,8 +423,17 @@ bounds. This is incomplete diagnostic evidence, not a closed domain. A small
 maximal-candidate lookup optimization is implemented and independently audited;
 its release gate passes 428 application/integration and all 72 Python/steering
 tests. The core is unchanged from the passing 2,720-test gate. The index retires
-only redundant lookup entries, never pending work. The matched
-end-to-end rerun is deferred until the requested pause ends.
+only redundant lookup entries, never pending work. The resumed matched run
+now establishes a 2.88–2.92× traversal improvement for an identical completed
+74,326-domain prefix. It stops at the inherited 50-million-event allowance,
+with 137,684 complete and 127,080 pending. The all-67-owner binary-dot/R0 control
+then stops at 500,000 scheduled domains, with 90,428 complete and 409,571 pending.
+Neither reports a missing-rule frontier, and neither is closed. The all-owner
+control exposes renewed serial admission pressure despite low memory use;
+do not blindly widen it or the independent-axis A24 envelope. Preserve compact
+correlations and improve containment lookup before the next larger attempt.
+See the [three-lane audit and measurements](research/bounded_routing_pilot_2026-09-22.md#resumed-measurements-and-recommendations)
+and [primary-source recommendations](research/finite_domain_campaign_literature_audit_2026-09-22.md).
 
 ### Retaining total-power correlations
 
@@ -459,8 +469,11 @@ alternative: distinct positive tuples on A=24 cannot share a contained box.
 Thus support size t alone requires at least `binomial(23,t-1)` boxes, totaling
 37,167,402 across the present census even at R0. This is a lower bound on exact
 box representation, not a lower bound on solving the parametric problem.
-The compact-constraint proposal has independent mathematical/source review;
-it is **not yet implemented**. Workspace design and audit evidence is in
+The compact-constraint proposal and new workspace geometry prototype have
+independent mathematical/source review. Its 11 standalone optimized tests pass,
+including exhaustive comparison across 442,368 small finite domains; this is
+not an integration gate. End-to-end campaign propagation is **not yet
+integrated**. Workspace design and audit evidence is in
 `TMP/bounded-routing-pilot.4kY19R/CORRELATIONS{,_AUDIT,_IMPLEMENTATION}.md`.
 
 Local verification evidence is in `TMP/finite-entry-gate.2GG13m/` (untracked).

@@ -1,11 +1,15 @@
 # RustRed project goal
 
-**Execution checkpoint requested September 22:** bounded-routing and
-containment-index work passes the release gates (2,720 core, 428 application/
-integration and 72 Python/steering tests), with the incomplete five-loop pilot
-evidence preserved. Work stops after pushing this checkpoint. Do not restart campaigns or
-feature development until the user resumes. The finite-domain objective remains
-unfinished; see [the checkpoint report](docs/research/bounded_routing_pilot_2026-09-22.md).
+**Execution resumed by user instruction:** continue from the September 22
+bounded-routing checkpoint. Its release gates pass (2,720 core, 428 application/
+integration and 72 Python/steering tests). The matched maximal-index pilot now
+measures a 2.88–2.92× improvement on the identical completed traversal prefix;
+it and the subsequent all-owner control remain incomplete at diagnostic caps.
+Three independent audit lanes recommend retaining total-power correlations,
+reducing measured serial admission work and testing cheaper verified routing
+before enlarging the campaign. No missing IBP was observed in these unfinished
+prefixes. See [the updated checkpoint report](docs/research/bounded_routing_pilot_2026-09-22.md)
+and [literature recommendations](docs/research/finite_domain_campaign_literature_audit_2026-09-22.md).
 
 ## Current priority — finite renormalizable starting-domain five-loop closure
 
@@ -80,8 +84,9 @@ tests pass 422, and the Python API/CLI and steering gates pass all 72 tests.
 Independent code and mathematical audits pass. These are
 implementation gates, not a five-loop closure result. The next saved-rule
 pilots measure recursive growth before a larger campaign. Compact total-power
-and A-R constraints are independently designed but not yet implemented;
-coordinate bounds alone can remain a very loose physical overcover.
+and A-R constraints have an independently audited workspace geometry prototype, but
+campaign propagation is not yet integrated; coordinate bounds alone can remain
+a very loose physical overcover.
 
 The older sequence and measurements below are retained as history; statements
 requiring unbounded positive starting powers are no longer authoritative.
