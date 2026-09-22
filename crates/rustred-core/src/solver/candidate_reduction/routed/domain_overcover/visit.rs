@@ -145,9 +145,12 @@ impl<const N: usize> RoutedCandidateReducer<N> {
 
         // Prepared::compile admits a unit active-row bijection and only affine
         // inactive rows. Endpoints B-e have B>=0 and |e|<=D, so their numerator
-        // rank is <=D and their support is a subset of this root. Removing k
-        // positive axes requires >=k degree (B_j>=1). Enumerate only combinations
-        // of at most R removed axes; DO NOT reduce the endpoint rank cap by k.
+        // rank is |e|-sum_j min(e_j,B_j). Removing k positive axes consumes
+        // at least k degree because each lost axis has e_j>=B_j>=1. Thus the
+        // strict-pinch endpoint rank is <=D-k<=R-k, even for unbounded positive
+        // powers. Affine constants can only lower monomial degree; native
+        // cancellation can only remove endpoints.
+        // Enumerate only combinations of at most R removed axes.
         let max_removed = actual_rank.map_or(count, |r| {
             usize::try_from(r).unwrap_or(usize::MAX).min(count)
         });
@@ -175,6 +178,21 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             }
         })?;
         for removed in 1..=max_removed {
+            let pinched_rank = match actual_rank {
+                Some(rank) => Some(
+                    u32::try_from(removed)
+                        .ok()
+                        .and_then(|lost| rank.checked_sub(lost))
+                        .ok_or(CandidateDomainRouteFailure::InvalidAdmittedRoute(
+                            "removed support exceeds incoming numerator rank",
+                        ))?,
+                ),
+                None => None,
+            };
+            let pinched_cover = CandidateDomainRouteCover {
+                actual_rank: pinched_rank,
+                ..cover
+            };
             positions.clear();
             positions.extend(0..removed);
             loop {
@@ -188,7 +206,10 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 // this cover is not a validated original RHS child. Literal
                 // Apply uses the ordinary matcher to establish its validity.
                 emit(
-                    CandidateDomainRouteEvent::Route { sector, cover },
+                    CandidateDomainRouteEvent::Route {
+                        sector,
+                        cover: pinched_cover,
+                    },
                     limits,
                     cancellation,
                     visit,

@@ -964,3 +964,5 @@ fn owner_domain_walk_initial_route_source_conditions_remain_explicit() {
         false
     );
 }
+
+mod parallel_walk;

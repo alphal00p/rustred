@@ -72,7 +72,9 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     };
     let result = if walking {
         let mut walk = OwnerDomainWalkRequest::new(request);
+        walk.workers = args.workers;
         walk.max_domains = args.max_domains;
+        walk.max_frontiers = args.max_frontiers;
         walk.max_events = args.max_successor_events;
         walk.max_containment_checks = args.max_containment_checks;
         walk.route_domain_overcover = args.route_domain_overcover;
@@ -80,6 +82,9 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
         walk.applied_limits.max_boundary_cells = args.max_rhs_cells;
         walk.applied_limits.max_term_visits = args.max_term_visits;
         walk.applied_limits.max_native_operations = args.max_native_operations;
+        walk.applied_limits.max_events = args.max_rhs_events;
+        walk.applied_limits.max_shift_groups = args.max_shift_groups;
+        walk.applied_limits.max_sign_splits = args.max_sign_splits;
         owner_domain_walk_with_progress(walk, &cancellation, |mut event| {
             event["operation"] = json!(operation);
             monitor.observe(event);

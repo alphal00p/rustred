@@ -65,6 +65,20 @@ Detailed implementation sequencing is in
 
 ### Current implementation slice — ordered symbolic successor matching
 
+The next slice now has the generic strict-pinch **R-k** routing bound and
+bounded parallel symbolic inspection under independent audit. The core release
+gate passes **2,663 tests**, zero failures and 32 existing ignored diagnostics;
+the integrated application suite passes **341 tests**, and the CLI/Python
+work-policy changes pass **22 Python tests**, all with zero failures. Matched
+serial/six-worker campaign controls are still pending, so there is no new
+parallel-performance or full-closure result. See
+[the implementation and validation report](docs/research/parallel_symbolic_domains_2026-09-22.md).
+The public Python resource supervisor now also accepts symbolic `--queries`.
+It separates per-domain native work, aggregate streamed work and retained
+frontier storage, retaining the 50-core/450 GB soft/500 GB hard RSS policy and
+no elapsed deadline. Later five-loop stages remain gated on the complete R10
+solve; the local 60/67 result below is not that solve.
+
 The earlier routing/refinement slice adds opt-in admitted-route domain covers and exact
 bounded inactive refinement after selected native guard preflight refusals.
 It passes **2,623 core / 314 application / 19 Python tests** with zero failures

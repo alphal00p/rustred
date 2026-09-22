@@ -24,12 +24,17 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub max_guard_univariate_degree: usize,
     pub no_progress: bool,
     pub follow_successors: bool,
+    pub workers: usize,
     pub route_domain_overcover: bool,
     pub max_route_masks: usize,
     pub max_rhs_cells: usize,
     pub max_term_visits: usize,
     pub max_native_operations: usize,
+    pub max_rhs_events: usize,
+    pub max_shift_groups: usize,
+    pub max_sign_splits: usize,
     pub max_domains: usize,
+    pub max_frontiers: usize,
     pub max_successor_events: usize,
     pub max_containment_checks: usize,
 }
@@ -57,12 +62,17 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         max_guard_univariate_degree: limits.guard_algebra.max_univariate_degree,
         no_progress: false,
         follow_successors: false,
+        workers: 1,
         route_domain_overcover: false,
         max_route_masks: 100_000,
         max_rhs_cells: applied.max_boundary_cells,
         max_term_visits: applied.max_term_visits,
         max_native_operations: applied.max_native_operations,
+        max_rhs_events: applied.max_events,
+        max_shift_groups: applied.max_shift_groups,
+        max_sign_splits: applied.max_sign_splits,
         max_domains: 100_000,
+        max_frontiers: 100_000,
         max_successor_events: 1_000_000,
         max_containment_checks: 10_000_000,
     };
@@ -92,12 +102,17 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             }
             "--no-progress" => "--no-progress",
             "--follow-successors" => "--follow-successors",
+            "--workers" => "--workers",
             "--route-domain-overcover" => "--route-domain-overcover",
             "--max-route-masks-per-query" => "--max-route-masks-per-query",
             "--max-rhs-cells-per-query" => "--max-rhs-cells-per-query",
             "--max-term-visits-per-query" => "--max-term-visits-per-query",
             "--max-native-operations-per-query" => "--max-native-operations-per-query",
+            "--max-rhs-events-per-query" => "--max-rhs-events-per-query",
+            "--max-shift-groups-per-query" => "--max-shift-groups-per-query",
+            "--max-sign-splits-per-query" => "--max-sign-splits-per-query",
             "--max-domains" => "--max-domains",
+            "--max-frontiers" => "--max-frontiers",
             "--max-successor-events" => "--max-successor-events",
             "--max-containment-checks" => "--max-containment-checks",
             "--help" | "-h" => return Ok(Command::Help),
@@ -145,6 +160,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             _ => {
                 let value = parse_positive_integer(name, value)?;
                 match name {
+                    "--workers" => result.workers = value,
                     "--max-queries" => result.max_queries = value,
                     "--max-total-pieces" => result.max_total_pieces = value,
                     "--max-rules-per-query" => result.max_rules = value,
@@ -154,12 +170,16 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                     "--max-cells-per-query" => result.max_cells = value,
                     "--max-split-operations-per-query" => result.max_split_operations = value,
                     "--max-domains" => result.max_domains = value,
+                    "--max-frontiers" => result.max_frontiers = value,
                     "--max-successor-events" => result.max_successor_events = value,
                     "--max-containment-checks" => result.max_containment_checks = value,
                     "--max-route-masks-per-query" => result.max_route_masks = value,
                     "--max-rhs-cells-per-query" => result.max_rhs_cells = value,
                     "--max-term-visits-per-query" => result.max_term_visits = value,
                     "--max-native-operations-per-query" => result.max_native_operations = value,
+                    "--max-rhs-events-per-query" => result.max_rhs_events = value,
+                    "--max-shift-groups-per-query" => result.max_shift_groups = value,
+                    "--max-sign-splits-per-query" => result.max_sign_splits = value,
                     "--max-guard-univariate-degree" => result.max_guard_univariate_degree = value,
                     _ => result.max_coordinate_cells = value,
                 }
@@ -176,14 +196,19 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "at most 10000 queries /1000000 retained pieces",
         ));
     }
-    if result.max_domains > 1_000_000 || result.max_successor_events > 10_000_000 {
+    if result.max_domains > 1_000_000 || result.max_frontiers > 1_000_000 {
         return Err(ArgError::InvalidCombination(
-            "at most 1000000 domains /10000000 successor events",
+            "at most 1000000 domains /1000000 retained frontiers",
         ));
+    }
+    if result.workers > 64 {
+        return Err(ArgError::InvalidCombination("at most 64 symbolic workers"));
     }
     if !result.follow_successors
         && [
+            "--workers",
             "--max-domains",
+            "--max-frontiers",
             "--max-successor-events",
             "--max-containment-checks",
             "--route-domain-overcover",
@@ -191,6 +216,9 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--max-rhs-cells-per-query",
             "--max-term-visits-per-query",
             "--max-native-operations-per-query",
+            "--max-rhs-events-per-query",
+            "--max-shift-groups-per-query",
+            "--max-sign-splits-per-query",
         ]
         .iter()
         .any(|name| seen.contains(name))
@@ -221,6 +249,12 @@ mod tests {
             panic!("match command")
         };
         let limits = rustred::solver::OwnerDomainMatchLimits::default();
+        let applied = rustred::solver::OwnerAppliedLimits::default();
+        assert_eq!(args.workers, 1);
+        assert_eq!(args.max_frontiers, 100_000);
+        assert_eq!(args.max_rhs_events, applied.max_events);
+        assert_eq!(args.max_shift_groups, applied.max_shift_groups);
+        assert_eq!(args.max_sign_splits, applied.max_sign_splits);
         assert_eq!(args.max_queries, 256);
         assert_eq!(args.max_total_pieces, 100_000);
         assert_eq!(args.max_rules, limits.max_rules);
@@ -357,6 +391,48 @@ mod tests {
             "--follow-successors --max-route-masks-per-query 3",
             "--follow-successors --route-domain-overcover --max-route-masks-per-query 0",
             "--follow-successors --route-domain-overcover --route-domain-overcover",
+        ] {
+            assert!(parse(&format!("--manifest m --queries q --output o {suffix}")).is_err());
+        }
+    }
+
+    #[test]
+    fn parallel_walk_and_native_event_allowances_are_distinct_from_aggregate_work() {
+        let Command::OwnerDomainMatch(args) = parse("--manifest m --queries q --output o --follow-successors --workers 6 --max-successor-events 701 --max-rhs-events-per-query 303 --max-shift-groups-per-query 202 --max-sign-splits-per-query 101").unwrap() else { panic!("match command") };
+        assert_eq!(args.workers, 6);
+        assert_eq!(args.max_successor_events, 701);
+        assert_eq!(args.max_rhs_events, 303);
+        assert_eq!(args.max_shift_groups, 202);
+        assert_eq!(args.max_sign_splits, 101);
+        for suffix in [
+            "--max-rhs-events-per-query 10",
+            "--max-shift-groups-per-query 10",
+            "--max-sign-splits-per-query 10",
+            "--workers 1",
+            "--follow-successors --workers 0",
+            "--follow-successors --workers 65",
+            "--follow-successors --max-rhs-events-per-query 0",
+            "--follow-successors --max-shift-groups-per-query 0",
+            "--follow-successors --max-sign-splits-per-query 0",
+            "--follow-successors --workers 1 --workers 2",
+            "--follow-successors --max-rhs-events-per-query 1 --max-rhs-events-per-query 2",
+        ] {
+            assert!(
+                parse(&format!("--manifest m --queries q --output o {suffix}")).is_err(),
+                "{suffix}"
+            );
+        }
+    }
+
+    #[test]
+    fn streamed_event_allowance_is_independent_of_retained_frontier_memory() {
+        let Command::OwnerDomainMatch(args) = parse("--manifest m --queries q --output o --follow-successors --max-successor-events 100000000 --max-frontiers 17").unwrap() else { panic!("match command") };
+        assert_eq!(args.max_successor_events, 100_000_000);
+        assert_eq!(args.max_frontiers, 17);
+        for suffix in [
+            "--max-frontiers 17",
+            "--follow-successors --max-frontiers 0",
+            "--follow-successors --max-frontiers 1000001",
         ] {
             assert!(parse(&format!("--manifest m --queries q --output o {suffix}")).is_err());
         }

@@ -113,6 +113,32 @@ class MatchSteeringTests(unittest.TestCase):
                     MATCH.main()
                 execute.assert_not_called()
 
+    def test_native_and_aggregate_events_and_workers_are_independent_controls(self):
+        flags = ["--follow-successors", "--workers", "6", "--max-successor-events", "701",
+                 "--max-rhs-events-per-query", "303", "--max-shift-groups-per-query", "202",
+                 "--max-sign-splits-per-query", "101"]
+        with patch("sys.argv", self.arguments() + flags), patch.object(MATCH.os, "execve") as execute:
+            MATCH.main()
+        command = execute.call_args.args[1]
+        for option, value in (("workers", "6"), ("max-successor-events", "701"),
+                              ("max-rhs-events-per-query", "303"), ("max-shift-groups-per-query", "202"),
+                              ("max-sign-splits-per-query", "101")):
+            self.assertEqual(command[command.index("--" + option) + 1], value)
+        for suffix in (["--max-rhs-events-per-query", "10"],
+                       ["--max-shift-groups-per-query", "10"],
+                       ["--max-sign-splits-per-query", "10"],
+                       ["--workers", "1"],
+                       ["--follow-successors", "--workers", "0"],
+                       ["--follow-successors", "--max-rhs-events-per-query", "0"],
+                       ["--follow-successors", "--max-shift-groups-per-query", "0"],
+                       ["--follow-successors", "--max-sign-splits-per-query", "0"]):
+            with patch("sys.argv", self.arguments() + suffix), \
+                    patch.object(MATCH.os, "execve") as execute, \
+                    patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit):
+                    MATCH.main()
+                execute.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

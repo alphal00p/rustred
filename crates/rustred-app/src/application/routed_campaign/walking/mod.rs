@@ -1,38 +1,36 @@
-//! Shared symbolic successor work discovery over one immutable owner snapshot.
-//! Optional admitted-route overcovers share dependency work without expanding
-//! numerator polynomials. This is not a family-closure certificate.
+//! Shared symbolic successor discovery over one immutable owner snapshot.
+//! Stable streamed publication is not a family-closure certificate.
 mod diagnostics;
+mod execution;
+mod inspection;
+mod parallel;
 mod queue;
 mod routing;
 
-use std::ops::ControlFlow;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
-
-use rustred::solver::{
-    OwnerAppliedEvent, OwnerAppliedLimits, OwnerAppliedNonzero, OwnerAppliedStats,
-    OwnerDomainMatchDisposition,
-};
-use serde_json::{Value, json};
-
 use super::{OwnerDomainMatchRequest, RoutedCampaignRequest, input, matching, prepare};
 use crate::AppError;
-use diagnostics::{OptionalCounts, OptionalRefusals};
 use queue::{Domain, Phase, Queue};
+use rustred::solver::{OwnerAppliedLimits, OwnerAppliedStats};
+use serde_json::{Value, json};
+use std::sync::atomic::AtomicBool;
+use std::time::Instant;
 
 #[derive(Clone, Debug)]
 pub struct OwnerDomainWalkRequest {
-    /// Shares input/load policy, max_queries and native match_limits only.
-    /// max_total_pieces is a local-match report limit; this walk uses max_events.
+    /// Load policy and per-domain matcher allowances; max_total_pieces applies
+    /// only to local-match reports, not this streaming worklist.
     pub matching: OwnerDomainMatchRequest,
-    /// Per-domain native allowances. `matching.match_limits` is authoritative
-    /// for the nested ordered matcher, overriding this field's matching member.
+    /// The nested matching member is overridden by matching.match_limits.
     pub applied_limits: OwnerAppliedLimits,
+    /// One runs inline. More share immutable programs and bounded event slots.
+    /// Caller configures affinity and native inner pools; no environment edits.
+    pub workers: usize,
     pub max_domains: usize,
+    /// Committed logical callbacks, not speculative native attempts or bytes.
     pub max_events: usize,
+    /// Aggregate retained input/Apply/Route obligations, independent of events.
+    pub max_frontiers: usize,
     pub max_containment_checks: usize,
-    /// Request conservative rank-preserving route images, not polynomial
-    /// expansion or evidence that every enclosed point is reached.
     pub route_domain_overcover: bool,
     pub max_route_masks: usize,
 }
@@ -41,8 +39,10 @@ impl OwnerDomainWalkRequest {
         Self {
             matching,
             applied_limits: Default::default(),
+            workers: 1,
             max_domains: 100_000,
             max_events: 1_000_000,
+            max_frontiers: 100_000,
             max_containment_checks: 10_000_000,
             route_domain_overcover: false,
             max_route_masks: 100_000,
@@ -52,8 +52,8 @@ impl OwnerDomainWalkRequest {
 
 #[derive(Clone, Debug)]
 pub struct OwnerDomainWalkResult {
-    /// All admitted domains inspected without unresolved local or routing work.
-    /// This does not certify provenance, global order compatibility or closure.
+    /// Every admitted domain inspected without unresolved work. Does not
+    /// certify provenance, global route order compatibility, or family closure.
     pub all_scheduled_domains_resolved: bool,
     pub document: Value,
 }
@@ -63,6 +63,8 @@ impl OwnerDomainWalkResult {
             "full_result_in_output_document":true, "family_closure_claim":false});
         for key in [
             "status",
+            "workers",
+            "parallel",
             "scheduled_nodes",
             "completed_nodes",
             "queued_nodes",
@@ -84,6 +86,8 @@ impl OwnerDomainWalkResult {
             "optional_coalesced_refusals",
             "frontiers",
             "events",
+            "committed_events",
+            "committed_domains",
             "prepared_seconds",
             "traversal_seconds",
             "elapsed_seconds",
@@ -106,14 +110,16 @@ pub fn owner_domain_walk_with_progress(
 ) -> Result<OwnerDomainWalkResult, AppError> {
     if !(1..=10_000).contains(&request.matching.max_queries)
         || !(1..=1_000_000).contains(&request.max_domains)
-        || !(1..=10_000_000).contains(&request.max_events)
+        || request.max_events == 0
+        || !(1..=1_000_000).contains(&request.max_frontiers)
+        || !(1..=64).contains(&request.workers)
         || request.max_containment_checks == 0
         || request.max_route_masks == 0
     {
         return Err(AppError::input("invalid symbolic worklist allowances"));
     }
-    rustred::campaign::ParallelExecution::preflight_requested_core_budget(1)
-        .map_err(|error| AppError::input(error.to_string()))?;
+    rustred::campaign::ParallelExecution::preflight_requested_core_budget(request.workers)
+        .map_err(|e| AppError::input(e.to_string()))?;
     let (selection, arity, limits) = input::Selection::parse(&request.matching.selection_json)?;
     let queries = matching::input::parse(
         &request.matching.queries_json,
@@ -122,8 +128,10 @@ pub fn owner_domain_walk_with_progress(
     )?;
     observer(
         json!({"event":"admitted", "operation":"owner_domain_walk", "arity":arity,
-        "input_domains":queries.len(), "max_domains":request.max_domains, "max_events":request.max_events,
+        "input_domains":queries.len(), "workers":request.workers, "max_domains":request.max_domains,
+        "max_events":request.max_events, "max_frontiers":request.max_frontiers,
         "route_domain_overcover":request.route_domain_overcover, "max_route_masks":request.max_route_masks,
+        "applied_limits":limits_json(&request), "publication_policy":"stable_domain_id_stream",
         "family_closure_claim":false, "ibp_generation":false}),
     );
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
@@ -132,27 +140,34 @@ pub fn owner_domain_walk_with_progress(
     }} }
     dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
 }
-
 fn mask<const N: usize>(owner: &[bool; N]) -> String {
     owner.iter().map(|&b| if b { '1' } else { '0' }).collect()
 }
 
-fn stats_json(stats: OwnerAppliedStats) -> Value {
-    json!({"selected_pieces":stats.selected_pieces, "term_visits":stats.term_visits,
-        "shift_groups":stats.shift_groups, "boundary_cells":stats.boundary_cells,
-        "sign_splits":stats.sign_splits, "native_operations":stats.native_operations,
-        "optional_coefficient_refusals":stats.optional_coefficient_refusals,
-        "optional_original_refusals":stats.optional_original_refusals,
-        "optional_coalesced_refusals":stats.optional_coalesced_refusals,
-        "coalescing_additions":stats.coalescing_additions, "events":stats.events,
-        "successors":stats.successors, "conditional_successors":stats.conditional_successors,
-        "problems":stats.problems, "zero_terms":stats.zero_terms,
-        "cancelled_groups":stats.cancelled_groups, "zero_sector_groups":stats.zero_sector_groups,
-        "matching":{"rules":stats.matching.rules, "terminal_checks":stats.matching.terminal_checks,
-            "predicates":stats.matching.predicates, "pieces":stats.matching.pieces,
-            "cells":stats.matching.cells, "split_operations":stats.matching.split_operations,
-            "coordinate_cells":stats.matching.coordinate_cells, "rank_empty_cells":stats.matching.rank_empty_cells,
-            "refinement_cells":stats.matching.refinement_cells, "refinement_steps":stats.matching.refinement_steps}})
+fn stats_json(s: OwnerAppliedStats) -> Value {
+    json!({"selected_pieces":s.selected_pieces,"term_visits":s.term_visits,"shift_groups":s.shift_groups,
+        "boundary_cells":s.boundary_cells,"sign_splits":s.sign_splits,"native_operations":s.native_operations,
+        "optional_coefficient_refusals":s.optional_coefficient_refusals,"optional_original_refusals":s.optional_original_refusals,
+        "optional_coalesced_refusals":s.optional_coalesced_refusals,"coalescing_additions":s.coalescing_additions,
+        "events":s.events,"successors":s.successors,"conditional_successors":s.conditional_successors,
+        "problems":s.problems,"zero_terms":s.zero_terms,"cancelled_groups":s.cancelled_groups,"zero_sector_groups":s.zero_sector_groups,
+        "matching":{"rules":s.matching.rules,"terminal_checks":s.matching.terminal_checks,"predicates":s.matching.predicates,
+            "pieces":s.matching.pieces,"cells":s.matching.cells,"split_operations":s.matching.split_operations,
+            "coordinate_cells":s.matching.coordinate_cells,"rank_empty_cells":s.matching.rank_empty_cells,
+            "refinement_cells":s.matching.refinement_cells,"refinement_steps":s.matching.refinement_steps}})
+}
+fn limits_json(r: &OwnerDomainWalkRequest) -> Value {
+    let a = r.applied_limits;
+    let m = r.matching.match_limits;
+    json!({"max_term_visits":a.max_term_visits,"max_shift_groups":a.max_shift_groups,
+        "max_boundary_cells":a.max_boundary_cells,"max_sign_splits":a.max_sign_splits,
+        "max_native_operations":a.max_native_operations,"max_events":a.max_events,
+        "max_scratch_terms":a.max_scratch_terms,"max_scratch_boxes":a.max_scratch_boxes,
+        "max_scratch_coordinate_cells":a.max_scratch_coordinate_cells,
+        "matching":{"max_rules":m.max_rules,"max_terminal_checks":m.max_terminal_checks,
+            "max_predicates":m.max_predicates,"max_pieces":m.max_pieces,"max_cells":m.max_cells,
+            "max_split_operations":m.max_split_operations,"max_coordinate_cells":m.max_coordinate_cells,
+            "max_bounded_refinement_cells":m.max_bounded_refinement_cells,"guard_algebra":inspection::debug(&m.guard_algebra)}})
 }
 
 fn run<const N: usize>(
@@ -170,23 +185,12 @@ fn run<const N: usize>(
     let reducer = prepare::prepare::<N>(&load, selection, load_limits, cancellation, observer)?;
     let prepared = started.elapsed().as_secs_f64();
     let mut queue = Queue::new(request.max_domains, request.max_containment_checks);
-    let mut records = Vec::new();
     let mut inputs = Vec::new();
     let mut input_frontiers = Vec::new();
     let mut error = reducer
         .is_none()
         .then(|| "cancelled during preparation".to_owned());
-    let mut events = 0usize;
-    let mut successors = 0usize;
-    let mut conditional = 0usize;
-    let mut optional_counts = OptionalCounts::default();
-    let mut frontiers = 0usize;
-    let mut completed = 0usize;
-    let mut routed_domains = 0usize;
-    let mut route_masks = 0usize;
-    let mut applied_limits = request.applied_limits;
-    applied_limits.matching = request.matching.match_limits;
-    if error.is_none() {
+    if let Some(reducer) = &reducer {
         for query in queries {
             let domain = Domain {
                 phase: Phase::Apply,
@@ -197,25 +201,20 @@ fn run<const N: usize>(
             };
             let domain = if request.route_domain_overcover
                 && !reducer
-                    .as_ref()
-                    .expect("prepared")
                     .programs()
                     .owner_sectors()
-                    .any(|owner| owner == &domain.owner)
+                    .any(|o| o == &domain.owner)
             {
-                if reducer
-                    .as_ref()
-                    .expect("prepared")
-                    .domain_routing_requires_source_conditions()
-                {
-                    frontiers += 1;
-                    input_frontiers.push(
-                        json!({"id":query.id, "kind":"initial_route_source_validity_obligation",
-                        "owner":mask(&domain.owner), "lower":domain.lower, "upper":domain.upper,
-                        "rank":domain.rank, "reached_missing_rule_claim":false}),
-                    );
+                if reducer.domain_routing_requires_source_conditions() {
+                    if input_frontiers.len() == request.max_frontiers {
+                        error = Some("retained frontier allowance".into());
+                        break;
+                    }
+                    input_frontiers.push(json!({"id":query.id,"kind":"initial_route_source_validity_obligation",
+                        "owner":mask(&domain.owner),"lower":domain.lower,"upper":domain.upper,"rank":domain.rank,
+                        "reached_missing_rule_claim":false}));
                     inputs.push(
-                        json!({"id":query.id, "domain":null, "source_validity_unresolved":true}),
+                        json!({"id":query.id,"domain":null,"source_validity_unresolved":true}),
                     );
                     continue;
                 }
@@ -224,198 +223,52 @@ fn run<const N: usize>(
                 domain
             };
             match queue.admit(domain) {
-                Ok((id, _)) => inputs.push(json!({"id":query.id, "domain":id})),
-                Err(problem) => {
-                    error = Some(problem.to_owned());
+                Ok((id, _)) => inputs.push(json!({"id":query.id,"domain":id})),
+                Err(e) => {
+                    error = Some(e.into());
                     break;
                 }
             }
         }
     }
-    while error.is_none() && queue.next < queue.domains.len() {
-        if cancellation.load(Ordering::Acquire) {
-            error = Some("cancelled".into());
-            break;
-        }
-        let id = queue.next;
-        let domain = queue.domains[id].clone();
-        observer(
-            json!({"event":"domain_started", "operation":"owner_domain_walk", "id":id,
-            "owner":mask(&domain.owner), "scheduled_nodes":queue.domains.len(),
-            "phase":format!("{:?}",domain.phase), "routed_domains":routed_domains, "route_masks":route_masks,
-            "max_scheduled_finite_rank":queue.max_finite_rank, "unbounded_rank_domains":queue.unbounded_rank_domains,
-            "completed_nodes":completed, "queued_nodes":queue.domains.len()-queue.next,
-            "deduplication_hits":queue.deduplicated, "successors":successors,
-            "exact_domain_hits":queue.exact_hits, "full_orthant_hits":queue.orthant_hits,
-            "containment_checks":queue.containment_checks,
-            "conditional_successors":conditional, "frontiers":frontiers, "events":events}),
-        );
-        let mut details = Vec::new();
-        let mut optional_refusals = OptionalRefusals::default();
-        let mut node_error = None;
-        let node_started = Instant::now();
-        if domain.phase == Phase::Route {
-            let inspected = routing::inspect(
-                reducer.as_ref().expect("prepared"),
-                &domain,
-                &mut queue,
-                request,
-                cancellation,
-                &mut events,
-                &mut frontiers,
-                &mut route_masks,
-                |mut event| {
-                    event["completed_nodes"] = json!(completed);
-                    event["successors"] = json!(successors);
-                    event["conditional_successors"] = json!(conditional);
-                    event["routed_domains"] = json!(routed_domains);
-                    observer(event);
-                },
-            );
-            error = inspected.error;
-            completed += usize::from(error.is_none());
-            routed_domains += 1;
-            records.push(
-                json!({"id":id, "phase":"Route", "owner":mask(&domain.owner),
-                "lower":domain.lower, "upper":domain.upper, "rank":domain.rank,
-                "conservative_route_overcover":true, "local_inspection_finished":error.is_none(),
-                "stats":inspected.stats, "seconds":node_started.elapsed().as_secs_f64(),
-                "frontiers":inspected.frontiers, "error":error}),
-            );
-            queue.next += 1;
-            continue;
-        }
-        let result = reducer.as_ref().expect("prepared").programs().visit_owner_applied_successors(
-            domain.owner, &domain.lower, &domain.upper, domain.rank,
-            applied_limits, cancellation, |event| {
-                if events == request.max_events {
-                    node_error = Some("aggregate successor event allowance".to_owned());
-                    return ControlFlow::Break(());
-                }
-                events += 1;
-                match event {
-                    OwnerAppliedEvent::Classified(piece) => match piece.disposition() {
-                        OwnerDomainMatchDisposition::SelectedRule { .. }
-                        | OwnerDomainMatchDisposition::Terminal { .. }
-                        | OwnerDomainMatchDisposition::ExactZeroSector => {},
-                        other => {
-                            frontiers += 1;
-                            details.push(json!({"kind":"local_dispatch_frontier", "disposition":format!("{other:?}"),
-                                "lower":piece.lower(), "upper":piece.upper(), "rank":piece.max_numerator_rank(),
-                                "reached_missing_rule_claim":false}));
-                        }
-                    },
-                    OwnerAppliedEvent::OptionalCoefficientRefusal {
-                        source, source_lower, source_upper, shift, original_term_ordinal, failure,
-                    } => {
-                        if let Err(problem) = optional_refusals.record(
-                            source.disposition(), source.max_numerator_rank(), source_lower,
-                            source_upper, shift, original_term_ordinal, failure,
-                        ) {
-                            node_error = Some(problem.to_owned());
-                            return ControlFlow::Break(());
-                        }
-                    },
-                    OwnerAppliedEvent::Successor(child) => {
-                        successors += 1;
-                        conditional += usize::from(child.coefficient_nonzero == OwnerAppliedNonzero::Conditional);
-                        if child.has_installed_target_owner {
-                            let target = Domain { phase: Phase::Apply, owner: *child.target_sector, lower: child.target_lower.to_vec(),
-                                upper: child.target_upper.to_vec(), rank: child.target_rank_limit };
-                            if let Err(problem) = queue.admit(target) {
-                                node_error = Some(problem.to_owned());
-                                return ControlFlow::Break(());
-                            }
-                        } else if request.route_domain_overcover {
-                            // Route images depend on support and actual rank,
-                            // not separate concrete numerator assignments.
-                            if let Err(problem) = queue.admit(Domain::route_cover(*child.target_sector, child.target_rank_limit)) {
-                                node_error = Some(problem.to_owned());
-                                return ControlFlow::Break(());
-                            }
-                        } else {
-                            frontiers += 1;
-                            details.push(json!({"kind":"routing_frontier", "target_owner":mask(child.target_sector),
-                                "target_lower":child.target_lower, "target_upper":child.target_upper,
-                                "target_rank":child.target_rank_limit, "source_lower":child.source_lower,
-                                "source_upper":child.source_upper, "shift":child.shift.as_slice(),
-                                "coefficient_nonzero":format!("{:?}",child.coefficient_nonzero),
-                                "selected_rule":format!("{:?}",child.source.disposition()),
-                                "reached_missing_rule_claim":false}));
-                        }
-                    },
-                    OwnerAppliedEvent::Problem(problem) => {
-                        frontiers += 1;
-                        details.push(json!({"kind":"rhs_obligation", "problem":format!("{:?}",problem.kind),
-                            "source_lower":problem.source_lower, "source_upper":problem.source_upper,
-                            "shift":problem.shift.as_slice(), "original_term":problem.original_term_ordinal,
-                            "coefficient_nonzero":format!("{:?}",problem.coefficient_nonzero),
-                            "selected_rule":format!("{:?}",problem.source.disposition()),
-                            "reached_missing_rule_claim":false}));
-                    },
-                    OwnerAppliedEvent::RuleFinished { .. } => {},
-                }
-                if events.is_multiple_of(128) {
-                    observer(json!({"event":"domain_progress", "operation":"owner_domain_walk", "id":id,
-                        "scheduled_nodes":queue.domains.len(), "completed_nodes":completed,
-                        "queued_nodes":queue.domains.len()-queue.next, "deduplication_hits":queue.deduplicated,
-                        "exact_domain_hits":queue.exact_hits, "full_orthant_hits":queue.orthant_hits,
-                        "containment_checks":queue.containment_checks,
-                        "successors":successors, "conditional_successors":conditional,
-                        "routed_domains":routed_domains, "route_masks":route_masks,
-                        "max_scheduled_finite_rank":queue.max_finite_rank, "unbounded_rank_domains":queue.unbounded_rank_domains,
-                        "frontiers":frontiers, "events":events}));
-                }
-                ControlFlow::Continue(())
-            });
-        let (stats, native_error) = match result {
-            Ok(stats) => (stats, None),
-            Err(e) => (e.stats, Some(format!("{:?}", e.failure))),
-        };
-        error = node_error.or(native_error);
-        if let Err(problem) = optional_counts.add(stats) {
-            // Keep the native per-domain counters even if their aggregate
-            // cannot be represented; an incomplete report must not wrap.
-            error.get_or_insert_with(|| problem.to_owned());
-        }
-        completed += usize::from(error.is_none());
-        let provenance_truncated = optional_refusals.truncated(stats);
-        records.push(
-            json!({"id":id, "phase":"Apply", "owner":mask(&domain.owner), "lower":domain.lower,
-            "upper":domain.upper, "rank":domain.rank, "local_inspection_finished":error.is_none(),
-            "stats":stats_json(stats), "seconds":node_started.elapsed().as_secs_f64(),
-            "optional_refusals":optional_refusals.records,
-            "optional_refusal_provenance_scope":"first_per_phase_per_query",
-            "optional_refusal_provenance_truncated":provenance_truncated,
-            "frontiers":details, "error":error}),
-        );
-        queue.next += 1;
+    let mut state = execution::State::new(queue, input_frontiers.len(), error);
+    if let Some(reducer) = &reducer {
+        execution::run(&mut state, reducer, request, cancellation, observer);
     }
-    let exhausted = error.is_none() && queue.next == queue.domains.len();
-    let resolved = exhausted && frontiers == 0;
-    let document = json!({"schema":"rustred.owner-domain-walk.json.v1",
+    let exhausted = state.error.is_none() && state.queue.next == state.queue.domains.len();
+    let resolved = exhausted && state.frontiers == 0;
+    let mut document = json!({"schema":"rustred.owner-domain-walk.json.v1",
         "status":if resolved {"locally_resolved"} else {"incomplete"},
-        "all_scheduled_domains_resolved":resolved, "recursive_worklist_exhausted":exhausted,
-        "family_closure_claim":false, "ibp_generation":false, "routing_expanded":false,
+        "all_scheduled_domains_resolved":resolved,"recursive_worklist_exhausted":exhausted,
+        "family_closure_claim":false,"ibp_generation":false,"routing_expanded":false,
         "route_domain_overcover":request.route_domain_overcover,
-        "routed_domains":routed_domains, "route_masks":route_masks,
-        "max_scheduled_finite_rank":queue.max_finite_rank, "unbounded_rank_domains":queue.unbounded_rank_domains,
-        "independent_certification":false, "resume_supported":false,
+        "routed_domains":state.routed,"route_masks":state.route_masks,
+        "max_scheduled_finite_rank":state.queue.max_finite_rank,"unbounded_rank_domains":state.queue.unbounded_rank_domains,
+        "independent_certification":false,"resume_supported":false,
         "conditional_successors_use_conservative_domain_overcover":true,
-        "scheduled_nodes":queue.domains.len(), "completed_nodes":completed,
-        "queued_nodes":queue.domains.len().saturating_sub(queue.next),
-        "processed_nodes":queue.next, "failed_nodes":queue.next.saturating_sub(completed),
-        "deduplication_hits":queue.deduplicated, "containment_checks":queue.containment_checks,
-        "exact_domain_hits":queue.exact_hits, "full_orthant_hits":queue.orthant_hits,
-        "successors":successors, "conditional_successors":conditional,
-        "optional_coefficient_refusals":optional_counts.total,
-        "optional_original_refusals":optional_counts.original,
-        "optional_coalesced_refusals":optional_counts.coalesced,
-        "frontiers":frontiers, "events":events, "inputs":inputs, "domains":records,
-        "input_frontiers":input_frontiers,
-        "error":error, "prepared_seconds":prepared,
-        "traversal_seconds":started.elapsed().as_secs_f64()-prepared,
-        "elapsed_seconds":started.elapsed().as_secs_f64()});
+        "scheduled_nodes":state.queue.domains.len(),"completed_nodes":state.completed,
+        "queued_nodes":state.queue.domains.len().saturating_sub(state.queue.next),
+        "processed_nodes":state.queue.next,"failed_nodes":state.queue.next.saturating_sub(state.completed),
+        "deduplication_hits":state.queue.deduplicated,"containment_checks":state.queue.containment_checks,
+        "exact_domain_hits":state.queue.exact_hits,"full_orthant_hits":state.queue.orthant_hits,
+        "successors":state.successors,"conditional_successors":state.conditional,
+        "optional_coefficient_refusals":state.optional.total,"optional_original_refusals":state.optional.original,
+        "optional_coalesced_refusals":state.optional.coalesced,
+        "frontiers":state.frontiers,"events":state.events,"inputs":inputs,"domains":state.records,
+        "input_frontiers":input_frontiers,"error":state.error,"prepared_seconds":prepared,
+        "traversal_seconds":started.elapsed().as_secs_f64()-prepared,"elapsed_seconds":started.elapsed().as_secs_f64()});
+    // Keep macro expansion bounded without a crate-wide recursion allowance.
+    document["workers"] = json!(request.workers);
+    document["max_events"] = json!(request.max_events);
+    document["max_frontiers"] = json!(request.max_frontiers);
+    document["applied_limits"] = limits_json(request);
+    document["publication_policy"] = json!("stable_domain_id_stream");
+    document["parallel"] = state.parallel;
+    document["uncommitted_inspections"] = json!(state.uncommitted);
+    document["successful_publication_matches_serial"] = json!(true);
+    document["failure_or_cancellation_prefix_may_differ"] = json!(true);
+    document["committed_domains"] = json!(state.queue.next);
+    document["committed_events"] = json!(state.events);
     observer(OwnerDomainWalkResult::completion_progress(&document));
     Ok(OwnerDomainWalkResult {
         all_scheduled_domains_resolved: resolved,

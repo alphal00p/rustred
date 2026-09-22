@@ -1,22 +1,17 @@
-//! Bounded conservative route requests, distinct from concrete expansion.
-use std::ops::ControlFlow;
-use std::sync::atomic::AtomicBool;
-
+//! Worker-local conservative routing; only the coordinator admits domains.
+use super::{
+    OwnerDomainWalkRequest,
+    inspection::{Effect, Event, Finished, NativeStats, debug},
+    mask,
+    queue::{Domain, Phase},
+};
 use rustred::solver::{
     CandidateDomainRouteEvent, CandidateDomainRouteLimits, RoutedCandidateReducer,
 };
 use serde_json::{Value, json};
-
-use super::{
-    OwnerDomainWalkRequest, mask,
-    queue::{Domain, Phase, Queue},
-};
-
-pub(super) struct Inspection {
-    pub stats: Value,
-    pub frontiers: Vec<Value>,
-    pub error: Option<String>,
-}
+use std::ops::ControlFlow;
+use std::sync::atomic::AtomicBool;
+use std::time::Instant;
 
 fn reentry<const N: usize>(
     sector: [bool; N],
@@ -34,114 +29,53 @@ fn reentry<const N: usize>(
 pub(super) fn inspect<const N: usize>(
     reducer: &RoutedCandidateReducer<N>,
     domain: &Domain<N>,
-    queue: &mut Queue<N>,
     request: &OwnerDomainWalkRequest,
     cancellation: &AtomicBool,
-    events: &mut usize,
-    frontier_count: &mut usize,
-    route_masks: &mut usize,
-    observer: impl Fn(Value),
-) -> Inspection {
-    let mut error = None;
-    let mut frontiers = Vec::new();
-    let reentry_requires_conditions = reducer.domain_routing_requires_source_conditions();
-    let result = reducer.visit_domain_route_overcover(
-        domain.owner,
-        domain.rank,
-        CandidateDomainRouteLimits {
-            max_masks: request.max_route_masks,
-            max_coordinate_cells: request.max_route_masks.saturating_mul(N).saturating_mul(2),
-        },
-        cancellation,
-        |event| {
-            if *events == request.max_events {
-                error = Some("aggregate successor event allowance".to_owned());
-                return ControlFlow::Break(());
-            }
-            *events += 1;
-            let next = match event {
-                CandidateDomainRouteEvent::Apply {
-                    owner_sector,
-                    cover,
-                } => Some(Domain {
-                    phase: Phase::Apply,
-                    owner: owner_sector,
-                    lower: vec![0; N],
-                    upper: vec![None; N],
-                    rank: cover.actual_rank,
-                }),
-                CandidateDomainRouteEvent::Route { sector, cover } => {
-                    // Unlike a checked original RHS term, this conservative
-                    // transport image has untested source conditions. A second
-                    // permutation must not erase those obligations.
-                    match reentry(sector, cover.actual_rank, reentry_requires_conditions) {
-                        Ok(domain) => Some(domain),
-                        Err(obligation) => {
-                            *frontier_count += 1;
-                            frontiers.push(obligation);
-                            None
-                        }
-                    }
-                }
-                CandidateDomainRouteEvent::MissingRoute {
-                    source_sector,
-                    actual_rank,
-                } => {
-                    *frontier_count += 1;
-                    frontiers.push(
-                        json!({"kind":"missing_route_cover", "owner":mask(&source_sector),
-                        "rank":actual_rank, "reached_missing_rule_claim":false}),
-                    );
-                    None
-                }
-                CandidateDomainRouteEvent::ZeroSector {
-                    sector,
-                    actual_rank,
-                    source_conditions_required,
-                } => {
-                    if source_conditions_required {
-                        *frontier_count += 1;
-                        frontiers.push(
-                            json!({"kind":"zero_source_validity_obligation", "owner":mask(&sector),
-                            "rank":actual_rank, "reached_missing_rule_claim":false}),
-                        );
-                    }
-                    None
-                }
+    emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
+) -> Finished {
+    let started = Instant::now();
+    let conditions = reducer.domain_routing_requires_source_conditions();
+    let result = reducer.visit_domain_route_overcover(domain.owner, domain.rank,
+        CandidateDomainRouteLimits { max_masks: request.max_route_masks,
+            max_coordinate_cells: request.max_route_masks.saturating_mul(N).saturating_mul(2) },
+        cancellation, |event| {
+            let effect = match event {
+                CandidateDomainRouteEvent::Apply { owner_sector, cover } => Effect::Admit {
+                    successor: false, conditional: false, domain: Domain { phase: Phase::Apply,
+                    owner: owner_sector, lower: vec![0; N], upper: vec![None; N], rank: cover.actual_rank } },
+                CandidateDomainRouteEvent::Route { sector, cover } => match reentry(sector, cover.actual_rank, conditions) {
+                    Ok(domain) => Effect::Admit { domain, successor: false, conditional: false },
+                    Err(value) => Effect::Frontier { value, successor: false, conditional: false },
+                },
+                CandidateDomainRouteEvent::MissingRoute { source_sector, actual_rank } => Effect::Frontier {
+                    successor: false, conditional: false, value: json!({"kind":"missing_route_cover",
+                        "owner":mask(&source_sector), "rank":actual_rank, "reached_missing_rule_claim":false}) },
+                CandidateDomainRouteEvent::ZeroSector { sector, actual_rank, source_conditions_required } => {
+                    if source_conditions_required { Effect::Frontier { successor: false, conditional: false,
+                        value: json!({"kind":"zero_source_validity_obligation", "owner":mask(&sector),
+                            "rank":actual_rank, "reached_missing_rule_claim":false}) }
+                    } else { Effect::Count }
+                },
             };
-            if let Some(next) = next {
-                if let Err(problem) = queue.admit(next) {
-                    error = Some(problem.to_owned());
-                    return ControlFlow::Break(());
-                }
-            }
-            if events.is_multiple_of(128) {
-                observer(
-                    json!({"event":"domain_progress", "operation":"owner_domain_walk",
-                    "phase":"Route", "id":queue.next, "scheduled_nodes":queue.domains.len(),
-                    "queued_nodes":queue.domains.len()-queue.next,
-                    "max_scheduled_finite_rank":queue.max_finite_rank, "unbounded_rank_domains":queue.unbounded_rank_domains,
-                    "deduplication_hits":queue.deduplicated, "frontiers":frontier_count,
-                    "exact_domain_hits":queue.exact_hits, "full_orthant_hits":queue.orthant_hits,
-                    "containment_checks":queue.containment_checks,
-                    "events":events, "route_domain_overcover":true}),
-                );
-            }
-            ControlFlow::Continue(())
-        },
-    );
-    let (stats, native_error) = match result {
-        Ok(stats) => (stats, None),
-        Err(problem) => (problem.stats, Some(format!("{:?}", problem.failure))),
+            emit(Event::one(effect))
+        });
+    let (stats, error, error_kind) = match result {
+        Ok(s) => (s, None, "none"),
+        Err(e) => {
+            use rustred::solver::CandidateDomainRouteFailure as F;
+            let kind = match &e.failure {
+                F::Cancelled => "cancelled",
+                F::StoppedByConsumer => "consumer_stop",
+                _ => "native_failure",
+            };
+            (e.stats, Some(debug(&e.failure)), kind)
+        }
     };
-    *route_masks += stats.masks_examined;
-    Inspection {
-        stats: json!({"masks_examined":stats.masks_examined, "events":stats.events,
-            "apply_domains":stats.apply_domains, "route_domains":stats.route_domains,
-            "zero_sectors":stats.zero_sectors, "missing_routes":stats.missing_routes,
-            "coordinate_cells":stats.coordinate_cells}),
-        frontiers,
-        error: error.or(native_error),
+    Finished {
+        stats: NativeStats::Route(stats),
+        error,
+        error_kind,
+        seconds: started.elapsed().as_secs_f64(),
     }
 }
 

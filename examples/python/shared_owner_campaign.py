@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Steer one generic Rust shared-owner finite-target campaign (Linux).
+"""Steer one generic Rust shared-owner campaign (Linux).
 
 Python performs no algebra. Saved owners are reused, not regenerated. Results
-are finite-target diagnostics, not universal R10 closure or work checkpoints.
+are finite-target traces (--targets) or symbolic-domain walks (--queries),
+not universal R10 closure claims or work checkpoints.
 The 15-hour objective is telemetry, NOT a timeout. No license is persisted.
 """
 from __future__ import annotations
 
 import argparse
+import importlib.util
 from collections import deque
 from contextlib import contextmanager
 import json
@@ -22,6 +24,24 @@ import time
 
 INNER_POOLS = ("RAYON_NUM_THREADS", "OMP_NUM_THREADS", "OMP_THREAD_LIMIT",
                "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "BLIS_NUM_THREADS")
+
+# Reuse the thin domain driver's option whitelist without depending on the
+# caller's working directory or Python module search path.
+_DOMAIN_SPEC = importlib.util.spec_from_file_location(
+    "owner_domain_steering", Path(__file__).with_name("match_shared_owner_domains.py"))
+DOMAIN = importlib.util.module_from_spec(_DOMAIN_SPEC)
+_DOMAIN_SPEC.loader.exec_module(DOMAIN)
+SYMBOLIC_ALLOWANCES = (*DOMAIN.ALLOWANCES, DOMAIN.REFINEMENT,
+                      *(name for name in DOMAIN.WALK_ALLOWANCES if name != "workers"),
+                      "max-route-masks-per-query")
+FINITE_ALLOWANCES = {
+    "max-nodes": 16_000_000,
+    "max-input-targets": 100_000,
+    "max-transport-operations": 4_096_000_000,
+    "max-transport-endpoints": 1_024_000_000,
+    "max-coalescing-additions": 256_000_000,
+    "max-rule-applications": 16_000_000,
+}
 
 
 def positive(text: str) -> int:
@@ -200,7 +220,9 @@ def owned_process(command, env, cpus, request_stop, child_address_space=None):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--targets", type=Path, required=True)
+    scope = parser.add_mutually_exclusive_group(required=True)
+    scope.add_argument("--targets", type=Path, help="concrete integer targets (CSV)")
+    scope.add_argument("--queries", type=Path, help="symbolic owner domains (JSON); follow successors")
     parser.add_argument("--executable", type=Path, required=True)
     parser.add_argument("--owner-base", type=Path, default=Path.cwd())
     parser.add_argument("--expansion-limits", type=Path,
@@ -220,14 +242,25 @@ def main() -> int:
                         help="performance objective only; never a termination timer")
     parser.add_argument("--sample-seconds", type=float, default=2.0)
     parser.add_argument("--tmp-root", type=Path, default=Path("TMP"))
-    parser.add_argument("--max-nodes", type=positive, default=16_000_000)
-    parser.add_argument("--max-input-targets", type=positive, default=100_000)
-    parser.add_argument("--max-transport-operations", type=positive, default=4_096_000_000)
-    parser.add_argument("--max-transport-endpoints", type=positive, default=1_024_000_000)
-    parser.add_argument("--max-coalescing-additions", type=positive, default=256_000_000)
-    parser.add_argument("--max-rule-applications", type=positive, default=16_000_000)
+    for option in FINITE_ALLOWANCES:
+        parser.add_argument("--" + option, type=positive, help="concrete-target campaign allowance")
+    for option in SYMBOLIC_ALLOWANCES:
+        parser.add_argument("--" + option,
+                            type=DOMAIN.nonnegative if option == DOMAIN.REFINEMENT else DOMAIN.positive,
+                            help="symbolic-domain work allowance; requires --queries")
+    parser.add_argument("--route-domain-overcover", action="store_true",
+                        help="share admitted symbolic route covers; requires --queries")
     parser.add_argument("--no-progress", action="store_true")
     args = parser.parse_args()
+    symbolic = args.queries is not None
+    if symbolic and (args.expansion_limits is not None or any(
+            getattr(args, option.replace("-", "_")) is not None for option in FINITE_ALLOWANCES)):
+        parser.error("concrete-target/expansion allowances require --targets")
+    if not symbolic and (args.route_domain_overcover or any(
+            getattr(args, option.replace("-", "_")) is not None for option in SYMBOLIC_ALLOWANCES)):
+        parser.error("symbolic-domain allowances require --queries")
+    if args.max_route_masks_per_query is not None and not args.route_domain_overcover:
+        parser.error("route mask allowance requires --route-domain-overcover")
     if not 1 <= args.workers <= 50 or args.other_workers < 0 or args.workers + args.other_workers > 50:
         parser.error("aggregate configured compute workers must be between 1 and 50")
     if not 0 < args.soft_memory_bytes < args.max_memory_bytes <= 500_000_000_000:
@@ -257,7 +290,7 @@ def main() -> int:
     # Include the supervisor without treating it as an external reservation.
     collector.register(os.getpid())
     os.sched_setaffinity(0, cpus)
-    inputs = [args.manifest, args.targets, args.executable]
+    inputs = [args.manifest, args.queries if symbolic else args.targets, args.executable]
     if args.expansion_limits is not None:
         inputs.append(args.expansion_limits)
     for path in inputs:
@@ -266,13 +299,23 @@ def main() -> int:
     args.tmp_root.mkdir(parents=True, exist_ok=True)
     output = Path(tempfile.mkdtemp(prefix="shared-owner-campaign.", dir=args.tmp_root)).resolve()
     stop_file = output / "stop-request.json"
-    command = [str(args.executable.resolve()), "routed-campaign", "--manifest", str(args.manifest.resolve()),
-               "--targets", str(args.targets.resolve()), "--owner-base", str(args.owner_base.resolve()),
+    command = [str(args.executable.resolve()), "owner-domain-match" if symbolic else "routed-campaign",
+               "--manifest", str(args.manifest.resolve()),
+               "--owner-base", str(args.owner_base.resolve()),
                "--output", str(output / "result.json"), "--events", str(output / "events.jsonl"),
                "--stop-file", str(stop_file), "--workers", str(args.workers)]
-    for field in ("max_nodes", "max_input_targets", "max_transport_operations", "max_transport_endpoints",
-                  "max_coalescing_additions", "max_rule_applications"):
-        command += ["--" + field.replace("_", "-"), str(getattr(args, field))]
+    if symbolic:
+        command += ["--queries", str(args.queries.resolve()), "--follow-successors"]
+        for option in SYMBOLIC_ALLOWANCES:
+            if (value := getattr(args, option.replace("-", "_"))) is not None:
+                command += ["--" + option, str(value)]
+        if args.route_domain_overcover:
+            command.append("--route-domain-overcover")
+    else:
+        command += ["--targets", str(args.targets.resolve())]
+        for option, default in FINITE_ALLOWANCES.items():
+            value = getattr(args, option.replace("-", "_"))
+            command += ["--" + option, str(default if value is None else value)]
     if args.expansion_limits is not None:
         command += ["--expansion-limits", str(args.expansion_limits.resolve())]
     if args.no_progress:
@@ -280,6 +323,7 @@ def main() -> int:
     # Never include the process environment or license in provenance.
     (output / "request.json").write_text(json.dumps({
         "command": command, "cpus": sorted(cpus), "registered_roots": collector.identities,
+        "input_scope": "symbolic_domains" if symbolic else "concrete_targets",
         "workers": args.workers, "other_workers": args.other_workers,
         "hard_memory_bytes": args.max_memory_bytes, "soft_memory_bytes": args.soft_memory_bytes,
         "child_rlimit_as_bytes": child_as, "monitor_headroom_bytes": monitor_headroom,

@@ -173,6 +173,7 @@ class SteeringTests(unittest.TestCase):
             self.assertEqual(summary["operator_or_resource_stop"],"aggregate_rss_soft_limit")
             self.assertFalse(summary["family_closure_claim"])
             self.assertFalse(summary["work_checkpoint"])
+            self.assertEqual(request["input_scope"], "concrete_targets")
             self.assertIsNone(request["hard_timeout"])
             option=request["command"].index("--expansion-limits")
             self.assertEqual(request["command"][option+1],str(policy.resolve()))
@@ -191,6 +192,67 @@ class SteeringTests(unittest.TestCase):
             "--targets","missing","--workers","50","--other-workers","1"],capture_output=True,text=True)
         self.assertEqual(result.returncode,2)
         self.assertIn("aggregate",result.stderr)
+
+    def test_symbolic_supervisor_reuses_native_controls_and_resource_stop(self):
+        for explicit in (False, True):
+            with self.subTest(explicit=explicit), tempfile.TemporaryDirectory() as temporary:
+                directory=Path(temporary)
+                child=directory/"fake-rustred"
+                child.write_text(f"#!{sys.executable}\nimport os,sys,time\nfrom pathlib import Path\n"
+                    "assert sys.argv[1]=='owner-domain-match'\n"
+                    "assert '--follow-successors' in sys.argv and '--targets' not in sys.argv\n"
+                    "assert os.environ['RAYON_NUM_THREADS']=='1'\n"
+                    "stop=Path(sys.argv[sys.argv.index('--stop-file')+1])\n"
+                    "while not stop.exists(): time.sleep(.02)\nraise SystemExit(4)\n")
+                child.chmod(0o700)
+                manifest=directory/"selection.json"; manifest.write_text("{}")
+                queries=directory/"queries.json"; queries.write_text("{}")
+                command=[sys.executable,str(SOURCE),"--executable",str(child),"--manifest",str(manifest),
+                    "--queries",str(queries),"--workers","1","--soft-memory-bytes","1",
+                    "--sample-seconds","0.1","--tmp-root",str(directory/"receipts"),"--no-progress"]
+                expected={}
+                if explicit:
+                    command += ["--route-domain-overcover"]
+                    for index, option in enumerate(CAMPAIGN.SYMBOLIC_ALLOWANCES, 2):
+                        value="0" if option==CAMPAIGN.DOMAIN.REFINEMENT else str(index)
+                        command += ["--"+option,value]
+                        expected[option]=value
+                result=subprocess.run(command,capture_output=True,text=True,timeout=10)
+                self.assertEqual(result.returncode,4,result.stderr)
+                receipt=next((directory/"receipts").iterdir())
+                request=json.loads((receipt/"request.json").read_text())
+                summary=json.loads((receipt/"supervisor-result.json").read_text())
+                actual=request["command"]
+                self.assertEqual(request["input_scope"],"symbolic_domains")
+                self.assertIsNone(request["hard_timeout"])
+                self.assertEqual(request["workers"],1)
+                self.assertEqual(request["hard_memory_bytes"],500_000_000_000)
+                self.assertGreater(request["child_rlimit_as_bytes"],0)
+                self.assertEqual(summary["operator_or_resource_stop"],"aggregate_rss_soft_limit")
+                self.assertFalse(summary["family_closure_claim"])
+                self.assertEqual(actual[actual.index("--queries")+1],str(queries.resolve()))
+                self.assertEqual("--route-domain-overcover" in actual,explicit)
+                for option in CAMPAIGN.SYMBOLIC_ALLOWANCES:
+                    if explicit:
+                        self.assertEqual(actual[actual.index("--"+option)+1],expected[option])
+                    else:
+                        self.assertNotIn("--"+option,actual)
+                for option in CAMPAIGN.FINITE_ALLOWANCES:
+                    self.assertNotIn("--"+option,actual)
+
+    def test_symbolic_and_concrete_scope_controls_cannot_be_mixed(self):
+        base=[sys.executable,str(SOURCE),"--executable","missing","--manifest","missing","--workers","1"]
+        for scope, flags, diagnostic in [
+            ("--queries",["--max-nodes","7"],"require --targets"),
+            ("--queries",["--expansion-limits","missing"],"require --targets"),
+            ("--targets",["--max-frontiers","17"],"require --queries"),
+            ("--targets",["--route-domain-overcover"],"require --queries"),
+            ("--queries",["--max-route-masks-per-query","17"],"requires --route-domain-overcover"),
+            ("--queries",["--targets","missing"],"not allowed"),
+        ]:
+            result=subprocess.run(base+[scope,"missing"]+flags,capture_output=True,text=True)
+            self.assertEqual(result.returncode,2,result.stderr)
+            self.assertIn(diagnostic,result.stderr)
 
 
 if __name__=="__main__": unittest.main()

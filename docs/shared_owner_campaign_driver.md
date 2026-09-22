@@ -1,17 +1,26 @@
-# Shared-owner finite-target campaign driver
+# Shared-owner campaign driver
 
-This milestone reuses immutable saved candidate programs and verifies supplied
-routes once. All requested concrete entries then share **one** Rust dependency
-queue and identity set, including work reached from different owners. Python
-only launches, monitors and requests cancellation; it performs no algebra.
+This driver reuses immutable saved candidate programs and verifies supplied
+routes once. Choose concrete `--targets` or symbolic `--queries`; inputs from
+different owners share one native dependency worklist. Python only launches,
+monitors and requests cancellation; it performs no algebra. Most historical
+measurements below concern the concrete-target mode and must not be relabelled
+as parametric-family timings.
 
 This is not yet a complete parametric rank-bounded family solve. An empty finite
-frontier is reported as `completed_finite_trace`, always alongside
+frontier in concrete mode is reported as `completed_finite_trace`, alongside
 `family_closure_claim=false`. Missing rules/owners remain explicit frontiers,
 not new masters. Rule generation, automatic frontier feedback, coefficient
 back-substitution and durable dependency-cache resume are not implemented by
 this driver. The result and event journal are interruption diagnostics, not
 queue checkpoints. Existing saved rule files remain reusable and unchanged.
+
+Symbolic mode invokes `owner-domain-match --follow-successors`, preserving
+unbounded positive powers and each query's actual numerator rank. It reports
+`recursive_worklist_exhausted` and `all_scheduled_domains_resolved` rather than
+a finite-target completion flag. It also keeps `family_closure_claim=false`.
+See [the domain-matching interface](shared_owner_domain_matching.md) for the
+conservative successor semantics and explicit unresolved obligations.
 
 ## Running
 
@@ -26,6 +35,30 @@ python examples/python/shared_owner_campaign.py \
   --owner-base /absolute/path/to/workspace \
   --workers 12 --cpus 0,1,2,3,4,5,6,7,8,9,10,11
 ```
+
+To supervise the symbolic campaign with the same resource policy:
+
+```sh
+python examples/python/shared_owner_campaign.py \
+  --executable target/release/rustred \
+  --manifest /absolute/path/selection.json \
+  --queries /absolute/path/queries.json \
+  --owner-base /absolute/path/to/workspace \
+  --workers 6 --cpus 0,1,2,3,4,5 \
+  --route-domain-overcover \
+  --max-successor-events 100000000 \
+  --max-rhs-cells-per-query 10000000 \
+  --max-rhs-events-per-query 10000000 \
+  --max-shift-groups-per-query 10000000 \
+  --max-sign-splits-per-query 10000000
+```
+
+These example work allowances are not established sufficient for any particular
+family. The native defaults apply to other unspecified per-query limits.
+`--max-frontiers` independently bounds retained diagnostic records; the
+aggregate streamed-event allowance does not bound them. Concrete-only work
+flags and `--expansion-limits` are rejected with `--queries`; symbolic-only
+flags are rejected with `--targets`. The two input flags are mutually exclusive.
 
 CPU IDs must be permitted by the process affinity. Pass all concurrent campaign
 process roots with repeated `--registered-pid`, and their configured compute

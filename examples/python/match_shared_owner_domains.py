@@ -21,9 +21,10 @@ ALLOWANCES = (
     "max-guard-univariate-degree",
 )
 REFINEMENT = "max-bounded-refinement-cells-per-query"
-WALK_ALLOWANCES = ("max-domains", "max-successor-events", "max-containment-checks",
+WALK_ALLOWANCES = ("workers", "max-domains", "max-frontiers", "max-successor-events", "max-containment-checks",
                    "max-rhs-cells-per-query", "max-term-visits-per-query",
-                   "max-native-operations-per-query")
+                   "max-native-operations-per-query", "max-rhs-events-per-query",
+                   "max-shift-groups-per-query", "max-sign-splits-per-query")
 
 
 def positive(text: str) -> int:

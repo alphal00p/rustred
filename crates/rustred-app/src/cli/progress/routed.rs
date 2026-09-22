@@ -199,6 +199,34 @@ fn dashboard(record: &Value) -> [String; 6] {
 fn walk_dashboard(record: &Value) -> [String; 6] {
     let p = &record["progress"];
     let n = |key| p[key].as_u64().unwrap_or(0);
+    let parallel = &p["parallel"];
+    let pn = |key| parallel[key].as_u64().unwrap_or(0);
+    let state = p["status"]
+        .as_str()
+        .or_else(|| {
+            if p["event"].as_str() == Some("domain_draining") {
+                Some("domain_draining")
+            } else {
+                p["phase"].as_str().or(p["event"].as_str())
+            }
+        })
+        .unwrap_or("working");
+    let last_line = if let Some(detail) = parallel["first_failure"]["detail"].as_str() {
+        let summary: String = detail
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(200)
+            .collect();
+        format!(
+            "First failure ({} workers draining): {summary}; full cause in JSON; NOT a closure claim",
+            pn("active_workers")
+        )
+    } else {
+        format!(
+            "Last update {:.1}s ago; positive powers symbolic; NOT a closure claim",
+            record["progress_age_seconds"].as_f64().unwrap_or(0.)
+        )
+    };
     let done = n("completed_nodes");
     let total = n("scheduled_nodes");
     let width = if total == 0 {
@@ -207,14 +235,7 @@ fn walk_dashboard(record: &Value) -> [String; 6] {
         (20. * done as f64 / total as f64).min(20.) as usize
     };
     [
-        format!(
-            "RustRed shared symbolic-domain work — {}",
-            p["phase"]
-                .as_str()
-                .or(p["status"].as_str())
-                .or(p["event"].as_str())
-                .unwrap_or("working")
-        ),
+        format!("RustRed shared symbolic-domain work — {state}"),
         format!(
             "[{}{}] {done}/{total} inspected / scheduled; {} queued (may grow)",
             "#".repeat(width),
@@ -229,16 +250,20 @@ fn walk_dashboard(record: &Value) -> [String; 6] {
             n("frontiers")
         ),
         format!(
-            "Events {}  RSS {:.2} GB  elapsed {:.1}s",
+            "Events {} committed / {} attempted  RSS {:.2} GB  elapsed {:.1}s",
             n("events"),
+            pn("attempted_events"),
             record["process_rss_bytes"].as_u64().unwrap_or(0) as f64 / 1e9,
             record["elapsed_seconds"].as_f64().unwrap_or(0.)
         ),
-        "Positive powers remain symbolic; actual child ranks retained; no IBPs regenerated".into(),
         format!(
-            "Last update {:.1}s ago; unresolved routes/guards stay explicit; NOT a closure claim",
-            record["progress_age_seconds"].as_f64().unwrap_or(0.)
+            "Workers {} active / {} blocked / {} finished uncommitted; buffered {:.1} KiB logical",
+            pn("active_workers"),
+            pn("backpressured_workers"),
+            pn("finished_uncommitted_domains"),
+            pn("worker_buffered_logical_bytes") as f64 / 1024.
         ),
+        last_line,
     ]
 }
 
@@ -345,6 +370,24 @@ mod tests {
         assert!(text.contains("domain reuse 97"));
         assert!(text.contains("NOT a closure claim"));
         assert!(!text.contains("finite-target"));
+    }
+    #[test]
+    fn symbolic_dashboard_exposes_bounded_failure_and_backpressure_during_drain() {
+        let text = dashboard(&json!({"progress":{"operation":"owner_domain_walk",
+            "event":"domain_draining", "phase":"Apply", "events":17,
+            "parallel":{"attempted_events":80, "active_workers":2,
+                "backpressured_workers":1, "finished_uncommitted_domains":3,
+                "worker_buffered_logical_bytes":1024,
+                "first_failure":{"detail":format!("ResourceLimit\n\u{1b}[bad{}", "x".repeat(10000))}}}}))
+            .join("\n");
+        assert!(text.contains("— domain_draining"));
+        assert!(text.contains("17 committed / 80 attempted"));
+        assert!(text.contains("2 active / 1 blocked / 3 finished uncommitted"));
+        assert!(text.contains("1.0 KiB logical"));
+        assert!(text.contains("First failure (2 workers draining): ResourceLimit"));
+        assert!(!text.contains('\u{1b}'));
+        assert!(text.len() < 1000);
+        assert!(text.contains("NOT a closure claim"));
     }
     #[test]
     fn owner_domain_match_dashboard_keeps_completed_gaps_distinct_from_coverage() {

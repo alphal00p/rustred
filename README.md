@@ -123,7 +123,7 @@ to perform those finite inactive-coordinate splits automatically. With
 owner/box/rank domains through one worklist. Conditional coefficients and
 unresolved routing remain explicit; neither queue exhaustion nor a local match
 alone is presented as full closure. Add `--route-domain-overcover` to share
-conservative rank-preserving domain images through already admitted momentum
+conservative domain images through already admitted momentum
 maps, without expanding numerator polynomials. Unchecked source conditions or
 missing maps remain explicit obligations. Native algebra preflight refusals can
 use the same bounded inactive-coordinate refinement as unresolved guards;
@@ -147,9 +147,17 @@ refusals while keeping denominator/source validity strict. Bounded first-per-pha
 diagnostics are separate from missing-rule frontiers. The new all67 shared
 control inspects 702,384 successors with 702,253 request reuses in 31.35 s of
 traversal, but stops at its RHS-cell work allowance before finishing its first
-domain. This is not complete R10 coverage; coherent work budgets and bounded
-parallel symbolic scheduling are next. No saved IBPs are
-regenerated merely to repeat these application diagnostics.
+domain. This is not complete R10 coverage. Bounded parallel symbolic inspection,
+coherent per-query/aggregate work allowances and tighter `R-k` bounds after
+routed pinches are now implemented and independently audited. Their release
+suites pass **2,663 core / 341 application / 22 Python tests**, with zero
+failures (32 existing core diagnostics ignored). The public
+`examples/python/shared_owner_campaign.py --queries ...` supervisor provides
+the same 50-core/500 GB ceiling and no elapsed solve deadline for symbolic work.
+Matched serial/six-worker full-census controls are next; there is no measured
+parallel speedup for this slice yet. See
+[the implementation report](docs/research/parallel_symbolic_domains_2026-09-22.md).
+No saved IBPs are regenerated merely to repeat these application diagnostics.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after

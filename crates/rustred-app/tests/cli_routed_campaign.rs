@@ -311,6 +311,41 @@ powers=[1]
     assert!(final_event.get("queries").is_none());
     assert!(serde_json::to_vec(final_event).unwrap().len() < 8192);
     assert!(!invoke("matched.json", &[]).status.success());
+    let walked = invoke(
+        "walked.json",
+        &[
+            "--follow-successors",
+            "--workers",
+            "1",
+            "--max-frontiers",
+            "19",
+            "--max-successor-events",
+            "100000001",
+            "--max-rhs-events-per-query",
+            "100003",
+            "--max-shift-groups-per-query",
+            "100007",
+            "--max-sign-splits-per-query",
+            "100009",
+        ],
+    );
+    assert!(
+        walked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&walked.stderr)
+    );
+    let walk: Value =
+        serde_json::from_slice(&std::fs::read(directory.0.join("walked.json")).unwrap()).unwrap();
+    assert_eq!(walk["schema"], "rustred.owner-domain-walk.json.v1");
+    assert_eq!(walk["workers"], 1);
+    assert_eq!(walk["max_frontiers"], 19);
+    assert_eq!(walk["max_events"], 100000001);
+    assert_eq!(walk["applied_limits"]["max_events"], 100003);
+    assert_eq!(walk["applied_limits"]["max_shift_groups"], 100007);
+    assert_eq!(walk["applied_limits"]["max_sign_splits"], 100009);
+    assert_eq!(walk["all_scheduled_domains_resolved"], true);
+    assert_eq!(walk["family_closure_claim"], false);
+    assert_eq!(walk["committed_events"], walk["events"]);
     let limited = invoke("limited.json", &["--max-total-pieces", "1"]);
     assert!(!limited.status.success());
     let report: Value =

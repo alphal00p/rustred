@@ -117,7 +117,7 @@ fn route_overcover_literal_owner_and_above_entry_rank_keep_apply_phase() {
 }
 
 #[test]
-fn route_overcover_rank_zero_and_degree_bounded_pinches_preserve_actual_rank() {
+fn route_overcover_rank_zero_and_degree_bounded_pinches_subtract_only_lost_support() {
     let reducer = fixture();
     for (rank, total) in [(0, 1), (1, 3), (2, 4), (11, 4)] {
         let (events, stats) = collect(&reducer, SOURCE, Some(rank));
@@ -125,6 +125,8 @@ fn route_overcover_rank_zero_and_degree_bounded_pinches_preserve_actual_rank() {
         assert_eq!(stats.masks_examined, total);
         assert_eq!(stats.apply_domains, 1);
         assert_eq!(stats.route_domains, total - 1);
+        assert_eq!(stats.events, total);
+        assert_eq!(stats.coordinate_cells, 6 * total);
         assert!(matches!(
             events[0],
             CandidateDomainRouteEvent::Apply {
@@ -146,8 +148,9 @@ fn route_overcover_rank_zero_and_degree_bounded_pinches_preserve_actual_rank() {
                 _ => panic!("cover only"),
             };
             assert!(sector.iter().zip(TARGET).all(|(&a, b)| !a || b));
-            assert!(2 - sector.iter().filter(|&&b| b).count() <= rank as usize);
-            assert_eq!(cover.actual_rank, Some(rank)); // never R-removed
+            let lost = 2 - sector.iter().filter(|&&b| b).count();
+            assert!(lost <= rank as usize);
+            assert_eq!(cover.actual_rank, Some(rank - lost as u32));
             assert_eq!(cover.source_sector, SOURCE);
             assert_eq!(cover.target_root, TARGET);
             assert!(cover.conservative);
@@ -296,15 +299,40 @@ fn route_overcover_subsupports_reenter_route_even_when_literal_or_zero() {
             ..
         }
     )));
+    let literal_rank = events
+        .iter()
+        .find_map(|event| match event {
+            CandidateDomainRouteEvent::Route {
+                sector: [false, false, true],
+                cover,
+            } => cover.actual_rank,
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(literal_rank, 1);
     assert!(matches!(
-        collect(&reducer, [false, false, true], Some(2))
+        collect(&reducer, [false, false, true], Some(literal_rank)).0.as_slice(),
+        [CandidateDomainRouteEvent::Apply { cover, .. }] if cover.actual_rank == Some(1)
+    ));
+    let scalar_rank = events
+        .iter()
+        .find_map(|event| match event {
+            CandidateDomainRouteEvent::Route {
+                sector: [false, false, false],
+                cover,
+            } => cover.actual_rank,
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(scalar_rank, 0);
+    assert!(matches!(
+        collect(&reducer, [false; 3], Some(scalar_rank))
             .0
             .as_slice(),
-        [CandidateDomainRouteEvent::Apply { .. }]
-    ));
-    assert!(matches!(
-        collect(&reducer, [false; 3], Some(2)).0.as_slice(),
-        [CandidateDomainRouteEvent::ZeroSector { .. }]
+        [CandidateDomainRouteEvent::ZeroSector {
+            actual_rank: Some(0),
+            ..
+        }]
     ));
 }
 
@@ -446,6 +474,8 @@ fn route_overcover_contains_native_affine_endpoints_with_unbounded_positive_poli
         Default::default(),
     )
     .unwrap();
+    let mut saw_pinch = false;
+    let mut saw_tight_pinch = false;
     for rank in 0..=3_u32 {
         let (events, _) = collect(&reducer, source, Some(rank));
         for positive in [1, 2, 7, 1000] {
@@ -463,22 +493,104 @@ fn route_overcover_contains_native_affine_endpoints_with_unbounded_positive_poli
                             .filter(|&&n| n < 0)
                             .map(|n| n.unsigned_abs())
                             .sum();
-                        assert!(degree <= u64::from(rank));
-                        assert!(
-                            events.iter().any(|e| match e {
+                        let lost = target
+                            .iter()
+                            .zip(sector)
+                            .filter(|(a, b)| **a && !*b)
+                            .count();
+                        let expected_rank = rank.checked_sub(lost as u32).unwrap();
+                        let matching_cover = events
+                            .iter()
+                            .find_map(|e| match e {
                                 CandidateDomainRouteEvent::Apply {
                                     owner_sector,
                                     cover,
-                                } => *owner_sector == sector && cover.actual_rank == Some(rank),
-                                CandidateDomainRouteEvent::Route { sector: s, cover } =>
-                                    *s == sector && cover.actual_rank == Some(rank),
-                                _ => false,
-                            }),
-                            "uncovered endpoint {endpoint:?}"
-                        );
+                                } if *owner_sector == sector => Some(cover),
+                                CandidateDomainRouteEvent::Route { sector: s, cover } => {
+                                    (*s == sector).then_some(cover)
+                                }
+                                _ => None,
+                            })
+                            .unwrap_or_else(|| panic!("uncovered endpoint {endpoint:?}"));
+                        assert_eq!(matching_cover.actual_rank, Some(expected_rank));
+                        assert!(degree <= u64::from(expected_rank));
+                        saw_pinch |= lost > 0;
+                        saw_tight_pinch |= lost > 0 && degree == u64::from(expected_rank);
                     }
                 }
             }
         }
     }
+    assert!(saw_pinch);
+    assert!(saw_tight_pinch);
+}
+
+#[test]
+fn route_overcover_two_axis_scalar_pinch_attains_zero_bound_and_keeps_above_entry_rank() {
+    let reducer = fixture();
+    for (incoming, scalar_rank) in [(2, 0), (13, 11)] {
+        let (events, _) = collect(&reducer, SOURCE, Some(incoming));
+        assert!(
+            matches!(events[0], CandidateDomainRouteEvent::Apply { cover, .. }
+            if cover.actual_rank == Some(incoming))
+        );
+        assert!(events.iter().any(|event| matches!(event,
+            CandidateDomainRouteEvent::Route { sector: [false, false, false], cover }
+                if cover.actual_rank == Some(scalar_rank))));
+    }
+    // Endpoint identity alone: B=(1,0,1), e=(1,t,1) gives scalar rank t=R-2.
+    // This demonstrates sharpness, not that the permutation fixture produces it.
+    for residual in [0_u64, 1, 11] {
+        let base = [1_i64, 0, 1];
+        let exponent = [1_i64, residual as i64, 1];
+        let endpoint: [i64; 3] = std::array::from_fn(|i| base[i] - exponent[i]);
+        assert!(endpoint.iter().all(|&n| n <= 0));
+        assert_eq!(
+            endpoint
+                .iter()
+                .filter(|&&n| n < 0)
+                .map(|n| n.unsigned_abs())
+                .sum::<u64>(),
+            residual
+        );
+        assert_eq!(exponent.iter().sum::<i64>() as u64 - 2, residual);
+    }
+}
+
+#[test]
+fn route_overcover_tightened_zero_rank_reentry_retains_source_condition_obligation() {
+    let mut reducer = fixture();
+    let ctx = Arc::get_mut(&mut Arc::get_mut(&mut reducer.programs).unwrap().context).unwrap();
+    ctx.shared.zero_sectors.insert([false; 3]);
+    let condition = ctx
+        .shared
+        .context
+        .numerator_condition_with_limits(&ctx.shared.context.index(0).unwrap(), Default::default())
+        .unwrap();
+    ctx.shared.source_conditions.push(condition);
+    let (events, _) = collect(&reducer, SOURCE, Some(2));
+    let cover = events
+        .iter()
+        .find_map(|event| match event {
+            CandidateDomainRouteEvent::Route {
+                sector: [false, false, false],
+                cover,
+            } => Some(*cover),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(cover.actual_rank, Some(0));
+    assert_eq!(cover.source_sector, SOURCE);
+    assert_eq!(cover.target_root, TARGET);
+    assert!(reducer.domain_routing_requires_source_conditions());
+    let (reentry, stats) = collect(&reducer, [false; 3], cover.actual_rank);
+    assert_eq!(
+        reentry,
+        [CandidateDomainRouteEvent::ZeroSector {
+            sector: [false; 3],
+            actual_rank: Some(0),
+            source_conditions_required: true,
+        }]
+    );
+    assert_eq!(stats.zero_sectors, 1);
 }

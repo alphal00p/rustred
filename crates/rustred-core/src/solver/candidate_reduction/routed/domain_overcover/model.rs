@@ -28,6 +28,9 @@ impl Default for CandidateDomainRouteLimits {
 pub struct CandidateDomainRouteCover<const N: usize> {
     pub source_sector: [bool; N],
     pub target_root: [bool; N],
+    /// Rank bound of this emitted orthant, not necessarily the incoming bound:
+    /// full-root/literal Apply keeps R; strict Route losing k positive axes uses
+    /// R-k. None remains unbounded. This is never clipped to saved entry rank.
     pub actual_rank: Option<u32>,
     pub conservative: bool,
 }

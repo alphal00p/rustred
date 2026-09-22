@@ -87,10 +87,15 @@ not retained piece arrays. A terminal-only dashboard shows classification counts
 stdout; the result still requires `--output`.
 
 The stop file requests cancellation through the existing shared atomic flag;
-native calls are not forcibly preempted. No elapsed deadline or extra worker
-pool is introduced. Python replaces itself with the Rust process, inherits the
+native calls are not forcibly preempted. No elapsed deadline is introduced.
+Local matching is serial; the optional shared walk has a bounded worker pool.
+The thin Python wrapper replaces itself with the Rust process, inherits the
 license without printing or persisting it, and sets native inner thread pools
 to one. Direct CLI callers must also respect the native inner-pool contract.
+For affinity and process-tree memory supervision, use the existing
+[`shared_owner_campaign.py` driver](shared_owner_campaign_driver.md) with
+`--queries` instead; it keeps a supervising Python process and invokes the same
+native shared walk, without a solve timeout.
 
 `--max-queries` defaults to 256 (ceiling 10,000), and `--max-total-pieces` defaults
 to 100,000 (ceiling 1,000,000 retained output pieces). Per-query counters can be
@@ -168,7 +173,9 @@ scanning more general containing boxes. Exact keys share their coordinate
 storage with queued domains; hashing never replaces full-key equality. Indexed
 reuse can choose a different valid containing domain than the older linear
 scan, but never removes already scheduled work or treats it as completed.
-Insertion order and processing order remain deterministic.
+Queue admission and result publication remain deterministic on successful runs.
+With multiple workers, native inspection may run ahead of publication; its
+uncommitted results do not count as completed domains.
 Unresolved dispatch, RHS validity or descent, and successors needing owner
 routing remain explicit frontiers. A coefficient that is not uniformly nonzero
 keeps a conservative successor-domain over-cover, so its frontier is not by
@@ -185,10 +192,15 @@ keeps `family_closure_claim=false`, `ibp_generation=false`,
 `routing_expanded=false`, and `independent_certification=false`.
 
 The positive work allowances `--max-domains` (default 100,000, ceiling 1,000,000),
-`--max-successor-events` (default 1,000,000, ceiling 10,000,000), and
+`--max-frontiers` (default 100,000, ceiling 1,000,000),
+`--max-successor-events` (default 1,000,000), and
 `--max-containment-checks` (default 10,000,000) require `--follow-successors`.
-They bound admitted domains, callback events, and general box-containment scan
-comparisons across the worklist. Indexed exact/full-orthant reuse does not spend
+They separately bound admitted domains, retained frontier records, streamed
+callback events, and general box-containment scan comparisons across the
+worklist. Aggregate event allowances have no fixed ten-million ceiling: the
+event stream is not retained in memory. The frontier limit is checked before
+retaining any initial, application or routing frontier. Indexed
+exact/full-orthant reuse does not spend
 the comparison allowance and can still succeed after that allowance is spent;
 a request requiring another general scan then fails explicitly. Live and final
 reports separate `exact_domain_hits` and `full_orthant_hits` from total
@@ -201,11 +213,43 @@ not hard memory bounds. Stop-file cancellation, fresh atomic output, and compact
 progress remain active; the full output document is the source of truth.
 
 The per-domain RHS budgets `--max-rhs-cells-per-query` (default 100,000),
-`--max-term-visits-per-query` (1,000,000), and
-`--max-native-operations-per-query` (4,000,000) are also explicit CLI/Python
-options. RHS cells include every refined cell, not just pinches or boundaries.
+`--max-term-visits-per-query` (1,000,000),
+`--max-native-operations-per-query` (4,000,000),
+`--max-rhs-events-per-query` (1,000,000),
+`--max-shift-groups-per-query` (1,000,000), and
+`--max-sign-splits-per-query` (1,000,000) are explicit CLI/Python options.
+Raising the aggregate event allowance does not change these per-domain limits.
+RHS cells include every refined cell, not just pinches or boundaries.
 Other `OwnerAppliedLimits` retain their native defaults and remain configurable
 through the Rust API. None is an elapsed timeout or an input-rank restriction.
+
+### Bounded parallel inspection
+
+`--workers N` requires `--follow-successors` and defaults to one. The native
+request accepts 1–64 subject to the existing CPU-affinity and Symbolica-license
+checks; the campaign supervisor additionally enforces its 50-compute-worker
+budget, including declared concurrent jobs. Workers borrow the same immutable
+prepared owner library. They do not clone that library or transmit native
+coefficients through the scheduler.
+
+Each worker has at most one queued chunk and one local chunk, with a logical
+event flush threshold of 64 and a 256 KiB logical payload limit per chunk.
+Logical buffer size excludes allocator usage, native scratch space, the
+coordinator's current chunk and one just-converted descriptor waiting to enter
+a full worker chunk. That descriptor is itself capped at 256 KiB; process RSS
+remains separately monitored. The coordinator admits successors in stable
+domain-ID and callback order.
+Later workers can block behind an expensive earlier domain, so worker count
+alone is not a promised speedup. Progress reports expose this backpressure.
+
+Attempted events and returned native work are distinct from committed events
+and completed domains. Native-call totals become available when that inspection
+returns, including cancelled or uncommitted inspections; they are not live
+instruction counters inside Symbolica. The first observed error requests
+cooperative cancellation and all workers are joined before return. Failure
+prefixes may differ across worker counts and must not be compared as complete
+equivalent workloads. Neither parallelism nor a larger allowance changes the
+meaning of unresolved domains, source validity or closure.
 
 ### Optional coefficient-support classification
 
@@ -253,12 +297,15 @@ python examples/python/match_shared_owner_domains.py \
 An admitted map permutes positive denominator powers into a nonnegative base
 `B` and substitutes degree-at-most-one polynomials for numerator factors. For
 incoming numerator rank `D`, every surviving monomial has degree `|e|<=D` and
-endpoint `B-e`. Thus its numerator rank is at most `D`, and its positive support
-is contained in the mapped root. Losing `k` active denominators requires at
-least `k` numerator degree. The service therefore streams only roots with at
-most `R` removed active axes when the incoming rank cap is finite. It retains
-the **actual** rank cap on every image, including R11/R12 successors of an R10
-input; it never substitutes the saved generation scope.
+endpoint `B-e`. Its numerator rank is
+`|e| - sum_i min(e_i, B_i)`. Losing `k` active denominators consumes at least
+`k` units of that degree, so a strict pinched support needs rank at most `R-k`
+when the **actual incoming** rank is bounded by `R`. The service streams only
+supports with at most `R` lost active axes. The full mapped root retains `R`;
+an unbounded incoming rank stays unbounded. R11/R12 successors of an R10 input
+are tightened from their actual rank, never from the saved generation scope.
+Mass constants can lower monomial degree and cancellations can remove
+endpoints; neither enlarges this bound.
 
 The full mapped root goes directly to `Apply`; strict subsupports reenter
 `Route`. Route/Apply are distinct queue keys. Pending containing domains can
