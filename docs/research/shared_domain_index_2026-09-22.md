@@ -148,8 +148,8 @@ preparation-only license setup cancellation is separate and excluded.
 The exact full R11 orthant of owner `110010101101011` completes local matching
 with the larger allowances already used by the full-census study: 32 million
 rule visits and predicates, one million terminal checks and pieces, 100 million
-cells, three billion coordinate cells, 100 million splits, and 65,536 bounded
-refinement steps; the guard degree allowance remains 64. These are operational
+cells, three billion coordinate cells, 100 million splits, and 65,536 bounded-
+refinement cells; the guard degree allowance remains 64. These are operational
 work allowances, not restrictions on the requested integral domain.
 
 It yields **6,309 selected-rule regions and 43 declared-terminal regions**,
@@ -198,3 +198,43 @@ regenerate the saved rule library.
 Separately, [inspection of the actual guard expressions](guard_obstruction_triage_2026-09-22.md)
 identifies inexpensive native guard improvements and distinguishes existing
 affine branch representation from genuine missing-rule discovery.
+
+## The applied refusal is an inexpensive affine coefficient
+
+A read-only inspection of the stopped rule identifies one candidate consistent
+with the recorded refusal: original RHS term 12, shift `+e5-e14`, with numerator
+
+```
+-1 + n10 - n9 + n8 - n7 + n6 - n5 + 2*n1 - 2*n0
+```
+
+and denominator `n14-1`. It has nine terms, eight occurring indices, actual
+total degree one, and only one base-coefficient equation. The other 27 original
+numerators each involve at most one index; there are no equal-shift sums or
+common source conditions in this rule. The selected box keeps the denominator
+nonzero. Term attribution and the unchanged boundary cell are deductions from
+saved data and matching receipts: the original error did not log a term field.
+
+The existing prospective factor-work formula uses the sum of individual degrees
+and a dense monomial box. Here it charges `256 * 256^2 * 8 = 134217728`, exactly
+the refused amount. A direct call to Symbolica's public factorizer takes
+**0.000274131 s** and returns a constant times the same primitive linear factor.
+Native multiplication reproduces the original polynomial exactly. The coupled
+factor would remain unresolved by the coordinate-zero-locus service, giving a
+conditional successor rather than uniform nonvanishing. That latter behavior
+is inferred from source; the private guard service was not called by the probe.
+
+This is one factor-call measurement, not an IBP-generation or complete-walk
+timing. Its monitored command took 1.04 s, mostly a one-second polling floor;
+native child peak RSS was 9,796 KiB. No production cap or saved rule changed.
+Evidence: `TMP/applied-rule-native-inspection.ufy0Fs/` and
+`TMP/applied-affine-factor-probe.wQvN07/`.
+
+The preferred follow-up is to distinguish optional numerator support proofs
+from mandatory validity checks. An explicitly recorded, eligible native-work
+preflight refusal in the optional numerator check can conservatively retain
+the successor as conditional. Original denominators, child source conditions,
+exact algebra, descent, input/output admission and backend errors remain strict.
+This avoids making uniform-nonzero classification a prerequisite for dependency
+discovery; it neither treats a conditional successor as reached nor proves
+closure. Implementation and its separate tests are still pending.

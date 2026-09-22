@@ -141,6 +141,13 @@ Relevant existing implementation seams:
   sector-sign row bounds using native Integer arithmetic. It handles fixed axes
   and sector endpoints, not the arbitrary lower/upper bounds of these lattice
   boxes, so it is a reusable pattern rather than a directly sufficient API.
+- RustRed also has the broader crate-private
+  `AffineApplicationDomain::equation_proved_empty_in_box` service in
+  `foundry/parametric/affine/restriction.rs`. It clones a transient polynomial
+  and domain carrier and invokes `box_bounds.rs`, including native singleton
+  canonicalization and finite-face refinement. It is relevant existing domain
+  machinery, not a missing capability; it is not an allocation-free replacement
+  for the narrow borrowed coefficient-row precheck needed here.
 
 The inspected Symbolica polynomial/equation APIs provide native coefficients and
 linear equation solving, but no directly matching exact integer affine-on-
@@ -201,3 +208,79 @@ work is efficient valid saved-rule application and predicate-preserving shared
 successor traversal, with actual above-entry-rank gaps investigated if they are
 encountered. Full first-priority partition certification is not a prerequisite
 for this deferred-certification campaign. No closure or speedup is claimed here.
+
+## Implemented slice and release validation
+
+The first two shortcuts are implemented: deterministic ordering of borrowed
+base-coefficient equations by structural cost, and an exact native-Integer
+affine sign test on the actual box. They preserve canonical equation storage,
+actual native factor/replay admission, strict input checks and rule priority.
+The affine test only proves nonvanishing; otherwise the existing resolver runs.
+It accounts for actual inactive rank without clipping positive powers, uses no
+expression clones, and falls back if its optional scan/arithmetic allowance is
+insufficient. No AND lookahead or alternate-rule selection was added.
+
+The release gates pass **2,640 core tests**, **320 application tests**, and
+**19 Python steering tests**, with zero failures; 32 existing core diagnostics
+remain ignored. The 17 new focused tests cover ordering, exact endpoints,
+resource fallback, fixed specialization, rank bounds and concrete-evaluator
+parity. Independent implementation and mathematical review cover the changes.
+
+The initial full core run exposed three stale test expectations. Two expected
+refinement/Unknown for positive sums now proved nonzero; their original inputs
+are retained in new no-refinement/concrete-parity tests, and genuine diagonals
+preserve every assertion of the original refinement tests. The third pinned an
+old cumulative refusal count before its semantic checks: the cheaper-first
+schedule changes that count, not the intended refusal. Its exact new diagnostic
+is pinned and every subsequent positive/negative guard assertion remains. The
+corrected full suite passes; the initial failed receipts remain separate.
+
+Evidence: `TMP/native-guard-shortcuts.TjYasm/`,
+`TMP/native-guard-core.KREpMe/` (initial diagnostics),
+`TMP/native-guard-core-corrected.NMyRsx/` (passing core gate), and
+`TMP/native-guard-app.jf9p4c/` (passing application gate/frozen CLI).
+The later corrections touch tests only; the application binary's production
+sources are unchanged. Compilation time is not a solver measurement.
+
+## Same-input full-67 outcome
+
+The control finishes all 67 input queries, with the same **59 locally resolved
+owners** and eight incomplete owners. The former native factor-work refusal is
+gone, but local coverage is still incomplete:
+
+| Measurement | Before | After |
+|---|---:|---:|
+| Selected-rule regions | 213,523 | 214,681 |
+| Declared-terminal regions | 893 | 900 |
+| Unresolved guard regions | 163 | 166 |
+| Native-work refusals | 1 | 0 |
+| Preparation | 104.41 s | 104.95 s |
+| Local matching | 120.24 s | 97.52 s |
+| Whole command | 229.44 s | 208.27 s |
+| CPU time | 227.74 s | 206.06 s |
+| Peak RSS | 6,472,756 KiB | 6,476,340 KiB |
+
+All **82** inspected sign-definite obstructions disappear. The other **81**
+old unknown records survive unchanged. Continuing past the resolved predicates
+exposes **85 new original-denominator unknowns**, giving 166 rather than a net
+decrease. These arise at four saved rule/term positions on two owners; they are
+not evidence of missing IBPs or actual singular endpoints. The formerly refused
+owner now records 16,633 selected regions and 113 terminal regions (previously
+13,983 and 106), with its same seven unresolved guards and no error.
+
+The selection, R10 domains and native allowances are unchanged. The baseline
+used CPU40 and the new run CPU41; both use one native worker and 64 GiB address
+space, with no elapsed deadline. The new run adds the reviewed 48/60 GiB sampled
+RSS supervisor and has no overlapping owned native/build workload. The shared
+host is not isolated. Matching is about 19% shorter in this single observation,
+with changed internal work and more progress past a refusal—not a statistical
+or completed-workload speedup claim. Neither run performs recursive RHS walks
+or new IBP generation. All exact-gap and invalid-source counts remain zero.
+
+Evidence: `TMP/native-guard-full67.F1c0pX/`, including the runner, raw results,
+timings, comparison and independent reviews. The process is terminal/reaped,
+with incomplete status 4 and no operator/RSS stop. The next inspection targets
+the newly exposed denominator expressions. The separate applied-RHS affine
+refusal and planned optional-numerator treatment are recorded in
+[the shared-walk report](shared_domain_index_2026-09-22.md). None of these local
+measurements establishes complete recursive R10 closure.

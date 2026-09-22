@@ -131,26 +131,21 @@ actual backend errors cannot. The same Python steering accepts these
 options and the native `--max-guard-univariate-degree` work allowance. No saved
 IBPs are regenerated for these domain queries. See the
 [interface and limits](docs/shared_owner_domain_matching.md).
-The [September 22 release trials](docs/research/shared_symbolic_domains_2026-09-22.md)
-match all six recorded R10/R11 boxes automatically. Broader successor and census
-trials remain incomplete at explicit work allowances; full five-loop R10 closure
-is not yet established. The latest [domain-routing/refinement trials](docs/research/shared_domain_routing_2026-09-22.md)
-resolve 59/67 owners locally; the routed six-query worklist completes 870 domains
-before its containment budget, with recursive work still queued. The updated
-gates pass 2,623 core, 314 application and 19 Python tests, with no failures
-(32 existing core diagnostics remain ignored). The subsequent
-[indexed admission slice](docs/research/shared_domain_index_2026-09-22.md)
-passes 320 application tests and reaches 1,055 completed domains at the same
-comparison allowance; it still leaves recursive work queued. All 870 earlier
-completed records match exactly apart from timing. A larger-budget control,
-without regenerating saved IBPs, reaches 3,886 completed domains in 40.44 s of
-traversal before the per-query rule-visit allowance; it is still incomplete.
-The stopped query passes an isolated applicability replay in 1.68 s with a
-larger allowance, without new rules. The shared retry then reaches a native
-RHS guard-factor-work limit; recursive traversal remains unfinished.
-The [guard-expression study](docs/research/guard_obstruction_triage_2026-09-22.md)
-separates avoidable native work and affine-domain matcher limitations from
-actual missing IBPs.
+Full five-loop R10 closure is **not yet established**. The latest same-input
+[67-owner local control](docs/research/guard_obstruction_triage_2026-09-22.md)
+resolves 59 owners and retains 166 unresolved guard regions, with no exact gaps
+or native-work refusal. Local matching takes 97.52 s (208.27 s whole command);
+this is not a complete recursive solve or IBP-generation timing. The guard
+shortcuts pass 2,640 core, 320 application and 19 Python tests, with zero failures
+and 32 existing ignored core diagnostics.
+
+The separate [shared-traversal controls](docs/research/shared_domain_index_2026-09-22.md)
+reuse saved programs across owners, reaching 3,886 completed domains before an
+optional RHS numerator-classification preflight refusal. Recursive work remains
+queued. The next slice retains conditional successors for eligible optional
+refusals while keeping denominator/source validity strict, then initializes
+the shared traversal with all 67 R10 owner domains together. No saved IBPs are
+regenerated merely to repeat these application diagnostics.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after

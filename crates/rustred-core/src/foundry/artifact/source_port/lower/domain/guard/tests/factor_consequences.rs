@@ -85,8 +85,11 @@ fn captured_fg115_small_coefficient_proves_whole_exclusion_before_dense_factor_w
         polynomial(&context, &expression(&context, "648*(1-n8+n2)^2")).raw()
     );
     assert!(sparse.raw().nterms() < system.equations()[0].index_polynomial().raw().nterms());
-    // This is the old failure: whole-system coordinate factor scheduling
-    // reaches a dense sibling's prospective work cap before the cheap proof.
+    // Whole-system coordinate factor scheduling still reaches a dense
+    // sibling's prospective work cap before the affine-exclusion proof below.
+    // Inexpensive-first order now charges d6 through d1 cumulatively:
+    // 2592+32768+320000+2654208+19668992+134217728 = 156896288.
+    // The former storage-order d0-first diagnostic requested859963392.
     let old_issue = super::super::misses_target(
         &context,
         &guard,
@@ -97,7 +100,10 @@ fn captured_fg115_small_coefficient_proves_whole_exclusion_before_dense_factor_w
         &mut Work::default(),
     )
     .unwrap_err();
-    assert!(old_issue.to_string().contains("859963392"), "{old_issue}");
+    assert_eq!(
+        old_issue.to_string(),
+        "guard separable factor work needs 156896288 units, exceeding the configured limit 64000000"
+    );
     check_capture(
         &context,
         FG115,

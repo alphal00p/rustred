@@ -5,6 +5,11 @@ use crate::algebra::{IndexedAlgebraLimits, IndexedCoefficientContext, IndexedPol
 use crate::foundry::completion::LatticeBox;
 use symbolica::prelude::Integer;
 
+mod affine;
+#[cfg(test)]
+#[path = "guards/affine_tests.rs"]
+mod affine_tests;
+
 /// Closed native resource identifiers audited in indexed/base_coefficients.rs.
 /// These are admission checks before the NEXT GCD/factor operation, not proof
 /// that no native work has happened: a prior GCD/equation may already have run.
@@ -81,6 +86,23 @@ pub(super) fn resolve<const N: usize>(
     let system = context
         .base_coefficient_system(&restricted, algebra, budget.limits.guard_algebra)
         .map_err(OwnerDomainMatchFailure::Algebra)?;
+    // An equation of the simultaneous base-coefficient system that cannot
+    // vanish anywhere on the box disproves the guard's zero locus. This only
+    // adds a sufficient nonzero test; diagonals/nonlinear cases retain the
+    // existing native resolution and exact/conservative distinction.
+    if affine::misses_zero(
+        &system,
+        context.base().parameter_names().len(),
+        cell,
+        owner,
+        rank,
+        algebra,
+        budget.limits.guard_algebra,
+    )
+    .map_err(OwnerDomainMatchFailure::Algebra)?
+    {
+        return Ok(Resolution::Nonzero);
+    }
     let resolution = context
         .integer_zero_locus_domain_resolution(&system, budget.limits.guard_algebra, |axis, root| {
             let local = if owner[axis] {

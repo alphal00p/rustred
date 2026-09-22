@@ -1,4 +1,5 @@
 //! Synthetic fixtures exercise applicability, not IBP provenance or closure.
+mod affine_priority;
 use super::*;
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial};
 use crate::family::IntegralKey;
@@ -722,9 +723,12 @@ fn bounded_refinement_never_enumerates_positive_or_unbounded_inactive_axes() {
     let mut p = fixture();
     let c = p.context.coefficient_context().clone();
     let mut first = rule(0);
+    // A true positive diagonal keeps this a no-enumeration regression.
+    // The original n0+n1 is strictly positive; its exact no-refinement
+    // dispatch is retained separately in affine_priority.
     first.equalities.push(poly(
         &c,
-        c.add(&c.index(0).unwrap(), &c.index(1).unwrap()).unwrap(),
+        c.sub(&c.index(0).unwrap(), &c.index(1).unwrap()).unwrap(),
     ));
     batch(&mut p).rules = vec![first, rule(1)];
     let (stats, pieces) = refined(
@@ -767,10 +771,12 @@ fn bounded_refinement_rank_induced_singleton_progresses_once_then_keeps_positive
     let mut p = fixture();
     let c = p.context.coefficient_context().clone();
     let mut first = rule(0);
+    // Rank0 fixes n2=0 but leaves the genuine n0=n1 diagonal unresolved.
+    // The original positive sum is separately tested as exactly impossible.
     first.equalities.push(poly(
         &c,
         c.add(
-            &c.add(&c.index(0).unwrap(), &c.index(1).unwrap()).unwrap(),
+            &c.sub(&c.index(0).unwrap(), &c.index(1).unwrap()).unwrap(),
             &c.index(2).unwrap(),
         )
         .unwrap(),

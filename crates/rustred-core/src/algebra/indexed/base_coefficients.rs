@@ -16,6 +16,8 @@ use super::limits::{ceil_log2, check_limit, integer_magnitude_bits};
 
 use super::{IndexedCoefficientContext, IndexedPolynomial};
 
+mod ordering;
+
 /// Cold-path admission envelope for exact guard-locus decomposition.
 ///
 /// Polynomial factorization has no useful allocation-free preflight. RustRed
@@ -710,7 +712,7 @@ impl IndexedCoefficientContext {
         let mut replay_terms = 0usize;
         let mut replay_work = 0usize;
         let mut conservative_cover = None;
-        for equation in &system.equations {
+        for equation in ordering::inexpensive_first(system, base_count)? {
             self.validate_polynomial_context(&equation.index_polynomial)?;
             let polynomial = equation.index_polynomial.raw();
             if polynomial.is_zero() {

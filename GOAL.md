@@ -65,7 +65,7 @@ Detailed implementation sequencing is in
 
 ### Current implementation slice — ordered symbolic successor matching
 
-The next audited slice adds opt-in admitted-route domain covers and exact
+The earlier routing/refinement slice adds opt-in admitted-route domain covers and exact
 bounded inactive refinement after selected native guard preflight refusals.
 It passes **2,623 core / 314 application / 19 Python tests** with zero failures
 (32 existing core diagnostics remain ignored). Routing shares full support/rank
@@ -94,9 +94,23 @@ That test inspects applicability only, not recursive RHS coverage. The shared
 retry with those allowances now stops in RHS inspection at a native guard
 factor-work limit: still 3,886 completed domains, 27,963 queued, no observed
 missing-rule frontier. Its 44.96 s traversal and scheduled R13 overcover are
-not complete R10 reduction. Isolate that expression while implementing the
-native guard cost-ordering and affine sign checks identified by
-[the actual-expression study](docs/research/guard_obstruction_triage_2026-09-22.md).
+not complete R10 reduction. Inspection isolated that expression; native guard
+cost-ordering and affine sign checks identified by
+[the actual-expression study](docs/research/guard_obstruction_triage_2026-09-22.md)
+are now implemented and pass **2,640 core / 320 application / 19 Python tests**
+with no failures (32 existing core diagnostics ignored). The same-input
+67-owner local control removes the former native factor refusal, resolves the
+same 59 owners and retains 166 unknown guard regions. It discharges all 82
+identified sign-definite obstructions but exposes 85 later denominator guards;
+81 old unknowns remain unchanged. Local matching takes 97.52 s / 208.27 s whole
+command in this observation, not a full-family generation or closure timing.
+The applied refusal is a single affine numerator that Symbolica factors in
+0.274 ms; its conservative work estimate, not measured expression swell, causes
+the stop. Next retain conditional successors when optional numerator support
+classification alone hits an eligible native-work preflight, preserving strict
+denominator/source checks and explicit diagnostics. Then start the shared
+walk with all 67 R10 owner orthants together, so broad owner reuse exists from
+the beginning; the six historical child queries remain diagnostic inputs only.
 Address positive-coupled guard selection without
 turning uncertain cases into gaps, terminals or bounded-positive surrogates.
 
