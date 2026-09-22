@@ -5,6 +5,7 @@ use rustred::solver::{
     SectorStats, Term,
 };
 use rustred::{family::IntegralFamily, reduction::ReductionLimits, sector::OrderingPolicy};
+mod fixed;
 
 const K1: &str = r#"
 schema="rustred.project.toml.v1"
@@ -210,16 +211,56 @@ fn actual_above_entry_rank_successor_is_nominated_without_positive_power_narrowi
     );
     let report = run.reducer.trace_targets([key([1, 3, -10])]).unwrap();
     assert_eq!(report.max_negative_index_degree(), 11);
-    let jobs = nominate(&report, &[], 4, 1024, &AtomicBool::new(false));
+    let jobs = nominate(
+        &report,
+        &[],
+        RoutedFeedbackNomination::PositiveRays,
+        4,
+        1024,
+        &AtomicBool::new(false),
+    );
     assert_eq!(jobs.jobs.len(), 1);
     assert_eq!(jobs.jobs[0].rank, 11);
     assert_eq!(jobs.jobs[0].fixed, [None, None, Some(-11)]);
-    let huge = Ray::from_target([true, true, false], &key([i64::MAX, 1, -11])).unwrap();
+    let huge = SourceCase::from_target(
+        [true, true, false],
+        &key([i64::MAX, 1, -11]),
+        RoutedFeedbackNomination::PositiveRays,
+    )
+    .unwrap();
     assert_eq!(huge, jobs.jobs[0]);
-    assert!(Ray::from_target([true, false], &key([1, -65])).is_err());
-    assert!(Ray::from_target([true, false], &key([1, i64::MIN])).is_err());
-    assert!(Ray::from_target([true, false], &key([0, -1])).is_err());
-    let repeated = nominate(&report, &jobs.jobs, 4, 1024, &AtomicBool::new(false));
+    assert!(
+        SourceCase::from_target(
+            [true, false],
+            &key([1, -65]),
+            RoutedFeedbackNomination::PositiveRays
+        )
+        .is_err()
+    );
+    assert!(
+        SourceCase::from_target(
+            [true, false],
+            &key([1, i64::MIN]),
+            RoutedFeedbackNomination::PositiveRays
+        )
+        .is_err()
+    );
+    assert!(
+        SourceCase::from_target(
+            [true, false],
+            &key([0, -1]),
+            RoutedFeedbackNomination::PositiveRays
+        )
+        .is_err()
+    );
+    let repeated = nominate(
+        &report,
+        &jobs.jobs,
+        RoutedFeedbackNomination::PositiveRays,
+        4,
+        1024,
+        &AtomicBool::new(false),
+    );
     assert!(repeated.jobs.is_empty());
     assert_eq!(repeated.already_installed_entries, 1);
 }
@@ -316,7 +357,14 @@ fn cancel_after_first_publication_preserves_that_epoch_and_all_job_receipts() {
 fn nomination_and_cumulative_ledger_limits_are_explicit_not_new_terminals() {
     let run = tiny();
     let report = run.reducer.trace_targets([key([2])]).unwrap();
-    let denied = nominate(&report, &[], 1, 0, &AtomicBool::new(false));
+    let denied = nominate(
+        &report,
+        &[],
+        RoutedFeedbackNomination::PositiveRays,
+        1,
+        0,
+        &AtomicBool::new(false),
+    );
     assert!(denied.jobs.is_empty() && denied.incomplete.is_some());
     let mut run = tiny();
     run.options.max_installed_jobs = 0; // private fault injection, not public admission.

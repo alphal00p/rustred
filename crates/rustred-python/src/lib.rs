@@ -361,6 +361,21 @@ fn derive(
     ))
 }
 
+/// Plan a finite entry envelope. Returns a JSON-compatible dictionary, not a
+/// generated IBP artifact or a closure claim. All counting stays in Rust.
+#[pyfunction]
+fn entry_domain_plan(py: Python<'_>, source: &str) -> PyResult<Py<PyAny>> {
+    let source = bounded_owned_input("finite entry-domain input", source)?;
+    let report = py
+        .detach(move || execute(move || rustred_app::entry_domain_plan(&source)))
+        .map_err(map_coordinator_error)?
+        .map_err(map_app_error)?;
+    Ok(py
+        .import("json")?
+        .call_method1("loads", (report.to_string(),))?
+        .unbind())
+}
+
 #[pyfunction]
 #[pyo3(
     signature = (source, *, input_format = "auto", root_id = None),
@@ -924,6 +939,7 @@ fn _rustred(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyClosingArtifactReductionResult>()?;
     module.add_function(wrap_pyfunction!(derive, module)?)?;
     module.add_function(wrap_pyfunction!(campaign_plan, module)?)?;
+    module.add_function(wrap_pyfunction!(entry_domain_plan, module)?)?;
     module.add_function(wrap_pyfunction!(campaign_preflight, module)?)?;
     module.add_function(wrap_pyfunction!(run_foundry_campaign, module)?)?;
     module.add_function(wrap_pyfunction!(run_foundry_wave_campaign, module)?)?;

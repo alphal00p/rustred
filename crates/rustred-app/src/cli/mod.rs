@@ -1,5 +1,6 @@
 pub(crate) mod args;
 mod candidates;
+mod entry_domain;
 pub(crate) mod error;
 mod io;
 mod owner_domains;
@@ -52,6 +53,7 @@ pub(crate) fn main_entry() -> i32 {
 
 fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
     match parse_args(arguments)? {
+        Command::EntryDomainPlan(arguments) => entry_domain::run(arguments),
         Command::OwnerGuardedApply(arguments) => owner_guarded::run(arguments),
         Command::OwnerDomainMatch(arguments) => owner_match::run(arguments),
         Command::OwnerDomainScan(arguments) => owner_domains::run(arguments),

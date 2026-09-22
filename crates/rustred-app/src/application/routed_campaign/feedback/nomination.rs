@@ -1,18 +1,22 @@
+use super::RoutedFeedbackNomination;
 use rustred::family::IntegralKey;
 use rustred::solver::{CandidateRoutedFrontierReason, CandidateRoutedTraceReport, CoordinateCase};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Exact native coordinate-ray identity under one session's fixed source policy.
-/// Active powers stay symbolic; only inactive coordinates are stored.
+/// Exact nominated coordinate case under one session's immutable scope policy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct Ray<const N: usize> {
+pub(super) struct SourceCase<const N: usize> {
     pub owner: [bool; N],
     pub fixed: [Option<i16>; N],
     pub rank: u32,
 }
 
-impl<const N: usize> Ray<N> {
-    pub fn from_target(owner: [bool; N], target: &IntegralKey) -> Result<Self, &'static str> {
+impl<const N: usize> SourceCase<N> {
+    pub fn from_target(
+        owner: [bool; N],
+        target: &IntegralKey,
+        policy: RoutedFeedbackNomination,
+    ) -> Result<Self, &'static str> {
         if target.powers().len() != N {
             return Err("frontier target arity differs from owner");
         }
@@ -26,13 +30,16 @@ impl<const N: usize> Ray<N> {
                 let degree = u32::try_from(power.unsigned_abs())
                     .map_err(|_| "actual successor numerator rank exceeds u32")?;
                 rank = rank.checked_add(degree).ok_or("successor rank overflow")?;
-                fixed[axis] = Some(i16::try_from(power).map_err(
-                    |_| "fixed inactive coordinate is outside native compact admission",
-                )?);
+            }
+            if !active || policy == RoutedFeedbackNomination::FixedTargets {
+                fixed[axis] = Some(
+                    i16::try_from(power)
+                        .map_err(|_| "fixed coordinate is outside native compact admission")?,
+                );
             }
         }
         CoordinateCase::new(fixed)
-            .map_err(|_| "fixed inactive coordinate is outside native compact admission")?;
+            .map_err(|_| "fixed coordinate is outside native compact admission")?;
         Ok(Self { owner, fixed, rank })
     }
 
@@ -42,7 +49,7 @@ impl<const N: usize> Ray<N> {
 }
 
 pub(super) struct Nominations<const N: usize> {
-    pub jobs: Vec<Ray<N>>,
+    pub jobs: Vec<SourceCase<N>>,
     pub duplicate_entries: usize,
     pub already_installed_entries: usize,
     /// First reason why the whole observed frontier could not be nominated.
@@ -52,7 +59,8 @@ pub(super) struct Nominations<const N: usize> {
 
 pub(super) fn nominate<const N: usize>(
     trace: &CandidateRoutedTraceReport<N>,
-    installed: &[Ray<N>],
+    installed: &[SourceCase<N>],
+    policy: RoutedFeedbackNomination,
     max_jobs: usize,
     max_bytes: usize,
     cancellation: &AtomicBool,
@@ -71,7 +79,7 @@ pub(super) fn nominate<const N: usize>(
         let CandidateRoutedFrontierReason::MissingRule { owner_sector } = item.reason else {
             continue;
         };
-        let ray = match Ray::from_target(owner_sector, &item.target) {
+        let ray = match SourceCase::from_target(owner_sector, &item.target, policy) {
             Ok(ray) => ray,
             Err(reason) => {
                 out.incomplete = Some((reason, item.target.powers().to_vec()));
@@ -87,7 +95,7 @@ pub(super) fn nominate<const N: usize>(
             continue;
         }
         let next = out.jobs.len().checked_add(1);
-        let bytes = next.and_then(|n| n.checked_mul(std::mem::size_of::<Ray<N>>()));
+        let bytes = next.and_then(|n| n.checked_mul(std::mem::size_of::<SourceCase<N>>()));
         if next.is_none_or(|n| n > max_jobs) || bytes.is_none_or(|n| n > max_bytes) {
             out.incomplete = Some(("nomination resource limit", item.target.powers().to_vec()));
             break;
@@ -105,4 +113,26 @@ pub(super) fn nominate<const N: usize>(
     // publication deterministic. No Debug-string identity or domain algebra.
     out.jobs.sort();
     out
+}
+
+/// Borrow deterministic same-owner fixed batches without a second key buffer.
+/// Positive rays remain individual jobs, preserving their existing chronology.
+pub(super) fn batches<const N: usize>(
+    cases: &[SourceCase<N>],
+    policy: RoutedFeedbackNomination,
+    max_cases: usize,
+) -> impl Iterator<Item = &[SourceCase<N>]> {
+    let mut start = 0;
+    std::iter::from_fn(move || {
+        let first = cases.get(start)?;
+        let mut end = start + 1;
+        if policy == RoutedFeedbackNomination::FixedTargets {
+            while end < cases.len() && end - start < max_cases && cases[end].owner == first.owner {
+                end += 1;
+            }
+        }
+        let batch = &cases[start..end];
+        start = end;
+        Some(batch)
+    })
 }

@@ -326,6 +326,31 @@ Keep the three crates on one revision; mixing a Symbolica 2 checkout with the
 to a published commit, while local development may temporarily replace that
 git dependency with a workspace path.
 
+## Finite starting-domain planning
+
+`entry-domain-plan` counts a finite scalar-index input envelope and optionally
+previews targets. It does **not** generate IBPs or claim closure. Both total
+positive denominator power and scalar numerator rank are bounded, with optional
+correlations. The separate fixed-target feedback API preserves all integer
+indices and reuses existing rules before searching genuine misses.
+
+```sh
+rustred entry-domain-plan --input examples/cli/finite_entry_domain.json --output -
+python examples/python/plan_finite_entry_domain.py --loops 1 --sectors 1
+```
+
+The example has exactly three starting targets: `[2]`, `[3]`, `[4]`.
+The Python example uses `import rustred`; `--cli /path/to/release/rustred`
+selects the equivalent CLI adapter. `--owner-selection SELECTION.json` reads
+sector masks from an existing census instead of an observable-specific list.
+
+The named `renormalizable_marginal_feynman` profile is conditional on its stated
+Feynman-gauge, forest, scalarization and mass-grading assumptions. It is not
+automatic authentication of an arbitrary physical calculation. At five loops
+it supplies `A<=24`, `R<=14`, `A-R>=10`; a preview is never exhaustive coverage.
+Input bounds never clip IBP descendants. See
+[the finite-domain plan and derivation](docs/finite_starting_domains.md).
+
 ## Current capability
 
 The [September 17 status report](STATUS_17_09_2026.md) and

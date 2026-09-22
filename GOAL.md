@@ -1,6 +1,53 @@
 # RustRed project goal
 
-## Current priority — rank-bounded five-loop closure, with sequential delivery gates
+## Current priority — finite renormalizable starting-domain five-loop closure
+
+### Authoritative September 22 refinement — finite inputs, concrete repair
+
+The latest directive supersedes the unbounded-positive-power interpretation of
+R=10 below. Do **not** collect an exact catalogue of the diagrams contributing
+to the QCD beta function. Instead, define an input-driven, finite starting
+domain justified by dimension-four renormalizable power counting, including
+separate numerator and denominator-power budgets and their correlations.
+State gauge, Taylor/forest and scalar-rank conventions explicitly. Nested
+counterterm expansions must be included; a convenient arbitrary dot cutoff
+must not be described as a physics guarantee. All algorithms remain generic
+in topology and loop count.
+
+Reuse the saved parametric rules. Follow their concrete dependencies, preserving
+every integer index. Repair genuine missing targets with the existing fully
+fixed native source search instead of widening their positive powers into
+infinite rays. Starting-domain restrictions never truncate intermediate
+dependencies. Preserve exact guards, routing, descent and explicit failure
+reporting; independent universal certification is not the present objective.
+
+The requested deliverable is a finite set of exact IBP rules and explicitly
+retained, finite, nonminimal terminal integrals covering that complete starting
+domain. Do not reduce the terminal basis further or evaluate its integrals yet.
+In particular, neither numerical master catalogues, auxiliary mass flow, nor
+five-loop Vakint numerical integration belongs to this immediate milestone.
+Unfinished searches and resource failures must not silently become terminals.
+
+Develop and audit small sector controls first, then perform one complete shared
+five-loop campaign over the census, using efficient cross-owner reuse and up to
+50 cores / 500 GB aggregate RSS (450 GB soft stop). The fifteen-hour objective,
+TTY/non-TTY monitoring and cooperative evidence-based optimization stops remain;
+there is no new fixed short timeout. Never report complete coverage from a
+sampled prefix. The implementation plan is
+[finite starting domains and fixed-target repair](docs/finite_starting_domains.md).
+
+First implementation checkpoint: generic finite-domain counting/traversal,
+Rust/CLI/Python planning surfaces, fully fixed missing-target source feedback,
+and retained-session target replacement pass 414 application tests and 50
+Python tests in release. The current conservative marginal profile counts
+2,188,260,327,648 labelled tuples across the 67-owner census: do not brute-force
+that envelope. Reuse parametric regions and traverse genuine gaps. The final
+physical domain must also account for GammaLoop's full UV jet unless marginal
+projection is explicit; the named marginal profile alone excludes mass terms.
+This checkpoint does not claim five-loop closure or start terminal evaluation.
+
+The older sequence and measurements below are retained as history; statements
+requiring unbounded positive starting powers are no longer authoritative.
 
 ### Authoritative September 21 update — shared campaign, 50 cores, 500 GB
 

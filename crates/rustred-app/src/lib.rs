@@ -1,11 +1,13 @@
 mod application;
+pub use application::{EntryPowerBudget, FiniteEntryDomain, entry_domain_plan};
 #[cfg(feature = "cli")]
 mod cli;
 
 pub use application::{
     OwnerDomainMatchRequest, OwnerDomainMatchResult, OwnerDomainScanRequest, OwnerDomainScanResult,
     OwnerDomainWalkRequest, OwnerDomainWalkResult, OwnerGuardedApplyRequest,
-    OwnerGuardedApplyResult, RoutedCampaignRequest, RoutedCampaignResult, RoutedFeedbackOptions,
+    OwnerGuardedApplyResult, RoutedCampaignRequest, RoutedCampaignResult,
+    RoutedFeedbackFixedResidualPolicy, RoutedFeedbackNomination, RoutedFeedbackOptions,
     RoutedFeedbackRoundResult, RoutedFeedbackSession, owner_domain_match_with_progress,
     owner_domain_scan_with_progress, owner_domain_walk_with_progress,
     owner_guarded_apply_with_progress, routed_campaign_with_progress,

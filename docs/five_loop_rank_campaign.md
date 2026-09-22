@@ -1,8 +1,18 @@
-# Shared rank-bounded vacuum campaign
+# Shared vacuum campaign
 
-## Objective and delivery order
+## Current scope: finite renormalizable starting domains
 
-The September 21 directive is authoritative. (a) Solve the complete supplied
+The latest September 22 directive supersedes the unbounded-positive-power
+starting scope described below. Use a finite, power-counting-derived envelope,
+not an exact QCD diagram catalogue; preserve every integer index when repairing
+actual missing targets. Terminal minimization and numerical evaluation remain
+deferred. The complete shared five-loop campaign is still the objective, with
+50 cores / 500 GB and monitored, cooperative optimization stops.
+See [the authoritative finite-domain plan](finite_starting_domains.md).
+
+## Earlier objective and delivery order (historical)
+
+The September 21 directive originally specified: (a) Solve the complete supplied
 five-loop family/sector census with a finite, possibly large terminal basis;
 (b) achieve R=10 first and aim for R=20; (c) minimize terminals afterward;
 (d) obtain/map published numerical masters; (e) integrate and validate Vakint.
@@ -58,7 +68,7 @@ measure the corrected expansion or eliminate genuine dependency breadth. See the
 
 ## Implementation slices
 
-### Current delivery gap, September 22
+### Delivery gap before finite-domain refinement, September 22
 
 All 67 saved programs are available; this is not a request to regenerate them.
 Local first-step dispatch now handles 60 owners without unresolved regions,

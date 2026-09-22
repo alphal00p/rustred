@@ -8,7 +8,10 @@ mod matching;
 mod prepare;
 mod walking;
 pub use domains::{OwnerDomainScanRequest, OwnerDomainScanResult, owner_domain_scan_with_progress};
-pub use feedback::{RoutedFeedbackOptions, RoutedFeedbackRoundResult, RoutedFeedbackSession};
+pub use feedback::{
+    RoutedFeedbackFixedResidualPolicy, RoutedFeedbackNomination, RoutedFeedbackOptions,
+    RoutedFeedbackRoundResult, RoutedFeedbackSession,
+};
 pub(crate) use guarded::policy::parse as guarded_limits_from_json;
 pub use guarded::{
     OwnerGuardedApplyRequest, OwnerGuardedApplyResult, owner_guarded_apply_with_progress,

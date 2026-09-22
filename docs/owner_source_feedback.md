@@ -12,13 +12,33 @@ Only a successfully completed traversal can nominate source work, and only for
 genuine `MissingRule` frontiers. A resource error or `MissingOwner` is never
 converted into a source job or a new terminal.
 
-A nominated domain fixes the observed inactive powers and leaves every active
+By default (`PositiveRays`), a nominated domain fixes the observed inactive powers and leaves every active
 power symbolic and positive. Exact owner-coordinate rays are deduplicated under
 the session's fixed policy. The actual successor numerator rank is admitted,
 including descendants above the entry rank; unsupported compact coordinates fail
 explicitly. This is parametric source work over each nominated ray, not merely a
 solve at the observed positive powers, and not an enumeration of the full R10
 family domain.
+
+The opt-in `RoutedFeedbackNomination::FixedTargets` policy instead preserves
+**every** observed integer index. Same-owner points are searched in deterministic
+batches through the existing `SearchFinite` solver; they are not widened into
+infinite positive-power rays. `KeepUnresolved` is the default residual policy
+and leaves a batch containing residuals uninstalled. The explicit
+`DeclareSearchedFiniteTerminals` policy requires a positive numerical source
+depth and a successfully completed search. Only fully fixed nominated residuals
+can then be retained as a finite, nonminimal output convention. Receipts record
+their exact keys, search depth and origin, separately from productive rules.
+No failure, interrupted search or resource stop is converted into a terminal;
+no independence or numerical value is claimed.
+
+`replace_targets` atomically installs another bounded, nonempty input batch
+without discarding source definitions, verified routes, installed overlays or
+the policy ledger. Admission failure preserves the previous batch. Each round
+still builds a fresh dependency graph: this is not persistent cross-batch memo
+storage. A starting-domain budget never filters descendants. See
+[finite starting domains](finite_starting_domains.md) for the input contract,
+planning surfaces and remaining full-campaign work.
 
 Jobs run serially through the core source-bound domain solver. Each completed
 result passes raw-payload and cumulative overlay admission before atomic append

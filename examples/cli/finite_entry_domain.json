@@ -1,0 +1,10 @@
+{
+  "schema": "rustred.entry-domain.json.v1",
+  "profile": {
+    "name": "renormalizable_marginal_feynman",
+    "loops": 1
+  },
+  "sectors": ["1"],
+  "max_positive_layers_per_sector": 32,
+  "max_preview_targets": 4
+}

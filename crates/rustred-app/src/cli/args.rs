@@ -1,6 +1,7 @@
 mod campaign;
 mod candidates;
 mod derive;
+mod entry_domain;
 mod family_close;
 mod family_solve;
 mod owner_domains;
@@ -8,6 +9,7 @@ mod owner_guarded;
 mod owner_match;
 mod resource_limits;
 mod routed;
+pub(crate) use entry_domain::EntryDomainPlanArgs;
 pub(crate) use owner_domains::OwnerDomainScanArgs;
 pub(crate) use owner_guarded::OwnerGuardedApplyArgs;
 pub(crate) use owner_match::OwnerDomainMatchArgs;
@@ -148,6 +150,7 @@ pub(crate) enum ColorPolicy {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Command {
+    EntryDomainPlan(EntryDomainPlanArgs),
     OwnerGuardedApply(OwnerGuardedApplyArgs),
     OwnerDomainMatch(OwnerDomainMatchArgs),
     OwnerDomainScan(OwnerDomainScanArgs),
@@ -259,6 +262,7 @@ pub(crate) fn parse_args(
             Ok(Command::Version)
         }
         "derive" => derive::parse(arguments),
+        "entry-domain-plan" => entry_domain::parse(arguments),
         "family-solve" => family_solve::parse(arguments),
         "family-close" => family_close::parse(arguments),
         "family-candidates" => candidates::parse_generation(arguments),
@@ -337,6 +341,7 @@ pub(crate) const HELP: &str = "\
 RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 
 USAGE:
+    rustred entry-domain-plan --input SPEC.json --output PLAN.json [--force]
     rustred owner-guarded-apply --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--work-limits LIMITS.json] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-report-events N] [--max-report-bytes N] [--max-expression-bytes N]
     rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N] [--max-bounded-refinement-cells-per-query N] [--max-guard-univariate-degree N] [--follow-successors [--workers N] [--max-domains N] [--max-frontiers N] [--max-successor-events N] [--max-containment-checks N|unlimited] [--max-rhs-cells-per-query N] [--max-term-visits-per-query N] [--max-native-operations-per-query N] [--max-rhs-events-per-query N] [--max-shift-groups-per-query N] [--route-domain-overcover [--max-route-masks-per-query N]]]
     rustred owner-domain-scan --manifest SELECTION.json --max-numerator-rank R --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--max-rules-per-owner N] [--max-terms-per-owner N] [--max-regions-per-owner N] [--max-total-regions N] [--max-summary-groups N]
@@ -552,6 +557,17 @@ applicability, integer feasibility, recursive coverage or closure. Native
 expression text is display-only, not an artifact codec. Strict --work-limits
 JSON forwards bounded native allowances; report/event/expression limits bound
 retained diagnostics. No algebra or queue policy is implemented in Python.
+
+`entry-domain-plan` counts finite starting targets without running a solver.
+Its JSON schema is rustred.entry-domain.json.v1, with unique same-arity 0/1
+sector strings and exactly one explicit budget or profile object
+{name: renormalizable_marginal_feynman, loops: N}. The profile is a caller
+physics assumption, not automatic graph authentication. A positive
+max_positive_layers_per_sector is required (at most 1000000); counts are exact
+decimal strings or the command fails. max_preview_targets defaults to 0 and
+is a bounded global prefix (at most 10000 targets / 1000000 coordinates), never
+closure or descendant coverage. Input is bounded to 1 MiB, 10000 sectors and
+1024 axes. Use '-' for stdin/stdout; existing files require --force.
 
 `owner-domain-match` classifies explicit parametric boxes against saved owners.
 Each query JSON supplies its own rank cap (or null) and unbounded upper bounds.
