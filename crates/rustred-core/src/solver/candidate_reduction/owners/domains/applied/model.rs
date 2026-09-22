@@ -165,6 +165,7 @@ pub enum OwnerAppliedFailure {
         resource: &'static str,
     },
     Algebra(IndexedAlgebraError),
+    AffineRestriction(crate::solver::AffineGeometryError),
     Geometry(String),
     InternalInvariant(&'static str),
 }

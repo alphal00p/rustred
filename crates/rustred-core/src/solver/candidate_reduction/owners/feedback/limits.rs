@@ -234,6 +234,11 @@ impl OwnerOverlayUsage {
             "overlay terminals",
         )?;
         for rule in &batch.rules {
+            // Prepared rules now retain their original Arc-backed chart. Count
+            // its full payload conservatively, even when other cases share it.
+            if let Some(affine) = rule.case.affine() {
+                self.affine(affine, limits)?;
+            }
             for equality in &rule.equalities {
                 self.polynomial(equality.raw(), limits)?;
             }

@@ -187,6 +187,15 @@ impl<const N: usize> AffineCase<N> {
         self.chart.is_integral()
     }
 
+    pub(crate) fn restriction_term_bound(
+        &self,
+        polynomial: &CoefficientPolynomial,
+    ) -> Result<(usize, usize), AffineGeometryError> {
+        self.validate_polynomial(polynomial)?;
+        self.chart
+            .restriction_term_bound(polynomial, self.face.fixed(), &self.indices)
+    }
+
     /// Retained native payload census, without cloning or native arithmetic.
     /// Shared variable maps, allocator overhead and hidden Matrix spare capacity
     /// are excluded. Matrix occupied elements and all exposed limb/polynomial

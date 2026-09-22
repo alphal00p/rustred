@@ -222,46 +222,8 @@ impl AffineDomainRestriction {
         polynomial: &CoefficientPolynomial,
     ) -> Result<(usize, usize), AffineGeometryError> {
         self.validate_polynomial(polynomial)?;
-        let overflow =
-            || AffineGeometryError::InvalidInput("affine restriction term bound overflow");
-        let mut terms = 0usize;
-        let mut expansion = 1usize;
-        for powers in polynomial.exponents_iter() {
-            if self
-                .fixed
-                .iter()
-                .zip(&self.indices)
-                .any(|(fixed, &position)| *fixed == Some(0) && powers[position] != 0)
-            {
-                continue;
-            }
-            let mut monomial_terms = 1usize;
-            let mut include = |position: usize, replacement_terms: usize| {
-                let factor = replacement_terms
-                    .max(1)
-                    .checked_pow(u32::from(powers[position]))
-                    .ok_or_else(overflow)?;
-                monomial_terms = monomial_terms.checked_mul(factor).ok_or_else(overflow)?;
-                Ok::<(), AffineGeometryError>(())
-            };
-            match &self.chart {
-                AffineRestrictionChart::Integral(replacements) => {
-                    for (position, replacement) in replacements {
-                        include(*position, replacement.nterms())?;
-                    }
-                }
-                AffineRestrictionChart::Rational(replacements) => {
-                    for (position, replacement) in replacements {
-                        include(*position, replacement.nterms())?;
-                    }
-                }
-            }
-            expansion = expansion.max(monomial_terms);
-            terms = terms.checked_add(monomial_terms).ok_or_else(overflow)?;
-        }
-        // The native implementation first retains/specializes the full input.
-        // Keep that allocation covered even if a fixed zero removes terms.
-        Ok((terms.max(polynomial.nterms()), expansion))
+        self.chart
+            .restriction_term_bound(polynomial, &self.fixed, &self.indices)
     }
 
     /// Restrict numerator and denominator jointly. Relative rational scale is

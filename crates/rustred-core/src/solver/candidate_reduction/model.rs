@@ -283,6 +283,8 @@ impl From<ExactAlgebraError> for CandidateReductionError {
 #[derive(Debug)]
 pub(super) struct PreparedRule<const N: usize> {
     pub ordinal: usize,
+    /// Original authenticated equality chart, Arc-shared for affine cases.
+    pub case: crate::solver::Case<N>,
     pub fixed: [Option<i16>; N],
     pub equalities: Vec<IndexedPolynomial>,
     pub exceptions: Vec<Vec<IndexedPolynomial>>,

@@ -605,6 +605,61 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
         if self.rank.is_some_and(|rank| min_rank > u128::from(rank)) {
             return self.push(cell, unresolved);
         }
+        // An excluded branch is a whole AND of zero predicates. A later atom
+        // uniformly nonzero on THIS cell disproves that AND even when this
+        // atom's geometry is unknown. Do not probe past an operational refusal,
+        // split on lookahead planes, or change the original refinement cursor
+        // without such a witness. Every attempted probe keeps its normal work
+        // charges; a later native/admission error remains a typed failure.
+        if failure.is_none()
+            && let PredicateResume::Rule {
+                batch,
+                index,
+                stage: RuleStage::Exception(branch, ordinal),
+            } = resume
+        {
+            let programs = self.programs;
+            let rule = &programs.owners[&self.owner].batches[batch].rules[index];
+            for (later, polynomial) in rule.exceptions[branch].iter().enumerate().skip(ordinal + 1)
+            {
+                self.cancelled()?;
+                let resolution = guards::resolve(
+                    &programs.context.shared.context,
+                    polynomial,
+                    &cell,
+                    &self.owner,
+                    self.rank,
+                    programs.context.limits.indexed_algebra,
+                    &mut self.budget,
+                );
+                self.cancelled()?;
+                match resolution {
+                    Ok(Resolution::Nonzero) => {
+                        return self.push(
+                            cell,
+                            Phase::Rule {
+                                batch,
+                                index,
+                                stage: RuleStage::Exception(branch + 1, 0),
+                            },
+                        );
+                    }
+                    Ok(_) => {} // Zero/Unknown/Planes prove no uniform exclusion.
+                    Err(failure) => {
+                        return self.fail_predicate(
+                            cell,
+                            OwnerDomainPredicate::ExcludedConjunction {
+                                batch,
+                                rule: rule.ordinal,
+                                branch,
+                                ordinal: later,
+                            },
+                            failure,
+                        );
+                    }
+                }
+            }
+        }
         let remaining = self
             .budget
             .limits

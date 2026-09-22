@@ -115,6 +115,23 @@ pub struct OwnerDomainMatchPiece<const N: usize> {
     pub(super) disposition: OwnerDomainMatchDisposition,
 }
 impl<const N: usize> OwnerDomainMatchPiece<N> {
+    /// Internal saved-candidate adapter only: the guarded caller must wrap ALL
+    /// downstream events in its additional case/guard domain. This value must
+    /// never escape as ordinary first-priority box applicability authority.
+    pub(in crate::solver::candidate_reduction::owners::domains) fn guarded_candidate(
+        owner: [bool; N],
+        cell: LatticeBox,
+        rank: Option<u32>,
+        batch: usize,
+        rule: usize,
+    ) -> Self {
+        Self {
+            owner,
+            cell,
+            rank,
+            disposition: OwnerDomainMatchDisposition::SelectedRule { batch, rule },
+        }
+    }
     pub fn owner(&self) -> &[bool; N] {
         &self.owner
     }

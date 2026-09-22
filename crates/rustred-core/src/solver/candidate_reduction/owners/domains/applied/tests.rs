@@ -54,6 +54,7 @@ fn term(
 fn rule(ordinal: usize, rhs: Vec<PreparedTerm<3>>) -> PreparedRule<3> {
     PreparedRule {
         ordinal,
+        case: crate::solver::Case::generic(),
         fixed: [None; 3],
         equalities: vec![],
         exceptions: vec![],

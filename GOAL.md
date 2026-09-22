@@ -74,16 +74,28 @@ independent certification project. This does not establish an infinite chain
 in the current run or weaken the requested R10 solve; see
 [the audit](docs/research/rank_bounded_dependency_growth_2026-09-22.md).
 
-The next slice now has the generic strict-pinch **R-k** routing bound and
-bounded parallel symbolic inspection under independent audit. The core release
+The saved guarded-case core now passes **2,684 release tests**, zero failures
+and 32 existing ignored diagnostics. It retains native affine cases, whole
+guards and exact successor images while reusing the existing RHS engine; it
+also handles uniformly satisfied later atoms in excluded conjunctions. CLI
+integration and bounded reuse-stream optimization are still in their own
+release gates; actual saved diagonal controls follow. See
+[the core milestone](docs/research/guarded_owner_application_2026-09-22.md).
+
+The preceding shared-walk baseline includes the generic strict-pinch **R-k**
+routing bound and bounded parallel symbolic inspection. Its core release
 gate passes **2,663 tests**, zero failures and 32 existing ignored diagnostics;
 the integrated application suite passes **341 tests**, and the CLI/Python
-work-policy changes pass **22 Python tests**, all with zero failures. The matched
-serial/six-worker campaign comparison is still pending, so there is no new
-parallel-performance or full-closure result. The subsequent all-67 serial
+work-policy changes pass **22 Python tests**, all with zero failures. Neither
+serial/six-worker control exhausted its work, so no matched completed-workload
+timing or full-closure result is available. The subsequent all-67 serial
 control stops incomplete at ten billion containment checks after 55.89 minutes,
 197,302 completed domains and 8.241 GB sampled peak RSS; 61,284 domains remain
-queued and 449 guard regions unresolved. A six-worker control is now running.
+queued and 449 guard regions unresolved. The six-worker diagnostic was then
+stopped cooperatively for optimization after 504.27 s: its measured prefix
+used about 1.05 busy cores despite six workers, with repeated ordered-publication
+waiting. It completed 22,874 domains and left 38,242 queued; neither incomplete
+prefix establishes a speedup or closure.
 This is reuse/traversal of saved rules, not IBP regeneration; its conservative
 R20 dependency envelope does not mean R20 input is solved. See
 [the implementation and validation report](docs/research/parallel_symbolic_domains_2026-09-22.md).

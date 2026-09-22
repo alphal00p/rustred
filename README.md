@@ -154,10 +154,18 @@ suites pass **2,663 core / 341 application / 22 Python tests**, with zero
 failures (32 existing core diagnostics ignored). The public
 `examples/python/shared_owner_campaign.py --queries ...` supervisor provides
 the same 50-core/500 GB ceiling and no elapsed solve deadline for symbolic work.
-Matched serial/six-worker full-census controls are next; there is no measured
+Both full-census controls are incomplete: serial stopped at its containment-work
+allowance, while six workers were stopped for optimization after measured
+ordered-publication waiting. There is no matched completed-workload
 parallel speedup for this slice yet. See
 [the implementation report](docs/research/parallel_symbolic_domains_2026-09-22.md).
 No saved IBPs are regenerated merely to repeat these application diagnostics.
+
+The subsequent saved guarded-case core passes **2,684 release tests**, with
+zero failures and 32 existing ignored diagnostics. It applies native affine
+cases while retaining whole guards and exact successor images; its CLI and
+optimized scheduling gates are separate and still pending. This is not full
+R10 closure. See [the core milestone](docs/research/guarded_owner_application_2026-09-22.md).
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after

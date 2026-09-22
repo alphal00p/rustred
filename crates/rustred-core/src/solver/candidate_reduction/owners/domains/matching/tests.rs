@@ -1,5 +1,6 @@
 //! Synthetic fixtures exercise applicability, not IBP provenance or closure.
 mod affine_priority;
+mod and_lookahead;
 mod factor_priority;
 use super::*;
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial};
@@ -34,6 +35,7 @@ fn batch(p: &mut Arc<CandidateOwnerPrograms<3>>) -> &mut PreparedOwnerBatch<3> {
 fn rule(ordinal: usize) -> PreparedRule<3> {
     PreparedRule {
         ordinal,
+        case: crate::solver::Case::generic(),
         fixed: [None; 3],
         equalities: vec![],
         exceptions: vec![],

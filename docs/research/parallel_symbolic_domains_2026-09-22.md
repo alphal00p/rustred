@@ -148,14 +148,64 @@ The enclosing observation window was 04:53:43–04:55:25 UTC, not a measured
 101-second CPU cost. Consequently this serial timing is **not an uncontaminated
 benchmark**. No such environment setup is allowed during the following control.
 
-The identical-policy six-worker diagnostic has been launched separately. Its
-measurement is pending; there is no completed serial/parallel speedup result.
+The identical-policy six-worker diagnostic was launched separately; its
+subsequent optimization stop is recorded below. There is no completed
+serial/parallel speedup result.
 Neither a resource-censored prefix nor worklist exhaustion with unresolved
-guards establishes full R10 closure. The next guarded-application and
-excluded-conjunction changes remain unvalidated work in progress and are not
-part of the release test counts above.
+guards establishes full R10 closure. The guarded-application and
+excluded-conjunction changes were not part of this frozen control binary or
+its release test counts. Their later core validation is recorded in
+[the separate milestone](guarded_owner_application_2026-09-22.md); application
+integration and the reuse-stream changes remain in their own gates.
 
 Local evidence: `TMP/symbolic-all67-parallel-controls.vrST2S/serial/`, including
 `summary.json`, `whole.time`, input hash checks, and the native/supervisor
 reports under `shared-owner-campaign.0axcvvnv/`. The frozen executable SHA-256 is
 `dafa29c6d259973a2a023876ccb2a925b6c79ca379802bb56bb88d792169c586`.
+
+## Six-worker control: cooperative stop for measured scheduling saturation
+
+The six-worker attempt is now reaped with exit 4 after an explicit operator
+stop for optimization, **not a timeout**. The initial 67 domains had finished;
+the shared recursive work had not. It used the same executable, inputs and
+native work policies as the serial attempt, on CPUs 40–45 with inner pools
+set to one. No build or Nix environment setup overlapped this control.
+
+| Measurement | Six-worker incomplete observation |
+| --- | ---: |
+| Preparation / traversal | 104.696 s / 395.818 s |
+| External whole wall / CPU | 504.27 s / 528.68 s |
+| Sampled peak owned aggregate RSS | 5.890 GB |
+| Completed domains / queued | 22,874 / 38,242 |
+| Callbacks / reused requests | 11,385,048 / 10,849,564 |
+| Retained unresolved guard regions | 81 |
+| General containment checks | 187,317,605 |
+| Summed worker waiting time | 1,230.587 worker-seconds |
+
+There is one interrupted current domain and five returned but uncommitted
+inspections. They are not counted as completed work. The changed counts versus
+the serial result reflect **different stopped prefixes**, not resolved guards
+or a performance ratio.
+
+During elapsed 130.052–298.134 s, 83 resource samples average **1.048 busy
+cores**, ranging from 0.999 to 1.079 despite six requested workers. In the
+heartbeat window 105.109–333.841 s, 225 of 228 samples report five blocked
+workers and three report six. This quantifies the saturation of this prefix;
+it is not a CPU profile of every native call or a claim about all future jobs.
+
+The implementation flushes at 64 logical callbacks even when repeated requests
+could occupy fewer physical records. Ordered publication therefore blocks later
+workers behind the current domain, with a peak of only 420,696 accounted buffered
+bytes. Native work and repeated coordinator admission remain serialized in
+practice. Increasing cores without changing this traffic is not supported by
+these measurements.
+
+The next narrowly scoped optimization is bounded per-job exact request reuse,
+homogeneous counted reuse records, and separate physical-record/byte versus
+logical-lookahead limits. Original source, coefficient, guard and descent work
+must remain unchanged. A reused request still means scheduled work, not solved
+coverage. This is implementation in progress, not an established speedup.
+
+Evidence is under `TMP/symbolic-all67-parallel-controls.vrST2S/six/`, with
+`shared-owner-campaign.nhy__25f/stop-request.json` recording the operator's
+reason. Both runs retain their incomplete statuses; neither is a full R10 solve.

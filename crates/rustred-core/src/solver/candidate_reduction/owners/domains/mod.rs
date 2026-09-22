@@ -6,13 +6,22 @@
 //! cancellations can remove these conservative obligations.
 
 mod applied;
+mod guarded;
 mod matching;
 mod model;
 mod scan;
 
-pub use applied::{OwnerAppliedError, OwnerAppliedEvent, OwnerAppliedFailure, OwnerAppliedLimits,
+pub use guarded::{
+    OwnerGuardedDomain, OwnerGuardedError, OwnerGuardedEvent, OwnerGuardedFailure,
+    OwnerGuardedImage, OwnerGuardedLimits, OwnerGuardedResidualKind, OwnerGuardedStats,
+    OwnerGuardedSuccessor,
+};
+
+pub use applied::{
+    OwnerAppliedError, OwnerAppliedEvent, OwnerAppliedFailure, OwnerAppliedLimits,
     OwnerAppliedNonzero, OwnerAppliedProblem, OwnerAppliedProblemKind, OwnerAppliedStats,
-    OwnerAppliedSuccessor};
+    OwnerAppliedSuccessor,
+};
 
 pub use matching::{
     OwnerDomainMatchDisposition, OwnerDomainMatchError, OwnerDomainMatchFailure,

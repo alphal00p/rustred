@@ -48,9 +48,11 @@ pub use candidate_reduction::{
     OwnerDomainAttemptLimits, OwnerDomainMatchDisposition, OwnerDomainMatchError,
     OwnerDomainMatchFailure, OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats,
     OwnerDomainPredicate, OwnerDomainScope, OwnerFeedbackError, OwnerFeedbackPolicy,
-    OwnerOverlayLimits, OwnerOverlayMetadata, OwnerOverlayUsage, OwnerSuccessorError,
-    OwnerSuccessorFailure, OwnerSuccessorLimits, OwnerSuccessorRegion, OwnerSuccessorStats,
-    OwnerSuccessorTransition, RoutedCandidateLimits, RoutedCandidateReducer,
+    OwnerGuardedDomain, OwnerGuardedError, OwnerGuardedEvent, OwnerGuardedFailure,
+    OwnerGuardedImage, OwnerGuardedLimits, OwnerGuardedResidualKind, OwnerGuardedStats,
+    OwnerGuardedSuccessor, OwnerOverlayLimits, OwnerOverlayMetadata, OwnerOverlayUsage,
+    OwnerSuccessorError, OwnerSuccessorFailure, OwnerSuccessorLimits, OwnerSuccessorRegion,
+    OwnerSuccessorStats, OwnerSuccessorTransition, RoutedCandidateLimits, RoutedCandidateReducer,
 };
 pub use case::{
     AffineCase, AffineGeometryError, AffineIntersection, Case, CaseIntersectionBudget,

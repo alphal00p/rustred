@@ -3,7 +3,7 @@ use super::{engine::Budget, model::*};
 use crate::foundry::artifact::sign_partition_with_limits;
 use crate::foundry::completion::{CompletionGeometryLimits, LatticeBox};
 
-pub(super) fn copy_box(
+pub(in crate::solver::candidate_reduction::owners::domains) fn copy_box(
     lower: &[u64],
     upper: &[Option<u64>],
 ) -> Result<LatticeBox, OwnerAppliedFailure> {
@@ -141,7 +141,7 @@ impl<'a> Boundaries<'a> {
     }
 }
 
-pub(super) fn rank_empty<const N: usize>(
+pub(in crate::solver::candidate_reduction::owners::domains) fn rank_empty<const N: usize>(
     cell: &LatticeBox,
     owner: &[bool; N],
     rank: Option<u32>,
@@ -149,7 +149,7 @@ pub(super) fn rank_empty<const N: usize>(
     rank.is_some_and(|r| minimum_rank(cell.lower(), owner) > u128::from(r))
 }
 
-pub(super) fn fixed<const N: usize>(
+pub(in crate::solver::candidate_reduction::owners::domains) fn fixed<const N: usize>(
     cell: &LatticeBox,
     owner: &[bool; N],
     rank: Option<u32>,

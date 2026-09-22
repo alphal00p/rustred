@@ -78,6 +78,54 @@ impl Chart {
         matches!(self, Self::Integral(_))
     }
 
+    /// Prospective sparse support for the existing native substitutions. The
+    /// caller authenticates storage/map and owns operation/bit admission.
+    pub(crate) fn restriction_term_bound(
+        &self,
+        polynomial: &CoefficientPolynomial,
+        fixed: &[Option<i16>],
+        indices: &[usize],
+    ) -> Result<(usize, usize), AffineGeometryError> {
+        let overflow =
+            || AffineGeometryError::InvalidInput("affine restriction term bound overflow");
+        let mut terms = 0usize;
+        let mut expansion = 1usize;
+        for powers in polynomial.exponents_iter() {
+            if fixed
+                .iter()
+                .zip(indices)
+                .any(|(value, &position)| *value == Some(0) && powers[position] != 0)
+            {
+                continue;
+            }
+            let mut monomial_terms = 1usize;
+            let mut include = |position: usize, replacement_terms: usize| {
+                let factor = replacement_terms
+                    .max(1)
+                    .checked_pow(u32::from(powers[position]))
+                    .ok_or_else(overflow)?;
+                monomial_terms = monomial_terms.checked_mul(factor).ok_or_else(overflow)?;
+                Ok::<(), AffineGeometryError>(())
+            };
+            match self {
+                Self::Integral(replacements) => {
+                    for (position, replacement) in replacements {
+                        include(*position, replacement.nterms())?;
+                    }
+                }
+                Self::Rational(replacements) => {
+                    for (position, replacement) in replacements {
+                        include(*position, replacement.nterms())?;
+                    }
+                }
+            }
+            expansion = expansion.max(monomial_terms);
+            terms = terms.checked_add(monomial_terms).ok_or_else(overflow)?;
+        }
+        // The implementation retains the full input before scalar substitution.
+        Ok((terms.max(polynomial.nterms()), expansion))
+    }
+
     /// Structural query only; the caller must authenticate the polynomial's
     /// variable map. Fixed-face substitutions are owned by the caller, not
     /// by this list of coupled pivots.

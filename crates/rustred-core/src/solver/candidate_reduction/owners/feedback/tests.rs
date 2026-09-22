@@ -14,6 +14,119 @@ fn scope(rank: u32) -> OwnerDomainScope {
         finite_case_policy: FiniteCasePolicy::SearchFinite,
     }
 }
+
+#[test]
+fn retained_guarded_rule_chart_is_in_prepared_overlay_byte_admission() {
+    use crate::algebra::polynomial_clone_owned_heap_byte_bound;
+    use crate::solver::{
+        AffineCase, AffineIntersection, ExceptionalConditions, RuleCandidate, SearchStats,
+    };
+    let base = programs(
+        Arc::new(crate::solver::tests::sunset()),
+        Some(10),
+        vec![input([true; 3], Some(10), vec![], &[])],
+        Default::default(),
+    );
+    let c = base.context.coefficient_context();
+    let equation = c
+        .sub(&c.index(0).unwrap(), &c.index(1).unwrap())
+        .unwrap()
+        .raw()
+        .numerator
+        .clone();
+    let AffineIntersection::Affine(affine) = AffineCase::from_coordinate(
+        &CoordinateCase::generic(),
+        &[equation],
+        base.context.index_variables(),
+        &[true; 3],
+    )
+    .unwrap() else {
+        panic!("affine fixture");
+    };
+    let chart_bytes = affine.native_payload_bytes().unwrap();
+    let case: Case<3> = affine.into();
+    let make = || {
+        synthetic(
+            &base,
+            [true; 3],
+            vec![SectorRule {
+                candidate: RuleCandidate {
+                    target: case.integral(),
+                    case: case.clone(),
+                    rhs: vec![],
+                    sources: vec![],
+                    stats: SearchStats::default(),
+                },
+                exceptions: ExceptionalConditions::default(),
+            }],
+            &[],
+        )
+    };
+    assert_eq!(
+        make()
+            .raw_payload_usage(Default::default())
+            .unwrap()
+            .native_bytes,
+        chart_bytes
+    );
+    // Raw admission fits, but preparation retains BOTH the original chart and
+    // the authenticated equality polynomials used by ordinary matching.
+    assert!(
+        base.append_domain_overlays(
+            vec![make()],
+            OwnerOverlayLimits {
+                max_native_bytes: chart_bytes,
+                ..Default::default()
+            }
+        )
+        .is_err()
+    );
+    let next = base
+        .append_domain_overlays(vec![make()], Default::default())
+        .unwrap();
+    // Preparation clones the chart equations before sealing them. Cloning can
+    // change exposed polynomial buffer capacities, so account the actually
+    // retained value rather than the original chart equation's byte envelope.
+    let prepared = &next.owners[&[true; 3]].batches.last().unwrap().rules[0];
+    let equality_bytes: usize = prepared
+        .equalities
+        .iter()
+        .map(|p| {
+            size_of::<crate::algebra::CoefficientPolynomial>()
+                + polynomial_clone_owned_heap_byte_bound(p.raw()).unwrap()
+        })
+        .sum();
+    assert!(equality_bytes > 0);
+    let expected = chart_bytes + equality_bytes;
+    assert_eq!(next.overlay_usage().native_bytes, expected);
+    assert!(matches!(
+        base.append_domain_overlays(
+            vec![make()],
+            OwnerOverlayLimits {
+                max_native_bytes: expected - 1,
+                ..Default::default()
+            }
+        ),
+        Err(OwnerFeedbackError::ResourceLimit {
+            resource: "native bytes",
+            requested,
+            limit,
+        }) if requested == expected && limit == expected - 1
+    ));
+    assert_eq!(
+        base.append_domain_overlays(
+            vec![make()],
+            OwnerOverlayLimits {
+                max_native_bytes: expected,
+                ..Default::default()
+            }
+        )
+        .unwrap()
+        .overlay_usage()
+        .native_bytes,
+        expected
+    );
+}
 fn tadpole(
     rules: Vec<SectorRule<1>>,
     terminals: &[[i16; 1]],

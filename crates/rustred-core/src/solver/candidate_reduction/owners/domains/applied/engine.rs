@@ -11,7 +11,7 @@ use crate::solver::candidate_reduction::owners::CandidateOwnerPrograms;
 use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub(super) struct Budget<'a> {
+pub(in crate::solver::candidate_reduction::owners::domains) struct Budget<'a> {
     pub limits: OwnerAppliedLimits,
     pub stats: OwnerAppliedStats,
     pub cancel: &'a AtomicBool,
@@ -172,7 +172,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             rank,
             limits.matching,
             cancellation,
-            |piece| match self.apply_piece(&piece, &mut budget, &mut visit) {
+            |piece| match self.apply_piece(&piece, None, &mut budget, &mut visit) {
                 Ok(()) => ControlFlow::Continue(()),
                 Err(error) => {
                     failure = Some(error);
@@ -201,9 +201,10 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         }
     }
 
-    fn apply_piece(
+    pub(in crate::solver::candidate_reduction::owners::domains) fn apply_piece(
         &self,
         piece: &OwnerDomainMatchPiece<N>,
+        affine: Option<&crate::solver::AffineCase<N>>,
         budget: &mut Budget<'_>,
         visit: &mut impl FnMut(OwnerAppliedEvent<'_, N>) -> ControlFlow<()>,
     ) -> Result<(), OwnerAppliedFailure> {
@@ -276,6 +277,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                             rule,
                             &indices[start..end],
                             shift,
+                            affine,
                             budget,
                             visit,
                         )?;
@@ -339,6 +341,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         rule: &crate::solver::candidate_reduction::model::PreparedRule<N>,
         indices: &[usize],
         shift: &[i64; N],
+        affine: Option<&crate::solver::AffineCase<N>>,
         budget: &mut Budget<'_>,
         visit: &mut impl FnMut(OwnerAppliedEvent<'_, N>) -> ControlFlow<()>,
     ) -> Result<(), OwnerAppliedFailure> {
@@ -384,13 +387,14 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                 "RHS term visits",
             )?;
             budget.native()?;
-            let (coefficient, _original_denominator) = context
-                .specialize_fixed_indices_sealed(
-                    &rule.rhs[ordinal].coefficient,
-                    &fixed,
-                    algebra_limits,
-                )
-                .map_err(OwnerAppliedFailure::Algebra)?;
+            let coefficient = super::restriction::coefficient(
+                context,
+                &rule.rhs[ordinal].coefficient,
+                &fixed,
+                affine,
+                algebra_limits,
+                budget,
+            )?;
             let nonzero = self.classify_coefficient(
                 piece,
                 cell,
@@ -428,9 +432,14 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                         .translate_polynomial_sealed(condition, shift, algebra_limits)
                         .map_err(OwnerAppliedFailure::Algebra)?;
                     budget.native()?;
-                    let restricted = context
-                        .specialize_fixed_polynomial_sealed(&shifted, &fixed, algebra_limits)
-                        .map_err(OwnerAppliedFailure::Algebra)?;
+                    let restricted = super::restriction::polynomial(
+                        context,
+                        &shifted,
+                        &fixed,
+                        affine,
+                        algebra_limits,
+                        budget,
+                    )?;
                     let kind = match algebra::polynomial(
                         context,
                         &restricted,
