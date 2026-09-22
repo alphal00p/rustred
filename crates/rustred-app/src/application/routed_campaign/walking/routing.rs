@@ -122,6 +122,8 @@ pub(super) fn inspect<const N: usize>(
                     "queued_nodes":queue.domains.len()-queue.next,
                     "max_scheduled_finite_rank":queue.max_finite_rank, "unbounded_rank_domains":queue.unbounded_rank_domains,
                     "deduplication_hits":queue.deduplicated, "frontiers":frontier_count,
+                    "exact_domain_hits":queue.exact_hits, "full_orthant_hits":queue.orthant_hits,
+                    "containment_checks":queue.containment_checks,
                     "events":events, "route_domain_overcover":true}),
                 );
             }

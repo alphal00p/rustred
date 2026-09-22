@@ -162,6 +162,13 @@ Literal installed-owner successors are scheduled once when an already admitted
 domain contains them. The containing domain may still be pending: this is work
 deduplication, not a declaration that pending work is already solved. Inclusion
 is local to the same immutable snapshot and includes the actual rank scope.
+The queue first checks an exact-domain hash index, then a rank-compatible
+full-orthant representative for the same owner and Apply/Route phase, before
+scanning more general containing boxes. Exact keys share their coordinate
+storage with queued domains; hashing never replaces full-key equality. Indexed
+reuse can choose a different valid containing domain than the older linear
+scan, but never removes already scheduled work or treats it as completed.
+Insertion order and processing order remain deterministic.
 Unresolved dispatch, RHS validity or descent, and successors needing owner
 routing remain explicit frontiers. A coefficient that is not uniformly nonzero
 keeps a conservative successor-domain over-cover, so its frontier is not by
@@ -180,8 +187,13 @@ keeps `family_closure_claim=false`, `ibp_generation=false`,
 The positive work allowances `--max-domains` (default 100,000, ceiling 1,000,000),
 `--max-successor-events` (default 1,000,000, ceiling 10,000,000), and
 `--max-containment-checks` (default 10,000,000) require `--follow-successors`.
-They bound admitted domains, callback events, and inclusion comparisons across
-the worklist. Existing per-query matching allowances apply independently to
+They bound admitted domains, callback events, and general box-containment scan
+comparisons across the worklist. Indexed exact/full-orthant reuse does not spend
+the comparison allowance and can still succeed after that allowance is spent;
+a request requiring another general scan then fails explicitly. Live and final
+reports separate `exact_domain_hits` and `full_orthant_hits` from total
+`deduplication_hits` and `containment_checks`. These are scheduling counters,
+not solved-domain counts. Existing per-query matching allowances apply independently to
 each scheduled domain; the optional inactive-refinement allowance therefore
 also applies per scheduled domain. `--max-total-pieces` is a local-match report
 allowance and does not replace the worklist's aggregate event limit. These are

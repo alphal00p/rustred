@@ -78,8 +78,14 @@ The new census control visits all 67 owners and resolves 59 locally in
 163 positive-coupled guard pieces and one native factor-work refusal. The
 six-query routed control completes 870 local domains, reuses 157,372 requests,
 and stops at 100 million containment checks with 8,724 queued; no missing
-rule/owner is observed in that prefix. Next optimize exact containment reuse,
-then rerun the same control. Address positive-coupled guard selection without
+rule/owner is observed in that prefix. Exact/full-orthant indexing now passes
+**320 application tests** and advances the same routed control to **1,055
+completed domains**, but still stops at 100 million general containment checks
+with 9,417 queued. Its 8.74 s traversal is an incomplete prefix, not a complete-
+workload speedup. The next control raises aggregate work allowances on the same
+binary to expose the next actual obstacle; see
+[the indexed-queue result](docs/research/shared_domain_index_2026-09-22.md).
+Address positive-coupled guard selection without
 turning uncertain cases into gaps, terminals or bounded-positive surrogates.
 
 The September 22 slice adds opt-in exact refinement of bounded inactive

@@ -138,7 +138,12 @@ is not yet established. The latest [domain-routing/refinement trials](docs/resea
 resolve 59/67 owners locally; the routed six-query worklist completes 870 domains
 before its containment budget, with recursive work still queued. The updated
 gates pass 2,623 core, 314 application and 19 Python tests, with no failures
-(32 existing core diagnostics remain ignored).
+(32 existing core diagnostics remain ignored). The subsequent
+[indexed admission slice](docs/research/shared_domain_index_2026-09-22.md)
+passes 320 application tests and reaches 1,055 completed domains at the same
+comparison allowance; it still leaves recursive work queued. All 870 earlier
+completed records match exactly apart from timing. A larger-budget control,
+not regeneration of saved IBPs, is the next diagnostic.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after

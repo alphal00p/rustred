@@ -139,6 +139,15 @@ fn owner_domain_walk_reuses_pending_unbounded_ray_without_closure_claim() {
     assert_eq!(started["completed_nodes"], 0);
     let finished = events.last().unwrap();
     assert_eq!(finished["all_scheduled_domains_resolved"], true);
+    for counter in [
+        "exact_domain_hits",
+        "full_orthant_hits",
+        "containment_checks",
+    ] {
+        assert!(result.document[counter].is_u64(), "{counter}");
+        assert_eq!(finished[counter], result.document[counter], "{counter}");
+        assert!(started[counter].is_u64(), "{counter}");
+    }
     assert!(finished.get("domains").is_none());
     assert!(serde_json::to_vec(finished).unwrap().len() < 8192);
     assert_eq!(
@@ -171,6 +180,7 @@ fn owner_domain_walk_identical_queries_share_one_schedule() {
         result.document["inputs"][1]["id"]
     );
     assert!(result.document["deduplication_hits"].as_u64().unwrap() >= 1);
+    assert!(result.document["exact_domain_hits"].as_u64().unwrap() >= 1);
     assert_eq!(result.document["family_closure_claim"], false);
 }
 
