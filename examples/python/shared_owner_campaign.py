@@ -34,6 +34,7 @@ _DOMAIN_SPEC.loader.exec_module(DOMAIN)
 SYMBOLIC_ALLOWANCES = (*DOMAIN.ALLOWANCES, DOMAIN.REFINEMENT,
                       *(name for name in DOMAIN.WALK_ALLOWANCES if name != "workers"),
                       "max-route-masks-per-query")
+SYMBOLIC_POLICIES = (DOMAIN.REFINEMENT_AXES,)
 FINITE_ALLOWANCES = {
     "max-nodes": 16_000_000,
     "max-input-targets": 100_000,
@@ -249,6 +250,8 @@ def main() -> int:
                             type=DOMAIN.nonnegative if option == DOMAIN.REFINEMENT else
                             DOMAIN.containment_limit if option == "max-containment-checks" else DOMAIN.positive,
                             help="symbolic-domain work allowance; requires --queries")
+    parser.add_argument("--" + DOMAIN.REFINEMENT_AXES, choices=DOMAIN.REFINEMENT_AXIS_CHOICES,
+                        help="local bounded refinement only (native default: inactive-only); requires --queries; does not change routing or closure")
     parser.add_argument("--route-domain-overcover", action="store_true",
                         help="share admitted symbolic route covers; requires --queries")
     parser.add_argument("--no-progress", action="store_true")
@@ -258,7 +261,8 @@ def main() -> int:
             getattr(args, option.replace("-", "_")) is not None for option in FINITE_ALLOWANCES)):
         parser.error("concrete-target/expansion allowances require --targets")
     if not symbolic and (args.route_domain_overcover or any(
-            getattr(args, option.replace("-", "_")) is not None for option in SYMBOLIC_ALLOWANCES)):
+            getattr(args, option.replace("-", "_")) is not None
+            for option in (*SYMBOLIC_ALLOWANCES, *SYMBOLIC_POLICIES))):
         parser.error("symbolic-domain allowances require --queries")
     if args.max_route_masks_per_query is not None and not args.route_domain_overcover:
         parser.error("route mask allowance requires --route-domain-overcover")
@@ -307,7 +311,7 @@ def main() -> int:
                "--stop-file", str(stop_file), "--workers", str(args.workers)]
     if symbolic:
         command += ["--queries", str(args.queries.resolve()), "--follow-successors"]
-        for option in SYMBOLIC_ALLOWANCES:
+        for option in (*SYMBOLIC_ALLOWANCES, *SYMBOLIC_POLICIES):
             if (value := getattr(args, option.replace("-", "_"))) is not None:
                 command += ["--" + option, str(value)]
         if args.route_domain_overcover:

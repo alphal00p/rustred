@@ -112,7 +112,7 @@ native algebra algorithm. Other native guard-algebra limits remain unchanged.
 Raising a work cap never changes an unresolved
 answer into a claim of applicability without actually completing that work.
 
-### Optional exact inactive-coordinate refinement
+### Optional exact bounded-coordinate refinement
 
 `--max-bounded-refinement-cells-per-query N` opts into resolving an undecided
 predicate by fixing a bounded **inactive** coordinate to each admitted integer
@@ -121,7 +121,7 @@ explicit conservative diagnostic. The Python wrapper accepts the same flag.
 For example, append `--max-bounded-refinement-cells-per-query 64` to the command
 above to allow up to 64 cumulative singleton faces per query.
 
-The matcher considers only polynomial-supported inactive coordinates, chooses
+By default the matcher considers only polynomial-supported inactive coordinates, chooses
 the smallest finite interval deterministically, and uses the query's actual rank
 simplex to bound an otherwise unbounded inactive interval. Every face retains
 that exact simplex and all other bounds. Positive axes are never enumerated,
@@ -145,6 +145,27 @@ Local-match errors include `error_predicate_context` with the active predicate,
 coordinate box and rank when available. This provenance is currently specific
 to local matching; the RHS inspection wrapper retains its existing failure
 representation.
+
+`--bounded-refinement-axes finite-axes` additionally admits polynomial-supported
+positive coordinates **only when their box upper bound is explicitly finite**.
+The default is `inactive-only`; neither mode does refinement until the separate
+face allowance is positive. In the Rust API this is
+`OwnerDomainMatchLimits.refinement_axes = OwnerDomainRefinementAxes::FiniteAxes`.
+The Python matcher and symbolic campaign supervisor forward the same option;
+it is rejected in the concrete-target supervisor mode. Positive coordinates
+never borrow a bound from the inactive numerator-rank constraint. Selection
+still uses smallest admitted width, then original axis index, across eligible
+coordinates. The complete split, predicate cursor and whole guard conjunction
+are preserved exactly as in inactive-only mode.
+
+For example, a coupled condition `n_0-n_1=0` on two bounded positive powers can
+be classified by exact finite-coordinate faces. This is not sampling, and
+does not permit splitting an unbounded positive axis. Results record the
+requested policy and allowance, including preparation errors and compact
+progress; successor reports also retain them in `applied_limits.matching`.
+This extends **local matching**, not domain routing. The existing routing
+overcover can lose finite positive bounds; enabling this flag therefore does
+not establish a finite recursive campaign or family closure.
 
 Per-query `stats.refinement_steps` counts admitted coordinate splits, while
 `stats.refinement_cells` counts all admitted singleton faces across levels,
@@ -217,7 +238,7 @@ is spent; a request requiring another general scan then fails explicitly. Live a
 reports separate `exact_domain_hits` and `full_orthant_hits` from total
 `deduplication_hits` and `containment_checks`. These are scheduling counters,
 not solved-domain counts. Existing per-query matching allowances apply independently to
-each scheduled domain; the optional inactive-refinement allowance therefore
+each scheduled domain; the optional bounded-refinement allowance therefore
 also applies per scheduled domain. `--max-total-pieces` is a local-match report
 allowance and does not replace the worklist's aggregate event limit. These are
 not hard memory bounds. Stop-file cancellation, fresh atomic output, and compact

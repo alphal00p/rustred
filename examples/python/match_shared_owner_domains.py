@@ -21,6 +21,8 @@ ALLOWANCES = (
     "max-guard-univariate-degree",
 )
 REFINEMENT = "max-bounded-refinement-cells-per-query"
+REFINEMENT_AXES = "bounded-refinement-axes"
+REFINEMENT_AXIS_CHOICES = ("inactive-only", "finite-axes")
 WALK_ALLOWANCES = ("workers", "max-domains", "max-frontiers", "max-successor-events", "max-containment-checks",
                    "max-rhs-cells-per-query", "max-term-visits-per-query",
                    "max-native-operations-per-query", "max-rhs-events-per-query",
@@ -66,7 +68,9 @@ def main() -> None:
         parser.add_argument("--" + option, type=positive,
                             help="optional native work/storage allowance, not a rank restriction")
     parser.add_argument("--" + REFINEMENT, type=nonnegative,
-                        help="exact bounded numerator faces per query; zero disables refinement")
+                        help="exact bounded refinement faces per query; zero disables refinement")
+    parser.add_argument("--" + REFINEMENT_AXES, choices=REFINEMENT_AXIS_CHOICES,
+                        help="local refinement axes (native default: inactive-only); finite-axes also permits explicitly bounded positive axes, not routing or closure")
     for option in WALK_ALLOWANCES:
         parser.add_argument("--" + option,
                             type=containment_limit if option == "max-containment-checks" else positive,
@@ -96,7 +100,7 @@ def main() -> None:
         command.append("--follow-successors")
     if args.route_domain_overcover:
         command.append("--route-domain-overcover")
-    for option in (*ALLOWANCES, REFINEMENT, *WALK_ALLOWANCES, "max-route-masks-per-query"):
+    for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, "max-route-masks-per-query"):
         if (value := getattr(args, option.replace("-", "_"))) is not None:
             command.extend(["--" + option, str(value)])
     # Inherit the license without persisting or printing it. Replacement keeps

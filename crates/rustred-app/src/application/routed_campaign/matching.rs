@@ -9,6 +9,7 @@ use std::time::Instant;
 use rustred::reduction::ReductionLimits;
 use rustred::solver::{
     OwnerDomainMatchDisposition, OwnerDomainMatchFailure, OwnerDomainMatchLimits,
+    OwnerDomainRefinementAxes,
 };
 use serde_json::{Value, json};
 
@@ -70,6 +71,8 @@ impl OwnerDomainMatchResult {
             "matching_seconds",
             "error_kind",
             "error_query_id",
+            "bounded_refinement_axes",
+            "max_bounded_refinement_cells",
         ] {
             if let Some(value) = document.get(key) {
                 event[key] = value.clone();
@@ -106,6 +109,8 @@ pub fn owner_domain_match_with_progress(
         json!({"event":"admitted", "operation":"owner_domain_match", "arity":arity,
         "query_count":queries.len(), "max_total_pieces":request.max_total_pieces,
         "match_limits":format!("{:?}",request.match_limits), "family_closure_claim":false,
+        "bounded_refinement_axes":refinement_axes_name(request.match_limits.refinement_axes),
+        "max_bounded_refinement_cells":request.match_limits.max_bounded_refinement_cells,
         "ibp_generation":false, "rhs_successors_expanded":false}),
     );
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
@@ -178,6 +183,7 @@ fn run<const N: usize>(
             "query_count":queries.len(), "completed_queries":0, "processed_queries":0}),
             false,
             false,
+            request.match_limits,
             started,
             observer,
         ));
@@ -272,6 +278,7 @@ fn run<const N: usize>(
         "matching_seconds":matching_started.elapsed().as_secs_f64(), "queries":records}),
         complete,
         applicable,
+        request.match_limits,
         started,
         observer,
     ))
@@ -291,10 +298,18 @@ fn failure_kind(failure: &OwnerDomainMatchFailure) -> &'static str {
     }
 }
 
+pub(super) fn refinement_axes_name(axes: OwnerDomainRefinementAxes) -> &'static str {
+    match axes {
+        OwnerDomainRefinementAxes::InactiveOnly => "inactive-only",
+        OwnerDomainRefinementAxes::FiniteAxes => "finite-axes",
+    }
+}
+
 fn finish(
     mut document: Value,
     complete: bool,
     applicable: bool,
+    limits: OwnerDomainMatchLimits,
     started: Instant,
     observer: &impl Fn(Value),
 ) -> OwnerDomainMatchResult {
@@ -305,11 +320,45 @@ fn finish(
     document["family_closure_claim"] = json!(false);
     document["ibp_generation"] = json!(false);
     document["rhs_successors_expanded"] = json!(false);
+    document["bounded_refinement_axes"] = json!(refinement_axes_name(limits.refinement_axes));
+    document["max_bounded_refinement_cells"] = json!(limits.max_bounded_refinement_cells);
     document["elapsed_seconds"] = json!(started.elapsed().as_secs_f64());
     observer(OwnerDomainMatchResult::completion_progress(&document));
     OwnerDomainMatchResult {
         classification_complete: complete,
         all_queries_locally_applicable: applicable,
         document,
+    }
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::*;
+
+    #[test]
+    fn bounded_refinement_policy_survives_local_result_and_compact_completion() {
+        for (axes, name) in [
+            (OwnerDomainRefinementAxes::InactiveOnly, "inactive-only"),
+            (OwnerDomainRefinementAxes::FiniteAxes, "finite-axes"),
+        ] {
+            let mut limits = OwnerDomainMatchLimits::default();
+            limits.refinement_axes = axes;
+            limits.max_bounded_refinement_cells = 19;
+            let result = finish(
+                json!({"status":"incomplete"}),
+                false,
+                false,
+                limits,
+                Instant::now(),
+                &|event| {
+                    assert_eq!(event["bounded_refinement_axes"], name);
+                    assert_eq!(event["max_bounded_refinement_cells"], 19);
+                    assert_eq!(event["family_closure_claim"], false);
+                },
+            );
+            assert_eq!(result.document["bounded_refinement_axes"], name);
+            assert_eq!(result.document["max_bounded_refinement_cells"], 19);
+            assert!(!result.classification_complete);
+        }
     }
 }

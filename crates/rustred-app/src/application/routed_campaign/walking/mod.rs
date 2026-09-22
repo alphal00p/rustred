@@ -82,6 +82,8 @@ impl OwnerDomainWalkResult {
             "containment_checks",
             "max_containment_checks",
             "containment_check_policy",
+            "bounded_refinement_axes",
+            "max_bounded_refinement_cells",
             "routed_domains",
             "route_masks",
             "route_domain_overcover",
@@ -142,6 +144,8 @@ pub fn owner_domain_walk_with_progress(
         "containment_check_policy":"general_comparisons_only; null_is_unlimited; checked_counter",
         "route_domain_overcover":request.route_domain_overcover, "max_route_masks":request.max_route_masks,
         "applied_limits":limits_json(&request), "publication_policy":"stable_domain_id_stream",
+        "bounded_refinement_axes":matching::refinement_axes_name(request.matching.match_limits.refinement_axes),
+        "max_bounded_refinement_cells":request.matching.match_limits.max_bounded_refinement_cells,
         "family_closure_claim":false, "ibp_generation":false}),
     );
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
@@ -177,7 +181,9 @@ fn limits_json(r: &OwnerDomainWalkRequest) -> Value {
         "matching":{"max_rules":m.max_rules,"max_terminal_checks":m.max_terminal_checks,
             "max_predicates":m.max_predicates,"max_pieces":m.max_pieces,"max_cells":m.max_cells,
             "max_split_operations":m.max_split_operations,"max_coordinate_cells":m.max_coordinate_cells,
-            "max_bounded_refinement_cells":m.max_bounded_refinement_cells,"guard_algebra":inspection::debug(&m.guard_algebra)}})
+            "max_bounded_refinement_cells":m.max_bounded_refinement_cells,
+            "refinement_axes":matching::refinement_axes_name(m.refinement_axes),
+            "guard_algebra":inspection::debug(&m.guard_algebra)}})
 }
 
 fn run<const N: usize>(
@@ -289,6 +295,11 @@ fn run<const N: usize>(
     document["containment_check_policy"] =
         json!("general_comparisons_only; null_is_unlimited; checked_counter");
     document["applied_limits"] = limits_json(request);
+    document["bounded_refinement_axes"] = json!(matching::refinement_axes_name(
+        request.matching.match_limits.refinement_axes
+    ));
+    document["max_bounded_refinement_cells"] =
+        json!(request.matching.match_limits.max_bounded_refinement_cells);
     document["publication_policy"] = json!("stable_domain_id_stream");
     document["parallel"] = state.parallel;
     document["uncommitted_inspections"] = json!(state.uncommitted);
@@ -306,6 +317,34 @@ fn run<const N: usize>(
 #[cfg(test)]
 mod policy_tests {
     use super::*;
+
+    #[test]
+    fn bounded_refinement_policy_reports_effective_match_limits_not_applied_defaults() {
+        use rustred::solver::OwnerDomainRefinementAxes;
+        let mut request =
+            OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(String::new(), String::new()));
+        assert_eq!(
+            limits_json(&request)["matching"]["refinement_axes"],
+            "inactive-only"
+        );
+        request.matching.match_limits.refinement_axes = OwnerDomainRefinementAxes::FiniteAxes;
+        request.matching.match_limits.max_bounded_refinement_cells = 23;
+        assert_eq!(
+            limits_json(&request)["matching"]["refinement_axes"],
+            "finite-axes"
+        );
+        assert_eq!(
+            limits_json(&request)["matching"]["max_bounded_refinement_cells"],
+            23
+        );
+        assert!(!request.route_domain_overcover);
+        let document =
+            json!({"bounded_refinement_axes":"finite-axes", "max_bounded_refinement_cells":23});
+        let progress = OwnerDomainWalkResult::completion_progress(&document);
+        assert_eq!(progress["bounded_refinement_axes"], "finite-axes");
+        assert_eq!(progress["max_bounded_refinement_cells"], 23);
+        assert_eq!(progress["family_closure_claim"], false);
+    }
 
     #[test]
     fn explicit_domain_storage_budget_has_no_hidden_million_domain_ceiling() {

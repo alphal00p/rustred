@@ -46,6 +46,24 @@ physical domain must also account for GammaLoop's full UV jet unless marginal
 projection is explicit; the named marginal profile alone excludes mass terms.
 This checkpoint does not claim five-loop closure or start terminal evaluation.
 
+The subsequent saved-rule controls now complete for 67 first-entry targets and
+50 diagonal stress targets, with zero missing rules or owners. The latter
+traverses 54.7 million states in 1,552.88 s (trace boundary), reaching five
+existing declared terminal keys at 26.11 GB sampled peak RSS with 50 workers
+configured. This is not a full-domain solve or coefficient back-substitution.
+An opt-in exact refinement policy now permits explicitly bounded positive
+coordinates; release gates pass 2,710 core tests (including 84 focused matcher
+tests; 32 existing diagnostics ignored), 417 application tests and 72
+Python/API/steering tests. It resolves all 57 previously ambiguous local
+R10 query boxes after conservative A24 bounding, with 1,956 selected-rule
+regions and no remaining local unknowns (2.70 s matching). This is not recursive
+coverage or admission of the larger R14/R15 physical envelope. Next integration
+must preserve finite physical correlations across routed regions and visit
+actual gaps rather than eagerly enumerate the conservative input envelope.
+Graph/forest-specific profile tightening is documented without assuming an
+observable-specific catalogue, support-size-based power bounds, or minimal
+terminals. Terminal minimization/evaluation remain deferred.
+
 The older sequence and measurements below are retained as history; statements
 requiring unbounded positive starting powers are no longer authoritative.
 

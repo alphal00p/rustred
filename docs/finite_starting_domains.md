@@ -108,6 +108,59 @@ must either use a documented marginal projection or include the full-jet
 domain. It must not silently drop mass-counterterm inputs. Gauge/model
 assumptions and graph-local correlations still require explicit admission.
 
+### Next tightening: graph/forest profiles, not a diagram catalogue
+
+The conservative envelope is an admission mechanism, not a claim that every
+tuple can occur. The next useful restriction is a union of structural profiles,
+each supplied by graph/forest power counting rather than by an observable's
+enumerated diagrams. Under the assumptions above, a profile can record:
+
+- I: original propagator count before equal-momentum denominator merging;
+- N0: original numerator momentum-degree bound;
+- B: sum of the applicable forest Taylor degrees;
+- e: extracted degree in true external momenta.
+
+These imply `A<=I+B` and `R<=floor((N0+2B-e)/2)`, retaining any additional
+mass-grading restriction. For example, a **primitive** five-loop two-point
+graph has `B<=2`, `I<=14`, `N0<=10`, `e=2`, hence `A<=16, R<=6` for its
+marginal coefficient. That example does not cover graphs with subdivergences.
+Recording the number V4 of quartic vertices sharpens the conservative marginal
+profile to `A<=5L-1-V4, R<=3L-1-V4` under the same skeleton assumptions.
+These are proposed derived bounds, not implemented automatic graph admission.
+
+One can also retain where Taylor derivatives act. Let b_j be baseline powers
+after native equal-momentum denominator merging, and let C_v contain the merged
+slots containing any original line that Taylor node v may differentiate. All
+indices refer to the same merged-slot coordinates. For `d_j=max(0,a_j-b_j)`, necessary
+conditions include
+
+```
+d_j <= sum(delta_v for v with j in C_v)
+sum(d_j for j in S) <= sum(delta_v for v with C_v intersect S nonempty).
+```
+
+Here S is a recorded group of denominator slots, not necessarily every possible
+subset. A root with Taylor budget two and one child with budget two permits
+four additional powers globally, but at most two on lines outside that child.
+Numerator cancellation only lowers denominator powers, so it preserves these
+upper bounds. Conservative incidence must include every line a derivative can
+affect; an incorrect routing-based omission would make the restriction unsafe.
+
+Keep the **union** of profiles: separately maximizing every budget discards
+these correlations. Generate admitted regions directly rather than filtering
+the trillion-tuple envelope. None of this requires another CAS or integer
+programming implementation. Conversely, do not infer I or V4 from the final
+support size t: quartic vertices, numerator pinches and equal-momentum merging
+can all reduce t. Already integrated counterterm insertions require explicit
+baseline powers and numerator/Taylor data as well. The marginal/full-jet and
+gauge distinctions still apply.
+
+The auxiliary-mass method also requires consistent treatment of mass terms and
+counterterms; it does not justify silently deleting them. See Section 2 of
+[Chetyrkin, Misiak and Münz](https://arxiv.org/abs/hep-ph/9711266). The particular
+finite bounds above are our conditional power-counting derivations, not claims
+that this paper supplies those bounds.
+
 ## Implementation sequence
 
 1. Audit and document the physical envelope; expose generic finite entry-domain
@@ -182,8 +235,8 @@ rules/owners and zero failed nodes:
 - 67 starting keys, 347,816 distinct reachable integrals, 348,652 operational nodes;
 - 130,348 rule applications, 5,797,375 shared-work deduplication hits;
 - 314 existing declared terminals, with no new source search or terminal evaluation;
-- 4.2647 s shared traversal; 108.2325 s native cold total including owner loading
-  and route verification; 112.0488 s supervisor wall time;
+- 4.2647 s shared traversal; 108.2325 s application timer including owner loading,
+  route verification and post-trace work; 112.0488 s supervisor wall time;
 - 5.645 GB sampled aggregate peak RSS (not an exact transient-peak measurement).
 
 This demonstrates complete dependency traversal for those 67 explicit inputs,
@@ -201,6 +254,107 @@ and compatible explicit entry scopes are required before the full run.
 No finite renormalizable five-loop envelope
 has yet been claimed exhaustively covered, and no complete new campaign has
 been launched.
+
+### Five-loop diagonal stress control
+
+A second control uses 50 concrete inputs in owner `111010100100101`, on a
+diagonal associated with a previously unresolved symbolic guard. In ordinary
+integral indices, `n_0=n_1=t` for `3<=t<=9` and `n_11=-k` for
+`1<=k<=min(10,2t-4)`; other active powers are one and inactive powers zero.
+They lie inside the conditional marginal envelope and the saved R10 entry
+scope. This is a diagnostic input selection, not topology-specific engine code.
+
+The first run hit its explicit two-million operational-node diagnostic
+allowance after 13.585 s of tracing. It had not observed any missing rule, but
+1,384,225 nodes remained queued, so it established no completion. Its 46 failed
+nodes were resource-stop fallout, not 46 missing IBPs. A second run retained
+the same inputs/rules and increased the diagnostic work allowances, without
+an elapsed deadline. It **completed**:
+
+- 50 inputs; 54,695,037 distinct reachable integrals, 54,695,087 operational nodes;
+- 15,512,818 rule applications; 14,535,822,697 deduplication hits;
+- zero missing rules, missing owners, failed nodes or remaining queued work;
+- five existing declared terminal keys; no new rules or terminal evaluations;
+- 1,552.875 s shared traversal (25.881 min), 1,666.006 s application timer,
+  1,695.856 s supervisor wall time;
+- 50 configured workers, not a claim of 50 continuously busy cores;
+- 31,294 s sampled aggregate CPU time (about 18.48 busy cores averaged across
+  the sampled supervisor interval, including setup);
+- 26.109 GB sampled aggregate peak RSS, well below the 450/500 GB thresholds.
+
+The application timer includes preparation and post-trace work, but is not
+the whole child-process lifetime: heartbeat evidence indicates about 102.7 s
+before tracing and 10.4 s after the final scheduler snapshot; the supervisor
+also includes process shutdown/reaping. None of those differences is a pure
+artifact-loading benchmark. These counts refer to exact dependency tracing without coefficient
+back-substitution. The trace made 1,198,295 routing calls and charged an aggregate
+projected pre-coalescing endpoint bound of 29,691,375,754; this is a prospective
+work counter, not the observed number of emitted endpoints. Deduplication avoids repeating node expansion,
+but does not eliminate the work of generating repeated routed dependencies.
+Thus this run is evidence of large concrete routing fan-out, not a new rule gap
+or an estimate that the complete envelope can finish in fifteen hours. Its
+finite completion is restricted to the 50 supplied roots and their descendants.
+Evidence: `TMP/finite-entry-gate.2GG13m/shared-owner-campaign.k1ou4fev/`; the
+resource-censored first attempt is `shared-owner-campaign.gcu38c5o/` beside it.
+
+### Bounded positive-coordinate refinement
+
+The opt-in `OwnerDomainRefinementAxes::FiniteAxes` policy extends existing exact
+guard refinement to positive coordinates with explicit finite upper bounds.
+The default remains `InactiveOnly`. CLI/Python steering exposes
+`--bounded-refinement-axes finite-axes` together with a separate positive
+`--max-bounded-refinement-cells-per-query` allowance. A full split is admitted
+before any of its faces is published; insufficient allowance retains the
+original unresolved condition or typed native refusal. Rank bounds apply only
+to inactive coordinates and never manufacture a positive-coordinate bound.
+
+This reuses Symbolica-backed guard algebra. It preserves first-rule priority,
+whole excluded conjunctions, denominator/source guards and cancellation. It
+is exact local dispatch classification, not a routing extension or a closure
+claim. In particular, the existing route-overcover path must not be mistaken
+for preservation of finite positive-power bounds across owners. The focused
+release gate passes 84 matching tests, including ten new finite-axis tests and
+the full `u64`-width overflow boundary. The subsequent complete release core
+gate passes **2,710 tests**, zero failures and 32 existing ignored diagnostics
+in 156.47 s (suite time, not a solver benchmark). The licensed release
+integration gate also passes 335 application-library tests and 82 integration tests, 50 public
+Python API/CLI tests, ten matcher-steering tests and twelve campaign-supervisor
+tests. Independent code/mathematical review found no remaining issue.
+
+On the saved five-loop diagonal, a box with local coordinates `x_0,x_1=1..16`,
+`x_11=1..10` and all others zero contains 2,560 points. For positive axes
+`n=x+1`; inactive `n=-x`. The default policy leaves its coupled equality
+unresolved. Finite-axis refinement resolves it into 46 selected-rule regions
+using one 16-face split: 16 diagonal pieces select rule 285 and 30 off-diagonal
+pieces select rule 309. All 2,560 points were independently dispatched as
+singletons, with **zero partition or rule-selection mismatches**. All 50 stress
+roots lie inside this box. Only 980 of its points satisfy the marginal envelope:
+this rectangular diagnostic intentionally overcovers, rather than defining
+the physical starting domain.
+
+The one-owner query takes 9.574 ms of matching, 893.360 ms of preparation and
+0.94 s whole-command wall time. It performs **no RHS traversal** and must not
+be compared as the same workload as the 25.881-minute concrete trace. Evidence:
+`TMP/finite-entry-gate.2GG13m/diagonal-match-{inactive-only,finite-axes}.json`
+and `diagonal-singletons-result.json`.
+
+A larger local control restricts all 57 formerly unresolved R10 boxes to a
+conservative box overcover of `A<=24`. For each positive axis i, its new local
+upper bound is `min(old_upper_i,24-t-sum(other_positive_lower))`; inactive
+bounds and the R10 simplex remain unchanged. This preserves every original
+point satisfying A24 but can include points violating the correlated A/R
+profile. None of the 57 queries is empty. Loading the seven relevant unchanged
+owners without routing, native first-rule dispatch resolves **all 57 queries**
+into 1,956 selected-rule regions using 45 existing owner/batch/rule combinations,
+with zero unknowns, exact gaps or invalid
+source conditions. It uses 954 refinement faces in 84 splits; matching takes
+2.700 s, preparation 9.534 s and the application timer 12.240 s.
+
+This removes the local guard obstruction for these **bounded R10 queries**.
+It does not cover R14/R15 inputs, all recursively reachable domains, or the
+whole five-loop physical envelope. The saved candidate rule IDs were not
+forced: each query used ordinary ordered dispatch. Evidence:
+`TMP/finite-entry-gate.2GG13m/bounded-guard-{queries,owners,result}.json`.
 
 Local verification evidence is in `TMP/finite-entry-gate.2GG13m/` (untracked).
 The passing app gate took 64.97 s wall / 61.52 s user CPU, and the Python gate

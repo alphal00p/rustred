@@ -708,17 +708,25 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
             .len();
         let mut best: Option<(u128, usize, u64)> = None;
         for axis in 0..N {
-            if self.owner[axis]
+            if (self.owner[axis]
+                && self.budget.limits.refinement_axes == OwnerDomainRefinementAxes::InactiveOnly)
                 || cell.upper()[axis] == Some(cell.lower()[axis])
                 || !polynomial.raw().contains(base + axis)
             {
                 continue;
             }
-            let rank_upper = self.rank.map(|rank| {
-                let others = min_rank - u128::from(cell.lower()[axis]);
-                // Every queued cell already passes the exact minimum-rank test.
-                (u128::from(rank) - others) as u64
-            });
+            // Rank bounds only inactive coordinates. In particular, subtracting
+            // a positive lower bound from min_rank would be invalid even at R=0.
+            // A positive axis therefore needs its own explicit finite upper.
+            let rank_upper = if self.owner[axis] {
+                None
+            } else {
+                self.rank.map(|rank| {
+                    let others = min_rank - u128::from(cell.lower()[axis]);
+                    // Every queued cell already passes the exact minimum-rank test.
+                    (u128::from(rank) - others) as u64
+                })
+            };
             let upper = match (cell.upper()[axis], rank_upper) {
                 (Some(a), Some(b)) => a.min(b),
                 (Some(a), None) | (None, Some(a)) => a,

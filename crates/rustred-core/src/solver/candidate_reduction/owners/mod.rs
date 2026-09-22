@@ -6,10 +6,11 @@ pub use domains::{
     OwnerAppliedNonzero, OwnerAppliedProblem, OwnerAppliedProblemKind, OwnerAppliedStats,
     OwnerAppliedSuccessor, OwnerDomainMatchDisposition, OwnerDomainMatchError,
     OwnerDomainMatchFailure, OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats,
-    OwnerDomainPredicate, OwnerGuardedDomain, OwnerGuardedError, OwnerGuardedEvent,
-    OwnerGuardedFailure, OwnerGuardedImage, OwnerGuardedLimits, OwnerGuardedResidualKind,
-    OwnerGuardedStats, OwnerGuardedSuccessor, OwnerSuccessorError, OwnerSuccessorFailure,
-    OwnerSuccessorLimits, OwnerSuccessorRegion, OwnerSuccessorStats, OwnerSuccessorTransition,
+    OwnerDomainPredicate, OwnerDomainRefinementAxes, OwnerGuardedDomain, OwnerGuardedError,
+    OwnerGuardedEvent, OwnerGuardedFailure, OwnerGuardedImage, OwnerGuardedLimits,
+    OwnerGuardedResidualKind, OwnerGuardedStats, OwnerGuardedSuccessor, OwnerSuccessorError,
+    OwnerSuccessorFailure, OwnerSuccessorLimits, OwnerSuccessorRegion, OwnerSuccessorStats,
+    OwnerSuccessorTransition,
 };
 mod feedback;
 mod model;

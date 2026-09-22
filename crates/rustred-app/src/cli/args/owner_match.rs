@@ -21,6 +21,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub max_split_operations: usize,
     pub max_coordinate_cells: usize,
     pub max_bounded_refinement_cells: usize,
+    pub refinement_axes: rustred::solver::OwnerDomainRefinementAxes,
     pub max_guard_univariate_degree: usize,
     pub no_progress: bool,
     pub follow_successors: bool,
@@ -59,6 +60,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         max_split_operations: limits.max_split_operations,
         max_coordinate_cells: limits.max_coordinate_cells,
         max_bounded_refinement_cells: limits.max_bounded_refinement_cells,
+        refinement_axes: limits.refinement_axes,
         max_guard_univariate_degree: limits.guard_algebra.max_univariate_degree,
         no_progress: false,
         follow_successors: false,
@@ -97,6 +99,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--max-split-operations-per-query" => "--max-split-operations-per-query",
             "--max-coordinate-cells-per-query" => "--max-coordinate-cells-per-query",
             "--max-guard-univariate-degree" => "--max-guard-univariate-degree",
+            "--bounded-refinement-axes" => "--bounded-refinement-axes",
             "--max-bounded-refinement-cells-per-query" => {
                 "--max-bounded-refinement-cells-per-query"
             }
@@ -135,6 +138,19 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         let value = next_utf8_value(&mut arguments, name)?;
         match name {
+            "--bounded-refinement-axes" => {
+                result.refinement_axes = match value.as_str() {
+                    "inactive-only" => rustred::solver::OwnerDomainRefinementAxes::InactiveOnly,
+                    "finite-axes" => rustred::solver::OwnerDomainRefinementAxes::FiniteAxes,
+                    _ => {
+                        return Err(ArgError::InvalidValue {
+                            option: name,
+                            value,
+                            expected: "inactive-only or finite-axes",
+                        });
+                    }
+                };
+            }
             "--max-containment-checks" => {
                 result.max_containment_checks = if value == "unlimited" {
                     None
@@ -273,6 +289,10 @@ mod tests {
         assert_eq!(args.max_coordinate_cells, limits.max_coordinate_cells);
         assert_eq!(args.max_bounded_refinement_cells, 0);
         assert_eq!(
+            args.refinement_axes,
+            rustred::solver::OwnerDomainRefinementAxes::InactiveOnly
+        );
+        assert_eq!(
             args.max_guard_univariate_degree,
             limits.guard_algebra.max_univariate_degree
         );
@@ -317,6 +337,9 @@ mod tests {
             "--max-rules-per-query -1",
             "--max-cells-per-query +2",
             "--max-bounded-refinement-cells-per-query -1",
+            "--bounded-refinement-axes all",
+            "--bounded-refinement-axes FiniteAxes",
+            "--bounded-refinement-axes finite-axes --bounded-refinement-axes inactive-only",
             "--max-guard-univariate-degree 0",
             "--max-pieces-per-query 1 --max-pieces-per-query 2",
             "--queries duplicate",
@@ -342,6 +365,26 @@ mod tests {
                 "--manifest m --queries q --output o --max-bounded-refinement-cells-per-query {cells}"
             )).unwrap() else { panic!("match command") };
             assert_eq!(args.max_bounded_refinement_cells, cells);
+        }
+    }
+
+    #[test]
+    fn bounded_refinement_axes_policy_is_independent_of_faces_and_walk_mode() {
+        use rustred::solver::OwnerDomainRefinementAxes;
+        for (name, axes) in [
+            ("inactive-only", OwnerDomainRefinementAxes::InactiveOnly),
+            ("finite-axes", OwnerDomainRefinementAxes::FiniteAxes),
+        ] {
+            for mode in ["", "--follow-successors"] {
+                for cells in [0, 17] {
+                    let Command::OwnerDomainMatch(args) = parse(&format!(
+                        "--manifest m --queries q --output o {mode} --bounded-refinement-axes {name} --max-bounded-refinement-cells-per-query {cells}"
+                    )).unwrap() else { panic!("match command") };
+                    assert_eq!(args.refinement_axes, axes);
+                    assert_eq!(args.max_bounded_refinement_cells, cells);
+                    assert!(!args.route_domain_overcover);
+                }
+            }
         }
     }
 

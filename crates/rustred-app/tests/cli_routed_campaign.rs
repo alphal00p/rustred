@@ -398,6 +398,8 @@ powers=[1]
         serde_json::from_slice(&std::fs::read(directory.0.join("matched.json")).unwrap()).unwrap();
     assert_eq!(report["classification_complete"], true);
     assert_eq!(report["all_queries_locally_applicable"], true);
+    assert_eq!(report["bounded_refinement_axes"], "inactive-only");
+    assert_eq!(report["max_bounded_refinement_cells"], 0);
     for flag in [
         "family_closure_claim",
         "ibp_generation",
@@ -413,6 +415,7 @@ powers=[1]
     assert!(!heartbeats.is_empty());
     let final_event = &heartbeats.last().unwrap()["progress"];
     assert_eq!(final_event["operation"], "owner_domain_match");
+    assert_eq!(final_event["bounded_refinement_axes"], "inactive-only");
     assert!(final_event.get("queries").is_none());
     assert!(serde_json::to_vec(final_event).unwrap().len() < 8192);
     assert!(!invoke("matched.json", &[]).status.success());
@@ -432,6 +435,10 @@ powers=[1]
             "100007",
             "--max-sign-splits-per-query",
             "100009",
+            "--bounded-refinement-axes",
+            "finite-axes",
+            "--max-bounded-refinement-cells-per-query",
+            "23",
         ],
     );
     assert!(
@@ -453,6 +460,16 @@ powers=[1]
     assert_eq!(walk["applied_limits"]["max_events"], 100003);
     assert_eq!(walk["applied_limits"]["max_shift_groups"], 100007);
     assert_eq!(walk["applied_limits"]["max_sign_splits"], 100009);
+    assert_eq!(walk["bounded_refinement_axes"], "finite-axes");
+    assert_eq!(walk["max_bounded_refinement_cells"], 23);
+    assert_eq!(
+        walk["applied_limits"]["matching"]["refinement_axes"],
+        "finite-axes"
+    );
+    assert_eq!(
+        walk["applied_limits"]["matching"]["max_bounded_refinement_cells"],
+        23
+    );
     assert_eq!(walk["all_scheduled_domains_resolved"], true);
     assert_eq!(walk["family_closure_claim"], false);
     assert_eq!(walk["committed_events"], walk["events"]);

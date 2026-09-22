@@ -6,7 +6,7 @@ two-loop graph tests and a [FeynCalc phi4 reproduction notebook](examples/notebo
 
 RustRed is a pre-alpha, pure-Rust and Symbolica-native project for deriving and
 applying parametric integration-by-parts identities. Its active target is
-rank-bounded five-loop single-scale vacuum reduction, building on the completed
+finite, power-counted five-loop single-scale vacuum starting domains, building on the completed
 four-loop FORM-less Vakint numerical comparisons against FMFT.
 The four-loop numerical acceptance gate passes; unrestricted closure certification
 remains separate from the shipped candidate programs.
@@ -15,8 +15,12 @@ dispatch keys.
 
 Uniform Symbolica-native binary I/O and the exact unit-weight terminal
 normalization gate are complete. Bounded five-loop candidate studies have
-resumed with the explicit goal of covering all input five-loop families through
-numerator degree 10, ideally 20. Terminal minimization, numerical master lookup
+resumed with the explicit goal of covering renormalizable starting inputs,
+with correlated numerator and denominator-power bounds. This supersedes the
+earlier demand for R10 with arbitrary positive powers; saved R10 programs and
+controls remain useful foundations. See [the current input contract](docs/finite_starting_domains.md)
+for the physical assumptions and the distinction between marginal coefficients
+and a full UV Taylor jet. Terminal minimization, numerical master lookup
 and five-loop Vakint integration follow only after that coverage succeeds. The recorded
 [full-family attempts](docs/research/five_loop_candidate_baselines.md) reach
 time or memory limits; checkpoints preserve partial work, but complete
@@ -49,8 +53,9 @@ All 67 five-loop graph classes now have saved candidate programs. The experiment
 verified equivalent routings, including affine numerator expansion and pinches.
 Missing owners and missing rules remain distinct outcomes; saved local programs
 are not yet a recursively complete R10 family solve. The
-[shared five-loop campaign plan](docs/five_loop_rank_campaign.md) targets R=10
-within 15 hours on at most 50 cores and 500 GB. Certification is deferred and
+[shared five-loop campaign plan](docs/five_loop_rank_campaign.md) now targets the
+finite physical envelope within 15 hours on at most 50 cores and 500 GB,
+when measurements support a credible attempt. Certification is deferred and
 there is no inherited 30-minute deadline.
 
 The [shared-owner campaign driver](docs/shared_owner_campaign_driver.md) exposes
@@ -122,7 +127,10 @@ without bounding positive powers or generating new IBPs. The full R10 campaign
 is still unfinished; these are selected local examples, not closure timings.
 
 The implementation includes opt-in `--max-bounded-refinement-cells-per-query`
-to perform those finite inactive-coordinate splits automatically. With
+to perform those finite inactive-coordinate splits automatically. Add
+`--bounded-refinement-axes finite-axes` to also use explicitly bounded positive
+coordinates; unbounded powers remain symbolic, and this does not extend routing
+or establish recursive closure. With
 `--follow-successors`, it also inspects selected RHSs and shares containing
 owner/box/rank domains through one worklist. Conditional coefficients and
 unresolved routing remain explicit; neither queue exhaustion nor a local match
@@ -135,7 +143,7 @@ actual backend errors cannot. The same Python steering accepts these
 options and the native `--max-guard-univariate-degree` work allowance. No saved
 IBPs are regenerated for these domain queries. See the
 [interface and limits](docs/shared_owner_domain_matching.md).
-Full five-loop R10 closure is **not yet established**. The latest same-input
+Full five-loop coverage is **not yet established**. An earlier same-input
 [67-owner local control](docs/research/guard_obstruction_triage_2026-09-22.md)
 resolves 60 owners and retains 81 unresolved guard regions, with no exact gaps
 or native-work refusal. Local matching takes 94.09 s (206.50 s whole command);
@@ -350,6 +358,16 @@ automatic authentication of an arbitrary physical calculation. At five loops
 it supplies `A<=24`, `R<=14`, `A-R>=10`; a preview is never exhaustive coverage.
 Input bounds never clip IBP descendants. See
 [the finite-domain plan and derivation](docs/finite_starting_domains.md).
+
+Two saved-rule five-loop controls have completed dependency tracing: one input
+per owner (67 inputs) in 4.26 s, and a 50-input diagonal stress control in
+1,552.88 s with 50 configured workers and 26.11 GB sampled peak RSS. The latter
+reaches five existing declared terminal keys without missing rules. These are
+trace-only timings, not coefficient reductions or complete-family coverage;
+cold setup/process time is reported separately in the linked plan. Finite-axis
+guard refinement also resolves all 57 previously ambiguous local R10 query
+boxes after conservative A24 bounding, in 2.70 s of matching. This removes
+those local guard unknowns, not the remaining recursive campaign obligations.
 
 ## Current capability
 

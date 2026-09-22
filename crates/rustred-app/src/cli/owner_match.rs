@@ -44,6 +44,7 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     request.match_limits.max_split_operations = args.max_split_operations;
     request.match_limits.max_coordinate_cells = args.max_coordinate_cells;
     request.match_limits.max_bounded_refinement_cells = args.max_bounded_refinement_cells;
+    request.match_limits.refinement_axes = args.refinement_axes;
     request.match_limits.guard_algebra.max_univariate_degree = args.max_guard_univariate_degree;
     let events: Box<dyn Write + Send> = match args.events {
         Some(path) => Box::new(
@@ -109,6 +110,12 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
         }
     };
     document["operation"] = json!(operation);
+    // Also retain the requested local policy on preparation-error receipts.
+    document["bounded_refinement_axes"] = json!(match args.refinement_axes {
+        rustred::solver::OwnerDomainRefinementAxes::InactiveOnly => "inactive-only",
+        rustred::solver::OwnerDomainRefinementAxes::FiniteAxes => "finite-axes",
+    });
+    document["max_bounded_refinement_cells"] = json!(args.max_bounded_refinement_cells);
     if walking {
         document["schema"] = json!("rustred.owner-domain-walk.json.v1");
         monitor.observe(OwnerDomainWalkResult::completion_progress(&document));

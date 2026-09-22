@@ -26,6 +26,7 @@ pub use applied::{
 pub use matching::{
     OwnerDomainMatchDisposition, OwnerDomainMatchError, OwnerDomainMatchFailure,
     OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats, OwnerDomainPredicate,
+    OwnerDomainRefinementAxes,
 };
 
 pub use model::{

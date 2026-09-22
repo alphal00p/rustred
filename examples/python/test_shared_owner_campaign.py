@@ -213,6 +213,8 @@ class SteeringTests(unittest.TestCase):
                 expected={}
                 if explicit:
                     command += ["--route-domain-overcover"]
+                    axes = "finite-axes" if explicit == "unlimited" else "inactive-only"
+                    command += ["--" + CAMPAIGN.DOMAIN.REFINEMENT_AXES, axes]
                     for index, option in enumerate(CAMPAIGN.SYMBOLIC_ALLOWANCES, 2):
                         value="0" if option==CAMPAIGN.DOMAIN.REFINEMENT else str(index)
                         if option == "max-containment-checks" and explicit == "unlimited":
@@ -239,6 +241,11 @@ class SteeringTests(unittest.TestCase):
                         self.assertEqual(actual[actual.index("--"+option)+1],expected[option])
                     else:
                         self.assertNotIn("--"+option,actual)
+                axes_option = "--" + CAMPAIGN.DOMAIN.REFINEMENT_AXES
+                if explicit:
+                    self.assertEqual(actual[actual.index(axes_option)+1], axes)
+                else:
+                    self.assertNotIn(axes_option, actual)
                 for option in CAMPAIGN.FINITE_ALLOWANCES:
                     self.assertNotIn("--"+option,actual)
 
@@ -248,6 +255,8 @@ class SteeringTests(unittest.TestCase):
             ("--queries",["--max-nodes","7"],"require --targets"),
             ("--queries",["--expansion-limits","missing"],"require --targets"),
             ("--targets",["--max-frontiers","17"],"require --queries"),
+            ("--targets",["--bounded-refinement-axes","finite-axes"],"require --queries"),
+            ("--queries",["--bounded-refinement-axes","all"],"invalid choice"),
             ("--targets",["--max-containment-checks","unlimited"],"require --queries"),
             ("--queries",["--max-containment-checks","0"],"positive integer"),
             ("--queries",["--max-containment-checks","Unlimited"],"positive integer"),

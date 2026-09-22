@@ -3,6 +3,18 @@ use std::fmt;
 use crate::algebra::{IndexedAlgebraError, IndexedGuardLimits};
 use crate::foundry::completion::LatticeBox;
 
+/// Coordinates eligible for exact singleton refinement of an unresolved guard.
+/// This is a partition policy, not sampling or a claim of recursive coverage.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OwnerDomainRefinementAxes {
+    /// Preserve the original policy: only bounded inactive coordinates.
+    #[default]
+    InactiveOnly,
+    /// Also allow positive coordinates with an explicitly finite box upper
+    /// bound. The inactive-rank cap never supplies a positive-coordinate bound.
+    FiniteAxes,
+}
+
 /// Aggregate dispatch/geometry counters; native guard limits are per predicate.
 /// Geometry cells and coordinate entries are conservative cumulative charges,
 /// including temporary BoxCover storage, not a measured byte count.
@@ -16,13 +28,14 @@ pub struct OwnerDomainMatchLimits {
     pub max_split_operations: usize,
     pub max_coordinate_cells: usize,
     /// Optional cumulative allowance for exact singleton faces of bounded
-    /// inactive coordinates when a native predicate remains unresolved or its
-    /// next GCD/factor operation refuses prospective admission. Zero preserves
+    /// coordinates admitted by `refinement_axes` when a predicate is unresolved
+    /// or its next GCD/factor operation refuses prospective admission. Zero preserves
     /// the conservative diagnostic/native refusal without refinement. A split is
     /// admitted only in full, including its geometry allowance; otherwise the
-    /// original unresolved piece or typed native refusal is retained. Positive
-    /// axes are never sampled; prior native work/attempt charges are not undone.
+    /// original unresolved piece or typed native refusal is retained. No axis
+    /// is sampled; prior native work/attempt charges are not undone.
     pub max_bounded_refinement_cells: usize,
+    pub refinement_axes: OwnerDomainRefinementAxes,
     pub guard_algebra: IndexedGuardLimits,
 }
 impl Default for OwnerDomainMatchLimits {
@@ -36,6 +49,7 @@ impl Default for OwnerDomainMatchLimits {
             max_split_operations: 1_000_000,
             max_coordinate_cells: 32_000_000,
             max_bounded_refinement_cells: 0,
+            refinement_axes: OwnerDomainRefinementAxes::InactiveOnly,
             guard_algebra: Default::default(),
         }
     }

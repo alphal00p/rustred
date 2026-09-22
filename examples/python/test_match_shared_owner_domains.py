@@ -32,6 +32,7 @@ class MatchSteeringTests(unittest.TestCase):
         self.assertEqual(command[command.index("--queries") + 1], "queries.json")
         for option in MATCH.ALLOWANCES:
             self.assertNotIn("--" + option, command)
+        self.assertNotIn("--" + MATCH.REFINEMENT_AXES, command)
         for option in ("--workers", "--timeout", "--max-numerator-rank", "--targets"):
             self.assertNotIn(option, command)
 
@@ -79,6 +80,26 @@ class MatchSteeringTests(unittest.TestCase):
         for invalid in ("-1", "+1", "1.1", " 1", "１"):
             with self.assertRaises(argparse.ArgumentTypeError):
                 MATCH.nonnegative(invalid)
+
+    def test_refinement_axes_are_explicit_independent_local_policy(self):
+        option = "--" + MATCH.REFINEMENT_AXES
+        for value in MATCH.REFINEMENT_AXIS_CHOICES:
+            for mode in ([], ["--follow-successors"]):
+                flags = mode + [option, value, "--" + MATCH.REFINEMENT, "0"]
+                with patch("sys.argv", self.arguments() + flags), \
+                        patch.object(MATCH.os, "execve") as execute:
+                    MATCH.main()
+                command = execute.call_args.args[1]
+                self.assertEqual(command[command.index(option) + 1], value)
+                self.assertEqual(command[command.index("--" + MATCH.REFINEMENT) + 1], "0")
+                self.assertNotIn("--route-domain-overcover", command)
+        for value in ("all", "FiniteAxes", "0", ""):
+            with patch("sys.argv", self.arguments() + [option, value]), \
+                    patch.object(MATCH.os, "execve") as execute, \
+                    patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit):
+                    MATCH.main()
+                execute.assert_not_called()
 
     def test_shared_successor_walk_is_opt_in(self):
         flags = ["--follow-successors"]

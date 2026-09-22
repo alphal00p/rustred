@@ -343,7 +343,7 @@ RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 USAGE:
     rustred entry-domain-plan --input SPEC.json --output PLAN.json [--force]
     rustred owner-guarded-apply --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--work-limits LIMITS.json] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-report-events N] [--max-report-bytes N] [--max-expression-bytes N]
-    rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N] [--max-bounded-refinement-cells-per-query N] [--max-guard-univariate-degree N] [--follow-successors [--workers N] [--max-domains N] [--max-frontiers N] [--max-successor-events N] [--max-containment-checks N|unlimited] [--max-rhs-cells-per-query N] [--max-term-visits-per-query N] [--max-native-operations-per-query N] [--max-rhs-events-per-query N] [--max-shift-groups-per-query N] [--route-domain-overcover [--max-route-masks-per-query N]]]
+    rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N] [--max-bounded-refinement-cells-per-query N] [--bounded-refinement-axes inactive-only|finite-axes] [--max-guard-univariate-degree N] [--follow-successors [--workers N] [--max-domains N] [--max-frontiers N] [--max-successor-events N] [--max-containment-checks N|unlimited] [--max-rhs-cells-per-query N] [--max-term-visits-per-query N] [--max-native-operations-per-query N] [--max-rhs-events-per-query N] [--max-shift-groups-per-query N] [--route-domain-overcover [--max-route-masks-per-query N]]]
     rustred owner-domain-scan --manifest SELECTION.json --max-numerator-rank R --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--max-rules-per-owner N] [--max-terms-per-owner N] [--max-regions-per-owner N] [--max-total-regions N] [--max-summary-groups N]
     rustred routed-campaign --manifest SELECTION.json --targets TARGETS.csv --output RESULT.json [--events EVENTS.jsonl] [--owner-base DIR] [--workers 1..50] [--stop-file PATH] [--expansion-limits LIMITS.json] [--max-nodes N] [--max-input-targets N] [--max-transport-operations N] [--max-transport-endpoints N] [--max-coalescing-additions N] [--max-rule-applications N]
     rustred derive [OPTIONS]
@@ -579,10 +579,14 @@ generation or recursive family closure. Outputs are fresh paths; stop-file
 cancellation and compact heartbeat events remain active.
 Opt-in --max-bounded-refinement-cells-per-query (default 0) retries unresolved
 guards and selected native algebra preflight refusals on exact bounded
-inactive-coordinate faces. Positive axes stay symbolic;
+inactive-coordinate faces. --bounded-refinement-axes inactive-only is the default;
+finite-axes also admits positive axes with explicitly finite box upper bounds.
+Unbounded positive axes stay symbolic; numerator rank never bounds positive axes.
+The axis policy does not grant any faces: the separate allowance must be positive.
 the full split is admitted before any face, and insufficient allowance preserves
 the unresolved piece or original typed refusal. Refinement is local
-classification, not source generation. Cancellation and backend faults are not
+classification, not routing overcover, source generation or family closure.
+Cancellation and backend faults are not
 reclassified as unresolved geometry.
 --max-guard-univariate-degree sets a positive native guard-degree allowance
 (default 16) for either mode; it does not alter rank scope or guard semantics.
