@@ -4,6 +4,7 @@ use super::queue::Phase;
 use super::{
     OwnerDomainWalkRequest,
     diagnostics::{OptionalCounts, OptionalRefusals},
+    initial_orthants::InitialOrthants,
     inspection::{self, Effect, Event, Finished, NativeStats},
     mask,
     parallel::{self, Failure, Poll},
@@ -23,6 +24,7 @@ pub(super) struct State<const N: usize> {
     pub successors: usize,
     pub conditional: usize,
     pub job_local_reuse_hits: usize,
+    pub pre_admitted_orthant_hits: usize,
     pub optional: OptionalCounts,
     pub frontiers: usize,
     pub completed: usize,
@@ -43,6 +45,7 @@ impl<const N: usize> State<N> {
             successors: 0,
             conditional: 0,
             job_local_reuse_hits: 0,
+            pre_admitted_orthant_hits: 0,
             optional: OptionalCounts::default(),
             frontiers,
             completed: 0,
@@ -64,7 +67,9 @@ impl<const N: usize> State<N> {
             "queued_nodes":self.queue.domains.len().saturating_sub(self.queue.next),
             "deduplication_hits":self.queue.deduplicated, "exact_domain_hits":self.queue.exact_hits,
             "full_orthant_hits":self.queue.orthant_hits, "containment_checks":self.queue.containment_checks,
+            "max_containment_checks":self.queue.containment_limit(), "containment_check_policy":"general_comparisons_only; null_is_unlimited; checked_counter",
             "job_local_reuse_hits":self.job_local_reuse_hits,
+            "pre_admitted_orthant_hits":self.pre_admitted_orthant_hits,
             "max_scheduled_finite_rank":self.queue.max_finite_rank, "unbounded_rank_domains":self.queue.unbounded_rank_domains,
             "successors":self.successors, "conditional_successors":self.conditional,
             "frontiers":self.frontiers, "events":self.events, "committed_events":self.events,
@@ -93,11 +98,29 @@ impl<const N: usize> State<N> {
             .max_events
             .checked_sub(self.events)
             .ok_or("event counter invariant")?;
-        if let Effect::KnownReuse {
-            successor,
-            conditional,
-        } = &event.effect
-        {
+        let reuse = match &event.effect {
+            Effect::KnownReuse {
+                successor,
+                conditional,
+            } => Some((*successor, *conditional, false)),
+            Effect::PreAdmittedOrthantReuse {
+                successor,
+                conditional,
+            } => Some((*successor, *conditional, true)),
+            _ => None,
+        };
+        if let Some((successor, conditional, initial)) = reuse {
+            let (old_hits, hit_overflow) = if initial {
+                (
+                    self.pre_admitted_orthant_hits,
+                    "pre-admitted orthant counter overflow",
+                )
+            } else {
+                (
+                    self.job_local_reuse_hits,
+                    "job-local reuse counter overflow",
+                )
+            };
             // Preserve the exact accepted logical prefix even inside a run.
             // Compute all next counters before any publication (including the
             // aggregate queue counter); an overflow leaves a coherent prefix.
@@ -106,7 +129,7 @@ impl<const N: usize> State<N> {
             for (available, reason) in [
                 (remaining, "aggregate successor event allowance"),
                 (
-                    if *successor {
+                    if successor {
                         usize::MAX - self.successors
                     } else {
                         usize::MAX
@@ -114,17 +137,14 @@ impl<const N: usize> State<N> {
                     "successor counter overflow",
                 ),
                 (
-                    if *conditional {
+                    if conditional {
                         usize::MAX - self.conditional
                     } else {
                         usize::MAX
                     },
                     "conditional successor counter overflow",
                 ),
-                (
-                    usize::MAX - self.job_local_reuse_hits,
-                    "job-local reuse counter overflow",
-                ),
+                (usize::MAX - old_hits, hit_overflow),
                 (
                     usize::MAX - self.queue.deduplicated,
                     "reuse counter overflow",
@@ -137,21 +157,22 @@ impl<const N: usize> State<N> {
             }
             let successors = self
                 .successors
-                .checked_add(if *successor { accepted } else { 0 })
+                .checked_add(if successor { accepted } else { 0 })
                 .ok_or("successor counter overflow")?;
             let conditional = self
                 .conditional
-                .checked_add(if *conditional { accepted } else { 0 })
+                .checked_add(if conditional { accepted } else { 0 })
                 .ok_or("conditional successor counter overflow")?;
-            let hits = self
-                .job_local_reuse_hits
-                .checked_add(accepted)
-                .ok_or("job-local reuse counter overflow")?;
+            let hits = old_hits.checked_add(accepted).ok_or(hit_overflow)?;
             self.queue.count_known_reuse(accepted)?;
             self.events += accepted;
             self.successors = successors;
             self.conditional = conditional;
-            self.job_local_reuse_hits = hits;
+            if initial {
+                self.pre_admitted_orthant_hits = hits;
+            } else {
+                self.job_local_reuse_hits = hits;
+            }
             return refusal.map_or(Ok(()), Err);
         }
         if event.count > remaining {
@@ -161,7 +182,9 @@ impl<const N: usize> State<N> {
         self.events += event.count;
         match event.effect {
             Effect::Count => {}
-            Effect::KnownReuse { .. } => unreachable!("handled counted reuse"),
+            Effect::KnownReuse { .. } | Effect::PreAdmittedOrthantReuse { .. } => {
+                unreachable!("handled counted reuse")
+            }
             Effect::Admit {
                 domain,
                 successor,
@@ -258,18 +281,37 @@ pub(super) fn run<const N: usize>(
     cancellation: &AtomicBool,
     observer: &impl Fn(Value),
 ) {
+    run_with_initial_orthants(state, reducer, request, cancellation, observer, true);
+}
+
+/// Private off/on reference seam, not a user-selectable applicability policy.
+fn run_with_initial_orthants<const N: usize>(
+    state: &mut State<N>,
+    reducer: &RoutedCandidateReducer<N>,
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+    observer: &impl Fn(Value),
+    enabled: bool,
+) {
     if state.error.is_some() {
         return;
     }
+    // Capture actual initial admissions only. This immutable borrowed snapshot
+    // is shared across scoped workers and never observes later queue growth.
+    let initial = if enabled {
+        InitialOrthants::from_initial(&state.queue.domains, cancellation)
+    } else {
+        InitialOrthants::empty()
+    };
     if request.workers == 1 {
-        return serial(state, reducer, request, cancellation, observer);
+        return serial(state, reducer, request, cancellation, observer, &initial);
     }
     let mut dispatched = 0;
     let mut started_id = None;
     let mut heartbeat = Instant::now();
     let (_, snapshot, mut leftovers) = parallel::with_pool(
         request.workers,
-        |domain, stop, emit| inspection::inspect(reducer, domain, request, stop, emit),
+        |domain, stop, emit| inspection::inspect(reducer, domain, request, stop, &initial, emit),
         |pool| {
             loop {
                 if cancellation.load(Ordering::Acquire) {
@@ -391,6 +433,7 @@ fn serial<const N: usize>(
     request: &OwnerDomainWalkRequest,
     cancellation: &AtomicBool,
     observer: &impl Fn(Value),
+    initial: &InitialOrthants<N>,
 ) {
     let mut attempted = 0usize;
     let mut native = 0usize;
@@ -416,33 +459,40 @@ fn serial<const N: usize>(
             &json!({"workers":1, "active_workers":1, "attempted_events":attempted}),
         ));
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            inspection::inspect(reducer, &domain, request, cancellation, &mut |event| {
-                let error = if let Some(next) = attempted.checked_add(event.count) {
-                    attempted = next;
-                    state.accept(event, request).err()
-                } else {
-                    Some("attempted event counter overflow")
-                };
-                if let Some(error) = error {
-                    state.error = Some(error.into());
-                    failure = Some(Failure {
-                        id: Some(id),
-                        phase: Some(domain.phase),
-                        kind: "coordinator_admission",
-                        detail: error.into(),
-                    });
-                    return ControlFlow::Break(());
-                }
-                if heartbeat.elapsed() >= Duration::from_millis(250) {
-                    observer(state.progress(
-                        "domain_progress",
-                        id,
-                        &json!({"workers":1, "active_workers":1, "attempted_events":attempted}),
-                    ));
-                    heartbeat = Instant::now();
-                }
-                ControlFlow::Continue(())
-            })
+            inspection::inspect(
+                reducer,
+                &domain,
+                request,
+                cancellation,
+                initial,
+                &mut |event| {
+                    let error = if let Some(next) = attempted.checked_add(event.count) {
+                        attempted = next;
+                        state.accept(event, request).err()
+                    } else {
+                        Some("attempted event counter overflow")
+                    };
+                    if let Some(error) = error {
+                        state.error = Some(error.into());
+                        failure = Some(Failure {
+                            id: Some(id),
+                            phase: Some(domain.phase),
+                            kind: "coordinator_admission",
+                            detail: error.into(),
+                        });
+                        return ControlFlow::Break(());
+                    }
+                    if heartbeat.elapsed() >= Duration::from_millis(250) {
+                        observer(state.progress(
+                            "domain_progress",
+                            id,
+                            &json!({"workers":1, "active_workers":1, "attempted_events":attempted}),
+                        ));
+                        heartbeat = Instant::now();
+                    }
+                    ControlFlow::Continue(())
+                },
+            )
         }));
         match result {
             Ok(finished) => {
@@ -487,5 +537,8 @@ fn serial<const N: usize>(
         "first_failure":failure.as_ref().map(Failure::json)}));
 }
 
+#[cfg(test)]
+#[path = "execution/initial_orthants_tests.rs"]
+mod initial_orthants_tests;
 #[cfg(test)]
 mod tests;

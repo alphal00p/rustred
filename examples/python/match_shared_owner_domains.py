@@ -39,6 +39,14 @@ def nonnegative(text: str) -> int:
     return int(text)
 
 
+def containment_limit(text: str) -> int | str:
+    # None remains the omitted-option sentinel, so explicit unlimited still
+    # receives scope validation and is forwarded to the native parser.
+    if text == "unlimited":
+        return text
+    return positive(text)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--executable", type=Path, required=True)
@@ -60,7 +68,10 @@ def main() -> None:
     parser.add_argument("--" + REFINEMENT, type=nonnegative,
                         help="exact bounded numerator faces per query; zero disables refinement")
     for option in WALK_ALLOWANCES:
-        parser.add_argument("--" + option, type=positive)
+        parser.add_argument("--" + option,
+                            type=containment_limit if option == "max-containment-checks" else positive,
+                            help="positive diagnostic cap or unlimited (default)" if
+                            option == "max-containment-checks" else None)
     args = parser.parse_args()
     if not args.follow_successors and (args.route_domain_overcover or any(
             getattr(args, option.replace("-", "_")) is not None

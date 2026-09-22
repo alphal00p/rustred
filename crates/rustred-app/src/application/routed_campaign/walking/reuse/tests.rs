@@ -97,7 +97,7 @@ fn job_local_reuse_capacity_bytes_disable_and_fresh_job_fall_back() {
 #[test]
 fn job_local_reuse_fifo_graph_matches_cache_off_after_general_containment() {
     let run = |enabled| {
-        let mut queue = Queue::<2>::new(100, usize::MAX);
+        let mut queue = Queue::<2>::new(100, Some(usize::MAX));
         let mut cache = Cache::new(enabled);
         let mut hits = 0;
         let mut callbacks = 0;
@@ -145,7 +145,7 @@ fn job_local_reuse_uncommitted_first_admission_cannot_leave_marker_only_prefix()
     }
     assert!(matches!(stream[0].effect, Effect::Admit { .. }));
     assert!(matches!(stream[1].effect, Effect::KnownReuse { .. }));
-    let mut queue = Queue::<2>::new(0, 0);
+    let mut queue = Queue::<2>::new(0, Some(0));
     let mut committed_markers = 0;
     for e in stream {
         match e.effect {
@@ -164,7 +164,7 @@ fn job_local_reuse_uncommitted_first_admission_cannot_leave_marker_only_prefix()
 
 #[test]
 fn job_local_reuse_after_general_comparison_cap_is_pending_not_completed() {
-    let mut queue = Queue::<2>::new(3, 1);
+    let mut queue = Queue::<2>::new(3, Some(1));
     let mut container = domain(0);
     container.upper[0] = Some(100);
     queue.admit(container).unwrap();
@@ -242,7 +242,7 @@ powers=[1]
         rank: Some(11),
     };
     let run = |enabled| {
-        let mut queue = Queue::new(100, usize::MAX);
+        let mut queue = Queue::new(100, None);
         queue.admit(source.clone()).unwrap();
         let mut logical = 0;
         let mut successors = 0;
@@ -278,6 +278,9 @@ powers=[1]
                     Effect::Count => {}
                     Effect::Optional(_) => {
                         panic!("tiny native fixture must not need optional fallback")
+                    }
+                    Effect::PreAdmittedOrthantReuse { .. } => {
+                        panic!("job-local cache reference has no initial snapshot")
                     }
                 }
                 ControlFlow::Continue(())

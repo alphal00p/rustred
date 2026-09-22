@@ -55,6 +55,10 @@ python examples/python/shared_owner_campaign.py \
 
 These example work allowances are not established sufficient for any particular
 family. The native defaults apply to other unspecified per-query limits.
+Aggregate symbolic containment comparisons are unlimited by default; pass
+`--max-containment-checks unlimited` explicitly or a positive integer for an
+opt-in finite diagnostic budget. Both Python steering paths forward this policy
+without changing rank, native-work, storage or supervisory resource limits.
 `--max-frontiers` independently bounds retained diagnostic records; the
 aggregate streamed-event allowance does not bound them. Concrete-only work
 flags and `--expansion-limits` are rejected with `--queries`; symbolic-only

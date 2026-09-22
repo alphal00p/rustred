@@ -288,3 +288,57 @@ previous ten-billion comparison allowance was a chosen diagnostic limit, not a
 solver or mathematical limitation. Production comparison work will be unbounded
 by default; finite limits remain opt-in diagnostics. Memory/storage safeguards,
 counter-overflow errors and evidence-based cooperative stopping remain separate.
+
+## Tested 50-worker preparation and a real-input regression
+
+The next application slice shares an immutable index of actual initial full
+orthants, keyed by phase, owner and finite/unbounded rank. Native applicability
+and successor validation still happen first. A hit suppresses only redundant
+scheduling data; it never marks pending work solved. The optional index is
+bounded at 4,096 buckets / 2 MiB of logical entries and falls back safely when
+full. Its hits have a separate counter from job-local and coordinator reuse.
+
+Published/private worker chunks now each allow 16,384 physical records,
+8 MiB of accounted descriptor payload and 1,048,576 logical callbacks. At 50
+workers the pair accounts for at most 800 MiB; separately held incoming records,
+coordinator data, container capacity, native scratch and loaded programs are
+additional. These bounds preserve ordered publication, cancellation and exact
+counter prefixes. They are not a process-RSS estimate or a measured speedup.
+
+The aggregate containment-comparison policy defaults to unlimited (`None` in
+Rust, `unlimited` in CLI/Python, `null` in telemetry). Explicit finite budgets
+remain supported. Checked counter overflow and storage/memory admission are
+separate. Explicit positive `max_domains` values no longer encounter a hidden
+one-million-domain ceiling; the queue allocates incrementally.
+
+The combined release gate passes **377 Rust tests (295 application unit tests
+and 82 integration tests)** and **27 Python tests**, zero failures. Focused
+domain-budget and walking tests pass 2 and 49 tests respectively. Evidence:
+`TMP/fifty-ready-app.XXNQSQ/`, including independent runtime review, before/after
+source hashes and frozen CLI
+`7401238bb9da34301b4fbe214487aa3e3b1f3227ef5ceca58b0b3d0895073219`.
+These test timings are not IBP-generation or campaign timings.
+
+Before the 50-worker traversal, a local all-67 input check found an operational
+regression in the new later-guard rejection path. It stopped in the **first**
+owner, with zero completed queries, on `guard separable factor work`:
+193,857,088 requested against a 64,000,000 native allowance. The reported
+predicate is original denominator, batch 0 / rule 405 / term 1. Its R10 cell
+contains exactly fifteen integer points; independently checking the earlier
+saved result shows all fifteen assigned to that same rule. Thus this is not
+evidence of a missing IBP or actual expression swell. The speculative guard
+probe can encounter a broader cell before the original bounded refinement.
+The correction must preserve mandatory guard/source validity and native errors,
+while allowing the existing bounded path to handle this case.
+
+This local check retained 11,658 selected pieces and 73 terminal pieces before
+failure. Its zero retained unknowns is a prefix, **not** elimination of the
+earlier 81 unresolved regions. It overlapped an application build on disjoint
+CPUs and is not a performance comparison. Raw evidence and an independent
+fifteen-point recount are in `TMP/rejection-full67-local.isowEn/`.
+
+The prepared next full run uses 50 workers, the same saved 67-owner R10 inputs,
+unlimited containment comparisons, explicit 10-million-domain storage, and
+450/500 GB aggregate RSS monitoring. No elapsed deadline is introduced. Launch
+remains held for the actual-input regression above; this preparation is not
+itself an R10 closure result.

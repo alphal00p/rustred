@@ -12,7 +12,9 @@ use rustred::solver::{
 use serde_json::{Value, json};
 
 use super::{
-    OwnerDomainWalkRequest, mask,
+    OwnerDomainWalkRequest,
+    initial_orthants::InitialOrthants,
+    mask,
     queue::{Domain, Phase},
 };
 
@@ -64,6 +66,12 @@ pub(super) enum Effect<const N: usize> {
         successor: bool,
         conditional: bool,
     },
+    /// Contained in a full orthant actually admitted before execution began.
+    /// Its pending inspection is still required; native checks were not skipped.
+    PreAdmittedOrthantReuse {
+        successor: bool,
+        conditional: bool,
+    },
     Admit {
         domain: Domain<N>,
         successor: bool,
@@ -100,6 +108,16 @@ impl<const N: usize> Event<N> {
                     conditional: d,
                 },
             ) => a == c && b == d,
+            (
+                Effect::PreAdmittedOrthantReuse {
+                    successor: a,
+                    conditional: b,
+                },
+                Effect::PreAdmittedOrthantReuse {
+                    successor: c,
+                    conditional: d,
+                },
+            ) => a == c && b == d,
             _ => false,
         }
     }
@@ -121,7 +139,9 @@ impl<const N: usize> Event<N> {
         }
         std::mem::size_of::<Self>()
             + match &self.effect {
-                Effect::Count | Effect::KnownReuse { .. } => 0,
+                Effect::Count
+                | Effect::KnownReuse { .. }
+                | Effect::PreAdmittedOrthantReuse { .. } => 0,
                 Effect::Admit { domain, .. } => {
                     domain.lower.capacity() * 8
                         + domain.upper.capacity() * std::mem::size_of::<Option<u64>>()
@@ -161,13 +181,15 @@ pub(super) fn inspect<const N: usize>(
     domain: &Domain<N>,
     request: &OwnerDomainWalkRequest,
     cancellation: &AtomicBool,
+    initial: &InitialOrthants<N>,
     emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
 ) -> Finished {
-    inspect_with_reuse(reducer, domain, request, cancellation, true, emit)
+    inspect_options(reducer, domain, request, cancellation, initial, true, emit)
 }
 
 /// Private cache-off reference seam for tests/controlled experiments. No new
 /// public request/CLI policy or native applicability mode is introduced.
+#[cfg(test)]
 pub(super) fn inspect_with_reuse<const N: usize>(
     reducer: &RoutedCandidateReducer<N>,
     domain: &Domain<N>,
@@ -176,10 +198,35 @@ pub(super) fn inspect_with_reuse<const N: usize>(
     enabled: bool,
     emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
 ) -> Finished {
+    inspect_options(
+        reducer,
+        domain,
+        request,
+        cancellation,
+        &InitialOrthants::empty(),
+        enabled,
+        emit,
+    )
+}
+
+fn inspect_options<const N: usize>(
+    reducer: &RoutedCandidateReducer<N>,
+    domain: &Domain<N>,
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+    initial: &InitialOrthants<N>,
+    enabled: bool,
+    emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
+) -> Finished {
     let mut cache = super::reuse::Cache::new(enabled);
-    inspect_native(reducer, domain, request, cancellation, &mut |event| {
-        cache.forward(event, emit)
-    })
+    inspect_native(
+        reducer,
+        domain,
+        request,
+        cancellation,
+        initial,
+        &mut |event| cache.forward(event, emit),
+    )
 }
 
 fn inspect_native<const N: usize>(
@@ -187,10 +234,11 @@ fn inspect_native<const N: usize>(
     domain: &Domain<N>,
     request: &OwnerDomainWalkRequest,
     cancellation: &AtomicBool,
+    initial: &InitialOrthants<N>,
     emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
 ) -> Finished {
     if domain.phase == Phase::Route {
-        return super::routing::inspect(reducer, domain, request, cancellation, emit);
+        return super::routing::inspect(reducer, domain, request, cancellation, initial, emit);
     }
     let started = Instant::now();
     let mut limits = request.applied_limits;
@@ -223,10 +271,16 @@ fn inspect_native<const N: usize>(
                 OwnerAppliedEvent::Successor(child) => {
                     let conditional = child.coefficient_nonzero == OwnerAppliedNonzero::Conditional;
                     if child.has_installed_target_owner {
+                        if initial.contains(Phase::Apply, child.target_sector, child.target_rank_limit) {
+                            return emit(Event::one(Effect::PreAdmittedOrthantReuse { successor: true, conditional }));
+                        }
                         Effect::Admit { successor: true, conditional, domain: Domain {
                             phase: Phase::Apply, owner: *child.target_sector, lower: child.target_lower.to_vec(),
                             upper: child.target_upper.to_vec(), rank: child.target_rank_limit } }
                     } else if request.route_domain_overcover {
+                        if initial.contains(Phase::Route, child.target_sector, child.target_rank_limit) {
+                            return emit(Event::one(Effect::PreAdmittedOrthantReuse { successor: true, conditional }));
+                        }
                         Effect::Admit { successor: true, conditional,
                             domain: Domain::route_cover(*child.target_sector, child.target_rank_limit) }
                     } else {

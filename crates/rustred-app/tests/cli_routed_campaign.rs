@@ -445,6 +445,11 @@ powers=[1]
     assert_eq!(walk["workers"], 1);
     assert_eq!(walk["max_frontiers"], 19);
     assert_eq!(walk["max_events"], 100000001);
+    assert!(walk.get("max_containment_checks").unwrap().is_null());
+    assert_eq!(
+        walk["containment_check_policy"],
+        "general_comparisons_only; null_is_unlimited; checked_counter"
+    );
     assert_eq!(walk["applied_limits"]["max_events"], 100003);
     assert_eq!(walk["applied_limits"]["max_shift_groups"], 100007);
     assert_eq!(walk["applied_limits"]["max_sign_splits"], 100009);

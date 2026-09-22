@@ -77,10 +77,14 @@ pub(super) struct Queue<const N: usize> {
     exact: HashMap<Arc<Domain<N>>, usize>,
     by_owner: HashMap<(Phase, [bool; N]), OwnerBucket>,
     max_domains: usize,
-    max_checks: usize,
+    max_checks: Option<usize>,
 }
 
 impl<const N: usize> Queue<N> {
+    pub fn containment_limit(&self) -> Option<usize> {
+        self.max_checks
+    }
+
     /// Checked aggregate accounting for a producer's earlier ordered Admit.
     /// Exact/orthant counters are deliberately unchanged: the bypassed lookup
     /// might instead have needed arbitrary-box comparisons.
@@ -91,7 +95,7 @@ impl<const N: usize> Queue<N> {
             .ok_or("reuse counter overflow")?;
         Ok(())
     }
-    pub fn new(max_domains: usize, max_checks: usize) -> Self {
+    pub fn new(max_domains: usize, max_checks: Option<usize>) -> Self {
         Self {
             domains: Vec::new(),
             next: 0,
@@ -112,7 +116,9 @@ impl<const N: usize> Queue<N> {
     /// every admitted domain still has to finish before worklist exhaustion.
     /// The queue is never shared between different snapshots or rank policies.
     /// Exact/full-orthant index proofs do not spend general containment checks,
-    /// so they can still succeed at the comparison cap. A dominant orthant can
+    /// so they can still succeed at a finite comparison cap or counter maximum.
+    /// None means no policy cap, but counter overflow remains an explicit error.
+    /// A dominant orthant can
     /// return a different valid containing ID than the legacy first-match scan;
     /// new-domain IDs/FIFO order remain unchanged with unlimited comparisons.
     pub fn admit(&mut self, domain: Domain<N>) -> Result<(usize, bool), &'static str> {
@@ -135,10 +141,16 @@ impl<const N: usize> Queue<N> {
                 return Ok((id, false));
             }
             for &id in &bucket.ids {
-                if self.containment_checks == self.max_checks {
+                if self
+                    .max_checks
+                    .is_some_and(|limit| self.containment_checks >= limit)
+                {
                     return Err("domain containment check allowance");
                 }
-                self.containment_checks += 1;
+                self.containment_checks = self
+                    .containment_checks
+                    .checked_add(1)
+                    .ok_or("domain containment counter overflow")?;
                 if self.domains[id].contains(&domain) {
                     self.deduplicated += 1;
                     return Ok((id, false));

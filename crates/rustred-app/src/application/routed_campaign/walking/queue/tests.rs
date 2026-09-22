@@ -11,8 +11,90 @@ fn domain(rank: Option<u32>) -> Domain<2> {
 }
 
 #[test]
+fn unlimited_comparisons_pass_former_default_and_overflow_without_admitting() {
+    let mut queue = Queue::new(3, None);
+    assert_eq!(queue.containment_limit(), None);
+    let mut narrow = domain(Some(10));
+    narrow.lower[0] = 1;
+    assert_eq!(queue.admit(narrow.clone()), Ok((0, true)));
+    let mut child = narrow.clone();
+    child.lower[0] = 2;
+    queue.containment_checks = 10_000_000;
+    assert_eq!(queue.admit(child.clone()), Ok((0, false)));
+    assert_eq!(queue.containment_checks, 10_000_001);
+    queue.containment_checks = usize::MAX - 1;
+    assert_eq!(queue.admit(child.clone()), Ok((0, false)));
+    assert_eq!(queue.containment_checks, usize::MAX);
+    let before = (
+        queue.domains.len(),
+        queue.exact.len(),
+        queue.deduplicated,
+        queue.next,
+        queue.max_finite_rank,
+        queue.unbounded_rank_domains,
+    );
+    assert_eq!(
+        queue.admit(child),
+        Err("domain containment counter overflow")
+    );
+    assert_eq!(queue.containment_checks, usize::MAX);
+    assert_eq!(
+        (
+            queue.domains.len(),
+            queue.exact.len(),
+            queue.deduplicated,
+            queue.next,
+            queue.max_finite_rank,
+            queue.unbounded_rank_domains
+        ),
+        before
+    );
+    // Exact lookup needs no scan and still works after the counter is full.
+    assert_eq!(queue.admit(narrow), Ok((0, false)));
+    assert_eq!(queue.containment_checks, usize::MAX);
+}
+
+#[test]
+fn finite_comparison_prefix_is_unchanged_and_orthant_lookup_avoids_overflow() {
+    let mut finite = Queue::new(3, Some(2));
+    let mut unlimited = Queue::new(3, None);
+    let mut narrow = domain(Some(10));
+    narrow.lower[0] = 1;
+    for queue in [&mut finite, &mut unlimited] {
+        assert_eq!(queue.admit(narrow.clone()), Ok((0, true)));
+    }
+    for value in [2, 3] {
+        let mut child = narrow.clone();
+        child.lower[0] = value;
+        assert_eq!(finite.admit(child.clone()), unlimited.admit(child));
+    }
+    let mut child = narrow;
+    child.lower[0] = 4;
+    assert_eq!(
+        finite.admit(child.clone()),
+        Err("domain containment check allowance")
+    );
+    assert_eq!(unlimited.admit(child), Ok((0, false)));
+    assert_eq!((finite.containment_checks, finite.deduplicated), (2, 2));
+    assert_eq!(
+        (unlimited.containment_checks, unlimited.deduplicated),
+        (3, 3)
+    );
+    let mut indexed = Queue::new(1, None);
+    indexed.admit(domain(Some(10))).unwrap();
+    indexed.containment_checks = usize::MAX;
+    let mut child = domain(Some(9));
+    child.lower[0] = 4;
+    assert_eq!(indexed.admit(child), Ok((0, false)));
+    assert_eq!(
+        (indexed.containment_checks, indexed.orthant_hits),
+        (usize::MAX, 1)
+    );
+}
+
+#[test]
 fn pending_inclusion_is_scheduling_reuse_not_completion() {
-    let mut queue = Queue::new(3, 20);
+    let mut queue = Queue::new(3, Some(20));
     assert_eq!(queue.admit(domain(Some(10))), Ok((0, true)));
     let mut child = domain(Some(10));
     child.lower[0] = 3;
@@ -27,7 +109,7 @@ fn pending_inclusion_is_scheduling_reuse_not_completion() {
 
 #[test]
 fn literal_owner_and_unbounded_tail_are_not_approximated() {
-    let mut queue = Queue::new(3, 20);
+    let mut queue = Queue::new(3, Some(20));
     let mut finite = domain(Some(10));
     finite.upper[0] = Some(u64::MAX);
     assert_eq!(queue.admit(finite), Ok((0, true)));
@@ -39,7 +121,7 @@ fn literal_owner_and_unbounded_tail_are_not_approximated() {
 
 #[test]
 fn indexed_reuse_survives_exhausted_scan_budget_without_scheduling_work() {
-    let mut queue = Queue::new(1, 1);
+    let mut queue = Queue::new(1, Some(1));
     assert_eq!(queue.admit(domain(Some(10))), Ok((0, true)));
     assert_eq!(
         queue.admit(domain(Some(11))),
@@ -70,7 +152,7 @@ fn indexed_reuse_survives_exhausted_scan_budget_without_scheduling_work() {
 
 #[test]
 fn route_and_apply_obligations_never_subsume_each_other() {
-    let mut queue = Queue::new(3, 0);
+    let mut queue = Queue::new(3, Some(0));
     assert_eq!(queue.admit(domain(Some(11))), Ok((0, true)));
     let routed = Domain::route_cover([true, false], Some(11));
     assert_eq!(queue.admit(routed.clone()), Ok((1, true)));
@@ -85,7 +167,7 @@ fn route_and_apply_obligations_never_subsume_each_other() {
 
 #[test]
 fn finite_maxima_are_not_infinity_in_either_index() {
-    let mut queue = Queue::new(4, 100);
+    let mut queue = Queue::new(4, Some(100));
     let mut finite = domain(Some(u32::MAX));
     finite.upper[0] = Some(u64::MAX);
     assert_eq!(queue.admit(finite.clone()), Ok((0, true)));
@@ -102,7 +184,7 @@ fn finite_maxima_are_not_infinity_in_either_index() {
 
 #[test]
 fn dominant_orthant_may_reuse_different_valid_id_but_exact_id_stays_stable() {
-    let mut queue = Queue::new(4, 100);
+    let mut queue = Queue::new(4, Some(100));
     let mut narrow = domain(Some(10));
     narrow.lower[0] = 5;
     assert_eq!(queue.admit(narrow.clone()), Ok((0, true)));
@@ -125,7 +207,7 @@ fn dominant_orthant_may_reuse_different_valid_id_but_exact_id_stays_stable() {
 
 #[test]
 fn exact_index_shares_storage_and_never_caches_contained_request_keys() {
-    let mut queue = Queue::new(2, 100);
+    let mut queue = Queue::new(2, Some(100));
     let mut narrow = domain(Some(10));
     narrow.lower[0] = 1;
     assert_eq!(queue.admit(narrow.clone()), Ok((0, true)));
@@ -157,7 +239,7 @@ fn exact_index_shares_storage_and_never_caches_contained_request_keys() {
 
 #[test]
 fn failed_domain_admission_does_not_publish_indices_or_rank_telemetry() {
-    let mut queue = Queue::new(0, 100);
+    let mut queue = Queue::new(0, Some(100));
     assert_eq!(queue.admit(domain(None)), Err("scheduled domain allowance"));
     assert!(queue.domains.is_empty() && queue.exact.is_empty() && queue.by_owner.is_empty());
     assert_eq!(queue.max_finite_rank, None);
@@ -187,7 +269,7 @@ fn failed_domain_admission_does_not_publish_indices_or_rank_telemetry() {
 
 #[test]
 fn failed_comparison_admission_does_not_publish_dominant_orthant() {
-    let mut queue = Queue::new(3, 0);
+    let mut queue = Queue::new(3, Some(0));
     let mut narrow = domain(Some(10));
     narrow.lower[0] = 1;
     assert_eq!(queue.admit(narrow.clone()), Ok((0, true)));
@@ -199,7 +281,7 @@ fn failed_comparison_admission_does_not_publish_dominant_orthant() {
     assert_eq!(queue.exact.len(), 1);
     assert_eq!(queue.unbounded_rank_domains, 0);
     assert_eq!(queue.admit(narrow), Ok((0, false)));
-    queue.max_checks = 1;
+    queue.max_checks = Some(1);
     assert_eq!(queue.admit(domain(None)), Ok((1, true)));
     assert_eq!(queue.unbounded_rank_domains, 1);
     assert_eq!(
@@ -210,7 +292,7 @@ fn failed_comparison_admission_does_not_publish_dominant_orthant() {
 
 #[test]
 fn indexed_admission_matches_naive_admitted_fifo_for_mixed_domains() {
-    let mut queue = Queue::new(10_000, usize::MAX);
+    let mut queue = Queue::new(10_000, None);
     let mut baseline: Vec<Domain<2>> = Vec::new();
     let mut naive_checks = 0usize;
     let mut requests = Vec::new();

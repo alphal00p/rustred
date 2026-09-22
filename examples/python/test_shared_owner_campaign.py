@@ -194,7 +194,7 @@ class SteeringTests(unittest.TestCase):
         self.assertIn("aggregate",result.stderr)
 
     def test_symbolic_supervisor_reuses_native_controls_and_resource_stop(self):
-        for explicit in (False, True):
+        for explicit in (False, True, "unlimited"):
             with self.subTest(explicit=explicit), tempfile.TemporaryDirectory() as temporary:
                 directory=Path(temporary)
                 child=directory/"fake-rustred"
@@ -215,6 +215,8 @@ class SteeringTests(unittest.TestCase):
                     command += ["--route-domain-overcover"]
                     for index, option in enumerate(CAMPAIGN.SYMBOLIC_ALLOWANCES, 2):
                         value="0" if option==CAMPAIGN.DOMAIN.REFINEMENT else str(index)
+                        if option == "max-containment-checks" and explicit == "unlimited":
+                            value = "unlimited"
                         command += ["--"+option,value]
                         expected[option]=value
                 result=subprocess.run(command,capture_output=True,text=True,timeout=10)
@@ -231,7 +233,7 @@ class SteeringTests(unittest.TestCase):
                 self.assertEqual(summary["operator_or_resource_stop"],"aggregate_rss_soft_limit")
                 self.assertFalse(summary["family_closure_claim"])
                 self.assertEqual(actual[actual.index("--queries")+1],str(queries.resolve()))
-                self.assertEqual("--route-domain-overcover" in actual,explicit)
+                self.assertEqual("--route-domain-overcover" in actual,bool(explicit))
                 for option in CAMPAIGN.SYMBOLIC_ALLOWANCES:
                     if explicit:
                         self.assertEqual(actual[actual.index("--"+option)+1],expected[option])
@@ -246,6 +248,9 @@ class SteeringTests(unittest.TestCase):
             ("--queries",["--max-nodes","7"],"require --targets"),
             ("--queries",["--expansion-limits","missing"],"require --targets"),
             ("--targets",["--max-frontiers","17"],"require --queries"),
+            ("--targets",["--max-containment-checks","unlimited"],"require --queries"),
+            ("--queries",["--max-containment-checks","0"],"positive integer"),
+            ("--queries",["--max-containment-checks","Unlimited"],"positive integer"),
             ("--targets",["--route-domain-overcover"],"require --queries"),
             ("--queries",["--max-route-masks-per-query","17"],"requires --route-domain-overcover"),
             ("--queries",["--targets","missing"],"not allowed"),

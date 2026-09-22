@@ -191,18 +191,29 @@ or coverage beyond the submitted domains and inspected dependencies. The result
 keeps `family_closure_claim=false`, `ibp_generation=false`,
 `routing_expanded=false`, and `independent_certification=false`.
 
-The positive work allowances `--max-domains` (default 100,000, ceiling 1,000,000),
+The positive work allowances `--max-domains` (default 100,000, caller-selected ceiling),
 `--max-frontiers` (default 100,000, ceiling 1,000,000),
-`--max-successor-events` (default 1,000,000), and
-`--max-containment-checks` (default 10,000,000) require `--follow-successors`.
-They separately bound admitted domains, retained frontier records, streamed
-callback events, and general box-containment scan comparisons across the
-worklist. Aggregate event allowances have no fixed ten-million ceiling: the
+`--max-successor-events` (default 1,000,000) require `--follow-successors`.
+They separately bound admitted domains, retained frontier records and streamed
+callback events. A large explicit domain allowance is not an eager allocation:
+the queue grows incrementally with fallible reservations, and campaigns should
+use the resource supervisor's RSS limits. There is no hidden one-million-domain
+ceiling on a caller-selected storage budget. Aggregate general box-containment comparisons are unlimited by
+default (`OwnerDomainWalkRequest.max_containment_checks=None`). An explicit
+`--max-containment-checks N` sets a positive finite diagnostic allowance;
+`--max-containment-checks unlimited` selects the default explicitly. Both forms
+require `--follow-successors`. Admitted, live and final reports expose the
+effective `max_containment_checks` as a positive number or `null` for unlimited,
+with a `containment_check_policy` label. The comparison counter remains checked:
+integer overflow is an explicit incomplete outcome, never wraparound. Unlimited
+comparisons do not remove domain/storage, event, native-work or resource limits,
+and do not change actual rank. Aggregate event allowances have no fixed
+ten-million ceiling: the
 event stream is not retained in memory. The frontier limit is checked before
 retaining any initial, application or routing frontier. Indexed
 exact/full-orthant reuse does not spend
-the comparison allowance and can still succeed after that allowance is spent;
-a request requiring another general scan then fails explicitly. Live and final
+an explicit finite comparison allowance and can still succeed after that allowance
+is spent; a request requiring another general scan then fails explicitly. Live and final
 reports separate `exact_domain_hits` and `full_orthant_hits` from total
 `deduplication_hits` and `containment_checks`. These are scheduling counters,
 not solved-domain counts. Existing per-query matching allowances apply independently to

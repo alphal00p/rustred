@@ -30,6 +30,77 @@ fn count() -> Event<1> {
 }
 
 #[test]
+fn initial_orthants_compact_only_same_family_and_current_flags() {
+    let pool = Pool::<1>::new(1);
+    assert!(pool.dispatch(0, domain(0)));
+    let mut emitter = Emitter {
+        pool: &pool,
+        slot: 0,
+        id: 0,
+        phase: Phase::Apply,
+        chunk: Vec::new(),
+        bytes: 0,
+        events: 0,
+    };
+    for _ in 0..1000 {
+        assert!(
+            emitter
+                .emit(Event::one(Effect::PreAdmittedOrthantReuse {
+                    successor: true,
+                    conditional: true,
+                }))
+                .is_continue()
+        );
+    }
+    assert_eq!(emitter.chunk.len(), 1);
+    assert_eq!(emitter.chunk[0].count, 1000);
+    assert!(
+        emitter
+            .emit(Event::one(Effect::KnownReuse {
+                successor: true,
+                conditional: true
+            }))
+            .is_continue()
+    );
+    assert!(
+        emitter
+            .emit(Event::one(Effect::PreAdmittedOrthantReuse {
+                successor: true,
+                conditional: false
+            }))
+            .is_continue()
+    );
+    assert!(
+        emitter
+            .emit(Event::one(Effect::PreAdmittedOrthantReuse {
+                successor: false,
+                conditional: false
+            }))
+            .is_continue()
+    );
+    assert_eq!(emitter.chunk.len(), 4);
+    assert_eq!(emitter.events, 1003);
+    assert!(emitter.flush());
+    let Poll::Events(chunk) = pool.poll(0) else {
+        panic!("flushed marker chunk");
+    };
+    assert_eq!(chunk.iter().map(|event| event.count).sum::<usize>(), 1003);
+    assert_eq!(chunk.len(), 4);
+    assert_eq!(pool.snapshot()["worker_buffered_events"], 0);
+    // Larger chunks must not defer cancellation to a flush boundary.
+    pool.stop.store(true, Ordering::Release);
+    assert!(
+        emitter
+            .emit(Event::one(Effect::PreAdmittedOrthantReuse {
+                successor: true,
+                conditional: true,
+            }))
+            .is_break()
+    );
+    assert_eq!(pool.snapshot()["worker_buffered_events"], 0);
+}
+
+#[test]
 fn job_local_reuse_compaction_uses_physical_and_logical_limits_separately() {
     let pool = Pool::<1>::new(1);
     assert!(pool.dispatch(0, domain(0)));
@@ -64,6 +135,7 @@ fn job_local_reuse_compaction_uses_physical_and_logical_limits_separately() {
     assert_eq!(chunk[0].count, CHUNK_EVENTS);
     assert_eq!(pool.snapshot()["worker_buffered_events"], 0);
     // Alternating charge vectors cannot compact and hit the physical cap.
+    assert!(CHUNK_RECORDS * size_of::<Event<1>>() < CHUNK_BYTES);
     for i in 0..=CHUNK_RECORDS {
         assert!(
             emitter
@@ -140,8 +212,15 @@ fn symbolic_parallel_stream_is_bounded_and_commits_in_requested_order() {
                     std::thread::yield_now();
                 }
             }
-            for _ in 0..(2 * CHUNK_EVENTS + 1) {
-                if emit(count()).is_break() {
+            // Genuine full published/private chunks without redundant millions
+            // of producer calls; the compaction test exercises count-one input.
+            for count in [CHUNK_EVENTS, CHUNK_EVENTS, 1] {
+                if emit(Event {
+                    count,
+                    effect: Effect::Count,
+                })
+                .is_break()
+                {
                     return finished(Some("stopped"));
                 }
             }
@@ -236,8 +315,13 @@ fn symbolic_parallel_observer_panic_unblocks_full_mailboxes_and_joins() {
             |_, _, emit| {
                 living.fetch_add(1, Ordering::Relaxed);
                 let _guard = Guard(&living);
-                for _ in 0..(2 * CHUNK_EVENTS + 1) {
-                    if emit(count()).is_break() {
+                for count in [CHUNK_EVENTS, CHUNK_EVENTS, 1] {
+                    if emit(Event {
+                        count,
+                        effect: Effect::Count,
+                    })
+                    .is_break()
+                    {
                         break;
                     }
                 }

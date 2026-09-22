@@ -246,7 +246,8 @@ def main() -> int:
         parser.add_argument("--" + option, type=positive, help="concrete-target campaign allowance")
     for option in SYMBOLIC_ALLOWANCES:
         parser.add_argument("--" + option,
-                            type=DOMAIN.nonnegative if option == DOMAIN.REFINEMENT else DOMAIN.positive,
+                            type=DOMAIN.nonnegative if option == DOMAIN.REFINEMENT else
+                            DOMAIN.containment_limit if option == "max-containment-checks" else DOMAIN.positive,
                             help="symbolic-domain work allowance; requires --queries")
     parser.add_argument("--route-domain-overcover", action="store_true",
                         help="share admitted symbolic route covers; requires --queries")

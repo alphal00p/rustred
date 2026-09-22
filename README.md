@@ -170,8 +170,15 @@ tests and 26 Python tests**. The new
 and Python steering expose saved-rule conditions without regenerating IBPs.
 Both actual diagonal controls are rejected by later necessary exclusions before
 RHS application; successful diagnostic exit does not mean successful reduction.
-Scheduling performance after the reuse change remains to be measured. This is
-not full R10 closure. See [the milestone](docs/research/guarded_owner_application_2026-09-22.md).
+The reuse-only retry still used about one busy core out of six. The subsequent
+initial-domain sharing and larger bounded worker buffers pass **377 application/
+integration tests and 27 Python tests**. General containment comparisons are now
+unlimited by default; finite diagnostic budgets remain optional. The next full
+campaign targets **50 workers, 500 GB**, not six. A real-input check first exposed
+an avoidable guard-work refusal in the new lookahead, which is being corrected
+before that run. These are incomplete application diagnostics, not full R10
+closure. See [the milestone](docs/research/guarded_owner_application_2026-09-22.md)
+and [current scheduling results](docs/research/parallel_symbolic_domains_2026-09-22.md).
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after

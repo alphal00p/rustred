@@ -12,7 +12,7 @@ fn job_local_reuse_counted_runs_preserve_every_event_cap_prefix() {
         for cap in 0..=6 {
             let mut request = request();
             request.max_events = cap;
-            let mut state = State::new(Queue::<1>::new(5, 5), 0, None);
+            let mut state = State::new(Queue::<1>::new(5, Some(5)), 0, None);
             let result = state.accept(
                 Event {
                     count: 5,
@@ -46,7 +46,7 @@ fn job_local_reuse_overflow_keeps_sequential_prefix_and_atomic_counters() {
         (3, "reuse counter overflow"),
     ] {
         let request = request();
-        let mut state = State::new(Queue::<1>::new(5, 5), 0, None);
+        let mut state = State::new(Queue::<1>::new(5, Some(5)), 0, None);
         match field {
             0 => state.successors = usize::MAX - 2,
             1 => state.conditional = usize::MAX - 2,
@@ -97,7 +97,7 @@ fn job_local_reuse_overflow_keeps_sequential_prefix_and_atomic_counters() {
 fn job_local_reuse_mixed_runs_do_not_erase_frontier_or_current_conditional_flag() {
     let mut request = request();
     request.max_events = 6;
-    let mut state = State::new(Queue::<1>::new(5, 5), 0, None);
+    let mut state = State::new(Queue::<1>::new(5, Some(5)), 0, None);
     state
         .accept(
             Event {
@@ -151,7 +151,7 @@ fn job_local_reuse_mixed_runs_do_not_erase_frontier_or_current_conditional_flag(
 fn symbolic_stream_compact_counts_keep_exact_event_cap() {
     let mut request = request();
     request.max_events = 5;
-    let mut state = State::new(Queue::<1>::new(5, 5), 0, None);
+    let mut state = State::new(Queue::<1>::new(5, Some(5)), 0, None);
     state
         .accept(
             Event {
@@ -178,7 +178,7 @@ fn symbolic_stream_compact_counts_keep_exact_event_cap() {
 fn symbolic_stream_frontier_cap_includes_prior_input_and_route_obligations() {
     let mut request = request();
     request.max_frontiers = 2;
-    let mut state = State::new(Queue::<1>::new(5, 5), 1, None);
+    let mut state = State::new(Queue::<1>::new(5, Some(5)), 1, None);
     let frontier = || {
         Event::one(Effect::Frontier {
             value: json!({"kind":"test"}),
@@ -198,7 +198,7 @@ fn symbolic_stream_frontier_cap_includes_prior_input_and_route_obligations() {
 #[test]
 fn symbolic_stream_admission_preserves_phase_rank_and_pending_semantics() {
     let request = request();
-    let mut state = State::new(Queue::<1>::new(5, 5), 0, None);
+    let mut state = State::new(Queue::<1>::new(5, Some(5)), 0, None);
     for phase in [Phase::Apply, Phase::Route] {
         for rank in [Some(11), None] {
             let domain = super::super::queue::Domain {
@@ -229,7 +229,7 @@ fn symbolic_stream_admission_preserves_phase_rank_and_pending_semantics() {
 
 #[test]
 fn symbolic_stream_failed_publisher_does_not_commit_contiguous_speculative_results() {
-    let mut queue = Queue::<1>::new(8, 100);
+    let mut queue = Queue::<1>::new(8, Some(100));
     for x in 0..3 {
         queue
             .admit(super::super::queue::Domain {
@@ -270,7 +270,7 @@ fn symbolic_stream_failed_publisher_does_not_commit_contiguous_speculative_resul
 
 #[test]
 fn symbolic_stream_panic_retains_already_committed_frontier_provenance() {
-    let mut queue = Queue::<1>::new(8, 100);
+    let mut queue = Queue::<1>::new(8, Some(100));
     queue
         .admit(super::super::queue::Domain::route_cover([true], None))
         .unwrap();

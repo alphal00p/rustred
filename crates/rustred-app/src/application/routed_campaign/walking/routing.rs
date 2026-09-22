@@ -1,6 +1,7 @@
 //! Worker-local conservative routing; only the coordinator admits domains.
 use super::{
     OwnerDomainWalkRequest,
+    initial_orthants::InitialOrthants,
     inspection::{Effect, Event, Finished, NativeStats, debug},
     mask,
     queue::{Domain, Phase},
@@ -31,6 +32,7 @@ pub(super) fn inspect<const N: usize>(
     domain: &Domain<N>,
     request: &OwnerDomainWalkRequest,
     cancellation: &AtomicBool,
+    initial: &InitialOrthants<N>,
     emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
 ) -> Finished {
     let started = Instant::now();
@@ -40,9 +42,14 @@ pub(super) fn inspect<const N: usize>(
             max_coordinate_cells: request.max_route_masks.saturating_mul(N).saturating_mul(2) },
         cancellation, |event| {
             let effect = match event {
+                CandidateDomainRouteEvent::Apply { owner_sector, cover } if initial.contains(Phase::Apply, &owner_sector, cover.actual_rank) =>
+                    Effect::PreAdmittedOrthantReuse { successor: false, conditional: false },
                 CandidateDomainRouteEvent::Apply { owner_sector, cover } => Effect::Admit {
                     successor: false, conditional: false, domain: Domain { phase: Phase::Apply,
                     owner: owner_sector, lower: vec![0; N], upper: vec![None; N], rank: cover.actual_rank } },
+                // Source validity remains mandatory before considering reuse.
+                CandidateDomainRouteEvent::Route { sector, cover } if !conditions && initial.contains(Phase::Route, &sector, cover.actual_rank) =>
+                    Effect::PreAdmittedOrthantReuse { successor: false, conditional: false },
                 CandidateDomainRouteEvent::Route { sector, cover } => match reentry(sector, cover.actual_rank, conditions) {
                     Ok(domain) => Effect::Admit { domain, successor: false, conditional: false },
                     Err(value) => Effect::Frontier { value, successor: false, conditional: false },

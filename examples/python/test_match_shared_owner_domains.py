@@ -97,6 +97,28 @@ class MatchSteeringTests(unittest.TestCase):
                 MATCH.main()
             execute.assert_not_called()
 
+    def test_containment_unlimited_and_finite_are_explicit_but_omission_is_not_forwarded(self):
+        option = "--max-containment-checks"
+        for value in ("unlimited", "19"):
+            with patch("sys.argv", self.arguments() + ["--follow-successors", option, value]), \
+                    patch.object(MATCH.os, "execve") as execute:
+                MATCH.main()
+            command = execute.call_args.args[1]
+            self.assertEqual(command[command.index(option) + 1], value)
+        with patch("sys.argv", self.arguments() + ["--follow-successors"]), \
+                patch.object(MATCH.os, "execve") as execute:
+            MATCH.main()
+        self.assertNotIn(option, execute.call_args.args[1])
+        for suffix in ([option, "unlimited"],
+                       ["--follow-successors", option, "0"],
+                       ["--follow-successors", option, "Unlimited"]):
+            with patch("sys.argv", self.arguments() + suffix), \
+                    patch.object(MATCH.os, "execve") as execute, \
+                    patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit):
+                    MATCH.main()
+                execute.assert_not_called()
+
     def test_route_overcover_requires_explicit_walk_and_forwards_mask_budget(self):
         flags = ["--follow-successors", "--route-domain-overcover", "--max-route-masks-per-query", "321"]
         with patch("sys.argv", self.arguments() + flags), patch.object(MATCH.os, "execve") as execute:

@@ -2,6 +2,7 @@
 //! Stable streamed publication is not a family-closure certificate.
 mod diagnostics;
 mod execution;
+mod initial_orthants;
 mod inspection;
 mod parallel;
 mod queue;
@@ -31,7 +32,9 @@ pub struct OwnerDomainWalkRequest {
     pub max_events: usize,
     /// Aggregate retained input/Apply/Route obligations, independent of events.
     pub max_frontiers: usize,
-    pub max_containment_checks: usize,
+    /// None leaves aggregate general comparisons unlimited. A positive finite
+    /// cap is an opt-in diagnostic budget, not a restriction on actual rank.
+    pub max_containment_checks: Option<usize>,
     pub route_domain_overcover: bool,
     pub max_route_masks: usize,
 }
@@ -44,7 +47,7 @@ impl OwnerDomainWalkRequest {
             max_domains: 100_000,
             max_events: 1_000_000,
             max_frontiers: 100_000,
-            max_containment_checks: 10_000_000,
+            max_containment_checks: None,
             route_domain_overcover: false,
             max_route_masks: 100_000,
         }
@@ -75,7 +78,10 @@ impl OwnerDomainWalkResult {
             "exact_domain_hits",
             "full_orthant_hits",
             "job_local_reuse_hits",
+            "pre_admitted_orthant_hits",
             "containment_checks",
+            "max_containment_checks",
+            "containment_check_policy",
             "routed_domains",
             "route_masks",
             "route_domain_overcover",
@@ -111,11 +117,11 @@ pub fn owner_domain_walk_with_progress(
     observer: impl Fn(Value),
 ) -> Result<OwnerDomainWalkResult, AppError> {
     if !(1..=10_000).contains(&request.matching.max_queries)
-        || !(1..=1_000_000).contains(&request.max_domains)
+        || request.max_domains == 0
         || request.max_events == 0
         || !(1..=1_000_000).contains(&request.max_frontiers)
         || !(1..=64).contains(&request.workers)
-        || request.max_containment_checks == 0
+        || request.max_containment_checks == Some(0)
         || request.max_route_masks == 0
     {
         return Err(AppError::input("invalid symbolic worklist allowances"));
@@ -132,6 +138,8 @@ pub fn owner_domain_walk_with_progress(
         json!({"event":"admitted", "operation":"owner_domain_walk", "arity":arity,
         "input_domains":queries.len(), "workers":request.workers, "max_domains":request.max_domains,
         "max_events":request.max_events, "max_frontiers":request.max_frontiers,
+        "max_containment_checks":request.max_containment_checks,
+        "containment_check_policy":"general_comparisons_only; null_is_unlimited; checked_counter",
         "route_domain_overcover":request.route_domain_overcover, "max_route_masks":request.max_route_masks,
         "applied_limits":limits_json(&request), "publication_policy":"stable_domain_id_stream",
         "family_closure_claim":false, "ibp_generation":false}),
@@ -262,15 +270,24 @@ fn run<const N: usize>(
     // Keep macro expansion bounded without a crate-wide recursion allowance.
     document["workers"] = json!(request.workers);
     document["job_local_reuse_hits"] = json!(state.job_local_reuse_hits);
+    document["pre_admitted_orthant_hits"] = json!(state.pre_admitted_orthant_hits);
+    document["pre_admitted_orthant_policy"] =
+        json!("immutable_initial_admitted_phase_owner_rank; pending_not_completed");
+    document["pre_admitted_orthant_limits"] = json!({"max_buckets":initial_orthants::MAX_BUCKETS,
+        "max_logical_entry_bytes":initial_orthants::MAX_ENTRY_BYTES,
+        "container_overhead_and_rss_excluded":true});
     document["job_local_reuse_policy"] =
         json!("per_inspection_after_ordered_emit; pending_not_completed");
     document["job_local_reuse_limits"] = json!({"max_keys":reuse::MAX_KEYS,
         "max_logical_key_bytes":reuse::MAX_KEY_BYTES,"container_overhead_and_rss_excluded":true});
     document["reuse_counter_scope"] = json!(
-        "job_local hits increment aggregate reuse only; skipped exact/orthant/general lookups are not attributed"
+        "job_local and pre_admitted hits increment aggregate reuse only; skipped exact/orthant/general lookups are not attributed"
     );
     document["max_events"] = json!(request.max_events);
     document["max_frontiers"] = json!(request.max_frontiers);
+    document["max_containment_checks"] = json!(request.max_containment_checks);
+    document["containment_check_policy"] =
+        json!("general_comparisons_only; null_is_unlimited; checked_counter");
     document["applied_limits"] = limits_json(request);
     document["publication_policy"] = json!("stable_domain_id_stream");
     document["parallel"] = state.parallel;
@@ -284,4 +301,72 @@ fn run<const N: usize>(
         all_scheduled_domains_resolved: resolved,
         document,
     })
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_domain_storage_budget_has_no_hidden_million_domain_ceiling() {
+        for limit in [1_000_001, 10_000_000, usize::MAX] {
+            let mut request = OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(
+                r#"{"family_fingerprint":"unused","owners":[],"initial_frontier_routes":[]}"#
+                    .into(),
+                String::new(),
+            ));
+            request.max_domains = limit;
+            let error = owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {
+                panic!("empty owner input must fail before loading or allocation")
+            })
+            .unwrap_err();
+            assert!(error.to_string().contains("no owners"), "{error}");
+        }
+        let mut request =
+            OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(String::new(), String::new()));
+        request.max_domains = 0;
+        let error = owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {
+            panic!("zero budget must fail before loading")
+        })
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("invalid symbolic worklist allowances")
+        );
+    }
+
+    #[test]
+    fn containment_defaults_to_unlimited_and_zero_is_rejected_before_loading() {
+        let mut request =
+            OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(String::new(), String::new()));
+        assert_eq!(request.max_containment_checks, None);
+        request.max_containment_checks = Some(0);
+        let error = owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {
+            panic!("invalid policy must be rejected before admission")
+        })
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("invalid symbolic worklist allowances")
+        );
+    }
+
+    #[test]
+    fn completion_retains_effective_containment_policy_and_distinct_reuse_counter() {
+        for limit in [None, Some(17)] {
+            let document = json!({"max_containment_checks":limit,
+                "containment_check_policy":"general_comparisons_only; null_is_unlimited; checked_counter",
+                "containment_checks":19, "pre_admitted_orthant_hits":3});
+            let completion = OwnerDomainWalkResult::completion_progress(&document);
+            assert_eq!(completion["max_containment_checks"], json!(limit));
+            assert_eq!(
+                completion["containment_check_policy"],
+                document["containment_check_policy"]
+            );
+            assert_eq!(completion["containment_checks"], 19);
+            assert_eq!(completion["pre_admitted_orthant_hits"], 3);
+        }
+    }
 }

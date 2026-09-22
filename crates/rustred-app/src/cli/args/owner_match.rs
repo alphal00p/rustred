@@ -36,7 +36,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub max_domains: usize,
     pub max_frontiers: usize,
     pub max_successor_events: usize,
-    pub max_containment_checks: usize,
+    pub max_containment_checks: Option<usize>,
 }
 
 pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -74,7 +74,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         max_domains: 100_000,
         max_frontiers: 100_000,
         max_successor_events: 1_000_000,
-        max_containment_checks: 10_000_000,
+        max_containment_checks: None,
     };
     let mut seen = BTreeSet::new();
     let mut arguments = arguments.peekable();
@@ -135,6 +135,13 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         let value = next_utf8_value(&mut arguments, name)?;
         match name {
+            "--max-containment-checks" => {
+                result.max_containment_checks = if value == "unlimited" {
+                    None
+                } else {
+                    Some(parse_positive_integer(name, value)?)
+                };
+            }
             "--max-bounded-refinement-cells-per-query" => {
                 result.max_bounded_refinement_cells = parse_nonnegative_integer(name, value)?;
             }
@@ -172,7 +179,6 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                     "--max-domains" => result.max_domains = value,
                     "--max-frontiers" => result.max_frontiers = value,
                     "--max-successor-events" => result.max_successor_events = value,
-                    "--max-containment-checks" => result.max_containment_checks = value,
                     "--max-route-masks-per-query" => result.max_route_masks = value,
                     "--max-rhs-cells-per-query" => result.max_rhs_cells = value,
                     "--max-term-visits-per-query" => result.max_term_visits = value,
@@ -196,9 +202,9 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "at most 10000 queries /1000000 retained pieces",
         ));
     }
-    if result.max_domains > 1_000_000 || result.max_frontiers > 1_000_000 {
+    if result.max_frontiers > 1_000_000 {
         return Err(ArgError::InvalidCombination(
-            "at most 1000000 domains /1000000 retained frontiers",
+            "at most 1000000 retained frontiers",
         ));
     }
     if result.workers > 64 {
@@ -251,6 +257,7 @@ mod tests {
         let limits = rustred::solver::OwnerDomainMatchLimits::default();
         let applied = rustred::solver::OwnerAppliedLimits::default();
         assert_eq!(args.workers, 1);
+        assert_eq!(args.max_containment_checks, None);
         assert_eq!(args.max_frontiers, 100_000);
         assert_eq!(args.max_rhs_events, applied.max_events);
         assert_eq!(args.max_shift_groups, applied.max_shift_groups);
@@ -360,13 +367,48 @@ mod tests {
                 args.max_successor_events,
                 args.max_containment_checks
             ),
-            (7, 31, 90)
+            (7, 31, Some(90))
         );
         for suffix in [
             "--max-domains 7",
             "--follow-successors --max-successor-events 0",
-            "--follow-successors --max-domains 1000001",
+            "--follow-successors --max-domains 0",
             "--follow-successors --follow-successors",
+        ] {
+            assert!(parse(&format!("--manifest m --queries q --output o {suffix}")).is_err());
+        }
+    }
+
+    #[test]
+    fn explicit_domain_budget_accepts_more_than_one_million() {
+        for limit in [1_000_001, 10_000_000, usize::MAX] {
+            let Command::OwnerDomainMatch(args) = parse(&format!(
+                "--manifest m --queries q --output o --follow-successors --max-domains {limit}"
+            ))
+            .unwrap() else {
+                panic!("match command")
+            };
+            assert_eq!(args.max_domains, limit);
+        }
+    }
+
+    #[test]
+    fn containment_policy_is_unlimited_by_default_or_explicit_literal() {
+        for suffix in ["", "--max-containment-checks unlimited"] {
+            let Command::OwnerDomainMatch(args) = parse(&format!(
+                "--manifest m --queries q --output o --follow-successors {suffix}"
+            ))
+            .unwrap() else {
+                panic!("match command")
+            };
+            assert_eq!(args.max_containment_checks, None);
+        }
+        for suffix in [
+            "--max-containment-checks unlimited",
+            "--follow-successors --max-containment-checks 0",
+            "--follow-successors --max-containment-checks Unlimited",
+            "--follow-successors --max-containment-checks none",
+            "--follow-successors --max-containment-checks unlimited --max-containment-checks 7",
         ] {
             assert!(parse(&format!("--manifest m --queries q --output o {suffix}")).is_err());
         }

@@ -9,9 +9,17 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-pub(super) const CHUNK_RECORDS: usize = 64;
-pub(super) const CHUNK_EVENTS: usize = 65_536;
-pub(super) const CHUNK_BYTES: usize = 256 * 1024;
+// The observed first owner emits >700k logical callbacks. Even with homogeneous
+// successor compression, productive rules usually retain a Count boundary and
+// at least one successor run; 64 physical records therefore forced premature
+// head-of-line backpressure. These independent bounds permit useful lookahead,
+// not an unbounded whole-domain reservoir or a promise of parallel speedup.
+// At 50 workers, published+private chunks charge at most 800 MiB logical storage;
+// coordinator-held chunk, incoming descriptors, Vec spare capacity, caches,
+// allocator overhead, immutable programs and native scratch are additional.
+pub(super) const CHUNK_RECORDS: usize = 16_384;
+pub(super) const CHUNK_EVENTS: usize = 1_048_576;
+pub(super) const CHUNK_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone)]
 pub(super) struct Failure {

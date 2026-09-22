@@ -106,9 +106,15 @@ diagnostics. This preserves first-applicable priority and native errors; actual
 full-census effects await the integrated run. The reuse-only six-worker retry
 still averaged approximately one busy core despite 3.98 million job-local reuse
 hits, so it was stopped for optimization. Initial admitted-domain sharing and
-larger bounded transport lookahead are now in the joint application release
-gate, together with the unlimited comparison policy. The next integrated
-attempt uses the requested 50 workers under the 450/500 GB RSS policy.
+larger bounded transport lookahead now pass the joint application release
+gate: **377 application/integration tests and 27 Python tests**, together with
+the unlimited comparison policy and removal of a hidden one-million-domain
+ceiling on explicit storage budgets. An actual-input local control then stopped
+in the first owner on an optional lookahead's native factor-work preflight;
+the fifteen points in that cell had valid selected rules in the earlier run.
+Correct this operational regression before the next integrated attempt with
+the requested 50 workers under the 450/500 GB RSS policy. No complete R10 solve
+or improved parallel utilization is claimed yet.
 
 The preceding shared-walk baseline includes the generic strict-pinch **R-k**
 routing bound and bounded parallel symbolic inspection. Its core release
