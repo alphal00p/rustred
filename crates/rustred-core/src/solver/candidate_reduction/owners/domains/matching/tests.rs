@@ -1,5 +1,6 @@
 //! Synthetic fixtures exercise applicability, not IBP provenance or closure.
 mod affine_priority;
+mod factor_priority;
 use super::*;
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial};
 use crate::family::IntegralKey;

@@ -92,6 +92,24 @@ measure the corrected expansion or eliminate genuine dependency breadth. See the
 
 ### September 22: move shared work to symbolic domains
 
+The next shared control starts all 67 input R10 owner orthants together, so
+already admitted broad owner domains can absorb repeated child requests from
+the beginning. The historical six child queries remain diagnostics, not the
+campaign scope. Before the 50-worker attempt, finish bounded parallel symbolic
+inspection: share the immutable rule library, buffer bounded scalar/domain
+events per worker, and keep canonical queue admission deterministic. Report
+native attempted work separately from committed work and preserve cancellation
+and first-failure diagnostics. Do not collect an entire successor stream or
+clone prepared coefficients for each worker.
+
+A further reviewed routing optimization uses `rank(B-e)=|e|-sum(min(e,B))`:
+losing `k` active denominators consumes at least `k` units of numerator degree,
+so a strict pinched image needs at most rank `R-k`. This is a derived bound on
+that image, not clipping an intermediate to the entry rank. It is not yet
+implemented; full-root images retain R, unbounded ranks remain unbounded, and
+source-validity checks and Route/Apply phases must remain unchanged. Measure
+this and shared scheduling before spending the full campaign allocation.
+
 The next slice adds conservative domain routing through admitted maps and
 bounded inactive refinement of selected native guard preflight refusals.
 Route requests share whole support/rank orthants; full mapped roots enter Apply,

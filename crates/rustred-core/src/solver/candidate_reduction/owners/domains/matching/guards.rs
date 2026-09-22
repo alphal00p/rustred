@@ -9,27 +9,16 @@ mod affine;
 #[cfg(test)]
 #[path = "guards/affine_tests.rs"]
 mod affine_tests;
+#[cfg(test)]
+#[path = "guards/factor_tests.rs"]
+mod factor_tests;
 
-/// Closed native resource identifiers audited in indexed/base_coefficients.rs.
-/// These are admission checks before the NEXT GCD/factor operation, not proof
-/// that no native work has happened: a prior GCD/equation may already have run.
-/// Output/input/replay caps and all non-ResourceLimit faults remain hard errors.
+/// Retry only the shared closed set of native next-operation admissions.
 pub(super) fn permits_bounded_refinement(failure: &OwnerDomainMatchFailure) -> bool {
     matches!(
         failure,
-        OwnerDomainMatchFailure::Algebra(crate::algebra::IndexedAlgebraError::ResourceLimit {
-            resource: "guard univariate degree"
-                | "guard gcd/factor work"
-                | "guard factor variables"
-                | "guard factor per-variable degree"
-                | "guard factor total degree"
-                | "guard factor dense slots"
-                | "guard factor recombination subsets"
-                | "guard prospective factor terms"
-                | "guard prospective factor integer bits"
-                | "guard separable factor work",
-            ..
-        })
+        OwnerDomainMatchFailure::Algebra(error)
+            if crate::algebra::indexed::is_native_guard_preflight_refusal(error)
     )
 }
 
@@ -90,41 +79,47 @@ pub(super) fn resolve<const N: usize>(
     // vanish anywhere on the box disproves the guard's zero locus. This only
     // adds a sufficient nonzero test; diagonals/nonlinear cases retain the
     // existing native resolution and exact/conservative distinction.
-    if affine::misses_zero(
-        &system,
+    let mut affine_probe = affine::Probe::new(
         context.base().parameter_names().len(),
         cell,
         owner,
         rank,
         algebra,
         budget.limits.guard_algebra,
-    )
-    .map_err(OwnerDomainMatchFailure::Algebra)?
+    );
+    if affine_probe
+        .misses_system(&system)
+        .map_err(OwnerDomainMatchFailure::Algebra)?
     {
         return Ok(Resolution::Nonzero);
     }
     let resolution = context
-        .integer_zero_locus_domain_resolution(&system, budget.limits.guard_algebra, |axis, root| {
-            let local = if owner[axis] {
-                root - &Integer::from(1)
-            } else {
-                -root.clone()
-            };
-            if local < Integer::from(cell.lower()[axis])
-                || cell.upper()[axis].is_some_and(|u| local > Integer::from(u))
-            {
-                return false;
-            }
-            if !owner[axis]
-                && let Some(rank) = rank
-            {
-                let other = minimum_rank(cell, owner) - u128::from(cell.lower()[axis]);
-                if other > u128::from(rank) || local > Integer::from(u128::from(rank) - other) {
+        .integer_zero_locus_domain_resolution_with_factor_exclusion(
+            &system,
+            budget.limits.guard_algebra,
+            |axis, root| {
+                let local = if owner[axis] {
+                    root - &Integer::from(1)
+                } else {
+                    -root.clone()
+                };
+                if local < Integer::from(cell.lower()[axis])
+                    || cell.upper()[axis].is_some_and(|u| local > Integer::from(u))
+                {
                     return false;
                 }
-            }
-            true
-        })
+                if !owner[axis]
+                    && let Some(rank) = rank
+                {
+                    let other = minimum_rank(cell, owner) - u128::from(cell.lower()[axis]);
+                    if other > u128::from(rank) || local > Integer::from(u128::from(rank) - other) {
+                        return false;
+                    }
+                }
+                true
+            },
+            |factor| affine_probe.misses_polynomial(factor),
+        )
         .map_err(OwnerDomainMatchFailure::Algebra)?;
     let (planes, exact) = match resolution {
         IntegerZeroLocusDomainResolution::IdenticallyZero => return Ok(Resolution::Zero),

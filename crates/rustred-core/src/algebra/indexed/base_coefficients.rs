@@ -16,6 +16,9 @@ use super::limits::{ceil_log2, check_limit, integer_magnitude_bits};
 
 use super::{IndexedCoefficientContext, IndexedPolynomial};
 
+#[cfg(test)]
+#[path = "base_coefficients/factor_exclusion_tests.rs"]
+mod factor_exclusion_tests;
 mod ordering;
 
 /// Cold-path admission envelope for exact guard-locus decomposition.
@@ -673,7 +676,33 @@ impl IndexedCoefficientContext {
         &self,
         system: &BaseCoefficientSystem,
         limits: IndexedGuardLimits,
+        domain_contains_root: impl FnMut(usize, &Integer) -> bool,
+    ) -> Result<IntegerZeroLocusDomainResolution, IndexedAlgebraError> {
+        self.integer_zero_locus_domain_resolution_with_factor_exclusion(
+            system,
+            limits,
+            domain_contains_root,
+            |_| Ok(false),
+        )
+    }
+
+    /// As above, with a caller-owned sufficient proof that a borrowed coupled
+    /// native factor has no zero anywhere on the requested domain. Returning
+    /// false proves nothing and preserves the existing unsupported path.
+    ///
+    /// The callback runs only after native input/work/output admission and
+    /// never for a zero factor. True removes only that factor from the cover;
+    /// all remaining factors and exact/conservative root replays stay strict.
+    /// The caller must bound its additional work across the complete call and
+    /// propagate native failures rather than interpreting them as nonvanishing.
+    pub(crate) fn integer_zero_locus_domain_resolution_with_factor_exclusion(
+        &self,
+        system: &BaseCoefficientSystem,
+        limits: IndexedGuardLimits,
         mut domain_contains_root: impl FnMut(usize, &Integer) -> bool,
+        mut factor_misses_domain: impl FnMut(
+            &crate::algebra::CoefficientPolynomial,
+        ) -> Result<bool, IndexedAlgebraError>,
     ) -> Result<IntegerZeroLocusDomainResolution, IndexedAlgebraError> {
         match self.univariate_integer_zero_set(system, limits)? {
             IntegerZeroSetResolution::IdenticallyZero => {
@@ -769,7 +798,13 @@ impl IndexedCoefficientContext {
                     [position] => Some(*position),
                     _ => None,
                 }) else {
-                    // Symbolica found a genuinely coupled irreducible factor.
+                    // A coupled factor may nevertheless miss this caller's
+                    // domain. This sufficient test borrows the already
+                    // admitted native output; it does not refactor or relax
+                    // any remaining root or hyperplane replay obligation.
+                    if factor_misses_domain(factor)? {
+                        continue;
+                    }
                     equation_is_separable = false;
                     break;
                 };

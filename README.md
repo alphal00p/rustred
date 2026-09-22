@@ -133,18 +133,19 @@ IBPs are regenerated for these domain queries. See the
 [interface and limits](docs/shared_owner_domain_matching.md).
 Full five-loop R10 closure is **not yet established**. The latest same-input
 [67-owner local control](docs/research/guard_obstruction_triage_2026-09-22.md)
-resolves 59 owners and retains 166 unresolved guard regions, with no exact gaps
-or native-work refusal. Local matching takes 97.52 s (208.27 s whole command);
+resolves 60 owners and retains 81 unresolved guard regions, with no exact gaps
+or native-work refusal. Local matching takes 94.09 s (206.50 s whole command);
 this is not a complete recursive solve or IBP-generation timing. The guard
-shortcuts pass 2,640 core, 320 application and 19 Python tests, with zero failures
+shortcuts pass 2,661 core, 323 application and 19 Python tests, with zero failures
 and 32 existing ignored core diagnostics.
 
 The separate [shared-traversal controls](docs/research/shared_domain_index_2026-09-22.md)
 reuse saved programs across owners, reaching 3,886 completed domains before an
 optional RHS numerator-classification preflight refusal. Recursive work remains
-queued. The next slice retains conditional successors for eligible optional
-refusals while keeping denominator/source validity strict, then initializes
-the shared traversal with all 67 R10 owner domains together. No saved IBPs are
+queued. The new slice retains conditional successors for eligible optional
+refusals while keeping denominator/source validity strict. Bounded first-per-phase
+diagnostics are separate from missing-rule frontiers. The next shared control
+initializes all 67 R10 owner domains together. No saved IBPs are
 regenerated merely to repeat these application diagnostics.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints

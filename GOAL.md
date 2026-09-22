@@ -106,9 +106,16 @@ identified sign-definite obstructions but exposes 85 later denominator guards;
 command in this observation, not a full-family generation or closure timing.
 The applied refusal is a single affine numerator that Symbolica factors in
 0.274 ms; its conservative work estimate, not measured expression swell, causes
-the stop. Next retain conditional successors when optional numerator support
-classification alone hits an eligible native-work preflight, preserving strict
-denominator/source checks and explicit diagnostics. Then start the shared
+the stop. The follow-up now retains conditional successors when optional numerator
+support classification alone hits an eligible native-work preflight, preserving
+strict denominator/source checks and bounded explicit diagnostics. It also
+applies the affine sign check to borrowed factors already returned by Symbolica.
+The combined gate passes **2,661 core / 323 application / 19 Python tests** with
+zero failures (32 existing core diagnostics ignored). The same-input full67
+local control now resolves **60 owners**, removes all 85 denominator obstructions
+and retains exactly the other 81 unresolved regions unchanged. Matching takes
+94.09 s / 206.50 s whole command, with no native error or resource stop. This
+still does not establish recursive R10 closure. Next start the shared
 walk with all 67 R10 owner orthants together, so broad owner reuse exists from
 the beginning; the six historical child queries remain diagnostic inputs only.
 Address positive-coupled guard selection without

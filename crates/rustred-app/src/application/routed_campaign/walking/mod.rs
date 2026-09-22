@@ -1,6 +1,7 @@
 //! Shared symbolic successor work discovery over one immutable owner snapshot.
 //! Optional admitted-route overcovers share dependency work without expanding
 //! numerator polynomials. This is not a family-closure certificate.
+mod diagnostics;
 mod queue;
 mod routing;
 
@@ -16,6 +17,7 @@ use serde_json::{Value, json};
 
 use super::{OwnerDomainMatchRequest, RoutedCampaignRequest, input, matching, prepare};
 use crate::AppError;
+use diagnostics::{OptionalCounts, OptionalRefusals};
 use queue::{Domain, Phase, Queue};
 
 #[derive(Clone, Debug)]
@@ -77,6 +79,9 @@ impl OwnerDomainWalkResult {
             "unbounded_rank_domains",
             "successors",
             "conditional_successors",
+            "optional_coefficient_refusals",
+            "optional_original_refusals",
+            "optional_coalesced_refusals",
             "frontiers",
             "events",
             "prepared_seconds",
@@ -136,6 +141,9 @@ fn stats_json(stats: OwnerAppliedStats) -> Value {
     json!({"selected_pieces":stats.selected_pieces, "term_visits":stats.term_visits,
         "shift_groups":stats.shift_groups, "boundary_cells":stats.boundary_cells,
         "sign_splits":stats.sign_splits, "native_operations":stats.native_operations,
+        "optional_coefficient_refusals":stats.optional_coefficient_refusals,
+        "optional_original_refusals":stats.optional_original_refusals,
+        "optional_coalesced_refusals":stats.optional_coalesced_refusals,
         "coalescing_additions":stats.coalescing_additions, "events":stats.events,
         "successors":stats.successors, "conditional_successors":stats.conditional_successors,
         "problems":stats.problems, "zero_terms":stats.zero_terms,
@@ -171,6 +179,7 @@ fn run<const N: usize>(
     let mut events = 0usize;
     let mut successors = 0usize;
     let mut conditional = 0usize;
+    let mut optional_counts = OptionalCounts::default();
     let mut frontiers = 0usize;
     let mut completed = 0usize;
     let mut routed_domains = 0usize;
@@ -242,6 +251,7 @@ fn run<const N: usize>(
             "conditional_successors":conditional, "frontiers":frontiers, "events":events}),
         );
         let mut details = Vec::new();
+        let mut optional_refusals = OptionalRefusals::default();
         let mut node_error = None;
         let node_started = Instant::now();
         if domain.phase == Phase::Route {
@@ -293,6 +303,17 @@ fn run<const N: usize>(
                             details.push(json!({"kind":"local_dispatch_frontier", "disposition":format!("{other:?}"),
                                 "lower":piece.lower(), "upper":piece.upper(), "rank":piece.max_numerator_rank(),
                                 "reached_missing_rule_claim":false}));
+                        }
+                    },
+                    OwnerAppliedEvent::OptionalCoefficientRefusal {
+                        source, source_lower, source_upper, shift, original_term_ordinal, failure,
+                    } => {
+                        if let Err(problem) = optional_refusals.record(
+                            source.disposition(), source.max_numerator_rank(), source_lower,
+                            source_upper, shift, original_term_ordinal, failure,
+                        ) {
+                            node_error = Some(problem.to_owned());
+                            return ControlFlow::Break(());
                         }
                     },
                     OwnerAppliedEvent::Successor(child) => {
@@ -352,11 +373,20 @@ fn run<const N: usize>(
             Err(e) => (e.stats, Some(format!("{:?}", e.failure))),
         };
         error = node_error.or(native_error);
+        if let Err(problem) = optional_counts.add(stats) {
+            // Keep the native per-domain counters even if their aggregate
+            // cannot be represented; an incomplete report must not wrap.
+            error.get_or_insert_with(|| problem.to_owned());
+        }
         completed += usize::from(error.is_none());
+        let provenance_truncated = optional_refusals.truncated(stats);
         records.push(
             json!({"id":id, "phase":"Apply", "owner":mask(&domain.owner), "lower":domain.lower,
             "upper":domain.upper, "rank":domain.rank, "local_inspection_finished":error.is_none(),
             "stats":stats_json(stats), "seconds":node_started.elapsed().as_secs_f64(),
+            "optional_refusals":optional_refusals.records,
+            "optional_refusal_provenance_scope":"first_per_phase_per_query",
+            "optional_refusal_provenance_truncated":provenance_truncated,
             "frontiers":details, "error":error}),
         );
         queue.next += 1;
@@ -378,6 +408,9 @@ fn run<const N: usize>(
         "deduplication_hits":queue.deduplicated, "containment_checks":queue.containment_checks,
         "exact_domain_hits":queue.exact_hits, "full_orthant_hits":queue.orthant_hits,
         "successors":successors, "conditional_successors":conditional,
+        "optional_coefficient_refusals":optional_counts.total,
+        "optional_original_refusals":optional_counts.original,
+        "optional_coalesced_refusals":optional_counts.coalesced,
         "frontiers":frontiers, "events":events, "inputs":inputs, "domains":records,
         "input_frontiers":input_frontiers,
         "error":error, "prepared_seconds":prepared,

@@ -47,6 +47,12 @@ pub struct OwnerAppliedStats {
     pub boundary_cells: usize,
     pub sign_splits: usize,
     pub native_operations: usize,
+    /// Recognized optional numerator preflight refusals, including attempts
+    /// followed by cancellation, an event limit, or consumer stop. Equal to
+    /// optional_original_refusals + optional_coalesced_refusals. No work refund.
+    pub optional_coefficient_refusals: usize,
+    pub optional_original_refusals: usize,
+    pub optional_coalesced_refusals: usize,
     pub coalescing_additions: usize,
     pub events: usize,
     pub successors: usize,
@@ -118,6 +124,20 @@ pub struct OwnerAppliedProblem<'a, const N: usize> {
 #[derive(Debug)]
 pub enum OwnerAppliedEvent<'a, const N: usize> {
     Classified(&'a OwnerDomainMatchPiece<N>),
+    /// Only the first original and first coalesced refusal in this query are
+    /// emitted, with normal event admission. All refusals remain counted in
+    /// stats. More refusals than retained records means provenance is partial;
+    /// a stop can also prevent delivery of a counted first record. No exact
+    /// coefficient is retained here, and this is not a missing-rule obligation.
+    OptionalCoefficientRefusal {
+        source: &'a OwnerDomainMatchPiece<N>,
+        source_lower: &'a [u64],
+        source_upper: &'a [Option<u64>],
+        shift: &'a [i64; N],
+        /// Some for an original RHS term, None for the final coalesced sum.
+        original_term_ordinal: Option<usize>,
+        failure: &'a IndexedAlgebraError,
+    },
     Successor(OwnerAppliedSuccessor<'a, N>),
     Problem(OwnerAppliedProblem<'a, N>),
     /// Local RHS inspection ended; problems/conditional edges remain explicit.

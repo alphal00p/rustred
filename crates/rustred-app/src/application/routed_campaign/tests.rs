@@ -148,6 +148,30 @@ fn owner_domain_walk_reuses_pending_unbounded_ray_without_closure_claim() {
         assert_eq!(finished[counter], result.document[counter], "{counter}");
         assert!(started[counter].is_u64(), "{counter}");
     }
+    for counter in [
+        "optional_coefficient_refusals",
+        "optional_original_refusals",
+        "optional_coalesced_refusals",
+    ] {
+        assert_eq!(result.document[counter], 0, "{counter}");
+        assert_eq!(finished[counter], result.document[counter], "{counter}");
+        assert_eq!(
+            result.document["domains"][0]["stats"][counter], 0,
+            "{counter}"
+        );
+    }
+    assert_eq!(
+        result.document["domains"][0]["optional_refusals"],
+        json!([])
+    );
+    assert_eq!(
+        result.document["domains"][0]["optional_refusal_provenance_truncated"],
+        false
+    );
+    assert_eq!(
+        result.document["domains"][0]["optional_refusal_provenance_scope"],
+        "first_per_phase_per_query"
+    );
     assert!(finished.get("domains").is_none());
     assert!(serde_json::to_vec(finished).unwrap().len() < 8192);
     assert_eq!(

@@ -9,6 +9,7 @@
 mod base_coefficients;
 mod context;
 mod error;
+mod guard_preflight;
 mod limits;
 mod scope;
 mod specialization;
@@ -22,6 +23,7 @@ pub(crate) use base_coefficients::IntegerZeroLocusDomainResolution;
 pub(crate) use base_coefficients::IntegerZeroSetResolution;
 pub use context::IndexedCoefficientContext;
 pub use error::IndexedAlgebraError;
+pub(crate) use guard_preflight::is_native_guard_preflight_refusal;
 pub use limits::{IndexedAlgebraLimits, IndexedContextLimits};
 pub(crate) use limits::{ceil_log2, integer_magnitude_bits};
 pub use value::{IndexedCoefficient, IndexedPolynomial};

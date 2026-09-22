@@ -284,3 +284,76 @@ the newly exposed denominator expressions. The separate applied-RHS affine
 refusal and planned optional-numerator treatment are recorded in
 [the shared-walk report](shared_domain_index_2026-09-22.md). None of these local
 measurements establishes complete recursive R10 closure.
+
+## Follow-up: the 85 denominator checks
+
+Inspection of the actual saved expressions finds **no index zero on any of
+these 85 recorded domains**. Symbolica factors each specialized denominator;
+all 85 exact native multiplication replays agree. There are 40 distinct
+specialized polynomials. Their index-dependent factors are affine and strictly
+positive on the recorded boxes. For example, one set has `n1>=4, n3>=2` and
+factors `(n1-1)(n1+n3+t-2)` with `t>=1`, giving lower bounds 3 and 5. Another has
+`n9>=2, n10>=2` and factors `(n9-1)(2*n9+n10-3)`, with lower bounds 1 and 3.
+Formal base factors in `d` remain elements of the existing rational coefficient
+field; this is not a statement about every numerical specialization of `d`.
+
+The native factor calls total 0.003408 s in the diagnostic. This is neither a
+campaign timing nor a new rule computation. Evidence and independent review:
+`TMP/native-denominator-guard-triage.VZMSl5/`.
+
+The follow-up implementation lets the existing resolver ask the same sufficient
+affine interval check about **borrowed factors already returned by Symbolica**.
+It adds no factorization algorithm or extra factor call. One optional work
+allowance spans whole equations and factors; exhaustion falls through to the
+strict existing result. Native input, work, output, remaining root and replay
+checks stay mandatory. A genuinely intersecting diagonal stays unresolved.
+This is separate from the optional RHS-numerator fallback described in
+[the worklist interface](../shared_owner_domain_matching.md#optional-coefficient-support-classification).
+Neither change promotes an unknown condition to a terminal or proves family
+closure merely by exhausting a worklist.
+
+The combined follow-up release gates pass **2,661 core tests**, **323 application
+tests**, and **19 Python steering tests**, with zero failures and 32 existing
+ignored core diagnostics. The added tests exercise mandatory error propagation,
+factor/root replay, actual rank geometry, bounded optional diagnostics and
+concrete dispatch parity. Independent code and mathematical audits pass. The
+full core test executable runs in 157.68 s; builds are separate from solver
+measurements. Evidence: `TMP/optional-factor-core.fwKhFq/` and
+`TMP/optional-guard-app.f0H224/`. The new all-class controls below use that
+frozen application binary, not an in-progress build.
+
+### Follow-up same-input local control
+
+The run finishes all 67 queries with **60 locally resolved owners** and seven
+incomplete owners. Every one of the 85 inspected original-denominator unknowns
+is removed, the other **81 full unresolved records are unchanged**, and no new
+unknown is added. Owner `010111011000001` now classifies exactly. The count
+change is not evidence that the seven remaining owners need new rules.
+
+| Measurement | Whole-equation affine check | Borrowed-factor check |
+|---|---:|---:|
+| Locally resolved owners | 59 | 60 |
+| Selected-rule regions | 214,681 | 213,951 |
+| Declared-terminal regions | 900 | 900 |
+| Unresolved guard regions | 166 | 81 |
+| Exact gaps / invalid sources / native refusals | 0 / 0 / 0 | 0 / 0 / 0 |
+| Preparation | 104.95 s | 106.86 s |
+| Local matching | 97.52 s | 94.09 s |
+| Whole command | 208.27 s | 206.50 s |
+| CPU time | 206.06 s | 204.63 s |
+| Peak RSS | 6,476,340 KiB | 6,473,076 KiB |
+
+This uses the same inputs, native allowances, CPU41, one native worker and
+64 GiB address-space envelope with 48/60 GiB sampled RSS supervision. There is
+no elapsed deadline or overlapping owned build/native workload. The modest
+timing difference is a single shared-host observation with changed partition
+work, not a statistical speedup or full solve benchmark. Status 4 reflects
+unresolved geometry; no operator/resource stop or native error occurred.
+Evidence: `TMP/factored-guard-full67.uqUNUY/`, terminal and reaped.
+
+The next shared successor control initializes every R10 owner orthant at once.
+Its scope therefore differs from the older six-query controls and its timing
+must not be presented as their matched speedup. Both optional-numerator
+handling and the factored mandatory-guard checks are active; saved rules remain
+unchanged. Full recursive closure, bounded parallel symbolic scheduling and
+automatic missing-rule source feedback remain unfinished.

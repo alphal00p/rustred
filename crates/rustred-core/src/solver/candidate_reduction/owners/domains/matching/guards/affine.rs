@@ -4,7 +4,9 @@
 //! over Symbolica Integer coefficients, not an equation/inequality solver.
 //! The enclosing caller has already admitted/authenticated native input.
 use crate::algebra::indexed::{BaseCoefficientSystem, ceil_log2, integer_magnitude_bits};
-use crate::algebra::{IndexedAlgebraError, IndexedAlgebraLimits, IndexedGuardLimits};
+use crate::algebra::{
+    CoefficientPolynomial, IndexedAlgebraError, IndexedAlgebraLimits, IndexedGuardLimits,
+};
 use crate::foundry::completion::LatticeBox;
 use symbolica::prelude::Integer;
 
@@ -13,6 +15,7 @@ use super::super::geometry::minimum_rank;
 /// One nonvanishing coefficient equation suffices for the simultaneous system.
 /// The rank simplex is only used to tighten individual inactive upper bounds;
 /// the resulting box is an overcover, never an exact feasibility assertion.
+#[cfg(test)]
 pub(super) fn misses_zero<const N: usize>(
     system: &BaseCoefficientSystem,
     base_count: usize,
@@ -22,31 +25,107 @@ pub(super) fn misses_zero<const N: usize>(
     algebra: IndexedAlgebraLimits,
     limits: IndexedGuardLimits,
 ) -> Result<bool, IndexedAlgebraError> {
-    let minimum_rank = minimum_rank(cell, owner);
-    if rank.is_some_and(|r| minimum_rank > u128::from(r)) {
-        return Ok(false); // the dispatch layer owns empty-domain elimination
+    Probe::new(base_count, cell, owner, rank, algebra, limits).misses_system(system)
+}
+
+/// One optional allowance for the whole guard resolution, including the
+/// initial coefficient equations and every later borrowed native factor.
+/// No native expression is retained or cloned. Exhaustion is sticky and means
+/// only that the optional proof is unavailable, never an error or a proof.
+pub(super) struct Probe<'a, const N: usize> {
+    base_count: usize,
+    cell: &'a LatticeBox,
+    owner: &'a [bool; N],
+    rank: Option<u32>,
+    algebra: IndexedAlgebraLimits,
+    limits: IndexedGuardLimits,
+    minimum_rank: u128,
+    work: usize,
+    exhausted: bool,
+}
+
+impl<'a, const N: usize> Probe<'a, N> {
+    pub(super) fn new(
+        base_count: usize,
+        cell: &'a LatticeBox,
+        owner: &'a [bool; N],
+        rank: Option<u32>,
+        algebra: IndexedAlgebraLimits,
+        limits: IndexedGuardLimits,
+    ) -> Self {
+        let minimum_rank = minimum_rank(cell, owner);
+        Self {
+            base_count,
+            cell,
+            owner,
+            rank,
+            algebra,
+            limits,
+            minimum_rank,
+            work: 0,
+            // The dispatch layer owns empty-domain elimination.
+            exhausted: rank.is_some_and(|r| minimum_rank > u128::from(r)),
+        }
     }
-    let mut work = 0usize;
-    for equation in system.equations() {
-        let p = equation.index_polynomial().raw();
+
+    fn charge(&mut self, amount: Option<usize>) -> bool {
+        let next = amount.and_then(|amount| self.work.checked_add(amount));
+        if let Some(next) = next
+            && !self.exhausted
+            && next <= self.limits.max_gcd_factor_work
+        {
+            self.work = next;
+            true
+        } else {
+            self.exhausted = true;
+            false
+        }
+    }
+
+    pub(super) fn misses_system(
+        &mut self,
+        system: &BaseCoefficientSystem,
+    ) -> Result<bool, IndexedAlgebraError> {
+        for equation in system.equations() {
+            if self.misses_polynomial(equation.index_polynomial().raw())? {
+                return Ok(true);
+            }
+            if self.exhausted {
+                break;
+            }
+        }
+        Ok(false)
+    }
+
+    /// The polynomial is either an admitted coefficient equation or a
+    /// validated factor borrowed from the existing native factorization.
+    pub(super) fn misses_polynomial(
+        &mut self,
+        p: &CoefficientPolynomial,
+    ) -> Result<bool, IndexedAlgebraError> {
+        if self.exhausted {
+            return Ok(false);
+        }
+        let (base_count, cell, owner, rank, algebra, limits, minimum_rank) = (
+            self.base_count,
+            self.cell,
+            self.owner,
+            self.rank,
+            self.algebra,
+            self.limits,
+            self.minimum_rank,
+        );
         // Two exponent traversals (recognition and endpoint selection) plus
         // one coefficient-bit scan. Charge before even inspecting a skipped
         // nonlinear row. Native input admission separately bounds the payload.
-        let Some(scan_work) = p
+        let scan_work = p
             .nvars()
             .checked_mul(2)
             .and_then(|v| v.checked_add(1))
-            .and_then(|v| v.checked_mul(p.nterms()))
-        else {
-            return Ok(false);
-        };
-        let Some(next_work) = work.checked_add(scan_work) else {
-            return Ok(false);
-        };
-        if next_work > limits.max_gcd_factor_work {
+            .and_then(|v| v.checked_mul(p.nterms()));
+        if !self.charge(scan_work) {
             return Ok(false);
         }
-        work = next_work;
         // Check TOTAL degree, including mixed monomials. No temporary native
         // polynomial, expression, matrix or coefficient copy is constructed.
         if p.nvars() != base_count + N
@@ -64,7 +143,7 @@ pub(super) fn misses_zero<const N: usize>(
                         .is_some()
             })
         {
-            continue;
+            return Ok(false);
         }
         let max_bits = p
             .coefficients
@@ -78,6 +157,7 @@ pub(super) fn misses_zero<const N: usize>(
             .and_then(|b| b.checked_add(ceil_log2(p.nterms())))
             .and_then(|b| b.checked_add(2))
         else {
+            self.exhausted = true;
             return Ok(false);
         };
         // Magnitude/work envelopes, not hidden GMP capacities or an RSS cap.
@@ -86,12 +166,14 @@ pub(super) fn misses_zero<const N: usize>(
         // The optional optimization falls through if its extra arithmetic
         // cannot be admitted; no native operation has occurred for this row.
         let Some(payload) = bits.checked_mul(8) else {
+            self.exhausted = true;
             return Ok(false);
         };
         let Some(limbs) = bits
             .checked_add(usize::BITS as usize - 1)
             .map(|b| b / usize::BITS as usize)
         else {
+            self.exhausted = true;
             return Ok(false);
         };
         let Some(row_work) = limbs
@@ -99,18 +181,17 @@ pub(super) fn misses_zero<const N: usize>(
             .and_then(|v| v.checked_mul(8))
             .and_then(|v| v.checked_mul(p.nterms()))
         else {
+            self.exhausted = true;
             return Ok(false);
         };
-        let Some(next_work) = work.checked_add(row_work) else {
-            return Ok(false);
-        };
-        if bits > algebra.max_specialization_integer_bits
-            || payload > limits.max_total_integer_bits
-            || next_work > limits.max_gcd_factor_work
+        if bits > algebra.max_specialization_integer_bits || payload > limits.max_total_integer_bits
         {
+            self.exhausted = true;
             return Ok(false);
         }
-        work = next_work;
+        if !self.charge(Some(row_work)) {
+            return Ok(false);
+        }
         let excluded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut lower = Some(Integer::zero());
             let mut upper = Some(Integer::zero());
@@ -168,9 +249,6 @@ pub(super) fn misses_zero<const N: usize>(
                 "Symbolica panicked during affine guard box endpoint arithmetic".to_owned(),
             )
         })?;
-        if excluded {
-            return Ok(true);
-        }
+        Ok(excluded)
     }
-    Ok(false)
 }

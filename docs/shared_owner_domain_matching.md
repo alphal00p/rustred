@@ -207,6 +207,34 @@ options. RHS cells include every refined cell, not just pinches or boundaries.
 Other `OwnerAppliedLimits` retain their native defaults and remain configurable
 through the Rust API. None is an elapsed timeout or an input-rank restriction.
 
+### Optional coefficient-support classification
+
+The RHS visitor can keep a conservative successor when **optional numerator
+zero-locus classification** declines the next native factor/GCD operation under
+its existing work allowance. Exact coefficient construction, fixed-coordinate
+specialization, numerator admission, original denominators, child-source
+conditions, descent, and cancellation remain mandatory. Backend faults,
+allocation failures, output/replay limits, aggregate budgets and unknown future
+error categories remain errors. This changes neither the exact rule nor its
+application to a concrete integral; it avoids requiring an unnecessary uniform
+nonzero proof merely to discover an over-cover of possible dependencies.
+
+The core visitor retains the exact coefficient during its callback. The shared
+worklist keeps the conservative domain and conditional label, **not** that exact
+predicate. Consequently an uncovered point of the requested child domain is
+still not evidence of a reached missing rule and cannot become a terminal.
+
+Per-domain stats and final aggregate reports expose
+`optional_coefficient_refusals`, `optional_original_refusals`, and
+`optional_coalesced_refusals`. Attempted work stays charged, including a refusal
+followed by cancellation. Each Apply record retains at most the first original
+and first coalesced refusal in `optional_refusals`, separately from `frontiers`.
+These ordinary budgeted events contain the source bounds/rank, shift, original
+term ordinal when applicable, and numeric native resource diagnostic; they do
+not serialize coefficients. `optional_refusal_provenance_truncated` is true
+when the count exceeds the number of retained records, including a first event
+that could not be delivered before a stop. No new mode flag is needed.
+
 ### Shared admitted-route domain covers
 
 Add `--route-domain-overcover` alongside `--follow-successors` to reuse the

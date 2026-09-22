@@ -84,6 +84,44 @@ impl Budget<'_> {
             "boundary cells",
         )
     }
+    /// Commit total/stage counters together, before later event/cancel checks.
+    /// Returns whether this is the first refusal of this phase in the query.
+    pub(super) fn optional_refusal(&mut self, original: bool) -> Result<bool, OwnerAppliedFailure> {
+        let next = |value: usize, resource| {
+            value
+                .checked_add(1)
+                .ok_or(OwnerAppliedFailure::CountOverflow { resource })
+        };
+        let total = next(
+            self.stats.optional_coefficient_refusals,
+            "optional coefficient refusals",
+        )?;
+        let (original_count, coalesced_count) = if original {
+            (
+                next(
+                    self.stats.optional_original_refusals,
+                    "optional original coefficient refusals",
+                )?,
+                self.stats.optional_coalesced_refusals,
+            )
+        } else {
+            (
+                self.stats.optional_original_refusals,
+                next(
+                    self.stats.optional_coalesced_refusals,
+                    "optional coalesced coefficient refusals",
+                )?,
+            )
+        };
+        self.stats.optional_coefficient_refusals = total;
+        self.stats.optional_original_refusals = original_count;
+        self.stats.optional_coalesced_refusals = coalesced_count;
+        Ok(if original {
+            original_count == 1
+        } else {
+            coalesced_count == 1
+        })
+    }
     fn emit<const N: usize>(
         &mut self,
         visit: &mut impl FnMut(OwnerAppliedEvent<'_, N>) -> ControlFlow<()>,
@@ -256,6 +294,44 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         )
     }
 
+    fn classify_coefficient(
+        &self,
+        piece: &OwnerDomainMatchPiece<N>,
+        cell: &LatticeBox,
+        shift: &[i64; N],
+        original_term_ordinal: Option<usize>,
+        coefficient: &IndexedCoefficient,
+        budget: &mut Budget<'_>,
+        visit: &mut impl FnMut(OwnerAppliedEvent<'_, N>) -> ControlFlow<()>,
+    ) -> Result<Zero, OwnerAppliedFailure> {
+        let classification = algebra::coefficient(
+            &self.context.shared.context,
+            coefficient,
+            cell,
+            piece.owner(),
+            piece.max_numerator_rank(),
+            self.context.limits.indexed_algebra,
+            budget,
+        )?;
+        if let Some(failure) = classification.optional_refusal {
+            if budget.optional_refusal(original_term_ordinal.is_some())? {
+                budget.emit(
+                    visit,
+                    OwnerAppliedEvent::OptionalCoefficientRefusal {
+                        source: piece,
+                        source_lower: cell.lower(),
+                        source_upper: cell.upper(),
+                        shift,
+                        original_term_ordinal,
+                        failure: &failure,
+                    },
+                )?;
+            }
+        }
+        budget.cancelled()?;
+        Ok(classification.zero)
+    }
+
     fn apply_group(
         &self,
         piece: &OwnerDomainMatchPiece<N>,
@@ -315,14 +391,14 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                     algebra_limits,
                 )
                 .map_err(OwnerAppliedFailure::Algebra)?;
-            let nonzero = algebra::coefficient(
-                context,
-                &coefficient,
+            let nonzero = self.classify_coefficient(
+                piece,
                 cell,
-                piece.owner(),
-                piece.max_numerator_rank(),
-                algebra_limits,
+                shift,
+                Some(ordinal),
+                &coefficient,
                 budget,
+                visit,
             )?;
             if nonzero == Zero::Yes {
                 budget.stats.zero_terms += 1;
@@ -430,15 +506,8 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         let Some(coefficient) = sum else {
             return Ok(());
         };
-        let nonzero = algebra::coefficient(
-            context,
-            &coefficient,
-            cell,
-            piece.owner(),
-            piece.max_numerator_rank(),
-            algebra_limits,
-            budget,
-        )?;
+        let nonzero =
+            self.classify_coefficient(piece, cell, shift, None, &coefficient, budget, visit)?;
         if nonzero == Zero::Yes {
             budget.stats.cancelled_groups += 1;
             return Ok(());

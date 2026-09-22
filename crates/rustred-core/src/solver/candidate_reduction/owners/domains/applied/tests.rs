@@ -13,6 +13,8 @@ use crate::solver::candidate_reduction::{
 use std::ops::ControlFlow;
 use std::sync::{Arc, atomic::AtomicBool};
 
+mod optional_refusal;
+
 const OWNER: [bool; 3] = [true, true, false];
 
 fn fixture() -> Arc<CandidateOwnerPrograms<3>> {
@@ -107,6 +109,9 @@ fn collect(
                         nonzero: edge.coefficient_nonzero,
                     }),
                     OwnerAppliedEvent::Problem(problem) => result.problems.push(problem.kind),
+                    OwnerAppliedEvent::OptionalCoefficientRefusal { .. } => {
+                        panic!("existing default-policy fixture unexpectedly refused optional classification")
+                    }
                     OwnerAppliedEvent::RuleFinished {
                         successors,
                         problems,
