@@ -36,8 +36,12 @@ the matched index pilot, not a runtime forecast or wider concrete R15 admission.
 The user's subsequent priority is now **safe parallel admission/commit** before
 that broader run: prepare expensive containment lookups on immutable bounded
 batches, revalidate and publish in deterministic order, and reserve lookup
-helpers within the same total worker budget as native inspections. Implementation
-and independent audit are underway; no parallel-admission speedup is claimed yet.
+helpers within the same total worker budget as native inspections. The code is
+implemented and the actual-source optimized walking gate passes 98 tests (one
+diagnostic ignored). For a requested budget of 50, 25 native inspectors, 24
+lookup helpers and one ordered coordinator are reserved. The full release
+Rust/Python gates and matched live measurement remain pending; no
+parallel-admission speedup is claimed yet.
 The matched maximal-index pilot
 measures a 2.88–2.92× improvement on the identical completed traversal prefix;
 it and the subsequent all-owner control remain incomplete at diagnostic caps.

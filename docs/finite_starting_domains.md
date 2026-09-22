@@ -661,10 +661,28 @@ The next slice parallelizes lookup preparation, not authority:
   separately from committed-prefix work. Preserve event/frontier limits,
   cancellation, bounded buffering and deterministic IDs.
 
-Implementation and independent adversarial audit are underway. Acceptance
-requires differential stale-snapshot tests, actual-source integration tests,
-full release Rust/Python gates and a matched live pilot. No performance gain
-from this unfinished slice is assumed. Afterward, test the prepared 67-owner
+The implementation is now present. A 50-worker request reserves 25 native
+inspectors, 24 lookup helpers and one ordered coordinator; the helper pool is
+separate from producers that can block on publication. Preparation borrows the
+queue only for a bounded batch of at most 256 records, never clones the entire
+queue or Symbolica expressions, and preserves every callback ordinal. Batches
+with fewer than 16 admissions or fewer than 128 retained candidates use the
+ordinary serial path. Finite comparison caps also disable speculative lookup.
+Cancellation and native failure interrupt both preparation and publication.
+
+Independent adversarial review and the actual-source optimized walking gate
+pass: 98 tests, with one existing diagnostic ignored. This includes eight new
+queue tests and eight new execution tests, stale hits/misses, retirement,
+foreign-queue tokens, counter overflow, event-limit prefixes and helper-panic
+cleanup. A separate optimized gate using the committed scheduler (without the
+pre-existing escrow changes) passes 89 tests, one ignored, including all sixteen
+new queue/execution tests. These are focused integration results, not full release acceptance.
+The full release Rust/Python gates and a matched live pilot are still pending.
+No performance gain from this slice is assumed yet. Progress distinguishes
+active native workers from reserved lookup slots; it does not invent a busy
+helper count. Speculative comparisons include discarded work and overlap the
+committed comparison counter when reused, so the two must not be summed.
+Afterward, test the prepared 67-owner
 input and continue the explicit-entry-scope / actual-witness / fixed-target
 feedback work below; admission parallelism does not replace those obligations.
 

@@ -57,13 +57,14 @@ impl RoutedProgress {
                     )
                 });
                 previous = Some((now, expanded, queued));
-                let record = json!({"event":"heartbeat", "elapsed_seconds":started.elapsed().as_secs_f64(),
+                let mut record = json!({"event":"heartbeat", "elapsed_seconds":started.elapsed().as_secs_f64(),
                     "process_rss_bytes":resident_set_bytes(), "cancel_requested":cancellation.load(Ordering::Relaxed),
                     "progress_age_seconds":observed.elapsed().as_secs_f64(),
                     "expanded_nodes":expanded,"currently_discovered_nodes":discovered,
                     "recent_nodes_per_second":rates.map(|r|r.0),"queue_growth_per_second":rates.map(|r|r.1),
                     "progress_denominator_may_grow":true,"progress_is_not_closure_fraction":true,
                     "progress":event, "family_closure_claim":false});
+                add_worker_summary(&mut record);
                 if let Err(error) = serde_json::to_writer(&mut events, &record)
                     .map_err(io::Error::other)
                     .and_then(|()| events.write_all(b"\n"))
@@ -220,8 +221,13 @@ fn walk_dashboard(record: &Value) -> [String; 6] {
             .filter(|c| !c.is_control())
             .take(200)
             .collect();
+        let kind = if admission_worker_limits(parallel).is_some() {
+            "native workers"
+        } else {
+            "workers"
+        };
         format!(
-            "First failure ({} workers draining): {summary}; full cause in JSON; NOT a closure claim",
+            "First failure ({} {kind} draining): {summary}; full cause in JSON; NOT a closure claim",
             pn("active_workers")
         )
     } else {
@@ -259,15 +265,50 @@ fn walk_dashboard(record: &Value) -> [String; 6] {
             record["process_rss_bytes"].as_u64().unwrap_or(0) as f64 / 1e9,
             record["elapsed_seconds"].as_f64().unwrap_or(0.)
         ),
-        format!(
-            "Workers {} active / {} blocked / {} finished uncommitted; buffered {:.1} KiB logical",
-            pn("active_workers"),
-            pn("backpressured_workers"),
-            pn("finished_uncommitted_domains"),
-            pn("worker_buffered_logical_bytes") as f64 / 1024.
-        ),
+        walk_worker_summary(parallel),
         last_line,
     ]
+}
+
+/// Limits are reserved compute slots, not sampled activity. In particular no
+/// helper-busy counter is inferred from its configured Rayon pool size.
+fn admission_worker_limits(parallel: &Value) -> Option<(u64, u64, u64, u64)> {
+    let admission = &parallel["admission_preparation"];
+    Some((
+        admission["inspection_worker_limit"].as_u64()?,
+        admission["lookup_worker_limit"].as_u64()?,
+        admission["coordinator_worker_limit"].as_u64()?,
+        admission["requested_worker_budget"].as_u64()?,
+    ))
+}
+
+fn walk_worker_summary(parallel: &Value) -> String {
+    let n = |key| parallel[key].as_u64().unwrap_or(0);
+    if let Some((native, lookup, coordinator, budget)) = admission_worker_limits(parallel) {
+        format!(
+            "Native {}/{native} active ({} blocked); lookup {lookup} reserved + coordinator {coordinator}; total budget {budget}\n{} finished uncommitted; buffered {:.1} KiB logical",
+            n("active_workers"),
+            n("backpressured_workers"),
+            n("finished_uncommitted_domains"),
+            n("worker_buffered_logical_bytes") as f64 / 1024.
+        )
+    } else {
+        format!(
+            "Workers {} active / {} blocked / {} finished uncommitted; buffered {:.1} KiB logical",
+            n("active_workers"),
+            n("backpressured_workers"),
+            n("finished_uncommitted_domains"),
+            n("worker_buffered_logical_bytes") as f64 / 1024.
+        )
+    }
+}
+
+/// Non-TTY output remains one JSON object per line. Include the same bounded
+/// human-readable labels as the TTY rather than inventing aggregate activity.
+fn add_worker_summary(record: &mut Value) {
+    if record["progress"]["operation"].as_str() == Some("owner_domain_walk") {
+        record["worker_summary"] = json!(walk_worker_summary(&record["progress"]["parallel"]));
+    }
 }
 
 fn domain_dashboard(record: &Value) -> [String; 6] {
@@ -379,6 +420,43 @@ fn match_dashboard(record: &Value) -> [String; 6] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn parallel_admission_dashboard_distinguishes_native_activity_from_reserved_helpers() {
+        let mut record = json!({"progress":{"operation":"owner_domain_walk",
+            "parallel":{"active_workers":2,"backpressured_workers":1,
+                "finished_uncommitted_domains":3,"worker_buffered_logical_bytes":1024,
+                "admission_preparation":{"inspection_worker_limit":25,"lookup_worker_limit":24,
+                    "coordinator_worker_limit":1,"requested_worker_budget":50}}}});
+        add_worker_summary(&mut record);
+        let summary = record["worker_summary"].as_str().unwrap();
+        assert!(summary.contains("Native 2/25 active (1 blocked)"));
+        assert!(summary.contains("lookup 24 reserved + coordinator 1; total budget 50"));
+        assert!(summary.contains("3 finished uncommitted; buffered 1.0 KiB logical"));
+        assert!(!summary.contains("24 active"));
+        assert!(!summary.contains("2/50"));
+        assert_eq!(dashboard(&record)[4], summary);
+        // A zero-work snapshot must not turn a configured helper into busy work.
+        record["progress"]["parallel"]["active_workers"] = json!(0);
+        record["progress"]["parallel"]["backpressured_workers"] = json!(0);
+        assert!(
+            dashboard(&record)[4].contains("Native 0/25 active (0 blocked); lookup 24 reserved")
+        );
+    }
+    #[test]
+    fn worker_summary_keeps_fallback_and_non_walk_heartbeats_unchanged() {
+        let parallel = json!({"active_workers":2,"backpressured_workers":1,
+            "finished_uncommitted_domains":3,"worker_buffered_logical_bytes":1024});
+        let expected =
+            "Workers 2 active / 1 blocked / 3 finished uncommitted; buffered 1.0 KiB logical";
+        assert_eq!(walk_worker_summary(&parallel), expected);
+        let mut incomplete = parallel.clone();
+        incomplete["admission_preparation"] = json!({"lookup_worker_limit":24});
+        assert_eq!(walk_worker_summary(&incomplete), expected);
+        let mut other = json!({"progress":{"operation":"owner_domain_match","parallel":parallel}});
+        let before = other.clone();
+        add_worker_summary(&mut other);
+        assert_eq!(other, before);
+    }
     #[test]
     fn guarded_dashboard_is_conditional_bounded_and_not_a_campaign_fraction() {
         let text=dashboard(&json!({"progress":{"operation":"owner_guarded_apply","event":"guarded_query_progress",

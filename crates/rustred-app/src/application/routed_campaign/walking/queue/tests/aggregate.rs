@@ -3,7 +3,7 @@ use super::*;
 
 /// Every proposal is retained, including duplicate keys and semantically
 /// contained requests that will never become admitted domain descriptors.
-fn complete_proposals() -> Vec<Domain<2>> {
+pub(super) fn complete_proposals() -> Vec<Domain<2>> {
     let mut stream = Vec::new();
     let intervals = [(0, 0), (1, 1), (2, 2), (0, 1), (1, 2), (0, 2)];
     for (lo0, hi0) in intervals {

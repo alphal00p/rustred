@@ -18,6 +18,8 @@ use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+mod admission;
+
 pub(super) struct State<const N: usize> {
     pub queue: Queue<N>,
     pub records: Vec<Value>,
@@ -36,6 +38,7 @@ pub(super) struct State<const N: usize> {
     pub uncommitted: Vec<Value>,
     details: Vec<Value>,
     refusals: OptionalRefusals,
+    admission: admission::Metrics,
 }
 impl<const N: usize> State<N> {
     pub fn new(queue: Queue<N>, frontiers: usize, error: Option<String>) -> Self {
@@ -57,6 +60,7 @@ impl<const N: usize> State<N> {
             uncommitted: Vec::new(),
             details: Vec::new(),
             refusals: OptionalRefusals::default(),
+            admission: admission::Metrics::default(),
         }
     }
     fn progress(&self, event: &str, id: usize, telemetry: &Value) -> Value {
@@ -85,6 +89,7 @@ impl<const N: usize> State<N> {
             "routed_domains":self.routed, "route_masks":self.route_masks, "parallel":self.enrich(telemetry.clone())})
     }
     fn enrich(&self, mut telemetry: Value) -> Value {
+        telemetry["admission_preparation"] = self.admission.json();
         if let Some(id) = telemetry["first_failure"]["domain"]
             .as_u64()
             .and_then(|id| usize::try_from(id).ok())
@@ -185,11 +190,7 @@ impl<const N: usize> State<N> {
             }
             return refusal.map_or(Ok(()), Err);
         }
-        if event.count > remaining {
-            self.events += remaining;
-            return Err("aggregate successor event allowance");
-        }
-        self.events += event.count;
+        self.charge_event(event.count, request)?;
         match event.effect {
             Effect::Count => {}
             Effect::KnownReuse { .. } | Effect::PreAdmittedOrthantReuse { .. } => {
@@ -200,9 +201,7 @@ impl<const N: usize> State<N> {
                 successor,
                 conditional,
             } => {
-                self.successors += usize::from(successor);
-                self.conditional += usize::from(conditional);
-                self.queue.admit(domain)?;
+                self.apply_admission(successor, conditional, |queue| queue.admit(domain))?;
             }
             Effect::Frontier {
                 value,
@@ -235,6 +234,33 @@ impl<const N: usize> State<N> {
                 },
             )?,
         }
+        Ok(())
+    }
+    fn charge_event(
+        &mut self,
+        count: usize,
+        request: &OwnerDomainWalkRequest,
+    ) -> Result<(), &'static str> {
+        let remaining = request
+            .max_events
+            .checked_sub(self.events)
+            .ok_or("event counter invariant")?;
+        if count > remaining {
+            self.events += remaining;
+            return Err("aggregate successor event allowance");
+        }
+        self.events += count;
+        Ok(())
+    }
+    fn apply_admission(
+        &mut self,
+        successor: bool,
+        conditional: bool,
+        admit: impl FnOnce(&mut Queue<N>) -> Result<(usize, bool), &'static str>,
+    ) -> Result<(), &'static str> {
+        self.successors += usize::from(successor);
+        self.conditional += usize::from(conditional);
+        admit(&mut self.queue)?;
         Ok(())
     }
     fn commit(&mut self, id: usize, finished: Finished) {
@@ -319,11 +345,22 @@ fn run_with_initial_orthants<const N: usize>(
     if request.workers == 1 {
         return serial(state, reducer, request, cancellation, observer, &initial);
     }
+    let budget = admission::WorkerBudget::new(request.workers, state.queue.containment_limit());
+    state.admission = admission::Metrics::new(budget);
+    let admission = match admission::Engine::new(budget) {
+        Ok(engine) => engine,
+        Err(error) => {
+            state.error = Some(error.clone());
+            state.parallel = state.enrich(json!({"workers":0, "active_workers":0,
+                "first_failure":{"kind":"admission_worker_spawn", "detail":error}}));
+            return;
+        }
+    };
     let mut dispatched = 0;
     let mut started_id = None;
     let mut heartbeat = Instant::now();
     let (_, snapshot, mut leftovers) = parallel::with_pool(
-        request.workers,
+        budget.inspection,
         |domain, stop, emit| inspection::inspect(reducer, domain, request, stop, &initial, emit),
         |pool| {
             loop {
@@ -356,16 +393,33 @@ fn run_with_initial_orthants<const N: usize>(
                 }
                 match pool.poll(id) {
                     Poll::Events(chunk) => {
-                        for event in chunk {
-                            if let Err(error) = state.accept(event, request) {
-                                pool.fail(Failure {
-                                    id: Some(id),
-                                    phase: Some(state.queue.domains[id].phase),
-                                    kind: "coordinator_admission",
-                                    detail: error.into(),
-                                });
-                                break;
-                            }
+                        if let Err(error) = admission.commit_chunk(
+                            state,
+                            request,
+                            chunk,
+                            cancellation,
+                            &pool.stop,
+                            &mut |state| {
+                                if heartbeat.elapsed() >= Duration::from_millis(250) {
+                                    observer(state.progress(
+                                        "domain_progress",
+                                        id,
+                                        &pool.snapshot(),
+                                    ));
+                                    heartbeat = Instant::now();
+                                }
+                            },
+                        ) {
+                            pool.fail(Failure {
+                                id: Some(id),
+                                phase: Some(state.queue.domains[id].phase),
+                                kind: if error == "cancelled" {
+                                    "cancelled"
+                                } else {
+                                    "coordinator_admission"
+                                },
+                                detail: error.into(),
+                            });
                         }
                     }
                     Poll::Finished(finished) => state.commit(id, finished),

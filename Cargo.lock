@@ -1294,6 +1294,7 @@ dependencies = [
  "bincode",
  "crossterm",
  "ratatui",
+ "rayon",
  "rustred",
  "serde",
  "serde_json",

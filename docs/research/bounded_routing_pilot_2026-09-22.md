@@ -722,6 +722,73 @@ independent integer checks are under `TMP/aggregate-admission-gate.HrfYdG/`:
 `indexed-pilot-thread-samples.json`, `FULL_JET_CONTAINMENT_AUDIT.md`, and
 `full-jet-containment-{census,handchecks}.{jq,json}`.
 
+## Safe parallel admission: implemented, measurement pending
+
+The user's next requested slice parallelizes the expensive read-only part of
+admission, not concurrent mutation of the rule/domain ledger. Its queue token
+owns the exact proposal and a queue-instance identity, plus the snapshot's
+minimum containing ID or a miss and its admission watermark. A bounded group
+of helpers borrows the same immutable queue. Publication resumes in original
+callback order only after those helpers join:
+
+- Recheck exact-key and full-orthant priority against the current queue.
+- Reuse a prepared minimum hit only while that candidate remains live.
+  If it retired, perform the ordinary fresh lookup.
+- For a prepared miss, test live candidates admitted after the watermark.
+  Retiring old candidates cannot introduce a containing region.
+- Keep reverse retirement, fallible reservations, counters and new IDs under
+  the original single publisher. No queued obligation is retired with its
+  lookup candidate.
+- Foreign tokens, invalid preparation, explicit comparison caps and counters
+  near overflow use the serial path. Cancellation and native failure prevent
+  further publication; failed speculation never becomes an early public error.
+
+This uses existing native geometry summaries and implication tests; it adds
+no algebra or CAS primitive. Each batch contains at most 256 event records.
+Parallel preparation requires at least 16 admission proposals and 128 retained
+candidates. The inspection and helper pools are separate, avoiding deadlock
+when inspection producers wait for the publisher. A requested 50-worker budget
+is divided into 25 inspectors, 24 helpers and one coordinator. Requests with
+one worker remain serial; finite comparison caps do not speculate. Family
+data and the queue are not copied per helper.
+
+The actual-source optimized walking gate passes **98 tests, zero failures,
+one existing diagnostic ignored** in 6.25 s. This includes eight new queue
+tests and eight new integration tests. Three complete 46,080-proposal streams
+compare every returned ID and logical state with serial admission and an
+independent linear model, under differing batch/worker sizes. Additional tests
+cover stale hits/misses, exact/orthant priority, foreign tokens, cancelled
+preparation, near-overflow prefixes, event/domain/frontier limits, native
+failure precedence and cleanup after a helper panic with blocked producers.
+These tests include existing scheduler/escrow working-tree changes. A separate
+optimized clean-HEAD-scheduler gate passes **89 tests, zero failures, one ignored**
+in 6.10 s, including all sixteen new queue/execution tests. It uses the committed
+scheduler and committed execution tests with the new admission code, proving
+that the intended milestone does not depend on the pre-existing escrow edits.
+The first temporary harness build had an incorrect relocated test-module path;
+fixing that harness-only path exposed the intended tests without changing any
+production code or assertions. Full Cargo release, CLI/Python and
+matched live-pilot results remain pending; no speedup is claimed yet.
+
+Independent integration review finds no correctness blocker. Its performance
+cautions are explicit: helpers are reserved even while batches are too small,
+the threshold uses global rather than owner-local candidate count, and the
+progress callback waits for a complete preparation/commit batch. The independent
+heartbeat thread remains live, but its displayed data can age during a long
+batch. These are measurements to inspect in the matched pilot, not reasons to
+claim every reserved helper is continuously busy.
+
+New `parallel.admission_preparation` telemetry reports worker allocations,
+parallel batches, attempted preparations, speculative comparisons, preparation
+wall time and ordered-commit wall time. Speculative comparisons include work
+discarded during revalidation and overlap the existing committed comparison
+counter when reused: **do not add the two counters**. TTY and non-TTY monitoring
+label active native inspectors and reserved lookup helpers separately. The
+planned comparison uses the same diagonal input and saved owners as the indexed
+receipt above, validates identical completed records excluding only elapsed
+time, and records actual native/helper/coordinator CPU use. A full 67-owner
+launch remains deferred until this focused implementation is validated.
+
 ## Historical pause and resumed sequence
 
 The user explicitly resumed work from this report. The following pause is

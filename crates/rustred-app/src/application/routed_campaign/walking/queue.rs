@@ -5,6 +5,9 @@ use std::sync::Arc;
 
 mod index;
 use index::{AggregateIndex, Signature};
+mod prepared;
+pub(super) use prepared::PreparedAdmission;
+use prepared::PreparedLookup;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) enum Phase {
@@ -120,6 +123,8 @@ pub(super) struct Queue<const N: usize> {
     summaries: Vec<DomainPowerSummary<N>>,
     max_domains: usize,
     max_checks: Option<usize>,
+    /// Separates immutable lookup preparations from unrelated queue instances.
+    identity: Arc<()>,
 }
 
 impl<const N: usize> Queue<N> {
@@ -170,6 +175,7 @@ impl<const N: usize> Queue<N> {
             summaries: Vec::new(),
             max_domains,
             max_checks,
+            identity: Arc::new(()),
         }
     }
 
@@ -186,6 +192,14 @@ impl<const N: usize> Queue<N> {
     /// Finite-cap mode deliberately keeps its existing raw full-scan policy
     /// and performs no reverse maintenance or summary construction work.
     pub fn admit(&mut self, domain: Domain<N>) -> Result<(usize, bool), &'static str> {
+        self.admit_with_lookup(domain, None)
+    }
+
+    fn admit_with_lookup(
+        &mut self,
+        domain: Domain<N>,
+        prepared: Option<PreparedLookup<N>>,
+    ) -> Result<(usize, bool), &'static str> {
         debug_assert_eq!(domain.lower.len(), N);
         debug_assert_eq!(domain.upper.len(), N);
         // Borrowed full-domain lookup: hash collisions use full Eq, and no
@@ -200,14 +214,18 @@ impl<const N: usize> Queue<N> {
                 .containment_summary_builds
                 .checked_add(1)
                 .ok_or("domain summary counter overflow")?;
-            let summary = DomainPowerSummary::try_new(
-                domain.owner,
-                &domain.lower,
-                &domain.upper,
-                domain.rank,
-                domain.powers,
-            )
-            .map_err(summary_error)?;
+            let summary = if let Some(prepared) = &prepared {
+                prepared.summary.clone()
+            } else {
+                DomainPowerSummary::try_new(
+                    domain.owner,
+                    &domain.lower,
+                    &domain.upper,
+                    domain.rank,
+                    domain.powers,
+                )
+                .map_err(summary_error)?
+            };
             self.containment_summary_builds = builds;
             Some(summary)
         } else {
@@ -223,13 +241,20 @@ impl<const N: usize> Queue<N> {
                 return Ok((id, false));
             }
             let found = if let Some(summary) = &summary {
-                bucket.indexed.find(Signature::of(summary), |id| {
-                    self.containment_checks = self
-                        .containment_checks
-                        .checked_add(1)
-                        .ok_or("domain containment counter overflow")?;
-                    Ok(self.summaries[id].contains(summary))
-                })?
+                if let Some((found, checks)) = prepared.as_ref().and_then(|lookup| {
+                    lookup.revalidate(&bucket.indexed, &self.summaries, self.containment_checks)
+                }) {
+                    self.containment_checks += checks; // checked by revalidate
+                    found
+                } else {
+                    bucket.indexed.find(Signature::of(summary), |id| {
+                        self.containment_checks = self
+                            .containment_checks
+                            .checked_add(1)
+                            .ok_or("domain containment counter overflow")?;
+                        Ok(self.summaries[id].contains(summary))
+                    })?
+                }
             } else {
                 let mut found = None;
                 for &id in &bucket.ids {

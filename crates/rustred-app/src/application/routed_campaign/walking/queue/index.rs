@@ -2,9 +2,9 @@
 //! Groups contain lookup candidates only, never own queued obligations.
 
 use rustred::solver::DomainPowerSummary;
-#[cfg(test)]
-use std::cell::Cell;
 use std::collections::HashMap;
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum Upper {
@@ -108,7 +108,14 @@ pub(super) struct AggregateIndex {
     positions: HashMap<Signature, usize>,
     live: usize,
     #[cfg(test)]
-    work: Cell<FilterWork>,
+    work: WorkCounters,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct WorkCounters {
+    groups_visited: AtomicUsize,
+    groups_rejected: AtomicUsize,
 }
 
 /// Test-replay instrumentation only; no additional production per-group work.
@@ -123,6 +130,17 @@ impl AggregateIndex {
     pub(super) fn find(
         &self,
         signature: Signature,
+        contains: impl FnMut(usize) -> Result<bool, &'static str>,
+    ) -> Result<Option<usize>, &'static str> {
+        self.find_from(signature, 0, contains)
+    }
+
+    /// Admission IDs are monotone within each group; skip the immutable prefix
+    /// already disproved by a read-only snapshot lookup.
+    pub(super) fn find_from(
+        &self,
+        signature: Signature,
+        first_id: usize,
         mut contains: impl FnMut(usize) -> Result<bool, &'static str>,
     ) -> Result<Option<usize>, &'static str> {
         let mut best = None;
@@ -133,7 +151,8 @@ impl AggregateIndex {
             if !eligible {
                 continue;
             }
-            for &id in &group.ids {
+            let start = group.ids.partition_point(|&id| id < first_id);
+            for &id in &group.ids[start..] {
                 // Group order may change during retirement. Minimum admission
                 // ID, not hash/vector traversal order, determines the result.
                 if best.is_some_and(|best| id >= best) {
@@ -146,6 +165,12 @@ impl AggregateIndex {
             }
         }
         Ok(best)
+    }
+
+    pub(super) fn is_live(&self, signature: Signature, id: usize) -> bool {
+        self.positions
+            .get(&signature)
+            .is_some_and(|&position| self.groups[position].ids.binary_search(&id).is_ok())
     }
 
     pub(super) fn prepare(&mut self, signature: Signature) -> Result<Insertion, &'static str> {
@@ -281,19 +306,18 @@ impl AggregateIndex {
 
     #[cfg(test)]
     fn record_group(&self, eligible: bool) {
-        let old = self.work.get();
-        self.work.set(FilterWork {
-            groups_visited: old.groups_visited.checked_add(1).expect("test probe count"),
-            groups_rejected: old
-                .groups_rejected
-                .checked_add(usize::from(!eligible))
-                .expect("test rejection count"),
-        });
+        self.work.groups_visited.fetch_add(1, Ordering::Relaxed);
+        self.work
+            .groups_rejected
+            .fetch_add(usize::from(!eligible), Ordering::Relaxed);
     }
 
     #[cfg(test)]
     pub(super) fn work(&self) -> FilterWork {
-        self.work.get()
+        FilterWork {
+            groups_visited: self.work.groups_visited.load(Ordering::Relaxed),
+            groups_rejected: self.work.groups_rejected.load(Ordering::Relaxed),
+        }
     }
 }
 
