@@ -3,6 +3,7 @@ use crate::application::routed_campaign::walking::inspection::NativeStats;
 
 fn domain(n: u64) -> Arc<Domain<1>> {
     Arc::new(Domain {
+        powers: Default::default(),
         phase: Phase::Apply,
         owner: [true],
         lower: vec![n],

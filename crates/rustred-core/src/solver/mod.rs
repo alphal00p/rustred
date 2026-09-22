@@ -5,8 +5,8 @@
 //! artifact publication remain outside its per-row hot path. A sector search
 //! result is not, by itself, a certified family-closing artifact.
 
-mod candidate_reduction;
 pub mod bridge;
+mod candidate_reduction;
 mod case;
 mod cuts;
 mod discovery;
@@ -43,18 +43,18 @@ pub use candidate_reduction::{
     CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,
     CandidateRoutedCampaignSnapshot, CandidateRoutedError, CandidateRoutedFrontier,
     CandidateRoutedFrontierReason, CandidateRoutedTraceReport, CandidateRoutedWork,
-    CandidateStatistics, CandidateTraceLimits, CandidateTraceReport, OwnerAppliedError,
-    OwnerAppliedEvent, OwnerAppliedFailure, OwnerAppliedLimits, OwnerAppliedNonzero,
-    OwnerAppliedProblem, OwnerAppliedProblemKind, OwnerAppliedStats, OwnerAppliedSuccessor,
-    OwnerDomainAttemptLimits, OwnerDomainMatchDisposition, OwnerDomainMatchError,
-    OwnerDomainMatchFailure, OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats,
-    OwnerDomainPredicate, OwnerDomainRefinementAxes, OwnerDomainScope, OwnerFeedbackError,
-    OwnerFeedbackPolicy, OwnerGuardedDomain, OwnerGuardedError, OwnerGuardedEvent,
-    OwnerGuardedFailure, OwnerGuardedImage, OwnerGuardedLimits, OwnerGuardedResidualKind,
-    OwnerGuardedStats, OwnerGuardedSuccessor, OwnerOverlayLimits, OwnerOverlayMetadata,
-    OwnerOverlayUsage, OwnerSuccessorError, OwnerSuccessorFailure, OwnerSuccessorLimits,
-    OwnerSuccessorRegion, OwnerSuccessorStats, OwnerSuccessorTransition, RoutedCandidateLimits,
-    RoutedCandidateReducer,
+    CandidateStatistics, CandidateTraceLimits, CandidateTraceReport, DomainPowerBounds,
+    DomainPowerError, OwnerAppliedError, OwnerAppliedEvent, OwnerAppliedFailure,
+    OwnerAppliedLimits, OwnerAppliedNonzero, OwnerAppliedProblem, OwnerAppliedProblemKind,
+    OwnerAppliedStats, OwnerAppliedSuccessor, OwnerDomainAttemptLimits,
+    OwnerDomainMatchDisposition, OwnerDomainMatchError, OwnerDomainMatchFailure,
+    OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats, OwnerDomainPredicate,
+    OwnerDomainRefinementAxes, OwnerDomainScope, OwnerFeedbackError, OwnerFeedbackPolicy,
+    OwnerGuardedDomain, OwnerGuardedError, OwnerGuardedEvent, OwnerGuardedFailure,
+    OwnerGuardedImage, OwnerGuardedLimits, OwnerGuardedResidualKind, OwnerGuardedStats,
+    OwnerGuardedSuccessor, OwnerOverlayLimits, OwnerOverlayMetadata, OwnerOverlayUsage,
+    OwnerSuccessorError, OwnerSuccessorFailure, OwnerSuccessorLimits, OwnerSuccessorRegion,
+    OwnerSuccessorStats, OwnerSuccessorTransition, RoutedCandidateLimits, RoutedCandidateReducer,
 };
 pub use case::{
     AffineCase, AffineGeometryError, AffineIntersection, Case, CaseIntersectionBudget,

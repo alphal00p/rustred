@@ -8,6 +8,7 @@ use crate::algebra::IndexedPolynomial;
 use crate::family::IntegralKey;
 use crate::foundry::completion::LatticeBox;
 use crate::solver::candidate_reduction::owners::CandidateOwnerPrograms;
+use crate::solver::candidate_reduction::power_domain::{self, DomainPowerBounds};
 
 #[path = "engine/lookahead.rs"]
 mod lookahead;
@@ -77,6 +78,7 @@ struct Matcher<'a, 'v, const N: usize, F> {
     programs: &'a CandidateOwnerPrograms<N>,
     owner: [bool; N],
     rank: Option<u32>,
+    powers: DomainPowerBounds,
     budget: Budget,
     cancel: &'v AtomicBool,
     visit: &'v mut F,
@@ -102,12 +104,38 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         max_numerator_rank: Option<u32>,
         limits: OwnerDomainMatchLimits,
         cancellation: &AtomicBool,
+        visit: impl FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>,
+    ) -> Result<OwnerDomainMatchStats, OwnerDomainMatchError> {
+        self.visit_power_bounded_owner_domain_matches(
+            owner,
+            lower,
+            upper,
+            max_numerator_rank,
+            DomainPowerBounds::default(),
+            limits,
+            cancellation,
+            visit,
+        )
+    }
+
+    /// Ordered applicability on a box intersected with exact total-power bounds.
+    /// Coordinate projections never replace the retained A/D predicates.
+    pub fn visit_power_bounded_owner_domain_matches(
+        &self,
+        owner: [bool; N],
+        lower: &[u64],
+        upper: &[Option<u64>],
+        max_numerator_rank: Option<u32>,
+        powers: DomainPowerBounds,
+        limits: OwnerDomainMatchLimits,
+        cancellation: &AtomicBool,
         mut visit: impl FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>,
     ) -> Result<OwnerDomainMatchStats, OwnerDomainMatchError> {
         let mut matcher = Matcher {
             programs: self,
             owner,
             rank: max_numerator_rank,
+            powers,
             budget: Budget {
                 limits,
                 stats: Default::default(),
@@ -126,6 +154,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                 stats: matcher.budget.stats,
                 predicate: matcher.failed_predicate,
                 max_numerator_rank,
+                power_bounds: powers,
                 predicate_bounds: matcher.failed_cell.map(LatticeBox::into_bounds),
             })
     }
@@ -141,7 +170,10 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
             Ok(())
         }
     }
-    fn push(&mut self, cell: LatticeBox, phase: Phase<'a>) -> Result<(), OwnerDomainMatchFailure> {
+    fn normalize(
+        &mut self,
+        cell: LatticeBox,
+    ) -> Result<Option<LatticeBox>, OwnerDomainMatchFailure> {
         self.cancelled()?;
         if self
             .rank
@@ -153,8 +185,57 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                 usize::MAX,
                 "rank empty cells",
             )?;
-            return Ok(());
+            return Ok(None);
         }
+        // Keep default/rank-only descriptors byte-for-byte unchanged, including
+        // the established syntactic orthant fast paths in downstream clients.
+        if self.powers.is_unconstrained() {
+            return Ok(Some(cell));
+        }
+        let Some(projected) = power_domain::project(
+            &self.owner,
+            cell.lower(),
+            cell.upper(),
+            self.rank,
+            self.powers,
+        )
+        .map_err(OwnerDomainMatchFailure::PowerDomain)?
+        else {
+            charge(
+                &mut self.budget.stats.correlation_empty_cells,
+                1,
+                usize::MAX,
+                "correlation empty cells",
+            )?;
+            return Ok(None);
+        };
+        if cell.lower() == projected.lower && cell.upper() == projected.upper {
+            Ok(Some(cell))
+        } else {
+            LatticeBox::try_new(projected.lower, projected.upper)
+                .map(Some)
+                .map_err(geometry)
+        }
+    }
+    fn effective_rank(&self, cell: &LatticeBox) -> Result<Option<u32>, OwnerDomainMatchFailure> {
+        if self.powers.is_unconstrained() {
+            return Ok(self.rank);
+        }
+        power_domain::project(
+            &self.owner,
+            cell.lower(),
+            cell.upper(),
+            self.rank,
+            self.powers,
+        )
+        .map_err(OwnerDomainMatchFailure::PowerDomain)?
+        .map(|p| p.effective_rank)
+        .ok_or_else(|| OwnerDomainMatchFailure::Geometry("empty normalized match cell".into()))
+    }
+    fn push(&mut self, cell: LatticeBox, phase: Phase<'a>) -> Result<(), OwnerDomainMatchFailure> {
+        let Some(cell) = self.normalize(cell)? else {
+            return Ok(());
+        };
         self.pending
             .try_reserve(1)
             .map_err(|_| OwnerDomainMatchFailure::AllocationFailure {
@@ -165,6 +246,9 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
     }
     fn run(&mut self, lower: &[u64], upper: &[Option<u64>]) -> Result<(), OwnerDomainMatchFailure> {
         self.cancelled()?;
+        self.powers
+            .validate()
+            .map_err(OwnerDomainMatchFailure::PowerDomain)?;
         if N == 0 || N > 4096 || lower.len() != N || upper.len() != N {
             return Err(OwnerDomainMatchFailure::InvalidInput(
                 "owner/box arity must match and lie in 1..=4096".into(),
@@ -211,10 +295,12 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
             self.budget.limits.max_pieces,
             "pieces",
         )?;
+        let rank = self.effective_rank(&cell)?;
         let piece = OwnerDomainMatchPiece {
             owner: self.owner,
             cell,
-            rank: self.rank,
+            rank,
+            powers: self.powers,
             disposition,
         };
         if (self.visit)(piece).is_break() {
@@ -488,12 +574,13 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
         resume: PredicateResume,
     ) -> Result<(), OwnerDomainMatchFailure> {
         self.cancelled()?;
+        let rank = self.effective_rank(&cell)?;
         let resolution = guards::resolve(
             &self.programs.context.shared.context,
             p,
             &cell,
             &self.owner,
-            self.rank,
+            rank,
             self.programs.context.limits.indexed_algebra,
             &mut self.budget,
         );
@@ -599,16 +686,13 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
         failure: Option<OwnerDomainMatchFailure>,
     ) -> Result<(), OwnerDomainMatchFailure> {
         self.cancelled()?;
-        let unresolved = Phase::Emit(OwnerDomainMatchDisposition::Unresolved {
-            predicate: identity,
-        });
-        // Conservative hyperplane subtraction can create rank-empty rectangle
-        // intersections before they reach push(). Discard them through the same
-        // exact simplex gate before computing any residual-rank subtraction.
+        // Conservative plane cuts reach here directly, before push(). Prune
+        // empty correlated faces before any refinement/native admission.
+        let Some(cell) = self.normalize(cell)? else {
+            return Ok(());
+        };
+        let rank = self.effective_rank(&cell)?;
         let min_rank = minimum_rank(&cell, &self.owner);
-        if self.rank.is_some_and(|rank| min_rank > u128::from(rank)) {
-            return self.push(cell, unresolved);
-        }
         // An excluded branch is a whole AND of zero predicates. A later atom
         // uniformly nonzero on THIS cell disproves that AND even when this
         // atom's geometry is unknown. Do not probe past an operational refusal,
@@ -632,7 +716,7 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                     polynomial,
                     &cell,
                     &self.owner,
-                    self.rank,
+                    rank,
                     programs.context.limits.indexed_algebra,
                     &mut self.budget,
                 );
@@ -721,7 +805,7 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
             let rank_upper = if self.owner[axis] {
                 None
             } else {
-                self.rank.map(|rank| {
+                rank.map(|rank| {
                     let others = min_rank - u128::from(cell.lower()[axis]);
                     // Every queued cell already passes the exact minimum-rank test.
                     (u128::from(rank) - others) as u64

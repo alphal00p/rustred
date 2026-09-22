@@ -1,8 +1,9 @@
 # RustRed project goal
 
 **Execution resumed by user instruction:** continue from the September 22
-bounded-routing checkpoint. Its release gates pass (2,720 core, 428 application/
-integration and 72 Python/steering tests). The matched maximal-index pilot now
+bounded-routing checkpoint. Correlated-domain propagation now passes release
+gates (2,748 core, 435 application/integration and 72 Python/steering tests;
+32 existing core diagnostics ignored). The matched maximal-index pilot
 measures a 2.88–2.92× improvement on the identical completed traversal prefix;
 it and the subsequent all-owner control remain incomplete at diagnostic caps.
 Three independent audit lanes recommend retaining total-power correlations,
@@ -82,11 +83,20 @@ routing and route reentry preserve these boxes. The new release core gate
 passes 2,720 tests (32 existing diagnostics ignored); application/integration
 tests pass 422, and the Python API/CLI and steering gates pass all 72 tests.
 Independent code and mathematical audits pass. These are
-implementation gates, not a five-loop closure result. The next saved-rule
-pilots measure recursive growth before a larger campaign. Compact total-power
-and A-R constraints have an independently audited workspace geometry prototype, but
-campaign propagation is not yet integrated; coordinate bounds alone can remain
-a very loose physical overcover.
+implementation gates, not a five-loop closure result. The subsequent pilots
+measured excessive recursive growth and admission cost. Compact total-power
+and A-R constraints now propagate through native matching, IBP shifts, routing,
+the application queue/cache and diagnostics, with independent code/math audit.
+Release gates pass 2,748 core tests (32 ignored), 435 application/integration
+and 72 Python/steering tests. The constrained diagonal local match agrees with
+the saved singleton oracle for all 980 admitted points, in 28 selected-rule
+regions. Its recursive 50-worker pilot was stopped cooperatively for renewed
+serial admission pressure: 49,686 complete, 145,431 queued, 4.972 billion
+containment comparisons after 106.956 s traversal, with zero observed frontiers.
+This is a smaller, more faithful domain representation, not a completed
+five-loop solve. Next measure cached semantic containment, then exact
+permutation routing where structurally available; do not widen the campaign
+or generate new IBPs solely because conservative work remains unfinished.
 
 The older sequence and measurements below are retained as history; statements
 requiring unbounded positive starting powers are no longer authoritative.

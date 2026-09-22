@@ -3,7 +3,7 @@ use super::*;
 fn bounded_request(fixture: &Fixture, rank: u32) -> OwnerDomainWalkRequest {
     let mut request = route_walk_request(fixture, rank);
     request.matching.queries_json = json!({
-        "schema":"rustred.owner-domain-queries.json.v1", "queries":[{
+        "schema":"rustred.owner-domain-queries.json.v2", "queries":[{
             "id":"bounded-route", "owner":"110", "lower":[2,3,0],
             "upper":[4,5,0], "max_numerator_rank":rank
         }]
@@ -119,7 +119,7 @@ fn bounded_initial_missing_route_and_source_conditions_keep_original_frontier_bo
 fn bounded_literal_owner_preserves_exact_input_and_above_entry_rank() {
     let fixture = Fixture::new();
     let mut matching = match_request(&fixture);
-    matching.queries_json = json!({"schema":"rustred.owner-domain-queries.json.v1",
+    matching.queries_json = json!({"schema":"rustred.owner-domain-queries.json.v2",
         "queries":[{"id":"bounded-literal", "owner":"1", "lower":[2],
         "upper":[4], "max_numerator_rank":11}]})
     .to_string();
@@ -206,7 +206,7 @@ powers=[1,1,1]
     let selection = json!({"family_fingerprint":inspection.family_fingerprint,
         "owners":[{"path":"top.rrbin","bytes":bundle.len(),"mask":"111"}],
         "initial_frontier_routes":[]});
-    let queries = json!({"schema":"rustred.owner-domain-queries.json.v1",
+    let queries = json!({"schema":"rustred.owner-domain-queries.json.v2",
         "queries":[{"id":"bounded-native-parent", "owner":"111",
         "lower":[0,0,0], "upper":[2,2,2], "max_numerator_rank":0}]});
     let mut matching = OwnerDomainMatchRequest::new(selection.to_string(), queries.to_string());

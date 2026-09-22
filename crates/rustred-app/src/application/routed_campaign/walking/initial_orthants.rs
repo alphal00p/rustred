@@ -40,11 +40,7 @@ impl<const N: usize> InitialOrthants<N> {
             if cancellation.load(Ordering::Acquire) {
                 break;
             }
-            if domain.lower.len() != N
-                || domain.upper.len() != N
-                || !domain.lower.iter().all(|&x| x == 0)
-                || !domain.upper.iter().all(Option::is_none)
-            {
+            if !domain.is_full_orthant() {
                 continue;
             }
             let key = (domain.phase, domain.owner);

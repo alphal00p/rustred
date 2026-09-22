@@ -244,6 +244,7 @@ fn failure_kind(failure: &OwnerGuardedFailure) -> &'static str {
         OwnerGuardedFailure::UnknownOwner => "unknown_owner",
         OwnerGuardedFailure::UnknownCandidate => "unknown_candidate",
         OwnerGuardedFailure::InvalidInput(_) => "invalid_input",
+        OwnerGuardedFailure::UnsupportedPowerBounds(_) => "unsupported_power_bounds",
         OwnerGuardedFailure::Cancelled => "cancelled",
         OwnerGuardedFailure::StoppedByConsumer => "stopped_by_consumer",
         OwnerGuardedFailure::ResourceLimit { .. } => "resource_limit",

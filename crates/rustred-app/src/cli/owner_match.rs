@@ -101,7 +101,7 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     let (mut document, outcome) = match result {
         Ok((document, completed)) => (document, classification_outcome(completed)),
         Err(error) => {
-            let document = json!({"schema":"rustred.owner-domain-match.json.v1", "event":"finished",
+            let document = json!({"schema":"rustred.owner-domain-match.json.v2", "event":"finished",
                 "status":"preparation_error", "classification_complete":false,
                 "all_queries_locally_applicable":false, "family_closure_claim":false,
                 "ibp_generation":false, "rhs_successors_expanded":false,
@@ -117,7 +117,7 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     });
     document["max_bounded_refinement_cells"] = json!(args.max_bounded_refinement_cells);
     if walking {
-        document["schema"] = json!("rustred.owner-domain-walk.json.v1");
+        document["schema"] = json!("rustred.owner-domain-walk.json.v2");
         monitor.observe(OwnerDomainWalkResult::completion_progress(&document));
     } else {
         monitor.observe(OwnerDomainMatchResult::completion_progress(&document));

@@ -1,8 +1,54 @@
 use super::super::queue::Queue;
 use super::*;
 
+#[test]
+fn local_reuse_keys_keep_every_power_predicate() {
+    let mut cache = Cache::new(true);
+    let base = domain(0);
+    let mut hits = 0;
+    let mut count = |event: Event<2>| {
+        hits += usize::from(matches!(event.effect, Effect::KnownReuse { .. }));
+        ControlFlow::Continue(())
+    };
+    assert!(
+        cache
+            .forward(event(base.clone(), false), &mut count)
+            .is_continue()
+    );
+    for powers in [
+        rustred::solver::DomainPowerBounds {
+            max_positive_power: Some(3),
+            ..Default::default()
+        },
+        rustred::solver::DomainPowerBounds {
+            min_power_difference: Some(-2),
+            ..Default::default()
+        },
+        rustred::solver::DomainPowerBounds {
+            max_power_difference: Some(2),
+            ..Default::default()
+        },
+    ] {
+        let mut constrained = base.clone();
+        constrained.powers = powers;
+        assert!(
+            cache
+                .forward(event(constrained.clone(), false), &mut count)
+                .is_continue()
+        );
+        assert!(
+            cache
+                .forward(event(constrained, false), &mut count)
+                .is_continue()
+        );
+    }
+    assert_eq!(hits, 3);
+    assert_eq!(cache.keys.len(), 4);
+}
+
 fn domain(x: u64) -> Domain<2> {
     Domain {
+        powers: Default::default(),
         phase: Phase::Apply,
         owner: [true, false],
         lower: vec![x, 0],
@@ -235,6 +281,7 @@ powers=[1]
     let request =
         OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(String::new(), String::new()));
     let source = Domain {
+        powers: Default::default(),
         phase: Phase::Apply,
         owner: [true],
         lower: vec![0],

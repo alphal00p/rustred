@@ -8,6 +8,7 @@ use super::{
     inspection::{self, Effect, Event, Finished, NativeStats},
     mask,
     parallel::{self, Failure, Poll},
+    power_bounds_json,
     queue::Queue,
     stats_json,
 };
@@ -62,6 +63,7 @@ impl<const N: usize> State<N> {
         let domain = self.queue.domains.get(id);
         json!({"event":event, "operation":"owner_domain_walk", "id":id,
             "owner":domain.map(|d| mask(&d.owner)), "phase":domain.map(|d| format!("{:?}", d.phase)),
+            "power_bounds":domain.map(|d| power_bounds_json(d.powers)),
             "scheduled_nodes":self.queue.domains.len(), "completed_nodes":self.completed,
             "committed_domains":self.queue.next, "commit_domain":id,
             "queued_nodes":self.queue.domains.len().saturating_sub(self.queue.next),
@@ -90,6 +92,7 @@ impl<const N: usize> State<N> {
             f["lower"] = json!(domain.lower);
             f["upper"] = json!(domain.upper);
             f["rank"] = json!(domain.rank);
+            f["power_bounds"] = power_bounds_json(domain.powers);
         }
         telemetry
     }
@@ -217,6 +220,7 @@ impl<const N: usize> State<N> {
             Effect::Optional(d) => self.refusals.record(
                 d.disposition,
                 d.rank,
+                d.powers,
                 &d.lower,
                 &d.upper,
                 &d.shift,
@@ -253,6 +257,7 @@ impl<const N: usize> State<N> {
         self.completed += usize::from(self.error.is_none());
         let mut record = json!({"id":id, "phase":format!("{:?}", domain.phase), "owner":mask(&domain.owner),
             "lower":domain.lower, "upper":domain.upper, "rank":domain.rank,
+            "power_bounds":power_bounds_json(domain.powers),
             "local_inspection_finished":self.error.is_none(), "stats":stats, "seconds":finished.seconds,
             "frontiers":std::mem::take(&mut self.details), "error":self.error});
         if let (Some(optional), Some(stats)) = (optional, truncated) {
@@ -414,6 +419,7 @@ fn retain_leftovers<const N: usize>(state: &mut State<N>, leftovers: &mut Vec<(u
             let domain = &state.queue.domains[id];
             state.uncommitted.push(json!({"id":id, "phase":format!("{:?}", domain.phase),
                 "owner":mask(&domain.owner), "lower":domain.lower, "upper":domain.upper, "rank":domain.rank,
+                "power_bounds":power_bounds_json(domain.powers),
                 "stats":native_stats(finished.stats), "error":finished.error, "seconds":finished.seconds,
                 "committed":false}));
         }
@@ -425,6 +431,7 @@ fn retain_leftovers<const N: usize>(state: &mut State<N>, leftovers: &mut Vec<(u
         // diagnostics without inventing a completed inspection or zero stats.
         state.uncommitted.push(json!({"id":publisher_id, "phase":format!("{:?}", domain.phase),
             "owner":mask(&domain.owner), "lower":domain.lower, "upper":domain.upper, "rank":domain.rank,
+            "power_bounds":power_bounds_json(domain.powers),
             "stats":null, "committed":false, "partial_publisher":true,
             "frontiers":std::mem::take(&mut state.details),
             "optional_refusals":std::mem::take(&mut state.refusals.records),

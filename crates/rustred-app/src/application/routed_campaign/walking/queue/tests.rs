@@ -1,9 +1,34 @@
 use super::*;
 
+#[test]
+fn power_predicates_participate_in_identity_and_dominance_without_dropping_work() {
+    let mut queue = Queue::new(8, None);
+    let mut bounded = domain(Some(4));
+    bounded.upper = vec![Some(9), Some(4)];
+    bounded.powers = DomainPowerBounds {
+        max_positive_power: Some(5),
+        min_power_difference: Some(1),
+        max_power_difference: Some(3),
+    };
+    assert_eq!(queue.admit(bounded.clone()), Ok((0, true)));
+    let mut wider = bounded.clone();
+    wider.powers.min_power_difference = Some(0);
+    assert_eq!(queue.admit(wider.clone()), Ok((1, true)));
+    assert_eq!(queue.containment_retired_candidates, 1);
+    assert_eq!(queue.domains.len(), 2);
+    assert_eq!(queue.next, 0);
+    assert_eq!(queue.admit(bounded.clone()), Ok((0, false)));
+    bounded.powers.max_power_difference = Some(2);
+    assert_eq!(queue.admit(bounded), Ok((1, false)));
+    wider.powers.max_power_difference = Some(4);
+    assert_eq!(queue.admit(wider), Ok((2, true)));
+}
+
 mod maximal_candidates;
 
 fn domain(rank: Option<u32>) -> Domain<2> {
     Domain {
+        powers: Default::default(),
         phase: Phase::Apply,
         owner: [true, false],
         lower: vec![0, 0],

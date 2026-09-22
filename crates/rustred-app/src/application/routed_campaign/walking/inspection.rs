@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use super::{
     OwnerDomainWalkRequest,
     initial_orthants::InitialOrthants,
-    mask,
+    mask, power_bounds_json,
     queue::{Domain, Phase},
 };
 
@@ -49,6 +49,7 @@ pub(super) fn debug(value: &impl fmt::Debug) -> String {
 pub(super) struct OptionalDiagnostic {
     pub disposition: OwnerDomainMatchDisposition,
     pub rank: Option<u32>,
+    pub powers: rustred::solver::DomainPowerBounds,
     pub lower: Vec<u64>,
     pub upper: Vec<Option<u64>>,
     pub shift: Vec<i64>,
@@ -244,8 +245,8 @@ fn inspect_native<const N: usize>(
     let mut limits = request.applied_limits;
     limits.matching = request.matching.match_limits;
     let mut conversion_error = None;
-    let result = reducer.programs().visit_owner_applied_successors(
-        domain.owner, &domain.lower, &domain.upper, domain.rank, limits, cancellation,
+    let result = reducer.programs().visit_power_bounded_owner_applied_successors(
+        domain.owner, &domain.lower, &domain.upper, domain.rank, domain.powers, limits, cancellation,
         |event| {
             let effect = match event {
                 OwnerAppliedEvent::Classified(piece) => match piece.disposition() {
@@ -255,6 +256,7 @@ fn inspect_native<const N: usize>(
                     other => Effect::Frontier { successor: false, conditional: false,
                         value: json!({"kind":"local_dispatch_frontier", "disposition":debug(&other),
                             "lower":piece.lower(), "upper":piece.upper(), "rank":piece.max_numerator_rank(),
+                            "power_bounds":power_bounds_json(piece.power_bounds()),
                             "reached_missing_rule_claim":false}) },
                 },
                 OwnerAppliedEvent::OptionalCoefficientRefusal { source, source_lower,
@@ -264,7 +266,7 @@ fn inspect_native<const N: usize>(
                         return ControlFlow::Break(());
                     };
                     Effect::Optional(OptionalDiagnostic { disposition: source.disposition(),
-                        rank: source.max_numerator_rank(), lower: source_lower.to_vec(),
+                        rank: source.max_numerator_rank(), powers: source.power_bounds(), lower: source_lower.to_vec(),
                         upper: source_upper.to_vec(), shift: shift.to_vec(), ordinal: original_term_ordinal,
                         resource, requested: *requested, limit: *limit })
                 },
@@ -276,7 +278,8 @@ fn inspect_native<const N: usize>(
                         }
                         Effect::Admit { successor: true, conditional, domain: Domain {
                             phase: Phase::Apply, owner: *child.target_sector, lower: child.target_lower.to_vec(),
-                            upper: child.target_upper.to_vec(), rank: child.target_rank_limit } }
+                            upper: child.target_upper.to_vec(), rank: child.target_rank_limit,
+                            powers: child.target_power_bounds } }
                     } else if request.route_domain_overcover {
                         if initial.contains(Phase::Route, child.target_sector, child.target_rank_limit) {
                             return emit(Event::one(Effect::PreAdmittedOrthantReuse { successor: true, conditional }));
@@ -287,12 +290,15 @@ fn inspect_native<const N: usize>(
                         Effect::Admit { successor: true, conditional, domain: Domain {
                             phase: Phase::Route, owner: *child.target_sector,
                             lower: child.target_lower.to_vec(),
-                            upper: child.target_upper.to_vec(), rank: child.target_rank_limit } }
+                            upper: child.target_upper.to_vec(), rank: child.target_rank_limit,
+                            powers: child.target_power_bounds } }
                     } else {
                         Effect::Frontier { successor: true, conditional,
                             value: json!({"kind":"routing_frontier", "target_owner":mask(child.target_sector),
                             "target_lower":child.target_lower, "target_upper":child.target_upper,
                             "target_rank":child.target_rank_limit, "source_lower":child.source_lower,
+                            "target_power_bounds":power_bounds_json(child.target_power_bounds),
+                            "source_power_bounds":power_bounds_json(child.source.power_bounds()),
                             "source_upper":child.source_upper, "shift":child.shift.as_slice(),
                             "coefficient_nonzero":debug(&child.coefficient_nonzero),
                             "selected_rule":debug(&child.source.disposition()), "reached_missing_rule_claim":false}) }
@@ -301,6 +307,7 @@ fn inspect_native<const N: usize>(
                 OwnerAppliedEvent::Problem(p) => Effect::Frontier { successor: false, conditional: false,
                     value: json!({"kind":"rhs_obligation", "problem":debug(&p.kind),
                         "source_lower":p.source_lower, "source_upper":p.source_upper,
+                        "source_power_bounds":power_bounds_json(p.source.power_bounds()),
                         "shift":p.shift.as_slice(), "original_term":p.original_term_ordinal,
                         "coefficient_nonzero":debug(&p.coefficient_nonzero),
                         "selected_rule":debug(&p.source.disposition()), "reached_missing_rule_claim":false}) },

@@ -64,7 +64,7 @@ powers=[1]
     std::fs::write(directory.0.join("selection.json"), selection.to_string()).unwrap();
     let mut local = OwnerDomainMatchRequest::new(
         selection.to_string(),
-        json!({"schema":"rustred.owner-domain-queries.json.v1","queries":[{
+        json!({"schema":"rustred.owner-domain-queries.json.v2","queries":[{
         "id":"local","owner":"1","lower":[1],"upper":[null],"max_numerator_rank":11}]})
         .to_string(),
     );
@@ -356,7 +356,7 @@ powers=[1]
     let selection = json!({"family_fingerprint":inspection.family_fingerprint,
         "owners":[{"path":"owner.rrbin","bytes":bundle.bundle().len(),"mask":"1"}],
         "initial_frontier_routes":[]});
-    let queries = json!({"schema":"rustred.owner-domain-queries.json.v1", "queries":[
+    let queries = json!({"schema":"rustred.owner-domain-queries.json.v2", "queries":[
         {"id":"unbounded-ray", "owner":"1", "lower":[0], "upper":[null],
             "max_numerator_rank":11}]});
     std::fs::write(directory.0.join("selection.json"), selection.to_string()).unwrap();
@@ -448,7 +448,7 @@ powers=[1]
     );
     let walk: Value =
         serde_json::from_slice(&std::fs::read(directory.0.join("walked.json")).unwrap()).unwrap();
-    assert_eq!(walk["schema"], "rustred.owner-domain-walk.json.v1");
+    assert_eq!(walk["schema"], "rustred.owner-domain-walk.json.v2");
     assert_eq!(walk["workers"], 1);
     assert_eq!(walk["max_frontiers"], 19);
     assert_eq!(walk["max_events"], 100000001);

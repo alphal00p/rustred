@@ -108,6 +108,7 @@ fn route_overcover_literal_owner_and_above_entry_rank_keep_apply_phase() {
                     lower: [0; 3],
                     upper: [None; 3],
                     actual_rank: rank,
+                    power_bounds: Default::default(),
                     conservative: true,
                 }
             }]
@@ -211,6 +212,7 @@ fn route_overcover_known_zero_retains_source_condition_obligation() {
         [CandidateDomainRouteEvent::ZeroSector {
             sector: [false; 3],
             actual_rank: Some(12),
+            power_bounds: Default::default(),
             source_conditions_required: false
         }]
     );
@@ -230,6 +232,7 @@ fn route_overcover_known_zero_retains_source_condition_obligation() {
         [CandidateDomainRouteEvent::ZeroSector {
             sector: [false; 3],
             actual_rank: Some(12),
+            power_bounds: Default::default(),
             source_conditions_required: true
         }]
     );
@@ -247,7 +250,8 @@ fn route_overcover_missing_route_and_scalar_support_are_explicit() {
         events,
         [CandidateDomainRouteEvent::MissingRoute {
             source_sector: [false; 3],
-            actual_rank: None
+            actual_rank: None,
+            power_bounds: Default::default(),
         }]
     );
     assert_eq!(stats.missing_routes, 1);
@@ -594,6 +598,7 @@ fn route_overcover_tightened_zero_rank_reentry_retains_source_condition_obligati
         [CandidateDomainRouteEvent::ZeroSector {
             sector: [false; 3],
             actual_rank: Some(0),
+            power_bounds: Default::default(),
             source_conditions_required: true,
         }]
     );

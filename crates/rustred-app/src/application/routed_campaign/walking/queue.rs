@@ -1,4 +1,5 @@
 //! Inclusion reuse for one immutable program snapshot, not solved-state reuse.
+use rustred::solver::DomainPowerBounds;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -15,6 +16,7 @@ pub(super) struct Domain<const N: usize> {
     pub lower: Vec<u64>,
     pub upper: Vec<Option<u64>>,
     pub rank: Option<u32>,
+    pub powers: DomainPowerBounds,
 }
 
 impl<const N: usize> Domain<N> {
@@ -26,6 +28,7 @@ impl<const N: usize> Domain<N> {
             phase: Phase::Route,
             owner,
             rank,
+            powers: DomainPowerBounds::default(),
             lower: vec![0; N],
             upper: vec![None; N],
         }
@@ -35,6 +38,7 @@ impl<const N: usize> Domain<N> {
         self.phase == other.phase
             && self.owner == other.owner
             && rank_contains(self.rank, other.rank)
+            && self.powers.contains(&other.powers)
             && self.lower.iter().zip(&other.lower).all(|(a, b)| a <= b)
             && self
                 .upper
@@ -43,10 +47,13 @@ impl<const N: usize> Domain<N> {
                 .all(|(a, b)| a.is_none_or(|a| b.is_some_and(|b| b <= a)))
     }
 
-    fn is_full_orthant(&self) -> bool {
+    pub(super) fn is_full_orthant(&self) -> bool {
         self.lower.len() == N
             && self.upper.len() == N
+            && self.powers.is_unconstrained()
             && self.lower.iter().all(|&x| x == 0)
+            // Preserve the same box predicate as general containment. The
+            // default native lane leaves rank-only orthants unnormalized.
             && self.upper.iter().all(Option::is_none)
     }
 }

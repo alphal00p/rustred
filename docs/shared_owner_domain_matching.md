@@ -27,7 +27,7 @@ worklist option described below.
 
 ```json
 {
-  "schema": "rustred.owner-domain-queries.json.v1",
+  "schema": "rustred.owner-domain-queries.json.v2",
   "queries": [
     {
       "id": "child-prefilter-r11",
@@ -49,6 +49,43 @@ or null for unbounded numerator rank. Rank is the sum of **inactive** local
 coordinates, not positive dots. Descendant queries are not clipped to the
 saved program's entry rank. IDs are unique and contain 1–128 UTF-8 bytes; input
 is bounded to 1 MiB.
+
+An optional `power_bounds` object retains correlations that cannot be represented
+by independent coordinate limits:
+
+```json
+"power_bounds": {
+  "max_positive_power": 24,
+  "min_power_difference": 9,
+  "max_power_difference": null
+}
+```
+
+Here A is the sum of positive physical powers and D=A-R is the sum of all
+physical indices. Positive local coordinates contribute **1+x** to A, not x.
+The example intersects the supplied box/rank with A<=24 and D>=9; the numbers
+are input, not topology-specific engine policy. Missing individual bounds or
+null bounds are unbounded; omitting the object means no additional predicates.
+The whole object must be an object, not null. Unknown fields, reversed D bounds,
+negative A bounds and out-of-range integers are rejected before native loading.
+Query schema v2 supersedes v1; no compatibility interpretation is applied.
+
+Matching and successor walking retain these predicates after coordinate
+projection. Exact fixed-cell IBP shifts translate the current A/D bounds; the
+original starting limits are never reapplied to children. Admitted affine
+routing conservatively retains the A upper and D lower bounds and charges
+weighted pinches, but may widen D upper because affine constants lower numerator
+degree. Domain identity, containment and per-job reuse include the predicates.
+Results and diagnostics expose `power_bounds` (or explicitly named source/target
+variants). `correlation_empty_cells` records proven-empty native intersections,
+separately from rank-only emptiness.
+
+This compact representation does not encode every affine guard or exact routed
+image. It still permits conservative extra points. The separate optional
+`owner-guarded-apply` diagnostic does not support these predicates and rejects
+them explicitly, rather than silently discarding them. Initial nonliteral inputs
+with source conditions retain the existing conservative source-validity
+obligation before routing; this may also refuse an empty constrained input.
 
 Boxes and a rank cap cannot encode arbitrary inherited native equalities,
 nonzero guards or reachability. A query extracted from a conservative successor
@@ -202,7 +239,7 @@ routing remain explicit frontiers. A coefficient that is not uniformly nonzero
 keeps a conservative successor-domain over-cover, so its frontier is not by
 itself a proved reachable missing-rule domain.
 
-The full result has distinct schema `rustred.owner-domain-walk.json.v1`.
+The full result has distinct schema `rustred.owner-domain-walk.json.v2`.
 `recursive_worklist_exhausted` reports that every admitted domain was inspected
 without cancellation or an operational error. It can still be true with
 explicit frontiers. `all_scheduled_domains_resolved=true` additionally requires

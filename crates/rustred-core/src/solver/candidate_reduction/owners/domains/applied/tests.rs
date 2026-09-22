@@ -14,6 +14,7 @@ use std::ops::ControlFlow;
 use std::sync::{Arc, atomic::AtomicBool};
 
 mod optional_refusal;
+mod power_bounds;
 
 const OWNER: [bool; 3] = [true, true, false];
 

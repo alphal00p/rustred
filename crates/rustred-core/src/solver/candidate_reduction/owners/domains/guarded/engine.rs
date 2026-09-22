@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use super::super::{OwnerAppliedEvent, OwnerDomainMatchPiece, applied};
 use super::model::*;
 use crate::solver::candidate_reduction::owners::CandidateOwnerPrograms;
+use crate::solver::candidate_reduction::power_domain::DomainPowerBounds;
 
 fn charge(
     value: &mut usize,
@@ -53,6 +54,40 @@ fn emit<const N: usize>(
 }
 
 impl<const N: usize> CandidateOwnerPrograms<N> {
+    /// Fail closed for correlated guarded pullbacks until their lazy predicate
+    /// representation is extended. The ordinary guarded API remains unchanged.
+    pub fn visit_power_bounded_owner_guarded_rule_successors(
+        &self,
+        owner: [bool; N],
+        batch: usize,
+        rule_ordinal: usize,
+        lower: &[u64],
+        upper: &[Option<u64>],
+        rank: Option<u32>,
+        powers: DomainPowerBounds,
+        limits: OwnerGuardedLimits,
+        cancellation: &AtomicBool,
+        visit: impl FnMut(OwnerGuardedEvent<'_, N>) -> ControlFlow<()>,
+    ) -> Result<OwnerGuardedStats, OwnerGuardedError> {
+        if !powers.is_unconstrained() {
+            return Err(OwnerGuardedError {
+                failure: OwnerGuardedFailure::UnsupportedPowerBounds(powers),
+                stats: OwnerGuardedStats::default(),
+            });
+        }
+        self.visit_owner_guarded_rule_successors(
+            owner,
+            batch,
+            rule_ordinal,
+            lower,
+            upper,
+            rank,
+            limits,
+            cancellation,
+            visit,
+        )
+    }
+
     /// Inspect one actual saved candidate on its exact guarded subdomain.
     /// `batch`/`rule_ordinal` select immutable data, not applicability authority.
     /// This method constructs all own-case/source/exclusion/pole predicates and

@@ -48,6 +48,7 @@ impl OptionalRefusals {
         &mut self,
         disposition: OwnerDomainMatchDisposition,
         rank: Option<u32>,
+        powers: rustred::solver::DomainPowerBounds,
         lower: &[u64],
         upper: &[Option<u64>],
         shift: &[i64],
@@ -77,6 +78,7 @@ impl OptionalRefusals {
             "phase":if original_term.is_some() { "original" } else { "coalesced" },
             "selected_rule":format!("{disposition:?}"),
             "source_lower":lower, "source_upper":upper, "rank":rank, "shift":shift,
+            "power_bounds":super::power_bounds_json(powers),
             "original_term":original_term,
             "resource":resource, "requested":requested, "limit":limit,
             "conditional_domain_overcover":true, "exact_coefficient_predicate_retained":false,
@@ -110,6 +112,7 @@ mod tests {
         out.record(
             OwnerDomainMatchDisposition::SelectedRule { batch: 0, rule: 3 },
             Some(11),
+            Default::default(),
             &[3, 0],
             &[None, None],
             &[-1, 1],

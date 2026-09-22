@@ -440,11 +440,11 @@ and [primary-source recommendations](research/finite_domain_campaign_literature_
 Even finite coordinate bounds can be a very loose overcover. The 67-owner
 rectangular A24/R10 control contains 91,254,043,244,510,861 index tuples: separate
 coordinate caps allow total A as high as 156, instead of 24. Such boxes are
-diagnostics, not a faithful enumeration of the physical input envelope. If the
-bounded-routing pilots show excessive growth, the next minimal extension is
-to retain `A<=A_max` and a band `D_min<=D=A-R<=D_max` alongside each box and
-the existing rank cap. These constraints must survive tightening and participate
-in equality, containment, reuse and reported domain provenance.
+diagnostics, not a faithful enumeration of the physical input envelope. The
+resumed pilots confirmed excessive growth. The implementation now retains
+`A<=A_max` and a band `D_min<=D=A-R<=D_max` alongside each box and the existing
+rank cap. These constraints survive tightening and participate in equality,
+containment, reuse and reported domain provenance.
 
 For a fixed support, active and inactive sums range over independent integer
 intervals. Their aggregate feasibility and coordinate projections can be
@@ -469,12 +469,46 @@ alternative: distinct positive tuples on A=24 cannot share a contained box.
 Thus support size t alone requires at least `binomial(23,t-1)` boxes, totaling
 37,167,402 across the present census even at R0. This is a lower bound on exact
 box representation, not a lower bound on solving the parametric problem.
-The compact-constraint proposal and new workspace geometry prototype have
+The compact geometry service and its native/application integration have
 independent mathematical/source review. Its 11 standalone optimized tests pass,
-including exhaustive comparison across 442,368 small finite domains; this is
-not an integration gate. End-to-end campaign propagation is **not yet
-integrated**. Workspace design and audit evidence is in
-`TMP/bounded-routing-pilot.4kY19R/CORRELATIONS{,_AUDIT,_IMPLEMENTATION}.md`.
+including exhaustive comparison across 442,368 small finite domains. Native
+matching, applied successors, routing, application queue/cache identity and
+diagnostics now retain the predicates. The full release core gate passes 2,748
+tests (32 existing diagnostics ignored); application/integration gates pass 435
+tests and Python/API/steering gates pass 72. Query, match and walk JSON schemas are
+v2; see [the input contract](shared_owner_domain_matching.md). The optional
+guarded-pullback path explicitly refuses constrained inputs rather than silently
+discarding predicates. No original entry bounds are reapplied to descendants.
+The unconstrained wrappers retain their existing behavior.
+
+Workspace design and audit evidence is in
+`TMP/bounded-routing-pilot.4kY19R/CORRELATIONS{,_AUDIT,_IMPLEMENTATION}.md`
+and `POWER_DOMAIN_INTEGRATION_AUDIT_2026-09-22.md`. Release-gate evidence is in
+`TMP/power-domain-gate.UpQa87/`. This implementation milestone does not establish
+recursive five-loop completion, a campaign speedup, or an all-family ETA.
+
+The first constrained local five-loop query selects 980 of the old diagonal's
+2,560 points using A<=24, D>=10 and R<=10. Its 28 selected-rule regions agree
+point-for-point with the saved singleton oracle: zero partition or rule-selection
+mismatches and no excluded point admitted. Native matching takes 0.008475 s,
+preparation 0.702373 s and application total 0.710908 s. This is first-rule
+classification only, with neither RHS following nor new rule generation.
+The subsequent 50-worker recursive pilot stopped cooperatively for admission
+optimization after 106.956 s traversal: 49,686 completed domains, 145,431 queued,
+one partial cancelled domain and zero observed frontiers. It spent 4.972 billion
+containment comparisons, including 0.988 billion reverse maintenance, with
+9.589 GB sampled peak RSS. Correlation fidelity alone does not remove redundant
+domain representations or conservative routing fanout. Independent review
+recommends measuring cached semantic inclusion next, followed by recognition
+of exact full-permutation routes where available. These are proposals, not
+measured improvements. Neither input covers the full marginal R14 or full-jet
+R15 envelope. Local receipts are under
+`TMP/correlated-routing-pilots.jw6Bwo/match-probe.hQCWzw/`; the independent
+verification is recorded in `LOCAL_MATCH_AUDIT.md` in the parent directory.
+The recursive receipt is `shared-owner-campaign.jtsg2q0t/` in the same parent;
+the [pilot report](research/bounded_routing_pilot_2026-09-22.md) gives complete
+boundaries and audit findings. No durable pending-work resume or closing
+artifact is claimed from the interrupted run.
 
 Local verification evidence is in `TMP/finite-entry-gate.2GG13m/` (untracked).
 The passing app gate took 64.97 s wall / 61.52 s user CPU, and the Python gate

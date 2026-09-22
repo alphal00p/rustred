@@ -2,6 +2,7 @@ use super::super::scan::{minimum_rank, partition_size};
 use super::{engine::Budget, model::*};
 use crate::foundry::artifact::sign_partition_with_limits;
 use crate::foundry::completion::{CompletionGeometryLimits, LatticeBox};
+use crate::solver::candidate_reduction::power_domain::{self, DomainPowerBounds};
 
 pub(in crate::solver::candidate_reduction::owners::domains) fn copy_box(
     lower: &[u64],
@@ -149,6 +150,42 @@ pub(in crate::solver::candidate_reduction::owners::domains) fn rank_empty<const 
     rank.is_some_and(|r| minimum_rank(cell.lower(), owner) > u128::from(r))
 }
 
+/// Preserve the unconstrained representation; normalize correlated cells before
+/// crossing enumeration or exact coefficient work. Each cell owns its effective
+/// rank, never a mutable query-global specialization.
+pub(super) fn normalize<const N: usize>(
+    cell: LatticeBox,
+    owner: &[bool; N],
+    rank: Option<u32>,
+    powers: DomainPowerBounds,
+    budget: &mut Budget<'_>,
+) -> Result<Option<(LatticeBox, Option<u32>)>, OwnerAppliedFailure> {
+    if rank_empty(&cell, owner, rank) {
+        return Ok(None);
+    }
+    if powers.is_unconstrained() {
+        return Ok(Some((cell, rank)));
+    }
+    let Some(projected) = power_domain::project(owner, cell.lower(), cell.upper(), rank, powers)
+        .map_err(OwnerAppliedFailure::PowerDomain)?
+    else {
+        budget.stats.correlation_empty_cells =
+            budget.stats.correlation_empty_cells.checked_add(1).ok_or(
+                OwnerAppliedFailure::CountOverflow {
+                    resource: "correlation empty cells",
+                },
+            )?;
+        return Ok(None);
+    };
+    let cell = if cell.lower() == projected.lower && cell.upper() == projected.upper {
+        cell
+    } else {
+        LatticeBox::try_new(projected.lower, projected.upper)
+            .map_err(|e| OwnerAppliedFailure::Geometry(e.to_string()))?
+    };
+    Ok(Some((cell, projected.effective_rank)))
+}
+
 pub(in crate::solver::candidate_reduction::owners::domains) fn fixed<const N: usize>(
     cell: &LatticeBox,
     owner: &[bool; N],
@@ -172,6 +209,7 @@ pub(super) struct Image<const N: usize> {
     pub lower: Vec<u64>,
     pub upper: Vec<Option<u64>>,
     pub rank: Option<u32>,
+    pub delta_rank: i128,
 }
 pub(super) fn image<const N: usize>(
     cell: &LatticeBox,
@@ -227,5 +265,6 @@ pub(super) fn image<const N: usize>(
         lower,
         upper,
         rank,
+        delta_rank: delta,
     })
 }

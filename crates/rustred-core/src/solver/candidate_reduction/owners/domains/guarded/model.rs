@@ -190,6 +190,9 @@ pub enum OwnerGuardedEvent<'a, const N: usize> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OwnerGuardedFailure {
+    /// This optional lazy pullback API has not admitted correlated source
+    /// domains yet. Never silently widen them to a box/rank query.
+    UnsupportedPowerBounds(crate::solver::candidate_reduction::power_domain::DomainPowerBounds),
     UnknownOwner,
     UnknownCandidate,
     InvalidInput(&'static str),

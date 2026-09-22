@@ -23,6 +23,32 @@ arbitrary five-loop vacuum reductions. Nor does it justify promoting a modular
 success, exhausted abstract worklist or unvisited conservative region to a
 closed physical-domain result. Those are separate correctness questions.
 
+### Implementation follow-up after correlated-domain integration
+
+Independent source review identifies two narrower experiments before a broad
+routing portfolio. These are recommendations, not measured speedups:
+
+- Queue containment compares explicit bounds componentwise. With two active
+  physical powers each in 1..2, `A<=4` and `D<=4` describe the same four points
+  because R=0, but their different explicit predicates miss mutual containment.
+  The existing geometry service computes exact coordinate/A/R/D extrema;
+  caching those once per domain permits stronger inclusion checks without a
+  general polyhedral or CAS service. First measure raw-miss/semantic-hit counts
+  on a fixed prefix, including construction and reverse-maintenance cost.
+- The route visitor currently uses active bijection/rank information but not
+  inactive-map sparsity. An existing unit-permutation fixture emits four
+  conservative covers although exact native transport gives one endpoint.
+  Census traffic through full unit-permutation maps before implementing an exact
+  coordinate-permutation lane; it could retain all bounds without numerator
+  expansion. This does not claim arbitrary affine maps are permutations.
+
+The current manifest admits one selected witness per source, not an already
+available alternative-map portfolio. Thus recognizing an exact existing map
+is a smaller experiment than selecting a different map. Neither optimization
+may delete pending obligations or turn lookup subsumption into solved-state
+authority. Local reproductions and falsifiable test/counter proposals are in
+`TMP/power-domain-gate.UpQa87/performance_followups.md`.
+
 ## What problem the current measurements expose
 
 The checkpoint pilot in `bounded_routing_pilot_2026-09-22.md` stopped after

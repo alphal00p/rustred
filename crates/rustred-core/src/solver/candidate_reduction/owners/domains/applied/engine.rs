@@ -8,6 +8,7 @@ use crate::algebra::IndexedCoefficient;
 use crate::foundry::artifact::prove_wide_descent_with_limits;
 use crate::foundry::completion::{CompletionGeometryLimits, LatticeBox};
 use crate::solver::candidate_reduction::owners::CandidateOwnerPrograms;
+use crate::solver::candidate_reduction::power_domain::{self, DomainPowerBounds, DomainPowerError};
 use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -157,6 +158,31 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         rank: Option<u32>,
         limits: OwnerAppliedLimits,
         cancellation: &AtomicBool,
+        visit: impl FnMut(OwnerAppliedEvent<'_, N>) -> ControlFlow<()>,
+    ) -> Result<OwnerAppliedStats, OwnerAppliedError> {
+        self.visit_power_bounded_owner_applied_successors(
+            owner,
+            lower,
+            upper,
+            rank,
+            DomainPowerBounds::default(),
+            limits,
+            cancellation,
+            visit,
+        )
+    }
+
+    /// Inspect exact shifted domains, retaining and translating their current
+    /// A/D predicates. Entry bounds are never reapplied to descendants.
+    pub fn visit_power_bounded_owner_applied_successors(
+        &self,
+        owner: [bool; N],
+        lower: &[u64],
+        upper: &[Option<u64>],
+        rank: Option<u32>,
+        powers: DomainPowerBounds,
+        limits: OwnerAppliedLimits,
+        cancellation: &AtomicBool,
         mut visit: impl FnMut(OwnerAppliedEvent<'_, N>) -> ControlFlow<()>,
     ) -> Result<OwnerAppliedStats, OwnerAppliedError> {
         let mut budget = Budget {
@@ -165,11 +191,12 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             cancel: cancellation,
         };
         let mut failure = None;
-        let matched = self.visit_owner_domain_matches(
+        let matched = self.visit_power_bounded_owner_domain_matches(
             owner,
             lower,
             upper,
             rank,
+            powers,
             limits.matching,
             cancellation,
             |piece| match self.apply_piece(&piece, None, &mut budget, &mut visit) {
@@ -196,6 +223,8 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             Some(failure) => Err(OwnerAppliedError {
                 failure,
                 stats: budget.stats,
+                max_numerator_rank: rank,
+                power_bounds: powers,
             }),
             None => Ok(budget.stats),
         }
@@ -265,15 +294,29 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                 "shift groups",
             )?;
             for sign in geometry::sign_cells(&source, piece.owner(), shift, budget)? {
-                if geometry::rank_empty(&sign, piece.owner(), piece.max_numerator_rank()) {
+                let Some((sign, sign_rank)) = geometry::normalize(
+                    sign,
+                    piece.owner(),
+                    piece.max_numerator_rank(),
+                    piece.power_bounds(),
+                    budget,
+                )?
+                else {
                     continue;
-                }
+                };
                 let mut boundary = geometry::Boundaries::new(&sign, piece.owner(), shift, budget)?;
                 while let Some(cell) = boundary.next(budget)? {
-                    if !geometry::rank_empty(&cell, piece.owner(), piece.max_numerator_rank()) {
+                    if let Some((cell, cell_rank)) = geometry::normalize(
+                        cell,
+                        piece.owner(),
+                        sign_rank,
+                        piece.power_bounds(),
+                        budget,
+                    )? {
                         self.apply_group(
                             piece,
                             &cell,
+                            cell_rank,
                             rule,
                             &indices[start..end],
                             shift,
@@ -300,6 +343,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         &self,
         piece: &OwnerDomainMatchPiece<N>,
         cell: &LatticeBox,
+        rank: Option<u32>,
         shift: &[i64; N],
         original_term_ordinal: Option<usize>,
         coefficient: &IndexedCoefficient,
@@ -311,7 +355,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             coefficient,
             cell,
             piece.owner(),
-            piece.max_numerator_rank(),
+            rank,
             self.context.limits.indexed_algebra,
             budget,
         )?;
@@ -338,6 +382,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         &self,
         piece: &OwnerDomainMatchPiece<N>,
         cell: &LatticeBox,
+        rank: Option<u32>,
         rule: &crate::solver::candidate_reduction::model::PreparedRule<N>,
         indices: &[usize],
         shift: &[i64; N],
@@ -355,7 +400,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             coefficient_nonzero: nonzero,
             kind,
         };
-        let fixed = match geometry::fixed(cell, piece.owner(), piece.max_numerator_rank()) {
+        let fixed = match geometry::fixed(cell, piece.owner(), rank) {
             Ok(fixed) => fixed,
             Err(axis) => {
                 return budget.problem(
@@ -398,6 +443,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             let nonzero = self.classify_coefficient(
                 piece,
                 cell,
+                rank,
                 shift,
                 Some(ordinal),
                 &coefficient,
@@ -445,7 +491,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                         &restricted,
                         cell,
                         piece.owner(),
-                        piece.max_numerator_rank(),
+                        rank,
                         algebra_limits,
                         budget,
                     )? {
@@ -516,12 +562,12 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             return Ok(());
         };
         let nonzero =
-            self.classify_coefficient(piece, cell, shift, None, &coefficient, budget, visit)?;
+            self.classify_coefficient(piece, cell, rank, shift, None, &coefficient, budget, visit)?;
         if nonzero == Zero::Yes {
             budget.stats.cancelled_groups += 1;
             return Ok(());
         }
-        let image = match geometry::image(cell, piece.owner(), shift, piece.max_numerator_rank()) {
+        let mut image = match geometry::image(cell, piece.owner(), shift, rank) {
             Ok(image) => image,
             Err(detail) => {
                 return budget.problem(
@@ -535,6 +581,47 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                 );
             }
         };
+        let mut target_powers = piece.power_bounds();
+        if !target_powers.is_unconstrained() {
+            // On these sign-refined cells every crossing coordinate is fixed:
+            // ΔR is exact and ΔA=ΔR+sum(s), including activation and pinching.
+            let delta_d = shift
+                .iter()
+                .try_fold(0i128, |sum, &s| sum.checked_add(i128::from(s)))
+                .ok_or(OwnerAppliedFailure::PowerDomain(
+                    DomainPowerError::ArithmeticOverflow("shifted D"),
+                ))?;
+            let delta_a =
+                image
+                    .delta_rank
+                    .checked_add(delta_d)
+                    .ok_or(OwnerAppliedFailure::PowerDomain(
+                        DomainPowerError::ArithmeticOverflow("shifted A"),
+                    ))?;
+            let Some(translated) = target_powers
+                .shifted(delta_a, delta_d)
+                .map_err(OwnerAppliedFailure::PowerDomain)?
+            else {
+                return Err(OwnerAppliedFailure::InternalInvariant(
+                    "nonempty source has empty translated power bounds",
+                ));
+            };
+            target_powers = translated;
+            let projected = power_domain::project(
+                &image.sector,
+                &image.lower,
+                &image.upper,
+                image.rank,
+                target_powers,
+            )
+            .map_err(OwnerAppliedFailure::PowerDomain)?
+            .ok_or(OwnerAppliedFailure::InternalInvariant(
+                "nonempty source has empty shifted image",
+            ))?;
+            image.lower = projected.lower.to_vec();
+            image.upper = projected.upper.to_vec();
+            image.rank = projected.effective_rank;
+        }
         charge(&mut budget.stats.successors, 1, usize::MAX, "successors")?;
         if nonzero == Zero::Unknown {
             budget.stats.conditional_successors += 1;
@@ -549,6 +636,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                 target_lower: &image.lower,
                 target_upper: &image.upper,
                 target_rank_limit: image.rank,
+                target_power_bounds: target_powers,
                 shift,
                 coefficient: &coefficient,
                 coefficient_nonzero: nonzero.nonzero(),

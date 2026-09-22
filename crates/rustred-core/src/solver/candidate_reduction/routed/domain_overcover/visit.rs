@@ -1,5 +1,9 @@
 use super::super::RoutedCandidateReducer;
 use super::model::*;
+use super::power::{mapped_bounds, project_cover};
+use crate::solver::candidate_reduction::power_domain::{
+    DomainPowerBounds, DomainPowerError, project,
+};
 use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -79,6 +83,34 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         actual_rank: Option<u32>,
         limits: CandidateDomainRouteLimits,
         cancellation: &AtomicBool,
+        visit: impl FnMut(CandidateDomainRouteEvent<N>) -> ControlFlow<()>,
+    ) -> Result<CandidateDomainRouteStats, CandidateDomainRouteError> {
+        self.visit_power_bounded_domain_route_overcover(
+            source,
+            lower,
+            upper,
+            actual_rank,
+            DomainPowerBounds::default(),
+            limits,
+            cancellation,
+            visit,
+        )
+    }
+
+    /// Route a box intersected with retained total-positive-power and A-R bounds.
+    /// Source and mapped covers are projected before enumerating further masks;
+    /// omitted masks are proved empty, not missing-rule or terminal claims.
+    /// The unconstrained bounds value retains the existing bounded visitor's
+    /// exact output and accounting, including its unbounded-rank representation.
+    pub fn visit_power_bounded_domain_route_overcover(
+        &self,
+        source: [bool; N],
+        lower: &[u64],
+        upper: &[Option<u64>],
+        actual_rank: Option<u32>,
+        power_bounds: DomainPowerBounds,
+        limits: CandidateDomainRouteLimits,
+        cancellation: &AtomicBool,
         mut visit: impl FnMut(CandidateDomainRouteEvent<N>) -> ControlFlow<()>,
     ) -> Result<CandidateDomainRouteStats, CandidateDomainRouteError> {
         let mut stats = CandidateDomainRouteStats::default();
@@ -87,6 +119,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             lower,
             upper,
             actual_rank,
+            power_bounds,
             limits,
             cancellation,
             &mut visit,
@@ -103,6 +136,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         lower: &[u64],
         upper: &[Option<u64>],
         actual_rank: Option<u32>,
+        power_bounds: DomainPowerBounds,
         limits: CandidateDomainRouteLimits,
         cancellation: &AtomicBool,
         visit: &mut impl FnMut(CandidateDomainRouteEvent<N>) -> ControlFlow<()>,
@@ -124,6 +158,9 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 "source lower bound exceeds upper bound",
             ));
         }
+        power_bounds
+            .validate()
+            .map_err(CandidateDomainRouteFailure::PowerDomain)?;
         if let Some(rank) = actual_rank {
             // Subtraction avoids an overflowing sum of otherwise valid u64
             // coordinate bounds. Failure here means an empty intersection.
@@ -137,6 +174,22 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 }
             }
         }
+        let constrained = !power_bounds.is_unconstrained();
+        let projection = if constrained {
+            let Some(projection) = project(&source, &lower, &upper, actual_rank, power_bounds)
+                .map_err(CandidateDomainRouteFailure::PowerDomain)?
+            else {
+                return cancelled(cancellation);
+            };
+            Some(projection)
+        } else {
+            None
+        };
+        let lower = projection.as_ref().map_or(lower, |p| p.lower);
+        let upper = projection.as_ref().map_or(upper, |p| p.upper);
+        let actual_rank = projection
+            .as_ref()
+            .map_or(actual_rank, |p| p.effective_rank);
         // Source validity precedes zero in concrete evaluation. We report its
         // remaining obligation rather than treating a zero census as validity.
         if self.programs.context.shared.zero_sectors.contains(&source) {
@@ -144,6 +197,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 CandidateDomainRouteEvent::ZeroSector {
                     sector: source,
                     actual_rank,
+                    power_bounds,
                     source_conditions_required: self.domain_routing_requires_source_conditions(),
                 },
                 limits,
@@ -162,6 +216,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                         lower,
                         upper,
                         actual_rank,
+                        power_bounds,
                         conservative: true,
                     },
                 },
@@ -176,6 +231,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 CandidateDomainRouteEvent::MissingRoute {
                     source_sector: source,
                     actual_rank,
+                    power_bounds,
                 },
                 limits,
                 cancellation,
@@ -183,6 +239,18 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 stats,
             );
         };
+        if projection.as_ref().is_some_and(|p| {
+            p.numerator_upper
+                .is_some_and(|rank| rank > u128::from(u32::MAX))
+        }) {
+            // Literal boxes can retain this wider bound exactly. After affine
+            // numerator mixing the rank interface cannot encode it; fail rather
+            // than silently truncate it or turn a finite cap into infinity.
+            return Err(CandidateDomainRouteFailure::PowerDomain(
+                DomainPowerError::OutOfRange("routed numerator bound"),
+            ));
+        }
+        let positive_upper = projection.as_ref().and_then(|p| p.positive_upper);
         let root: [bool; N] = std::array::from_fn(|axis| route.owner_sector.active_bits()[axis]);
         let count = root.iter().filter(|&&b| b).count();
         if count != source.iter().filter(|&&b| b).count() {
@@ -227,18 +295,33 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             lower: [0; N],
             upper: target_upper,
             actual_rank,
+            power_bounds: if constrained {
+                mapped_bounds(power_bounds, positive_upper, 0).expect("zero pinch cost")
+            } else {
+                power_bounds
+            },
             conservative: true,
         };
-        emit(
-            CandidateDomainRouteEvent::Apply {
-                owner_sector: root,
-                cover,
-            },
-            limits,
-            cancellation,
-            visit,
-            stats,
-        )?;
+        let root_cover = if constrained {
+            project_cover(&root, cover)?
+        } else {
+            Some(cover)
+        };
+        if let Some(cover) = root_cover {
+            emit(
+                CandidateDomainRouteEvent::Apply {
+                    owner_sector: root,
+                    cover,
+                },
+                limits,
+                cancellation,
+                visit,
+                stats,
+            )?;
+        } else {
+            stats.masks_examined = admit(stats.masks_examined, 1, limits.max_masks, "route masks")?;
+            stats.masks_pruned += 1;
+        }
 
         // Prepared::compile admits a unit active-row bijection and only affine
         // inactive rows. Endpoints B-e have B>=0 and |e|<=D, so their numerator
@@ -286,9 +369,17 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 let mut sector = root;
                 let mut pinched_rank = actual_rank;
                 let mut possible = true;
+                let mut pinch_cost = 0_u128;
                 for &position in &positions {
                     let axis = active[position];
                     sector[axis] = false;
+                    if constrained {
+                        pinch_cost = pinch_cost
+                            .checked_add(u128::from(target_lower_cost[axis]) + 1)
+                            .ok_or(CandidateDomainRouteFailure::CountOverflow {
+                                resource: "weighted pinch cost",
+                            })?;
+                    }
                     if let Some(remaining) = pinched_rank {
                         // lower>=remaining implies lower+1>remaining, even at
                         // u64::MAX. Never saturate an impossible pinch to rank 0.
@@ -312,20 +403,40 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                             pinched_upper[axis] = None;
                         }
                     }
-                    emit(
-                        CandidateDomainRouteEvent::Route {
-                            sector,
-                            cover: CandidateDomainRouteCover {
-                                actual_rank: pinched_rank,
-                                upper: pinched_upper,
-                                ..cover
-                            },
-                        },
-                        limits,
-                        cancellation,
-                        visit,
-                        stats,
-                    )?;
+                    let pinched = CandidateDomainRouteCover {
+                        actual_rank: pinched_rank,
+                        upper: pinched_upper,
+                        ..cover
+                    };
+                    let pinched = if constrained {
+                        if let Some(bounds) =
+                            mapped_bounds(power_bounds, positive_upper, pinch_cost)
+                        {
+                            project_cover(
+                                &sector,
+                                CandidateDomainRouteCover {
+                                    power_bounds: bounds,
+                                    ..pinched
+                                },
+                            )?
+                        } else {
+                            None
+                        }
+                    } else {
+                        Some(pinched)
+                    };
+                    if let Some(cover) = pinched {
+                        emit(
+                            CandidateDomainRouteEvent::Route { sector, cover },
+                            limits,
+                            cancellation,
+                            visit,
+                            stats,
+                        )?;
+                    } else {
+                        stats.masks_examined = masks;
+                        stats.masks_pruned += 1;
+                    }
                 } else {
                     stats.masks_examined = masks;
                     stats.masks_pruned += 1;

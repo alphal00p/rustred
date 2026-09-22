@@ -157,6 +157,7 @@ fn initial_state() -> State<1> {
     ] {
         queue
             .admit(super::super::queue::Domain {
+                powers: Default::default(),
                 phase: Phase::Apply,
                 owner: [true],
                 lower: vec![lower],

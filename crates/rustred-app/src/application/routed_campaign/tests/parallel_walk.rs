@@ -2,7 +2,7 @@ use super::*;
 
 fn multiple_domains(fixture: &Fixture) -> OwnerDomainWalkRequest {
     let mut matching = match_request(fixture);
-    matching.queries_json = json!({"schema":"rustred.owner-domain-queries.json.v1", "queries":[
+    matching.queries_json = json!({"schema":"rustred.owner-domain-queries.json.v2", "queries":[
         {"id":"narrow-a","owner":"1","lower":[2],"upper":[2],"max_numerator_rank":11},
         {"id":"narrow-b","owner":"1","lower":[3],"upper":[3],"max_numerator_rank":11},
         {"id":"whole-ray","owner":"1","lower":[0],"upper":[null],"max_numerator_rank":11},

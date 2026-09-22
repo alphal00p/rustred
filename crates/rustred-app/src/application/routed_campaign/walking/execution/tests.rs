@@ -202,6 +202,7 @@ fn symbolic_stream_admission_preserves_phase_rank_and_pending_semantics() {
     for phase in [Phase::Apply, Phase::Route] {
         for rank in [Some(11), None] {
             let domain = super::super::queue::Domain {
+                powers: Default::default(),
                 phase,
                 owner: [true],
                 lower: vec![0],
@@ -233,6 +234,7 @@ fn symbolic_stream_failed_publisher_does_not_commit_contiguous_speculative_resul
     for x in 0..3 {
         queue
             .admit(super::super::queue::Domain {
+                powers: Default::default(),
                 phase: Phase::Apply,
                 owner: [true],
                 lower: vec![x],

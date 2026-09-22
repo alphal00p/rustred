@@ -1,8 +1,36 @@
 use super::super::queue::Queue;
 use super::*;
 
+#[test]
+fn constrained_domains_do_not_seed_unconstrained_orthant_shortcuts() {
+    let mut source = domain(Phase::Apply, [true, false], Some(4));
+    let initial =
+        InitialOrthants::from_initial(&[Arc::new(source.clone())], &AtomicBool::new(false));
+    assert!(initial.contains(Phase::Apply, &[true, false], Some(4)));
+    for powers in [
+        rustred::solver::DomainPowerBounds {
+            max_positive_power: Some(10),
+            ..Default::default()
+        },
+        rustred::solver::DomainPowerBounds {
+            min_power_difference: Some(0),
+            ..Default::default()
+        },
+        rustred::solver::DomainPowerBounds {
+            max_power_difference: Some(3),
+            ..Default::default()
+        },
+    ] {
+        source.powers = powers;
+        let initial =
+            InitialOrthants::from_initial(&[Arc::new(source.clone())], &AtomicBool::new(false));
+        assert!(!initial.contains(Phase::Apply, &[true, false], Some(0)));
+    }
+}
+
 fn domain(phase: Phase, owner: [bool; 2], rank: Option<u32>) -> Domain<2> {
     Domain {
+        powers: Default::default(),
         phase,
         owner,
         rank,

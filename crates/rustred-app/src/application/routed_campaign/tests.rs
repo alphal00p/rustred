@@ -3,6 +3,7 @@ use crate::{FamilyCandidatesRequest, family_candidates, inspect_generated_candid
 use std::sync::atomic::{AtomicU64, Ordering};
 mod guarded_apply;
 mod bounded_routing;
+mod power_domains;
 
 #[test]
 fn shared_snapshot_exposes_first_failure_while_native_calls_drain() {
@@ -89,7 +90,7 @@ impl Drop for Fixture {
 }
 
 fn match_request(fixture: &Fixture) -> OwnerDomainMatchRequest {
-    let queries = json!({"schema":"rustred.owner-domain-queries.json.v1", "queries":[
+    let queries = json!({"schema":"rustred.owner-domain-queries.json.v2", "queries":[
         {"id":"positive-ray", "owner":"1", "lower":[0], "upper":[null],
             "max_numerator_rank":11}]});
     let mut request =
@@ -405,7 +406,7 @@ powers=[1,1,0]
     let path = fixture.directory.join("native-refinement.rrbin");
     std::fs::write(&path, &bytes).unwrap();
     let selection = json!({"family_fingerprint":family.fingerprint(),"owners":[{"path":"native-refinement.rrbin","bytes":bytes.len(),"mask":"110"}],"initial_frontier_routes":[]});
-    let queries = json!({"schema":"rustred.owner-domain-queries.json.v1","queries":[{"id":"coupled-inactive-ray","owner":"110","lower":[0,0,0],"upper":[null,0,null],"max_numerator_rank":2}]});
+    let queries = json!({"schema":"rustred.owner-domain-queries.json.v2","queries":[{"id":"coupled-inactive-ray","owner":"110","lower":[0,0,0],"upper":[null,0,null],"max_numerator_rank":2}]});
     let mut request = OwnerDomainMatchRequest::new(selection.to_string(), queries.to_string());
     request.owner_base = fixture.directory.clone();
     let disabled =
@@ -501,7 +502,7 @@ fn owner_domain_match_rejects_queries_before_loading_owners() {
 
 #[test]
 fn owner_domain_match_final_progress_has_no_large_query_payload() {
-    let document = json!({"schema":"rustred.owner-domain-match.json.v1", "status":"incomplete",
+    let document = json!({"schema":"rustred.owner-domain-match.json.v2", "status":"incomplete",
         "classification_complete":false, "all_queries_locally_applicable":false,
         "queries":[{"pieces":vec![json!({"lower":[0], "upper":[null]});10000]}],
         "counts":{"unresolved":1}, "error":"x".repeat(10000), "family_closure_claim":false});
@@ -865,7 +866,7 @@ fn shared_owner_campaign_composes_noninvolutive_native_map_and_rejects_forgery()
 }
 
 fn route_walk_request(fixture: &Fixture, rank: u32) -> OwnerDomainWalkRequest {
-    let queries = json!({"schema":"rustred.owner-domain-queries.json.v1", "queries":[
+    let queries = json!({"schema":"rustred.owner-domain-queries.json.v2", "queries":[
         {"id":"routed-positive-ray", "owner":"110", "lower":[0,0,0],
             "upper":[null,null,null], "max_numerator_rank":rank}]});
     let mut matching =

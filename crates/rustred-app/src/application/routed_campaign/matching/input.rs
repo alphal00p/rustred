@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use rustred::solver::DomainPowerBounds;
 use serde_json::Value;
 
 use crate::AppError;
@@ -11,6 +12,59 @@ pub(in crate::application::routed_campaign) struct Query {
     pub lower: Vec<u64>,
     pub upper: Vec<Option<u64>>,
     pub rank: Option<u32>,
+    pub powers: DomainPowerBounds,
+}
+
+pub(in crate::application::routed_campaign) fn power_bounds_json(p: DomainPowerBounds) -> Value {
+    serde_json::json!({"max_positive_power":p.max_positive_power,
+        "min_power_difference":p.min_power_difference,"max_power_difference":p.max_power_difference})
+}
+
+fn only_fields(value: &Value, allowed: &[&str], context: &str) -> Result<(), AppError> {
+    if value
+        .as_object()
+        .is_none_or(|object| object.keys().any(|k| !allowed.contains(&k.as_str())))
+    {
+        return Err(AppError::input(format!(
+            "unknown field or non-object {context}"
+        )));
+    }
+    Ok(())
+}
+
+fn parse_powers(value: Option<&Value>) -> Result<DomainPowerBounds, AppError> {
+    let Some(value) = value else {
+        return Ok(DomainPowerBounds::default());
+    };
+    only_fields(
+        value,
+        &[
+            "max_positive_power",
+            "min_power_difference",
+            "max_power_difference",
+        ],
+        "power_bounds",
+    )?;
+    let signed = |key| match value.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v.as_i64().map(Some).ok_or_else(|| {
+            AppError::input(format!("{key} must be a signed 64-bit integer or null"))
+        }),
+    };
+    let powers = DomainPowerBounds {
+        max_positive_power: match value.get("max_positive_power") {
+            None | Some(Value::Null) => None,
+            Some(v) => Some(v.as_u64().ok_or_else(|| {
+                AppError::input("max_positive_power must be an unsigned 64-bit integer or null")
+            })?),
+        },
+        min_power_difference: signed("min_power_difference")?,
+        max_power_difference: signed("max_power_difference")?,
+    };
+    powers
+        .validate()
+        .map_err(|e| AppError::input(e.to_string()))?;
+    Ok(powers)
 }
 
 /// Validate every query before loading native rule programs.
@@ -24,9 +78,10 @@ pub(in crate::application::routed_campaign) fn parse(
     }
     let document: Value = serde_json::from_str(text)
         .map_err(|error| AppError::input(format!("owner-domain query JSON: {error}")))?;
-    if document["schema"] != "rustred.owner-domain-queries.json.v1" {
+    if document["schema"] != "rustred.owner-domain-queries.json.v2" {
         return Err(AppError::input("unsupported owner-domain query schema"));
     }
+    only_fields(&document, &["schema", "queries"], "query document")?;
     let rows = document["queries"]
         .as_array()
         .ok_or_else(|| AppError::input("queries must be an array"))?;
@@ -38,6 +93,18 @@ pub(in crate::application::routed_campaign) fn parse(
     let mut ids = BTreeSet::new();
     rows.iter()
         .map(|row| {
+            only_fields(
+                row,
+                &[
+                    "id",
+                    "owner",
+                    "lower",
+                    "upper",
+                    "max_numerator_rank",
+                    "power_bounds",
+                ],
+                "query",
+            )?;
             let id = row["id"]
                 .as_str()
                 .filter(|id| !id.is_empty() && id.len() <= 128)
@@ -104,6 +171,7 @@ pub(in crate::application::routed_campaign) fn parse(
                 lower,
                 upper,
                 rank,
+                powers: parse_powers(row.get("power_bounds"))?,
             })
         })
         .collect()
@@ -115,8 +183,56 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn power_predicates_are_admitted_exactly_and_unknown_fields_fail_closed() {
+        let base = json!({"schema":"rustred.owner-domain-queries.json.v2", "queries":[
+            {"id":"q", "owner":"10", "lower":[0,0], "upper":[null,null],
+             "max_numerator_rank":11, "power_bounds":{"max_positive_power":24,
+             "min_power_difference":-3,"max_power_difference":10}}]});
+        let row = parse(&base.to_string(), 2, 1).unwrap().remove(0);
+        assert_eq!(
+            row.powers,
+            DomainPowerBounds {
+                max_positive_power: Some(24),
+                min_power_difference: Some(-3),
+                max_power_difference: Some(10)
+            }
+        );
+        assert_eq!(
+            power_bounds_json(row.powers),
+            base["queries"][0]["power_bounds"]
+        );
+        for (field, value) in [
+            ("max_positive_power", json!(-1)),
+            ("min_power_difference", json!(11)),
+            ("max_power_difference", json!(-4)),
+            ("min_power_difference", json!(u64::MAX)),
+            ("unexpected", json!(1)),
+        ] {
+            let mut doc = base.clone();
+            doc["queries"][0]["power_bounds"][field] = value;
+            assert!(parse(&doc.to_string(), 2, 1).is_err(), "{field}");
+        }
+        let mut unknown = base.clone();
+        unknown["queries"][0]["max_positive_power"] = json!(24);
+        assert!(parse(&unknown.to_string(), 2, 1).is_err());
+        let mut old = base.clone();
+        old["schema"] = json!("rustred.owner-domain-queries.json.v1");
+        assert!(parse(&old.to_string(), 2, 1).is_err());
+        let mut absent = base;
+        absent["queries"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("power_bounds");
+        assert!(
+            parse(&absent.to_string(), 2, 1).unwrap()[0]
+                .powers
+                .is_unconstrained()
+        );
+    }
+
+    #[test]
     fn queries_retain_unbounded_positive_bounds_and_actual_rank() {
-        let doc = json!({"schema":"rustred.owner-domain-queries.json.v1", "queries":[
+        let doc = json!({"schema":"rustred.owner-domain-queries.json.v2", "queries":[
             {"id":"above-entry", "owner":"10", "lower":[0,11], "upper":[null,11], "max_numerator_rank":11}]});
         let rows = parse(&doc.to_string(), 2, 1).unwrap();
         assert_eq!(rows[0].lower, [0, 11]);
@@ -126,7 +242,7 @@ mod tests {
 
     #[test]
     fn invalid_queries_fail_before_native_preparation() {
-        let base = json!({"schema":"rustred.owner-domain-queries.json.v1", "queries":[
+        let base = json!({"schema":"rustred.owner-domain-queries.json.v2", "queries":[
             {"id":"q", "owner":"10", "lower":[0,0], "upper":[null,0], "max_numerator_rank":0}]});
         for (field, value) in [
             ("id", json!("")),

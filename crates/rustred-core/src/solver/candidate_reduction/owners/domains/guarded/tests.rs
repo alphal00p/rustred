@@ -17,6 +17,33 @@ use std::sync::{
 };
 
 const OWNER: [bool; 3] = [true, true, false];
+
+#[test]
+fn correlated_guarded_pullback_is_explicitly_refused() {
+    let powers = crate::solver::candidate_reduction::power_domain::DomainPowerBounds {
+        max_positive_power: Some(4),
+        ..Default::default()
+    };
+    let error = fixture()
+        .visit_power_bounded_owner_guarded_rule_successors(
+            OWNER,
+            0,
+            0,
+            &[0; 3],
+            &[None; 3],
+            Some(3),
+            powers,
+            Default::default(),
+            &AtomicBool::new(false),
+            |_| panic!("unsupported domain must emit nothing"),
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.failure,
+        OwnerGuardedFailure::UnsupportedPowerBounds(powers)
+    );
+    assert_eq!(error.stats.events, 0);
+}
 fn fixture() -> Arc<CandidateOwnerPrograms<3>> {
     let mut p = programs(
         Arc::new(crate::solver::tests::sunset()),

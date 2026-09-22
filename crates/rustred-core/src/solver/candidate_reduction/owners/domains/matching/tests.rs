@@ -3,6 +3,7 @@ mod affine_priority;
 mod and_lookahead;
 mod factor_priority;
 mod finite_refinement;
+mod power_bounds;
 mod rejection_lookahead;
 use super::*;
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial};

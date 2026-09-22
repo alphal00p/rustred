@@ -215,14 +215,15 @@ fn run<const N: usize>(
         let mut pieces = Vec::new();
         let mut summary_limit = false;
         let mut unresolved = false;
-        let result = reducer.programs().visit_owner_domain_matches(
-            owner, &query.lower, &query.upper, query.rank, request.match_limits, cancellation,
+        let result = reducer.programs().visit_power_bounded_owner_domain_matches(
+            owner, &query.lower, &query.upper, query.rank, query.powers, request.match_limits, cancellation,
             |piece| {
                 if retained == request.max_total_pieces { summary_limit = true; return ControlFlow::Break(()); }
                 unresolved |= matches!(piece.disposition(), OwnerDomainMatchDisposition::Unresolved { .. });
                 let disposition = counts.classify(&piece.disposition());
                 pieces.push(json!({"lower":piece.lower(), "upper":piece.upper(),
-                    "max_numerator_rank":piece.max_numerator_rank(), "disposition":disposition}));
+                    "max_numerator_rank":piece.max_numerator_rank(),
+                    "power_bounds":input::power_bounds_json(piece.power_bounds()), "disposition":disposition}));
                 retained += 1;
                 if retained.is_multiple_of(128) {
                     observer(json!({"event":"domain_query_progress", "operation":"owner_domain_match",
@@ -241,6 +242,7 @@ fn run<const N: usize>(
                 let context = error.predicate.as_ref().map(|predicate| json!({
                     "predicate":format!("{predicate:?}"), "lower":error.predicate_lower(),
                     "upper":error.predicate_upper(), "max_numerator_rank":error.max_numerator_rank,
+                    "power_bounds":input::power_bounds_json(error.power_bounds),
                 })).unwrap_or(Value::Null);
                 (error.stats, Some(detail), Some(kind), context)
             }
@@ -250,11 +252,13 @@ fn run<const N: usize>(
         completed_queries += usize::from(query_complete);
         records.push(json!({"id":query.id, "owner":query.owner.iter().map(|&b|if b{'1'}else{'0'}).collect::<String>(),
             "input_lower":query.lower, "input_upper":query.upper, "requested_max_numerator_rank":query.rank,
+            "power_bounds":input::power_bounds_json(query.powers),
             "classification_complete":query_complete, "error":error, "error_kind":error_kind, "summary_limit":summary_limit,
             "error_predicate_context":predicate_context,
             "stats":{"rules":stats.rules, "terminal_checks":stats.terminal_checks, "predicates":stats.predicates,
                 "pieces":stats.pieces, "cells":stats.cells, "split_operations":stats.split_operations,
                 "coordinate_cells":stats.coordinate_cells, "rank_empty_cells":stats.rank_empty_cells,
+                "correlation_empty_cells":stats.correlation_empty_cells,
                 "refinement_cells":stats.refinement_cells, "refinement_steps":stats.refinement_steps}, "pieces":pieces}));
         observer(
             json!({"event":"domain_query_finished", "operation":"owner_domain_match", "id":query.id,
@@ -295,6 +299,7 @@ fn failure_kind(failure: &OwnerDomainMatchFailure) -> &'static str {
         OwnerDomainMatchFailure::AllocationFailure { .. } => "allocation_failure",
         OwnerDomainMatchFailure::Algebra(_) => "algebra",
         OwnerDomainMatchFailure::Geometry(_) => "geometry",
+        OwnerDomainMatchFailure::PowerDomain(_) => "power_domain",
     }
 }
 
@@ -313,7 +318,7 @@ fn finish(
     started: Instant,
     observer: &impl Fn(Value),
 ) -> OwnerDomainMatchResult {
-    document["schema"] = json!("rustred.owner-domain-match.json.v1");
+    document["schema"] = json!("rustred.owner-domain-match.json.v2");
     document["event"] = json!("finished");
     document["classification_complete"] = json!(complete);
     document["all_queries_locally_applicable"] = json!(applicable);

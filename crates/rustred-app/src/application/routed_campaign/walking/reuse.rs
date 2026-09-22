@@ -22,6 +22,7 @@ struct Key<const N: usize> {
     lower: [u64; N],
     upper: [Option<u64>; N],
     rank: Option<u32>,
+    powers: rustred::solver::DomainPowerBounds,
 }
 impl<const N: usize> Key<N> {
     fn from_domain(d: &Domain<N>) -> Option<Self> {
@@ -31,6 +32,7 @@ impl<const N: usize> Key<N> {
             lower: d.lower.as_slice().try_into().ok()?,
             upper: d.upper.as_slice().try_into().ok()?,
             rank: d.rank,
+            powers: d.powers,
         })
     }
 }

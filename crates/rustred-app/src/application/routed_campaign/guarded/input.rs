@@ -68,7 +68,14 @@ pub(super) fn parse(text: &str, arity: usize, limit: usize) -> Result<Vec<Guarde
             ));
         }
     }
-    doc["schema"] = Value::String("rustred.owner-domain-queries.json.v1".into());
+    // This explicitly unconstrained adapter rejects power_bounds above. Strip
+    // selectors before the strict general-domain parser, not unknown fields.
+    for row in doc["queries"].as_array_mut().expect("validated rows") {
+        let object = row.as_object_mut().expect("validated object");
+        object.remove("batch");
+        object.remove("rule");
+    }
+    doc["schema"] = Value::String("rustred.owner-domain-queries.json.v2".into());
     let queries = input::parse(&doc.to_string(), arity, limit)?;
     Ok(queries
         .into_iter()

@@ -113,12 +113,15 @@ where
         identity: OwnerDomainPredicate,
     ) -> Result<Resolution, (OwnerDomainPredicate, OwnerDomainMatchFailure)> {
         self.cancelled().map_err(|error| (identity, error))?;
+        let rank = self
+            .effective_rank(cell)
+            .map_err(|error| (identity, error))?;
         let result = guards::resolve(
             &self.programs.context.shared.context,
             polynomial,
             cell,
             &self.owner,
-            self.rank,
+            rank,
             self.programs.context.limits.indexed_algebra,
             &mut self.budget,
         );

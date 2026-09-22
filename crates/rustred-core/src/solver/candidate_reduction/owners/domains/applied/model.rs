@@ -2,6 +2,7 @@ use std::fmt;
 
 use super::super::{OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats};
 use crate::algebra::{IndexedAlgebraError, IndexedCoefficient};
+use crate::solver::candidate_reduction::power_domain::{DomainPowerBounds, DomainPowerError};
 
 /// Aggregate local-query work. Existing indexed/native operation limits remain
 /// those of the admitted programs; these counters are not hard RSS guarantees.
@@ -61,6 +62,7 @@ pub struct OwnerAppliedStats {
     pub zero_terms: usize,
     pub cancelled_groups: usize,
     pub zero_sector_groups: usize,
+    pub correlation_empty_cells: usize,
 }
 
 /// Nonzero as an indexed rational function need not mean nonzero at every
@@ -72,7 +74,8 @@ pub enum OwnerAppliedNonzero {
 }
 
 /// All fields are borrowed for this callback only. The target box intersected
-/// with target_rank_limit is the exact image of the refined source box/rank.
+/// with target_rank_limit AND target_power_bounds is the exact image of the
+/// refined source domain. The target rectangle alone may contain extra points.
 /// A Conditional coefficient makes it an over-cover of nonzero dependencies;
 /// an uncovered target box is then NOT automatically a reached missing rule.
 /// Events are streamed by shift group. Even Uniform successors are provisional
@@ -88,6 +91,7 @@ pub struct OwnerAppliedSuccessor<'a, const N: usize> {
     pub target_lower: &'a [u64],
     pub target_upper: &'a [Option<u64>],
     pub target_rank_limit: Option<u32>,
+    pub target_power_bounds: DomainPowerBounds,
     pub shift: &'a [i64; N],
     /// Coefficient in ORIGINAL SOURCE indexed variables, after fixed restriction.
     pub coefficient: &'a IndexedCoefficient,
@@ -167,12 +171,15 @@ pub enum OwnerAppliedFailure {
     Algebra(IndexedAlgebraError),
     AffineRestriction(crate::solver::AffineGeometryError),
     Geometry(String),
+    PowerDomain(DomainPowerError),
     InternalInvariant(&'static str),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OwnerAppliedError {
     pub failure: OwnerAppliedFailure,
     pub stats: OwnerAppliedStats,
+    pub max_numerator_rank: Option<u32>,
+    pub power_bounds: DomainPowerBounds,
 }
 impl fmt::Display for OwnerAppliedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

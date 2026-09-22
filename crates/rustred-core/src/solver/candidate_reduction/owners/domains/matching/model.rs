@@ -2,6 +2,7 @@ use std::fmt;
 
 use crate::algebra::{IndexedAlgebraError, IndexedGuardLimits};
 use crate::foundry::completion::LatticeBox;
+use crate::solver::candidate_reduction::power_domain::{DomainPowerBounds, DomainPowerError};
 
 /// Coordinates eligible for exact singleton refinement of an unresolved guard.
 /// This is a partition policy, not sampling or a claim of recursive coverage.
@@ -66,6 +67,8 @@ pub struct OwnerDomainMatchStats {
     pub split_operations: usize,
     pub coordinate_cells: usize,
     pub rank_empty_cells: usize,
+    /// Empty intersections with retained total-power predicates.
+    pub correlation_empty_cells: usize,
     /// Singleton faces admitted up front. Cancellation may leave some unvisited.
     pub refinement_cells: usize,
     /// Entire bounded-coordinate refinements admitted (not predicate retries).
@@ -118,7 +121,7 @@ pub enum OwnerDomainMatchDisposition {
     ExactZeroSector,
 }
 
-/// Exact box intersected with `sum(inactive local coordinates) <= rank`.
+/// Exact box intersected with the rank and retained total-power predicates.
 /// Active physical powers are 1+x, inactive powers are -x. None is mathematical
 /// infinity, not a machine index bound. Callers bound their own retained output.
 #[derive(Debug)]
@@ -126,6 +129,7 @@ pub struct OwnerDomainMatchPiece<const N: usize> {
     pub(super) owner: [bool; N],
     pub(super) cell: LatticeBox,
     pub(super) rank: Option<u32>,
+    pub(super) powers: DomainPowerBounds,
     pub(super) disposition: OwnerDomainMatchDisposition,
 }
 impl<const N: usize> OwnerDomainMatchPiece<N> {
@@ -143,6 +147,7 @@ impl<const N: usize> OwnerDomainMatchPiece<N> {
             owner,
             cell,
             rank,
+            powers: DomainPowerBounds::default(),
             disposition: OwnerDomainMatchDisposition::SelectedRule { batch, rule },
         }
     }
@@ -157,6 +162,9 @@ impl<const N: usize> OwnerDomainMatchPiece<N> {
     }
     pub fn max_numerator_rank(&self) -> Option<u32> {
         self.rank
+    }
+    pub fn power_bounds(&self) -> DomainPowerBounds {
+        self.powers
     }
     pub fn disposition(&self) -> OwnerDomainMatchDisposition {
         self.disposition
@@ -182,6 +190,7 @@ pub enum OwnerDomainMatchFailure {
     },
     Algebra(IndexedAlgebraError),
     Geometry(String),
+    PowerDomain(DomainPowerError),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -193,6 +202,7 @@ pub struct OwnerDomainMatchError {
     pub predicate: Option<OwnerDomainPredicate>,
     /// Actual query simplex; None is unbounded, not the saved entry rank.
     pub max_numerator_rank: Option<u32>,
+    pub power_bounds: DomainPowerBounds,
     pub(super) predicate_bounds: Option<(Box<[u64]>, Box<[Option<u64>]>)>,
 }
 impl OwnerDomainMatchError {
@@ -217,10 +227,11 @@ impl fmt::Display for OwnerDomainMatchError {
         if let Some(predicate) = self.predicate {
             write!(
                 f,
-                " at {predicate:?}, lower={:?}, upper={:?}, rank={:?}",
+                " at {predicate:?}, lower={:?}, upper={:?}, rank={:?}, powers={:?}",
                 self.predicate_lower(),
                 self.predicate_upper(),
-                self.max_numerator_rank
+                self.max_numerator_rank,
+                self.power_bounds
             )?;
         }
         Ok(())

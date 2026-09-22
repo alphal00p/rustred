@@ -56,6 +56,21 @@ fn contains(event: &CandidateDomainRouteEvent<3>, key: &IntegralKey) -> bool {
     cover
         .actual_rank
         .is_none_or(|bound| rank <= u64::from(bound))
+        && power_contains(cover.power_bounds, key)
+}
+
+fn power_contains(powers: crate::solver::DomainPowerBounds, key: &IntegralKey) -> bool {
+    let positive: i128 = key.powers().iter().map(|&n| i128::from(n.max(0))).sum();
+    let difference: i128 = key.powers().iter().map(|&n| i128::from(n)).sum();
+    powers
+        .max_positive_power
+        .is_none_or(|a| positive <= i128::from(a))
+        && powers
+            .min_power_difference
+            .is_none_or(|d| difference >= i128::from(d))
+        && powers
+            .max_power_difference
+            .is_none_or(|d| difference <= i128::from(d))
 }
 
 fn multipinch_fixture() -> (RoutedCandidateReducer<3>, Arc<integral_transport::Prepared>) {
@@ -436,7 +451,11 @@ fn bounded_route_weighted_zero_reentry_keeps_source_conditions() {
         [CandidateDomainRouteEvent::ZeroSector {
             sector: [false; 3],
             actual_rank: Some(0),
+            power_bounds: Default::default(),
             source_conditions_required: true,
         }]
     );
 }
+
+#[path = "power_tests.rs"]
+mod power_tests;

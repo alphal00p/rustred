@@ -2,6 +2,14 @@
 
 ## Outcome
 
+**Correlated-domain update:** A/R/D predicates now survive matching, shifts,
+routing and queue/cache reuse. The 980-point constrained diagonal agrees with
+the saved singleton oracle locally, but recursive traversal still develops
+severe serial admission pressure. It was stopped cooperatively with 49,686
+complete and 145,431 queued domains, after 106.956 s traversal. This is not
+five-loop closure or a speedup comparison with the larger rectangular input.
+See [the constrained pilot](#correlated-domain-integration-and-pilot).
+
 **Resumed audit update:** the matched maximal-index rerun is now measured: its
 identical 74,326-domain completed prefix takes 108.625–109.632 s traversal,
 versus 315.671–316.676 s previously. This is a 2.88–2.92× prefix improvement,
@@ -217,10 +225,12 @@ allowances, not physical limits or closure criteria.
 1. **Preserve total-power correlations.** Carry positive-power sum A, numerator
    rank R and D=A-R through matching, exact IBP shifts, routing, cache keys and
    inclusion tests. Independent coordinate caps alone solve an enlarged input
-   problem. The workspace geometry prototype passes 11 standalone optimized
-   tests (including 442,368 exhaustive small-domain comparisons), but is not
-   integrated into the campaign; current timings cannot be credited to it.
-   Retain predicates after
+   problem. The geometry service and campaign propagation are now integrated;
+   the 11 standalone optimized tests include 442,368 exhaustive small-domain
+   comparisons, and the full release core gate passes 2,748 tests (32 ignored).
+   Application/integration gates pass 435 tests and Python/steering gates pass
+   72; the constrained recursive pilot below remains incomplete. None of the historical
+   timings above includes this integration. Retain predicates after
    projection, including in guarded pullbacks; do not overwrite sibling-cell
    rank limits or lose the existing rank-orthant fast path during normalization.
 2. **Remove serial lookup work.** Profile per-owner/phase admission and redundant
@@ -252,12 +262,116 @@ Local audit evidence is in `TMP/bounded-routing-pilot.4kY19R/`:
 `CORRELATIONS_REAUDIT_2026-09-22.md`. Run receipts are
 `shared-owner-campaign.gltu7ezq/` and `shared-owner-campaign.9jj5ev7y/` there.
 
+## Correlated-domain integration and pilot
+
+The implementation retains an A upper bound and D=A-R lower/upper bounds in
+native matching, exact sign-cell IBP shifts, admitted affine routing, local
+reuse, queue identity/containment and diagnostics. Coordinate tightening never
+replaces these predicates. Constrained optional guarded pullbacks fail closed;
+the default unconstrained APIs retain their prior behavior. No CAS kernel or
+new IBP search is introduced. Query/match/walk schemas are v2, documented in
+[the input/API contract](../shared_owner_domain_matching.md).
+
+Release validation passes 2,748 core tests, 353 application-library tests,
+82 integration tests and 72 Python/API/steering tests; 32 existing core
+diagnostics remain ignored. Independent implementation/math review passes.
+An additional orthant shortcut initially failed the existing admission
+differential test; it was removed without weakening that test. The corrected
+focused campaign gate passes all 134 tests. Final post-build source edits
+were comments and indentation only. Logs and the frozen CLI are under
+`TMP/power-domain-gate.UpQa87/`; CLI SHA256:
+`32a49e46147d443bbc77329a0f1a38b19bebb080ab43bf84cff7f5f0212b9ed8`.
+The tested tree includes the same separate, uncommitted scheduler/escrow work;
+these are not measurements of the isolated correlation commit.
+
+### Local first-rule classification
+
+Intersecting the earlier diagonal with A<=24 and D>=10 retains 980 of its
+2,560 points, including all 50 earlier concrete stress roots. All 980 match
+the saved singleton oracle, with zero partition/selection mismatches and no
+excluded point admitted. The 28 selected-rule regions take 0.008475 s matching,
+0.702373 s preparation and 0.710908 s application total. These are **local
+first-rule lookup** times, not IBP generation, recursive reduction or closure.
+
+Input, verifier and independent audit:
+`TMP/correlated-routing-pilots.jw6Bwo/{diagonal-a24-d10-r10-v2.json,verify-match.sh,LOCAL_MATCH_AUDIT.md}`.
+Local result: `match-probe.hQCWzw/result.json` in that directory. The D>=9
+variant and schema-only controls were prepared but not run in this slice.
+Neither small diagonal covers the complete marginal R14 or full-jet R15 domain.
+
+### Recursive run: incomplete, stopped for optimization
+
+The unchanged 67 owners and 8,246 admitted route records were used with 50
+workers, fixed CPU affinity, nested pools of one, and the previous 500/450 GB
+hard/soft RSS allowances. No elapsed deadline was imposed. Python/interface
+gates overlapped only serial preparation and ended before 50-worker traversal.
+This is a shared-host single run, not an exclusive-host statistical comparison.
+
+| Measurement | Constrained diagonal |
+|---|---:|
+| Starting points | 980 |
+| Preparation | 102.701 s |
+| Traversal before cooperative stop | 106.956 s |
+| Application total | 209.657 s |
+| Supervisor lifetime | 216.138 s |
+| Sampled aggregate CPU | 650.32 s |
+| Sampled peak aggregate RSS | 9.589 GB |
+| Completed / scheduled domains | 49,686 / 195,118 |
+| Queued / partial cancelled domains | 145,431 / 1 |
+| Committed events | 3,518,508 |
+| Successors / conditional successors | 2,431,056 / 39,600 |
+| Observed unresolved frontiers | 0 |
+| Containment comparisons, including maintenance | 4,971,600,936 |
+| Reverse maintenance comparisons | 987,619,360 |
+| Live / retired containment candidates | 58,169 / 136,949 |
+| Route masks / routed domains | 1,440,040 / 36,302 |
+| Maximum admitted descendant rank bound | 11 |
+
+At approximately 125 s total, the completed-result buffer reaches its 65,536
+entry ceiling, using about 2.50 GB of its 8.59 GB byte allowance. Over 37 samples
+between 125 and 200 s, mean observed utilization is only 2.084 cores. A thread
+snapshot shows the coordinator running while most compute workers wait. The
+queue keeps growing and comparisons dominate admission activity. Root stops
+cooperatively to investigate this bottleneck; no memory/event/domain cap or
+short timeout triggers the stop. Exit is 4, without a hard kill. These facts
+justify an optimization experiment, not an assertion that completion exceeds
+fifteen hours. There is still no defensible whole-envelope ETA.
+
+Every committed domain retains power metadata and finite positive coordinate
+uppers. Descendant A bounds range from 9 to 25 and D lower bounds from 8 to 13;
+817 records have A upper>24 and 144 have rank bound>10. These legitimate
+translated images demonstrate that entry restrictions are not reapplied to
+children. The 4,326 correlation-empty cells and 682,241 pruned routing masks
+are geometric exclusions, not missing IBPs.
+
+### Recommendation after the run
+
+Measure cached semantic containment and selective index lookup next, rather
+than merely raising caps. Although 44,847 records carry a redundant D upper
+bound at least as large as A upper, dropping only that field reduces distinct
+descriptors by just 168 (about 0.34%). Thus field cleanup alone is not a demonstrated
+solution. The stronger proposal uses existing exact coordinate/A/R/D extrema
+to test implication without repeated geometry work per comparison. Preserve
+every admitted/pending obligation regardless of index retirement.
+
+Also census full unit-permutation routes before implementing an exact
+permutation image; the existing generic overcover can introduce spurious
+pinches even for such maps. No performance win is claimed for either proposal.
+Do not widen the physical campaign or regenerate rules without a concrete
+reachable rule gap. The changed workload prevents a speedup claim relative to
+the larger rectangular runs above.
+
+Recursive receipts: `TMP/correlated-routing-pilots.jw6Bwo/shared-owner-campaign.jtsg2q0t/`.
+The result is diagnostic, not a durable pending-work checkpoint or a closing
+artifact. No solver remains running from this pilot; the project goal is active.
+
 ## Historical pause and resumed sequence
 
 The user explicitly resumed work from this report. The following pause is
 historical and does not direct current execution. Steps 1 and the R0 portion
-of step 2 have now run; the measured growth defers the larger guard-box run
-until the correlation/index work above. The remaining scope restrictions apply.
+of step 2 have now run, and step 3 is implemented and piloted. The measured
+growth defers the larger guard-box run until the remaining index/routing work
+above. The remaining scope restrictions apply.
 
 The user requested a quota-driven checkpoint and stop. No further five-loop
 campaign is being launched at this checkpoint. All research/implementation

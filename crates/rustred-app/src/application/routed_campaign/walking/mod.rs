@@ -11,6 +11,7 @@ mod routing;
 
 use super::{OwnerDomainMatchRequest, RoutedCampaignRequest, input, matching, prepare};
 use crate::AppError;
+use matching::input::power_bounds_json;
 use queue::{Domain, Phase, Queue};
 use rustred::solver::{OwnerAppliedLimits, OwnerAppliedStats};
 use serde_json::{Value, json};
@@ -165,6 +166,7 @@ fn mask<const N: usize>(owner: &[bool; N]) -> String {
 fn stats_json(s: OwnerAppliedStats) -> Value {
     json!({"selected_pieces":s.selected_pieces,"term_visits":s.term_visits,"shift_groups":s.shift_groups,
         "boundary_cells":s.boundary_cells,"sign_splits":s.sign_splits,"native_operations":s.native_operations,
+        "correlation_empty_cells":s.correlation_empty_cells,
         "optional_coefficient_refusals":s.optional_coefficient_refusals,"optional_original_refusals":s.optional_original_refusals,
         "optional_coalesced_refusals":s.optional_coalesced_refusals,"coalescing_additions":s.coalescing_additions,
         "events":s.events,"successors":s.successors,"conditional_successors":s.conditional_successors,
@@ -172,6 +174,7 @@ fn stats_json(s: OwnerAppliedStats) -> Value {
         "matching":{"rules":s.matching.rules,"terminal_checks":s.matching.terminal_checks,"predicates":s.matching.predicates,
             "pieces":s.matching.pieces,"cells":s.matching.cells,"split_operations":s.matching.split_operations,
             "coordinate_cells":s.matching.coordinate_cells,"rank_empty_cells":s.matching.rank_empty_cells,
+            "correlation_empty_cells":s.matching.correlation_empty_cells,
             "refinement_cells":s.matching.refinement_cells,"refinement_steps":s.matching.refinement_steps}})
 }
 fn limits_json(r: &OwnerDomainWalkRequest) -> Value {
@@ -218,6 +221,7 @@ fn run<const N: usize>(
                 lower: query.lower.clone(),
                 upper: query.upper.clone(),
                 rank: query.rank,
+                powers: query.powers,
             };
             let domain = if request.route_domain_overcover
                 && !reducer
@@ -232,6 +236,7 @@ fn run<const N: usize>(
                     }
                     input_frontiers.push(json!({"id":query.id,"kind":"initial_route_source_validity_obligation",
                         "owner":mask(&domain.owner),"lower":domain.lower,"upper":domain.upper,"rank":domain.rank,
+                        "power_bounds":power_bounds_json(domain.powers),
                         "reached_missing_rule_claim":false}));
                     inputs.push(
                         json!({"id":query.id,"domain":null,"source_validity_unresolved":true}),
@@ -260,7 +265,7 @@ fn run<const N: usize>(
     }
     let exhausted = state.error.is_none() && state.queue.next == state.queue.domains.len();
     let resolved = exhausted && state.frontiers == 0;
-    let mut document = json!({"schema":"rustred.owner-domain-walk.json.v1",
+    let mut document = json!({"schema":"rustred.owner-domain-walk.json.v2",
         "status":if resolved {"locally_resolved"} else {"incomplete"},
         "all_scheduled_domains_resolved":resolved,"recursive_worklist_exhausted":exhausted,
         "family_closure_claim":false,"ibp_generation":false,"routing_expanded":false,

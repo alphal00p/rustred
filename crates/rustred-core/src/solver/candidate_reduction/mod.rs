@@ -12,6 +12,7 @@ mod cache;
 mod evaluator;
 mod model;
 mod owners;
+pub(crate) mod power_domain;
 mod preparation;
 mod reducer;
 mod routed;
@@ -37,6 +38,7 @@ pub use owners::{
     OwnerSuccessorError, OwnerSuccessorFailure, OwnerSuccessorLimits, OwnerSuccessorRegion,
     OwnerSuccessorStats, OwnerSuccessorTransition,
 };
+pub use power_domain::{DomainPowerBounds, DomainPowerError};
 pub use reducer::CandidateReducer;
 pub use routed::{
     CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,
