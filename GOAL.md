@@ -18,6 +18,13 @@ closure. Next measure exact-safe aggregate filtering of the admission index.
 On 5,910 identical routed source queries, the new support bounds reduce emitted
 Route descendants by 81.90%; this local pruning does not override the observed
 global admission bottleneck.
+The aggregate-filter index is now implemented and passes
+independent source review and 36 focused tests (one replay ignored). Three
+complete 46,080-request streams preserve every reuse ID and pending obligation.
+Six paired saved-descriptor replays per input measure median admission-time
+ratios of 2.59× and 2.09× versus the frozen linear semantic index. These are
+index-only results. Full application/Python gates and the next matched
+production pilot remain pending; see the [index audit](docs/research/domain_admission_index_audit_2026-09-22.md).
 The matched maximal-index pilot
 measures a 2.88–2.92× improvement on the identical completed traversal prefix;
 it and the subsequent all-owner control remain incomplete at diagnostic caps.

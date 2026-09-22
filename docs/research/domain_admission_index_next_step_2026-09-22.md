@@ -6,6 +6,15 @@ still identifies queue admission as the bottleneck. The semantic-only stopped
 pilot performed 8,157,472,074 containment checks, including 1,407,523,725 reverse
 maintenance checks; that establishes motivation, not expected acceleration.
 
+**Subsequent implementation update:** the support pilot confirmed the
+admission bottleneck. This proposal is now implemented;
+36 focused tests and independent source review pass. Saved-descriptor replays
+measure index-only improvements, while the full application/Python gate and
+matched production campaign remain pending. See the
+[implementation and timing audit](domain_admission_index_audit_2026-09-22.md).
+The design below records the original recommendation, not an additional claim
+of complete five-loop coverage.
+
 ## Smallest proposed index
 
 Preserve the existing `(phase, owner)` partition, exact-key lookup, dominant

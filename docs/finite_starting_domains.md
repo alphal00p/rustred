@@ -600,6 +600,65 @@ streams and memory/selectivity before adoption; see the
 This is not a reason to widen the physical envelope, generate new rules, or
 begin terminal evaluation.
 
+### Aggregate admission index: focused gate passed, integration pending
+
+The queue implementation groups maximal candidates by exact
+native `(A_max,R_max,D_min)` extrema, including explicit infinity and empty
+cases. Both forward lookup and reverse retirement filter whole groups before
+the unchanged exact containment test. Exact/orthant lookup retains priority;
+the fallback still returns the minimum valid retained ID, independent of group
+order. Retiring a lookup candidate never removes an exact key or pending job.
+Finite-comparison-cap behavior is unchanged, and storage/counters are preflighted
+before mutation. There is no new CAS primitive or production schema.
+
+Independent source/math review passes. The actual-source optimized queue gate
+passes 36 tests (one diagnostic ignored), including three complete streams of
+46,080 requests with every returned ID and complete state checked against an
+independent linear-semantic model. This includes repeated and rejected requests.
+The frozen original production queue also returns identical IDs in twelve
+saved-descriptor timing replays, six per receipt. Median paired wall-time ratios
+are 2.59x on the 63,913 support-pilot descriptors and 2.09x on the 125,503
+semantic-pilot descriptors, including all filter work in the timing boundary.
+These sequences omit original rejected campaign proposals; they are not full
+campaign replays or closure results. Filtering is not universally faster: one
+shuffled synthetic stream performs slightly more full checks.
+
+The full release application rebuild/gate and fresh Python gate are pending;
+no campaign has run with the new index yet. Source and timing audit:
+[aggregate index audit](research/domain_admission_index_audit_2026-09-22.md).
+Local evidence: `TMP/aggregate-admission-gate.HrfYdG/`.
+
+### Readiness beyond the index pilot
+
+A follow-up source audit separates the remaining integration obligations:
+
+- The complete conservative full-jet input is representable with existing
+  query fields: for each census owner of support size t, use zero local lowers,
+  active upper `24-t`, inactive upper 15, rank 15, and retained `A<=24,D>=9`.
+  This is an input specification, not a completed campaign. Current prepared
+  pilot files contain smaller controls, not these full all-owner queries.
+- Wider symbolic matching is intentionally allowed by
+  `walking/mod.rs`, but public concrete root admission still enforces saved
+  R10 context scope in the native campaign scheduler. An above-entry overlay
+  does not widen that scope; a dedicated R11 regression verifies this. A
+  successful R15 diagnostic must not silently retag R10 saved bundles or be
+  advertised as R15 public evaluator admission.
+- Conservative frontier boxes are explicitly not reached missing-rule claims
+  (`walking/inspection.rs`). Concrete witness extraction and replay from an
+  admitted starting input remain necessary before fixed-target repair.
+- `RoutedFeedbackSession::replace_targets` already supplies bounded retained
+  batches, and exact fixed-target nomination/overlay installation exist. The
+  missing connection is compact traversal to genuine witnesses and retained
+  CLI/Python feedback steering, plus explicit requested-entry-domain authority;
+  it is not the batch-replacement primitive itself.
+- Worklist resolution remains separate from final bounded-closure reporting,
+  fixed-point feedback, source-valid routing, and explicit finite terminals.
+  Graph/forest incidence profiles are still proposed restrictions, not
+  implemented or automatically authenticated physical input filters.
+
+Do not treat index speedups as completion of these tasks or move to terminal
+minimization/evaluation before the requested finite starting domain is handled.
+
 Local verification evidence is in `TMP/finite-entry-gate.2GG13m/` (untracked).
 The passing app gate took 64.97 s wall / 61.52 s user CPU, and the Python gate
 50.20 s wall / 48.89 s user CPU; these are test-suite times, not solver benchmarks.

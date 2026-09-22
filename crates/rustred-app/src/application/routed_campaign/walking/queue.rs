@@ -3,6 +3,9 @@ use rustred::solver::{DomainPowerBounds, DomainPowerError, DomainPowerSummary};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+mod index;
+use index::{AggregateIndex, Signature};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) enum Phase {
     Apply,
@@ -66,12 +69,23 @@ fn rank_contains(container: Option<u32>, candidate: Option<u32>) -> bool {
 
 #[derive(Default)]
 struct OwnerBucket {
-    /// Stable admission order. With unlimited comparisons, retain only maximal
-    /// containment candidates; finite-cap mode keeps the historical full scan.
-    /// Retiring an index candidate never removes its exact key or queued work.
+    /// Historical stable full scan, used only in the finite-cap lane.
     ids: Vec<usize>,
+    /// Unlimited lane: grouped maximal lookup candidates. Retirement never
+    /// removes the exact key, immutable domain or queued work.
+    indexed: AggregateIndex,
     /// Largest admitted full-orthant rank; None rank dominates every finite R.
     orthant: Option<usize>,
+}
+
+#[cfg(test)]
+impl OwnerBucket {
+    fn candidate_ids(&self) -> Vec<usize> {
+        let mut ids = self.indexed.ids();
+        ids.extend_from_slice(&self.ids);
+        ids.sort_unstable();
+        ids
+    }
 }
 
 pub(super) struct Queue<const N: usize> {
@@ -208,31 +222,43 @@ impl<const N: usize> Queue<N> {
                 self.deduplicated += 1;
                 return Ok((id, false));
             }
-            for &id in &bucket.ids {
-                if self
-                    .max_checks
-                    .is_some_and(|limit| self.containment_checks >= limit)
-                {
-                    return Err("domain containment check allowance");
-                }
-                self.containment_checks = self
-                    .containment_checks
-                    .checked_add(1)
-                    .ok_or("domain containment counter overflow")?;
-                let contained = summary.as_ref().map_or_else(
-                    || self.domains[id].contains(&domain),
-                    |candidate| self.summaries[id].contains(candidate),
-                );
-                if contained {
-                    if summary.is_some() && !self.domains[id].contains(&domain) {
-                        self.containment_semantic_hits = self
-                            .containment_semantic_hits
-                            .checked_add(1)
-                            .ok_or("semantic containment hit counter overflow")?;
+            let found = if let Some(summary) = &summary {
+                bucket.indexed.find(Signature::of(summary), |id| {
+                    self.containment_checks = self
+                        .containment_checks
+                        .checked_add(1)
+                        .ok_or("domain containment counter overflow")?;
+                    Ok(self.summaries[id].contains(summary))
+                })?
+            } else {
+                let mut found = None;
+                for &id in &bucket.ids {
+                    if self
+                        .max_checks
+                        .is_some_and(|limit| self.containment_checks >= limit)
+                    {
+                        return Err("domain containment check allowance");
                     }
-                    self.deduplicated += 1;
-                    return Ok((id, false));
+                    self.containment_checks = self
+                        .containment_checks
+                        .checked_add(1)
+                        .ok_or("domain containment counter overflow")?;
+                    if self.domains[id].contains(&domain) {
+                        found = Some(id);
+                        break;
+                    }
                 }
+                found
+            };
+            if let Some(id) = found {
+                if summary.is_some() && !self.domains[id].contains(&domain) {
+                    self.containment_semantic_hits = self
+                        .containment_semantic_hits
+                        .checked_add(1)
+                        .ok_or("semantic containment hit counter overflow")?;
+                }
+                self.deduplicated += 1;
+                return Ok((id, false));
             }
         }
         if self.domains.len() == self.max_domains {
@@ -254,30 +280,43 @@ impl<const N: usize> Queue<N> {
         // either index, or rank telemetry. Failed reserves may change capacity,
         // never logical admission state. Occasional native HashMap rehash is
         // O(admitted domains); hash iteration never determines queue semantics.
-        let new_bucket = if let Some(bucket) = self.by_owner.get_mut(&key) {
-            bucket
-                .ids
-                .try_reserve(1)
-                .map_err(|_| "owner domain index allocation")?;
-            None
+        let signature = summary.as_ref().map(Signature::of);
+        let (new_bucket, insertion) = if let Some(bucket) = self.by_owner.get_mut(&key) {
+            let insertion = if let Some(signature) = signature {
+                Some(bucket.indexed.prepare(signature)?)
+            } else {
+                bucket
+                    .ids
+                    .try_reserve(1)
+                    .map_err(|_| "owner domain index allocation")?;
+                None
+            };
+            (None, insertion)
         } else {
             self.by_owner
                 .try_reserve(1)
                 .map_err(|_| "owner domain index allocation")?;
             let mut bucket = OwnerBucket::default();
-            bucket
-                .ids
-                .try_reserve(1)
-                .map_err(|_| "owner domain index allocation")?;
-            Some(bucket)
+            let insertion = if let Some(signature) = signature {
+                Some(bucket.indexed.prepare(signature)?)
+            } else {
+                bucket
+                    .ids
+                    .try_reserve(1)
+                    .map_err(|_| "owner domain index allocation")?;
+                None
+            };
+            (Some(bucket), insertion)
         };
         let full_orthant = domain.is_full_orthant();
         // Preflight all reverse comparisons before changing the candidate
         // index or publishing this admission. A failed allocation above or a
         // counter overflow here can only alter reserved capacity/work counters,
         // never retire an obligation's only indexed representative.
-        let maintenance = if self.max_checks.is_none() {
-            self.by_owner.get(&key).map_or(0, |bucket| bucket.ids.len())
+        let maintenance = if let Some(signature) = signature {
+            self.by_owner
+                .get(&key)
+                .map_or(Ok(0), |bucket| bucket.indexed.maintenance_len(signature))?
         } else {
             0
         };
@@ -303,27 +342,32 @@ impl<const N: usize> Queue<N> {
             self.by_owner.insert(key, bucket);
         }
         let bucket = self.by_owner.get_mut(&key).expect("reserved owner bucket");
-        let previous_candidates = bucket.ids.len();
         let mut extra_retired = 0;
-        if maintenance != 0 {
+        let retired = if let Some(insertion) = insertion.as_ref() {
             // All retained candidates and the new domain belong to this same
             // immutable phase/owner snapshot. Transitivity preserves a retained
             // containing representative for every retired candidate. Keep the
             // old domains/exact entries/FIFO jobs, whether pending or finished.
             let summary = summary.as_ref().expect("unlimited lane summary");
-            bucket.ids.retain(|&old| {
+            bucket.indexed.retire(insertion, |old| {
                 let retire = summary.contains(&self.summaries[old]);
                 if retire && !domain.contains(&self.domains[old]) {
                     extra_retired += 1; // preflighted by the maintenance bound
                 }
-                !retire
-            });
-        }
+                retire
+            })
+        } else {
+            0
+        };
         self.containment_checks = total_checks;
         self.containment_maintenance_checks = maintenance_checks;
-        self.containment_retired_candidates += previous_candidates - bucket.ids.len();
+        self.containment_retired_candidates += retired;
         self.containment_semantic_retirements += extra_retired;
-        bucket.ids.push(id);
+        if let Some(insertion) = insertion {
+            bucket.indexed.insert(insertion, id);
+        } else {
+            bucket.ids.push(id);
+        }
         if full_orthant
             && bucket
                 .orthant

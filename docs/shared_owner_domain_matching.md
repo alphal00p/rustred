@@ -288,6 +288,12 @@ four implies R<=4 even if its supplied rank cap is ten. The fixed-template
 summary recognizes this without running geometry or algebra per comparison.
 It retains true infinities, wide aggregate bounds and explicit empty sets;
 invalid geometry fails rather than becoming an empty-domain shortcut.
+The aggregate filter groups retained candidates by exact
+`(A_max,R_max,D_min)` extrema. A necessary aggregate test skips whole groups
+before native exact inclusion, in both forward lookup and reverse retirement.
+Exact-key and dominant-orthant shortcuts keep priority; otherwise the lowest
+valid retained ID is selected across eligible groups, regardless of group
+storage order. Empty and unbounded signatures are explicit, not finite sentinels.
 When a new domain contains an earlier one, only the earlier lookup candidate
 is retired: its exact key, original ID and pending FIFO inspection remain.
 This can avoid admissions that the former componentwise comparison retained.
@@ -301,6 +307,10 @@ Live and final reports expose `containment_index_policy`,
 `containment_candidates`, `containment_retired_candidates` and
 `containment_maintenance_checks`. The last counter measures reverse-dominance
 maintenance and is **included** in total `containment_checks`, not free work.
+These count full containment comparisons, not aggregate-group probes. Filter
+work is included in measured wall/CPU time; fewer full comparisons alone do
+not prove a performance improvement. Test instrumentation separately counts
+group probes/rejections without changing production progress schemas.
 The unlimited policy label is `maximal_candidates_semantic_unlimited`.
 `containment_summary_builds` counts successful projections after exact-key
 misses, including requests later reused or rejected. `containment_semantic_hits`

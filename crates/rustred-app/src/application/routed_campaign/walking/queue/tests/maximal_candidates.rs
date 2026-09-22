@@ -13,13 +13,14 @@ fn assert_maximal_index(queue: &Queue<2>) {
         queue
             .by_owner
             .values()
-            .map(|bucket| bucket.ids.len())
+            .map(|bucket| bucket.candidate_ids().len())
             .sum::<usize>()
     );
     for (&(phase, owner), bucket) in &queue.by_owner {
-        assert!(bucket.ids.windows(2).all(|ids| ids[0] < ids[1]));
-        for &left in &bucket.ids {
-            for &right in &bucket.ids {
+        let ids = bucket.candidate_ids();
+        assert!(ids.windows(2).all(|ids| ids[0] < ids[1]));
+        for &left in &ids {
+            for &right in &ids {
                 if left != right {
                     assert!(!semantic_contains(
                         &queue.domains[left],
@@ -34,9 +35,7 @@ fn assert_maximal_index(queue: &Queue<2>) {
             .filter(|d| d.phase == phase && d.owner == owner)
         {
             assert!(
-                bucket
-                    .ids
-                    .iter()
+                ids.iter()
                     .any(|&id| semantic_contains(&queue.domains[id], historic))
             );
         }
@@ -54,7 +53,10 @@ fn maximal_candidates_retire_only_index_entries_and_keep_exact_ids_and_pending_w
     let broad = bounded(Some(11), 0, 12);
     assert_eq!(queue.admit(narrow.clone()), Ok((0, true)));
     assert_eq!(queue.admit(broad.clone()), Ok((1, true)));
-    assert_eq!(queue.by_owner[&(Phase::Apply, narrow.owner)].ids, vec![1]);
+    assert_eq!(
+        queue.by_owner[&(Phase::Apply, narrow.owner)].candidate_ids(),
+        vec![1]
+    );
     assert_eq!(queue.domains.len(), 2);
     assert_eq!(queue.exact.len(), 2);
     assert_eq!(queue.containment_retired_candidates, 1);
@@ -63,7 +65,9 @@ fn maximal_candidates_retire_only_index_entries_and_keep_exact_ids_and_pending_w
     assert_eq!(queue.admit(narrow.clone()), Ok((0, false)));
     assert_eq!(queue.admit(bounded(Some(10), 5, 8)), Ok((1, false)));
     assert_eq!(queue.containment_maintenance_checks, 1);
-    assert_eq!(queue.containment_checks, 3); // Admission, maintenance, fresh child.
+    // The widening's forward comparison is excluded by its aggregate maximum;
+    // exact reverse maintenance and the subsequent fresh-child check remain.
+    assert_eq!(queue.containment_checks, 2);
     assert_eq!(queue.domains[0].as_ref(), &narrow);
     assert_eq!(queue.domains[1].as_ref(), &broad);
     assert_maximal_index(&queue);
@@ -79,7 +83,7 @@ fn maximal_candidates_keep_high_rank_finite_boxes_beside_lower_rank_orthants() {
     assert_eq!(queue.admit(high.clone()), Ok((1, true)));
     assert_eq!(queue.admit(domain(Some(7))), Ok((2, true)));
     let bucket = &queue.by_owner[&(Phase::Apply, high.owner)];
-    assert_eq!(bucket.ids, vec![1, 2]);
+    assert_eq!(bucket.candidate_ids(), vec![1, 2]);
     assert_eq!(bucket.orthant, Some(2));
     assert_eq!(queue.containment_retired_candidates, 1);
     assert_eq!(queue.containment_candidate_count(), 2);
@@ -100,7 +104,7 @@ fn maximal_candidates_distinguish_rank_and_coordinate_infinity() {
     assert_eq!(queue.admit(finite_rank.clone()), Ok((0, true)));
     assert_eq!(queue.admit(unbounded_rank.clone()), Ok((1, true)));
     assert_eq!(
-        queue.by_owner[&(Phase::Apply, finite_rank.owner)].ids,
+        queue.by_owner[&(Phase::Apply, finite_rank.owner)].candidate_ids(),
         vec![1]
     );
     // A genuinely unbounded positive axis is not contained in u64::MAX.
@@ -108,7 +112,7 @@ fn maximal_candidates_distinguish_rank_and_coordinate_infinity() {
     infinite_axis.upper[0] = None;
     assert_eq!(queue.admit(infinite_axis), Ok((2, true)));
     assert_eq!(
-        queue.by_owner[&(Phase::Apply, finite_rank.owner)].ids,
+        queue.by_owner[&(Phase::Apply, finite_rank.owner)].candidate_ids(),
         vec![2]
     );
     assert_eq!(queue.admit(finite_rank), Ok((0, false)));
@@ -129,18 +133,26 @@ fn maximal_candidates_failed_admission_never_retires_the_existing_representative
         queue.admit(broad.clone()),
         Err("scheduled domain allowance")
     );
-    assert_eq!(queue.by_owner[&(Phase::Apply, narrow.owner)].ids, vec![0]);
+    assert_eq!(
+        queue.by_owner[&(Phase::Apply, narrow.owner)].candidate_ids(),
+        vec![0]
+    );
     assert_eq!(queue.containment_maintenance_checks, 0);
     assert_eq!(queue.containment_retired_candidates, 0);
     assert_eq!(queue.containment_candidate_count(), 1);
     assert_eq!(queue.admit(bounded(Some(10), 4, 8)), Ok((0, false)));
     queue.max_domains = 2;
-    queue.containment_checks = usize::MAX - 1;
+    // The filter skips the impossible forward test; the remaining reverse
+    // maintenance must still refuse counter overflow before retiring anything.
+    queue.containment_checks = usize::MAX;
     assert_eq!(
         queue.admit(broad.clone()),
         Err("domain containment counter overflow")
     );
-    assert_eq!(queue.by_owner[&(Phase::Apply, narrow.owner)].ids, vec![0]);
+    assert_eq!(
+        queue.by_owner[&(Phase::Apply, narrow.owner)].candidate_ids(),
+        vec![0]
+    );
     assert_eq!(queue.containment_maintenance_checks, 0);
     assert_eq!(queue.domains.len(), 1);
     assert_eq!(queue.exact.len(), 1);
@@ -152,7 +164,10 @@ fn maximal_candidates_failed_admission_never_retires_the_existing_representative
         queue.admit(broad.clone()),
         Err("domain containment maintenance counter overflow")
     );
-    assert_eq!(queue.by_owner[&(Phase::Apply, [true, false])].ids, vec![0]);
+    assert_eq!(
+        queue.by_owner[&(Phase::Apply, [true, false])].candidate_ids(),
+        vec![0]
+    );
     assert_eq!(queue.domains.len(), 1);
     assert_eq!(queue.exact.len(), 1);
     assert_maximal_index(&queue);
@@ -162,7 +177,10 @@ fn maximal_candidates_failed_admission_never_retires_the_existing_representative
         queue.admit(broad),
         Err("domain containment retired-candidate counter overflow")
     );
-    assert_eq!(queue.by_owner[&(Phase::Apply, [true, false])].ids, vec![0]);
+    assert_eq!(
+        queue.by_owner[&(Phase::Apply, [true, false])].candidate_ids(),
+        vec![0]
+    );
     assert_eq!(queue.containment_retired_candidates, usize::MAX);
     assert_eq!(queue.domains.len(), 1);
     assert_eq!(queue.exact.len(), 1);
@@ -231,7 +249,7 @@ fn maximal_candidates_match_naive_fifo_for_overlapping_incomparable_and_expandin
         queue
             .by_owner
             .values()
-            .map(|bucket| bucket.ids.len())
+            .map(|bucket| bucket.candidate_ids().len())
             .sum::<usize>()
             < baseline.len()
     );

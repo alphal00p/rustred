@@ -88,7 +88,10 @@ fn semantic_counter_failure_never_publishes_or_retires_work() {
         queue.admit(domain(Some(5))),
         Err("semantic containment retirement counter overflow")
     );
-    assert_eq!(queue.by_owner[&(Phase::Apply, old.owner)].ids, vec![0]);
+    assert_eq!(
+        queue.by_owner[&(Phase::Apply, old.owner)].candidate_ids(),
+        vec![0]
+    );
     assert_eq!(queue.domains.len(), 1);
     assert_eq!(queue.summaries.len(), 1);
     assert_eq!(queue.next, 0);

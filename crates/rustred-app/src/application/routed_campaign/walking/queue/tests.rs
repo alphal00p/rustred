@@ -24,6 +24,8 @@ fn power_predicates_participate_in_identity_and_dominance_without_dropping_work(
     assert_eq!(queue.admit(wider), Ok((2, true)));
 }
 
+mod aggregate;
+mod linear_semantic;
 mod maximal_candidates;
 mod replay;
 mod semantic;
