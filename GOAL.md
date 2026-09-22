@@ -121,6 +121,28 @@ unlimited containment comparisons, no practical domain-count cutoff, and the
 no elapsed deadline. Native/per-query and retained-frontier safeguards remain
 explicit. No complete R10 solve or measured parallel speedup is claimed yet.
 
+The first actual 50-worker traversal is now **cooperatively stopped for a
+diagnosed implementation bottleneck**, not a time or comparison limit. It
+completes 121,065 domains in 1,716.33 s whole-process wall time, retaining 195
+frontiers; sampled aggregate RSS peaks at 7.72 GB. Later finished jobs occupy
+worker slots while one earlier job publishes, leaving about 1.7 busy cores in
+recent intervals despite the 50-worker allocation. A bounded completed-result
+buffer is implemented and independently source-reviewed; release validation is
+pending. It is not yet a measured speedup.
+
+More importantly, this existing traversal records unresolved applicability
+conditions without following their native guarded cases or feeding genuine
+gaps back into source search. Even exhaustion of that queue cannot complete
+(a) while those frontiers remain. The immediate mathematical/application work
+is to inspect all 57 original unresolved regions, preserve their exact saved
+conditions through successor application/routing, and connect unresolved
+dependencies to the appropriate existing-case continuation or targeted source
+search. This is required operational rule use, not a new independent
+certification project. No absent IBP has yet been established by these Unknown
+classifications. Keep the 15-hour completion objective, but do not report a
+finite ETA from an expanding queue or imply that the unchanged executable can
+finish merely by being left running.
+
 The preceding shared-walk baseline includes the generic strict-pinch **R-k**
 routing bound and bounded parallel symbolic inspection. Its core release
 gate passes **2,663 tests**, zero failures and 32 existing ignored diagnostics;

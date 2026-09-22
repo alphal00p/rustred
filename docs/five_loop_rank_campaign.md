@@ -58,6 +58,39 @@ measure the corrected expansion or eliminate genuine dependency breadth. See the
 
 ## Implementation slices
 
+### Current delivery gap, September 22
+
+All 67 saved programs are available; this is not a request to regenerate them.
+Local first-step dispatch now handles 60 owners without unresolved regions,
+while seven owners have 57 unresolved guard regions. A local match only selects
+a first rule. Its right-hand-side integrals still need applicable rules or
+explicit terminals, potentially at larger intermediate numerator rank.
+
+The actual 50-worker recursive traversal was stopped cooperatively after
+1,716.33 s whole-process wall / 2,982.83 s CPU, with 121,065 completed domains,
+29,063 queued domains plus the interrupted current domain, and 195 retained
+frontiers. Peak sampled aggregate RSS was 7.72 GB. There was no elapsed deadline
+or comparison cutoff. Recent utilization of about 1.7 cores exposed finished
+later jobs holding worker slots behind ordered publication. Bounded storage of
+those completed results should free the slots without changing rule selection
+or publication order; implementation and independent source review are complete,
+with release validation pending.
+
+This run is explicitly **not yet a self-repairing solve**: Unknown conditions
+are retained, not followed through native guarded cases or fed into source
+search. Therefore simply running this executable longer cannot finish (a),
+even if the queue drains. Inspect the actual saved predicates, implement their
+operational continuation without dropping conditions, then use targeted source
+feedback only for genuine gaps. Unknown is not evidence of an absent relation.
+Keep independent certification deferred. The 15-hour objective has no credible
+completion ETA yet: the queue grows, intermediate envelopes rise, and the
+unresolved-case continuation is still missing.
+
+Evidence: `TMP/shared-all67-fifty.bxsTQ4/trial/`; the 57-case inspection input is
+`TMP/remaining-guard-cases.DGB8M1/`. Neither is a closed artifact.
+
+### Planned work
+
 1. **Shared canonical work.** Install saved representative programs once.
    Route equivalent subtopologies to their existing canonical owner through
    validated exact momentum maps. Share work by full integral/owner identity,
