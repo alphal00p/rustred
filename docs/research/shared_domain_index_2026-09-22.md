@@ -237,4 +237,45 @@ the successor as conditional. Original denominators, child source conditions,
 exact algebra, descent, input/output admission and backend errors remain strict.
 This avoids making uniform-nonzero classification a prerequisite for dependency
 discovery; it neither treats a conditional successor as reached nor proves
-closure. Implementation and its separate tests are still pending.
+closure. This follow-up is now implemented and passes the independently reviewed
+2,661-core /323-application /19-Python release gates (32 existing core diagnostics
+ignored, zero failures); see the
+[interface](../shared_owner_domain_matching.md#optional-coefficient-support-classification).
+
+## All67 initial owner domains: next shared control
+
+Starting all **67 full R10 owner orthants together** supplies broad reusable
+domains immediately. The first run with this scope stops at the configured
+one-million RHS boundary-cell work allowance while inspecting its first owner,
+`000011001001011`. It completes **no domain**: one is partial/failed and 197
+remain queued, out of 198 admitted. This is not the same workload as the earlier
+six-query runs and is not a matched performance comparison.
+
+The prefix visits **702,384 successors**, of which 28,878 are conditional, and
+reuses **702,253 requests**: 265,237 exact-key, 437,011 full-orthant and five
+general containment hits. Only 6,101 general containment comparisons are
+needed. The complete admission ledger is `67 + 702384 = 198 + 702253`.
+There are no observed frontiers/problems in this prefix; nothing is concluded
+about unvisited work. Scheduled rank reaches 13 without clipping it to entry R10.
+
+Optional numerator classification now records **188 refusals** (94 original,
+94 coalesced) while retaining conservative successors. Exactly the first two
+phase diagnostics are kept, marked as partial provenance. Mandatory guards
+remain strict. The stop is `boundary cells: 1000001 > 1000000`, not the earlier
+optional factor-work refusal, a native backend fault, elapsed timeout or RSS stop.
+
+Preparation takes **105.94 s**, traversal **31.35 s**, and the whole command
+**141.19 s**, with **139.49 CPU seconds** and **5,808,204 KiB peak RSS**. These
+are incomplete-prefix timings. The frozen release CLI runs on CPU41 with one
+native worker, 64 GiB address-space envelope and the same 48/60 GiB sampled
+RSS supervision, with no overlapping owned build/native job. Evidence:
+`TMP/full67-optional-shared.OrSFxP/`, terminal/reaped status 4.
+
+Before the larger parallel campaign, expose a coherent per-query work policy:
+native event and shift-group limits still default to one million and are not
+raised by the aggregate `--max-successor-events` flag. Raising only the RHS-cell
+allowance may encounter these other limits; it is not yet known which would
+fire next or whether the first domain would finish first. Finish bounded parallel
+symbolic scheduling, keep pending reuse distinct from completed work, and test
+the reviewed R-k routing bound. None of this requires independent certification,
+new terminal minimization or regenerating every saved program.

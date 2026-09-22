@@ -115,9 +115,15 @@ zero failures (32 existing core diagnostics ignored). The same-input full67
 local control now resolves **60 owners**, removes all 85 denominator obstructions
 and retains exactly the other 81 unresolved regions unchanged. Matching takes
 94.09 s / 206.50 s whole command, with no native error or resource stop. This
-still does not establish recursive R10 closure. Next start the shared
-walk with all 67 R10 owner orthants together, so broad owner reuse exists from
-the beginning; the six historical child queries remain diagnostic inputs only.
+still does not establish recursive R10 closure. The shared walk now starts all
+67 R10 owner orthants together: its first control inspects 702,384 successors,
+reuses 702,253 requests, and counts 188 eligible optional numerator refusals
+without stopping on them. It stops at one million RHS boundary cells after
+31.35 s traversal, before completing its first domain, with 197 more queued.
+No missing-rule frontier is observed in this incomplete prefix. Next expose
+coherent per-query work allowances, implement bounded parallel symbolic
+scheduling and the reviewed R-k route tightening, and retry. The six historical
+child queries remain diagnostic inputs only.
 Address positive-coupled guard selection without
 turning uncertain cases into gaps, terminals or bounded-positive surrogates.
 

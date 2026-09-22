@@ -144,8 +144,11 @@ reuse saved programs across owners, reaching 3,886 completed domains before an
 optional RHS numerator-classification preflight refusal. Recursive work remains
 queued. The new slice retains conditional successors for eligible optional
 refusals while keeping denominator/source validity strict. Bounded first-per-phase
-diagnostics are separate from missing-rule frontiers. The next shared control
-initializes all 67 R10 owner domains together. No saved IBPs are
+diagnostics are separate from missing-rule frontiers. The new all67 shared
+control inspects 702,384 successors with 702,253 request reuses in 31.35 s of
+traversal, but stops at its RHS-cell work allowance before finishing its first
+domain. This is not complete R10 coverage; coherent work budgets and bounded
+parallel symbolic scheduling are next. No saved IBPs are
 regenerated merely to repeat these application diagnostics.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
