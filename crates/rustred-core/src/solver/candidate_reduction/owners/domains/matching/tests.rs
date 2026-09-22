@@ -554,3 +554,508 @@ fn terminal_work_is_bounded_and_empty_exclusion_skips_the_whole_rule() {
         }
     ));
 }
+
+fn coupled_refinement_fixture(stage: usize) -> Arc<CandidateOwnerPrograms<3>> {
+    let mut p = fixture();
+    let c = p.context.coefficient_context().clone();
+    let guard = poly(
+        &c,
+        c.sub(
+            &c.add(&c.index(0).unwrap(), &c.index(2).unwrap()).unwrap(),
+            &c.one(),
+        )
+        .unwrap(),
+    );
+    let mut first = rule(0);
+    match stage {
+        0 => {
+            Arc::get_mut(&mut Arc::get_mut(&mut p).unwrap().context)
+                .unwrap()
+                .shared
+                .source_conditions = vec![guard]
+        }
+        1 => first.equalities.push(guard),
+        2 => first.exceptions.push(vec![guard]),
+        3 => first.rhs.push(PreparedTerm {
+            shift: [0; 3],
+            coefficient: c.zero(),
+            denominator: guard,
+        }),
+        _ => unreachable!(),
+    }
+    batch(&mut p).rules = vec![first, rule(1)];
+    p
+}
+
+fn refined(
+    p: &CandidateOwnerPrograms<3>,
+    lower: [u64; 3],
+    upper: [Option<u64>; 3],
+    rank: Option<u32>,
+    limits: OwnerDomainMatchLimits,
+) -> (OwnerDomainMatchStats, Vec<OwnerDomainMatchPiece<3>>) {
+    let mut pieces = Vec::new();
+    let stats = p
+        .visit_owner_domain_matches(
+            OWNER,
+            &lower,
+            &upper,
+            rank,
+            limits,
+            &AtomicBool::new(false),
+            |piece| {
+                pieces.push(piece);
+                ControlFlow::Continue(())
+            },
+        )
+        .unwrap();
+    (stats, pieces)
+}
+fn normalized(
+    pieces: &[OwnerDomainMatchPiece<3>],
+) -> Vec<(Vec<u64>, Vec<Option<u64>>, Option<u32>, String)> {
+    let mut normalized = pieces
+        .iter()
+        .map(|p| {
+            (
+                p.lower().to_vec(),
+                p.upper().to_vec(),
+                p.max_numerator_rank(),
+                format!("{:?}", p.disposition()),
+            )
+        })
+        .collect::<Vec<_>>();
+    normalized.sort();
+    normalized
+}
+
+#[test]
+fn bounded_refinement_matches_explicit_slices_and_retries_each_exact_predicate_phase() {
+    for stage in 0..4 {
+        let p = coupled_refinement_fixture(stage);
+        let (disabled, unknown) = refined(
+            &p,
+            [0; 3],
+            [None, Some(0), None],
+            Some(2),
+            Default::default(),
+        );
+        assert_eq!(
+            (disabled.refinement_cells, disabled.refinement_steps),
+            (0, 0)
+        );
+        assert_eq!(unknown.len(), 1);
+        assert!(matches!(
+            unknown[0].disposition(),
+            OwnerDomainMatchDisposition::Unresolved { .. }
+        ));
+        let (stats, automatic) = refined(
+            &p,
+            [0; 3],
+            [None, Some(0), None],
+            Some(2),
+            OwnerDomainMatchLimits {
+                max_bounded_refinement_cells: 3,
+                ..Default::default()
+            },
+        );
+        assert_eq!((stats.refinement_cells, stats.refinement_steps), (3, 1));
+        let mut explicit = Vec::new();
+        for k in 0..=2 {
+            explicit.extend(collect(&p, &[0, 0, k], &[None, Some(0), Some(k)], Some(2)));
+        }
+        assert_eq!(
+            normalized(&automatic),
+            normalized(&explicit),
+            "stage {stage}"
+        );
+        assert!(automatic.iter().all(|p| p.max_numerator_rank() == Some(2)));
+        for x in 0..=5 {
+            for k in 0..=2 {
+                assert_eq!(
+                    at(&automatic, [x, 0, k]),
+                    concrete(
+                        &p,
+                        IntegralKey::try_new([x as i64 + 1, 1, -(k as i64)]).unwrap()
+                    )
+                );
+            }
+        }
+        assert!(automatic.iter().any(|p| p.upper()[0].is_none()));
+    }
+}
+
+#[test]
+fn bounded_refinement_insufficient_full_split_allowance_preserves_original_unknown() {
+    let p = coupled_refinement_fixture(2);
+    let (baseline, unknown) = refined(
+        &p,
+        [0; 3],
+        [None, Some(0), None],
+        Some(2),
+        Default::default(),
+    );
+    for limits in [
+        OwnerDomainMatchLimits {
+            max_bounded_refinement_cells: 2,
+            ..Default::default()
+        },
+        OwnerDomainMatchLimits {
+            max_bounded_refinement_cells: 3,
+            max_cells: baseline.cells,
+            ..Default::default()
+        },
+        OwnerDomainMatchLimits {
+            max_bounded_refinement_cells: 3,
+            max_coordinate_cells: baseline.coordinate_cells,
+            ..Default::default()
+        },
+    ] {
+        let (stats, actual) = refined(&p, [0; 3], [None, Some(0), None], Some(2), limits);
+        assert_eq!(normalized(&actual), normalized(&unknown));
+        assert_eq!(stats, baseline); // no partial reservation or face publication
+    }
+}
+
+#[test]
+fn bounded_refinement_never_enumerates_positive_or_unbounded_inactive_axes() {
+    let mut p = fixture();
+    let c = p.context.coefficient_context().clone();
+    let mut first = rule(0);
+    first.equalities.push(poly(
+        &c,
+        c.add(&c.index(0).unwrap(), &c.index(1).unwrap()).unwrap(),
+    ));
+    batch(&mut p).rules = vec![first, rule(1)];
+    let (stats, pieces) = refined(
+        &p,
+        [0; 3],
+        [Some(2), Some(2), Some(2)],
+        Some(2),
+        OwnerDomainMatchLimits {
+            max_bounded_refinement_cells: 100,
+            ..Default::default()
+        },
+    );
+    assert_eq!(stats.refinement_cells, 0); // bounded inactive axis is not in polynomial
+    assert_eq!(pieces.len(), 1);
+    assert!(matches!(
+        pieces[0].disposition(),
+        OwnerDomainMatchDisposition::Unresolved { .. }
+    ));
+    let p = coupled_refinement_fixture(1);
+    let (stats, pieces) = refined(
+        &p,
+        [0; 3],
+        [None, Some(0), None],
+        None,
+        OwnerDomainMatchLimits {
+            max_bounded_refinement_cells: 100,
+            ..Default::default()
+        },
+    );
+    assert_eq!(stats.refinement_cells, 0); // supported inactive axis has no finite bound
+    assert_eq!(pieces.len(), 1);
+    assert!(matches!(
+        pieces[0].disposition(),
+        OwnerDomainMatchDisposition::Unresolved { .. }
+    ));
+}
+
+#[test]
+fn bounded_refinement_rank_induced_singleton_progresses_once_then_keeps_positive_coupling() {
+    let mut p = fixture();
+    let c = p.context.coefficient_context().clone();
+    let mut first = rule(0);
+    first.equalities.push(poly(
+        &c,
+        c.add(
+            &c.add(&c.index(0).unwrap(), &c.index(1).unwrap()).unwrap(),
+            &c.index(2).unwrap(),
+        )
+        .unwrap(),
+    ));
+    batch(&mut p).rules = vec![first, rule(1)];
+    let (stats, pieces) = refined(
+        &p,
+        [0; 3],
+        [None; 3],
+        Some(0),
+        OwnerDomainMatchLimits {
+            max_bounded_refinement_cells: 1,
+            ..Default::default()
+        },
+    );
+    assert_eq!((stats.refinement_cells, stats.refinement_steps), (1, 1));
+    assert_eq!(pieces.len(), 1);
+    assert_eq!(pieces[0].upper(), &[None, None, Some(0)]);
+    assert!(matches!(
+        pieces[0].disposition(),
+        OwnerDomainMatchDisposition::Unresolved { .. }
+    ));
+}
+
+#[test]
+fn bounded_refinement_nested_simplex_counts_are_cumulative_and_deterministic() {
+    let owner = [true, false, false];
+    let mut p = programs(
+        Arc::new(crate::solver::tests::sunset()),
+        Some(10),
+        vec![input(owner, Some(10), vec![], &[])],
+        Default::default(),
+    );
+    let c = p.context.coefficient_context().clone();
+    let mut first = rule(0);
+    first.equalities.push(poly(
+        &c,
+        c.sub(
+            &c.add(
+                &c.add(&c.index(0).unwrap(), &c.index(1).unwrap()).unwrap(),
+                &c.index(2).unwrap(),
+            )
+            .unwrap(),
+            &c.one(),
+        )
+        .unwrap(),
+    ));
+    let installed = Arc::get_mut(
+        Arc::get_mut(&mut p)
+            .unwrap()
+            .owners
+            .get_mut(&owner)
+            .unwrap(),
+    )
+    .unwrap();
+    Arc::get_mut(&mut installed.batches[0]).unwrap().rules = vec![first, rule(1)];
+    let mut pieces = Vec::new();
+    let stats = p
+        .visit_owner_domain_matches(
+            owner,
+            &[0; 3],
+            &[None; 3],
+            Some(2),
+            OwnerDomainMatchLimits {
+                max_bounded_refinement_cells: 9,
+                ..Default::default()
+            },
+            &AtomicBool::new(false),
+            |piece| {
+                pieces.push(piece);
+                ControlFlow::Continue(())
+            },
+        )
+        .unwrap();
+    // First axis x1 costs3, then x2 costs3+2+1 under the inherited simplex.
+    assert_eq!((stats.refinement_cells, stats.refinement_steps), (9, 4));
+    assert!(pieces.iter().all(|p| !matches!(
+        p.disposition(),
+        OwnerDomainMatchDisposition::Unresolved { .. }
+    )));
+    for a in 0..=2 {
+        for b in 0..=2 - a {
+            for x in 0..=5 {
+                let matching = pieces
+                    .iter()
+                    .filter(|p| {
+                        (0..3).all(|i| {
+                            [x, a, b][i] >= p.lower()[i]
+                                && p.upper()[i].is_none_or(|u| [x, a, b][i] <= u)
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(matching.len(), 1);
+                assert_eq!(
+                    matching[0].disposition(),
+                    OwnerDomainMatchDisposition::SelectedRule {
+                        batch: 0,
+                        rule: if x == a + b { 0 } else { 1 }
+                    }
+                );
+                assert_eq!(matching[0].max_numerator_rank(), Some(2));
+            }
+        }
+    }
+    let mut partial = Vec::new();
+    let stats = p
+        .visit_owner_domain_matches(
+            owner,
+            &[0; 3],
+            &[None; 3],
+            Some(2),
+            OwnerDomainMatchLimits {
+                max_bounded_refinement_cells: 3,
+                ..Default::default()
+            },
+            &AtomicBool::new(false),
+            |piece| {
+                partial.push(piece);
+                ControlFlow::Continue(())
+            },
+        )
+        .unwrap();
+    assert_eq!((stats.refinement_cells, stats.refinement_steps), (3, 1));
+    assert_eq!(partial.len(), 3);
+    for (i, piece) in partial.iter().enumerate() {
+        assert_eq!(piece.lower()[1], i as u64); // equal cost chooses lower original axis
+        assert_eq!(piece.upper()[1], Some(i as u64));
+        assert_eq!(piece.upper()[2], None);
+        assert!(matches!(
+            piece.disposition(),
+            OwnerDomainMatchDisposition::Unresolved { .. }
+        ));
+    }
+    let mut cheaper = Vec::new();
+    let stats = p
+        .visit_owner_domain_matches(
+            owner,
+            &[0; 3],
+            &[None, Some(2), Some(1)],
+            Some(2),
+            OwnerDomainMatchLimits {
+                max_bounded_refinement_cells: 2,
+                ..Default::default()
+            },
+            &AtomicBool::new(false),
+            |piece| {
+                cheaper.push(piece);
+                ControlFlow::Continue(())
+            },
+        )
+        .unwrap();
+    assert_eq!((stats.refinement_cells, stats.refinement_steps), (2, 1));
+    assert_eq!(cheaper.len(), 2);
+    for (i, piece) in cheaper.iter().enumerate() {
+        assert_eq!(piece.lower()[2], i as u64); // lower cost wins over lower axis
+        assert_eq!(piece.upper()[2], Some(i as u64));
+        assert_eq!(piece.upper()[1], Some(2));
+    }
+}
+
+#[test]
+fn bounded_refinement_prepaid_lazy_faces_cancel_without_visiting_whole_interval() {
+    let p = coupled_refinement_fixture(2);
+    let cancel = AtomicBool::new(false);
+    let mut callbacks = 0;
+    let e = p
+        .visit_owner_domain_matches(
+            OWNER,
+            &[0; 3],
+            &[None, Some(0), None],
+            Some(999),
+            OwnerDomainMatchLimits {
+                max_bounded_refinement_cells: 1000,
+                ..Default::default()
+            },
+            &cancel,
+            |_| {
+                callbacks += 1;
+                cancel.store(true, Ordering::Release);
+                ControlFlow::Continue(())
+            },
+        )
+        .unwrap_err();
+    assert_eq!(e.failure, OwnerDomainMatchFailure::Cancelled);
+    assert_eq!(callbacks, 1);
+    assert_eq!(
+        (e.stats.refinement_cells, e.stats.refinement_steps),
+        (1000, 1)
+    );
+    assert!(e.stats.predicates < 10); // continuation does not eagerly resolve 1000 faces
+}
+
+#[test]
+fn bounded_refinement_above_entry_rank_retains_exact_r11_scope() {
+    let p = coupled_refinement_fixture(2);
+    let (stats, pieces) = refined(
+        &p,
+        [0, 0, 10],
+        [None, Some(0), None],
+        Some(11),
+        OwnerDomainMatchLimits {
+            max_bounded_refinement_cells: 2,
+            ..Default::default()
+        },
+    );
+    assert_eq!((stats.refinement_cells, stats.refinement_steps), (2, 1));
+    let mut explicit = Vec::new();
+    for k in 10..=11 {
+        explicit.extend(collect(&p, &[0, 0, k], &[None, Some(0), Some(k)], Some(11)));
+    }
+    assert_eq!(normalized(&pieces), normalized(&explicit));
+    assert!(pieces.iter().all(|p| p.max_numerator_rank() == Some(11)));
+    assert!(pieces.iter().any(|p| p.upper()[0].is_none()));
+}
+
+#[test]
+fn bounded_refinement_conservative_cover_drops_rank_empty_intersections_before_bound_math() {
+    let owner = [true, false, false];
+    let mut p = programs(
+        Arc::new(crate::solver::tests::sunset()),
+        Some(10),
+        vec![input(owner, Some(10), vec![], &[])],
+        Default::default(),
+    );
+    let c = p.context.coefficient_context().clone();
+    let a = c.add(&c.index(1).unwrap(), &c.one()).unwrap();
+    let b = c.add(&c.index(2).unwrap(), &c.one()).unwrap();
+    let coupled = c
+        .add(
+            &c.add(&c.index(0).unwrap(), &c.index(1).unwrap()).unwrap(),
+            &c.index(2).unwrap(),
+        )
+        .unwrap();
+    let d = c.lift(&c.base().parameter("d").unwrap()).unwrap();
+    let mut first = rule(0);
+    first.equalities.push(poly(
+        &c,
+        c.add(&c.mul(&a, &b).unwrap(), &c.mul(&d, &coupled).unwrap())
+            .unwrap(),
+    ));
+    let installed = Arc::get_mut(
+        Arc::get_mut(&mut p)
+            .unwrap()
+            .owners
+            .get_mut(&owner)
+            .unwrap(),
+    )
+    .unwrap();
+    Arc::get_mut(&mut installed.batches[0]).unwrap().rules = vec![first, rule(1)];
+    let mut pieces = Vec::new();
+    let stats = p
+        .visit_owner_domain_matches(
+            owner,
+            &[0; 3],
+            &[None; 3],
+            Some(2),
+            OwnerDomainMatchLimits {
+                max_bounded_refinement_cells: 1,
+                ..Default::default()
+            },
+            &AtomicBool::new(false),
+            |piece| {
+                pieces.push(piece);
+                ControlFlow::Continue(())
+            },
+        )
+        .unwrap();
+    assert!(stats.rank_empty_cells > 0);
+    assert!(pieces.iter().all(|p| p.lower()[1] + p.lower()[2] <= 2));
+    assert!(pieces.iter().any(|p| matches!(
+        p.disposition(),
+        OwnerDomainMatchDisposition::Unresolved { .. }
+    )));
+    for a in 0..=2 {
+        for b in 0..=2 - a {
+            for x in 0..=4 {
+                assert_eq!(
+                    pieces
+                        .iter()
+                        .filter(|p| (0..3).all(|i| [x, a, b][i] >= p.lower()[i]
+                            && p.upper()[i].is_none_or(|u| [x, a, b][i] <= u)))
+                        .count(),
+                    1
+                );
+            }
+        }
+    }
+}

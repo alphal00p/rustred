@@ -25,7 +25,9 @@ pub use model::{
 };
 pub use owners::{
     BoundOwnerOverlay, BoundOwnerSearch, CandidateOwnerContext, CandidateOwnerInput,
-    CandidateOwnerPrograms, CandidateOwnerScope, OwnerDomainAttemptLimits,
+    CandidateOwnerPrograms, CandidateOwnerScope, OwnerAppliedError, OwnerAppliedEvent,
+    OwnerAppliedFailure, OwnerAppliedLimits, OwnerAppliedNonzero, OwnerAppliedProblem,
+    OwnerAppliedProblemKind, OwnerAppliedStats, OwnerAppliedSuccessor, OwnerDomainAttemptLimits,
     OwnerDomainMatchDisposition, OwnerDomainMatchError, OwnerDomainMatchFailure,
     OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats, OwnerDomainPredicate,
     OwnerDomainScope, OwnerFeedbackError, OwnerFeedbackPolicy, OwnerOverlayLimits,

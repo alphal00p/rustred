@@ -2,10 +2,12 @@
 mod domains;
 mod evaluation;
 pub use domains::{
-    OwnerDomainMatchDisposition, OwnerDomainMatchError, OwnerDomainMatchFailure,
-    OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats, OwnerDomainPredicate,
-    OwnerSuccessorError, OwnerSuccessorFailure, OwnerSuccessorLimits, OwnerSuccessorRegion,
-    OwnerSuccessorStats, OwnerSuccessorTransition,
+    OwnerAppliedError, OwnerAppliedEvent, OwnerAppliedFailure, OwnerAppliedLimits,
+    OwnerAppliedNonzero, OwnerAppliedProblem, OwnerAppliedProblemKind, OwnerAppliedStats,
+    OwnerAppliedSuccessor, OwnerDomainMatchDisposition, OwnerDomainMatchError,
+    OwnerDomainMatchFailure, OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats,
+    OwnerDomainPredicate, OwnerSuccessorError, OwnerSuccessorFailure, OwnerSuccessorLimits,
+    OwnerSuccessorRegion, OwnerSuccessorStats, OwnerSuccessorTransition,
 };
 mod feedback;
 mod model;

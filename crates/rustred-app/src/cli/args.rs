@@ -333,7 +333,7 @@ pub(crate) const HELP: &str = "\
 RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 
 USAGE:
-    rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N]
+    rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N] [--max-bounded-refinement-cells-per-query N] [--max-guard-univariate-degree N] [--follow-successors [--max-domains N] [--max-successor-events N] [--max-containment-checks N]]
     rustred owner-domain-scan --manifest SELECTION.json --max-numerator-rank R --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--max-rules-per-owner N] [--max-terms-per-owner N] [--max-regions-per-owner N] [--max-total-regions N] [--max-summary-groups N]
     rustred routed-campaign --manifest SELECTION.json --targets TARGETS.csv --output RESULT.json [--events EVENTS.jsonl] [--owner-base DIR] [--workers 1..50] [--stop-file PATH] [--expansion-limits LIMITS.json] [--max-nodes N] [--max-input-targets N] [--max-transport-operations N] [--max-transport-endpoints N] [--max-coalescing-additions N] [--max-rule-applications N]
     rustred derive [OPTIONS]
@@ -545,8 +545,21 @@ Each query JSON supplies its own rank cap (or null) and unbounded upper bounds.
 Exit 0 means exact local classification, which may include gaps or invalid source
 conditions; inspect all_queries_locally_applicable separately. Unresolved,
 cancelled or resource-limited classification exits nonzero with a partial report.
-No RHS expansion, IBP generation or recursive closure is claimed. Outputs are
-fresh paths; stop-file cancellation and compact heartbeat events remain active.
+Without --follow-successors, no RHS expansion is performed. No mode claims IBP
+generation or recursive family closure. Outputs are fresh paths; stop-file
+cancellation and compact heartbeat events remain active.
+Opt-in --max-bounded-refinement-cells-per-query (default 0) retries unresolved
+guards on exact bounded inactive-coordinate faces. Positive axes stay symbolic;
+the full split is admitted before any face, and insufficient allowance preserves
+the unresolved piece. Refinement is local classification, not source generation.
+--max-guard-univariate-degree sets a positive native guard-degree allowance
+(default 16) for either mode; it does not alter rank scope or guard semantics.
+--follow-successors instead emits a distinct shared symbolic worklist result,
+reusing pending containing domains in the same immutable owner snapshot. Native
+RHS inspection follows installed literal owners; routes remain explicit frontiers.
+The mode accepts positive --max-domains, --max-successor-events and
+--max-containment-checks allowances. Unresolved work or work-limit exhaustion is incomplete;
+an exhausted local worklist is not a family-closure claim.
 
 `campaign generate` writes a deterministic durable artifact encoding.
 `campaign inspect` loads and authenticates durable artifact bytes once, then

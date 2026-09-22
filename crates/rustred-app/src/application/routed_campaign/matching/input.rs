@@ -5,7 +5,7 @@ use serde_json::Value;
 use crate::AppError;
 
 #[derive(Debug)]
-pub(super) struct Query {
+pub(in crate::application::routed_campaign) struct Query {
     pub id: String,
     pub owner: Vec<bool>,
     pub lower: Vec<u64>,
@@ -14,7 +14,11 @@ pub(super) struct Query {
 }
 
 /// Validate every query before loading native rule programs.
-pub(super) fn parse(text: &str, arity: usize, limit: usize) -> Result<Vec<Query>, AppError> {
+pub(in crate::application::routed_campaign) fn parse(
+    text: &str,
+    arity: usize,
+    limit: usize,
+) -> Result<Vec<Query>, AppError> {
     if text.len() > 1024 * 1024 {
         return Err(AppError::input("owner-domain query input exceeds 1 MiB"));
     }

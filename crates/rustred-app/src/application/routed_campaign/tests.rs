@@ -97,6 +97,141 @@ fn match_request(fixture: &Fixture) -> OwnerDomainMatchRequest {
 }
 
 #[test]
+fn owner_domain_walk_reuses_pending_unbounded_ray_without_closure_claim() {
+    let fixture = Fixture::new();
+    let before = std::fs::read(fixture.directory.join("owner.rrbin")).unwrap();
+    let mut request = OwnerDomainWalkRequest::new(match_request(&fixture));
+    // The generic K1 rule's child ray is contained in this already pending
+    // domain. Inclusion reuse must work even at the scheduled-domain cap.
+    request.max_domains = 1;
+    let events = std::cell::RefCell::new(Vec::new());
+    let result = owner_domain_walk_with_progress(request, &AtomicBool::new(false), |event| {
+        events.borrow_mut().push(event);
+    })
+    .unwrap();
+    assert!(result.all_scheduled_domains_resolved, "{}", result.document);
+    assert_eq!(result.document["status"], "locally_resolved");
+    assert_eq!(result.document["scheduled_nodes"], 1);
+    assert_eq!(result.document["completed_nodes"], 1);
+    assert_eq!(result.document["queued_nodes"], 0);
+    assert_eq!(result.document["failed_nodes"], 0);
+    assert_eq!(result.document["frontiers"], 0);
+    assert_eq!(result.document["recursive_worklist_exhausted"], true);
+    assert!(result.document["successors"].as_u64().unwrap() > 0);
+    assert!(result.document["deduplication_hits"].as_u64().unwrap() > 0);
+    assert_eq!(result.document["domains"][0]["lower"], json!([0]));
+    assert_eq!(result.document["domains"][0]["upper"], json!([null]));
+    assert_eq!(result.document["domains"][0]["rank"], 11);
+    for flag in [
+        "family_closure_claim",
+        "ibp_generation",
+        "routing_expanded",
+        "independent_certification",
+    ] {
+        assert_eq!(result.document[flag], false, "{flag}");
+    }
+    let events = events.into_inner();
+    let started = events
+        .iter()
+        .find(|event| event["event"] == "domain_started")
+        .unwrap();
+    assert_eq!(started["scheduled_nodes"], 1);
+    assert_eq!(started["completed_nodes"], 0);
+    let finished = events.last().unwrap();
+    assert_eq!(finished["all_scheduled_domains_resolved"], true);
+    assert!(finished.get("domains").is_none());
+    assert!(serde_json::to_vec(finished).unwrap().len() < 8192);
+    assert_eq!(
+        std::fs::read(fixture.directory.join("owner.rrbin")).unwrap(),
+        before
+    );
+}
+
+#[test]
+fn owner_domain_walk_identical_queries_share_one_schedule() {
+    let fixture = Fixture::new();
+    let mut matching = match_request(&fixture);
+    let mut queries: Value = serde_json::from_str(&matching.queries_json).unwrap();
+    let mut duplicate = queries["queries"][0].clone();
+    duplicate["id"] = json!("same-ray-second-input");
+    queries["queries"].as_array_mut().unwrap().push(duplicate);
+    matching.queries_json = queries.to_string();
+    let mut request = OwnerDomainWalkRequest::new(matching);
+    request.max_domains = 1;
+    let result = owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(result.all_scheduled_domains_resolved, "{}", result.document);
+    assert_eq!(result.document["scheduled_nodes"], 1);
+    assert_eq!(result.document["processed_nodes"], 1);
+    assert_eq!(result.document["completed_nodes"], 1);
+    assert_eq!(result.document["inputs"].as_array().unwrap().len(), 2);
+    assert_eq!(result.document["inputs"][0]["domain"], 0);
+    assert_eq!(result.document["inputs"][1]["domain"], 0);
+    assert_ne!(
+        result.document["inputs"][0]["id"],
+        result.document["inputs"][1]["id"]
+    );
+    assert!(result.document["deduplication_hits"].as_u64().unwrap() >= 1);
+    assert_eq!(result.document["family_closure_claim"], false);
+}
+
+#[test]
+fn owner_domain_walk_event_cap_and_active_cancellation_remain_incomplete() {
+    let fixture = Fixture::new();
+    let mut request = OwnerDomainWalkRequest::new(match_request(&fixture));
+    request.max_events = 1;
+    let limited =
+        owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(
+        !limited.all_scheduled_domains_resolved,
+        "{}",
+        limited.document
+    );
+    assert_eq!(limited.document["status"], "incomplete");
+    assert_eq!(limited.document["recursive_worklist_exhausted"], false);
+    assert_eq!(limited.document["events"], 1);
+    assert_eq!(limited.document["completed_nodes"], 0);
+    assert!(
+        limited.document["error"]
+            .as_str()
+            .unwrap()
+            .contains("event allowance")
+    );
+    assert_eq!(limited.document["family_closure_claim"], false);
+
+    let cancellation = AtomicBool::new(false);
+    let stopped = owner_domain_walk_with_progress(
+        OwnerDomainWalkRequest::new(match_request(&fixture)),
+        &cancellation,
+        |event| {
+            // Cancel after preparation and admission, while the exact native
+            // domain operation is pending, not at the input preflight.
+            if event["event"] == "domain_started" {
+                cancellation.store(true, Ordering::Release);
+            }
+        },
+    )
+    .unwrap();
+    assert!(cancellation.load(Ordering::Acquire));
+    assert!(
+        !stopped.all_scheduled_domains_resolved,
+        "{}",
+        stopped.document
+    );
+    assert_eq!(stopped.document["status"], "incomplete");
+    assert_eq!(stopped.document["scheduled_nodes"], 1);
+    assert_eq!(stopped.document["completed_nodes"], 0);
+    assert_eq!(stopped.document["recursive_worklist_exhausted"], false);
+    assert!(
+        stopped.document["error"]
+            .as_str()
+            .unwrap()
+            .to_ascii_lowercase()
+            .contains("cancel")
+    );
+    assert_eq!(stopped.document["family_closure_claim"], false);
+}
+
+#[test]
 fn owner_domain_match_classifies_unbounded_ray_without_generation_or_rhs_claim() {
     let fixture = Fixture::new();
     let before = std::fs::read(fixture.directory.join("owner.rrbin")).unwrap();
@@ -142,6 +277,143 @@ fn owner_domain_match_classifies_unbounded_ray_without_generation_or_rhs_claim()
         std::fs::read(fixture.directory.join("owner.rrbin")).unwrap(),
         before
     );
+}
+
+#[test]
+fn owner_domain_match_opt_in_refinement_roundtrips_native_guards_without_positive_sampling() {
+    use rustred::identity::ParametricIbpGenerator;
+    use rustred::solver::{
+        CoordinateCase, ExceptionalConditions, RuleCandidate, SectorRule, SectorSolution,
+    };
+    // Synthetic candidate formulas test transport and applicability only, not
+    // physical IBP provenance. Native Symbolica owns the coupled guard.
+    let fixture = Fixture::new();
+    let source = r#"
+schema="rustred.project.toml.v1"
+[family]
+name="native_refinement_app_fixture"
+loop_momenta=["q1","q2"]
+external_momenta=[]
+dimension="d"
+[[family.denominators]]
+id="P1"
+expression="q1^2-1"
+[[family.denominators]]
+id="P2"
+expression="q2^2-1"
+[[family.denominators]]
+id="P3"
+expression="(q1-q2)^2-1"
+[target]
+powers=[1,1,0]
+"#;
+    let parsed =
+        crate::application::input::prepare_input(source, crate::InputFormat::Toml).unwrap();
+    let (_, _, _, lowered) = crate::application::lowering::lower_project(parsed)
+        .unwrap()
+        .into_parts();
+    let family = lowered.into_family();
+    let context = ParametricIbpGenerator::try_new(&family)
+        .unwrap()
+        .context()
+        .clone();
+    let guard = context
+        .sub(
+            &context
+                .add(&context.index(0).unwrap(), &context.index(2).unwrap())
+                .unwrap(),
+            &context.one(),
+        )
+        .unwrap()
+        .raw()
+        .numerator
+        .clone();
+    let rules = [true, false]
+        .into_iter()
+        .map(|excluded| {
+            let case = CoordinateCase::<3>::new([None, Some(1), None]).unwrap();
+            SectorRule {
+                candidate: RuleCandidate {
+                    target: case.integral(),
+                    case: case.into(),
+                    rhs: vec![],
+                    sources: vec![],
+                    stats: Default::default(),
+                },
+                exceptions: ExceptionalConditions {
+                    branches: if excluded {
+                        vec![vec![guard.clone()]]
+                    } else {
+                        vec![]
+                    },
+                },
+            }
+        })
+        .collect();
+    let mut generation = FamilyCandidatesRequest::new(source);
+    generation.max_numerator_rank = Some(2);
+    let solution = SectorSolution::<3> {
+        max_numerator_rank: Some(2),
+        finite_case_policy: generation.finite_case_policy,
+        rules,
+        finite_residuals: vec![],
+        stats: Default::default(),
+    };
+    let bytes = crate::encode_generated_candidate_sector(
+        &generation,
+        &family,
+        [true, true, false],
+        &solution,
+    )
+    .unwrap();
+    let path = fixture.directory.join("native-refinement.rrbin");
+    std::fs::write(&path, &bytes).unwrap();
+    let selection = json!({"family_fingerprint":family.fingerprint(),"owners":[{"path":"native-refinement.rrbin","bytes":bytes.len(),"mask":"110"}],"initial_frontier_routes":[]});
+    let queries = json!({"schema":"rustred.owner-domain-queries.json.v1","queries":[{"id":"coupled-inactive-ray","owner":"110","lower":[0,0,0],"upper":[null,0,null],"max_numerator_rank":2}]});
+    let mut request = OwnerDomainMatchRequest::new(selection.to_string(), queries.to_string());
+    request.owner_base = fixture.directory.clone();
+    let disabled =
+        owner_domain_match_with_progress(request.clone(), &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(!disabled.classification_complete, "{}", disabled.document);
+    assert_eq!(disabled.document["counts"]["unresolved"], 1);
+    request.match_limits.max_bounded_refinement_cells = 2;
+    let insufficient =
+        owner_domain_match_with_progress(request.clone(), &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(!insufficient.classification_complete);
+    assert_eq!(
+        insufficient.document["queries"][0]["pieces"],
+        disabled.document["queries"][0]["pieces"]
+    );
+    assert_eq!(
+        insufficient.document["queries"][0]["stats"]["refinement_cells"],
+        0
+    );
+    request.match_limits.max_bounded_refinement_cells = 3;
+    let refined =
+        owner_domain_match_with_progress(request, &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(refined.classification_complete, "{}", refined.document);
+    assert!(refined.all_queries_locally_applicable);
+    assert_eq!(refined.document["counts"]["unresolved"], 0);
+    assert_eq!(
+        refined.document["queries"][0]["stats"]["refinement_cells"],
+        3
+    );
+    assert_eq!(
+        refined.document["queries"][0]["stats"]["refinement_steps"],
+        1
+    );
+    let pieces = refined.document["queries"][0]["pieces"].as_array().unwrap();
+    assert_eq!(pieces.len(), 8);
+    assert!(pieces.iter().any(|p| p["upper"][0].is_null()));
+    assert!(pieces.iter().all(|p| p["max_numerator_rank"] == 2));
+    for flag in [
+        "family_closure_claim",
+        "ibp_generation",
+        "rhs_successors_expanded",
+    ] {
+        assert_eq!(refined.document[flag], false);
+    }
+    assert_eq!(std::fs::read(path).unwrap(), bytes);
 }
 
 #[test]

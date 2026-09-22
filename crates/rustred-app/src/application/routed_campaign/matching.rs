@@ -1,5 +1,5 @@
 //! Ordered local applicability queries over shared saved programs.
-mod input;
+pub(super) mod input;
 
 use std::ops::ControlFlow;
 use std::path::PathBuf;
@@ -243,7 +243,8 @@ fn run<const N: usize>(
             "classification_complete":query_complete, "error":error, "error_kind":error_kind, "summary_limit":summary_limit,
             "stats":{"rules":stats.rules, "terminal_checks":stats.terminal_checks, "predicates":stats.predicates,
                 "pieces":stats.pieces, "cells":stats.cells, "split_operations":stats.split_operations,
-                "coordinate_cells":stats.coordinate_cells, "rank_empty_cells":stats.rank_empty_cells}, "pieces":pieces}));
+                "coordinate_cells":stats.coordinate_cells, "rank_empty_cells":stats.rank_empty_cells,
+                "refinement_cells":stats.refinement_cells, "refinement_steps":stats.refinement_steps}, "pieces":pieces}));
         observer(
             json!({"event":"domain_query_finished", "operation":"owner_domain_match", "id":query.id,
             "completed_queries":completed_queries, "processed_queries":records.len(), "query_count":queries.len(), "retained_pieces":retained,

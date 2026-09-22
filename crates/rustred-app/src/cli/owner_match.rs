@@ -5,6 +5,7 @@ use super::{
     progress::RoutedProgress,
 };
 use crate::{OwnerDomainMatchRequest, OwnerDomainMatchResult, owner_domain_match_with_progress};
+use crate::{OwnerDomainWalkRequest, OwnerDomainWalkResult, owner_domain_walk_with_progress};
 use serde_json::json;
 use std::fs::{File, OpenOptions};
 use std::io::{self, IsTerminal, Write};
@@ -42,6 +43,8 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     request.match_limits.max_cells = args.max_cells;
     request.match_limits.max_split_operations = args.max_split_operations;
     request.match_limits.max_coordinate_cells = args.max_coordinate_cells;
+    request.match_limits.max_bounded_refinement_cells = args.max_bounded_refinement_cells;
+    request.match_limits.guard_algebra.max_univariate_degree = args.max_guard_univariate_degree;
     let events: Box<dyn Write + Send> = match args.events {
         Some(path) => Box::new(
             OpenOptions::new()
@@ -61,15 +64,31 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
         Arc::clone(&cancellation),
         args.stop_file,
     );
-    let result = owner_domain_match_with_progress(request, &cancellation, |mut event| {
-        event["operation"] = json!("owner_domain_match");
-        monitor.observe(event)
-    });
+    let walking = args.follow_successors;
+    let operation = if walking {
+        "owner_domain_walk"
+    } else {
+        "owner_domain_match"
+    };
+    let result = if walking {
+        let mut walk = OwnerDomainWalkRequest::new(request);
+        walk.max_domains = args.max_domains;
+        walk.max_events = args.max_successor_events;
+        walk.max_containment_checks = args.max_containment_checks;
+        owner_domain_walk_with_progress(walk, &cancellation, |mut event| {
+            event["operation"] = json!(operation);
+            monitor.observe(event);
+        })
+        .map(|result| (result.document, result.all_scheduled_domains_resolved))
+    } else {
+        owner_domain_match_with_progress(request, &cancellation, |mut event| {
+            event["operation"] = json!(operation);
+            monitor.observe(event)
+        })
+        .map(|result| (result.document, result.classification_complete))
+    };
     let (mut document, outcome) = match result {
-        Ok(result) => (
-            result.document,
-            classification_outcome(result.classification_complete),
-        ),
+        Ok((document, completed)) => (document, classification_outcome(completed)),
         Err(error) => {
             let document = json!({"schema":"rustred.owner-domain-match.json.v1", "event":"finished",
                 "status":"preparation_error", "classification_complete":false,
@@ -79,8 +98,13 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
             (document, Err(CliError::from(error)))
         }
     };
-    document["operation"] = json!("owner_domain_match");
-    monitor.observe(OwnerDomainMatchResult::completion_progress(&document));
+    document["operation"] = json!(operation);
+    if walking {
+        document["schema"] = json!("rustred.owner-domain-walk.json.v1");
+        monitor.observe(OwnerDomainWalkResult::completion_progress(&document));
+    } else {
+        monitor.observe(OwnerDomainMatchResult::completion_progress(&document));
+    }
     let presentation = monitor.finish();
     let bytes =
         serde_json::to_vec_pretty(&document).map_err(|e| CliError::OutputIo(e.to_string()))?;

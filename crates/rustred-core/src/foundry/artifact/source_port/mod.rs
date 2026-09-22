@@ -9,6 +9,7 @@ mod affine;
 mod certificate;
 mod geometry;
 pub(crate) use geometry::sign_partition_with_limits;
+pub(crate) use geometry::prove_wide_descent_with_limits;
 mod limits;
 pub use limits::SourcePortLimits;
 pub(crate) use limits::{DEFAULT_PREDICATE_ATOMS, DEFAULT_PREDICATE_CONSISTENCY_WORK};

@@ -117,6 +117,21 @@ Ten exact finite-numerator slices resolve one remaining source-guard ambiguity
 without bounding positive powers or generating new IBPs. The full R10 campaign
 is still unfinished; these are selected local examples, not closure timings.
 
+The next implementation adds opt-in `--max-bounded-refinement-cells-per-query`
+to perform those finite inactive-coordinate splits automatically. With
+`--follow-successors`, it also inspects selected RHSs and shares containing
+owner/box/rank domains through one worklist. Conditional coefficients and
+unresolved routing remain explicit; neither queue exhaustion nor a local match
+alone is presented as full closure. The same Python steering accepts these
+options and the native `--max-guard-univariate-degree` work allowance. No saved
+IBPs are regenerated for these domain queries. See the
+[interface and limits](docs/shared_owner_domain_matching.md).
+The [September 22 release trials](docs/research/shared_symbolic_domains_2026-09-22.md)
+match all six recorded R10/R11 boxes automatically. Broader successor and census
+trials remain incomplete at explicit work allowances; full five-loop R10 closure
+is not yet established. The updated gates pass 2,607 core, 307 application and
+18 Python tests, with no failures (32 existing core diagnostics remain ignored).
+
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after
 interruption. Rust and Python expose the same controls. This saves completed

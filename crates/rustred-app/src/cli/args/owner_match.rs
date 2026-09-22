@@ -1,4 +1,6 @@
-use super::{ArgError, Command, next_utf8_value, parse_positive_integer};
+use super::{
+    ArgError, Command, next_utf8_value, parse_nonnegative_integer, parse_positive_integer,
+};
 use std::{collections::BTreeSet, ffi::OsString, path::PathBuf};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -18,7 +20,13 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub max_cells: usize,
     pub max_split_operations: usize,
     pub max_coordinate_cells: usize,
+    pub max_bounded_refinement_cells: usize,
+    pub max_guard_univariate_degree: usize,
     pub no_progress: bool,
+    pub follow_successors: bool,
+    pub max_domains: usize,
+    pub max_successor_events: usize,
+    pub max_containment_checks: usize,
 }
 
 pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -39,7 +47,13 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         max_cells: limits.max_cells,
         max_split_operations: limits.max_split_operations,
         max_coordinate_cells: limits.max_coordinate_cells,
+        max_bounded_refinement_cells: limits.max_bounded_refinement_cells,
+        max_guard_univariate_degree: limits.guard_algebra.max_univariate_degree,
         no_progress: false,
+        follow_successors: false,
+        max_domains: 100_000,
+        max_successor_events: 1_000_000,
+        max_containment_checks: 10_000_000,
     };
     let mut seen = BTreeSet::new();
     let mut arguments = arguments.peekable();
@@ -61,7 +75,15 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--max-cells-per-query" => "--max-cells-per-query",
             "--max-split-operations-per-query" => "--max-split-operations-per-query",
             "--max-coordinate-cells-per-query" => "--max-coordinate-cells-per-query",
+            "--max-guard-univariate-degree" => "--max-guard-univariate-degree",
+            "--max-bounded-refinement-cells-per-query" => {
+                "--max-bounded-refinement-cells-per-query"
+            }
             "--no-progress" => "--no-progress",
+            "--follow-successors" => "--follow-successors",
+            "--max-domains" => "--max-domains",
+            "--max-successor-events" => "--max-successor-events",
+            "--max-containment-checks" => "--max-containment-checks",
             "--help" | "-h" => return Ok(Command::Help),
             _ => return Err(ArgError::UnknownOption(option)),
         };
@@ -72,8 +94,15 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             result.no_progress = true;
             continue;
         }
+        if name == "--follow-successors" {
+            result.follow_successors = true;
+            continue;
+        }
         let value = next_utf8_value(&mut arguments, name)?;
         match name {
+            "--max-bounded-refinement-cells-per-query" => {
+                result.max_bounded_refinement_cells = parse_nonnegative_integer(name, value)?;
+            }
             "--manifest" | "--queries" | "--output" | "--owner-base" | "--events"
             | "--stop-file" => {
                 if value.is_empty() || value == "-" {
@@ -104,6 +133,10 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                     "--max-pieces-per-query" => result.max_pieces = value,
                     "--max-cells-per-query" => result.max_cells = value,
                     "--max-split-operations-per-query" => result.max_split_operations = value,
+                    "--max-domains" => result.max_domains = value,
+                    "--max-successor-events" => result.max_successor_events = value,
+                    "--max-containment-checks" => result.max_containment_checks = value,
+                    "--max-guard-univariate-degree" => result.max_guard_univariate_degree = value,
                     _ => result.max_coordinate_cells = value,
                 }
             }
@@ -117,6 +150,24 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     if result.max_queries > 10_000 || result.max_total_pieces > 1_000_000 {
         return Err(ArgError::InvalidCombination(
             "at most 10000 queries /1000000 retained pieces",
+        ));
+    }
+    if result.max_domains > 1_000_000 || result.max_successor_events > 10_000_000 {
+        return Err(ArgError::InvalidCombination(
+            "at most 1000000 domains /10000000 successor events",
+        ));
+    }
+    if !result.follow_successors
+        && [
+            "--max-domains",
+            "--max-successor-events",
+            "--max-containment-checks",
+        ]
+        .iter()
+        .any(|name| seen.contains(name))
+    {
+        return Err(ArgError::InvalidCombination(
+            "successor work allowances require --follow-successors",
         ));
     }
     Ok(Command::OwnerDomainMatch(result))
@@ -145,6 +196,11 @@ mod tests {
         assert_eq!(args.max_cells, limits.max_cells);
         assert_eq!(args.max_split_operations, limits.max_split_operations);
         assert_eq!(args.max_coordinate_cells, limits.max_coordinate_cells);
+        assert_eq!(args.max_bounded_refinement_cells, 0);
+        assert_eq!(
+            args.max_guard_univariate_degree,
+            limits.guard_algebra.max_univariate_degree
+        );
         for text in [
             "--queries q --output o",
             "--manifest m --output o",
@@ -185,6 +241,8 @@ mod tests {
             "--max-total-pieces 1000001",
             "--max-rules-per-query -1",
             "--max-cells-per-query +2",
+            "--max-bounded-refinement-cells-per-query -1",
+            "--max-guard-univariate-degree 0",
             "--max-pieces-per-query 1 --max-pieces-per-query 2",
             "--queries duplicate",
             "--output -",
@@ -199,6 +257,50 @@ mod tests {
                 parse(&format!("--manifest m --queries q --output o {suffix}")).is_err(),
                 "{suffix}"
             );
+        }
+    }
+
+    #[test]
+    fn bounded_refinement_allowance_is_explicit_and_zero_disables_it() {
+        for cells in [0, 10, 64] {
+            let Command::OwnerDomainMatch(args) = parse(&format!(
+                "--manifest m --queries q --output o --max-bounded-refinement-cells-per-query {cells}"
+            )).unwrap() else { panic!("match command") };
+            assert_eq!(args.max_bounded_refinement_cells, cells);
+        }
+    }
+
+    #[test]
+    fn guard_degree_budget_is_not_a_numerator_rank_override() {
+        let Command::OwnerDomainMatch(args) =
+            parse("--manifest m --queries q --output o --max-guard-univariate-degree 64").unwrap()
+        else {
+            panic!("match command")
+        };
+        assert_eq!(args.max_guard_univariate_degree, 64);
+        assert_eq!(args.max_bounded_refinement_cells, 0);
+        assert!(!args.follow_successors);
+    }
+
+    #[test]
+    fn symbolic_successor_walk_is_explicit_and_bounded() {
+        let Command::OwnerDomainMatch(args) = parse("--manifest m --queries q --output o --follow-successors --max-domains 7 --max-successor-events 31 --max-containment-checks 90").unwrap() else { panic!("match command") };
+        assert!(args.follow_successors);
+        assert_eq!(
+            (
+                args.max_domains,
+                args.max_successor_events,
+                args.max_containment_checks
+            ),
+            (7, 31, 90)
+        );
+        for suffix in [
+            "--max-domains 7",
+            "--follow-successors --max-successor-events 0",
+            "--follow-successors --max-domains 1000001",
+            "--follow-successors --follow-successors",
+        ] {
+            assert!(parse(&format!("--manifest m --queries q --output o {suffix}")).is_err());
         }
     }
 }

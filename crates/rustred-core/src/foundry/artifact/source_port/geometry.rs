@@ -277,7 +277,7 @@ pub(super) fn prove_descent<const N: usize>(
 
 /// The same whole-unbounded order proof for durable wide-coordinate rows.
 /// This entry accepts arithmetic data, not a source replay certificate.
-pub(super) fn prove_wide_descent_with_limits<'a, T: 'a>(
+pub(crate) fn prove_wide_descent_with_limits<'a, T: 'a>(
     terms: impl IntoIterator<Item = (&'a [i64], &'a T)>,
     boxes: &[LatticeBox],
     sector: &[bool],

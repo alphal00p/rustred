@@ -3,7 +3,9 @@
 `owner-domain-match` classifies explicit coordinate boxes against the ordered
 rules and terminals in saved owner programs. It cold-loads the selected immutable
 owners once and uses the existing native guard machinery. This is a local
-applicability operation, not an RHS expansion, source solve or closure campaign.
+applicability operation by default, not an RHS expansion, source solve or closure
+campaign. The optional `--follow-successors` mode described below adds a shared
+symbolic successor worklist without source generation or a closure claim.
 
 ```sh
 python examples/python/match_shared_owner_domains.py \
@@ -57,7 +59,7 @@ that the original source domain never needs.
 
 ## Result and exit status
 
-The full atomic JSON result distinguishes `selected_rule`, `terminal`,
+Without `--follow-successors`, the full atomic JSON result distinguishes `selected_rule`, `terminal`,
 `exact_zero_sector`, `exact_gap`, `unresolved`, and `invalid_source_condition`
 pieces. An undecidable earlier guard remains unresolved, not a fall-through gap.
 
@@ -71,7 +73,7 @@ pieces. An undecidable earlier guard remains unresolved, not a fall-through gap.
   The saved result retains the available prefix and error; no partial success
   is silently promoted to a complete classification.
 
-The result always keeps `family_closure_claim=false`, `ibp_generation=false`
+The local-match result always keeps `family_closure_claim=false`, `ibp_generation=false`
 and `rhs_successors_expanded=false`. A completed empty domain may be vacuously
 locally applicable; this is not evidence that the queried region is inhabited.
 
@@ -95,6 +97,80 @@ set explicitly with `--max-rules-per-query`, `--max-terminal-checks-per-query`,
 `--max-predicates-per-query`, `--max-pieces-per-query`, `--max-cells-per-query`,
 `--max-split-operations-per-query`, and `--max-coordinate-cells-per-query`.
 Unspecified values retain native defaults. These are operational allowances,
-not mathematical rank restrictions or hard RSS guarantees; native per-predicate
-algebra limits remain unchanged. Raising a work cap never changes an unresolved
+not mathematical rank restrictions or hard RSS guarantees. The positive
+`--max-guard-univariate-degree` option sets the existing native per-predicate
+univariate degree allowance (default 16), in either local-match or shared-walk
+mode; the Python wrapper forwards it. For example, 64 admits a native degree-17
+guard that exceeds the default, but does not change the guard, rank scope or
+native algebra algorithm. Other native guard-algebra limits remain unchanged.
+Raising a work cap never changes an unresolved
 answer into a claim of applicability without actually completing that work.
+
+### Optional exact inactive-coordinate refinement
+
+`--max-bounded-refinement-cells-per-query N` opts into resolving an undecided
+predicate by fixing a bounded **inactive** coordinate to each admitted integer
+value and retrying the same predicate. Its default is **0**, preserving the
+explicit conservative diagnostic. The Python wrapper accepts the same flag.
+For example, append `--max-bounded-refinement-cells-per-query 64` to the command
+above to allow up to 64 cumulative singleton faces per query.
+
+The matcher considers only polynomial-supported inactive coordinates, chooses
+the smallest finite interval deterministically, and uses the query's actual rank
+simplex to bound an otherwise unbounded inactive interval. Every face retains
+that exact simplex and all other bounds. Positive axes are never enumerated,
+even when their box bounds are finite; unbounded positive powers stay symbolic.
+Descendant R11 queries are not reduced to the saved entry R10 scope.
+
+The complete split's face and geometry allowances are reserved before any child
+is processed. Insufficient optional allowance leaves the original unresolved
+piece unchanged; it does not claim coverage of a partial split. Faces are
+processed lazily rather than retained as a width-sized pending stack. Ordinary
+native errors, other work limits and cancellation remain explicitly incomplete.
+
+Per-query `stats.refinement_steps` counts admitted coordinate splits, while
+`stats.refinement_cells` counts all admitted singleton faces across levels,
+including prepaid faces left unvisited after cancellation. These are not counts
+of unique final output pieces or IBP searches. Coupled predicates can remain
+unresolved after refinement; no new rule, source job, or recursive closure claim
+follows merely from enabling this allowance.
+
+## Optional shared symbolic successor worklist
+
+Append `--follow-successors` to reuse the same input domains and immutable owner
+snapshot in a shared symbolic worklist. The Python wrapper forwards this mode.
+Each scheduled domain is matched in exact dispatch order, then its selected
+rules' RHS terms are inspected using native specialization and coalescing.
+Supported successor domains retain their translated bounds and actual rank;
+unbounded positive powers remain symbolic. The mode does not enumerate a list
+of concrete positive-dot targets.
+
+Literal installed-owner successors are scheduled once when an already admitted
+domain contains them. The containing domain may still be pending: this is work
+deduplication, not a declaration that pending work is already solved. Inclusion
+is local to the same immutable snapshot and includes the actual rank scope.
+Unresolved dispatch, RHS validity or descent, and successors needing owner
+routing remain explicit frontiers. A coefficient that is not uniformly nonzero
+keeps a conservative successor-domain over-cover, so its frontier is not by
+itself a proved reachable missing-rule domain.
+
+The full result has distinct schema `rustred.owner-domain-walk.json.v1`.
+`recursive_worklist_exhausted` reports that every admitted domain was inspected
+without cancellation or an operational error. It can still be true with
+explicit frontiers. `all_scheduled_domains_resolved=true` additionally requires
+no such frontiers and gives exit 0; otherwise the result is incomplete and
+normally exits 4. Neither field claims family closure, provenance certification,
+or coverage beyond the submitted domains and inspected dependencies. The result
+keeps `family_closure_claim=false`, `ibp_generation=false`,
+`routing_expanded=false`, and `independent_certification=false`.
+
+The positive work allowances `--max-domains` (default 100,000, ceiling 1,000,000),
+`--max-successor-events` (default 1,000,000, ceiling 10,000,000), and
+`--max-containment-checks` (default 10,000,000) require `--follow-successors`.
+They bound admitted domains, callback events, and inclusion comparisons across
+the worklist. Existing per-query matching allowances apply independently to
+each scheduled domain; the optional inactive-refinement allowance therefore
+also applies per scheduled domain. `--max-total-pieces` is a local-match report
+allowance and does not replace the worklist's aggregate event limit. These are
+not hard memory bounds. Stop-file cancellation, fresh atomic output, and compact
+progress remain active; the full output document is the source of truth.

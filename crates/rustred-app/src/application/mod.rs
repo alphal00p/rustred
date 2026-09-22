@@ -22,9 +22,10 @@ mod routed_campaign;
 
 pub use routed_campaign::{
     OwnerDomainMatchRequest, OwnerDomainMatchResult, OwnerDomainScanRequest, OwnerDomainScanResult,
-    RoutedCampaignRequest, RoutedCampaignResult, RoutedFeedbackOptions, RoutedFeedbackRoundResult,
-    RoutedFeedbackSession, owner_domain_match_with_progress, owner_domain_scan_with_progress,
-    routed_campaign_with_progress,
+    OwnerDomainWalkRequest, OwnerDomainWalkResult, RoutedCampaignRequest, RoutedCampaignResult,
+    RoutedFeedbackOptions, RoutedFeedbackRoundResult, RoutedFeedbackSession,
+    owner_domain_match_with_progress, owner_domain_scan_with_progress,
+    owner_domain_walk_with_progress, routed_campaign_with_progress,
 };
 
 pub use candidate_bundle::{

@@ -15,6 +15,12 @@ pub struct OwnerDomainMatchLimits {
     pub max_cells: usize,
     pub max_split_operations: usize,
     pub max_coordinate_cells: usize,
+    /// Optional cumulative allowance for exact singleton faces of bounded
+    /// inactive coordinates when a native predicate remains unresolved. Zero
+    /// preserves the conservative diagnostic without refinement. A split is
+    /// admitted only in full, including its geometry allowance; otherwise the
+    /// original unresolved piece is retained. Positive axes are never sampled.
+    pub max_bounded_refinement_cells: usize,
     pub guard_algebra: IndexedGuardLimits,
 }
 impl Default for OwnerDomainMatchLimits {
@@ -27,6 +33,7 @@ impl Default for OwnerDomainMatchLimits {
             max_cells: 1_000_000,
             max_split_operations: 1_000_000,
             max_coordinate_cells: 32_000_000,
+            max_bounded_refinement_cells: 0,
             guard_algebra: Default::default(),
         }
     }
@@ -43,6 +50,10 @@ pub struct OwnerDomainMatchStats {
     pub split_operations: usize,
     pub coordinate_cells: usize,
     pub rank_empty_cells: usize,
+    /// Singleton faces admitted up front. Cancellation may leave some unvisited.
+    pub refinement_cells: usize,
+    /// Entire bounded-coordinate refinements admitted (not predicate retries).
+    pub refinement_steps: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

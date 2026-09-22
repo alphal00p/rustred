@@ -90,6 +90,38 @@ measure the corrected expansion or eliminate genuine dependency breadth. See the
 
 ## Operational policy
 
+### September 22: move shared work to symbolic domains
+
+The selected-rule successor visitor specializes fixed faces using the native
+indexed algebra, validates original terms before coalescing equal shifts, and
+retains exact translated rank constraints. Bounded sign-crossing coordinates
+are fixed when necessary; positive tails are not clipped. A new opt-in
+application worklist deduplicates containing owner/box/rank domains in one
+immutable snapshot. Pending inclusion saves scheduling, not completed work:
+all admitted domains must still be processed and unresolved obligations remain
+visible. Conditional coefficient images are explicitly conservative requests.
+
+The initial visitor/worklist leaves routing frontiers explicit. A reviewed next
+step can avoid expanding native numerator polynomials for coverage requests:
+an admitted unit-active-row bijection maps rank-R numerators to degree at most R,
+with resulting support contained in the mapped root. Its full-root and strict
+subsupport rank-R domains therefore over-cover actual endpoints. Preserve the
+existing Apply-versus-Route phase and support-count descent when integrating
+that bound. Uncovered points of this over-cover are not automatically reached
+missing rules. See the [interface](shared_owner_domain_matching.md).
+
+The first full-census local-match control (all 67 input owner domains at R10)
+stops on a first-owner native guard degree allowance, requested 17 versus 16.
+This is an incomplete prefix, not a failed generation or a completed census.
+The public `--max-guard-univariate-degree` knob changes only that native work
+allowance, not the numerator-rank bound. The completed release gates pass
+2,607 core /307 application /18 Python tests. Automatic refinement resolves
+the six earlier R10/R11 queries; the full-census retries remain incomplete in
+their first owner at predicate and then native factor-work allowances. Two
+successor trials reach only routing frontiers before work limits. See the
+[measured update](research/shared_symbolic_domains_2026-09-22.md). Do not
+regenerate usable owner programs for these scheduling/guard diagnoses.
+
 ### Current implementation and next measured retry
 
 The generic core now publishes validated children in bounded batches and uses

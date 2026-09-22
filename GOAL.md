@@ -65,6 +65,30 @@ Detailed implementation sequencing is in
 
 ### Current implementation slice — ordered symbolic successor matching
 
+The September 22 slice adds opt-in exact refinement of bounded inactive
+coordinates, inspection of the actually selected rule's RHS, and a shared
+symbolic-domain worklist (`owner-domain-match --follow-successors`). Positive
+tails are not enumerated and intermediate rank is retained. Conditional
+coefficients cause conservative successor requests; gaps there are not called
+reached missing rules. Original-term validity is checked before cancellation.
+Routing requests remain explicit in this first worklist. Completing their
+shared handling and source feedback is still required for the full R10 solve;
+this is not a return to independent certification or terminal minimization.
+
+The release gates now pass **2,607 core tests** (32 existing ignored), **307
+application/integration tests**, and **18 Python tests**, with no failures.
+All six real R10/R11 queries match automatically in **1.275 s** after loading,
+using the same 40 selected pieces as the earlier manual partition. The two
+successor trials inspect **15,485 / 84,754** successors but finish no domain;
+their stops are containment/RHS-work limits, with explicit routing frontiers.
+The full-census local-match retries pass successive degree and predicate
+allowances, then stop at a native guard factorization-work preflight in the
+first owner. None is complete R10 coverage or a demonstrated missing rule.
+Next integrate domain-level routing reuse, handle bounded guard cases before
+expensive factorization when possible, and retry with campaign-appropriate
+work controls. The unchanged saved programs remain the starting point. See
+[the measured September 22 results](docs/research/shared_symbolic_domains_2026-09-22.md).
+
 The generic local-domain matcher now follows installed batch/rule priority,
 source conditions, exceptional conjunctions and original denominators through
 the existing Symbolica-backed guard service. It retains the actual inactive

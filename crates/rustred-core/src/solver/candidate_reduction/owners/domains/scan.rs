@@ -271,7 +271,7 @@ fn check(
     }
 }
 
-fn partition_size<const N: usize>(
+pub(super) fn partition_size<const N: usize>(
     cell: &LatticeBox,
     sector: &[bool; N],
     shift: &[i64; N],
@@ -298,7 +298,7 @@ fn partition_size<const N: usize>(
     Ok(pieces)
 }
 
-fn minimum_rank(lower: &[u64], sector: &[bool]) -> u128 {
+pub(super) fn minimum_rank(lower: &[u64], sector: &[bool]) -> u128 {
     lower
         .iter()
         .zip(sector)

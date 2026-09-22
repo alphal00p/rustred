@@ -16,6 +16,34 @@ enum RuleStage {
     Exception(usize, usize),
     Denominator(usize),
 }
+/// A refinement retries exactly the predicate that could not be classified,
+/// never a later rule. Keeping this cursor separate avoids recursive Phase
+/// storage and keeps arbitrarily long positive tails entirely symbolic.
+#[derive(Clone, Copy)]
+enum PredicateResume {
+    Source(usize),
+    Rule {
+        batch: usize,
+        index: usize,
+        stage: RuleStage,
+    },
+}
+impl PredicateResume {
+    fn phase<'a>(self) -> Phase<'a> {
+        match self {
+            Self::Source(ordinal) => Phase::Source(ordinal),
+            Self::Rule {
+                batch,
+                index,
+                stage,
+            } => Phase::Rule {
+                batch,
+                index,
+                stage,
+            },
+        }
+    }
+}
 #[derive(Clone, Copy)]
 enum Phase<'a> {
     Source(usize),
@@ -27,6 +55,14 @@ enum Phase<'a> {
         batch: usize,
         index: usize,
         stage: RuleStage,
+    },
+    /// All faces are already charged. Keep only the next face and one
+    /// continuation live rather than publishing a width-sized work stack.
+    Refinement {
+        axis: usize,
+        next: u64,
+        upper: u64,
+        resume: PredicateResume,
     },
     Emit(OwnerDomainMatchDisposition),
 }
@@ -183,6 +219,38 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
         let programs = self.programs;
         match phase {
             Phase::Emit(disposition) => self.emit(cell, disposition),
+            Phase::Refinement {
+                axis,
+                next,
+                upper,
+                resume,
+            } => {
+                // The complete interval was admitted before any child was
+                // published. This native box construction spends prepaid cells.
+                let face = LatticeBox::try_new(
+                    cell.lower()
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &x)| if i == axis { next } else { x }),
+                    cell.upper()
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &x)| if i == axis { Some(next) } else { x }),
+                )
+                .map_err(geometry)?;
+                if next < upper {
+                    self.push(
+                        cell,
+                        Phase::Refinement {
+                            axis,
+                            next: next + 1,
+                            upper,
+                            resume,
+                        },
+                    )?;
+                }
+                self.push(face, resume.phase())
+            }
             Phase::Source(ordinal) => {
                 if let Some(polynomial) = programs.context.shared.source_conditions.get(ordinal) {
                     self.predicate(
@@ -193,6 +261,7 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                             ordinal,
                         }),
                         Phase::Source(ordinal + 1),
+                        PredicateResume::Source(ordinal),
                     )
                 } else if programs.context.shared.zero_sectors.contains(&self.owner) {
                     self.emit(cell, OwnerDomainMatchDisposition::ExactZeroSector)
@@ -281,6 +350,11 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                     index,
                     stage,
                 };
+                let resume = PredicateResume::Rule {
+                    batch,
+                    index,
+                    stage,
+                };
                 match stage {
                     RuleStage::Fixed => {
                         charge(
@@ -316,6 +390,7 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                                 },
                                 at(RuleStage::Equality(ordinal + 1)),
                                 next,
+                                resume,
                             )
                         } else {
                             self.push(cell, at(RuleStage::Exception(0, 0)))
@@ -337,6 +412,7 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                                 },
                                 at(RuleStage::Exception(branch, ordinal + 1)),
                                 at(RuleStage::Exception(branch + 1, 0)),
+                                resume,
                             )
                         } else {
                             self.push(cell, next)
@@ -354,6 +430,7 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                                 },
                                 next,
                                 at(RuleStage::Denominator(term + 1)),
+                                resume,
                             )
                         } else {
                             self.emit(
@@ -397,6 +474,7 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
         identity: OwnerDomainPredicate,
         zero: Phase<'a>,
         nonzero: Phase<'a>,
+        resume: PredicateResume,
     ) -> Result<(), OwnerDomainMatchFailure> {
         self.cancelled()?;
         let resolution = guards::resolve(
@@ -409,13 +487,10 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
             &mut self.budget,
         )?;
         self.cancelled()?;
-        let unknown = Phase::Emit(OwnerDomainMatchDisposition::Unresolved {
-            predicate: identity,
-        });
         match resolution {
             Resolution::Zero => self.push(cell, zero),
             Resolution::Nonzero => self.push(cell, nonzero),
-            Resolution::Unknown => self.push(cell, unknown),
+            Resolution::Unknown => self.refine_or_unresolved(cell, p, identity, resume),
             Resolution::Planes { roots, exact } => {
                 let mut remaining = vec![cell];
                 // Subtract each root from the residual BEFORE processing the
@@ -434,7 +509,11 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                                 next.push(cell);
                             }
                             Some(cut) if cut == cell => {
-                                self.push(cell, if exact { zero } else { unknown })?
+                                if exact {
+                                    self.push(cell, zero)?;
+                                } else {
+                                    self.refine_or_unresolved(cell, p, identity, resume)?;
+                                }
                             }
                             Some(cut) => {
                                 let residual = self.budget.subtract::<N>(cell, &cut)?;
@@ -444,7 +523,11 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                                     }
                                 })?;
                                 next.extend(residual);
-                                self.push(cut, if exact { zero } else { unknown })?;
+                                if exact {
+                                    self.push(cut, zero)?;
+                                } else {
+                                    self.refine_or_unresolved(cut, p, identity, resume)?;
+                                }
                             }
                         }
                     }
@@ -456,5 +539,114 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                 Ok(())
             }
         }
+    }
+
+    fn refine_or_unresolved(
+        &mut self,
+        cell: LatticeBox,
+        polynomial: &IndexedPolynomial,
+        identity: OwnerDomainPredicate,
+        resume: PredicateResume,
+    ) -> Result<(), OwnerDomainMatchFailure> {
+        self.cancelled()?;
+        let unresolved = Phase::Emit(OwnerDomainMatchDisposition::Unresolved {
+            predicate: identity,
+        });
+        // Conservative hyperplane subtraction can create rank-empty rectangle
+        // intersections before they reach push(). Discard them through the same
+        // exact simplex gate before computing any residual-rank subtraction.
+        let min_rank = minimum_rank(&cell, &self.owner);
+        if self.rank.is_some_and(|rank| min_rank > u128::from(rank)) {
+            return self.push(cell, unresolved);
+        }
+        let remaining = self
+            .budget
+            .limits
+            .max_bounded_refinement_cells
+            .saturating_sub(self.budget.stats.refinement_cells);
+        if remaining == 0 {
+            return self.push(cell, unresolved);
+        }
+
+        // Pinned Symbolica's public `contains(variable)` is an allocation-free
+        // exponent-support query. IndexedPolynomial authenticates the variable
+        // map: base parameters precede original physical index coordinates.
+        // Original support is a conservative choice after specialization; it
+        // can waste refinement but cannot exclude a required predicate axis.
+        let base = self
+            .programs
+            .context
+            .coefficient_context()
+            .base()
+            .variables()
+            .len();
+        let mut best: Option<(u128, usize, u64)> = None;
+        for axis in 0..N {
+            if self.owner[axis]
+                || cell.upper()[axis] == Some(cell.lower()[axis])
+                || !polynomial.raw().contains(base + axis)
+            {
+                continue;
+            }
+            let rank_upper = self.rank.map(|rank| {
+                let others = min_rank - u128::from(cell.lower()[axis]);
+                // Every queued cell already passes the exact minimum-rank test.
+                (u128::from(rank) - others) as u64
+            });
+            let upper = match (cell.upper()[axis], rank_upper) {
+                (Some(a), Some(b)) => a.min(b),
+                (Some(a), None) | (None, Some(a)) => a,
+                (None, None) => continue,
+            };
+            let width = u128::from(upper) - u128::from(cell.lower()[axis]) + 1;
+            let candidate = (width, axis, upper);
+            if best.is_none_or(|old| candidate < old) {
+                best = Some(candidate);
+            }
+        }
+        let Some((width, axis, upper)) = best else {
+            return self.push(cell, unresolved);
+        };
+        let Ok(width) = usize::try_from(width) else {
+            return self.push(cell, unresolved);
+        };
+        if width > remaining {
+            return self.push(cell, unresolved);
+        }
+
+        // This refinement is optional: reserve its entire geometry and counter
+        // envelope transactionally before any singleton face can be published.
+        // Failure to fit keeps the ORIGINAL unresolved cell, not a partial cover.
+        let mut prospective = Budget {
+            limits: self.budget.limits,
+            stats: self.budget.stats,
+        };
+        if prospective.cells::<N>(width).is_err() {
+            return self.push(cell, unresolved);
+        }
+        charge(
+            &mut prospective.stats.refinement_cells,
+            width,
+            prospective.limits.max_bounded_refinement_cells,
+            "bounded refinement cells",
+        )?;
+        charge(
+            &mut prospective.stats.refinement_steps,
+            1,
+            usize::MAX,
+            "bounded refinement steps",
+        )?;
+        self.cancelled()?;
+        self.budget = prospective;
+        let next = cell.lower()[axis];
+        self.push(
+            cell,
+            Phase::Refinement {
+                axis,
+                next,
+                upper,
+                resume,
+            },
+        )
     }
 }

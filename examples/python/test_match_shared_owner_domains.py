@@ -68,6 +68,35 @@ class MatchSteeringTests(unittest.TestCase):
                     MATCH.main()
                 execute.assert_not_called()
 
+    def test_refinement_cells_are_opt_in_and_explicit_zero_is_forwarded(self):
+        option = "--" + MATCH.REFINEMENT
+        for value in ("0", "10", "64"):
+            with patch("sys.argv", self.arguments() + [option, value]), \
+                    patch.object(MATCH.os, "execve") as execute:
+                MATCH.main()
+            command = execute.call_args.args[1]
+            self.assertEqual(command[command.index(option) + 1], value)
+        for invalid in ("-1", "+1", "1.1", " 1", "１"):
+            with self.assertRaises(argparse.ArgumentTypeError):
+                MATCH.nonnegative(invalid)
+
+    def test_shared_successor_walk_is_opt_in(self):
+        flags = ["--follow-successors"]
+        for option in MATCH.WALK_ALLOWANCES:
+            flags.extend(["--" + option, "17"])
+        with patch("sys.argv", self.arguments() + flags), patch.object(MATCH.os, "execve") as execute:
+            MATCH.main()
+        command = execute.call_args.args[1]
+        self.assertIn("--follow-successors", command)
+        for option in MATCH.WALK_ALLOWANCES:
+            self.assertEqual(command[command.index("--" + option) + 1], "17")
+        with patch("sys.argv", self.arguments() + ["--max-domains", "17"]), \
+                patch.object(MATCH.os, "execve") as execute, \
+                patch("sys.stderr", new_callable=io.StringIO):
+            with self.assertRaises(SystemExit):
+                MATCH.main()
+            execute.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

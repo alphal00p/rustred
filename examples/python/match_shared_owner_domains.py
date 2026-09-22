@@ -3,8 +3,10 @@
 
 Python only forwards inputs and resource policy. Exit zero means exact local
 classification, which may contain gaps or invalid source conditions; it does
-not imply applicability, RHS reduction or recursive closure. No IBPs are
-generated. Each JSON query supplies its own rank cap (null means unbounded).
+not imply applicability, RHS reduction or recursive closure. With
+--follow-successors, zero instead requires all scheduled local domains resolved;
+routing/guard frontiers remain incomplete. Neither mode claims family closure.
+No IBPs are generated. Each JSON query supplies its own rank cap (null means unbounded).
 """
 import argparse
 import os
@@ -16,12 +18,21 @@ ALLOWANCES = (
     "max-terminal-checks-per-query", "max-predicates-per-query",
     "max-pieces-per-query", "max-cells-per-query",
     "max-split-operations-per-query", "max-coordinate-cells-per-query",
+    "max-guard-univariate-degree",
 )
+REFINEMENT = "max-bounded-refinement-cells-per-query"
+WALK_ALLOWANCES = ("max-domains", "max-successor-events", "max-containment-checks")
 
 
 def positive(text: str) -> int:
     if not text.isascii() or not text.isdecimal() or int(text) == 0:
         raise argparse.ArgumentTypeError("work allowance must be a positive integer")
+    return int(text)
+
+
+def nonnegative(text: str) -> int:
+    if not text.isascii() or not text.isdecimal():
+        raise argparse.ArgumentTypeError("refinement allowance must be a nonnegative integer")
     return int(text)
 
 
@@ -35,10 +46,19 @@ def main() -> None:
     parser.add_argument("--events", type=Path)
     parser.add_argument("--stop-file", type=Path)
     parser.add_argument("--no-progress", action="store_true")
+    parser.add_argument("--follow-successors", action="store_true",
+                        help="share symbolic successor domains; unresolved routes remain explicit")
     for option in ALLOWANCES:
         parser.add_argument("--" + option, type=positive,
                             help="optional native work/storage allowance, not a rank restriction")
+    parser.add_argument("--" + REFINEMENT, type=nonnegative,
+                        help="exact bounded numerator faces per query; zero disables refinement")
+    for option in WALK_ALLOWANCES:
+        parser.add_argument("--" + option, type=positive)
     args = parser.parse_args()
+    if not args.follow_successors and any(getattr(args, option.replace("-", "_")) is not None
+                                         for option in WALK_ALLOWANCES):
+        parser.error("successor work allowances require --follow-successors")
     environment = os.environ.copy()
     for name in ("RAYON_NUM_THREADS", "OMP_NUM_THREADS", "OMP_THREAD_LIMIT",
                  "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "BLIS_NUM_THREADS",
@@ -52,7 +72,9 @@ def main() -> None:
             command.extend(["--" + option.replace("_", "-"), str(value)])
     if args.no_progress:
         command.append("--no-progress")
-    for option in ALLOWANCES:
+    if args.follow_successors:
+        command.append("--follow-successors")
+    for option in (*ALLOWANCES, REFINEMENT, *WALK_ALLOWANCES):
         if (value := getattr(args, option.replace("-", "_"))) is not None:
             command.extend(["--" + option, str(value)])
     # Inherit the license without persisting or printing it. Replacement keeps

@@ -117,6 +117,9 @@ impl Drop for RoutedProgress {
 
 fn dashboard(record: &Value) -> [String; 6] {
     let outer = &record["progress"];
+    if outer["operation"].as_str() == Some("owner_domain_walk") {
+        return walk_dashboard(record);
+    }
     if outer["operation"].as_str() == Some("owner_domain_scan") {
         return domain_dashboard(record);
     }
@@ -190,6 +193,52 @@ fn dashboard(record: &Value) -> [String; 6] {
             record["cancel_requested"]
         ),
         last_line,
+    ]
+}
+
+fn walk_dashboard(record: &Value) -> [String; 6] {
+    let p = &record["progress"];
+    let n = |key| p[key].as_u64().unwrap_or(0);
+    let done = n("completed_nodes");
+    let total = n("scheduled_nodes");
+    let width = if total == 0 {
+        0
+    } else {
+        (20. * done as f64 / total as f64).min(20.) as usize
+    };
+    [
+        format!(
+            "RustRed shared symbolic-domain work — {}",
+            p["phase"]
+                .as_str()
+                .or(p["status"].as_str())
+                .or(p["event"].as_str())
+                .unwrap_or("working")
+        ),
+        format!(
+            "[{}{}] {done}/{total} inspected / scheduled; {} queued (may grow)",
+            "#".repeat(width),
+            "-".repeat(20 - width),
+            n("queued_nodes")
+        ),
+        format!(
+            "Successors {}  conditional {}  domain reuse {}  frontiers {}",
+            n("successors"),
+            n("conditional_successors"),
+            n("deduplication_hits"),
+            n("frontiers")
+        ),
+        format!(
+            "Events {}  RSS {:.2} GB  elapsed {:.1}s",
+            n("events"),
+            record["process_rss_bytes"].as_u64().unwrap_or(0) as f64 / 1e9,
+            record["elapsed_seconds"].as_f64().unwrap_or(0.)
+        ),
+        "Positive powers remain symbolic; actual child ranks retained; no IBPs regenerated".into(),
+        format!(
+            "Last update {:.1}s ago; unresolved routes/guards stay explicit; NOT a closure claim",
+            record["progress_age_seconds"].as_f64().unwrap_or(0.)
+        ),
     ]
 }
 
@@ -284,6 +333,19 @@ fn match_dashboard(record: &Value) -> [String; 6] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn owner_domain_walk_dashboard_reports_provisional_domain_work() {
+        let text = dashboard(&json!({"progress":{"operation":"owner_domain_walk",
+            "event":"domain_progress", "scheduled_nodes":7, "completed_nodes":2,
+            "queued_nodes":5, "successors":100, "conditional_successors":3,
+            "deduplication_hits":97, "frontiers":4}}))
+        .join("\n");
+        assert!(text.contains("2/7 inspected / scheduled"));
+        assert!(text.contains("conditional 3"));
+        assert!(text.contains("domain reuse 97"));
+        assert!(text.contains("NOT a closure claim"));
+        assert!(!text.contains("finite-target"));
+    }
     #[test]
     fn owner_domain_match_dashboard_keeps_completed_gaps_distinct_from_coverage() {
         let text = dashboard(&json!({"progress":{"operation":"owner_domain_match",

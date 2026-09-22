@@ -5,11 +5,13 @@ mod feedback;
 mod input;
 mod matching;
 mod prepare;
+mod walking;
 pub use domains::{OwnerDomainScanRequest, OwnerDomainScanResult, owner_domain_scan_with_progress};
 pub use feedback::{RoutedFeedbackOptions, RoutedFeedbackRoundResult, RoutedFeedbackSession};
 pub use matching::{
     OwnerDomainMatchRequest, OwnerDomainMatchResult, owner_domain_match_with_progress,
 };
+pub use walking::{OwnerDomainWalkRequest, OwnerDomainWalkResult, owner_domain_walk_with_progress};
 #[cfg(test)]
 mod tests;
 
