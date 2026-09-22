@@ -97,6 +97,22 @@ class MatchSteeringTests(unittest.TestCase):
                 MATCH.main()
             execute.assert_not_called()
 
+    def test_route_overcover_requires_explicit_walk_and_forwards_mask_budget(self):
+        flags = ["--follow-successors", "--route-domain-overcover", "--max-route-masks-per-query", "321"]
+        with patch("sys.argv", self.arguments() + flags), patch.object(MATCH.os, "execve") as execute:
+            MATCH.main()
+        command = execute.call_args.args[1]
+        self.assertIn("--route-domain-overcover", command)
+        self.assertEqual(command[command.index("--max-route-masks-per-query") + 1], "321")
+        for suffix in (["--route-domain-overcover"],
+                       ["--follow-successors", "--max-route-masks-per-query", "321"]):
+            with patch("sys.argv", self.arguments() + suffix), \
+                    patch.object(MATCH.os, "execve") as execute, \
+                    patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit):
+                    MATCH.main()
+                execute.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

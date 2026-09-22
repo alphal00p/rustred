@@ -333,7 +333,7 @@ pub(crate) const HELP: &str = "\
 RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 
 USAGE:
-    rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N] [--max-bounded-refinement-cells-per-query N] [--max-guard-univariate-degree N] [--follow-successors [--max-domains N] [--max-successor-events N] [--max-containment-checks N]]
+    rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N] [--max-bounded-refinement-cells-per-query N] [--max-guard-univariate-degree N] [--follow-successors [--max-domains N] [--max-successor-events N] [--max-containment-checks N] [--max-rhs-cells-per-query N] [--max-term-visits-per-query N] [--max-native-operations-per-query N] [--route-domain-overcover [--max-route-masks-per-query N]]]
     rustred owner-domain-scan --manifest SELECTION.json --max-numerator-rank R --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--max-rules-per-owner N] [--max-terms-per-owner N] [--max-regions-per-owner N] [--max-total-regions N] [--max-summary-groups N]
     rustred routed-campaign --manifest SELECTION.json --targets TARGETS.csv --output RESULT.json [--events EVENTS.jsonl] [--owner-base DIR] [--workers 1..50] [--stop-file PATH] [--expansion-limits LIMITS.json] [--max-nodes N] [--max-input-targets N] [--max-transport-operations N] [--max-transport-endpoints N] [--max-coalescing-additions N] [--max-rule-applications N]
     rustred derive [OPTIONS]
@@ -549,16 +549,28 @@ Without --follow-successors, no RHS expansion is performed. No mode claims IBP
 generation or recursive family closure. Outputs are fresh paths; stop-file
 cancellation and compact heartbeat events remain active.
 Opt-in --max-bounded-refinement-cells-per-query (default 0) retries unresolved
-guards on exact bounded inactive-coordinate faces. Positive axes stay symbolic;
+guards and selected native algebra preflight refusals on exact bounded
+inactive-coordinate faces. Positive axes stay symbolic;
 the full split is admitted before any face, and insufficient allowance preserves
-the unresolved piece. Refinement is local classification, not source generation.
+the unresolved piece or original typed refusal. Refinement is local
+classification, not source generation. Cancellation and backend faults are not
+reclassified as unresolved geometry.
 --max-guard-univariate-degree sets a positive native guard-degree allowance
 (default 16) for either mode; it does not alter rank scope or guard semantics.
 --follow-successors instead emits a distinct shared symbolic worklist result,
 reusing pending containing domains in the same immutable owner snapshot. Native
 RHS inspection follows installed literal owners; routes remain explicit frontiers.
+Adding --route-domain-overcover follows admitted maps using conservative full
+orthants at the actual incoming rank, without numerator polynomial expansion.
+Full mapped roots go directly to owner application; strict subsupports reenter
+routing. Unchecked source conditions and missing maps remain explicit obligations.
+This mode does not identify every covered point as actually reached.
 The mode accepts positive --max-domains, --max-successor-events and
---max-containment-checks allowances. Unresolved work or work-limit exhaustion is incomplete;
+--max-containment-checks allowances. --max-rhs-cells-per-query counts all refined
+RHS cells (not only pinches); --max-term-visits-per-query and
+--max-native-operations-per-query adjust native inspection work budgets.
+--max-route-masks-per-query requires --route-domain-overcover and bounds each
+symbolic routing call. Unresolved work or work-limit exhaustion is incomplete;
 an exhausted local worklist is not a family-closure claim.
 
 `campaign generate` writes a deterministic durable artifact encoding.

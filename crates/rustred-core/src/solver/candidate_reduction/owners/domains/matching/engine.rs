@@ -78,6 +78,8 @@ struct Matcher<'a, 'v, const N: usize, F> {
     cancel: &'v AtomicBool,
     visit: &'v mut F,
     pending: Vec<Task<'a>>,
+    failed_predicate: Option<OwnerDomainPredicate>,
+    failed_cell: Option<LatticeBox>,
 }
 
 impl<const N: usize> CandidateOwnerPrograms<N> {
@@ -109,6 +111,8 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             cancel: cancellation,
             visit: &mut visit,
             pending: Vec::new(),
+            failed_predicate: None,
+            failed_cell: None,
         };
         let result = matcher.run(lower, upper);
         result
@@ -116,6 +120,9 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             .map_err(|failure| OwnerDomainMatchError {
                 failure,
                 stats: matcher.budget.stats,
+                predicate: matcher.failed_predicate,
+                max_numerator_rank,
+                predicate_bounds: matcher.failed_cell.map(LatticeBox::into_bounds),
             })
     }
 }
@@ -485,12 +492,19 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
             self.rank,
             self.programs.context.limits.indexed_algebra,
             &mut self.budget,
-        )?;
+        );
         self.cancelled()?;
+        let resolution = match resolution {
+            Ok(resolution) => resolution,
+            Err(failure) if guards::permits_bounded_refinement(&failure) => {
+                return self.refine_or_unresolved(cell, p, identity, resume, Some(failure));
+            }
+            Err(failure) => return self.fail_predicate(cell, identity, failure),
+        };
         match resolution {
             Resolution::Zero => self.push(cell, zero),
             Resolution::Nonzero => self.push(cell, nonzero),
-            Resolution::Unknown => self.refine_or_unresolved(cell, p, identity, resume),
+            Resolution::Unknown => self.refine_or_unresolved(cell, p, identity, resume, None),
             Resolution::Planes { roots, exact } => {
                 let mut remaining = vec![cell];
                 // Subtract each root from the residual BEFORE processing the
@@ -512,7 +526,7 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                                 if exact {
                                     self.push(cell, zero)?;
                                 } else {
-                                    self.refine_or_unresolved(cell, p, identity, resume)?;
+                                    self.refine_or_unresolved(cell, p, identity, resume, None)?;
                                 }
                             }
                             Some(cut) => {
@@ -526,7 +540,7 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                                 if exact {
                                     self.push(cut, zero)?;
                                 } else {
-                                    self.refine_or_unresolved(cut, p, identity, resume)?;
+                                    self.refine_or_unresolved(cut, p, identity, resume, None)?;
                                 }
                             }
                         }
@@ -541,12 +555,44 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
         }
     }
 
+    fn fail_predicate(
+        &mut self,
+        cell: LatticeBox,
+        identity: OwnerDomainPredicate,
+        failure: OwnerDomainMatchFailure,
+    ) -> Result<(), OwnerDomainMatchFailure> {
+        // Move the already-charged box; retaining diagnostic coordinates neither
+        // clones them nor changes the original typed refusal into another error.
+        self.failed_predicate = Some(identity);
+        self.failed_cell = Some(cell);
+        Err(failure)
+    }
+
+    fn unresolved_or_failure(
+        &mut self,
+        cell: LatticeBox,
+        identity: OwnerDomainPredicate,
+        failure: Option<OwnerDomainMatchFailure>,
+    ) -> Result<(), OwnerDomainMatchFailure> {
+        self.cancelled()?;
+        match failure {
+            Some(failure) => self.fail_predicate(cell, identity, failure),
+            None => self.push(
+                cell,
+                Phase::Emit(OwnerDomainMatchDisposition::Unresolved {
+                    predicate: identity,
+                }),
+            ),
+        }
+    }
+
     fn refine_or_unresolved(
         &mut self,
         cell: LatticeBox,
         polynomial: &IndexedPolynomial,
         identity: OwnerDomainPredicate,
         resume: PredicateResume,
+        failure: Option<OwnerDomainMatchFailure>,
     ) -> Result<(), OwnerDomainMatchFailure> {
         self.cancelled()?;
         let unresolved = Phase::Emit(OwnerDomainMatchDisposition::Unresolved {
@@ -565,7 +611,7 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
             .max_bounded_refinement_cells
             .saturating_sub(self.budget.stats.refinement_cells);
         if remaining == 0 {
-            return self.push(cell, unresolved);
+            return self.unresolved_or_failure(cell, identity, failure);
         }
 
         // Pinned Symbolica's public `contains(variable)` is an allocation-free
@@ -605,24 +651,25 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
             }
         }
         let Some((width, axis, upper)) = best else {
-            return self.push(cell, unresolved);
+            return self.unresolved_or_failure(cell, identity, failure);
         };
         let Ok(width) = usize::try_from(width) else {
-            return self.push(cell, unresolved);
+            return self.unresolved_or_failure(cell, identity, failure);
         };
         if width > remaining {
-            return self.push(cell, unresolved);
+            return self.unresolved_or_failure(cell, identity, failure);
         }
 
         // This refinement is optional: reserve its entire geometry and counter
         // envelope transactionally before any singleton face can be published.
-        // Failure to fit keeps the ORIGINAL unresolved cell, not a partial cover.
+        // Failure to fit keeps the ORIGINAL unknown cell or typed native
+        // refusal, not a partial cover. The failed predicate's work stays charged.
         let mut prospective = Budget {
             limits: self.budget.limits,
             stats: self.budget.stats,
         };
         if prospective.cells::<N>(width).is_err() {
-            return self.push(cell, unresolved);
+            return self.unresolved_or_failure(cell, identity, failure);
         }
         charge(
             &mut prospective.stats.refinement_cells,

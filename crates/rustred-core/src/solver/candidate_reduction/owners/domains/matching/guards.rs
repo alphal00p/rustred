@@ -5,6 +5,29 @@ use crate::algebra::{IndexedAlgebraLimits, IndexedCoefficientContext, IndexedPol
 use crate::foundry::completion::LatticeBox;
 use symbolica::prelude::Integer;
 
+/// Closed native resource identifiers audited in indexed/base_coefficients.rs.
+/// These are admission checks before the NEXT GCD/factor operation, not proof
+/// that no native work has happened: a prior GCD/equation may already have run.
+/// Output/input/replay caps and all non-ResourceLimit faults remain hard errors.
+pub(super) fn permits_bounded_refinement(failure: &OwnerDomainMatchFailure) -> bool {
+    matches!(
+        failure,
+        OwnerDomainMatchFailure::Algebra(crate::algebra::IndexedAlgebraError::ResourceLimit {
+            resource: "guard univariate degree"
+                | "guard gcd/factor work"
+                | "guard factor variables"
+                | "guard factor per-variable degree"
+                | "guard factor total degree"
+                | "guard factor dense slots"
+                | "guard factor recombination subsets"
+                | "guard prospective factor terms"
+                | "guard prospective factor integer bits"
+                | "guard separable factor work",
+            ..
+        })
+    )
+}
+
 pub(super) enum Resolution {
     Zero,
     Nonzero,

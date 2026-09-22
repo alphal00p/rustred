@@ -16,10 +16,12 @@ pub struct OwnerDomainMatchLimits {
     pub max_split_operations: usize,
     pub max_coordinate_cells: usize,
     /// Optional cumulative allowance for exact singleton faces of bounded
-    /// inactive coordinates when a native predicate remains unresolved. Zero
-    /// preserves the conservative diagnostic without refinement. A split is
+    /// inactive coordinates when a native predicate remains unresolved or its
+    /// next GCD/factor operation refuses prospective admission. Zero preserves
+    /// the conservative diagnostic/native refusal without refinement. A split is
     /// admitted only in full, including its geometry allowance; otherwise the
-    /// original unresolved piece is retained. Positive axes are never sampled.
+    /// original unresolved piece or typed native refusal is retained. Positive
+    /// axes are never sampled; prior native work/attempt charges are not undone.
     pub max_bounded_refinement_cells: usize,
     pub guard_algebra: IndexedGuardLimits,
 }
@@ -155,6 +157,24 @@ pub enum OwnerDomainMatchFailure {
 pub struct OwnerDomainMatchError {
     pub failure: OwnerDomainMatchFailure,
     pub stats: OwnerDomainMatchStats,
+    /// Present for a failed native predicate resolution/refinement admission.
+    /// Identifies the actual failed cursor, not a reached missing-rule claim.
+    pub predicate: Option<OwnerDomainPredicate>,
+    /// Actual query simplex; None is unbounded, not the saved entry rank.
+    pub max_numerator_rank: Option<u32>,
+    pub(super) predicate_bounds: Option<(Box<[u64]>, Box<[Option<u64>]>)>,
+}
+impl OwnerDomainMatchError {
+    pub fn predicate_lower(&self) -> Option<&[u64]> {
+        self.predicate_bounds
+            .as_ref()
+            .map(|(lower, _)| lower.as_ref())
+    }
+    pub fn predicate_upper(&self) -> Option<&[Option<u64>]> {
+        self.predicate_bounds
+            .as_ref()
+            .map(|(_, upper)| upper.as_ref())
+    }
 }
 impl fmt::Display for OwnerDomainMatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -162,7 +182,17 @@ impl fmt::Display for OwnerDomainMatchError {
             f,
             "incomplete owner domain match after {} pieces: {:?}",
             self.stats.pieces, self.failure
-        )
+        )?;
+        if let Some(predicate) = self.predicate {
+            write!(
+                f,
+                " at {predicate:?}, lower={:?}, upper={:?}, rank={:?}",
+                self.predicate_lower(),
+                self.predicate_upper(),
+                self.max_numerator_rank
+            )?;
+        }
+        Ok(())
     }
 }
 impl std::error::Error for OwnerDomainMatchError {}

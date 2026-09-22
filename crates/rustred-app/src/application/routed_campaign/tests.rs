@@ -711,9 +711,12 @@ fn shared_owner_campaign_admits_all_steering_before_native_load() {
     assert!(input::Selection::parse(&selection.to_string()).is_err());
 }
 
-#[test]
-fn shared_owner_campaign_composes_noninvolutive_native_map_and_rejects_forgery() {
-    let fixture = Fixture::new();
+fn noninvolutive_route_fixture() -> Fixture {
+    noninvolutive_route_fixture_with_scale(false)
+}
+
+fn noninvolutive_route_fixture_with_scale(scaled: bool) -> Fixture {
+    let mut fixture = Fixture::new();
     let source = r#"
 schema="rustred.project.toml.v1"
 [family]
@@ -733,6 +736,14 @@ expression="(q1-q2)^2-1"
 [target]
 powers=[0,1,1]
 "#;
+    let source = if scaled {
+        source
+            .replace("q1^2-1", "d*q1^2-1")
+            .replace("q2^2-1", "d*q2^2-1")
+            .replace("(q1-q2)^2-1", "d*(q1-q2)^2-1")
+    } else {
+        source.to_owned()
+    };
     let mut generation = FamilyCandidatesRequest::new(source);
     generation.nonpositive_indices = vec![0];
     generation.numerical_depth = 0;
@@ -742,13 +753,22 @@ powers=[0,1,1]
         inspect_generated_candidate_bundle(bundle.bundle(), Default::default()).unwrap();
     assert_eq!(inspection.solved_sectors, 1);
     std::fs::write(fixture.directory.join("two_loop.rrbin"), bundle.bundle()).unwrap();
-    let mut selection = json!({"family_fingerprint":inspection.family_fingerprint,
+    let selection = json!({"family_fingerprint":inspection.family_fingerprint,
         "owners":[{"path":"two_loop.rrbin","bytes":bundle.bundle().len(),"mask":"011"}],
         "initial_frontier_routes":[{"source_mask":"110","owner_mask":"011","requires_transport":true,
             "source_to_representative":[["1","0"],["0","1"]],
             "owner_to_representative":[["1","-1"],["1","0"]]}]});
     let mut request = RoutedCampaignRequest::new(selection.to_string(), "2,2,0\n".into());
     request.owner_base = fixture.directory.clone();
+    fixture.request = request;
+    fixture
+}
+
+#[test]
+fn shared_owner_campaign_composes_noninvolutive_native_map_and_rejects_forgery() {
+    let fixture = noninvolutive_route_fixture();
+    let mut request = fixture.request.clone();
+    let mut selection: Value = serde_json::from_str(&request.selection_json).unwrap();
     let result =
         routed_campaign_with_progress(request.clone(), &AtomicBool::new(false), |_| {}).unwrap();
     assert!(result.completed_finite_trace, "{:?}", result.document);
@@ -806,4 +826,107 @@ powers=[0,1,1]
         json!([["1", "0"], ["0", "1"]]);
     request.selection_json = selection.to_string();
     assert!(routed_campaign_with_progress(request, &AtomicBool::new(false), |_| {}).is_err());
+}
+
+fn route_walk_request(fixture: &Fixture, rank: u32) -> OwnerDomainWalkRequest {
+    let queries = json!({"schema":"rustred.owner-domain-queries.json.v1", "queries":[
+        {"id":"routed-positive-ray", "owner":"110", "lower":[0,0,0],
+            "upper":[null,null,null], "max_numerator_rank":rank}]});
+    let mut matching =
+        OwnerDomainMatchRequest::new(fixture.request.selection_json.clone(), queries.to_string());
+    matching.owner_base = fixture.directory.clone();
+    let mut walk = OwnerDomainWalkRequest::new(matching);
+    walk.route_domain_overcover = true;
+    walk
+}
+
+#[test]
+fn owner_domain_walk_routes_whole_rank_zero_orthant_without_native_expansion() {
+    let fixture = noninvolutive_route_fixture();
+    let request = route_walk_request(&fixture, 0);
+    let result = owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(result.all_scheduled_domains_resolved, "{}", result.document);
+    assert_eq!(result.document["route_domain_overcover"], true);
+    assert_eq!(result.document["routing_expanded"], false);
+    assert_eq!(result.document["family_closure_claim"], false);
+    assert_eq!(result.document["domains"][0]["phase"], "Route");
+    assert_eq!(result.document["domains"][0]["stats"]["apply_domains"], 1);
+    assert_eq!(result.document["domains"][0]["stats"]["route_domains"], 0);
+    let target = result.document["domains"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["phase"] == "Apply")
+        .unwrap();
+    assert_eq!(target["owner"], "011");
+    assert_eq!(target["upper"], json!([null, null, null]));
+    assert_eq!(target["rank"], 0);
+}
+
+#[test]
+fn owner_domain_walk_route_budget_preserves_above_entry_rank_and_incomplete_prefix() {
+    let fixture = noninvolutive_route_fixture();
+    let mut request = route_walk_request(&fixture, 11);
+    request.max_route_masks = 1;
+    let result = owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(!result.all_scheduled_domains_resolved);
+    assert_eq!(result.document["recursive_worklist_exhausted"], false);
+    assert_eq!(result.document["completed_nodes"], 0);
+    assert_eq!(result.document["queued_nodes"], 1);
+    assert_eq!(result.document["route_masks"], 1);
+    assert_eq!(result.document["domains"][0]["rank"], 11);
+    assert!(
+        result.document["error"]
+            .as_str()
+            .unwrap()
+            .contains("route masks")
+    );
+}
+
+#[test]
+fn owner_domain_walk_missing_route_stays_frontier_not_terminal() {
+    let fixture = noninvolutive_route_fixture();
+    let mut request = route_walk_request(&fixture, 0);
+    let mut selection: Value = serde_json::from_str(&request.matching.selection_json).unwrap();
+    selection["initial_frontier_routes"] = json!([]);
+    request.matching.selection_json = selection.to_string();
+    let result = owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(!result.all_scheduled_domains_resolved);
+    assert_eq!(result.document["recursive_worklist_exhausted"], true);
+    assert_eq!(result.document["frontiers"], 1);
+    assert_eq!(
+        result.document["domains"][0]["frontiers"][0]["kind"],
+        "missing_route_cover"
+    );
+    assert_eq!(
+        result.document["domains"][0]["frontiers"][0]["reached_missing_rule_claim"],
+        false
+    );
+}
+
+#[test]
+fn owner_domain_walk_initial_route_source_conditions_remain_explicit() {
+    let fixture = noninvolutive_route_fixture_with_scale(true);
+    let mut request = route_walk_request(&fixture, 1);
+    // Nonconstant generic map conditions are intentionally unsupported by
+    // transport admission. No map is needed here: original source validity
+    // must remain an obligation even before missing-route dispatch.
+    let mut selection: Value = serde_json::from_str(&request.matching.selection_json).unwrap();
+    selection["initial_frontier_routes"] = json!([]);
+    request.matching.selection_json = selection.to_string();
+    let result = owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(
+        !result.all_scheduled_domains_resolved,
+        "{}",
+        result.document
+    );
+    assert_eq!(result.document["routed_domains"], 0);
+    assert_eq!(
+        result.document["input_frontiers"][0]["kind"],
+        "initial_route_source_validity_obligation"
+    );
+    assert_eq!(
+        result.document["input_frontiers"][0]["reached_missing_rule_claim"],
+        false
+    );
 }

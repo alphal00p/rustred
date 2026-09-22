@@ -92,6 +92,18 @@ measure the corrected expansion or eliminate genuine dependency breadth. See the
 
 ### September 22: move shared work to symbolic domains
 
+The next slice adds conservative domain routing through admitted maps and
+bounded inactive refinement of selected native guard preflight refusals.
+Route requests share whole support/rank orthants; full mapped roots enter Apply,
+while strict subsupports reenter Route. Exact source validity is still required,
+so unchecked source conditions remain obligations. No polynomial numerator
+expansion, source regeneration, or automatic missing-rule inference follows
+from an overcover. The opt-in CLI/Python controls and separate RHS work budgets
+are documented in [the matching interface](shared_owner_domain_matching.md).
+Use measured local/full-census and shared-walk controls to decide the next
+optimization; this is still preparation for the complete parametric campaign,
+not an alternative definition of completion.
+
 The selected-rule successor visitor specializes fixed faces using the native
 indexed algebra, validates original terms before coalescing equal shifts, and
 retains exact translated rank constraints. Bounded sign-crossing coordinates

@@ -35,6 +35,8 @@ pub(crate) use instantiate::{
 
 pub use candidate_reduction::{
     BoundOwnerOverlay, BoundOwnerSearch, CandidateCacheRepresentation, CandidateDecomposition,
+    CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,
+    CandidateDomainRouteFailure, CandidateDomainRouteLimits, CandidateDomainRouteStats,
     CandidateOwnerContext, CandidateOwnerInput, CandidateOwnerPrograms, CandidateOwnerRoute,
     CandidateOwnerScope, CandidateReachabilityReport, CandidateReducer, CandidateReductionError,
     CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,

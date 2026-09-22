@@ -20,7 +20,8 @@ arguments except `--executable`. The generic selection format is the same as
 may contain only the required saved owners and an empty
 `initial_frontier_routes` array; native loading still validates family, context,
 ordering and saved policy. A full routing selection remains usable, but adds
-preparation work and does not make this operation traverse routes.
+preparation work. Routing requires the explicit `--route-domain-overcover`
+worklist option described below.
 
 ## Query input
 
@@ -128,6 +129,18 @@ piece unchanged; it does not claim coverage of a partial split. Faces are
 processed lazily rather than retained as a width-sized pending stack. Ordinary
 native errors, other work limits and cancellation remain explicitly incomplete.
 
+The same allowance now permits refinement after selected native guard
+GCD/factorization **preflight** refusals (degree, prospective work or storage).
+The failed attempt remains charged; each face retries the identical predicate
+at the identical dispatch priority. If refinement cannot be admitted, the
+original typed refusal is retained. Backend faults, allocation failures, native
+output limits, cancellation and aggregate matcher limits are not converted into
+refinement opportunities. No CAS algorithm is implemented by this fallback.
+Local-match errors include `error_predicate_context` with the active predicate,
+coordinate box and rank when available. This provenance is currently specific
+to local matching; the RHS inspection wrapper retains its existing failure
+representation.
+
 Per-query `stats.refinement_steps` counts admitted coordinate splits, while
 `stats.refinement_cells` counts all admitted singleton faces across levels,
 including prepaid faces left unvisited after cancellation. These are not counts
@@ -174,3 +187,54 @@ also applies per scheduled domain. `--max-total-pieces` is a local-match report
 allowance and does not replace the worklist's aggregate event limit. These are
 not hard memory bounds. Stop-file cancellation, fresh atomic output, and compact
 progress remain active; the full output document is the source of truth.
+
+The per-domain RHS budgets `--max-rhs-cells-per-query` (default 100,000),
+`--max-term-visits-per-query` (1,000,000), and
+`--max-native-operations-per-query` (4,000,000) are also explicit CLI/Python
+options. RHS cells include every refined cell, not just pinches or boundaries.
+Other `OwnerAppliedLimits` retain their native defaults and remain configurable
+through the Rust API. None is an elapsed timeout or an input-rank restriction.
+
+### Shared admitted-route domain covers
+
+Add `--route-domain-overcover` alongside `--follow-successors` to reuse the
+selection's already admitted momentum maps without expanding numerator powers.
+This is a conservative sufficient-cover operation, not an exact route image.
+For example:
+
+```sh
+python examples/python/match_shared_owner_domains.py \
+  --executable /path/to/gated/rustred-cli \
+  --manifest selection.json --queries queries.json \
+  --output result.json --events events.jsonl --stop-file stop \
+  --follow-successors --route-domain-overcover --max-route-masks-per-query 100000
+```
+
+An admitted map permutes positive denominator powers into a nonnegative base
+`B` and substitutes degree-at-most-one polynomials for numerator factors. For
+incoming numerator rank `D`, every surviving monomial has degree `|e|<=D` and
+endpoint `B-e`. Thus its numerator rank is at most `D`, and its positive support
+is contained in the mapped root. Losing `k` active denominators requires at
+least `k` numerator degree. The service therefore streams only roots with at
+most `R` removed active axes when the incoming rank cap is finite. It retains
+the **actual** rank cap on every image, including R11/R12 successors of an R10
+input; it never substitutes the saved generation scope.
+
+The full mapped root goes directly to `Apply`; strict subsupports reenter
+`Route`. Route/Apply are distinct queue keys. Pending containing domains can
+reuse work but do not count as completed. The route queue shares full source
+orthants at each rank instead of repeating equivalent small boxes. Every
+over-covered point need not be reached, and an uncovered point is not thereby
+a reached missing rule or a new terminal.
+
+The cover theorem does not prove source conditions. Original RHS terms retain
+the existing validity checks. Initial nonowner queries and route-generated
+reentries with unchecked source conditions remain explicit obligations; known
+zero sectors do not bypass them. Missing maps likewise remain frontiers.
+
+`--max-route-masks-per-query` defaults to 100,000 and requires the route option.
+It caps each route call; aggregate events and admitted-domain budgets still
+apply. The native visitor has a separate logical coordinate-cell budget. No
+native expansion counts are fabricated: `routing_expanded` remains false,
+while `route_domain_overcover`, `routed_domains` and `route_masks` report this
+distinct operation. Queue exhaustion is still not a family-closure claim.

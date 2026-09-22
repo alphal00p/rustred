@@ -65,6 +65,23 @@ Detailed implementation sequencing is in
 
 ### Current implementation slice — ordered symbolic successor matching
 
+The next audited slice adds opt-in admitted-route domain covers and exact
+bounded inactive refinement after selected native guard preflight refusals.
+It passes **2,623 core / 314 application / 19 Python tests** with zero failures
+(32 existing core diagnostics remain ignored). Routing shares full support/rank
+requests without numerator expansion; Apply/Route phases and unchecked source
+conditions remain explicit. This is work reuse/discovery, not independent
+certification. The full R10 objective is unchanged. New controls are recorded in
+[the routing/refinement report](docs/research/shared_domain_routing_2026-09-22.md).
+The new census control visits all 67 owners and resolves 59 locally in
+120.24 s matching / 229.44 s whole-command time. Eight remain incomplete with
+163 positive-coupled guard pieces and one native factor-work refusal. The
+six-query routed control completes 870 local domains, reuses 157,372 requests,
+and stops at 100 million containment checks with 8,724 queued; no missing
+rule/owner is observed in that prefix. Next optimize exact containment reuse,
+then rerun the same control. Address positive-coupled guard selection without
+turning uncertain cases into gaps, terminals or bounded-positive surrogates.
+
 The September 22 slice adds opt-in exact refinement of bounded inactive
 coordinates, inspection of the actually selected rule's RHS, and a shared
 symbolic-domain worklist (`owner-domain-match --follow-successors`). Positive
@@ -75,7 +92,7 @@ Routing requests remain explicit in this first worklist. Completing their
 shared handling and source feedback is still required for the full R10 solve;
 this is not a return to independent certification or terminal minimization.
 
-The release gates now pass **2,607 core tests** (32 existing ignored), **307
+The preceding symbolic-successor milestone passed **2,607 core tests** (32 existing ignored), **307
 application/integration tests**, and **18 Python tests**, with no failures.
 All six real R10/R11 queries match automatically in **1.275 s** after loading,
 using the same 40 selected pieces as the earlier manual partition. The two
@@ -95,7 +112,7 @@ the existing Symbolica-backed guard service. It retains the actual inactive
 rank simplex and unbounded positive powers. Exact gaps, invalid conditions and
 unresolved geometry are distinct; none silently becomes a master. Rust,
 `owner-domain-match` CLI and Python steering interfaces reuse unchanged saved
-programs. The release gate passes **2,588 core tests** (32 existing ignored),
+programs. That local-matcher release gate passed **2,588 core tests** (32 existing ignored),
 **296 application/integration tests**, and **16 Python steering tests**, with
 zero failures and independent implementation/mathematical audits.
 

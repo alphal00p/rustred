@@ -1,6 +1,8 @@
 //! Shared symbolic successor work discovery over one immutable owner snapshot.
-//! Routing frontiers remain explicit: this is not a family-closure certificate.
+//! Optional admitted-route overcovers share dependency work without expanding
+//! numerator polynomials. This is not a family-closure certificate.
 mod queue;
+mod routing;
 
 use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,7 +16,7 @@ use serde_json::{Value, json};
 
 use super::{OwnerDomainMatchRequest, RoutedCampaignRequest, input, matching, prepare};
 use crate::AppError;
-use queue::{Domain, Queue};
+use queue::{Domain, Phase, Queue};
 
 #[derive(Clone, Debug)]
 pub struct OwnerDomainWalkRequest {
@@ -27,6 +29,10 @@ pub struct OwnerDomainWalkRequest {
     pub max_domains: usize,
     pub max_events: usize,
     pub max_containment_checks: usize,
+    /// Request conservative rank-preserving route images, not polynomial
+    /// expansion or evidence that every enclosed point is reached.
+    pub route_domain_overcover: bool,
+    pub max_route_masks: usize,
 }
 impl OwnerDomainWalkRequest {
     pub fn new(matching: OwnerDomainMatchRequest) -> Self {
@@ -36,6 +42,8 @@ impl OwnerDomainWalkRequest {
             max_domains: 100_000,
             max_events: 1_000_000,
             max_containment_checks: 10_000_000,
+            route_domain_overcover: false,
+            max_route_masks: 100_000,
         }
     }
 }
@@ -60,6 +68,11 @@ impl OwnerDomainWalkResult {
             "processed_nodes",
             "deduplication_hits",
             "containment_checks",
+            "routed_domains",
+            "route_masks",
+            "route_domain_overcover",
+            "max_scheduled_finite_rank",
+            "unbounded_rank_domains",
             "successors",
             "conditional_successors",
             "frontiers",
@@ -88,6 +101,7 @@ pub fn owner_domain_walk_with_progress(
         || !(1..=1_000_000).contains(&request.max_domains)
         || !(1..=10_000_000).contains(&request.max_events)
         || request.max_containment_checks == 0
+        || request.max_route_masks == 0
     {
         return Err(AppError::input("invalid symbolic worklist allowances"));
     }
@@ -102,6 +116,7 @@ pub fn owner_domain_walk_with_progress(
     observer(
         json!({"event":"admitted", "operation":"owner_domain_walk", "arity":arity,
         "input_domains":queries.len(), "max_domains":request.max_domains, "max_events":request.max_events,
+        "route_domain_overcover":request.route_domain_overcover, "max_route_masks":request.max_route_masks,
         "family_closure_claim":false, "ibp_generation":false}),
     );
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
@@ -147,6 +162,7 @@ fn run<const N: usize>(
     let mut queue = Queue::new(request.max_domains, request.max_containment_checks);
     let mut records = Vec::new();
     let mut inputs = Vec::new();
+    let mut input_frontiers = Vec::new();
     let mut error = reducer
         .is_none()
         .then(|| "cancelled during preparation".to_owned());
@@ -155,15 +171,46 @@ fn run<const N: usize>(
     let mut conditional = 0usize;
     let mut frontiers = 0usize;
     let mut completed = 0usize;
+    let mut routed_domains = 0usize;
+    let mut route_masks = 0usize;
     let mut applied_limits = request.applied_limits;
     applied_limits.matching = request.matching.match_limits;
     if error.is_none() {
         for query in queries {
             let domain = Domain {
+                phase: Phase::Apply,
                 owner: query.owner.as_slice().try_into().expect("validated arity"),
                 lower: query.lower.clone(),
                 upper: query.upper.clone(),
                 rank: query.rank,
+            };
+            let domain = if request.route_domain_overcover
+                && !reducer
+                    .as_ref()
+                    .expect("prepared")
+                    .programs()
+                    .owner_sectors()
+                    .any(|owner| owner == &domain.owner)
+            {
+                if reducer
+                    .as_ref()
+                    .expect("prepared")
+                    .domain_routing_requires_source_conditions()
+                {
+                    frontiers += 1;
+                    input_frontiers.push(
+                        json!({"id":query.id, "kind":"initial_route_source_validity_obligation",
+                        "owner":mask(&domain.owner), "lower":domain.lower, "upper":domain.upper,
+                        "rank":domain.rank, "reached_missing_rule_claim":false}),
+                    );
+                    inputs.push(
+                        json!({"id":query.id, "domain":null, "source_validity_unresolved":true}),
+                    );
+                    continue;
+                }
+                Domain::route_cover(domain.owner, domain.rank)
+            } else {
+                domain
             };
             match queue.admit(domain) {
                 Ok((id, _)) => inputs.push(json!({"id":query.id, "domain":id})),
@@ -184,6 +231,8 @@ fn run<const N: usize>(
         observer(
             json!({"event":"domain_started", "operation":"owner_domain_walk", "id":id,
             "owner":mask(&domain.owner), "scheduled_nodes":queue.domains.len(),
+            "phase":format!("{:?}",domain.phase), "routed_domains":routed_domains, "route_masks":route_masks,
+            "max_scheduled_finite_rank":queue.max_finite_rank, "unbounded_rank_domains":queue.unbounded_rank_domains,
             "completed_nodes":completed, "queued_nodes":queue.domains.len()-queue.next,
             "deduplication_hits":queue.deduplicated, "successors":successors,
             "conditional_successors":conditional, "frontiers":frontiers, "events":events}),
@@ -191,6 +240,37 @@ fn run<const N: usize>(
         let mut details = Vec::new();
         let mut node_error = None;
         let node_started = Instant::now();
+        if domain.phase == Phase::Route {
+            let inspected = routing::inspect(
+                reducer.as_ref().expect("prepared"),
+                &domain,
+                &mut queue,
+                request,
+                cancellation,
+                &mut events,
+                &mut frontiers,
+                &mut route_masks,
+                |mut event| {
+                    event["completed_nodes"] = json!(completed);
+                    event["successors"] = json!(successors);
+                    event["conditional_successors"] = json!(conditional);
+                    event["routed_domains"] = json!(routed_domains);
+                    observer(event);
+                },
+            );
+            error = inspected.error;
+            completed += usize::from(error.is_none());
+            routed_domains += 1;
+            records.push(
+                json!({"id":id, "phase":"Route", "owner":mask(&domain.owner),
+                "lower":domain.lower, "upper":domain.upper, "rank":domain.rank,
+                "conservative_route_overcover":true, "local_inspection_finished":error.is_none(),
+                "stats":inspected.stats, "seconds":node_started.elapsed().as_secs_f64(),
+                "frontiers":inspected.frontiers, "error":error}),
+            );
+            queue.next += 1;
+            continue;
+        }
         let result = reducer.as_ref().expect("prepared").programs().visit_owner_applied_successors(
             domain.owner, &domain.lower, &domain.upper, domain.rank,
             applied_limits, cancellation, |event| {
@@ -215,9 +295,16 @@ fn run<const N: usize>(
                         successors += 1;
                         conditional += usize::from(child.coefficient_nonzero == OwnerAppliedNonzero::Conditional);
                         if child.has_installed_target_owner {
-                            let target = Domain { owner: *child.target_sector, lower: child.target_lower.to_vec(),
+                            let target = Domain { phase: Phase::Apply, owner: *child.target_sector, lower: child.target_lower.to_vec(),
                                 upper: child.target_upper.to_vec(), rank: child.target_rank_limit };
                             if let Err(problem) = queue.admit(target) {
+                                node_error = Some(problem.to_owned());
+                                return ControlFlow::Break(());
+                            }
+                        } else if request.route_domain_overcover {
+                            // Route images depend on support and actual rank,
+                            // not separate concrete numerator assignments.
+                            if let Err(problem) = queue.admit(Domain::route_cover(*child.target_sector, child.target_rank_limit)) {
                                 node_error = Some(problem.to_owned());
                                 return ControlFlow::Break(());
                             }
@@ -248,6 +335,8 @@ fn run<const N: usize>(
                         "scheduled_nodes":queue.domains.len(), "completed_nodes":completed,
                         "queued_nodes":queue.domains.len()-queue.next, "deduplication_hits":queue.deduplicated,
                         "successors":successors, "conditional_successors":conditional,
+                        "routed_domains":routed_domains, "route_masks":route_masks,
+                        "max_scheduled_finite_rank":queue.max_finite_rank, "unbounded_rank_domains":queue.unbounded_rank_domains,
                         "frontiers":frontiers, "events":events}));
                 }
                 ControlFlow::Continue(())
@@ -259,7 +348,7 @@ fn run<const N: usize>(
         error = node_error.or(native_error);
         completed += usize::from(error.is_none());
         records.push(
-            json!({"id":id, "owner":mask(&domain.owner), "lower":domain.lower,
+            json!({"id":id, "phase":"Apply", "owner":mask(&domain.owner), "lower":domain.lower,
             "upper":domain.upper, "rank":domain.rank, "local_inspection_finished":error.is_none(),
             "stats":stats_json(stats), "seconds":node_started.elapsed().as_secs_f64(),
             "frontiers":details, "error":error}),
@@ -272,6 +361,9 @@ fn run<const N: usize>(
         "status":if resolved {"locally_resolved"} else {"incomplete"},
         "all_scheduled_domains_resolved":resolved, "recursive_worklist_exhausted":exhausted,
         "family_closure_claim":false, "ibp_generation":false, "routing_expanded":false,
+        "route_domain_overcover":request.route_domain_overcover,
+        "routed_domains":routed_domains, "route_masks":route_masks,
+        "max_scheduled_finite_rank":queue.max_finite_rank, "unbounded_rank_domains":queue.unbounded_rank_domains,
         "independent_certification":false, "resume_supported":false,
         "conditional_successors_use_conservative_domain_overcover":true,
         "scheduled_nodes":queue.domains.len(), "completed_nodes":completed,
@@ -280,6 +372,7 @@ fn run<const N: usize>(
         "deduplication_hits":queue.deduplicated, "containment_checks":queue.containment_checks,
         "successors":successors, "conditional_successors":conditional,
         "frontiers":frontiers, "events":events, "inputs":inputs, "domains":records,
+        "input_frontiers":input_frontiers,
         "error":error, "prepared_seconds":prepared,
         "traversal_seconds":started.elapsed().as_secs_f64()-prepared,
         "elapsed_seconds":started.elapsed().as_secs_f64()});

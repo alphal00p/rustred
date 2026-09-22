@@ -24,6 +24,11 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub max_guard_univariate_degree: usize,
     pub no_progress: bool,
     pub follow_successors: bool,
+    pub route_domain_overcover: bool,
+    pub max_route_masks: usize,
+    pub max_rhs_cells: usize,
+    pub max_term_visits: usize,
+    pub max_native_operations: usize,
     pub max_domains: usize,
     pub max_successor_events: usize,
     pub max_containment_checks: usize,
@@ -31,6 +36,7 @@ pub(crate) struct OwnerDomainMatchArgs {
 
 pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
     let limits = rustred::solver::OwnerDomainMatchLimits::default();
+    let applied = rustred::solver::OwnerAppliedLimits::default();
     let mut result = OwnerDomainMatchArgs {
         manifest: PathBuf::new(),
         queries: PathBuf::new(),
@@ -51,6 +57,11 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         max_guard_univariate_degree: limits.guard_algebra.max_univariate_degree,
         no_progress: false,
         follow_successors: false,
+        route_domain_overcover: false,
+        max_route_masks: 100_000,
+        max_rhs_cells: applied.max_boundary_cells,
+        max_term_visits: applied.max_term_visits,
+        max_native_operations: applied.max_native_operations,
         max_domains: 100_000,
         max_successor_events: 1_000_000,
         max_containment_checks: 10_000_000,
@@ -81,6 +92,11 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             }
             "--no-progress" => "--no-progress",
             "--follow-successors" => "--follow-successors",
+            "--route-domain-overcover" => "--route-domain-overcover",
+            "--max-route-masks-per-query" => "--max-route-masks-per-query",
+            "--max-rhs-cells-per-query" => "--max-rhs-cells-per-query",
+            "--max-term-visits-per-query" => "--max-term-visits-per-query",
+            "--max-native-operations-per-query" => "--max-native-operations-per-query",
             "--max-domains" => "--max-domains",
             "--max-successor-events" => "--max-successor-events",
             "--max-containment-checks" => "--max-containment-checks",
@@ -96,6 +112,10 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         if name == "--follow-successors" {
             result.follow_successors = true;
+            continue;
+        }
+        if name == "--route-domain-overcover" {
+            result.route_domain_overcover = true;
             continue;
         }
         let value = next_utf8_value(&mut arguments, name)?;
@@ -136,6 +156,10 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                     "--max-domains" => result.max_domains = value,
                     "--max-successor-events" => result.max_successor_events = value,
                     "--max-containment-checks" => result.max_containment_checks = value,
+                    "--max-route-masks-per-query" => result.max_route_masks = value,
+                    "--max-rhs-cells-per-query" => result.max_rhs_cells = value,
+                    "--max-term-visits-per-query" => result.max_term_visits = value,
+                    "--max-native-operations-per-query" => result.max_native_operations = value,
                     "--max-guard-univariate-degree" => result.max_guard_univariate_degree = value,
                     _ => result.max_coordinate_cells = value,
                 }
@@ -162,12 +186,22 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--max-domains",
             "--max-successor-events",
             "--max-containment-checks",
+            "--route-domain-overcover",
+            "--max-route-masks-per-query",
+            "--max-rhs-cells-per-query",
+            "--max-term-visits-per-query",
+            "--max-native-operations-per-query",
         ]
         .iter()
         .any(|name| seen.contains(name))
     {
         return Err(ArgError::InvalidCombination(
             "successor work allowances require --follow-successors",
+        ));
+    }
+    if !result.route_domain_overcover && seen.contains("--max-route-masks-per-query") {
+        return Err(ArgError::InvalidCombination(
+            "route mask allowance requires --route-domain-overcover",
         ));
     }
     Ok(Command::OwnerDomainMatch(result))
@@ -299,6 +333,30 @@ mod tests {
             "--follow-successors --max-successor-events 0",
             "--follow-successors --max-domains 1000001",
             "--follow-successors --follow-successors",
+        ] {
+            assert!(parse(&format!("--manifest m --queries q --output o {suffix}")).is_err());
+        }
+    }
+
+    #[test]
+    fn route_overcover_and_rhs_work_budgets_are_explicit() {
+        let Command::OwnerDomainMatch(args) = parse("--manifest m --queries q --output o --follow-successors --route-domain-overcover --max-route-masks-per-query 17 --max-rhs-cells-per-query 101 --max-term-visits-per-query 202 --max-native-operations-per-query 303").unwrap() else { panic!("match command") };
+        assert!(args.route_domain_overcover);
+        assert_eq!(
+            (
+                args.max_route_masks,
+                args.max_rhs_cells,
+                args.max_term_visits,
+                args.max_native_operations
+            ),
+            (17, 101, 202, 303)
+        );
+        for suffix in [
+            "--route-domain-overcover",
+            "--max-rhs-cells-per-query 2",
+            "--follow-successors --max-route-masks-per-query 3",
+            "--follow-successors --route-domain-overcover --max-route-masks-per-query 0",
+            "--follow-successors --route-domain-overcover --route-domain-overcover",
         ] {
             assert!(parse(&format!("--manifest m --queries q --output o {suffix}")).is_err());
         }

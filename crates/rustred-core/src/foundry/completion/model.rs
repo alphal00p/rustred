@@ -156,6 +156,11 @@ impl LatticeBox {
         &self.lower
     }
 
+    /// Transfer already-admitted coordinate storage into diagnostic ownership.
+    pub(crate) fn into_bounds(self) -> (Box<[u64]>, Box<[Option<u64>]>) {
+        (self.lower, self.upper)
+    }
+
     pub(crate) fn upper(&self) -> &[Option<u64>] {
         &self.upper
     }

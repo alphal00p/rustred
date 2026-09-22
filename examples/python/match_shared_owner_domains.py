@@ -21,7 +21,9 @@ ALLOWANCES = (
     "max-guard-univariate-degree",
 )
 REFINEMENT = "max-bounded-refinement-cells-per-query"
-WALK_ALLOWANCES = ("max-domains", "max-successor-events", "max-containment-checks")
+WALK_ALLOWANCES = ("max-domains", "max-successor-events", "max-containment-checks",
+                   "max-rhs-cells-per-query", "max-term-visits-per-query",
+                   "max-native-operations-per-query")
 
 
 def positive(text: str) -> int:
@@ -48,6 +50,9 @@ def main() -> None:
     parser.add_argument("--no-progress", action="store_true")
     parser.add_argument("--follow-successors", action="store_true",
                         help="share symbolic successor domains; unresolved routes remain explicit")
+    parser.add_argument("--route-domain-overcover", action="store_true",
+                        help="share admitted route rank overcovers without expanding numerator polynomials")
+    parser.add_argument("--max-route-masks-per-query", type=positive)
     for option in ALLOWANCES:
         parser.add_argument("--" + option, type=positive,
                             help="optional native work/storage allowance, not a rank restriction")
@@ -56,9 +61,12 @@ def main() -> None:
     for option in WALK_ALLOWANCES:
         parser.add_argument("--" + option, type=positive)
     args = parser.parse_args()
-    if not args.follow_successors and any(getattr(args, option.replace("-", "_")) is not None
-                                         for option in WALK_ALLOWANCES):
+    if not args.follow_successors and (args.route_domain_overcover or any(
+            getattr(args, option.replace("-", "_")) is not None
+            for option in (*WALK_ALLOWANCES, "max-route-masks-per-query"))):
         parser.error("successor work allowances require --follow-successors")
+    if args.max_route_masks_per_query is not None and not args.route_domain_overcover:
+        parser.error("route mask allowance requires --route-domain-overcover")
     environment = os.environ.copy()
     for name in ("RAYON_NUM_THREADS", "OMP_NUM_THREADS", "OMP_THREAD_LIMIT",
                  "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "BLIS_NUM_THREADS",
@@ -74,7 +82,9 @@ def main() -> None:
         command.append("--no-progress")
     if args.follow_successors:
         command.append("--follow-successors")
-    for option in (*ALLOWANCES, REFINEMENT, *WALK_ALLOWANCES):
+    if args.route_domain_overcover:
+        command.append("--route-domain-overcover")
+    for option in (*ALLOWANCES, REFINEMENT, *WALK_ALLOWANCES, "max-route-masks-per-query"):
         if (value := getattr(args, option.replace("-", "_"))) is not None:
             command.extend(["--" + option, str(value)])
     # Inherit the license without persisting or printing it. Replacement keeps

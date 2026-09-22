@@ -226,13 +226,17 @@ fn run<const N: usize>(
                 ControlFlow::Continue(())
             },
         );
-        let (stats, error, error_kind) = match result {
-            Ok(stats) => (stats, None, None),
+        let (stats, error, error_kind, predicate_context) = match result {
+            Ok(stats) => (stats, None, None, Value::Null),
             Err(error) => {
                 let kind = failure_kind(&error.failure);
                 let detail = format!("{:?}", error.failure);
                 first_error = Some((query.id.clone(), kind, detail.clone()));
-                (error.stats, Some(detail), Some(kind))
+                let context = error.predicate.as_ref().map(|predicate| json!({
+                    "predicate":format!("{predicate:?}"), "lower":error.predicate_lower(),
+                    "upper":error.predicate_upper(), "max_numerator_rank":error.max_numerator_rank,
+                })).unwrap_or(Value::Null);
+                (error.stats, Some(detail), Some(kind), context)
             }
         };
         let query_complete = error.is_none() && !unresolved;
@@ -241,6 +245,7 @@ fn run<const N: usize>(
         records.push(json!({"id":query.id, "owner":query.owner.iter().map(|&b|if b{'1'}else{'0'}).collect::<String>(),
             "input_lower":query.lower, "input_upper":query.upper, "requested_max_numerator_rank":query.rank,
             "classification_complete":query_complete, "error":error, "error_kind":error_kind, "summary_limit":summary_limit,
+            "error_predicate_context":predicate_context,
             "stats":{"rules":stats.rules, "terminal_checks":stats.terminal_checks, "predicates":stats.predicates,
                 "pieces":stats.pieces, "cells":stats.cells, "split_operations":stats.split_operations,
                 "coordinate_cells":stats.coordinate_cells, "rank_empty_cells":stats.rank_empty_cells,

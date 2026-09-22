@@ -36,6 +36,8 @@ pub use owners::{
 };
 pub use reducer::CandidateReducer;
 pub use routed::{
+    CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,
+    CandidateDomainRouteFailure, CandidateDomainRouteLimits, CandidateDomainRouteStats,
     CandidateOwnerRoute, CandidateRoutedCampaignError, CandidateRoutedCampaignFailure,
     CandidateRoutedCampaignReport, CandidateRoutedCampaignSnapshot, CandidateRoutedError,
     CandidateRoutedFrontier, CandidateRoutedFrontierReason, CandidateRoutedTraceReport,

@@ -59,9 +59,9 @@ claim parametric closure from a finite trace. Directed Rust owner searches can
 publish immutable partial-domain rule overlays without copying the saved
 library; see [the API boundary](docs/shared_owner_campaign_driver.md#directed-owner-search-and-shared-rule-installation).
 
-The latest completed release gate passes **2,588 core tests** and **296
+The preceding local-matcher release gate passed **2,588 core tests** and **296
 application/integration tests**; the shared-campaign and domain-query Python
-steering tests pass **16 tests**. The preceding matched finite
+steering tests passed **16 tests**. The preceding matched finite
 rank-one controls complete in 20.437/8.067 seconds of traversal with one/six
 workers (126.11/112.08 seconds including preparation), with identical reported
 graph counters and zero missing rules. The latest 50-worker R10 diagnostic gets
@@ -117,20 +117,28 @@ Ten exact finite-numerator slices resolve one remaining source-guard ambiguity
 without bounding positive powers or generating new IBPs. The full R10 campaign
 is still unfinished; these are selected local examples, not closure timings.
 
-The next implementation adds opt-in `--max-bounded-refinement-cells-per-query`
+The implementation includes opt-in `--max-bounded-refinement-cells-per-query`
 to perform those finite inactive-coordinate splits automatically. With
 `--follow-successors`, it also inspects selected RHSs and shares containing
 owner/box/rank domains through one worklist. Conditional coefficients and
 unresolved routing remain explicit; neither queue exhaustion nor a local match
-alone is presented as full closure. The same Python steering accepts these
+alone is presented as full closure. Add `--route-domain-overcover` to share
+conservative rank-preserving domain images through already admitted momentum
+maps, without expanding numerator polynomials. Unchecked source conditions or
+missing maps remain explicit obligations. Native algebra preflight refusals can
+use the same bounded inactive-coordinate refinement as unresolved guards;
+actual backend errors cannot. The same Python steering accepts these
 options and the native `--max-guard-univariate-degree` work allowance. No saved
 IBPs are regenerated for these domain queries. See the
 [interface and limits](docs/shared_owner_domain_matching.md).
 The [September 22 release trials](docs/research/shared_symbolic_domains_2026-09-22.md)
 match all six recorded R10/R11 boxes automatically. Broader successor and census
 trials remain incomplete at explicit work allowances; full five-loop R10 closure
-is not yet established. The updated gates pass 2,607 core, 307 application and
-18 Python tests, with no failures (32 existing core diagnostics remain ignored).
+is not yet established. The latest [domain-routing/refinement trials](docs/research/shared_domain_routing_2026-09-22.md)
+resolve 59/67 owners locally; the routed six-query worklist completes 870 domains
+before its containment budget, with recursive work still queued. The updated
+gates pass 2,623 core, 314 application and 19 Python tests, with no failures
+(32 existing core diagnostics remain ignored).
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after

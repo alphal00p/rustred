@@ -1,8 +1,15 @@
 //! Inclusion reuse for one immutable program snapshot, not solved-state reuse.
 use std::collections::BTreeMap;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Phase {
+    Apply,
+    Route,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Domain<const N: usize> {
+    pub phase: Phase,
     pub owner: [bool; N],
     pub lower: Vec<u64>,
     pub upper: Vec<Option<u64>>,
@@ -10,8 +17,21 @@ pub(super) struct Domain<const N: usize> {
 }
 
 impl<const N: usize> Domain<N> {
+    /// Prospective source orthant for the admitted-route rank bound. Enclosed
+    /// points are not necessarily reached by nonzero coefficients.
+    pub fn route_cover(owner: [bool; N], rank: Option<u32>) -> Self {
+        Self {
+            phase: Phase::Route,
+            owner,
+            rank,
+            lower: vec![0; N],
+            upper: vec![None; N],
+        }
+    }
+
     fn contains(&self, other: &Self) -> bool {
-        self.owner == other.owner
+        self.phase == other.phase
+            && self.owner == other.owner
             && self.rank.is_none_or(|r| other.rank.is_some_and(|s| s <= r))
             && self.lower.iter().zip(&other.lower).all(|(a, b)| a <= b)
             && self
@@ -27,7 +47,9 @@ pub(super) struct Queue<const N: usize> {
     pub next: usize,
     pub deduplicated: usize,
     pub containment_checks: usize,
-    by_owner: BTreeMap<[bool; N], Vec<usize>>,
+    pub max_finite_rank: Option<u32>,
+    pub unbounded_rank_domains: usize,
+    by_owner: BTreeMap<(Phase, [bool; N]), Vec<usize>>,
     max_domains: usize,
     max_checks: usize,
 }
@@ -39,6 +61,8 @@ impl<const N: usize> Queue<N> {
             next: 0,
             deduplicated: 0,
             containment_checks: 0,
+            max_finite_rank: None,
+            unbounded_rank_domains: 0,
             by_owner: BTreeMap::new(),
             max_domains,
             max_checks,
@@ -49,7 +73,7 @@ impl<const N: usize> Queue<N> {
     /// every admitted domain still has to finish before worklist exhaustion.
     /// The queue is never shared between different snapshots or rank policies.
     pub fn admit(&mut self, domain: Domain<N>) -> Result<(usize, bool), &'static str> {
-        if let Some(ids) = self.by_owner.get(&domain.owner) {
+        if let Some(ids) = self.by_owner.get(&(domain.phase, domain.owner)) {
             for &id in ids {
                 if self.containment_checks == self.max_checks {
                     return Err("domain containment check allowance");
@@ -68,7 +92,15 @@ impl<const N: usize> Queue<N> {
         self.domains
             .try_reserve(1)
             .map_err(|_| "domain allocation")?;
-        self.by_owner.entry(domain.owner).or_default().push(id);
+        self.by_owner
+            .entry((domain.phase, domain.owner))
+            .or_default()
+            .push(id);
+        if let Some(rank) = domain.rank {
+            self.max_finite_rank = Some(self.max_finite_rank.map_or(rank, |old| old.max(rank)));
+        } else {
+            self.unbounded_rank_domains += 1;
+        }
         self.domains.push(domain);
         Ok((id, true))
     }
@@ -79,6 +111,7 @@ mod tests {
     use super::*;
     fn domain(rank: Option<u32>) -> Domain<2> {
         Domain {
+            phase: Phase::Apply,
             owner: [true, false],
             lower: vec![0, 0],
             upper: vec![None, None],
@@ -96,6 +129,8 @@ mod tests {
         assert_eq!(queue.admit(domain(Some(11))), Ok((1, true)));
         assert_eq!(queue.admit(domain(None)), Ok((2, true)));
         assert_eq!(queue.admit(domain(Some(12))), Ok((2, false)));
+        assert_eq!(queue.max_finite_rank, Some(11));
+        assert_eq!(queue.unbounded_rank_domains, 1);
     }
     #[test]
     fn literal_owner_and_unbounded_tail_are_not_approximated() {
@@ -121,6 +156,17 @@ mod tests {
             Err("domain containment check allowance")
         );
         assert_eq!(queue.domains.len(), 1);
+        assert_eq!(queue.next, 0);
+    }
+
+    #[test]
+    fn route_and_apply_obligations_never_subsume_each_other() {
+        let mut queue = Queue::new(3, 20);
+        assert_eq!(queue.admit(domain(Some(11))), Ok((0, true)));
+        let mut routed = domain(Some(11));
+        routed.phase = Phase::Route;
+        assert_eq!(queue.admit(routed.clone()), Ok((1, true)));
+        assert_eq!(queue.admit(routed), Ok((1, false)));
         assert_eq!(queue.next, 0);
     }
 }

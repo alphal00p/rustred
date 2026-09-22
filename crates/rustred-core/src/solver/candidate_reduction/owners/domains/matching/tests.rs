@@ -1059,3 +1059,436 @@ fn bounded_refinement_conservative_cover_drops_rank_empty_intersections_before_b
         }
     }
 }
+
+fn resource_refinement_limits(faces: usize) -> OwnerDomainMatchLimits {
+    let mut limits = OwnerDomainMatchLimits {
+        max_bounded_refinement_cells: faces,
+        ..Default::default()
+    };
+    // Linear two-variable factor preflight costs128; a specialized linear
+    // univariate guard costs12. All native arithmetic remains unchanged.
+    limits.guard_algebra.max_gcd_factor_work = 64;
+    limits
+}
+
+fn resource_refusal(
+    p: &CandidateOwnerPrograms<3>,
+    rank: Option<u32>,
+    limits: OwnerDomainMatchLimits,
+) -> OwnerDomainMatchError {
+    p.visit_owner_domain_matches(
+        OWNER,
+        &[0; 3],
+        &[None, Some(0), None],
+        rank,
+        limits,
+        &AtomicBool::new(false),
+        |_| panic!("refusal must not publish a face"),
+    )
+    .unwrap_err()
+}
+
+#[test]
+fn resource_refinement_retries_all_predicate_phases_with_native_and_explicit_parity() {
+    for stage in 0..4 {
+        let p = coupled_refinement_fixture(stage);
+        let original = resource_refusal(&p, Some(2), resource_refinement_limits(0));
+        assert_eq!(
+            original.failure,
+            OwnerDomainMatchFailure::Algebra(crate::algebra::IndexedAlgebraError::ResourceLimit {
+                resource: "guard separable factor work",
+                requested: 128,
+                limit: 64,
+            })
+        );
+        let expected = match stage {
+            0 => OwnerDomainPredicate::SourceCondition { ordinal: 0 },
+            1 => OwnerDomainPredicate::Equality {
+                batch: 0,
+                rule: 0,
+                ordinal: 0,
+            },
+            2 => OwnerDomainPredicate::ExcludedConjunction {
+                batch: 0,
+                rule: 0,
+                branch: 0,
+                ordinal: 0,
+            },
+            _ => OwnerDomainPredicate::OriginalDenominator {
+                batch: 0,
+                rule: 0,
+                term: 0,
+            },
+        };
+        assert_eq!(original.predicate, Some(expected));
+        assert_eq!(original.predicate_lower(), Some([0; 3].as_slice()));
+        assert_eq!(
+            original.predicate_upper(),
+            Some([None, Some(0), None].as_slice())
+        );
+        assert_eq!(original.max_numerator_rank, Some(2));
+        assert_eq!(original.stats.refinement_cells, 0);
+        let (stats, automatic) = refined(
+            &p,
+            [0; 3],
+            [None, Some(0), None],
+            Some(2),
+            resource_refinement_limits(3),
+        );
+        let mut explicit = Vec::new();
+        let mut explicit_predicates = 0;
+        for k in 0..=2 {
+            let (s, pieces) = refined(
+                &p,
+                [0, 0, k],
+                [None, Some(0), Some(k)],
+                Some(2),
+                resource_refinement_limits(0),
+            );
+            explicit_predicates += s.predicates;
+            explicit.extend(pieces);
+        }
+        assert_eq!(
+            normalized(&automatic),
+            normalized(&explicit),
+            "stage {stage}"
+        );
+        assert_eq!(stats.predicates, explicit_predicates + 1); // refused attempt is not refunded
+        assert_eq!((stats.refinement_cells, stats.refinement_steps), (3, 1));
+        assert!(automatic.iter().any(|p| p.upper()[0].is_none()));
+        for x in 0..=4 {
+            for k in 0..=2 {
+                assert_eq!(
+                    at(&automatic, [x, 0, k]),
+                    concrete(
+                        &p,
+                        IntegralKey::try_new([x as i64 + 1, 1, -(k as i64)]).unwrap()
+                    )
+                );
+            }
+        }
+        // Stage3 has a ZERO RHS coefficient: its original denominator must
+        // still be inspected before cancellation and can reject the first rule.
+        if stage == 3 {
+            assert_eq!(
+                at(&automatic, [0, 0, 0]),
+                OwnerDomainMatchDisposition::SelectedRule { batch: 0, rule: 1 }
+            );
+        }
+    }
+}
+
+#[test]
+fn resource_refinement_optional_refusal_preserves_original_error_and_attempt_counts() {
+    let p = coupled_refinement_fixture(2);
+    let baseline = resource_refusal(&p, Some(2), resource_refinement_limits(0));
+    for limits in [
+        resource_refinement_limits(2),
+        OwnerDomainMatchLimits {
+            max_cells: baseline.stats.cells,
+            ..resource_refinement_limits(3)
+        },
+        OwnerDomainMatchLimits {
+            max_coordinate_cells: baseline.stats.coordinate_cells,
+            ..resource_refinement_limits(3)
+        },
+    ] {
+        let actual = resource_refusal(&p, Some(2), limits);
+        assert_eq!(actual, baseline); // no child, no partial geometry charge, original typed refusal
+    }
+    let unbounded = resource_refusal(&p, None, resource_refinement_limits(100));
+    assert_eq!(unbounded.failure, baseline.failure);
+    assert_eq!(unbounded.stats.refinement_cells, 0);
+    assert_eq!(unbounded.max_numerator_rank, None);
+
+    let mut positive = fixture();
+    let c = positive.context.coefficient_context().clone();
+    let mut first = rule(0);
+    first.equalities = vec![poly(
+        &c,
+        c.add(&c.index(0).unwrap(), &c.index(1).unwrap()).unwrap(),
+    )];
+    batch(&mut positive).rules = vec![first, rule(1)];
+    let e = positive
+        .visit_owner_domain_matches(
+            OWNER,
+            &[0; 3],
+            &[None; 3],
+            Some(2),
+            resource_refinement_limits(100),
+            &AtomicBool::new(false),
+            |_| panic!(),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        e.failure,
+        OwnerDomainMatchFailure::Algebra(crate::algebra::IndexedAlgebraError::ResourceLimit {
+            resource: "guard separable factor work",
+            ..
+        })
+    ));
+    assert_eq!(e.stats.refinement_cells, 0); // unsupported inactive axes cannot help
+}
+
+#[test]
+fn resource_refinement_degree_refusal_uses_actual_r11_simplex_not_saved_entry_rank() {
+    let mut p = fixture();
+    let c = p.context.coefficient_context().clone();
+    let mut first = rule(0);
+    first.equalities = vec![poly(
+        &c,
+        c.mul(
+            &c.add(&c.index(2).unwrap(), &c.integer(10)).unwrap(),
+            &c.add(&c.index(2).unwrap(), &c.integer(11)).unwrap(),
+        )
+        .unwrap(),
+    )];
+    batch(&mut p).rules = vec![first, rule(1)];
+    let mut limits = OwnerDomainMatchLimits {
+        max_bounded_refinement_cells: 2,
+        ..Default::default()
+    };
+    limits.guard_algebra.max_univariate_degree = 1;
+    let (stats, automatic) = refined(&p, [0, 0, 10], [None, Some(0), None], Some(11), limits);
+    assert_eq!((stats.refinement_cells, stats.refinement_steps), (2, 1));
+    assert_eq!(automatic.len(), 2);
+    assert!(
+        automatic
+            .iter()
+            .all(|piece| piece.max_numerator_rank() == Some(11) && piece.upper()[0].is_none())
+    );
+    let mut explicit = Vec::new();
+    for k in 10..=11 {
+        explicit.extend(collect(&p, &[0, 0, k], &[None, Some(0), Some(k)], Some(11)));
+    }
+    assert_eq!(normalized(&automatic), normalized(&explicit));
+}
+
+#[test]
+fn resource_refinement_late_child_refusal_keeps_exact_cell_and_blocks_later_rule() {
+    let mut p = fixture();
+    let c = p.context.coefficient_context().clone();
+    let n = c.index(0).unwrap();
+    let guard = c
+        .mul(
+            &c.index(2).unwrap(),
+            &c.add(&c.mul(&n, &n).unwrap(), &c.one()).unwrap(),
+        )
+        .unwrap();
+    let mut first = rule(0);
+    first.equalities = vec![poly(&c, guard)];
+    batch(&mut p).rules = vec![first, rule(1)];
+    let mut limits = OwnerDomainMatchLimits {
+        max_bounded_refinement_cells: 2,
+        ..Default::default()
+    };
+    limits.guard_algebra.max_univariate_degree = 1;
+    let mut pieces = Vec::new();
+    let e = p
+        .visit_owner_domain_matches(
+            OWNER,
+            &[0; 3],
+            &[None, Some(0), None],
+            Some(1),
+            limits,
+            &AtomicBool::new(false),
+            |piece| {
+                pieces.push(piece);
+                ControlFlow::Continue(())
+            },
+        )
+        .unwrap_err();
+    assert_eq!(pieces.len(), 1);
+    assert_eq!(pieces[0].lower()[2], 0);
+    assert_eq!(pieces[0].upper()[2], Some(0));
+    assert_eq!(
+        pieces[0].disposition(),
+        OwnerDomainMatchDisposition::SelectedRule { batch: 0, rule: 0 }
+    );
+    assert_eq!(
+        e.failure,
+        OwnerDomainMatchFailure::Algebra(crate::algebra::IndexedAlgebraError::ResourceLimit {
+            resource: "guard univariate degree",
+            requested: 2,
+            limit: 1,
+        })
+    );
+    assert_eq!(
+        e.predicate,
+        Some(OwnerDomainPredicate::Equality {
+            batch: 0,
+            rule: 0,
+            ordinal: 0
+        })
+    );
+    assert_eq!(e.predicate_lower(), Some([0, 0, 1].as_slice()));
+    assert_eq!(
+        e.predicate_upper(),
+        Some([None, Some(0), Some(1)].as_slice())
+    );
+    assert_eq!(e.max_numerator_rank, Some(1));
+    assert_eq!((e.stats.refinement_cells, e.stats.refinement_steps), (2, 1));
+    assert!(e.to_string().contains("lower=Some([0, 0, 1])"));
+}
+
+#[test]
+fn resource_refinement_does_not_bypass_global_or_noneligible_native_limits() {
+    let p = coupled_refinement_fixture(2);
+    let mut limits = resource_refinement_limits(3);
+    limits.max_predicates = 1;
+    let e = resource_refusal(&p, Some(2), limits);
+    assert_eq!(
+        e.failure,
+        OwnerDomainMatchFailure::ResourceLimit {
+            resource: "predicates",
+            requested: 2,
+            limit: 1
+        }
+    );
+    assert_eq!(e.stats.predicates, 1);
+    assert_eq!(e.stats.refinement_cells, 3); // prepaid retry cannot refund the first predicate
+
+    let e = resource_refusal(
+        &p,
+        Some(2),
+        OwnerDomainMatchLimits {
+            max_cells: 1,
+            ..resource_refinement_limits(3)
+        },
+    );
+    assert!(matches!(
+        e.failure,
+        OwnerDomainMatchFailure::ResourceLimit {
+            resource: "cells",
+            ..
+        }
+    ));
+    assert_eq!(e.stats.refinement_cells, 0);
+
+    let mut limits = resource_refinement_limits(3);
+    limits.guard_algebra.max_input_terms = 0;
+    let e = resource_refusal(&p, Some(2), limits);
+    assert!(matches!(
+        e.failure,
+        OwnerDomainMatchFailure::Algebra(crate::algebra::IndexedAlgebraError::ResourceLimit {
+            resource: "guard coefficient split input terms",
+            ..
+        })
+    ));
+    assert_eq!(e.stats.refinement_cells, 0);
+
+    let mut foreign = fixture();
+    let c = IndexedCoefficientContext::try_new(
+        foreign.context.coefficient_context().base(),
+        "foreign-resource-guard",
+        3,
+    )
+    .unwrap();
+    let mut first = rule(0);
+    first.equalities = vec![minus(&c, 2, -1)];
+    batch(&mut foreign).rules = vec![first];
+    let e = resource_refusal(&foreign, Some(2), resource_refinement_limits(3));
+    assert_eq!(
+        e.failure,
+        OwnerDomainMatchFailure::Algebra(crate::algebra::IndexedAlgebraError::WrongContext)
+    );
+    assert_eq!(e.stats.refinement_cells, 0);
+}
+
+#[test]
+fn resource_refinement_cancellation_and_consumer_stop_remain_incomplete() {
+    let p = coupled_refinement_fixture(2);
+    for consumer_stop in [false, true] {
+        let cancel = AtomicBool::new(false);
+        let mut callbacks = 0;
+        let e = p
+            .visit_owner_domain_matches(
+                OWNER,
+                &[0; 3],
+                &[None, Some(0), None],
+                Some(2),
+                resource_refinement_limits(3),
+                &cancel,
+                |_| {
+                    callbacks += 1;
+                    if consumer_stop {
+                        ControlFlow::Break(())
+                    } else {
+                        cancel.store(true, Ordering::Release);
+                        ControlFlow::Continue(())
+                    }
+                },
+            )
+            .unwrap_err();
+        assert_eq!(callbacks, 1);
+        assert_eq!(
+            e.failure,
+            if consumer_stop {
+                OwnerDomainMatchFailure::StoppedByConsumer
+            } else {
+                OwnerDomainMatchFailure::Cancelled
+            }
+        );
+        assert_eq!((e.stats.refinement_cells, e.stats.refinement_steps), (3, 1));
+    }
+    let e = p
+        .visit_owner_domain_matches(
+            OWNER,
+            &[0; 3],
+            &[None; 3],
+            Some(2),
+            resource_refinement_limits(3),
+            &AtomicBool::new(true),
+            |_| panic!(),
+        )
+        .unwrap_err();
+    assert_eq!(e.failure, OwnerDomainMatchFailure::Cancelled);
+    assert_eq!(e.stats, OwnerDomainMatchStats::default());
+    assert_eq!(e.predicate, None);
+    assert_eq!(e.predicate_lower(), None);
+}
+
+#[test]
+fn resource_refinement_policy_excludes_outputs_replay_overflow_and_backend_faults() {
+    use crate::algebra::IndexedAlgebraError as E;
+    for resource in [
+        "guard factor terms",
+        "guard factor integer bits",
+        "guard coefficient split input terms",
+        "guard coefficient equations",
+        "guard exact-hyperplane replay work",
+        "guard univariate coefficient bits",
+        "unrecognized future admission",
+    ] {
+        assert!(!super::guards::permits_bounded_refinement(
+            &OwnerDomainMatchFailure::Algebra(E::ResourceLimit {
+                resource,
+                requested: 10,
+                limit: 1
+            })
+        ));
+    }
+    for failure in [
+        E::ResourceCountOverflow {
+            resource: "guard separable factor work",
+        },
+        E::AllocationFailure {
+            resource: "guard prospective factor terms",
+            requested: 10,
+        },
+        E::WrongContext,
+        E::ZeroDenominator,
+        E::Symbolica("backend failure".into()),
+    ] {
+        assert!(!super::guards::permits_bounded_refinement(
+            &OwnerDomainMatchFailure::Algebra(failure)
+        ));
+    }
+    assert!(!super::guards::permits_bounded_refinement(
+        &OwnerDomainMatchFailure::ResourceLimit {
+            resource: "guard separable factor work",
+            requested: 10,
+            limit: 1,
+        }
+    ));
+}
