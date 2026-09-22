@@ -2,6 +2,16 @@
 
 ## Outcome
 
+**Aggregate-index update:** the new release pilot preserves every field of the
+first 60,000 completed domain records except timing. That identical prefix takes
+77.319–79.328 s traversal, versus 109.413–111.448 s with the support-aware linear
+index: **1.38–1.44× faster** in these single shared-host runs. It still stops
+incomplete with 74,400 complete and 120,886 pending domains; late utilization is
+only about two busy cores despite 50 configured workers. See
+[the matched index pilot](#aggregate-index-pilot-equal-work-gain-not-50-core-saturation).
+An independently checked root-containment census motivates the next all-67-owner
+symbolic diagnostic; it does not establish closure or predict that run's time.
+
 **Support-aware routing update:** exact numerator-support caps now remove
 81.90% of routed descendants on 5,910 identical source queries shared with the
 semantic-only pilot. However, the recursive run still suffers serial admission
@@ -572,6 +582,145 @@ mathematical precision, but do not advertise an end-to-end improvement yet.
 Do not widen the physical envelope or regenerate rules without an actual
 reachable missing target. Receipt:
 `TMP/correlated-routing-pilots.jw6Bwo/shared-owner-campaign.ujyk56ua/`.
+
+## Aggregate-index pilot: equal-work gain, not 50-core saturation
+
+The aggregate-signature index has independent source/mathematical audits,
+36 passing focused optimized tests (one ignored), and exact admission-ID/state
+parity on 138,240 generated proposals. Twelve saved-descriptor replay pairs
+show median paired wall improvements of 2.59× and 2.09×, but those timings omit
+the original campaign's rejected proposals and all native inspection work.
+See the [separate index audit](domain_admission_index_audit_2026-09-22.md).
+The full release application gate now passes 370 library tests (one ignored)
+and all 82 integrations; all 72 fresh Python/API/steering tests pass. The native
+core is unchanged from the 2,768-test support gate.
+
+The matched campaign uses frozen CLI
+`TMP/aggregate-admission-gate.HrfYdG/rustred`, SHA-256
+`6cfcc2c4220e0f87a7eac47681f62a4148c21bb1d9d97fbf7316e90879b4b781`.
+The running `/proc` executable hash, CPUs 0–49, nested pools of one, input hashes,
+50 workers and every diagnostic allowance were independently checked. The
+normalized request differs from the preceding support-aware pilot only in its
+executable, receipt paths and process identities. No RustRed build/test overlaps
+the campaign. An unrelated external GammaLoop compiler observed at launch was
+already absent during preparation, before traversal; no exclusive-host or
+repeated statistical claim is made. The frozen binary still includes the same
+separate scheduler/escrow working-tree changes as the preceding pilots.
+
+### Identical completed-prefix comparison
+
+All first 60,000 records agree after removing **only** their top-level `seconds`
+field, including IDs, phase, owner, every domain bound, native counters, status
+and refusal details. Initial input IDs/frontiers and normalized requests also
+agree. Both crossings occur before observed cancellation.
+
+| Equal-work boundary | Prior support-aware index | Aggregate index |
+|---|---:|---:|
+| Traversal start to 60,000 completed domains | 109.413–111.448 s | 77.319–79.328 s |
+| 10,000 to 60,000 completed domains | 99.368–101.396 s | 70.278–72.291 s |
+| Bounded old/new ratio, first boundary | — | 1.379–1.441× |
+| Bounded old/new ratio, second boundary | — | 1.375–1.443× |
+
+These are conservative heartbeat-clock brackets, not confidence intervals:
+the last below-threshold progress update and first above-threshold heartbeat
+bound each crossing without interpolation. Native preparation timing is not
+subtracted from a different clock. The final 63,913-record baseline stop is not
+used as a timed boundary because it includes cancellation. The measured gain
+is smaller than the isolated index replay gain and is not full-campaign speedup.
+
+### Incomplete outcome and measured remaining bottleneck
+
+| Quantity | Aggregate-index run |
+|---|---:|
+| Preparation / traversal including cooperative stop | 105.873 / 121.077 s |
+| Application / supervisor lifetime | 226.950 / 234.154 s |
+| Sampled aggregate CPU | 665.73 s |
+| Sampled peak aggregate RSS | 8.940 GB |
+| Complete / scheduled domains | 74,400 / 195,287 |
+| Pending / partial cancelled domains | 120,886 / 1 |
+| Committed events | 3,547,662 |
+| General comparisons, including maintenance | 5,125,024,966 |
+| Included maintenance comparisons | 337,395,133 |
+| Live / retired lookup candidates | 89,986 / 105,301 |
+| Maximum scheduled descendant rank cap | 11 |
+| Observed unresolved frontiers | 0 |
+
+The two-second resource sampler's RSS peak is not an exact high-water mark:
+the final one-second heartbeat briefly observes 9.831 GB native RSS while the
+result is being assembled. Both remain far below configured memory ceilings.
+No elapsed deadline or diagnostic allowance triggers the stop. The stop file
+is written at 20:33:21.985 UTC; the result follows 7.943 s later and supervisor
+completion 10.380 s later. First cancellation acknowledgement to first finished
+heartbeat takes 3.014 s. Both owned processes exit, status is 4 and
+`hard_stopped=false`. Accounting is exact:
+195,287 scheduled = 74,400 complete + 120,886 pending + one partial.
+Zero observed frontiers does not discharge those pending obligations; this is
+not a new artifact or a durable pending-work checkpoint.
+
+Between total times 180.421 and 219.577 s, completed domains rise from 58,285 to
+73,538 while pending domains rise from 112,555 to 121,013. Containment comparisons
+rise from 3.290 to 4.929 billion. The completed-result escrow is full at 65,536
+entries, with 65,585 finished-but-uncommitted inspections at both endpoints;
+its peak accounted memory is only 2.149 GB against an 8.590 GB byte allowance.
+Across the 20 resource samples from 180–220 s, mean utilization is 1.850 busy
+cores (range 1.229–2.947). Faster admission helps but does not saturate 50 cores
+or establish that the unfinished queue will drain.
+
+An independent per-thread `/proc` sample spans 32.871 s: the coordinator uses
+32.444 CPU-s, all 50 workers together use 76.268 CPU-s, and the monitor uses
+0.131 CPU-s. This is approximately 0.987 coordinator core plus 2.320 worker
+cores. Every worker executes some work, but their combined runnable-queue wait
+is only 17.127 s; the dominant idle time is not waiting for host CPU allocation.
+Native inspections are finishing far ahead of the serial admission publisher.
+The reported zero `backpressured_workers` counts only blocked chunk publication,
+not finished slots held behind a full escrow, so it does not contradict this.
+
+Work stealing alone cannot guarantee utilization here: workers cannot process
+results faster than the serial admission step can absorb them indefinitely.
+Owner/phase sharding is structurally possible because inclusion never crosses
+that key, but changed publication order also changes admission/retirement
+history, IDs, limit prefixes and later traversal. It would need explicit
+deterministic ordering/merge semantics and still face heavily skewed owners.
+Neither sharding nor progress/scheduler overhead has yet been stack-profiled
+as the next winning optimization. A larger return buffer merely postpones
+the observed sustained imbalance.
+
+### Why try all 67 broader symbolic roots next?
+
+The prepared input
+`TMP/full-jet-symbolic67.CwBp4L/full-jet-owner67-a24-d9-r15.json` contains one
+Apply root per installed owner with A<=24, R<=15 and D>=9; the root masks match
+the installed 67-owner manifest exactly. An independent sufficient-inclusion
+census of the support-aware baseline finds that **23,206 of 23,276 completed
+Apply domains (99.699%)** already fit inside those corresponding roots. They
+account for 97.827% of the Apply events, or 87.785% of all completed native
+events in that saved prefix. This is a set-containment diagnostic, not a timing
+prediction or a claim that these events will all disappear in a broader run.
+
+No Route source mask in that prefix is an initial Apply owner; those separate
+obligations cannot simply be dismissed. Seventy Apply descriptors fail the
+sufficient test: 65 have A upper25 and five D lower8. Independent integer hand
+checks exhibit particular A25 and D8 points inside three saved conservative
+domains and outside the corresponding roots. They do **not** prove those points
+are concretely reachable or identify missing rules. Descendants must never be
+clipped back to initial bounds.
+
+This measured overlap justifies trying broad roots on all owners instead of
+extrapolating tiny-diagonal queue behavior indefinitely. Pending-domain inclusion
+can suppress redundant scheduling, but every initial root still needs a
+successful inspection, and broader roots can themselves produce expensive
+partitions and new descendants. The all-owner run is a new diagnostic workload,
+not an equal-work performance comparison or an already completed physical proof.
+
+Matched receipt:
+`TMP/correlated-routing-pilots.jw6Bwo/shared-owner-campaign.ucztswaj/`.
+Its result SHA-256 is
+`55f63b1192c5b180e7ef532f317566888876cbda568575f8f3df7c58ba61b7a3`.
+Reproducible comparison, thread samples, root-census scripts/results and
+independent integer checks are under `TMP/aggregate-admission-gate.HrfYdG/`:
+`compare-pilot-prefix.{sh,jq}`, `indexed-pilot-prefix-comparison.json`,
+`indexed-pilot-thread-samples.json`, `FULL_JET_CONTAINMENT_AUDIT.md`, and
+`full-jet-containment-{census,handchecks}.{jq,json}`.
 
 ## Historical pause and resumed sequence
 

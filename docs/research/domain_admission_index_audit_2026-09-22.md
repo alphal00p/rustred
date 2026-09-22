@@ -2,8 +2,8 @@
 
 Date: 2026-09-22. Scope: the aggregate-filtered retained-domain index and its
 integration into the shared-owner admission queue. Source review, the focused
-optimized gate and saved-descriptor timings are complete. The full application/
-Python gate and a matched production campaign remain separate pending gates.
+optimized gate, saved-descriptor timings and the full release application/
+Python gates are complete. The matched production campaign is measured separately.
 
 ## Verdict
 
@@ -109,8 +109,12 @@ of checks. Neither comparison reduction nor acceleration is universal.
 
 This generated-stream differential is stronger than replaying only saved
 completed domain descriptors, but it is **not** a recording of every proposal
-from the real five-loop pilot. The full application gate and matched production
-pilot remain necessary. Focused evidence is under
+from the real five-loop pilot. The full application gate subsequently passes
+370 library tests and 82 integration tests (one replay diagnostic ignored).
+The freshly built Python extension and matching CLI pass all 50 API tests,
+ten matcher-steering tests and twelve supervisor tests. Native source is
+unchanged from the preceding passing 2,768-test core gate. These integration
+checks do not replace the matched production pilot. Focused evidence is under
 `TMP/aggregate-admission-gate.HrfYdG/`, including `queue-test.log` and
 `complete-stream-detail.log`; the latter rerun is not used for timing claims.
 

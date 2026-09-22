@@ -600,7 +600,7 @@ streams and memory/selectivity before adoption; see the
 This is not a reason to widen the physical envelope, generate new rules, or
 begin terminal evaluation.
 
-### Aggregate admission index: focused gate passed, integration pending
+### Aggregate admission index: release gates and matched pilot complete
 
 The queue implementation groups maximal candidates by exact
 native `(A_max,R_max,D_min)` extrema, including explicit infinity and empty
@@ -623,10 +623,50 @@ These sequences omit original rejected campaign proposals; they are not full
 campaign replays or closure results. Filtering is not universally faster: one
 shuffled synthetic stream performs slightly more full checks.
 
-The full release application rebuild/gate and fresh Python gate are pending;
-no campaign has run with the new index yet. Source and timing audit:
+The full release gate passes 370 application-library tests and 82 integration
+tests (one replay diagnostic ignored); all 72 Python/API/steering tests pass
+against the fresh CLI and extension. The matched pilot preserves every field
+except timing in the first 60,000 completed domain records and improves that
+prefix by 1.38–1.44x. It still stops cooperatively with 74,400 complete,
+120,886 pending and one partial domain. Late utilization averages 1.85 busy
+cores; the 65,536-result escrow is full. This is an incomplete campaign, not
+five-loop closure. Source and timing audit:
 [aggregate index audit](research/domain_admission_index_audit_2026-09-22.md).
 Local evidence: `TMP/aggregate-admission-gate.HrfYdG/`.
+
+### Current implementation priority: safe parallel admission
+
+The user explicitly requests parallelizing the expensive commit path before
+launching the broader all-owner diagnostic. Work stealing alone does not remove
+the observed bottleneck: native workers already finish tens of thousands of
+inspections ahead of the ordered publisher. A larger buffer postpones the
+imbalance, and owner sharding alone faces strongly skewed traffic.
+
+The next slice parallelizes lookup preparation, not authority:
+
+- Process bounded batches against a borrowed immutable queue snapshot; do not
+  clone the entire candidate index or Symbolica expressions per worker.
+- Recheck current exact-key and orthant priority during ordered publication.
+  A still-live minimum snapshot hit remains valid; a retired hit needs a fresh
+  search. A snapshot miss needs comparisons against subsequently admitted
+  candidates, because retirement alone cannot create a new containing region.
+- Keep reverse retirement, storage/counter preflights and final admission in
+  their original order. No pending obligation disappears. Near counter
+  exhaustion, fall back to the serial path rather than changing its failure
+  prefix. Explicit finite-comparison-cap mode retains serial behavior.
+- Reserve independent lookup helpers within the total requested budget,
+  including inspection workers and the coordinator. Do not queue helper work
+  behind native workers blocked on publication; that would permit deadlock.
+- Account for attempted speculative work, including discarded preparations,
+  separately from committed-prefix work. Preserve event/frontier limits,
+  cancellation, bounded buffering and deterministic IDs.
+
+Implementation and independent adversarial audit are underway. Acceptance
+requires differential stale-snapshot tests, actual-source integration tests,
+full release Rust/Python gates and a matched live pilot. No performance gain
+from this unfinished slice is assumed. Afterward, test the prepared 67-owner
+input and continue the explicit-entry-scope / actual-witness / fixed-target
+feedback work below; admission parallelism does not replace those obligations.
 
 ### Readiness beyond the index pilot
 

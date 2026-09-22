@@ -14,7 +14,7 @@ tests. Its matched pilot stopped cooperatively after 121.100 s traversal with
 63,913 completed domains and 113,500 pending. Tighter covers did not cure serial
 admission pressure and increased candidate diversity in the observed prefix;
 do not present this as a campaign speedup. Neither slice establishes five-loop
-closure. Next measure exact-safe aggregate filtering of the admission index.
+closure. Aggregate filtering has now been measured; parallel admission is next.
 On 5,910 identical routed source queries, the new support bounds reduce emitted
 Route descendants by 81.90%; this local pruning does not override the observed
 global admission bottleneck.
@@ -23,13 +23,21 @@ independent source review and 36 focused tests (one replay ignored). Three
 complete 46,080-request streams preserve every reuse ID and pending obligation.
 Six paired saved-descriptor replays per input measure median admission-time
 ratios of 2.59× and 2.09× versus the frozen linear semantic index. These are
-index-only results. Full application/Python gates and the next matched
-production pilot remain pending; see the [index audit](docs/research/domain_admission_index_audit_2026-09-22.md).
+index-only results. Full release gates pass 452 application/integration and 72
+Python/steering tests. The matched 60,000-domain production prefix is identical
+and improves by 1.38–1.44×, but late utilization still averages only 1.85 busy
+cores. Its cooperative stop retains 74,400 complete and 120,886 pending domains;
+no closure is claimed. See the [index audit](docs/research/domain_admission_index_audit_2026-09-22.md).
 The full 67-owner A24/R15/D9 symbolic input is now prepared, not launched.
 An independent sufficient-containment census shows that its starting regions
 contain 99.699% of the narrow support pilot's completed Apply descriptors;
 Route obligations remain separate. This justifies testing all-owner reuse after
 the matched index pilot, not a runtime forecast or wider concrete R15 admission.
+The user's subsequent priority is now **safe parallel admission/commit** before
+that broader run: prepare expensive containment lookups on immutable bounded
+batches, revalidate and publish in deterministic order, and reserve lookup
+helpers within the same total worker budget as native inspections. Implementation
+and independent audit are underway; no parallel-admission speedup is claimed yet.
 The matched maximal-index pilot
 measures a 2.88–2.92× improvement on the identical completed traversal prefix;
 it and the subsequent all-owner control remain incomplete at diagnostic caps.
