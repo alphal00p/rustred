@@ -116,3 +116,30 @@ ordered publication still admits the first occurrence before any reuse marker.
 This has not yet been shown to improve full-census scheduling performance.
 No full R10 closure, new terminal basis, parallel speedup or five-loop Vakint
 result is claimed here.
+
+## Later-guard rejection: core release gate passed
+
+The follow-up ordinary dispatcher now handles the concrete failure pattern
+above. When an equality or excluded atom is genuinely unknown, it may probe
+later necessary guards of that same candidate on the unchanged cell and actual
+rank. A later uniformly nonzero equality, whole all-zero excluded conjunction,
+or zero original denominator proves the candidate inapplicable. Dispatch then
+resumes at the next rule's ordinary fixed-case check, preserving saved priority.
+
+Source-condition uncertainty and native work/backend failures do not enable
+this shortcut. Intersecting coordinate planes are not uniform zero, speculative
+cuts are not retained, and any encountered later error keeps its own predicate
+identity. Without a rejection witness, the original refinement/residual path
+remains. Every probe uses the existing native Symbolica-backed guard service;
+no additional CAS or integer-feasibility solver was introduced.
+
+The independently reviewed release gate passes **2,694 tests**, zero failures
+and 32 existing ignored diagnostics. All ten new rejection tests pass, as do
+the 11 preceding excluded-AND tests and the 68-test matching selection; these
+focused counts overlap the full suite. One existing test updates only its
+predicate-work count for the newly charged inconclusive probe, retaining its
+behavioral assertions. Raw receipts and independent runtime review are in
+`TMP/rejection-lookahead-core-retry.rx4GGf/`.
+
+This is tested dispatcher functionality, not a claim that all real five-loop
+guard frontiers disappeared. That needs the new integrated saved-program run.

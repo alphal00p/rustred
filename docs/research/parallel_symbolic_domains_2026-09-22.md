@@ -242,3 +242,49 @@ work, logical callbacks, bounded buffering, blocked workers, CPU and RSS. Its
 binary also includes the newer excluded-conjunction matcher behavior, so it
 must not be presented as an isolated same-workload cache comparison with the
 old stopped controls above.
+
+## Reuse follow-up control: still serialized
+
+The tested `fc181e4f` executable was then run on the same 67 R10 initial domains
+with six workers. It was cooperatively stopped for optimization, with exit 4,
+after measured waiting persisted across multiple initial owners. It did **not**
+reach the containment allowance or an elapsed deadline.
+
+| Measurement | Incomplete reuse-control observation |
+| --- | ---: |
+| Preparation / traversal | 104.028 s / 223.725 s |
+| External whole wall / CPU | 332.39 s / 329.59 s |
+| Sampled peak owned aggregate RSS | 5.752 GB |
+| Completed domains / queued | 59 / 14,943 |
+| Committed callbacks | 7,680,580 |
+| Job-local reuse hits | 3,975,413 |
+| Remaining coordinator full-orthant hits | 3,231,599 |
+| General containment comparisons | 23,894,791 |
+| Retained local guard frontiers | 70 |
+
+One current domain was interrupted, and five returned worker inspections remain
+uncommitted. No recursive Route jobs had been completed; these counts are an
+initial-owner prefix, not all 67 inspected owners or full R10 closure. The
+scheduled R13 is a conservative envelope, not a concrete reached-rank claim.
+
+In a 90-second window spanning initial completed owners 5 through 22, the
+45 resource samples average about 0.992 busy cores; all 90 corresponding
+heartbeats report five blocked workers. Duplicate suppression works, but has
+not removed ordered-publication waiting. More cores alone are not justified by
+this observation. The remaining full-orthant hit volume motivates an immutable
+snapshot of already-admitted initial domains, consulted after native validation
+but before allocating/streaming redundant scheduling descriptors. This proposed
+change must preserve phase, owner and actual rank, and means pending work reuse,
+not completed coverage. Its benefit is not yet measured.
+
+Evidence: `TMP/shared-all67-reuse-six.x5khKa/six/`, native receipt
+`shared-owner-campaign.wsua77kz/`, frozen CLI
+`89e516f425216a4fb76e34eb39bdc2055f9182ce7135a839d4d2125bb3b32655`.
+No other owned native solve or compilation overlapped this control. Like the
+earlier stopped runs, it is not a completed-workload timing or speedup ratio.
+
+The user-requested production allocation remains 50 cores / 500 GB. The
+previous ten-billion comparison allowance was a chosen diagnostic limit, not a
+solver or mathematical limitation. Production comparison work will be unbounded
+by default; finite limits remain opt-in diagnostics. Memory/storage safeguards,
+counter-overflow errors and evidence-based cooperative stopping remain separate.

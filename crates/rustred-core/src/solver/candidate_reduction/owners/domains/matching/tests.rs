@@ -2,6 +2,7 @@
 mod affine_priority;
 mod and_lookahead;
 mod factor_priority;
+mod rejection_lookahead;
 use super::*;
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial};
 use crate::family::IntegralKey;

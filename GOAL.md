@@ -63,6 +63,18 @@ slice independently before a larger attempt; commit/push coherent milestones.
 Detailed implementation sequencing is in
 [the shared-campaign plan](docs/five_loop_rank_campaign.md).
 
+The September 22 clarification retains **50 cores and 500 GB** as the large-run
+allocation. Smaller worker counts are diagnostic only when measurements identify
+poor utilization; they must lead to a concrete scheduling fix and the large-run
+retry, not become a substitute target. The previous ten-billion containment
+comparison stop was an explicitly chosen diagnostic allowance, not a property
+of the IBP problem. Remove that arbitrary aggregate-work cutoff from the
+production campaign; keep finite comparison budgets opt-in for bounded tests
+and diagnostics. Checked counters, memory/storage admission, native-operation
+safeguards, monitoring and cooperative optimization stops remain distinct.
+Removing a work cutoff does not establish that the preceding attempt would
+have completed or met the fifteen-hour objective.
+
 ### Current implementation slice — ordered symbolic successor matching
 
 An independent source/mathematical audit now distinguishes input rank from
@@ -84,8 +96,19 @@ The two actual saved diagonal controls complete their inspections but both
 candidates are rejected by later exclusions before any RHS is applied. This
 identifies an opportunity to skip impossible candidates before reporting an
 earlier guard as unknown; it does not establish missing rules or closure.
-Scheduling performance after the reuse change remains to be measured. See
+Scheduling performance after the larger-lookahead change remains to be measured. See
 [the core milestone](docs/research/guarded_owner_application_2026-09-22.md).
+
+The follow-up core dispatcher now rejects an otherwise ambiguous candidate
+when a later necessary guard is uniformly false on the same exact cell/rank.
+It passes **2,694 core release tests**, zero failures and 32 existing ignored
+diagnostics. This preserves first-applicable priority and native errors; actual
+full-census effects await the integrated run. The reuse-only six-worker retry
+still averaged approximately one busy core despite 3.98 million job-local reuse
+hits, so it was stopped for optimization. Initial admitted-domain sharing and
+larger bounded transport lookahead are now in the joint application release
+gate, together with the unlimited comparison policy. The next integrated
+attempt uses the requested 50 workers under the 450/500 GB RSS policy.
 
 The preceding shared-walk baseline includes the generic strict-pinch **R-k**
 routing bound and bounded parallel symbolic inspection. Its core release

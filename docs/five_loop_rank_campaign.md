@@ -90,6 +90,16 @@ measure the corrected expansion or eliminate genuine dependency breadth. See the
 
 ## Operational policy
 
+The production campaign uses the requested 50-core/500 GB envelope. A six-worker
+control is only a measurement step when the scheduler is not keeping those
+workers busy; it is not a revised allocation. Fix measured serialization before
+the large run. The former ten-billion aggregate containment allowance was a
+chosen diagnostic cap, not a mathematical or RAM requirement. The next policy
+change makes aggregate containment unbounded by default, with explicit finite
+limits still available for diagnostics. Memory/storage safeguards, checked
+counters and evidence-based cooperative stops remain. Do not replace the
+removed elapsed-time deadline with another arbitrary aggregate-work deadline.
+
 The input numerator-rank limit need not bound every intermediate rank uniformly
 when positive powers remain unbounded. A finite set of descending parametric
 rules can solve every concrete input even while a finite-rank-layer dependency

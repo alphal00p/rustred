@@ -387,7 +387,10 @@ fn excluded_and_lookahead_cannot_override_unknown_source_or_required_equality() 
             }
         };
         let (stats, pieces) = refined(&p, [0; 3], [None; 3], Some(11), Default::default());
-        assert_eq!(stats.predicates, 1);
+        // Source Unknown still blocks immediately. An equality Unknown now
+        // admits one inconclusive later-branch rejection probe; neither path
+        // may bypass the required original predicate.
+        assert_eq!(stats.predicates, if source { 1 } else { 2 });
         assert_eq!(pieces.len(), 1);
         assert_eq!(
             pieces[0].disposition(),

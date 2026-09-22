@@ -9,6 +9,9 @@ use crate::family::IntegralKey;
 use crate::foundry::completion::LatticeBox;
 use crate::solver::candidate_reduction::owners::CandidateOwnerPrograms;
 
+#[path = "engine/lookahead.rs"]
+mod lookahead;
+
 #[derive(Clone, Copy)]
 enum RuleStage {
     Fixed,
@@ -86,7 +89,8 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
     /// Match an explicit local box against ordered installed-program guards.
     /// Each result retains the exact requested inactive-rank simplex, which may
     /// exceed the saved entry scope. Unsupported predicates stop fall-through
-    /// on their piece. Successful exhaustion may include unresolved/invalid
+    /// unless another guard proves that candidate inapplicable on the same
+    /// piece. Successful exhaustion may include unresolved/invalid
     /// pieces, and never implies RHS success, recursive closure, or that an
     /// externally supplied box is the exact image of an earlier dependency.
     /// Previously emitted pieces remain an incomplete prefix on error/cancel.
@@ -657,6 +661,18 @@ impl<'a, const N: usize, F: FnMut(OwnerDomainMatchPiece<N>) -> ControlFlow<()>>
                             failure,
                         );
                     }
+                }
+            }
+        }
+        // A necessary guard that uniformly fails can reject this candidate
+        // without resolving an earlier guard. This is ordinary first-priority
+        // dispatch, not permission to skip an otherwise applicable rule.
+        if failure.is_none() {
+            match self.rejection_lookahead(&cell, resume) {
+                Ok(Some(next)) => return self.push(cell, next),
+                Ok(None) => {}
+                Err((predicate, failure)) => {
+                    return self.fail_predicate(cell, predicate, failure);
                 }
             }
         }
