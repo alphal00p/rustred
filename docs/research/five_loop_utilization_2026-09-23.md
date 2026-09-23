@@ -747,3 +747,71 @@ one core and 5.19 GB aggregate RSS; sampled peak was 5.72 GB. These are startup
 observations, **not** post-preparation parallel utilization or a completion
 forecast. Subsequent monitoring must distinguish native residual inspections,
 delegated obligations and worklist growth; no closure is claimed at launch.
+
+### First post-initial-region measurement
+
+The run advanced beyond all 67 initial publications by heartbeat 336.462 s.
+An independent, bounded 120-s `/proc` thread sampler subsequently observed the
+actual reuse phase. It ran on CPU49 within the configured affinity and exited
+normally; it did not stop or restart the campaign. Stable thread identities and
+CPU deltas distinguish inspectors, admission helpers and the coordinator.
+
+| Counter | Heartbeat 397.892 s | Heartbeat 517.568 s |
+|---|---:|---:|
+| Native publications | 136,123 | 279,430 |
+| Partial initial-overlap inspections, included above | 12,000 | 26,593 |
+| Pending native obligations | 1,244,276 | 1,361,125 |
+| Observed frontiers | 0 | 0 |
+
+The native process averaged **4.81 busy cores**: 3.25 in admission helpers,
+1.01 in inspection and 0.55 in the coordinator. Native publication throughput
+was about 1,197/s, but pending native work grew by about 976/s. One early
+30-s interval drained slightly; this did not persist over the complete window.
+RSS at the sampler's end was 11.47 GB. Reuse is genuinely active, but these
+observations do not demonstrate good 50-core scaling, sustained drainage,
+full-run speedup or a completion ETA.
+
+The run remains active to test the later expensive-Apply regime that motivated
+the optimization. An additional heartbeat at 642.306 s had 547,249 native
+publications, 38,984 partial inspections, 1,463,276 native obligations pending
+and zero frontiers; the latest corresponding resource sample was 14.47 GB.
+These are frozen live observations, not final results. Full per-thread windows
+and counter definitions are recorded in
+`TMP/initial-overlap-gate.4Tj82V/INDEPENDENT_POST_ROOT_AUDIT_518S.md`.
+
+An independent scheduler review also confirms why the fixed lookahead can
+leave cores idle: it counts logical IDs ahead of the publication cursor, not
+only unfinished computations. Completed but unpublished jobs still reserve
+their positions. A larger fixed lookahead is already configurable, but can
+increase unnecessary inspections by preventing later responsibility transfers;
+it is not a guaranteed speedup. Changing the fence to depend on worker finish
+times would undermine the present worker-count-independent transfer policy.
+No scheduler or source was changed during these observations.
+
+### Narrow runtime handoff check, without repeating queue traversal
+
+The separate runtime-compatibility audit found an economical route for the
+eventual successful result. The symbolic visitor permits locally descending
+support changes within a saved root, whereas the current concrete tracer
+requires the same support or a strict subset. No actual incompatible selected
+edge has been observed. A prior conservative all-rule sign scan does report
+potential activations, but does not resolve guards, zeros or dispatch priority;
+those counts are neither actual failing reductions nor proof of compatibility.
+
+If the full walk completes, its existing final report retains every native
+inspection's owner, coordinates, rank, power bounds and complete native stats.
+Partial inspections additionally retain their exact residual power bounds and
+initial-anchor link. A narrow post-pass can therefore replay only those actual
+Apply inputs through the unchanged native visitor, count non-subset support
+transitions, and compare native stats. Route and alias records need not be
+re-inspected; their original resolved responsibilities remain required. This
+avoids repeating queue admission and routing, which dominate current CPU use.
+
+Such a pass must stream the report and use bounded dispatch with one shared
+owner load: the previous result is 2.796 GB logically despite its much smaller
+filesystem-compressed size. It must require a complete final receipt and
+unresolved-free ledger, preserve partial-residual scope, and fail closed on
+missing/mismatched records or any unsupported edge. This is a proposed narrow
+consumer-compatibility check, not implemented or passed yet, and not universal
+certification, a master-minimality test or coefficient back-substitution.
+It does not require interrupting the active run or regenerating saved rules.
