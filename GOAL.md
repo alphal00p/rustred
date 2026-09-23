@@ -1,13 +1,25 @@
 # RustRed project goal
 
-**Current checkpoint — stopped at user request (September 22):** parallel
+**Resumed September 23:** investigate actual 50-core utilization and the
+feasibility of completing the finite five-loop envelope. Run the prepared
+67-owner symbolic diagnostic using the already gated release CLI, retaining
+explicit incompleteness and the distinction from wider concrete entry
+admission. The separately requested two-loop multiscale/unequal-mass tests
+pass all five release tests and independent audit; they are committed/pushed
+as `677503d0`. The larger five-loop diagnostic has now locally inspected all
+67 starting regions, but millions of descendants remain pending and there
+is no closure or completion-ETA claim. Current observations are in
+`docs/research/five_loop_utilization_2026-09-23.md`.
+
+**Previous checkpoint — stopped at user request (September 22):** parallel
 admission is implemented and pushed as `1fbc663e`, with 470 release Rust tests
 and 72 Python/steering tests passing. The identical 60,000-domain traversal
 prefix improves observationally by 1.54–1.64x on the shared host. The stopped
 run retains 97,814 complete domains, 132,653 pending and one cancelled partial;
-there is no five-loop closure claim. No solver or build remains running.
-The prepared full-67-owner run is still unlaunched. Resume only after a new
-user instruction. The full objective below remains unfinished, not narrowed.
+there was no five-loop closure claim. No solver or build remained running at
+that checkpoint.
+The prepared full-67-owner run was then unlaunched. The full objective below
+remains unfinished, not narrowed; the new instruction above resumes work.
 
 **Resumed work leading to this checkpoint:** continued from the September 22
 bounded-routing checkpoint. Correlated-domain propagation passes its release

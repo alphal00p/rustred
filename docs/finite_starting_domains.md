@@ -1,14 +1,33 @@
 # Finite starting domains and fixed-target repair
 
-## Current checkpoint — stopped at user request
+## Resumed investigation — September 23
+
+The user has resumed the five-loop utilization investigation. The prepared
+67-owner A24/R15/D9 symbolic diagnostic is now running with the previously
+gated release CLI, 50 compute-worker slots, a 500 GB sampled memory ceiling,
+and no elapsed-time deadline. Its input is broader than the earlier diagonal
+pilot, so elapsed times are not an equal-work speed comparison. Measure actual
+worker CPU and queue growth before making any completion forecast. Wider
+symbolic inspection does not alter the saved R10 concrete entry scope or prove
+family closure. The first two diagnostics encountered explicit predicate and
+scheduled-domain allowances. A larger monitored attempt has now inspected all
+67 initial regions locally and reached the descendant traversal. At a live
+778.47 s snapshot it had 1.288 million complete and 4.304 million pending
+regions; its latest full-minute window used 14.37 busy cores, not 50. Queue
+growth remains positive, so there is no reliable completion ETA. See the
+[September 23 investigation](research/five_loop_utilization_2026-09-23.md)
+for receipts, timing boundaries and proposed next measurements.
+
+## Previous checkpoint — stopped at user request
 
 The user requested a committed checkpoint and stop after the safe parallel-
 admission implementation. Its full release Rust and Python gates pass. The
 matched 60,000-domain prefix is unchanged and runs 1.54–1.64x faster in observed
 traversal time; this is not a full-family or whole-launch timing. The pilot
 stopped cooperatively with 97,814 completed domains, 132,653 pending and one
-cancelled partial. No solver or build remains active, and the full 67-owner
-input has not been launched. Resume only after a new user instruction.
+cancelled partial. At that checkpoint no solver or build remained active, and
+the full 67-owner input had not been launched. The new instruction above
+authorizes resumption.
 
 The objective below is **unfinished**, not complete or mathematically blocked.
 The next work remains the broader shared-root diagnostic, explicit finite-root
