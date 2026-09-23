@@ -2,6 +2,7 @@
 use super::*;
 use selection::choose;
 
+mod jobs;
 mod leftovers;
 mod selection;
 
@@ -13,7 +14,6 @@ struct Job<const N: usize> {
     local_id: usize,
     ticket: usize,
     domain: Arc<Domain<N>>,
-    finished: bool,
 }
 
 fn started<const N: usize>(
@@ -87,6 +87,10 @@ fn inline<const N: usize>(
             .get_mut(&job.key)
             .expect("inline bucket")
             .peak_outstanding_native_jobs = 1;
+        walk.buckets
+            .get_mut(&job.key)
+            .expect("inline bucket")
+            .peak_occupied_native_slots = 1;
         let Some(rounds) = walk.metrics.rounds.checked_add(1) else {
             walk.error = Some("round counter overflow".into());
             break;
@@ -228,12 +232,18 @@ fn run_parallel<const N: usize>(
             }
         }
     };
-    let mut pending: BTreeMap<usize, (Key<N>, usize)> = BTreeMap::new();
+    let mut jobs = jobs::Jobs::new();
     let mut heartbeat = Instant::now();
     let (_, mut snapshot, leftovers) = parallel::with_pool(inspectors, inspect, |pool| {
-        let mut jobs: Vec<Job<N>> = Vec::new();
         'rounds: while walk.error.is_none() {
-            let incoming = match choose(walk, inspectors - jobs.len(), &jobs, cancellation) {
+            let reclaimed = pool.reclaim_completed_except(&jobs.protected());
+            jobs.release_slots(&reclaimed);
+            let incoming = match choose(
+                walk,
+                inspectors - jobs.active.len(),
+                &jobs.active,
+                cancellation,
+            ) {
                 Ok(jobs) => jobs,
                 Err(error) => {
                     walk.error = Some(error);
@@ -258,7 +268,7 @@ fn run_parallel<const N: usize>(
                     walk.error = Some(error);
                     break 'rounds;
                 }
-                pending.insert(job.ticket, (job.key, job.local_id));
+                jobs.register(&job);
                 started(walk, request, observer, &job, pool.snapshot());
                 if cancellation.load(Ordering::Acquire) {
                     walk.error = Some("cancelled".into());
@@ -273,25 +283,30 @@ fn run_parallel<const N: usize>(
                 bucket.peak_outstanding_native_jobs = bucket
                     .peak_outstanding_native_jobs
                     .max(bucket.outstanding_native_jobs);
-                jobs.push(job);
+                let occupied = 1 + jobs
+                    .active
+                    .iter()
+                    .filter(|active| active.key == job.key)
+                    .count();
+                bucket.peak_occupied_native_slots = bucket.peak_occupied_native_slots.max(occupied);
+                jobs.active.push(job);
             }
-            if jobs.is_empty() {
+            if jobs.pending.is_empty() {
                 break;
             }
-            let held = jobs
-                .iter()
-                .filter(|job| walk.buckets[&job.key].state.queue.next != job.local_id)
-                .count();
+            let heads = jobs.eligible(walk);
+            let held = jobs.pending.len() - heads.len();
             walk.metrics.peak_fifo_held_jobs = walk.metrics.peak_fifo_held_jobs.max(held);
+            let head_tickets = heads
+                .iter()
+                .map(|head| head.ticket)
+                .collect::<std::collections::BTreeSet<_>>();
             let mut chunks = Vec::new();
             let mut finished = Vec::new();
             // Poll only the FIFO head of each owner. Its State owns the source
-            // details/refusals; later jobs retain chunks/Finished in bounded
-            // pool slots and cannot contaminate that publisher's provenance.
-            jobs.rotate_left(1);
-            for job in jobs.iter().filter(|job| {
-                !job.finished && walk.buckets[&job.key].state.queue.next == job.local_id
-            }) {
+            // details/refusals; later results remain in bounded physical slots
+            // or shared completed-result storage, never a second publisher.
+            for job in jobs.poll_batch(heads, inspectors) {
                 if cancellation.load(Ordering::Acquire) {
                     walk.error = Some("cancelled".into());
                     break;
@@ -303,7 +318,7 @@ fn run_parallel<const N: usize>(
                 match pool.poll(job.ticket) {
                     Poll::Events(events) => chunks.push((job.key, events)),
                     Poll::Finished(value) => {
-                        finished.push((job.ticket, job.key, job.local_id, value));
+                        finished.push((job, value));
                     }
                     Poll::Waiting => {}
                 }
@@ -313,19 +328,14 @@ fn run_parallel<const N: usize>(
                 // sleeping: a chunk arriving after the scan must not lose
                 // its notification. Cancellation is observed after at
                 // most the bounded wait even without a producer signal.
-                // Later jobs may already have buffered data. Including their
-                // tickets here would spin while the only eligible head is quiet.
-                let tickets = jobs
-                    .iter()
-                    .filter(|job| walk.buckets[&job.key].state.queue.next == job.local_id)
-                    .map(|job| job.ticket)
-                    .collect::<Vec<_>>();
-                if tickets.is_empty() {
+                // Later unfinished chunks cannot wake publication. A later
+                // successful completion may wake bounded slot reclamation.
+                if head_tickets.is_empty() {
                     walk.error = Some("owner publication has no eligible FIFO head".into());
                     break 'rounds;
                 }
                 let start = Instant::now();
-                pool.wait_for_any_stream(&tickets);
+                pool.wait_for_owner_progress(&head_tickets);
                 walk.metrics.idle_stream_wait_seconds += start.elapsed().as_secs_f64();
                 if heartbeat.elapsed() >= Duration::from_millis(250) {
                     observer(report::progress(walk, request, pool.snapshot(), None));
@@ -348,24 +358,19 @@ fn run_parallel<const N: usize>(
             // Every earlier source chunk must be accepted before this
             // successful publication. On an outer delivery failure the
             // existing State::commit records failure, never discharge.
-            for (ticket, key, id, value) in finished {
-                publish(walk, key, id, value);
-                pending.remove(&ticket);
+            for (head, value) in finished {
+                publish(walk, head.key, head.local_id, value);
                 walk.buckets
-                    .get_mut(&key)
+                    .get_mut(&head.key)
                     .expect("published bucket")
                     .outstanding_native_jobs -= 1;
-                jobs.iter_mut()
-                    .find(|job| job.ticket == ticket)
-                    .expect("active ticket")
-                    .finished = true;
+                jobs.published(head);
             }
             if walk.error.is_some() {
                 break 'rounds;
             }
             // Refill on the next immediate pass, without requiring an
             // event or completion from any still-running peer.
-            jobs.retain(|job| !job.finished);
             if heartbeat.elapsed() >= Duration::from_millis(250) {
                 observer(report::progress(walk, request, pool.snapshot(), None));
                 heartbeat = Instant::now();
@@ -388,7 +393,7 @@ fn run_parallel<const N: usize>(
             walk.error = Some(detail.to_owned());
         }
     }
-    leftovers::retain(walk, pending, leftovers);
+    leftovers::retain(walk, jobs.pending, leftovers);
     snapshot["inspection_worker_limit"] = json!(inspectors);
     snapshot["admission_worker_limit"] = json!(helpers);
     snapshot["coordinator_worker_limit"] = json!(1);

@@ -1,6 +1,25 @@
 # Finite starting domains and fixed-target repair
 
-## Concurrent inspections within one sector — gated, negative scaling checkpoint
+## Completed-slot reuse — modest measured progress, full envelope unfinished
+
+The owner-local scheduler now reuses physical slots held by completed jobs
+without publishing them out of order. It shares the existing bounded retained
+result store with Ordered; pending obligations remain explicit. Independent
+source review, 195 clean optimized tests and 521 release library tests pass
+(one existing ignored in each; suites overlap), and the release CLI builds.
+Six unchanged A11 controls complete, with median traversal 7.484 s owner-local
+versus 8.284 s Ordered. The 9.65% wall-time reduction comes with about 18.8% more
+native visits and 24.8% more whole-process CPU. Corrected heartbeat-labelled
+busy-core medians are 13.99 versus 9.99, not fifty-core saturation.
+
+Keep Ordered default until larger controls support changing it. A12/R3/D9 is
+prepared as input only, covering 357,192 starting tuples across the same four
+saved owners; it is not a replacement for the complete 67-owner envelope.
+Sampling profiles and structural reuse analysis guide the next optimization.
+The broad campaign remains stopped and unfinished, with no completion ETA.
+See [the measured implementation checkpoint](research/owner_completed_slot_reuse_2026-09-23.md).
+
+## Preceding concurrent-inspection checkpoint
 
 The ready-stream milestone is pushed as `fbeb4e2f` (documentation follow-up
 `22ea812b`). Its completed controls show that independent sector publication
@@ -52,8 +71,9 @@ exact union differences and tighter routed images are competing hypotheses.
 All remain subject to measured cold pilots and unchanged responsibility,
 guard, descent and artifact-provenance requirements. See
 [the architecture review](research/finite_closure_architecture_review_2026-09-23.md).
-The larger A11 saved-input control completes in 7.778 s Ordered versus 9.593 s
-concurrent owner and still does not justify a broad restart.
+The historical pre-reuse A11 saved-input control completed in 7.778 s Ordered
+versus 9.593 s concurrent owner. The newer result is recorded above; neither
+small control establishes a broad-run completion estimate.
 
 ### Older full attempt: cooperative stop completed
 

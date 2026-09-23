@@ -9,6 +9,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+mod escrow;
+mod owner_retention;
+use escrow::{Escrow, Limits as EscrowLimits};
+
 // The observed first owner emits >700k logical callbacks. Even with homogeneous
 // successor compression, productive rules usually retain a Count boundary and
 // at least one successor run; 64 physical records therefore forced premature
@@ -66,9 +70,24 @@ struct Totals {
 }
 struct State<const N: usize> {
     slots: Vec<Slot<N>>,
+    escrow: Escrow<N>,
     failure: Option<Failure>,
     shutdown: bool,
     totals: Totals,
+}
+impl<const N: usize> State<N> {
+    fn next_reclaimable(&self, publisher: usize) -> Option<usize> {
+        self.slots
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| {
+                s.id.filter(|&id| id > publisher)
+                    .filter(|_| Escrow::eligible(s))
+                    .map(|id| (i, id))
+            })
+            .min_by_key(|&(_, id)| id)
+            .map(|(slot, _)| slot)
+    }
 }
 pub(super) struct Pool<const N: usize> {
     state: Mutex<State<N>>,
@@ -86,10 +105,15 @@ pub(super) enum Poll<const N: usize> {
     Waiting,
 }
 impl<const N: usize> Pool<N> {
+    #[cfg(test)]
     fn new(workers: usize) -> Self {
+        Self::with_limits(workers, EscrowLimits::default())
+    }
+    fn with_limits(workers: usize, limits: EscrowLimits) -> Self {
         Self {
             state: Mutex::new(State {
                 slots: (0..workers).map(|_| Slot::default()).collect(),
+                escrow: Escrow::new(limits),
                 failure: None,
                 shutdown: false,
                 totals: Totals::default(),
@@ -118,6 +142,25 @@ impl<const N: usize> Pool<N> {
     }
     pub fn failure(&self) -> Option<Failure> {
         self.lock().failure.clone()
+    }
+    /// Detach only later successful terminals, never publish their effects.
+    /// Native totals were charged by finish(); buffer ownership moves intact.
+    pub fn reclaim_finished(&self, publisher: usize) {
+        let mut state = self.lock();
+        if self.stop.load(Ordering::Acquire) || state.shutdown {
+            return;
+        }
+        while let Some(slot) = state.next_reclaimable(publisher) {
+            let Some(charge) = Escrow::charge(&state.slots[slot]) else {
+                break; // Accounted-size overflow is an optional-index miss.
+            };
+            if !state.escrow.reserve(charge) {
+                break;
+            }
+            let id = state.slots[slot].id.expect("eligible escrow slot");
+            let State { slots, escrow, .. } = &mut *state;
+            escrow.insert(id, &mut slots[slot], charge);
+        }
     }
     pub fn dispatch(&self, id: usize, domain: Arc<Domain<N>>) -> bool {
         let mut state = self.lock();
@@ -187,6 +230,14 @@ impl<const N: usize> Pool<N> {
     }
     pub fn poll(&self, id: usize) -> Poll<N> {
         let mut state = self.lock();
+        if let Some(chunk) = state.escrow.take_chunk(id) {
+            drop(state);
+            self.unbuffer(&chunk);
+            return Poll::Events(chunk);
+        }
+        if let Some(finished) = state.escrow.take_finished(id) {
+            return Poll::Finished(finished);
+        }
         let Some(slot) = state.slots.iter_mut().find(|s| s.id == Some(id)) else {
             return Poll::Waiting;
         };
@@ -206,6 +257,11 @@ impl<const N: usize> Pool<N> {
     pub fn wait(&self, id: usize) {
         let guard = self.lock();
         if self.stop.load(Ordering::Acquire)
+            || guard.escrow.contains(id)
+            || guard
+                .next_reclaimable(id)
+                .and_then(|slot| Escrow::charge(&guard.slots[slot]))
+                .is_some_and(|charge| guard.escrow.fits(charge))
             || guard
                 .slots
                 .iter()
@@ -301,9 +357,10 @@ impl<const N: usize> Pool<N> {
     }
     pub fn snapshot(&self) -> Value {
         let state = self.lock();
-        json!({"workers":state.slots.len(), "active_workers":state.slots.iter().filter(|s| s.running).count(),
-            "dispatched_uncommitted_domains":state.slots.iter().filter(|s| s.id.is_some()).count(),
-            "finished_uncommitted_domains":state.slots.iter().filter(|s| s.finished.is_some()).count(),
+        let mut snapshot = json!({"workers":state.slots.len(), "active_workers":state.slots.iter().filter(|s| s.running).count(),
+            "occupied_native_slots":state.slots.iter().filter(|s| s.id.is_some()).count(),
+            "dispatched_uncommitted_domains":state.slots.iter().filter(|s| s.id.is_some()).count() + state.escrow.len(),
+            "finished_uncommitted_domains":state.slots.iter().filter(|s| s.finished.is_some()).count() + state.escrow.len(),
             "backpressured_workers":state.totals.waiting, "backpressure_seconds":state.totals.wait_seconds,
             "attempted_events":self.attempted.load(Ordering::Relaxed),
             "returned_inspections":state.totals.returned, "attempted_native_operations":state.totals.native,
@@ -315,17 +372,42 @@ impl<const N: usize> Pool<N> {
             "peak_worker_buffered_logical_bytes":self.peak_bytes.load(Ordering::Relaxed),
             "per_worker_chunk_events":CHUNK_EVENTS, "per_worker_chunk_records":CHUNK_RECORDS,
             "per_worker_chunk_logical_bytes":CHUNK_BYTES,
-            "first_failure":state.failure.as_ref().map(Failure::json)})
+            "first_failure":state.failure.as_ref().map(Failure::json)});
+        let escrow = json!({
+            "worker_buffer_accounting_scope":"all_pool_owned_chunks_including_completed_escrow; excludes_coordinator_chunk",
+            "completed_escrow_entries":state.escrow.len(),
+            "completed_escrow_events":state.escrow.events,
+            "completed_escrow_accounted_bytes":state.escrow.bytes,
+            "completed_escrow_peak_entries":state.escrow.peak_entries,
+            "completed_escrow_peak_accounted_bytes":state.escrow.peak_bytes,
+            "completed_slots_reclaimed":state.escrow.reclaimed,
+            "completed_escrow_max_entries":state.escrow.limits.entries,
+            "completed_escrow_max_accounted_bytes":state.escrow.limits.bytes,
+            "completed_escrow_reserve_fallback":state.escrow.reserve_failed});
+        if let Value::Object(fields) = escrow {
+            snapshot
+                .as_object_mut()
+                .expect("snapshot object")
+                .extend(fields);
+        }
+        snapshot
     }
-    /// Called after join. At most W summaries; no speculative event stream is
-    /// retained or treated as committed. Exact returned stats remain auditable.
+    /// Called after join. At most W + escrow-entry-limit summaries; speculative
+    /// streams are released, never committed. Returned stats are not recounted.
     pub fn uncommitted(&self) -> Vec<(usize, Finished)> {
         let mut state = self.lock();
-        state
+        let mut finished: Vec<_> = state
             .slots
             .iter_mut()
             .filter_map(|s| s.finished.take().map(|f| (s.id.expect("finished id"), f)))
-            .collect()
+            .collect();
+        for (id, entry) in state.escrow.drain() {
+            if let Some(chunk) = entry.chunk {
+                self.unbuffer(&chunk);
+            }
+            finished.push((id, entry.finished));
+        }
+        finished
     }
     fn shutdown(&self) {
         self.stop.store(true, Ordering::Release);
@@ -340,6 +422,7 @@ impl<const N: usize> Pool<N> {
                 self.unbuffer(&c);
             }
         }
+        state.escrow.clear_chunks(|chunk| self.unbuffer(chunk));
     }
 }
 
@@ -451,7 +534,23 @@ fn with_pool_inner<const N: usize, R>(
     + Sync,
     coordinate: impl FnOnce(&Pool<N>) -> R,
 ) -> (R, Value, Vec<(usize, Finished)>) {
-    let pool = Pool::new(workers);
+    with_pool_limits(
+        workers,
+        fail_spawn_at,
+        EscrowLimits::default(),
+        inspect,
+        coordinate,
+    )
+}
+fn with_pool_limits<const N: usize, R>(
+    workers: usize,
+    fail_spawn_at: Option<usize>,
+    limits: EscrowLimits,
+    inspect: impl Fn(&Domain<N>, &AtomicBool, &mut dyn FnMut(Event<N>) -> ControlFlow<()>) -> Finished
+    + Sync,
+    coordinate: impl FnOnce(&Pool<N>) -> R,
+) -> (R, Value, Vec<(usize, Finished)>) {
+    let pool = Pool::with_limits(workers, limits);
     let result = std::thread::scope(|scope| {
         let mut handles = Vec::new();
         for slot in 0..workers {

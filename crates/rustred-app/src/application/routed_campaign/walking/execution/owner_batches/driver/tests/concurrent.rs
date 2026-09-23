@@ -1,6 +1,8 @@
 //! Multiple inspectors share immutable rules; only their owner FIFO head emits.
 use super::*;
 
+mod retention;
+
 fn same_owner(workers: usize, horizon: usize, points: usize) -> (OwnerDomainWalkRequest, Walk<2>) {
     let (mut request, _) = setup(workers);
     request.max_events = 8 * parallel::CHUNK_EVENTS;

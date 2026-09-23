@@ -7,9 +7,6 @@ pub(super) fn choose<const N: usize>(
     active: &[Job<N>],
     cancellation: &AtomicBool,
 ) -> Result<Vec<Job<N>>, String> {
-    if width == 0 {
-        return Ok(Vec::new());
-    }
     let mut keys = walk.buckets.keys().copied().collect::<Vec<_>>();
     if let Some(previous) = walk.last_key {
         let split = keys.partition_point(|key| *key <= previous);
@@ -91,7 +88,6 @@ pub(super) fn choose<const N: usize>(
             local_id: id,
             ticket,
             domain: bucket.state.queue.domains[id].clone(),
-            finished: false,
         });
         walk.last_key = Some(key);
         counts.insert(key, count + 1);

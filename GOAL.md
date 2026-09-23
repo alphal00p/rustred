@@ -1,6 +1,18 @@
 # RustRed project goal
 
-**Measured checkpoint — within-owner inspection parallelism:** after the pushed
+**Completed-slot reuse — measured follow-up:** both scheduling policies now
+share bounded storage for finished-but-unpublished results, freeing physical
+inspectors without bypassing FIFO responsibility. Independent source review,
+195 clean optimized tests and 521 full release library tests pass (one existing
+ignored in each; suites overlap), and the release CLI builds. All six matched
+A11 controls complete. Median traversal is 7.484 s owner-local versus 8.284 s
+Ordered, about 9.65% lower elapsed time, but with more native work and total CPU.
+Sampled busy-core averages have medians of 13.99 versus 9.99; this
+is not fifty-core saturation. Keep Ordered default pending larger input-driven
+controls. The full 67-owner envelope is still incomplete and stopped, with no
+defensible completion ETA. See [implementation and measured evidence](docs/research/owner_completed_slot_reuse_2026-09-23.md).
+
+**Preceding measured checkpoint — within-owner inspection parallelism:** after the pushed
 ready-stream checkpoint (`fbeb4e2f`, `22ea812b`), allow multiple immutable native
 inspections per sector with a separate dispatch cursor and one FIFO publisher.
 Later streams remain in bounded pool slots; preserve diagnostic ownership,
@@ -25,8 +37,9 @@ Its retained partial report is not closure or a resumable work checkpoint.
 alternatives to scheduler tuning. Their agreed priorities are cold reusable rule
 transfers for a low-risk pilot and a compact finite closed-cover checker for a
 higher-upside research experiment. Neither is yet implemented or measured.
-The larger completed A11 control remains slower under concurrent-owner execution
-(9.593 s versus 7.778 s Ordered), so no full campaign restart or ETA is justified.
+The historical pre-reclamation A11 control was slower under concurrent-owner
+execution (9.593 s versus 7.778 s Ordered, binary `58002e`). The modest measured
+improvement above still does not justify a full campaign restart or ETA.
 See [the proposals, adversarial conditions and pilot gates](docs/research/finite_closure_architecture_review_2026-09-23.md).
 These do not change the finite starting envelope, descendant coverage, terminal
 policy or current artifact-provenance boundary.

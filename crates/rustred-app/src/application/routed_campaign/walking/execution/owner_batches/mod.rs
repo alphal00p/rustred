@@ -3,7 +3,8 @@
 //! Each phase/owner keeps the existing admission index and responsibility
 //! ledger. Ready native streams feed bounded batches without waiting for quiet
 //! peers. Multiple native inspectors may share a key, but only its FIFO head
-//! publishes; later streams remain in the existing bounded worker buffers.
+//! publishes; later streams remain in bounded worker buffers or shared bounded
+//! completed-result storage, with all publication obligations still pending.
 //! Destination admission remains synchronously batched and exclusive per key.
 //! Diagnostic order/cover shapes can vary even at a fixed worker budget.
 use super::super::queue::{Domain, Phase};
@@ -52,6 +53,7 @@ struct Bucket<const N: usize> {
     dispatch_cursor: usize,
     outstanding_native_jobs: usize,
     peak_outstanding_native_jobs: usize,
+    peak_occupied_native_slots: usize,
     admission_seconds: f64,
     native_seconds: f64,
     incoming_requests: usize,
@@ -77,6 +79,7 @@ impl<const N: usize> Bucket<N> {
             dispatch_cursor: 0,
             outstanding_native_jobs: 0,
             peak_outstanding_native_jobs: 0,
+            peak_occupied_native_slots: 0,
             admission_seconds: 0.0,
             native_seconds: 0.0,
             incoming_requests: 0,

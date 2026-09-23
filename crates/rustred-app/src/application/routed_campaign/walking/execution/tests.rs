@@ -288,3 +288,122 @@ fn symbolic_stream_panic_retains_already_committed_frontier_provenance() {
     );
     assert!(state.uncommitted[0]["stats"].is_null());
 }
+
+#[test]
+fn completed_escrow_event_cap_keeps_exact_publisher_prefix_and_later_attempts() {
+    if !symbolica::license::LicenseManager::is_licensed() {
+        return;
+    }
+    let mut request = request();
+    request.max_events = 4;
+    let mut queue = Queue::<1>::new(8, None);
+    for x in 0..4 {
+        queue
+            .admit(super::super::queue::Domain {
+                powers: Default::default(),
+                phase: Phase::Apply,
+                owner: [true],
+                lower: vec![x],
+                upper: vec![Some(x)],
+                rank: Some(11),
+            })
+            .unwrap();
+    }
+    let mut state = State::new(queue, 0, None);
+    let release = AtomicBool::new(false);
+    let (_, snapshot, mut leftovers) = parallel::with_pool(
+        2,
+        |d, stop, emit| {
+            if d.lower[0] == 0 {
+                while !release.load(Ordering::Acquire) && !stop.load(Ordering::Acquire) {
+                    std::thread::yield_now();
+                }
+            }
+            let event = if d.lower[0] == 1 {
+                // The ordinary Admit must precede this job's known-reuse run,
+                // including when its entire stream waits in completed escrow.
+                assert!(
+                    emit(Event::one(Effect::Admit {
+                        domain: d.clone(),
+                        successor: true,
+                        conditional: true,
+                    }))
+                    .is_continue()
+                );
+                Event {
+                    count: 5,
+                    effect: Effect::KnownReuse {
+                        successor: true,
+                        conditional: true,
+                    },
+                }
+            } else {
+                Event::one(Effect::Count)
+            };
+            let stopped = emit(event).is_break();
+            Finished {
+                stats: NativeStats::Apply(Default::default()),
+                error: stopped.then(|| "cancelled".into()),
+                error_kind: if stopped { "cancelled" } else { "none" },
+                seconds: 0.0,
+            }
+        },
+        |pool| {
+            assert!(pool.dispatch(0, state.queue.domains[0].clone()));
+            for id in 1..4 {
+                assert!(pool.dispatch(id, state.queue.domains[id].clone()));
+                let start = Instant::now();
+                while pool.snapshot()["returned_inspections"] != id {
+                    assert!(start.elapsed() < Duration::from_secs(5));
+                    std::thread::yield_now();
+                }
+                pool.reclaim_finished(0);
+            }
+            assert_eq!(pool.snapshot()["completed_escrow_entries"], 3);
+            release.store(true, Ordering::Release);
+            'publish: loop {
+                let id = state.queue.next;
+                match pool.poll(id) {
+                    Poll::Events(chunk) => {
+                        for event in chunk {
+                            if let Err(error) = state.accept(event, &request) {
+                                state.error = Some(error.into());
+                                pool.fail(Failure {
+                                    id: Some(id),
+                                    phase: Some(Phase::Apply),
+                                    kind: "coordinator_admission",
+                                    detail: error.into(),
+                                });
+                                break 'publish;
+                            }
+                        }
+                    }
+                    Poll::Finished(done) => state.commit(id, done),
+                    Poll::Waiting => pool.wait(id),
+                }
+            }
+        },
+    );
+    assert_eq!(state.queue.next, 1);
+    assert_eq!(state.completed, 1);
+    assert_eq!(
+        (state.events, state.successors, state.conditional),
+        (4, 3, 3)
+    );
+    assert_eq!(state.job_local_reuse_hits, 2);
+    assert_eq!(state.queue.deduplicated, 3);
+    assert_eq!(state.queue.exact_hits, 1);
+    assert_eq!(snapshot["attempted_events"], 9);
+    assert_eq!(snapshot["returned_inspections"], 4);
+    assert_eq!(snapshot["finished_uncommitted_domains"], 3);
+    assert_eq!(snapshot["worker_buffered_events"], 0);
+    assert_eq!(leftovers.len(), 3);
+    retain_leftovers(&mut state, &mut leftovers);
+    assert_eq!(state.queue.next, 2);
+    assert_eq!(state.completed, 1); // failed publisher is not completion
+    assert_eq!(state.records.len(), 2);
+    assert_eq!(state.uncommitted.len(), 2);
+    assert_eq!(state.uncommitted[0]["id"], 2);
+    assert_eq!(state.uncommitted[1]["id"], 3);
+    assert_eq!(state.uncommitted[1]["lower"], json!([3]));
+}

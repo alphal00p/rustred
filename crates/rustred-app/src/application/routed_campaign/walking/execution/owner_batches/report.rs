@@ -81,7 +81,7 @@ fn metrics<const N: usize>(walk: &Walk<N>) -> Value {
         "multiple_native_inspectors_per_bucket":true,
         "one_active_native_publisher_per_bucket":true,
         "peak_fifo_held_jobs":walk.metrics.peak_fifo_held_jobs,
-        "held_job_scope":"native jobs selected after their owner publication head; buffers remain inside inspector pool slots",
+        "held_job_scope":"unpublished non-head native jobs; buffers remain inside physical pool slots or bounded shared completed-result storage",
         "coordination_policy":"ready owner FIFO heads only; at most one bounded chunk per head per pass; multiple inspectors per owner; synchronous destination admission",
         "max_coordinator_chunks_per_pass":"inspection_worker_limit",
         "logical_byte_scope":"coordinator frames only; native pool buffers, allocator overhead, queue/index, rules and native scratch are separate"})
@@ -132,6 +132,8 @@ pub(super) fn finish<const N: usize>(
             "dispatch_cursor":bucket.dispatch_cursor,"outstanding_native_jobs":bucket.outstanding_native_jobs,
             "dispatch_cursor_scope":"selected or skipped IDs, not successful publications",
             "peak_outstanding_native_jobs":bucket.peak_outstanding_native_jobs,
+            "peak_occupied_native_slots":bucket.peak_occupied_native_slots,
+            "occupied_slot_scope":"running, queued or completed native jobs still holding a physical pool slot; excludes retained results",
             "outstanding_job_scope":"dispatched native jobs not yet published, including retained uncommitted attempts",
             "queued_nodes":bucket.state.queue.domains.len()-bucket.state.queue.next,
             "incoming_requests":bucket.incoming_requests,"cross_owner_requests":bucket.cross_owner_requests,

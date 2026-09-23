@@ -492,6 +492,9 @@ fn run_with_initial_orthants<const N: usize>(
                     }
                     continue; // Check cancellation between every delegated record.
                 }
+                // Locally finished later jobs are not committed. Bounded
+                // escrow frees their worker slots without reordering effects.
+                pool.reclaim_finished(state.queue.next);
                 while dispatched < state.queue.domains.len() {
                     if let Some(ledger) = &state.queue.delegation {
                         if dispatched >= ledger.dispatch_fence() {
