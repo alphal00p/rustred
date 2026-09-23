@@ -19,7 +19,7 @@ use rustred::solver::{
 };
 use serde_json::{Value, json};
 
-use super::{RoutedCampaignRequest, input, prepare, snapshot_json_with_failure};
+use super::{RoutedCampaignRequest, entry, input, prepare, snapshot_json_with_failure};
 use crate::AppError;
 use nomination::{SourceCase, batches, nominate};
 
@@ -134,7 +134,12 @@ impl RoutedFeedbackOptions {
         self.max_installed_jobs
             .checked_mul(std::mem::size_of::<SourceCase<N>>())
             .ok_or_else(|| AppError::input("feedback ledger byte count overflow"))?;
+        self.validate_receipt(0)
+    }
+
+    fn validate_receipt(&self, entry_description_bytes: usize) -> Result<(), AppError> {
         if receipt_bound(self.max_jobs_per_round, self.max_error_bytes)
+            .and_then(|bytes| bytes.checked_add(entry_description_bytes))
             .is_none_or(|bytes| bytes > crate::application::MAX_OUTPUT_BYTES)
         {
             return Err(AppError::input(
@@ -163,6 +168,7 @@ pub struct RoutedFeedbackRoundResult {
 pub struct RoutedFeedbackSession<const N: usize> {
     reducer: RoutedCandidateReducer<N>,
     targets: Vec<IntegralKey>,
+    entry_domain: Option<entry::RequestedEntryDomain<N>>,
     workers: usize,
     options: RoutedFeedbackOptions,
     installed: Vec<SourceCase<N>>,
@@ -194,9 +200,25 @@ impl<const N: usize> RoutedFeedbackSession<N> {
             n,
             request.trace_limits.max_input_targets,
         )?;
+        let entry_domain = request
+            .entry_domains_json
+            .as_deref()
+            .map(entry::RequestedEntryDomain::<N>::parse)
+            .transpose()?;
+        options.validate_receipt(
+            entry_domain
+                .as_ref()
+                .map_or(0, |domain| domain.description_json_bytes()),
+        )?;
+        if let Some(domain) = &entry_domain {
+            for target in &targets {
+                domain.validate(target)?;
+            }
+        }
         observer(
             json!({"event":"feedback_admitted", "arity":N, "targets":targets.len(),
             "workers":request.workers, "source_workers":1, "effective_feedback":format!("{options:?}"),
+            "entry_admission":entry::description(entry_domain.as_ref()),
             "family_closure_claim":false, "durable_overlay_resume":false}),
         );
         let Some(reducer) =
@@ -210,6 +232,7 @@ impl<const N: usize> RoutedFeedbackSession<N> {
         Ok(Some(Self {
             reducer,
             targets,
+            entry_domain,
             workers: request.workers,
             options,
             installed: Vec::new(),
@@ -231,9 +254,9 @@ impl<const N: usize> RoutedFeedbackSession<N> {
     /// Atomically admit the next finite input batch without reloading programs
     /// or discarding overlays, the installed-case ledger, policy or round count.
     /// Every input (including duplicates) consumes the original trace input cap.
-    /// Keys are already exact integers; this checks nonempty batch and arity.
-    /// As in initial CSV admission, source conditions, entry rank and candidate
-    /// applicability remain authoritative checks of the next native trace.
+    /// Keys are already exact integers; this checks nonempty batch, arity and
+    /// the explicit finite policy when supplied. Source conditions, default
+    /// saved-rank admission and rule applicability remain native trace checks.
     /// Any admission/allocation error leaves the previous batch untouched.
     pub fn replace_targets(
         &mut self,
@@ -247,6 +270,9 @@ impl<const N: usize> RoutedFeedbackSession<N> {
                 return Err(AppError::input(
                     "feedback target arity differs from session",
                 ));
+            }
+            if let Some(domain) = &self.entry_domain {
+                domain.validate(&target)?;
             }
             let next = admitted
                 .len()
@@ -281,6 +307,8 @@ impl<const N: usize> RoutedFeedbackSession<N> {
         let round = self.rounds;
         let mut document = json!({"schema":"rustred.owner-feedback-round.json.v1", "event":"feedback_finished",
             "round":round, "input_targets":self.targets.len(),
+            "entry_admission":entry::description(self.entry_domain.as_ref()),
+            "saved_generation_max_numerator_rank":self.programs().context().scope().max_numerator_rank,
             "family_closure_claim":false, "coefficient_backsubstitution":false,
             "work_checkpoint":false, "graph_memo_reused":false, "shared_rules_sources_routes":true,
             "effective_feedback":format!("{:?}",self.options),
@@ -626,16 +654,18 @@ impl<const N: usize> RoutedFeedbackSession<N> {
         observer: &impl Fn(Value),
     ) -> Result<CandidateRoutedCampaignReport<N>, CandidateRoutedCampaignError<N>> {
         observer(json!({"event":"feedback_phase","phase":phase,"round":self.rounds}));
-        self.reducer.trace_targets_parallel_with_observer(
-            self.targets.iter().cloned(),
-            self.workers,
-            cancellation,
-            |snapshot| {
-                let mut value = feedback_snapshot(snapshot, self.options.max_error_bytes);
-                value["feedback_phase"] = json!(phase);
-                observer(value);
-            },
-        )
+        self.reducer
+            .trace_targets_parallel_with_entry_admission_and_observer(
+                self.targets.iter().cloned(),
+                entry::admission(self.entry_domain.as_ref()),
+                self.workers,
+                cancellation,
+                |snapshot| {
+                    let mut value = feedback_snapshot(snapshot, self.options.max_error_bytes);
+                    value["feedback_phase"] = json!(phase);
+                    observer(value);
+                },
+            )
     }
 
     fn finish(
@@ -725,7 +755,8 @@ fn feedback_snapshot<const N: usize>(
 // scalar/16-axis metadata fits8KiB, including its fixed input/residual key.
 // Fixed batches share error and owner fields: count input cases, not batches.
 // Two50-worker trace snapshots, policy and
-// round metadata fit512KiB. Each trace may repeat an error in its first-failure
+// round metadata fit512KiB. The explicit entry-domain description is charged
+// separately once at immutable-session admission. Each trace may repeat an error in its first-failure
 // snapshot and error field. This bounds the retained JSON receipt, not observer
 // event history, allocator overhead or native working memory.
 fn receipt_bound(jobs: usize, error_bytes: usize) -> Option<usize> {

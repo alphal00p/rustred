@@ -5,6 +5,7 @@ use std::{collections::BTreeSet, ffi::OsString, path::PathBuf};
 pub(crate) struct RoutedCampaignArgs {
     pub manifest: PathBuf,
     pub targets: PathBuf,
+    pub entry_domains: Option<PathBuf>,
     pub output: PathBuf,
     pub events: Option<PathBuf>,
     pub owner_base: PathBuf,
@@ -24,6 +25,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     let mut result = RoutedCampaignArgs {
         manifest: PathBuf::new(),
         targets: PathBuf::new(),
+        entry_domains: None,
         output: PathBuf::new(),
         events: None,
         owner_base: PathBuf::from("."),
@@ -45,6 +47,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         let name = match option.as_str() {
             "--manifest" => "--manifest",
             "--targets" => "--targets",
+            "--entry-domains" => "--entry-domains",
             "--output" => "--output",
             "--events" => "--events",
             "--owner-base" => "--owner-base",
@@ -71,7 +74,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         let value = next_utf8_value(&mut arguments, name)?;
         match name {
             "--manifest" | "--targets" | "--output" | "--events" | "--owner-base"
-            | "--stop-file" | "--expansion-limits" => {
+            | "--stop-file" | "--expansion-limits" | "--entry-domains" => {
                 if value.is_empty() || value == "-" {
                     return Err(ArgError::InvalidValue {
                         option: name,
@@ -83,6 +86,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                 match name {
                     "--manifest" => result.manifest = path,
                     "--targets" => result.targets = path,
+                    "--entry-domains" => result.entry_domains = Some(path),
                     "--output" => result.output = path,
                     "--events" => result.events = Some(path),
                     "--owner-base" => result.owner_base = path,
@@ -130,6 +134,7 @@ mod tests {
         };
         assert_eq!(args.workers, 50);
         assert_eq!(args.expansion_limits, None);
+        assert_eq!(args.entry_domains, None);
         for suffix in [
             "--workers 0",
             "--workers 51",
@@ -138,6 +143,8 @@ mod tests {
             "--timeout 1800",
             "--expansion-limits -",
             "--expansion-limits a --expansion-limits b",
+            "--entry-domains -",
+            "--entry-domains a --entry-domains b",
         ] {
             assert!(parse_words(&format!("--manifest m --targets t --output o {suffix}")).is_err());
         }
@@ -150,5 +157,16 @@ mod tests {
         ).unwrap() else { panic!() };
         assert_eq!(args.expansion_limits, Some(PathBuf::from("limits.json")));
         assert_eq!(args.transport_operations, 9);
+    }
+
+    #[test]
+    fn explicit_starting_domain_is_opt_in_and_separate_from_targets() {
+        let Command::RoutedCampaign(args) =
+            parse_words("--manifest m --targets t --output o --entry-domains roots.json").unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(args.entry_domains, Some(PathBuf::from("roots.json")));
+        assert_eq!(args.targets, PathBuf::from("t"));
     }
 }

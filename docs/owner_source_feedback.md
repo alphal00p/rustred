@@ -40,6 +40,13 @@ storage. A starting-domain budget never filters descendants. See
 [finite starting domains](finite_starting_domains.md) for the input contract,
 planning surfaces and remaining full-campaign work.
 
+An optional `RoutedCampaignRequest::entry_domains_json` declares a finite union
+of starting regions independently of the saved programs' generation rank.
+The session retains it immutably, checks replacement batches atomically and
+passes it to every native trace/retrace. Source checks and saved provenance
+are unchanged; descendants and searched terminals are not tested against the
+starting-domain restriction. See [explicit entry admission](shared_owner_campaign_driver.md#explicit-finite-starting-domains).
+
 Jobs run serially through the core source-bound domain solver. Each completed
 result passes raw-payload and cumulative overlay admission before atomic append
 and route-preserving rebind. Base and earlier batch priorities remain unchanged.

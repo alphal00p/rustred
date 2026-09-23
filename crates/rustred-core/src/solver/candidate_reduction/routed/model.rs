@@ -118,6 +118,7 @@ impl<const N: usize> CandidateRoutedTraceReport<N> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CandidateRoutedError {
     Candidate(CandidateReductionError),
+    EntryAdmission(super::RootAdmissionError),
     Transport(integral_transport::Error),
     InvalidInput(String),
     ResourceLimit {
@@ -138,6 +139,11 @@ impl From<CandidateReductionError> for CandidateRoutedError {
         Self::Candidate(error)
     }
 }
+impl From<super::RootAdmissionError> for CandidateRoutedError {
+    fn from(error: super::RootAdmissionError) -> Self {
+        Self::EntryAdmission(error)
+    }
+}
 impl From<integral_transport::Error> for CandidateRoutedError {
     fn from(error: integral_transport::Error) -> Self {
         Self::Transport(error)
@@ -152,6 +158,7 @@ impl fmt::Display for CandidateRoutedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Candidate(e) => e.fmt(f),
+            Self::EntryAdmission(e) => e.fmt(f),
             Self::Transport(e) => e.fmt(f),
             Self::InvalidInput(e) => write!(f, "invalid routed candidate programs: {e}"),
             Self::ResourceLimit {

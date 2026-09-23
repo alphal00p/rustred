@@ -163,9 +163,11 @@ class SteeringTests(unittest.TestCase):
             manifest=directory/"selection.json"; manifest.write_text("{}")
             targets=directory/"targets.csv"; targets.write_text("1\n")
             policy=directory/"limits.json"; policy.write_text('{"max_native_polynomial_operations":1234}')
+            entries=directory/"entries.json"; entries.write_text('{"schema":"rustred.owner-domain-queries.json.v2","queries":[]}')
             result=subprocess.run([sys.executable,str(SOURCE),"--executable",str(child),"--manifest",str(manifest),
                 "--targets",str(targets),"--workers","1","--soft-memory-bytes","1","--sample-seconds","0.1",
-                "--tmp-root",str(directory/"receipts"),"--no-progress","--expansion-limits",str(policy)],capture_output=True,text=True,timeout=10)
+                "--tmp-root",str(directory/"receipts"),"--no-progress","--expansion-limits",str(policy),
+                "--entry-domains",str(entries)],capture_output=True,text=True,timeout=10)
             self.assertEqual(result.returncode,4,result.stderr)
             receipt=next((directory/"receipts").iterdir())
             summary=json.loads((receipt/"supervisor-result.json").read_text())
@@ -177,6 +179,8 @@ class SteeringTests(unittest.TestCase):
             self.assertIsNone(request["hard_timeout"])
             option=request["command"].index("--expansion-limits")
             self.assertEqual(request["command"][option+1],str(policy.resolve()))
+            option=request["command"].index("--entry-domains")
+            self.assertEqual(request["command"][option+1],str(entries.resolve()))
             self.assertNotIn("SYMBOLICA_LICENSE",(receipt/"request.json").read_text())
             self.assertIn(str(request["supervisor_pid"]),request["registered_roots"])
             self.assertGreater(request["child_rlimit_as_bytes"],0)
@@ -254,6 +258,7 @@ class SteeringTests(unittest.TestCase):
         for scope, flags, diagnostic in [
             ("--queries",["--max-nodes","7"],"require --targets"),
             ("--queries",["--expansion-limits","missing"],"require --targets"),
+            ("--queries",["--entry-domains","missing"],"require --targets"),
             ("--targets",["--max-frontiers","17"],"require --queries"),
             ("--targets",["--bounded-refinement-axes","finite-axes"],"require --queries"),
             ("--queries",["--bounded-refinement-axes","all"],"invalid choice"),

@@ -45,10 +45,11 @@ pub use reducer::CandidateReducer;
 pub use routed::{
     CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,
     CandidateDomainRouteFailure, CandidateDomainRouteLimits, CandidateDomainRouteStats,
-    CandidateOwnerRoute, CandidateRoutedCampaignError, CandidateRoutedCampaignFailure,
-    CandidateRoutedCampaignReport, CandidateRoutedCampaignSnapshot, CandidateRoutedError,
-    CandidateRoutedFrontier, CandidateRoutedFrontierReason, CandidateRoutedTraceReport,
-    CandidateRoutedWork, RoutedCandidateLimits, RoutedCandidateReducer,
+    CandidateEntryAdmission, CandidateOwnerRoute, CandidateRoutedCampaignError,
+    CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport, CandidateRoutedCampaignSnapshot,
+    CandidateRoutedError, CandidateRoutedFrontier, CandidateRoutedFrontierReason,
+    CandidateRoutedTraceReport, CandidateRoutedWork, FiniteRootAdmission, RootAdmissionError,
+    RootRegionInput, RoutedCandidateLimits, RoutedCandidateReducer,
 };
 pub use trace::{CandidateTraceLimits, CandidateTraceReport};
 

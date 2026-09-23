@@ -6,7 +6,7 @@ mod scheduler;
 mod tests;
 mod worker;
 
-use super::RoutedCandidateReducer;
+use super::{CandidateEntryAdmission, RoutedCandidateReducer};
 use crate::family::IntegralKey;
 pub use model::*;
 use scheduler::{Failure, Shared};
@@ -37,10 +37,31 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         targets: impl IntoIterator<Item = IntegralKey>,
         workers: usize,
         cancellation: &AtomicBool,
+        observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
+    ) -> Result<CandidateRoutedCampaignReport<N>, CandidateRoutedCampaignError<N>> {
+        self.trace_targets_parallel_with_entry_admission_and_observer(
+            targets,
+            CandidateEntryAdmission::SavedGenerationScope,
+            workers,
+            cancellation,
+            observer,
+        )
+    }
+
+    /// Shared trace with an entry-only policy, replacing the saved rank gate
+    /// when explicitly requested. Source validation still precedes admission.
+    /// Every root is checked before any worker starts. On admission failure the
+    /// observer receives the failed preflight snapshot with no scheduled work.
+    pub fn trace_targets_parallel_with_entry_admission_and_observer(
+        &self,
+        targets: impl IntoIterator<Item = IntegralKey>,
+        admission: CandidateEntryAdmission<'_, N>,
+        workers: usize,
+        cancellation: &AtomicBool,
         mut observer: impl FnMut(&CandidateRoutedCampaignSnapshot<N>),
     ) -> Result<CandidateRoutedCampaignReport<N>, CandidateRoutedCampaignError<N>> {
         let shared = Shared::new(self, workers, cancellation);
-        let preparation = shared.prepare(self, targets);
+        let preparation = shared.prepare_with_entry_admission(self, targets, admission);
         if let Err(error) = preparation {
             shared.fail(error);
             let result = shared.into_result();

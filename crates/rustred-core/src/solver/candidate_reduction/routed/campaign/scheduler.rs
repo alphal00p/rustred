@@ -156,10 +156,23 @@ impl<'a, const N: usize> Shared<'a, N> {
         self.wake.notify_all();
         self.progress.notify_one();
     }
+    #[cfg(test)]
     pub(super) fn prepare(
         &self,
         reducer: &RoutedCandidateReducer<N>,
         targets: impl IntoIterator<Item = IntegralKey>,
+    ) -> Result<(), Failure> {
+        self.prepare_with_entry_admission(
+            reducer,
+            targets,
+            CandidateEntryAdmission::SavedGenerationScope,
+        )
+    }
+    pub(super) fn prepare_with_entry_admission(
+        &self,
+        reducer: &RoutedCandidateReducer<N>,
+        targets: impl IntoIterator<Item = IntegralKey>,
+        admission: CandidateEntryAdmission<'_, N>,
     ) -> Result<(), Failure> {
         if !(1..=64).contains(&self.workers) {
             return Err(CandidateRoutedError::InvalidInput(
@@ -181,10 +194,7 @@ impl<'a, const N: usize> Shared<'a, N> {
                 )?;
             }
             evaluator.validate_target(&target)?;
-            crate::solver::candidate_reduction::evaluator::validate_entry_rank(
-                &target,
-                reducer.programs.context.scope.max_numerator_rank,
-            )?;
+            admission.validate_entry(&target, reducer.programs.context.scope.max_numerator_rank)?;
             if !entries.contains(&target) {
                 limit(
                     entries.len(),

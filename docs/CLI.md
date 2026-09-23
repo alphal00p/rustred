@@ -26,6 +26,13 @@ and memory supervision, with no fixed short timeout. See the
 This is finite dependency inspection, not complete parametric-family generation,
 coefficient back-substitution or a resumable work cache.
 
+Optional `--entry-domains DOMAINS.json` supplies a finite union in the existing
+owner-domain query format. It replaces starting-root admission only, permitting
+an explicitly requested scope distinct from saved rule-generation scope.
+`--targets` still specifies the actual inputs; no exhaustive-domain coverage
+or descendant truncation is implied. The Python supervisor forwards the same
+option; see [the finite-domain contract](shared_owner_campaign_driver.md#explicit-finite-starting-domains).
+
 ## Generic complete artifact generation
 
 `rustred family-close` uses the family supplied in the input, not a built-in

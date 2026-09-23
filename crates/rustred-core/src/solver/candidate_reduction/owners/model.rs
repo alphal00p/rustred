@@ -10,7 +10,9 @@ use crate::solver::{FiniteCasePolicy, SectorSolution};
 use super::super::model::PreparedRule;
 use super::super::preparation::shared::PreparedFamily;
 
-/// Common generation scope. R bounds public entries, never internal successors.
+/// Common generation scope. R bounds public entries by default, never internal
+/// successors. Explicit finite entry admission may replace that default gate
+/// without changing this stored generation scope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CandidateOwnerScope {
     pub max_numerator_rank: Option<u32>,

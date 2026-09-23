@@ -10,6 +10,8 @@ use crate::solver::{CandidateReducer, CandidateTraceLimits};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+mod entry;
+
 fn routed<const N: usize>(
     family: Arc<IntegralFamily>,
     rank: Option<u32>,

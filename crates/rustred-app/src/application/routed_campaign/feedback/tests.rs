@@ -6,6 +6,7 @@ use rustred::solver::{
 };
 use rustred::{family::IntegralFamily, reduction::ReductionLimits, sector::OrderingPolicy};
 mod fixed;
+mod entry;
 
 const K1: &str = r#"
 schema="rustred.project.toml.v1"
@@ -96,6 +97,7 @@ fn session<const N: usize>(
     RoutedFeedbackSession {
         reducer: RoutedCandidateReducer::try_new(programs, [], Default::default()).unwrap(),
         targets,
+        entry_domain: None,
         workers: 1,
         options: options(),
         installed: Vec::new(),

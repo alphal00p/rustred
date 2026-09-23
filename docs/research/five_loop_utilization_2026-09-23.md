@@ -282,7 +282,7 @@ matched audit is
 These negative results do not prove hashing is universally unhelpful, but they
 do not justify enabling this implementation on the target workload.
 
-## Pending-obligation transfer: proposal, not implemented
+## Pending-obligation transfer: audited protocol, not enabled
 
 Lookup retirement currently leaves every admitted inspection obligation alive.
 The final baseline had 5,427,770 retired lookup candidates but only 2,522,398
@@ -304,16 +304,45 @@ sticky reservations/aliases, not a timing-dependent test for whichever job is
 currently undispatched. New report semantics would be necessary: skipping an
 inspection intentionally cannot preserve the previous complete event prefix.
 The design and required tests are in the ignored
-`TMP/parent-partition-design.xkm6A5/RETIREMENT_TRANSFER.md`. **No transfer policy
-has been implemented, and no performance gain is claimed.** It would optimize
+`TMP/parent-partition-design.xkm6A5/RETIREMENT_TRANSFER.md`. **No production
+transfer policy is enabled, and no performance gain is claimed.** It would optimize
 the local domain worklist, not replace missing finite-root admission or closure
 requirements.
+
+The isolated optimized Rust protocol prototype passes twelve tests, including
+96 successful and 60 failure-prefix comparisons across simulated one/two/six/
+fifty-worker schedules. Independent source/mathematical review passes within
+the model's scope. These are simulated dispatch orders, not fifty native
+threads or a solver benchmark. Fixed logical reservations make delegation
+independent of physical worker completion; aliases advance the publication
+cursor without being falsely reported as inspected. Forward responsibility
+chains resolve only after the representative's successful publication.
+
+The production integration audit identified two obligations absent from that
+small model. A native inspection can finish without an error while still
+reporting unresolved source/guard frontiers; these must prevent a delegated
+obligation from being discharged. Cancellation cleanup and failure accounting
+must count actual native jobs separately from cursor movement over aliases.
+The existing native asynchronous-failure behavior does not promise identical
+failure prefixes across worker counts. All source obligations, successor
+publication and final unresolved-frontier checks remain mandatory.
+
+The next implementation must retain the default inspect-all behavior and
+introduce an explicit opt-in policy with native differential tests before a
+timed pilot. Evidence and the integration map are in
+`TMP/parent-partition-design.xkm6A5/TRANSFER_LEDGER_RESULTS.md` and
+`TRANSFER_PRODUCTION_INTEGRATION.md`. A reduction in retired pending IDs is
+not yet a measured reduction in campaign time or an exhaustive five-loop result.
 
 There is still no evidence-backed five-loop completion ETA. Dividing pending
 regions by processed regions per second is invalid while the pending set grows;
 extrapolating seven heterogeneous roots to 67 is also unjustified. Even a
 completed symbolic walk would not by itself implement the explicit finite-root
 admission, reachable-witness feedback and final closure contract described in
-[the active plan](../finite_starting_domains.md). Finite-root integration is now
-underway as a separate implementation track; it is not yet a completed
-five-loop solve or a basis for a runtime promise.
+[the active plan](../finite_starting_domains.md). Finite-root admission is now
+integrated and release-tested as a separate implementation track. Its repeated
+67-root control matches every non-timing graph counter, with 4.6687s traversal,
+110.9826s application time and 116.0519s supervisor time. These are the original
+rank-zero roots, not exhaustive R15 coverage. The full finite starting envelope
+remains unfinished; neither this control nor the protocol tests provide a
+five-loop completion-time forecast.

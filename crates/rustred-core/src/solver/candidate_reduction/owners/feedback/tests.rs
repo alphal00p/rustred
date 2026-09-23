@@ -454,6 +454,44 @@ fn real_rank_eleven_domain_does_not_clip_descendants_or_relabel_rank_ten() {
     assert_eq!(trace.max_negative_index_degree(), 11);
     assert!(trace.frontier().is_empty());
     assert!(reduce.trace_targets([key([1, 1, -11])]).is_err());
+    // An independently admitted finite root uses this actual R11 overlay,
+    // without relabeling the saved R10 context or regenerating its owners.
+    let admission = crate::solver::FiniteRootAdmission::try_new(
+        [crate::solver::RootRegionInput {
+            support: sector,
+            lower: vec![0, 0, 11],
+            upper: vec![Some(0), Some(0), Some(11)],
+            rank: Some(11),
+            powers: Default::default(),
+        }],
+        1,
+    )
+    .unwrap();
+    let policy = crate::solver::CandidateEntryAdmission::ExplicitFinite(&admission);
+    let explicit = reduce
+        .trace_targets_with_entry_admission([key([1, 1, -11])], policy)
+        .unwrap();
+    assert!(explicit.frontier().is_empty());
+    assert_eq!(
+        explicit.declared_terminals(),
+        &std::collections::BTreeSet::from([key([1, 1, -11])])
+    );
+    for workers in [1, 2, 6] {
+        let parallel = reduce
+            .trace_targets_parallel_with_entry_admission_and_observer(
+                [key([1, 1, -11])],
+                policy,
+                workers,
+                &std::sync::atomic::AtomicBool::new(false),
+                |_| {},
+            )
+            .unwrap();
+        assert_eq!(parallel.trace(), &explicit);
+    }
+    assert_eq!(
+        reduce.programs().context().scope().max_numerator_rank,
+        Some(10)
+    );
 }
 
 #[test]

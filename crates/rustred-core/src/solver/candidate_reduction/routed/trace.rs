@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 
 use super::super::CandidateReductionError;
-use super::super::evaluator::{CandidateEvaluator, validate_entry_rank};
+use super::super::evaluator::CandidateEvaluator;
 use super::super::owners::OwnerStep;
+use super::CandidateEntryAdmission;
 use super::model::*;
 use crate::family::IntegralKey;
 use crate::reduction::{ReductionRequest, ReductionStatistics};
@@ -96,6 +97,19 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         &self,
         targets: impl IntoIterator<Item = IntegralKey>,
     ) -> Result<CandidateRoutedTraceReport<N>, CandidateRoutedError> {
+        self.trace_targets_with_entry_admission(
+            targets,
+            CandidateEntryAdmission::SavedGenerationScope,
+        )
+    }
+
+    /// Trace with an explicit starting-root policy. The policy is checked only
+    /// before traversal; routing images and descendants are never clipped to it.
+    pub fn trace_targets_with_entry_admission(
+        &self,
+        targets: impl IntoIterator<Item = IntegralKey>,
+        admission: CandidateEntryAdmission<'_, N>,
+    ) -> Result<CandidateRoutedTraceReport<N>, CandidateRoutedError> {
         let context = &self.programs.context;
         let limits = context.limits;
         let shared = &context.shared;
@@ -128,7 +142,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                 "input targets",
             )?;
             base.validate_target(&target)?;
-            validate_entry_rank(&target, context.scope.max_numerator_rank)?;
+            admission.validate_entry(&target, context.scope.max_numerator_rank)?;
             if !entries.contains(&target) {
                 let mut count = entries.len();
                 charge(

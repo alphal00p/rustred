@@ -156,8 +156,46 @@ Optional positive integer `load_limits` keys are `max_bundle_bytes`,
 The per-file hard ceiling remains 1 GiB. All decoded programs remain resident;
 encoded byte limits are not RSS predictions. JSON and target CSV each have a
 16 MiB steering limit. Targets are integer-only CSV rows, without a header or
-`trace,` prefix. Entry rank comes from the saved programs; intermediate rank is
-not clipped.
+`trace,` prefix. By default entry rank comes from the saved programs;
+intermediate rank is never clipped.
+
+### Explicit finite starting domains
+
+For concrete targets, the CLI and Python supervisor accept
+`--entry-domains DOMAINS.json`; Rust callers set
+`RoutedCampaignRequest::entry_domains_json`. This reuses the
+`rustred.owner-domain-queries.json.v2` format described in
+[domain matching](shared_owner_domain_matching.md), but every region must be
+nonempty and provably finite. At most 10,000 regions and 1 MiB of JSON are
+accepted. Coordinates are `n_i-1` on active axes and `-n_i` on inactive axes.
+Coordinate bounds are intersected with rank and A/R/D predicates; a finite
+aggregate bound can make a region finite even when individual upper bounds
+are `null`. Multiple regions remain a union, including its holes.
+
+The supplied domain **replaces only the initial-root rank admission policy**.
+It does not rewrite saved generation scope, assert additional rule coverage,
+or restrict descendants. For example, an explicit R15 finite request may use
+R10-origin saved rules when their actual applicability permits it; uncovered
+targets still produce native missing-rule frontiers. Selected source supports
+can use verified routes without a literal owner. Missing routes/owners and
+source-condition failures retain their usual outcomes.
+
+This option does not enumerate all roots in the domain: `--targets` is still
+required. Reports retain `entry_admission`,
+`saved_generation_max_numerator_rank` and the actual submitted-target count,
+with no exhaustive-domain claim. Symbolic `--queries` mode rejects the option.
+Retained Rust feedback sessions preserve the same explicit policy across batch
+replacement, new overlays and retracing. Root replacement rejects a whole
+invalid batch atomically; descendants and searched terminals can lie outside
+the entry domain.
+
+The native interfaces are `FiniteRootAdmission<N>` with
+`CandidateEntryAdmission::ExplicitFinite`,
+`trace_targets_with_entry_admission`, and
+`trace_targets_parallel_with_entry_admission_and_observer`. Existing trace
+methods retain their saved-generation-scope default.
+
+### Resource controls
 
 `RoutedCampaignRequest` and `routed_campaign_with_progress` are the public Rust
 application interface. `rustred routed-campaign --help` lists the CLI flags.

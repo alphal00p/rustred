@@ -1,6 +1,7 @@
 //! Shared finite-target tracing and symbolic local-domain diagnostics.
 //! Neither diagnostic alone claims parametric family closure.
 mod domains;
+mod entry;
 mod feedback;
 mod guarded;
 mod input;
@@ -42,6 +43,10 @@ use serde_json::{Value, json};
 pub struct RoutedCampaignRequest {
     pub selection_json: String,
     pub targets_csv: String,
+    /// Optional finite union in owner-domain-queries.json.v2 coordinates.
+    /// Replaces only starting-root admission, never saved source provenance or
+    /// descendant scope. Omission keeps the saved generation-rank policy.
+    pub entry_domains_json: Option<String>,
     /// Relative owner paths are resolved here, not relative to the executable.
     pub owner_base: PathBuf,
     pub workers: usize,
@@ -53,6 +58,7 @@ impl RoutedCampaignRequest {
         Self {
             selection_json,
             targets_csv,
+            entry_domains_json: None,
             owner_base: PathBuf::from("."),
             workers: 1,
             trace_limits: Default::default(),
@@ -113,6 +119,16 @@ fn run<const N: usize>(
     observer: &impl Fn(Value),
 ) -> Result<RoutedCampaignResult, AppError> {
     let started = Instant::now();
+    let entry_domain = request
+        .entry_domains_json
+        .as_deref()
+        .map(entry::RequestedEntryDomain::<N>::parse)
+        .transpose()?;
+    if let Some(domain) = &entry_domain {
+        for target in &targets {
+            domain.validate(target)?;
+        }
+    }
     let Some(reducer) = prepare::prepare::<N>(request, selection, limits, cancellation, observer)?
     else {
         let document = json!({"schema":"rustred.routed-campaign.json.v1", "event":"finished",
@@ -125,8 +141,9 @@ fn run<const N: usize>(
             document,
         });
     };
-    let result = reducer.trace_targets_parallel_with_observer(
+    let result = reducer.trace_targets_parallel_with_entry_admission_and_observer(
         targets,
+        entry::admission(entry_domain.as_ref()),
         request.workers,
         cancellation,
         |snapshot| observer(snapshot_json(snapshot)),
@@ -165,6 +182,8 @@ fn run<const N: usize>(
             "trace":format!("{:?}",request.trace_limits),"reduction":format!("{:?}",request.reduction_limits)},
         "work_checkpoint":false, "frontier_details_complete":false,
         "family_fingerprint":trace.family_fingerprint(), "snapshot":snapshot_json(report.snapshot()),
+        "entry_admission":entry::description(entry_domain.as_ref()),
+        "saved_generation_max_numerator_rank":reducer.programs().context().scope().max_numerator_rank,
         "elapsed_seconds":started.elapsed().as_secs_f64(),
         "frontier_groups":groups.into_iter().map(|((mask, reason),(count,example))|
             json!({"mask":mask,"reason":reason,"count":count,"example":example})).collect::<Vec<_>>()});

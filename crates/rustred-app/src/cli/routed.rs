@@ -64,6 +64,10 @@ fn run_admitted(args: RoutedCampaignArgs) -> Result<(), CliError> {
         read_input(&StreamPath::File(args.manifest))?,
         read_input(&StreamPath::File(args.targets))?,
     );
+    request.entry_domains_json = args
+        .entry_domains
+        .map(|path| read_input(&StreamPath::File(path)))
+        .transpose()?;
     request.owner_base = args.owner_base;
     request.workers = args.workers;
     request.trace_limits.expansion = expansion_policy.limits();

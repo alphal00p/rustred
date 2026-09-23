@@ -194,6 +194,60 @@ powers=[1]
         let event: Value = serde_json::from_str(line).unwrap();
         assert_eq!(event["event"], "heartbeat");
     }
+    let entries = directory.0.join("entries.json");
+    let domain = json!({"schema":"rustred.owner-domain-queries.json.v2","queries":[{
+        "id":"only-starts","owner":"1","lower":[1],"upper":[2],
+        "max_numerator_rank":0,"power_bounds":{"min_power_difference":2}}]});
+    std::fs::write(&entries, domain.to_string()).unwrap();
+    let explicit = command()
+        .args(args("explicit.json"))
+        .arg("--entry-domains")
+        .arg(&entries)
+        .output()
+        .unwrap();
+    assert!(
+        explicit.status.success(),
+        "{}",
+        String::from_utf8_lossy(&explicit.stderr)
+    );
+    let explicit: Value =
+        serde_json::from_slice(&std::fs::read(directory.0.join("explicit.json")).unwrap()).unwrap();
+    assert_eq!(explicit["completed_finite_trace"], true);
+    assert_eq!(explicit["entry_admission"]["mode"], "explicit_finite");
+    assert_eq!(
+        explicit["entry_admission"]["exhaustive_coverage_claim"],
+        false
+    );
+    assert_eq!(
+        explicit["saved_generation_max_numerator_rank"],
+        report["saved_generation_max_numerator_rank"]
+    );
+    // Restricting the starting roots must not discard the reached terminal [1].
+    assert_eq!(
+        explicit["snapshot"]["declared_terminals"],
+        report["snapshot"]["declared_terminals"]
+    );
+    assert_eq!(explicit["snapshot"]["declared_terminals"], 1);
+    let mut forbidden = domain;
+    forbidden["queries"][0]["upper"] = json!([1]);
+    std::fs::write(&entries, forbidden.to_string()).unwrap();
+    let denied = command()
+        .args(args("denied.json"))
+        .arg("--entry-domains")
+        .arg(&entries)
+        .output()
+        .unwrap();
+    assert!(!denied.status.success());
+    let denied: Value =
+        serde_json::from_slice(&std::fs::read(directory.0.join("denied.json")).unwrap()).unwrap();
+    assert_eq!(denied["status"], "preparation_error");
+    assert_eq!(denied["completed_finite_trace"], false);
+    assert!(
+        denied["error"]
+            .as_str()
+            .unwrap()
+            .contains("finite starting domain")
+    );
     let stop = directory.0.join("stop");
     std::fs::write(&stop, "operator stop").unwrap();
     let cancelled = command()

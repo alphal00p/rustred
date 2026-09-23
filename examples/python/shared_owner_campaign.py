@@ -223,6 +223,8 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, required=True)
     scope = parser.add_mutually_exclusive_group(required=True)
     scope.add_argument("--targets", type=Path, help="concrete integer targets (CSV)")
+    parser.add_argument("--entry-domains", type=Path,
+                        help="explicit finite starting-domain union for --targets; does not limit descendants")
     scope.add_argument("--queries", type=Path, help="symbolic owner domains (JSON); follow successors")
     parser.add_argument("--executable", type=Path, required=True)
     parser.add_argument("--owner-base", type=Path, default=Path.cwd())
@@ -257,7 +259,7 @@ def main() -> int:
     parser.add_argument("--no-progress", action="store_true")
     args = parser.parse_args()
     symbolic = args.queries is not None
-    if symbolic and (args.expansion_limits is not None or any(
+    if symbolic and (args.entry_domains is not None or args.expansion_limits is not None or any(
             getattr(args, option.replace("-", "_")) is not None for option in FINITE_ALLOWANCES)):
         parser.error("concrete-target/expansion allowances require --targets")
     if not symbolic and (args.route_domain_overcover or any(
@@ -298,6 +300,8 @@ def main() -> int:
     inputs = [args.manifest, args.queries if symbolic else args.targets, args.executable]
     if args.expansion_limits is not None:
         inputs.append(args.expansion_limits)
+    if args.entry_domains is not None:
+        inputs.append(args.entry_domains)
     for path in inputs:
         if not path.is_file():
             parser.error(f"not a file: {path}")
@@ -323,6 +327,8 @@ def main() -> int:
             command += ["--" + option, str(default if value is None else value)]
     if args.expansion_limits is not None:
         command += ["--expansion-limits", str(args.expansion_limits.resolve())]
+    if args.entry_domains is not None:
+        command += ["--entry-domains", str(args.entry_domains.resolve())]
     if args.no_progress:
         command.append("--no-progress")
     # Never include the process environment or license in provenance.

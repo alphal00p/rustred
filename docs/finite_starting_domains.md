@@ -33,8 +33,11 @@ the full 67-owner input had not been launched. The new instruction above
 authorizes resumption.
 
 The objective below is **unfinished**, not complete or mathematically blocked.
-The next work remains the broader shared-root diagnostic, explicit finite-root
-admission, actual-root witness feedback and complete finite-envelope handling.
+The broader shared-root diagnostic is measured but incomplete. Explicit
+finite-root admission is implemented and independently reviewed. Its full
+initial release gate, report-size follow-up gate and saved-five-loop canary
+pass. Actual-root witness feedback and
+complete finite-envelope handling remain unfinished.
 Evidence and resume steps are in the
 [bounded-routing pilot report](research/bounded_routing_pilot_2026-09-22.md).
 
@@ -286,9 +289,12 @@ therefore important for the next campaign. Evidence:
 
 Two campaign integration requirements remain explicit: the current scheduler
 eagerly admits all supplied targets, so a lazy generator alone is not bounded
-campaign memory; and saved R10 entry scopes must not silently admit an R14
-profile. Bounded retained-session batches, compressed coverage/gap traversal,
-and compatible explicit entry scopes are required before the full run.
+campaign memory; and saved R10 entry scopes must not silently admit a wider
+profile. An explicit finite entry policy is now implemented separately from
+saved generation provenance; the initial release gate and saved-five-loop
+canary pass, including the report-size follow-up application gate. Bounded
+retained-session batches and compressed
+coverage/gap traversal are still required before the full run.
 No finite renormalizable five-loop envelope
 has yet been claimed exhaustively covered, and no complete new campaign has
 been launched.
@@ -737,20 +743,24 @@ A follow-up source audit separates the remaining integration obligations:
   or distinct descendants. Coordinate conventions
   and 249,744 boundary/control membership comparisons pass. This is input
   preparation, not a native run, wider concrete admission or completed campaign.
-- Wider symbolic matching is intentionally allowed by
-  `walking/mod.rs`, but public concrete root admission still enforces saved
-  R10 context scope in the native campaign scheduler. An above-entry overlay
-  does not widen that scope; a dedicated R11 regression verifies this. A
-  successful R15 diagnostic must not silently retag R10 saved bundles or be
-  advertised as R15 public evaluator admission.
+- Wider symbolic matching is intentionally allowed by `walking/mod.rs`.
+  Default concrete root admission still enforces saved R10 context scope.
+  The new opt-in `FiniteRootAdmission` accepts a separate explicit finite
+  region union without retagging saved bundles; it is wired through serial
+  and parallel tracing, retained feedback, CLI `--entry-domains`, and Python
+  campaign steering. Source/mathematical review, the initial release suite
+  and the saved-five-loop canary pass, including the report-size follow-up
+  application gate. A wider symbolic
+  diagnostic alone still does not establish concrete evaluator coverage.
 - Conservative frontier boxes are explicitly not reached missing-rule claims
   (`walking/inspection.rs`). Concrete witness extraction and replay from an
   admitted starting input remain necessary before fixed-target repair.
 - `RoutedFeedbackSession::replace_targets` already supplies bounded retained
   batches, and exact fixed-target nomination/overlay installation exist. The
   missing connection is compact traversal to genuine witnesses and retained
-  CLI/Python feedback steering, plus explicit requested-entry-domain authority;
-  it is not the batch-replacement primitive itself.
+  CLI/Python feedback steering. Explicit requested-entry-domain authority is
+  implemented and release-validated; it is not a change to saved
+  source-search scope or the batch-replacement primitive itself.
 - Worklist resolution remains separate from final bounded-closure reporting,
   fixed-point feedback, source-valid routing, and explicit finite terminals.
   Graph/forest incidence profiles are still proposed restrictions, not
@@ -759,8 +769,9 @@ A follow-up source audit separates the remaining integration obligations:
 Do not treat index speedups as completion of these tasks or move to terminal
 minimization/evaluation before the requested finite starting domain is handled.
 
-Two isolated implementation prototypes now validate the next connection; they
-are not yet wired into production. A finite-root policy uses existing native
+Two isolated implementation prototypes validated the next connection. The
+finite-root policy has now been integrated into production and passed its
+initial release gate and saved-five-loop control. It uses existing native
 `DomainPowerSummary` projection and singleton containment, without duplicating
 the application budget arithmetic. Seven optimized tests include 1,277,760
 comparisons with existing application membership and all 67 prepared full-jet
@@ -775,7 +786,8 @@ combine separately attainable minima. Seven tests cover 466,560 small-domain
 configurations, 82,944 intersections and integer-representability boundaries.
 The combined 18-test gate also checks 3,624 nonempty intersection witnesses
 against the original entry policy and 1,632 empty intersections. Independent
-review passes for both prototypes; production integration remains pending.
+review passes for both prototypes; production witness selection and its
+connection to actual missing-target feedback remain pending.
 
 If a symbolic frontier intersects an actual starting region, such a point is
 already an allowed root, irrespective of the conservative path that discovered
@@ -787,6 +799,63 @@ No new CAS, source search or solver campaign was introduced by these prototype
 tests. Local source, tests and audit notes are in
 `TMP/explicit-entry-policy.qJ4dZd/` and
 `TMP/parallel-admission-gate.53B924/ENTRY_WITNESS_CANDIDATE.md`.
+
+### Explicit finite-root admission: integrated five-loop control
+
+`FiniteRootAdmission` now owns an exact finite union of existing native
+coordinate/A/R/D regions. `CandidateEntryAdmission::ExplicitFinite` replaces
+only the initial saved-generation-rank gate. Omission retains the default.
+It never changes saved source-search provenance, rewrites the rule bundle,
+clips descendants, accepts an unresolved source condition, or declares wider
+closure. Selected routing-source supports need no literal Apply owner;
+ordinary routing still reports a genuinely missing owner.
+
+The Rust request and retained feedback session accept `entry_domains_json`;
+the CLI and Python campaign supervisor expose `--entry-domains PATH` using
+`rustred.owner-domain-queries.json.v2`. Batch replacement validates every new
+root before replacing the previous batch. Overlays, policy and verified routes
+remain retained across rounds. The normalized domain description is measured
+once and charged to the feedback report budget before loading owners; large
+valid input descriptions can exceed the old fixed metadata allowance.
+
+Independent source/mathematical review passes. The final actual-source release
+gates pass 2,778 core-library tests plus 15 core-integration tests, 395
+application-library tests plus 82 application-integration tests, and all 72
+Python/API/steering tests. There are 36 existing ignored Rust diagnostics
+across those suites. The follow-up application gate includes the independently
+audited report-size correction and its large-policy/overflow regression.
+These gates use the shared working tree; unrelated pre-existing scheduler
+edits are not part of the finite-entry milestone. Tests exercise union holes and correlated predicates,
+R15 entry with a reached R16 descendant, genuine R11 overlays without saved-R10
+retagging, source-condition failures, atomic admission, and serial/one/two/six
+worker agreement. The exhaustive geometry control checks 1,277,760 small
+integer memberships against an independent enumeration.
+
+The matching release CLI then completed the original **67 concrete control
+inputs**, with the explicit full-jet 67-region policy enabled, 50 workers and
+CPU affinity 0–49. Saved rules were reused without regeneration. Every final
+non-timing graph-snapshot field matches the earlier control: 347,816 distinct
+integrals, 348,652 operational nodes, 130,348 rule applications, 5,797,375
+deduplication hits, 314 declared-terminal keys counted, and zero missing rules,
+missing owners, failures or pending nodes. The public summaries contain the
+terminal count, not a complete terminal-key list comparison.
+
+Traversal took **4.6687 s**, the application timer **110.9826 s**, and the
+supervisor **116.0519 s**; sampled aggregate peak RSS was **5.660 GB**. These
+are release shared-host observations, not a statistical speed comparison or
+evidence of fifty continuously busy cores. Preparation and process teardown
+are excluded from the traversal timer; their difference is not a pure I/O
+benchmark. The report retains saved generation rank 10 alongside explicit
+requested rank 15. The supplied control roots are unchanged from the earlier
+small run, with R=0 and A=10..12: this is neither an above-R10 evaluation test,
+an exhaustive R15 test, nor closure of the full
+finite envelope, and no coefficient back-substitution was performed.
+
+Evidence: `TMP/finite-root-integration.GIUpjn/`, with canary
+`shared-owner-campaign.w0d369gw/` and exact counter comparison
+`canary-comparison.json`. Deterministic intersection-point selection and its
+connection to actual missing-target feedback remain the next functional step;
+the new preparatory witness code is not yet registered or used by a campaign.
 
 The all-owner input has a concrete reuse advantage worth testing after the
 matched index pilot. Sufficient implication of the recorded coordinate and
