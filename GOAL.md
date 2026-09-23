@@ -1,5 +1,14 @@
 # RustRed project goal
 
+**Diagnostic stopped for targeted optimization — September 23:** the H256 run
+below stopped cooperatively, not at a time or memory limit. Its final report has
+1,335,458 completed native regions, one cancelled partial, 1,958,574 native
+obligations still pending and zero observed frontiers. Supervisor time was
+2,690.417 s and sampled peak RSS 40.535 GB, including report writing. It is not
+closed or resumable. The next measurement compares expensive original Apply
+regions with their exact residual outside an already-inspected initial region;
+reuse must retain that initial region's dependencies. No rules are regenerated.
+
 **Live diagnostic observation — frozen at heartbeat 2,074.852853168 s,
 September 23:** the all-67-owner H256 run was still running, with 1,325,896
 native publications, 3,772,729 transferred obligations and 1,946,321 native
@@ -22,7 +31,8 @@ including all nine native witness tests, and 73 Python/API/steering tests.
 The application gate exercises concrete witness feedback and native delegation;
 an additional clean-owned scheduler compatibility check passes 120 tests
 (one existing diagnostic ignored). A monitored 50-worker all-67-owner diagnostic
-with delegation lookahead 256 is now running; there is no new five-loop
+with delegation lookahead 256 was launched and subsequently stopped as reported
+above; there is no new five-loop
 performance or closure claim. The witness interface
 never equates point success with region exhaustion, and delegation retains
 frontiers and failed/partial publication as unresolved responsibility. This

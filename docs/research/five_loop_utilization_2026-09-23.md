@@ -495,3 +495,54 @@ proposals and cannot establish a campaign speedup. Given the newer Apply-job
 evidence, this is a measurement option, not a decision that a containment-only
 optimization will solve the slowdown. No new index, CAS algorithm or rule
 generation was introduced by this documentation update.
+
+## Delegation pilot terminal outcome
+
+The same H256 diagnostic subsequently stopped cooperatively for targeted
+optimization. The operator stop requested examination of repeated heavy Apply
+regions and ordered-publication waiting; it was not an elapsed deadline,
+resource-limit failure or observed missing-rule diagnosis. The supervisor and
+native process both exited, and the read-only thread sampler finished normally.
+
+| Final quantity | Value |
+|---|---:|
+| Historical admitted obligations | 7,077,607 |
+| Complete native inspections | 1,335,458 |
+| Cancelled partial native inspections | 1 |
+| Alias publications | 1,261,941 |
+| Transferred obligations | 3,783,574 |
+| Remaining native obligations | 1,958,574 |
+| Remaining logical queue | 4,480,207 |
+| Observed frontiers | 0 |
+| Preparation timer | 104.041 s |
+| Reported traversal timer | 2,530.416 s |
+| Application timer | 2,634.456 s |
+| Whole supervisor time | 2,690.417 s |
+| Sampled peak process-tree RSS, including shutdown/reporting | 40.535 GB |
+
+The reported traversal timer includes final ledger resolution and result
+construction; it is not pure worker CPU time. The application timer ends before
+CLI JSON serialization and supervisor reaping.
+
+The cancelled partial is stop fallout, not a failed IBP. The final local
+delegation ledger resolves 917,044 transferred obligations, leaves 2,866,521
+pending, and blocks nine on cancellation. Its native and alias counts must not
+be combined into a claim of closed physical regions. The saved report explicitly
+states `recursive_worklist_exhausted=false` and `family_closure_claim=false`;
+the supervisor reports exit 4, `hard_stopped=false`, and `work_checkpoint=false`.
+This preserves diagnostic evidence, not a resumable worklist.
+
+Completed expensive-region records show substantial matching and RHS work. For
+example, ID 2,577,768 visits 938,040 matching cells, 323,066 predicates, 3,238
+selected pieces and 298,250 RHS terms. Its native wall timer includes producer
+backpressure and must not be reported as an isolated algebra benchmark.
+
+The next bounded measurement calls the existing native application visitor on
+those exact original inputs and on their exact residual outside an initial
+region. For an initial lower-D bound d, test the partition `D>=d` / `D<=d-1`;
+only the existing native summary can establish that the upper slice is
+contained in the initial region. This is input-derived and topology-generic.
+Any later implementation must preserve the original initial inspections and
+their dependency obligations, avoid self-reuse/delegation cycles, and report
+partial reuse honestly. No performance gain or production implementation of
+this proposal is claimed here.

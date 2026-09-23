@@ -1,5 +1,22 @@
 # Finite starting domains and fixed-target repair
 
+## Latest outcome — cooperative optimization stop, September 23
+
+The H256 diagnostic below is now terminal, with a saved incomplete result:
+1,335,458 complete native regions, one cancelled partial, 1,958,574 pending
+native obligations and zero observed frontiers. It stopped for measured
+repeated Apply work and publication waiting, not an elapsed deadline or memory
+limit. Supervisor time was 2,690.417 s; peak sampled RSS was 40.535 GB including
+report writing. No resumable work checkpoint or closure is claimed.
+
+The focused next experiment uses the unchanged native API on expensive saved
+regions and an exact D-band residual, after native containment proves the
+complementary slice belongs to an original initial region. Initial obligations
+and their descendants must remain retained; skipping an overlap cannot silently
+turn it into a terminal. The simpler containment-filter measurement is separate
+and cannot establish a whole-campaign speedup. Full-run details are recorded in
+the [utilization report](research/five_loop_utilization_2026-09-23.md#delegation-pilot-terminal-outcome).
+
 ## Current live diagnostic — frozen observation, September 23
 
 At heartbeat **2,074.852853168 s**, the release-gated H256 delegation run over
@@ -911,10 +928,10 @@ of concurrent 50-core utilization. An additional actual-source compatibility
 gate against the committed scheduler passes 120 tests (one existing diagnostic
 ignored). The full Cargo tests
 use the shared working tree, including unrelated pre-existing escrow changes
-that are excluded from this milestone. Five-loop performance remains to be
-measured: the full-67-owner H=256 diagnostic is now running with 50 configured
-workers, fixed CPU affinity 0–49, the 450/500 GB memory policy and no elapsed
-deadline. Its receipt is `shared-owner-campaign.zx0rs62j/` under the gate
+that are excluded from this milestone. The full-67-owner H=256 diagnostic ran
+with 50 configured workers, fixed CPU affinity 0–49, the 450/500 GB memory policy
+and no elapsed deadline, then stopped for the measured optimization described
+above. Its receipt is `shared-owner-campaign.zx0rs62j/` under the gate
 directory. Alias publication is measured separately from native inspection and
 does not establish discharge. Current evidence is under
 `TMP/witness-delegation-gate.9qXc3m/`. Neither addition establishes complete
