@@ -356,7 +356,7 @@ median is 4.564 s ready-stream versus 2.301 s ordered. One active producer per
 hot owner and extra native work remain limitations. Ordered stays the default.
 The earlier chunk-barrier prototype
 completed all eight saved routed
-two-loop policy/worker controls complete successfully; their millisecond timings
+two-loop policy/worker controls successfully; their millisecond timings
 do not establish a speedup. The small four-owner five-loop canary also completes,
 but owner batching was slower at six workers. These are measurements of the
 earlier barrier version, not the new ready-stream scheduler. No full-campaign
