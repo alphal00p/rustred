@@ -350,11 +350,14 @@ impl IndexedCoefficientContext {
             context: self.fingerprint.clone(),
         };
         let raw = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // IndexedCoefficient is already canonical. Empty substitution is
+            // identity and preserves coprimality; nonempty specialization can
+            // create common factors and must still normalize them.
             <Coefficient as FromNumeratorAndDenominator<IntegerRing, IntegerRing, u16>>::from_num_den(
                 numerator,
                 denominator,
                 &Z,
-                true,
+                !fixed.is_empty(),
             )
         }))
         .map_err(|_| {

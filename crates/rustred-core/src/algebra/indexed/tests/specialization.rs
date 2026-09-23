@@ -8,6 +8,8 @@ use super::super::{
     IndexedPolynomial,
 };
 
+mod identity;
+
 #[test]
 fn polynomial_specialization_preserves_the_pre_cancellation_condition() {
     let base = CoefficientContext::new(["x"]);

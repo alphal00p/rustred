@@ -68,6 +68,32 @@ Independent receipts are `INDEPENDENT_TWO_PERIOD_TREND_5633S.md` and
 under `TMP/dispatch-fence-audit.Tl4yhT/`. No production code or live-run
 configuration changed during these audits.
 
+### Validated identity-specialization optimization, not in the live binary
+
+The Apply hot-path review found that fixed-index specialization reconstructed
+an already canonical coefficient with Symbolica's polynomial GCD enabled even
+when the binding list was empty. Identity substitution preserves coprimality.
+The narrow follow-up now passes `do_gcd=false` to Symbolica in that case only;
+nonempty substitutions still normalize. No CAS kernel, cache, schema, search
+policy or resource-limit change is introduced. Context validation, both
+preflights, the original denominator guard, output checks and logical/native
+accounting remain unchanged. Independent source and mathematical review pass.
+
+Release validation passes **66 indexed-algebra tests**, including five new
+identity/guard/limit/context/nonempty-cancellation regressions, and the full
+core suite passes **2,792 tests**, with **32 existing ignored diagnostics** and
+zero failures. Indexed test execution took 0.02 s; the full core harness took
+135.65 s. The separate one-CPU optimized compilation took about 22 minutes;
+that is not solver execution time. Gate receipts and independent review are
+under `TMP/identity-specialization-gate.r16nMn/`.
+
+This controlled build/test gate used CPU49, one Cargo job, single-threaded
+default compute pools and a 32-GiB address-space bound. Exclude
+**13:29:25–13:53:45 UTC** from clean campaign-performance comparisons. The live
+CLI remains byte-identical to its recorded executable hash: it was not rebuilt,
+replaced or restarted. The optimization is for a subsequent binary; no actual
+campaign speedup or frequency of empty substitutions has yet been measured.
+
 ## Scope and reproducibility
 
 The resumed investigation uses all 67 prepared starting regions together,
