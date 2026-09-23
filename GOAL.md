@@ -1,5 +1,17 @@
 # RustRed project goal
 
+**Latest measured optimization — native fixed substitution:** a separate
+26-worker A11 profile attributes 32.81% of sampled user CPU to Symbolica polynomial
+replacement; worker stacks do not unwind, so caller attribution is limited.
+The generic zero-first/descending native fixed-substitution change passes
+independent source review, 2,798 core release tests (32 existing ignored) and the
+CLI build. Six matched Ordered A11 controls preserve exact counters and structural
+results, with median traversal 11.647 s before versus 5.938 s after (49.01% lower),
+and median process CPU 147.14 s versus 51.06 s. Busy cores decrease, not saturate.
+This is one unchanged scoped workload; larger-input gains and full-family ETA
+remain unproved. Independent raw measurement review passes. See
+[the profile and experiment](docs/research/finite_closure_native_profile_2026-09-23.md).
+
 **Completed-slot reuse — measured follow-up:** both scheduling policies now
 share bounded storage for finished-but-unpublished results, freeing physical
 inspectors without bypassing FIFO responsibility. Independent source review,
@@ -8,9 +20,11 @@ ignored in each; suites overlap), and the release CLI builds. All six matched
 A11 controls complete. Median traversal is 7.484 s owner-local versus 8.284 s
 Ordered, about 9.65% lower elapsed time, but with more native work and total CPU.
 Sampled busy-core averages have medians of 13.99 versus 9.99; this
-is not fifty-core saturation. Keep Ordered default pending larger input-driven
-controls. The full 67-owner envelope is still incomplete and stopped, with no
-defensible completion ETA. See [implementation and measured evidence](docs/research/owner_completed_slot_reuse_2026-09-23.md).
+is not fifty-core saturation. A larger A12/R3/D9 control (357,192 starting tuples)
+also completes: 26.746 s owner-local versus 28.427 s Ordered in one pair,
+with about nine sampled busy cores in each and more native visits owner-local.
+Keep Ordered default. The full 67-owner envelope is still incomplete and stopped,
+with no defensible completion ETA. See [implementation and measured evidence](docs/research/owner_completed_slot_reuse_2026-09-23.md).
 
 **Preceding measured checkpoint — within-owner inspection parallelism:** after the pushed
 ready-stream checkpoint (`fbeb4e2f`, `22ea812b`), allow multiple immutable native

@@ -146,6 +146,48 @@ concurrent owner. It used a different binary and Ordered-only reclamation;
 the new within-binary repeated comparison is the primary result. Lower wall
 time comes with more native work, CPU and memory. This fixes a real slot-use
 limitation but does not solve repeated-work amplification or fill fifty cores.
-Keep Ordered default pending larger controls. A12/R3/D9 is prepared with 357,192
-starting tuples, not yet run. The full 67-owner envelope remains incomplete and
-stopped; no completion ETA follows from A11.
+The larger completed control below still does not justify changing the default.
+The full 67-owner envelope remains incomplete and stopped; no completion ETA
+follows from these pilots.
+
+## Larger A12 control
+
+One sequential Ordered/Owner pair also completes with the same frozen CLI,
+four saved owners, 86 routes, worker budget, affinity and resource allowances.
+A12/R3/D9 represents 357,192 starting tuples in four regions. All descendants
+remain required; their scheduled rank bounds reach four. No root build or
+profiling run overlaps these timings. This is one observation per policy on a
+shared host, not a replicated result or a cold operating-system-cache test.
+
+| A12 measurement | Ordered | Owner-local |
+|---|---:|---:|
+| Traversal seconds | 28.426827 | 26.745764 |
+| Native inspections | 62,562 | 77,661 |
+| Events | 2,507,532 | 2,804,513 |
+| Whole supervised-process CPU seconds | 258.47 | 244.01 |
+| Whole supervised-process peak RSS, KiB | 1,398,396 | 1,530,548 |
+| Corrected sampled mean busy cores | 8.98 | 9.02 |
+
+Owner-local reduces wall time by 5.91% in this pair, with 24.13% more native
+inspections and 11.84% more events. Whole-process CPU is 5.59% lower and peak RSS
+9.45% higher. Unlike A11, average sampled CPU occupancy barely changes. Do not
+infer a utilization breakthrough from dispatch width or more scheduled jobs.
+
+Independent raw review verifies all native, alias and partial-anchor
+responsibilities, zero frontiers/errors/pending work, and drained physical and
+retained state. Neither run reaches a resource cap, allocation fallback or
+producer backpressure. Ordered retains at most 255 finished results (12.71 MB
+accounted); owner-local retains 3,871 (47.74 MB accounted). Those bytes are not
+total RSS. Initial owner preparation takes 2.772/2.767 s separately from traversal.
+
+Steering and raw results are in `TMP/owner-retention-a12-pair.1yjMtR/matrix/`.
+The corrected CPU estimator includes `domain_delegated`; these remain
+heartbeat-labelled intervals rather than exact native phase accounting.
+All per-run checks and the independent raw audit pass. The scoped coverage
+flags deliberately do not claim full-family closure or new IBP generation.
+
+Next reduce repeated native work as well as scheduling overhead. The separate
+[CPU profile and native substitution audit](finite_closure_native_profile_2026-09-23.md)
+identify a measured algebra hotspot. The
+[radical architecture review](finite_closure_architecture_review_2026-09-23.md)
+also considers changing the unit of closure work itself.

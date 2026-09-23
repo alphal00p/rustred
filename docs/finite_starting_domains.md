@@ -12,10 +12,18 @@ versus 8.284 s Ordered. The 9.65% wall-time reduction comes with about 18.8% mor
 native visits and 24.8% more whole-process CPU. Corrected heartbeat-labelled
 busy-core medians are 13.99 versus 9.99, not fifty-core saturation.
 
-Keep Ordered default until larger controls support changing it. A12/R3/D9 is
-prepared as input only, covering 357,192 starting tuples across the same four
-saved owners; it is not a replacement for the complete 67-owner envelope.
-Sampling profiles and structural reuse analysis guide the next optimization.
+Keep Ordered default. One larger A12/R3/D9 pair also completes, covering 357,192
+starting tuples across the same four saved owners: 26.746 s owner-local versus
+28.427 s Ordered. Both average about nine sampled busy cores, and owner-local
+still performs more native inspections. All descendants remain required, with
+scheduled rank bounds reaching four. This is not a replacement for the complete
+67-owner envelope. A profile-guided, generic native-substitution-order change
+passes 2,798 core release tests (32 existing ignored) and the CLI build. Six
+matched Ordered A11 runs retain identical non-timing results and counters;
+median traversal is 5.938 s versus 11.647 s before, and process CPU 51.06 s
+versus 147.14 s. Independent raw measurement review passes. This does not
+establish larger-input scaling, fifty-core saturation or a full-family ETA.
+See [profile, API audit and controls](research/finite_closure_native_profile_2026-09-23.md).
 The broad campaign remains stopped and unfinished, with no completion ETA.
 See [the measured implementation checkpoint](research/owner_completed_slot_reuse_2026-09-23.md).
 

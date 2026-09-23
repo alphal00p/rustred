@@ -490,8 +490,13 @@ impl IndexedCoefficientContext {
         let base_count = self.base.variables().len();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut result = source.clone();
-            for &(position, value) in fixed {
-                result = result.replace(base_count + position, &Integer::from(value));
+            for (position, value) in fixed_index_execution_order(fixed) {
+                let variable = base_count + position;
+                if result.degree(variable) != 0 {
+                    // Symbolica selects its last-active-variable fast path when
+                    // possible; an unfixed higher variable must still be kept.
+                    result = result.replace(variable, &Integer::from(value));
+                }
             }
             result
         }))
@@ -516,6 +521,27 @@ impl IndexedCoefficientContext {
         )?;
         Ok(result)
     }
+}
+
+pub(super) fn fixed_index_execution_order(
+    canonical: &[(usize, i64)],
+) -> impl Iterator<Item = (usize, i64)> + '_ {
+    // The preflight discards terms annihilated by any zero assignment. Remove
+    // those terms before evaluating nonzero powers, or an intermediate could
+    // exceed its prospective integer-bit bound. Remaining independent constants
+    // commute; descending positions favor Symbolica's native replace_last path.
+    canonical
+        .iter()
+        .rev()
+        .copied()
+        .filter(|(_, value)| *value == 0)
+        .chain(
+            canonical
+                .iter()
+                .rev()
+                .copied()
+                .filter(|(_, value)| *value != 0),
+        )
 }
 
 fn check_coefficient_specialization_normalization_limits(

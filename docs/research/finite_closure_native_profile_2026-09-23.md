@@ -1,0 +1,171 @@
+# Profiling the saved-rule closure visitor
+
+## Measured bottleneck
+
+A completed, bounded A11/R2/D9 traversal was sampled with Linux `perf` after
+the release build and the six scheduler controls had finished. This workload
+uses four saved owners, 86 routes and four starting regions representing
+45,342 integral keys; it does not regenerate IBPs or represent all 67 owners.
+Every descendant remained required. The native receipt discharges all 27,806
+native inspections (including 1,492 partial initial-overlap inspections), plus
+9,630 delegations, with zero frontiers, errors or pending obligations. Scheduled
+descendant rank
+bounds reach three; that is not proof of concrete rank-three reachability.
+
+The frozen executable is `58002e5136efc622f8d3a33a6e979550da79e108cfbf8bfe704e741e28c2db7d`.
+The diagnostic used Ordered execution with 26 workers on CPUs 0–25, not the
+50-worker scheduler comparison. Its instrumented traversal took 11.681 s;
+preparation took 2.693 s. Profiling overhead and the different worker budget
+make this unsuitable as a before/after timing control.
+
+| Exclusive sampled user CPU | Share of whole recorded process tree |
+|---|---:|
+| Symbolica integer-polynomial `replace` | 32.81% |
+| Symbolica rational-polynomial context `Arc::drop_slow` | 11.34% |
+| Symbolica `append_monomial_back` | 5.63% |
+| RustRed `validate_polynomial_on_map` | 4.85% |
+| Symbolica integer-polynomial `new` | 4.16% |
+| RustRed power-domain `project` | 3.35% |
+
+Inspector threads account for 91.63% of sampled user CPU, admission helpers
+2.79%, and the main thread 5.51%. These are CPU shares, not wall-time shares or
+proof that changing a function will save that percentage of elapsed time.
+The trace contains 9,464 samples, no lost samples and no unresolved leaf symbols.
+Native worker stacks did **not** unwind, so caller/inclusive attribution is not
+available. Main-thread samples also include initialization and output. In
+particular, the profile does not prove that all replacements originate in the
+fixed-index specialization function.
+
+The profile used spawned descendants only, user-space `cpu-clock` at 99 Hz,
+DWARF stack capture, local cache paths and no network symbol download. Native
+supervision retained its 24/32-GB soft/hard tree-memory policy; the separately
+sampled recorder peaked at 13.54 MB. GNU time reported 589,216 KiB maximum RSS,
+which is not a summed tree peak. No root build or timing control overlapped.
+
+## Small native-API experiment
+
+The public API audit checked declarations, implementations and existing native
+tests/callers in the pinned, locally patched Symbolica 3.0 source. Public
+`replace` already dispatches to `replace_last` when all higher variables are
+absent. Otherwise it reconstructs and sorts the polynomial. An absent-variable
+replacement can also incur that reconstruction unnecessarily.
+
+The proposed generic change retains Symbolica's algebra and changes only
+independent constant-substitution order:
+
+1. Substitute all zero-valued fixed coordinates first.
+2. Substitute the remaining fixed coordinates in descending original
+   variable-map order.
+3. Skip a substitution when native `degree` proves the variable absent.
+
+Calling `replace`, rather than unconditionally calling `replace_last`, preserves
+arbitrary higher **unfixed** variables. No variable map is compacted. No new CAS,
+cache, topology-specific rule or artifact schema is introduced.
+
+Zero-first is required for the prospective resource bound: specializing
+`x*y^65535` at `x=0, y=i64::MAX` must not first construct the enormous power of
+`y`. The preflight already recognizes terms annihilated by any zero assignment.
+The old ascending order also has this hazard when the zero coordinate occurs
+later. Zero-first removes such terms before any growing nonzero power.
+This change concerns the shared **fixed-index partial-specialization** path;
+the separate full-assignment specialization path is not changed by this slice.
+
+Preserve all original preflight checks, normalization, context authentication,
+and the pre-cancellation denominator guard. A zero numerator must not conceal
+a zero denominator. Affine-chart construction stays in its existing order;
+only the subsequent independent scalar constants commute.
+
+Other native APIs were considered, not overlooked. `replace_except` retains
+only one variable and is unsuitable for arbitrary partial specialization.
+`evaluate_with_coeff_map` with a polynomial coefficient ring is a genuine
+simultaneous alternative, but is a larger unmeasured change. Reusable native
+last-variable workspaces are private; RustRed does not copy them.
+
+The implementation passes independent source review and **2,798 core release
+tests, zero failures, 32 existing ignored**. The 72-test indexed-algebra subset
+overlaps that total. Six new tests include 192 deterministic polynomial/subset/
+assignment comparisons against the old ascending native Symbolica path, zero
+annihilation before huge powers, retained poles, `i64::MIN` and unchanged
+prospective refusals for absent variables. No existing assertion is weakened.
+
+The release CLI build also passes. Gate evidence:
+`TMP/fixed-substitution-release.whEAZx/`; independent source review:
+`TMP/fixed-substitution-independent-audit.UdEhIf/REPORT.md`.
+
+## Completed matched substitution comparison
+
+Six sequential Ordered A11 runs alternate baseline/new, new/baseline,
+baseline/new. Baseline is the completed-slot milestone
+`be31322c2908deca0543bc7a7cd6e44de48e0347078dcbe8ee30b4ae9d731eea`;
+the new immutable CLI is
+`e5a95023e4334accac893bf7a28086546883e92c461181e7b7f29267d4a52dec`.
+All use the same saved rules, starting input, ordering, 50-worker budget,
+CPUs 0–49, observer on CPU 50, H256 and resource allowances. Descendants remain
+uncut. There is no compilation, profiling, regeneration or elapsed deadline
+inside a control, and no competing root build/run. Other shared-host work remains
+possible. Each process loads its owners afresh; OS caches are not forcibly cold.
+
+| Pair | Baseline traversal (s) | New traversal (s) | Baseline process CPU (s) | New process CPU (s) |
+|---|---:|---:|---:|---:|
+| 1 | 11.647093 | 5.938401 | 147.62 | 51.06 |
+| 2 | 11.770175 | 5.875382 | 147.14 | 50.82 |
+| 3 | 11.590157 | 6.018743 | 141.51 | 51.62 |
+
+Median traversal falls **49.01%, from 11.647093 s to 5.938401 s (1.96×)**.
+Median whole-process CPU falls from 147.14 s to 51.06 s, about 65.3%. Median
+peak process RSS rises from 572,380 to 595,792 KiB (about 4.1%); this is not a
+measured memory reduction. Corrected sampled busy-core medians fall from 12.41
+to 8.35: less CPU is spent doing the same work, rather than more cores becoming
+occupied. Whole-process CPU/RSS include setup/finalization; traversal has the
+same post-preparation timing boundary as the scheduler controls.
+
+All six runs pass the raw scope/responsibility and structural-equivalence checks.
+They agree exactly on the non-timing structural report and counters: 27,806
+native inspections, 695,918 events, 3,227,881 counted native operations, 9,630 discharged delegations
+and 1,492 discharged partial inspections (included in native totals). No
+frontiers, unresolved responsibilities or descendant clipping are introduced.
+The matching structural digest is
+`b4b2568a8555fe0e43b9e177ee4fd9ee3ca4dce5b145e327c17c8bbc972f7947`.
+This establishes unchanged results on the complete scoped pilot, not regenerated
+source provenance or exhaustive correctness for arbitrary unseen inputs.
+
+These are three descriptive repeats on a shared host, not a confidence interval.
+In particular, this block's baseline is slower than the earlier scheduler block;
+compare binaries **within this alternating block**, not across separate host
+conditions. Do not multiply this gain by the owner-local scheduler gain: this
+experiment uses Ordered exclusively. Larger inputs and a new CPU profile remain
+next gates before a broad-run ETA or an attribution of all savings to one caller.
+
+Evidence: `TMP/indexed-substitution-a11-compare.5Jhj9C/matrix/`. The six-run
+steering exits zero after exact comparison checks. Independent post-run raw
+measurement review passes, including independently recomputed CPU windows and
+resource/obligation checks:
+`TMP/fixed-substitution-measurement-audit.5MPRu0/REPORT.md`.
+
+## Relation to the radical redesign
+
+The [independent architecture review](finite_closure_architecture_review_2026-09-23.md)
+targets the *amount* of overlapping closure work. This profile identifies a
+concrete cost inside each native inspection. Both matter: speeding one visit
+does not prevent an expanding reachability history, and a new parallel scheduler
+can increase repeated work.
+
+A separate structural analysis found no duplicate complete native query keys
+in the old A11 stream. Repeated fixed-coordinate layouts therefore do not yet
+establish a safe proof-cache hit rate. Prepared rule-transfer plans, exact union
+differences and a finite closed cover remain separate experiments requiring
+complete, cold comparisons—not inferred gains from these CPU percentages.
+
+## Local reproducibility evidence
+
+Ignored, workspace-local evidence is retained in:
+
+- `TMP/native-transfer-profile.qTo5Mq/`: driver, frozen input hashes, raw perf
+  recording, bounded parser, `run/analysis.json`, full report and public-API audit;
+- `TMP/compiled-transfer-profile.QNqGqU/`: read-only structural counts and parser;
+- `TMP/owner-retention-a11-steering.d7SNxy/matrix/`: the separate six completed
+  scheduler timing controls and unchanged native inputs.
+
+These results establish scoped operational coverage relative to saved rules.
+They are not full five-loop closure, source-identity certification, master
+minimality, fifty-core saturation or a full-campaign completion estimate.

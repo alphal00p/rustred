@@ -8,6 +8,7 @@ use super::super::{
     IndexedPolynomial,
 };
 
+mod execution_order;
 mod identity;
 
 #[test]

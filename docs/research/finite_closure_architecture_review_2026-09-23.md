@@ -29,12 +29,12 @@ The stopped all-67-owner run completed 8,274,060 native inspections but retained
 a 20.51-GB partial JSON report. Zero observed frontiers is only a fact about the
 inspected prefix. That report is neither closure nor a resumable checkpoint.
 
-New controls use saved rules, not regenerated ones. The same executable includes
-existing bounded completed-result reclamation in Ordered but not yet in the
-concurrent-owner scheduler. Thus these compare current policies, not an isolated
-test of sector concurrency with otherwise identical slot handling.
+The following **historical, pre-reclamation controls** used saved rules, not
+regenerated ones. Their frozen executable included bounded completed-result
+reclamation in Ordered only. They did not isolate sector concurrency with
+otherwise identical slot handling, and no longer describe the latest scheduler.
 
-| Completed control, 50-worker budget | Ordered | Concurrent owner |
+| Historical completed control, 50-worker budget | Ordered | Concurrent owner |
 |---|---:|---:|
 | A10/R1/D9: traversal seconds | 1.403919 | 2.950783 |
 | A10: native inspections | 7,432 | 8,797 |
@@ -53,17 +53,41 @@ and publication accounting pass the raw-receipt checker. These are single
 50-worker pairs on a shared host, not confidence intervals or full-family solves.
 CPU samples are heartbeat-labelled windows, not precisely isolated traversal CPU.
 
-The new lane really permits 25 outstanding inspections within one owner, yet is
-slower and does more work. Both policies report zero full-buffer producer
-backpressure. Later completed jobs occupying physical slots are a distinct
-measured limitation, now under implementation review. The fixed budget split
-of 25 inspectors, 24 admission helpers and one coordinator is another hypothesis
-to test, not proof that all those helpers do useful work.
+In those controls the concurrent lane permitted 25 inspections within one owner
+but was slower and did more work. Both policies reported zero full-buffer
+producer backpressure. Later completed jobs occupying physical slots were a
+distinct measured limitation. That limitation has since been addressed: both
+policies now share bounded completed-result reclamation. Six unchanged A11
+controls give median traversal 7.484 s concurrent owner versus 8.284 s Ordered,
+9.65% lower wall time, with about 18.8% more native visits and 24.8% more
+whole-process CPU. This is a useful bounded improvement, not a full-envelope ETA.
+See [the completed-slot results and corrected CPU analysis](owner_completed_slot_reuse_2026-09-23.md).
+The historical busy-core values above use their original sampling windows and
+must not be directly compared with the later corrected estimator. The fixed
+25-inspector/24-helper/one-coordinator budget remains a separate measurement
+question, not evidence that all helpers do useful work. Fifty requested workers
+mean at most 25 native inspectors in this configuration. If admission helpers
+remain lightly used, native slot reclamation alone cannot occupy fifty cores.
+Test a measured inspector/helper ratio or a work-conserving common pool as a
+separate hypothesis, retaining admission progress and bounded buffers; do not
+attribute the entire shortfall to insufficient same-owner dispatch.
 
 See [the measurement and gate record](owner_concurrent_inspection_2026-09-23.md).
 The larger A11 receipts are in `TMP/owner-larger-pilot.zP4XkJ/run-a11/`; the prior
 controls are in `TMP/owner-concurrent-controls.tD1zsL/`. No live full campaign is
 being restarted on the strength of these measurements.
+
+The subsequent single A12/R3/D9 pair also passes independent raw review:
+357,192 entry tuples over the same four owners and 86 routes, with every
+descendant retained. Concurrent-owner traversal is 26.746 s versus 28.427 s
+Ordered (5.91% lower), with 24.13% more native visits, 11.84% more events and
+9.45% more peak process RSS; whole-command CPU is 5.59% lower in this pair.
+Corrected sampled activity is about nine busy cores for both. The maximum
+scheduled finite rank bound is four, not evidence of concrete rank-four keys;
+there are no unresolved frontiers, pending obligations or resource stops.
+This one pair supports another bounded wall-time improvement, not a replicated
+scaling conclusion or full-envelope estimate. Details remain in the
+[completed-slot measurement record](owner_completed_slot_reuse_2026-09-23.md).
 
 ## Competing redesigns
 
@@ -133,12 +157,105 @@ counterexample-guided refinement, not an IBP-specific guarantee of a small cover
 [Cousot and Cousot](https://www.di.ens.fr/~cousot/COUSOTpapers/POPL77.shtml),
 [Clarke et al.](https://www.cs.cmu.edu/~emc/papers/Conference%20Papers/Counterexample-guided%20Abstraction%20Refinement.pdf).
 
+#### A constructive candidate from the saved power order
+
+A subsequent source-level refinement offers a candidate without first computing
+reachability. Write `P=A+R=sum_i|a_i|` and let m be support cardinality. The saved
+uncut candidate order compares, within a fixed sector, the corner distance
+`C=A+R-m` before degree and coordinate ties. C is the sum of nonnegative local
+coordinates, so its integer sublevel sets are finite. Every admitted same-sector
+Apply therefore has `delta P<=0`; exact saved-order ties still establish strict
+local descent. Dominant lexicographic weights are unnecessary just to bound
+these phases. This concerns the persisted uncut ordering, not arbitrary cut
+priorities in the source solver. See the
+[native ordering](../../crates/rustred-core/src/sector/ordering.rs) and
+[saved-order reconstruction](../../crates/rustred-app/src/application/candidate_bundle/load.rs).
+
+The admitted route geometry is favorable too: active denominators map by a unit
+bijection and inactive numerator substitutions are affine. Every monomial
+endpoint satisfies `A'<=A` and `R'<=R`. The native power-bounded route overcover
+preserves those caps, not merely its concrete endpoints. Affine constants can
+increase D, so an old upper D bound must not be retained without proof.
+
+Suppose L bounds the L1 norm of every potentially live saved Apply shift. If
+every support-changing Apply strictly **decreases cardinality**, then from an
+entry bound `P<=B0` at support m0 the layer bound
+`B_m=B0+(m0-m)L` is inductive: same-sector steps do not increase P, each
+support-loss step increases it by at most L, and routes do not increase it.
+Take the maximum over eligible initial owners when necessary. The full generic
+entry gives B0<=39; the A11 entry gives B0<=13. This is conditional candidate
+synthesis, not a completed invariant check or a new descendant cutoff.
+
+There is an important current gap. The
+[symbolic Apply engine](../../crates/rustred-core/src/solver/candidate_reduction/owners/domains/applied/engine.rs)
+checks child support against the saved root and proves local descent; a changed
+support's mask is compared before C. Those tests alone do not exclude same-size
+support exchange followed by a canonical route reset. A structural example is
+`(1,0,-t) -> (0,1,-t-1)`: support changes from `100` to lexicographically smaller
+`010`, yet P increases. A coordinate-swap route could reset the mask. This is a
+counterexample to inferring global descent from those tests, **not an observed
+rule in the saved workload**. The concrete tracer rejects this transition.
+Cardinality decrease suffices for the mathematical bound, but compatibility with
+the [current concrete tracer](../../crates/rustred-core/src/solver/candidate_reduction/routed/trace.rs)
+requires the stronger strict-subset condition, with no activation. Neither
+condition has been exhaustively established here for the proposed enlarged cover.
+
+The bound needs no general inequality solver. On fixed support m,
+
+`{A+R<=B} = union_{k=m..B} {A<=k, R<=B-k}`.
+
+These O(B) overlapping slabs use existing positive-power and actual-rank caps.
+Choose k=A to prove coverage. Native sign partitioning fixes crossing coordinates
+and translates exact delta A and delta R, so a successor has a direct destination
+slab witness; retain aggregate predicates rather than only their projected boxes.
+Original-term source validity must still precede cancellation. The packed
+candidate-bundle format supplies a coarse L<=127N, but that is impractically loose
+and does not apply to arbitrary wide artifacts. A tight saved-shift census or
+fully checked candidate parameter remains needed; no custom LP/CAS is proposed.
+
+Breadth may defeat the idea: even P<=13, before any support-loss allowance,
+contains 730,626 tuples across the four A11 supports, versus 45,342 entry tuples,
+about16.1 times as many. It can expose unreachable guard holes. It is not valid
+to retain entry R/D limits on descendants just to make this cover smaller.
+The falsifiable pilot is one bounded A11 cover experiment using the existing
+native inspectors: count synthesis and all local checking, audit global support
+compatibility, and require every successor to have a destination witness. Reject
+or explicitly refine escaping successors or unresolved guards; never clip them.
+Compare completed useful coverage, total time, native work and retained memory
+against the current matched walk. Large L, excessive guard refinements or checking
+cost comparable to the old traversal would disprove this candidate's usefulness.
+Even success would remain operational coverage relative to admitted formulas,
+not original-IBP provenance, minimal-master certification or full-family closure.
+
 ### 2. Share compiled transfers and reusable checked restrictions
 
 The current native visitor repeatedly groups RHS shifts, splits boundary cells,
 restricts coefficients, checks original-term source conditions and proves local
 descent. First prepare immutable structural plans once per loaded rule. Then
 measure whether repeated checked restrictions can also be shared.
+
+A more structural variant is to compile a guarded dispatch/transition graph at
+load time or alongside generation. This is **not recovery of lost case data**:
+the [candidate codec](../../crates/rustred-app/src/application/candidate_bundle/codec.rs)
+already preserves ordered rules, fixed coordinate faces, affine equations,
+exclusion conjunctions and exact RHS coefficients. It does not persist a checked,
+disjoint first-applicable partition. The native matcher repeatedly walks source
+conditions, terminals, fixed/equality/exclusion tests and denominator guards;
+its guard resolver specializes predicates and reconstructs zero-locus tests
+against each query's box/rank. Sharing that decision structure could remove work
+by construction, instead of waiting for a post-hoc cache hit.
+
+Start with native coordinate/separable tests and lazy unresolved leaves that
+fall back to today's matcher. Preserve batch/rule precedence, original-term
+source validity, poles, source-cell/preimage relations and immutable program/order
+identity. Do not eagerly materialize all predicate combinations: the number of
+disjoint cells can explode. The existing guarded single-rule visitor is not a
+complete substitute: it omits first-priority coverage, and its power-bounded
+wrapper currently rejects nontrivial A/D bounds. A pilot must compare every
+selected classification/guard/refusal and successor obligation, include graph
+construction time and retained bytes, and reject a graph whose total cost exceeds
+the current dispatch. Reusing generation-side partition work is a hypothesis;
+saved seeds/cases still do not confer replayed original-IBP provenance.
 
 Distinguish three objects: an exact restricted expression, a zero/nonzero proof
 on a domain, and a complete selected-rule transfer proof. An expression-cache
@@ -247,10 +364,14 @@ No custom CAS, topology dispatch or loop-count-specific algorithm is proposed.
 
 ## Agreed next gates and independent review
 
-1. Finish the narrow completed-slot scheduling fix and measure it independently.
-   More occupied workers without lower elapsed time is not a win.
-2. Profile cold immutable transfer preparation/reuse on completed A11 inputs.
-   Compare exact native results and total one-/50-worker runtime.
+1. The narrow completed-slot fix and independent A11 measurement are complete;
+   retain that baseline while testing larger inputs. More occupied workers
+   without lower elapsed time is not a win.
+2. The [native CPU profile](finite_closure_native_profile_2026-09-23.md) now
+   identifies substitution as a concrete hotspot; test the small native-API
+   execution-order change before implementing a broader reuse cache. Cold
+   compiled-transfer/decision-graph experiments remain separate and must count
+   preparation, retained bytes and exact native-result equivalence.
 3. Separately test a small proposed finite closed cover without replacing the
    production traversal. This is the highest-upside research experiment.
 4. Pursue exact union differences or routing correlations only when measured
