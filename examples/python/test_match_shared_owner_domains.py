@@ -35,6 +35,7 @@ class MatchSteeringTests(unittest.TestCase):
         self.assertNotIn("--" + MATCH.REFINEMENT_AXES, command)
         self.assertNotIn("--" + MATCH.TRANSFER_LOOKAHEAD, command)
         self.assertNotIn("--" + MATCH.INITIAL_D_REUSE, command)
+        self.assertNotIn("--" + MATCH.PUBLICATION_POLICY, command)
         for option in ("--workers", "--timeout", "--max-numerator-rank", "--targets"):
             self.assertNotIn(option, command)
 
@@ -218,6 +219,25 @@ class MatchSteeringTests(unittest.TestCase):
                        ["--follow-successors", "--max-rhs-events-per-query", "0"],
                        ["--follow-successors", "--max-shift-groups-per-query", "0"],
                        ["--follow-successors", "--max-sign-splits-per-query", "0"]):
+            with patch("sys.argv", self.arguments() + suffix), \
+                    patch.object(MATCH.os, "execve") as execute, \
+                    patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit):
+                    MATCH.main()
+                execute.assert_not_called()
+
+    def test_publication_policy_is_explicit_and_only_changes_native_steering(self):
+        option = "--" + MATCH.PUBLICATION_POLICY
+        for policy in MATCH.PUBLICATION_POLICIES:
+            with patch("sys.argv", self.arguments() + ["--follow-successors", option, policy]), \
+                    patch.object(MATCH.os, "execve") as execute:
+                MATCH.main()
+            command = execute.call_args.args[1]
+            self.assertEqual(command[command.index(option) + 1], policy)
+            self.assertNotIn("--max-numerator-rank", command)
+            self.assertNotIn("--generate", command)
+        for suffix in ([option, "ordered"], [option, "owner-batched"],
+                       ["--follow-successors", option, "automatic"]):
             with patch("sys.argv", self.arguments() + suffix), \
                     patch.object(MATCH.os, "execve") as execute, \
                     patch("sys.stderr", new_callable=io.StringIO):

@@ -615,6 +615,14 @@ same-owner D band. It requires --follow-successors and
 --transfer-unreserved-lookahead H (hence unlimited containment checks).
 Only the disjoint residual is inspected again; the original anchor obligation
 remains tracked. This does not clip descendants or establish coverage by itself.
+--publication-policy ordered|owner-batched requires --follow-successors and
+defaults to ordered. The opt-in owner-batched mode shares immutable saved rules
+but uses separate phase/owner admission and publication queues. Bounded native
+chunks are delivered to destination queues; all descendants remain required.
+Its v4 receipt uses composite (bucket, local id) identities. Diagnostic IDs,
+cover fragmentation and capped prefixes may differ between worker budgets;
+this does not change saved rules or concrete reductions. Chunk synchronization
+and owner imbalance can still limit parallel speedup.
 Streamed aggregate events and retained frontier storage have separate budgets.
 --max-rhs-cells-per-query counts all refined
 RHS cells (not only pinches); --max-term-visits-per-query and

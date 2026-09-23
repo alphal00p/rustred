@@ -9,7 +9,21 @@ Start with deterministic bounded owner batches and measured routed controls,
 then assess asynchronous queues and hot-owner imbalance. Preserve mathematical
 artifact/reduction determinism without assuming global diagnostic task order
 is necessary. See [the scoped scheduling plan](docs/finite_starting_domains.md#next-scheduling-priority--semi-independent-sector-progress).
-This restructuring is not yet implemented and has not changed the live run.
+The opt-in `owner-batched` prototype is now integrated in the Rust request,
+CLI and Python steering. Independent source review and release library/native
+validation pass; CLI controls and measured comparisons are pending. It has not changed the live
+run. Bounded chunk barriers and one active producer per owner remain explicit
+limitations, not evidence of fifty-core saturation. The corrected integrated
+gate passes 495 library tests (one existing diagnostic ignored), including the
+native 1/2/6/50-worker controls. All 27 Python steering tests pass. The release CLI
+build and separate clean-owned compatibility gate (160 tests, one ignored) pass.
+Eight application/CLI integration tests and all eight saved routed two-loop
+policy/worker controls pass. The four-owner five-loop A9/R0 canary also completes
+under all four configurations, but six-worker owner-batched traversal is slower
+(0.407 s versus 0.174 s ordered). The next change is bounded ready-stream delivery
+to remove the remaining all-producer chunk rendezvous; default ordered execution
+stays unchanged. This is not a fifty-core or full-campaign speedup. See the
+[measurement contract and scaling caveats](docs/research/owner_batched_publication_2026-09-23.md).
 
 **Admission-index follow-up — September 23:** a conservative coordinate-block
 filter now avoids unnecessary native containment calls without changing the

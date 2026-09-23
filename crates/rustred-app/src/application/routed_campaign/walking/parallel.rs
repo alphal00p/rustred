@@ -218,6 +218,24 @@ impl<const N: usize> Pool<N> {
             .wait_timeout(guard, Duration::from_millis(100))
             .unwrap_or_else(|e| e.into_inner());
     }
+    /// Independent owner publication consumes its own ticket stream and does
+    /// not reclaim later IDs into the ordered publisher's escrow. A finished
+    /// unrelated ticket must therefore not make this wait spin.
+    pub fn wait_for_stream(&self, id: usize) {
+        let guard = self.lock();
+        if self.stop.load(Ordering::Acquire)
+            || guard.slots.iter().any(|slot| {
+                slot.id == Some(id) && (slot.chunk.is_some() || slot.finished.is_some())
+            })
+        {
+            return;
+        }
+        let _ = self
+            .changed
+            .wait_timeout(guard, Duration::from_millis(100))
+            .unwrap_or_else(|error| error.into_inner());
+    }
+
     pub fn wait_drained(&self) -> bool {
         let guard = self.lock();
         if !guard.slots.iter().any(|s| s.running) {

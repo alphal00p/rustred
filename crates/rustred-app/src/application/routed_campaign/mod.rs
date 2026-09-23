@@ -22,8 +22,8 @@ pub use matching::{
     OwnerDomainMatchRequest, OwnerDomainMatchResult, owner_domain_match_with_progress,
 };
 pub use walking::{
-    OwnerDomainWalkRequest, OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy,
-    owner_domain_walk_with_progress,
+    OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest, OwnerDomainWalkResult,
+    OwnerDomainWalkSchedulingPolicy, owner_domain_walk_with_progress,
 };
 #[cfg(test)]
 mod tests;

@@ -219,6 +219,31 @@ impl<const N: usize> Queue<N> {
         self.admit_with_lookup(domain, None)
     }
 
+    /// Narrow a destination queue's allowance to its remaining share of a
+    /// global budget. Reuse is still attempted at the domain cap. Never change
+    /// the finite/unlimited lane: that would invalidate its existing index.
+    pub fn admit_with_budget(
+        &mut self,
+        domain: Domain<N>,
+        domain_limit: usize,
+        comparison_limit: Option<usize>,
+    ) -> Result<(usize, bool), &'static str> {
+        if domain_limit < self.domains.len()
+            || domain_limit > self.max_domains
+            || comparison_limit.is_some() != self.max_checks.is_some()
+            || matches!((comparison_limit, self.max_checks), (Some(a), Some(b)) if a > b)
+            || comparison_limit.is_some_and(|limit| limit < self.containment_checks)
+        {
+            return Err("invalid narrowed admission budget");
+        }
+        let saved_domains = std::mem::replace(&mut self.max_domains, domain_limit);
+        let saved_checks = std::mem::replace(&mut self.max_checks, comparison_limit);
+        let result = self.admit(domain);
+        self.max_domains = saved_domains;
+        self.max_checks = saved_checks;
+        result
+    }
+
     fn admit_with_lookup(
         &mut self,
         domain: Domain<N>,

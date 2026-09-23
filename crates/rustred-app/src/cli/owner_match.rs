@@ -77,6 +77,7 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     let result = if walking {
         let mut walk = OwnerDomainWalkRequest::new(request);
         walk.workers = args.workers;
+        walk.publication_policy = args.publication_policy;
         walk.max_domains = args.max_domains;
         walk.max_frontiers = args.max_frontiers;
         walk.max_events = args.max_successor_events;
@@ -125,6 +126,7 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     });
     document["max_bounded_refinement_cells"] = json!(args.max_bounded_refinement_cells);
     if walking {
+        let owner_batched_report = document["schema"] == "rustred.owner-domain-walk.json.v4";
         if args.reuse_initial_d_bands {
             // Preserve the requested opt-in even on preparation-error receipts.
             document["reuse_initial_d_bands"] = json!(true);
@@ -135,6 +137,14 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
                 json!({"kind":"transfer_unreserved", "lookahead":lookahead.get()});
         } else {
             document["schema"] = json!("rustred.owner-domain-walk.json.v2");
+        }
+        if args.publication_policy == crate::OwnerDomainWalkPublicationPolicy::OwnerBatched {
+            // Preserve actual composite identities. A failure before the new
+            // traversal starts retains its original schema/initial handles.
+            if owner_batched_report {
+                document["schema"] = json!("rustred.owner-domain-walk.json.v4");
+            }
+            document["requested_publication_policy"] = json!("owner_batched");
         }
         monitor.observe(OwnerDomainWalkResult::completion_progress(&document));
     } else {

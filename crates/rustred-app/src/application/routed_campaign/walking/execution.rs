@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 mod admission;
 mod delegation;
+pub(super) mod owner_batches;
 pub(super) use delegation::scheduling_policy_json;
 
 pub(super) struct State<const N: usize> {
@@ -118,8 +119,18 @@ impl<const N: usize> State<N> {
         event: Event<N>,
         request: &OwnerDomainWalkRequest,
     ) -> Result<(), &'static str> {
-        let remaining = request
-            .max_events
+        self.accept_with_limits(event, request.max_events, request.max_frontiers)
+    }
+
+    /// Numeric policy only: owner-local publication must not clone a request
+    /// containing the complete saved-owner selection for every native callback.
+    fn accept_with_limits(
+        &mut self,
+        event: Event<N>,
+        max_events: usize,
+        max_frontiers: usize,
+    ) -> Result<(), &'static str> {
+        let remaining = max_events
             .checked_sub(self.events)
             .ok_or("event counter invariant")?;
         let reuse = match &event.effect {
@@ -199,7 +210,7 @@ impl<const N: usize> State<N> {
             }
             return refusal.map_or(Ok(()), Err);
         }
-        self.charge_event(event.count, request)?;
+        self.charge_event_with_limit(event.count, max_events)?;
         match event.effect {
             Effect::Count => {}
             Effect::KnownReuse { .. } | Effect::PreAdmittedOrthantReuse { .. } => {
@@ -219,7 +230,7 @@ impl<const N: usize> State<N> {
             } => {
                 self.successors += usize::from(successor);
                 self.conditional += usize::from(conditional);
-                if self.frontiers == request.max_frontiers {
+                if self.frontiers == max_frontiers {
                     return Err("retained frontier allowance");
                 }
                 self.details
@@ -250,8 +261,15 @@ impl<const N: usize> State<N> {
         count: usize,
         request: &OwnerDomainWalkRequest,
     ) -> Result<(), &'static str> {
-        let remaining = request
-            .max_events
+        self.charge_event_with_limit(count, request.max_events)
+    }
+
+    fn charge_event_with_limit(
+        &mut self,
+        count: usize,
+        max_events: usize,
+    ) -> Result<(), &'static str> {
+        let remaining = max_events
             .checked_sub(self.events)
             .ok_or("event counter invariant")?;
         if count > remaining {

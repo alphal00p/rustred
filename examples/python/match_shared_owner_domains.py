@@ -25,6 +25,8 @@ REFINEMENT_AXES = "bounded-refinement-axes"
 REFINEMENT_AXIS_CHOICES = ("inactive-only", "finite-axes")
 TRANSFER_LOOKAHEAD = "transfer-unreserved-lookahead"
 INITIAL_D_REUSE = "reuse-initial-d-bands"
+PUBLICATION_POLICY = "publication-policy"
+PUBLICATION_POLICIES = ("ordered", "owner-batched")
 WALK_ALLOWANCES = ("workers", "max-domains", "max-frontiers", "max-successor-events", "max-containment-checks",
                    "max-rhs-cells-per-query", "max-term-visits-per-query",
                    "max-native-operations-per-query", "max-rhs-events-per-query",
@@ -85,6 +87,8 @@ def main() -> None:
                         help="opt into unreserved containment delegation with fixed logical dispatch lookahead; requires unlimited containment checks")
     parser.add_argument("--" + INITIAL_D_REUSE, action=StoreTrueOnce, nargs=0, default=False,
                         help="reuse an exact initial same-owner D band, retaining its obligation; requires successor walk and unreserved delegation")
+    parser.add_argument("--" + PUBLICATION_POLICY, choices=PUBLICATION_POLICIES,
+                        help="successor publication: global ordered stream (default) or experimental owner-partitioned batches; does not change saved IBP rules")
     for option in WALK_ALLOWANCES:
         parser.add_argument("--" + option,
                             type=containment_limit if option == "max-containment-checks" else positive,
@@ -93,7 +97,7 @@ def main() -> None:
     args = parser.parse_args()
     if not args.follow_successors and (args.route_domain_overcover or args.reuse_initial_d_bands or any(
             getattr(args, option.replace("-", "_")) is not None
-            for option in (*WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, "max-route-masks-per-query"))):
+            for option in (*WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, "max-route-masks-per-query"))):
         parser.error("successor work allowances require --follow-successors")
     if args.max_route_masks_per_query is not None and not args.route_domain_overcover:
         parser.error("route mask allowance requires --route-domain-overcover")
@@ -120,7 +124,7 @@ def main() -> None:
         command.append("--route-domain-overcover")
     if args.reuse_initial_d_bands:
         command.append("--" + INITIAL_D_REUSE)
-    for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, "max-route-masks-per-query"):
+    for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, "max-route-masks-per-query"):
         if (value := getattr(args, option.replace("-", "_"))) is not None:
             command.extend(["--" + option, str(value)])
     # Inherit the license without persisting or printing it. Replacement keeps

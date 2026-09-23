@@ -34,8 +34,64 @@ scheduling policy without testing it.
 Measure useful work per active owner, admission time, queued/in-flight work,
 memory and actual CPU use. Sector traffic can be highly skewed, so sharding
 alone does not promise fifty busy cores; retain within-owner domain parallelism
-and shared work scheduling. This is the next experiment, not an implemented
-feature or reason to replace the ongoing full run before a successful gate.
+and shared work scheduling. The opt-in prototype now passes its release library
+gate. It is not a reason to replace the ongoing full run before native
+correctness and useful throughput are measured.
+
+### Owner-batched prototype and measurement boundary
+
+The Rust request exposes `OwnerDomainWalkPublicationPolicy::OwnerBatched`;
+the CLI and both Python steering scripts accept
+`--follow-successors --publication-policy owner-batched`. The default stays
+`ordered`. Immutable programs, routing and initial geometry are shared. Each
+phase/owner has its own inclusion index and responsibility ledger; only
+successor geometry crosses to the destination queue, while diagnostics remain
+with their producer. Finished slots are refilled at bounded chunk boundaries.
+Global allowances remain aggregate; near a cap, serial admission allows
+duplicates to reuse existing obligations without charging another domain.
+
+The new walk receipt uses schema v4 and composite `(bucket, local id)` handles.
+Canonical rules and concrete reductions are unchanged; diagnostic IDs, cover
+fragmentation and resource-limited prefixes need not match the ordered runner
+or another worker budget. Initial-admission failures retain their pre-traversal
+schema and are explicitly distinguished from a started owner-batched walk.
+No local queue being empty is enough for success: all delivery, native work,
+alias/anchor responsibilities, errors and frontiers must be accounted for.
+
+This first implementation still rendezvous at chunk boundaries and permits
+only one active native producer per bucket. With unlimited comparisons, fifty
+configured compute slots divide into 25 inspectors, 24 admission helpers and
+one coordinator. A few hot owners or slow chunk producers can therefore still
+limit utilization. Test real routed controls and saved five-loop inputs before
+deciding whether asynchronous ready-stream delivery or within-owner concurrency
+is needed. Report completed native work, pending trend, ready-owner diversity,
+admission/wait time and RSS, not just configured workers or CPU occupancy.
+
+Independent source review and the corrected release library gate pass; CLI
+controls and performance comparisons are pending. Review removed an unnecessary per-callback copy of
+the full request and a wait condition that could spin on an unrelated finished
+worker. These are implementation corrections, not measured campaign speedups.
+The earlier full baseline Cargo gate was intentionally stopped during its
+serial compilation after saving a freshly built baseline CLI. It did not pass
+the full suite. The first integrated release run passed 491 library tests,
+with one cancellation-diagnostic failure and one existing ignored diagnostic.
+The corrected run passes 495 library tests with zero failures and one existing
+ignored diagnostic; the focused 24-test owner-batch gate exercises all
+1/2/6/50-worker native controls without availability skips. Seven parser tests
+and 27 Python steering tests also pass. The release CLI build passes. The
+separate clean-owned compatibility gate passes 160 tests (one existing diagnostic
+ignored), including all 14 new internal tests; it uses the committed pool without
+unrelated escrow work. Eight application/CLI integration tests pass. All eight
+saved routed two-loop controls complete under both policies with unchanged
+rules and no remaining obligations. Their millisecond timings show no consistent
+speedup. The four-owner five-loop A9/R0 canary also completes under both policies
+at one/six workers, retaining R1 descendants, but six-worker owner batching is
+slower (0.407 s versus 0.174 s ordered). Next remove the remaining all-producer
+chunk rendezvous with bounded ready-stream delivery, explicitly allowing varying
+diagnostic interleavings while preserving exact rules and reductions. The Cargo gate used sixteen compiler jobs
+(not a solver-worker performance comparison). The ongoing full five-loop campaign
+has not been replaced. See the [publication measurement plan and remaining
+barriers](research/owner_batched_publication_2026-09-23.md).
 
 ## Active full-run checkpoint — September 23
 

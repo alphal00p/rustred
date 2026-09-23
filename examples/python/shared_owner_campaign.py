@@ -34,7 +34,7 @@ _DOMAIN_SPEC.loader.exec_module(DOMAIN)
 SYMBOLIC_ALLOWANCES = (*DOMAIN.ALLOWANCES, DOMAIN.REFINEMENT,
                       *(name for name in DOMAIN.WALK_ALLOWANCES if name != "workers"),
                       "max-route-masks-per-query")
-SYMBOLIC_POLICIES = (DOMAIN.REFINEMENT_AXES, DOMAIN.TRANSFER_LOOKAHEAD)
+SYMBOLIC_POLICIES = (DOMAIN.REFINEMENT_AXES, DOMAIN.TRANSFER_LOOKAHEAD, DOMAIN.PUBLICATION_POLICY)
 FINITE_ALLOWANCES = {
     "max-nodes": 16_000_000,
     "max-input-targets": 100_000,
@@ -258,6 +258,8 @@ def main() -> int:
                         help="opt into unreserved containment delegation with fixed logical dispatch lookahead; requires --queries and unlimited containment checks")
     parser.add_argument("--" + DOMAIN.INITIAL_D_REUSE, action=DOMAIN.StoreTrueOnce, nargs=0, default=False,
                         help="reuse an exact initial same-owner D band, retaining its obligation; requires --queries and unreserved delegation")
+    parser.add_argument("--" + DOMAIN.PUBLICATION_POLICY, choices=DOMAIN.PUBLICATION_POLICIES,
+                        help="symbolic successor publication policy; requires --queries; owner-batched is experimental and may change diagnostic traversal order")
     parser.add_argument("--route-domain-overcover", action="store_true",
                         help="share admitted symbolic route covers; requires --queries")
     parser.add_argument("--no-progress", action="store_true")
@@ -346,6 +348,7 @@ def main() -> int:
         "command": command, "cpus": sorted(cpus), "registered_roots": collector.identities,
         "input_scope": "symbolic_domains" if symbolic else "concrete_targets",
         "reuse_initial_d_bands": args.reuse_initial_d_bands,
+        "publication_policy": (args.publication_policy or "ordered") if symbolic else None,
         "workers": args.workers, "other_workers": args.other_workers,
         "hard_memory_bytes": args.max_memory_bytes, "soft_memory_bytes": args.soft_memory_bytes,
         "child_rlimit_as_bytes": child_as, "monitor_headroom_bytes": monitor_headroom,
@@ -431,6 +434,7 @@ def main() -> int:
     (output / "supervisor-result.json").write_text(json.dumps({
         "exit_status": status, "elapsed_seconds": time.monotonic()-started,
         "reuse_initial_d_bands": args.reuse_initial_d_bands,
+        "publication_policy": (args.publication_policy or "ordered") if symbolic else None,
         "peak_observed_aggregate_rss_bytes": peak, "operator_or_resource_stop": stop_reason,
         "hard_stopped": hard_stopped, "work_checkpoint": False, "family_closure_claim": False,
         "child_rlimit_as_bytes": child_as, "memory_failure_is_incomplete": True,

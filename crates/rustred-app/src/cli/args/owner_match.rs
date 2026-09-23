@@ -3,6 +3,9 @@ use super::{
 };
 use std::{collections::BTreeSet, ffi::OsString, num::NonZeroUsize, path::PathBuf};
 
+#[cfg(test)]
+mod publication_tests;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct OwnerDomainMatchArgs {
     pub manifest: PathBuf,
@@ -26,6 +29,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub no_progress: bool,
     pub follow_successors: bool,
     pub workers: usize,
+    pub publication_policy: crate::OwnerDomainWalkPublicationPolicy,
     pub route_domain_overcover: bool,
     pub max_route_masks: usize,
     pub max_rhs_cells: usize,
@@ -67,6 +71,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         no_progress: false,
         follow_successors: false,
         workers: 1,
+        publication_policy: crate::OwnerDomainWalkPublicationPolicy::Ordered,
         route_domain_overcover: false,
         max_route_masks: 100_000,
         max_rhs_cells: applied.max_boundary_cells,
@@ -110,6 +115,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--no-progress" => "--no-progress",
             "--follow-successors" => "--follow-successors",
             "--workers" => "--workers",
+            "--publication-policy" => "--publication-policy",
             "--route-domain-overcover" => "--route-domain-overcover",
             "--max-route-masks-per-query" => "--max-route-masks-per-query",
             "--max-rhs-cells-per-query" => "--max-rhs-cells-per-query",
@@ -148,6 +154,19 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         let value = next_utf8_value(&mut arguments, name)?;
         match name {
+            "--publication-policy" => {
+                result.publication_policy = match value.as_str() {
+                    "ordered" => crate::OwnerDomainWalkPublicationPolicy::Ordered,
+                    "owner-batched" => crate::OwnerDomainWalkPublicationPolicy::OwnerBatched,
+                    _ => {
+                        return Err(ArgError::InvalidValue {
+                            option: name,
+                            value,
+                            expected: "ordered or owner-batched",
+                        });
+                    }
+                };
+            }
             "--transfer-unreserved-lookahead" => {
                 result.transfer_unreserved_lookahead =
                     NonZeroUsize::new(parse_positive_integer(name, value)?);
@@ -243,6 +262,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     if !result.follow_successors
         && [
             "--workers",
+            "--publication-policy",
             "--max-domains",
             "--max-frontiers",
             "--max-successor-events",

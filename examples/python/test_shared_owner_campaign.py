@@ -231,6 +231,7 @@ class SteeringTests(unittest.TestCase):
                 if explicit == "unlimited":
                     command += ["--" + CAMPAIGN.DOMAIN.TRANSFER_LOOKAHEAD, "50"]
                     command += ["--" + CAMPAIGN.DOMAIN.INITIAL_D_REUSE]
+                    command += ["--" + CAMPAIGN.DOMAIN.PUBLICATION_POLICY, "owner-batched"]
                 result=subprocess.run(command,capture_output=True,text=True,timeout=10)
                 self.assertEqual(result.returncode,4,result.stderr)
                 receipt=next((directory/"receipts").iterdir())
@@ -258,13 +259,19 @@ class SteeringTests(unittest.TestCase):
                     self.assertNotIn(axes_option, actual)
                 transfer_option = "--" + CAMPAIGN.DOMAIN.TRANSFER_LOOKAHEAD
                 reuse_option = "--" + CAMPAIGN.DOMAIN.INITIAL_D_REUSE
+                publication_option = "--" + CAMPAIGN.DOMAIN.PUBLICATION_POLICY
+                policy = "owner-batched" if explicit == "unlimited" else "ordered"
+                self.assertEqual(request["publication_policy"], policy)
+                self.assertEqual(summary["publication_policy"], policy)
                 self.assertEqual(request["reuse_initial_d_bands"], explicit == "unlimited")
                 self.assertEqual(summary["reuse_initial_d_bands"], explicit == "unlimited")
                 self.assertEqual(actual.count(reuse_option), int(explicit == "unlimited"))
                 if explicit == "unlimited":
                     self.assertEqual(actual[actual.index(transfer_option)+1], "50")
+                    self.assertEqual(actual[actual.index(publication_option)+1], "owner-batched")
                 else:
                     self.assertNotIn(transfer_option, actual)
+                    self.assertNotIn(publication_option, actual)
                 for option in CAMPAIGN.FINITE_ALLOWANCES:
                     self.assertNotIn("--"+option,actual)
 
@@ -280,6 +287,9 @@ class SteeringTests(unittest.TestCase):
             ("--targets",["--max-containment-checks","unlimited"],"require --queries"),
             ("--targets",["--transfer-unreserved-lookahead","50"],"require --queries"),
             ("--targets",["--reuse-initial-d-bands"],"require --queries"),
+            ("--targets",["--publication-policy","ordered"],"require --queries"),
+            ("--targets",["--publication-policy","owner-batched"],"require --queries"),
+            ("--queries",["--publication-policy","automatic"],"invalid choice"),
             ("--queries",["--reuse-initial-d-bands"],"requires --transfer-unreserved-lookahead"),
             ("--queries",["--transfer-unreserved-lookahead","50","--reuse-initial-d-bands","--max-containment-checks","99"],"unlimited containment checks"),
             ("--queries",["--transfer-unreserved-lookahead","50","--reuse-initial-d-bands","--reuse-initial-d-bands"],"only once"),

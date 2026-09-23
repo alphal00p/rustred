@@ -3,6 +3,7 @@ use crate::{FamilyCandidatesRequest, family_candidates, inspect_generated_candid
 use std::sync::atomic::{AtomicU64, Ordering};
 mod guarded_apply;
 mod bounded_routing;
+mod owner_batches;
 mod power_domains;
 
 #[test]

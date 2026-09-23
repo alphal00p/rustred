@@ -321,6 +321,36 @@ Counter/allocation checks precede candidate retirement. A large incomparable
 set can still be expensive; this index does not establish closure or preserve
 physical sum constraints that were absent from an input box.
 
+### Experimental owner-local publication
+
+`--follow-successors --publication-policy owner-batched` selects independent
+phase/owner admission and publication queues sharing one immutable reducer.
+The Rust field is `OwnerDomainWalkRequest::publication_policy`; the default is
+`OwnerDomainWalkPublicationPolicy::Ordered`. Both Python steering scripts
+forward the option, without requiring a rebuilt Python extension.
+
+Only successor geometry moves to its destination queue; producer diagnostics
+and local alias/initial-anchor identities remain with the source. Native
+workers stream bounded chunks, and finished slots are refilled at chunk
+boundaries. This is not yet fully asynchronous execution: chunk barriers and
+one active producer per owner can still limit utilization.
+
+Started owner-batched walks emit v4 receipts with `(bucket, local id)` identities
+instead of a single global diagnostic ID. Initial input handles use the same
+composite identity. Existing rules and concrete reduction semantics do not
+change, but diagnostic IDs, cover fragmentation and capped prefixes can differ
+between policies and worker counts. A failure before owner-batched traversal
+starts retains its earlier receipt schema and explicitly marks the requested
+policy. Pending aliases/anchors or incoming successors cannot establish success.
+
+This prototype passes source review, the integrated release library/native gate,
+CLI build and narrow clean-owned compatibility gate. All eight saved routed
+two-loop policy/worker controls complete successfully; their millisecond timings
+do not establish a speedup. The small four-owner five-loop canary also completes,
+but owner batching is slower at six workers; ready-stream scheduling is the next
+experiment. No full-campaign speedup has been established. See the
+[current scheduling gate and scope](finite_starting_domains.md#owner-batched-prototype-and-measurement-boundary).
+
 ### Opt-in delegation of unreserved domains
 
 `--transfer-unreserved-lookahead H` enables
@@ -339,10 +369,11 @@ representative completes publication without unresolved frontiers or failures.
 The exact containment test is unchanged, and routing and application phases
 remain distinct. No source checks or entry/descendant predicates are dropped.
 
-This mode emits `rustred.owner-domain-walk.json.v3` with the requested
+With ordered publication this mode emits `rustred.owner-domain-walk.json.v3` with the requested
 `scheduling_policy`, native-publication counts and a separate `delegation`
 summary. A `delegated_not_inspected` record is not a native finished result.
-The default still emits v2. A representative with unresolved guard/source/route
+The default still emits v2; owner-batched publication uses v4 as described above.
+A representative with unresolved guard/source/route
 frontiers cannot discharge its aliases. Cancellation, partial event publication
 and resource failures retain incompleteness; global frontier/error checks remain
 mandatory even if the ledger's local obligations are discharged.

@@ -25,14 +25,14 @@ mod routed_campaign;
 pub(crate) use routed_campaign::guarded_limits_from_json;
 pub use routed_campaign::{
     OwnerDomainMatchRequest, OwnerDomainMatchResult, OwnerDomainScanRequest, OwnerDomainScanResult,
-    OwnerDomainWalkRequest, OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy,
-    OwnerGuardedApplyRequest, OwnerGuardedApplyResult, RoutedCampaignRequest, RoutedCampaignResult,
-    RoutedEntryWitnessLimits, RoutedEntryWitnessProposal, RoutedEntryWitnessRoundResult,
-    RoutedEntryWitnessStats, RoutedFeedbackFixedResidualPolicy, RoutedFeedbackNomination,
-    RoutedFeedbackOptions, RoutedFeedbackRoundResult, RoutedFeedbackSession,
-    owner_domain_match_with_progress, owner_domain_scan_with_progress,
-    owner_domain_walk_with_progress, owner_guarded_apply_with_progress,
-    routed_campaign_with_progress,
+    OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest, OwnerDomainWalkResult,
+    OwnerDomainWalkSchedulingPolicy, OwnerGuardedApplyRequest, OwnerGuardedApplyResult,
+    RoutedCampaignRequest, RoutedCampaignResult, RoutedEntryWitnessLimits,
+    RoutedEntryWitnessProposal, RoutedEntryWitnessRoundResult, RoutedEntryWitnessStats,
+    RoutedFeedbackFixedResidualPolicy, RoutedFeedbackNomination, RoutedFeedbackOptions,
+    RoutedFeedbackRoundResult, RoutedFeedbackSession, owner_domain_match_with_progress,
+    owner_domain_scan_with_progress, owner_domain_walk_with_progress,
+    owner_guarded_apply_with_progress, routed_campaign_with_progress,
 };
 
 pub use candidate_bundle::{

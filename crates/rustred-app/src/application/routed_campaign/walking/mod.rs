@@ -21,6 +21,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 pub use delegation::SchedulingPolicy as OwnerDomainWalkSchedulingPolicy;
+pub use execution::owner_batches::OwnerDomainWalkPublicationPolicy;
 
 #[derive(Clone, Debug)]
 pub struct OwnerDomainWalkRequest {
@@ -32,6 +33,9 @@ pub struct OwnerDomainWalkRequest {
     /// One runs inline. More share immutable programs and bounded event slots.
     /// Caller configures affinity and native inner pools; no environment edits.
     pub workers: usize,
+    /// Ordered is the stable global stream. OwnerBatched uses independent
+    /// phase/owner queues; diagnostic identities and capped prefixes may differ.
+    pub publication_policy: OwnerDomainWalkPublicationPolicy,
     /// Optional responsibility transfer under exact containment. The fixed
     /// logical lookahead is independent of physical worker count.
     pub scheduling_policy: OwnerDomainWalkSchedulingPolicy,
@@ -55,6 +59,7 @@ impl OwnerDomainWalkRequest {
             matching,
             applied_limits: Default::default(),
             workers: 1,
+            publication_policy: OwnerDomainWalkPublicationPolicy::Ordered,
             scheduling_policy: OwnerDomainWalkSchedulingPolicy::InspectAll,
             reuse_initial_d_bands: false,
             max_domains: 100_000,
@@ -94,6 +99,7 @@ impl OwnerDomainWalkResult {
             "job_local_reuse_hits",
             "pre_admitted_orthant_hits",
             "containment_checks",
+            "initial_prepass_containment_checks",
             "containment_maintenance_checks",
             "containment_retired_candidates",
             "containment_summary_builds",
@@ -121,6 +127,8 @@ impl OwnerDomainWalkResult {
             "committed_domains",
             "prepared_seconds",
             "traversal_seconds",
+            "native_driver_seconds",
+            "traversal_timing_boundary",
             "elapsed_seconds",
             "all_scheduled_domains_resolved",
             "recursive_worklist_exhausted",
@@ -128,6 +136,11 @@ impl OwnerDomainWalkResult {
             out[key] = document[key].clone();
         }
         for key in [
+            "publication_policy",
+            "requested_publication_policy",
+            "owner_batched_traversal_started",
+            "owner_bucket_count",
+            "nonempty_owner_buckets",
             "scheduling_policy",
             "delegation",
             "native_processed_nodes",
@@ -199,6 +212,9 @@ pub fn owner_domain_walk_with_progress(
         admitted["partial_inspection_policy"] =
             json!("exact_initial_high_D_overlap; pinned_anchor_plus_native_residual");
     }
+    if request.publication_policy == OwnerDomainWalkPublicationPolicy::OwnerBatched {
+        admitted["publication_policy"] = json!("owner_batched");
+    }
     observer(admitted);
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
         $($n => run::<$n>(&request, &selection, limits, &queries, cancellation, &observer),)*
@@ -238,6 +254,18 @@ fn limits_json(r: &OwnerDomainWalkRequest) -> Value {
             "max_bounded_refinement_cells":m.max_bounded_refinement_cells,
             "refinement_axes":matching::refinement_axes_name(m.refinement_axes),
             "guard_algebra":inspection::debug(&m.guard_algebra)}})
+}
+
+/// Both publication policies use the same post-load boundary. In particular,
+/// owner partitioning and ledger/report finalization are not free setup work.
+fn finish_timing(document: &mut Value, started: Instant, prepared: f64) {
+    let elapsed = started.elapsed().as_secs_f64();
+    document["prepared_seconds"] = json!(prepared);
+    document["traversal_seconds"] = json!(elapsed - prepared);
+    document["elapsed_seconds"] = json!(elapsed);
+    document["traversal_timing_boundary"] = json!(
+        "after_owner_preparation_through_initial_admission_walk_report_and_queue_cleanup; excludes_owner_unload_and_output_write"
+    );
 }
 
 fn run<const N: usize>(
@@ -327,6 +355,40 @@ fn run<const N: usize>(
             .finish_initial_admission()
             .map_err(|e| AppError::input(e.to_string()))?;
     }
+    // A failed initial admission must never become a successful walk over its
+    // retained prefix. Preserve the existing incomplete-result path below.
+    if request.publication_policy == OwnerDomainWalkPublicationPolicy::OwnerBatched
+        && error.is_none()
+        && let Some(reducer) = &reducer
+    {
+        let result = execution::owner_batches::run(
+            &queue.domains,
+            input_frontiers.len(),
+            queue.containment_checks,
+            reducer,
+            request,
+            cancellation,
+            observer,
+        )
+        .map_err(AppError::input)?;
+        for input in &mut inputs {
+            if let Some(id) = input["domain"].as_u64() {
+                input["domain"] = result.initial_handles[id as usize].clone();
+            }
+        }
+        let mut document = result.document;
+        document["inputs"] = json!(inputs);
+        document["input_frontiers"] = json!(input_frontiers);
+        document["max_bounded_refinement_cells"] =
+            json!(request.matching.match_limits.max_bounded_refinement_cells);
+        drop(queue);
+        finish_timing(&mut document, started, prepared);
+        observer(OwnerDomainWalkResult::completion_progress(&document));
+        return Ok(OwnerDomainWalkResult {
+            all_scheduled_domains_resolved: document["all_scheduled_domains_resolved"] == true,
+            document,
+        });
+    }
     let mut state = execution::State::new(queue, input_frontiers.len(), error);
     if let Some(reducer) = &reducer {
         execution::run(&mut state, reducer, request, cancellation, observer);
@@ -360,6 +422,10 @@ fn run<const N: usize>(
         "traversal_seconds":started.elapsed().as_secs_f64()-prepared,"elapsed_seconds":started.elapsed().as_secs_f64()});
     // Keep macro expansion bounded without a crate-wide recursion allowance.
     document["workers"] = json!(request.workers);
+    if request.publication_policy == OwnerDomainWalkPublicationPolicy::OwnerBatched {
+        document["requested_publication_policy"] = json!("owner_batched");
+        document["owner_batched_traversal_started"] = json!(false);
+    }
     document["job_local_reuse_hits"] = json!(state.job_local_reuse_hits);
     document["pre_admitted_orthant_hits"] = json!(state.pre_admitted_orthant_hits);
     document["pre_admitted_orthant_policy"] =
@@ -393,7 +459,7 @@ fn run<const N: usize>(
     document["max_bounded_refinement_cells"] =
         json!(request.matching.match_limits.max_bounded_refinement_cells);
     document["publication_policy"] = json!("stable_domain_id_stream");
-    document["parallel"] = state.parallel;
+    document["parallel"] = std::mem::take(&mut state.parallel);
     document["uncommitted_inspections"] = json!(state.uncommitted);
     document["successful_publication_matches_serial"] = json!(true);
     document["failure_or_cancellation_prefix_may_differ"] = json!(true);
@@ -421,6 +487,8 @@ fn run<const N: usize>(
         document["initial_overlap_limits"] = json!({"max_initial_domains":initial_overlap::MAX_INITIAL_DOMAINS,
             "max_logical_entry_bytes":initial_overlap::MAX_ENTRY_BYTES,"container_overhead_and_rss_excluded":true});
     }
+    drop(state);
+    finish_timing(&mut document, started, prepared);
     observer(OwnerDomainWalkResult::completion_progress(&document));
     Ok(OwnerDomainWalkResult {
         all_scheduled_domains_resolved: resolved,
