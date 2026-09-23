@@ -34,7 +34,7 @@ _DOMAIN_SPEC.loader.exec_module(DOMAIN)
 SYMBOLIC_ALLOWANCES = (*DOMAIN.ALLOWANCES, DOMAIN.REFINEMENT,
                       *(name for name in DOMAIN.WALK_ALLOWANCES if name != "workers"),
                       "max-route-masks-per-query")
-SYMBOLIC_POLICIES = (DOMAIN.REFINEMENT_AXES,)
+SYMBOLIC_POLICIES = (DOMAIN.REFINEMENT_AXES, DOMAIN.TRANSFER_LOOKAHEAD)
 FINITE_ALLOWANCES = {
     "max-nodes": 16_000_000,
     "max-input-targets": 100_000,
@@ -254,6 +254,8 @@ def main() -> int:
                             help="symbolic-domain work allowance; requires --queries")
     parser.add_argument("--" + DOMAIN.REFINEMENT_AXES, choices=DOMAIN.REFINEMENT_AXIS_CHOICES,
                         help="local bounded refinement only (native default: inactive-only); requires --queries; does not change routing or closure")
+    parser.add_argument("--" + DOMAIN.TRANSFER_LOOKAHEAD, type=DOMAIN.positive,
+                        help="opt into unreserved containment delegation with fixed logical dispatch lookahead; requires --queries and unlimited containment checks")
     parser.add_argument("--route-domain-overcover", action="store_true",
                         help="share admitted symbolic route covers; requires --queries")
     parser.add_argument("--no-progress", action="store_true")
@@ -268,6 +270,8 @@ def main() -> int:
         parser.error("symbolic-domain allowances require --queries")
     if args.max_route_masks_per_query is not None and not args.route_domain_overcover:
         parser.error("route mask allowance requires --route-domain-overcover")
+    if args.transfer_unreserved_lookahead is not None and args.max_containment_checks not in (None, "unlimited"):
+        parser.error("--transfer-unreserved-lookahead requires unlimited containment checks")
     if not 1 <= args.workers <= 50 or args.other_workers < 0 or args.workers + args.other_workers > 50:
         parser.error("aggregate configured compute workers must be between 1 and 50")
     if not 0 < args.soft_memory_bytes < args.max_memory_bytes <= 500_000_000_000:

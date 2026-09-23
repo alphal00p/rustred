@@ -294,7 +294,7 @@ before native exact inclusion, in both forward lookup and reverse retirement.
 Exact-key and dominant-orthant shortcuts keep priority; otherwise the lowest
 valid retained ID is selected across eligible groups, regardless of group
 storage order. Empty and unbounded signatures are explicit, not finite sentinels.
-When a new domain contains an earlier one, only the earlier lookup candidate
+By default, when a new domain contains an earlier one, only the earlier lookup candidate
 is retired: its exact key, original ID and pending FIFO inspection remain.
 This can avoid admissions that the former componentwise comparison retained.
 Exact lookup still returns the original ID; a nonexact hit
@@ -320,6 +320,37 @@ per admitted ID, outside the raw diagnostic descriptor and exact-key identity.
 Counter/allocation checks precede candidate retirement. A large incomparable
 set can still be expensive; this index does not establish closure or preserve
 physical sum constraints that were absent from an input box.
+
+### Opt-in delegation of unreserved domains
+
+`--transfer-unreserved-lookahead H` enables
+`OwnerDomainWalkSchedulingPolicy::TransferUnreserved { lookahead }` in the Rust
+request. Both Python steering scripts forward the option. H must be positive
+and remains fixed independently of worker count; omission keeps `InspectAll`.
+The option requires successor walking and unlimited containment comparisons.
+Finite diagnostic comparison caps are rejected before preparation in this mode.
+
+When a newly admitted region provably contains an older region under the same
+owner, phase and immutable program snapshot, the older obligation may transfer
+to the newer one only if it has not entered the logical dispatch lookahead.
+Reserved or started inspections are never cancelled by containment. Forward-only
+links prevent alias cycles; a chain remains an obligation until its final
+representative completes publication without unresolved frontiers or failures.
+The exact containment test is unchanged, and routing and application phases
+remain distinct. No source checks or entry/descendant predicates are dropped.
+
+This mode emits `rustred.owner-domain-walk.json.v3` with the requested
+`scheduling_policy`, native-publication counts and a separate `delegation`
+summary. A `delegated_not_inspected` record is not a native finished result.
+The default still emits v2. A representative with unresolved guard/source/route
+frontiers cannot discharge its aliases. Cancellation, partial event publication
+and resource failures retain incompleteness; global frontier/error checks remain
+mandatory even if the ledger's local obligations are discharged.
+
+These changes pass release validation, including native execution and public
+CLI/Python tests, plus a separate 120-test check against the committed scheduler
+without unrelated local escrow changes. Fewer pending inspections remain a
+performance hypothesis, not a measured speedup or a five-loop closure claim.
 
 The per-domain RHS budgets `--max-rhs-cells-per-query` (default 100,000),
 `--max-term-visits-per-query` (1,000,000),

@@ -1,5 +1,6 @@
 //! Shared symbolic successor discovery over one immutable owner snapshot.
 //! Stable streamed publication is not a family-closure certificate.
+mod delegation;
 mod diagnostics;
 mod execution;
 mod initial_orthants;
@@ -18,6 +19,8 @@ use serde_json::{Value, json};
 use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
+pub use delegation::SchedulingPolicy as OwnerDomainWalkSchedulingPolicy;
+
 #[derive(Clone, Debug)]
 pub struct OwnerDomainWalkRequest {
     /// Load policy and per-domain matcher allowances; max_total_pieces applies
@@ -28,6 +31,9 @@ pub struct OwnerDomainWalkRequest {
     /// One runs inline. More share immutable programs and bounded event slots.
     /// Caller configures affinity and native inner pools; no environment edits.
     pub workers: usize,
+    /// Optional responsibility transfer under exact containment. The fixed
+    /// logical lookahead is independent of physical worker count.
+    pub scheduling_policy: OwnerDomainWalkSchedulingPolicy,
     pub max_domains: usize,
     /// Committed logical callbacks, not speculative native attempts or bytes.
     pub max_events: usize,
@@ -45,6 +51,7 @@ impl OwnerDomainWalkRequest {
             matching,
             applied_limits: Default::default(),
             workers: 1,
+            scheduling_policy: OwnerDomainWalkSchedulingPolicy::InspectAll,
             max_domains: 100_000,
             max_events: 1_000_000,
             max_frontiers: 100_000,
@@ -57,7 +64,8 @@ impl OwnerDomainWalkRequest {
 
 #[derive(Clone, Debug)]
 pub struct OwnerDomainWalkResult {
-    /// Every admitted domain inspected without unresolved work. Does not
+    /// Every admitted obligation discharged by inspection or an explicitly
+    /// tracked containing representative, without unresolved work. Does not
     /// certify provenance, global route order compatibility, or family closure.
     pub all_scheduled_domains_resolved: bool,
     pub document: Value,
@@ -114,6 +122,11 @@ impl OwnerDomainWalkResult {
         ] {
             out[key] = document[key].clone();
         }
+        for key in ["scheduling_policy", "delegation", "native_processed_nodes"] {
+            if let Some(value) = document.get(key) {
+                out[key] = value.clone();
+            }
+        }
         if let Some(error) = document["error"].as_str() {
             out["error"] = json!(error.chars().take(512).collect::<String>());
         }
@@ -136,6 +149,10 @@ pub fn owner_domain_walk_with_progress(
     {
         return Err(AppError::input("invalid symbolic worklist allowances"));
     }
+    request
+        .scheduling_policy
+        .validate(request.max_containment_checks)
+        .map_err(|error| AppError::input(error.to_string()))?;
     rustred::campaign::ParallelExecution::preflight_requested_core_budget(request.workers)
         .map_err(|e| AppError::input(e.to_string()))?;
     let (selection, arity, limits) = input::Selection::parse(&request.matching.selection_json)?;
@@ -144,8 +161,7 @@ pub fn owner_domain_walk_with_progress(
         arity,
         request.matching.max_queries,
     )?;
-    observer(
-        json!({"event":"admitted", "operation":"owner_domain_walk", "arity":arity,
+    let mut admitted = json!({"event":"admitted", "operation":"owner_domain_walk", "arity":arity,
         "input_domains":queries.len(), "workers":request.workers, "max_domains":request.max_domains,
         "max_events":request.max_events, "max_frontiers":request.max_frontiers,
         "max_containment_checks":request.max_containment_checks,
@@ -154,8 +170,13 @@ pub fn owner_domain_walk_with_progress(
         "applied_limits":limits_json(&request), "publication_policy":"stable_domain_id_stream",
         "bounded_refinement_axes":matching::refinement_axes_name(request.matching.match_limits.refinement_axes),
         "max_bounded_refinement_cells":request.matching.match_limits.max_bounded_refinement_cells,
-        "family_closure_claim":false, "ibp_generation":false}),
-    );
+        "family_closure_claim":false, "ibp_generation":false});
+    if request.scheduling_policy != OwnerDomainWalkSchedulingPolicy::InspectAll {
+        admitted["scheduling_policy"] =
+            execution::scheduling_policy_json(request.scheduling_policy);
+        admitted["publication_policy"] = json!("stable_domain_responsibility_stream");
+    }
+    observer(admitted);
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
         $($n => run::<$n>(&request, &selection, limits, &queries, cancellation, &observer),)*
         _ => unreachable!("admitted arity"),
@@ -210,7 +231,12 @@ fn run<const N: usize>(
     load.reduction_limits = request.matching.reduction_limits;
     let reducer = prepare::prepare::<N>(&load, selection, load_limits, cancellation, observer)?;
     let prepared = started.elapsed().as_secs_f64();
-    let mut queue = Queue::new(request.max_domains, request.max_containment_checks);
+    let mut queue = Queue::with_policy(
+        request.max_domains,
+        request.max_containment_checks,
+        request.scheduling_policy,
+    )
+    .map_err(AppError::input)?;
     let mut inputs = Vec::new();
     let mut input_frontiers = Vec::new();
     let mut error = reducer
@@ -266,8 +292,13 @@ fn run<const N: usize>(
     if let Some(reducer) = &reducer {
         execution::run(&mut state, reducer, request, cancellation, observer);
     }
+    let delegation = state.finalize_delegation();
     let exhausted = state.error.is_none() && state.queue.next == state.queue.domains.len();
-    let resolved = exhausted && state.frontiers == 0;
+    let resolved = exhausted
+        && state.frontiers == 0
+        && delegation
+            .as_ref()
+            .is_none_or(|value| value["all_ledger_obligations_discharged"] == true);
     let mut document = json!({"schema":"rustred.owner-domain-walk.json.v2",
         "status":if resolved {"locally_resolved"} else {"incomplete"},
         "all_scheduled_domains_resolved":resolved,"recursive_worklist_exhausted":exhausted,
@@ -279,7 +310,7 @@ fn run<const N: usize>(
         "conditional_successors_use_conservative_domain_overcover":true,
         "scheduled_nodes":state.queue.domains.len(),"completed_nodes":state.completed,
         "queued_nodes":state.queue.domains.len().saturating_sub(state.queue.next),
-        "processed_nodes":state.queue.next,"failed_nodes":state.queue.next.saturating_sub(state.completed),
+        "processed_nodes":state.queue.next,"failed_nodes":state.native_records.saturating_sub(state.completed),
         "deduplication_hits":state.queue.deduplicated,"containment_checks":state.queue.containment_checks,
         "exact_domain_hits":state.queue.exact_hits,"full_orthant_hits":state.queue.orthant_hits,
         "successors":state.successors,"conditional_successors":state.conditional,
@@ -329,6 +360,14 @@ fn run<const N: usize>(
     document["failure_or_cancellation_prefix_may_differ"] = json!(true);
     document["committed_domains"] = json!(state.queue.next);
     document["committed_events"] = json!(state.events);
+    if let Some(delegation) = delegation {
+        document["schema"] = json!("rustred.owner-domain-walk.json.v3");
+        document["publication_policy"] = json!("stable_domain_responsibility_stream");
+        document["scheduling_policy"] =
+            execution::scheduling_policy_json(request.scheduling_policy);
+        document["native_processed_nodes"] = json!(state.native_records);
+        document["delegation"] = delegation;
+    }
     observer(OwnerDomainWalkResult::completion_progress(&document));
     Ok(OwnerDomainWalkResult {
         all_scheduled_domains_resolved: resolved,

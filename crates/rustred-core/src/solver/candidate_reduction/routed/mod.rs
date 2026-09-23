@@ -16,7 +16,8 @@ pub use domain_overcover::{
     CandidateDomainRouteFailure, CandidateDomainRouteLimits, CandidateDomainRouteStats,
 };
 pub use entry::{
-    CandidateEntryAdmission, FiniteRootAdmission, RootAdmissionError, RootRegionInput,
+    CandidateEntryAdmission, EntryWitnessError, EntryWitnessLimits, EntryWitnessOutcome,
+    FiniteRootAdmission, RootAdmissionError, RootRegionInput, pick_entry_intersection_witness,
 };
 
 pub use model::{

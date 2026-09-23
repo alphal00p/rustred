@@ -1,4 +1,9 @@
 //! Finite starting-root constraints, independent of saved owner search bounds.
+mod witness;
+pub use witness::{
+    EntryWitnessError, EntryWitnessLimits, EntryWitnessOutcome, pick_entry_intersection_witness,
+};
+
 use super::CandidateRoutedError;
 use crate::family::IntegralKey;
 use crate::sector::Mask;

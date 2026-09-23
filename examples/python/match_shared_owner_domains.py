@@ -23,6 +23,7 @@ ALLOWANCES = (
 REFINEMENT = "max-bounded-refinement-cells-per-query"
 REFINEMENT_AXES = "bounded-refinement-axes"
 REFINEMENT_AXIS_CHOICES = ("inactive-only", "finite-axes")
+TRANSFER_LOOKAHEAD = "transfer-unreserved-lookahead"
 WALK_ALLOWANCES = ("workers", "max-domains", "max-frontiers", "max-successor-events", "max-containment-checks",
                    "max-rhs-cells-per-query", "max-term-visits-per-query",
                    "max-native-operations-per-query", "max-rhs-events-per-query",
@@ -71,6 +72,8 @@ def main() -> None:
                         help="exact bounded refinement faces per query; zero disables refinement")
     parser.add_argument("--" + REFINEMENT_AXES, choices=REFINEMENT_AXIS_CHOICES,
                         help="local refinement axes (native default: inactive-only); finite-axes also permits explicitly bounded positive axes, not routing or closure")
+    parser.add_argument("--" + TRANSFER_LOOKAHEAD, type=positive,
+                        help="opt into unreserved containment delegation with fixed logical dispatch lookahead; requires unlimited containment checks")
     for option in WALK_ALLOWANCES:
         parser.add_argument("--" + option,
                             type=containment_limit if option == "max-containment-checks" else positive,
@@ -79,10 +82,12 @@ def main() -> None:
     args = parser.parse_args()
     if not args.follow_successors and (args.route_domain_overcover or any(
             getattr(args, option.replace("-", "_")) is not None
-            for option in (*WALK_ALLOWANCES, "max-route-masks-per-query"))):
+            for option in (*WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, "max-route-masks-per-query"))):
         parser.error("successor work allowances require --follow-successors")
     if args.max_route_masks_per_query is not None and not args.route_domain_overcover:
         parser.error("route mask allowance requires --route-domain-overcover")
+    if args.transfer_unreserved_lookahead is not None and args.max_containment_checks not in (None, "unlimited"):
+        parser.error("--transfer-unreserved-lookahead requires unlimited containment checks")
     environment = os.environ.copy()
     for name in ("RAYON_NUM_THREADS", "OMP_NUM_THREADS", "OMP_THREAD_LIMIT",
                  "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "BLIS_NUM_THREADS",
@@ -100,7 +105,7 @@ def main() -> None:
         command.append("--follow-successors")
     if args.route_domain_overcover:
         command.append("--route-domain-overcover")
-    for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, "max-route-masks-per-query"):
+    for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, "max-route-masks-per-query"):
         if (value := getattr(args, option.replace("-", "_"))) is not None:
             command.extend(["--" + option, str(value)])
     # Inherit the license without persisting or printing it. Replacement keeps

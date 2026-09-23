@@ -282,9 +282,13 @@ matched audit is
 These negative results do not prove hashing is universally unhelpful, but they
 do not justify enabling this implementation on the target workload.
 
-## Pending-obligation transfer: audited protocol, not enabled
+## Pending-obligation transfer: initial protocol investigation
 
-Lookup retirement currently leaves every admitted inspection obligation alive.
+This subsection records the initial proposal. The production implementation
+and its subsequent release gates are described below.
+
+Under the default inspect-all policy, lookup retirement leaves every admitted
+inspection obligation alive.
 The final baseline had 5,427,770 retired lookup candidates but only 2,522,398
 processed IDs, including its partial cancellation. Thus **at least 2,905,372**
 retired IDs were still among the 6,029,467 pending obligations (48.19%). This
@@ -305,7 +309,8 @@ currently undispatched. New report semantics would be necessary: skipping an
 inspection intentionally cannot preserve the previous complete event prefix.
 The design and required tests are in the ignored
 `TMP/parent-partition-design.xkm6A5/RETIREMENT_TRANSFER.md`. **No production
-transfer policy is enabled, and no performance gain is claimed.** It would optimize
+transfer policy was enabled at that prototype checkpoint, and no performance
+gain was claimed.** It would optimize
 the local domain worklist, not replace missing finite-root admission or closure
 requirements.
 
@@ -327,7 +332,7 @@ The existing native asynchronous-failure behavior does not promise identical
 failure prefixes across worker counts. All source obligations, successor
 publication and final unresolved-frontier checks remain mandatory.
 
-The next implementation must retain the default inspect-all behavior and
+The resulting implementation requirements were to retain default inspect-all behavior and
 introduce an explicit opt-in policy with native differential tests before a
 timed pilot. Evidence and the integration map are in
 `TMP/parent-partition-design.xkm6A5/TRANSFER_LEDGER_RESULTS.md` and
@@ -346,3 +351,50 @@ integrated and release-tested as a separate implementation track. Its repeated
 rank-zero roots, not exhaustive R15 coverage. The full finite starting envelope
 remains unfinished; neither this control nor the protocol tests provide a
 five-loop completion-time forecast.
+
+## Connected delegation and entry witnesses: release-gated pilot
+
+Opt-in `--transfer-unreserved-lookahead 256` now enables a separate delegation
+ledger with a deterministic logical reservation fence. Exact same-owner/phase
+containment can transfer an untouched pending obligation to a later ID; reserved
+or started work is never cancelled by containment. The default inspect-all
+behavior remains unchanged. Forward-only aliases retain responsibility until
+their representative publishes without error or unresolved frontiers. Alias
+publication is not native inspection or proof of discharge. Cleanup counts
+actual native records independently of the logical publication cursor.
+
+The separate typed entry-witness interface intersects native match pieces with
+the original finite starting union, selects admitted concrete points and feeds
+only actual traced missing rules to the existing fixed-target search. Successful
+points never establish regional coverage. Neither the witness interface nor
+delegation changes saved rule provenance or clips intermediate descendants.
+
+Independent implementation/mathematical audits pass. Release gates pass
+**3,319 Rust tests (36 ignored) and 73 Python/API/steering tests**. A separate
+actual-source gate passes 120 tests (one ignored) against the committed scheduler
+without inherited escrow work. That eight-CPU compatibility gate exercises
+serial/two/six-worker controls, not fifty workers. The full application gate
+exercises the fifty-worker control at lookahead one: protocol correctness,
+not a throughput result. No new CAS primitive is introduced.
+
+The frozen release binary is
+`TMP/witness-delegation-gate.9qXc3m/rustred`, SHA-256
+`ce792425c3fa96c19df5c0d774cf27a6b998a44be7150d298c5b6552ec31fbcc`.
+It includes the same inherited escrow work as the baseline; clean-source
+compatibility does not make this a benchmark of an isolated commit.
+The full-67-owner diagnostic is now running as
+`TMP/witness-delegation-gate.9qXc3m/shared-owner-campaign.zx0rs62j/`, with the
+same saved inputs, rules, routes, per-query budgets and aggregate diagnostic
+allowances. CPU affinity is 0–49, with 50 configured compute slots and the
+450/500 GB memory policy. There is no elapsed deadline or concurrent owned
+build. It reuses saved IBPs and performs no terminal evaluation.
+
+Delegation changes the native inspection stream, so equal job IDs or counts
+are not a matched-work speedup boundary. Report native publications, transferred
+obligations and their remaining native work separately. In particular, for
+admitted A, transferred T, native-published N and alias-published P,
+`pending_native=A-T-N` and `queued=A-N-P`. A shrinking logical queue caused by
+alias publication alone is not evidence that native work is draining.
+Actual CPU-time deltas and pending-native growth will determine whether a
+longer attempt is justified. At launch, there is no new five-loop performance,
+closure or completion-time claim.

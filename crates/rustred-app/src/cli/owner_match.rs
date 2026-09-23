@@ -5,7 +5,10 @@ use super::{
     progress::RoutedProgress,
 };
 use crate::{OwnerDomainMatchRequest, OwnerDomainMatchResult, owner_domain_match_with_progress};
-use crate::{OwnerDomainWalkRequest, OwnerDomainWalkResult, owner_domain_walk_with_progress};
+use crate::{
+    OwnerDomainWalkRequest, OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy,
+    owner_domain_walk_with_progress,
+};
 use serde_json::json;
 use std::fs::{File, OpenOptions};
 use std::io::{self, IsTerminal, Write};
@@ -78,6 +81,10 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
         walk.max_frontiers = args.max_frontiers;
         walk.max_events = args.max_successor_events;
         walk.max_containment_checks = args.max_containment_checks;
+        if let Some(lookahead) = args.transfer_unreserved_lookahead {
+            walk.scheduling_policy =
+                OwnerDomainWalkSchedulingPolicy::TransferUnreserved { lookahead };
+        }
         walk.route_domain_overcover = args.route_domain_overcover;
         walk.max_route_masks = args.max_route_masks;
         walk.applied_limits.max_boundary_cells = args.max_rhs_cells;
@@ -117,7 +124,13 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     });
     document["max_bounded_refinement_cells"] = json!(args.max_bounded_refinement_cells);
     if walking {
-        document["schema"] = json!("rustred.owner-domain-walk.json.v2");
+        if let Some(lookahead) = args.transfer_unreserved_lookahead {
+            document["schema"] = json!("rustred.owner-domain-walk.json.v3");
+            document["scheduling_policy"] =
+                json!({"kind":"transfer_unreserved", "lookahead":lookahead.get()});
+        } else {
+            document["schema"] = json!("rustred.owner-domain-walk.json.v2");
+        }
         monitor.observe(OwnerDomainWalkResult::completion_progress(&document));
     } else {
         monitor.observe(OwnerDomainMatchResult::completion_progress(&document));

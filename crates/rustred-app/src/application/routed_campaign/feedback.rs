@@ -1,5 +1,10 @@
 //! Opt-in, retained source-feedback sessions. No automatic trace-only mutation.
 mod nomination;
+mod witness;
+pub use witness::{
+    RoutedEntryWitnessLimits, RoutedEntryWitnessProposal, RoutedEntryWitnessRoundResult,
+    RoutedEntryWitnessStats,
+};
 #[cfg(test)]
 mod tests;
 

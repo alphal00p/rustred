@@ -33,6 +33,7 @@ class MatchSteeringTests(unittest.TestCase):
         for option in MATCH.ALLOWANCES:
             self.assertNotIn("--" + option, command)
         self.assertNotIn("--" + MATCH.REFINEMENT_AXES, command)
+        self.assertNotIn("--" + MATCH.TRANSFER_LOOKAHEAD, command)
         for option in ("--workers", "--timeout", "--max-numerator-rank", "--targets"):
             self.assertNotIn(option, command)
 
@@ -149,6 +150,24 @@ class MatchSteeringTests(unittest.TestCase):
         self.assertEqual(command[command.index("--max-route-masks-per-query") + 1], "321")
         for suffix in (["--route-domain-overcover"],
                        ["--follow-successors", "--max-route-masks-per-query", "321"]):
+            with patch("sys.argv", self.arguments() + suffix), \
+                    patch.object(MATCH.os, "execve") as execute, \
+                    patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit):
+                    MATCH.main()
+                execute.assert_not_called()
+
+    def test_transfer_policy_is_opt_in_and_requires_unlimited_walk(self):
+        option = "--" + MATCH.TRANSFER_LOOKAHEAD
+        for cap in ([], ["--max-containment-checks", "unlimited"]):
+            with patch("sys.argv", self.arguments() + ["--follow-successors", option, "50"] + cap), \
+                    patch.object(MATCH.os, "execve") as execute:
+                MATCH.main()
+            command = execute.call_args.args[1]
+            self.assertEqual(command[command.index(option) + 1], "50")
+        for suffix in ([option, "50"], ["--follow-successors", option, "0"],
+                       ["--follow-successors", option, "+1"],
+                       ["--follow-successors", option, "50", "--max-containment-checks", "99"]):
             with patch("sys.argv", self.arguments() + suffix), \
                     patch.object(MATCH.os, "execve") as execute, \
                     patch("sys.stderr", new_callable=io.StringIO):

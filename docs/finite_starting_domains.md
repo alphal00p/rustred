@@ -854,8 +854,55 @@ finite envelope, and no coefficient back-substitution was performed.
 Evidence: `TMP/finite-root-integration.GIUpjn/`, with canary
 `shared-owner-campaign.w0d369gw/` and exact counter comparison
 `canary-comparison.json`. Deterministic intersection-point selection and its
-connection to actual missing-target feedback remain the next functional step;
-the new preparatory witness code is not yet registered or used by a campaign.
+connection to actual missing-target feedback now pass release validation;
+complete finite-envelope handling remains unfinished.
+
+### Connected witness feedback and delegation: release gates pass
+
+The Rust API now connects `pick_entry_intersection_witness` to
+`RoutedFeedbackSession::run_entry_witness_round` through typed native match
+pieces tied to an immutable program snapshot. The original entry-region union
+is retained separately from projected extrema. All selected points are checked
+against that union, deduplicated and admitted atomically before replacing the
+session's batch. Only subsequent exact tracing may nominate a missing rule;
+the match disposition alone never authorizes an IBP or terminal. Empty proposal
+intersections do not accidentally retrace the previous batch. Old-snapshot
+proposals must be recollected after publishing overlays.
+
+The new point interface always reports `more_region_work_required=true`:
+successful point traces are not region exhaustion. Nine native and seven
+feedback tests pass, including exact correlated intersections,
+representability limits, stale-snapshot/limit/cancellation atomicity and actual
+two-round one-loop fixed-target repair. Independent source/math review passes.
+The release core gate passes 2,787 library and 15 integration tests (35 ignored),
+including all nine witness tests. The application gate passes 435 library and
+82 integration tests (one existing diagnostic ignored), including all seven
+connected feedback tests. The freshly built CLI and Python extension pass
+50 public API tests, 11 matcher-steering tests and 12 supervisor tests.
+
+In parallel, opt-in unreserved-domain delegation is integrated with the
+symbolic worklist. It transfers an untouched smaller obligation only to an
+exactly containing later region in the same snapshot/owner/phase. A fixed
+logical dispatch lookahead makes reservation independent of worker timing;
+frontiers, failed publication and unresolved representatives cannot silently
+discharge aliases. Rust, CLI and Python expose the policy, while the original
+inspect-all policy remains the default. See the
+[interface contract](shared_owner_domain_matching.md#opt-in-delegation-of-unreserved-domains).
+The native release gate covers the delegation ledger, six queue-transaction
+tests and nine execution tests. Its one-loop worker-count control includes
+50 configured workers, but uses lookahead one and therefore is not evidence
+of concurrent 50-core utilization. An additional actual-source compatibility
+gate against the committed scheduler passes 120 tests (one existing diagnostic
+ignored). The full Cargo tests
+use the shared working tree, including unrelated pre-existing escrow changes
+that are excluded from this milestone. Five-loop performance remains to be
+measured: the full-67-owner H=256 diagnostic is now running with 50 configured
+workers, fixed CPU affinity 0–49, the 450/500 GB memory policy and no elapsed
+deadline. Its receipt is `shared-owner-campaign.zx0rs62j/` under the gate
+directory. Alias publication is measured separately from native inspection and
+does not establish discharge. Current evidence is under
+`TMP/witness-delegation-gate.9qXc3m/`. Neither addition establishes complete
+coverage of the finite five-loop envelope or improves its ETA yet.
 
 The all-owner input has a concrete reuse advantage worth testing after the
 matched index pilot. Sufficient implication of the recorded coordinate and

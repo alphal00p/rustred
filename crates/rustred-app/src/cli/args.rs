@@ -605,6 +605,11 @@ The mode accepts --workers (default 1) and positive --max-domains,
 comparisons are unlimited by default; --max-containment-checks N sets a positive
 finite diagnostic cap, and --max-containment-checks unlimited selects the default.
 This leaves all native work, storage and resource limits unchanged.
+--transfer-unreserved-lookahead H opts into delegating unreserved contained
+domains to later containing domains, using a fixed positive logical dispatch
+lookahead H. It requires --follow-successors and unlimited containment checks.
+The default inspects all scheduled domains. Delegation is not native completion;
+unresolved representatives and frontiers remain incomplete.
 Streamed aggregate events and retained frontier storage have separate budgets.
 --max-rhs-cells-per-query counts all refined
 RHS cells (not only pinches); --max-term-visits-per-query and

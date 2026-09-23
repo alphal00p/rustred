@@ -1,4 +1,5 @@
 //! Inclusion reuse for one immutable program snapshot, not solved-state reuse.
+use super::delegation::{Ledger, SchedulingPolicy};
 use rustred::solver::{DomainPowerBounds, DomainPowerError, DomainPowerSummary};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -95,6 +96,7 @@ pub(super) struct Queue<const N: usize> {
     /// Immutable storage shared with the exact index and an active inspection.
     /// Cloning a queued handle does not clone its coordinate vectors.
     pub domains: Vec<Arc<Domain<N>>>,
+    pub(super) delegation: Option<Ledger<(Phase, [bool; N])>>,
     pub next: usize,
     pub deduplicated: usize,
     /// All general box comparisons, including reverse maintenance comparisons;
@@ -104,7 +106,8 @@ pub(super) struct Queue<const N: usize> {
     /// containment_checks. Zero in the unchanged finite-comparison-cap lane.
     pub containment_maintenance_checks: usize,
     /// Cumulative IDs removed only from the containment candidate index.
-    /// Every corresponding domain/exact key/FIFO obligation remains retained.
+    /// Every domain/exact key remains retained. The opt-in responsibility
+    /// ledger may delegate an untouched obligation to its containing successor.
     pub containment_retired_candidates: usize,
     /// Successfully constructed cached geometry, including rejected/reused
     /// requests. Exact-key hits do not construct another summary.
@@ -158,6 +161,7 @@ impl<const N: usize> Queue<N> {
     pub fn new(max_domains: usize, max_checks: Option<usize>) -> Self {
         Self {
             domains: Vec::new(),
+            delegation: None,
             next: 0,
             deduplicated: 0,
             containment_checks: 0,
@@ -179,8 +183,26 @@ impl<const N: usize> Queue<N> {
         }
     }
 
+    pub fn with_policy(
+        max_domains: usize,
+        max_checks: Option<usize>,
+        policy: SchedulingPolicy,
+    ) -> Result<Self, String> {
+        policy
+            .validate(max_checks)
+            .map_err(|error| error.to_string())?;
+        let mut queue = Self::new(max_domains, max_checks);
+        if let SchedulingPolicy::TransferUnreserved { lookahead } = policy {
+            queue.delegation =
+                Some(Ledger::new(lookahead, max_domains).map_err(|error| error.to_string())?);
+        }
+        Ok(queue)
+    }
+
     /// A pending containing domain can suppress another scheduling request, but
-    /// every admitted domain still has to finish before worklist exhaustion.
+    /// every admitted responsibility still has to finish before exhaustion.
+    /// InspectAll requires each native inspection; optional delegation requires
+    /// the explicitly tracked containing representative instead.
     /// The queue is never shared between different snapshots or rank policies.
     /// Exact/full-orthant index proofs do not spend general containment checks,
     /// so they can still succeed at a finite comparison cap or counter maximum.
@@ -290,6 +312,11 @@ impl<const N: usize> Queue<N> {
             return Err("scheduled domain allowance");
         }
         let id = self.domains.len();
+        if let Some(ledger) = &mut self.delegation {
+            ledger
+                .reserve_admission(id)
+                .map_err(|_| "delegation ledger admission allocation")?;
+        }
         self.domains
             .try_reserve(1)
             .map_err(|_| "domain allocation")?;
@@ -362,6 +389,13 @@ impl<const N: usize> Queue<N> {
         self.containment_semantic_retirements
             .checked_add(maintenance)
             .ok_or("semantic containment retirement counter overflow")?;
+        if let Some(ledger) = &mut self.delegation {
+            // Last fallible ledger operation before the infallible queue
+            // retirement/publication transaction. No observer runs mid-commit.
+            ledger
+                .admit_reserved(id, key)
+                .map_err(|_| "delegation ledger admission invariant")?;
+        }
         let domain = Arc::new(domain);
         if let Some(bucket) = new_bucket {
             self.by_owner.insert(key, bucket);
@@ -372,12 +406,18 @@ impl<const N: usize> Queue<N> {
             // All retained candidates and the new domain belong to this same
             // immutable phase/owner snapshot. Transitivity preserves a retained
             // containing representative for every retired candidate. Keep the
-            // old domains/exact entries/FIFO jobs, whether pending or finished.
+            // old domains/exact entries. InspectAll retains every FIFO job;
+            // optional transfer changes only untouched, unreserved responsibility.
             let summary = summary.as_ref().expect("unlimited lane summary");
             bucket.indexed.retire(insertion, |old| {
                 let retire = summary.contains(&self.summaries[old]);
                 if retire && !domain.contains(&self.domains[old]) {
                     extra_retired += 1; // preflighted by the maintenance bound
+                }
+                if retire && let Some(ledger) = &mut self.delegation {
+                    // Same immutable phase/owner bucket; exact native inclusion
+                    // is the authority. Protected work remains a native obligation.
+                    let _ = ledger.transfer_retired(old, id);
                 }
                 retire
             })

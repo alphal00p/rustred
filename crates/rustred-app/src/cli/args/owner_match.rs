@@ -1,7 +1,7 @@
 use super::{
     ArgError, Command, next_utf8_value, parse_nonnegative_integer, parse_positive_integer,
 };
-use std::{collections::BTreeSet, ffi::OsString, path::PathBuf};
+use std::{collections::BTreeSet, ffi::OsString, num::NonZeroUsize, path::PathBuf};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct OwnerDomainMatchArgs {
@@ -38,6 +38,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub max_frontiers: usize,
     pub max_successor_events: usize,
     pub max_containment_checks: Option<usize>,
+    pub transfer_unreserved_lookahead: Option<NonZeroUsize>,
 }
 
 pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -77,6 +78,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         max_frontiers: 100_000,
         max_successor_events: 1_000_000,
         max_containment_checks: None,
+        transfer_unreserved_lookahead: None,
     };
     let mut seen = BTreeSet::new();
     let mut arguments = arguments.peekable();
@@ -118,6 +120,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--max-frontiers" => "--max-frontiers",
             "--max-successor-events" => "--max-successor-events",
             "--max-containment-checks" => "--max-containment-checks",
+            "--transfer-unreserved-lookahead" => "--transfer-unreserved-lookahead",
             "--help" | "-h" => return Ok(Command::Help),
             _ => return Err(ArgError::UnknownOption(option)),
         };
@@ -138,6 +141,10 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         let value = next_utf8_value(&mut arguments, name)?;
         match name {
+            "--transfer-unreserved-lookahead" => {
+                result.transfer_unreserved_lookahead =
+                    NonZeroUsize::new(parse_positive_integer(name, value)?);
+            }
             "--bounded-refinement-axes" => {
                 result.refinement_axes = match value.as_str() {
                     "inactive-only" => rustred::solver::OwnerDomainRefinementAxes::InactiveOnly,
@@ -233,6 +240,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--max-frontiers",
             "--max-successor-events",
             "--max-containment-checks",
+            "--transfer-unreserved-lookahead",
             "--route-domain-overcover",
             "--max-route-masks-per-query",
             "--max-rhs-cells-per-query",
@@ -252,6 +260,11 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     if !result.route_domain_overcover && seen.contains("--max-route-masks-per-query") {
         return Err(ArgError::InvalidCombination(
             "route mask allowance requires --route-domain-overcover",
+        ));
+    }
+    if result.transfer_unreserved_lookahead.is_some() && result.max_containment_checks.is_some() {
+        return Err(ArgError::InvalidCombination(
+            "--transfer-unreserved-lookahead requires unlimited containment checks",
         ));
     }
     Ok(Command::OwnerDomainMatch(result))
@@ -274,6 +287,7 @@ mod tests {
         let applied = rustred::solver::OwnerAppliedLimits::default();
         assert_eq!(args.workers, 1);
         assert_eq!(args.max_containment_checks, None);
+        assert_eq!(args.transfer_unreserved_lookahead, None);
         assert_eq!(args.max_frontiers, 100_000);
         assert_eq!(args.max_rhs_events, applied.max_events);
         assert_eq!(args.max_shift_groups, applied.max_shift_groups);
@@ -454,6 +468,31 @@ mod tests {
             "--follow-successors --max-containment-checks unlimited --max-containment-checks 7",
         ] {
             assert!(parse(&format!("--manifest m --queries q --output o {suffix}")).is_err());
+        }
+    }
+
+    #[test]
+    fn unreserved_transfer_is_opt_in_positive_and_requires_unlimited_walk() {
+        for horizon in [1, 50, usize::MAX] {
+            for cap in ["", "--max-containment-checks unlimited"] {
+                let Command::OwnerDomainMatch(args) = parse(&format!(
+                    "--manifest m --queries q --output o --follow-successors --transfer-unreserved-lookahead {horizon} {cap}"
+                )).unwrap() else { panic!("match command") };
+                assert_eq!(args.transfer_unreserved_lookahead.unwrap().get(), horizon);
+            }
+        }
+        for suffix in [
+            "--transfer-unreserved-lookahead 50",
+            "--follow-successors --transfer-unreserved-lookahead 0",
+            "--follow-successors --transfer-unreserved-lookahead +1",
+            "--follow-successors --transfer-unreserved-lookahead 50 --max-containment-checks 100",
+            "--follow-successors --max-containment-checks 100 --transfer-unreserved-lookahead 50",
+            "--follow-successors --transfer-unreserved-lookahead 1 --transfer-unreserved-lookahead 2",
+        ] {
+            assert!(
+                parse(&format!("--manifest m --queries q --output o {suffix}")).is_err(),
+                "{suffix}"
+            );
         }
     }
 

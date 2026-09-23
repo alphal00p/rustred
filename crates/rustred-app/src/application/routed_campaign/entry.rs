@@ -14,6 +14,8 @@ pub(super) struct RequestedEntryDomain<const N: usize> {
     policy: FiniteRootAdmission<N>,
     description: Value,
     description_json_bytes: usize,
+    /// Original typed union members, not their projected rectangular hulls.
+    regions: Vec<RootRegionInput<N>>,
 }
 
 impl<const N: usize> RequestedEntryDomain<N> {
@@ -36,24 +38,33 @@ impl<const N: usize> RequestedEntryDomain<N> {
         let description_json_bytes = serde_json::to_vec(&description)
             .map_err(|e| AppError::input(format!("finite starting domain description: {e}")))?
             .len();
-        let regions = queries.into_iter().map(|q| RootRegionInput {
+        let mut regions = Vec::new();
+        regions
+            .try_reserve_exact(queries.len())
+            .map_err(|_| AppError::limit("finite starting domain region allocation failed"))?;
+        regions.extend(queries.into_iter().map(|q| RootRegionInput {
             support: std::array::from_fn(|i| q.owner[i]),
             lower: q.lower,
             upper: q.upper,
             rank: q.rank,
             powers: q.powers,
-        });
-        let policy = FiniteRootAdmission::try_new(regions, MAX_REGIONS)
+        }));
+        let policy = FiniteRootAdmission::try_new(regions.iter().cloned(), MAX_REGIONS)
             .map_err(|e| AppError::input(format!("finite starting domain: {e}")))?;
         Ok(Self {
             policy,
             description,
             description_json_bytes,
+            regions,
         })
     }
 
     pub fn description_json_bytes(&self) -> usize {
         self.description_json_bytes
+    }
+
+    pub fn regions(&self) -> &[RootRegionInput<N>] {
+        &self.regions
     }
 
     pub fn validate(&self, target: &IntegralKey) -> Result<(), AppError> {
@@ -116,6 +127,21 @@ mod tests {
              "max_numerator_rank":15,"power_bounds":{"max_positive_power":24,
              "min_power_difference":9}}]});
         let domain = RequestedEntryDomain::<2>::parse(&query.to_string()).unwrap();
+        // Witness selection retains the actual input predicates, not the
+        // finite coordinate projection used internally by fast membership.
+        assert_eq!(domain.regions().len(), 1);
+        assert_eq!(domain.regions()[0].upper, [None, None]);
+        assert_eq!(domain.regions()[0].rank, Some(15));
+        assert_eq!(domain.regions()[0].powers.max_positive_power, Some(24));
+        assert_eq!(domain.regions()[0].powers.min_power_difference, Some(9));
+        assert!(
+            domain.policy.regions()[0]
+                .extrema()
+                .unwrap()
+                .upper()
+                .iter()
+                .all(Option::is_some)
+        );
         domain.validate(&key([24, -15])).unwrap();
         for powers in [[24, -16], [25, -15], [23, -15]] {
             assert!(domain.validate(&key(powers)).is_err());

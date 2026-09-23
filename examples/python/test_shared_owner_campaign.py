@@ -225,6 +225,8 @@ class SteeringTests(unittest.TestCase):
                             value = "unlimited"
                         command += ["--"+option,value]
                         expected[option]=value
+                if explicit == "unlimited":
+                    command += ["--" + CAMPAIGN.DOMAIN.TRANSFER_LOOKAHEAD, "50"]
                 result=subprocess.run(command,capture_output=True,text=True,timeout=10)
                 self.assertEqual(result.returncode,4,result.stderr)
                 receipt=next((directory/"receipts").iterdir())
@@ -250,6 +252,11 @@ class SteeringTests(unittest.TestCase):
                     self.assertEqual(actual[actual.index(axes_option)+1], axes)
                 else:
                     self.assertNotIn(axes_option, actual)
+                transfer_option = "--" + CAMPAIGN.DOMAIN.TRANSFER_LOOKAHEAD
+                if explicit == "unlimited":
+                    self.assertEqual(actual[actual.index(transfer_option)+1], "50")
+                else:
+                    self.assertNotIn(transfer_option, actual)
                 for option in CAMPAIGN.FINITE_ALLOWANCES:
                     self.assertNotIn("--"+option,actual)
 
@@ -263,6 +270,9 @@ class SteeringTests(unittest.TestCase):
             ("--targets",["--bounded-refinement-axes","finite-axes"],"require --queries"),
             ("--queries",["--bounded-refinement-axes","all"],"invalid choice"),
             ("--targets",["--max-containment-checks","unlimited"],"require --queries"),
+            ("--targets",["--transfer-unreserved-lookahead","50"],"require --queries"),
+            ("--queries",["--transfer-unreserved-lookahead","0"],"positive integer"),
+            ("--queries",["--transfer-unreserved-lookahead","50","--max-containment-checks","99"],"unlimited containment checks"),
             ("--queries",["--max-containment-checks","0"],"positive integer"),
             ("--queries",["--max-containment-checks","Unlimited"],"positive integer"),
             ("--targets",["--route-domain-overcover"],"require --queries"),

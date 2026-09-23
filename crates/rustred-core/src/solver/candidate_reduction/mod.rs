@@ -48,8 +48,9 @@ pub use routed::{
     CandidateEntryAdmission, CandidateOwnerRoute, CandidateRoutedCampaignError,
     CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport, CandidateRoutedCampaignSnapshot,
     CandidateRoutedError, CandidateRoutedFrontier, CandidateRoutedFrontierReason,
-    CandidateRoutedTraceReport, CandidateRoutedWork, FiniteRootAdmission, RootAdmissionError,
-    RootRegionInput, RoutedCandidateLimits, RoutedCandidateReducer,
+    CandidateRoutedTraceReport, CandidateRoutedWork, EntryWitnessError, EntryWitnessLimits,
+    EntryWitnessOutcome, FiniteRootAdmission, RootAdmissionError, RootRegionInput,
+    RoutedCandidateLimits, RoutedCandidateReducer, pick_entry_intersection_witness,
 };
 pub use trace::{CandidateTraceLimits, CandidateTraceReport};
 

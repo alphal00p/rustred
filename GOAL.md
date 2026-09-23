@@ -1,5 +1,22 @@
 # RustRed project goal
 
+**Current integration slice — September 23:** explicit finite-root admission is
+already pushed as `f0370c8e`. Typed entry-witness feedback and opt-in delegation
+of unreserved contained domains are now connected and source-frozen, with
+independent source/mathematical audit passes. The CLI/Python steering gates
+pass 23 tests. The release gates now pass 3,319 Rust tests (36 ignored),
+including all nine native witness tests, and 73 Python/API/steering tests.
+The application gate exercises concrete witness feedback and native delegation;
+an additional clean-owned scheduler compatibility check passes 120 tests
+(one existing diagnostic ignored). A monitored 50-worker all-67-owner diagnostic
+with delegation lookahead 256 is now running; there is no new five-loop
+performance or closure claim. The witness interface
+never equates point success with region exhaustion, and delegation retains
+frontiers and failed/partial publication as unresolved responsibility. This
+implements the finite-domain plan below, not a dimensional-shift engine or a
+move to terminal minimization. See `docs/finite_starting_domains.md` and local
+gate evidence in `TMP/witness-delegation-gate.9qXc3m/`.
+
 **Resumed September 23:** investigate actual 50-core utilization and the
 feasibility of completing the finite five-loop envelope. Run the prepared
 67-owner symbolic diagnostic using the already gated release CLI, retaining

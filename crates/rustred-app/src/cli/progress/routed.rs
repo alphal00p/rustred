@@ -230,6 +230,8 @@ fn walk_dashboard(record: &Value) -> [String; 6] {
             "First failure ({} {kind} draining): {summary}; full cause in JSON; NOT a closure claim",
             pn("active_workers")
         )
+    } else if let Some(summary) = delegation_summary(p) {
+        format!("{summary}; NOT a closure claim")
     } else {
         format!(
             "Last update {:.1}s ago; positive powers symbolic; NOT a closure claim",
@@ -308,7 +310,26 @@ fn walk_worker_summary(parallel: &Value) -> String {
 fn add_worker_summary(record: &mut Value) {
     if record["progress"]["operation"].as_str() == Some("owner_domain_walk") {
         record["worker_summary"] = json!(walk_worker_summary(&record["progress"]["parallel"]));
+        if let Some(summary) = delegation_summary(&record["progress"]) {
+            record["delegation_summary"] = json!(summary);
+        }
     }
+}
+
+/// Transferred work is not inspected or solved; final ledger resolution is
+/// separate from global frontiers. Never infer completion from cursor counts.
+fn delegation_summary(progress: &Value) -> Option<String> {
+    let ledger = progress.get("delegation")?;
+    let transferred = ledger["transferred_obligations"].as_u64()?;
+    let published = ledger["delegated_publications"].as_u64()?;
+    let pending_native = ledger["pending_native_publications"].as_u64()?;
+    let resolved = ledger["delegated_resolved"].as_u64().map_or_else(
+        || "not yet resolved".into(),
+        |n| format!("{n} locally discharged"),
+    );
+    Some(format!(
+        "Delegated {transferred} ({published} published, {resolved}); native pending {pending_native}"
+    ))
 }
 
 fn domain_dashboard(record: &Value) -> [String; 6] {
@@ -480,6 +501,31 @@ mod tests {
         assert!(text.contains("domain reuse 97"));
         assert!(text.contains("NOT a closure claim"));
         assert!(!text.contains("finite-target"));
+    }
+    #[test]
+    fn delegation_monitor_distinguishes_published_aliases_from_resolution() {
+        let mut record = json!({"progress":{"operation":"owner_domain_walk",
+            "completed_nodes":2,"scheduled_nodes":10,"queued_nodes":3,
+            "delegation":{"transferred_obligations":5,"delegated_publications":5,
+                "pending_native_publications":3}}});
+        add_worker_summary(&mut record);
+        let text = dashboard(&record).join("\n");
+        assert!(text.contains("2/10 inspected / scheduled"));
+        assert!(text.contains("5 published, not yet resolved"));
+        assert!(text.contains("native pending 3"));
+        assert!(text.contains("NOT a closure claim"));
+        assert!(
+            record["delegation_summary"]
+                .as_str()
+                .unwrap()
+                .contains("not yet resolved")
+        );
+        record["progress"]["delegation"]["delegated_resolved"] = json!(4);
+        assert!(
+            dashboard(&record)
+                .join("\n")
+                .contains("4 locally discharged")
+        );
     }
     #[test]
     fn symbolic_dashboard_exposes_bounded_failure_and_backpressure_during_drain() {

@@ -527,6 +527,52 @@ powers=[1]
     assert_eq!(walk["all_scheduled_domains_resolved"], true);
     assert_eq!(walk["family_closure_claim"], false);
     assert_eq!(walk["committed_events"], walk["events"]);
+    assert!(walk.get("scheduling_policy").is_none());
+    for workers in ["1", "6"] {
+        let name = format!("delegated-{workers}.json");
+        let output = invoke(
+            &name,
+            &[
+                "--follow-successors",
+                "--workers",
+                workers,
+                "--transfer-unreserved-lookahead",
+                "50",
+                "--max-containment-checks",
+                "unlimited",
+            ],
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let result: Value =
+            serde_json::from_slice(&std::fs::read(directory.0.join(name)).unwrap()).unwrap();
+        assert_eq!(result["schema"], "rustred.owner-domain-walk.json.v3");
+        assert_eq!(
+            result["scheduling_policy"],
+            json!({"kind":"transfer_unreserved","lookahead":50})
+        );
+        assert_eq!(result["all_scheduled_domains_resolved"], true);
+        assert_eq!(
+            result["delegation"]["all_ledger_obligations_discharged"],
+            true
+        );
+        assert_eq!(result["family_closure_claim"], false);
+        let last: Value = serde_json::from_str(
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .lines()
+                .last()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            last["progress"]["scheduling_policy"],
+            result["scheduling_policy"]
+        );
+    }
     let limited = invoke("limited.json", &["--max-total-pieces", "1"]);
     assert!(!limited.status.success());
     let report: Value =
@@ -545,4 +591,25 @@ powers=[1]
             .unwrap();
     assert_eq!(report["classification_complete"], false);
     assert_eq!(report["status"], "cancelled_during_preparation");
+    let cancelled = invoke(
+        "cancelled-delegated.json",
+        &[
+            "--follow-successors",
+            "--transfer-unreserved-lookahead",
+            "50",
+            "--stop-file",
+            stop.to_str().unwrap(),
+        ],
+    );
+    assert!(!cancelled.status.success());
+    let report: Value = serde_json::from_slice(
+        &std::fs::read(directory.0.join("cancelled-delegated.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(report["schema"], "rustred.owner-domain-walk.json.v3");
+    assert_eq!(
+        report["scheduling_policy"],
+        json!({"kind":"transfer_unreserved","lookahead":50})
+    );
+    assert_eq!(report["family_closure_claim"], false);
 }

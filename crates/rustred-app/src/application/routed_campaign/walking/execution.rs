@@ -19,6 +19,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 mod admission;
+mod delegation;
+pub(super) use delegation::scheduling_policy_json;
 
 pub(super) struct State<const N: usize> {
     pub queue: Queue<N>,
@@ -31,6 +33,9 @@ pub(super) struct State<const N: usize> {
     pub optional: OptionalCounts,
     pub frontiers: usize,
     pub completed: usize,
+    /// Actual native records, including failed partial publisher retention.
+    /// Delegation cursor advances never increment this counter.
+    pub native_records: usize,
     pub routed: usize,
     pub route_masks: usize,
     pub error: Option<String>,
@@ -53,6 +58,7 @@ impl<const N: usize> State<N> {
             optional: OptionalCounts::default(),
             frontiers,
             completed: 0,
+            native_records: 0,
             routed: 0,
             route_masks: 0,
             error,
@@ -65,7 +71,7 @@ impl<const N: usize> State<N> {
     }
     fn progress(&self, event: &str, id: usize, telemetry: &Value) -> Value {
         let domain = self.queue.domains.get(id);
-        json!({"event":event, "operation":"owner_domain_walk", "id":id,
+        let mut progress = json!({"event":event, "operation":"owner_domain_walk", "id":id,
             "owner":domain.map(|d| mask(&d.owner)), "phase":domain.map(|d| format!("{:?}", d.phase)),
             "power_bounds":domain.map(|d| power_bounds_json(d.powers)),
             "scheduled_nodes":self.queue.domains.len(), "completed_nodes":self.completed,
@@ -86,7 +92,9 @@ impl<const N: usize> State<N> {
             "max_scheduled_finite_rank":self.queue.max_finite_rank, "unbounded_rank_domains":self.queue.unbounded_rank_domains,
             "successors":self.successors, "conditional_successors":self.conditional,
             "frontiers":self.frontiers, "events":self.events, "committed_events":self.events,
-            "routed_domains":self.routed, "route_masks":self.route_masks, "parallel":self.enrich(telemetry.clone())})
+            "routed_domains":self.routed, "route_masks":self.route_masks, "parallel":self.enrich(telemetry.clone())});
+        self.add_delegation_progress(&mut progress);
+        progress
     }
     fn enrich(&self, mut telemetry: Value) -> Value {
         telemetry["admission_preparation"] = self.admission.json();
@@ -265,6 +273,7 @@ impl<const N: usize> State<N> {
     }
     fn commit(&mut self, id: usize, finished: Finished) {
         let domain = &self.queue.domains[id];
+        let native_cancelled = finished.error_kind == "cancelled";
         self.error = self.error.take().or(finished.error);
         let (stats, optional, truncated) = match finished.stats {
             NativeStats::Apply(stats) => {
@@ -283,12 +292,37 @@ impl<const N: usize> State<N> {
                 (route_stats(stats), None, None)
             }
         };
+        // Capture real frontiers before moving the per-inspection details.
+        // An outer publisher error means the native stream was NOT completely
+        // admitted, even if a later buffered Finished itself has no error.
+        let frontier_count = self.details.len();
+        if let Some(ledger) = &mut self.queue.delegation {
+            use super::delegation::NativeOutcome;
+            let outcome = if self.error.is_none() {
+                NativeOutcome::Completed {
+                    unresolved_frontiers: frontier_count,
+                }
+            } else if native_cancelled || self.error.as_deref() == Some("cancelled") {
+                NativeOutcome::Cancelled
+            } else {
+                NativeOutcome::Failed
+            };
+            if let Err(error) = ledger.publish_native(id, outcome) {
+                self.error.get_or_insert_with(|| error.to_string());
+            }
+        }
+        self.native_records += 1;
         self.completed += usize::from(self.error.is_none());
         let mut record = json!({"id":id, "phase":format!("{:?}", domain.phase), "owner":mask(&domain.owner),
             "lower":domain.lower, "upper":domain.upper, "rank":domain.rank,
             "power_bounds":power_bounds_json(domain.powers),
             "local_inspection_finished":self.error.is_none(), "stats":stats, "seconds":finished.seconds,
             "frontiers":std::mem::take(&mut self.details), "error":self.error});
+        if self.queue.delegation.is_some() {
+            record["record_kind"] = json!("native_inspection");
+            record["local_classification_discharged"] =
+                json!(self.error.is_none() && frontier_count == 0);
+        }
         if let (Some(optional), Some(stats)) = (optional, truncated) {
             record["optional_refusal_provenance_truncated"] = json!(optional.truncated(stats));
             record["optional_refusal_provenance_scope"] = json!("first_per_phase_per_query");
@@ -377,9 +411,51 @@ fn run_with_initial_orthants<const N: usize>(
                     observer(state.progress("domain_progress", state.queue.next, &pool.snapshot()));
                     break;
                 }
-                while dispatched < state.queue.domains.len()
-                    && pool.dispatch(dispatched, state.queue.domains[dispatched].clone())
-                {
+                if state.current_is_delegated() {
+                    let id = state.queue.next;
+                    if let Err(error) = state.commit_delegated() {
+                        pool.fail(Failure {
+                            id: Some(id),
+                            phase: Some(state.queue.domains[id].phase),
+                            kind: "delegation_publication",
+                            detail: error,
+                        });
+                    } else {
+                        observer(state.progress("domain_delegated", id, &pool.snapshot()));
+                    }
+                    continue; // Check cancellation between every delegated record.
+                }
+                while dispatched < state.queue.domains.len() {
+                    if let Some(ledger) = &state.queue.delegation {
+                        if dispatched >= ledger.dispatch_fence() {
+                            break;
+                        }
+                        if ledger.delegated_to(dispatched).is_some() {
+                            dispatched += 1;
+                            continue;
+                        }
+                        if !ledger.can_dispatch(dispatched) {
+                            pool.fail(Failure {
+                                id: Some(dispatched),
+                                phase: Some(state.queue.domains[dispatched].phase),
+                                kind: "delegation_dispatch_invariant",
+                                detail: "native dispatch has no reserved responsibility".into(),
+                            });
+                            break;
+                        }
+                    }
+                    if !pool.dispatch(dispatched, state.queue.domains[dispatched].clone()) {
+                        break;
+                    }
+                    if let Err(error) = state.note_native_started(dispatched) {
+                        pool.fail(Failure {
+                            id: Some(dispatched),
+                            phase: Some(state.queue.domains[dispatched].phase),
+                            kind: "delegation_native_start",
+                            detail: error,
+                        });
+                        break;
+                    }
                     dispatched += 1;
                 }
                 let id = state.queue.next;
@@ -453,9 +529,9 @@ fn run_with_initial_orthants<const N: usize>(
     state.parallel = state.enrich(snapshot);
     // Every native visitor has returned before reporting. Preserve the current
     // publisher's admitted prefix and keep later attempts explicitly separate.
-    let before_retention = state.queue.next;
+    let before_retention = state.native_records;
     retain_leftovers(state, &mut leftovers);
-    let retained_publisher = state.queue.next - before_retention;
+    let retained_publisher = state.native_records - before_retention;
     for key in [
         "finished_uncommitted_domains",
         "dispatched_uncommitted_domains",
@@ -521,6 +597,22 @@ fn serial<const N: usize>(
             break;
         }
         let id = state.queue.next;
+        if state.current_is_delegated() {
+            if let Err(error) = state.commit_delegated() {
+                state.error = Some(error);
+                break;
+            }
+            observer(state.progress(
+                "domain_delegated",
+                id,
+                &json!({"workers":1, "active_workers":0, "attempted_events":attempted}),
+            ));
+            continue;
+        }
+        if let Err(error) = state.note_native_started(id) {
+            state.error = Some(error);
+            break;
+        }
         let domain = state.queue.domains[id].clone();
         observer(state.progress(
             "domain_started",
