@@ -1,5 +1,21 @@
 # Finite starting domains and fixed-target repair
 
+## Measured next optimization — September 23
+
+The first matched-input native experiment takes 27.3–27.4 s for an expensive
+saved region and 2.99 s for its exact residual outside an initial anchor.
+The unchanged native visitor reproduces the saved original statistics; both
+inputs are deterministic across repeats. The skipped slice is contained by
+the native domain service, and its anchor's work and descendants must remain
+obligations. This is approximately 9.1x less local inspection time, not yet a
+production improvement or a five-loop completion forecast. All four heavy
+regions now pass repeat and independent receipt checks, showing approximately
+9–24x less local inspection time. The narrow production integration is underway;
+a renewed full campaign still requires its source audit and release gates.
+The separate containment-index model also improved, but does not include the
+real reused-request stream. See the
+[measurement boundaries and results](research/five_loop_utilization_2026-09-23.md#follow-up-first-native-originalresidual-comparison).
+
 ## Latest outcome — cooperative optimization stop, September 23
 
 The H256 diagnostic below is now terminal, with a saved incomplete result:

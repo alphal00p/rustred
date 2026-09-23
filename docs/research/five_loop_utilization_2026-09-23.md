@@ -546,3 +546,105 @@ Any later implementation must preserve the original initial inspections and
 their dependency obligations, avoid self-reuse/delegation cycles, and report
 partial reuse honestly. No performance gain or production implementation of
 this proposal is claimed here.
+
+## Follow-up: isolated containment-index measurements
+
+After the full diagnostic stopped, the prepared index experiment completed
+four alternating-order passes over 100,000 saved descriptors, with eight modes
+per pass. All 32 measurements reproduced every representative ID, admission
+decision and retirement set from the frozen production queue. An independent
+audit recomputed the timings and checked the native-containment boundary.
+
+| Diagnostic model | Median CPU time |
+|---|---:|
+| Current three aggregate keys | 3.692 s |
+| Six aggregate keys | 2.760 s |
+| Three keys with 32-ID coordinate-envelope blocks | 0.943 s |
+| Six keys with 32-ID coordinate-envelope blocks | 1.031 s |
+
+The three-key/block32 model reduces native inclusion calls from 191,666,431
+to 26,289,307. Peak whole-process RSS was 480.43 MiB, including input, reference
+replay and correctness checks. The optimized diagnostic ran on CPU70; four
+measurements per mode are not a confidence-bound performance study.
+
+This is **not a production implementation or a campaign speedup**. All
+100,000 replayed descriptors were newly admitted; the input omits reused
+requests, which are common in the expensive late Apply stream. Timings also
+exclude the production maintenance-preflight group pass and parallel
+preparation/publication. The results identify a promising secondary lookup
+optimization, not evidence that it alone will make 50 cores useful or finish
+the five-loop campaign. Full receipts and limitations are in
+`TMP/parent-partition-design.xkm6A5/containment-measurement/PAIRED_100K_RESULTS.md`.
+
+The primary next measurement is exact-overlap removal using the unchanged
+native Apply API. The first completed case is recorded below.
+
+## Follow-up: first native original/residual comparison
+
+The optimized external driver under `TMP/heavy-apply-native.0BiQ3d/` loads the
+same 67 saved owners once and calls the existing public native Apply visitor
+with the saved limits. It introduces no new application, algebra or rule-search
+implementation. Its source and exact partition passed independent review.
+The first case, ID 2,577,768, completed twice on CPU0 with all compute pools
+limited to one. Compilation, loading, route verification and queue publication
+are outside the visitor timing; a lightweight geometric-event fingerprint is
+inside it. The host is shared, not an isolated benchmark machine.
+
+For this query, the exact initial-region containment check proves that the
+slice `D>=9` lies in initial anchor 66. Retaining that anchor and all of its
+dependencies leaves only `D=8` for new inspection. All original coordinate,
+rank and positive-power constraints remain in both halves. The split threshold
+comes from the input, not the owner label or loop count.
+
+| Native input | First wall / CPU (s) | Repeat wall / CPU (s) |
+|---|---:|---:|
+| Original region | 27.309 / 27.088 | 27.408 / 27.211 |
+| Exact residual D band | 2.986 / 2.964 | 2.990 / 2.968 |
+
+Both original runs reproduce the saved native counters exactly. Each input's
+repeat reproduces its own counters and ordered geometric-event fingerprint.
+There are no local problems or observed support-activation events in this
+case. Optional coefficient-classification refusals remain recorded; they are
+not suppressed by the driver. Original and residual outputs are deliberately
+different because they describe different domains.
+
+The original visits 938,040 matching cells and 298,250 RHS terms; the residual
+visits 548,060 and 132,312 respectively. Successor events decrease from 272,747
+to 109,749. Loading took 14.964 s separately, and the process high-water RSS was
+5,819,672 KiB including the all-owner load.
+
+This is approximately **9.1x less local inspection time**, conditional on
+retaining the anchor work. It is not a five-loop campaign speedup, a closure
+claim or a matched full-workload replacement. Runs use original-then-residual
+order in one process, with possible cache/order effects; the warmed repeat
+supports the local direction but does not remove all measurement caveats.
+Receipts are `first-heavy.jsonl` and `first-heavy.stderr` in the driver
+directory; the driver exited successfully.
+
+### Remaining saved heavy regions
+
+The other three regions subsequently completed in one invocation, with a
+separate 14.583 s all-owner load and the same one-CPU visitor boundary:
+
+| Saved region ID | Residual D | Original wall, two repeats (s) | Residual wall, two repeats (s) |
+|---|---|---:|---:|
+| 2,514,890 | 8 | 19.131 / 21.564 | 1.011 / 1.013 |
+| 2,557,621 | 8 | 20.076 / 21.995 | 1.027 / 1.008 |
+| 2,578,058 | 6–8 | 22.960 / 22.226 | 0.951 / 0.948 |
+
+Together these are 16 completed inspections: four original regions and their
+residuals, each twice. Every original matches its saved native statistics;
+every same-input repeat matches its own statistics and event fingerprint.
+All have zero local problems and zero observed support-activation events.
+Both benchmark processes exited successfully, and independent receipt audits
+pass for all four cases. Full wall/CPU/work counters remain in the JSONL
+receipts, including `remaining-heavy.jsonl` for the latter three cases.
+
+Observed local time reductions range from approximately 9x to 24x. This does
+not establish how often the optimization applies in the full campaign, its
+queue impact, or improved core utilization. No full run with this optimization
+has completed. The measured direction justifies a narrow production slice:
+default-off initial D-band reuse alongside the existing transfer policy,
+protected initial obligations, one unchanged residual visitor, and explicit
+partial-scope/dependency accounting. Implementation and independent source
+auditing are now the next gates, followed by a renewed 50-worker full campaign.

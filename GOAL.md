@@ -1,5 +1,21 @@
 # RustRed project goal
 
+**Measured follow-up — September 23:** an unchanged-native-API experiment on
+the first expensive saved region takes 27.3–27.4 s for the full region versus
+2.99 s for its exact residual outside a retained initial anchor. Both full-region
+runs match the saved native statistics; each input repeats its own statistics
+and event fingerprint.
+This roughly 9.1x local-work reduction is not yet a production or whole-campaign
+speedup. The next implementation candidate is input-derived initial-domain
+partial reuse, with protected initial obligations and explicit residual scope;
+all four saved heavy regions now pass two-repeat native comparisons, with
+approximately 9–24x less local inspection time. Implementation is underway;
+there is no full-campaign measurement of this policy yet.
+An independently audited isolated
+lookup model is also promising (3.692 s to 0.943 s median CPU), but omits the
+real reused-request stream and is secondary to reducing repeated Apply work.
+The full finite five-loop solve remains incomplete, with no defensible ETA.
+
 **Diagnostic stopped for targeted optimization — September 23:** the H256 run
 below stopped cooperatively, not at a time or memory limit. Its final report has
 1,335,458 completed native regions, one cancelled partial, 1,958,574 native
