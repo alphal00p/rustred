@@ -1,5 +1,40 @@
 # Finite starting domains and fixed-target repair
 
+## Current follow-up — ready sector streams
+
+The published owner-local prototype (`ea5c558e`) passes its implementation gates
+and completed routed controls, but does not improve the measured small five-loop
+workloads. On the larger four-owner A10/R1/D9 control (3,852 starting tuples),
+six-worker traversal is 6.982 s owner-batched versus 2.373 s ordered; both finish
+without frontiers and schedule descendant regions with rank bounds up to R2.
+Owner-batched execution averages
+about 1.15 busy cores in a heartbeat-labelled sampled window (not an exactly
+isolated traversal interval). It has 5.814 s of chunk-rendezvous
+waiting versus 0.280 s delivery; waiting is not automatically wasted CPU.
+
+The implemented follow-up removes that all-producer rendezvous: poll all active
+streams nonblockingly, deliver ready chunks, acknowledge/refill completed jobs,
+and wait only when no stream is ready. Independent source review passes, as do
+501 release library tests and 166 clean-owned tests (one existing diagnostic
+ignored in each; these suites overlap). All twelve fresh saved-input controls
+complete without errors/frontiers or pending responsibilities. It retains bounded buffers, shared
+immutable rules, exclusive destination admission, global budgets and one producer
+per phase/owner. Diagnostic IDs/covers can vary even at fixed worker count;
+mathematical artifacts and concrete reductions do not change. The same-input
+controls must demonstrate useful throughput before a full campaign replacement.
+The three repeated six-worker A10 pairs give median traversal 4.564 s
+ready-stream versus 2.301 s ordered. Sampled CPU use remains lower, with
+ready-stream processing more native regions and concentrating work in two
+expensive Apply owners. Keep Ordered as default. Examine within-owner native
+concurrency and worker allocation next; do not restart the full campaign merely
+because sectors are now semi-independent. No full-family speedup or completion
+is established. Four further same-input controls with H1/H4 also finish and
+reduce ready-stream native work by about 9%, but traversal remains about 3.9 s.
+H is both a reservation and dispatch horizon, so Ordered H1 is effectively
+serial while owner-local H1 can still overlap sectors. These are scheduling
+experiments, not a reduced coverage requirement or a controlled pure-deduplication
+speedup. Keep the default and the live full-run configuration unchanged.
+
 ## Next scheduling priority — semi-independent sector progress
 
 The global publication cursor is not a mathematical requirement. Current
@@ -46,29 +81,33 @@ the CLI and both Python steering scripts accept
 `ordered`. Immutable programs, routing and initial geometry are shared. Each
 phase/owner has its own inclusion index and responsibility ledger; only
 successor geometry crosses to the destination queue, while diagnostics remain
-with their producer. Finished slots are refilled at bounded chunk boundaries.
+with their producer. The current follow-up polls each active stream without
+blocking, delivers the ready subset, and refills completed slots without waiting
+for silent peers. Each pass accepts at most one bounded chunk per producer.
 Global allowances remain aggregate; near a cap, serial admission allows
 duplicates to reuse existing obligations without charging another domain.
 
 The new walk receipt uses schema v4 and composite `(bucket, local id)` handles.
 Canonical rules and concrete reductions are unchanged; diagnostic IDs, cover
 fragmentation and resource-limited prefixes need not match the ordered runner
-or another worker budget. Initial-admission failures retain their pre-traversal
+or another worker budget; readiness-driven diagnostics may also vary at a fixed
+worker budget. Initial-admission failures retain their pre-traversal
 schema and are explicitly distinguished from a started owner-batched walk.
 No local queue being empty is enough for success: all delivery, native work,
 alias/anchor responsibilities, errors and frontiers must be accounted for.
 
-This first implementation still rendezvous at chunk boundaries and permits
-only one active native producer per bucket. With unlimited comparisons, fifty
+The published first implementation rendezvoused at chunk boundaries. The
+ready-stream follow-up removes that barrier but retains only one active native
+producer per bucket and synchronous destination-admission batches. With unlimited comparisons, fifty
 configured compute slots divide into 25 inspectors, 24 admission helpers and
 one coordinator. A few hot owners or slow chunk producers can therefore still
 limit utilization. Test real routed controls and saved five-loop inputs before
-deciding whether asynchronous ready-stream delivery or within-owner concurrency
+deciding whether within-owner concurrency or a different compute-budget split
 is needed. Report completed native work, pending trend, ready-owner diversity,
 admission/wait time and RSS, not just configured workers or CPU occupancy.
 
-Independent source review and the corrected release library gate pass; CLI
-controls and performance comparisons are pending. Review removed an unnecessary per-callback copy of
+The published prototype's independent review, corrected release library gate
+and completed controls pass. Review removed an unnecessary per-callback copy of
 the full request and a wait condition that could spin on an unrelated finished
 worker. These are implementation corrections, not measured campaign speedups.
 The earlier full baseline Cargo gate was intentionally stopped during its
@@ -85,7 +124,7 @@ unrelated escrow work. Eight application/CLI integration tests pass. All eight
 saved routed two-loop controls complete under both policies with unchanged
 rules and no remaining obligations. Their millisecond timings show no consistent
 speedup. The four-owner five-loop A9/R0 canary also completes under both policies
-at one/six workers, retaining R1 descendants, but six-worker owner batching is
+at one/six workers, retaining descendant region rank bounds up to R1, but six-worker owner batching is
 slower (0.407 s versus 0.174 s ordered). Next remove the remaining all-producer
 chunk rendezvous with bounded ready-stream delivery, explicitly allowing varying
 diagnostic interleavings while preserving exact rules and reductions. The Cargo gate used sixteen compiler jobs

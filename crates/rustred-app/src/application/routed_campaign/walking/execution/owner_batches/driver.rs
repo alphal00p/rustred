@@ -1,5 +1,8 @@
-//! Bounded chunk rendezvous; no complete native event stream is materialized.
+//! Bounded ready-stream batches; a quiet owner cannot hold up ready peers.
 use super::*;
+
+#[cfg(test)]
+mod tests;
 
 struct Job<const N: usize> {
     key: Key<N>,
@@ -217,6 +220,38 @@ pub(super) fn run<const N: usize>(
             &overlaps,
         );
     }
+    let empty = InitialOverlapIndex::empty();
+    run_parallel(
+        walk,
+        request,
+        cancellation,
+        observer,
+        |domain, stop, emit| {
+            inspection::inspect(
+                reducer,
+                domain,
+                request,
+                stop,
+                &initial,
+                overlaps
+                    .get(&(domain.phase, domain.owner))
+                    .unwrap_or(&empty),
+                emit,
+            )
+        },
+    )
+}
+
+/// The production coordinator also accepts controlled native streams in tests;
+/// no alternate test-only publication or admission algorithm is involved.
+fn run_parallel<const N: usize>(
+    walk: &mut Walk<N>,
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+    observer: &impl Fn(Value),
+    inspect: impl Fn(&Domain<N>, &AtomicBool, &mut dyn FnMut(Event<N>) -> ControlFlow<()>) -> Finished
+    + Sync,
+) -> Value {
     let helpers = if request.workers >= 4 && request.max_containment_checks.is_none() {
         (request.workers - 1) / 2
     } else {
@@ -238,164 +273,136 @@ pub(super) fn run<const N: usize>(
             }
         }
     };
-    let empty = InitialOverlapIndex::empty();
     let mut pending: BTreeMap<usize, (Key<N>, usize)> = BTreeMap::new();
     let mut heartbeat = Instant::now();
-    let (_, mut snapshot, leftovers) = parallel::with_pool(
-        inspectors,
-        |domain, stop, emit| {
-            inspection::inspect(
-                reducer,
-                domain,
-                request,
-                stop,
-                &initial,
-                overlaps
-                    .get(&(domain.phase, domain.owner))
-                    .unwrap_or(&empty),
-                emit,
-            )
-        },
-        |pool| {
-            let mut jobs: Vec<Job<N>> = Vec::new();
-            'rounds: while walk.error.is_none() {
-                let excluded = jobs.iter().map(|job| job.key).collect();
-                let incoming = match choose(walk, inspectors - jobs.len(), &excluded, cancellation)
-                {
-                    Ok(jobs) => jobs,
-                    Err(error) => {
-                        walk.error = Some(error);
-                        break;
-                    }
-                };
-                if !incoming.is_empty() {
-                    let Some(rounds) = walk.metrics.rounds.checked_add(1) else {
-                        walk.error = Some("round counter overflow".into());
-                        break;
-                    };
-                    walk.metrics.rounds = rounds;
-                }
-                for job in incoming {
-                    if let Err(error) = walk
-                        .buckets
-                        .get_mut(&job.key)
-                        .expect("source bucket")
-                        .state
-                        .note_native_started(job.local_id)
-                    {
-                        walk.error = Some(error);
-                        break 'rounds;
-                    }
-                    pending.insert(job.ticket, (job.key, job.local_id));
-                    started(walk, request, observer, &job, pool.snapshot());
-                    if cancellation.load(Ordering::Acquire) {
-                        walk.error = Some("cancelled".into());
-                        break 'rounds;
-                    }
-                    if !pool.dispatch(job.ticket, job.domain.clone()) {
-                        walk.error = Some("owner-batch dispatch refused".into());
-                        break 'rounds;
-                    }
-                    jobs.push(job);
-                }
-                if jobs.is_empty() {
+    let (_, mut snapshot, leftovers) = parallel::with_pool(inspectors, inspect, |pool| {
+        let mut jobs: Vec<Job<N>> = Vec::new();
+        'rounds: while walk.error.is_none() {
+            let excluded = jobs.iter().map(|job| job.key).collect();
+            let incoming = match choose(walk, inspectors - jobs.len(), &excluded, cancellation) {
+                Ok(jobs) => jobs,
+                Err(error) => {
+                    walk.error = Some(error);
                     break;
                 }
-                let mut chunks = Vec::new();
-                let mut finished = Vec::new();
-                // At most one existing bounded chunk per producer is held
-                // here. Polling releases its slot for further native work;
-                // no producer waits on a destination-owner mutex.
-                for job in jobs.iter().filter(|job| !job.finished) {
-                    loop {
-                        if cancellation.load(Ordering::Acquire) {
-                            walk.error = Some("cancelled".into());
-                            break;
-                        }
-                        if let Some(failure) = pool.failure() {
-                            walk.error = Some(failure.detail);
-                            break;
-                        }
-                        match pool.poll(job.ticket) {
-                            Poll::Events(events) => {
-                                chunks.push((job.key, events));
-                                break;
-                            }
-                            Poll::Finished(value) => {
-                                finished.push((job.ticket, job.key, job.local_id, value));
-                                break;
-                            }
-                            Poll::Waiting => {
-                                let start = Instant::now();
-                                pool.wait_for_stream(job.ticket);
-                                walk.metrics.barrier_wait_seconds += start.elapsed().as_secs_f64();
-                                if heartbeat.elapsed() >= Duration::from_millis(250) {
-                                    observer(report::progress(
-                                        walk,
-                                        request,
-                                        pool.snapshot(),
-                                        Some(job.key),
-                                    ));
-                                    heartbeat = Instant::now();
-                                }
-                            }
-                        }
-                    }
-                    if walk.error.is_some() {
-                        break;
-                    }
-                }
-                if walk.error.is_none() {
-                    let Some(rounds) = walk.metrics.chunk_rounds.checked_add(1) else {
-                        walk.error = Some("chunk round counter overflow".into());
-                        break 'rounds;
-                    };
-                    walk.metrics.chunk_rounds = rounds;
-                    if let Err(error) = delivery::deliver(
-                        walk,
-                        chunks,
-                        request,
-                        cancellation,
-                        admission_pool.as_ref(),
-                    ) {
-                        walk.error = Some(error);
-                    }
-                }
-                // Every earlier source chunk must be accepted before this
-                // successful publication. On an outer delivery failure the
-                // existing State::commit records failure, never discharge.
-                for (ticket, key, id, value) in finished {
-                    publish(walk, key, id, value);
-                    pending.remove(&ticket);
-                    jobs.iter_mut()
-                        .find(|job| job.ticket == ticket)
-                        .expect("active ticket")
-                        .finished = true;
-                }
-                if walk.error.is_some() {
+            };
+            if !incoming.is_empty() {
+                let Some(rounds) = walk.metrics.rounds.checked_add(1) else {
+                    walk.error = Some("round counter overflow".into());
+                    break;
+                };
+                walk.metrics.rounds = rounds;
+            }
+            for job in incoming {
+                if let Err(error) = walk
+                    .buckets
+                    .get_mut(&job.key)
+                    .expect("source bucket")
+                    .state
+                    .note_native_started(job.local_id)
+                {
+                    walk.error = Some(error);
                     break 'rounds;
                 }
-                // Refill completed slots at the next bounded rendezvous;
-                // do not wait for every selected whole inspection to end.
-                jobs.retain(|job| !job.finished);
+                pending.insert(job.ticket, (job.key, job.local_id));
+                started(walk, request, observer, &job, pool.snapshot());
+                if cancellation.load(Ordering::Acquire) {
+                    walk.error = Some("cancelled".into());
+                    break 'rounds;
+                }
+                if !pool.dispatch(job.ticket, job.domain.clone()) {
+                    walk.error = Some("owner-batch dispatch refused".into());
+                    break 'rounds;
+                }
+                jobs.push(job);
+            }
+            if jobs.is_empty() {
+                break;
+            }
+            let mut chunks = Vec::new();
+            let mut finished = Vec::new();
+            // One nonblocking poll per producer, at most one bounded
+            // chunk each. Never wait on a quiet stream while another can
+            // publish. Rotation keeps tie-breaking fair as slots refill.
+            jobs.rotate_left(1);
+            for job in jobs.iter().filter(|job| !job.finished) {
+                if cancellation.load(Ordering::Acquire) {
+                    walk.error = Some("cancelled".into());
+                    break;
+                }
+                if let Some(failure) = pool.failure() {
+                    walk.error = Some(failure.detail);
+                    break;
+                }
+                match pool.poll(job.ticket) {
+                    Poll::Events(events) => chunks.push((job.key, events)),
+                    Poll::Finished(value) => {
+                        finished.push((job.ticket, job.key, job.local_id, value));
+                    }
+                    Poll::Waiting => {}
+                }
+            }
+            if walk.error.is_none() && chunks.is_empty() && finished.is_empty() {
+                // Recheck all selected slots under the pool mutex before
+                // sleeping: a chunk arriving after the scan must not lose
+                // its notification. Cancellation is observed after at
+                // most the bounded wait even without a producer signal.
+                let tickets = jobs.iter().map(|job| job.ticket).collect::<Vec<_>>();
+                let start = Instant::now();
+                pool.wait_for_any_stream(&tickets);
+                walk.metrics.idle_stream_wait_seconds += start.elapsed().as_secs_f64();
                 if heartbeat.elapsed() >= Duration::from_millis(250) {
                     observer(report::progress(walk, request, pool.snapshot(), None));
                     heartbeat = Instant::now();
                 }
+                continue;
             }
-            if let Some(error) = &walk.error {
-                pool.fail(Failure {
-                    id: None,
-                    phase: None,
-                    kind: "owner_batch_publication",
-                    detail: error.clone(),
-                });
-                while !pool.wait_drained() {
-                    observer(report::progress(walk, request, pool.snapshot(), None));
+            if walk.error.is_none() && !chunks.is_empty() {
+                let Some(rounds) = walk.metrics.chunk_rounds.checked_add(1) else {
+                    walk.error = Some("chunk round counter overflow".into());
+                    break 'rounds;
+                };
+                walk.metrics.chunk_rounds = rounds;
+                if let Err(error) =
+                    delivery::deliver(walk, chunks, request, cancellation, admission_pool.as_ref())
+                {
+                    walk.error = Some(error);
                 }
             }
-        },
-    );
+            // Every earlier source chunk must be accepted before this
+            // successful publication. On an outer delivery failure the
+            // existing State::commit records failure, never discharge.
+            for (ticket, key, id, value) in finished {
+                publish(walk, key, id, value);
+                pending.remove(&ticket);
+                jobs.iter_mut()
+                    .find(|job| job.ticket == ticket)
+                    .expect("active ticket")
+                    .finished = true;
+            }
+            if walk.error.is_some() {
+                break 'rounds;
+            }
+            // Refill on the next immediate pass, without requiring an
+            // event or completion from any still-running peer.
+            jobs.retain(|job| !job.finished);
+            if heartbeat.elapsed() >= Duration::from_millis(250) {
+                observer(report::progress(walk, request, pool.snapshot(), None));
+                heartbeat = Instant::now();
+            }
+        }
+        if let Some(error) = &walk.error {
+            pool.fail(Failure {
+                id: None,
+                phase: None,
+                kind: "owner_batch_publication",
+                detail: error.clone(),
+            });
+            while !pool.wait_drained() {
+                observer(report::progress(walk, request, pool.snapshot(), None));
+            }
+        }
+    });
     if walk.error.is_none() {
         if let Some(detail) = snapshot["first_failure"]["detail"].as_str() {
             walk.error = Some(detail.to_owned());

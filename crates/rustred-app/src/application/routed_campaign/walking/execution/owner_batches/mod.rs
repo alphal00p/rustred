@@ -1,9 +1,9 @@
 //! Opt-in, bounded owner-local publication over one immutable native reducer.
 //!
 //! Each phase/owner keeps the existing admission index and responsibility
-//! ledger. Native streams rendezvous at bounded chunk boundaries; destination
-//! admission is parallel, but its order within a destination is deterministic
-//! for a fixed worker budget. This is not a fully asynchronous scheduler.
+//! ledger. Ready native streams feed bounded batches without waiting for quiet
+//! peers; destination admission remains synchronously batched and exclusive per
+//! key. Diagnostic order/cover shapes can vary even at a fixed worker budget.
 use super::super::queue::{Domain, Phase};
 use super::*;
 use std::collections::BTreeMap;
@@ -101,7 +101,7 @@ struct Metrics {
     chunk_rounds: usize,
     parallel_admission_batches: usize,
     serial_budget_batches: usize,
-    barrier_wait_seconds: f64,
+    idle_stream_wait_seconds: f64,
     delivery_seconds: f64,
     peak_coordinator_logical_bytes: usize,
     delivered_cross_owner_requests: usize,

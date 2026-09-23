@@ -331,24 +331,36 @@ forward the option, without requiring a rebuilt Python extension.
 
 Only successor geometry moves to its destination queue; producer diagnostics
 and local alias/initial-anchor identities remain with the source. Native
-workers stream bounded chunks, and finished slots are refilled at chunk
-boundaries. This is not yet fully asynchronous execution: chunk barriers and
-one active producer per owner can still limit utilization.
+workers stream bounded chunks. The coordinator polls every active stream
+without blocking, delivers the ready subset and refills finished slots without
+waiting for a silent peer. It waits only when no active stream is ready, using
+a mutex-protected condition to avoid lost notifications. Source chunks are
+admitted before successful source publication. Each pass collects at most one
+chunk per active producer. Synchronous destination admission and one active
+producer per owner remain possible utilization limits.
 
 Started owner-batched walks emit v4 receipts with `(bucket, local id)` identities
 instead of a single global diagnostic ID. Initial input handles use the same
 composite identity. Existing rules and concrete reduction semantics do not
 change, but diagnostic IDs, cover fragmentation and capped prefixes can differ
-between policies and worker counts. A failure before owner-batched traversal
+between policies, worker counts and readiness-driven runs at a fixed worker
+count. A failure before owner-batched traversal
 starts retains its earlier receipt schema and explicitly marks the requested
 policy. Pending aliases/anchors or incoming successors cannot establish success.
 
-This prototype passes source review, the integrated release library/native gate,
-CLI build and narrow clean-owned compatibility gate. All eight saved routed
+The ready-stream follow-up passes independent source review, 501 integrated
+release library tests and 166 clean-owned tests (one existing diagnostic ignored
+in each overlapping suite), plus the release CLI build. All twelve fresh
+saved-input controls complete successfully, but the repeated six-worker A10
+median is 4.564 s ready-stream versus 2.301 s ordered. One active producer per
+hot owner and extra native work remain limitations. Ordered stays the default.
+The earlier chunk-barrier prototype
+completed all eight saved routed
 two-loop policy/worker controls complete successfully; their millisecond timings
 do not establish a speedup. The small four-owner five-loop canary also completes,
-but owner batching is slower at six workers; ready-stream scheduling is the next
-experiment. No full-campaign speedup has been established. See the
+but owner batching was slower at six workers. These are measurements of the
+earlier barrier version, not the new ready-stream scheduler. No full-campaign
+speedup has been established. See the
 [current scheduling gate and scope](finite_starting_domains.md#owner-batched-prototype-and-measurement-boundary).
 
 ### Opt-in delegation of unreserved domains

@@ -1,5 +1,22 @@
 # RustRed project goal
 
+**Ready-stream follow-up — September 23:** the owner-local milestone `ea5c558e`
+is pushed, but the larger A10/R1/D9 control confirms its remaining chunk barrier
+is expensive: 6.982 s versus 2.373 s ordered at six workers, both complete for
+the same 3,852 starting tuples. A bounded ready-stream coordinator is now
+implemented and independently source-reviewed; the release gate passes 501
+library tests (one existing diagnostic ignored), and the clean-owned gate passes
+166 tests (one ignored). Twelve same-input controls now complete successfully.
+It refills ready sectors without waiting for a silent peer, while retaining
+source-delivery responsibility and exact global termination. Three repeated
+six-worker A10 pairs give medians 4.564 s ready-stream versus 2.301 s ordered.
+One active producer per hot owner and extra intermediate work remain limitations.
+Four further completed H1/H4 controls reduce the ready-stream lane's redundant
+native work but leave it slower than Ordered H256. Keep Ordered as default;
+next investigate within-owner concurrency and worker allocation before a full
+replacement run. Continue toward the full 67-owner finite-domain objective, not
+merely the small controls; the original full campaign remains unchanged and unfinished.
+
 **Next structural parallelization step — September 23:** test semi-independent
 owner/phase admission and publication, sharing one immutable reducer and a
 bounded compute pool. The current global publication cursor is a scheduling
@@ -10,10 +27,10 @@ then assess asynchronous queues and hot-owner imbalance. Preserve mathematical
 artifact/reduction determinism without assuming global diagnostic task order
 is necessary. See [the scoped scheduling plan](docs/finite_starting_domains.md#next-scheduling-priority--semi-independent-sector-progress).
 The opt-in `owner-batched` prototype is now integrated in the Rust request,
-CLI and Python steering. Independent source review and release library/native
-validation pass; CLI controls and measured comparisons are pending. It has not changed the live
-run. Bounded chunk barriers and one active producer per owner remain explicit
-limitations, not evidence of fifty-core saturation. The corrected integrated
+CLI and Python steering. Independent source review, release library/native
+validation and small completed controls pass. It has not changed the live
+run. The published version's chunk barriers and one active producer per owner
+were explicit limitations, not evidence of fifty-core saturation. The corrected integrated
 gate passes 495 library tests (one existing diagnostic ignored), including the
 native 1/2/6/50-worker controls. All 27 Python steering tests pass. The release CLI
 build and separate clean-owned compatibility gate (160 tests, one ignored) pass.

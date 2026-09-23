@@ -218,22 +218,29 @@ impl<const N: usize> Pool<N> {
             .wait_timeout(guard, Duration::from_millis(100))
             .unwrap_or_else(|e| e.into_inner());
     }
-    /// Independent owner publication consumes its own ticket stream and does
-    /// not reclaim later IDs into the ordered publisher's escrow. A finished
-    /// unrelated ticket must therefore not make this wait spin.
-    pub fn wait_for_stream(&self, id: usize) {
+    /// Ready-stream publication waits only when none of its active tickets
+    /// has data. Readiness and waiting use the same mutex, avoiding a lost
+    /// notification between the coordinator's nonblocking scan and this wait.
+    /// Unrelated tickets/notifications cannot make the coordinator busy-spin.
+    pub fn wait_for_any_stream(&self, ids: &[usize]) -> bool {
         let guard = self.lock();
-        if self.stop.load(Ordering::Acquire)
-            || guard.slots.iter().any(|slot| {
-                slot.id == Some(id) && (slot.chunk.is_some() || slot.finished.is_some())
-            })
-        {
-            return;
+        if ids.is_empty() {
+            return false;
         }
-        let _ = self
+        let ready = |state: &State<N>| {
+            state.slots.iter().any(|slot| {
+                slot.id.is_some_and(|id| ids.contains(&id))
+                    && (slot.chunk.is_some() || slot.finished.is_some())
+            })
+        };
+        let waiting = |state: &mut State<N>| {
+            !self.stop.load(Ordering::Acquire) && !state.shutdown && !ready(state)
+        };
+        let (guard, _) = self
             .changed
-            .wait_timeout(guard, Duration::from_millis(100))
+            .wait_timeout_while(guard, Duration::from_millis(100), waiting)
             .unwrap_or_else(|error| error.into_inner());
+        !self.stop.load(Ordering::Acquire) && !guard.shutdown && ready(&guard)
     }
 
     pub fn wait_drained(&self) -> bool {
@@ -516,3 +523,6 @@ fn with_pool_inner<const N: usize, R>(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod ready_stream_tests;

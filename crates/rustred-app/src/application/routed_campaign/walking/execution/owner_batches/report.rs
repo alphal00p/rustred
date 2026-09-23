@@ -71,13 +71,15 @@ fn metrics<const N: usize>(walk: &Walk<N>) -> Value {
     json!({"rounds":walk.metrics.rounds,"chunk_rounds":walk.metrics.chunk_rounds,
         "parallel_admission_batches":walk.metrics.parallel_admission_batches,
         "serial_budget_batches":walk.metrics.serial_budget_batches,
-        "barrier_wait_seconds":walk.metrics.barrier_wait_seconds,
+        "idle_stream_wait_seconds":walk.metrics.idle_stream_wait_seconds,
+        "wait_seconds_scope":"coordinator waiting with no active ticket ready; not summed worker idle time",
         "delivery_wall_seconds":walk.metrics.delivery_seconds,
         "peak_coordinator_logical_bytes":walk.metrics.peak_coordinator_logical_bytes,
         "delivered_cross_owner_requests":walk.metrics.delivered_cross_owner_requests,
         "native_tickets":walk.metrics.native_tickets,
         "one_active_native_publisher_per_bucket":true,
-        "barrier_policy":"one bounded native chunk or finish per selected producer",
+        "coordination_policy":"ready producers only; at most one bounded chunk per active producer per pass; synchronous destination admission",
+        "max_coordinator_chunks_per_pass":"inspection_worker_limit",
         "logical_byte_scope":"coordinator frames only; native pool buffers, allocator overhead, queue/index, rules and native scratch are separate"})
 }
 
@@ -167,7 +169,7 @@ pub(super) fn finish<const N: usize>(
     document["identity_policy"] =
         json!("composite (bucket, local id); initial_handles map supplied initial IDs");
     document["determinism_scope"] = json!(
-        "successful traversal for fixed inputs, limits and worker budget; diagnostic IDs/counts may differ across worker budgets"
+        "readiness-driven diagnostic IDs, counts, cover shapes and capped prefixes may differ even at fixed worker budget; immutable rule artifacts and exact concrete reductions are unchanged"
     );
     document["successful_publication_matches_serial"] = json!(false);
     document["failure_or_cancellation_prefix_may_differ"] = json!(true);
