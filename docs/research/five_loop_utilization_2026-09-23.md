@@ -8,6 +8,21 @@ and input hashes recorded under "Renewed run launched" below. Historical section
 below describe separate, already stopped attempts. The current process remains live;
 no solver replacement, rule regeneration or restart accompanied this audit.
 
+At the newer heartbeat **9602.053 s** (about 160 minutes), native publications
+had reached **3,993,258**, with **5,246,198 pending native obligations**, zero
+observed frontiers and rank 19. Nearby aggregate RSS was **74.05 GB**. The
+short drainage interval described below did not persist: an independent
+existing-log analysis ending at 9536.609 s found approximately 39,024 additional
+pending obligations in the preceding-but-one ten-minute window and 218,037 in
+the latest one. Mean utilization was 6.79 and 4.87 cores respectively; native
+service rates were 230.5/s and 213.7/s, versus net demand 295.6/s and 577.5/s.
+These are different work regions, not matched optimization benchmarks. The
+same full attempt continues, without an elapsed deadline or a credible ETA.
+The independent latest-window receipt is
+`TMP/initial-overlap-gate.4Tj82V/INDEPENDENT_TWO_WINDOWS_AUDIT_9537S.md`.
+
+### Earlier 96-minute observation
+
 At heartbeat **5742.888 s** (about 96 minutes), it had published **3,185,426
 native inspections**, with **3,930,281 native obligations still pending** and
 **zero observed frontiers**. The nearby sample was **61.64 GB aggregate
@@ -93,6 +108,55 @@ default compute pools and a 32-GiB address-space bound. Exclude
 CLI remains byte-identical to its recorded executable hash: it was not rebuilt,
 replaced or restarted. The optimization is for a subsequent binary; no actual
 campaign speedup or frequency of empty substitutions has yet been measured.
+
+### First short drainage interval and existing-log creation waves
+
+A fresh 120-second observer ran after the build/test overlap, from
+14:05:24 UTC, and exited normally by 14:07:33 UTC. The unchanged solver averaged
+**7.16 busy cores**: 5.69 in admission lookup, 1.11 in inspection and 0.35 in
+the coordinator. Across nearby heartbeat endpoints 8524.721–8644.675 s, it
+published 29,630 native inspections (247/s), while net native demand rose by
+25,275 (211/s). Pending native work therefore **fell by 4,355** to 4,996,404.
+The preceding complete 300.320-second window also drained: **15,942 fewer
+native obligations**, and only 680 additional retained containment candidates
+despite 307,081 historical admissions and 306,401 candidate retirements.
+
+This is a genuine short stabilization/drain interval, not an exhaustion claim
+or a linear completion forecast. Thirty-second slopes still alternate, and
+later regions can create more work. At the frozen endpoint, 3,783,308 native
+inspections had been published, with zero observed frontiers, descendant rank
+19 and about 70.69 GB sampled aggregate RSS. The raw queued-ID count still
+grew because it includes unpublished aliases; it must not replace the pending
+native count. Admission preparation plus commit occupied about 71.8% of the
+heartbeat interval's coordinator wall time. The longest sampled publisher
+dwell was about two seconds, rather than the earlier 25-second Apply tail.
+These visit different regions and do not measure a speedup from the newer
+identity-specialization code, which is not in this running executable.
+
+An independent read-only source audit also extracted a conservative
+**first-creation wave** diagnostic without changing the logger. After initial
+admission, every new ID appends during the current canonical publisher's event
+stream. Between
+coherent snapshots `(admitted=A0, cursor=Q0)` and `(A1,Q1)`, a new ID `j` in
+`[A0,A1)` therefore has an original creator in `[Q0,min(Q1,j-1)]`. Root IDs
+have depth zero; recursively bounded creator intervals can sometimes identify
+a depth exactly. Use `committed_domains` for the cursor, not the displayed
+`commit_domain` of a just-published alias. Sparse logging widens the brackets;
+heartbeat timestamps are reporting times rather than exact admission times.
+
+At heartbeat **8464.332 s**, those brackets establish that current ID 8,684,231
+was first created in wave **3**, while newest ID 17,965,762 was created in wave
+**4**. This reveals very broad, still shallow first admission. It is not
+concrete reduction length, proof depth, an estimate of the remaining waves, or
+evidence that all breadth is geometrically redundant. Transfers alter the
+responsibility graph without changing original creation; the 9,281,532
+uncommitted IDs at that snapshot are not its 4,985,311 pending native jobs.
+
+Continue the same full attempt. The new drainage is encouraging, but neither
+50-core scaling nor a sub-ten-hour ETA is established. Exact receipts and
+caveats are in `TMP/initial-overlap-gate.4Tj82V/INDEPENDENT_POST_BUILD_AUDIT_8645S.md`
+and `TMP/finite-closing-handoff-audit.9S1OaK/CREATION_WAVE_MONITORING_AUDIT.md`.
+No production algorithm, saved rule, input region or runtime setting changed.
 
 ## Scope and reproducibility
 
