@@ -97,13 +97,57 @@ larger input. The output retains processed and attempted inspections, not the
 entire pending queue. In particular, these receipts do not establish the
 phase/mask distribution of the 499,992 pending regions.
 
-## Larger diagnostic: live snapshot, not a completed timing
+## Larger diagnostic: cooperatively stopped, not a completed workload
 
-Receipt `shared-owner-campaign.lgvisscc` uses the same input, ordering,
+Receipt `shared-owner-campaign.lgvisscc` used the same input, ordering,
 executable and expanded per-query policy, with aggregate allowances increased
 to ten million domains and 200 million events. All 67 initial regions have
-now finished local inspection and the worklist is processing descendants.
+finished local inspection and the worklist progressed to descendants.
 This is neither a new artifact nor closure of those regions under recursion.
+
+The operator subsequently stopped it for a measured optimization checkpoint,
+not because of a deadline, memory exhaustion or mathematical failure. Native
+and supervisor processes have exited; the durable result reports:
+
+| Measurement | Final incomplete result |
+| --- | ---: |
+| Preparation | 104.028 s |
+| Traversal including cancellation/drain | 1,865.666 s |
+| Native logical total | 1,969.694 s |
+| Supervisor lifetime | 2,029.718 s |
+| Completed regions | 2,522,397 |
+| Cancelled partial / pending | 1 / 6,029,467 |
+| Scheduled regions | 8,551,865 |
+| Committed logical events | 146,807,714 |
+| General containment comparisons | 126,279,058,490 |
+| Reverse maintenance comparisons, included above | 9,755,315,281 |
+| Sampled peak process-tree RSS | 50.119 GB |
+| Observed missing-rule frontiers | 0 |
+
+The final population balances exactly: scheduled = completed + partial +
+pending. The partial is cancellation fallout, not a discovered missing rule.
+The roughly 60 s between native logical reporting and supervisor exit includes
+output serialization, teardown and supervision; it is not a separately timed
+serialization benchmark. RSS rose during final output from roughly 36 GB.
+The final observed native CPU counter was 17,628.86 s, not fifty cores times
+wall time. No hard kill or resource-ceiling failure occurred.
+
+The measured completion rate fell from approximately 3,036 regions/s in an
+earlier window to 60/s in the late 1,799.51–1,926.15 s window, while admissions
+still exceeded completions. Even the artificial no-new-work drain estimate
+for roughly six million pending regions at that late rate exceeds 27 hours.
+This is a reason to investigate the bottleneck, **not** a reliable completion
+forecast: region costs are heterogeneous and future descendants remain unknown.
+
+All fields except top-level per-record `seconds` match for the first seven
+completed regions shared with `v88q1vsx`. Independent streaming extraction also
+retains the first 60,000 complete records for a subsequent same-prefix test.
+Audit scripts, hashes and compact evidence are in
+`TMP/five-loop-utilization-readonly.vV9E5N/`. The result does not persist a
+durable pending-work resume or all rejected admission proposals.
+
+The earlier live observations below describe intermediate phases of this
+now-terminal diagnostic, not its final state.
 
 At the 778.47 s heartbeat, 1,287,561 regions are complete, 5,591,880 scheduled
 and 4,304,319 pending, with zero observed frontiers and approximately 22.8 GB
@@ -124,9 +168,9 @@ Weighted post-root utilization is increasing, but remains below 50 cores:
 Each entry is summed sampled CPU time divided by summed interval duration,
 not a count of reserved or apparently active threads. Small discrepancies
 between the component sum and process total reflect non-atomic snapshots.
-Pending work grows in every complete minute window measured so far. The
-memory headroom supports continuing this diagnostic, not predicting that it
-will finish. The ten-million-domain allowance is not a completion denominator.
+Pending work grew in every complete minute window in this early selection.
+Memory headroom alone did not predict completion. The ten-million-domain
+allowance was not a completion denominator.
 
 The separate two-loop test target was compiled/tested on CPUs 74–77 during
 part of preparation and early traversal, and an isolated geometry prototype
@@ -151,19 +195,125 @@ the partition geometry, not a production scheduler or a performance gain.
 Since initial roots already finish, partitioning cannot be assumed to cure
 the later admission/Route fanout and could create more fragments.
 
-A smaller candidate for investigation is exact-summary hashing before general
-containment searches. Live candidates form a containment antichain: a newly
-admitted region was not contained by a live candidate, and retires candidates
-that it contains. Thus equality with a live native summary identifies the
-unique containing live candidate. Any optimization must preserve raw exact-key
-and full-orthant priority, phase/owner identity, liveness checks, finite-cap
-behavior and ordinary fallback. Existing semantic-inclusion hit counts do not
-measure the fraction of exact-summary equality hits; collect that evidence
-before promising a speedup. No new hash index has been implemented here.
+A smaller experiment tested exact-summary hashing before general containment
+searches. It preserved domain geometry and queue obligations and passed its
+correctness gates, but the matched full-owner prefix was slower. The experiment
+has therefore been removed from production; the evidence below records why.
+
+## Exact-summary equality lookup: measured and rejected
+
+The experimental unlimited comparison lane used an optional phase/owner-local
+digest lookup over live candidate summaries. A hit had to pass full native
+`DomainPowerSummary` equality and current live-index membership. Since live
+candidates are an inclusion antichain, this identifies the same unique
+containing candidate as the original scan, not an arbitrary alternative ID.
+Digest collisions, stale entries and optional allocation failure fell back to
+the normal search. The cache stored only digest/ID entries, not duplicated
+geometry. Retirement dropped lookup entries, never pending obligations or old
+exact keys. Finite-cap mode and near-counter-overflow behavior were unchanged.
+
+The experimental `containment_summary_equality_hits` counter measured successful
+committed shortcut reuse; speculative hits did not increment it. This was not
+a new admission count or a mathematical coverage claim. Independent
+implementation/mathematical review passed. The actual-source optimized queue
+gate passed 56 tests, with one existing replay diagnostic ignored, including
+twelve new tests and the existing full-proposal-stream
+comparisons against an independent linear semantic index and prepared workers.
+The candidate's full application gates also passed: 400 application-library
+tests plus 82 integration tests (482 total), and 72 Python tests. These gates
+establish tested correctness, not a performance benefit.
+
+A synthetic complete-proposal benchmark compared the prepatch queue and new
+queue against the same unchanged native geometry. Six alternating-order pairs,
+batched to avoid sub-millisecond CPU-counter noise, ran on CPU 70, outside the
+application build's 74–77 affinity. All returned IDs and admission decisions
+match. These are shared-host observations, not campaign speedups:
+
+| Synthetic stream | Equality hits | Median wall before / after | Paired speedup |
+| --- | ---: | ---: | ---: |
+| Large mixed set, 12,928 proposals | 7,680 | 40.216 / 23.817 ms | 1.688x |
+| Same size, strict subsets instead of equal descriptions | 0 | 40.167 / 42.416 ms | 0.947x |
+| Small mixed set, 808 proposals | 480 | 0.717 / 0.877 ms | 0.817x |
+
+The negative controls matter: hashing adds cost for small sets or rare equality.
+The production decision therefore used the instrumented full-owner prefix
+test, not just the favorable synthetic case. The synthetic timing includes
+fresh queue admission, input cloning, destruction and intra-batch identity checks; it
+excludes input construction and cross-version postchecks. These timing streams
+do not exercise retirement, which is covered by separate correctness tests.
+Evidence: `TMP/equality-queue-audit.Hv3jrC/RESULTS.md` and
+`compare-isolated.log`. Integration evidence is under
+`TMP/summary-equality-gate.eIgC5f/`.
+
+The real comparison used the identical 67-owner input, ordering, work budgets
+and CPU 0–49 affinity. Both binaries were actual release CLI builds with
+opt-level 3 and LTO off. Compilation was outside the timing boundary. The
+first 60,000 completed records match in **every field except the top-level
+per-inspection `seconds`**; their complete non-timing payload hash is
+`c4f051665c8910ccd86bcb3827d043b1d01b814bff4953f54a20dab21323246a`.
+
+| Matched first-60,000-record boundary | Baseline | Equality experiment |
+| --- | ---: | ---: |
+| Traversal-time bracket, preparation excluded | 251.3576–252.3632 s | 275.7406–276.7462 s |
+| Sampled CPU envelope near boundary, preparation included | 1,007.51–1,050.48 CPU-s | 1,090.90–1,123.33 CPU-s |
+| Peak sampled process-tree RSS through the envelope | 9.7656 GB | 9.7557 GB |
+
+The candidate was **9.3–10.1% slower** over this exact common prefix. The
+brackets include heartbeat age; CPU/RSS samples bracket nearby observations
+rather than an exactly synchronized record boundary. This was one observational
+shared-host pair, not a repeated controlled scaling study. The candidate was
+cooperatively stopped after the comparison point; neither run completed the
+five-loop workload.
+
+Near that boundary, only about **0.39% of summary constructions** produced a
+committed equality shortcut (31,649–31,661 hits for 8.048–8.109 million summary
+builds). This counts successful cache shortcuts, not a full equality census:
+collisions and optional fallback can send equal summaries through the ordinary
+index. Its complement therefore cannot be called a measured strict-inclusion
+fraction. The ordinary semantic-hit counter is also a different population.
+
+Decision: remove the production experiment and its extra telemetry rather than
+retain a measured regression. Its source/tests are preserved only under the
+ignored `TMP/equality-queue-audit.Hv3jrC/rejected-experiment/` directory; the
+standalone comparison in the parent evidence directory now uses that archive.
+The complete
+matched audit is
+`TMP/five-loop-utilization-readonly.vV9E5N/MATCHED_SUMMARY_EQUALITY.md`.
+These negative results do not prove hashing is universally unhelpful, but they
+do not justify enabling this implementation on the target workload.
+
+## Pending-obligation transfer: proposal, not implemented
+
+Lookup retirement currently leaves every admitted inspection obligation alive.
+The final baseline had 5,427,770 retired lookup candidates but only 2,522,398
+processed IDs, including its partial cancellation. Thus **at least 2,905,372**
+retired IDs were still among the 6,029,467 pending obligations (48.19%). This
+is a counting lower bound, not measured avoidable CPU time or proof that those
+IDs were undispatched.
+
+A prospective opt-in scheduler policy could transfer an untouched obligation
+`A` to a later containing obligation `B`, for the same owner, phase and frozen
+rule snapshot, using existing exact native containment. It must retain `A`'s
+raw identity/provenance, explicitly require `B` to finish, and distinguish
+delegation from actual inspection. Forward-ID aliases are acyclic, but that
+does not prove descending IBP reductions or rule closure. Started work, failures
+and partial output cannot simply be discarded.
+
+Worker-count-independent decisions require a fixed logical dispatch fence and
+sticky reservations/aliases, not a timing-dependent test for whichever job is
+currently undispatched. New report semantics would be necessary: skipping an
+inspection intentionally cannot preserve the previous complete event prefix.
+The design and required tests are in the ignored
+`TMP/parent-partition-design.xkm6A5/RETIREMENT_TRANSFER.md`. **No transfer policy
+has been implemented, and no performance gain is claimed.** It would optimize
+the local domain worklist, not replace missing finite-root admission or closure
+requirements.
 
 There is still no evidence-backed five-loop completion ETA. Dividing pending
 regions by processed regions per second is invalid while the pending set grows;
 extrapolating seven heterogeneous roots to 67 is also unjustified. Even a
-completed symbolic walk would not by itself implement the unfinished explicit
-finite-root admission, reachable-witness feedback and final closure contract
-described in [the active plan](../finite_starting_domains.md).
+completed symbolic walk would not by itself implement the explicit finite-root
+admission, reachable-witness feedback and final closure contract described in
+[the active plan](../finite_starting_domains.md). Finite-root integration is now
+underway as a separate implementation track; it is not yet a completed
+five-loop solve or a basis for a runtime promise.
