@@ -5,6 +5,8 @@ use crate::application::routed_campaign::walking::{
 };
 use std::num::NonZeroUsize;
 
+mod initial_overlap;
+
 fn policy(h: usize) -> SchedulingPolicy {
     SchedulingPolicy::TransferUnreserved {
         lookahead: NonZeroUsize::new(h).unwrap(),

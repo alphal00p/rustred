@@ -81,6 +81,7 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
         walk.max_frontiers = args.max_frontiers;
         walk.max_events = args.max_successor_events;
         walk.max_containment_checks = args.max_containment_checks;
+        walk.reuse_initial_d_bands = args.reuse_initial_d_bands;
         if let Some(lookahead) = args.transfer_unreserved_lookahead {
             walk.scheduling_policy =
                 OwnerDomainWalkSchedulingPolicy::TransferUnreserved { lookahead };
@@ -124,6 +125,10 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     });
     document["max_bounded_refinement_cells"] = json!(args.max_bounded_refinement_cells);
     if walking {
+        if args.reuse_initial_d_bands {
+            // Preserve the requested opt-in even on preparation-error receipts.
+            document["reuse_initial_d_bands"] = json!(true);
+        }
         if let Some(lookahead) = args.transfer_unreserved_lookahead {
             document["schema"] = json!("rustred.owner-domain-walk.json.v3");
             document["scheduling_policy"] =

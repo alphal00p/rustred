@@ -343,7 +343,7 @@ RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 USAGE:
     rustred entry-domain-plan --input SPEC.json --output PLAN.json [--force]
     rustred owner-guarded-apply --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--work-limits LIMITS.json] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-report-events N] [--max-report-bytes N] [--max-expression-bytes N]
-    rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N] [--max-bounded-refinement-cells-per-query N] [--bounded-refinement-axes inactive-only|finite-axes] [--max-guard-univariate-degree N] [--follow-successors [--workers N] [--max-domains N] [--max-frontiers N] [--max-successor-events N] [--max-containment-checks N|unlimited] [--max-rhs-cells-per-query N] [--max-term-visits-per-query N] [--max-native-operations-per-query N] [--max-rhs-events-per-query N] [--max-shift-groups-per-query N] [--route-domain-overcover [--max-route-masks-per-query N]]]
+    rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N] [--max-bounded-refinement-cells-per-query N] [--bounded-refinement-axes inactive-only|finite-axes] [--max-guard-univariate-degree N] [--follow-successors [--workers N] [--max-domains N] [--max-frontiers N] [--max-successor-events N] [--max-containment-checks N|unlimited] [--transfer-unreserved-lookahead H [--reuse-initial-d-bands]] [--max-rhs-cells-per-query N] [--max-term-visits-per-query N] [--max-native-operations-per-query N] [--max-rhs-events-per-query N] [--max-shift-groups-per-query N] [--route-domain-overcover [--max-route-masks-per-query N]]]
     rustred owner-domain-scan --manifest SELECTION.json --max-numerator-rank R --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--max-rules-per-owner N] [--max-terms-per-owner N] [--max-regions-per-owner N] [--max-total-regions N] [--max-summary-groups N]
     rustred routed-campaign --manifest SELECTION.json --targets TARGETS.csv --output RESULT.json [--entry-domains DOMAINS.json] [--events EVENTS.jsonl] [--owner-base DIR] [--workers 1..50] [--stop-file PATH] [--expansion-limits LIMITS.json] [--max-nodes N] [--max-input-targets N] [--max-transport-operations N] [--max-transport-endpoints N] [--max-coalescing-additions N] [--max-rule-applications N]
     rustred derive [OPTIONS]
@@ -610,6 +610,11 @@ domains to later containing domains, using a fixed positive logical dispatch
 lookahead H. It requires --follow-successors and unlimited containment checks.
 The default inspects all scheduled domains. Delegation is not native completion;
 unresolved representatives and frontiers remain incomplete.
+--reuse-initial-d-bands opts into exact partial reuse of an initially admitted
+same-owner D band. It requires --follow-successors and
+--transfer-unreserved-lookahead H (hence unlimited containment checks).
+Only the disjoint residual is inspected again; the original anchor obligation
+remains tracked. This does not clip descendants or establish coverage by itself.
 Streamed aggregate events and retained frontier storage have separate budgets.
 --max-rhs-cells-per-query counts all refined
 RHS cells (not only pinches); --max-term-visits-per-query and

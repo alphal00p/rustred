@@ -4,6 +4,7 @@ mod delegation;
 mod diagnostics;
 mod execution;
 mod initial_orthants;
+mod initial_overlap;
 mod inspection;
 mod parallel;
 mod queue;
@@ -34,6 +35,9 @@ pub struct OwnerDomainWalkRequest {
     /// Optional responsibility transfer under exact containment. The fixed
     /// logical lookahead is independent of physical worker count.
     pub scheduling_policy: OwnerDomainWalkSchedulingPolicy,
+    /// Opt-in exact high-D overlap reuse against pinned initial Apply domains.
+    /// Requires TransferUnreserved; native work covers the remaining low band.
+    pub reuse_initial_d_bands: bool,
     pub max_domains: usize,
     /// Committed logical callbacks, not speculative native attempts or bytes.
     pub max_events: usize,
@@ -52,6 +56,7 @@ impl OwnerDomainWalkRequest {
             applied_limits: Default::default(),
             workers: 1,
             scheduling_policy: OwnerDomainWalkSchedulingPolicy::InspectAll,
+            reuse_initial_d_bands: false,
             max_domains: 100_000,
             max_events: 1_000_000,
             max_frontiers: 100_000,
@@ -122,7 +127,13 @@ impl OwnerDomainWalkResult {
         ] {
             out[key] = document[key].clone();
         }
-        for key in ["scheduling_policy", "delegation", "native_processed_nodes"] {
+        for key in [
+            "scheduling_policy",
+            "delegation",
+            "native_processed_nodes",
+            "reuse_initial_d_bands",
+            "partial_initial_inspections",
+        ] {
             if let Some(value) = document.get(key) {
                 out[key] = value.clone();
             }
@@ -153,6 +164,13 @@ pub fn owner_domain_walk_with_progress(
         .scheduling_policy
         .validate(request.max_containment_checks)
         .map_err(|error| AppError::input(error.to_string()))?;
+    if request.reuse_initial_d_bands
+        && request.scheduling_policy == OwnerDomainWalkSchedulingPolicy::InspectAll
+    {
+        return Err(AppError::input(
+            "initial D-band reuse requires TransferUnreserved scheduling",
+        ));
+    }
     rustred::campaign::ParallelExecution::preflight_requested_core_budget(request.workers)
         .map_err(|e| AppError::input(e.to_string()))?;
     let (selection, arity, limits) = input::Selection::parse(&request.matching.selection_json)?;
@@ -175,6 +193,11 @@ pub fn owner_domain_walk_with_progress(
         admitted["scheduling_policy"] =
             execution::scheduling_policy_json(request.scheduling_policy);
         admitted["publication_policy"] = json!("stable_domain_responsibility_stream");
+    }
+    if request.reuse_initial_d_bands {
+        admitted["reuse_initial_d_bands"] = json!(true);
+        admitted["partial_inspection_policy"] =
+            json!("exact_initial_high_D_overlap; pinned_anchor_plus_native_residual");
     }
     observer(admitted);
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
@@ -237,6 +260,14 @@ fn run<const N: usize>(
         request.scheduling_policy,
     )
     .map_err(AppError::input)?;
+    if request.reuse_initial_d_bands {
+        queue
+            .delegation
+            .as_mut()
+            .expect("validated transfer policy")
+            .begin_initial_admission()
+            .map_err(|e| AppError::input(e.to_string()))?;
+    }
     let mut inputs = Vec::new();
     let mut input_frontiers = Vec::new();
     let mut error = reducer
@@ -287,6 +318,14 @@ fn run<const N: usize>(
                 }
             }
         }
+    }
+    if request.reuse_initial_d_bands {
+        queue
+            .delegation
+            .as_mut()
+            .expect("validated transfer policy")
+            .finish_initial_admission()
+            .map_err(|e| AppError::input(e.to_string()))?;
     }
     let mut state = execution::State::new(queue, input_frontiers.len(), error);
     if let Some(reducer) = &reducer {
@@ -368,6 +407,20 @@ fn run<const N: usize>(
         document["native_processed_nodes"] = json!(state.native_records);
         document["delegation"] = delegation;
     }
+    if request.reuse_initial_d_bands {
+        document["reuse_initial_d_bands"] = json!(true);
+        document["partial_initial_inspections"] = json!(
+            state
+                .queue
+                .delegation
+                .as_ref()
+                .map_or(0, |l| l.partial_initial_inspections())
+        );
+        document["partial_inspection_policy"] =
+            json!("exact_initial_high_D_overlap; pinned_anchor_plus_native_residual");
+        document["initial_overlap_limits"] = json!({"max_initial_domains":initial_overlap::MAX_INITIAL_DOMAINS,
+            "max_logical_entry_bytes":initial_overlap::MAX_ENTRY_BYTES,"container_overhead_and_rss_excluded":true});
+    }
     observer(OwnerDomainWalkResult::completion_progress(&document));
     Ok(OwnerDomainWalkResult {
         all_scheduled_domains_resolved: resolved,
@@ -405,6 +458,28 @@ mod policy_tests {
         assert_eq!(progress["bounded_refinement_axes"], "finite-axes");
         assert_eq!(progress["max_bounded_refinement_cells"], 23);
         assert_eq!(progress["family_closure_claim"], false);
+    }
+
+    #[test]
+    fn initial_d_band_reuse_is_opt_in_and_requires_responsibility_ledger() {
+        let mut request =
+            OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(String::new(), String::new()));
+        assert!(!request.reuse_initial_d_bands);
+        request.reuse_initial_d_bands = true;
+        let error = owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {
+            panic!("must reject before preparation")
+        })
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("initial D-band reuse requires TransferUnreserved")
+        );
+        let progress = OwnerDomainWalkResult::completion_progress(
+            &json!({"reuse_initial_d_bands":true,"partial_initial_inspections":7}),
+        );
+        assert_eq!(progress["reuse_initial_d_bands"], true);
+        assert_eq!(progress["partial_initial_inspections"], 7);
     }
 
     #[test]

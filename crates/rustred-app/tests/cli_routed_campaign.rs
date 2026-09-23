@@ -528,20 +528,21 @@ powers=[1]
     assert_eq!(walk["family_closure_claim"], false);
     assert_eq!(walk["committed_events"], walk["events"]);
     assert!(walk.get("scheduling_policy").is_none());
-    for workers in ["1", "6"] {
-        let name = format!("delegated-{workers}.json");
-        let output = invoke(
-            &name,
-            &[
-                "--follow-successors",
-                "--workers",
-                workers,
-                "--transfer-unreserved-lookahead",
-                "50",
-                "--max-containment-checks",
-                "unlimited",
-            ],
-        );
+    for (workers, reuse_initial_d_bands) in [("1", false), ("6", false), ("1", true), ("6", true)] {
+        let name = format!("delegated-{workers}-reuse-{reuse_initial_d_bands}.json");
+        let mut flags = vec![
+            "--follow-successors",
+            "--workers",
+            workers,
+            "--transfer-unreserved-lookahead",
+            "50",
+            "--max-containment-checks",
+            "unlimited",
+        ];
+        if reuse_initial_d_bands {
+            flags.push("--reuse-initial-d-bands");
+        }
+        let output = invoke(&name, &flags);
         assert!(
             output.status.success(),
             "{}",
@@ -560,6 +561,10 @@ powers=[1]
             true
         );
         assert_eq!(result["family_closure_claim"], false);
+        assert_eq!(
+            result["reuse_initial_d_bands"].as_bool().unwrap_or(false),
+            reuse_initial_d_bands
+        );
         let last: Value = serde_json::from_str(
             String::from_utf8(output.stdout)
                 .unwrap()
@@ -571,6 +576,12 @@ powers=[1]
         assert_eq!(
             last["progress"]["scheduling_policy"],
             result["scheduling_policy"]
+        );
+        assert_eq!(
+            last["progress"]["reuse_initial_d_bands"]
+                .as_bool()
+                .unwrap_or(false),
+            reuse_initial_d_bands
         );
     }
     let limited = invoke("limited.json", &["--max-total-pieces", "1"]);
@@ -611,5 +622,30 @@ powers=[1]
         report["scheduling_policy"],
         json!({"kind":"transfer_unreserved","lookahead":50})
     );
+    assert_eq!(report["family_closure_claim"], false);
+    let cancelled_reuse = invoke(
+        "cancelled-reuse.json",
+        &[
+            "--follow-successors",
+            "--transfer-unreserved-lookahead",
+            "50",
+            "--reuse-initial-d-bands",
+            "--stop-file",
+            stop.to_str().unwrap(),
+        ],
+    );
+    assert!(!cancelled_reuse.status.success());
+    let report: Value =
+        serde_json::from_slice(&std::fs::read(directory.0.join("cancelled-reuse.json")).unwrap())
+            .unwrap();
+    assert_eq!(report["reuse_initial_d_bands"], true);
+    assert_eq!(report["status"], "incomplete");
+    assert_eq!(report["error"], "cancelled during preparation");
+    assert_eq!(report["all_scheduled_domains_resolved"], false);
+    assert_eq!(report["recursive_worklist_exhausted"], false);
+    for count in ["scheduled_nodes", "completed_nodes", "processed_nodes"] {
+        assert_eq!(report[count], 0);
+    }
+    assert_eq!(report["domains"], json!([]));
     assert_eq!(report["family_closure_claim"], false);
 }

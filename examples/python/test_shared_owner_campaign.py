@@ -176,6 +176,9 @@ class SteeringTests(unittest.TestCase):
             self.assertFalse(summary["family_closure_claim"])
             self.assertFalse(summary["work_checkpoint"])
             self.assertEqual(request["input_scope"], "concrete_targets")
+            self.assertFalse(request["reuse_initial_d_bands"])
+            self.assertFalse(summary["reuse_initial_d_bands"])
+            self.assertNotIn("--" + CAMPAIGN.DOMAIN.INITIAL_D_REUSE, request["command"])
             self.assertIsNone(request["hard_timeout"])
             option=request["command"].index("--expansion-limits")
             self.assertEqual(request["command"][option+1],str(policy.resolve()))
@@ -227,6 +230,7 @@ class SteeringTests(unittest.TestCase):
                         expected[option]=value
                 if explicit == "unlimited":
                     command += ["--" + CAMPAIGN.DOMAIN.TRANSFER_LOOKAHEAD, "50"]
+                    command += ["--" + CAMPAIGN.DOMAIN.INITIAL_D_REUSE]
                 result=subprocess.run(command,capture_output=True,text=True,timeout=10)
                 self.assertEqual(result.returncode,4,result.stderr)
                 receipt=next((directory/"receipts").iterdir())
@@ -253,6 +257,10 @@ class SteeringTests(unittest.TestCase):
                 else:
                     self.assertNotIn(axes_option, actual)
                 transfer_option = "--" + CAMPAIGN.DOMAIN.TRANSFER_LOOKAHEAD
+                reuse_option = "--" + CAMPAIGN.DOMAIN.INITIAL_D_REUSE
+                self.assertEqual(request["reuse_initial_d_bands"], explicit == "unlimited")
+                self.assertEqual(summary["reuse_initial_d_bands"], explicit == "unlimited")
+                self.assertEqual(actual.count(reuse_option), int(explicit == "unlimited"))
                 if explicit == "unlimited":
                     self.assertEqual(actual[actual.index(transfer_option)+1], "50")
                 else:
@@ -271,6 +279,10 @@ class SteeringTests(unittest.TestCase):
             ("--queries",["--bounded-refinement-axes","all"],"invalid choice"),
             ("--targets",["--max-containment-checks","unlimited"],"require --queries"),
             ("--targets",["--transfer-unreserved-lookahead","50"],"require --queries"),
+            ("--targets",["--reuse-initial-d-bands"],"require --queries"),
+            ("--queries",["--reuse-initial-d-bands"],"requires --transfer-unreserved-lookahead"),
+            ("--queries",["--transfer-unreserved-lookahead","50","--reuse-initial-d-bands","--max-containment-checks","99"],"unlimited containment checks"),
+            ("--queries",["--transfer-unreserved-lookahead","50","--reuse-initial-d-bands","--reuse-initial-d-bands"],"only once"),
             ("--queries",["--transfer-unreserved-lookahead","0"],"positive integer"),
             ("--queries",["--transfer-unreserved-lookahead","50","--max-containment-checks","99"],"unlimited containment checks"),
             ("--queries",["--max-containment-checks","0"],"positive integer"),

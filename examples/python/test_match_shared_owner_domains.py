@@ -34,6 +34,7 @@ class MatchSteeringTests(unittest.TestCase):
             self.assertNotIn("--" + option, command)
         self.assertNotIn("--" + MATCH.REFINEMENT_AXES, command)
         self.assertNotIn("--" + MATCH.TRANSFER_LOOKAHEAD, command)
+        self.assertNotIn("--" + MATCH.INITIAL_D_REUSE, command)
         for option in ("--workers", "--timeout", "--max-numerator-rank", "--targets"):
             self.assertNotIn(option, command)
 
@@ -168,6 +169,29 @@ class MatchSteeringTests(unittest.TestCase):
         for suffix in ([option, "50"], ["--follow-successors", option, "0"],
                        ["--follow-successors", option, "+1"],
                        ["--follow-successors", option, "50", "--max-containment-checks", "99"]):
+            with patch("sys.argv", self.arguments() + suffix), \
+                    patch.object(MATCH.os, "execve") as execute, \
+                    patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit):
+                    MATCH.main()
+                execute.assert_not_called()
+
+    def test_initial_d_band_reuse_is_explicit_unique_and_requires_delegating_walk(self):
+        flag = "--" + MATCH.INITIAL_D_REUSE
+        transfer = "--" + MATCH.TRANSFER_LOOKAHEAD
+        for cap in ([], ["--max-containment-checks", "unlimited"]):
+            flags = ["--follow-successors", transfer, "50", flag] + cap
+            with patch("sys.argv", self.arguments() + flags), \
+                    patch.object(MATCH.os, "execve") as execute:
+                MATCH.main()
+            command = execute.call_args.args[1]
+            self.assertEqual(command.count(flag), 1)
+            self.assertEqual(command[command.index(transfer) + 1], "50")
+        for suffix in ([flag], ["--follow-successors", flag],
+                       [transfer, "50", flag],
+                       ["--follow-successors", transfer, "50", flag, "--max-containment-checks", "99"],
+                       ["--follow-successors", transfer, "50", flag, flag],
+                       ["--follow-successors", transfer, "50", flag, "false"]):
             with patch("sys.argv", self.arguments() + suffix), \
                     patch.object(MATCH.os, "execve") as execute, \
                     patch("sys.stderr", new_callable=io.StringIO):

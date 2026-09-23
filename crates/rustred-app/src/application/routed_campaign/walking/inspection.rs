@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use super::{
     OwnerDomainWalkRequest,
     initial_orthants::InitialOrthants,
+    initial_overlap::{InitialOverlapIndex, InitialOverlapScope},
     mask, power_bounds_json,
     queue::{Domain, Phase},
 };
@@ -160,6 +161,7 @@ impl<const N: usize> Event<N> {
 #[derive(Clone, Copy)]
 pub(super) enum NativeStats {
     Apply(OwnerAppliedStats),
+    ApplyPartial(OwnerAppliedStats, InitialOverlapScope),
     Route(rustred::solver::CandidateDomainRouteStats),
 }
 pub(super) struct Finished {
@@ -169,9 +171,15 @@ pub(super) struct Finished {
     pub seconds: f64,
 }
 impl Finished {
+    pub fn initial_overlap_scope(&self) -> Option<InitialOverlapScope> {
+        match self.stats {
+            NativeStats::ApplyPartial(_, scope) => Some(scope),
+            _ => None,
+        }
+    }
     pub fn native_operations(&self) -> usize {
         match self.stats {
-            NativeStats::Apply(s) => s.native_operations,
+            NativeStats::Apply(s) | NativeStats::ApplyPartial(s, _) => s.native_operations,
             NativeStats::Route(_) => 0,
         }
     }
@@ -183,8 +191,31 @@ pub(super) fn inspect<const N: usize>(
     request: &OwnerDomainWalkRequest,
     cancellation: &AtomicBool,
     initial: &InitialOrthants<N>,
+    overlap: &InitialOverlapIndex<N>,
     emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
 ) -> Finished {
+    if request.reuse_initial_d_bands {
+        let started = Instant::now();
+        if let Some(plan) = overlap.plan(domain, cancellation) {
+            // Exactly one unchanged native visitor; the residual is NOT a
+            // queue child and cannot be suppressed by its original parent.
+            let mut finished = inspect_options(
+                reducer,
+                &plan.residual,
+                request,
+                cancellation,
+                initial,
+                true,
+                emit,
+            );
+            let NativeStats::Apply(stats) = finished.stats else {
+                unreachable!("Apply-only initial overlap");
+            };
+            finished.stats = NativeStats::ApplyPartial(stats, plan.scope);
+            finished.seconds = started.elapsed().as_secs_f64();
+            return finished;
+        }
+    }
     inspect_options(reducer, domain, request, cancellation, initial, true, emit)
 }
 

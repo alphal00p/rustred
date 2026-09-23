@@ -256,6 +256,8 @@ def main() -> int:
                         help="local bounded refinement only (native default: inactive-only); requires --queries; does not change routing or closure")
     parser.add_argument("--" + DOMAIN.TRANSFER_LOOKAHEAD, type=DOMAIN.positive,
                         help="opt into unreserved containment delegation with fixed logical dispatch lookahead; requires --queries and unlimited containment checks")
+    parser.add_argument("--" + DOMAIN.INITIAL_D_REUSE, action=DOMAIN.StoreTrueOnce, nargs=0, default=False,
+                        help="reuse an exact initial same-owner D band, retaining its obligation; requires --queries and unreserved delegation")
     parser.add_argument("--route-domain-overcover", action="store_true",
                         help="share admitted symbolic route covers; requires --queries")
     parser.add_argument("--no-progress", action="store_true")
@@ -264,7 +266,7 @@ def main() -> int:
     if symbolic and (args.entry_domains is not None or args.expansion_limits is not None or any(
             getattr(args, option.replace("-", "_")) is not None for option in FINITE_ALLOWANCES)):
         parser.error("concrete-target/expansion allowances require --targets")
-    if not symbolic and (args.route_domain_overcover or any(
+    if not symbolic and (args.route_domain_overcover or args.reuse_initial_d_bands or any(
             getattr(args, option.replace("-", "_")) is not None
             for option in (*SYMBOLIC_ALLOWANCES, *SYMBOLIC_POLICIES))):
         parser.error("symbolic-domain allowances require --queries")
@@ -272,6 +274,8 @@ def main() -> int:
         parser.error("route mask allowance requires --route-domain-overcover")
     if args.transfer_unreserved_lookahead is not None and args.max_containment_checks not in (None, "unlimited"):
         parser.error("--transfer-unreserved-lookahead requires unlimited containment checks")
+    if args.reuse_initial_d_bands and args.transfer_unreserved_lookahead is None:
+        parser.error("--reuse-initial-d-bands requires --transfer-unreserved-lookahead")
     if not 1 <= args.workers <= 50 or args.other_workers < 0 or args.workers + args.other_workers > 50:
         parser.error("aggregate configured compute workers must be between 1 and 50")
     if not 0 < args.soft_memory_bytes < args.max_memory_bytes <= 500_000_000_000:
@@ -324,6 +328,8 @@ def main() -> int:
                 command += ["--" + option, str(value)]
         if args.route_domain_overcover:
             command.append("--route-domain-overcover")
+        if args.reuse_initial_d_bands:
+            command.append("--" + DOMAIN.INITIAL_D_REUSE)
     else:
         command += ["--targets", str(args.targets.resolve())]
         for option, default in FINITE_ALLOWANCES.items():
@@ -339,6 +345,7 @@ def main() -> int:
     (output / "request.json").write_text(json.dumps({
         "command": command, "cpus": sorted(cpus), "registered_roots": collector.identities,
         "input_scope": "symbolic_domains" if symbolic else "concrete_targets",
+        "reuse_initial_d_bands": args.reuse_initial_d_bands,
         "workers": args.workers, "other_workers": args.other_workers,
         "hard_memory_bytes": args.max_memory_bytes, "soft_memory_bytes": args.soft_memory_bytes,
         "child_rlimit_as_bytes": child_as, "monitor_headroom_bytes": monitor_headroom,
@@ -423,6 +430,7 @@ def main() -> int:
     (output / "run.status").write_text(str(status) + "\n")
     (output / "supervisor-result.json").write_text(json.dumps({
         "exit_status": status, "elapsed_seconds": time.monotonic()-started,
+        "reuse_initial_d_bands": args.reuse_initial_d_bands,
         "peak_observed_aggregate_rss_bytes": peak, "operator_or_resource_stop": stop_reason,
         "hard_stopped": hard_stopped, "work_checkpoint": False, "family_closure_claim": False,
         "child_rlimit_as_bytes": child_as, "memory_failure_is_incomplete": True,

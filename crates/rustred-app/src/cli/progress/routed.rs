@@ -240,6 +240,12 @@ fn walk_dashboard(record: &Value) -> [String; 6] {
     };
     let done = n("completed_nodes");
     let total = n("scheduled_nodes");
+    let overlap = initial_overlap_summary(p);
+    let inspected_label = if overlap.is_some() {
+        "native jobs / scheduled"
+    } else {
+        "inspected / scheduled"
+    };
     let width = if total == 0 {
         0
     } else {
@@ -248,7 +254,7 @@ fn walk_dashboard(record: &Value) -> [String; 6] {
     [
         format!("RustRed shared symbolic-domain work — {state}"),
         format!(
-            "[{}{}] {done}/{total} inspected / scheduled; {} queued (may grow)",
+            "[{}{}] {done}/{total} {inspected_label}; {} queued (may grow)",
             "#".repeat(width),
             "-".repeat(20 - width),
             n("queued_nodes")
@@ -261,11 +267,14 @@ fn walk_dashboard(record: &Value) -> [String; 6] {
             n("frontiers")
         ),
         format!(
-            "Events {} committed / {} attempted  RSS {:.2} GB  elapsed {:.1}s",
+            "Events {} committed / {} attempted  RSS {:.2} GB  elapsed {:.1}s{}",
             n("events"),
             pn("attempted_events"),
             record["process_rss_bytes"].as_u64().unwrap_or(0) as f64 / 1e9,
-            record["elapsed_seconds"].as_f64().unwrap_or(0.)
+            record["elapsed_seconds"].as_f64().unwrap_or(0.),
+            // Family dashboard slot 3 has room for multiple lines; slot 2
+            // is single-line and would silently clip the overlap summary.
+            overlap.map_or_else(String::new, |summary| format!("\n{summary}"))
         ),
         walk_worker_summary(parallel),
         last_line,
@@ -313,7 +322,27 @@ fn add_worker_summary(record: &mut Value) {
         if let Some(summary) = delegation_summary(&record["progress"]) {
             record["delegation_summary"] = json!(summary);
         }
+        if let Some(summary) = initial_overlap_summary(&record["progress"]) {
+            record["initial_overlap_summary"] = json!(summary);
+        }
     }
+}
+
+/// A partial native job inspects only its residual. Reusing an initial band
+/// retains the anchor obligation; it does not establish whole-domain closure.
+fn initial_overlap_summary(progress: &Value) -> Option<String> {
+    if progress["reuse_initial_d_bands"] != true {
+        return None;
+    }
+    let partial = progress["partial_initial_inspections"]
+        .as_u64()
+        .unwrap_or(0);
+    let blocked = progress["delegation"]["partial_initial_blocked"]
+        .as_u64()
+        .map_or_else(String::new, |n| format!(" ({n} locally blocked)"));
+    Some(format!(
+        "Initial-band partial inspections {partial}{blocked}; anchor obligations retained"
+    ))
 }
 
 /// Transferred work is not inspected or solved; final ledger resolution is
@@ -526,6 +555,48 @@ mod tests {
                 .join("\n")
                 .contains("4 locally discharged")
         );
+    }
+    #[test]
+    fn initial_band_monitor_labels_partial_native_work_and_retained_anchors() {
+        let mut record = json!({"progress":{"operation":"owner_domain_walk",
+            "reuse_initial_d_bands":true,"partial_initial_inspections":3,
+            "completed_nodes":7,"scheduled_nodes":12,"queued_nodes":5}});
+        add_worker_summary(&mut record);
+        let expected = "Initial-band partial inspections 3; anchor obligations retained";
+        assert_eq!(record["initial_overlap_summary"], expected);
+        let lines = dashboard(&record);
+        assert!(lines[3].contains(expected));
+        assert!(!lines[2].contains(expected));
+        let text = lines.join("\n");
+        assert!(text.contains("7/12 native jobs / scheduled"));
+        assert!(!text.contains("7/12 inspected / scheduled"));
+        assert!(text.contains(expected));
+        assert!(text.contains("NOT a closure claim"));
+        record["progress"]["delegation"] = json!({"partial_initial_blocked":2});
+        add_worker_summary(&mut record);
+        assert_eq!(
+            record["initial_overlap_summary"],
+            "Initial-band partial inspections 3 (2 locally blocked); anchor obligations retained"
+        );
+    }
+    #[test]
+    fn initial_band_monitor_keeps_default_and_non_walk_output_unchanged() {
+        for enabled in [Value::Null, json!(false)] {
+            let mut record = json!({"progress":{"operation":"owner_domain_walk",
+                "reuse_initial_d_bands":enabled,"completed_nodes":2,"scheduled_nodes":3}});
+            add_worker_summary(&mut record);
+            assert!(record.get("initial_overlap_summary").is_none());
+            assert!(
+                dashboard(&record)
+                    .join("\n")
+                    .contains("2/3 inspected / scheduled")
+            );
+        }
+        let mut other = json!({"progress":{"operation":"owner_domain_match",
+            "reuse_initial_d_bands":true,"partial_initial_inspections":3}});
+        let before = other.clone();
+        add_worker_summary(&mut other);
+        assert_eq!(other, before);
     }
     #[test]
     fn symbolic_dashboard_exposes_bounded_failure_and_backpressure_during_drain() {

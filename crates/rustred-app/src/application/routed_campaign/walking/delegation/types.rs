@@ -51,6 +51,7 @@ pub enum Transfer {
     Installed,
     AlreadyDelegated,
     ReservedOrStarted,
+    ProtectedInitial,
     IdentityMismatch,
     InvalidForwardEdge,
 }
@@ -71,6 +72,8 @@ pub enum Error {
     IdentityMismatch,
     Halted,
     FiniteContainmentCap,
+    InvalidInitialPhase,
+    InvalidInitialAnchor,
 }
 
 impl std::fmt::Display for Error {
@@ -92,6 +95,8 @@ impl std::fmt::Display for Error {
             Self::FiniteContainmentCap => {
                 "responsibility transfer requires unlimited semantic containment"
             }
+            Self::InvalidInitialPhase => "invalid protected initial-admission phase",
+            Self::InvalidInitialAnchor => "invalid initial-overlap responsibility anchor",
         })
     }
 }
@@ -118,6 +123,8 @@ pub struct Summary {
     pub admitted: usize,
     pub logical_publications: usize,
     pub native_publications: usize,
+    /// Effective local-obligation statuses, including a partial endpoint's
+    /// protected initial anchor. Not unique native failure/frontier sources.
     pub native_discharged: usize,
     pub native_frontier_blocked: usize,
     pub native_failed: usize,
@@ -131,6 +138,8 @@ pub struct Summary {
     pub delegated_failure_blocked: usize,
     pub delegated_cancelled: usize,
     pub maximum_alias_depth: usize,
+    pub partial_initial_inspections: usize,
+    pub partial_initial_blocked: usize,
 }
 
 impl Summary {

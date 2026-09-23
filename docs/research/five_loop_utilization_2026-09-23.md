@@ -646,5 +646,86 @@ queue impact, or improved core utilization. No full run with this optimization
 has completed. The measured direction justifies a narrow production slice:
 default-off initial D-band reuse alongside the existing transfer policy,
 protected initial obligations, one unchanged residual visitor, and explicit
-partial-scope/dependency accounting. Implementation and independent source
-auditing are now the next gates, followed by a renewed 50-worker full campaign.
+partial-scope/dependency accounting. The subsequent implementation and
+independent gates are recorded below, before the renewed 50-worker full campaign.
+
+## Parallel coefficient-path source check
+
+A separate read-only audit traced the current native Apply restriction and
+guard-classification path into the pinned Symbolica 3.0 checkout. The inspector
+runs directly on an ordinary Rust worker thread. Polynomial substitution,
+rational-polynomial normalization, GCD, factorization and base-coefficient
+splitting on this path are synchronous; they do not dispatch through Symbolica's
+explicit parallel term-mapping or sparse back-substitution APIs. Consequently,
+`RAYON_NUM_THREADS=1` does not funnel these independent Apply inspections through
+one global CAS worker. The successful licensed check is an atomic fast path,
+not a worker-serialization queue.
+
+Relevant entry points are `walking/parallel.rs`, `owners/domains/applied/`
+and `algebra/indexed/{specialization,base_coefficients}.rs`; the traced native
+implementations are Symbolica's polynomial substitution, rational-polynomial,
+GCD and factorization services. This is source evidence for the current path,
+not a scaling benchmark or a claim that allocator contention, memory bandwidth
+or scheduler stalls are absent. No CAS implementation or thread-pool policy
+was changed as part of this audit.
+
+## Integrated initial-domain overlap reuse
+
+The opt-in `reuse_initial_d_bands` Rust request field and
+`--reuse-initial-d-bands` CLI/Python-steering flag now implement the measured
+optimization. Defaults remain unchanged. The policy requires recursive walking
+with `--transfer-unreserved-lookahead` and unlimited aggregate containment.
+It uses no new CAS operation and recognizes neither topology names nor loop
+counts.
+
+For a successor region Q and a same-owner initial region C, the native domain
+summary supplies C's finite minimum D=d. When both pieces are nonempty and
+native containment proves `Q intersect D>=d` lies in C, the worker inspects
+only `Q intersect D<=d-1`. All original coordinate, A, R and D constraints
+remain. The original initial region is protected from responsibility transfer;
+its inspection and all descendants remain required. Final resolution combines
+the residual result with that initial region's actual status. A pending,
+failed, cancelled or frontier-bearing initial region cannot discharge the
+overlap. Optional-index limits or failed applicability checks fall back to the
+unchanged full inspection.
+
+This is partial reuse, not a whole-region inspection or a new terminal. Both
+published and uncommitted partial reports retain original and residual scope.
+TTY and plain progress distinguish native jobs, aliases and partial initial
+reuse. The implementation leaves the existing exact coefficient path and all
+per-job limits in place.
+
+Independent implementation/mathematical review passes. The clean-owned release
+compatibility gate passes **135 tests, one existing diagnostic ignored**, in
+6.27 s. It excludes the preserved unrelated completed-result escrow work.
+The first full shared-tree gate passed 454 application unit tests and 66
+integration tests before finding a new test's incorrect cancellation-status
+expectation. Recursive walking already reports `incomplete` with a cancellation
+reason, unlike the match-only status string. The test was corrected to check
+that contract and additionally require zero admitted/processed work and no
+resolution claim; production cancellation behavior was unchanged. The full
+rerun passes **536 application/CLI tests**, one existing diagnostic ignored,
+and **74 Python/API/steering tests** (50 public API, 12 matcher-steering,
+12 supervisor tests). The coordinated gate exits successfully. Receipts and
+independent audit are under
+`TMP/initial-overlap-gate.4Tj82V/`.
+
+The newly gated shared-tree release CLI is
+`TMP/initial-overlap-gate.4Tj82V/rustred`, SHA-256
+`3be828134ca05f6d08222656277841c0cfcfb2d6ff8d06a2c38b65d501bca5db`.
+Like the preceding campaign binary, it includes preserved unrelated escrow
+work; its measurements must not be described as an isolated-commit benchmark.
+The additional clean-owned gate verifies that this implementation does not
+depend on that work. The two starting-input hashes above are unchanged.
+
+The next all-67-owner run retains the same A24/R15/D9 input, saved rules,
+per-query budgets, 50 physical-core affinity and lookahead 256. Lifetime
+allowances rise to 100 million historical domains and two billion committed
+events; these are incrementally used resource ceilings, not mathematical
+restrictions or preallocations. A 300-GB cooperative memory threshold reserves
+drain/reporting headroom below the 500-GB hard ceiling. There is no elapsed
+timeout. Initial pinning and residual reuse change the work stream, so equal
+node counts or IDs must not be used as matched-work speedup denominators.
+Actual CPU use, remaining native obligations, queue growth, frontier count and
+memory must be measured before forecasting completion. No full campaign with
+this policy has yet completed.

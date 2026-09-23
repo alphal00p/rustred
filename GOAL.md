@@ -1,16 +1,30 @@
 # RustRed project goal
 
+**Current implementation checkpoint — September 23:** initial-domain partial
+reuse is implemented and independently reviewed. The opt-in
+`--reuse-initial-d-bands` policy preserves protected initial obligations and
+inspects only the exact residual of a successor outside a containing initial
+region. It keeps all descendant bounds and reports partial work explicitly.
+The complete release application/CLI gate passes **536 tests** (one existing
+diagnostic ignored); the separate clean-owned scheduler gate passes **135**
+(one ignored), without the unrelated escrow work. All **74 Python/API/steering
+tests** also pass. Commit/push the implementation and launch the same
+all-67-owner A24/R15/D9 campaign with 50 physical-core affinity,
+H256, no elapsed deadline and a 500-GB memory ceiling. The local 9–24x reductions
+below are not full-campaign speedups. Step (a) remains unfinished, and there is
+no defensible under-ten-hour estimate until the renewed queue actually drains.
+
 **Measured follow-up — September 23:** an unchanged-native-API experiment on
 the first expensive saved region takes 27.3–27.4 s for the full region versus
 2.99 s for its exact residual outside a retained initial anchor. Both full-region
 runs match the saved native statistics; each input repeats its own statistics
 and event fingerprint.
-This roughly 9.1x local-work reduction is not yet a production or whole-campaign
-speedup. The next implementation candidate is input-derived initial-domain
-partial reuse, with protected initial obligations and explicit residual scope;
+This roughly 9.1x local-work reduction is not a whole-campaign speedup.
+It motivated input-derived initial-domain partial reuse, with protected
+initial obligations and explicit residual scope;
 all four saved heavy regions now pass two-repeat native comparisons, with
-approximately 9–24x less local inspection time. Implementation is underway;
-there is no full-campaign measurement of this policy yet.
+approximately 9–24x less local inspection time. Implementation and validation
+are described above; there is no full-campaign measurement of this policy yet.
 An independently audited isolated
 lookup model is also promising (3.692 s to 0.943 s median CPU), but omits the
 real reused-request stream and is secondary to reducing repeated Apply work.

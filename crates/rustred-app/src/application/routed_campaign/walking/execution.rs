@@ -5,6 +5,7 @@ use super::{
     OwnerDomainWalkRequest,
     diagnostics::{OptionalCounts, OptionalRefusals},
     initial_orthants::InitialOrthants,
+    initial_overlap::InitialOverlapIndex,
     inspection::{self, Effect, Event, Finished, NativeStats},
     mask,
     parallel::{self, Failure, Poll},
@@ -273,10 +274,11 @@ impl<const N: usize> State<N> {
     }
     fn commit(&mut self, id: usize, finished: Finished) {
         let domain = &self.queue.domains[id];
+        let partial_scope = finished.initial_overlap_scope();
         let native_cancelled = finished.error_kind == "cancelled";
         self.error = self.error.take().or(finished.error);
         let (stats, optional, truncated) = match finished.stats {
-            NativeStats::Apply(stats) => {
+            NativeStats::Apply(stats) | NativeStats::ApplyPartial(stats, _) => {
                 if let Err(error) = self.optional.add(stats) {
                     self.error.get_or_insert_with(|| error.into());
                 }
@@ -298,6 +300,11 @@ impl<const N: usize> State<N> {
         let frontier_count = self.details.len();
         if let Some(ledger) = &mut self.queue.delegation {
             use super::delegation::NativeOutcome;
+            if let Some(scope) = partial_scope {
+                if let Err(error) = ledger.record_initial_overlap(id, scope.anchor_id) {
+                    self.error.get_or_insert_with(|| error.to_string());
+                }
+            }
             let outcome = if self.error.is_none() {
                 NativeOutcome::Completed {
                     unresolved_frontiers: frontier_count,
@@ -310,6 +317,10 @@ impl<const N: usize> State<N> {
             if let Err(error) = ledger.publish_native(id, outcome) {
                 self.error.get_or_insert_with(|| error.to_string());
             }
+        } else if partial_scope.is_some() {
+            self.error.get_or_insert_with(|| {
+                "partial initial inspection has no responsibility ledger".into()
+            });
         }
         self.native_records += 1;
         self.completed += usize::from(self.error.is_none());
@@ -322,6 +333,20 @@ impl<const N: usize> State<N> {
             record["record_kind"] = json!("native_inspection");
             record["local_classification_discharged"] =
                 json!(self.error.is_none() && frontier_count == 0);
+        }
+        if let Some(scope) = partial_scope {
+            record["record_kind"] = json!("partial_initial_overlap_inspection");
+            record["native_inspection_scope"] = json!("low_D_residual_only");
+            record["local_inspection_finished"] = json!(false);
+            record["residual_inspection_finished"] = json!(self.error.is_none());
+            // Filled from the typed ledger at finalization, never inferred from
+            // residual Finished alone or the existence of an initial anchor.
+            record["local_classification_discharged"] = json!(false);
+            record["initial_overlap"] = json!({"anchor_id":scope.anchor_id,"cut":scope.cut,
+                "covered_slice":"original_intersect_D_ge_cut",
+                "residual_power_bounds":power_bounds_json(scope.residual_powers),
+                "coordinates_and_rank_unchanged":true,
+                "authority":"same_snapshot_phase_owner_native_summary"});
         }
         if let (Some(optional), Some(stats)) = (optional, truncated) {
             record["optional_refusal_provenance_truncated"] = json!(optional.truncated(stats));
@@ -342,7 +367,7 @@ fn route_stats(s: rustred::solver::CandidateDomainRouteStats) -> Value {
 }
 fn native_stats(stats: NativeStats) -> Value {
     match stats {
-        NativeStats::Apply(s) => stats_json(s),
+        NativeStats::Apply(s) | NativeStats::ApplyPartial(s, _) => stats_json(s),
         NativeStats::Route(s) => route_stats(s),
     }
 }
@@ -376,8 +401,30 @@ fn run_with_initial_orthants<const N: usize>(
     } else {
         InitialOrthants::empty()
     };
+    let overlap = if request.reuse_initial_d_bands {
+        let Some(prefix) = state
+            .queue
+            .delegation
+            .as_ref()
+            .and_then(|l| l.initial_prefix())
+        else {
+            state.error = Some("initial D-band reuse requires a protected initial prefix".into());
+            return;
+        };
+        InitialOverlapIndex::from_initial(&state.queue.domains[..prefix], cancellation)
+    } else {
+        InitialOverlapIndex::empty()
+    };
     if request.workers == 1 {
-        return serial(state, reducer, request, cancellation, observer, &initial);
+        return serial(
+            state,
+            reducer,
+            request,
+            cancellation,
+            observer,
+            &initial,
+            &overlap,
+        );
     }
     let budget = admission::WorkerBudget::new(request.workers, state.queue.containment_limit());
     state.admission = admission::Metrics::new(budget);
@@ -395,7 +442,9 @@ fn run_with_initial_orthants<const N: usize>(
     let mut heartbeat = Instant::now();
     let (_, snapshot, mut leftovers) = parallel::with_pool(
         budget.inspection,
-        |domain, stop, emit| inspection::inspect(reducer, domain, request, stop, &initial, emit),
+        |domain, stop, emit| {
+            inspection::inspect(reducer, domain, request, stop, &initial, &overlap, emit)
+        },
         |pool| {
             loop {
                 if cancellation.load(Ordering::Acquire) {
@@ -550,11 +599,21 @@ fn retain_leftovers<const N: usize>(state: &mut State<N>, leftovers: &mut Vec<(u
             state.commit(id, finished);
         } else {
             let domain = &state.queue.domains[id];
-            state.uncommitted.push(json!({"id":id, "phase":format!("{:?}", domain.phase),
+            let partial_scope = finished.initial_overlap_scope();
+            let mut record = json!({"id":id, "phase":format!("{:?}", domain.phase),
                 "owner":mask(&domain.owner), "lower":domain.lower, "upper":domain.upper, "rank":domain.rank,
                 "power_bounds":power_bounds_json(domain.powers),
                 "stats":native_stats(finished.stats), "error":finished.error, "seconds":finished.seconds,
-                "committed":false}));
+                "committed":false});
+            if let Some(scope) = partial_scope {
+                record["native_inspection_scope"] = json!("low_D_residual_only");
+                record["initial_overlap"] = json!({"anchor_id":scope.anchor_id,"cut":scope.cut,
+                    "covered_slice":"original_intersect_D_ge_cut",
+                    "residual_power_bounds":power_bounds_json(scope.residual_powers),
+                    "coordinates_and_rank_unchanged":true,
+                    "responsibility_published":false});
+            }
+            state.uncommitted.push(record);
         }
     }
     if (!state.details.is_empty() || !state.refusals.records.is_empty())
@@ -579,6 +638,7 @@ fn serial<const N: usize>(
     cancellation: &AtomicBool,
     observer: &impl Fn(Value),
     initial: &InitialOrthants<N>,
+    overlap: &InitialOverlapIndex<N>,
 ) {
     let mut attempted = 0usize;
     let mut native = 0usize;
@@ -626,6 +686,7 @@ fn serial<const N: usize>(
                 request,
                 cancellation,
                 initial,
+                overlap,
                 &mut |event| {
                     let error = if let Some(next) = attempted.checked_add(event.count) {
                         attempted = next;

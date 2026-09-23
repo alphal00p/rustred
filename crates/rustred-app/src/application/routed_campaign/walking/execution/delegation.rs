@@ -73,6 +73,10 @@ impl<const N: usize> State<N> {
             lookahead: ledger.lookahead(),
         });
         out["native_processed_nodes"] = json!(self.native_records);
+        if ledger.initial_prefix().is_some() {
+            out["reuse_initial_d_bands"] = json!(true);
+            out["partial_initial_inspections"] = json!(ledger.partial_initial_inspections());
+        }
         out["delegation"] = json!({
             "dispatch_fence":ledger.dispatch_fence(),
             "transferred_obligations":ledger.transfer_count(),
@@ -102,7 +106,8 @@ impl<const N: usize> State<N> {
             }
         };
         for record in &mut self.records {
-            if record["record_kind"] != "delegated_not_inspected" {
+            let partial = record["record_kind"] == "partial_initial_overlap_inspection";
+            if record["record_kind"] != "delegated_not_inspected" && !partial {
                 continue;
             }
             let id = record["id"]
@@ -110,6 +115,26 @@ impl<const N: usize> State<N> {
                 .and_then(|id| usize::try_from(id).ok())
                 .expect("internally constructed delegated ID");
             let resolution = report.by_id[id];
+            if partial {
+                record["local_classification_discharged"] =
+                    json!(resolution.status == ResolutionStatus::Discharged);
+                record["responsibility_status"] = match resolution.status {
+                    ResolutionStatus::Pending => json!("pending_residual_or_initial_anchor"),
+                    ResolutionStatus::Discharged => {
+                        json!("discharged_by_residual_and_initial_anchor")
+                    }
+                    ResolutionStatus::UnresolvedFrontiers { count } => {
+                        json!({"blocked_by_residual_or_initial_anchor_frontiers":count})
+                    }
+                    ResolutionStatus::Failed => {
+                        json!("blocked_by_residual_or_initial_anchor_failure")
+                    }
+                    ResolutionStatus::Cancelled => {
+                        json!("blocked_by_residual_or_initial_anchor_cancellation")
+                    }
+                };
+                continue;
+            }
             record["final_representative_id"] = json!(resolution.representative);
             record["responsibility_status"] = match resolution.status {
                 ResolutionStatus::Pending => json!("pending"),
@@ -135,7 +160,9 @@ impl<const N: usize> State<N> {
             "delegated_failure_blocked":s.delegated_failure_blocked,
             "delegated_cancelled":s.delegated_cancelled,
             "maximum_alias_depth":s.maximum_alias_depth,
-            "resolution_scope":"ledger_local_only; global_frontiers_and_errors_are_separate"
+            "partial_initial_inspections":s.partial_initial_inspections,
+            "partial_initial_blocked":s.partial_initial_blocked,
+            "resolution_scope":"local_obligations_including_partial_anchor_dependencies; not_unique_native_failure_or_frontier_sources; global_frontiers_and_errors_are_separate"
         }))
     }
 }

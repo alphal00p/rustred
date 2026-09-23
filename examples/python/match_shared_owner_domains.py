@@ -24,6 +24,7 @@ REFINEMENT = "max-bounded-refinement-cells-per-query"
 REFINEMENT_AXES = "bounded-refinement-axes"
 REFINEMENT_AXIS_CHOICES = ("inactive-only", "finite-axes")
 TRANSFER_LOOKAHEAD = "transfer-unreserved-lookahead"
+INITIAL_D_REUSE = "reuse-initial-d-bands"
 WALK_ALLOWANCES = ("workers", "max-domains", "max-frontiers", "max-successor-events", "max-containment-checks",
                    "max-rhs-cells-per-query", "max-term-visits-per-query",
                    "max-native-operations-per-query", "max-rhs-events-per-query",
@@ -50,6 +51,14 @@ def containment_limit(text: str) -> int | str:
     return positive(text)
 
 
+class StoreTrueOnce(argparse.Action):
+    """Reject repeated opt-in flags rather than silently hiding duplicates."""
+    def __call__(self, parser, namespace, values, option_string=None):
+        if getattr(namespace, self.dest, False):
+            parser.error(f"{option_string} may be supplied only once")
+        setattr(namespace, self.dest, True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--executable", type=Path, required=True)
@@ -74,13 +83,15 @@ def main() -> None:
                         help="local refinement axes (native default: inactive-only); finite-axes also permits explicitly bounded positive axes, not routing or closure")
     parser.add_argument("--" + TRANSFER_LOOKAHEAD, type=positive,
                         help="opt into unreserved containment delegation with fixed logical dispatch lookahead; requires unlimited containment checks")
+    parser.add_argument("--" + INITIAL_D_REUSE, action=StoreTrueOnce, nargs=0, default=False,
+                        help="reuse an exact initial same-owner D band, retaining its obligation; requires successor walk and unreserved delegation")
     for option in WALK_ALLOWANCES:
         parser.add_argument("--" + option,
                             type=containment_limit if option == "max-containment-checks" else positive,
                             help="positive diagnostic cap or unlimited (default)" if
                             option == "max-containment-checks" else None)
     args = parser.parse_args()
-    if not args.follow_successors and (args.route_domain_overcover or any(
+    if not args.follow_successors and (args.route_domain_overcover or args.reuse_initial_d_bands or any(
             getattr(args, option.replace("-", "_")) is not None
             for option in (*WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, "max-route-masks-per-query"))):
         parser.error("successor work allowances require --follow-successors")
@@ -88,6 +99,8 @@ def main() -> None:
         parser.error("route mask allowance requires --route-domain-overcover")
     if args.transfer_unreserved_lookahead is not None and args.max_containment_checks not in (None, "unlimited"):
         parser.error("--transfer-unreserved-lookahead requires unlimited containment checks")
+    if args.reuse_initial_d_bands and args.transfer_unreserved_lookahead is None:
+        parser.error("--reuse-initial-d-bands requires --transfer-unreserved-lookahead")
     environment = os.environ.copy()
     for name in ("RAYON_NUM_THREADS", "OMP_NUM_THREADS", "OMP_THREAD_LIMIT",
                  "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "BLIS_NUM_THREADS",
@@ -105,6 +118,8 @@ def main() -> None:
         command.append("--follow-successors")
     if args.route_domain_overcover:
         command.append("--route-domain-overcover")
+    if args.reuse_initial_d_bands:
+        command.append("--" + INITIAL_D_REUSE)
     for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, "max-route-masks-per-query"):
         if (value := getattr(args, option.replace("-", "_"))) is not None:
             command.extend(["--" + option, str(value)])

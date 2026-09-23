@@ -19,6 +19,7 @@ pub(super) enum Responsibility {
 pub(super) struct Entry<K> {
     pub key: K,
     pub responsibility: Responsibility,
+    pub initial_anchor: Option<NonZeroUsize>,
 }
 
 /// One queue-local immutable snapshot. K is the exact phase/owner key, normally
@@ -35,6 +36,9 @@ pub struct Ledger<K> {
     pub(super) native_publications: usize,
     pub(super) delegated_publications: usize,
     halted: bool,
+    initial_admission: bool,
+    pub(super) protected_initial_prefix: Option<usize>,
+    partial_initial_inspections: usize,
 }
 
 impl<K: Copy + Eq> Ledger<K> {
@@ -52,6 +56,9 @@ impl<K: Copy + Eq> Ledger<K> {
             native_publications: 0,
             delegated_publications: 0,
             halted: false,
+            initial_admission: false,
+            protected_initial_prefix: None,
+            partial_initial_inspections: 0,
         })
     }
 
@@ -81,6 +88,65 @@ impl<K: Copy + Eq> Ledger<K> {
 
     pub fn transfer_count(&self) -> usize {
         self.transfers
+    }
+
+    /// Begin BEFORE the first initial admission; pinning after retirement would
+    /// be too late when the initial prefix exceeds the dispatch horizon.
+    pub fn begin_initial_admission(&mut self) -> Result<(), Error> {
+        if !self.entries.is_empty()
+            || self.protected_initial_prefix.is_some()
+            || self.initial_admission
+        {
+            return Err(Error::InvalidInitialPhase);
+        }
+        self.initial_admission = true;
+        Ok(())
+    }
+
+    pub fn finish_initial_admission(&mut self) -> Result<(), Error> {
+        if !self.initial_admission {
+            return Err(Error::InvalidInitialPhase);
+        }
+        self.initial_admission = false;
+        self.protected_initial_prefix = Some(self.entries.len());
+        Ok(())
+    }
+
+    pub fn initial_prefix(&self) -> Option<usize> {
+        self.protected_initial_prefix
+    }
+
+    pub fn partial_initial_inspections(&self) -> usize {
+        self.partial_initial_inspections
+    }
+
+    /// No allocation: link storage was reserved with the ordinary admission.
+    /// Geometry is established by the same-snapshot native split planner.
+    pub fn record_initial_overlap(&mut self, id: usize, anchor: usize) -> Result<(), Error> {
+        self.check_publisher(id)?;
+        let prefix = self
+            .protected_initial_prefix
+            .ok_or(Error::InvalidInitialAnchor)?;
+        if id < prefix || anchor >= prefix || anchor >= id {
+            return Err(Error::InvalidInitialAnchor);
+        }
+        let source = &self.entries[anchor];
+        if source.key != self.entries[id].key
+            || source.initial_anchor.is_some()
+            || matches!(source.responsibility, Responsibility::Delegate { .. })
+        {
+            return Err(Error::InvalidInitialAnchor);
+        }
+        let entry = &mut self.entries[id];
+        if entry.responsibility != Responsibility::Local(Local::Started)
+            || entry.initial_anchor.is_some()
+        {
+            return Err(Error::InvalidNativeState);
+        }
+        entry.initial_anchor =
+            NonZeroUsize::new(anchor.checked_add(1).ok_or(Error::InvalidInitialAnchor)?);
+        self.partial_initial_inspections += 1;
+        Ok(())
     }
 
     /// Capacity-only part of the queue's admission preflight. No logical state
@@ -130,6 +196,7 @@ impl<K: Copy + Eq> Ledger<K> {
         self.entries.push(Entry {
             key,
             responsibility: Responsibility::Local(Local::Unreserved),
+            initial_anchor: None,
         });
         self.reserve_horizon();
         Ok(())
@@ -148,6 +215,13 @@ impl<K: Copy + Eq> Ledger<K> {
         }
         if self.entries[old].key != self.entries[representative].key {
             return Transfer::IdentityMismatch;
+        }
+        if self.initial_admission
+            || self
+                .protected_initial_prefix
+                .is_some_and(|prefix| old < prefix)
+        {
+            return Transfer::ProtectedInitial;
         }
         if matches!(
             self.entries[old].responsibility,

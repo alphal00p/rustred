@@ -39,6 +39,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub max_successor_events: usize,
     pub max_containment_checks: Option<usize>,
     pub transfer_unreserved_lookahead: Option<NonZeroUsize>,
+    pub reuse_initial_d_bands: bool,
 }
 
 pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -79,6 +80,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         max_successor_events: 1_000_000,
         max_containment_checks: None,
         transfer_unreserved_lookahead: None,
+        reuse_initial_d_bands: false,
     };
     let mut seen = BTreeSet::new();
     let mut arguments = arguments.peekable();
@@ -121,6 +123,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--max-successor-events" => "--max-successor-events",
             "--max-containment-checks" => "--max-containment-checks",
             "--transfer-unreserved-lookahead" => "--transfer-unreserved-lookahead",
+            "--reuse-initial-d-bands" => "--reuse-initial-d-bands",
             "--help" | "-h" => return Ok(Command::Help),
             _ => return Err(ArgError::UnknownOption(option)),
         };
@@ -137,6 +140,10 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         if name == "--route-domain-overcover" {
             result.route_domain_overcover = true;
+            continue;
+        }
+        if name == "--reuse-initial-d-bands" {
+            result.reuse_initial_d_bands = true;
             continue;
         }
         let value = next_utf8_value(&mut arguments, name)?;
@@ -241,6 +248,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--max-successor-events",
             "--max-containment-checks",
             "--transfer-unreserved-lookahead",
+            "--reuse-initial-d-bands",
             "--route-domain-overcover",
             "--max-route-masks-per-query",
             "--max-rhs-cells-per-query",
@@ -267,6 +275,11 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--transfer-unreserved-lookahead requires unlimited containment checks",
         ));
     }
+    if result.reuse_initial_d_bands && result.transfer_unreserved_lookahead.is_none() {
+        return Err(ArgError::InvalidCombination(
+            "--reuse-initial-d-bands requires --transfer-unreserved-lookahead",
+        ));
+    }
     Ok(Command::OwnerDomainMatch(result))
 }
 
@@ -288,6 +301,7 @@ mod tests {
         assert_eq!(args.workers, 1);
         assert_eq!(args.max_containment_checks, None);
         assert_eq!(args.transfer_unreserved_lookahead, None);
+        assert!(!args.reuse_initial_d_bands);
         assert_eq!(args.max_frontiers, 100_000);
         assert_eq!(args.max_rhs_events, applied.max_events);
         assert_eq!(args.max_shift_groups, applied.max_shift_groups);
@@ -488,6 +502,31 @@ mod tests {
             "--follow-successors --transfer-unreserved-lookahead 50 --max-containment-checks 100",
             "--follow-successors --max-containment-checks 100 --transfer-unreserved-lookahead 50",
             "--follow-successors --transfer-unreserved-lookahead 1 --transfer-unreserved-lookahead 2",
+        ] {
+            assert!(
+                parse(&format!("--manifest m --queries q --output o {suffix}")).is_err(),
+                "{suffix}"
+            );
+        }
+    }
+
+    #[test]
+    fn initial_d_band_reuse_requires_an_explicit_unlimited_delegating_walk() {
+        for cap in ["", "--max-containment-checks unlimited"] {
+            let Command::OwnerDomainMatch(args) = parse(&format!(
+                "--manifest m --queries q --output o --follow-successors --transfer-unreserved-lookahead 50 --reuse-initial-d-bands {cap}"
+            )).unwrap() else { panic!("match command") };
+            assert!(args.reuse_initial_d_bands);
+            assert_eq!(args.transfer_unreserved_lookahead.unwrap().get(), 50);
+            assert_eq!(args.max_containment_checks, None);
+        }
+        for suffix in [
+            "--reuse-initial-d-bands",
+            "--follow-successors --reuse-initial-d-bands",
+            "--transfer-unreserved-lookahead 50 --reuse-initial-d-bands",
+            "--follow-successors --transfer-unreserved-lookahead 50 --reuse-initial-d-bands --max-containment-checks 10",
+            "--follow-successors --transfer-unreserved-lookahead 50 --reuse-initial-d-bands --reuse-initial-d-bands",
+            "--follow-successors --transfer-unreserved-lookahead 50 --reuse-initial-d-bands false",
         ] {
             assert!(
                 parse(&format!("--manifest m --queries q --output o {suffix}")).is_err(),

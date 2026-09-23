@@ -14,6 +14,8 @@ pub use types::SchedulingPolicy;
 pub(super) use types::{NativeOutcome, ResolutionStatus};
 
 #[cfg(test)]
+mod initial_overlap_tests;
+#[cfg(test)]
 mod queue_tests;
 #[cfg(test)]
 mod tests;
