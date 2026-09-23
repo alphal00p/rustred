@@ -1,5 +1,73 @@
 # Five-loop full-owner utilization investigation — September 23
 
+## Latest active run: progress without an exhaustion estimate
+
+This snapshot refers to the **renewed initial-overlap run**, receipt
+`TMP/initial-overlap-gate.4Tj82V/shared-owner-campaign.alc7oe24/`, with executable
+and input hashes recorded under "Renewed run launched" below. Historical sections
+below describe separate, already stopped attempts. The current process remains live;
+no solver replacement, rule regeneration or restart accompanied this audit.
+
+At heartbeat **5742.888 s** (about 96 minutes), it had published **3,185,426
+native inspections**, with **3,930,281 native obligations still pending** and
+**zero observed frontiers**. The nearby sample was **61.64 GB aggregate
+process-tree RSS**; the preceding five-minute resource interval averaged
+**6.07 supervisor-measured busy cores**.
+All 67 starting owners participate. Entry bounds remain A24/R15/D9; descendants
+have reached rank **19**, and are not clipped to the starting rank. No
+unbounded-rank domain has been reported. These are partial observations, not
+a new closing artifact or proof that every remaining region is covered.
+
+An independent analysis of two adjacent fifteen-minute intervals makes the
+remaining scheduling problem explicit:
+
+| Interval since launch | Native publications/s | Net native demand/s | Pending increase | Mean busy cores | Ending RSS |
+|---|---:|---:|---:|---:|---:|
+| 3832.797–4732.788 s | 266.76 | 458.25 | 172,343 | 4.03 | 55.99 GB |
+| 4732.788–5633.138 s | 302.86 | 689.76 | 348,347 | 4.63 | 61.44 GB |
+
+Net native demand is the change in historical admissions minus responsibility
+transfers; it includes transferred-away older obligations, not just newly born
+children. Every approximately 150-second bin in both intervals grew pending
+native work. The latest interval's service rates varied from about 111 to
+747 publications/s. Retained containment candidates also grew, from 5.779 to
+6.309 million. Neither remaining work nor index size has yet plateaued.
+These intervals visit different regions and are not matched-work benchmarks.
+
+Parallel admission is implemented: expensive lookup preparation uses immutable
+batches, while revalidation and ownership publication remain deterministic.
+The 50-worker budget reserves 25 inspectors, 24 admission helpers and one
+coordinator. Initial-domain overlap reuse avoids repeated inspection where
+native containment proves it safe. Nevertheless, finite lookahead, bounded
+stream buffers and canonical publication still allow head-of-line waiting.
+Recent heartbeats show Apply publishers lasting 18–25 seconds while emitting
+hundreds of thousands of events, and one Route publisher spanning 19.112
+seconds without a committed event. These spans locate expensive work; they
+are not full standalone timings or evidence of deadlock.
+
+A separate read-only OS audit found CPU0–49 affinity on every native thread,
+no cgroup CPU-bandwidth quota and no observed throttling. Thus no hidden
+six-core cap explains the low utilization. Own-thread snapshots instead show
+bursty lookup work and many sleeping inspectors. Some run-queue delay exists,
+so the shared host is not assumed contention-free; changing the Rust scheduler
+alone is not a demonstrated route to 50 continuously busy cores.
+
+**Decision:** continue the same full attempt, with no elapsed deadline and
+the existing 300/500-GB cooperative/hard RSS limits. There is no defensible
+under-ten-hour ETA while the total future work is unknown and the queue is
+growing; the measurements also do not prove that such a finish is impossible.
+Zero observed gaps is encouraging but does not discharge pending obligations.
+Completion still requires an exhausted worklist, resolved dependencies, the
+narrow existing-consumer compatibility check, and packaging/cold loading of
+the finite-domain program. Terminal minimization, evaluation and five-loop
+Vakint integration remain subsequent work, not substitutes for this result.
+
+Independent receipts are `INDEPENDENT_TWO_PERIOD_TREND_5633S.md` and
+`INDEPENDENT_SEVERE_TAIL_AUDIT_4868S.md` under
+`TMP/initial-overlap-gate.4Tj82V/`, and `CGROUP_CHECK.md` / `RUNQUEUE_CHECK.md`
+under `TMP/dispatch-fence-audit.Tl4yhT/`. No production code or live-run
+configuration changed during these audits.
+
 ## Scope and reproducibility
 
 The resumed investigation uses all 67 prepared starting regions together,
