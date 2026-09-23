@@ -10,7 +10,7 @@ no solver replacement, rule regeneration or restart accompanied this audit.
 
 At heartbeat **12628.923 s** (about 3.5 hours), native publications reached
 **5,094,503**, with **6,473,505 pending native obligations**, zero observed
-frontiers and descendant rank 19. Nearby aggregate RSS was **79.71 GB**;
+frontiers and maximum scheduled descendant rank bound 19. Nearby aggregate RSS was **79.71 GB**;
 the preceding half-hour sampled peak was **82.59 GB**. RSS fluctuates, so the
 peak is not the current value and a linear memory forecast is inappropriate.
 
@@ -42,6 +42,23 @@ ample. Continue monitoring useful work and the event allowance separately.
 Independent receipt:
 `TMP/initial-overlap-gate.4Tj82V/INDEPENDENT_UTILIZATION_HEADROOM_AUDIT_12629S.md`.
 
+### Fourth creation wave reached, not a queue drain
+
+The unchanged publisher entered first-creation wave four between heartbeats
+14182.886 and 14197.456 s. Original-admission ancestry brackets establish
+wave-five admissions by 14198.461 s. During the first 185.032 s after the
+proven transition, native service averaged 453.82/s and net demand 1141.28/s:
+pending native work increased by **127,202**. Observed frontiers remained zero.
+
+These waves count original admission hops, not concrete reduction length;
+historical IDs include subsequently delegated work. Another wave neither
+proves an infinite traversal nor predicts its eventual depth. It does rule out
+assuming that entering wave four itself ends new admissions. There is still
+no exhaustion ETA. The separate one-core diagnostic below overlapped this
+interval, so it is not an isolated-host performance measurement. Continue the
+same full attempt. Independent evidence is
+`TMP/initial-overlap-gate.4Tj82V/INDEPENDENT_WAVE4_CROSSING_AUDIT_14383S.md`.
+
 ### Small input-only work-compression control
 
 A separate two-loop sunset control tests pre-admitting a finite staircase
@@ -70,6 +87,67 @@ regions. The live five-loop input and process remain unchanged. Local protocol, 
 review are under `TMP/two-loop-staircase-control.gAcMTD/`. Both tiny native
 controls used CPU49, one worker and a 4-GiB address-space bound; exclude their
 brief overlaps around 15:16:59 and 15:17:34 UTC from isolated performance claims.
+
+### Five-loop adjacent-band control: no demonstrated improvement
+
+The follow-up uses four existing owners, selected from the documented diagonal
+owner and its downward owner/routing dependencies: 2,766,659 bytes of unchanged
+bundles and 86 existing routes. Native zero classification remains authoritative;
+an absent route in this reduced selection is not assumed zero. No rules were
+generated and the full 67-owner attempt was not modified.
+
+Compare the original `A<=24,R<=15,D>=9` inputs with coalesced
+`A<=24,R<=16,D>=8` inputs. The latter are exactly the original domains plus
+their adjacent D=8 bands, since A<=24 and D>=9 already imply R<=15. Neither
+input bounds descendants. All eight local-applicability queries pass with
+9,256 rule pieces and two **existing** fixed terminals, no unresolved guards,
+gaps, invalid sources or truncation. Matching takes 1.637 s after 2.783 s
+preparation; this is not recursive traversal.
+
+The two subsequent recursive walks have identical native settings except
+query/output paths, including one worker on CPU49, initial-D reuse, H256,
+unlimited containment, 6/8-GB soft/hard memory thresholds, 200,000-domain and
+ten-million-event diagnostic allowances, and no elapsed deadline. Both stop
+at the domain allowance, not a missing-rule frontier:
+
+| Censored diagnostic | Original D>=9 | Coalesced D>=8 |
+|---|---:|---:|
+| Complete native inspections | 74,855 | 72,689 |
+| Native Apply records, including partial work | 22,803 | 22,849 |
+| Native Route records | 52,053 | 49,841 |
+| Pending native obligations | 50,123 | 51,401 |
+| General containment checks | 3,035,566,804 | 2,925,253,308 |
+| Native elapsed seconds | 300.393 | 291.084 |
+| Sampled peak process-tree RSS, GB | 1.613 | 1.594 |
+| Frontiers | 0 | 0 |
+
+Each has one interrupted native record caused by its allowance. Both fail
+worklist exhaustion and dependency discharge; neither is a completed solve.
+The elapsed values cover different incomplete workloads and do not establish
+a speedup. Maximum scheduled rank bounds are 16 and 17, not proofs that
+concrete integrals of those ranks were reached. The native processes share
+CPU49 with the main run; their supervisor placement differs slightly.
+
+The enlarged input does not demonstrate useful work compression: new native
+Apply records increase from 22,799 to 22,845. Of the baseline's post-input
+Apply records, 9,942 fit the proposed anchors, but 12,521 advertise lower D
+bounds and 336 advertise A25. A saved domain admits an A25 point, so the
+latter cannot all be dismissed as redundant labels; its concrete reachability
+has not been established. Moving only the first D boundary leaves further
+work and adds extra starting cases.
+
+**Decision:** do not replace the full input on this evidence. Keep the main
+attempt running. A separate bounded index-filter implementation is being
+prepared for a future binary, retaining native containment authority and
+exact admission decisions. It needs independent review, release gates and
+measurements including reused requests; the earlier new-admission-only
+prototype is not evidence of a campaign speedup.
+
+Independent input, outcome and domain-pattern reviews pass. Full receipts
+and the paired report are under `TMP/five-loop-staircase-control.lOhlBm/`;
+the baseline is `shared-owner-campaign.jd8xf34i/`, the coalesced attempt is
+`walk-coalesced/shared-owner-campaign.no1stu6x/`. Both are terminal, incomplete
+diagnostics; no auxiliary solver remains from this comparison.
 
 ### Earlier 96-minute observation
 

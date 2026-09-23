@@ -8,7 +8,7 @@ with 6,473,505 native obligations pending and zero observed frontiers.
 Nearby sampled aggregate RSS was 79.71 GB (82.59 GB half-hour peak). The entry
 policy is
 `A<=24, R<=15, A-R>=9`, under the physical assumptions below; descendants are
-not clipped and have reached rank 19. No missing-rule frontier has been found
+not clipped and their maximum scheduled rank bound is 19. No missing-rule frontier has been found
 in completed inspections; this does not establish coverage of unfinished work.
 
 Parallel admission and safe initial-overlap reuse are running, but actual
@@ -25,7 +25,12 @@ The existing event allowance is a nearer conditional constraint than memory;
 its time-to-limit projection must not be confused with completion. A tiny
 two-loop input-only staircase control now suppresses new Apply work while
 preserving full descendant processing. It is not a five-loop speedup and has
-not changed or replaced this full attempt.
+not changed or replaced this full attempt. Its five-loop adjacent-band follow-up
+has now stopped at the same diagnostic domain allowance for both inputs and
+does not demonstrate useful compression. The main run has entered a fourth
+creation wave and already admitted a fifth; this is not a queue drain or an
+estimate of eventual depth. The utilization report records these negative
+findings as well as the continuing full run.
 
 Completion requires exhausted regional work without errors or frontiers and
 resolved alias/anchor dependencies, then the narrow concrete-runtime compatibility
