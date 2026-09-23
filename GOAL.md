@@ -1,5 +1,16 @@
 # RustRed project goal
 
+**Next structural parallelization step — September 23:** test semi-independent
+owner/phase admission and publication, sharing one immutable reducer and a
+bounded compute pool. The current global publication cursor is a scheduling
+choice, not an IBP dependency. Cross-owner successor delivery, initial anchors,
+delegation and global termination must remain exact; no descendant is clipped.
+Start with deterministic bounded owner batches and measured routed controls,
+then assess asynchronous queues and hot-owner imbalance. Preserve mathematical
+artifact/reduction determinism without assuming global diagnostic task order
+is necessary. See [the scoped scheduling plan](docs/finite_starting_domains.md#next-scheduling-priority--semi-independent-sector-progress).
+This restructuring is not yet implemented and has not changed the live run.
+
 **Admission-index follow-up — September 23:** a conservative coordinate-block
 filter now avoids unnecessary native containment calls without changing the
 inclusion authority, earliest representative, retirement responsibilities or

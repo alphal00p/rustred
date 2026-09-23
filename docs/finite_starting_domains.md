@@ -1,5 +1,42 @@
 # Finite starting domains and fixed-target repair
 
+## Next scheduling priority — semi-independent sector progress
+
+The global publication cursor is not a mathematical requirement. Current
+containment and responsibility transfer already require an identical
+`(phase, owner)` key within one immutable program snapshot. Independent keys
+can therefore own separate admission indices and publication state, while
+sharing the loaded reducer, exact rules and routing maps. A slow publisher in
+one key must not fence unrelated keys merely because it has an earlier global
+diagnostic ID.
+
+The next structural scheduling experiment should partition **admission and
+publication**, not only native inspection. These are logical queues scheduled
+on one bounded worker pool, not a thread or a complete Symbolica/program copy
+per sector. Cross-owner Apply/Route successors go to the destination queue,
+where existing native containment provides shared-subtopology reuse. Retain
+initial anchors, local acyclic delegation and honest pending/frontier/failure
+states. A locally empty queue is not permanently finished: incoming messages
+can reopen it. Global completion requires no queued or running work, no
+in-flight successor delivery, no unresolved responsibilities and zero
+errors/frontiers.
+
+First compare a bounded deterministic owner-batch prototype with the current
+runner on routed lower-loop controls and a saved five-loop subset. Preserve
+all descendants, including those above entry bounds, and use the existing
+native visitor without generating rules. Study asynchronous inboxes only
+with explicit backpressure/termination and determinism semantics. Canonical
+IBP artifacts and exact reductions must remain deterministic; global
+diagnostic ID order is not itself mathematical authority. Historical trace
+equality or capped-run prefix equality must not be claimed for a changed
+scheduling policy without testing it.
+
+Measure useful work per active owner, admission time, queued/in-flight work,
+memory and actual CPU use. Sector traffic can be highly skewed, so sharding
+alone does not promise fifty busy cores; retain within-owner domain parallelism
+and shared work scheduling. This is the next experiment, not an implemented
+feature or reason to replace the ongoing full run before a successful gate.
+
 ## Active full-run checkpoint — September 23
 
 The separate coordinate-block admission filter now passes independent review
