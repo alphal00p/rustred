@@ -42,6 +42,7 @@ fn aggregate<const N: usize>(walk: &Walk<N>) -> Value {
         "frontiers":walk.budget.frontiers,
         "max_scheduled_finite_rank":walk.buckets.values().filter_map(|b|b.state.queue.max_finite_rank).max(),
         "owner_bucket_count":walk.buckets.len(),
+        "outstanding_native_jobs":walk.buckets.values().map(|b|b.outstanding_native_jobs).sum::<usize>(),
     });
     if walk
         .buckets
@@ -72,13 +73,16 @@ fn metrics<const N: usize>(walk: &Walk<N>) -> Value {
         "parallel_admission_batches":walk.metrics.parallel_admission_batches,
         "serial_budget_batches":walk.metrics.serial_budget_batches,
         "idle_stream_wait_seconds":walk.metrics.idle_stream_wait_seconds,
-        "wait_seconds_scope":"coordinator waiting with no active ticket ready; not summed worker idle time",
+        "wait_seconds_scope":"coordinator waiting with no eligible owner-head ticket ready; not summed worker idle time",
         "delivery_wall_seconds":walk.metrics.delivery_seconds,
         "peak_coordinator_logical_bytes":walk.metrics.peak_coordinator_logical_bytes,
         "delivered_cross_owner_requests":walk.metrics.delivered_cross_owner_requests,
         "native_tickets":walk.metrics.native_tickets,
+        "multiple_native_inspectors_per_bucket":true,
         "one_active_native_publisher_per_bucket":true,
-        "coordination_policy":"ready producers only; at most one bounded chunk per active producer per pass; synchronous destination admission",
+        "peak_fifo_held_jobs":walk.metrics.peak_fifo_held_jobs,
+        "held_job_scope":"native jobs selected after their owner publication head; buffers remain inside inspector pool slots",
+        "coordination_policy":"ready owner FIFO heads only; at most one bounded chunk per head per pass; multiple inspectors per owner; synchronous destination admission",
         "max_coordinator_chunks_per_pass":"inspection_worker_limit",
         "logical_byte_scope":"coordinator frames only; native pool buffers, allocator overhead, queue/index, rules and native scratch are separate"})
 }
@@ -125,6 +129,10 @@ pub(super) fn finish<const N: usize>(
         owner_reports.push(json!({"bucket":name,"phase":format!("{:?}",key.0),"owner":mask(&key.1),
             "scheduled_nodes":bucket.state.queue.domains.len(),"processed_nodes":bucket.state.queue.next,
             "native_processed_nodes":bucket.state.native_records,"completed_nodes":bucket.state.completed,
+            "dispatch_cursor":bucket.dispatch_cursor,"outstanding_native_jobs":bucket.outstanding_native_jobs,
+            "dispatch_cursor_scope":"selected or skipped IDs, not successful publications",
+            "peak_outstanding_native_jobs":bucket.peak_outstanding_native_jobs,
+            "outstanding_job_scope":"dispatched native jobs not yet published, including retained uncommitted attempts",
             "queued_nodes":bucket.state.queue.domains.len()-bucket.state.queue.next,
             "incoming_requests":bucket.incoming_requests,"cross_owner_requests":bucket.cross_owner_requests,
             "admission_wall_seconds":bucket.admission_seconds,"native_visitor_wall_seconds":bucket.native_seconds,

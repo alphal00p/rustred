@@ -2,8 +2,10 @@
 //!
 //! Each phase/owner keeps the existing admission index and responsibility
 //! ledger. Ready native streams feed bounded batches without waiting for quiet
-//! peers; destination admission remains synchronously batched and exclusive per
-//! key. Diagnostic order/cover shapes can vary even at a fixed worker budget.
+//! peers. Multiple native inspectors may share a key, but only its FIFO head
+//! publishes; later streams remain in the existing bounded worker buffers.
+//! Destination admission remains synchronously batched and exclusive per key.
+//! Diagnostic order/cover shapes can vary even at a fixed worker budget.
 use super::super::queue::{Domain, Phase};
 use super::*;
 use std::collections::BTreeMap;
@@ -45,6 +47,11 @@ pub(in super::super) struct OwnerBatchReport {
 
 struct Bucket<const N: usize> {
     state: State<N>,
+    /// Selection is separate from publication. IDs below this cursor were
+    /// selected for native dispatch or skipped as aliases, never discharged.
+    dispatch_cursor: usize,
+    outstanding_native_jobs: usize,
+    peak_outstanding_native_jobs: usize,
     admission_seconds: f64,
     native_seconds: f64,
     incoming_requests: usize,
@@ -67,6 +74,9 @@ impl<const N: usize> Bucket<N> {
         }
         Ok(Self {
             state: State::new(queue, 0, None),
+            dispatch_cursor: 0,
+            outstanding_native_jobs: 0,
+            peak_outstanding_native_jobs: 0,
             admission_seconds: 0.0,
             native_seconds: 0.0,
             incoming_requests: 0,
@@ -106,6 +116,7 @@ struct Metrics {
     peak_coordinator_logical_bytes: usize,
     delivered_cross_owner_requests: usize,
     native_tickets: usize,
+    peak_fifo_held_jobs: usize,
 }
 
 struct Walk<const N: usize> {

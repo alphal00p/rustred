@@ -1,5 +1,9 @@
-//! Bounded ready-stream batches; a quiet owner cannot hold up ready peers.
+//! Bounded owner-local FIFO publication with independently reserved inspectors.
 use super::*;
+use selection::choose;
+
+mod leftovers;
+mod selection;
 
 #[cfg(test)]
 mod tests;
@@ -10,58 +14,6 @@ struct Job<const N: usize> {
     ticket: usize,
     domain: Arc<Domain<N>>,
     finished: bool,
-}
-
-fn choose<const N: usize>(
-    walk: &mut Walk<N>,
-    width: usize,
-    excluded: &std::collections::BTreeSet<Key<N>>,
-    cancellation: &AtomicBool,
-) -> Result<Vec<Job<N>>, String> {
-    if width == 0 {
-        return Ok(Vec::new());
-    }
-    let mut keys = walk.buckets.keys().copied().collect::<Vec<_>>();
-    if let Some(previous) = walk.last_key {
-        let split = keys.partition_point(|key| *key <= previous);
-        keys.rotate_left(split);
-    }
-    let mut jobs = Vec::new();
-    jobs.try_reserve_exact(width.min(keys.len()))
-        .map_err(|_| "owner round allocation")?;
-    for key in keys {
-        if cancellation.load(Ordering::Acquire) {
-            return Err("cancelled".into());
-        }
-        if excluded.contains(&key) {
-            continue;
-        }
-        let state = &mut walk.buckets.get_mut(&key).expect("known bucket").state;
-        while state.queue.next < state.queue.domains.len() && state.current_is_delegated() {
-            if cancellation.load(Ordering::Acquire) {
-                return Err("cancelled".into());
-            }
-            state.commit_delegated()?;
-        }
-        let id = state.queue.next;
-        if id == state.queue.domains.len() {
-            continue;
-        }
-        let ticket = walk.metrics.native_tickets;
-        walk.metrics.native_tickets = ticket.checked_add(1).ok_or("native ticket overflow")?;
-        jobs.push(Job {
-            key,
-            local_id: id,
-            ticket,
-            domain: state.queue.domains[id].clone(),
-            finished: false,
-        });
-        walk.last_key = Some(key);
-        if jobs.len() == width {
-            break;
-        }
-    }
-    Ok(jobs)
 }
 
 fn started<const N: usize>(
@@ -109,10 +61,9 @@ fn inline<const N: usize>(
     overlaps: &BTreeMap<Key<N>, InitialOverlapIndex<N>>,
 ) -> Value {
     let empty = InitialOverlapIndex::empty();
-    let excluded = std::collections::BTreeSet::new();
     let mut heartbeat = Instant::now();
     while walk.error.is_none() {
-        let jobs = match choose(walk, 1, &excluded, cancellation) {
+        let jobs = match choose(walk, 1, &[], cancellation) {
             Ok(jobs) => jobs,
             Err(error) => {
                 walk.error = Some(error);
@@ -132,6 +83,10 @@ fn inline<const N: usize>(
             walk.error = Some(error);
             break;
         }
+        walk.buckets
+            .get_mut(&job.key)
+            .expect("inline bucket")
+            .peak_outstanding_native_jobs = 1;
         let Some(rounds) = walk.metrics.rounds.checked_add(1) else {
             walk.error = Some("round counter overflow".into());
             break;
@@ -278,8 +233,7 @@ fn run_parallel<const N: usize>(
     let (_, mut snapshot, leftovers) = parallel::with_pool(inspectors, inspect, |pool| {
         let mut jobs: Vec<Job<N>> = Vec::new();
         'rounds: while walk.error.is_none() {
-            let excluded = jobs.iter().map(|job| job.key).collect();
-            let incoming = match choose(walk, inspectors - jobs.len(), &excluded, cancellation) {
+            let incoming = match choose(walk, inspectors - jobs.len(), &jobs, cancellation) {
                 Ok(jobs) => jobs,
                 Err(error) => {
                     walk.error = Some(error);
@@ -314,18 +268,30 @@ fn run_parallel<const N: usize>(
                     walk.error = Some("owner-batch dispatch refused".into());
                     break 'rounds;
                 }
+                let bucket = walk.buckets.get_mut(&job.key).expect("dispatched bucket");
+                bucket.outstanding_native_jobs += 1;
+                bucket.peak_outstanding_native_jobs = bucket
+                    .peak_outstanding_native_jobs
+                    .max(bucket.outstanding_native_jobs);
                 jobs.push(job);
             }
             if jobs.is_empty() {
                 break;
             }
+            let held = jobs
+                .iter()
+                .filter(|job| walk.buckets[&job.key].state.queue.next != job.local_id)
+                .count();
+            walk.metrics.peak_fifo_held_jobs = walk.metrics.peak_fifo_held_jobs.max(held);
             let mut chunks = Vec::new();
             let mut finished = Vec::new();
-            // One nonblocking poll per producer, at most one bounded
-            // chunk each. Never wait on a quiet stream while another can
-            // publish. Rotation keeps tie-breaking fair as slots refill.
+            // Poll only the FIFO head of each owner. Its State owns the source
+            // details/refusals; later jobs retain chunks/Finished in bounded
+            // pool slots and cannot contaminate that publisher's provenance.
             jobs.rotate_left(1);
-            for job in jobs.iter().filter(|job| !job.finished) {
+            for job in jobs.iter().filter(|job| {
+                !job.finished && walk.buckets[&job.key].state.queue.next == job.local_id
+            }) {
                 if cancellation.load(Ordering::Acquire) {
                     walk.error = Some("cancelled".into());
                     break;
@@ -347,7 +313,17 @@ fn run_parallel<const N: usize>(
                 // sleeping: a chunk arriving after the scan must not lose
                 // its notification. Cancellation is observed after at
                 // most the bounded wait even without a producer signal.
-                let tickets = jobs.iter().map(|job| job.ticket).collect::<Vec<_>>();
+                // Later jobs may already have buffered data. Including their
+                // tickets here would spin while the only eligible head is quiet.
+                let tickets = jobs
+                    .iter()
+                    .filter(|job| walk.buckets[&job.key].state.queue.next == job.local_id)
+                    .map(|job| job.ticket)
+                    .collect::<Vec<_>>();
+                if tickets.is_empty() {
+                    walk.error = Some("owner publication has no eligible FIFO head".into());
+                    break 'rounds;
+                }
                 let start = Instant::now();
                 pool.wait_for_any_stream(&tickets);
                 walk.metrics.idle_stream_wait_seconds += start.elapsed().as_secs_f64();
@@ -375,6 +351,10 @@ fn run_parallel<const N: usize>(
             for (ticket, key, id, value) in finished {
                 publish(walk, key, id, value);
                 pending.remove(&ticket);
+                walk.buckets
+                    .get_mut(&key)
+                    .expect("published bucket")
+                    .outstanding_native_jobs -= 1;
                 jobs.iter_mut()
                     .find(|job| job.ticket == ticket)
                     .expect("active ticket")
@@ -408,26 +388,7 @@ fn run_parallel<const N: usize>(
             walk.error = Some(detail.to_owned());
         }
     }
-    for (ticket, finished) in leftovers {
-        if let Some((key, id)) = pending.remove(&ticket) {
-            publish(walk, key, id, finished);
-        }
-    }
-    for (ticket, (key, id)) in pending {
-        walk.error
-            .get_or_insert_with(|| "native completion unavailable".into());
-        let bucket = walk.buckets.get_mut(&key).expect("pending source");
-        bucket
-            .state
-            .error
-            .get_or_insert_with(|| walk.error.clone().expect("outer failure"));
-        bucket
-            .state
-            .uncommitted
-            .push(json!({"id":id,"native_ticket":ticket,"stats":null,
-            "committed":false,"partial_native_statistics_unavailable":true,
-            "frontiers":std::mem::take(&mut bucket.state.details),"error":walk.error}));
-    }
+    leftovers::retain(walk, pending, leftovers);
     snapshot["inspection_worker_limit"] = json!(inspectors);
     snapshot["admission_worker_limit"] = json!(helpers);
     snapshot["coordinator_worker_limit"] = json!(1);

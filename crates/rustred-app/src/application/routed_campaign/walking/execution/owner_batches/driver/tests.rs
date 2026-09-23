@@ -4,6 +4,8 @@ use crate::application::routed_campaign::walking::inspection::NativeStats;
 use std::num::NonZeroUsize;
 use std::sync::{Condvar, Mutex};
 
+mod concurrent;
+
 const SLOW: [bool; 2] = [false, true];
 const FAST: [bool; 2] = [true, false];
 
@@ -86,7 +88,21 @@ impl Gates {
 #[test]
 fn owner_ready_peer_delivers_all_chunks_publishes_and_refills_before_slow_first_chunk() {
     for workers in [3, 6] {
-        let (request, mut walk) = setup(workers);
+        let (mut request, _) = setup(workers);
+        // H1 deliberately retains this test's refill-after-publication contract.
+        // Larger horizons separately test same-owner speculative inspection.
+        request.scheduling_policy =
+            super::super::super::super::OwnerDomainWalkSchedulingPolicy::TransferUnreserved {
+                lookahead: NonZeroUsize::new(1).unwrap(),
+            };
+        let (mut walk, _) = initialize(
+            &[Arc::new(point(SLOW, 0)), Arc::new(point(FAST, 0))],
+            0,
+            0,
+            &request,
+            &AtomicBool::new(false),
+        )
+        .unwrap();
         let gates = Gates::default();
         let published_before_refill = AtomicBool::new(false);
         let snapshot = run_parallel(

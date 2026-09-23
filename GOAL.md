@@ -1,5 +1,33 @@
 # RustRed project goal
 
+**Measured checkpoint — within-owner inspection parallelism:** after the pushed
+ready-stream checkpoint (`fbeb4e2f`, `22ea812b`), allow multiple immutable native
+inspections per sector with a separate dispatch cursor and one FIFO publisher.
+Later streams remain in bounded pool slots; preserve diagnostic ownership,
+initial anchors, failure responsibilities and global budgets. Ordered stays the
+default. Implementation and independent source review pass; the clean-owned
+gate passes 176 tests (one existing ignored), including ten new concurrency
+regressions. All 511 release library tests also pass (one existing ignored),
+and the optimized CLI build completes. Sixteen saved-input controls complete;
+three alternating A10 six-worker pairs give median traversal 3.677 s versus
+2.334 s Ordered despite actual three-job concurrency in a hot owner. Keep
+Ordered as default. H4 reduces repeated work but does not beat Ordered H256.
+The fifty-worker A10 pair completes in 2.951 s concurrent owner versus 1.404 s
+Ordered; actual hot-owner inspection width reaches 25, while heartbeat-labelled
+samples average 10.27 versus 15.24 busy cores. This tiny control is not a full-run
+speedup or ETA. Reduce repeated work and investigate pool allocation/publication
+waiting before another broad run. The original run
+has stopped cooperatively: 8,274,060 completed native inspections, one cancelled
+partial, 10,413,595 pending native obligations and zero observed frontiers.
+Its retained partial report is not closure or a resumable work checkpoint.
+
+## Historical progress snapshots
+
+The dated snapshots below retain the evidence and decisions at each checkpoint.
+References to a live or ongoing run describe that earlier checkpoint, not the
+current process state. The latest status above supersedes them; the objective
+and domain contract in `docs/finite_starting_domains.md` remain authoritative.
+
 **Ready-stream follow-up — September 23:** the owner-local milestone `ea5c558e`
 is pushed, but the larger A10/R1/D9 control confirms its remaining chunk barrier
 is expensive: 6.982 s versus 2.373 s ordered at six workers, both complete for

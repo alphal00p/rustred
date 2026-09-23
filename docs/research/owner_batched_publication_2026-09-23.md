@@ -327,7 +327,7 @@ representatives, descendant scope and final ledger discharge remain unchanged.
 Evidence: `TMP/owner-batched-comparison.DDcUMp/lookahead-study/` and
 `HORIZON_SCOPE_AUDIT_finite.md` alongside it. No IBPs were regenerated.
 
-## Full five-loop attempt remains distinct
+## Full five-loop attempt: subsequently stopped for optimization
 
 At heartbeat 31,592.362 seconds, the unchanged full campaign had inspected
 8,130,247 native regions, with 10,239,937 native obligations pending and zero
@@ -335,7 +335,11 @@ observed frontiers. This executable contains neither the new publication
 policy nor the recently committed coordinate-block admission filter.
 
 The growing queue does not establish a completion ETA, and zero observed
-frontiers does not establish closure. The prototype must pass native tests
-and demonstrate useful progress before replacing this campaign. Full finite
+frontiers does not establish closure. The original attempt subsequently stopped
+cooperatively, with exit4 and an explicit incomplete result: 8,274,060 completed
+native inspections, one cancelled partial, 10,413,595 pending native obligations
+and zero observed frontiers. Supervisor time including final reporting is
+32,948.858 s; peak sampled aggregate RSS is about 235 GB. It was not hard-killed.
+The replacement must pass native tests and demonstrate useful progress. Full finite
 completion still requires exhausted work, no pending deliveries, discharged
 responsibilities, no errors/frontiers and the planned narrow runtime handoff.

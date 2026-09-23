@@ -1,5 +1,78 @@
 # Finite starting domains and fixed-target repair
 
+## Concurrent inspections within one sector — gated, negative scaling checkpoint
+
+The ready-stream milestone is pushed as `fbeb4e2f` (documentation follow-up
+`22ea812b`). Its completed controls show that independent sector publication
+alone is insufficient: two shared Apply owners dominate, and smaller reservation
+windows reduce redundant work without filling the inspector pool.
+
+The new implementation lets several inspectors read the same immutable owner
+program while retaining **one FIFO publisher per owner**. Separate dispatch and
+publication cursors; reserve each dispatched ID through the existing ledger.
+Drain only the current publisher's stream. Later chunks and completed results
+stay in the existing bounded pool slots, so frontier/refusal diagnostics cannot
+mix between jobs and no new unbounded completion store is needed. Prefer work
+across ready keys before filling spare slots from a busy key. Neither entry nor
+descendant geometry changes, and default Ordered execution stays unchanged.
+
+Cancellation/failure must keep every non-head result explicitly uncommitted;
+never advance a ledger with an out-of-order `Finished`. Required regressions
+include reverse completion within one owner, held chunks, alias dispatch fences,
+initial anchors and failed/cancelled predecessor obligations. Independent source
+review passes. The optimized clean-owned gate passes 176 tests (one existing
+ignored), including ten new coordinator regressions. Its first run exposed an
+empty-region test fixture; correcting that fixture kept the fairness assertion
+unchanged and required no production fix. All 511 release library tests pass
+(one existing ignored), including 38 focused owner-scheduler tests. The release
+CLI build also completes. Sixteen unchanged saved-input controls complete without
+frontiers or unresolved responsibilities. Three alternating six-worker A10 pairs
+give medians 3.676820 s concurrent owner versus 2.334292 s Ordered; peak same-owner
+inspection width reaches three, but this is still slower. A completed H4 pair
+reduces redundant work without beating Ordered H256. The same A10 input at fifty
+workers takes 2.950783 s concurrent owner versus 1.403919 s Ordered. Actual
+same-owner dispatch width reaches 25, but sampled busy cores average only 10.27
+versus 15.24 Ordered. These heartbeat-labelled windows and tiny controls do not
+establish full-family scaling or a completion ETA. Keep Ordered default and do
+not restart the broad campaign merely because sector concurrency works. Next
+profile repeated-work cost, pool allocation and completed-slot retention in
+parallel with monitored saved-input pilots. The current fifty-worker baseline
+includes pre-existing Ordered escrow work; the owner-local lane does not use
+that reclamation path, and both report zero producer-buffer backpressure.
+Implement/audit bounded slot reuse separately from matched pilot measurements,
+without changing a running executable or accepting CPU occupancy as speedup. See the
+[implementation and measured controls](research/owner_concurrent_inspection_2026-09-23.md).
+This is still a step toward the complete 67-owner envelope,
+not a substitute for exhausting it.
+
+### Older full attempt: cooperative stop completed
+
+The original all-67-owner run stopped through its existing stop
+file, not an elapsed deadline. At the 32,202.860-second heartbeat it had 8,267,886
+native publications, 10,409,734 pending native obligations and zero observed
+frontiers. Its preceding 899.13-second window processed 299.23 native regions/s
+while pending work grew by 344.42/s. Even a zero-new-work, constant-throughput
+extrapolation would need another 9.66 hours; this is a planning illustration,
+not a rigorous lower bound or completion ETA. It no longer supports the desired
+15-hour completion attempt without optimization. The 2-billion-event allowance
+is separate from mathematical completeness.
+
+Native and supervisor handles are terminal, with exit4 and
+`existing_operator_stop_file`, not a hard resource kill. The final journal records
+8,274,060 completed native inspections, one cancelled partial, 10,413,595 pending
+native obligations, zero observed frontiers and 1,447,411,449 committed events.
+Supervisor time including draining/reporting is 32,948.858 s (9 h 09 min), with
+sampled aggregate peak RSS 234,755,051,520 bytes. The final partial JSON report is
+20,506,320,000 bytes. Bounded prefix/suffix and terminal-journal inspection were
+checked independently; this is not a full parse of that large document.
+The result is incomplete and not a resumable work checkpoint. Preserve it and
+all original rules/routes. No replacement is launched yet.
+
+The following scheduling/checkpoint sections are historical snapshots, retained
+to explain the measurements and decisions. Their references to an ongoing run
+describe the situation then; the terminal status above supersedes those references.
+The Objective, Domain contract and Implementation sequence below remain active.
+
 ## Current follow-up — ready sector streams
 
 The published owner-local prototype (`ea5c558e`) passes its implementation gates
