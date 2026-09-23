@@ -8,9 +8,11 @@ region. It keeps all descendant bounds and reports partial work explicitly.
 The complete release application/CLI gate passes **536 tests** (one existing
 diagnostic ignored); the separate clean-owned scheduler gate passes **135**
 (one ignored), without the unrelated escrow work. All **74 Python/API/steering
-tests** also pass. Commit/push the implementation and launch the same
-all-67-owner A24/R15/D9 campaign with 50 physical-core affinity,
-H256, no elapsed deadline and a 500-GB memory ceiling. The local 9–24x reductions
+tests** also pass. The implementation is pushed as `02f03d63`; the same
+all-67-owner A24/R15/D9 campaign has been launched with 50 physical-core
+affinity, H256, no elapsed deadline and a 500-GB memory ceiling. Its receipt is
+`TMP/initial-overlap-gate.4Tj82V/shared-owner-campaign.alc7oe24/`.
+The local 9–24x reductions
 below are not full-campaign speedups. Step (a) remains unfinished, and there is
 no defensible under-ten-hour estimate until the renewed queue actually drains.
 

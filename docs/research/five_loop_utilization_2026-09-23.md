@@ -718,7 +718,7 @@ work; its measurements must not be described as an isolated-commit benchmark.
 The additional clean-owned gate verifies that this implementation does not
 depend on that work. The two starting-input hashes above are unchanged.
 
-The next all-67-owner run retains the same A24/R15/D9 input, saved rules,
+The renewed all-67-owner run retains the same A24/R15/D9 input, saved rules,
 per-query budgets, 50 physical-core affinity and lookahead 256. Lifetime
 allowances rise to 100 million historical domains and two billion committed
 events; these are incrementally used resource ceilings, not mathematical
@@ -729,3 +729,21 @@ node counts or IDs must not be used as matched-work speedup denominators.
 Actual CPU use, remaining native obligations, queue growth, frontier count and
 memory must be measured before forecasting completion. No full campaign with
 this policy has yet completed.
+
+### Renewed run launched
+
+Implementation milestone `02f03d63` is pushed to `main`. The full run is now
+live, with receipts at
+`TMP/initial-overlap-gate.4Tj82V/shared-owner-campaign.alc7oe24/`.
+The launch record confirms 50 workers on CPUs 0–49, the above input and
+executable hashes, lookahead 256, enabled initial-band reuse, 300/500-GB
+cooperative/hard RSS limits, a 480-GB child address-space ceiling and
+`hard_timeout=null`. The 15-hour objective is telemetry, not a supervisor
+deadline. No owned build or separate solver experiment overlaps this run.
+
+At the initial 68.077-s heartbeat it was still verifying saved routing maps,
+with 4,832 of 8,246 preparation items processed. Setup was using approximately
+one core and 5.19 GB aggregate RSS; sampled peak was 5.72 GB. These are startup
+observations, **not** post-preparation parallel utilization or a completion
+forecast. Subsequent monitoring must distinguish native residual inspections,
+delegated obligations and worklist growth; no closure is claimed at launch.
