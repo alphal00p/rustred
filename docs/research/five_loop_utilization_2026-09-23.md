@@ -739,7 +739,8 @@ The launch record confirms 50 workers on CPUs 0–49, the above input and
 executable hashes, lookahead 256, enabled initial-band reuse, 300/500-GB
 cooperative/hard RSS limits, a 480-GB child address-space ceiling and
 `hard_timeout=null`. The 15-hour objective is telemetry, not a supervisor
-deadline. No owned build or separate solver experiment overlaps this run.
+deadline. At launch, no owned build or separate solver experiment was running
+concurrently. The later handoff-diagnostic build overlap is recorded separately.
 
 At the initial 68.077-s heartbeat it was still verifying saved routing maps,
 with 4,832 of 8,246 preparation items processed. Setup was using approximately
@@ -811,7 +812,79 @@ Such a pass must stream the report and use bounded dispatch with one shared
 owner load: the previous result is 2.796 GB logically despite its much smaller
 filesystem-compressed size. It must require a complete final receipt and
 unresolved-free ledger, preserve partial-residual scope, and fail closed on
-missing/mismatched records or any unsupported edge. This is a proposed narrow
-consumer-compatibility check, not implemented or passed yet, and not universal
-certification, a master-minimality test or coefficient back-substitution.
-It does not require interrupting the active run or regenerating saved rules.
+missing/mismatched records or any unsupported edge. This is a narrow
+consumer-compatibility check, not universal certification, a master-minimality
+test or coefficient back-substitution. It does not require interrupting the
+active run or regenerating saved rules.
+
+A local standalone diagnostic now implements that protocol without production
+code, schema or API changes. Independent source and focused-gate audits pass.
+All **nine focused tests** pass, including streamed receipt validation, exact
+partial-scope/anchor reconstruction, alias/Route count reconciliation, malformed
+and incomplete inputs, and actual native K1 full/residual replay. The K1 control
+agrees for pools configured with 1, 6 and 50 workers, all pinned to CPU49; that
+is configuration parity, not a 50-core scaling measurement. Algebraic
+`cancelled_groups` are correctly distinguished from execution cancellation.
+No full-five-loop or live-incomplete-report replay has been attempted.
+
+The diagnostic and its receipts remain under
+`TMP/finite-support-replay.AjEBHn/`. Its optimized standalone build links the
+existing gated native libraries; it did not rebuild or replace the campaign
+solver. The two-binary build took 434.62 s and peaked at 1.52 GiB RSS. Tests
+took 0.02 s in the harness, 0.03 s whole-command wall time. This controlled
+validation used CPU49 and a 16-GiB address-space allowance. Exclude the conservative
+overlap window, 12:21:23–12:28:59 UTC (roughly campaign seconds 2285–2740), from clean
+utilization comparisons. The campaign stayed live and unchanged throughout.
+The diagnostic is ready for an eventual genuinely completed receipt; its small
+controls establish neither five-loop compatibility nor closure.
+
+The accompanying read-only packaging inventory finds no need for a new format:
+retain native owner bundles and routing witnesses, relocate only the required
+owner paths relative to `--owner-base`, and preserve the exact existing
+`--entry-domains` union. Existing per-bundle `CandidateReducer::terminals()` can
+export the declared finite terminal union without search or minimization. A
+fresh-load concrete canary follows completion; neither packaging nor that
+canary substitutes for exhausting the original regions. The inventory is
+`TMP/finite-closing-handoff-audit.9S1OaK/DELIVERABLE_INVENTORY.md`.
+
+### Later live measurements: admission throughput, not a new rule gap
+
+Two additional independent 120-second thread samples keep the same campaign,
+binary and inputs. Both observers exited normally without stopping the solver.
+The later observer finished by 12:19:03 UTC, before the separately authorized
+standalone handoff-diagnostic build. These are different traversal intervals,
+not matched-work scaling comparisons.
+
+| Native heartbeat interval | Mean busy cores | Native publications/s | Pending native change/s | Ending RSS |
+|---|---:|---:|---:|---:|
+| 1170.454–1290.183 s | 4.26 | 254 | +466 | 26.36 GB |
+| 2012.450–2133.150 s | 5.33 | 770 | +1,446 | 32.94 GB |
+
+At the latter boundary, 1,643,766 native regions had been published, including
+95,637 partial initial-overlap inspections; 2,523,090 native obligations
+remained pending. There were zero observed frontiers and maximum descendant
+rank was 18. The original A24/R15/D9 entry domain never clips those descendants.
+Historical admissions, transfers and publications still satisfy the ledger
+identities; neither aliases nor partial reuse are additional native inspections.
+
+In the later window, admission helpers used 3.91 cores, inspectors 0.91 and the
+coordinator 0.50. The 121 heartbeat samples had no repeated current publisher
+ID, so this particular interval does not exhibit the older run's prolonged
+same-publisher Apply stalls. Finished-unpublished jobs nevertheless reached
+255. This supports a remaining admission/publication throughput bottleneck,
+not the claim that every interval is dominated by one expensive symbolic job.
+Snapshots alone cannot distinguish logical-horizon holes from all other
+dispatch limits: the H256 window counts delegated IDs as well as native work.
+
+Continue the unchanged full attempt: it is making real progress, no algebraic
+frontier has appeared, and memory remains far below its configured envelope.
+All four 30-second subwindows in the later sample grew pending native work,
+so no completion percentage or under-ten-hour forecast is justified. There is
+no automatic thirty-minute cutoff. The native-counted lookahead alternative
+has a read-only design audit, but is neither implemented nor benchmarked; do
+not attribute an unmeasured scheduling improvement to this run.
+
+Detailed frozen receipts are
+`TMP/initial-overlap-gate.4Tj82V/INDEPENDENT_LATE_AUDIT_1290S.md` and
+`INDEPENDENT_LATE_AUDIT_2133S.md` beside it. These observations establish neither
+finite-domain exhaustion nor a new closing five-loop artifact.
