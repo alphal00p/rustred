@@ -89,6 +89,24 @@ This one pair supports another bounded wall-time improvement, not a replicated
 scaling conclusion or full-envelope estimate. Details remain in the
 [completed-slot measurement record](owner_completed_slot_reuse_2026-09-23.md).
 
+A subsequent independent optimization changes only native Symbolica constant
+substitution order. Matched Ordered controls improve median A11 traversal from
+11.647 to 5.938 s and A12 from 38.916 to 20.511 s, retaining exact native counters
+and structural results. Compare these within their own alternating blocks, not
+against the scheduler timings above. The post-change profile no longer has
+substitution as its largest hotspot; domain projection is about 10.39% of sampled
+user CPU, with roughly unchanged absolute sampled weight. This is a measured
+local improvement, not evidence that overlapping reachability has stopped growing.
+See [the two controlled comparisons and profiles](finite_closure_native_profile_2026-09-23.md).
+
+The critic also identified a narrowly evidenced follow-up: the applied-rule
+visitor normalizes each sign cell, then normalizes the identical cell again when
+there are no sign-crossing coordinates. Reusing that per-call normalized geometry
+could remove duplicate projection without a global cache or shared mutable proof
+state. Retain all boundary/cancellation/resource accounting and re-normalize
+actual crossing faces. This is not yet implemented or timed; projection's total
+10.39% sampled CPU share is not the expected saving of that narrower change.
+
 ## Competing redesigns
 
 | Proposal | Where substantial savings could come from | Main failure mode |
@@ -226,6 +244,66 @@ against the current matched walk. Large L, excessive guard refinements or checki
 cost comparable to the old traversal would disprove this candidate's usefulness.
 Even success would remain operational coverage relative to admitted formulas,
 not original-IBP provenance, minimal-master certification or full-family closure.
+
+#### First structural prerequisite experiment: completed, not a closed cover
+
+The new unbounded native scan completes on the four unchanged saved pilot owners
+and 86 routes. It visits all 1,221 rules and 24,871 original raw-nonzero RHS terms,
+emitting 106,321 conservative sign regions. All four owners finish with zero
+rank-prefilter exclusions. The requested rank is genuinely unbounded; the saved
+entry-rank metadata remains ten and is not reused as a clipping limit.
+
+| Structural observation | Result |
+|---|---:|
+| Maximum original RHS shift L1 | 6 |
+| Maximum strict-pinch shift L1 | 6 |
+| Same-support sign regions | 15,347 |
+| Maximum same-support Δ(A+R) | 0 |
+| Same-support regions with positive Δ(A+R) | 0 |
+| Potential strict-pinch regions | 23,338 |
+| Potential unsupported support-change regions | 67,636 |
+
+This establishes a small shift bound for these installed programs, but **not**
+the missing support-decrease premise. The inventory deliberately ignores
+first-rule priority, guard satisfiability and coefficient cancellations after
+restricting to a boundary. For example, its first diagnostic includes
+`(n_11,n_12)=(1,0) -> (0,1)` (zero-based indices): an apparent support swap.
+The coefficient could vanish on that face or the source guard could exclude it;
+the census does not decide either. These are potential sign regions, not 67,636
+distinct genuine failures, missing rules or reached integral keys.
+
+The independent raw audit reconciles every count: unsupported regions include
+4,799 with lower, 27,178 with equal and 35,659 with higher support cardinality.
+Only 1,382 of them target a registered exact-zero sector. These observations
+cannot be dismissed wholesale as pinches or known zero sectors; nor do they
+establish that the guards make any particular edge live.
+
+The next useful test is to check such faces through the existing native guarded
+application/specialization path, with original denominator conditions and rule
+priority intact. Start with `owner-domain-match` without successor following
+on a few exact nominated source boxes with rank=null; this checks dispatch, not
+RHS behavior. Then `CandidateOwnerPrograms::visit_owner_applied_successors`
+provides the existing one-step ordered guarded application. Preserve every
+unknown, conditional result and problem; a raw single-rule inspection alone
+does not establish first-applicable priority. Do not discard faces based on
+samples or a guess that the coefficient is zero. If live support changes fail
+strict cardinality decrease, the support-layer argument needs refinement or
+rejection. Any live activation also conflicts with the stronger current concrete
+replay condition, even when other pinches decrease cardinality. Finite-cover
+synthesis and validation are still unimplemented.
+
+This was a serial diagnostic on CPU0: preparation 3.567 s, scan 0.248 s,
+whole command 3.98 s, GNU peak process RSS 101,936 KiB. It is not a closure or
+IBP-generation timing. Existing split/scratch and callback caps remain active;
+a resource-limited prefix would not have supplied the complete unbounded bound.
+Evidence: `TMP/unbounded-owner-census-plan.QdeyGw/`.
+
+The separate worker-allocation experiment also completes. On three rotated A12
+repeats, default 25/24/1 takes 20.239 s median, 40/9/1 takes 20.160 s, and 48/1/1
+takes 23.835 s. Work and logical results are identical. The sub-percent I40
+difference is not an established wall-time win; I48 is slower. Keep the default.
+This strengthens the case for reducing repeated work, without proving which
+radical alternative will succeed. See [the controls](finite_closure_native_profile_2026-09-23.md).
 
 ### 2. Share compiled transfers and reusable checked restrictions
 
@@ -367,13 +445,18 @@ No custom CAS, topology dispatch or loop-count-specific algorithm is proposed.
 1. The narrow completed-slot fix and independent A11 measurement are complete;
    retain that baseline while testing larger inputs. More occupied workers
    without lower elapsed time is not a win.
-2. The [native CPU profile](finite_closure_native_profile_2026-09-23.md) now
-   identifies substitution as a concrete hotspot; test the small native-API
-   execution-order change before implementing a broader reuse cache. Cold
+2. The [native CPU profile](finite_closure_native_profile_2026-09-23.md) led to a
+   completed, measured native-API execution-order improvement. The follow-up
+   profile supports studying domain geometry and an opt-in inspector/helper
+   allocation before implementing a broader reuse cache. Cold
    compiled-transfer/decision-graph experiments remain separate and must count
    preparation, retained bytes and exact native-result equivalence.
-3. Separately test a small proposed finite closed cover without replacing the
-   production traversal. This is the highest-upside research experiment.
+3. First census actual saved-rule shifts and possible support changes using the
+   existing native successor visitor, with explicit unbounded scan scope and
+   no coverage claim. Then separately test a small proposed finite closed cover
+   without replacing production traversal. This is the highest-upside research
+   experiment; an incomplete census or a large/obstructed cover is a useful
+   negative result, not an excuse to clip descendants.
 4. Pursue exact union differences or routing correlations only when measured
    repeated work identifies their opportunity. Keep failed pilots as evidence.
 5. Require a complete larger matched control and correctness audit before

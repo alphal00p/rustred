@@ -4,45 +4,13 @@
 //! deliberately use a separate, reserved Rayon pool. Sharing the producer pool
 //! would allow all threads to block while the publisher waits for a lookup.
 use super::super::queue::PreparedAdmission;
+use super::super::worker_budget::WorkerBudget;
 use super::*;
 use rayon::prelude::*;
 
 const BATCH_RECORDS: usize = 256;
 const MIN_ADMISSIONS: usize = 16;
 const MIN_CANDIDATES: usize = 128;
-
-#[derive(Clone, Copy)]
-pub(super) struct WorkerBudget {
-    requested: usize,
-    pub inspection: usize,
-    helpers: usize,
-    coordinator: usize,
-}
-impl WorkerBudget {
-    pub fn new(requested: usize, finite_comparison_cap: Option<usize>) -> Self {
-        assert!(requested > 0, "validated positive worker budget");
-        if requested == 1 {
-            return Self {
-                requested,
-                inspection: 1,
-                helpers: 0,
-                coordinator: 0,
-            };
-        }
-        let available = requested - 1;
-        let helpers = if requested >= 5 && finite_comparison_cap.is_none() {
-            available / 2
-        } else {
-            0
-        };
-        Self {
-            requested,
-            inspection: available - helpers,
-            helpers,
-            coordinator: 1,
-        }
-    }
-}
 
 pub(super) struct Metrics {
     budget: WorkerBudget,
@@ -56,7 +24,12 @@ pub(super) struct Metrics {
 }
 impl Default for Metrics {
     fn default() -> Self {
-        Self::new(WorkerBudget::new(1, None))
+        Self::new(WorkerBudget::new(
+            1,
+            None,
+            None,
+            super::super::OwnerDomainWalkPublicationPolicy::Ordered,
+        ))
     }
 }
 impl Metrics {

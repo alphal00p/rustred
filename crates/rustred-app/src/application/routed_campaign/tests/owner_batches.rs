@@ -4,6 +4,8 @@ use super::*;
 use crate::{OwnerDomainWalkPublicationPolicy, OwnerDomainWalkSchedulingPolicy};
 use std::num::NonZeroUsize;
 
+mod worker_budget;
+
 fn available_workers() -> impl Iterator<Item = usize> {
     [1, 2, 6, 50].into_iter().filter(|&workers| {
         let available =

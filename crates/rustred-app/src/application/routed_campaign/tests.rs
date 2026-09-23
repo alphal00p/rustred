@@ -589,6 +589,12 @@ fn owner_domain_scan_keeps_positive_rays_without_concrete_target_input() {
     assert_eq!(result.document["requested_max_numerator_rank"], 10);
     assert_eq!(result.document["saved_entry_rank"], 2);
     assert_eq!(result.document["installed_owners"], 1);
+    assert!(result.document["structural_census"]["complete_unbounded_shift_l1_bound"].is_null());
+    assert_eq!(result.document["structural_census"]["scan_complete"], true);
+    assert_eq!(
+        result.document["structural_census"]["observed_callback_regions"],
+        result.document["retained_regions"]
+    );
     assert!(result.document["retained_regions"].as_u64().unwrap() > 1);
     assert!(
         !result.document["owners"][0]["successor_groups"]
@@ -633,6 +639,15 @@ fn owner_domain_scan_keeps_positive_rays_without_concrete_target_input() {
         "total successor regions"
     );
     assert_eq!(partial.document["owners"][0]["regions"], 2);
+    assert_eq!(
+        partial.document["structural_census"]["scan_complete"],
+        false
+    );
+    assert!(partial.document["structural_census"]["complete_unbounded_shift_l1_bound"].is_null());
+    assert_eq!(
+        partial.document["structural_census"]["observed_callback_regions"],
+        1
+    );
     let mut group_limited = request.clone();
     group_limited.max_summary_groups = 1;
     let partial =
@@ -643,6 +658,7 @@ fn owner_domain_scan_keeps_positive_rays_without_concrete_target_input() {
         partial.document["owners"][0]["summary_limit"],
         "summary groups"
     );
+    assert!(partial.document["structural_census"]["complete_unbounded_shift_l1_bound"].is_null());
 
     request.scan_limits.max_terms = 0;
     let limited =
@@ -655,6 +671,221 @@ fn owner_domain_scan_keeps_positive_rays_without_concrete_target_input() {
             .unwrap()
             .contains("terms")
     );
+}
+
+#[test]
+fn owner_domain_unbounded_census_is_a_shift_bound_not_a_closure_claim() {
+    let fixture = Fixture::new();
+    let mut request = OwnerDomainScanRequest::new(fixture.request.selection_json.clone(), None);
+    request.owner_base = fixture.directory.clone();
+    let result =
+        owner_domain_scan_with_progress(request.clone(), &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(result.scan_complete);
+    let census = &result.document["structural_census"];
+    assert_eq!(census["scope"], "unbounded_saved_rule_geometry");
+    assert!(
+        census["complete_unbounded_shift_l1_bound"]
+            .as_str()
+            .is_some()
+    );
+    assert_eq!(census["guard_satisfiability_decided"], false);
+    assert_eq!(census["first_applicable_priority_resolved"], false);
+    assert_eq!(census["source_validity_proved"], false);
+    assert_eq!(census["family_closure_claim"], false);
+    assert_eq!(result.document["requested_max_numerator_rank"], Value::Null);
+    assert_eq!(result.document["owners"][0]["rank_empty_prefilters"], 0);
+    for limit in ["regions", "groups", "terms"] {
+        let mut limited = request.clone();
+        match limit {
+            "regions" => limited.max_total_regions = 1,
+            "groups" => limited.max_summary_groups = 1,
+            _ => limited.scan_limits.max_terms = 0,
+        }
+        let partial =
+            owner_domain_scan_with_progress(limited, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(!partial.scan_complete, "{limit}");
+        assert!(
+            partial.document["structural_census"]["complete_unbounded_shift_l1_bound"].is_null()
+        );
+    }
+    let stopped = owner_domain_scan_with_progress(request, &AtomicBool::new(true), |_| {}).unwrap();
+    assert!(!stopped.scan_complete);
+    assert!(stopped.document["structural_census"]["complete_unbounded_shift_l1_bound"].is_null());
+}
+
+fn structural_census_fixture() -> Fixture {
+    use rustred::identity::ParametricIbpGenerator;
+    use rustred::solver::{
+        CoordinateCase, ExceptionalConditions, Integral, Power, RuleCandidate, SectorRule,
+        SectorSolution, Term,
+    };
+    // Synthetic native transport only: these formulas do not claim IBP provenance.
+    let mut fixture = Fixture::new();
+    let source = r#"
+schema="rustred.project.toml.v1"
+[family]
+name="structural_census_fixture"
+loop_momenta=["q1","q2"]
+external_momenta=[]
+dimension="d"
+[[family.denominators]]
+id="P1"
+expression="q1^2-1"
+[[family.denominators]]
+id="P2"
+expression="q2^2-1"
+[[family.denominators]]
+id="P3"
+expression="(q1-q2)^2-1"
+[target]
+powers=[1,1,0]
+"#;
+    let parsed =
+        crate::application::input::prepare_input(source, crate::InputFormat::Toml).unwrap();
+    let (_, _, _, lowered) = crate::application::lowering::lower_project(parsed)
+        .unwrap()
+        .into_parts();
+    let family = lowered.into_family();
+    let context = ParametricIbpGenerator::try_new(&family)
+        .unwrap()
+        .context()
+        .clone();
+    let mut generation = FamilyCandidatesRequest::new(source);
+    generation.max_numerator_rank = Some(4);
+    let mut owners = Vec::new();
+    for sector in [[true, false, true], [true, true, false]] {
+        let inactive = sector.iter().position(|&active| !active).unwrap();
+        let mut rules = Vec::new();
+        for restricted in [false, true] {
+            let mut fixed = [None; 3];
+            if restricted {
+                fixed[inactive] = Some(-3);
+            }
+            let case = CoordinateCase::<3>::new(fixed).unwrap();
+            let target = case.integral();
+            let terms: &[(i16, i64)] = if restricted {
+                &[(-7, 1)]
+            } else {
+                &[(-1, 1), (-12, 0)]
+            };
+            let rhs = terms
+                .iter()
+                .map(|&(shift, coefficient)| Term {
+                    integral: Integral::new(std::array::from_fn(|axis| {
+                        Power::new(
+                            target[axis].is_symbolic(),
+                            target[axis].value() + if axis == 0 { shift } else { 0 },
+                        )
+                        .unwrap()
+                    })),
+                    coefficient: context.integer(coefficient).raw().clone(),
+                })
+                .collect();
+            rules.push(SectorRule {
+                candidate: RuleCandidate {
+                    target,
+                    case: case.into(),
+                    rhs,
+                    sources: vec![],
+                    stats: Default::default(),
+                },
+                exceptions: ExceptionalConditions::default(),
+            });
+        }
+        let solution = SectorSolution::<3> {
+            max_numerator_rank: Some(4),
+            finite_case_policy: generation.finite_case_policy,
+            rules,
+            finite_residuals: vec![],
+            stats: Default::default(),
+        };
+        let bytes =
+            crate::encode_generated_candidate_sector(&generation, &family, sector, &solution)
+                .unwrap();
+        let mask: String = sector
+            .iter()
+            .map(|&active| if active { '1' } else { '0' })
+            .collect();
+        let path = format!("census-{mask}.rrbin");
+        std::fs::write(fixture.directory.join(&path), &bytes).unwrap();
+        owners.push(json!({"path":path,"bytes":bytes.len(),"mask":mask}));
+    }
+    fixture.request.selection_json = json!({"family_fingerprint":family.fingerprint(),
+        "owners":owners,"initial_frontier_routes":[]})
+    .to_string();
+    fixture
+}
+
+#[test]
+fn owner_domain_census_unbounded_scope_restores_rank_prefiltered_larger_shift() {
+    let fixture = structural_census_fixture();
+    for (rank, maximum, filtered, terms) in [(Some(2), "1", 1, 2), (None, "7", 0, 3)] {
+        let mut request = OwnerDomainScanRequest::new(fixture.request.selection_json.clone(), rank);
+        request.owner_base = fixture.directory.clone();
+        let result =
+            owner_domain_scan_with_progress(request, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(result.scan_complete, "{}", result.document);
+        assert_eq!(
+            result.document["structural_census"]["observed_max_shift_l1"],
+            maximum
+        );
+        assert_eq!(
+            result.document["structural_census"]["complete_unbounded_shift_l1_bound"],
+            if rank.is_none() {
+                json!("7")
+            } else {
+                Value::Null
+            }
+        );
+        for owner in result.document["owners"].as_array().unwrap() {
+            assert_eq!(owner["rank_empty_prefilters"], filtered);
+            assert_eq!(owner["terms"], terms);
+            assert_eq!(owner["exact_zero_terms"], 1); // Shift12 is not a nonzero RHS shift.
+        }
+    }
+}
+
+#[test]
+fn owner_domain_census_late_owner_failure_withholds_global_bound() {
+    let fixture = structural_census_fixture();
+    for cancel_after_first in [true, false] {
+        let mut request = OwnerDomainScanRequest::new(fixture.request.selection_json.clone(), None);
+        request.owner_base = fixture.directory.clone();
+        if !cancel_after_first {
+            request.max_total_regions = 4; // Two sign cells for each of the first owner's nonzero terms.
+        }
+        let cancellation = AtomicBool::new(false);
+        let result = owner_domain_scan_with_progress(request, &cancellation, |event| {
+            if cancel_after_first
+                && event["event"] == "owner_scan_finished"
+                && event["completed_owners"] == 1
+            {
+                cancellation.store(true, Ordering::Release);
+            }
+        })
+        .unwrap();
+        assert!(!result.scan_complete);
+        assert_eq!(
+            result.document["structural_census"]["observed_max_shift_l1"],
+            "7"
+        );
+        assert!(
+            result.document["structural_census"]["complete_unbounded_shift_l1_bound"].is_null()
+        );
+        let owners = result.document["owners"].as_array().unwrap();
+        assert_eq!(owners.len(), 2);
+        assert_eq!(owners[0]["scan_complete"], true);
+        assert_eq!(
+            owners[0]["structural_census"]["observed_callback_regions"],
+            4
+        );
+        assert_eq!(
+            owners[0]["structural_census"]["complete_unbounded_shift_l1_bound"],
+            "7"
+        );
+        assert_eq!(owners[1]["scan_complete"], false);
+        assert!(owners[1]["structural_census"]["complete_unbounded_shift_l1_bound"].is_null());
+    }
 }
 
 #[test]

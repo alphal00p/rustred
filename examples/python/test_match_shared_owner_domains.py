@@ -36,6 +36,7 @@ class MatchSteeringTests(unittest.TestCase):
         self.assertNotIn("--" + MATCH.TRANSFER_LOOKAHEAD, command)
         self.assertNotIn("--" + MATCH.INITIAL_D_REUSE, command)
         self.assertNotIn("--" + MATCH.PUBLICATION_POLICY, command)
+        self.assertNotIn("--" + MATCH.INSPECTION_WORKERS, command)
         for option in ("--workers", "--timeout", "--max-numerator-rank", "--targets"):
             self.assertNotIn(option, command)
 
@@ -225,6 +226,39 @@ class MatchSteeringTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     MATCH.main()
                 execute.assert_not_called()
+
+    def test_inspector_partition_is_forwarded_without_changing_native_workload(self):
+        for workers, inspectors in [(1, 1), (2, 1), (6, 1), (6, 5), (50, 40), (50, 48)]:
+            flags = ["--follow-successors", "--workers", str(workers),
+                     "--inspection-workers", str(inspectors)]
+            with patch("sys.argv", self.arguments() + flags), \
+                    patch.object(MATCH.os, "execve") as execute:
+                MATCH.main()
+            command = execute.call_args.args[1]
+            self.assertEqual(command[command.index("--inspection-workers") + 1], str(inspectors))
+            self.assertEqual(command[command.index("--workers") + 1], str(workers))
+            self.assertNotIn("--publication-policy", command)
+            self.assertNotIn("--max-numerator-rank", command)
+
+    def test_inspector_partition_rejects_bad_scope_or_budget_before_launch(self):
+        for suffix in (["--inspection-workers", "1"],
+                       ["--follow-successors", "--inspection-workers", "2"],
+                       ["--follow-successors", "--workers", "6", "--inspection-workers", "6"],
+                       ["--follow-successors", "--inspection-workers", "0"],
+                       ["--follow-successors", "--inspection-workers", "1", "--inspection-workers", "1"],
+                       ["--follow-successors", "--workers", "50", "--inspection-workers", "40", "--max-containment-checks", "7"]):
+            with patch("sys.argv", self.arguments() + suffix), \
+                    patch.object(MATCH.os, "execve") as execute, \
+                    patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit):
+                    MATCH.main()
+                execute.assert_not_called()
+        for workers, inspectors in [(1, 1), (2, 1), (6, 5)]:
+            with patch("sys.argv", self.arguments() + ["--follow-successors", "--workers", str(workers),
+                       "--inspection-workers", str(inspectors), "--max-containment-checks", "7"]), \
+                    patch.object(MATCH.os, "execve") as execute:
+                MATCH.main()
+                execute.assert_called_once()
 
     def test_publication_policy_is_explicit_and_only_changes_native_steering(self):
         option = "--" + MATCH.PUBLICATION_POLICY

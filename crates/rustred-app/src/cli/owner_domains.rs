@@ -25,10 +25,8 @@ pub(super) fn run(args: OwnerDomainScanArgs) -> Result<(), CliError> {
             "event, result and stop paths must differ".into(),
         ));
     }
-    let mut request = OwnerDomainScanRequest::new(
-        read_input(&StreamPath::File(args.manifest))?,
-        Some(args.rank),
-    );
+    let mut request =
+        OwnerDomainScanRequest::new(read_input(&StreamPath::File(args.manifest))?, args.rank);
     request.owner_base = args.owner_base;
     request.scan_limits.max_rules = args.max_rules;
     request.scan_limits.max_terms = args.max_terms;

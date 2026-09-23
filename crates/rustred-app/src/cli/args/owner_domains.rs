@@ -8,7 +8,7 @@ pub(crate) struct OwnerDomainScanArgs {
     pub owner_base: PathBuf,
     pub events: Option<PathBuf>,
     pub stop_file: Option<PathBuf>,
-    pub rank: u32,
+    pub rank: Option<u32>,
     pub max_rules: usize,
     pub max_terms: usize,
     pub max_regions: usize,
@@ -25,7 +25,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         owner_base: PathBuf::from("."),
         events: None,
         stop_file: None,
-        rank: 0,
+        rank: None,
         no_progress: false,
         max_rules: defaults.max_rules,
         max_terms: defaults.max_terms,
@@ -44,6 +44,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--events" => "--events",
             "--stop-file" => "--stop-file",
             "--max-numerator-rank" => "--max-numerator-rank",
+            "--unbounded-rank" => "--unbounded-rank",
             "--max-rules-per-owner" => "--max-rules-per-owner",
             "--max-terms-per-owner" => "--max-terms-per-owner",
             "--max-regions-per-owner" => "--max-regions-per-owner",
@@ -58,6 +59,9 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         if name == "--no-progress" {
             result.no_progress = true;
+            continue;
+        }
+        if name == "--unbounded-rank" {
             continue;
         }
         let value = next_utf8_value(&mut arguments, name)?;
@@ -80,11 +84,11 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                 }
             }
             "--max-numerator-rank" => {
-                result.rank = value.parse().map_err(|_| ArgError::InvalidValue {
+                result.rank = Some(value.parse().map_err(|_| ArgError::InvalidValue {
                     option: name,
                     value,
                     expected: "an unsigned 32-bit integer (zero is allowed)",
-                })?;
+                })?);
             }
             _ => {
                 let number = parse_positive_integer(name, value)?;
@@ -98,10 +102,15 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             }
         }
     }
-    for name in ["--manifest", "--output", "--max-numerator-rank"] {
+    for name in ["--manifest", "--output"] {
         if !seen.contains(name) {
             return Err(ArgError::MissingRequiredOption(name));
         }
+    }
+    if seen.contains("--max-numerator-rank") == seen.contains("--unbounded-rank") {
+        return Err(ArgError::InvalidCombination(
+            "exactly one of --max-numerator-rank or --unbounded-rank is required",
+        ));
     }
     if result.max_summary_groups > 1_000_000 {
         return Err(ArgError::InvalidCombination(
@@ -120,7 +129,7 @@ mod tests {
         assert!(matches!(
             parse("--manifest m --output o --max-numerator-rank 0"),
             Ok(Command::OwnerDomainScan(OwnerDomainScanArgs {
-                rank: 0,
+                rank: Some(0),
                 ..
             }))
         ));
@@ -134,11 +143,33 @@ mod tests {
             "--max-numerator-rank 10 --max-summary-groups 1000001",
             "--max-numerator-rank 10 --max-numerator-rank 20",
             "--max-numerator-rank 10 --timeout 1800",
+            "--unbounded-rank --max-numerator-rank 10",
+            "--max-numerator-rank 10 --unbounded-rank",
+            "--unbounded-rank --unbounded-rank",
+            "--unbounded-rank 10",
         ] {
             assert!(
                 parse(&format!("--manifest m --output o {suffix}")).is_err(),
                 "{suffix}"
             );
+        }
+    }
+
+    #[test]
+    fn owner_domain_scan_unbounded_rank_is_explicit_not_a_large_finite_rank() {
+        for (scope, expected) in [
+            ("--unbounded-rank", None),
+            ("--max-numerator-rank 4294967295", Some(u32::MAX)),
+        ] {
+            let Command::OwnerDomainScan(args) = super::parse(
+                format!("--manifest m --output o {scope}")
+                    .split_whitespace()
+                    .map(OsString::from),
+            )
+            .unwrap() else {
+                panic!("scan command");
+            };
+            assert_eq!(args.rank, expected);
         }
     }
 

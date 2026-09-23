@@ -344,7 +344,7 @@ USAGE:
     rustred entry-domain-plan --input SPEC.json --output PLAN.json [--force]
     rustred owner-guarded-apply --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--work-limits LIMITS.json] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-report-events N] [--max-report-bytes N] [--max-expression-bytes N]
     rustred owner-domain-match --manifest SELECTION.json --queries QUERIES.json --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--no-progress] [--max-queries N] [--max-total-pieces N] [--max-rules-per-query N] [--max-terminal-checks-per-query N] [--max-predicates-per-query N] [--max-pieces-per-query N] [--max-cells-per-query N] [--max-split-operations-per-query N] [--max-coordinate-cells-per-query N] [--max-bounded-refinement-cells-per-query N] [--bounded-refinement-axes inactive-only|finite-axes] [--max-guard-univariate-degree N] [--follow-successors [--workers N] [--max-domains N] [--max-frontiers N] [--max-successor-events N] [--max-containment-checks N|unlimited] [--transfer-unreserved-lookahead H [--reuse-initial-d-bands]] [--max-rhs-cells-per-query N] [--max-term-visits-per-query N] [--max-native-operations-per-query N] [--max-rhs-events-per-query N] [--max-shift-groups-per-query N] [--route-domain-overcover [--max-route-masks-per-query N]]]
-    rustred owner-domain-scan --manifest SELECTION.json --max-numerator-rank R --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--max-rules-per-owner N] [--max-terms-per-owner N] [--max-regions-per-owner N] [--max-total-regions N] [--max-summary-groups N]
+    rustred owner-domain-scan --manifest SELECTION.json (--max-numerator-rank R | --unbounded-rank) --output RESULT.json [--owner-base DIR] [--events EVENTS.jsonl] [--stop-file PATH] [--max-rules-per-owner N] [--max-terms-per-owner N] [--max-regions-per-owner N] [--max-total-regions N] [--max-summary-groups N]
     rustred routed-campaign --manifest SELECTION.json --targets TARGETS.csv --output RESULT.json [--entry-domains DOMAINS.json] [--events EVENTS.jsonl] [--owner-base DIR] [--workers 1..50] [--stop-file PATH] [--expansion-limits LIMITS.json] [--max-nodes N] [--max-input-targets N] [--max-transport-operations N] [--max-transport-endpoints N] [--max-coalescing-additions N] [--max-rule-applications N]
     rustred derive [OPTIONS]
     rustred family-solve [OPTIONS]
@@ -601,8 +601,13 @@ Full mapped roots go directly to owner application; strict subsupports reenter
 routing. Unchecked source conditions and missing maps remain explicit obligations.
 This mode does not identify every covered point as actually reached.
 The mode accepts --workers (default 1) and positive --max-domains,
---max-frontiers and --max-successor-events allowances. Aggregate containment
-comparisons are unlimited by default; --max-containment-checks N sets a positive
+--max-frontiers and --max-successor-events allowances.
+--inspection-workers N optionally partitions --workers W into N inspectors,
+W-1-N admission helpers and one coordinator (W>1); W=1 only accepts N=1.
+It requires --follow-successors, leaves the default split unchanged when omitted,
+and reserves compute slots rather than guaranteeing activity. With a finite
+containment comparison cap, N must be W-1 (or 1 inline): no admission helpers.
+Aggregate containment comparisons are unlimited by default; --max-containment-checks N sets a positive
 finite diagnostic cap, and --max-containment-checks unlimited selects the default.
 This leaves all native work, storage and resource limits unchanged.
 --transfer-unreserved-lookahead H opts into delegating unreserved contained

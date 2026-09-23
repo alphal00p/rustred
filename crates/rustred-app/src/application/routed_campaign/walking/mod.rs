@@ -10,6 +10,7 @@ mod parallel;
 mod queue;
 mod reuse;
 mod routing;
+mod worker_budget;
 
 use super::{OwnerDomainMatchRequest, RoutedCampaignRequest, input, matching, prepare};
 use crate::AppError;
@@ -33,6 +34,11 @@ pub struct OwnerDomainWalkRequest {
     /// One runs inline. More share immutable programs and bounded event slots.
     /// Caller configures affinity and native inner pools; no environment edits.
     pub workers: usize,
+    /// Optional explicit compute partition, not an independent pool size cap.
+    /// At W>1 reserves N inspectors, W-1-N admission helpers and one coordinator.
+    /// W=1 accepts only N=1 inline. Finite containment caps require N=W-1 at W>1.
+    /// None preserves the publication policy's existing automatic split.
+    pub inspection_workers: Option<usize>,
     /// Ordered is the stable global stream. OwnerBatched uses independent
     /// phase/owner queues; diagnostic identities and capped prefixes may differ.
     pub publication_policy: OwnerDomainWalkPublicationPolicy,
@@ -59,6 +65,7 @@ impl OwnerDomainWalkRequest {
             matching,
             applied_limits: Default::default(),
             workers: 1,
+            inspection_workers: None,
             publication_policy: OwnerDomainWalkPublicationPolicy::Ordered,
             scheduling_policy: OwnerDomainWalkSchedulingPolicy::InspectAll,
             reuse_initial_d_bands: false,
@@ -69,6 +76,14 @@ impl OwnerDomainWalkRequest {
             route_domain_overcover: false,
             max_route_masks: 100_000,
         }
+    }
+
+    pub(crate) fn validate_inspection_workers(
+        workers: usize,
+        inspection_workers: Option<usize>,
+        max_containment_checks: Option<usize>,
+    ) -> Result<(), &'static str> {
+        worker_budget::validate(workers, inspection_workers, max_containment_checks)
     }
 }
 
@@ -138,6 +153,8 @@ impl OwnerDomainWalkResult {
         for key in [
             "publication_policy",
             "requested_publication_policy",
+            "worker_allocation",
+            "requested_inspection_workers",
             "owner_batched_traversal_started",
             "owner_bucket_count",
             "nonempty_owner_buckets",
@@ -173,6 +190,12 @@ pub fn owner_domain_walk_with_progress(
     {
         return Err(AppError::input("invalid symbolic worklist allowances"));
     }
+    OwnerDomainWalkRequest::validate_inspection_workers(
+        request.workers,
+        request.inspection_workers,
+        request.max_containment_checks,
+    )
+    .map_err(AppError::input)?;
     request
         .scheduling_policy
         .validate(request.max_containment_checks)
@@ -202,6 +225,8 @@ pub fn owner_domain_walk_with_progress(
         "bounded_refinement_axes":matching::refinement_axes_name(request.matching.match_limits.refinement_axes),
         "max_bounded_refinement_cells":request.matching.match_limits.max_bounded_refinement_cells,
         "family_closure_claim":false, "ibp_generation":false});
+    admitted["worker_allocation"] =
+        worker_budget::WorkerBudget::for_request(&request).json(request.inspection_workers);
     if request.scheduling_policy != OwnerDomainWalkSchedulingPolicy::InspectAll {
         admitted["scheduling_policy"] =
             execution::scheduling_policy_json(request.scheduling_policy);
@@ -377,6 +402,8 @@ fn run<const N: usize>(
             }
         }
         let mut document = result.document;
+        document["worker_allocation"] =
+            worker_budget::WorkerBudget::for_request(request).json(request.inspection_workers);
         document["inputs"] = json!(inputs);
         document["input_frontiers"] = json!(input_frontiers);
         document["max_bounded_refinement_cells"] =
@@ -422,6 +449,8 @@ fn run<const N: usize>(
         "traversal_seconds":started.elapsed().as_secs_f64()-prepared,"elapsed_seconds":started.elapsed().as_secs_f64()});
     // Keep macro expansion bounded without a crate-wide recursion allowance.
     document["workers"] = json!(request.workers);
+    document["worker_allocation"] =
+        worker_budget::WorkerBudget::for_request(request).json(request.inspection_workers);
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::OwnerBatched {
         document["requested_publication_policy"] = json!("owner_batched");
         document["owner_batched_traversal_started"] = json!(false);

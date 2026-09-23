@@ -96,6 +96,15 @@ not an arbitrary subprocess tree. Independent external jobs are not constrained
 by this driver: their declared reservations plus sampled monitoring are not an
 absolute aggregate-RSS guarantee if they exceed their own execution envelopes.
 The 15-hour expected horizon is an objective and telemetry only, not a timeout.
+
+For symbolic successor walks (`--queries`), optional `--inspection-workers I`
+partitions the same total worker budget rather than adding another pool. At
+`--workers 50`, I=40 requests 40 native inspectors, nine admission helpers and
+one coordinator. Omission preserves the existing automatic split. A finite
+containment-comparison cap requires zero helpers; invalid partitions fail before
+launch. Requested and effective reservations are recorded separately from actual
+activity. See [the native partition contract](shared_owner_domain_matching.md#bounded-parallel-inspection).
+
 There is no inherited 30-minute deadline and no fabricated dependency ETA.
 Inspect backlog, completed local expansions, dedup hits, expansion bounds,
 CPU utilization, memory growth and progress age before deciding to continue.

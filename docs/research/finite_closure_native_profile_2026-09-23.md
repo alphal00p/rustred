@@ -133,14 +133,130 @@ These are three descriptive repeats on a shared host, not a confidence interval.
 In particular, this block's baseline is slower than the earlier scheduler block;
 compare binaries **within this alternating block**, not across separate host
 conditions. Do not multiply this gain by the owner-local scheduler gain: this
-experiment uses Ordered exclusively. Larger inputs and a new CPU profile remain
-next gates before a broad-run ETA or an attribution of all savings to one caller.
+experiment uses Ordered exclusively. The larger-input and post-change profile
+gates below are now complete; neither establishes a broad-run ETA or attributes
+all savings to one caller.
 
 Evidence: `TMP/indexed-substitution-a11-compare.5Jhj9C/matrix/`. The six-run
 steering exits zero after exact comparison checks. Independent post-run raw
 measurement review passes, including independently recomputed CPU windows and
 resource/obligation checks:
 `TMP/fixed-substitution-measurement-audit.5MPRu0/REPORT.md`.
+
+## Larger A12 control: the improvement persists
+
+The same two frozen executables completed three alternating Ordered A12/R3/D9
+pairs, with unchanged four owners, 86 routes, 50-worker allocation, affinity,
+H256, monitoring and resource allowances. Four entry regions represent 357,192
+starting tuples. Descendants remain uncut, with scheduled rank bounds reaching
+four. Each process reloads the saved owners; there is no IBP regeneration,
+compilation, profiling or root-controlled competing native workload during timing.
+
+| Pair | Baseline traversal (s) | New traversal (s) | Baseline process CPU (s) | New process CPU (s) |
+|---|---:|---:|---:|---:|
+| 1 | 39.901876 | 19.681471 | 441.51 | 163.52 |
+| 2 | 38.915977 | 20.511271 | 430.38 | 168.26 |
+| 3 | 38.400460 | 20.748213 | 430.79 | 164.58 |
+
+Median traversal is **38.915977 → 20.511271 s: 47.29% lower, or 1.90× faster**.
+Median process CPU is 430.79 → 164.58 s, 61.80% lower. Median peak process RSS
+is 1,409,884 → 1,389,400 KiB, 1.45% lower; this is not a summed tree peak.
+Corrected sampled busy-core medians fall from 11.00 to 8.08. Again, this saves
+work per inspection rather than establishing better fifty-core occupancy.
+
+Every run completes with exactly 62,562 native inspections, 2,507,532 events,
+12,313,872 counted native operations, 33,199 discharged delegations and 2,737
+discharged partial initial-overlap inspections (included in native counts).
+The identical structural digest is
+`1920836d9b4f3f9af68a1ecf9e8b8f63b17564787b211ff73b95d26763bc3b1b`.
+Scope, anchors, residual responsibilities, drained pools and resource checks
+pass; there are no frontiers, pending obligations or errors. An independent raw
+audit reproduced the checks and medians before subsequent steering edits.
+Three repeats on a shared host remain descriptive, not a confidence interval
+or a prediction for all 67 owners.
+
+Evidence: `TMP/indexed-substitution-a12-compare.MxAoFr/matrix/`; independent
+review is appended to the existing measurement audit cited above.
+
+## Post-change CPU profile: the dominant cost has moved
+
+A separate completed diagnostic used the new frozen executable on the same
+A11 workload, Ordered W26, with the same perf configuration as the original
+profile. All original native counters and responsibilities match. Native
+traversal took 5.649 s and the whole recorded command 9.769 s; these instrumented
+figures are **not** another matched timing comparison.
+
+| Exclusive sampled user CPU | Before | After |
+|---|---:|---:|
+| Symbolica integer-polynomial `replace` | 32.81% | 1.79% |
+| RustRed power-domain `project` | 3.35% | 10.39% |
+| RustRed `validate_polynomial_on_map` | 4.85% | 3.45% |
+
+The larger percentage for `project` does not show a regression: its absolute
+sampled CPU weight is approximately 3.20 s before and 3.22 s after, while the
+total sampled CPU denominator shrinks. Allocation, hashing and polynomial
+degree/preflight checks now also matter. This suggests measuring reusable domain
+geometry and structural rule data before adding a broad proof cache.
+
+The new recording has 3,070 samples, zero reported loss and zero unresolved leaf
+symbols. Inspectors account for 75.99% of sampled user CPU, admission helpers
+6.78%, and the main thread 17.10%, including setup and output. Worker call stacks
+still do not unwind: caller/inclusive attribution remains unavailable. These
+shares cannot be read as parallel critical-path time. An opt-in inspector/helper
+partition experiment is therefore justified, but not presumed faster.
+
+Evidence: `TMP/post-substitution-profile.C2n5bq/run/analysis.json` and adjacent
+raw perf/receipt files. Independent analysis replay passes, including PID/receipt
+binding, loss accounting, input immutability and drained native work. A syntax
+error in the first postprocessing script was corrected and analysis rerun on
+the same recording; no native rerun or sample selection was involved.
+
+## Explicit worker partition: completed same-input comparison
+
+The generic Rust/CLI/Python option `inspection_workers` / `--inspection-workers`
+permits a different inspector/helper split without changing total workers or
+publication policy. Existing defaults stay unchanged. Release validation passes
+539 application/CLI unit tests (zero failures, one existing ignored), 30 Python
+steering tests and the executable build. The first test compilation needed one
+explicit `usize` annotation in a new test; no production assertion was weakened.
+Independent implementation review passes.
+
+The fresh frozen CLI is
+`7d493839995ec94049970a7a68d2c079d0b81975f06729ed39eaf4ce2468231a`.
+An initial default-versus-explicit-I25 gate gives identical structural results
+and counters, at 20.223 and 20.273 s. Those two timings are excluded from the
+following medians. Nine further A12 controls rotate default/I40/I48,
+I40/I48/default, I48/default/I40. All share the same saved inputs, ordering,
+H256, W50, CPUs 0–49, observer CPU50, serial inner pools and resource policy as
+the earlier A12 controls. No root build or other native run overlaps the matrix.
+
+| Inspectors / admission helpers / coordinator | Median traversal (s) | Median process CPU (s) | Sampled busy cores | Median peak process RSS (KiB) |
+|---|---:|---:|---:|---:|
+| 25 / 24 / 1, unchanged default | 20.239343 | 166.33 | 8.10 | 1,399,808 |
+| 40 / 9 / 1 | 20.160298 | 136.14 | 6.59 | 1,422,920 |
+| 48 / 1 / 1 | 23.835257 | 127.77 | 5.24 | 1,355,276 |
+
+Forty inspectors offer **no established wall-time improvement**: the median
+difference is only 0.39%, with overlapping repeats on a shared host. They use
+18.15% less process CPU. Forty-eight inspectors are 17.77% slower in median,
+despite using less CPU. More configured inspectors do not imply more useful
+concurrency. Keep the default; this does not justify a fifty-core scaling claim
+or restarting the full envelope unchanged.
+
+Independent heartbeat-window analysis finds median inspection activity of
+4.52 / 5.13 / 4.40 cores and helper activity of 2.94 / 0.84 / 0.30 cores for
+default / I40 / I48. These role medians need not add to the median total. They
+show that the extra inspector reservation is not being usefully filled, but
+do not identify a particular spin, lock, cache or critical-path mechanism.
+
+All eleven controls complete with identical structural results and counters:
+62,562 native inspections, 2,507,532 events, 12,313,872 native operations,
+33,199 discharged delegations and 2,737 discharged partial inspections. All
+descendants remain required, with scheduled rank bounds reaching four. There
+are no errors, frontiers, unresolved obligations or retained pool work.
+Evidence: `TMP/worker-split-pilot.vkl0F5/matrix/`; release gate:
+`TMP/worker-census-release.NZeG5m/`. Independent raw result review passes and is recorded
+at `TMP/worker-partition-independent-audit.2rJLon/`.
 
 ## Relation to the radical redesign
 

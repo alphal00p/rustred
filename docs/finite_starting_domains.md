@@ -1,5 +1,37 @@
 # Finite starting domains and fixed-target repair
 
+## Current follow-up: measured native cost, worker split and cover prerequisites
+
+The profile-driven substitution optimization now also passes three alternating
+A12/R3/D9 before/after pairs on 357,192 starting tuples across four saved owners.
+Median traversal is 38.916 → 20.511 s (47.29% lower), with identical structural
+results and counters in all six runs. Descendants remain uncut and scheduled
+rank bounds reach four. Independent raw review passes. A separate post-change
+profile shows replacement no longer dominates; domain projection and allocation
+are next measurement targets. See [the full evidence](research/finite_closure_native_profile_2026-09-23.md).
+
+Two bounded implementation slices pass independent source review and 539 release
+application/CLI unit tests (zero failures, one existing ignored): an explicit optional
+inspector/helper partition, retaining both historical scheduler defaults; and
+an unbounded saved-rule shift census through the existing native successor
+visitor. The latter tests prerequisites for a finite closed-cover experiment,
+not guard coverage, original IBP validity or family closure. Do not replace
+complete responsibility accounting with a shift bound. Keep Ordered default
+and require measured controls before choosing another worker partition.
+The all-67-owner envelope remains stopped and incomplete; these four-owner
+results do not yet justify a full-run completion estimate. The focused Python
+steering gate passes 30 tests and the release executable builds successfully.
+
+Eleven A12 partition controls now complete with identical logical results and
+counters. Median traversal is 20.239 s at the default 25/24/1, 20.160 s at
+40/9/1 and 23.835 s at 48/1/1. The sub-percent I40 difference is not an established
+wall-time gain; keep the default. The unbounded four-owner census also completes:
+L1 shift bound six, no positive same-support Δ(A+R), but 67,636 potential
+unsupported-support sign regions still require native guarded checks. They are
+not demonstrated missing rules or reached failures. Next test those boundary
+prerequisites and measured local geometry reuse; do not publish a finite-cover
+claim from this inventory. See [the experiment and caveats](research/finite_closure_architecture_review_2026-09-23.md).
+
 ## Completed-slot reuse — modest measured progress, full envelope unfinished
 
 The owner-local scheduler now reuses physical slots held by completed jobs
@@ -22,7 +54,8 @@ passes 2,798 core release tests (32 existing ignored) and the CLI build. Six
 matched Ordered A11 runs retain identical non-timing results and counters;
 median traversal is 5.938 s versus 11.647 s before, and process CPU 51.06 s
 versus 147.14 s. Independent raw measurement review passes. This does not
-establish larger-input scaling, fifty-core saturation or a full-family ETA.
+establish fifty-core saturation or a full-family ETA; the larger A12 controls
+are now reported above.
 See [profile, API audit and controls](research/finite_closure_native_profile_2026-09-23.md).
 The broad campaign remains stopped and unfinished, with no completion ETA.
 See [the measured implementation checkpoint](research/owner_completed_slot_reuse_2026-09-23.md).

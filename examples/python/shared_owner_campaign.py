@@ -34,7 +34,8 @@ _DOMAIN_SPEC.loader.exec_module(DOMAIN)
 SYMBOLIC_ALLOWANCES = (*DOMAIN.ALLOWANCES, DOMAIN.REFINEMENT,
                       *(name for name in DOMAIN.WALK_ALLOWANCES if name != "workers"),
                       "max-route-masks-per-query")
-SYMBOLIC_POLICIES = (DOMAIN.REFINEMENT_AXES, DOMAIN.TRANSFER_LOOKAHEAD, DOMAIN.PUBLICATION_POLICY)
+SYMBOLIC_POLICIES = (DOMAIN.REFINEMENT_AXES, DOMAIN.TRANSFER_LOOKAHEAD,
+                    DOMAIN.PUBLICATION_POLICY, DOMAIN.INSPECTION_WORKERS)
 FINITE_ALLOWANCES = {
     "max-nodes": 16_000_000,
     "max-input-targets": 100_000,
@@ -260,6 +261,8 @@ def main() -> int:
                         help="reuse an exact initial same-owner D band, retaining its obligation; requires --queries and unreserved delegation")
     parser.add_argument("--" + DOMAIN.PUBLICATION_POLICY, choices=DOMAIN.PUBLICATION_POLICIES,
                         help="symbolic successor publication policy; requires --queries; owner-batched is experimental and may change diagnostic traversal order")
+    parser.add_argument("--" + DOMAIN.INSPECTION_WORKERS, type=DOMAIN.positive, action=DOMAIN.StoreOnce,
+                        help="explicit symbolic compute partition: N inspectors, workers-1-N admission helpers and one coordinator; requires --queries")
     parser.add_argument("--route-domain-overcover", action="store_true",
                         help="share admitted symbolic route covers; requires --queries")
     parser.add_argument("--no-progress", action="store_true")
@@ -280,6 +283,8 @@ def main() -> int:
         parser.error("--reuse-initial-d-bands requires --transfer-unreserved-lookahead")
     if not 1 <= args.workers <= 50 or args.other_workers < 0 or args.workers + args.other_workers > 50:
         parser.error("aggregate configured compute workers must be between 1 and 50")
+    DOMAIN.validate_inspection_workers(parser, args.workers, args.inspection_workers,
+                                       args.max_containment_checks)
     if not 0 < args.soft_memory_bytes < args.max_memory_bytes <= 500_000_000_000:
         parser.error("require 0 < soft < hard <= 500 GB (decimal)")
     if not math.isfinite(args.sample_seconds) or args.sample_seconds < 0.1 or not 0 < args.objective_hours < float("inf"):
@@ -349,6 +354,7 @@ def main() -> int:
         "input_scope": "symbolic_domains" if symbolic else "concrete_targets",
         "reuse_initial_d_bands": args.reuse_initial_d_bands,
         "publication_policy": (args.publication_policy or "ordered") if symbolic else None,
+        "requested_inspection_workers": args.inspection_workers,
         "workers": args.workers, "other_workers": args.other_workers,
         "hard_memory_bytes": args.max_memory_bytes, "soft_memory_bytes": args.soft_memory_bytes,
         "child_rlimit_as_bytes": child_as, "monitor_headroom_bytes": monitor_headroom,
@@ -435,6 +441,7 @@ def main() -> int:
         "exit_status": status, "elapsed_seconds": time.monotonic()-started,
         "reuse_initial_d_bands": args.reuse_initial_d_bands,
         "publication_policy": (args.publication_policy or "ordered") if symbolic else None,
+        "requested_inspection_workers": args.inspection_workers,
         "peak_observed_aggregate_rss_bytes": peak, "operator_or_resource_stop": stop_reason,
         "hard_stopped": hard_stopped, "work_checkpoint": False, "family_closure_claim": False,
         "child_rlimit_as_bytes": child_as, "memory_failure_is_incomplete": True,

@@ -444,7 +444,7 @@ fn run_with_initial_orthants<const N: usize>(
             &overlap,
         );
     }
-    let budget = admission::WorkerBudget::new(request.workers, state.queue.containment_limit());
+    let budget = super::worker_budget::WorkerBudget::for_request(request);
     state.admission = admission::Metrics::new(budget);
     let admission = match admission::Engine::new(budget) {
         Ok(engine) => engine,

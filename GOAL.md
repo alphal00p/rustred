@@ -1,5 +1,32 @@
 # RustRed project goal
 
+**Current measured architecture checkpoint:** the opt-in worker partition and
+unbounded saved-rule census pass independent source review, 539 release
+application/CLI tests (zero failures, one existing ignored), 30 Python steering
+tests and the executable build. Eleven same-input A12 controls complete with
+identical logical results and counters. Default 25/24/1 takes 20.239 s median;
+40/9/1 takes 20.160 s (no established wall-time gain), and 48/1/1 takes 23.835 s.
+Keep the default. The four-owner unbounded census finds maximum shift L1=6 and
+no same-support increase in A+R, but 67,636 potential support-change regions
+still require guarded boundary checks before the proposed finite-cover bound
+can be used. These are not demonstrated missing rules or a new closure claim.
+Next: test those prerequisites through existing native APIs, and measure local
+geometry reuse identified by the new profile. The full 67-owner starting envelope
+is unfinished. See [the architecture experiment](docs/research/finite_closure_architecture_review_2026-09-23.md)
+and [the measured controls](docs/research/finite_closure_native_profile_2026-09-23.md).
+
+**Larger control and current profile:** the fixed-substitution optimization
+also completes six matched A12/R3/D9 runs (357,192 starting tuples, four saved
+owners, all descendants retained). Median traversal falls from 38.916 to 20.511 s
+(47.29%); every native counter and structural result is unchanged. Independent
+raw audit passes. The new profile puts native replacement at 1.79% of sampled
+CPU and domain projection at 10.39%; the latter's absolute sampled weight is
+roughly unchanged, not evidence of a regression. The opt-in inspector/helper
+partition and native successor census follow-ups are completed above; a shift
+census is not closure. The full 67-owner envelope
+remains unfinished, with no defensible completion ETA. See
+[the measured controls and profile](docs/research/finite_closure_native_profile_2026-09-23.md).
+
 **Latest measured optimization — native fixed substitution:** a separate
 26-worker A11 profile attributes 32.81% of sampled user CPU to Symbolica polynomial
 replacement; worker stacks do not unwind, so caller attribution is limited.
@@ -8,8 +35,8 @@ independent source review, 2,798 core release tests (32 existing ignored) and th
 CLI build. Six matched Ordered A11 controls preserve exact counters and structural
 results, with median traversal 11.647 s before versus 5.938 s after (49.01% lower),
 and median process CPU 147.14 s versus 51.06 s. Busy cores decrease, not saturate.
-This is one unchanged scoped workload; larger-input gains and full-family ETA
-remain unproved. Independent raw measurement review passes. See
+The larger-input follow-up above is now complete; a full-family ETA remains
+unproved. Independent raw measurement review passes. See
 [the profile and experiment](docs/research/finite_closure_native_profile_2026-09-23.md).
 
 **Completed-slot reuse — measured follow-up:** both scheduling policies now

@@ -29,7 +29,10 @@ def main() -> None:
     parser.add_argument("--executable", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--owner-base", type=Path, default=Path("."))
-    parser.add_argument("--max-numerator-rank", type=rank, required=True)
+    scope = parser.add_mutually_exclusive_group(required=True)
+    scope.add_argument("--max-numerator-rank", type=rank)
+    scope.add_argument("--unbounded-rank", action="store_true",
+                       help="scan all saved rule geometry; not a closure claim")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--events", type=Path)
     parser.add_argument("--stop-file", type=Path)
@@ -46,7 +49,11 @@ def main() -> None:
         environment[name] = "1"
     command = [str(args.executable.resolve()), "owner-domain-scan",
                "--manifest", str(args.manifest), "--owner-base", str(args.owner_base),
-               "--max-numerator-rank", str(args.max_numerator_rank), "--output", str(args.output)]
+               "--output", str(args.output)]
+    if args.unbounded_rank:
+        command.append("--unbounded-rank")
+    else:
+        command.extend(["--max-numerator-rank", str(args.max_numerator_rank)])
     for option in ("events", "stop_file"):
         if (value := getattr(args, option)) is not None:
             command.extend(["--" + option.replace("_", "-"), str(value)])

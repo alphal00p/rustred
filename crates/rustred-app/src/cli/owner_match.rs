@@ -77,6 +77,7 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     let result = if walking {
         let mut walk = OwnerDomainWalkRequest::new(request);
         walk.workers = args.workers;
+        walk.inspection_workers = args.inspection_workers;
         walk.publication_policy = args.publication_policy;
         walk.max_domains = args.max_domains;
         walk.max_frontiers = args.max_frontiers;
@@ -126,6 +127,8 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     });
     document["max_bounded_refinement_cells"] = json!(args.max_bounded_refinement_cells);
     if walking {
+        // A requested partition is not evidence that any pool was started.
+        document["requested_inspection_workers"] = json!(args.inspection_workers);
         let owner_batched_report = document["schema"] == "rustred.owner-domain-walk.json.v4";
         if args.reuse_initial_d_bands {
             // Preserve the requested opt-in even on preparation-error receipts.

@@ -27,6 +27,7 @@ TRANSFER_LOOKAHEAD = "transfer-unreserved-lookahead"
 INITIAL_D_REUSE = "reuse-initial-d-bands"
 PUBLICATION_POLICY = "publication-policy"
 PUBLICATION_POLICIES = ("ordered", "owner-batched")
+INSPECTION_WORKERS = "inspection-workers"
 WALK_ALLOWANCES = ("workers", "max-domains", "max-frontiers", "max-successor-events", "max-containment-checks",
                    "max-rhs-cells-per-query", "max-term-visits-per-query",
                    "max-native-operations-per-query", "max-rhs-events-per-query",
@@ -61,6 +62,24 @@ class StoreTrueOnce(argparse.Action):
         setattr(namespace, self.dest, True)
 
 
+class StoreOnce(argparse.Action):
+    """Keep an explicit scalar policy from silently overriding itself."""
+    def __call__(self, parser, namespace, value, option_string=None):
+        if getattr(namespace, self.dest, None) is not None:
+            parser.error(f"{option_string} may be supplied only once")
+        setattr(namespace, self.dest, value)
+
+
+def validate_inspection_workers(parser, workers, inspectors, containment_cap):
+    if inspectors is None:
+        return
+    available = 1 if workers == 1 else workers - 1
+    if not 1 <= inspectors <= available:
+        parser.error("inspection workers must be positive and leave one coordinator when workers > 1")
+    if containment_cap not in (None, "unlimited") and inspectors != available:
+        parser.error("finite containment cap requires all non-coordinator workers for inspection")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--executable", type=Path, required=True)
@@ -89,6 +108,8 @@ def main() -> None:
                         help="reuse an exact initial same-owner D band, retaining its obligation; requires successor walk and unreserved delegation")
     parser.add_argument("--" + PUBLICATION_POLICY, choices=PUBLICATION_POLICIES,
                         help="successor publication: global ordered stream (default) or experimental owner-partitioned batches; does not change saved IBP rules")
+    parser.add_argument("--" + INSPECTION_WORKERS, type=positive, action=StoreOnce,
+                        help="explicit partition: N inspectors, workers-1-N admission helpers and one coordinator; one worker stays inline; requires successor walk")
     for option in WALK_ALLOWANCES:
         parser.add_argument("--" + option,
                             type=containment_limit if option == "max-containment-checks" else positive,
@@ -97,7 +118,7 @@ def main() -> None:
     args = parser.parse_args()
     if not args.follow_successors and (args.route_domain_overcover or args.reuse_initial_d_bands or any(
             getattr(args, option.replace("-", "_")) is not None
-            for option in (*WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, "max-route-masks-per-query"))):
+            for option in (*WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, INSPECTION_WORKERS, "max-route-masks-per-query"))):
         parser.error("successor work allowances require --follow-successors")
     if args.max_route_masks_per_query is not None and not args.route_domain_overcover:
         parser.error("route mask allowance requires --route-domain-overcover")
@@ -105,6 +126,8 @@ def main() -> None:
         parser.error("--transfer-unreserved-lookahead requires unlimited containment checks")
     if args.reuse_initial_d_bands and args.transfer_unreserved_lookahead is None:
         parser.error("--reuse-initial-d-bands requires --transfer-unreserved-lookahead")
+    validate_inspection_workers(parser, args.workers or 1, args.inspection_workers,
+                                args.max_containment_checks)
     environment = os.environ.copy()
     for name in ("RAYON_NUM_THREADS", "OMP_NUM_THREADS", "OMP_THREAD_LIMIT",
                  "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "BLIS_NUM_THREADS",
@@ -124,7 +147,7 @@ def main() -> None:
         command.append("--route-domain-overcover")
     if args.reuse_initial_d_bands:
         command.append("--" + INITIAL_D_REUSE)
-    for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, "max-route-masks-per-query"):
+    for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, INSPECTION_WORKERS, "max-route-masks-per-query"):
         if (value := getattr(args, option.replace("-", "_"))) is not None:
             command.extend(["--" + option, str(value)])
     # Inherit the license without persisting or printing it. Replacement keeps

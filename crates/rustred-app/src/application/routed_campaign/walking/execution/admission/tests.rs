@@ -5,6 +5,15 @@ use super::super::super::{
 use super::*;
 use rustred::solver::OwnerDomainMatchDisposition;
 
+fn ordered_budget(workers: usize, cap: Option<usize>) -> WorkerBudget {
+    WorkerBudget::new(
+        workers,
+        None,
+        cap,
+        super::super::super::OwnerDomainWalkPublicationPolicy::Ordered,
+    )
+}
+
 fn request() -> OwnerDomainWalkRequest {
     OwnerDomainWalkRequest::new(super::super::super::OwnerDomainMatchRequest::new(
         String::new(),
@@ -148,7 +157,7 @@ fn assert_same(expected: &State<2>, actual: &State<2>) {
 fn worker_budget_reserves_distinct_lookup_helpers_and_coordinator() {
     for requested in 1..=100 {
         for cap in [None, Some(50)] {
-            let b = WorkerBudget::new(requested, cap);
+            let b = ordered_budget(requested, cap);
             assert_eq!(b.inspection + b.helpers + b.coordinator, requested);
             assert!(b.inspection >= 1);
             if cap.is_some() || requested < 5 {
@@ -156,13 +165,13 @@ fn worker_budget_reserves_distinct_lookup_helpers_and_coordinator() {
             }
         }
     }
-    let b = WorkerBudget::new(50, None);
+    let b = ordered_budget(50, None);
     assert_eq!((b.inspection, b.helpers, b.coordinator), (25, 24, 1));
 }
 
 #[test]
 fn parallel_preparation_preserves_every_event_frontier_and_domain_cap_prefix() {
-    let budget = WorkerBudget::new(8, None);
+    let budget = ordered_budget(8, None);
     let engine = Engine::new(budget).unwrap();
     let cancellation = AtomicBool::new(false);
     let stop = AtomicBool::new(false);
@@ -207,7 +216,7 @@ fn parallel_preparation_preserves_every_event_frontier_and_domain_cap_prefix() {
 
 #[test]
 fn finite_comparison_caps_and_small_workloads_keep_the_serial_path() {
-    let engine = Engine::new(WorkerBudget::new(8, None)).unwrap();
+    let engine = Engine::new(ordered_budget(8, None)).unwrap();
     let cancellation = AtomicBool::new(false);
     for cap in [Some(100_000), None] {
         let mut actual = if cap.is_some() {
@@ -244,7 +253,7 @@ fn finite_comparison_caps_and_small_workloads_keep_the_serial_path() {
 
 #[test]
 fn future_invalid_domain_does_not_jump_over_an_earlier_event_limit() {
-    let engine = Engine::new(WorkerBudget::new(8, None)).unwrap();
+    let engine = Engine::new(ordered_budget(8, None)).unwrap();
     let cancellation = AtomicBool::new(false);
     for limit in [1, 1000] {
         let mut request = request();
@@ -283,7 +292,7 @@ fn future_invalid_domain_does_not_jump_over_an_earlier_event_limit() {
 
 #[test]
 fn cancellation_or_producer_failure_after_preparation_publishes_nothing() {
-    let engine = Engine::new(WorkerBudget::new(8, None)).unwrap();
+    let engine = Engine::new(ordered_budget(8, None)).unwrap();
     for producer_failure in [false, true] {
         let cancellation = AtomicBool::new(false);
         let stop = AtomicBool::new(false);
@@ -312,8 +321,72 @@ fn cancellation_or_producer_failure_after_preparation_publishes_nothing() {
 }
 
 #[test]
+fn explicit_inspector_extremes_preserve_admission_prefixes_and_cancellation() {
+    for inspectors in [1, 7] {
+        let budget = WorkerBudget::new(
+            8,
+            Some(inspectors),
+            None,
+            super::super::super::OwnerDomainWalkPublicationPolicy::Ordered,
+        );
+        let engine = Engine::new(budget).unwrap();
+        assert_eq!(
+            engine
+                .pool
+                .as_ref()
+                .map_or(0, |pool| pool.current_num_threads()),
+            7 - inspectors
+        );
+        let cancellation = AtomicBool::new(false);
+        let stop = AtomicBool::new(false);
+        for cap in [0, 1, 17, 84, 1000] {
+            let mut request = request();
+            request.max_events = cap;
+            let mut expected = seeded(1000, None);
+            let mut actual = seeded(1000, None);
+            assert_eq!(
+                serial(&mut expected, &request, stream()),
+                engine.commit_chunk(
+                    &mut actual,
+                    &request,
+                    stream(),
+                    &cancellation,
+                    &stop,
+                    &mut |_| {}
+                ),
+            );
+            assert_same(&expected, &actual);
+        }
+        for producer_failure in [false, true] {
+            let cancellation = AtomicBool::new(false);
+            let stop = AtomicBool::new(false);
+            let mut actual = seeded(1000, None);
+            let before = actual.queue.domains.clone();
+            let prepared = engine.prepare(
+                &actual.queue,
+                stream(),
+                &cancellation,
+                &stop,
+                &mut actual.admission,
+            );
+            if producer_failure {
+                stop.store(true, Ordering::Release);
+            } else {
+                cancellation.store(true, Ordering::Release);
+            }
+            assert_eq!(
+                Engine::commit_prepared(&mut actual, &request(), prepared, &cancellation, &stop),
+                Err("cancelled")
+            );
+            assert_eq!(actual.events, 0);
+            assert_eq!(actual.queue.domains, before);
+        }
+    }
+}
+
+#[test]
 fn bounded_slices_stop_between_batches_without_discarding_admitted_obligations() {
-    let engine = Engine::new(WorkerBudget::new(8, None)).unwrap();
+    let engine = Engine::new(ordered_budget(8, None)).unwrap();
     let cancellation = AtomicBool::new(false);
     let stop = AtomicBool::new(false);
     let events = || {
@@ -358,7 +431,7 @@ fn native_failure_retains_precedence_and_helpers_do_not_share_producer_pool() {
     if !symbolica::license::LicenseManager::is_licensed() {
         return;
     }
-    let engine = Engine::new(WorkerBudget::new(5, None)).unwrap();
+    let engine = Engine::new(ordered_budget(5, None)).unwrap();
     let cancellation = AtomicBool::new(false);
     let mut state = seeded(1000, None);
     let (_, snapshot, _) = parallel::with_pool::<2, _>(
@@ -398,7 +471,7 @@ fn helper_panic_propagates_only_after_backpressured_native_worker_is_joined() {
     if !symbolica::license::LicenseManager::is_licensed() {
         return;
     }
-    let engine = Engine::new(WorkerBudget::new(5, None)).unwrap();
+    let engine = Engine::new(ordered_budget(5, None)).unwrap();
     let returned = AtomicBool::new(false);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         parallel::with_pool::<2, _>(

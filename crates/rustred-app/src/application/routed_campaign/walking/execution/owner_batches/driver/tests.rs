@@ -29,6 +29,7 @@ fn setup(workers: usize) -> (OwnerDomainWalkRequest, Walk<2>) {
         ),
     );
     request.workers = workers;
+    request.publication_policy = OwnerDomainWalkPublicationPolicy::OwnerBatched;
     request.max_events = 2 * parallel::CHUNK_EVENTS;
     request.max_containment_checks = None;
     request.scheduling_policy =

@@ -211,12 +211,9 @@ fn run_parallel<const N: usize>(
     inspect: impl Fn(&Domain<N>, &AtomicBool, &mut dyn FnMut(Event<N>) -> ControlFlow<()>) -> Finished
     + Sync,
 ) -> Value {
-    let helpers = if request.workers >= 4 && request.max_containment_checks.is_none() {
-        (request.workers - 1) / 2
-    } else {
-        0
-    };
-    let inspectors = request.workers - helpers - 1;
+    let budget = super::super::super::worker_budget::WorkerBudget::for_request(request);
+    let helpers = budget.helpers;
+    let inspectors = budget.inspection;
     let admission_pool = if helpers == 0 {
         None
     } else {

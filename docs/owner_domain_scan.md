@@ -32,6 +32,11 @@ rustred owner-domain-scan --manifest selection.json --owner-base . \
   --max-numerator-rank 10 --output domains.json --events domains.jsonl
 ```
 
+To inspect all saved rule geometry without a numerator-rank prefilter, replace
+`--max-numerator-rank 10` with `--unbounded-rank` in either command. Exactly one
+scope selector is required. Unbounded scope is not a large finite rank and does
+not imply that the saved rules cover that scope.
+
 Direct CLI use requires the same serial inner-pool environment as
 `routed-campaign`. Existing outputs are never overwritten. `--stop-file PATH`
 supports cooperative cancellation. Live TTY output overwrites its dashboard;
@@ -58,9 +63,29 @@ when a summary cap is reached. Neither is a count of solved integrals.
 Both the Python script and direct CLI accept `--max-rules-per-owner`, `--max-terms-per-owner`,
 `--max-regions-per-owner`, `--max-total-regions` and `--max-summary-groups` allow
 bounded scans. These are work/storage allowances, not a mathematical scope
-restriction. Only `--max-numerator-rank` selects the requested input domain.
+restriction. `--max-numerator-rank` or `--unbounded-rank` selects the requested
+input domain.
 The default summary allowance is 16,384 groups; an explicit value may be raised
 up to 1,000,000. Exhausting it returns an incomplete prefix, not a coverage claim.
+
+## Structural shift census
+
+The report and each owner row include `structural_census`, accumulated before
+successors are grouped. It records the largest observed sum of absolute RHS
+index shifts, strict-pinch shifts, possible support changes, and same-support
+changes in `P=A+R`. Rank increase alone need not increase P: the shift
+`(-2,0,-1)` on a same-support cell of support `110` lowers A by two and raises R
+by one, so ΔP=-1.
+Counts are potential sign regions, not distinct integrals or proved reachable
+transitions. Up to four diagnostic examples per obstruction kind are retained.
+
+At report level, `complete_unbounded_shift_l1_bound` is a decimal string only
+after every installed owner finishes an unbounded scan; it is null for a
+finite-rank scan or an incomplete aggregate. A successfully completed earlier owner's own bound remains
+owner-local when a later owner fails. Original identically-zero RHS terms are
+excluded; no sampled cancellation, guard satisfiability or first-rule priority
+is assumed. This information can guide a finite-cover experiment, but it proves
+neither coverage nor validity of the saved formulas as original IBP consequences.
 
 ## Rust boundary
 

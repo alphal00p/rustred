@@ -232,6 +232,7 @@ class SteeringTests(unittest.TestCase):
                     command += ["--" + CAMPAIGN.DOMAIN.TRANSFER_LOOKAHEAD, "50"]
                     command += ["--" + CAMPAIGN.DOMAIN.INITIAL_D_REUSE]
                     command += ["--" + CAMPAIGN.DOMAIN.PUBLICATION_POLICY, "owner-batched"]
+                    command += ["--" + CAMPAIGN.DOMAIN.INSPECTION_WORKERS, "1"]
                 result=subprocess.run(command,capture_output=True,text=True,timeout=10)
                 self.assertEqual(result.returncode,4,result.stderr)
                 receipt=next((directory/"receipts").iterdir())
@@ -263,15 +264,20 @@ class SteeringTests(unittest.TestCase):
                 policy = "owner-batched" if explicit == "unlimited" else "ordered"
                 self.assertEqual(request["publication_policy"], policy)
                 self.assertEqual(summary["publication_policy"], policy)
+                inspectors = 1 if explicit == "unlimited" else None
+                self.assertEqual(request["requested_inspection_workers"], inspectors)
+                self.assertEqual(summary["requested_inspection_workers"], inspectors)
                 self.assertEqual(request["reuse_initial_d_bands"], explicit == "unlimited")
                 self.assertEqual(summary["reuse_initial_d_bands"], explicit == "unlimited")
                 self.assertEqual(actual.count(reuse_option), int(explicit == "unlimited"))
                 if explicit == "unlimited":
                     self.assertEqual(actual[actual.index(transfer_option)+1], "50")
                     self.assertEqual(actual[actual.index(publication_option)+1], "owner-batched")
+                    self.assertEqual(actual[actual.index("--inspection-workers")+1], "1")
                 else:
                     self.assertNotIn(transfer_option, actual)
                     self.assertNotIn(publication_option, actual)
+                    self.assertNotIn("--inspection-workers", actual)
                 for option in CAMPAIGN.FINITE_ALLOWANCES:
                     self.assertNotIn("--"+option,actual)
 
@@ -289,6 +295,11 @@ class SteeringTests(unittest.TestCase):
             ("--targets",["--reuse-initial-d-bands"],"require --queries"),
             ("--targets",["--publication-policy","ordered"],"require --queries"),
             ("--targets",["--publication-policy","owner-batched"],"require --queries"),
+            ("--targets",["--inspection-workers","1"],"require --queries"),
+            ("--queries",["--inspection-workers","2"],"leave one coordinator"),
+            ("--queries",["--inspection-workers","0"],"positive integer"),
+            ("--queries",["--inspection-workers","1","--inspection-workers","1"],"only once"),
+            ("--queries",["--workers","6","--inspection-workers","1","--max-containment-checks","7"],"finite containment cap"),
             ("--queries",["--publication-policy","automatic"],"invalid choice"),
             ("--queries",["--reuse-initial-d-bands"],"requires --transfer-unreserved-lookahead"),
             ("--queries",["--transfer-unreserved-lookahead","50","--reuse-initial-d-bands","--max-containment-checks","99"],"unlimited containment checks"),

@@ -50,6 +50,22 @@ class DomainSteeringTests(unittest.TestCase):
             self.assertEqual(environment[name], "1")
         self.assertEqual(out.getvalue(), "")
 
+    def test_unbounded_rank_is_explicit_and_exclusive(self):
+        arguments = [str(SOURCE), "--executable", "native", "--manifest", "selection.json",
+                     "--output", "result.json"]
+        with patch("sys.argv", [*arguments, "--unbounded-rank"]), \
+                patch.object(SCAN.os, "execve") as execute:
+            SCAN.main()
+        command = execute.call_args.args[1]
+        self.assertIn("--unbounded-rank", command)
+        self.assertNotIn("--max-numerator-rank", command)
+        for scope in ([], ["--unbounded-rank", "--max-numerator-rank", "0"]):
+            with self.subTest(scope=scope), patch("sys.argv", [*arguments, *scope]), \
+                    patch("sys.stderr", new_callable=io.StringIO), \
+                    patch.object(SCAN.os, "execve") as execute, self.assertRaises(SystemExit):
+                SCAN.main()
+            execute.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

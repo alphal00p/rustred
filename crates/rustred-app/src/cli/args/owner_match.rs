@@ -5,6 +5,8 @@ use std::{collections::BTreeSet, ffi::OsString, num::NonZeroUsize, path::PathBuf
 
 #[cfg(test)]
 mod publication_tests;
+#[cfg(test)]
+mod worker_budget_tests;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct OwnerDomainMatchArgs {
@@ -29,6 +31,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub no_progress: bool,
     pub follow_successors: bool,
     pub workers: usize,
+    pub inspection_workers: Option<usize>,
     pub publication_policy: crate::OwnerDomainWalkPublicationPolicy,
     pub route_domain_overcover: bool,
     pub max_route_masks: usize,
@@ -71,6 +74,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         no_progress: false,
         follow_successors: false,
         workers: 1,
+        inspection_workers: None,
         publication_policy: crate::OwnerDomainWalkPublicationPolicy::Ordered,
         route_domain_overcover: false,
         max_route_masks: 100_000,
@@ -116,6 +120,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--follow-successors" => "--follow-successors",
             "--workers" => "--workers",
             "--publication-policy" => "--publication-policy",
+            "--inspection-workers" => "--inspection-workers",
             "--route-domain-overcover" => "--route-domain-overcover",
             "--max-route-masks-per-query" => "--max-route-masks-per-query",
             "--max-rhs-cells-per-query" => "--max-rhs-cells-per-query",
@@ -154,6 +159,9 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         let value = next_utf8_value(&mut arguments, name)?;
         match name {
+            "--inspection-workers" => {
+                result.inspection_workers = Some(parse_positive_integer(name, value)?);
+            }
             "--publication-policy" => {
                 result.publication_policy = match value.as_str() {
                     "ordered" => crate::OwnerDomainWalkPublicationPolicy::Ordered,
@@ -262,6 +270,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     if !result.follow_successors
         && [
             "--workers",
+            "--inspection-workers",
             "--publication-policy",
             "--max-domains",
             "--max-frontiers",
@@ -290,6 +299,12 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "route mask allowance requires --route-domain-overcover",
         ));
     }
+    crate::OwnerDomainWalkRequest::validate_inspection_workers(
+        result.workers,
+        result.inspection_workers,
+        result.max_containment_checks,
+    )
+    .map_err(ArgError::InvalidCombination)?;
     if result.transfer_unreserved_lookahead.is_some() && result.max_containment_checks.is_some() {
         return Err(ArgError::InvalidCombination(
             "--transfer-unreserved-lookahead requires unlimited containment checks",

@@ -12,6 +12,8 @@ use serde_json::{Value, json};
 use super::{RoutedCampaignRequest, input, prepare};
 use crate::AppError;
 
+mod structural;
+
 #[derive(Clone, Debug)]
 pub struct OwnerDomainScanRequest {
     pub selection_json: String,
@@ -168,6 +170,7 @@ fn run<const N: usize>(
     let mut owners = Vec::new();
     let mut total_regions = 0usize;
     let mut total_groups = 0usize;
+    let mut structural_census = structural::Census::default();
     let mut scan_complete = true;
     for sector in programs.owner_sectors() {
         observer(json!({"event":"owner_scan_started", "owner":mask(sector),
@@ -175,6 +178,7 @@ fn run<const N: usize>(
             "retained_regions":total_regions}));
         // Counts only: predicates remain in native programs, never stringify CAS.
         let mut groups = BTreeMap::new();
+        let mut owner_census = structural::Census::default();
         let mut summary_limit = None;
         let result = programs.visit_owner_rule_successors(
             *sector,
@@ -209,6 +213,16 @@ fn run<const N: usize>(
                 );
                 if !groups.contains_key(&key) && total_groups == request.max_summary_groups {
                     summary_limit = Some("summary groups");
+                    return ControlFlow::Break(());
+                }
+                // Observe every accepted sign cell, not only each group's example.
+                // A capped or failed scan never promotes these prefix observations
+                // to an all-program shift bound.
+                if let Err(error) = owner_census
+                    .observe(&region)
+                    .and_then(|()| structural_census.observe(&region))
+                {
+                    summary_limit = Some(error);
                     return ControlFlow::Break(());
                 }
                 let row = groups.entry(key).or_insert_with(|| {
@@ -253,6 +267,7 @@ fn run<const N: usize>(
             "summary_limit":summary_limit, "rules":stats.rules, "terms":stats.terms,
             "regions":stats.regions, "split_operations":stats.split_operations,
             "exact_zero_terms":stats.exact_zero_terms, "rank_empty_prefilters":stats.rank_empty_prefilters,
+            "structural_census":owner_census.document(error.is_none(), request.max_numerator_rank),
             "successor_groups":groups});
         observer(json!({"event":"owner_scan_finished", "owner":mask(sector),
             "scan_complete":scan_complete, "rules":stats.rules, "terms":stats.terms,
@@ -269,6 +284,7 @@ fn run<const N: usize>(
         "saved_entry_rank":programs.context().scope().max_numerator_rank,
         "prepared_seconds":prepared_seconds, "scan_seconds":start.elapsed().as_secs_f64()-prepared_seconds,
         "retained_regions":total_regions, "summary_groups":total_groups,
+        "structural_census":structural_census.document(scan_complete, request.max_numerator_rank),
         "region_counter_semantics":"retained_regions counts summarized callbacks; owner regions also counts a callback rejected at a summary limit",
         "installed_owners":programs.owner_count(), "owners":owners}),
         scan_complete,

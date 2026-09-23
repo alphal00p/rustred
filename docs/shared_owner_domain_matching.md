@@ -409,7 +409,19 @@ through the Rust API. None is an elapsed timeout or an input-rank restriction.
 ### Bounded parallel inspection
 
 `--workers N` requires `--follow-successors` and defaults to one. The native
-request accepts 1–64 subject to the existing CPU-affinity and Symbolica-license
+request also accepts optional `--inspection-workers I` (Rust field
+`OwnerDomainWalkRequest::inspection_workers`). For N>1 this reserves exactly I
+inspectors, N-1-I admission helpers and one coordinator; for N=1 only I=1 is valid
+and execution stays inline. Omission preserves the existing policy-specific
+automatic split. For example, N=50 normally means 25/24/1, while I=40 requests
+40/9/1. This is a configured reservation, not a claim about busy cores or speed.
+With a finite containment-comparison allowance, an explicit partition must have
+no admission helpers (I=N-1 for N>1), preserving sequential cap accounting.
+The CLI, both Python steering scripts and completion report expose this choice.
+Inspectors and helpers retain separate bounded pools because an inspector can
+block awaiting publication; sharing that same blocking pool would risk deadlock.
+
+The native request accepts 1–64 subject to the existing CPU-affinity and Symbolica-license
 checks; the campaign supervisor additionally enforces its 50-compute-worker
 budget, including declared concurrent jobs. Workers borrow the same immutable
 prepared owner library. They do not clone that library or transmit native
