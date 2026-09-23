@@ -45,6 +45,16 @@ without changing a running executable or accepting CPU occupancy as speedup. See
 This is still a step toward the complete 67-owner envelope,
 not a substitute for exhausting it.
 
+Two independent design/review agents have also assessed changes to the amount
+of proof work, beyond scheduler tuning. Their research priorities are reusable
+immutable rule transfers and a separately checked finite closed domain cover;
+exact union differences and tighter routed images are competing hypotheses.
+All remain subject to measured cold pilots and unchanged responsibility,
+guard, descent and artifact-provenance requirements. See
+[the architecture review](research/finite_closure_architecture_review_2026-09-23.md).
+The larger A11 saved-input control completes in 7.778 s Ordered versus 9.593 s
+concurrent owner and still does not justify a broad restart.
+
 ### Older full attempt: cooperative stop completed
 
 The original all-67-owner run stopped through its existing stop

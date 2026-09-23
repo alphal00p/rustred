@@ -21,6 +21,16 @@ has stopped cooperatively: 8,274,060 completed native inspections, one cancelled
 partial, 10,413,595 pending native obligations and zero observed frontiers.
 Its retained partial report is not closure or a resumable work checkpoint.
 
+**Independent architecture challenge:** two separate agents reviewed radical
+alternatives to scheduler tuning. Their agreed priorities are cold reusable rule
+transfers for a low-risk pilot and a compact finite closed-cover checker for a
+higher-upside research experiment. Neither is yet implemented or measured.
+The larger completed A11 control remains slower under concurrent-owner execution
+(9.593 s versus 7.778 s Ordered), so no full campaign restart or ETA is justified.
+See [the proposals, adversarial conditions and pilot gates](docs/research/finite_closure_architecture_review_2026-09-23.md).
+These do not change the finite starting envelope, descendant coverage, terminal
+policy or current artifact-provenance boundary.
+
 ## Historical progress snapshots
 
 The dated snapshots below retain the evidence and decisions at each checkpoint.

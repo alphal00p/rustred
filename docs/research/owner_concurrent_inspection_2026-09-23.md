@@ -204,3 +204,25 @@ lane while an independent lane prepares/runs larger matched saved-input controls
 and audits accounting. Require measured elapsed-time improvement, useful work
 and memory limits; a larger active-thread count is not sufficient. Source changes
 must not alter frozen executables or evidence of an already-running pilot.
+
+## Larger matched baseline: A11/R2/D9
+
+A subsequent input-driven control widens the same four owners to 45,342 starting
+tuples, represented by four symbolic regions with A<=11, R<=2 and A-R>=9. Both
+fifty-worker runs complete. Ordered takes 7.777882 s and concurrent owner
+9.593036 s on the same traversal boundary. They inspect 27,806 / 32,333 native
+regions and emit 695,918 / 744,009 events. All exact starting handles, native
+discharges, alias representatives and partial-initial anchors pass the reused
+independent raw checker. Descendant region rank bounds reach three; entry rank
+two does not clip them. This is not a complete 67-owner run.
+
+Heartbeat-labelled CPU windows average 9.36 / 7.64 busy cores. Both again report
+zero producer-buffer backpressure. Ordered reclaims 27,698 completed slots
+(peak 256 retained entries, 6.04 MB accounted); the owner-local lane reclaims
+none. Peak supervised-process RSS is 584,360 / 628,172 KiB. The same shared-host,
+short single-pair and pre-existing Ordered-escrow caveats apply. Full evidence:
+`TMP/owner-larger-pilot.zP4XkJ/RESULTS.md` and its `run-a11/` receipts.
+
+Two independent research lanes now challenge the larger algorithmic design,
+including avoiding repeated region work rather than only scheduling it faster.
+Their alternatives and critiques are not implemented or measured speedups.
