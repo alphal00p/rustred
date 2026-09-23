@@ -59,6 +59,35 @@ interval, so it is not an isolated-host performance measurement. Continue the
 same full attempt. Independent evidence is
 `TMP/initial-overlap-gate.4Tj82V/INDEPENDENT_WAVE4_CROSSING_AUDIT_14383S.md`.
 
+### Four-hour follow-up: continuing growth and shared-host paging
+
+The complete 14,439.839--15,340.562 s observation window services 275.64 native
+inspections/s against 399.28/s net native demand. Pending native obligations
+increase by 111,360 to 7,234,523. Average utilization is 6.041 physical-core
+equivalents out of 50 configured workers. Zero observed frontiers still
+describes inspected work only; neither exhaustion nor a sub-ten-hour ETA is
+established.
+
+The nearby RSS fall from 70.76 to 26.92 GB must **not** be interpreted as a
+corresponding reduction in retained memory. Read-only process checks find
+approximately 81.60 GB swapped out.
+A separate 30-second sample at 16:00:36--16:01:06 UTC observes 108,474 major
+faults and approximately 444 MB additional process read I/O, while the host
+is actively paging under memory pressure. It uses 7.36 core equivalents:
+5.73 in admission lookup, 1.27 in inspection, and 0.35 in the coordinator
+(plus minor other-thread work and rounding). Relevant cgroup memory and swap
+limits are unlimited, with no recorded high/max/OOM events. The configured
+500-GB ceiling does not reserve that much resident RAM on this shared host.
+
+Paging is therefore a measured performance confound, not proof that it alone
+explains the admission bottleneck. Do not present the lower RSS as a reduced
+working set or extrapolate isolated-host performance from this interval.
+The full attempt remains unchanged; no other process or host setting was
+modified. Additional heavy builds are deferred while the bounded index patch
+undergoes source review.
+Independent receipt:
+`TMP/initial-overlap-gate.4Tj82V/INDEPENDENT_UTILIZATION_AND_SWAP_AUDIT_15340S.md`.
+
 ### Small input-only work-compression control
 
 A separate two-loop sunset control tests pre-admitting a finite staircase
