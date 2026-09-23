@@ -1,5 +1,18 @@
 # RustRed project goal
 
+**Live diagnostic observation — frozen at heartbeat 2,074.852853168 s,
+September 23:** the all-67-owner H256 run was still running, with 1,325,896
+native publications, 3,772,729 transferred obligations and 1,946,321 native
+obligations pending. Its 1,253,309 published aliases are not native inspections
+or proof that their representatives have finished. Zero frontiers were observed,
+but this is neither closure nor a completion ETA. Recent complete windows used
+only 3.48–4.56 actual CPU cores despite 50 configured slots; RSS was 27.38 GB.
+Repeated expensive Apply jobs and ordered head-of-line waiting are now prominent
+in the slowdown, alongside lookup traffic; a saturated serial commit thread alone
+does not explain it. The isolated containment-filter measurement harness is
+source-audited but unbuilt/unrun, with no claimed speedup. See the
+[frozen slowdown observations](docs/research/five_loop_utilization_2026-09-23.md#live-delegation-pilot-frozen-slowdown-observations).
+
 **Current integration slice — September 23:** explicit finite-root admission is
 already pushed as `f0370c8e`. Typed entry-witness feedback and opt-in delegation
 of unreserved contained domains are now connected and source-frozen, with

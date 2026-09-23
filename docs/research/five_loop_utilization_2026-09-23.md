@@ -398,3 +398,100 @@ alias publication alone is not evidence that native work is draining.
 Actual CPU-time deltas and pending-native growth will determine whether a
 longer attempt is justified. At launch, there is no new five-loop performance,
 closure or completion-time claim.
+
+## Live delegation pilot: frozen slowdown observations
+
+The observations in this section are frozen at native heartbeat
+**2,074.852853168 s** on September 23, from
+`TMP/witness-delegation-gate.9qXc3m/shared-owner-campaign.zx0rs62j/`.
+The run was **still live** at this boundary; these are not final results.
+Independent read-only evidence is retained in
+`TMP/witness-delegation-gate.9qXc3m/INDEPENDENT_SLOWDOWN_AUDIT_2000S.md`.
+No build, profiling attachment, process interruption or solver restart was
+performed for that audit.
+
+All 67 initial regions had passed local inspection. The frozen counters were:
+
+| Quantity | Observed value |
+|---|---:|
+| Historical admitted obligations A | 7,044,946 |
+| Transferred obligations T | 3,772,729 |
+| Native publications N | 1,325,896 |
+| Alias publications P | 1,253,309 |
+| Logical publications N+P | 2,579,205 |
+| Pending native obligations A-T-N | 1,946,321 |
+| Observed frontiers | 0 |
+| Committed events | 88,516,559 |
+| Charged containment comparisons | 81,920,164,582 |
+| Native heartbeat RSS | 27,380,068,352 bytes (27.38 GB) |
+
+There was no reported worker failure or resource-limit stop, and maximum
+scheduled finite rank had reached 18. Intermediate ranks are not clipped to the
+entry rank. A transfer is still a responsibility; publishing its alias does
+not inspect it or prove that its representative has completed. Historical
+admissions, pending native work and logical queue length must remain separate.
+Zero observed frontiers concern the inspected prefix, not the unprocessed
+domain or absence of missing rules everywhere.
+
+The post-root workload became substantially more expensive. Three complete
+approximately two-minute windows show the change:
+
+| Native heartbeat interval (s) | Native publications/s | Apply publications/s | Pending-native change/s | Actual busy CPU cores |
+|---|---:|---:|---:|---:|
+| 1,560.640–1,679.369 | 62.01 | 12.37 | +101.11 | 3.63 |
+| 1,680.374–1,799.106 | 47.98 | 10.12 | +137.89 | 3.48 |
+| 1,800.112–1,919.885 | 28.50 | 5.27 | +88.69 | 4.56 |
+
+These CPU figures sum thread CPU deltas over sampler intervals; assigning
+samples to heartbeat windows permits approximately two seconds of edge
+misalignment. They are actual usage, not the 50 reserved compute slots.
+Inspectors used about 1.33–1.40 cores, lookup helpers 2.02–3.07 and the
+coordinator only 0.086–0.104 in these windows. The first post-root window had
+1,653 native publications/s and about 5.02 busy cores, but its different
+domain costs and phase mix prohibit a like-for-like speedup/regression claim.
+
+The newer evidence changes the bottleneck diagnosis: **repeated expensive
+Apply-domain streaming with ordered head-of-line waiting is now prominent**,
+alongside substantial admission lookup work when chunks arrive. It is not
+adequately explained by a saturated serial commit thread. Preparation occupied
+15.82–21.39% of wall time and ordered commit 8.48–9.51%. The remaining roughly
+70–76% includes waiting, polling, dispatch and reporting; it cannot all be
+assigned to one operation without more direct timing.
+
+For example, Apply ID 2,577,768, owner `011101110111000`, stayed at the publisher
+for at least 26.17 sampled seconds (1,888.684–1,914.855 s), admitting only 130
+new domains while committing 220,283 events and charging 439,063,137 containment
+comparisons. ID 2,578,058 similarly streamed 148,818 events over at least
+23.14 seconds without a new admission. The cursor subsequently advanced:
+these are expensive progressing jobs, not evidence of deadlock. Owner labels
+alone do not identify their complete coordinate/rank/power-bounded workload.
+
+At 1,895.733 s, 140 finished jobs awaited publication and 11 inspectors were
+active, ten of them backpressured. Other samples had only two active inspectors.
+The logical H256 fence, aliases within that window and ordered publication can
+leave fewer dispatchable native jobs than physical cores. Raising H might help
+overlap, but also protects more eventually redundant work from transfer; it is
+not an automatic utilization fix. The current run has not been changed.
+
+Containment counts are charged comparisons, not an instruction profile.
+Reverse maintenance preflights its comparison allowance; speculative lookup
+counts overlap committed counts and must not be added to them. Likewise,
+native-operation/predicate totals are credited when an inspection returns,
+so they do not locate the active unfinished job's inner-loop cost.
+
+Pending native work grew in all three complete windows. A nearly flat short
+fragment near the frozen endpoint is not sustained drain. There is therefore
+**no evidence-backed completion ETA, fifteen-hour success forecast or closure
+claim**. Memory remains far below the configured 500 GB ceiling; the present
+problem is useful throughput and repeated work, not demonstrated RAM exhaustion.
+
+The isolated containment measurement harness under
+`TMP/parent-partition-design.xkm6A5/containment-measurement/` is prepared and
+independently source/mathematically reviewed, but **unbuilt and unrun** at this
+checkpoint. It proposes comparing aggregate and coordinate-block filters
+against frozen native containment on bounded saved-descriptor prefixes, with
+every representative/retirement decision checked. Such prefixes omit reused
+proposals and cannot establish a campaign speedup. Given the newer Apply-job
+evidence, this is a measurement option, not a decision that a containment-only
+optimization will solve the slowdown. No new index, CAS algorithm or rule
+generation was introduced by this documentation update.

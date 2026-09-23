@@ -1,5 +1,21 @@
 # Finite starting domains and fixed-target repair
 
+## Current live diagnostic — frozen observation, September 23
+
+At heartbeat **2,074.852853168 s**, the release-gated H256 delegation run over
+all 67 starting owners was still live: 1,325,896 native publications,
+3,772,729 transfers, 1,253,309 alias publications and **1,946,321 pending
+native obligations**, with zero observed frontiers. Alias publication is not
+native inspection or successful discharge. Recent complete windows used
+3.48–4.56 CPU cores of 50 configured slots; heartbeat RSS was 27.38 GB.
+The slowdown now includes repeated expensive Apply streaming and ordered
+head-of-line waiting, not merely serial admission. No finite-domain exhaustion,
+family closure or completion ETA follows. The containment-filter harness is
+prepared and independently source-reviewed, but not built or run; its possible
+benefit remains unmeasured. See the
+[frozen observations and timing caveats](research/five_loop_utilization_2026-09-23.md#live-delegation-pilot-frozen-slowdown-observations).
+The older stopped diagnostic below is a separate run.
+
 ## Resumed investigation — September 23
 
 The user has resumed the five-loop utilization investigation. The prepared
