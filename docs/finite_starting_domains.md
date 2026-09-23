@@ -27,6 +27,20 @@ and explicit finite terminal union. It does not require a minimal basis,
 terminal numerical evaluation, or universal certification. Earlier checkpoints
 below are historical and do not describe the present process state.
 
+The unchanged owner bundles already carry the explicit fixed terminal keys;
+their union supplies the finite terminal set. A separate human-readable CSV
+is optional convenience, not another completion gate or reason to build a
+new extractor. Portable packaging changes only owner file paths, preserving
+all payloads, masks, routes, limits and the exact finite entry policy.
+
+The portable inputs are now staged under
+`TMP/portable-owner-inventory.rb8tYe/prepared-inputs/`, explicitly marked
+**INCOMPLETE**. All 67 bundles (1,280,854,595 bytes), the unchanged entry document
+and the existing 67-key canary are present. The generic local copy helper passes
+nine focused tests; staging imports no Symbolica data and changes no solver
+state. This prepares delivery only: no full-walk result or cold-load success is
+claimed by the copy. The live run continues unchanged.
+
 ## Integrated reuse policy — September 23
 
 The measured initial-domain overlap optimization is implemented and passes
