@@ -4,10 +4,24 @@
 
 The separate coordinate-block admission filter now passes independent review
 and focused index, queue and clean-owned walking gates. The small native
-walking controls also pass with 1/2/6/50-worker variants enabled. It retains
-the exact same containment authority and pending obligations; it is not yet
-in the live executable, and a campaign speedup has not been measured. See the
-[implementation and test boundary](research/five_loop_utilization_2026-09-23.md#coordinate-block-filter-implementation-and-correctness-gates).
+walking controls also pass with 1/2/6/50-worker variants enabled. Paired non-test
+production-queue replays preserve all tested representatives, retirements and
+semantic counters, using 44–55% of baseline proposal-admission CPU on three
+small saved-shape/synthetic-reuse mixes. Candidate-index storage increases;
+these measurements are not a campaign speedup or evidence of 50-core scaling.
+The filter is committed/pushed as `fb1850bc` but is not in the live executable.
+See the [measurement boundary](research/five_loop_utilization_2026-09-23.md#paired-production-admission-measurements).
+
+The unchanged full run reaches 6,133,742 native publications, 7,540,268 pending
+native obligations and zero observed frontiers at heartbeat 17,453.200 s
+(about 4 hours 51 minutes). The latest complete 15-minute audit services
+240.39 native inspections/s against 525.66/s net demand, using only 3.02 busy
+cores on average. Pending work is not draining; no under-ten-hour ETA or
+finite-domain closure is established. Shared-host memory pressure has eased,
+but the process still has swapped-out state and incurs major faults. Keep the
+ongoing campaign and the new index's isolated performance evidence distinct.
+
+The earlier resource snapshot below is historical, not current RSS or usage.
 
 The unchanged 67-owner full-jet attempt remains live. At heartbeat
 12,628.923 s (about 3.5 hours), it had published 5,094,503 native inspections,

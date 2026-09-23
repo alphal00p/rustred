@@ -1,6 +1,35 @@
 # Five-loop full-owner utilization investigation — September 23
 
-## Latest active run: progress without an exhaustion estimate
+## Latest checkpoint: measured admission improvement, full run unfinished
+
+The same 67-owner initial-overlap campaign remains live with its original
+executable and inputs. At heartbeat **17,453.200 s** (about 4 hours 51 minutes),
+it had published **6,133,742 native inspections**, with **7,540,268 pending
+native obligations** and **zero observed frontiers**. This is not closure:
+unfinished descendants and alias/anchor responsibilities remain mandatory.
+No rules have been regenerated or terminal basis minimized.
+
+The latest complete 900-second audit, 16,593.35–17,493.43 s, services
+240.39 native inspections/s against 525.66/s net native demand. Pending work
+grows by 256,772 to 7,567,602; mean utilization is only **3.02 busy cores** out
+of the configured 50. A separate 30-second thread sample at 16:36:03–33 UTC
+uses 3.79 cores: 2.33 in lookup helpers, 0.78 in the coordinator and 0.67 in
+native inspection, plus minor other-thread work. The rate depends strongly
+on the region being visited; these windows are not equal-work comparisons.
+
+Host memory pressure has eased (approximately 997 GB available and memory
+PSI avg60 zero in the new sample), but the process still has about 85.52 GB
+swapped out and 27.26 GB resident. It incurs 107,114 major faults in those
+30 seconds. Thus neither lower RSS nor host recovery demonstrates a small,
+fully resident working set. Do not extrapolate an isolated-host runtime.
+
+The source-gated coordinate-block index is now committed/pushed as `fb1850bc`
+and measured below, but it is **not in this live executable**. The current
+campaign has neither exhausted its queue nor established a sub-ten-hour ETA.
+Completion of the finite starting envelope remains the priority before steps
+(b)–(e); zero observed frontiers alone does not unlock those later steps.
+
+## Earlier active-run observation: progress without an exhaustion estimate
 
 This snapshot refers to the **renewed initial-overlap run**, receipt
 `TMP/initial-overlap-gate.4Tj82V/shared-owner-campaign.alc7oe24/`, with executable
@@ -134,11 +163,74 @@ The passing evidence is under `TMP/coordinate-block-index.m0heTI/`.
 
 Actual metadata layout is 288 bytes per block plus 720 envelope bytes at
 arity 15, before outer-vector spare capacity, grouping and allocator overhead.
-Occupancy and retirement fragmentation affect the per-live-ID cost. Paired
-non-test production-queue timing with reused requests is still pending. The
-earlier 100k-descriptor model remains model-only evidence and cannot establish
-the new implementation's speedup. The live full campaign was not changed,
-restarted or claimed complete by these gates.
+Occupancy and retirement fragmentation affect the per-live-ID cost. The
+completed non-test production-queue measurements follow below. The earlier
+100k-descriptor model remains model-only evidence. The live full campaign was
+not changed, restarted or claimed complete by these gates.
+
+### Paired production admission measurements
+
+Frozen production queue/index/delegation sources from `db23ff0d` and
+`fb1850bc` are compiled optimized, without `cfg(test)`, against the same
+cached native core. Four alternating fresh-process pairs per input run on
+CPU49 with an 8-GiB address-space ceiling. Each input first admits 10,000
+saved descriptors, then 2,000 further saved descriptors, with zero, one or
+eight synthetic strict-contained probes per continuation descriptor. Native
+summary inclusion verifies each probe; these ratios are **not** the measured
+historical request distribution. The source receipt's unread tail is not
+validated by this bounded experiment.
+
+All 24 timed runs match the untimed companion. Both variants return identical
+representatives, retirement sets, live IDs and semantic counters. No owner
+program is loaded and no IBP is generated. The table isolates proposal
+admission, including domain clones, summary construction and queue/index work;
+input preparation, parsing, compilation, checking and reporting are excluded.
+
+| Synthetic contained probes per continuation | Proposal count | Baseline median CPU | Block filter median CPU | Median paired after/before CPU | Actual forward predicates before → after |
+|---|---:|---:|---:|---:|---:|
+| 0 | 2,000 | 24.82 ms | 10.90 ms | 0.439 | 375,186 → 79,364 |
+| 1 | 4,000 | 32.71 ms | 15.33 ms | 0.461 | 588,065 → 158,980 |
+| 8 | 18,000 | 103.68 ms | 57.03 ms | 0.545 | 3,975,971 → 1,329,861 |
+
+Median wall times likewise decrease: 24.97→10.71, 32.45→15.64 and
+105.22→57.87 ms. Seed-admission CPU is 67.5–70.3% of baseline by paired
+median; destruction is measured separately and is not consistently faster.
+All added probes exercise general containment, with no exact-key or orthant
+shortcut hits. Actual reverse-predicate calls are not measured: their
+existing maintenance counter is deliberately a conservative charge.
+
+The tradeoff is more index metadata: tracked candidate vector/envelope
+capacity rises from **237,760 to 1,101,808 bytes**, excluding hash tables,
+allocator overhead, domains and summaries. The final index has 10,348 live
+IDs in 659 blocks (15.70 IDs/block on average). Whole-process peak RSS is
+18–27 MiB for these inputs, including decoded input, outcomes and result JSON;
+it is not marginal index memory. The first zero-probe pair has 20/192 process
+major faults; remaining timed runs have none. Absolute phases are small,
+and the ongoing main run/shared host are measurement context. These results
+support a useful local admission improvement, **not** a five-loop speedup,
+50-core utilization claim or completion ETA.
+
+Source, build, companion, individual measurements and detailed analysis are
+under `TMP/coordinate-block-index.m0heTI/replay/`. The small replay completes
+normally; the live five-loop campaign remains unchanged.
+
+### Report-storage memory follow-up
+
+A separate standalone saved-report sample measures requested allocations for
+300 deep-cloned Serde JSON records, not native algebra or process RSS. Median
+retained tree allocations are 7,625 bytes for Apply records, 4,570 for Route,
+3,909 for aliases and 9,895 for partial-initial records. Every clone returns
+the counter to baseline on drop. Samples come from a bounded prefix of a
+completed-but-incomplete four-owner diagnostic; finalized records differ
+from live shapes, and allocator overhead/capacities are not production-RSS
+measurements. Do not multiply these numbers into a claimed live-memory total.
+
+Independent audit recommends compact serialized report records and bounded
+final output streaming as a possible next memory slice, preserving typed
+responsibility authority and the external report schema. Merely rebuilding
+all JSON trees at shutdown would defer, not remove, the peak; the CLI currently
+also materializes the whole pretty-printed output. No such production change
+has been made. Evidence is under `TMP/report-tree-memory.bWno8v/RESULTS.md`.
 
 ### Small input-only work-compression control
 

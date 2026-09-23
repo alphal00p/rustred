@@ -8,9 +8,19 @@ finite-comparison-cap path. Independent source/math review passes, as do
 and 146 clean-owned walking tests (one ignored). Two native walking controls
 also exercise the 1/2/6/50-worker variants with no preflight skips. These are
 optimized actual-source gates against cached dependencies, not a fresh full
-Cargo/API gate or a five-loop performance result. Paired production-queue
-measurements including reused requests remain pending. The existing full
-five-loop attempt continues unchanged and does not use this filter.
+Cargo/API gate or a five-loop performance result. Paired non-test
+production-queue measurements now preserve every tested representative,
+retirement set and semantic counter. Proposal admission uses 44–55% of the
+baseline CPU time on three small saved-shape/synthetic-reuse mixes; tracked
+candidate-index capacity increases from 238 KB to 1.10 MB. These are local
+admission measurements, not campaign speedups or a 50-core scaling result.
+The existing full five-loop attempt continues unchanged and does not use this
+filter. At heartbeat 17,453.200 s it had published 6,133,742 native inspections,
+with 7,540,268 native obligations pending and zero observed frontiers. The
+latest complete 15-minute audit still finds growing work and only 3.02 busy
+cores on average. Step (a) remains unfinished; there is no defensible
+under-ten-hour completion estimate. Continue toward exhausting the scoped
+starting envelope before terminal minimization or numerical evaluation.
 
 **Current implementation checkpoint — September 23:** initial-domain partial
 reuse is implemented and independently reviewed. The opt-in
