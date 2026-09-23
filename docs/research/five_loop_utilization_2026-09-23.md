@@ -8,18 +8,68 @@ and input hashes recorded under "Renewed run launched" below. Historical section
 below describe separate, already stopped attempts. The current process remains live;
 no solver replacement, rule regeneration or restart accompanied this audit.
 
-At the newer heartbeat **9602.053 s** (about 160 minutes), native publications
-had reached **3,993,258**, with **5,246,198 pending native obligations**, zero
-observed frontiers and rank 19. Nearby aggregate RSS was **74.05 GB**. The
-short drainage interval described below did not persist: an independent
-existing-log analysis ending at 9536.609 s found approximately 39,024 additional
-pending obligations in the preceding-but-one ten-minute window and 218,037 in
-the latest one. Mean utilization was 6.79 and 4.87 cores respectively; native
-service rates were 230.5/s and 213.7/s, versus net demand 295.6/s and 577.5/s.
-These are different work regions, not matched optimization benchmarks. The
-same full attempt continues, without an elapsed deadline or a credible ETA.
-The independent latest-window receipt is
-`TMP/initial-overlap-gate.4Tj82V/INDEPENDENT_TWO_WINDOWS_AUDIT_9537S.md`.
+At heartbeat **12628.923 s** (about 3.5 hours), native publications reached
+**5,094,503**, with **6,473,505 pending native obligations**, zero observed
+frontiers and descendant rank 19. Nearby aggregate RSS was **79.71 GB**;
+the preceding half-hour sampled peak was **82.59 GB**. RSS fluctuates, so the
+peak is not the current value and a linear memory forecast is inappropriate.
+
+| Last two complete 15-minute windows | Earlier | Latest |
+|---|---:|---:|
+| Native publications/s | 365.86 | 333.31 |
+| Net native demand/s | 584.32 | 536.03 |
+| Pending-native increase | 196,473 | 182,304 |
+| Mean busy cores | 7.64 | 8.54 |
+
+All six five-minute bins still grew pending work. Actual utilization in the
+latest window is about **17% of the 50-core budget**, not fifty busy workers.
+Admission preparation/helper-wait plus ordered commit occupied about 67% of
+the coordinator wall interval; this is not a per-thread CPU profile. The
+longest observed publisher span in that window was about two seconds, rather
+than the earlier heavy-Apply tails. Different work regions are being visited;
+these observations do not establish an optimization speedup.
+
+The same full attempt continues without an elapsed deadline or a defensible
+under-ten-hour ETA. The existing two-billion-event allowance has 1.253 billion
+events left at this snapshot. At the latest event rate that would last about
+3.63 additional hours (7.14 hours total); this is a **conditional time to a
+resource limit, not an estimated completion time**. The limit cannot be changed
+in the live immutable request. A future invocation can already request the
+largest supported event allowance without a code change or cap-sized allocation;
+that is not a reason to discard this run's progress now. Memory headroom remains
+ample. Continue monitoring useful work and the event allowance separately.
+
+Independent receipt:
+`TMP/initial-overlap-gate.4Tj82V/INDEPENDENT_UTILIZATION_HEADROOM_AUDIT_12629S.md`.
+
+### Small input-only work-compression control
+
+A separate two-loop sunset control tests pre-admitting a finite staircase
+`A<=a, R<=M-a`, whose union is `A+R<=M`, using existing input geometry and the
+unchanged release CLI. It is an enlarged initial workload, never a descendant
+cutoff. Every escaping child remains ordinary work. No new CAS primitive,
+rule-application policy or five-loop IBP generation was introduced.
+
+For M=6, the baseline top-sector input produces 13 Apply and 13 Route
+inspections. Adding five canonical two-line staircase inputs gives six Apply
+and the same 13 Route inspections: **new Apply work falls from 12 to zero**.
+Both walks exhaust their worklists with zero frontiers/errors and discharged
+reuse obligations. Two runs reproduce the same non-timing counts. The four
+pure steering tests pass; independent source review precedes native execution.
+Independent result review confirms both nonidentity routing maps are exercised
+(ten `110` and three `101` Route records), with identical Route geometry and
+top-sector native statistics across the two input policies. Those routed
+domains have rank zero; this is not a test of numerator transport expansion.
+
+This is evidence that broader initial anchors can absorb recursive Apply work
+with the current engine, not a matched-workload speedup or a five-loop result.
+The additional inputs contain numerator cases absent from the baseline, and
+native algebra-operation counts actually rise from 274 to 499, despite fewer
+scheduled jobs. Five-loop analogues could introduce expensive, unnecessary
+regions. The live five-loop input and process remain unchanged. Local protocol, receipts and
+review are under `TMP/two-loop-staircase-control.gAcMTD/`. Both tiny native
+controls used CPU49, one worker and a 4-GiB address-space bound; exclude their
+brief overlaps around 15:16:59 and 15:17:34 UTC from isolated performance claims.
 
 ### Earlier 96-minute observation
 

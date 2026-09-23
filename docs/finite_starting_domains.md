@@ -3,22 +3,29 @@
 ## Active full-run checkpoint — September 23
 
 The unchanged 67-owner full-jet attempt remains live. At heartbeat
-9,602.053 s (about 160 minutes), it had published 3,993,258 native inspections,
-with 5,246,198 native obligations pending and zero observed frontiers.
-Nearby sampled aggregate RSS was 74.05 GB. The entry policy is
+12,628.923 s (about 3.5 hours), it had published 5,094,503 native inspections,
+with 6,473,505 native obligations pending and zero observed frontiers.
+Nearby sampled aggregate RSS was 79.71 GB (82.59 GB half-hour peak). The entry
+policy is
 `A<=24, R<=15, A-R>=9`, under the physical assumptions below; descendants are
 not clipped and have reached rank 19. No missing-rule frontier has been found
 in completed inspections; this does not establish coverage of unfinished work.
 
 Parallel admission and safe initial-overlap reuse are running, but actual
 utilization remains far below the configured 50-core budget. A clean
-120-second sample averaged 7.16 busy cores, mostly admission lookup; a short
-five-minute interval drained the native queue before subsequent growth.
+120-second sample averaged 7.16 busy cores, mostly admission lookup; the latest
+complete fifteen-minute interval averaged 8.54. A short earlier drainage
+interval did not persist: all six latest five-minute bins grew pending work.
 There is no defensible sub-ten-hour completion estimate. Continue this same
 attempt while monitoring useful progress and the existing memory limits.
 The [utilization report](research/five_loop_utilization_2026-09-23.md)
 distinguishes measured intervals and records the newer, independently tested
 identity-specialization optimization, which is not in the live binary.
+The existing event allowance is a nearer conditional constraint than memory;
+its time-to-limit projection must not be confused with completion. A tiny
+two-loop input-only staircase control now suppresses new Apply work while
+preserving full descendant processing. It is not a five-loop speedup and has
+not changed or replaced this full attempt.
 
 Completion requires exhausted regional work without errors or frontiers and
 resolved alias/anchor dependencies, then the narrow concrete-runtime compatibility
