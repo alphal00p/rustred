@@ -6,6 +6,10 @@ use std::collections::HashMap;
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+mod blocks;
+use blocks::Block;
+pub(super) use blocks::Coordinates;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum Upper {
     Finite(u128),
@@ -92,14 +96,19 @@ impl Signature {
 
 struct Group {
     signature: Signature,
-    /// Increasing immutable admission IDs; no duplicate membership.
-    ids: Vec<usize>,
+    /// Increasing immutable IDs within and across blocks; no duplicates.
+    blocks: Vec<Block>,
+    /// Preserve the aggregate-only index's O(1) maintenance preflight per group.
+    live: usize,
 }
 
 /// Prepared insertion owns new storage until all queue preflights succeed.
 pub(super) struct Insertion {
     signature: Signature,
     new_group: Option<Group>,
+    /// Prepared before responsibility mutation, or None when the existing tail
+    /// has room and must be pinned through reverse retirement.
+    new_block: Option<Block>,
 }
 
 #[derive(Default)]
@@ -116,6 +125,8 @@ pub(super) struct AggregateIndex {
 struct WorkCounters {
     groups_visited: AtomicUsize,
     groups_rejected: AtomicUsize,
+    blocks_visited: AtomicUsize,
+    blocks_rejected: AtomicUsize,
 }
 
 /// Test-replay instrumentation only; no additional production per-group work.
@@ -124,15 +135,30 @@ struct WorkCounters {
 pub(super) struct FilterWork {
     pub groups_visited: usize,
     pub groups_rejected: usize,
+    pub blocks_visited: usize,
+    pub blocks_rejected: usize,
+}
+
+/// Actual allocated block/envelope capacities, excluding group/hash/allocator
+/// overhead and the separately retained domains and native summaries.
+#[cfg(test)]
+#[derive(Debug)]
+struct BlockStorage {
+    live_ids: usize,
+    blocks: usize,
+    id_slots: usize,
+    block_capacity_bytes: usize,
+    envelope_capacity_bytes: usize,
 }
 
 impl AggregateIndex {
     pub(super) fn find(
         &self,
         signature: Signature,
+        coordinates: Option<Coordinates<'_>>,
         contains: impl FnMut(usize) -> Result<bool, &'static str>,
     ) -> Result<Option<usize>, &'static str> {
-        self.find_from(signature, 0, contains)
+        self.find_from(signature, coordinates, 0, contains)
     }
 
     /// Admission IDs are monotone within each group; skip the immutable prefix
@@ -140,27 +166,58 @@ impl AggregateIndex {
     pub(super) fn find_from(
         &self,
         signature: Signature,
+        coordinates: Option<Coordinates<'_>>,
         first_id: usize,
+        contains: impl FnMut(usize) -> Result<bool, &'static str>,
+    ) -> Result<Option<usize>, &'static str> {
+        self.find_controlled(signature, coordinates, first_id, || Ok(()), contains)
+    }
+
+    /// Cancellation checkpoints are uncharged and also visit rejected blocks;
+    /// speculative cancellation must not depend on reaching a native callback.
+    pub(super) fn find_controlled(
+        &self,
+        signature: Signature,
+        coordinates: Option<Coordinates<'_>>,
+        first_id: usize,
+        mut checkpoint: impl FnMut() -> Result<(), &'static str>,
         mut contains: impl FnMut(usize) -> Result<bool, &'static str>,
     ) -> Result<Option<usize>, &'static str> {
         let mut best = None;
         for group in &self.groups {
+            checkpoint()?;
             let eligible = group.signature.may_contain(signature);
             #[cfg(test)]
             self.record_group(eligible);
             if !eligible {
                 continue;
             }
-            let start = group.ids.partition_point(|&id| id < first_id);
-            for &id in &group.ids[start..] {
+            for block in &group.blocks {
+                checkpoint()?;
+                let ids = block.ids();
+                if ids.last().is_none_or(|&id| id < first_id) {
+                    continue;
+                }
                 // Group order may change during retirement. Minimum admission
                 // ID, not hash/vector traversal order, determines the result.
-                if best.is_some_and(|best| id >= best) {
+                if best.is_some_and(|best| ids[0] >= best) {
                     break;
                 }
-                if contains(id)? {
-                    best = Some(id);
-                    break;
+                let eligible = block.may_contain(coordinates);
+                #[cfg(test)]
+                self.record_block(eligible);
+                if !eligible {
+                    continue;
+                }
+                let start = ids.partition_point(|&id| id < first_id);
+                for &id in &ids[start..] {
+                    if best.is_some_and(|best| id >= best) {
+                        break;
+                    }
+                    if contains(id)? {
+                        best = Some(id);
+                        break;
+                    }
                 }
             }
         }
@@ -168,13 +225,22 @@ impl AggregateIndex {
     }
 
     pub(super) fn is_live(&self, signature: Signature, id: usize) -> bool {
-        self.positions
-            .get(&signature)
-            .is_some_and(|&position| self.groups[position].ids.binary_search(&id).is_ok())
+        self.positions.get(&signature).is_some_and(|&position| {
+            let blocks = &self.groups[position].blocks;
+            let block =
+                blocks.partition_point(|block| block.ids().last().is_some_and(|&last| last < id));
+            blocks
+                .get(block)
+                .is_some_and(|block| block.ids().binary_search(&id).is_ok())
+        })
     }
 
-    pub(super) fn prepare(&mut self, signature: Signature) -> Result<Insertion, &'static str> {
-        self.prepare_with(signature, || Ok(()))
+    pub(super) fn prepare(
+        &mut self,
+        signature: Signature,
+        coordinates: Option<Coordinates<'_>>,
+    ) -> Result<Insertion, &'static str> {
+        self.prepare_with(signature, coordinates, || Ok(()))
     }
 
     // The inlined no-op checkpoint lets tests fault-inject each reservation
@@ -182,18 +248,24 @@ impl AggregateIndex {
     fn prepare_with(
         &mut self,
         signature: Signature,
+        coordinates: Option<Coordinates<'_>>,
         mut checkpoint: impl FnMut() -> Result<(), &'static str>,
     ) -> Result<Insertion, &'static str> {
         self.live
             .checked_add(1)
             .ok_or("candidate index count overflow")?;
-        let new_group = if let Some(&position) = self.positions.get(&signature) {
-            checkpoint()?;
-            self.groups[position]
-                .ids
-                .try_reserve(1)
-                .map_err(|_| "aggregate candidate ID allocation")?;
-            None
+        let (new_group, new_block) = if let Some(&position) = self.positions.get(&signature) {
+            let group = &mut self.groups[position];
+            if group.blocks.last().is_some_and(Block::has_room) {
+                (None, None)
+            } else {
+                checkpoint()?;
+                group
+                    .blocks
+                    .try_reserve(1)
+                    .map_err(|_| "coordinate block allocation")?;
+                (None, Some(Block::prepare(coordinates, &mut checkpoint)?))
+            }
         } else {
             checkpoint()?;
             self.groups
@@ -203,20 +275,31 @@ impl AggregateIndex {
             self.positions
                 .try_reserve(1)
                 .map_err(|_| "aggregate group index allocation")?;
-            let mut ids = Vec::new();
+            let mut blocks = Vec::new();
             checkpoint()?;
-            ids.try_reserve(1)
-                .map_err(|_| "aggregate candidate ID allocation")?;
-            Some(Group { signature, ids })
+            blocks
+                .try_reserve(1)
+                .map_err(|_| "coordinate block allocation")?;
+            let block = Block::prepare(coordinates, &mut checkpoint)?;
+            (
+                Some(Group {
+                    signature,
+                    blocks,
+                    live: 0,
+                }),
+                Some(block),
+            )
         };
         Ok(Insertion {
             signature,
             new_group,
+            new_block,
         })
     }
 
-    /// Upper bound used to preflight every fallible counter before mutation.
-    /// Only groups eligible for Q containing C can need a reverse comparison.
+    /// Conservative preflight/accounting bound retained from the aggregate-only
+    /// index. Coordinate blocks can avoid actual callbacks but do not reduce
+    /// these historical reverse-maintenance charges or overflow safeguards.
     pub(super) fn maintenance_len(&self, signature: Signature) -> Result<usize, &'static str> {
         self.groups
             .iter()
@@ -228,7 +311,7 @@ impl AggregateIndex {
             })
             .try_fold(0_usize, |count, group| {
                 count
-                    .checked_add(group.ids.len())
+                    .checked_add(group.live)
                     .ok_or("candidate index count overflow")
             })
     }
@@ -239,6 +322,7 @@ impl AggregateIndex {
     pub(super) fn retire(
         &mut self,
         insertion: &Insertion,
+        coordinates: Option<Coordinates<'_>>,
         mut contains: impl FnMut(usize) -> bool,
     ) -> usize {
         let mut removed = 0;
@@ -251,11 +335,32 @@ impl AggregateIndex {
             self.record_group(eligible);
             let group = &mut self.groups[position];
             if eligible {
-                let previous = group.ids.len();
-                group.ids.retain(|&id| !contains(id));
-                removed += previous - group.ids.len();
+                for block in &mut group.blocks {
+                    let eligible = block.may_be_contained(coordinates);
+                    #[cfg(test)]
+                    {
+                        self.work.blocks_visited.fetch_add(1, Ordering::Relaxed);
+                        self.work
+                            .blocks_rejected
+                            .fetch_add(usize::from(!eligible), Ordering::Relaxed);
+                    }
+                    if eligible {
+                        let previous = block.ids().len();
+                        block.retain(|id| !contains(id));
+                        removed += previous - block.ids().len();
+                        group.live -= previous - block.ids().len();
+                    }
+                }
+                let pin_tail =
+                    group.signature == insertion.signature && insertion.new_block.is_none();
+                let old_len = group.blocks.len();
+                let mut block_position = 0;
+                group.blocks.retain(|block| {
+                    block_position += 1;
+                    !block.ids().is_empty() || (pin_tail && block_position == old_len)
+                });
             }
-            if group.ids.is_empty() && group.signature != insertion.signature {
+            if group.blocks.is_empty() && group.signature != insertion.signature {
                 let key = group.signature;
                 self.groups.swap_remove(position);
                 self.positions.remove(&key);
@@ -273,17 +378,35 @@ impl AggregateIndex {
         removed
     }
 
-    pub(super) fn insert(&mut self, mut insertion: Insertion, id: usize) {
+    pub(super) fn insert(
+        &mut self,
+        mut insertion: Insertion,
+        id: usize,
+        coordinates: Option<Coordinates<'_>>,
+    ) {
         if let Some(mut group) = insertion.new_group.take() {
-            group.ids.push(id);
+            let mut block = insertion
+                .new_block
+                .take()
+                .expect("preallocated new group block");
+            block.insert(id, coordinates);
+            group.blocks.push(block);
+            group.live = 1;
             self.positions
                 .insert(insertion.signature, self.groups.len());
             self.groups.push(group);
         } else {
             let position = self.positions[&insertion.signature];
-            let ids = &mut self.groups[position].ids;
-            debug_assert!(ids.last().is_none_or(|&old| old < id));
-            ids.push(id);
+            let group = &mut self.groups[position];
+            if let Some(block) = insertion.new_block.take() {
+                group.blocks.push(block);
+            }
+            group
+                .blocks
+                .last_mut()
+                .expect("reserved tail block")
+                .insert(id, coordinates);
+            group.live += 1; // bounded by checked global live + 1
         }
         self.live += 1; // checked by prepare before any retirement
     }
@@ -293,7 +416,12 @@ impl AggregateIndex {
         let mut ids: Vec<_> = self
             .groups
             .iter()
-            .flat_map(|group| group.ids.iter().copied())
+            .flat_map(|group| {
+                group
+                    .blocks
+                    .iter()
+                    .flat_map(|block| block.ids().iter().copied())
+            })
             .collect();
         ids.sort_unstable();
         ids
@@ -305,6 +433,27 @@ impl AggregateIndex {
     }
 
     #[cfg(test)]
+    fn block_storage(&self) -> BlockStorage {
+        let blocks = self.groups.iter().map(|group| group.blocks.len()).sum();
+        BlockStorage {
+            live_ids: self.live,
+            blocks,
+            id_slots: blocks * blocks::BLOCK_SIZE,
+            block_capacity_bytes: self
+                .groups
+                .iter()
+                .map(|group| group.blocks.capacity() * std::mem::size_of::<Block>())
+                .sum(),
+            envelope_capacity_bytes: self
+                .groups
+                .iter()
+                .flat_map(|group| &group.blocks)
+                .map(Block::envelope_capacity_bytes)
+                .sum(),
+        }
+    }
+
+    #[cfg(test)]
     fn record_group(&self, eligible: bool) {
         self.work.groups_visited.fetch_add(1, Ordering::Relaxed);
         self.work
@@ -313,10 +462,20 @@ impl AggregateIndex {
     }
 
     #[cfg(test)]
+    fn record_block(&self, eligible: bool) {
+        self.work.blocks_visited.fetch_add(1, Ordering::Relaxed);
+        self.work
+            .blocks_rejected
+            .fetch_add(usize::from(!eligible), Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
     pub(super) fn work(&self) -> FilterWork {
         FilterWork {
             groups_visited: self.work.groups_visited.load(Ordering::Relaxed),
             groups_rejected: self.work.groups_rejected.load(Ordering::Relaxed),
+            blocks_visited: self.work.blocks_visited.load(Ordering::Relaxed),
+            blocks_rejected: self.work.blocks_rejected.load(Ordering::Relaxed),
         }
     }
 }

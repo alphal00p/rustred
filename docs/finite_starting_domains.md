@@ -2,6 +2,13 @@
 
 ## Active full-run checkpoint — September 23
 
+The separate coordinate-block admission filter now passes independent review
+and focused index, queue and clean-owned walking gates. The small native
+walking controls also pass with 1/2/6/50-worker variants enabled. It retains
+the exact same containment authority and pending obligations; it is not yet
+in the live executable, and a campaign speedup has not been measured. See the
+[implementation and test boundary](research/five_loop_utilization_2026-09-23.md#coordinate-block-filter-implementation-and-correctness-gates).
+
 The unchanged 67-owner full-jet attempt remains live. At heartbeat
 12,628.923 s (about 3.5 hours), it had published 5,094,503 native inspections,
 with 6,473,505 native obligations pending and zero observed frontiers.

@@ -1,6 +1,8 @@
 use super::*;
 use rustred::solver::DomainPowerBounds;
 
+mod blocks;
+
 fn signature(a: u128) -> Signature {
     Signature::Nonempty {
         positive: Upper::Finite(a),
@@ -10,8 +12,8 @@ fn signature(a: u128) -> Signature {
 }
 
 fn add(index: &mut AggregateIndex, signature: Signature, id: usize) {
-    let insertion = index.prepare(signature).unwrap();
-    index.insert(insertion, id);
+    let insertion = index.prepare(signature, None).unwrap();
+    index.insert(insertion, id, None);
 }
 
 #[test]
@@ -91,22 +93,28 @@ fn minimum_id_survives_group_swap_removal_and_same_signature_replacement() {
         add(&mut index, signature(id as u128 + 1), id);
     }
     // Retire group 0; swap_remove moves ID 2's group ahead of ID 1's group.
-    let insertion = index.prepare(signature(4)).unwrap();
-    assert_eq!(index.retire(&insertion, |id| id == 0), 1);
-    index.insert(insertion, 3);
-    assert_eq!(index.groups[0].ids, [2]);
-    assert_eq!(index.find(signature(0), |_| Ok(true)).unwrap(), Some(1));
-    assert_eq!(index.find(Signature::Empty, |_| Ok(true)).unwrap(), Some(1));
+    let insertion = index.prepare(signature(4), None).unwrap();
+    assert_eq!(index.retire(&insertion, None, |id| id == 0), 1);
+    index.insert(insertion, 3, None);
+    assert_eq!(index.groups[0].blocks[0].ids(), [2]);
+    assert_eq!(
+        index.find(signature(0), None, |_| Ok(true)).unwrap(),
+        Some(1)
+    );
+    assert_eq!(
+        index.find(Signature::Empty, None, |_| Ok(true)).unwrap(),
+        Some(1)
+    );
 
-    let insertion = index.prepare(signature(2)).unwrap();
-    assert_eq!(index.retire(&insertion, |id| id == 1), 1);
-    index.insert(insertion, 4); // Reserved empty same-signature group survives.
+    let insertion = index.prepare(signature(2), None).unwrap();
+    assert_eq!(index.retire(&insertion, None, |id| id == 1), 1);
+    index.insert(insertion, 4, None); // Reserved empty same-signature group survives.
     assert_eq!(index.ids(), [2, 3, 4]);
     assert_eq!(index.live, 3);
     assert_eq!(index.groups(), 3);
     for (position, group) in index.groups.iter().enumerate() {
         assert_eq!(index.positions[&group.signature], position);
-        assert!(!group.ids.is_empty());
+        assert!(!group.blocks.is_empty());
     }
 }
 
@@ -117,7 +125,7 @@ fn reverse_filter_skips_ineligible_ids_and_both_directions_charge_group_work() {
     add(&mut index, signature(3), 1);
     assert_eq!(
         index
-            .find(signature(2), |id| {
+            .find(signature(2), None, |id| {
                 assert_eq!(id, 1);
                 Ok(false)
             })
@@ -125,15 +133,15 @@ fn reverse_filter_skips_ineligible_ids_and_both_directions_charge_group_work() {
         None
     );
     assert_eq!(index.maintenance_len(signature(2)).unwrap(), 1);
-    let insertion = index.prepare(signature(2)).unwrap();
+    let insertion = index.prepare(signature(2), None).unwrap();
     assert_eq!(
-        index.retire(&insertion, |id| {
+        index.retire(&insertion, None, |id| {
             assert_eq!(id, 0);
             true
         }),
         1
     );
-    index.insert(insertion, 2);
+    index.insert(insertion, 2, None);
     assert_eq!(index.ids(), [1, 2]);
     let work = index.work();
     assert_eq!(work.groups_visited, 6);
@@ -144,10 +152,12 @@ fn reverse_filter_skips_ineligible_ids_and_both_directions_charge_group_work() {
 fn failed_storage_preflight_keeps_group_keys_membership_and_ids() {
     let mut index = AggregateIndex::default();
     add(&mut index, signature(1), 0);
-    for (key, checkpoints) in [(signature(1), 1), (signature(2), 3)] {
+    // A nonfull fixed-size tail now requires no reservation. A new group still
+    // preflights the group vector, hash index and block vector.
+    for (key, checkpoints) in [(signature(1), 0), (signature(2), 3)] {
         for fail_at in 0..checkpoints {
             let mut current = 0;
-            let result = index.prepare_with(key, || {
+            let result = index.prepare_with(key, None, || {
                 let fail = current == fail_at;
                 current += 1;
                 if fail {
@@ -166,7 +176,7 @@ fn failed_storage_preflight_keeps_group_keys_membership_and_ids() {
     }
     index.live = usize::MAX;
     assert!(matches!(
-        index.prepare(signature(2)),
+        index.prepare(signature(2), None),
         Err("candidate index count overflow")
     ));
     assert_eq!(index.ids(), [0]);
@@ -179,14 +189,19 @@ fn empty_containers_never_pass_nonempty_queries_or_retire_nonempty_groups() {
     add(&mut index, Signature::Empty, 0);
     assert_eq!(
         index
-            .find(signature(1), |_| panic!("empty container cannot match"))
+            .find(signature(1), None, |_| panic!(
+                "empty container cannot match"
+            ))
             .unwrap(),
         None
     );
     add(&mut index, signature(1), 1);
     assert_eq!(index.maintenance_len(Signature::Empty).unwrap(), 1);
-    let insertion = index.prepare(signature(2)).unwrap();
-    assert_eq!(index.retire(&insertion, |id| id == 0), 1);
-    index.insert(insertion, 2);
-    assert_eq!(index.find(Signature::Empty, |_| Ok(true)).unwrap(), Some(1));
+    let insertion = index.prepare(signature(2), None).unwrap();
+    assert_eq!(index.retire(&insertion, None, |id| id == 0), 1);
+    index.insert(insertion, 2, None);
+    assert_eq!(
+        index.find(Signature::Empty, None, |_| Ok(true)).unwrap(),
+        Some(1)
+    );
 }

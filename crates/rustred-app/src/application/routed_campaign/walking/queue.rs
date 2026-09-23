@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 mod index;
-use index::{AggregateIndex, Signature};
+use index::{AggregateIndex, Coordinates, Signature};
 mod prepared;
 pub(super) use prepared::PreparedAdmission;
 use prepared::PreparedLookup;
@@ -99,10 +99,12 @@ pub(super) struct Queue<const N: usize> {
     pub(super) delegation: Option<Ledger<(Phase, [bool; N])>>,
     pub next: usize,
     pub deduplicated: usize,
-    /// All general box comparisons, including reverse maintenance comparisons;
-    /// not hash equality or indexed rank checks.
+    /// General comparison accounting: actual forward callbacks plus the
+    /// conservative aggregate-eligible reverse bound. Coordinate block
+    /// rejections can avoid reverse callbacks without reducing that charge.
+    /// Hash equality and indexed rank/coordinate tests are not charged.
     pub containment_checks: usize,
-    /// Reverse comparisons used to maintain maximal candidates, included in
+    /// Conservative reverse-maintenance comparison charges, included in
     /// containment_checks. Zero in the unchanged finite-comparison-cap lane.
     pub containment_maintenance_checks: usize,
     /// Cumulative IDs removed only from the containment candidate index.
@@ -269,13 +271,15 @@ impl<const N: usize> Queue<N> {
                     self.containment_checks += checks; // checked by revalidate
                     found
                 } else {
-                    bucket.indexed.find(Signature::of(summary), |id| {
-                        self.containment_checks = self
-                            .containment_checks
-                            .checked_add(1)
-                            .ok_or("domain containment counter overflow")?;
-                        Ok(self.summaries[id].contains(summary))
-                    })?
+                    bucket
+                        .indexed
+                        .find(Signature::of(summary), Coordinates::of(summary), |id| {
+                            self.containment_checks = self
+                                .containment_checks
+                                .checked_add(1)
+                                .ok_or("domain containment counter overflow")?;
+                            Ok(self.summaries[id].contains(summary))
+                        })?
                 }
             } else {
                 let mut found = None;
@@ -333,9 +337,10 @@ impl<const N: usize> Queue<N> {
         // never logical admission state. Occasional native HashMap rehash is
         // O(admitted domains); hash iteration never determines queue semantics.
         let signature = summary.as_ref().map(Signature::of);
+        let coordinates = summary.as_ref().and_then(Coordinates::of);
         let (new_bucket, insertion) = if let Some(bucket) = self.by_owner.get_mut(&key) {
             let insertion = if let Some(signature) = signature {
-                Some(bucket.indexed.prepare(signature)?)
+                Some(bucket.indexed.prepare(signature, coordinates)?)
             } else {
                 bucket
                     .ids
@@ -350,7 +355,7 @@ impl<const N: usize> Queue<N> {
                 .map_err(|_| "owner domain index allocation")?;
             let mut bucket = OwnerBucket::default();
             let insertion = if let Some(signature) = signature {
-                Some(bucket.indexed.prepare(signature)?)
+                Some(bucket.indexed.prepare(signature, coordinates)?)
             } else {
                 bucket
                     .ids
@@ -409,7 +414,7 @@ impl<const N: usize> Queue<N> {
             // old domains/exact entries. InspectAll retains every FIFO job;
             // optional transfer changes only untouched, unreserved responsibility.
             let summary = summary.as_ref().expect("unlimited lane summary");
-            bucket.indexed.retire(insertion, |old| {
+            bucket.indexed.retire(insertion, coordinates, |old| {
                 let retire = summary.contains(&self.summaries[old]);
                 if retire && !domain.contains(&self.domains[old]) {
                     extra_retired += 1; // preflighted by the maintenance bound
@@ -429,7 +434,7 @@ impl<const N: usize> Queue<N> {
         self.containment_retired_candidates += retired;
         self.containment_semantic_retirements += extra_retired;
         if let Some(insertion) = insertion {
-            bucket.indexed.insert(insertion, id);
+            bucket.indexed.insert(insertion, id, coordinates);
         } else {
             bucket.ids.push(id);
         }

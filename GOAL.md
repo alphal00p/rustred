@@ -1,5 +1,17 @@
 # RustRed project goal
 
+**Admission-index follow-up — September 23:** a conservative coordinate-block
+filter now avoids unnecessary native containment calls without changing the
+inclusion authority, earliest representative, retirement responsibilities or
+finite-comparison-cap path. Independent source/math review passes, as do
+16 focused index tests, 81 queue/delegation tests (one diagnostic ignored),
+and 146 clean-owned walking tests (one ignored). Two native walking controls
+also exercise the 1/2/6/50-worker variants with no preflight skips. These are
+optimized actual-source gates against cached dependencies, not a fresh full
+Cargo/API gate or a five-loop performance result. Paired production-queue
+measurements including reused requests remain pending. The existing full
+five-loop attempt continues unchanged and does not use this filter.
+
 **Current implementation checkpoint — September 23:** initial-domain partial
 reuse is implemented and independently reviewed. The opt-in
 `--reuse-initial-d-bands` policy preserves protected initial obligations and

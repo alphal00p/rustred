@@ -161,6 +161,41 @@ fn prepared_miss_sees_new_candidate_and_fresh_exact_orthant_priority() {
 }
 
 #[test]
+fn prepared_filtered_miss_sees_append_that_widens_the_same_nonfull_block() {
+    let diagonal = |lo, hi| Domain {
+        phase: Phase::Apply,
+        owner: [true; 2],
+        lower: vec![lo, 100 - hi],
+        upper: vec![Some(hi), Some(100 - lo)],
+        rank: None,
+        powers: DomainPowerBounds {
+            max_positive_power: Some(102),
+            min_power_difference: Some(102),
+            max_power_difference: Some(102),
+        },
+    };
+    let mut queue = Queue::new(20, None);
+    assert_eq!(queue.admit(diagonal(0, 0)), Ok((0, true)));
+    let request = diagonal(70, 70);
+    let token = queue.prepare_admission(request, &AtomicBool::new(false));
+    assert_eq!(
+        token.speculative_checks(),
+        0,
+        "the original coordinate block rejects"
+    );
+    assert_eq!(queue.admit(diagonal(60, 80)), Ok((1, true)));
+    assert_eq!(
+        queue.by_owner[&(Phase::Apply, [true; 2])].indexed.groups(),
+        1
+    );
+    // find_from must revisit the widened existing block while skipping its
+    // disproved ID0 prefix; the original request is not a fresh exact-key hit.
+    assert_eq!(queue.admit_prepared(token), Ok((1, false)));
+    assert_eq!(queue.exact_hits, 0);
+    assert_eq!(queue.domains.len(), 2);
+}
+
+#[test]
 fn foreign_queue_tokens_and_cancelled_preparation_fall_back_without_mutation() {
     let mut first = Queue::new(10, None);
     first.admit(box_domain([0, 0], [8, 4])).unwrap();
@@ -196,7 +231,10 @@ fn cancellation_at_each_lookup_checkpoint_preserves_attempted_work_and_ordered_s
             checkpoints += 1;
             checkpoints > allowed
         });
-        assert_eq!(token.speculative_checks(), allowed.saturating_sub(1).min(2));
+        // Checkpoints now include uncharged group/block rejection boundaries.
+        // This two-candidate block performs its two native comparisons only
+        // after the entry, group and block checkpoints have all passed.
+        assert_eq!(token.speculative_checks(), if allowed >= 3 { 2 } else { 0 });
         same_state(&serial, &prepared); // Even mid-scan cancellation is read-only.
         assert_eq!(serial.containment_checks, prepared.containment_checks);
         assert_eq!(

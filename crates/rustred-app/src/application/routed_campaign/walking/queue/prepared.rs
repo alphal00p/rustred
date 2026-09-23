@@ -97,13 +97,22 @@ impl<const N: usize> Queue<N> {
             } else {
                 bucket
                     .indexed
-                    .find(Signature::of(&summary), |id| {
-                        if is_cancelled() {
-                            return Err("cancelled speculative lookup");
-                        }
-                        *checks = checks.checked_add(1).ok_or("speculative check overflow")?;
-                        Ok(self.summaries[id].contains(&summary))
-                    })
+                    .find_controlled(
+                        Signature::of(&summary),
+                        Coordinates::of(&summary),
+                        0,
+                        || {
+                            if is_cancelled() {
+                                Err("cancelled speculative lookup")
+                            } else {
+                                Ok(())
+                            }
+                        },
+                        |id| {
+                            *checks = checks.checked_add(1).ok_or("speculative check overflow")?;
+                            Ok(self.summaries[id].contains(&summary))
+                        },
+                    )
                     .ok()?
             }
         } else {
@@ -168,10 +177,15 @@ impl<const N: usize> PreparedLookup<N> {
         // Retirements remove choices; only subsequent admissions can add one.
         let mut checks = self.checks;
         let found = index
-            .find_from(Signature::of(&self.summary), self.watermark, |id| {
-                checks += 1; // bounded above before this scan
-                Ok(summaries[id].contains(&self.summary))
-            })
+            .find_from(
+                Signature::of(&self.summary),
+                Coordinates::of(&self.summary),
+                self.watermark,
+                |id| {
+                    checks += 1; // bounded above before this scan
+                    Ok(summaries[id].contains(&self.summary))
+                },
+            )
             .ok()?;
         Some((found, checks))
     }

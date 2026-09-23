@@ -88,6 +88,58 @@ undergoes source review.
 Independent receipt:
 `TMP/initial-overlap-gate.4Tj82V/INDEPENDENT_UTILIZATION_AND_SWAP_AUDIT_15340S.md`.
 
+### Coordinate-block filter: implementation and correctness gates
+
+The next-binary queue implementation retains the three native aggregate keys
+and groups increasing candidate IDs into blocks of 32. Coordinate envelopes
+can reject blocks only through necessary inclusion conditions; native
+`DomainPowerSummary::contains` still decides every positive inclusion. The
+filter works in both forward lookup and reverse retirement, preserves the
+earliest live representative, and treats empty sets and infinite bounds
+explicitly. Deletion may leave a loose envelope but cannot cause false
+rejection. Reserved insertion storage survives retirement, so allocation
+failure cannot erase a pending obligation.
+
+Per-group cached live counts avoid a new block scan during counter preflight.
+Reverse-maintenance counters retain their conservative aggregate-candidate
+charge even when the block filter skips native callbacks; they must not be
+interpreted as measured post-filter predicate calls. The finite-comparison-cap
+lane is unchanged. No solver algebra, public schema, scheduling policy or
+topology-specific dispatch was added.
+
+Independent implementation/math review passes. Optimized actual-source
+checks link the already gated native core and cached dependencies:
+
+| Gate | Result | Test wall time |
+|---|---:|---:|
+| Index, including allocation/cancellation/retirement boundaries | 16 passed | 0.01 s |
+| Queue, prepared lookups and responsibility ledger | 81 passed, 1 diagnostic ignored | 6.25 s |
+| Clean-owned walking integration, excluding unrelated escrow work | 146 passed, 1 diagnostic ignored | 6.56 s |
+| Native walking controls with CPU0--49 affinity | 2 passed, no preflight skips | 0.01 s |
+
+The queue gate checks all 46,080 proposals in three orders with 1/3/6 helper
+schedules, including reused requests and newly widened blocks. The broader
+gate compiled and ran on CPU49; its native multicore branches were skipped
+there. The final two controls reran the same binary with 1/2/6/50-worker
+variants enabled and compared native records and responsibility resolution.
+These are small correctness controls, not five-loop parallel benchmarks.
+The wider compilation took 267.76 s with approximately 1.89 GiB peak RSS;
+compilation is not included in the test times above. All seven changed source
+files stayed unchanged across the successful integration gates.
+
+The initial standalone index wrapper had a module-path error, then a test-only
+closure needed an explicit array type. Both unsuccessful compile receipts
+remain preserved; neither was a test pass or a production solver failure.
+The passing evidence is under `TMP/coordinate-block-index.m0heTI/`.
+
+Actual metadata layout is 288 bytes per block plus 720 envelope bytes at
+arity 15, before outer-vector spare capacity, grouping and allocator overhead.
+Occupancy and retirement fragmentation affect the per-live-ID cost. Paired
+non-test production-queue timing with reused requests is still pending. The
+earlier 100k-descriptor model remains model-only evidence and cannot establish
+the new implementation's speedup. The live full campaign was not changed,
+restarted or claimed complete by these gates.
+
 ### Small input-only work-compression control
 
 A separate two-loop sunset control tests pre-admitting a finite staircase
