@@ -107,11 +107,11 @@ fn optional_refusal_matches_admitted_conditional_support_and_exact_rank() {
             stats.optional_original_refusals,
             stats.optional_coalesced_refusals
         ),
-        (2, 1, 1)
+        (1, 1, 0)
     );
     assert_eq!(ordinary.optional_coefficient_refusals, 0);
     assert_eq!(stats.native_operations, ordinary.native_operations);
-    assert_eq!(stats.events, ordinary.events + 2);
+    assert_eq!(stats.events, ordinary.events + 1);
     assert_eq!(
         (small.edges.len(), admitted.edges.len(), small.finished),
         (1, 1, 1)
@@ -124,8 +124,8 @@ fn optional_refusal_matches_admitted_conditional_support_and_exact_rank() {
     assert_eq!(edge.upper, [None, None, Some(0)]);
     assert_eq!(edge.nonzero, OwnerAppliedNonzero::Conditional);
     assert_eq!(edge.nonzero, admitted.edges[0].nonzero);
-    assert_eq!(small.refusals.len(), 2);
-    for (index, refusal) in small.refusals.iter().enumerate() {
+    assert_eq!(small.refusals.len(), 1);
+    for refusal in &small.refusals {
         assert_eq!(
             refusal.disposition,
             OwnerDomainMatchDisposition::SelectedRule { batch: 0, rule: 19 }
@@ -134,7 +134,7 @@ fn optional_refusal_matches_admitted_conditional_support_and_exact_rank() {
         assert_eq!(refusal.upper, [None, None, Some(0)]);
         assert_eq!(refusal.rank, Some(11));
         assert_eq!(refusal.shift, [-1, 0, 0]);
-        assert_eq!(refusal.term, if index == 0 { Some(0) } else { None });
+        assert_eq!(refusal.term, Some(0));
         assert_eq!(
             refusal.error,
             IndexedAlgebraError::ResourceLimit {
@@ -180,7 +180,7 @@ fn optional_refusal_can_first_occur_after_native_coalescing() {
 }
 
 #[test]
-fn optional_refusal_provenance_is_first_per_stage_not_per_term() {
+fn optional_refusal_singleton_provenance_is_first_original_not_per_term() {
     let mut p = refusing_fixture();
     let c = p.context.coefficient_context().clone();
     batch(&mut p).rules[0]
@@ -194,13 +194,86 @@ fn optional_refusal_provenance_is_first_per_stage_not_per_term() {
             stats.optional_original_refusals,
             stats.optional_coalesced_refusals
         ),
-        (4, 2, 2)
+        (2, 2, 0)
     );
-    assert_eq!((out.edges.len(), out.refusals.len()), (2, 2));
+    assert_eq!((out.edges.len(), out.refusals.len()), (2, 1));
     assert_eq!(out.refusals[0].term, Some(1)); // lexicographic shift traversal
-    assert_eq!(out.refusals[1].term, None);
     assert!(out.refusals.iter().all(|r| r.shift == [-2, 0, 0]));
     assert!(stats.optional_coefficient_refusals > out.refusals.len());
+}
+
+#[test]
+fn optional_refusal_addition_permanently_invalidates_singleton_classification() {
+    let mut p = refusing_fixture();
+    let c = p.context.coefficient_context().clone();
+    let value = coupled(&c);
+    // The partial sum becomes zero, then returns to the first coefficient.
+    // It still requires its own classification and honest coalesced refusal.
+    batch(&mut p).rules[0].rhs.extend([
+        term(&c, [-1, 0, 0], c.sub(&c.zero(), &value).unwrap()),
+        term(&c, [-1, 0, 0], value.clone()),
+    ]);
+    let (out, stats) = inspect(&p, [1, 0, 0], small_limits());
+    let stats = stats.unwrap();
+    assert_eq!(stats.coalescing_additions, 2);
+    assert_eq!(stats.cancelled_groups, 0);
+    assert_eq!(
+        (
+            stats.optional_coefficient_refusals,
+            stats.optional_original_refusals,
+            stats.optional_coalesced_refusals
+        ),
+        (4, 3, 1)
+    );
+    assert_eq!(out.refusals.len(), 2);
+    assert_eq!(out.refusals[0].term, Some(0));
+    assert_eq!(out.refusals[1].term, None);
+    assert_eq!(out.edges.len(), 1);
+    assert_eq!(out.edges[0].coefficient, value);
+    assert_eq!(out.edges[0].nonzero, OwnerAppliedNonzero::Conditional);
+}
+
+#[test]
+fn optional_refusal_singleton_admits_only_actual_native_work_and_events() {
+    let p = refusing_fixture();
+    let mut limits = small_limits();
+    // One restriction + original numerator/base-system/zero-locus calls;
+    // Classified + original refusal + Successor + RuleFinished events.
+    limits.max_native_operations = 4;
+    limits.max_events = 4;
+    let (out, stats) = inspect(&p, [1, 0, 0], limits);
+    let stats = stats.unwrap();
+    assert_eq!((stats.native_operations, stats.events), (4, 4));
+    assert_eq!(stats.optional_original_refusals, 1);
+    assert_eq!(stats.optional_coalesced_refusals, 0);
+    assert_eq!(
+        (out.edges.len(), out.refusals.len(), out.finished),
+        (1, 1, 1)
+    );
+}
+
+#[test]
+fn optional_refusal_singleton_with_zero_neighbours_stays_conditional() {
+    let mut p = refusing_fixture();
+    let c = p.context.coefficient_context().clone();
+    batch(&mut p).rules[0]
+        .rhs
+        .insert(0, term(&c, [-1, 0, 0], c.zero()));
+    batch(&mut p).rules[0]
+        .rhs
+        .push(term(&c, [-1, 0, 0], c.index(2).unwrap()));
+    let (out, stats) = inspect(&p, [1, 0, 0], small_limits());
+    let stats = stats.unwrap();
+    assert_eq!((stats.term_visits, stats.zero_terms), (3, 2));
+    assert_eq!(stats.coalescing_additions, 0);
+    assert_eq!(stats.native_operations, 6);
+    assert_eq!(stats.optional_original_refusals, 1);
+    assert_eq!(stats.optional_coalesced_refusals, 0);
+    assert_eq!(out.refusals.len(), 1);
+    assert_eq!(out.refusals[0].term, Some(1));
+    assert_eq!(out.edges.len(), 1);
+    assert_eq!(out.edges[0].coefficient, coupled(&c));
+    assert_eq!(out.edges[0].nonzero, OwnerAppliedNonzero::Conditional);
 }
 
 #[test]

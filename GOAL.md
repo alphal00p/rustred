@@ -35,18 +35,46 @@ actually increases slightly despite much less fragmentation/containment. This
 single shared-host pair demonstrates useful amortization, not fifty-core
 saturation (sampled busy cores 7.74→10.56), an invariant or a full-family ETA.
 
-Next carry the same idea across the complete owner manifest without widening P
-or changing the required envelope. A read-only count needs 57,621 queries and
-about 16.14 MB compact JSON, beyond current count/byte admission limits. Implement
-only generic bounded admission; remove irrelevant Route descriptors from the
-optional initial-overlap index while preserving all Apply descriptors and their
-original IDs. That leaves 406 relevant entries within the existing count cap;
-test the actual logical-byte charge against the unchanged 2 MiB cap as well.
-Audit/test this slice, then try a bounded all-owner scope before the full
-envelope. Keep ordered guard/term reuse as a measured fallback, not a speculative
-new compiler. The full goal still requires concrete-runtime compatibility and
-cold delivery; local exhaustion alone cannot establish them. No new IBP rules
-or CAS primitives are required by these bookkeeping changes.
+Generic bounded count/byte admission is implemented and independently audited:
+562 release application/CLI tests (one existing ignored), 38 Python steering
+tests and an unchanged-input A11 canary pass. The all-owner input's 57,621
+queries/16.14 MB are admitted, with all 406 eligible Apply descriptors retained
+in the optional overlap index under its unchanged 2 MiB logical limit. Route
+inputs remain obligations; no topology-specific algorithm or new CAS was added.
+
+The bounded all-owner A12/R3/D9 comparison has now run. Both variants stopped
+cooperatively at their scheduled-work diagnostic gate, not a time or memory
+limit. Direct finishes its prefix with 457,176 scheduled responsibilities and
+61 committed native inspections; anchored has 382,970 and 105,514 respectively.
+Neither closes E or its descendants. Both show zero observed mathematical
+frontiers but average only about 4.2 busy cores under W50. Their different stopped
+workloads do not support a completion-speed ratio or full-family ETA. See the
+[audited results](docs/research/all_owner_regional_sharing_2026-09-24.md).
+
+The [radical architecture review](docs/research/radical_parallel_architecture_2026-09-24.md)
+and [independent challenge](docs/research/radical_parallel_critique_2026-09-24.md)
+distinguish producers blocked on output from a later head with 255 already-finished
+inspections waiting behind it. Do not duplicate the same expensive anchors in
+independent entry shards and expect that head to be divided. An early-phase
+profile attempt retained only a 0.188-second startup burst after its controller
+rejected the recorder acknowledgement; it cannot establish sustained hotspots.
+A source-level reuse of unchanged coefficient classification now passes 2,818
+core and 562 application release tests (32/1 existing ignored), plus the CLI
+build. Six completed same-input A12 controls reduce median traversal
+11.550→10.873 s and CPU 129.28→117.57 s, preserving mathematical results. Three
+shared-host pairs show a modest improvement, not full-family scaling or an ETA.
+See [measurements and the subdivision experiment](docs/research/native_inspection_subdivision_2026-09-24.md).
+
+Next test physical subdomains of a single logical inspection, not only more
+workers; any split must retain exact coverage, all descendants and genuine
+parent completion. The standalone one-hop prototype is prepared and audited,
+not yet a production scheduler or recursive coverage result. Independently
+assess demand-driven activation of optional anchors as a way to avoid extra
+work, while retaining real admission before reuse and every activated descendant.
+Larger output allowances alone cannot fix every observed regime. The authoritative current execution plan is
+[finite starting domains](docs/finite_starting_domains.md). The full A24/R15/D9
+goal still requires concrete-runtime compatibility and cold delivery; local
+exhaustion alone cannot establish them.
 
 The observational runtime-support census now passes independent source/math
 review, 2,809 core and 303 routed-application release tests (32/1 existing ignored)

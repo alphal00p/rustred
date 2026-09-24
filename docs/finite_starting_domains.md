@@ -93,9 +93,21 @@ that duplicates every anchor: it replicates the same expensive early anchor
 instead of dividing it. Reconsider the actual unit of work before implementing
 micro-epochs or restarting the full A24/R15/D9 envelope. This diagnostic does not
 replace that objective.
-Next profile the frozen expensive initial Apply phase separately from timing
-controls, distinguishing productive native work from publication/helper overhead;
-then choose a bounded unchanged-scope counterfactual, not a full restart.
+The attempted early-phase profile captured only a 0.188-second startup burst
+after acknowledgement framing failed; it cannot establish sustained hotspots.
+The separately audited singleton-classification reuse now passes 2,818 core and
+562 application release tests (32/1 existing ignored) and the CLI build. Six
+completed same-input A12 controls reduce median traversal 11.550→10.873 s and
+process CPU 129.28→117.57 s, without changing mathematical results. The native
+work and optional-diagnostic reductions are explicit; three shared-host pairs
+do not establish fifty-core scaling or a full-envelope ETA.
+See [the measurements and physical-subdivision falsifier](research/native_inspection_subdivision_2026-09-24.md).
+Next divide an expensive native inspection into exact physical parts under one
+unchanged logical obligation; compare broad, split-serial and identical
+split-parallel one-hop work before changing production scheduling. The prepared
+prototype is not recursive closure. Demand-activated optional anchors are a
+separately challenged alternative, not implemented coverage. Do not restart the
+full envelope solely because either design exposes possible concurrency.
 Keep every descendant and distinguish extra-anchor gaps from actual
 entry failures. Concrete-runtime compatibility and cold delivery remain required;
 local walk exhaustion is not sufficient. If sharing ceases to amortize, measure

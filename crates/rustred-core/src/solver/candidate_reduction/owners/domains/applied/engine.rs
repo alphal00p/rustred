@@ -458,6 +458,11 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         let context = &self.context.shared.context;
         let algebra_limits = self.context.limits.indexed_algebra;
         let mut sum: Option<IndexedCoefficient> = None;
+        // This classification belongs to the unchanged restricted coefficient,
+        // on this exact source cell. Zero neighbours do not change it, but any
+        // actual addition permanently invalidates it, even if the sum later
+        // happens to equal the first coefficient again.
+        let mut singleton_classification = None;
         let mut valid = false;
         let mut zero_sector = false;
         for &ordinal in indices {
@@ -581,8 +586,12 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                 continue;
             }
             sum = Some(match sum {
-                None => coefficient,
+                None => {
+                    singleton_classification = Some(nonzero);
+                    coefficient
+                }
                 Some(previous) => {
+                    singleton_classification = None;
                     budget.native()?;
                     budget.stats.coalescing_additions += 1;
                     context
@@ -598,8 +607,24 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         let Some(coefficient) = sum else {
             return Ok(());
         };
-        let nonzero =
-            self.classify_coefficient(piece, cell, rank, shift, None, &coefficient, budget, visit)?;
+        let nonzero = match singleton_classification {
+            Some(nonzero) => {
+                // Preserve the post-classification cancellation boundary, but
+                // do not charge or report an optional attempt that did not run.
+                budget.cancelled()?;
+                nonzero
+            }
+            None => self.classify_coefficient(
+                piece,
+                cell,
+                rank,
+                shift,
+                None,
+                &coefficient,
+                budget,
+                visit,
+            )?,
+        };
         if nonzero == Zero::Yes {
             budget.stats.cancelled_groups += 1;
             return Ok(());
