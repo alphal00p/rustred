@@ -28,6 +28,15 @@ of concurrency has been identified.
 
 Read the [ranked whole-system proposal](research/ibp_generation_architecture_review_2026-09-24.md)
 with the [separate adversarial critique](research/ibp_generation_independent_critique_2026-09-24.md).
+The fresh [radical-architecture review](research/radical_parallel_architecture_2026-09-24.md)
+and [independent challenge](research/radical_parallel_critique_2026-09-24.md)
+add genuine competing decompositions: independent exact entry shards, frozen
+micro-epoch reconciliation, and guarded relational reachability. Their shared
+recommendation is to test the measured regional-sharing strategy on a bounded
+all-owner scope first, then at most two exact entry shards under one aggregate
+resource budget. More duplicated work may buy less coordination, but this is a
+hypothesis, not a demonstrated speedup. New discovery algorithms do not remedy
+this saved-rule traversal without a demonstrated generation bottleneck.
 The first finite-cover falsifier now completes through the existing walker,
 with no engine change. Direct A11 traversal takes 5.846 s; larger four-owner
 P≤13 Apply regions take 12.174 s. Pre-admitting P≤13 regions for the saved routing
@@ -54,14 +63,23 @@ four-owner anchor tuning.
 
 A read-only count for the complete manifest needs 57,621 queries (339 Apply
 anchors, 57,215 Route anchors and the unchanged 67 required roots), about
-16.14 MB compact JSON. Current 10,000-query/1 MiB admission limits reject it.
-The next generic slice is explicit bounded input admission and elimination of
-irrelevant Route descriptors from the optional initial-overlap index: preserve
-original IDs and all Apply descriptors, leaving 406 relevant entries within the
-existing count cap; also test their actual logical-byte charge against the
-unchanged 2 MiB cap. No new CAS or topology-specific algorithm is needed.
-Audit/test this slice and a bounded all-owner scope before restarting the full
-envelope. Keep every descendant and distinguish extra-anchor gaps from actual
+16.14 MB compact JSON. The previous 10,000-query/1 MiB admission rejected it.
+The generic input/index slice is now implemented: explicit count and byte
+allowances retain the 256-query/1 MiB defaults; the optional overlap index excludes
+Route storage while preserving original IDs and all Apply membership. Its 406
+relevant entries fit the unchanged count/byte limits. Independent source review,
+562 release application/CLI tests (one existing ignored), 38 Python steering
+tests and the release CLI build pass. The unchanged-input A11 canary also
+finishes with every prior semantic result/counter preserved: 27,806 native
+inspections, no frontiers or pending work. It makes no new speed claim. See
+[implementation and validation](research/query_admission_and_regional_sharing_2026-09-24.md).
+No new CAS or topology-specific algorithm was added.
+
+A bounded all-owner A12/R3/D9 input pair is prepared and independently audited,
+not launched: 2,123,560 required tuples, 67 versus 57,621 input regions, every
+required root and escape retained. This diagnostic does not replace the full
+A24/R15/D9 envelope. Test it before restarting that envelope.
+Keep every descendant and distinguish extra-anchor gaps from actual
 entry failures. Concrete-runtime compatibility and cold delivery remain required;
 local walk exhaustion is not sufficient. If sharing ceases to amortize, measure
 reusable ordered guard/term work before building a new compiler. Sampled diagonal

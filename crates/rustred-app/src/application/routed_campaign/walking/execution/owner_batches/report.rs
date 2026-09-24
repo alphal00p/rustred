@@ -1,6 +1,20 @@
 //! Composite owner-local identities and global, non-sampled completion status.
 use super::*;
 
+pub(super) fn overlap_summary<const N: usize>(walk: &Walk<N>) -> Value {
+    let mut statuses = BTreeMap::new();
+    for bucket in walk.buckets.values() {
+        let status = bucket
+            .state
+            .initial_overlap_report
+            .map_or("not_built", |r| r.status.as_str());
+        *statuses.entry(status).or_insert(0usize) += 1;
+    }
+    json!({"scope":"per_bucket_indices", "identity_scope":"bucket_local_initial_domain_id",
+        "bucket_status_counts":statuses,"bucket_count":walk.buckets.len(),
+        "limits_apply_separately_per_index":true,"coverage_authority":false})
+}
+
 fn aggregate<const N: usize>(walk: &Walk<N>) -> Value {
     let mut saturated = false;
     let mut sum = |field: fn(&State<N>) -> usize| {
@@ -126,7 +140,7 @@ pub(super) fn finish<const N: usize>(
             walk.error.get_or_insert_with(|| error.clone());
         }
         let name = key_name(key);
-        owner_reports.push(json!({"bucket":name,"phase":format!("{:?}",key.0),"owner":mask(&key.1),
+        let mut owner_report = json!({"bucket":name,"phase":format!("{:?}",key.0),"owner":mask(&key.1),
             "scheduled_nodes":bucket.state.queue.domains.len(),"processed_nodes":bucket.state.queue.next,
             "native_processed_nodes":bucket.state.native_records,"completed_nodes":bucket.state.completed,
             "dispatch_cursor":bucket.dispatch_cursor,"outstanding_native_jobs":bucket.outstanding_native_jobs,
@@ -139,7 +153,14 @@ pub(super) fn finish<const N: usize>(
             "incoming_requests":bucket.incoming_requests,"cross_owner_requests":bucket.cross_owner_requests,
             "admission_wall_seconds":bucket.admission_seconds,"native_visitor_wall_seconds":bucket.native_seconds,
             "native_wall_includes_stream_backpressure":true,"frontiers":bucket.state.frontiers,
-            "delegation":delegation,"error":bucket.state.error}));
+            "delegation":delegation,"error":bucket.state.error});
+        if request.reuse_initial_d_bands {
+            owner_report["initial_overlap_index"] = super::super::super::index_report::render(
+                bucket.state.initial_overlap_report,
+                super::super::super::index_report::Scope::BucketLocal,
+            );
+        }
+        owner_reports.push(owner_report);
         for mut row in std::mem::take(&mut bucket.state.records) {
             row["bucket"] = json!(name);
             records.push(row);
@@ -193,6 +214,9 @@ pub(super) fn finish<const N: usize>(
     // admission, owner partitioning, final ledger/report work and queue cleanup.
     document["native_driver_seconds"] = json!(seconds);
     document["reuse_initial_d_bands"] = json!(request.reuse_initial_d_bands);
+    if request.reuse_initial_d_bands {
+        document["initial_overlap_index"] = overlap_summary(&walk);
+    }
     document["route_domain_overcover"] = json!(request.route_domain_overcover);
     document["max_events"] = json!(request.max_events);
     document["max_frontiers"] = json!(request.max_frontiers);

@@ -76,7 +76,8 @@ pub(super) fn parse(text: &str, arity: usize, limit: usize) -> Result<Vec<Guarde
         object.remove("rule");
     }
     doc["schema"] = Value::String("rustred.owner-domain-queries.json.v2".into());
-    let queries = input::parse(&doc.to_string(), arity, limit)?;
+    // Guarded display retains its independent 1 MiB/10k admission policy.
+    let queries = input::parse(&doc.to_string(), arity, limit, 1024 * 1024)?;
     Ok(queries
         .into_iter()
         .zip(selectors)

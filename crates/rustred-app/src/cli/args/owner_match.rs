@@ -6,6 +6,8 @@ use std::{collections::BTreeSet, ffi::OsString, num::NonZeroUsize, path::PathBuf
 #[cfg(test)]
 mod publication_tests;
 #[cfg(test)]
+mod query_admission_tests;
+#[cfg(test)]
 mod worker_budget_tests;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17,6 +19,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub events: Option<PathBuf>,
     pub stop_file: Option<PathBuf>,
     pub max_queries: usize,
+    pub max_query_bytes: usize,
     pub max_total_pieces: usize,
     pub max_rules: usize,
     pub max_terminal_checks: usize,
@@ -60,6 +63,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         events: None,
         stop_file: None,
         max_queries: 256,
+        max_query_bytes: 1024 * 1024,
         max_total_pieces: 100_000,
         max_rules: limits.max_rules,
         max_terminal_checks: limits.max_terminal_checks,
@@ -103,6 +107,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--events" => "--events",
             "--stop-file" => "--stop-file",
             "--max-queries" => "--max-queries",
+            "--max-query-bytes" => "--max-query-bytes",
             "--max-total-pieces" => "--max-total-pieces",
             "--max-rules-per-query" => "--max-rules-per-query",
             "--max-terminal-checks-per-query" => "--max-terminal-checks-per-query",
@@ -226,6 +231,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                 match name {
                     "--workers" => result.workers = value,
                     "--max-queries" => result.max_queries = value,
+                    "--max-query-bytes" => result.max_query_bytes = value,
                     "--max-total-pieces" => result.max_total_pieces = value,
                     "--max-rules-per-query" => result.max_rules = value,
                     "--max-terminal-checks-per-query" => result.max_terminal_checks = value,
@@ -254,9 +260,14 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             return Err(ArgError::MissingRequiredOption(name));
         }
     }
-    if result.max_queries > 10_000 || result.max_total_pieces > 1_000_000 {
+    crate::OwnerDomainMatchRequest::validate_query_allowances(
+        result.max_queries,
+        result.max_query_bytes,
+    )
+    .map_err(ArgError::InvalidCombination)?;
+    if result.max_total_pieces > 1_000_000 {
         return Err(ArgError::InvalidCombination(
-            "at most 10000 queries /1000000 retained pieces",
+            "at most 1000000 retained pieces",
         ));
     }
     if result.max_frontiers > 1_000_000 {
@@ -395,7 +406,6 @@ mod tests {
     fn owner_domain_match_rejects_duplicate_invalid_and_scope_overrides() {
         for suffix in [
             "--max-queries 0",
-            "--max-queries 10001",
             "--max-total-pieces 1000001",
             "--max-rules-per-query -1",
             "--max-cells-per-query +2",

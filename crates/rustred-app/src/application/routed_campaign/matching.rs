@@ -1,4 +1,6 @@
 //! Ordered local applicability queries over shared saved programs.
+#[cfg(test)]
+mod admission_tests;
 pub(super) mod input;
 
 use std::ops::ControlFlow;
@@ -24,6 +26,8 @@ pub struct OwnerDomainMatchRequest {
     pub reduction_limits: ReductionLimits,
     pub match_limits: OwnerDomainMatchLimits,
     pub max_queries: usize,
+    /// Serialized UTF-8 input allowance, not native memory or descendant work.
+    pub max_query_bytes: usize,
     /// Global retained result pieces, distinct from native per-query work.
     pub max_total_pieces: usize,
 }
@@ -36,8 +40,24 @@ impl OwnerDomainMatchRequest {
             reduction_limits: Default::default(),
             match_limits: Default::default(),
             max_queries: 256,
+            max_query_bytes: 1024 * 1024,
             max_total_pieces: 100_000,
         }
+    }
+
+    pub(crate) fn validate_query_allowances(
+        max_queries: usize,
+        max_query_bytes: usize,
+    ) -> Result<(), &'static str> {
+        if max_queries == 0 || max_query_bytes == 0 {
+            Err("query count and byte allowances must be positive")
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn preflight_queries(&self) -> Result<(), AppError> {
+        input::preflight(&self.queries_json, self.max_queries, self.max_query_bytes)
     }
 }
 
@@ -73,6 +93,8 @@ impl OwnerDomainMatchResult {
             "error_query_id",
             "bounded_refinement_axes",
             "max_bounded_refinement_cells",
+            "requested_max_queries",
+            "requested_max_query_bytes",
         ] {
             if let Some(value) = document.get(key) {
                 event[key] = value.clone();
@@ -94,18 +116,27 @@ pub fn owner_domain_match_with_progress(
     cancellation: &AtomicBool,
     observer: impl Fn(Value),
 ) -> Result<OwnerDomainMatchResult, AppError> {
-    if !(1..=10_000).contains(&request.max_queries)
-        || !(1..=1_000_000).contains(&request.max_total_pieces)
-    {
+    request.preflight_queries()?;
+    if !(1..=1_000_000).contains(&request.max_total_pieces) {
         return Err(AppError::input(
-            "positive match allowances must fit 10000 queries /1000000 pieces",
+            "positive match piece allowance must fit 1000000 pieces",
         ));
     }
     rustred::campaign::ParallelExecution::preflight_requested_core_budget(1)
         .map_err(|error| AppError::input(error.to_string()))?;
     let (selection, arity, limits) = owners::Selection::parse(&request.selection_json)?;
-    let queries = input::parse(&request.queries_json, arity, request.max_queries)?;
-    observer(
+    let queries = input::parse(
+        &request.queries_json,
+        arity,
+        request.max_queries,
+        request.max_query_bytes,
+    )?;
+    let with_allowances = |mut event: Value| {
+        event["requested_max_queries"] = json!(request.max_queries);
+        event["requested_max_query_bytes"] = json!(request.max_query_bytes);
+        observer(event);
+    };
+    with_allowances(
         json!({"event":"admitted", "operation":"owner_domain_match", "arity":arity,
         "query_count":queries.len(), "max_total_pieces":request.max_total_pieces,
         "match_limits":format!("{:?}",request.match_limits), "family_closure_claim":false,
@@ -114,10 +145,13 @@ pub fn owner_domain_match_with_progress(
         "ibp_generation":false, "rhs_successors_expanded":false}),
     );
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
-        $($n => run::<$n>(&request, &selection, limits, &queries, cancellation, &observer),)*
+        $($n => run::<$n>(&request, &selection, limits, &queries, cancellation, &with_allowances),)*
         _ => unreachable!("admitted arity"),
     }} }
-    dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    let mut result = dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)?;
+    result.document["requested_max_queries"] = json!(request.max_queries);
+    result.document["requested_max_query_bytes"] = json!(request.max_query_bytes);
+    Ok(result)
 }
 
 #[derive(Default)]

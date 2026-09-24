@@ -4,6 +4,8 @@ use rustred::solver::DomainPowerBounds;
 use serde_json::Value;
 
 use crate::AppError;
+#[cfg(test)]
+mod admission_tests;
 
 #[derive(Debug)]
 pub(in crate::application::routed_campaign) struct Query {
@@ -67,15 +69,30 @@ fn parse_powers(value: Option<&Value>) -> Result<DomainPowerBounds, AppError> {
     Ok(powers)
 }
 
+/// Validate configured allowances and bytes before parsing or native loading.
+pub(in crate::application::routed_campaign) fn preflight(
+    text: &str,
+    limit: usize,
+    max_bytes: usize,
+) -> Result<(), AppError> {
+    super::OwnerDomainMatchRequest::validate_query_allowances(limit, max_bytes)
+        .map_err(AppError::input)?;
+    if text.len() > max_bytes {
+        return Err(AppError::input(format!(
+            "owner-domain query input exceeds its {max_bytes}-byte allowance"
+        )));
+    }
+    Ok(())
+}
+
 /// Validate every query before loading native rule programs.
 pub(in crate::application::routed_campaign) fn parse(
     text: &str,
     arity: usize,
     limit: usize,
+    max_bytes: usize,
 ) -> Result<Vec<Query>, AppError> {
-    if text.len() > 1024 * 1024 {
-        return Err(AppError::input("owner-domain query input exceeds 1 MiB"));
-    }
+    preflight(text, limit, max_bytes)?;
     let document: Value = serde_json::from_str(text)
         .map_err(|error| AppError::input(format!("owner-domain query JSON: {error}")))?;
     if document["schema"] != "rustred.owner-domain-queries.json.v2" {
@@ -91,96 +108,104 @@ pub(in crate::application::routed_campaign) fn parse(
         ));
     }
     let mut ids = BTreeSet::new();
-    rows.iter()
-        .map(|row| {
-            only_fields(
-                row,
-                &[
-                    "id",
-                    "owner",
-                    "lower",
-                    "upper",
-                    "max_numerator_rank",
-                    "power_bounds",
-                ],
-                "query",
-            )?;
-            let id = row["id"]
-                .as_str()
-                .filter(|id| !id.is_empty() && id.len() <= 128)
-                .ok_or_else(|| AppError::input("query id must contain 1..=128 UTF-8 bytes"))?;
-            if !ids.insert(id) {
-                return Err(AppError::input("query ids must be unique"));
-            }
-            let owner = row["owner"]
-                .as_str()
-                .filter(|bits| bits.len() == arity && bits.bytes().all(|b| b == b'0' || b == b'1'))
-                .ok_or_else(|| AppError::input("query owner must be an arity-sized binary mask"))?;
-            let array = |name: &str| {
-                row[name]
-                    .as_array()
-                    .filter(|a| a.len() == arity)
-                    .ok_or_else(|| AppError::input(format!("query {name} must have family arity")))
-            };
-            let lower: Vec<_> = array("lower")?
-                .iter()
-                .map(|n| {
-                    n.as_u64().ok_or_else(|| {
-                        AppError::input("query lower bounds must be unsigned integers")
-                    })
-                })
-                .collect::<Result<_, _>>()?;
-            let upper: Vec<_> = array("upper")?
-                .iter()
-                .map(|n| {
-                    if n.is_null() {
-                        Ok(None)
-                    } else {
-                        n.as_u64().map(Some).ok_or_else(|| {
-                            AppError::input("query upper bounds must be unsigned integers or null")
-                        })
-                    }
-                })
-                .collect::<Result<_, _>>()?;
-            if lower
-                .iter()
-                .zip(&upper)
-                .any(|(&lo, &hi)| hi.is_some_and(|hi| hi < lo))
-            {
-                return Err(AppError::input("query lower bound exceeds upper bound"));
-            }
-            let rank = match row.get("max_numerator_rank") {
-                Some(Value::Null) => None,
-                Some(value) => Some(
-                    value
-                        .as_u64()
-                        .and_then(|n| u32::try_from(n).ok())
-                        .ok_or_else(|| {
-                            AppError::input("query rank must be an unsigned 32-bit integer or null")
-                        })?,
-                ),
-                None => {
-                    return Err(AppError::input(
-                        "query rank must be explicit (null means unbounded)",
-                    ));
-                }
-            };
-            Ok(Query {
-                id: id.into(),
-                owner: owner.bytes().map(|b| b == b'1').collect(),
-                lower,
-                upper,
-                rank,
-                powers: parse_powers(row.get("power_bounds"))?,
+    // Reserve only actual, byte-admitted input rows, never the caller's cap.
+    let mut queries = Vec::new();
+    queries
+        .try_reserve_exact(rows.len())
+        .map_err(|_| AppError::input("cannot reserve admitted owner-domain queries"))?;
+    rows.iter().try_for_each(|row| {
+        only_fields(
+            row,
+            &[
+                "id",
+                "owner",
+                "lower",
+                "upper",
+                "max_numerator_rank",
+                "power_bounds",
+            ],
+            "query",
+        )?;
+        let id = row["id"]
+            .as_str()
+            .filter(|id| !id.is_empty() && id.len() <= 128)
+            .ok_or_else(|| AppError::input("query id must contain 1..=128 UTF-8 bytes"))?;
+        if !ids.insert(id) {
+            return Err(AppError::input("query ids must be unique"));
+        }
+        let owner = row["owner"]
+            .as_str()
+            .filter(|bits| bits.len() == arity && bits.bytes().all(|b| b == b'0' || b == b'1'))
+            .ok_or_else(|| AppError::input("query owner must be an arity-sized binary mask"))?;
+        let array = |name: &str| {
+            row[name]
+                .as_array()
+                .filter(|a| a.len() == arity)
+                .ok_or_else(|| AppError::input(format!("query {name} must have family arity")))
+        };
+        let lower: Vec<_> = array("lower")?
+            .iter()
+            .map(|n| {
+                n.as_u64()
+                    .ok_or_else(|| AppError::input("query lower bounds must be unsigned integers"))
             })
-        })
-        .collect()
+            .collect::<Result<_, _>>()?;
+        let upper: Vec<_> = array("upper")?
+            .iter()
+            .map(|n| {
+                if n.is_null() {
+                    Ok(None)
+                } else {
+                    n.as_u64().map(Some).ok_or_else(|| {
+                        AppError::input("query upper bounds must be unsigned integers or null")
+                    })
+                }
+            })
+            .collect::<Result<_, _>>()?;
+        if lower
+            .iter()
+            .zip(&upper)
+            .any(|(&lo, &hi)| hi.is_some_and(|hi| hi < lo))
+        {
+            return Err(AppError::input("query lower bound exceeds upper bound"));
+        }
+        let rank = match row.get("max_numerator_rank") {
+            Some(Value::Null) => None,
+            Some(value) => Some(
+                value
+                    .as_u64()
+                    .and_then(|n| u32::try_from(n).ok())
+                    .ok_or_else(|| {
+                        AppError::input("query rank must be an unsigned 32-bit integer or null")
+                    })?,
+            ),
+            None => {
+                return Err(AppError::input(
+                    "query rank must be explicit (null means unbounded)",
+                ));
+            }
+        };
+        queries.push(Query {
+            id: id.into(),
+            owner: owner.bytes().map(|b| b == b'1').collect(),
+            lower,
+            upper,
+            rank,
+            powers: parse_powers(row.get("power_bounds"))?,
+        });
+        Ok::<(), AppError>(())
+    })?;
+    Ok(queries)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn parse(text: &str, arity: usize, limit: usize) -> Result<Vec<Query>, AppError> {
+        super::parse(text, arity, limit, 1024 * 1024)
+    }
 
     #[test]
     fn power_predicates_are_admitted_exactly_and_unknown_fields_fail_closed() {

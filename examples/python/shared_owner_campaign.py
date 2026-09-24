@@ -250,8 +250,10 @@ def main() -> int:
         parser.add_argument("--" + option, type=positive, help="concrete-target campaign allowance")
     for option in SYMBOLIC_ALLOWANCES:
         parser.add_argument("--" + option,
-                            type=DOMAIN.nonnegative if option == DOMAIN.REFINEMENT else
+                            type=DOMAIN.query_allowance if option in DOMAIN.QUERY_ALLOWANCES else
+                            DOMAIN.nonnegative if option == DOMAIN.REFINEMENT else
                             DOMAIN.containment_limit if option == "max-containment-checks" else DOMAIN.positive,
+                            action=DOMAIN.StoreOnce if option in DOMAIN.QUERY_ALLOWANCES else "store",
                             help="symbolic-domain work allowance; requires --queries")
     parser.add_argument("--" + DOMAIN.REFINEMENT_AXES, choices=DOMAIN.REFINEMENT_AXIS_CHOICES,
                         help="local bounded refinement only (native default: inactive-only); requires --queries; does not change routing or closure")
@@ -355,6 +357,8 @@ def main() -> int:
         "reuse_initial_d_bands": args.reuse_initial_d_bands,
         "publication_policy": (args.publication_policy or "ordered") if symbolic else None,
         "requested_inspection_workers": args.inspection_workers,
+        "requested_max_queries": args.max_queries,
+        "requested_max_query_bytes": args.max_query_bytes,
         "workers": args.workers, "other_workers": args.other_workers,
         "hard_memory_bytes": args.max_memory_bytes, "soft_memory_bytes": args.soft_memory_bytes,
         "child_rlimit_as_bytes": child_as, "monitor_headroom_bytes": monitor_headroom,
@@ -442,6 +446,8 @@ def main() -> int:
         "reuse_initial_d_bands": args.reuse_initial_d_bands,
         "publication_policy": (args.publication_policy or "ordered") if symbolic else None,
         "requested_inspection_workers": args.inspection_workers,
+        "requested_max_queries": args.max_queries,
+        "requested_max_query_bytes": args.max_query_bytes,
         "peak_observed_aggregate_rss_bytes": peak, "operator_or_resource_stop": stop_reason,
         "hard_stopped": hard_stopped, "work_checkpoint": False, "family_closure_claim": False,
         "child_rlimit_as_bytes": child_as, "memory_failure_is_incomplete": True,

@@ -22,7 +22,7 @@ impl<const N: usize> RequestedEntryDomain<N> {
     pub fn parse(text: &str) -> Result<Self, AppError> {
         // Reuse the same strict, bounded coordinate/A/R/D input vocabulary as
         // local matching. FiniteRootAdmission additionally requires finiteness.
-        let queries = input::parse(text, N, MAX_REGIONS)?;
+        let queries = input::parse(text, N, MAX_REGIONS, 1024 * 1024)?;
         let description = json!({
             "mode":"explicit_finite", "region_count":queries.len(),
             "exhaustive_coverage_claim":false,

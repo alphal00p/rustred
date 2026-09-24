@@ -1,5 +1,7 @@
 use super::*;
 
+mod build;
+
 fn stop() -> AtomicBool {
     AtomicBool::new(false)
 }

@@ -242,6 +242,10 @@ class SteeringTests(unittest.TestCase):
                 self.assertEqual(request["input_scope"],"symbolic_domains")
                 self.assertIsNone(request["hard_timeout"])
                 self.assertEqual(request["workers"],1)
+                for name in ("max_queries", "max_query_bytes"):
+                    value = int(expected[name.replace("_", "-")]) if explicit else None
+                    self.assertEqual(request["requested_" + name], value)
+                    self.assertEqual(summary["requested_" + name], value)
                 self.assertEqual(request["hard_memory_bytes"],500_000_000_000)
                 self.assertGreater(request["child_rlimit_as_bytes"],0)
                 self.assertEqual(summary["operator_or_resource_stop"],"aggregate_rss_soft_limit")

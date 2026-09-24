@@ -5,7 +5,7 @@ use super::{
     OwnerDomainWalkRequest,
     diagnostics::{OptionalCounts, OptionalRefusals},
     initial_orthants::InitialOrthants,
-    initial_overlap::InitialOverlapIndex,
+    initial_overlap::{InitialOverlapBuildReport, InitialOverlapIndex},
     inspection::{self, Effect, Event, Finished, NativeStats},
     mask,
     parallel::{self, Failure, Poll},
@@ -43,6 +43,7 @@ pub(super) struct State<const N: usize> {
     pub error: Option<String>,
     pub parallel: Value,
     pub uncommitted: Vec<Value>,
+    pub initial_overlap_report: Option<InitialOverlapBuildReport>,
     details: Vec<Value>,
     refusals: OptionalRefusals,
     admission: admission::Metrics,
@@ -66,6 +67,7 @@ impl<const N: usize> State<N> {
             error,
             parallel: json!({}),
             uncommitted: Vec::new(),
+            initial_overlap_report: None,
             details: Vec::new(),
             refusals: OptionalRefusals::default(),
             admission: admission::Metrics::default(),
@@ -433,6 +435,14 @@ fn run_with_initial_orthants<const N: usize>(
     } else {
         InitialOverlapIndex::empty()
     };
+    if request.reuse_initial_d_bands {
+        state.initial_overlap_report = Some(overlap.build_report());
+        observer(
+            json!({"event":"initial_overlap_prepared","operation":"owner_domain_walk",
+            "initial_overlap_index":super::index_report::render(
+                state.initial_overlap_report, super::index_report::Scope::GlobalInitial)}),
+        );
+    }
     if request.workers == 1 {
         return serial(
             state,

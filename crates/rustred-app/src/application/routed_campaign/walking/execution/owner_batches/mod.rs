@@ -152,6 +152,12 @@ pub(in super::super) fn run<const N: usize>(
         request,
         cancellation,
     )?;
+    if request.reuse_initial_d_bands {
+        observer(
+            json!({"event":"initial_overlap_prepared","operation":"owner_domain_walk",
+            "initial_overlap_index":report::overlap_summary(&walk)}),
+        );
+    }
     let started = Instant::now();
     let parallel = driver::run(&mut walk, reducer, request, cancellation, observer);
     let document = report::finish(walk, request, started.elapsed().as_secs_f64(), parallel);
@@ -235,10 +241,10 @@ fn initialize<const N: usize>(
     for (key, bucket) in &mut walk.buckets {
         bucket.finish_initial(request)?;
         if request.reuse_initial_d_bands {
-            walk.overlaps.insert(
-                *key,
-                InitialOverlapIndex::from_initial(&bucket.state.queue.domains, cancellation),
-            );
+            let index =
+                InitialOverlapIndex::from_initial(&bucket.state.queue.domains, cancellation);
+            bucket.state.initial_overlap_report = Some(index.build_report());
+            walk.overlaps.insert(*key, index);
         }
     }
     if walk.budget.domains > request.max_domains

@@ -13,6 +13,55 @@ use super::queue::{Domain, Phase};
 pub(super) const MAX_INITIAL_DOMAINS: usize = 4096;
 pub(super) const MAX_ENTRY_BYTES: usize = 2 * 1024 * 1024;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum InitialOverlapBuildStatus {
+    NotRequested,
+    Active,
+    EmptyInitial,
+    NoEligibleApply,
+    NoUsableAnchors,
+    CountLimit,
+    ByteLimit,
+    PayloadOverflow,
+    AllocationFailure,
+    Cancelled,
+}
+
+impl InitialOverlapBuildStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotRequested => "not_requested",
+            Self::Active => "active",
+            Self::EmptyInitial => "empty_initial",
+            Self::NoEligibleApply => "no_eligible_apply",
+            Self::NoUsableAnchors => "no_usable_anchors",
+            Self::CountLimit => "count_limit",
+            Self::ByteLimit => "byte_limit",
+            Self::PayloadOverflow => "payload_overflow",
+            Self::AllocationFailure => "allocation_failure",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+/// Optional-index build diagnostics, never coverage or completion authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct InitialOverlapBuildReport {
+    pub total_initial: usize,
+    pub examined_initial: usize,
+    /// A prefix count unless eligibility_complete is true.
+    pub eligible_apply: usize,
+    pub eligibility_complete: bool,
+    pub retained_membership: usize,
+    pub usable_anchors: usize,
+    pub logical_bytes_per_eligible_entry: usize,
+    /// Requested conservative logical entry charge, not retained allocation or
+    /// RSS. None for incomplete eligibility counting or multiplication overflow.
+    /// A refused/failed build can have a requested charge but retains no index.
+    pub requested_logical_entry_bytes: Option<usize>,
+    pub status: InitialOverlapBuildStatus,
+}
+
 /// Original coordinates/rank are unchanged. Only residual D bounds differ.
 /// This is partial native work, never a whole-domain alias or a solved anchor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,11 +83,13 @@ struct Anchor<const N: usize> {
 }
 
 pub(super) struct InitialOverlapIndex<const N: usize> {
-    // Complete or empty: even initial entries omitted from the anchor lists
-    // must bypass pruning. The persistent queue exact map forbids a later
-    // identical raw domain from receiving a second ID.
+    // Complete Apply membership or empty: even initial Apply entries omitted
+    // from the anchor lists must bypass pruning. Route cannot use plan(). The
+    // persistent queue exact map forbids a later identical raw domain from
+    // receiving a second ID. The queue/ledger still retain every phase.
     initial: HashSet<Arc<Domain<N>>>,
     anchors: HashMap<[bool; N], Vec<Anchor<N>>>,
+    report: InitialOverlapBuildReport,
 }
 
 impl<const N: usize> InitialOverlapIndex<N> {
@@ -46,6 +97,40 @@ impl<const N: usize> InitialOverlapIndex<N> {
         Self {
             initial: HashSet::new(),
             anchors: HashMap::new(),
+            report: InitialOverlapBuildReport {
+                total_initial: 0,
+                examined_initial: 0,
+                eligible_apply: 0,
+                eligibility_complete: false,
+                retained_membership: 0,
+                usable_anchors: 0,
+                logical_bytes_per_eligible_entry: Self::entry_bytes(),
+                requested_logical_entry_bytes: None,
+                status: InitialOverlapBuildStatus::NotRequested,
+            },
+        }
+    }
+
+    pub fn build_report(&self) -> InitialOverlapBuildReport {
+        self.report
+    }
+
+    fn entry_bytes() -> usize {
+        // Logical entry payload only, not allocator overhead or RSS. Domain
+        // coordinate allocations are shared by Arc, never cloned into the index.
+        size_of::<Arc<Domain<N>>>()
+            + size_of::<Anchor<N>>()
+            + size_of::<([bool; N], Vec<Anchor<N>>)>()
+    }
+
+    fn disabled(mut report: InitialOverlapBuildReport, status: InitialOverlapBuildStatus) -> Self {
+        report.status = status;
+        report.retained_membership = 0;
+        report.usable_anchors = 0;
+        Self {
+            initial: HashSet::new(),
+            anchors: HashMap::new(),
+            report,
         }
     }
 
@@ -61,28 +146,75 @@ impl<const N: usize> InitialOverlapIndex<N> {
         max_domains: usize,
         max_bytes: usize,
     ) -> Self {
-        // Logical entry payload only, not allocator overhead or RSS. Domain
-        // coordinate allocations are shared by Arc, never cloned into the index.
-        let entry_bytes = size_of::<Arc<Domain<N>>>()
-            + size_of::<Anchor<N>>()
-            + size_of::<([bool; N], Vec<Anchor<N>>)>();
-        if domains.len() > max_domains || domains.len() > max_bytes / entry_bytes {
-            return Self::empty();
-        }
+        Self::build(
+            domains,
+            max_domains,
+            max_bytes,
+            || cancellation.load(Ordering::Acquire),
+            || true,
+        )
+    }
+
+    /// Small private control seams make cancellation in either pass and reserve
+    /// fallback deterministic in tests. Production reads the caller's atomic and
+    /// admits each ordinary try_reserve; no global allocator hook is installed.
+    fn build(
+        domains: &[Arc<Domain<N>>],
+        max_domains: usize,
+        max_bytes: usize,
+        mut cancelled: impl FnMut() -> bool,
+        mut allow_reserve: impl FnMut() -> bool,
+    ) -> Self {
         let mut out = Self::empty();
-        if out.initial.try_reserve(domains.len()).is_err()
-            || out.anchors.try_reserve(domains.len()).is_err()
+        out.report.total_initial = domains.len();
+        for domain in domains {
+            if cancelled() {
+                return Self::disabled(out.report, InitialOverlapBuildStatus::Cancelled);
+            }
+            out.report.examined_initial += 1;
+            if domain.phase == Phase::Apply {
+                out.report.eligible_apply += 1;
+            }
+        }
+        out.report.eligibility_complete = true;
+        let eligible = out.report.eligible_apply;
+        out.report.requested_logical_entry_bytes =
+            eligible.checked_mul(out.report.logical_bytes_per_eligible_entry);
+        if cancelled() {
+            return Self::disabled(out.report, InitialOverlapBuildStatus::Cancelled);
+        }
+        if domains.is_empty() {
+            return Self::disabled(out.report, InitialOverlapBuildStatus::EmptyInitial);
+        }
+        if eligible == 0 {
+            return Self::disabled(out.report, InitialOverlapBuildStatus::NoEligibleApply);
+        }
+        if eligible > max_domains {
+            return Self::disabled(out.report, InitialOverlapBuildStatus::CountLimit);
+        }
+        let Some(requested_bytes) = out.report.requested_logical_entry_bytes else {
+            return Self::disabled(out.report, InitialOverlapBuildStatus::PayloadOverflow);
+        };
+        if requested_bytes > max_bytes {
+            return Self::disabled(out.report, InitialOverlapBuildStatus::ByteLimit);
+        }
+        if !allow_reserve()
+            || out.initial.try_reserve(eligible).is_err()
+            || !allow_reserve()
+            || out.anchors.try_reserve(eligible).is_err()
         {
-            return Self::empty();
+            return Self::disabled(out.report, InitialOverlapBuildStatus::AllocationFailure);
         }
         for (id, domain) in domains.iter().enumerate() {
-            if cancellation.load(Ordering::Acquire) {
-                return Self::empty();
+            if cancelled() {
+                return Self::disabled(out.report, InitialOverlapBuildStatus::Cancelled);
             }
-            out.initial.insert(domain.clone());
             if domain.phase != Phase::Apply {
                 continue;
             }
+            // Membership includes every initial Apply descriptor even when its
+            // summary/cut cannot be used, and IDs refer to the original prefix.
+            out.initial.insert(domain.clone());
             let Ok(summary) = summary(domain, domain.powers) else {
                 continue;
             };
@@ -97,11 +229,21 @@ impl<const N: usize> InitialOverlapIndex<N> {
                 continue;
             }
             let anchors = out.anchors.entry(domain.owner).or_default();
-            if anchors.try_reserve(1).is_err() {
-                return Self::empty();
+            if !allow_reserve() || anchors.try_reserve(1).is_err() {
+                return Self::disabled(out.report, InitialOverlapBuildStatus::AllocationFailure);
             }
             anchors.push(Anchor { id, cut, summary });
+            out.report.usable_anchors += 1;
         }
+        if cancelled() {
+            return Self::disabled(out.report, InitialOverlapBuildStatus::Cancelled);
+        }
+        out.report.retained_membership = out.initial.len();
+        out.report.status = if out.report.usable_anchors == 0 {
+            InitialOverlapBuildStatus::NoUsableAnchors
+        } else {
+            InitialOverlapBuildStatus::Active
+        };
         out
     }
 

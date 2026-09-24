@@ -3,6 +3,7 @@
 mod delegation;
 mod diagnostics;
 mod execution;
+mod index_report;
 mod initial_orthants;
 mod initial_overlap;
 mod inspection;
@@ -163,6 +164,9 @@ impl OwnerDomainWalkResult {
             "native_processed_nodes",
             "reuse_initial_d_bands",
             "partial_initial_inspections",
+            "initial_overlap_index",
+            "requested_max_queries",
+            "requested_max_query_bytes",
         ] {
             if let Some(value) = document.get(key) {
                 out[key] = value.clone();
@@ -180,8 +184,8 @@ pub fn owner_domain_walk_with_progress(
     cancellation: &AtomicBool,
     observer: impl Fn(Value),
 ) -> Result<OwnerDomainWalkResult, AppError> {
-    if !(1..=10_000).contains(&request.matching.max_queries)
-        || request.max_domains == 0
+    request.matching.preflight_queries()?;
+    if request.max_domains == 0
         || request.max_events == 0
         || !(1..=1_000_000).contains(&request.max_frontiers)
         || !(1..=64).contains(&request.workers)
@@ -214,6 +218,7 @@ pub fn owner_domain_walk_with_progress(
         &request.matching.queries_json,
         arity,
         request.matching.max_queries,
+        request.matching.max_query_bytes,
     )?;
     let mut admitted = json!({"event":"admitted", "operation":"owner_domain_walk", "arity":arity,
         "input_domains":queries.len(), "workers":request.workers, "max_domains":request.max_domains,
@@ -240,12 +245,20 @@ pub fn owner_domain_walk_with_progress(
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::OwnerBatched {
         admitted["publication_policy"] = json!("owner_batched");
     }
-    observer(admitted);
+    let with_allowances = |mut event: Value| {
+        event["requested_max_queries"] = json!(request.matching.max_queries);
+        event["requested_max_query_bytes"] = json!(request.matching.max_query_bytes);
+        observer(event);
+    };
+    with_allowances(admitted);
     macro_rules! dispatch { ($($n:literal),*) => { match arity {
-        $($n => run::<$n>(&request, &selection, limits, &queries, cancellation, &observer),)*
+        $($n => run::<$n>(&request, &selection, limits, &queries, cancellation, &with_allowances),)*
         _ => unreachable!("admitted arity"),
     }} }
-    dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    let mut result = dispatch!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)?;
+    result.document["requested_max_queries"] = json!(request.matching.max_queries);
+    result.document["requested_max_query_bytes"] = json!(request.matching.max_query_bytes);
+    Ok(result)
 }
 fn mask<const N: usize>(owner: &[bool; N]) -> String {
     owner.iter().map(|&b| if b { '1' } else { '0' }).collect()
@@ -507,6 +520,10 @@ fn run<const N: usize>(
     }
     if request.reuse_initial_d_bands {
         document["reuse_initial_d_bands"] = json!(true);
+        document["initial_overlap_index"] = index_report::render(
+            state.initial_overlap_report,
+            index_report::Scope::GlobalInitial,
+        );
         document["partial_initial_inspections"] = json!(
             state
                 .queue
@@ -517,6 +534,7 @@ fn run<const N: usize>(
         document["partial_inspection_policy"] =
             json!("exact_initial_high_D_overlap; pinned_anchor_plus_native_residual");
         document["initial_overlap_limits"] = json!({"max_initial_domains":initial_overlap::MAX_INITIAL_DOMAINS,
+            "count_scope":"initial_apply_only",
             "max_logical_entry_bytes":initial_overlap::MAX_ENTRY_BYTES,"container_overhead_and_rss_excluded":true});
     }
     drop(state);

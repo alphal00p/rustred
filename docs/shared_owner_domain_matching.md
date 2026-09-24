@@ -48,7 +48,7 @@ Every query explicitly supplies its own rank cap: a nonnegative 32-bit integer,
 or null for unbounded numerator rank. Rank is the sum of **inactive** local
 coordinates, not positive dots. Descendant queries are not clipped to the
 saved program's entry rank. IDs are unique and contain 1–128 UTF-8 bytes; input
-is bounded to 1 MiB.
+is bounded to 1 MiB by default, with an explicit `--max-query-bytes` override.
 
 An optional `power_bounds` object retains correlations that cannot be represented
 by independent coordinate limits:
@@ -134,8 +134,21 @@ For affinity and process-tree memory supervision, use the existing
 `--queries` instead; it keeps a supervising Python process and invokes the same
 native shared walk, without a solve timeout.
 
-`--max-queries` defaults to 256 (ceiling 10,000), and `--max-total-pieces` defaults
-to 100,000 (ceiling 1,000,000 retained output pieces). Per-query counters can be
+`--max-queries` defaults to 256 and `--max-query-bytes` to 1,048,576. Both accept
+explicit positive, platform-representable allowances; matching/walking no longer
+impose an additional 10,000-query ceiling. The Rust request exposes the same
+`max_queries` and `max_query_bytes` fields, and both Python steering scripts
+forward the options. For example, `--max-queries 60000 --max-query-bytes 33554432`
+admits a larger query document without changing any native-work allowance.
+The CLI bounds the read, and the library checks actual UTF-8 bytes before parsing;
+every query is validated before owner loading. Allocation follows actual admitted
+rows, not the requested count. Text, parsed JSON and typed queries can coexist,
+so this is not a process-memory guarantee. Progress and final receipts expose
+`requested_max_queries` and `requested_max_query_bytes`. The separate guarded
+diagnostic and concrete finite-entry interface retain their existing fixed limits.
+
+`--max-total-pieces` defaults to 100,000 (ceiling 1,000,000 retained output
+pieces). Per-query counters can be
 set explicitly with `--max-rules-per-query`, `--max-terminal-checks-per-query`,
 `--max-predicates-per-query`, `--max-pieces-per-query`, `--max-cells-per-query`,
 `--max-split-operations-per-query`, and `--max-coordinate-cells-per-query`.
@@ -394,6 +407,22 @@ These changes pass release validation, including native execution and public
 CLI/Python tests, plus a separate 120-test check against the committed scheduler
 without unrelated local escrow changes. Fewer pending inspections remain a
 performance hypothesis, not a measured speedup or a five-loop closure claim.
+
+`--reuse-initial-d-bands` additionally permits exact partial reuse against
+immutable initial Apply regions, while retaining the native residual and the
+anchor's outstanding responsibility. It requires transfer-unreserved scheduling.
+Its optional index counts only initial Apply descriptors against the unchanged
+4,096-entry/2 MiB logical-payload limits; all Route inputs still belong to the
+queue and ledger. Original IDs and all Apply exclusion membership are retained,
+including Apply descriptors that cannot supply a usable anchor. Fallback leaves
+ordinary inspection enabled rather than dropping work.
+
+The `initial_overlap_prepared` event and final `initial_overlap_index` report
+expose eligibility, retained membership, usable anchors, logical charge and
+active/fallback status. An interrupted counting prefix is explicitly incomplete.
+Ordered indices use global initial IDs; OwnerBatched reports per-bucket indices
+and local IDs, with later-created buckets marked `not_built`. These diagnostics
+are not coverage authority or an RSS measurement.
 
 The per-domain RHS budgets `--max-rhs-cells-per-query` (default 100,000),
 `--max-term-visits-per-query` (1,000,000),

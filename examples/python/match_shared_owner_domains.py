@@ -11,16 +11,18 @@ No IBPs are generated. Each JSON query supplies its own rank cap (null means unb
 import argparse
 import os
 from pathlib import Path
+import sys
 
 
 ALLOWANCES = (
-    "max-queries", "max-total-pieces", "max-rules-per-query",
+    "max-queries", "max-query-bytes", "max-total-pieces", "max-rules-per-query",
     "max-terminal-checks-per-query", "max-predicates-per-query",
     "max-pieces-per-query", "max-cells-per-query",
     "max-split-operations-per-query", "max-coordinate-cells-per-query",
     "max-guard-univariate-degree",
 )
 REFINEMENT = "max-bounded-refinement-cells-per-query"
+QUERY_ALLOWANCES = ("max-queries", "max-query-bytes")
 REFINEMENT_AXES = "bounded-refinement-axes"
 REFINEMENT_AXIS_CHOICES = ("inactive-only", "finite-axes")
 TRANSFER_LOOKAHEAD = "transfer-unreserved-lookahead"
@@ -44,6 +46,13 @@ def nonnegative(text: str) -> int:
     if not text.isascii() or not text.isdecimal():
         raise argparse.ArgumentTypeError("refinement allowance must be a nonnegative integer")
     return int(text)
+
+
+def query_allowance(text: str) -> int:
+    value = positive(text)
+    if value > 2 * sys.maxsize + 1:
+        raise argparse.ArgumentTypeError("query allowance must fit the native unsigned pointer-sized integer")
+    return value
 
 
 def containment_limit(text: str) -> int | str:
@@ -96,7 +105,9 @@ def main() -> None:
                         help="share admitted route rank overcovers without expanding numerator polynomials")
     parser.add_argument("--max-route-masks-per-query", type=positive)
     for option in ALLOWANCES:
-        parser.add_argument("--" + option, type=positive,
+        parser.add_argument("--" + option,
+                            type=query_allowance if option in QUERY_ALLOWANCES else positive,
+                            action=StoreOnce if option in QUERY_ALLOWANCES else "store",
                             help="optional native work/storage allowance, not a rank restriction")
     parser.add_argument("--" + REFINEMENT, type=nonnegative,
                         help="exact bounded refinement faces per query; zero disables refinement")

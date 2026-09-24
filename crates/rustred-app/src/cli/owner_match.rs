@@ -13,9 +13,17 @@ use serde_json::json;
 use std::fs::{File, OpenOptions};
 use std::io::{self, IsTerminal, Write};
 use std::sync::{Arc, atomic::AtomicBool};
+#[cfg(test)]
+mod query_admission_tests;
 
 pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
+    OwnerDomainMatchRequest::validate_query_allowances(args.max_queries, args.max_query_bytes)
+        .map_err(|message| CliError::Input(message.into()))?;
     super::routed::preflight_inner_pools()?;
+    run_admitted(args)
+}
+
+fn run_admitted(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     let output = StreamPath::File(args.output.clone());
     preflight_output_destination(&output, false)?;
     if let Some(path) = &args.events {
@@ -31,13 +39,14 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     }
     let query_file = File::open(&args.queries)
         .map_err(|e| CliError::InputIo(format!("{}: {e}", args.queries.display())))?;
-    let query_bytes = read_bounded(query_file, "owner-domain queries", 1024 * 1024)?;
+    let query_bytes = read_bounded(query_file, "owner-domain queries", args.max_query_bytes)?;
     let queries = String::from_utf8(query_bytes)
         .map_err(|_| CliError::Input("owner-domain queries must be UTF-8".into()))?;
     let mut request =
         OwnerDomainMatchRequest::new(read_input(&StreamPath::File(args.manifest))?, queries);
     request.owner_base = args.owner_base;
     request.max_queries = args.max_queries;
+    request.max_query_bytes = args.max_query_bytes;
     request.max_total_pieces = args.max_total_pieces;
     request.match_limits.max_rules = args.max_rules;
     request.match_limits.max_terminal_checks = args.max_terminal_checks;
@@ -120,6 +129,8 @@ pub(super) fn run(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
         }
     };
     document["operation"] = json!(operation);
+    document["requested_max_queries"] = json!(args.max_queries);
+    document["requested_max_query_bytes"] = json!(args.max_query_bytes);
     // Also retain the requested local policy on preparation-error receipts.
     document["bounded_refinement_axes"] = json!(match args.refinement_axes {
         rustred::solver::OwnerDomainRefinementAxes::InactiveOnly => "inactive-only",
