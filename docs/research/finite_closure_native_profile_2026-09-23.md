@@ -258,6 +258,56 @@ Evidence: `TMP/worker-split-pilot.vkl0F5/matrix/`; release gate:
 `TMP/worker-census-release.NZeG5m/`. Independent raw result review passes and is recorded
 at `TMP/worker-partition-independent-audit.2rJLon/`.
 
+## September 24 follow-up: duplicate no-crossing geometry projection
+
+The follow-up profile identified repeated native power-domain projection. The
+applied visitor first normalizes a sign cell, then enumerates crossing faces.
+When there are no crossing coordinates, the enumerator returns the same box,
+so projecting it again with the same retained predicates and effective rank
+does no mathematical work. The new local shortcut reuses that first result.
+
+This is deliberately narrower than caching a complete rule application. It
+retains boundary allocation, cancellation and budget charges, original-term
+coefficient/validity checks, guard selection and all successor obligations.
+Actual crossings still follow the old path, including a fixed crossing whose
+enumeration product happens to be one. Unbounded and above-u32 implied ranks
+keep their existing representation; no descendant cap or new CAS is introduced.
+
+Independent source/mathematical review passes. The release gate passes five new
+differential geometry tests, 28 applied-domain tests and 21 power-domain tests,
+then all 2,803 core tests with zero failures and 32 existing ignored tests.
+These focused suites overlap the full suite and must not be added together.
+The CLI build also passes, producing frozen executable `02a1c866…`.
+Three alternating baseline/new pairs for each of A11 and A12 now complete.
+The baseline is the frozen `7d493839…` executable; mathematical
+inputs, worker partition, budgets and steering remain unchanged. The profile's
+10.39% total projection share is not the saving expected from removing this
+particular duplicate call.
+
+| Workload | Median traversal before → after (s) | Median process CPU before → after (s) | Median peak RSS before → after (KiB) |
+|---|---:|---:|---:|
+| A11/R2/D9, 45,342 starting tuples | 5.839354 → 5.754094 | 50.97 → 50.23 | 585,212 → 590,196 |
+| A12/R3/D9, 357,192 starting tuples | 19.834408 → 19.822697 | 163.97 → 165.42 | 1,402,900 → 1,406,728 |
+
+There is **no established material speedup or utilization improvement**. The
+median wall differences are only −1.46% and −0.059%, with mixed per-pair signs
+and overlapping ranges on a shared host. Sampled busy-core medians are
+8.53 → 8.49 and 8.20 → 8.26, respectively. The shortcut removes a proved duplicate
+operation, but these data do not justify treating it as a scaling breakthrough.
+Keep the scheduler and worker allocation unchanged; prioritize reducing repeated
+domain traversal rather than inferring a full-envelope ETA from this patch.
+
+All twelve runs preserve exact structural outputs and native counters, discharge
+every responsibility and retain every descendant. Scheduled rank bounds reach
+three for A11 and four for A12, above their entry ranks. A11 retains 27,806 native
+inspections and 695,918 events; A12 retains 62,562 and 2,507,532. Independent raw
+review passes, including scope, limits, binary/input identities and accounting.
+No root build or other native run overlapped the matrix. The subsequent activation
+band was launched only after all twelve controls were terminal.
+
+Evidence: `TMP/no-crossing-release.ZTTyEz/` and
+`TMP/no-crossing-compare.VaG3Lg/`, including `INDEPENDENT_AUDIT.md`.
+
 ## Relation to the radical redesign
 
 The [independent architecture review](finite_closure_architecture_review_2026-09-23.md)

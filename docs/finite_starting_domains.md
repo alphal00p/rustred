@@ -25,12 +25,22 @@ steering gate passes 30 tests and the release executable builds successfully.
 Eleven A12 partition controls now complete with identical logical results and
 counters. Median traversal is 20.239 s at the default 25/24/1, 20.160 s at
 40/9/1 and 23.835 s at 48/1/1. The sub-percent I40 difference is not an established
-wall-time gain; keep the default. The unbounded four-owner census also completes:
-L1 shift bound six, no positive same-support Δ(A+R), but 67,636 potential
-unsupported-support sign regions still require native guarded checks. They are
-not demonstrated missing rules or reached failures. Next test those boundary
-prerequisites and measured local geometry reuse; do not publish a finite-cover
-claim from this inventory. See [the experiment and caveats](research/finite_closure_architecture_review_2026-09-23.md).
+wall-time gain; keep the default. The unbounded census now also completes on all
+67 saved owners: maximum shift L1=8, no positive same-support Δ(A+R), and
+1,958,316 potential unsupported-support sign regions. Independent raw review
+passes; these are not demonstrated missing rules or reached failures. Two native
+one-step boundary diagnostics now complete without child problems: all 10,238
+emitted successors preserve support, including the 189 conditional edges.
+These overlapping examples do not discharge the global prerequisite. The complete
+census supplies 406 conservative finite-width activation bands, with the other
+coordinates/rank unbounded. The first full width-six band completes without
+problems and all 15,874 successors preserve support; this easy five-denominator
+owner is not representative of all 406. Next test higher-support owners, not an
+automatic all-band run or a new descendant cutoff. A narrow no-crossing shortcut
+passes independent source/math review, all 2,803 core release tests (32 existing
+ignored) and the CLI build. Twelve matched controls preserve exact results but
+show no material wall-time or utilization improvement. See
+[the experiment and caveats](research/finite_closure_architecture_review_2026-09-23.md).
 
 ## Completed-slot reuse — modest measured progress, full envelope unfinished
 

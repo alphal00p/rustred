@@ -305,14 +305,25 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                     continue;
                 };
                 let mut boundary = geometry::Boundaries::new(&sign, piece.owner(), shift, budget)?;
+                let has_crossings = boundary.has_crossings();
                 while let Some(cell) = boundary.next(budget)? {
-                    if let Some((cell, cell_rank)) = geometry::normalize(
-                        cell,
-                        piece.owner(),
-                        sign_rank,
-                        piece.power_bounds(),
-                        budget,
-                    )? {
+                    // An empty crossing list leaves the already-normalized
+                    // sign cell unchanged. Retained A/D predicates and its
+                    // inferred rank describe the same set; no second exact
+                    // coordinate projection is needed. Keep next's allocation,
+                    // cancellation check and boundary charge in both paths.
+                    let normalized = if has_crossings {
+                        geometry::normalize(
+                            cell,
+                            piece.owner(),
+                            sign_rank,
+                            piece.power_bounds(),
+                            budget,
+                        )?
+                    } else {
+                        Some((cell, sign_rank))
+                    };
+                    if let Some((cell, cell_rank)) = normalized {
                         self.apply_group(
                             piece,
                             &cell,

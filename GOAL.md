@@ -6,13 +6,25 @@ application/CLI tests (zero failures, one existing ignored), 30 Python steering
 tests and the executable build. Eleven same-input A12 controls complete with
 identical logical results and counters. Default 25/24/1 takes 20.239 s median;
 40/9/1 takes 20.160 s (no established wall-time gain), and 48/1/1 takes 23.835 s.
-Keep the default. The four-owner unbounded census finds maximum shift L1=6 and
-no same-support increase in A+R, but 67,636 potential support-change regions
-still require guarded boundary checks before the proposed finite-cover bound
-can be used. These are not demonstrated missing rules or a new closure claim.
-Next: test those prerequisites through existing native APIs, and measure local
-geometry reuse identified by the new profile. The full 67-owner starting envelope
-is unfinished. See [the architecture experiment](docs/research/finite_closure_architecture_review_2026-09-23.md)
+Keep the default. The unbounded structural census now completes on all 67 saved
+owners: 17,975 rules, maximum shift L1=8, no same-support increase in A+R, and
+1,958,316 potential support-change regions. Independent raw review passes.
+These potential regions are not demonstrated missing rules or a closure claim.
+Two exact boundary diagnostics now also finish native ordered one-step RHS
+application without problems: all 10,238 emitted successors preserve support.
+They are overlapping local examples, not an exhaustive global support check.
+The existing complete census supplies a conservative list of 406 finite-width
+boundary bands for the next prerequisite experiment. The first full width-six
+band completes without problems: all 15,874 emitted successors preserve support.
+It is an easy five-positive-denominator owner, not the full campaign. Other
+coordinates and requested rank remain unbounded. Local no-crossing geometry
+reuse passes source/math review, all 2,803 core release tests (32 existing
+ignored) and the CLI build. Twelve matched controls preserve exact results but
+show no material wall-time or utilization gain. Next: test higher-support boundary
+cases and native algebraic shortcuts before a parallel prerequisite batch,
+without restarting the large recursive walk.
+The full 67-owner starting envelope is unfinished.
+See [the architecture experiment](docs/research/finite_closure_architecture_review_2026-09-23.md)
 and [the measured controls](docs/research/finite_closure_native_profile_2026-09-23.md).
 
 **Larger control and current profile:** the fixed-substitution optimization

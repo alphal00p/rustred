@@ -104,8 +104,13 @@ visitor normalizes each sign cell, then normalizes the identical cell again when
 there are no sign-crossing coordinates. Reusing that per-call normalized geometry
 could remove duplicate projection without a global cache or shared mutable proof
 state. Retain all boundary/cancellation/resource accounting and re-normalize
-actual crossing faces. This is not yet implemented or timed; projection's total
-10.39% sampled CPU share is not the expected saving of that narrower change.
+actual crossing faces. This narrow change is now implemented and independently
+source/mathematics-reviewed, with five additional differential geometry tests.
+All 2,803 core release tests and the CLI build pass. Twelve matched controls
+preserve exact results, but median wall changes of −1.46% (A11) and −0.059% (A12)
+establish no material speedup or utilization gain. Independent raw review passes.
+Projection's total 10.39%
+sampled CPU share is not the expected saving of that narrower change.
 
 ## Competing redesigns
 
@@ -298,6 +303,172 @@ IBP-generation timing. Existing split/scratch and callback caps remain active;
 a resource-limited prefix would not have supplied the complete unbounded bound.
 Evidence: `TMP/unbounded-owner-census-plan.QdeyGw/`.
 
+#### Native boundary dispatch: two diagnostics complete
+
+The existing CLI matcher now checks two exact census source boxes at unbounded
+requested rank, without following descendants or imposing A/D limits. The first
+is the nominated support-swap face above; the second is a two-point face for
+rule268, term57, whose raw shift raises inactive index13 by two while lowering
+indices4 and6 by one. These are saved-input diagnostics, not generated rules.
+
+Both match calls complete without gaps, invalid cases, refinement or unresolved
+pieces. The first face partitions into831 selected-rule pieces and one terminal,
+using78 distinct rules. Importantly, **rule0, which supplied the nominated raw
+support-swap descriptor, is never selected anywhere on that face**. First-rule
+priority therefore excludes that particular apparent obstruction. The second
+query is a subset of the first, not additional disjoint coverage: local index 13
+equal to zero is terminal; equal to one selects rule 268. Its actual coefficient
+and successor still require inspection.
+
+An independent raw audit checks source-box equality against the census, exact
+coverage and pairwise disjointness of all 834 emitted pieces, and unchanged input
+and executable hashes. This establishes dispatch only: the matcher did **not**
+inspect RHS terms or prove support decrease, finite-cover closure or full-family
+coverage. Serial preparation takes 4.008 s, matching 0.087 s and the whole command
+4.18 s, with peak process RSS 75,140 KiB. Evidence and the independent audit are in
+`TMP/structural-boundary-diagnostic.uXLHFk/`.
+
+#### Full saved-program structural census: all 67 complete
+
+The same frozen release CLI now completes the unbounded scan on the unchanged
+full manifest: 67 owners and 8,246 route records, including verification of the
+8,179 nonidentity routes. All owner rows finish with no error, summary cap,
+cancellation or rank-prefilter exclusion. No rules are generated or repaired.
+
+| Structural observation | All 67 programs |
+|---|---:|
+| Saved rules | 17,975 |
+| Original raw-nonzero RHS terms | 1,667,335 |
+| Conservative sign regions | 4,758,436 |
+| Maximum RHS shift L1 | 8 |
+| Same-support regions | 506,594 |
+| Maximum same-support Δ(A+R) | 0 |
+| Potential strict-pinch regions | 2,293,526 |
+| Potential unsupported support-change regions | 1,958,316 |
+
+The individual owner L1 bounds range from 4 to 8; counts at bounds 4, 5, 6, 7, 8 are
+8, 12, 34, 8, 5 respectively. This improves the coarse packed-format bound and
+extends the earlier four-owner observation to every installed program. It does
+**not** resolve first-applicable priority, exceptional guards or coefficient
+zeros on crossing faces. The unsupported count is a conservative region count,
+not a count of reached failures or missing IBPs. The missing live-support premise
+and finite-cover synthesis/checking remain separate work.
+
+The diagnostic uses CPU0, serial inner pools and a 32 GB address-space allowance;
+it has no elapsed deadline. Native preparation takes 103.778 s and scanning 9.779 s;
+whole-command wall time is 117.99 s, CPU 116.98 s and peak RSS 6,021,988 KiB
+(about 6.17 GB). These are shared-host diagnostic costs, not IBP generation,
+reachability completion or a matched throughput comparison. The87,179 retained
+summary groups fit the explicitly raised 262,144 storage allowance; the actual
+input and native geometry limits are unchanged. Output is about 129 MiB.
+Evidence: `TMP/all67-structural-census.JXPNU6/`. Independent raw review passes,
+including reconciliation of every owner/group count, all frozen inputs and exact
+agreement with the four earlier owner censuses. Potential unsupported regions
+split into 200,202 lower-, 1,021,941 equal- and 736,173 higher-cardinality targets;
+only 5,261 have registered exact-zero targets. They still require actual guarded
+application checks, rather than being dismissed as harmless pinches or zeros.
+
+#### One-step native RHS diagnostics: the two nominated faces pass
+
+A temporary Rust harness now calls the existing public owner loader and
+`visit_power_bounded_owner_applied_successors` on those same two source boxes.
+This is a fresh ordered application, not replay of matcher JSON. It uses the
+unchanged pre-shortcut cached release libraries; no
+new algebra or production interface is introduced. All four saved owners load,
+but route geometry is deliberately outside this local one-step diagnostic.
+
+The larger face completes all 831 selected rules with 10,232 successors, **all
+on the same support**. It reports 15,013 zero original-term visits and 5,137
+zero-sector groups, with no child-validity problems or optional algebra refusals.
+Of the successors, 189 remain conditional on their exact coefficient being
+nonzero; retaining them conservatively does not invalidate their same-support
+classification. No recursive coverage of their destination domains is claimed.
+
+The two-point face completes its one selected rule with six uniform successors,
+also all on the same support. Of 62 original-term visits, 53 vanish and three
+groups target proven zero sectors. Its nominated positive-two shift is absent
+from the final successors. The API records zero-term counts, not individual zero
+ordinals, so this alone must not be reported as a direct proof that term57,
+rather than a particular zero-sector group, accounts for that absence.
+
+Both inspections finish without a resource stop, gap, unresolved classification,
+child problem or lost event. The second face remains a subset of the first.
+These exact local results support, but do not establish globally, the no-activation
+premise needed for the proposed finite-cover bound and concrete tracer. They
+neither close the five-loop family nor attach original-IBP provenance to saved
+candidate formulas. The diagnostic takes 2.56 s and peaks at 182,440 KiB on a
+shared host; this is not a matched timing comparison. Evidence:
+`TMP/one-step-applied-probe.avTdVa/`. Independent source/result review passes,
+including exact agreement with the prior matcher's classifications, all event
+counts and every emitted source/target translation.
+
+#### Next falsifiable prerequisite: finite activation bands
+
+For an inactive index write its physical power as `a_j=-x_j`, with `x_j>=0`.
+A positive shift `s_j` activates it only when `0<=x_j<s_j`. The complete
+per-owner shift bound `L` therefore makes `0<=x_j<=L-1` a conservative source
+band containing every possible activation in that coordinate. Leave every other
+coordinate unbounded, requested rank null and aggregate A/D bounds absent.
+There is no cut on the eventual reduction descendants.
+
+The current complete inventory supplies exactly **406 such bands** over the
+67 owners, with widths from 4 to 8. Both agents independently reproduce this
+count. Full target masks survive summary grouping; a representative shift alone
+must not be used to estimate a maximum. In this dataset every inactive axis has
+some potential activating target, so target-mask filtering removes no bands.
+
+Begin with one width-six band on axis13 of the previously inspected owner,
+using the existing one-step visitor and explicit resource limits. This is not
+authorization to blindly launch all 406: the number of input bands does not
+bound internal guard splitting, coefficient work or memory. If useful, a later
+batch visitor can inspect immutable bands independently while sharing the loaded
+programs, without a recursive admission queue.
+
+For the operational no-activation prerequisite, require every inspection and
+selected rule to finish without problems, and no final successor—including
+conditional successors—to activate an absent index. Unknown guards, invalid
+sources, resource stops and gaps retain distinct outcomes. A gap is not an
+activating edge, but it is not coverage either. Success here still leaves finite
+cover synthesis, complete coverage, global descent and cold runtime delivery.
+The global unbounded check is a sufficient shortcut, not a stronger new goal:
+if it is difficult outside the candidate finite cover, check support behavior
+and successor containment inside that cover instead. A refusal on the wider
+band does not establish an obstruction to the requested finite starting envelope.
+
+The first complete width-six band now passes the existing native one-step
+visitor: 1,248 classified pieces, 1,247 finished rules, 15,874 successors, no
+problems or optional algebra refusals. All successors preserve support, including
+276 conditional ones. Of 46,752 term visits, 22,925 vanish and 7,953 target proven
+zero sectors. No gap, unresolved guard or resource stop occurs. This is one band
+on a five-positive-denominator owner, not a difficult high-support benchmark or
+all-band result. Other coordinates remain unbounded. Whole-command time is
+2.88 s, peak RSS 253,420 KiB; diagnostic evidence is in
+`TMP/activation-band-pilot.of1y5J/`. Independent result review passes, including
+the exact disjoint partition of the unbounded input and all successor images.
+Next test a few higher-support owners before considering a shared-context
+parallel batch; do not extrapolate 406-band time from this easy first case.
+
+A potential algebraic shortcut is to check whether the numerator of a term with
+positive shift `k` contains `n_j(n_j+1)...(n_j+k-1)`. Where its original denominator
+and source conditions permit application, that factor forces it to vanish on
+the crossed integer faces. This is only a sufficient check: cancellation, other
+guards and rule priority can make its failure inconclusive. Use existing native
+Symbolica operations and preserve original-term validity; it is not an excuse
+to infer this property merely from a rule having originated in an IBP solve.
+No such shortcut is implemented in this checkpoint.
+
+The independent Symbolica/API review identifies an existing bounded route:
+`numerator_condition_with_limits`, followed by `specialize_fixed_polynomial`
+at each crossing physical index, and `IndexedPolynomial::is_zero`. Other indices
+and parameters stay symbolic. Native polynomial `try_div`/`rem` also exist, but
+division in the rational-function **field** would be a false-positive test:
+every nonzero element divides there. Use polynomial numerators, not field
+division. A complete per-original-term pass could discharge the no-activation
+fact without all-band matching; a partial pass only removes its own obligations.
+Neither replaces applicability, terminal coverage or successor containment.
+The detailed scope, cancellation/pole cautions and original-term authority order
+are recorded in `TMP/one-step-applied-probe.avTdVa/SECTOR_FILTRATION_API_AUDIT.md`.
+
 The separate worker-allocation experiment also completes. On three rotated A12
 repeats, default 25/24/1 takes 20.239 s median, 40/9/1 takes 20.160 s, and 48/1/1
 takes 23.835 s. Work and logical results are identical. The sub-percent I40
@@ -309,8 +480,19 @@ radical alternative will succeed. See [the controls](finite_closure_native_profi
 
 The current native visitor repeatedly groups RHS shifts, splits boundary cells,
 restricts coefficients, checks original-term source conditions and proves local
-descent. First prepare immutable structural plans once per loaded rule. Then
-measure whether repeated checked restrictions can also be shared.
+descent. One possible implementation prepares immutable structural plans once
+per loaded rule, then measures whether checked restrictions can also be shared.
+
+A narrower follow-up assessed precomputing only the RHS index permutation.
+There really is repeated sorting: generated harder-first order is not the
+lexicographic shift order used by the visitor. A permutation plus vector headers
+would cost about 13.1 MiB across these installed programs on this host. However,
+only four of 3,070 post-substitution samples explicitly name RHS sorting (0.13%);
+allocator/worker caller attribution remains incomplete. This does not establish
+a useful wall-time opportunity. Defer a standalone sorting-plan implementation
+unless a measured broader transfer-reuse feature needs it. Such a plan must
+preserve original term ordinals, per-query admission checks and a bounded fallback.
+Read-only design/cost evidence: `TMP/rhs-structural-plan.FoeKHo/NOTE.md`.
 
 A more structural variant is to compile a guarded dispatch/transition graph at
 load time or alongside generation. This is **not recovery of lost case data**:
@@ -416,6 +598,25 @@ repeated transfer pattern may motivate a separate future rule-generation
 experiment. Block-triangular discovery and reconstruction work
 such as [Blade](https://arxiv.org/html/2405.14621v2) is relevant inspiration, but
 its speedup factors do not apply to this regional traversal by analogy.
+
+### A different delivery contract, not the current plan
+
+The broadest alternative is to stop treating exhaustive offline reachability as
+a prerequisite for using the saved parametric programs. A reducer could apply
+them on demand, fail closed on an actually missing target, and request a bounded
+repair that is published only after the usual exact checks. Many independent
+integrals could then be reduced in parallel; cold reuse would be organized around
+the actual reduction workload rather than every point of an enclosing domain.
+
+That changes the guarantee. It can be useful for a streamed counterterm workflow,
+but one previously unseen input could still require an expensive repair or fail.
+Passing a list of physical examples would not establish the generic finite
+starting envelope. The user explicitly requested that envelope, not a particular
+QCD integral catalogue, so **this is not an authorized replacement for the active
+goal**. It is a contract-level option to discuss only if exhaustive pre-delivery
+coverage proves disproportionately costly. It is also not evidence that the
+current saved rules are missing relations: the measured bottleneck so far is
+traversing their overlapping domain consequences.
 
 The critic also checked the generating-function paper previously suggested by
 the user. Selected-path consistency checks in section 3.5.2 are not exhaustive

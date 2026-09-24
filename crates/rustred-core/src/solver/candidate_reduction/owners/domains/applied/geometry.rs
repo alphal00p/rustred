@@ -60,6 +60,13 @@ pub(super) struct Boundaries<'a> {
     exhausted: bool,
 }
 impl<'a> Boundaries<'a> {
+    /// With no crossing axes `next` preserves the source coordinates exactly.
+    /// A fixed crossing still counts: only an empty axis list permits reuse of
+    /// the source's previously normalized geometry and effective rank.
+    pub fn has_crossings(&self) -> bool {
+        !self.axes.is_empty()
+    }
+
     pub fn new<const N: usize>(
         source: &'a LatticeBox,
         owner: &[bool; N],
@@ -141,6 +148,9 @@ impl<'a> Boundaries<'a> {
             .map_err(|e| OwnerAppliedFailure::Geometry(e.to_string()))
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 pub(in crate::solver::candidate_reduction::owners::domains) fn rank_empty<const N: usize>(
     cell: &LatticeBox,
