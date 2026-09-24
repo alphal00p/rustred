@@ -16,14 +16,15 @@ nix develop --command python examples/python/production_saved_owner_campaign.py 
   --executable target/release/rustred --start
 ```
 
-The launcher freezes exact executable bytes and complete steering policy on
+The launcher freezes exact executable bytes and the original steering policy on
 first use. Omit `--start` to freeze/prepare and print the command without
 launching. The production preset has no solve timeout or cumulative work stop;
 it retains bounded worker buffers, input/scratch/algebra admission, at most
-50 CPUs and 500 GB decimal configured RAM. Hourly native checkpoints are the
+50 CPUs and a default 500 GB decimal requested RAM ceiling. Hourly native checkpoints are the
 resume authority. The Python RAM guard requests checkpoint-and-stop at 95%
 of the effective hard ceiling, earlier under host/cgroup pressure. Configure
-`--max-memory-bytes` or `--ram-guard-margin-percent` on first preparation.
+`--max-memory-bytes` (any positive byte count, for example 700000000000) or
+`--ram-guard-margin-percent` on first preparation or as per-invocation resume overrides.
 No additional address-space cap is imposed. Sampled RSS cannot strictly prevent
 between-sample overshoot; hard emergencies preserve the last completed save.
 
@@ -35,6 +36,15 @@ reuses the frozen workers, CPU set and optional subdivision policy:
 nix develop --command python examples/python/production_saved_owner_campaign.py --resume --start
 nix develop --command python examples/python/campaign_monitor.py campaigns/five-loop-saved/runs/RUN_NAME
 ```
+
+For a later resume requesting 700 GB, add `--max-memory-bytes 700000000000`.
+This does not modify a running process, the original frozen `steering.json`,
+executable or native solver policy. Wait for the current process's saved pause
+before resuming. Repeat the RAM override on each production resume, or use the
+supervisor's emitted exact restart command; omitted values use the original
+frozen RAM defaults. Host/cgroup protection can still admit less RAM, and the
+95% checkpoint threshold uses that effective ceiling (665 GB only when the
+full 700 GB is admitted). Plans and receipts distinguish these policies.
 
 `active-run.json` identifies the latest run. Each run has atomic `status.json`,
 PID/start/boot metadata, bounded-tail event monitoring and separate native

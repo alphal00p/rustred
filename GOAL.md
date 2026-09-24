@@ -1,5 +1,21 @@
 # RustRed project goal
 
+## September 24: user-started campaign monitoring and configurable RAM
+
+The user has started the prepared full campaign and requests a short progress
+report every 30 minutes. Observe its persistent status and checkpoint receipts;
+do not restart or change the live run without direction. Distinguish published
+initial entries from descendant closure, and measured busy cores from worker
+reservations. Do not fabricate a completion ETA from a growing worklist.
+
+The former 500 GB budget is a **default**, not a hard-coded application maximum.
+Honor a user-specified positive RAM allowance, including 700 GB, while retaining
+the 5% cooperative checkpoint margin and actual host/cgroup headroom protection.
+Changing the supervisor RAM allowance on resume does not change the native
+solver policy or invalidate mathematical checkpoint state. Report the effective
+allowance separately from the original frozen configuration. A running process
+retains the allowance with which it was started.
+
 ## Current delivery milestone: user-launched five-loop campaign
 
 Finish and audit the physical-subdivision experiment, then prepare the best
@@ -20,8 +36,9 @@ Ctrl-C, atomic saved work state, the checkpoint path and an exact restart comman
 Retain finished work; unfinished physical parts may replay a verified committed
 prefix without duplicating publication. A partial JSON report is not a checkpoint.
 Do not impose pilot work-count or elapsed-time limits on production. Preserve
-bounded buffers and protect aggregate RAM, within the requested 50-core/500-GB
-budget and actual host availability. Never claim replayed or unfinished work is
+bounded buffers and protect aggregate RAM, within the requested 50-core budget,
+user-configured RAM allowance (500 GB by default) and actual host availability.
+Never claim replayed or unfinished work is
 complete.
 The Python launcher exposes the RAM ceiling directly; at 95% of it, request a
 checkpoint and graceful stop. Save periodically at consistent boundaries, once

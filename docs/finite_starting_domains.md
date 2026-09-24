@@ -1,5 +1,15 @@
 # Finite starting domains and fixed-target repair
 
+## September 24: campaign now running under user control
+
+The user launched the prepared campaign and requests short monitoring reports
+every 30 minutes. Keep the live process untouched and inspect its durable status,
+actual CPU/RAM use, queue progress, frontiers and checkpoint milestones.
+The RAM argument is user-configurable: 500 GB is the default, not an application
+maximum. Allow larger positive requests, including 700 GB, subject to host/cgroup
+headroom and the cooperative 5% save-and-stop margin. A supervisor-only RAM
+override on resume must preserve the native policy, executable and checkpoint.
+
 ## Current launch-readiness directive (24 September)
 
 The next full run belongs to the user. First finish the physical-subdivision
@@ -29,7 +39,8 @@ the monitor. Host-memory emergency protection remains active independently.
 
 Production uses the complete saved 67-owner A≤24/R≤15/A−R≥9 inputs and preserves
 all descendants. No pilot elapsed/work caps may silently stop it. Protect total
-RAM and retain bounded buffers under the user's 50-core/500-GB ceiling; report
+RAM and retain bounded buffers under 50 cores and the user-configured RAM ceiling
+(500 GB by default); report
 actual host headroom. Use honest colored live progress plus persistent JSON/status
 evidence that remains inspectable after a user launch. Update Nix, release-build
 and Python steering documentation. Existing saved IBPs are reused, not regenerated

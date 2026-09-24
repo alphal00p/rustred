@@ -1,5 +1,7 @@
 """Fast steering-only tests; no license, native build, algebra or large jobs."""
 import importlib.util
+from contextlib import redirect_stderr, redirect_stdout
+import io
 import json
 import os
 import resource
@@ -16,6 +18,32 @@ SOURCE=Path(__file__).with_name("shared_owner_campaign.py")
 SPEC=importlib.util.spec_from_file_location("campaign",SOURCE)
 CAMPAIGN=importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CAMPAIGN)
+PRODUCTION_SPEC=importlib.util.spec_from_file_location("production_campaign",
+    SOURCE.with_name("production_saved_owner_campaign.py"))
+PRODUCTION=importlib.util.module_from_spec(PRODUCTION_SPEC)
+PRODUCTION_SPEC.loader.exec_module(PRODUCTION)
+
+
+def production_fixture(directory):
+    inputs=directory/"inputs"; inputs.mkdir()
+    (inputs/"selection.json").write_text("{}")
+    (inputs/"queries.json").write_text(json.dumps({
+        "schema":"rustred.owner-domain-queries.json.v2","queries":[{}]}))
+    (inputs/"input-receipt.json").write_text(json.dumps({
+        "selection_sha256":PRODUCTION.digest(inputs/"selection.json"),
+        "queries_sha256":PRODUCTION.digest(inputs/"queries.json"),"owners":[]}))
+    executable=directory/"fake-rustred"
+    executable.write_text(f"#!{sys.executable}\nraise SystemExit('must not execute')\n")
+    executable.chmod(0o700)
+    return executable
+
+
+def production_plan(directory, *options):
+    output=io.StringIO()
+    with redirect_stdout(output):
+        result=PRODUCTION.main(["--campaign-directory",str(directory),"--json",*options])
+    assert result==0
+    return json.loads(output.getvalue())
 
 
 def fake_process(root, pid, parent, start, children=(), tgid=None, task_children=None):
@@ -34,6 +62,90 @@ def fake_process(root, pid, parent, start, children=(), tgid=None, task_children
 
 
 class SteeringTests(unittest.TestCase):
+    def test_700gb_admission_retains_host_cgroup_and_soft_guard(self):
+        host={"host_total_bytes":1_200_000_000_000,"available_bytes":1_000_000_000_000}
+        self.assertEqual(CAMPAIGN.memory_admission(700_000_000_000,None,host,None),
+                         (700_000_000_000,665_000_000_000,20_000_000_000))
+        host["available_bytes"]=650_000_000_000
+        self.assertEqual(CAMPAIGN.memory_admission(700_000_000_000,None,host,None),
+                         (630_000_000_000,598_500_000_000,20_000_000_000))
+        host.update(cgroup_capacity_bytes=600_000_000_000,available_bytes=550_000_000_000)
+        self.assertEqual(CAMPAIGN.memory_admission(700_000_000_000,660_000_000_000,host,None),
+                         (530_000_000_000,503_500_000_000,20_000_000_000))
+        for hard,margin in ((1,5),(700_000_000_000,1e-300)):
+            with self.subTest(hard=hard,margin=margin), self.assertRaisesRegex(ValueError,"soft limit below hard"):
+                CAMPAIGN.memory_admission(hard,None,host,None,margin)
+
+    def test_production_resume_ram_override_preserves_frozen_native_policy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory=Path(temporary); executable=production_fixture(directory)
+            original=production_plan(directory,"--executable",str(executable),"--workers","1",
+                "--apply-subdivision-axis","2","--apply-subdivision-cut","3")
+            policy_path=directory/"bin/steering.json"
+            original_bytes=policy_path.read_bytes()
+            resumed=production_plan(directory,"--resume","--max-memory-bytes","700000000000",
+                                    "--ram-guard-margin-percent","7")
+            self.assertEqual(resumed["requested_hard_memory_bytes"],700_000_000_000)
+            self.assertEqual(resumed["ram_guard_margin_percent"],7)
+            self.assertEqual(resumed["supervisor_ram_overrides"],
+                             {"max_memory_bytes":700_000_000_000,"ram_guard_margin_percent":7})
+            self.assertEqual(resumed["steering_policy"],original["steering_policy"])
+            self.assertEqual(resumed["steering_policy_sha256"],original["steering_policy_sha256"])
+            self.assertEqual(resumed["executable_sha256"],original["executable_sha256"])
+            expected=list(original["steering_policy"]["command_arguments"])
+            for flag,value in (("--max-memory-bytes","700000000000"),("--ram-guard-margin-percent","7.0")):
+                expected[expected.index(flag)+1]=value
+                self.assertEqual(resumed["command"].count(flag),1)
+            self.assertEqual(resumed["command"][2:-4],expected)
+            self.assertEqual(resumed["command"][-2],"--resume")
+            self.assertEqual(policy_path.read_bytes(),original_bytes)
+            default_resume=production_plan(directory,"--resume")
+            self.assertEqual(default_resume["requested_hard_memory_bytes"],500_000_000_000)
+            self.assertEqual(default_resume["ram_guard_margin_percent"],5)
+            self.assertEqual(default_resume["supervisor_ram_overrides"],{})
+            for options in (("--max-memory-bytes","700000000000"),
+                            ("--resume","--workers","2"),
+                            ("--resume","--checkpoint-interval-seconds","1")):
+                with self.subTest(options=options), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                    production_plan(directory,*options)
+                self.assertEqual(error.exception.code,2)
+            self.assertEqual(policy_path.read_bytes(),original_bytes)
+            self.assertFalse((directory/"active-run.json").exists())
+            self.assertFalse((directory/"checkpoints").exists())
+
+    def test_production_initial_700gb_policy_persists_without_resume_override(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory=Path(temporary); executable=production_fixture(directory)
+            initial=production_plan(directory,"--executable",str(executable),"--workers","1",
+                                    "--max-memory-bytes","700000000000")
+            resumed=production_plan(directory,"--resume")
+            self.assertEqual(initial["requested_hard_memory_bytes"],700_000_000_000)
+            self.assertEqual(resumed["requested_hard_memory_bytes"],700_000_000_000)
+            self.assertEqual(resumed["supervisor_ram_overrides"],{})
+            self.assertEqual(initial["steering_policy"],resumed["steering_policy"])
+
+    def test_invalid_ram_policy_rejected_before_campaign_or_native_actions(self):
+        invalid=[("--max-memory-bytes",value) for value in ("0","-1")]
+        invalid += [("--ram-guard-margin-percent",value) for value in ("nan","inf","-inf","0","100","-1")]
+        for option,value in invalid:
+            with self.subTest(option=option,value=value):
+                with patch.object(PRODUCTION,"verify_inputs") as verify, patch.object(PRODUCTION,"freeze_executable") as freeze:
+                    with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                        PRODUCTION.main([option+"="+value])
+                    self.assertEqual(error.exception.code,2); verify.assert_not_called(); freeze.assert_not_called()
+                command=[str(SOURCE),"--executable","missing","--manifest","missing","--targets","missing",option+"="+value]
+                with patch.object(sys,"argv",command), patch.object(CAMPAIGN,"owned_process") as launch:
+                    with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                        CAMPAIGN.main()
+                    self.assertEqual(error.exception.code,2); launch.assert_not_called()
+        for soft in ("0","-1","700000000000","800000000000"):
+            command=[str(SOURCE),"--executable","missing","--manifest","missing","--targets","missing",
+                     "--max-memory-bytes","700000000000","--soft-memory-bytes="+soft]
+            with self.subTest(soft=soft), patch.object(sys,"argv",command), patch.object(CAMPAIGN,"owned_process") as launch:
+                with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                    CAMPAIGN.main()
+                self.assertEqual(error.exception.code,2); launch.assert_not_called()
+
     def test_default_ram_guard_stops_at_95_percent_of_effective_ceiling(self):
         host = {"host_total_bytes": 1_200_000_000_000, "available_bytes": 730_000_000_000}
         self.assertEqual(CAMPAIGN.memory_admission(500_000_000_000, None, host, None),
@@ -327,9 +439,14 @@ raise SystemExit(4)
             receipt=directory/"receipt"
             result=subprocess.run([sys.executable,str(SOURCE),"--executable",str(child),
                 "--manifest",str(manifest),"--targets",str(targets),"--workers","1",
+                "--max-memory-bytes","700000000000",
                 "--sample-seconds",".1","--run-directory",str(receipt),"--no-progress"],
                 capture_output=True,text=True,timeout=10)
             self.assertEqual(result.returncode,0,result.stderr)
+            request=json.loads((receipt/"request.json").read_text())
+            self.assertEqual(request["hard_memory_bytes"],700_000_000_000)
+            self.assertLessEqual(request["effective_hard_memory_bytes"],700_000_000_000)
+            self.assertEqual(request["effective_soft_memory_bytes"],int(request["effective_hard_memory_bytes"]*.95))
             rows=[json.loads(line) for line in (receipt/"resources.jsonl").read_text().splitlines()]
             self.assertGreaterEqual(len(rows),2)
             self.assertIsNone(rows[0]["observed_busy_cores"])
@@ -342,6 +459,12 @@ raise SystemExit(4)
                 self.assertIsNotNone(row["native_busy_cores"])
             status=json.loads((receipt/"status.json").read_text())
             self.assertEqual(status["resources"],rows[-1])
+            self.assertEqual(status["requested_hard_memory_bytes"],700_000_000_000)
+            self.assertEqual(status["hard_memory_bytes"],request["effective_hard_memory_bytes"])
+            terminal=json.loads((receipt/"supervisor-result.json").read_text())
+            self.assertEqual(terminal["requested_hard_memory_bytes"],700_000_000_000)
+            self.assertEqual(terminal["effective_hard_memory_bytes"],request["effective_hard_memory_bytes"])
+            self.assertEqual(terminal["effective_soft_memory_bytes"],request["effective_soft_memory_bytes"])
 
     def test_global_workers_rejected_before_launch(self):
         result=subprocess.run([sys.executable,str(SOURCE),"--executable","missing","--manifest","missing",

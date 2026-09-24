@@ -28,7 +28,7 @@ conservative successor semantics and explicit unresolved obligations.
 For the prepared five-loop saved-owner input, use the production launcher from
 the repository root. It verifies the immutable input hashes and, on the first
 preparation/start, copies the supplied executable into the campaign directory.
-The complete steering policy is frozen beside that executable. The user starts
+The original steering policy is frozen beside that executable. The user starts
 the full run manually; building or displaying help does not launch it:
 
 ```sh
@@ -43,7 +43,7 @@ nix develop --command python examples/python/production_saved_owner_campaign.py 
 
 Omit `--start` to prepare and print the exact command without executing it.
 This still freezes the executable and policy. The default policy is at most
-50 permitted CPUs, 500 GB decimal maximum resident memory, a 5% RAM guard
+50 permitted CPUs, a requested 500 GB decimal resident-memory ceiling, a 5% RAM guard
 margin, hourly checkpoints, Ordered publication, H256 unreserved transfer,
 exact initial-D reuse, finite-axis refinement and degree-64 guard admission.
 Cumulative enumeration work is uncapped (`--unbounded-work`); input admission,
@@ -52,8 +52,8 @@ remain explicit. Physical subdivision is optional, with the paired
 `--apply-subdivision-axis N --apply-subdivision-cut C`; it is not a default
 whole-walker speed claim. The saved input remains data, not topology dispatch.
 
-After a graceful pause, resume with the same immutable binary and **all** frozen
-steering flags automatically. Each invocation creates a new receipt directory:
+After a graceful pause, resume with the same immutable binary and frozen solver
+flags automatically. Each invocation creates a new receipt directory:
 
 ```sh
 nix develop --command python examples/python/production_saved_owner_campaign.py \
@@ -62,8 +62,26 @@ nix develop --command python examples/python/campaign_monitor.py \
   campaigns/five-loop-saved/runs/RECEIPT_DIRECTORY
 ```
 
+RAM policy is not mathematical checkpoint state. On a later resume, you may
+override `--max-memory-bytes` and/or `--ram-guard-margin-percent` without changing
+the frozen executable, native solver arguments or original `steering.json`:
+
+```sh
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/five-loop-saved --resume \
+  --max-memory-bytes 700000000000 --start
+```
+
+This requests 700 GB, subject to current host/cgroup headroom. It does not alter
+an already-running process: first request Ctrl-C and wait for its saved pause.
+These RAM overrides apply only to this invocation; repeat them on a subsequent
+production resume, or use the supervisor's emitted exact resume command.
+Omitting them reuses the original frozen RAM defaults. Prepared/active-run plans
+record the original policy and requested RAM overrides separately; supervisor
+receipts record both requested and host-admitted effective limits.
+
 `campaigns/five-loop-saved/active-run.json` points to the latest requested run.
-The launcher rejects conflicting policy overrides and a different executable;
+The launcher still rejects conflicting native policy overrides and a different executable;
 changing native policy requires a separate campaign. A later Cargo rebuild does
 not replace the frozen executable. `campaign_monitor.py RUN --json` gives one
 read-only machine-readable status; `--once` prints one human-readable snapshot.
@@ -125,14 +143,17 @@ before first observation can be missed; this is not universal descendant
 capture. Transient unreadable live identities are retained for later retry.
 
 Defaults are at most 50 outer workers, all native/BLAS/Rayon inner pools fixed
-to one before exec, and **500 GB decimal** configured maximum aggregate RSS.
-`--max-memory-bytes` may lower this ceiling. Admission reduces it further if
+to one before exec, and a **500 GB decimal default** requested aggregate RSS ceiling.
+`--max-memory-bytes` accepts any positive byte count, including a higher requested
+ceiling such as 700 GB; there is no fixed numerical RAM maximum. Admission reduces it if
 host/cgroup available RAM minus the host reserve is smaller. The reserve
 defaults to `min(20 GB, 5% of host/cgroup capacity)`; readable cgroup-v2 ancestor
 limits are included. By default measured RSS at **95% of the effective ceiling**
 requests a checkpoint and stop. Set `--ram-guard-margin-percent` to change that
 margin or `--soft-memory-bytes` for an earlier stop. Thus an otherwise
-unconstrained 500 GB run requests a save at 475 GB. Host pressure can trigger an
+unconstrained 500 GB run requests a save at 475 GB, or a 700 GB run at 665 GB.
+Margins must leave a representable positive soft limit strictly below the
+effective hard limit. Host pressure can trigger an
 earlier stop, independently of campaign RSS.
 
 No new `RLIMIT_AS` address-space cap is imposed by default: virtual reservation

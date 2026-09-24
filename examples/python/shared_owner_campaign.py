@@ -265,8 +265,8 @@ def memory_admission(hard: int, soft: int | None, snapshot: dict, reserve: int |
     if admitted_hard <= 0:
         raise ValueError("host/cgroup RAM availability leaves no campaign headroom")
     admitted_soft = int(admitted_hard * (1 - margin_percent / 100)) if soft is None else min(soft, int(admitted_hard * (1 - margin_percent / 100)))
-    if admitted_soft <= 0:
-        raise ValueError("host/cgroup RAM allowance is too small")
+    if not 0 < admitted_soft < admitted_hard:
+        raise ValueError("host/cgroup RAM allowance and margin must leave a positive soft limit below hard")
     return admitted_hard, admitted_soft, reserve
 
 
@@ -394,8 +394,8 @@ def main() -> int:
         parser.error("aggregate configured compute workers must be between 1 and 50")
     DOMAIN.validate_inspection_workers(parser, args.workers, args.inspection_workers,
                                        args.max_containment_checks)
-    if not 0 < args.max_memory_bytes <= 500_000_000_000 or args.soft_memory_bytes is not None and not 0 < args.soft_memory_bytes < args.max_memory_bytes:
-        parser.error("require hard <= 500 GB and any explicit soft allowance below hard")
+    if args.max_memory_bytes <= 0 or args.soft_memory_bytes is not None and not 0 < args.soft_memory_bytes < args.max_memory_bytes:
+        parser.error("require a positive hard RAM limit and any explicit soft allowance below hard")
     if not math.isfinite(args.ram_guard_margin_percent) or not 0 < args.ram_guard_margin_percent < 100:
         parser.error("RAM guard margin must be finite and strictly between 0 and 100 percent")
     if not math.isfinite(args.sample_seconds) or args.sample_seconds < 0.1 or not 0 < args.objective_hours < float("inf"):
@@ -691,6 +691,7 @@ def main() -> int:
         "resume_command": resume_command,
         "unbounded_work": args.unbounded_work, "family_closure_claim": False,
         "child_rlimit_as_bytes": child_as, "memory_failure_is_incomplete": True,
+        "requested_hard_memory_bytes": args.max_memory_bytes,
         "effective_hard_memory_bytes": effective_hard, "effective_soft_memory_bytes": effective_soft,
         "host_memory_reserve_bytes": host_reserve,
         "ram_guard_margin_percent": args.ram_guard_margin_percent,

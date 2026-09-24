@@ -17,6 +17,8 @@ import shutil
 import sys
 import tempfile
 
+RAM_POLICY_OPTIONS = ("max_memory_bytes", "ram_guard_margin_percent")
+
 
 def digest(path):
     with path.open("rb") as stream:
@@ -99,7 +101,7 @@ def verify_inputs(directory):
 
 
 def frozen_policy(campaign, args, executable, inputs, count, size):
-    """Persist exact steering arguments once; resume never rebuilds defaults."""
+    """Persist original steering; only per-resume supervisor RAM may differ."""
     path = campaign / "bin" / "steering.json"
     names = ("workers", "cpus", "checkpoint_interval_seconds", "max_memory_bytes",
              "ram_guard_margin_percent", "apply_subdivision_axis", "apply_subdivision_cut")
@@ -110,6 +112,8 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
         for name in names:
             supplied = getattr(args, name)
             if supplied is not None and supplied != policy["options"][name]:
+                if args.resume and name in RAM_POLICY_OPTIONS:
+                    continue
                 raise ValueError(f"--{name.replace('_', '-')} differs from frozen policy; use a new campaign directory")
         return policy
     if args.resume:
@@ -146,6 +150,24 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
     return policy
 
 
+def effective_supervisor_policy(policy, args):
+    """Overlay resume-only RAM settings without rewriting frozen solver policy."""
+    options = dict(policy["options"])
+    command = list(policy["command_arguments"])
+    overrides = {}
+    if args.resume:
+        for name in RAM_POLICY_OPTIONS:
+            supplied = getattr(args, name)
+            if supplied is not None and supplied != options[name]:
+                overrides[name] = supplied
+                options[name] = supplied
+                flag = "--" + name.replace("_", "-")
+                if command.count(flag) != 1:
+                    raise ValueError(f"frozen steering must contain exactly one {flag}")
+                command[command.index(flag) + 1] = str(supplied)
+    return command, options, overrides
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--campaign-directory", type=Path,
@@ -157,8 +179,10 @@ def main(argv=None):
     parser.add_argument("--cpus", help="optional explicit affinity; exactly --workers CPU IDs")
     parser.add_argument("--run-directory", type=Path)
     parser.add_argument("--checkpoint-interval-seconds", type=int, help="initial default: 3600")
-    parser.add_argument("--max-memory-bytes", type=int, help="initial default: 500000000000 (500 GB)")
-    parser.add_argument("--ram-guard-margin-percent", type=float, help="initial default: 5 (save+stop at 95%%)")
+    parser.add_argument("--max-memory-bytes", type=int,
+                        help="positive requested RAM ceiling; initial default: 500000000000; may override per resume")
+    parser.add_argument("--ram-guard-margin-percent", type=float,
+                        help="initial default: 5 (save+stop at 95%%); may override per resume")
     parser.add_argument("--apply-subdivision-axis", type=int)
     parser.add_argument("--apply-subdivision-cut", type=int)
     parser.add_argument("--json", action="store_true", help="print the prepared command as JSON")
@@ -166,9 +190,9 @@ def main(argv=None):
     if ((args.workers is not None and not 1 <= args.workers <= 50) or
             (args.checkpoint_interval_seconds is not None and args.checkpoint_interval_seconds <= 0)):
         parser.error("workers must be in 1..50 and checkpoint interval must be positive")
-    if ((args.max_memory_bytes is not None and not 0 < args.max_memory_bytes <= 500_000_000_000) or
+    if ((args.max_memory_bytes is not None and args.max_memory_bytes <= 0) or
             (args.ram_guard_margin_percent is not None and not 0 < args.ram_guard_margin_percent < 100)):
-        parser.error("RAM limit must be in 1..500 GB and guard margin strictly between 0 and 100 percent")
+        parser.error("RAM limit must be positive and guard margin strictly between 0 and 100 percent")
     if (args.apply_subdivision_axis is None) != (args.apply_subdivision_cut is None):
         parser.error("subdivision requires both axis and cut")
     if any(value is not None and value < 0 for value in (args.apply_subdivision_axis, args.apply_subdivision_cut)):
@@ -179,21 +203,24 @@ def main(argv=None):
         count, size, receipt = verify_inputs(inputs)
         executable, executable_hash = freeze_executable(campaign, args.executable)
         policy = frozen_policy(campaign, args, executable, inputs, count, size)
+        command_arguments, options, ram_overrides = effective_supervisor_policy(policy, args)
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.error(str(error))
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     run = args.run_directory.resolve() if args.run_directory else campaign / "runs" / timestamp
     checkpoint = campaign / "checkpoints" / "main"
     supervisor = Path(__file__).with_name("shared_owner_campaign.py").resolve()
-    command = [sys.executable, str(supervisor), *policy["command_arguments"],
+    command = [sys.executable, str(supervisor), *command_arguments,
                "--run-directory", str(run), "--resume" if args.resume else "--checkpoint", str(checkpoint)]
-    options = policy["options"]
     plan = {"command": command, "campaign_directory": str(campaign), "run_directory": str(run),
             "checkpoint_directory": str(checkpoint), "executable_sha256": executable_hash,
             "selection_sha256": receipt["selection_sha256"], "queries_sha256": receipt["queries_sha256"],
             "requested_workers": options["workers"], "hard_timeout_seconds": None,
             "requested_hard_memory_bytes": options["max_memory_bytes"],
             "ram_guard_margin_percent": options["ram_guard_margin_percent"],
+            "supervisor_ram_policy": {name: options[name] for name in RAM_POLICY_OPTIONS},
+            "supervisor_ram_overrides": ram_overrides,
+            "supervisor_ram_override_scope": "this_invocation_only; omitted_values_use_original_frozen_policy",
             "checkpoint_interval_seconds": options["checkpoint_interval_seconds"],
             "steering_policy": policy, "steering_policy_sha256": digest(campaign / "bin" / "steering.json"),
             "unbounded_cumulative_work": True, "scratch_and_algebra_admission_remain_bounded": True,
