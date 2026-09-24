@@ -269,3 +269,18 @@ assumed unchanged.
 Workspace-only raw build, export, numerical and timing evidence is retained in
 `TMP/vakint-generic-refresh.uBYwrQ/`. Reference software, licenses, temporary
 executables and raw campaign payloads are not RustRed repository content.
+
+## Published milestone
+
+The producer example is published in RustRed `010466a0`; final numerical/timing
+results and the accepted wall-time/CPU/RAM tradeoff are in `17380771`. GammaLoop's
+`vakint_rustred` branch now ships the refreshed assets and their test harness at
+`a5dc6da729e2ced16dca5e51a32456cfab3e6d96`, with a clean worktree after its push.
+Its tested RustRed dependency remains `7b22f5bd`.
+
+Final focused loader/catalog and fixture checks pass (7 + 3), as do targeted
+formatting and the independent implementation/data audit. Hakari verification
+passes; local regeneration leaves CI metadata byte-identical and CI disabled.
+The full GammaLoop CI/upload suite was not run. The next investigation is
+five-loop inspection subdivision and checkpoint-compatible ready publication,
+not a change to these validated unrestricted packaged rules.
