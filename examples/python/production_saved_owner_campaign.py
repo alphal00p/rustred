@@ -89,6 +89,12 @@ def verify_inputs(directory):
     for name, key in (("selection.json", "selection_sha256"), ("queries.json", "queries_sha256")):
         if digest(directory / name) != receipt[key]:
             raise ValueError(f"staged {name} digest changed")
+    if "original_queries" in receipt:
+        original = receipt["original_queries"]
+        path = (directory / original["path"]).resolve()
+        if (directory.resolve() not in path.parents or path.stat().st_size != original["bytes"]
+                or digest(path) != original["sha256"]):
+            raise ValueError("staged original query identity changed")
     for owner in receipt["owners"]:
         path = (directory / owner["path"]).resolve()
         if directory.resolve() not in path.parents or path.stat().st_size != owner["bytes"] or digest(path) != owner["sha256"]:
@@ -215,6 +221,7 @@ def main(argv=None):
     plan = {"command": command, "campaign_directory": str(campaign), "run_directory": str(run),
             "checkpoint_directory": str(checkpoint), "executable_sha256": executable_hash,
             "selection_sha256": receipt["selection_sha256"], "queries_sha256": receipt["queries_sha256"],
+            "anchor_plan": receipt.get("anchor_plan"),
             "requested_workers": options["workers"], "hard_timeout_seconds": None,
             "requested_hard_memory_bytes": options["max_memory_bytes"],
             "ram_guard_margin_percent": options["ram_guard_margin_percent"],

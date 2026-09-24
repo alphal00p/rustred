@@ -56,7 +56,21 @@ Use `--once` or `--json` with the monitor for a read-only snapshot; `NO_COLOR`
 disables color. Stale heartbeats/process identities are reported explicitly.
 
 For another supplied snapshot, `stage_saved_owner_campaign.py --help` describes
-the generic byte-preserving staging helper. The Nix flake also exports
+the generic staging helper. Its default is byte-preserving. Optional
+`--anchor-max-numerator-rank R` appends one ordinary owner-orthant query per
+selected manifest owner, in manifest order, with no positive-power or D bound.
+Add `--anchor-max-positive-power A` to bound anchor positive power; optionally
+restrict that bound to `--anchor-positive-power-owners MASK1,MASK2` (otherwise it
+applies to every anchor). These parameters are input data, with no loop-specific
+defaults. All original query objects and their order remain unchanged, and
+`queries-original.json` retains the exact supplied bytes. The receipt and
+production plan record the additional obligations. Anchors are not certified
+coverage, and escaping descendants remain ordinary required work. Native
+admission remains authoritative, including for original diagnostic queries.
+Choose a fresh staging/campaign destination: input planning never changes an
+existing campaign or its checkpoint/resume policy.
+
+The Nix flake also exports
 `campaign`, `campaign-production`, `campaign-monitor` and `campaign-stage` apps.
 See [the driver documentation](../../docs/shared_owner_campaign_driver.md) for
 resource accounting, genuine native resume and low-level command examples.

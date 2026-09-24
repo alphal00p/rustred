@@ -1,5 +1,63 @@
 # RustRed project goal
 
+## September 24 follow-up: finish the four-loop control, then refresh Vakint
+
+The user has explicitly requested continued work, in this order:
+
+1. Complete the four-loop saved-rule successor campaign with the same
+   conditional renormalizable full-UV-jet restriction used for five loops:
+   A<=19, R<=12, A-R>=7. Retain every descendant. Measure actual complete
+   traversal, not merely initial-entry publication, and assess practical time.
+2. If the control is inefficient or does not exhaust, reassess the algorithm,
+   implement topology/loop-count-generic improvements, and demonstrate complete
+   four-loop traversal before recommending how to restart five loops. Do not
+   silently alter the user's live five-loop process. The subsequent September
+   24 directive explicitly authorizes a checkpointed stop when the experiments
+   show that its strategy is impractical, then an assistant-launched replacement
+   through the user's Zellij campaign tab after successful four-loop validation.
+   If the control is satisfactory, leave five loops running unchanged.
+   Growing queues do not establish an ETA,
+   and local descent is not an established global termination guarantee.
+3. Only after the control succeeds, refresh/re-export Vakint's packaged native
+   one-, two-, three-, and four-loop rules using the latest generic binary I/O,
+   proceeding loop by loop with end-to-end numerical tests and matched
+   performance checks against the previous packages. Preserve their intended
+   unrestricted coverage: the experimental entry envelope must never become a
+   shipped artifact rank restriction. Unrestricted candidate scope is not a
+   claim of certified arbitrary-index completeness.
+4. Independently audit coherent milestones, then commit and push both RustRed
+   and GammaLoop's `vakint_rustred` branch with the requested Valentin identity.
+
+The four-loop control evidence is retained under
+`TMP/four-loop-saved-descendants.VaNmUN/`, with all 900 saved nonzero sectors of
+the four parent coordinate families, the unchanged five-loop frozen executable,
+six nonoverlapping physical cores, no elapsed/work limit, and an independent
+RAM guard reserving the live five-loop job's remaining allowance. Families run
+serially FG/BMW/H/X; no cross-parent coordinate-basis sharing is claimed.
+Existing saved IBPs are reused, not regenerated. The temporary repack preserves
+all 59,636 rules and 1,155 declared residuals, including native coefficient bytes.
+The first finite FG traversal was checkpointed after 1.35 million inspections
+with 764,122 pending domains and no observed frontiers. The subsequent generic
+coarse-cover reassessment now completes all four controls, with independent
+record-level audits: FG/BMW/H/X take 18.52/38.53/16.50/38.51 seconds whole-command
+time on six workers, with zero frontiers and all descendants discharged.
+Rank-only auxiliary regions suffice except BMW, whose upstream guard cone also
+needs finite positive-power anchors. Neither auxiliary bound clips descendants.
+The unchanged native executable is used; the new input-only planner is generic.
+Proceed with reproducibility, revised five-loop preparation/relaunch and the
+unrestricted Vakint refresh. See [the measurements](docs/research/four_loop_saved_cover_control_2026-09-24.md).
+The original five-loop campaign received authorized cooperative SIGINT and saved
+checkpoint generation 13. The user confirmed the existing Zellij destination:
+session `rustred`, tab `five_loop_vacuum`. Use that tab for the eventual explicit
+relaunch command; changed auxiliary inputs require a fresh campaign/checkpoint.
+
+Both existing packagings already use the same generic `.rrbin` container and
+Symbolica native state/atoms. The older four-loop files are multi-sector bundles;
+the shared-owner ingress currently requires single-sector bundles. This is an
+interface limitation, not a justification for topology-specific I/O. Any lasting
+fix must support generic sector selection and avoid repeated imports of a shared
+payload. No new four-loop format is authorized or necessary.
+
 ## September 24: user-started campaign monitoring and configurable RAM
 
 The user has started the prepared full campaign and requests a short progress

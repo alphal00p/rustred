@@ -1,5 +1,38 @@
 # Finite starting domains and fixed-target repair
 
+## September 24 evening: four-loop control before further delivery
+
+The user requests continued work in the order now recorded at the top of
+`GOAL.md`: complete the analogous four-loop full-UV-jet control, reassess and
+improve the generic traversal if it is inefficient, and only then refresh
+Vakint's unrestricted one- through four-loop native packages with numerical
+and matched performance gates. Commit and push the resulting milestones.
+The experiment's A<=19/R<=12/A-R>=7 bounds apply only to starting queries and
+must never restrict the shipped rules or discard descendants. The live
+five-loop process remains user-owned. The subsequent September 24 instruction
+authorizes a cooperative checkpointed stop if this strategy is impractical,
+followed by an assistant-launched replacement in the user's Zellij campaign tab
+after measured four-loop success. Explain changed-input checkpoint compatibility;
+do not silently resume an old checkpoint against different queries.
+
+The first FG control shows millions of region obligations and tens of billions
+of containment comparisons despite no observed missing cases. This motivates
+testing coarser reusable covers, with unchanged native guard, RHS, descent and
+dependency checks. A containing region is an obligation to inspect, not a
+certificate merely because it was admitted. An unsuccessful stronger cover
+does not establish a gap inside the original finite entry envelope.
+
+The completed reassessment now passes independently audited four-parent controls:
+FG/BMW/H/X finish in 18.52/38.53/16.50/38.51 seconds whole-command time on six
+workers, with zero pending work/frontiers and all obligations discharged. These
+use the unchanged native binary with ordinary auxiliary owner regions, never
+descendant clipping; see [the full record](research/four_loop_saved_cover_control_2026-09-24.md).
+The old five-loop campaign has saved an authorized paused generation-13 checkpoint.
+Prepare the revised input in a new campaign, then launch explicitly in the
+user-confirmed Zellij session `rustred`, tab `five_loop_vacuum`. Do not bind its
+changed queries to the old checkpoint. Continue the unrestricted Vakint refresh
+and numerical/performance gates independently after this four-loop success.
+
 ## September 24: campaign now running under user control
 
 The user launched the prepared campaign and requests short monitoring reports
