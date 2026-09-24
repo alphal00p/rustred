@@ -53,7 +53,11 @@ Per-process warm medians and paired ratios avoid treating repeated cached calls
 as independent cold runs. A performance regression cannot be hidden by timing
 only a favorable repeat.
 
-## Current verification state
+## Intermediate writer-only verification
+
+These measurements belong to the initial re-export. The fresh-producer
+three- and four-loop packages and their separate final gates are recorded
+below; the intermediate results must not be substituted for them.
 
 The baseline 83-test inventory passes in full. Its initial attempt failed because
 the existing vendored FORM executable could not locate `libflint.so.24`, not
@@ -135,9 +139,10 @@ solved sectors, unrestricted rank and the same 16 normalized catalog keys.
 Strict historical-reference comparisons correctly reject these differences.
 The historical outputs and failed comparison receipts remain preserved. Fresh
 production results must pass scope/catalog checks, Vakint's unchanged numerical
-gates and new matched timings before replacing the packages. The re-export-only
-timings above cannot stand in for those new-generation checks. This alignment
-is in progress; it is not yet a completed delivery claim.
+gates and new matched timings before accepting/shipping the replacement packages.
+The re-export-only timings above cannot stand in for those new-generation checks.
+The final numerical and fixed timing matrices now complete, with the mixed
+performance result reported below rather than a uniform speedup claim.
 
 The full fresh producer run has now passed generation, cold inspection/application
 at K1/K3/K6, and cold loading plus terminal-normalization replay and catalog-key
@@ -176,6 +181,28 @@ relabelled as a complete finite-domain walk of these newly generated rules.
 Conversely, the candidate packages retain their unrestricted input scope: they
 are not the bounded control's queries or a certificate inferred from numerics.
 
+A separate fresh-package control now completes with the exact same original
+A<=19/R<=12/A-R>=7 and auxiliary query bytes, using the unchanged executable
+and policy. Independent streaming audit checks all 329,982 logical records,
+317,608 native inspections and 1,800 initial inspections. Every ledger obligation
+is discharged; pending work, frontiers, errors, problems and both unsupported
+support-transition counters are zero, with drained workers and escrow. No
+Route records occur. Optional original-coefficient refusals 0/3/4/17 remain
+explicit for FG/BMW/H/X and do not discard conditional successors.
+
+| Fresh program | Native / delegated | Traversal s | Whole command s |
+| --- | ---: | ---: | ---: |
+| FG | 98,869 / 40 | 12.9560 | 16.07 |
+| BMW | 147,233 / 11,718 | 31.6980 | 36.10 |
+| H | 24,680 / 249 | 12.4722 | 18.09 |
+| X | 46,826 / 367 | 32.3165 | 38.09 |
+
+Whole-command spans sum to 108.35 seconds. The native/delegated counts match
+the old successful runs; full record-by-record old/new equality is not asserted.
+This establishes completion of the same restricted four separate coordinate-family
+walks on the new packages, not unrestricted closure certification. Raw evidence
+is in `TMP/fresh-four-loop-control.ouqfIS/`.
+
 A separate full invocation of the documented producer, now with strict
 comparison to the newly installed packages, passes all seven comparisons.
 Its generated payloads are byte-identical to the first complete fresh run;
@@ -200,8 +227,44 @@ separate from the intermediate re-export-only results above.
 The final embedded packages now pass the unchanged 83-test regression inventory
 and all 15 four-loop numerical references plus 16 propagator-cancellation cases,
 with independent raw-marker and binary-binding audit. Their fixed six-pair
-three-/four-loop timing matrices remain in progress; the old timing tables
-are not substituted for those pending results.
+three-loop timing matrix also passes all 768 numerical comparisons:
+
+| Fresh K6 input | First-call medians, baseline→candidate ms | Warm medians, baseline→candidate ms | Median paired warm C/B |
+| --- | ---: | ---: | ---: |
+| D1 squared | 1,268.583→1,200.186 | 111.779→114.517 | 1.0115 |
+| Pinch 6 | 64.165→63.620 | 64.563→64.663 | 1.0001 |
+
+Five of six D1-squared warm pairs are slower; its median paired increase is
+1.15%. The first-family paired median is 0.9845, with a retained slow outlier.
+These shared-host observations support broadly comparable performance, not
+strict equal-or-better timing on every case.
+
+The final fresh four-loop matrix also completes: all 12 processes, six fixed
+baseline/candidate pairs and 648 numerical comparisons pass. Independent review
+recomputes every raw sample summary, process median and paired ratio. The whole
+block takes 1,091.267 seconds, with no error, resource stop or selected rerun.
+
+| Fresh four-loop input | First-call medians, B→C ms | Warm medians, B→C ms | Median paired warm C/B |
+| --- | ---: | ---: | ---: |
+| H / D1 cubed | 5,700.938→5,716.695 | 82.743→82.149 | 0.9825 |
+| H / expanded D7 | 20.906→21.375 | 20.899→21.227 | 1.0120 |
+| FG / D1 cubed | 978.607→939.737 | 78.794→78.654 | 0.9964 |
+| FG / expanded D7 | 664.009→662.445 | 30.192→31.085 | 1.0318 |
+| BMW / D1 cubed | 2,901.887→2,835.692 | 64.664→64.863 | 1.0009 |
+| BMW / expanded D7 | 24.743→24.780 | 22.536→22.617 | 1.0035 |
+| X / D1 cubed | 21,575.094→21,608.305 | 113.830→112.841 | 1.0041 |
+| X / expanded D7 | 329.032→320.105 | 48.059→48.655 | 1.0191 |
+| Factorized clover | 15.103→15.457 | 15.000→15.013 | 0.9995 |
+
+First cubed-parent calls include lazy loading; the other rows are subsequent
+inputs in each process. First-call paired ratios span 0.9670–1.0242; warm ratios
+span 0.9825–1.0318. FG expanded-D7 is slower in five of six warm pairs, with
+a 3.18% paired median increase. H and X expanded-D7 are slower in four of six
+pairs, by 1.20% and 1.91% respectively. These are small mixed differences on a
+shared host, not a strict equal-or-better performance pass. All observations,
+including unfavorable ones, remain in the result. The packages have passed
+numerical/reproducibility validation; performance is measured rather than
+assumed unchanged.
 
 Workspace-only raw build, export, numerical and timing evidence is retained in
 `TMP/vakint-generic-refresh.uBYwrQ/`. Reference software, licenses, temporary

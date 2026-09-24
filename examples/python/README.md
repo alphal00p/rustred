@@ -8,6 +8,8 @@ terminal-normalization API. The algebra, search, native encoding and loading
 remain in RustRed/Symbolica. It generates rules from family inputs; it never
 imports a saved rule package as a generation source or invokes FORM.
 
+Initialize the dependency and its required patch following
+[the Symbolica setup instructions](../../README.md#symbolica-30-development-checkout).
 Build once from the repository root, with `SYMBOLICA_LICENSE` already set:
 
 ```sh

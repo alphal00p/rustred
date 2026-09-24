@@ -47,6 +47,11 @@ of independent ready results without an unnecessary global sequence. Preserve
 shared responsibility/duplicate-work accounting and deterministic mathematical
 ownership. Profile and test before changing the live run; earlier isolated
 subdivision gains did not yet improve the complete small campaign.
+The user explicitly accepts some redundant computation to unlock useful core
+scaling. Compare completed-workload wall time and RAM with total CPU/work
+inflation; do not make zero overlapping computation a design constraint.
+This does not relax source coverage, guards, failure handling or obligation
+accounting.
 
 ## September 24: campaign now running under user control
 

@@ -190,3 +190,21 @@ The revised five-loop input has passed preliminary matching and was launched
 in the user's existing Zellij tab at 21:06 UTC. Its recursive result remains open.
 The unrestricted Vakint package refresh and matched numerical/performance gates
 are now in progress; they must not inherit this control's entry restrictions.
+
+## Repeat on freshly generated Vakint packages
+
+The later Python producer example regenerates the unrestricted rule programs
+from native sources, changing the historical 59,636-rule inventory to 59,509
+rules while preserving all 900 sectors and 1,155 raw terminals. Consequently,
+the preceding receipts are not silently attached to the new packages. A separate
+complete pass uses those fresh programs with the exact same successful query
+bytes and native options; only filesystem paths differ.
+
+Independent full-record review again finds 317,608 native inspections plus
+12,374 delegated obligations, all 1,800 initial queries inspected, every ledger
+responsibility discharged and drained worker/escrow state. Errors, frontiers,
+pending work, problems and both unsupported support-transition counters are zero.
+FG/BMW/H/X traversal takes 12.956/31.698/12.472/32.316 seconds; whole-command
+spans sum to 108.35 seconds. No new timing speedup or unrestricted certificate is
+claimed. See [the package refresh record](vakint_native_refresh_2026-09-24.md)
+and workspace evidence in `TMP/fresh-four-loop-control.ouqfIS/`.

@@ -39,6 +39,10 @@ The user has explicitly requested continued work, in this order:
    and exact deterministic ownership. Distinguish mathematical dependencies from
    scheduler-imposed ordering. Ground any change in profiles and matched pilots;
    do not alter or interrupt the live campaign merely to try a new policy.
+   Redundant matching or overlapping inspections are acceptable when they unlock
+   a substantial measured wall-clock speedup within the RAM budget. Record total
+   CPU/work inflation alongside speedup; zero redundant computation is not an
+   acceptance requirement. Correct obligation accounting remains mandatory.
 
 The four-loop control evidence is retained under
 `TMP/four-loop-saved-descendants.VaNmUN/`, with all 900 saved nonzero sectors of
@@ -77,6 +81,17 @@ performance checks while observing the new run; do not infer a five-loop ETA
 from the successful four-loop controls.
 The [restart record](docs/research/five_loop_coarse_cover_restart_2026-09-24.md)
 contains the actual launch, recovery and monitoring commands.
+
+The unrestricted Python producer now regenerates all seven Vakint programs and
+reproduces them exactly in a second invocation. Fresh packages pass the unchanged
+83-test regression inventory, all 15 four-loop references and 16 cancellation
+cases. Fixed six-pair scalar timing matrices pass every numerical check; observed
+warm ratios are mixed (four-loop paired medians 0.9825–1.0318), so strict
+equal-or-better performance is not established. A separate restricted traversal
+on the fresh four-loop programs also completes in 108.35 seconds summed command
+time. See [the refresh record](docs/research/vakint_native_refresh_2026-09-24.md).
+Proceed with the measured five-loop inspection/publication study while preserving
+the live run; do not infer its completion from these successful lower-loop gates.
 
 Both existing packagings already use the same generic `.rrbin` container and
 Symbolica native state/atoms. The older four-loop files are multi-sector bundles;

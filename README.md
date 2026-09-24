@@ -1137,8 +1137,10 @@ example uses that same generation, cold-loading and application path.
 
 [`examples/python/generate_vakint_artifacts.py`](examples/python/generate_vakint_artifacts.py)
 steers fresh native IBP generation from the input families used by Vakint. It
-does not copy pre-existing rules. Build the release CLI and its small public-API
-terminal-normalization helper once, then run without recompiling:
+does not copy pre-existing rules. First initialize the patched dependency as
+described in [Symbolica 3.0 development checkout](#symbolica-30-development-checkout).
+Build the release CLI and its small public-API terminal-normalization helper
+once, then run without recompiling:
 
 ```sh
 mkdir -p TMP
