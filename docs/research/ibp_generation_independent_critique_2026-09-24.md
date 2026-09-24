@@ -7,6 +7,13 @@ were then put directly to its author. No production algorithm or saved rules
 were changed by this review. Separately authorized native diagnostics changed
 their query inputs, not the production workload or completion contract.
 
+Follow-up: the [audited finite-cover tests](finite_cover_pilot_2026-09-24.md)
+complete, but the best of the two cover variants is still slower and more
+CPU-intensive than direct traversal. Its lower inspection count, memory and
+report size are real, not a speed claim. I support one fresh paired larger-input
+test with **unchanged** anchors and every original entry retained; after that,
+require measured internal reuse before investing in a guard/transfer compiler.
+
 ## Bottom line
 
 **Try one bounded finite-cover falsifier through the existing walker before

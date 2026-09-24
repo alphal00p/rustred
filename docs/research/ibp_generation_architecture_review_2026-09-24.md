@@ -15,6 +15,11 @@ is discovered.
 This extends the [23 September review](finite_closure_architecture_review_2026-09-23.md).
 It is a ranked research proposal, not implementation approval or a completion
 claim; see the [independent critique](ibp_generation_independent_critique_2026-09-24.md).
+The [subsequent code-free pilot](finite_cover_pilot_2026-09-24.md) now tests the
+first proposal: all local walks finish, but neither initial-cover strategy beats
+the direct baseline. Routing anchors do substantially reduce retained work and
+memory. This narrows the next experiment to fixed-anchor amortization on a larger
+unchanged control, not a claimed speedup or immediate full-run replacement.
 No production implementation or saved rules changed for this review; the bounded
 diagnostic inputs described below are new. The requested
 numerator-filtration prototype was checkpointed as unbuilt, unrun TMP source

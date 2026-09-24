@@ -28,12 +28,29 @@ of concurrency has been identified.
 
 Read the [ranked whole-system proposal](research/ibp_generation_architecture_review_2026-09-24.md)
 with the [separate adversarial critique](research/ibp_generation_independent_critique_2026-09-24.md).
-The first falsifiable experiment should seed a small candidate finite cover into
-the existing walker, retaining every escaping successor. Compare the same
-required entry set and report the cover's additional points and preparation cost.
-Neither a new traversal engine nor a universal all-406-band filtration proof is
-a prerequisite for this pilot. Stop an unhelpful cover experiment without
-claiming that the original entry envelope is impossible to close.
+The first finite-cover falsifier now completes through the existing walker,
+with no engine change. Direct A11 traversal takes 5.846 s; larger four-owner
+P≤13 Apply regions take 12.174 s. Pre-admitting P≤13 regions for the saved routing
+sources reduces this to 6.799 s, with 9,758 native inspections instead of the
+direct run's 27,806. It also lowers peak RSS 13.3%, but is still 16.3% slower
+and costs 64.1% more process CPU than the direct control. All three walks fully
+discharge their retained local obligations and pass independent raw review.
+The larger covers include additional points (29,816,130 initial sector-labelled
+tuples in the routing-seeded version versus 45,342 required entries), so these
+are same-required-scope strategies, not identical native workloads. Symbolic
+successor regions reach P=16 and are retained; the initial cover is not certified
+invariant. See [the complete measurements and limits](research/finite_cover_pilot_2026-09-24.md).
+
+Both architecture reviewers support one further code-free amortization control:
+the already completed A12 entry set, unchanged, with or without the **fixed**
+P13 anchors. Retain all four original A12 roots; 296,802 of its 357,192 tuples
+lie outside P13. Use a fresh same-block direct baseline and predeclare equal
+A12-specific diagnostic work gates, not the smaller previous A11 gates. Charge
+all cold anchor work and keep every escape. Do not widen the cover, require all
+406 unbounded bands or restart the full campaign. If this does not produce a
+useful runtime tradeoff, stop anchor tuning and measure reusable ordered
+guard/term or per-phase transfer work before building a new service. Sampled
+diagonal guards do not establish that affine refinement dominates runtime.
 
 ## Current follow-up: measured native cost, worker split and cover prerequisites
 

@@ -14,10 +14,28 @@ before changing them or restarting the full campaign. The full five-loop
 envelope remains unfinished, with no defensible completion ETA.
 See the [whole-system proposal](docs/research/ibp_generation_architecture_review_2026-09-24.md)
 and its [independent critique](docs/research/ibp_generation_independent_critique_2026-09-24.md).
-The next low-cost experiment is to seed a candidate finite cover into the
-existing walker, not build another engine or require all 406 unbounded bands to
-pass first. Compare the unchanged required entry set while explicitly reporting
-the extra points covered by the proposed invariant.
+The first code-free finite-cover experiments now complete and pass independent
+raw review. On the four-owner A11 control, direct traversal is 5.846 s; admitting
+larger Apply regions takes 12.174 s; also pre-admitting the saved Route-source
+regions takes 6.799 s. The latter reduces native inspections 27,806→9,758 and
+peak RSS 13.3%, but still costs 16.3% more traversal and 64.1% more process CPU
+than the direct control. Its 29,816,130 initial sector-labelled tuples are a
+larger checked set, not a changed required entry envelope or an equal-workload
+benchmark. Every escaping descendant is retained; represented regions reach
+P=A+R=16 despite the initial P≤13 anchors. There is no invariant or full-family
+claim. See the [audited finite-cover pilot](docs/research/finite_cover_pilot_2026-09-24.md).
+
+Next test amortization once on the already completed larger A12 control, with
+the same fixed P13 anchors **plus all original A12 queries**, a fresh matched
+baseline and predeclared equal A12-specific diagnostic gates. Do not widen the
+cover or introduce a new engine. Only 60,390/357,192 A12 entry tuples lie in
+those anchors; every other entry and descendant remains required. Charge cold
+anchor checking and output. If reduced queue/history does not produce an
+acceptable runtime tradeoff, stop this cover sequence and profile reusable
+ordered guard/term work before implementing a compiler. The inspected difficult
+guards are affine diagonals already represented in saved rules, but finite-axis
+refinement is not shown to dominate current cost. Keep these measurement claims
+separate from original-source validity, global descent and final cold delivery.
 
 **Current measured architecture checkpoint:** the opt-in worker partition and
 unbounded saved-rule census pass independent source review, 539 release
