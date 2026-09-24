@@ -1,5 +1,40 @@
 # Finite starting domains and fixed-target repair
 
+## September 24: challenge the work representation, not only the scheduler
+
+Run independent architecture and adversarial-review lanes on the whole IBP
+workflow. The measured bottleneck in the stopped broad campaign is repeated
+saved-rule coverage traversal, so faster elimination alone is not a remedy for
+that run. Investigate replacing redundant path histories with independently
+checkable finite domains, sharing guarded Apply/Route transfers, and organizing
+work by mathematical subtopology rather than arrival order. Also assess whether
+future generated rules should optimize downstream dispatch, branching and
+routing cost instead of only local discovery cost.
+
+Retain the objective and domain contract below. Any candidate cover must contain
+the entire entry envelope and every descendant, preserve original validity
+conditions, terminate under a sound concrete order and account for all unknown
+or failed obligations. A cover check is not automatically an original-source
+IBP proof. Unbounded prerequisite experiments must not become a new demand for
+universal closure beyond this finite goal. On-demand repair without exhaustive
+offline coverage is a different delivery contract, not a silent replacement.
+
+First seek small falsifiable experiments using existing public/native APIs and
+the saved rules. Count synthesis, preparation, execution, output and memory;
+compare completed logical scope, not just busy-core statistics. Keep the current
+Ordered/default worker partition until a matched larger pilot demonstrates an
+improvement. Do not restart the all-67-owner walk merely because another source
+of concurrency has been identified.
+
+Read the [ranked whole-system proposal](research/ibp_generation_architecture_review_2026-09-24.md)
+with the [separate adversarial critique](research/ibp_generation_independent_critique_2026-09-24.md).
+The first falsifiable experiment should seed a small candidate finite cover into
+the existing walker, retaining every escaping successor. Compare the same
+required entry set and report the cover's additional points and preparation cost.
+Neither a new traversal engine nor a universal all-406-band filtration proof is
+a prerequisite for this pilot. Stop an unhelpful cover experiment without
+claiming that the original entry envelope is impossible to close.
+
 ## Current follow-up: measured native cost, worker split and cover prerequisites
 
 The profile-driven substitution optimization now also passes three alternating
@@ -35,7 +70,12 @@ These overlapping examples do not discharge the global prerequisite. The complet
 census supplies 406 conservative finite-width activation bands, with the other
 coordinates/rank unbounded. The first full width-six band completes without
 problems and all 15,874 successors preserve support; this easy five-denominator
-owner is not representative of all 406. Next test higher-support owners, not an
+owner is not representative of all 406. Three higher-support bands have since
+completed one-step capture: all emitted edges preserve support or go to a strict
+subset, but eight guard-uncertain cells remain in the hardest band. All eight
+sampled finite-entry witnesses inside those cells select existing rules and
+finish their one-step applications; this does not settle their whole boxes.
+Both diagnostic sets pass independent raw review. Do not turn this into an
 automatic all-band run or a new descendant cutoff. A narrow no-crossing shortcut
 passes independent source/math review, all 2,803 core release tests (32 existing
 ignored) and the CLI build. Twelve matched controls preserve exact results but

@@ -448,6 +448,30 @@ the exact disjoint partition of the unbounded input and all successor images.
 Next test a few higher-support owners before considering a shared-context
 parallel batch; do not extrapolate 406-band time from this easy first case.
 
+**September 24 follow-up:** three more width-six bands now complete native
+one-step capture on owners with six, seven and eight positive denominators.
+They emit 13,258, 21,197 and 26,521 successors respectively. Every emitted edge
+preserves support or goes to a strict subset, and all same-support edges have
+nonpositive delta(A+R). In particular, 32 six-support edges increase A by one
+but decrease R by one: A alone is not the invariant. Independent raw review
+checks the exact input partitions, selected-piece completion and successor
+images. The eight-support band nevertheless has **eight unresolved dispatch
+cells**, so it does not establish whole-band applicability. The seven-support
+diagnostic retains only two records for 34 optional algebra-refusal attempts;
+that incomplete diagnostic provenance is reported, not treated as a clean
+all-algebra pass. Routing and recursive descendants were not followed. Evidence:
+`TMP/higher-support-bands.fZTGG2/`.
+
+The unresolved boxes intersect the finite pressure entry envelope. Eight unique
+fully fixed points selected inside those intersections all choose existing rules
+and finish one-step application, emitting 353 uniform successors without a gap,
+unknown predicate, child problem or optional refusal. This separates sampled
+fixed applicability from mixed or unresolved broad-domain predicates; it neither
+proves the whole boxes covered nor identifies a new missing IBP. Evidence:
+`TMP/fixed-band-witnesses.ENFXZZ/`. These findings feed the separate
+[whole-system redesign review](ibp_generation_architecture_review_2026-09-24.md),
+not an automatic all-band run or a full-family completion estimate.
+
 A potential algebraic shortcut is to check whether the numerator of a term with
 positive shift `k` contains `n_j(n_j+1)...(n_j+k-1)`. Where its original denominator
 and source conditions permit application, that factor forces it to vanish on

@@ -1,5 +1,24 @@
 # RustRed project goal
 
+**September 24 architectural challenge:** independently reassess the complete
+IBP workflow and have a second agent actively challenge the proposed redesigns.
+Prioritize reducing repeated work over increasing the number of busy threads.
+The current long-run bottleneck is the traversal of saved rules over overlapping
+domains, not demonstrated slow discovery of new IBPs. Evaluate finite closed
+covers, reusable guarded/routed rule transfers, semantic subtopology ownership
+and downstream-aware rule selection without narrowing the finite starting
+envelope or clipping descendants. Discovery and reconstruction improvements
+remain separate hypotheses. Keep Ordered and the measured worker split as
+defaults; require a complete matched pilot and independent correctness review
+before changing them or restarting the full campaign. The full five-loop
+envelope remains unfinished, with no defensible completion ETA.
+See the [whole-system proposal](docs/research/ibp_generation_architecture_review_2026-09-24.md)
+and its [independent critique](docs/research/ibp_generation_independent_critique_2026-09-24.md).
+The next low-cost experiment is to seed a candidate finite cover into the
+existing walker, not build another engine or require all 406 unbounded bands to
+pass first. Compare the unchanged required entry set while explicitly reporting
+the extra points covered by the proposed invariant.
+
 **Current measured architecture checkpoint:** the opt-in worker partition and
 unbounded saved-rule census pass independent source review, 539 release
 application/CLI tests (zero failures, one existing ignored), 30 Python steering
@@ -14,15 +33,20 @@ Two exact boundary diagnostics now also finish native ordered one-step RHS
 application without problems: all 10,238 emitted successors preserve support.
 They are overlapping local examples, not an exhaustive global support check.
 The existing complete census supplies a conservative list of 406 finite-width
-boundary bands for the next prerequisite experiment. The first full width-six
+boundary bands for optional support-filtration experiments. The first full width-six
 band completes without problems: all 15,874 emitted successors preserve support.
 It is an easy five-positive-denominator owner, not the full campaign. Other
 coordinates and requested rank remain unbounded. Local no-crossing geometry
 reuse passes source/math review, all 2,803 core release tests (32 existing
 ignored) and the CLI build. Twelve matched controls preserve exact results but
-show no material wall-time or utilization gain. Next: test higher-support boundary
-cases and native algebraic shortcuts before a parallel prerequisite batch,
-without restarting the large recursive walk.
+show no material wall-time or utilization gain. Three higher-support boundary
+diagnostics now also finish: all emitted successors preserve support or pinch
+to a strict subset, with nonpositive same-support delta(A+R). The hardest band
+still has eight unresolved guard cells. Eight fixed finite-entry witnesses inside
+those cells all use existing rules successfully; this is sampled applicability,
+not whole-cell coverage. Both diagnostic sets pass independent raw review.
+The proposed numerator-based algebraic shortcut remains unbuilt and unrun.
+Do not restart the large recursive walk on this evidence alone.
 The full 67-owner starting envelope is unfinished.
 See [the architecture experiment](docs/research/finite_closure_architecture_review_2026-09-23.md)
 and [the measured controls](docs/research/finite_closure_native_profile_2026-09-23.md).
