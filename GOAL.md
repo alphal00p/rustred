@@ -25,17 +25,36 @@ benchmark. Every escaping descendant is retained; represented regions reach
 P=A+R=16 despite the initial P≤13 anchors. There is no invariant or full-family
 claim. See the [audited finite-cover pilot](docs/research/finite_cover_pilot_2026-09-24.md).
 
-Next test amortization once on the already completed larger A12 control, with
-the same fixed P13 anchors **plus all original A12 queries**, a fresh matched
-baseline and predeclared equal A12-specific diagnostic gates. Do not widen the
-cover or introduce a new engine. Only 60,390/357,192 A12 entry tuples lie in
-those anchors; every other entry and descendant remains required. Charge cold
-anchor checking and output. If reduced queue/history does not produce an
-acceptable runtime tradeoff, stop this cover sequence and profile reusable
-ordered guard/term work before implementing a compiler. The inspected difficult
-guards are affine diagonals already represented in saved rules, but finite-axis
-refinement is not shown to dominate current cost. Keep these measurement claims
-separate from original-source validity, global descent and final cold delivery.
+The fresh A12 amortization pair now completes and passes independent raw review.
+With the same fixed P13 anchors **plus all original A12 queries**, traversal
+falls 22.388→11.720 s (47.65%), whole-command CPU 174.73→128.34 s and peak RSS
+1,403,176→771,516 KiB. No frontier, failure or resource stop occurs. Only
+60,390/357,192 required tuples lie in the anchors; all others and every escaping
+descendant remain, including represented P=17 regions. Attempted native work
+actually increases slightly despite much less fragmentation/containment. This
+single shared-host pair demonstrates useful amortization, not fifty-core
+saturation (sampled busy cores 7.74→10.56), an invariant or a full-family ETA.
+
+Next carry the same idea across the complete owner manifest without widening P
+or changing the required envelope. A read-only count needs 57,621 queries and
+about 16.14 MB compact JSON, beyond current count/byte admission limits. Implement
+only generic bounded admission; remove irrelevant Route descriptors from the
+optional initial-overlap index while preserving all Apply descriptors and their
+original IDs. That leaves 406 relevant entries within the existing count cap;
+test the actual logical-byte charge against the unchanged 2 MiB cap as well.
+Audit/test this slice, then try a bounded all-owner scope before the full
+envelope. Keep ordered guard/term reuse as a measured fallback, not a speculative
+new compiler. The full goal still requires concrete-runtime compatibility and
+cold delivery; local exhaustion alone cannot establish them. No new IBP rules
+or CAS primitives are required by these bookkeeping changes.
+
+The observational runtime-support census now passes independent source/math
+review, 2,809 core and 303 routed-application release tests (32/1 existing ignored)
+and the CLI build. One unchanged-input A11 canary reproduces all prior semantic
+results and counters: 512,726 Apply successors split into 402,205 same-support and
+110,521 strict pinches, with zero unsupported changes. These diagnostics add no
+new algebra or authority and avoid a separate support-only rewalk. The full
+67-owner compatibility/delivery requirement remains outstanding.
 
 **Current measured architecture checkpoint:** the opt-in worker partition and
 unbounded saved-rule census pass independent source review, 539 release

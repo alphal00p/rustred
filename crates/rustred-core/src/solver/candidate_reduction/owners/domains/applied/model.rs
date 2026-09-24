@@ -56,8 +56,23 @@ pub struct OwnerAppliedStats {
     pub optional_coalesced_refusals: usize,
     pub coalescing_additions: usize,
     pub events: usize,
+    /// Successor attempts, counted before event admission/cancellation/consumer
+    /// checks. May exceed the number delivered to the callback on a stopped call.
     pub successors: usize,
     pub conditional_successors: usize,
+    /// These three support counters partition `successors`, comparing the
+    /// selected source owner with the final nonzero-group target support (not
+    /// the saved root). Zero terms, cancelled sums and known-zero sectors are
+    /// excluded. Counts are provisional on an incomplete inspection and do not
+    /// establish coverage, concrete reachability or global termination.
+    pub same_support_successors: usize,
+    pub strict_subsupport_successors: usize,
+    /// Neither equal nor a strict subset: includes support swaps/reactivation,
+    /// even when target cardinality is smaller. Diagnostic only, not a problem
+    /// or a claim that a missing IBP or an inhabited invalid point was found.
+    pub unsupported_support_successors: usize,
+    /// Subset of `unsupported_support_successors` with conditional nonzeroness.
+    pub conditional_unsupported_support_successors: usize,
     pub problems: usize,
     pub zero_terms: usize,
     pub cancelled_groups: usize,

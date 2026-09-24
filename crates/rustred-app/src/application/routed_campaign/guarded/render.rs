@@ -234,6 +234,9 @@ fn applied_stats(s: OwnerAppliedStats) -> Value {
     json!({"selected_pieces":s.selected_pieces,"term_visits":s.term_visits,"shift_groups":s.shift_groups,
     "boundary_cells":s.boundary_cells,"sign_splits":s.sign_splits,"native_operations":s.native_operations,"events":s.events,"successors":s.successors,
     "conditional_successors":s.conditional_successors,"problems":s.problems,"zero_terms":s.zero_terms,"cancelled_groups":s.cancelled_groups,
+    "same_support_successors":s.same_support_successors,"strict_subsupport_successors":s.strict_subsupport_successors,
+    "unsupported_support_successors":s.unsupported_support_successors,
+    "conditional_unsupported_support_successors":s.conditional_unsupported_support_successors,
     "zero_sector_groups":s.zero_sector_groups,"coalescing_additions":s.coalescing_additions,
     "optional_coefficient_refusals":s.optional_coefficient_refusals,"optional_original_refusals":s.optional_original_refusals,
     "optional_coalesced_refusals":s.optional_coalesced_refusals})
@@ -242,6 +245,30 @@ fn applied_stats(s: OwnerAppliedStats) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn applied_support_attempt_partition_is_rendered_without_authority_upgrade() {
+        let rendered = applied_stats(OwnerAppliedStats {
+            successors: 9,
+            conditional_successors: 3,
+            same_support_successors: 2,
+            strict_subsupport_successors: 3,
+            unsupported_support_successors: 4,
+            conditional_unsupported_support_successors: 1,
+            ..Default::default()
+        });
+        for (name, count) in [
+            ("successors", 9),
+            ("conditional_successors", 3),
+            ("same_support_successors", 2),
+            ("strict_subsupport_successors", 3),
+            ("unsupported_support_successors", 4),
+            ("conditional_unsupported_support_successors", 1),
+        ] {
+            assert_eq!(rendered[name], count);
+        }
+        assert!(rendered.get("complete").is_none());
+    }
+
     #[test]
     fn guarded_rendering_bounds_before_extending_and_observes_cancel() {
         let cancel = AtomicBool::new(false);

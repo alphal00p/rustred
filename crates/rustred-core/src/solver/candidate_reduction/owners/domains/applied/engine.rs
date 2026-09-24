@@ -85,6 +85,32 @@ impl Budget<'_> {
             "boundary cells",
         )
     }
+    /// Keep the support partition at the existing attempted-successor boundary,
+    /// before emit can stop on cancellation, event admission or the consumer.
+    pub(super) fn successor<const N: usize>(
+        &mut self,
+        source: &[bool; N],
+        target: &[bool; N],
+        conditional: bool,
+    ) -> Result<(), OwnerAppliedFailure> {
+        charge(&mut self.stats.successors, 1, usize::MAX, "successors")?;
+        // Each component is bounded by the successfully charged total, so these
+        // increments cannot overflow and introduce no new failure or allowance.
+        if source == target {
+            self.stats.same_support_successors += 1;
+        } else if target.iter().zip(source).all(|(&t, &s)| !t || s) {
+            self.stats.strict_subsupport_successors += 1;
+        } else {
+            self.stats.unsupported_support_successors += 1;
+            if conditional {
+                self.stats.conditional_unsupported_support_successors += 1;
+            }
+        }
+        if conditional {
+            self.stats.conditional_successors += 1;
+        }
+        Ok(())
+    }
     /// Commit total/stage counters together, before later event/cancel checks.
     /// Returns whether this is the first refusal of this phase in the query.
     pub(super) fn optional_refusal(&mut self, original: bool) -> Result<bool, OwnerAppliedFailure> {
@@ -633,10 +659,7 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             image.upper = projected.upper.to_vec();
             image.rank = projected.effective_rank;
         }
-        charge(&mut budget.stats.successors, 1, usize::MAX, "successors")?;
-        if nonzero == Zero::Unknown {
-            budget.stats.conditional_successors += 1;
-        }
+        budget.successor(piece.owner(), &image.sector, nonzero == Zero::Unknown)?;
         budget.emit(
             visit,
             OwnerAppliedEvent::Successor(OwnerAppliedSuccessor {

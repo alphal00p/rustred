@@ -41,16 +41,40 @@ are same-required-scope strategies, not identical native workloads. Symbolic
 successor regions reach P=16 and are retained; the initial cover is not certified
 invariant. See [the complete measurements and limits](research/finite_cover_pilot_2026-09-24.md).
 
-Both architecture reviewers support one further code-free amortization control:
-the already completed A12 entry set, unchanged, with or without the **fixed**
-P13 anchors. Retain all four original A12 roots; 296,802 of its 357,192 tuples
-lie outside P13. Use a fresh same-block direct baseline and predeclare equal
-A12-specific diagnostic work gates, not the smaller previous A11 gates. Charge
-all cold anchor work and keep every escape. Do not widen the cover, require all
-406 unbounded bands or restart the full campaign. If this does not produce a
-useful runtime tradeoff, stop anchor tuning and measure reusable ordered
-guard/term or per-phase transfer work before building a new service. Sampled
-diagonal guards do not establish that affine refinement dominates runtime.
+The fresh A12 amortization pair now completes and passes independent raw review.
+Keeping all four original roots and the **fixed** P13 anchors reduces traversal
+22.388→11.720 s, command CPU 174.73→128.34 s and peak RSS 1,403,176→771,516 KiB.
+All 296,802 required tuples outside P13 and every escape remain. Both walks
+exhaust with no frontiers or failures; represented regions extend to P=17.
+The native-operation counter rises slightly while inspections and containment
+charges fall substantially. This is a single shared-host pair with sampled
+busy cores 7.74→10.56, not full-machine saturation, an invariant or a full-family
+ETA. The positive result supports broader owner coverage rather than endless
+four-owner anchor tuning.
+
+A read-only count for the complete manifest needs 57,621 queries (339 Apply
+anchors, 57,215 Route anchors and the unchanged 67 required roots), about
+16.14 MB compact JSON. Current 10,000-query/1 MiB admission limits reject it.
+The next generic slice is explicit bounded input admission and elimination of
+irrelevant Route descriptors from the optional initial-overlap index: preserve
+original IDs and all Apply descriptors, leaving 406 relevant entries within the
+existing count cap; also test their actual logical-byte charge against the
+unchanged 2 MiB cap. No new CAS or topology-specific algorithm is needed.
+Audit/test this slice and a bounded all-owner scope before restarting the full
+envelope. Keep every descendant and distinguish extra-anchor gaps from actual
+entry failures. Concrete-runtime compatibility and cold delivery remain required;
+local walk exhaustion is not sufficient. If sharing ceases to amortize, measure
+reusable ordered guard/term work before building a new compiler. Sampled diagonal
+guards do not establish that affine refinement dominates runtime.
+
+An observational support-transition census now runs at the existing native
+Apply-successor boundary, without new algebra or a second traversal. Independent
+source/math review, 2,809 core and 303 routed-application release tests (32/1
+existing ignored) and the CLI build pass. An unchanged A11 canary retains every
+prior semantic field/counter, and its 512,726 successors split into 402,205
+same-support and 110,521 strict pinches, with zero unsupported transitions.
+Counts remain provisional on stopped inspections, and even a successful local
+check is not the complete envelope or a standalone termination/provenance proof.
 
 ## Current follow-up: measured native cost, worker split and cover prerequisites
 

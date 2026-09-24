@@ -2,26 +2,32 @@
 
 ## Recommendation: change the unit of work before expanding the machine
 
-The strongest redesign is to deliver a **checked reduction program for the
-required finite entry set**, rather than construct and retain a large history
-of overlapping regional requests. That is a change of algorithm and proof
-representation, not permission to skip descendants. First try a candidate finite
-cover through the existing walker; a new checker may not be needed. In parallel,
-investigate composed Apply→Route transfers, which may remove avoidable global
-queue work. For future rule generation, optimize the cost of the resulting
-guarded reduction program, not merely how quickly the first descending relation
-is discovered.
+The strongest current direction is a library of **shared, immutable Apply/Route
+coverage regions**, ending in a checked reduction program for the required finite
+entry set—not a retained history of every overlapping request. The mathematical
+unit of work should be “inspect this source region's ordered reduction and retain
+all its outgoing obligations.” Many parents may share that responsibility. It is
+not “reduce every starting tuple independently,” nor “give each owner one thread.”
+
+A concrete example now exists. For the same four-owner A12 requirement, admitting
+fixed reusable regions before the original entries reduced native inspections
+from 62,562 to 23,863 and observed traversal from 22.39 to 11.72 seconds, including
+inspection of the anchors themselves. The original 357,192 entries and every
+escaping descendant remained present. This is one audited pair, not an all-67
+speed prediction. The anchors cover extra points and are **not** a closed P≤13
+invariant: represented descendants reach P=17. The lesson is sharing mathematical
+responsibility, not clipping work to a guessed bound or merely increasing CPU use.
 
 This extends the [23 September review](finite_closure_architecture_review_2026-09-23.md).
 It is a ranked research proposal, not implementation approval or a completion
 claim; see the [independent critique](ibp_generation_independent_critique_2026-09-24.md).
-The [subsequent code-free pilot](finite_cover_pilot_2026-09-24.md) now tests the
-first proposal: all local walks finish, but neither initial-cover strategy beats
-the direct baseline. Routing anchors do substantially reduce retained work and
-memory. This narrows the next experiment to fixed-anchor amortization on a larger
-unchanged control, not a claimed speedup or immediate full-run replacement.
-No production implementation or saved rules changed for this review; the bounded
-diagnostic inputs described below are new. The requested
+The [code-free cover pilots](finite_cover_pilot_2026-09-24.md) show both sides:
+the A11 broadenings lost to direct traversal; the subsequent A12 pair with the
+**same frozen anchors** gained. A12 whole-command CPU fell 26.55% and peak RSS
+45.02%, while attempted native operations rose 1.67%. This supports reducing
+fragmented inspection and coordination, not a claimed algebra/compiler speedup.
+The cover comparisons changed diagnostic inputs, not production implementation
+or saved rules. The requested
 numerator-filtration prototype was checkpointed as unbuilt, unrun TMP source
 when this broader review took priority.
 
@@ -97,117 +103,97 @@ timings across their different alternating blocks as if they were one experiment
 
 Ranking concerns the present unfinished delivery, not eventual theoretical reach.
 The savings below are mechanisms, not numerical speedup predictions.
-Ranks 2–3 are provisional: the new fixed-point evidence strengthens guarded
-dispatch refinement, while transfer composition first has to demonstrate that
-it does not lose today's shared Route-domain reuse.
+Ranks 2–3 remain unmeasured mechanisms. The A12 result now favors sharing native
+regional obligations before building a guard compiler or fusing away the useful
+Route sharing point. Discovery proposals address another computation entirely.
 
 | Rank | Architecture | Potential work reduction | Cost / principal risk |
 |---|---|---|---|
-| 1 | Check a finite invariant cover | Replace repeated reachability waves by a bounded set of coverage/containment obligations | Low-cost falsifier; high mathematical risk that cheap, checkable covers do not exist |
-| 2 | Compose transfers and share canonical subtopology services | Avoid materializing intermediate route obligations and repeated downstream work | Medium/high implementation cost; exact preimages and routing correlations are essential |
-| 3 | Compile ordered guarded programs at the artifact boundary | Amortize guard partition/algebra over repeated applications | Medium/high cost; partition or decision-graph explosion can exceed the old work |
+| 1 | Shared phase-labelled regional services; finite invariant optional | Amortize repeated inspection, admission and retained responsibilities | Positive A12 evidence, negative A11 evidence; broad regions can increase native proof work and critical-path length |
+| 2 | Compile ordered guarded programs at the artifact boundary | Amortize repeated inner predicate/transfer interpretation | First measure actual reusable operations; eager partition growth can exceed the old work |
+| 3 | Selectively compose Apply→Route transfers | Avoid intermediate obligations where they are not valuable sharing points | Medium/high cost; fusion can lose existing multi-parent Route reuse |
 | 4 | Generate rules for downstream economics | Reduce fan-out, guard branching, rank excursions and later closure work | Modest isolated-case pilot; whole-owner program selection/revalidation is difficult |
 | 5 | Separate discovery work from obligation dispatch; portfolio/block discovery | Reduce search critical paths and equation work when new relations are genuinely needed | Existing native building blocks help; no evidence this fixes the current saved-rule campaign |
 
-### 1. Finite invariant cover: change the proof, not the required inputs
+### 1. Regional services: share obligations before constructing a global invariant
 
-Propose a finite union C of native power-bounded cells containing E, the unchanged
-entry set. Check every cell's dispatch/source conditions, original-term validity,
-successor containment and explicit terminal/zero behavior. Every possible
-conditional successor must be included too. Combine this with a separately
-checked well-founded concrete transition order. The desired cost is proportional
-to the complexity of a checkable C and its transfers, rather than to the number
-of ways descendants rediscover overlapping regions. Neither quantity is known
-to be small.
+The existing immutable-snapshot inclusion index already reuses admitted **pending**
+regions. It does not pretend they are solved. Initial obligations stay pinned;
+campaign-wide exhaustion/frontier accounting retains their outgoing work. The
+successful experiment exploits this distinction without a new checker: broaden
+selected reusable regions up front, inspect them once, and keep ordinary work
+for every escape. An abstract self-edge need not force repeated inspection, but
+is not proof of concrete termination.
 
-**Important simplification:** current inclusion reuse is against an immutable
-snapshot's admitted domains, including pending work; it is not limited to
-previously solved domains. Ledger retirement tracks inspection responsibility,
-while campaign-wide exhaustion and frontier accounting retain successor work.
-Therefore a small C may be supplied as initial queries to the **existing walker**.
-An abstract self-edge is not automatically a bug, nor is it proof of termination.
-Initial obligations must all be inspected, and an escaping successor must remain
-real work. Root's source audit identifies this as a possible minimal experiment,
-not an already validated replacement delivery path.
+The result is not “broader is always better.” On A11, 30 Apply anchors reduced
+Apply visits but expanded Route work; adding the corresponding Route anchors
+compressed that history yet remained slower than direct E. On A12, those same
+758 anchors plus all four original roots cut containment charges from 250.30
+million to 37.95 million. The checked initial union grew to 30,112,932
+sector-labelled points, but no tuple-by-tuple enumeration was required. Native
+operations rose from 12.314 to 12.519 million, so the evidence specifically favors
+regional sharing and lower coordination cost—not less algebra or an exclusive
+CPU attribution. Both walks were locally resolved; neither establishes the full
+delivery contract by itself.
 
-P=A+R is the relevant candidate potential, not A alone. Native diagnostics
-already show same-support A increasing by one while R falls by one. Fixed-shift
-sign cells admit exact affine ΔP bounds; after support/route compatibility is
-established, per-edge max-plus bounds can be tighter than paying global L1 for
-each support loss. Native slabs can represent P≤B as a finite union of A≤k,
-R≤B−k predicates. But a few slabs can contain vastly more integer points and
-generate vastly more internal guard pieces. Previous broadening did not prove
-useful compression.
+**Work/span/memory hypothesis.** Replace path-dependent repeated requests with
+stable `(snapshot, phase, owner, source domain)` service identities. Each service
+produces its ordered guarded transfers and explicit residual obligations.
+Inspectors can execute independent local inspections without waiting for every
+downstream service to finish; global completion still waits for all admitted
+responsibilities. Sharing can reduce total work and retained queue/history, and
+can replace repeated cross-owner admission/ordered-commit traffic with stable
+destination handles and bounded batches of genuinely new residuals. This latter
+service interface is a proposal, not an implemented distributed proof system.
+What remains dependent is new-region discovery, source/target containment,
+publication of all successor effects, and the final closure/descent check; 67
+owners do not imply 67 balanced independent jobs. Broader jobs can expose more
+useful parallel work. But overly broad jobs increase
+per-job native cost, held coefficient memory and the longest task. Subdivide a
+hot service using supported exact domain partitions when needed; do not replace
+it with one indivisible owner job. A support-count DAG may organize strict
+pinches, but same-support steps, aliases and unverified support exchanges forbid
+assuming all owner services are independent closed shards.
 
-The 406 finite-width activation bands from the complete census are one optional
-sufficient route to support filtration. So is testing canonical original-term
-numerators on the crossing roots with existing native polynomial specialization.
-Neither should become a new compulsory universal-certification project. An
-eight-support unbounded band already has unresolved dispatch cells, whereas the
-tested five-/six-/seven-support cases are easier. All eight uncertain cells
-contain explicit geometric entry-envelope points (A=10–12, R=1–2, D=9–11).
-Every chosen point selects an existing rule and produces only uniformly nonzero
-successors: 353 children in total, no problems, unknowns or refusals. Four points
-whose broad boxes were uncertain at rule 232 use later rule 239. This is evidence
-for guard/priority refinement before relation regeneration, not whole-box coverage
-or proof that broad-domain mixed truth is an implementation bug. The native API
-emits only the first original/coalesced refusal records (support seven: two
-records for 34 attempts); this is partial provenance, not an incomplete capture.
-A correlated finite C may classify differently. Restrict a needed proof to C if the stronger
-unbounded statement is difficult. The numerator prototype has no result yet.
+The immediate all-67 extrapolation is a **representation test**, not a forecast.
+The manifest-derived P13 plan has 339 Apply slabs, 57,215 Route slabs and the 67
+original entry roots: 57,621 queries, approximately 16.14 MB of compact JSON.
+Current input limits are 10,000 queries and 1 MiB. Moreover, the Ordered lane's
+optional initial D-band index returns empty above 4,096 initial records or its
+2 MiB logical-entry allowance. Raising parser limits alone would therefore lose
+an optimization used by the successful control, although correctness survives.
+The smaller fix is not a new compiler or large index budget: `plan()` already
+rejects Route inputs, so the index can retain all **Apply** initial descriptors
+with their original IDs/order. There are only 339+67=406 in this plan, within
+the count allowance; confirm logical-byte admission with actual entry-size
+accounting. That proposed filtering needs regression/audit; every Apply
+descriptor must remain in the initial-exclusion set even if its summary fails.
+Use explicit bounded byte/count admission with unchanged defaults. A 16 MB input
+does not itself justify a new streaming/template architecture, and JSON compression
+does not remove native inspections. These are generic representation boundaries,
+not a reason to add five-loop-specific rules.
 
-**Cheapest falsifier:** for the unchanged required A11 entry set, propose a few native C templates that
-contain every entry, seed them into the existing walker, and keep all escaping
-descendants. Include synthesis, admission, checking, unresolved guards and peak
-memory. This is a same-required-E comparison, not identical native inputs:
-adding unreachable points must be reported. Do not first require all 406 bands
-or a global potential theorem; the pilot may expose and retain escaping work.
-If obligations stay near the initial cover and exhaust,
-the next work is global descent/cold-runtime validation and packaging—not a new
-walk engine. Reject a template when escaping images, internal splits or guard
-unknowns grow to baseline scale. A gap, unknown or cap introduced only by added
-points rejects that template, not E. A finite experiment allowance yields
-“inconclusive/incomplete,” never a clipped proof.
+**Cheapest next falsifier:** statically audit that expanded initial plan and its
+actual admission/index mode first. Then one predeclared, bounded **all-owner**
+control—not an automatic full A24/R15 restart—must retain the same required E
+across variants, frozen P13 anchors, all escapes and
+all cold-load/admission costs. Count native work, coordination, longest inspection,
+peak live bytes and completion—not just service count. Reject the strategy for
+that workload if broad native work or a few long jobs erase the savings; a gap
+or cap introduced only by extra anchor points rejects the template, not E.
+No automatic P/mask inflation, repeated cover guessing, or full-67 ETA follows.
 
-### 2. Compose Apply→Route and make subtopologies reusable semantic services
+A **closed finite invariant** remains a stronger optional endpoint: find C⊇E,
+check every guarded transfer remains in C or an authorized terminal/zero case,
+then combine with concrete descent. P=A+R, not A alone, is the useful potential;
+native slabs represent P≤B exactly, and support-edge ΔP bounds may sharpen a
+candidate. But current anchors demonstrably are not C: A12 records reach P=17.
+Neither the 406 unbounded activation bands nor a global filtration theorem is
+required before using partial anchors. Observational support checks on the
+actual complete walk can address its narrower compatibility obligation without
+another universal traversal; zero on a failed prefix proves nothing.
 
-The physical operation is “reduce into canonical lower-owner domains,” not
-necessarily “publish every intermediate support box.” Prepare immutable
-composed transfers that retain the source cell and conditional predicate,
-perform native RHS validation, and pass pinched terms through the admitted
-route map before global destination admission. Several parents can then use one
-canonical lower-owner coverage block. Inspect only exact incoming union
-differences when representable, with fallback to ordinary work when subtraction
-fragments excessively.
-
-This is **not** the already-tried per-owner FIFO scheduler. Current owners,
-shared contexts and verified routes already exist. The new unit would be a
-reusable domain-to-domain transfer or checked coverage block, not another ticket
-for every path through Apply/Route. Coarse blocks offer independent mathematical
-work across subtopologies; cells within the few hot owners still need parallel
-inspection. Sixty-seven owners do not guarantee sixty-seven balanced tasks.
-
-Do not flatten source conditions, discard original denominators, cancel before
-original-term validity, or replace an affine image by a narrower convenient box.
-Keep route multiplicities and constant monomials, exact source preimages,
-power/rank predicates, aliases and immutable rule/route epoch identity. A more
-precise correlated image may cost more than the artificial descendants it saves.
-Raw potential support changes and same-support routing aliases prevent assuming
-the entire owner graph is already a strict DAG.
-
-**Cheapest falsifier:** replay one recorded expensive Apply region through the
-existing native APIs, comparing unfused and composed one-hop outputs and failure
-contexts before altering a campaign. That checks semantics only. First measure a
-repeated multi-parent stream: fusion could lose current global Route-domain
-deduplication and repeat routing once per parent. Require a net reduction after
-charging this lost sharing before preferring fusion to guarded-dispatch reuse.
-Then run unchanged A11/A12 with exact
-responsibility/counter-equivalence checks where applicable, reporting changed
-intermediate accounting explicitly. Count destination regions, containment work,
-native CPU, total CPU, wall and retained bytes. Reject if composition only hides
-route counters, loses preimages, or shifts more cost into correlation algebra.
-
-### 3. Compile the guarded program, not just individual RHS vectors
+### 2. Compile the guarded program, not just individual RHS vectors
 
 Generation already knows case faces and exceptional branches. Saved artifacts
 already retain ordered rules, fixed coordinates, affine equations, excluded
@@ -216,14 +202,29 @@ of this information. The opportunity is to compile its repeated interpretation:
 intern authenticated predicates and common tests, retain an ordered decision
 graph, and attach native transfer summaries to its leaves. Query evaluation would
 restrict an existing program rather than rediscover its entire branch geometry.
+This changes the reusable object from a checked region to an ordered predicate
+node plus an exact native transformation. It can complement regional services;
+it need not replace their responsibility accounting.
 
 A generation checkpoint need not store a globally disjoint exponential partition.
 Share common decision prefixes and compile only the pieces justified by measured
 reuse. Rule priority, terminal precedence, affine charts and original-term
 validation remain part of the program. A transfer proof must name its source
-cell/preimage, not merely cache target boxes. Unknown/refused results are not
-successful leaves. Symbolica expressions remain native; this is not a new CAS,
+cell/preimage, not merely cache target boxes. Unknown/refused algebra is not a
+proof of the queried predicate: retain the existing conditional over-cover or
+fallback, rather than invent a successful decision. Symbolica expressions remain
+native; this is not a new CAS,
 general Presburger solver or coefficient-string representation.
+
+The eight broad uncertain guard boxes illustrate the possible leverage: every
+selected finite-entry witness used an existing rule successfully (353 uniform
+children), while whole boxes remained unresolved. Displayed guards include
+coupled affine diagonals such as n0−n1=0, its exclusions, and n0−n1−n10=0—not
+demonstrated missing IBPs. Later rule 239 handles four witnesses uncertain at
+rule 232. A decision graph must preserve that ordered fallback and exact branch
+conditions; eight successful points do not discharge their boxes. The completed
+A12 runs required only 66/68 finite-refinement cells, so diagonal enumeration
+is **not** a demonstrated dominant cost there.
 
 Cheap algebraic filtration facts fit here: zero on each inactive positive-shift
 crossing root is a sufficient original-term no-activation fact. Cancellation,
@@ -232,18 +233,54 @@ The artifact's coverage/provenance claims must not silently improve: present
 saved candidate formulas do not automatically carry replayed original-source
 IBP provenance.
 
-**Cheapest falsifier:** one immutable owner, cold compile, then the same previously
-completed query stream. Record actual inner predicate/term reuse, compiled bytes,
-refinement count and complete native result equivalence. Reject if unique
-source-cell predicates dominate, graph size expands excessively, or compile cost
-does not amortize. A complete-query cache is not supported by the old A11 census:
-all 27,806 effective native input domains were distinct. Conversely, recurring
-fixed-coordinate layouts are not themselves safe cache keys.
+**Cheapest falsifier:** first observe repeated inner specialization inputs on an
+unchanged E workload, without caching. The existing guard resolver and original
+RHS restriction calls expose immutable expression slots and actual physical
+fixed values. Bound per-worker records; bind snapshot/context, rule/term identity,
+affine mode and limits. Full guard answers additionally depend on geometry,
+rank, precedence and source/pole obligations. Recurring layouts without values
+are not safe keys. Native borrowed equality/hash APIs exist; a custom CAS or
+coefficient-string codec is unnecessary, and hashing itself is not free.
+
+Only costly measured repeats justify cold-compiling one owner and replaying the
+same stream. Count compilation, bytes and exact native result equivalence. Reject
+if distinct costly inputs dominate or graph construction does not amortize.
+Immutable shared nodes can shorten per-query work without a hot cache lock, but
+eager cell expansion can increase both memory and the critical path. A complete-
+query cache is unsupported by the old A11 census: all 27,806 native inputs were
+distinct. A12's positive anchors do not establish this different reuse mechanism.
 
 Do not mistake a precomputed RHS permutation for this architecture. It is a
 feasible CAS-free cleanup costing about 13 MiB across the current rules, but the
 available profile identifies only four of 3,070 leaf samples explicitly in its
 sort. It has no established material end-to-end payoff.
+
+### 3. Compose Apply→Route selectively, without destroying regional sharing
+
+The physical operation is “reduce into canonical lower-owner domains,” not
+necessarily “publish every intermediate support box.” An immutable composed
+transfer can retain its source cell and conditional predicate, validate the RHS,
+and pass pinched terms through an admitted route before destination admission.
+This could remove intermediate objects and coordinator traffic. But A12's shared
+Route anchors now demonstrate why indiscriminate fusion is dangerous: several
+parents currently reuse one Route responsibility; fusing per parent can repeat
+that native work. Fewer visible jobs need not mean less work or shorter span.
+
+This is not the already-tried per-owner FIFO scheduler. The new object would be
+a reusable transfer/coverage block with exact preimages. Preserve original
+denominators, original-term validity before coalescing, route multiplicities,
+constant monomials, conditional dependencies, powers/rank and immutable epoch.
+A more precise correlated image may cost more than the descendants it saves.
+Exact incoming-union subtraction needs a fragmentation limit and ordinary-work
+fallback, not an invented general geometric solver.
+
+**Cheapest falsifier:** check one expensive one-hop output for semantic equivalence,
+then replay a recorded **multi-parent** stream. Charge old Route reuse lost,
+extra native routing, obligations avoided, containment, total CPU/wall and retained
+bytes. One-region timing checks neither sharing nor whole-campaign cost. Reject
+if composition just hides route counters or shifts work into repeated routing
+and correlation algebra. Keep selective fusion behind the measured regional
+sharing and inner-reuse hypotheses, not a prerequisite to either.
 
 ### 4. Make rule quality mean cheap downstream reduction, not first local success
 
@@ -323,13 +360,35 @@ absent from the workload—which is the case for the measured saved-rule walk.
 
 ## Delivery representation and an explicitly different contract
 
-Every candidate should separate compact operational state from optional detailed
-diagnostic history. Intern shared domain/rule identities; stream bounded evidence
-and persist pending/failed obligations without pretending an old partial JSON is
-a checkpoint. Publishing “complete” before successor effects are durable is
-unsafe. A small checking record may replace a huge execution history only when
-it retains everything needed to check the actual finite-coverage claim.
-This is useful infrastructure, not a proof that reporting dominates runtime.
+The delivery object should be an immutable reduction bundle plus a **finite
+coverage/checking manifest**, not a list of every historical request. Its minimum
+contents would bind:
+
+- the exact required E, family/coefficient context, admitted ordered programs,
+  routes and explicit finite-terminal policy;
+- native-checked source regions and their guarded transfers, containment links
+  and all escaping responsibilities, with no unresolved obligation hidden;
+- completion of the corresponding inspections plus the separate concrete
+  support/route/descent compatibility and cold-load/runtime handoff checks.
+
+This is a proposed packaging contract, not a claim the present JSON is already
+such a portable certificate. A native replay/checker must be able to validate
+the obligations it replaces; this is not a new requirement to repeat the entire
+walk after recording native checks during the first pass. Pending membership is
+an inclusion fact, not a closed proof; hashing a summary does not authenticate
+its mathematics. Likewise,
+operational closure under admitted saved formulas does not retroactively supply
+replayed original-source IBP provenance. Complete-walk zero unsupported-support
+counts can discharge one observed Apply compatibility condition; they cannot
+replace route checks, well-foundedness or successful cold use.
+
+Intern region/rule identities and separate live responsibility state from optional
+diagnostic history. Stream bounded evidence and persist pending/failed work without
+pretending the old partial JSON is a restart checkpoint. Publish completion only
+after all successor effects are accounted for. This can reduce retained-history
+memory independently of CPU, but allocation shares remain unmeasured. Most
+importantly, no full coefficient back-substitution for every starting tuple is
+needed merely to deliver a terminating guarded reduction program for E.
 
 Representing the same entry E by exact disjoint A/R/support strata, or validating
 a larger invariant C, preserves the goal. Tightening E to only encountered QCD
@@ -347,12 +406,17 @@ than absent IBP relations; acknowledging that does not discharge the assurance.
 
 ## Decision gates
 
-First try the smallest same-scope cover experiment using existing machinery;
-otherwise prioritize a measured composed-transfer/guard-program pilot. Keep the
-current default scheduler. New discovery architectures need actual generation
-profiles, not analogies to the saved-rule walk. Across all lanes, success means
-less total work or demonstrably better same-input wall/CPU/memory for unchanged
-coverage—not a busier machine, smaller report alone, or sampled agreement.
+The first cover experiment and the larger unchanged-anchor pair are complete.
+Their opposite outcomes argue for bounded, measured regional sharing—not blind
+broadening, and not abandoning the line after A11. Address the all-67 admission
+and relevant-index barriers, then require a predeclared harder-scope falsifier
+with no completion ETA. Keep the current scheduler default. If regional cost
+stops amortizing, measure actual repeated inner algebra before commissioning a
+guard compiler; do not infer it from busy cores or distinct-query counts.
+New discovery architectures need generation profiles, not analogies to this
+saved-rule walk. Success means lower same-required-E wall/CPU/memory with honest
+extra-domain accounting and unchanged coverage—not a busier machine, a smaller
+report alone or sampled agreement.
 
 Safety gates are unchanged: native exact algebra, retained original guards and
 nonzero-term child validity, explicit conditional dependencies, all unresolved
@@ -370,11 +434,15 @@ full five-loop completion is introduced.
 - Ordered term validity and transfers: `solver/candidate_reduction/owners/domains/`
   and `solver/candidate_reduction/routed/{trace.rs,domain_overcover/}`.
 - Pending inclusion and operational responsibilities:
-  `rustred-app/src/application/routed_campaign/walking/` and its native queue.
+  `rustred-app/src/application/routed_campaign/walking/`, particularly
+  `queue.rs`, `initial_overlap.rs` and `execution.rs`.
+- Input admission: `rustred-app/src/cli/{args/owner_match.rs,owner_match.rs}` and
+  `application/routed_campaign/{matching.rs,matching/input.rs,walking/mod.rs}`.
 - Raw bounded evidence: `TMP/no-crossing-compare.VaG3Lg/matrix/`,
   `TMP/all67-structural-census.JXPNU6/`, `TMP/activation-band-pilot.of1y5J/`,
   `TMP/higher-support-bands.fZTGG2/`, `TMP/fixed-band-witnesses.ENFXZZ/`,
-  `TMP/one-step-applied-probe.avTdVa/`.
+  `TMP/one-step-applied-probe.avTdVa/`,
+  `TMP/a12-anchor-amortization.qqQTJk/{RESULTS.md,INDEPENDENT_AUDIT.md,ALL67_NEXT_STEP.md}`.
   TMP is local evidence, not a portable documentation dependency or new artifact
   provenance authority. Independent review and current objective remain linked
   from the active project documentation.
