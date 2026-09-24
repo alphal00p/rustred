@@ -14,6 +14,14 @@ parser and solver. Their descriptive names are not engine dispatch keys and
 do not select precomputed identities. They record the four parent momentum
 routings registered by Vakint's topology matcher: H, X, BMW, and FG.
 
+The [`vakint/`](vakint/) subdirectory provides the exact metadata-free family
+inputs used for Vakint's packaged native programs. The momentum routings are
+the same as the named `four_loop_*.toml` study inputs, but a family name is part
+of the native identity and cannot be added when reproducing those packages.
+Use [`../python/generate_vakint_artifacts.py`](../python/generate_vakint_artifacts.py)
+for fresh generation, cold loading and terminal normalization, with the
+[documented producer workflow](../python/README.md#generating-vakints-rule-packages).
+
 Every coordinate has the form `Di = qi^2 - 1`. The common squared mass is
 literally one, not a free parameter; only the dimension `d` is inferred as a
 scalar parameter. For a reduction of target `a` onto master `b`, dimensional

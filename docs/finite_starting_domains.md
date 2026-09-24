@@ -38,6 +38,16 @@ The run uses 50 workers, 500 GB requested RAM and hourly checkpoints. Do not bin
 its changed queries to the old checkpoint. Continue the unrestricted Vakint refresh
 and numerical/performance gates independently after this four-loop success.
 
+The subsequent producer-example directive requires freshly generated one- to
+four-loop packages, not only a writer re-export. Keep their explicit generation
+recipes and cold-check workflow under `examples/python`; numerical master values
+remain a separate catalog. Once Vakint validation passes, investigate the
+actual slow five-loop inspections: safe internal subdivision and publication
+of independent ready results without an unnecessary global sequence. Preserve
+shared responsibility/duplicate-work accounting and deterministic mathematical
+ownership. Profile and test before changing the live run; earlier isolated
+subdivision gains did not yet improve the complete small campaign.
+
 ## September 24: campaign now running under user control
 
 The user launched the prepared campaign and requests short monitoring reports

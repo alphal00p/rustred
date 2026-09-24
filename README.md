@@ -77,8 +77,11 @@ actual CPU use from reserved workers and completed entry obligations from the
 still-growing descendant worklist. See the
 [Nix/build/launch/resume instructions](docs/shared_owner_campaign_driver.md#running)
 and [launch-readiness record](docs/research/manual_five_loop_campaign_2026-09-24.md).
-The full 67-owner campaign is intentionally left for the user to launch;
-neither its completion nor a full-family ETA is claimed.
+The replacement 67-owner campaign is running in the user's Zellij session
+`rustred`, tab `five_loop_vacuum`; do not launch a duplicate. Its inputs retain
+the original starting queries and add ordinary auxiliary domains for reuse.
+Neither its completion nor a full-family ETA is claimed. See the
+[four-loop control and five-loop restart](docs/research/five_loop_coarse_cover_restart_2026-09-24.md).
 
 The preceding local-matcher release gate passed **2,588 core tests** and **296
 application/integration tests**; the shared-campaign and domain-query Python
@@ -1124,9 +1127,48 @@ assert term.master_powers == [1]
 assert term.common_mass_squared_power == -2
 ```
 
-Loading authenticates and exactly replays untrusted artifact bytes once;
-recursive application then uses the sealed owner without repeating cold-load
-authentication in the hot path. The `K = 6` artifact remains Stage 1 work.
+Loading a trusted generated certified program checks its mathematical contents
+and exactly replays its source identities once; recursive application then uses
+the sealed owner without repeating those checks in the hot path. The native
+Symbolica decoder is not an untrusted-file sandbox. The completed `K = 6`
+example uses that same generation, cold-loading and application path.
+
+## Reproducing Vakint's one- through four-loop rule packages
+
+[`examples/python/generate_vakint_artifacts.py`](examples/python/generate_vakint_artifacts.py)
+steers fresh native IBP generation from the input families used by Vakint. It
+does not copy pre-existing rules. Build the release CLI and its small public-API
+terminal-normalization helper once, then run without recompiling:
+
+```sh
+mkdir -p TMP
+export TMPDIR="$PWD/TMP" TMP="$PWD/TMP" TEMP="$PWD/TMP"
+nix develop --command cargo build --release --locked -p rustred-app \
+  --bin rustred --example normalize_candidate_terminals
+nix develop --command python examples/python/generate_vakint_artifacts.py \
+  --loops 1 2 3 --workers 6 --output-directory TMP/vakint-lower-generated --execute
+nix develop --command python examples/python/generate_vakint_artifacts.py \
+  --loops 4 --workers 6 --output-directory TMP/vakint-four-generated --execute
+```
+
+Set `SYMBOLICA_LICENSE` in the environment first. Output directories must be
+new. Without `--execute`, the script prints its plan only. Four-loop generation
+is unrestricted in numerator rank, uses all sectors with physical propagators
+and nonpositive auxiliary indices, and can be substantially more expensive.
+Worker count does not impose a RAM limit.
+
+The lower-loop outputs are `unit_mass_vacuum_k{1,3,6}.rrbin`, plus fresh-process
+inspection and sample-reduction reports. Four-loop outputs are compressed native
+`{h,fg,bmw,x}.candidates.rrbin.gz` programs and `.rrnorm.bin` terminal-normalization
+plans. These are the same native package kinds consumed by Vakint, not the
+bounded starting-domain campaign format or a claim of unrestricted four-loop
+closure certification.
+
+Master **values** are a separate, precomputed input: optionally supply Vakint's
+four-loop directory with `--catalog-directory` to validate exact output-key
+coverage and copy its catalog alongside the generated rules. No FORM or master
+evaluation runs here. See the [complete example instructions](examples/python/README.md#generating-vakints-rule-packages)
+for filenames, scope, reference comparisons and expected output.
 
 ## One- and two-loop parametric-IBP examples
 

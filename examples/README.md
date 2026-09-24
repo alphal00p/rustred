@@ -25,7 +25,15 @@ rustred family-solve --input examples/input/four_loop_h.toml \
 
 - [`rust/`](rust/) uses the public `rustred` library directly.
 - [`cli/`](cli/) uses `rustred family-close` and `campaign generate`, `inspect`, and `reduce`.
-- [`python/`](python/) uses the public `import rustred` package.
+- [`python/`](python/) uses the public `import rustred` package and provides
+  Python steering of native release executables for larger campaigns.
+
+[`python/generate_vakint_artifacts.py`](python/generate_vakint_artifacts.py)
+generates the one-, two-, three- and four-loop native rule programs consumed
+by Vakint. It derives IBPs afresh, cold-checks its outputs, and produces
+four-loop terminal-normalization plans. Numerical master values remain a
+separate precomputed catalog. See the
+[build/run instructions and expected files](python/README.md#generating-vakints-rule-packages).
 
 The completed autonomous K=6 artifact is also generated and applied through
 both surfaces. [`cli/run_k6_closing_artifact.sh`](cli/run_k6_closing_artifact.sh)

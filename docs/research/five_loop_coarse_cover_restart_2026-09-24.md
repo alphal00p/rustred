@@ -168,3 +168,47 @@ drained worker/escrow state. In particular, every native
 `unsupported_support_successors` and `conditional_unsupported_support_successors`
 count must be zero. A matching-only pass, zero currently observed frontiers or
 fully published initial entries does not establish those terminal conditions.
+
+## Successor progress and a short live profile
+
+All 134 initial obligations were inspected and published by elapsed 457.745
+seconds. Later progress is descendant processing, not an unfinished entry bar.
+Persistent receipts give these approximate elapsed-time snapshots:
+
+| Elapsed | Native completions | Scheduled | Pending | RSS |
+| --- | ---: | ---: | ---: | ---: |
+| 10 minutes | 644,127 | 3,885,551 | 1,793,630 | 20.36 GB |
+| 15 minutes | 1,445,345 | 6,108,262 | 2,322,351 | 31.21 GB |
+| 23 minutes | 1,472,915 | 6,497,079 | 2,607,594 | 32.36 GB |
+
+All three snapshots reported zero frontiers and no pool failure. The maximum
+observed finite rank was 18, evidence that rank-15 anchor bounds do not clip
+descendants. Backlog regrew after a substantial drain; neither the temporary
+drop nor fast Route publication supports a completion ETA.
+
+A root-authorized, identity-checked 20-second user-CPU profile at approximately
+22.6–23.0 minutes sampled only the live solver. Its recorder used CPU49,
+49 Hz and bounded stacks, with zero lost samples; no solver signal or policy
+change occurred. This instrumented window is not a timing benchmark.
+Exclusive sampled CPU was 65.16% in one native inspector, 30.46% in admission
+helpers and 4.38% in the coordinator. Leading leaves included containment
+lookup in helpers, and allocation, polynomial validation and sorting in the
+inspector. The principal observed bottleneck in this window was therefore a
+single active Apply inspection, not the earlier four-loop baseline's dominant
+admission workload; this does not establish a whole-run bottleneck.
+
+The head was owner `011101110111000`. It completed no logical inspection
+during the bracketing 22 seconds, but emitted roughly 460,000 successor
+callbacks and added 26,672 obligations. Another 170 finished inspections
+awaited ordered publication. The solver was producing work, not stalled.
+The retained profile and precise sampling caveats are in
+`TMP/five-loop-coarse-live-profile.d8QXjU/RESULTS.md`. Descendants remain pending;
+there is still no closure claim, five-loop speedup claim or reliable ETA.
+
+The first hourly production checkpoint also completed without pausing the run:
+generation 3 started at 22:08:22 UTC and finished at 22:09:18 in 55.89 seconds.
+Its 6,462,875,246-byte state retains 2,584,371 completed native inspections,
+6,555,873 committed domains and 2,370,371 pending domains. This is a genuine
+resumable work-state save, not a final result or a closure percentage. The
+running process continued afterward; the original campaign's paused
+generation-13 checkpoint remains separate and untouched.

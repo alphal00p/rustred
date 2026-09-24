@@ -25,8 +25,20 @@ The user has explicitly requested continued work, in this order:
    unrestricted coverage: the experimental entry envelope must never become a
    shipped artifact rank restriction. Unrestricted candidate scope is not a
    claim of certified arbitrary-index completeness.
+   The subsequent user directive also requires Python-steered examples that
+   produce the rule artifacts consumed by Vakint at one through four loops.
+   Reuse the actual generation inputs, ordering and normalization recipes;
+   do not present copying or re-encoding a packaged file as IBP generation.
+   Keep precomputed numerical master catalogs distinct from generated rules.
 4. Independently audit coherent milestones, then commit and push both RustRed
    and GammaLoop's `vakint_rustred` branch with the requested Valentin identity.
+5. After the Vakint artifact validation, investigate the actual slow five-loop
+   inspections and publication bottlenecks. Test whether heavy inspections can
+   be safely subdivided and whether ready queued work can proceed without a
+   global completion sequence, while retaining shared duplicate-work suppression
+   and exact deterministic ownership. Distinguish mathematical dependencies from
+   scheduler-imposed ordering. Ground any change in profiles and matched pilots;
+   do not alter or interrupt the live campaign merely to try a new policy.
 
 The four-loop control evidence is retained under
 `TMP/four-loop-saved-descendants.VaNmUN/`, with all 900 saved nonzero sectors of
