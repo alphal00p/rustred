@@ -161,6 +161,16 @@ guard work; the existing small integrated control was slightly slower. Neither
 that negative result nor the earlier native-only speedup predicts an adaptive
 partition of the actual expensive descendant workload.
 
+There is a second integration restriction: the ordered coordinator polls the
+current `publisher_raw` ticket, so physical part0 is admitted before part1.
+An unfinished nonpublisher part can block on its bounded output chunk long
+before returning `Finished`; completed-job escrow does not drain that stream.
+The isolated pilot's independent stats-only sinks therefore have more drain
+parallelism than the present recursive walker. A native-only split gain cannot
+establish production gain. A useful integration needs sound interleaved part
+admission and per-part checkpoint prefixes, or another explicitly bounded drain
+mechanism, while retaining one logical parent's completion responsibility.
+
 The explicit-finite-upper condition is not intrinsically necessary for a sound
 partition: for a finite cut `c >= lower` with both `c` and `c+1` representable,
 an unbounded axis can be split exactly into `[lower,c]` and `[c+1,infinity)`.
@@ -220,6 +230,19 @@ source subdivision. The root stopped the proposed fixed rotations before
 launch; a later cost-informed cut is an exploratory strategy, not a selected
 favorable repeat or campaign-wide speedup. Raw evidence and the independent
 audit are under `TMP/five-loop-head-split.EcUaJy/`. The live campaign is unchanged.
+
+That separately predeclared axis4/cut5 trial also completed and passed independent
+raw audit. It measured 49.224 seconds broad, 50.350 serial and 43.642 parallel,
+with 48.76/49.87/49.56 seconds process CPU. The observed single-order 1.128x
+native wall ratio costs 1.64% more CPU, while one serial part still consumes
+87.3% of part time. Native operations rise 3.61%, successor descriptors become
+918,016 instead of 885,723, and optional original refusals become 330 instead
+of 296; every part completes without gaps, problems or unsupported transitions.
+These genuine fragmentation/work differences remain reported. The exact source
+union does not constitute a successor coefficient-payload equality proof, and
+the independent-sink versus production-buffer distinction above still applies.
+No further cut or rotation was run. See the companion study for the full
+predeclared hypothesis, timing boundaries and retained negative first result.
 
 ## Smallest checkpoint-compatible ready-publication proposal
 

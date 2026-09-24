@@ -90,7 +90,7 @@ than without, and lost two of three rotations. Neither result answers how an
 exact partition of the present costly descendant behaves. More workers or a
 larger reservation window alone cannot split an individual native call.
 
-## Smallest credible experiments
+## Exact source and completed native controls
 
 First recover an **actual recorded domain**, not a box inferred from an owner
 mask or the reported A/D bounds. Current progress events omit lower/upper/rank.
@@ -161,6 +161,64 @@ axis4 values. Those spans are only about 1.93 seconds of the total, so they
 suggest another partition hypothesis rather than a complete cost map. Exact
 bounded source-piece geometry is retained for further API/cost analysis.
 
+### Second, cost-informed exploratory cut
+
+The same frozen helper, whole source and three-mode order were used once more,
+with axis4 cut at **5**. The eight longest retained application spans divide
+0.953/0.975 seconds across that cut, but represent only 5.7% of total selected
+time and are selection-biased. This was explicitly a hypothesis, not measured
+whole-work balance; its point counts are deliberately uneven (89.27%/10.73%).
+The plan was recorded before execution. Neither trial replaces the other.
+
+| Completed mode | Native span (s) | Process CPU (s) | Individual part spans (s) |
+|---|---:|---:|---|
+| Whole parent | 49.224 | 48.76 | 49.223 |
+| Same parts serial | 50.350 | 49.87 | 43.953 + 6.398 |
+| Same parts parallel | 43.642 | 49.56 | 43.642 / 6.403 |
+
+This exploratory observation is **1.128x** faster in native wall time with
+1.64% more process CPU than its own whole-parent baseline. It still leaves
+87.3% of serial part time in one part. It is not a statistical speedup or
+evidence of major core scaling; no further cuts or rotations were run.
+
+Here partitioning changes native geometry and work counts: native operations
+increase from 3,211,650 to 3,327,578 (+3.61%), term visits from 948,235 to
+987,074 (+4.10%), selected pieces from 1,041 to 1,101, and successor descriptors
+from 885,723 to 918,016 (+3.65%). Conditional descriptors increase from 28,401
+to 30,109, and optional-original refusals from 296 to 330. These are retained
+fragmentation/refinement/provenance differences, not silently normalized away.
+The exact same two parts agree between serial and parallel on every native
+counter and bounded exception. All dispatch gaps/unresolved/invalid sources,
+native problems and both unsupported-transition counts remain zero.
+
+All source points remain covered by the exact partition and each public native
+call finishes. The diagnostic does **not** retain successor coefficients or
+prove equality of complete successor payload unions; nor does it establish
+recursive closure. Additional work is acceptable when it buys useful wall
+time, but this trial does not justify promoting the current production option.
+
+Preparation took 16.264 seconds. Whole-command wall was 162.05 seconds and
+sampled aggregate peak RSS 5.991 GB, with no resource stop/error. The trial
+started at 23:03:07 UTC and ended before 23:06 UTC, before the next hourly
+checkpoint. Raw evidence is `axis4.result.json`, `axis4.time`, and
+`axis4-guard/` in the same temporary directory. Independent raw audit passed:
+all non-timing broad fields match the first trial, every serial/parallel part
+matches, all aggregate counters reconcile, and no checkpoint overlap occurred.
+
+Both controls drain their two native callback streams independently. The current
+Ordered walker instead polls only its current publisher ticket, including
+physical part0 before part1. With hundreds of thousands of successors, a later
+part can block on bounded chunks long before completion; finished-result escrow
+does not rescue an unfinished blocked producer. Thus even a better native cut
+would require sound bounded interleaved part admission and persisted per-part
+prefixes, or another proven drain design, before claiming production scaling.
+
+The next implementation study should therefore address dynamically distributed,
+program-bound matched pieces and/or a ready-ticket coordinator, with explicit
+bounded queues, source responsibilities and checkpoint state. Continuing to
+choose geometric cuts from eight biased timing extrema is not a demonstrated
+general scheduling strategy. Neither implementation is part of these controls.
+
 For a selected actual Apply source, the current public one-hop visitor permits
 three matched modes sharing one immutable all-67 owner snapshot: broad source,
 identical disjoint parts serially, and those same parts in parallel. Preserve
@@ -225,6 +283,20 @@ allow owner/batch/rule ordinals from a different prepared program to be reused
 incorrectly. A future opaque lifetime-bound work capability could let one
 priority matcher emit disjoint selected pieces to bounded worker tasks without
 repeating matching. This is an API/design change, not an available CLI mode.
+
+A minimal prototype can use a privately constructed job borrowing its exact
+originating `CandidateOwnerPrograms`, with one ordinal for every match-stream
+piece, including nonselected pieces. Native callbacks borrow coefficient/source
+data and must not cross threads as borrowed events: project them into the
+existing owned walker effects while their native data remain valid. An ordered
+merger keeps one parent-level source-reuse cache and the query's first-original/
+first-coalesced optional-refusal election. Aggregate work must not silently reset
+per piece; an initial prototype may explicitly require unbounded cumulative
+policy while preserving finite per-operation/scratch checks. Bound both job and
+output queues. The existing canonical parent-prefix checkpoint replay can
+initially recompute unfinished internal jobs rather than introducing a new
+authority framework or CAS. This preserves a single externally published parent
+stream while testing internal work distribution.
 
 Whole selected pieces are the simplest unit. If a single piece is itself costly,
 whole prepared **equal-shift groups** are the next boundary: never split raw RHS

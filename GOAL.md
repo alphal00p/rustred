@@ -92,6 +92,12 @@ on the fresh four-loop programs also completes in 108.35 seconds summed command
 time. See [the refresh record](docs/research/vakint_native_refresh_2026-09-24.md).
 Proceed with the measured five-loop inspection/publication study while preserving
 the live run; do not infer its completion from these successful lower-loop gates.
+The [actual-domain split study](docs/research/five_loop_slow_inspection_parallelism_2026-09-24.md)
+and [independent ready-publication design](docs/research/five_loop_parallel_publication_audit_2026-09-24.md)
+now guide this work. Tuple-count balance is not application-cost balance;
+native-only split timings also exclude the production stream-admission bottleneck.
+Evaluate completion time with work inflation, exact obligation accounting and
+checkpoint recovery before adopting a new live policy.
 
 Both existing packagings already use the same generic `.rrbin` container and
 Symbolica native state/atoms. The older four-loop files are multi-sector bundles;
