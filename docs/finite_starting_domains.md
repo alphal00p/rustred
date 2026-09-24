@@ -28,9 +28,14 @@ workers, with zero pending work/frontiers and all obligations discharged. These
 use the unchanged native binary with ordinary auxiliary owner regions, never
 descendant clipping; see [the full record](research/four_loop_saved_cover_control_2026-09-24.md).
 The old five-loop campaign has saved an authorized paused generation-13 checkpoint.
-Prepare the revised input in a new campaign, then launch explicitly in the
-user-confirmed Zellij session `rustred`, tab `five_loop_vacuum`. Do not bind its
-changed queries to the old checkpoint. Continue the unrestricted Vakint refresh
+The revised input is now running in a new campaign, launched explicitly at
+21:06 UTC in the user-confirmed Zellij session `rustred`, tab `five_loop_vacuum`.
+`campaigns/five-loop-saved-coarse-cover` retains the exact original 67 queries
+and adds 67 rank-15 auxiliary owner regions, with A<=24 on the 54 owners in the
+upstream guard cone. Every one of the 134 initial queries passes local matching;
+recursive descendant exhaustion and runtime compatibility are still open.
+The run uses 50 workers, 500 GB requested RAM and hourly checkpoints. Do not bind
+its changed queries to the old checkpoint. Continue the unrestricted Vakint refresh
 and numerical/performance gates independently after this four-loop success.
 
 ## September 24: campaign now running under user control

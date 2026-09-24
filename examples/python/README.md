@@ -2,10 +2,16 @@
 
 ## Saved-owner production campaign
 
-The prepared five-loop input snapshot lives in
-`campaigns/five-loop-saved/inputs`. It contains the saved owners and unchanged
-67-root base query document; Python does no algebra or topology dispatch.
-The full campaign is a **manual launch**, not an example smoke test:
+The current prepared five-loop input snapshot lives in
+`campaigns/five-loop-saved-coarse-cover/inputs`. It contains the saved owners,
+the unchanged 67-root base query document and 67 ordinary auxiliary owner
+regions for reuse. Python does no algebra or topology dispatch. The previous
+`campaigns/five-loop-saved` run is paused and retains its own checkpoint; its
+inputs must not be substituted when resuming that checkpoint.
+The full campaign is an **explicit launch**, not an example smoke test. The
+current snapshot is already running in Zellij session `rustred`, tab
+`five_loop_vacuum`; do not start a second copy. For a separately staged new
+campaign (replace `NEW_CAMPAIGN` with its directory):
 
 ```sh
 mkdir -p TMP
@@ -13,6 +19,7 @@ export TMPDIR="$PWD/TMP" TMP="$PWD/TMP" TEMP="$PWD/TMP"
 export CARGO_HOME="$PWD/TMP/cargo-home" CARGO_TARGET_DIR="$PWD/target"
 nix develop --command cargo build --release --locked -p rustred-app --bin rustred -j 16
 nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/NEW_CAMPAIGN \
   --executable target/release/rustred --start
 ```
 
@@ -33,8 +40,10 @@ Wait for completion of that save. The production resume command automatically
 reuses the frozen workers, CPU set and optional subdivision policy:
 
 ```sh
-nix develop --command python examples/python/production_saved_owner_campaign.py --resume --start
-nix develop --command python examples/python/campaign_monitor.py campaigns/five-loop-saved/runs/RUN_NAME
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/five-loop-saved-coarse-cover --resume --start
+nix develop --command python examples/python/campaign_monitor.py \
+  campaigns/five-loop-saved-coarse-cover/runs/RUN_NAME
 ```
 
 For a later resume requesting 700 GB, add `--max-memory-bytes 700000000000`.

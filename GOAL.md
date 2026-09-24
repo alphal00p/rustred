@@ -50,6 +50,21 @@ The original five-loop campaign received authorized cooperative SIGINT and saved
 checkpoint generation 13. The user confirmed the existing Zellij destination:
 session `rustred`, tab `five_loop_vacuum`. Use that tab for the eventual explicit
 relaunch command; changed auxiliary inputs require a fresh campaign/checkpoint.
+The second four-parent pass reproduces all semantic records and finishes in
+109.94 seconds summed whole-command time (first pass: 112.06 seconds).
+At 21:06 UTC the replacement was explicitly launched in that confirmed Zellij
+tab, under `campaigns/five-loop-saved-coarse-cover`, with 50 workers, a 500 GB
+RAM allowance and hourly checkpoints. All 67 original A<=24/R<=15/A-R>=9
+queries are retained verbatim; 67 auxiliary owner regions add reuse opportunities.
+All have R<=15; the 54 owners in the upstream guard cone also have A<=24.
+All 134 inputs pass local matching, but descendant exhaustion and concrete
+runtime compatibility remain open. The old generation-13 checkpoint is intact.
+This launch supersedes the historical manual-launch-only instructions below.
+Proceed with the unrestricted Vakint package refresh and matched numerical and
+performance checks while observing the new run; do not infer a five-loop ETA
+from the successful four-loop controls.
+The [restart record](docs/research/five_loop_coarse_cover_restart_2026-09-24.md)
+contains the actual launch, recovery and monitoring commands.
 
 Both existing packagings already use the same generic `.rrbin` container and
 Symbolica native state/atoms. The older four-loop files are multi-sector bundles;

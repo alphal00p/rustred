@@ -178,5 +178,15 @@ input requires a new campaign: an old checkpoint cannot be silently rebound to
 the augmented query set. No new CAS operation or loop-specific engine was added.
 
 The focused and existing Python steering suite passes 66 tests; an independent
-implementation audit also passes. Repeated four-loop controls, revised five-loop
-preparation and unrestricted Vakint package refresh are the next delivery gates.
+implementation audit also passes. A second complete pass uses exactly the same
+inputs and executable. Independent full-record comparison finds identical
+geometry, native/guard/dependency counters and final outcomes, apart from timing,
+checkpoint bookkeeping and scheduling-resource diagnostics. Its traversal times
+are FG 12.905 s, BMW 31.847 s, H 12.749 s and X 32.044 s; the whole-command spans
+sum to 109.94 seconds. These two completed passes establish reproducibility, not
+a statistical machine-independent benchmark.
+
+The revised five-loop input has passed preliminary matching and was launched
+in the user's existing Zellij tab at 21:06 UTC. Its recursive result remains open.
+The unrestricted Vakint package refresh and matched numerical/performance gates
+are now in progress; they must not inherit this control's entry restrictions.
