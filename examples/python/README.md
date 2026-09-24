@@ -1,5 +1,58 @@
 # Python examples
 
+## Saved-owner production campaign
+
+The prepared five-loop input snapshot lives in
+`campaigns/five-loop-saved/inputs`. It contains the saved owners and unchanged
+67-root base query document; Python does no algebra or topology dispatch.
+The full campaign is a **manual launch**, not an example smoke test:
+
+```sh
+mkdir -p TMP
+export TMPDIR="$PWD/TMP" TMP="$PWD/TMP" TEMP="$PWD/TMP"
+export CARGO_HOME="$PWD/TMP/cargo-home" CARGO_TARGET_DIR="$PWD/target"
+nix develop --command cargo build --release --locked -p rustred-app --bin rustred -j 16
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --executable target/release/rustred --start
+```
+
+The launcher freezes exact executable bytes and complete steering policy on
+first use. Omit `--start` to freeze/prepare and print the command without
+launching. The production preset has no solve timeout or cumulative work stop;
+it retains bounded worker buffers, input/scratch/algebra admission, at most
+50 CPUs and 500 GB decimal configured RAM. Hourly native checkpoints are the
+resume authority. The Python RAM guard requests checkpoint-and-stop at 95%
+of the effective hard ceiling, earlier under host/cgroup pressure. Configure
+`--max-memory-bytes` or `--ram-guard-margin-percent` on first preparation.
+No additional address-space cap is imposed. Sampled RSS cannot strictly prevent
+between-sample overshoot; hard emergencies preserve the last completed save.
+
+Ctrl-C requests a graceful saved pause and prints the exact restart command.
+Wait for completion of that save. The production resume command automatically
+reuses the frozen workers, CPU set and optional subdivision policy:
+
+```sh
+nix develop --command python examples/python/production_saved_owner_campaign.py --resume --start
+nix develop --command python examples/python/campaign_monitor.py campaigns/five-loop-saved/runs/RUN_NAME
+```
+
+`active-run.json` identifies the latest run. Each run has atomic `status.json`,
+PID/start/boot metadata, bounded-tail event monitoring and separate native
+stdout/stderr. The colored TTY header/bar and plain redirected summaries show
+measured CPU activity separately from worker reservations, finite initial-entry
+publication separately from descendant work, and checkpoint writing/completion.
+The entry bar is not a closure percentage; the closure ETA stays unknown.
+Use `--once` or `--json` with the monitor for a read-only snapshot; `NO_COLOR`
+disables color. Stale heartbeats/process identities are reported explicitly.
+
+For another supplied snapshot, `stage_saved_owner_campaign.py --help` describes
+the generic byte-preserving staging helper. The Nix flake also exports
+`campaign`, `campaign-production`, `campaign-monitor` and `campaign-stage` apps.
+See [the driver documentation](../../docs/shared_owner_campaign_driver.md) for
+resource accounting, genuine native resume and low-level command examples.
+
+## Other examples
+
 [`one_loop_single_mass_vacuum.py`](one_loop_single_mass_vacuum.py) uses the
 public `import rustred` API to generate, cold-inspect, and apply the complete
 one-loop tadpole artifact:

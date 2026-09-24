@@ -56,6 +56,7 @@ impl Metrics {
     }
     pub fn json(&self) -> Value {
         json!({"policy":"immutable_bounded_batch_ordered_commit",
+            "counter_scope":"current_execution_session; resets_on_resume",
             "requested_worker_budget":self.budget.requested,
             "inspection_worker_limit":self.budget.inspection,
             "lookup_worker_limit":self.budget.helpers,
@@ -76,11 +77,13 @@ impl Metrics {
 
 enum PreparedEvent<const N: usize> {
     Original(Event<N>),
+    Invalid(&'static str),
     Admission {
         count: usize,
         successor: bool,
         conditional: bool,
         prepared: PreparedAdmission<N>,
+        fingerprint: Option<super::replay::Token>,
     },
 }
 impl<const N: usize> PreparedEvent<N> {
@@ -89,7 +92,16 @@ impl<const N: usize> PreparedEvent<N> {
         queue: &Queue<N>,
         cancellation: &AtomicBool,
         producer_stop: &AtomicBool,
+        checkpointing: bool,
     ) -> Self {
+        let fingerprint = if checkpointing && matches!(event.effect, Effect::Admit { .. }) {
+            match super::replay::token(&event) {
+                Ok(token) => Some(token),
+                Err(error) => return Self::Invalid(error),
+            }
+        } else {
+            None
+        };
         let Event { count, effect } = event;
         match effect {
             Effect::Admit {
@@ -101,6 +113,7 @@ impl<const N: usize> PreparedEvent<N> {
                 successor,
                 conditional,
                 prepared: queue.prepare_admission_with_stop(domain, cancellation, producer_stop),
+                fingerprint,
             },
             effect => Self::Original(Event { count, effect }),
         }
@@ -112,16 +125,19 @@ impl<const N: usize> PreparedEvent<N> {
     ) -> Result<(), &'static str> {
         match self {
             Self::Original(event) => state.accept(event, request),
+            Self::Invalid(error) => Err(error),
             Self::Admission {
                 count,
                 successor,
                 conditional,
                 prepared,
+                fingerprint,
             } => {
                 state.charge_event(count, request)?;
                 state.apply_admission(successor, conditional, |queue| {
                     queue.admit_prepared(prepared)
-                })
+                })?;
+                state.record_accepted(fingerprint, count)
             }
         }
     }
@@ -146,6 +162,7 @@ impl Engine {
         Ok(Self { pool })
     }
 
+    #[cfg(test)]
     fn prepare<const N: usize>(
         &self,
         queue: &Queue<N>,
@@ -153,6 +170,18 @@ impl Engine {
         cancellation: &AtomicBool,
         producer_stop: &AtomicBool,
         metrics: &mut Metrics,
+    ) -> Vec<PreparedEvent<N>> {
+        self.prepare_with_replay(queue, events, cancellation, producer_stop, metrics, false)
+    }
+
+    fn prepare_with_replay<const N: usize>(
+        &self,
+        queue: &Queue<N>,
+        events: Vec<Event<N>>,
+        cancellation: &AtomicBool,
+        producer_stop: &AtomicBool,
+        metrics: &mut Metrics,
+        checkpointing: bool,
     ) -> Vec<PreparedEvent<N>> {
         let admissions = events
             .iter()
@@ -181,7 +210,15 @@ impl Engine {
             let prepared: Vec<_> = pool.install(|| {
                 events
                     .into_par_iter()
-                    .map(|event| PreparedEvent::prepare(event, queue, cancellation, producer_stop))
+                    .map(|event| {
+                        PreparedEvent::prepare(
+                            event,
+                            queue,
+                            cancellation,
+                            producer_stop,
+                            checkpointing,
+                        )
+                    })
                     .collect()
             });
             metrics.preparation_seconds += started.elapsed().as_secs_f64();
@@ -214,16 +251,29 @@ impl Engine {
             if cancellation.load(Ordering::Acquire) || producer_stop.load(Ordering::Acquire) {
                 return Err("cancelled");
             }
-            let batch: Vec<_> = events.by_ref().take(BATCH_RECORDS).collect();
+            let mut batch: Vec<_> = events.by_ref().take(BATCH_RECORDS).collect();
             if batch.is_empty() {
                 return Ok(());
             }
-            let prepared = self.prepare(
+            if state.replay.is_some() {
+                let mut suffix = Vec::new();
+                suffix
+                    .try_reserve_exact(batch.len())
+                    .map_err(|_| "checkpoint replay chunk allocation")?;
+                for mut event in batch {
+                    if state.filter_replay(&mut event)? {
+                        suffix.push(event);
+                    }
+                }
+                batch = suffix;
+            }
+            let prepared = self.prepare_with_replay(
                 &state.queue,
                 batch,
                 cancellation,
                 producer_stop,
                 &mut state.admission,
+                state.replay.is_some(),
             );
             Self::commit_prepared(state, request, prepared, cancellation, producer_stop)?;
             heartbeat(state);

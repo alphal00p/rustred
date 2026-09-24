@@ -63,10 +63,22 @@ The [shared-owner campaign driver](docs/shared_owner_campaign_driver.md) exposes
 `examples/python/shared_owner_campaign.py`. Concrete targets share one parallel
 dependency queue, immutable programs and duplicate-work suppression. Live TTY
 and structured non-TTY monitoring report progress, resources and the first
-failure during native-call drain. The driver does not yet persist its queue or
-claim parametric closure from a finite trace. Directed Rust owner searches can
+failure during native-call drain. Concrete-target mode does not persist its
+queue or claim parametric closure from a finite trace. Directed Rust owner searches can
 publish immutable partial-domain rule overlays without copying the saved
 library; see [the API boundary](docs/shared_owner_campaign_driver.md#directed-owner-search-and-shared-rule-installation).
+
+The symbolic saved-owner walk has a separate
+[manual production launcher](examples/python/production_saved_owner_campaign.py),
+native checkpoint/resume, Ctrl-C save-and-stop, hourly automatic saves and a
+configurable RAM guard (default: save and stop at 475 GB of a 500 GB ceiling).
+Its colored TTY/read-only monitor and persistent non-TTY receipts distinguish
+actual CPU use from reserved workers and completed entry obligations from the
+still-growing descendant worklist. See the
+[Nix/build/launch/resume instructions](docs/shared_owner_campaign_driver.md#running)
+and [launch-readiness record](docs/research/manual_five_loop_campaign_2026-09-24.md).
+The full 67-owner campaign is intentionally left for the user to launch;
+neither its completion nor a full-family ETA is claimed.
 
 The preceding local-matcher release gate passed **2,588 core tests** and **296
 application/integration tests**; the shared-campaign and domain-query Python

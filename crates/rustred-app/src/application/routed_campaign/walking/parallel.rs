@@ -72,6 +72,9 @@ struct State<const N: usize> {
     slots: Vec<Slot<N>>,
     escrow: Escrow<N>,
     failure: Option<Failure>,
+    /// Chronological first failure stays intact; a later genuine fault must
+    /// still disqualify checkpoint pause after cancellation-triggered drain.
+    non_cancellation_failure: Option<Failure>,
     shutdown: bool,
     totals: Totals,
 }
@@ -115,6 +118,7 @@ impl<const N: usize> Pool<N> {
                 slots: (0..workers).map(|_| Slot::default()).collect(),
                 escrow: Escrow::new(limits),
                 failure: None,
+                non_cancellation_failure: None,
                 shutdown: false,
                 totals: Totals::default(),
             }),
@@ -132,6 +136,14 @@ impl<const N: usize> Pool<N> {
     }
     pub fn fail(&self, failure: Failure) {
         let mut state = self.lock();
+        // StoppedByConsumer is the expected native return when our emitter
+        // observes an already-recorded pool stop, not an independent fault.
+        let derivative_stop = failure.kind == "consumer_stop" && state.failure.is_some();
+        if failure.kind != "cancelled" && !derivative_stop {
+            state
+                .non_cancellation_failure
+                .get_or_insert_with(|| failure.clone());
+        }
         if state.failure.is_none() {
             state.failure = Some(failure);
         }
@@ -372,7 +384,8 @@ impl<const N: usize> Pool<N> {
             "peak_worker_buffered_logical_bytes":self.peak_bytes.load(Ordering::Relaxed),
             "per_worker_chunk_events":CHUNK_EVENTS, "per_worker_chunk_records":CHUNK_RECORDS,
             "per_worker_chunk_logical_bytes":CHUNK_BYTES,
-            "first_failure":state.failure.as_ref().map(Failure::json)});
+            "first_failure":state.failure.as_ref().map(Failure::json),
+            "non_cancellation_failure":state.non_cancellation_failure.as_ref().map(Failure::json)});
         let escrow = json!({
             "worker_buffer_accounting_scope":"all_pool_owned_chunks_including_completed_escrow; excludes_coordinator_chunk",
             "completed_escrow_entries":state.escrow.len(),
@@ -527,6 +540,22 @@ pub(super) fn with_pool<const N: usize, R>(
 ) -> (R, Value, Vec<(usize, Finished)>) {
     with_pool_inner(workers, None, inspect, coordinate)
 }
+
+/// The pool's IDs are physical handles. The ordered coordinator supplies a
+/// typed parent/part mapping; legacy users continue to use one handle per job.
+pub(super) fn with_ticket_pool<const N: usize, R>(
+    workers: usize,
+    inspect: impl Fn(
+        usize,
+        &Domain<N>,
+        &AtomicBool,
+        &mut dyn FnMut(Event<N>) -> ControlFlow<()>,
+    ) -> Finished
+    + Sync,
+    coordinate: impl FnOnce(&Pool<N>) -> R,
+) -> (R, Value, Vec<(usize, Finished)>) {
+    with_ticket_pool_limits(workers, None, EscrowLimits::default(), inspect, coordinate)
+}
 fn with_pool_inner<const N: usize, R>(
     workers: usize,
     fail_spawn_at: Option<usize>,
@@ -547,6 +576,28 @@ fn with_pool_limits<const N: usize, R>(
     fail_spawn_at: Option<usize>,
     limits: EscrowLimits,
     inspect: impl Fn(&Domain<N>, &AtomicBool, &mut dyn FnMut(Event<N>) -> ControlFlow<()>) -> Finished
+    + Sync,
+    coordinate: impl FnOnce(&Pool<N>) -> R,
+) -> (R, Value, Vec<(usize, Finished)>) {
+    with_ticket_pool_limits(
+        workers,
+        fail_spawn_at,
+        limits,
+        |_, domain, stop, emit| inspect(domain, stop, emit),
+        coordinate,
+    )
+}
+
+fn with_ticket_pool_limits<const N: usize, R>(
+    workers: usize,
+    fail_spawn_at: Option<usize>,
+    limits: EscrowLimits,
+    inspect: impl Fn(
+        usize,
+        &Domain<N>,
+        &AtomicBool,
+        &mut dyn FnMut(Event<N>) -> ControlFlow<()>,
+    ) -> Finished
     + Sync,
     coordinate: impl FnOnce(&Pool<N>) -> R,
 ) -> (R, Value, Vec<(usize, Finished)>) {
@@ -573,7 +624,7 @@ fn with_pool_limits<const N: usize, R>(
                 }
                 while let Some((id, domain)) = pool.take(slot) {
                     let mut emitter = Emitter { pool, slot, id, phase: domain.phase, chunk: Vec::new(), bytes: 0, events: 0 };
-                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| inspect(&domain, &pool.stop, &mut |event| emitter.emit(event))));
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| inspect(id, &domain, &pool.stop, &mut |event| emitter.emit(event))));
                     match result {
                         Ok(finished) => {
                             if let Some(error) = &finished.error {

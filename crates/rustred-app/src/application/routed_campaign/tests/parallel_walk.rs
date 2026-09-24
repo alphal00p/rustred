@@ -178,18 +178,25 @@ fn owner_domain_walk_parallel_global_cap_and_cancel_retain_attempts_not_completi
 #[test]
 fn owner_domain_walk_worker_and_frontier_preflight_is_explicit() {
     let fixture = Fixture::new();
-    for (workers, frontiers) in [(0, 1), (65, 1), (1, 0), (1, 1_000_001)] {
+    for (workers, frontiers) in [(0, 1), (65, 1), (1, 0)] {
         let mut request = multiple_domains(&fixture);
         request.workers = workers;
         request.max_frontiers = frontiers;
         assert!(owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {}).is_err());
     }
-    let mut request = multiple_domains(&fixture);
-    request.max_events = 100_000_000;
-    let out = owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {}).unwrap();
-    assert!(out.all_scheduled_domains_resolved);
-    assert_eq!(out.document["max_events"], 100_000_000);
-    assert_eq!(out.document["applied_limits"]["max_events"], 1_000_000);
+    // Frontier retention has no arbitrary global hard ceiling. A large finite
+    // allowance and the production unlimited sentinel do not preallocate it.
+    for frontiers in [1_000_001, usize::MAX] {
+        let mut request = multiple_domains(&fixture);
+        request.max_events = 100_000_000;
+        request.max_frontiers = frontiers;
+        let out =
+            owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(out.all_scheduled_domains_resolved);
+        assert_eq!(out.document["max_frontiers"], frontiers);
+        assert_eq!(out.document["max_events"], 100_000_000);
+        assert_eq!(out.document["applied_limits"]["max_events"], 1_000_000);
+    }
 }
 
 #[test]

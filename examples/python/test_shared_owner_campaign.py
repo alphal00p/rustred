@@ -3,10 +3,12 @@ import importlib.util
 import json
 import os
 import resource
+import signal
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -32,11 +34,120 @@ def fake_process(root, pid, parent, start, children=(), tgid=None, task_children
 
 
 class SteeringTests(unittest.TestCase):
+    def test_default_ram_guard_stops_at_95_percent_of_effective_ceiling(self):
+        host = {"host_total_bytes": 1_200_000_000_000, "available_bytes": 730_000_000_000}
+        self.assertEqual(CAMPAIGN.memory_admission(500_000_000_000, None, host, None),
+                         (500_000_000_000, 475_000_000_000, 20_000_000_000))
+        constrained = {"host_total_bytes": 1_200_000_000_000, "available_bytes": 800_000_000,
+                       "cgroup_capacity_bytes": 1_000_000_000}
+        self.assertEqual(CAMPAIGN.memory_admission(500_000_000_000, None, constrained, None),
+                         (750_000_000, 712_500_000, 50_000_000))
+        self.assertEqual(CAMPAIGN.memory_admission(500_000_000_000, 100, host, None)[1], 100)
+        with self.assertRaisesRegex(ValueError, "no campaign headroom"):
+            CAMPAIGN.memory_admission(500_000_000_000, None, host, 800_000_000_000)
+
+    def test_host_ram_monitor_honors_enclosing_cgroup_limit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            proc = root / "proc"
+            (proc / "self").mkdir(parents=True)
+            (proc / "meminfo").write_text("MemTotal: 12000000 kB\nMemAvailable: 8000000 kB\n")
+            (proc / "self/cgroup").write_text("0::/parent/child\n")
+            cgroup = root / "cgroup"
+            (cgroup / "parent/child").mkdir(parents=True)
+            for directory, maximum, current in ((cgroup, "8000000000", "1000000000"),
+                    (cgroup / "parent", "4000000000", "1000000000"),
+                    (cgroup / "parent/child", "max", "1")):
+                (directory / "memory.max").write_text(maximum)
+                (directory / "memory.current").write_text(current)
+            snapshot = CAMPAIGN.host_memory(proc, cgroup)
+            self.assertEqual(snapshot["available_bytes"], 3_000_000_000)
+            self.assertEqual(snapshot["cgroup_capacity_bytes"], 4_000_000_000)
+
+    def test_ctrl_c_waits_for_native_paused_receipt_and_preserves_prior_durable_save(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            child = directory / "fake-rustred"
+            child.write_text(f"#!{sys.executable}\n" + """import json,sys,time
+from pathlib import Path
+arg=lambda name: Path(sys.argv[sys.argv.index(name)+1])
+stop=arg('--stop-file'); events=arg('--events'); output=arg('--output')
+if '--resume' in sys.argv:
+    checkpoint=arg('--resume')
+    if not (checkpoint/'state.json').is_file(): raise SystemExit(8)
+    result={'status':'completed','family_closure_claim':False}
+    output.write_text(json.dumps(result)); events.write_text(json.dumps({'progress':result})+'\\n')
+    raise SystemExit(0)
+checkpoint=arg('--checkpoint')
+checkpoint.mkdir(parents=True)
+state=checkpoint/'state.json'; state.write_text('{"test_fixture_only":true}')
+saved={'state':'saved','directory':str(checkpoint),'generation':1,'state_path':str(state),'paused':False,'saved_unix_time':int(time.time())}
+events.write_text(json.dumps({'event':'heartbeat','progress':{'event':'loaded','checkpoint':saved}})+'\\n')
+deadline=time.monotonic()+8
+while not stop.exists() and time.monotonic()<deadline: time.sleep(.01)
+if not stop.exists(): raise SystemExit(9)
+time.sleep(.1)
+result={'status':'paused','checkpoint':saved,'preparation_interrupted':True,'family_closure_claim':False}
+with events.open('a') as stream: stream.write(json.dumps({'event':'heartbeat','progress':result})+'\\n')
+output.write_text(json.dumps(result))
+raise SystemExit(4)
+""")
+            child.chmod(0o700)
+            manifest = directory / "selection.json"; manifest.write_text("{}")
+            queries = directory / "queries.json"; queries.write_text("{}")
+            run = directory / "run"
+            process = subprocess.Popen([sys.executable, str(SOURCE), "--executable", str(child),
+                "--manifest", str(manifest), "--queries", str(queries), "--workers", "1",
+                "--sample-seconds", ".1", "--run-directory", str(run), "--checkpoint", str(directory / "checkpoint"),
+                "--unbounded-work", "--apply-subdivision-axis", "0", "--apply-subdivision-cut", "0", "--no-progress"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    if (run / "status.json").exists() and json.loads((run / "status.json").read_text())["state"] == "running":
+                        break
+                    if process.poll() is not None:
+                        self.fail(process.communicate())
+                    time.sleep(.02)
+                else:
+                    self.fail("supervisor never published running status")
+                process.send_signal(signal.SIGINT)
+                stdout, stderr = process.communicate(timeout=5)
+                self.assertEqual(process.returncode, 4, (stdout, stderr))
+                status = json.loads((run / "status.json").read_text())
+                request = json.loads((run / "request.json").read_text())
+                self.assertEqual(status["state"], "paused")
+                self.assertEqual(status["checkpoint"]["generation"], 1)
+                self.assertFalse(status["checkpoint"]["paused"])
+                self.assertEqual(status["stop_reason"], "operator_signal_2")
+                self.assertEqual(request["checkpoint_interval_seconds"], 3600)
+                self.assertEqual(request["ram_guard_margin_percent"], 5)
+                self.assertIsNone(request["child_rlimit_as_bytes"])
+                self.assertEqual(request["apply_subdivision"], {"axis": 0, "cut": 0})
+                self.assertTrue((run / "processes.json").is_file())
+                self.assertIn("Durable checkpoint:", stdout)
+                self.assertIn("Resume with fresh receipts:", stdout)
+                restart = status["resume_command"]
+                self.assertNotIn("--checkpoint", restart)
+                self.assertIn("--resume", restart)
+                self.assertIn("--apply-subdivision-axis", restart)
+                next_run = Path(restart[restart.index("--run-directory") + 1])
+                self.assertNotEqual(next_run, run)
+                self.assertFalse(next_run.exists())
+                resumed = subprocess.run(restart, capture_output=True, text=True, timeout=5)
+                self.assertEqual(resumed.returncode, 0, (resumed.stdout, resumed.stderr))
+                self.assertEqual(json.loads((next_run / "status.json").read_text())["state"], "completed")
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    process.communicate(timeout=10)
+
     def test_address_space_envelope_respects_reserves_and_inherited_soft_limit(self):
         self.assertEqual(CAMPAIGN.address_space_envelope(500_000_000_000,0,None,0,(-1,-1)),
-                         (480_000_000_000,20_000_000_000))
-        self.assertEqual(CAMPAIGN.address_space_envelope(500_000_000_000,0,None,0,(1_000_000,2_000_000))[0],1_000_000)
-        for reserve, explicit, rss in [(500_000_000_000,None,0),(1,None,2),(0,490_000_000_000,0)]:
+                         (None,0))
+        self.assertIsNone(CAMPAIGN.address_space_envelope(500_000_000_000,0,None,0,(1_000_000,2_000_000))[0])
+        self.assertEqual(CAMPAIGN.address_space_envelope(500_000_000_000,0,3_000_000,0,(1_000_000,2_000_000))[0],1_000_000)
+        for reserve, explicit, rss in [(500_000_000_000,None,0),(1,None,2),(0,501_000_000_000,0)]:
             with self.assertRaises(ValueError):
                 CAMPAIGN.address_space_envelope(500_000_000_000,reserve,explicit,rss,(-1,-1))
 
@@ -186,13 +297,51 @@ class SteeringTests(unittest.TestCase):
             self.assertEqual(request["command"][option+1],str(entries.resolve()))
             self.assertNotIn("SYMBOLICA_LICENSE",(receipt/"request.json").read_text())
             self.assertIn(str(request["supervisor_pid"]),request["registered_roots"])
-            self.assertGreater(request["child_rlimit_as_bytes"],0)
+            self.assertIsNone(request["child_rlimit_as_bytes"])
             resources=[json.loads(line) for line in (receipt/"resources.jsonl").read_text().splitlines()]
             self.assertTrue(resources)
             self.assertEqual({row["role"] for row in resources[0]["process_cpu"]},
                              {"supervisor","owned_native"})
             self.assertEqual(resources[0]["processes"],2)
             self.assertIn("stat_reads",resources[0]["collection"])
+
+    def test_initial_cpu_tick_is_unknown_and_later_activity_is_not_clamped(self):
+        table={1:{"ppid":0,"start":11,"cpu_seconds":0.05,"rss_bytes":4096}}
+        delta,baseline,rows=CAMPAIGN.process_cpu_sample(table,{(1,11):0.04},None,1,2)
+        self.assertEqual(delta,0)
+        self.assertIsNone(rows[0]["sampled_cpu_delta_seconds"])
+        self.assertIsNone(rows[0]["observed_busy_cores"])
+        table[1]["cpu_seconds"]=1.05
+        delta,_,rows=CAMPAIGN.process_cpu_sample(table,baseline,0.1,1,2)
+        self.assertEqual(delta,1)
+        self.assertEqual(rows[0]["observed_busy_cores"],10)
+
+    def test_fake_child_cpu_status_warms_up_then_reports_full_interval(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory=Path(temporary)
+            child=directory/"fake-rustred"
+            child.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(.35)\n")
+            child.chmod(0o700)
+            manifest=directory/"selection.json"; manifest.write_text("{}")
+            targets=directory/"targets.csv"; targets.write_text("1\n")
+            receipt=directory/"receipt"
+            result=subprocess.run([sys.executable,str(SOURCE),"--executable",str(child),
+                "--manifest",str(manifest),"--targets",str(targets),"--workers","1",
+                "--sample-seconds",".1","--run-directory",str(receipt),"--no-progress"],
+                capture_output=True,text=True,timeout=10)
+            self.assertEqual(result.returncode,0,result.stderr)
+            rows=[json.loads(line) for line in (receipt/"resources.jsonl").read_text().splitlines()]
+            self.assertGreaterEqual(len(rows),2)
+            self.assertIsNone(rows[0]["observed_busy_cores"])
+            self.assertIsNone(rows[0]["native_busy_cores"])
+            self.assertIsNone(rows[0]["cpu_sample_interval_seconds"])
+            self.assertTrue(all(p["observed_busy_cores"] is None for p in rows[0]["process_cpu"]))
+            for row in rows[1:]:
+                self.assertGreaterEqual(row["cpu_sample_interval_seconds"],0.1)
+                self.assertIsNotNone(row["observed_busy_cores"])
+                self.assertIsNotNone(row["native_busy_cores"])
+            status=json.loads((receipt/"status.json").read_text())
+            self.assertEqual(status["resources"],rows[-1])
 
     def test_global_workers_rejected_before_launch(self):
         result=subprocess.run([sys.executable,str(SOURCE),"--executable","missing","--manifest","missing",
@@ -247,7 +396,7 @@ class SteeringTests(unittest.TestCase):
                     self.assertEqual(request["requested_" + name], value)
                     self.assertEqual(summary["requested_" + name], value)
                 self.assertEqual(request["hard_memory_bytes"],500_000_000_000)
-                self.assertGreater(request["child_rlimit_as_bytes"],0)
+                self.assertIsNone(request["child_rlimit_as_bytes"])
                 self.assertEqual(summary["operator_or_resource_stop"],"aggregate_rss_soft_limit")
                 self.assertFalse(summary["family_closure_claim"])
                 self.assertEqual(actual[actual.index("--queries")+1],str(queries.resolve()))

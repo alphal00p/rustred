@@ -10,7 +10,7 @@ mod blocks;
 use blocks::Block;
 pub(super) use blocks::Coordinates;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub(super) enum Upper {
     Finite(u128),
     Infinity,
@@ -26,7 +26,7 @@ impl Upper {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub(super) enum Lower {
     NegativeInfinity,
     Finite(i128),
@@ -43,7 +43,7 @@ impl Lower {
 }
 
 /// Tight native extrema, not optional raw input labels or finite sentinels.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub(super) enum Signature {
     Empty,
     Nonempty {
@@ -94,6 +94,41 @@ impl Signature {
     }
 }
 
+impl AggregateIndex {
+    pub(super) fn restore_positions(&mut self, domain_count: usize) -> Result<(), String> {
+        self.positions.clear();
+        let mut live = 0usize;
+        for (position, group) in self.groups.iter().enumerate() {
+            if self.positions.insert(group.signature, position).is_some() {
+                return Err("duplicate checkpoint index signature".into());
+            }
+            let mut count = 0usize;
+            let mut previous = None;
+            for block in &group.blocks {
+                block.validate(domain_count)?;
+                for &id in block.ids() {
+                    if previous.is_some_and(|old| old >= id) {
+                        return Err("unordered checkpoint index IDs".into());
+                    }
+                    previous = Some(id);
+                    count += 1;
+                }
+            }
+            if count != group.live {
+                return Err("checkpoint index group count mismatch".into());
+            }
+            live = live
+                .checked_add(count)
+                .ok_or("checkpoint index count overflow")?;
+        }
+        if live != self.live {
+            return Err("checkpoint index live count mismatch".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
 struct Group {
     signature: Signature,
     /// Increasing immutable IDs within and across blocks; no duplicates.
@@ -111,12 +146,14 @@ pub(super) struct Insertion {
     new_block: Option<Block>,
 }
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct AggregateIndex {
     groups: Vec<Group>,
+    #[serde(skip)]
     positions: HashMap<Signature, usize>,
     live: usize,
     #[cfg(test)]
+    #[serde(skip)]
     work: WorkCounters,
 }
 

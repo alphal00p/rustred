@@ -11,9 +11,10 @@ This is not yet a complete parametric rank-bounded family solve. An empty finite
 frontier in concrete mode is reported as `completed_finite_trace`, alongside
 `family_closure_claim=false`. Missing rules/owners remain explicit frontiers,
 not new masters. Rule generation, automatic frontier feedback, coefficient
-back-substitution and durable dependency-cache resume are not implemented by
-this driver. The result and event journal are interruption diagnostics, not
-queue checkpoints. Existing saved rule files remain reusable and unchanged.
+back-substitution are not implemented by this driver. Symbolic successor walks
+now support native queue checkpoints; concrete traces do not. Results, event
+journals and Python status files are monitoring receipts, never resume
+authority. Existing saved rule files remain reusable and unchanged.
 
 Symbolic mode invokes `owner-domain-match --follow-successors`, preserving
 unbounded positive powers and each query's actual numerator rank. It reports
@@ -23,6 +24,52 @@ See [the domain-matching interface](shared_owner_domain_matching.md) for the
 conservative successor semantics and explicit unresolved obligations.
 
 ## Running
+
+For the prepared five-loop saved-owner input, use the production launcher from
+the repository root. It verifies the immutable input hashes and, on the first
+preparation/start, copies the supplied executable into the campaign directory.
+The complete steering policy is frozen beside that executable. The user starts
+the full run manually; building or displaying help does not launch it:
+
+```sh
+mkdir -p TMP
+export TMPDIR="$PWD/TMP" TMP="$PWD/TMP" TEMP="$PWD/TMP"
+export CARGO_HOME="$PWD/TMP/cargo-home" CARGO_TARGET_DIR="$PWD/target"
+nix develop --command cargo build --release --locked -p rustred-app --bin rustred -j 16
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/five-loop-saved \
+  --executable target/release/rustred --start
+```
+
+Omit `--start` to prepare and print the exact command without executing it.
+This still freezes the executable and policy. The default policy is at most
+50 permitted CPUs, 500 GB decimal maximum resident memory, a 5% RAM guard
+margin, hourly checkpoints, Ordered publication, H256 unreserved transfer,
+exact initial-D reuse, finite-axis refinement and degree-64 guard admission.
+Cumulative enumeration work is uncapped (`--unbounded-work`); input admission,
+bounded worker buffers, native scratch and per-operation algebra safeguards
+remain explicit. Physical subdivision is optional, with the paired
+`--apply-subdivision-axis N --apply-subdivision-cut C`; it is not a default
+whole-walker speed claim. The saved input remains data, not topology dispatch.
+
+After a graceful pause, resume with the same immutable binary and **all** frozen
+steering flags automatically. Each invocation creates a new receipt directory:
+
+```sh
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/five-loop-saved --resume --start
+nix develop --command python examples/python/campaign_monitor.py \
+  campaigns/five-loop-saved/runs/RECEIPT_DIRECTORY
+```
+
+`campaigns/five-loop-saved/active-run.json` points to the latest requested run.
+The launcher rejects conflicting policy overrides and a different executable;
+changing native policy requires a separate campaign. A later Cargo rebuild does
+not replace the frozen executable. `campaign_monitor.py RUN --json` gives one
+read-only machine-readable status; `--once` prints one human-readable snapshot.
+The flake also exposes `campaign-production`, `campaign-monitor`,
+`campaign-stage`, and `campaign` apps. The tested development environment uses
+Python 3.11.15, Rust 1.97.1 and Cargo 1.97.0.
 
 Build the normal release `rustred` CLI, then run the standard-library Python
 driver from the repository root, inheriting `SYMBOLICA_LICENSE` as necessary:
@@ -45,22 +92,18 @@ python examples/python/shared_owner_campaign.py \
   --queries /absolute/path/queries.json \
   --owner-base /absolute/path/to/workspace \
   --workers 6 --cpus 0,1,2,3,4,5 \
-  --route-domain-overcover \
-  --max-successor-events 100000000 \
-  --max-rhs-cells-per-query 10000000 \
-  --max-rhs-events-per-query 10000000 \
-  --max-shift-groups-per-query 10000000 \
-  --max-sign-splits-per-query 10000000
+  --route-domain-overcover --unbounded-work \
+  --checkpoint /absolute/path/to/new-checkpoint-directory
 ```
 
-These example work allowances are not established sufficient for any particular
-family. The native defaults apply to other unspecified per-query limits.
+Finite diagnostic work allowances remain opt-in and cannot be combined with
+`--unbounded-work`. Without that flag, native work defaults apply.
 Aggregate symbolic containment comparisons are unlimited by default; pass
 `--max-containment-checks unlimited` explicitly or a positive integer for an
 opt-in finite diagnostic budget. Both Python steering paths forward this policy
 without changing rank, native-work, storage or supervisory resource limits.
-`--max-frontiers` independently bounds retained diagnostic records; the
-aggregate streamed-event allowance does not bound them. Concrete-only work
+`--max-frontiers` independently bounds retained diagnostic records in bounded
+diagnostic mode; production unbounded work removes that stop too. Concrete-only work
 flags and `--expansion-limits` are rejected with `--queries`; symbolic-only
 flags are rejected with `--targets`. The two input flags are mutually exclusive.
 
@@ -82,19 +125,25 @@ before first observation can be missed; this is not universal descendant
 capture. Transient unreadable live identities are retained for later retry.
 
 Defaults are at most 50 outer workers, all native/BLAS/Rayon inner pools fixed
-to one before exec, a **decimal 450 GB** measured aggregate RSS soft stop and
-**500 GB** measured hard stop. RSS sampling is a supervisory threshold, not a
-hard OS allocation guarantee; retain external host/cgroup headroom. The
-owned multithreaded Rust process additionally receives an OS `RLIMIT_AS`
-address-space ceiling before exec: hard memory minus external reservations
-minus monitor headroom (`min(20 GB, hard/10)`). Thus an isolated default run
-has at most **480 GB address space**. `--child-address-space-bytes` may select
-a lower limit; both inherited finite soft and hard limits are preserved.
-Virtual-address-space exhaustion can stop the run earlier than the RSS policy
-and remains an incomplete resource outcome. This cap applies to one process,
-not an arbitrary subprocess tree. Independent external jobs are not constrained
-by this driver: their declared reservations plus sampled monitoring are not an
-absolute aggregate-RSS guarantee if they exceed their own execution envelopes.
+to one before exec, and **500 GB decimal** configured maximum aggregate RSS.
+`--max-memory-bytes` may lower this ceiling. Admission reduces it further if
+host/cgroup available RAM minus the host reserve is smaller. The reserve
+defaults to `min(20 GB, 5% of host/cgroup capacity)`; readable cgroup-v2 ancestor
+limits are included. By default measured RSS at **95% of the effective ceiling**
+requests a checkpoint and stop. Set `--ram-guard-margin-percent` to change that
+margin or `--soft-memory-bytes` for an earlier stop. Thus an otherwise
+unconstrained 500 GB run requests a save at 475 GB. Host pressure can trigger an
+earlier stop, independently of campaign RSS.
+
+No new `RLIMIT_AS` address-space cap is imposed by default: virtual reservation
+is not consumed RAM and must not preempt the graceful resident-memory guard.
+Inherited limits are recorded honestly. `--child-address-space-bytes` is an
+explicit diagnostic opt-in, preserving any tighter inherited limit; its
+exhaustion remains incomplete. RSS sampling is not an OS allocation guarantee:
+growth between samples or during checkpointing may overshoot the threshold.
+The hard RSS/host-emergency safeguard can kill only the owned child group;
+the last completed checkpoint remains the recovery point. External registered
+jobs are measured but never signalled, and must respect their declared budgets.
 The 15-hour expected horizon is an objective and telemetry only, not a timeout.
 
 For symbolic successor walks (`--queries`), optional `--inspection-workers I`
@@ -108,9 +157,15 @@ activity. See [the native partition contract](shared_owner_domain_matching.md#bo
 There is no inherited 30-minute deadline and no fabricated dependency ETA.
 Inspect backlog, completed local expansions, dedup hits, expansion bounds,
 CPU utilization, memory growth and progress age before deciding to continue.
-The compact bar is labelled `expanded / currently discovered`: its denominator
-can grow and it is not a closure percentage. Heartbeats expose recent expanded
-nodes/second and queue growth/second; Python resource records expose RSS slope.
+The colored TTY dashboard has a labelled initial-entry publication bar only
+when Rust supplies its finite denominator. That prefix includes delegated
+entries and is **not closure**. Local initial native inspections are separate
+and can remain below the entry total after delegation. Descendant work has no
+fixed denominator or fabricated ETA. Unknown progress uses an indeterminate
+bar. Sampled actual native CPU occupancy and blocked/active slots are separate
+from reserved inspector/admission/coordinator workers. `NO_COLOR` suppresses
+color; redirected output is low-rate plain text, including checkpoint status.
+Resource records expose local completion rates and RSS slope.
 Each resource record also includes per-PID/start CPU deltas and RSS, with the
 supervisor and owned native process labelled separately. Newly observed or
 temporarily unreadable processes have no CPU delta until a fresh baseline is
@@ -120,16 +175,28 @@ Collector read/race counts make monitoring cost and incomplete reads visible.
 Ctrl-C or SIGTERM to the **Python supervisor** creates a cooperative stop file.
 The CLI polls it even during native preparation; core workers observe
 cancellation between native operations. An individual native call may take
-time to return. At the hard memory threshold the supervisor may kill only its
+time to return. There is no graceful-stop timeout: wait for the saved checkpoint
+and terminal `paused` receipt (native exit 4). Both the terminal and durable
+JSON print the checkpoint path and an exact resume command with fresh receipt
+paths. Periodic saves default to once per hour and continue the run; monitor
+events identify writing/start time, completion time, duration and generation.
+Bootstrap checkpoints restart preparation and are labelled as such, not as
+completed computational work. A save in progress never replaces the last good
+durable generation. At the hard memory threshold the supervisor may kill only its
 owned child process group, leaving a forced-stop receipt without claiming a
 clean Rust result. A terminal nonzero status is incomplete, never closure.
 If the supervisor itself fails (for example, resource-journal I/O fails), it
 requests cancellation and reaps its own child, force-stopping after a five-second
 cleanup grace if necessary. This failure cleanup is not a solve timeout.
 
-Each invocation creates a fresh `TMP/shared-owner-campaign.*` directory with
+Each invocation creates a fresh `TMP/shared-owner-campaign.*` directory (or
+the explicit new `--run-directory`; production uses persistent `campaigns/.../runs`)
+with
 the command/resource policy (no environment or credentials), structured events,
-sampled CPU/RSS, result when available, and actual process status. There is no
+sampled CPU/RSS, result when available, and actual process status. Atomic
+`status.json` and `processes.json` retain heartbeat, boot ID and PID/start
+identities. The read-only monitor verifies those identities and warns about
+stale/dead-supervisor snapshots instead of claiming current activity. There is no
 overwrite or silent continuation of an old receipt. CPU measurements are
 sampled deltas of live registered processes, not a complete GNU-time accounting
 of short-lived children between samples.

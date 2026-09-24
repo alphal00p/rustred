@@ -255,6 +255,34 @@ fn inspect_options<const N: usize>(
         reducer,
         domain,
         request,
+        None,
+        cancellation,
+        initial,
+        &mut |event| cache.forward(event, emit),
+    )
+}
+
+/// A physical source duty bypasses initial-overlap planning: its pending broad
+/// parent is not evidence that this part has been inspected. Outgoing reuse is
+/// unchanged and remains after the native source/guard/child checks.
+pub(super) fn inspect_part<const N: usize>(
+    reducer: &RoutedCandidateReducer<N>,
+    domain: &Domain<N>,
+    request: &OwnerDomainWalkRequest,
+    part: u8,
+    cancellation: &AtomicBool,
+    initial: &InitialOrthants<N>,
+    emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
+) -> Finished {
+    let mut parent = request.applied_limits;
+    parent.matching = request.matching.match_limits;
+    let limits = super::physical_parts::limits(parent, part);
+    let mut cache = super::reuse::Cache::new(true);
+    inspect_native(
+        reducer,
+        domain,
+        request,
+        Some(limits),
         cancellation,
         initial,
         &mut |event| cache.forward(event, emit),
@@ -265,6 +293,7 @@ fn inspect_native<const N: usize>(
     reducer: &RoutedCandidateReducer<N>,
     domain: &Domain<N>,
     request: &OwnerDomainWalkRequest,
+    limits: Option<rustred::solver::OwnerAppliedLimits>,
     cancellation: &AtomicBool,
     initial: &InitialOrthants<N>,
     emit: &mut (impl FnMut(Event<N>) -> ControlFlow<()> + ?Sized),
@@ -273,8 +302,11 @@ fn inspect_native<const N: usize>(
         return super::routing::inspect(reducer, domain, request, cancellation, initial, emit);
     }
     let started = Instant::now();
-    let mut limits = request.applied_limits;
-    limits.matching = request.matching.match_limits;
+    let limits = limits.unwrap_or_else(|| {
+        let mut limits = request.applied_limits;
+        limits.matching = request.matching.match_limits;
+        limits
+    });
     let mut conversion_error = None;
     let result = reducer.programs().visit_power_bounded_owner_applied_successors(
         domain.owner, &domain.lower, &domain.upper, domain.rank, domain.powers, limits, cancellation,

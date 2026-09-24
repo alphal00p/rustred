@@ -82,7 +82,7 @@ fn preflight_checkpoint_paths(arguments: &FamilyCandidatesArgs) -> Result<(), Cl
 /// Resolve the existing ancestor first, then normalize the missing suffix.
 /// Unlike lexical normalization before canonicalization this respects a
 /// symlink followed by `..`. It also works before a new checkpoint exists.
-fn resolved_location(path: &Path) -> Result<PathBuf, CliError> {
+pub(super) fn resolved_location(path: &Path) -> Result<PathBuf, CliError> {
     let mut ancestor = std::path::absolute(path).map_err(|error| {
         CliError::InputIo(format!("cannot resolve {}: {error}", path.display()))
     })?;

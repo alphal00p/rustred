@@ -91,3 +91,19 @@ fn cli_match_and_walk_error_receipts_preserve_requested_input_allowances() {
         assert!(result.get("parsed_query_bytes").is_none());
     }
 }
+
+#[test]
+fn unbounded_walk_receipt_reports_effective_refinement_allowance() {
+    let files = Files::new();
+    std::fs::write(files.0.join("queries.json"), "{}").unwrap();
+    std::fs::write(files.0.join("manifest.json"), "not JSON").unwrap();
+    let mut args = files.args(Some(2), true);
+    args.unbounded_work = true;
+    assert_eq!(args.max_bounded_refinement_cells, 0);
+    assert!(run_admitted(args).is_err());
+    let result: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(files.0.join("result.json")).unwrap()).unwrap();
+    assert_eq!(result["requested_unbounded_work"], true);
+    assert_eq!(result["max_bounded_refinement_cells"], json!(usize::MAX));
+    assert_eq!(result["status"], "preparation_error");
+}

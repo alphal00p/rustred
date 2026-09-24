@@ -17,3 +17,9 @@ result-*
 /crates/rustred-python/python/rustred/_rustred*.so
 # Workspace-local benchmark/evidence staging; never commit generated runs.
 /TMP/
+# Persistent local five-loop inputs, resumable state and manual-run receipts.
+/campaigns/five-loop-saved/inputs/
+/campaigns/five-loop-saved/runs/
+/campaigns/five-loop-saved/checkpoints/
+/campaigns/five-loop-saved/bin/
+/campaigns/five-loop-saved/active-run.json

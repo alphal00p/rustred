@@ -183,6 +183,67 @@ performance result. The old source and exit-1 receipt remain preserved under
 honor the same manifest loader limits as the production path without changing
 the native query allowances, source partition or process resource policy.
 
+### Completed corrected experiment
+
+The corrected helper reads the unchanged manifest's declared loader allowances.
+Three completed blocks rotate every mode through every execution-order position;
+all exit successfully and pass independent raw-output and source review.
+
+| Execution order | Broad (s) | Same parts serial (s) | Same parts parallel (s) |
+|---|---:|---:|---:|
+| Broad, serial, parallel | 11.509 | 11.548 | 7.657 |
+| Serial, parallel, broad | 11.519 | 11.500 | 7.674 |
+| Parallel, broad, serial | 11.680 | 11.583 | 7.593 |
+| Median | 11.519 | 11.548 | 7.657 |
+
+The median parallel span is 33.7% shorter than the identical serial split
+(1.51× speedup). Serial splitting adds about 0.26% wall time versus broad.
+The parts are not equally expensive: their serial spans are about 3.9 and 7.6 s,
+despite the first containing more integer points. Point count is not a reliable
+work estimate. Only two pinned CPUs are used, with serial nested pools.
+
+Every mode emits 393,944 successors, including 7,339 conditional successors,
+with zero dispatch gaps, unresolved pieces, RHS problems or unsupported-support
+changes. One optional original guard-work refusal remains explicit. Every
+non-timing field agrees across rotated blocks, and per-part serial/parallel
+statistics agree exactly. Splitting adds only 18 matching cells, 540 coordinate
+cells and nine terminal checks to the aggregate native counters. This stats-only
+sink does not retain or compare full coefficient payloads.
+
+Each process loads the immutable 67-owner set once (14.7–15.4 s), then executes
+all three modes. Whole-process peaks are approximately 5.83 million KiB; these
+are not per-mode memory measurements. Routes, recursive descendant traversal,
+containment and coordinator publication are absent, so neither the load time
+nor the native speedup is a full-campaign measurement. Three shared-host blocks
+also do not establish a statistical confidence interval or fifty-core scaling.
+
+The frozen binary hash is
+`6d8a293a70420a770fdd430f5b973747891216f2b2cb64387db04e269579c180`.
+Raw receipts, reproducible summary and final independent audit are retained in
+`TMP/one-hop-subdivision-v2.DBtBWG/`, particularly `ROTATED_RESULTS.md`,
+`combined-summary.json` and `INDEPENDENT_AUDIT.md`. The failed original loader
+attempt remains separate. This positive discriminator justifies an opt-in
+production integration and matched recursive controls, not a closure claim.
+
+## Completed recursive integration: subdivision remains opt-in
+
+The subsequent checkpoint-enabled implementation passes all ten completed
+recursive controls and independent mathematical, timing and resource audits.
+Three rotated W50 comparisons give median traversal times of 11.027 s without
+checkpointing, 11.548 s with checkpointing and 11.731 s with checkpointing plus
+the initial axis-0 split. Thus the split is 1.58% slower than checkpoint-enabled
+unsplit execution and loses two of three rotations. Keep subdivision **off by
+default** despite the positive isolated native experiment above.
+
+Checkpointing preserves every canonical committed result. Physical splitting
+preserves exact source geometry and outgoing obligations, with its extra work
+explicitly accounted for. The small controls do not establish full-family
+speedup, fifty-core saturation or a completion ETA. The original 67 A24/R15/D9
+roots remain the production input; the four-owner A12 control is not a
+replacement. See the [launch-readiness record](manual_five_loop_campaign_2026-09-24.md)
+for completed timing boundaries, checkpoint/resume validation and the manual
+production setup. No full campaign was launched for this handoff.
+
 ## Production integration constraints
 
 Physical parts must not be admitted as ordinary successor domains that immediately

@@ -1,5 +1,46 @@
 # RustRed project goal
 
+## Current delivery milestone: user-launched five-loop campaign
+
+Finish and audit the physical-subdivision experiment, then prepare the best
+measured setup for the full 67-owner A≤24, R≤15, A−R≥9 entry envelope. Keep every
+descendant; do not substitute a pilot or a sampled check for that objective.
+The native two-part experiment now completes in three execution orders: median
+serial inspection 11.548 s versus parallel 7.657 s (1.51×). This is not yet a
+production-walker speedup. Completed integrated controls give 11.548 s with
+checkpoints and no split versus 11.731 s with the initial split: keep subdivision
+opt-in and off by default. Checkpoints without subdivision add about 4.7% over
+the 11.027 s no-checkpoint median on that small workload. Release application/CLI
+tests pass (593 passed, one existing ignored), as do fresh-process real
+interruption/resume and automatic periodic-save checks. See
+[the delivery record](docs/research/manual_five_loop_campaign_2026-09-24.md).
+
+Before the next full launch, deliver genuine checkpoint/resume, including clean
+Ctrl-C, atomic saved work state, the checkpoint path and an exact restart command.
+Retain finished work; unfinished physical parts may replay a verified committed
+prefix without duplicating publication. A partial JSON report is not a checkpoint.
+Do not impose pilot work-count or elapsed-time limits on production. Preserve
+bounded buffers and protect aggregate RAM, within the requested 50-core/500-GB
+budget and actual host availability. Never claim replayed or unfinished work is
+complete.
+The Python launcher exposes the RAM ceiling directly; at 95% of it, request a
+checkpoint and graceful stop. Save periodically at consistent boundaries, once
+per hour by default, and show save-start/save-completion in the live monitor.
+Host-memory emergencies may trigger protection earlier.
+
+Provide an updated Nix environment, release build instructions and Python
+steering example. The colored overwriting TTY monitor and non-TTY status must
+distinguish reserved workers from measured CPU usage, entry progress from dynamic
+descendants, and known progress from an unknown completion ETA. Persist status,
+PID, heartbeat and checkpoint information so a later assistant can inspect the
+user-started run. Keep final outputs portable and reusable for stages (b)–(e).
+
+Run small end-to-end interruption/resume and subdivision controls, independent
+implementation/mathematical audits, then clean up, commit and push. **Do not launch
+the full campaign:** hand the user tested commands for Nix, compilation, launch
+and restart, then stop until they launch it and request monitoring. This is a
+delivery checkpoint, not completion of the mathematical goal.
+
 **September 24 architectural challenge:** independently reassess the complete
 IBP workflow and have a second agent actively challenge the proposed redesigns.
 Prioritize reducing repeated work over increasing the number of busy threads.
@@ -65,10 +106,10 @@ build. Six completed same-input A12 controls reduce median traversal
 shared-host pairs show a modest improvement, not full-family scaling or an ETA.
 See [measurements and the subdivision experiment](docs/research/native_inspection_subdivision_2026-09-24.md).
 
-Next test physical subdomains of a single logical inspection, not only more
-workers; any split must retain exact coverage, all descendants and genuine
-parent completion. The standalone one-hop prototype is prepared and audited,
-not yet a production scheduler or recursive coverage result. Independently
+Physical subdomains of a single logical inspection now pass the native
+three-order experiment above; any production split must retain exact coverage,
+all descendants and genuine parent completion. This is not yet a production
+scheduler or recursive coverage result. Independently
 assess demand-driven activation of optional anchors as a way to avoid extra
 work, while retaining real admission before reuse and every activated descendant.
 Larger output allowances alone cannot fix every observed regime. The authoritative current execution plan is

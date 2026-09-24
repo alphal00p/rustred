@@ -17,6 +17,28 @@ class MatchSteeringTests(unittest.TestCase):
         return [str(SOURCE), "--executable", "native", "--manifest", "selection.json",
                 "--queries", "queries.json", "--output", "result.json"]
 
+    def test_checkpoint_resume_unbounded_and_subdivision_flags_are_forwarded_exactly(self):
+        for mode in ("--checkpoint", "--resume"):
+            flags = ["--follow-successors", mode, "checkpoint", "--checkpoint-interval-seconds", "3600",
+                     "--unbounded-work", "--apply-subdivision-axis", "0", "--apply-subdivision-cut", "2"]
+            with patch("sys.argv", self.arguments() + flags), patch.object(MATCH.os, "execve") as execute:
+                MATCH.main()
+            command = execute.call_args.args[1]
+            for option in (mode, "--checkpoint-interval-seconds", "--apply-subdivision-axis", "--apply-subdivision-cut"):
+                self.assertEqual(command[command.index(option) + 1], flags[flags.index(option) + 1])
+            self.assertEqual(command.count("--unbounded-work"), 1)
+
+    def test_checkpoint_and_subdivision_scope_errors_never_launch(self):
+        for flags in (["--checkpoint", "saved"], ["--unbounded-work"],
+                      ["--follow-successors", "--checkpoint", "saved", "--resume", "saved"],
+                      ["--follow-successors", "--checkpoint-interval-seconds", "3600"],
+                      ["--follow-successors", "--apply-subdivision-axis", "0"]):
+            with patch("sys.argv", self.arguments() + flags), patch.object(MATCH.os, "execve") as execute, \
+                    patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit):
+                    MATCH.main()
+                execute.assert_not_called()
+
     def test_positive_allowances_are_distinct_from_per_query_rank(self):
         for value in ("1", "10000", "1000000"):
             self.assertEqual(MATCH.positive(value), int(value))

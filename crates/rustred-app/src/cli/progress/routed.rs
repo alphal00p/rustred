@@ -1,4 +1,4 @@
-//! One bounded event slot and a heartbeat independent of native operation time.
+//! One bounded progress slot, lossless checkpoint milestones, and an independent heartbeat.
 use super::terminal::{TerminalSession, resident_set_bytes};
 use serde_json::{Value, json};
 use std::io::{self, Write};
@@ -13,8 +13,18 @@ use std::time::{Duration, Instant};
 
 pub(crate) struct RoutedProgress {
     latest: Arc<Mutex<(Instant, Value)>>,
-    stop: mpsc::Sender<()>,
+    stop: mpsc::SyncSender<Control>,
     handle: Option<JoinHandle<io::Result<()>>>,
+}
+enum Control {
+    Checkpoint(Value),
+    Stop,
+}
+
+fn write_record(events: &mut dyn Write, record: &Value) -> io::Result<()> {
+    serde_json::to_writer(&mut *events, record).map_err(io::Error::other)?;
+    events.write_all(b"\n")?;
+    events.flush()
 }
 impl RoutedProgress {
     pub fn start(
@@ -25,7 +35,9 @@ impl RoutedProgress {
     ) -> Self {
         let latest = Arc::new(Mutex::new((Instant::now(), json!({"event":"starting"}))));
         let state = Arc::clone(&latest);
-        let (stop, receiver) = mpsc::channel();
+        // Rare state transitions must not disappear between sampled heartbeats.
+        // Bound their storage too; a slow journal backpressures the publisher.
+        let (stop, receiver) = mpsc::sync_channel(4);
         let handle = std::thread::spawn(move || {
             let mut terminal = if tty {
                 TerminalSession::try_new_family(io::stderr()).ok()
@@ -37,7 +49,14 @@ impl RoutedProgress {
             let mut previous: Option<(Instant, u64, u64)> = None;
             loop {
                 let finished = match receiver.recv_timeout(Duration::from_secs(1)) {
-                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => true,
+                    Ok(Control::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => true,
+                    Ok(Control::Checkpoint(event)) => {
+                        if let Err(error) = write_record(&mut *events, &event) {
+                            cancellation.store(true, Ordering::Relaxed);
+                            return Err(error);
+                        }
+                        false
+                    }
                     Err(mpsc::RecvTimeoutError::Timeout) => false,
                 };
                 if stop_file.as_ref().is_some_and(|path| path.exists()) {
@@ -65,11 +84,7 @@ impl RoutedProgress {
                     "progress_denominator_may_grow":true,"progress_is_not_closure_fraction":true,
                     "progress":event, "family_closure_claim":false});
                 add_worker_summary(&mut record);
-                if let Err(error) = serde_json::to_writer(&mut events, &record)
-                    .map_err(io::Error::other)
-                    .and_then(|()| events.write_all(b"\n"))
-                    .and_then(|()| events.flush())
-                {
+                if let Err(error) = write_record(&mut *events, &record) {
                     cancellation.store(true, Ordering::Relaxed);
                     return Err(error);
                 }
@@ -96,10 +111,18 @@ impl RoutedProgress {
         }
     }
     pub fn observe(&self, event: Value) {
+        let checkpoint = matches!(
+            event["event"].as_str(),
+            Some("checkpoint_started" | "checkpoint_saved")
+        );
+        let milestone = checkpoint.then(|| event.clone());
         *self.latest.lock().unwrap_or_else(|e| e.into_inner()) = (Instant::now(), event);
+        if let Some(event) = milestone {
+            let _ = self.stop.send(Control::Checkpoint(event));
+        }
     }
     pub fn finish(mut self) -> io::Result<()> {
-        let _ = self.stop.send(());
+        let _ = self.stop.send(Control::Stop);
         self.handle
             .take()
             .unwrap()
@@ -109,7 +132,7 @@ impl RoutedProgress {
 }
 impl Drop for RoutedProgress {
     fn drop(&mut self) {
-        let _ = self.stop.send(());
+        let _ = self.stop.send(Control::Stop);
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
         }
@@ -470,6 +493,70 @@ fn match_dashboard(record: &Value) -> [String; 6] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rapid_checkpoint_milestones_survive_progress_replacement_and_finish() {
+        struct Shared(Arc<Mutex<Vec<u8>>>);
+        impl Write for Shared {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let monitor = RoutedProgress::start(
+            Box::new(Shared(Arc::clone(&bytes))),
+            false,
+            Arc::new(AtomicBool::new(false)),
+            None,
+        );
+        for generation in 1..=8 {
+            monitor.observe(json!({"event":"checkpoint_started","generation":generation}));
+            monitor.observe(json!({"event":"checkpoint_saved","generation":generation}));
+            monitor.observe(json!({"event":"native_progress"}));
+        }
+        monitor.finish().unwrap();
+        let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+        let milestones: Vec<_> = text
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .filter(|row| row["event"] != "heartbeat")
+            .collect();
+        assert_eq!(milestones.len(), 16);
+        for (index, row) in milestones.iter().enumerate() {
+            assert_eq!(
+                row["event"],
+                if index % 2 == 0 {
+                    "checkpoint_started"
+                } else {
+                    "checkpoint_saved"
+                }
+            );
+            assert_eq!(row["generation"], index / 2 + 1);
+        }
+    }
+
+    #[test]
+    fn checkpoint_journal_failure_requests_cancellation_and_is_returned() {
+        struct Broken;
+        impl Write for Broken {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::Error::other("test journal failure"))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let monitor = RoutedProgress::start(Box::new(Broken), false, Arc::clone(&cancelled), None);
+        monitor.observe(json!({"event":"checkpoint_saved"}));
+        assert!(monitor.finish().is_err());
+        assert!(cancelled.load(Ordering::Relaxed));
+    }
+
     #[test]
     fn parallel_admission_dashboard_distinguishes_native_activity_from_reserved_helpers() {
         let mut record = json!({"progress":{"operation":"owner_domain_walk",

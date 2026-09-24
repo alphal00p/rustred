@@ -22,7 +22,7 @@ impl SchedulingPolicy {
 
 /// Produced only at canonical publication of an actual native inspection.
 /// The caller retains the detailed native error/statistics/source diagnostics.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum NativeOutcome {
     /// All native callbacks have been admitted. A Finished without an error
     /// may still retain unresolved guard/source/routing frontiers.

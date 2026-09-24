@@ -4,6 +4,8 @@ use super::{
 use std::{collections::BTreeSet, ffi::OsString, num::NonZeroUsize, path::PathBuf};
 
 #[cfg(test)]
+mod campaign_tests;
+#[cfg(test)]
 mod publication_tests;
 #[cfg(test)]
 mod query_admission_tests;
@@ -50,6 +52,9 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub max_containment_checks: Option<usize>,
     pub transfer_unreserved_lookahead: Option<NonZeroUsize>,
     pub reuse_initial_d_bands: bool,
+    pub unbounded_work: bool,
+    pub checkpoint: Option<crate::OwnerDomainWalkCheckpointOptions>,
+    pub apply_subdivision: Option<crate::OwnerDomainWalkApplySubdivision>,
 }
 
 pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -94,7 +99,15 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         max_containment_checks: None,
         transfer_unreserved_lookahead: None,
         reuse_initial_d_bands: false,
+        unbounded_work: false,
+        checkpoint: None,
+        apply_subdivision: None,
     };
+    let mut checkpoint_path = None;
+    let mut resume_path = None;
+    let mut checkpoint_interval = None;
+    let mut subdivision_axis = None;
+    let mut subdivision_cut = None;
     let mut seen = BTreeSet::new();
     let mut arguments = arguments.peekable();
     while let Some(option) = arguments.next() {
@@ -140,6 +153,12 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--max-containment-checks" => "--max-containment-checks",
             "--transfer-unreserved-lookahead" => "--transfer-unreserved-lookahead",
             "--reuse-initial-d-bands" => "--reuse-initial-d-bands",
+            "--unbounded-work" => "--unbounded-work",
+            "--checkpoint" => "--checkpoint",
+            "--resume" => "--resume",
+            "--checkpoint-interval-seconds" => "--checkpoint-interval-seconds",
+            "--apply-subdivision-axis" => "--apply-subdivision-axis",
+            "--apply-subdivision-cut" => "--apply-subdivision-cut",
             "--help" | "-h" => return Ok(Command::Help),
             _ => return Err(ArgError::UnknownOption(option)),
         };
@@ -162,8 +181,21 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             result.reuse_initial_d_bands = true;
             continue;
         }
+        if name == "--unbounded-work" {
+            result.unbounded_work = true;
+            continue;
+        }
         let value = next_utf8_value(&mut arguments, name)?;
         match name {
+            "--apply-subdivision-axis" => {
+                subdivision_axis = Some(parse_nonnegative_integer(name, value)?);
+            }
+            "--apply-subdivision-cut" => {
+                subdivision_cut = Some(parse_nonnegative_integer(name, value)? as u64);
+            }
+            "--checkpoint-interval-seconds" => {
+                checkpoint_interval = Some(parse_positive_integer(name, value)? as u64);
+            }
             "--inspection-workers" => {
                 result.inspection_workers = Some(parse_positive_integer(name, value)?);
             }
@@ -208,7 +240,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                 result.max_bounded_refinement_cells = parse_nonnegative_integer(name, value)?;
             }
             "--manifest" | "--queries" | "--output" | "--owner-base" | "--events"
-            | "--stop-file" => {
+            | "--stop-file" | "--checkpoint" | "--resume" => {
                 if value.is_empty() || value == "-" {
                     return Err(ArgError::InvalidValue {
                         option: name,
@@ -223,6 +255,8 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                     "--output" => result.output = path,
                     "--owner-base" => result.owner_base = path,
                     "--events" => result.events = Some(path),
+                    "--checkpoint" => checkpoint_path = Some(path),
+                    "--resume" => resume_path = Some(path),
                     _ => result.stop_file = Some(path),
                 }
             }
@@ -260,6 +294,77 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             return Err(ArgError::MissingRequiredOption(name));
         }
     }
+    if checkpoint_path.is_some() && resume_path.is_some() {
+        return Err(ArgError::InvalidCombination(
+            "--checkpoint and --resume are mutually exclusive",
+        ));
+    }
+    let resume = resume_path.is_some();
+    result.apply_subdivision = match (subdivision_axis, subdivision_cut) {
+        (Some(axis), Some(cut)) => Some(crate::OwnerDomainWalkApplySubdivision { axis, cut }),
+        (None, None) => None,
+        _ => {
+            return Err(ArgError::InvalidCombination(
+                "--apply-subdivision-axis and --apply-subdivision-cut must be supplied together",
+            ));
+        }
+    };
+    if let Some(path) = checkpoint_path.or(resume_path) {
+        let mut checkpoint = crate::OwnerDomainWalkCheckpointOptions::new(path);
+        checkpoint.resume = resume;
+        if let Some(seconds) = checkpoint_interval {
+            checkpoint.interval_seconds = seconds;
+        }
+        result.checkpoint = Some(checkpoint);
+    } else if checkpoint_interval.is_some() {
+        return Err(ArgError::InvalidCombination(
+            "--checkpoint-interval-seconds requires --checkpoint or --resume",
+        ));
+    }
+    if result.unbounded_work
+        && seen.iter().any(|name| {
+            matches!(
+                *name,
+                "--max-rules-per-query"
+                    | "--max-terminal-checks-per-query"
+                    | "--max-predicates-per-query"
+                    | "--max-pieces-per-query"
+                    | "--max-cells-per-query"
+                    | "--max-split-operations-per-query"
+                    | "--max-coordinate-cells-per-query"
+                    | "--max-bounded-refinement-cells-per-query"
+                    | "--max-domains"
+                    | "--max-frontiers"
+                    | "--max-successor-events"
+                    | "--max-containment-checks"
+                    | "--max-route-masks-per-query"
+                    | "--max-rhs-cells-per-query"
+                    | "--max-term-visits-per-query"
+                    | "--max-native-operations-per-query"
+                    | "--max-rhs-events-per-query"
+                    | "--max-shift-groups-per-query"
+                    | "--max-sign-splits-per-query"
+            )
+        })
+    {
+        return Err(ArgError::InvalidCombination(
+            "--unbounded-work cannot be combined with explicit diagnostic work caps",
+        ));
+    }
+    if result.checkpoint.is_some()
+        && result.publication_policy != crate::OwnerDomainWalkPublicationPolicy::Ordered
+    {
+        return Err(ArgError::InvalidCombination(
+            "checkpoint/resume requires ordered publication",
+        ));
+    }
+    if result.apply_subdivision.is_some()
+        && result.publication_policy != crate::OwnerDomainWalkPublicationPolicy::Ordered
+    {
+        return Err(ArgError::InvalidCombination(
+            "physical Apply subdivision requires ordered publication",
+        ));
+    }
     crate::OwnerDomainMatchRequest::validate_query_allowances(
         result.max_queries,
         result.max_query_bytes,
@@ -281,6 +386,12 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     if !result.follow_successors
         && [
             "--workers",
+            "--unbounded-work",
+            "--checkpoint",
+            "--resume",
+            "--checkpoint-interval-seconds",
+            "--apply-subdivision-axis",
+            "--apply-subdivision-cut",
             "--inspection-workers",
             "--publication-policy",
             "--max-domains",

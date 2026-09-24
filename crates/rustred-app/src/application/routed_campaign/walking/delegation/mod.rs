@@ -10,6 +10,7 @@ mod resolution;
 mod types;
 
 pub(super) use ledger::Ledger;
+pub(super) use ledger::{LedgerRef, StoredLedger};
 pub use types::SchedulingPolicy;
 pub(super) use types::{NativeOutcome, ResolutionStatus};
 

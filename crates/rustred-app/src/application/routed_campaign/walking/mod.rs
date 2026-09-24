@@ -1,5 +1,6 @@
 //! Shared symbolic successor discovery over one immutable owner snapshot.
 //! Stable streamed publication is not a family-closure certificate.
+mod checkpoint;
 mod delegation;
 mod diagnostics;
 mod execution;
@@ -8,9 +9,11 @@ mod initial_orthants;
 mod initial_overlap;
 mod inspection;
 mod parallel;
+mod physical_parts;
 mod queue;
 mod reuse;
 mod routing;
+mod work_policy;
 mod worker_budget;
 
 use super::{OwnerDomainMatchRequest, RoutedCampaignRequest, input, matching, prepare};
@@ -22,11 +25,15 @@ use serde_json::{Value, json};
 use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
+pub use checkpoint::OwnerDomainWalkCheckpointOptions;
 pub use delegation::SchedulingPolicy as OwnerDomainWalkSchedulingPolicy;
 pub use execution::owner_batches::OwnerDomainWalkPublicationPolicy;
+pub use physical_parts::ApplySubdivision as OwnerDomainWalkApplySubdivision;
 
 #[derive(Clone, Debug)]
 pub struct OwnerDomainWalkRequest {
+    pub checkpoint: Option<OwnerDomainWalkCheckpointOptions>,
+    pub apply_subdivision: Option<OwnerDomainWalkApplySubdivision>,
     /// Load policy and per-domain matcher allowances; max_total_pieces applies
     /// only to local-match reports, not this streaming worklist.
     pub matching: OwnerDomainMatchRequest,
@@ -63,6 +70,8 @@ pub struct OwnerDomainWalkRequest {
 impl OwnerDomainWalkRequest {
     pub fn new(matching: OwnerDomainMatchRequest) -> Self {
         Self {
+            checkpoint: None,
+            apply_subdivision: None,
             matching,
             applied_limits: Default::default(),
             workers: 1,
@@ -100,6 +109,10 @@ impl OwnerDomainWalkResult {
     pub(crate) fn completion_progress(document: &Value) -> Value {
         let mut out = json!({"event":"finished", "operation":"owner_domain_walk",
             "full_result_in_output_document":true, "family_closure_claim":false});
+        if document["status"] == "paused" {
+            out["full_result_in_output_document"] = json!(false);
+            out["full_state_in_checkpoint"] = json!(true);
+        }
         for key in [
             "status",
             "workers",
@@ -148,6 +161,7 @@ impl OwnerDomainWalkResult {
             "elapsed_seconds",
             "all_scheduled_domains_resolved",
             "recursive_worklist_exhausted",
+            "resume_supported",
         ] {
             out[key] = document[key].clone();
         }
@@ -167,6 +181,11 @@ impl OwnerDomainWalkResult {
             "initial_overlap_index",
             "requested_max_queries",
             "requested_max_query_bytes",
+            "checkpoint",
+            "initial_entry_domains_total",
+            "initial_entry_domains_inspected",
+            "initial_entry_domains_published",
+            "pending_descendant_domains",
         ] {
             if let Some(value) = document.get(key) {
                 out[key] = value.clone();
@@ -187,12 +206,29 @@ pub fn owner_domain_walk_with_progress(
     request.matching.preflight_queries()?;
     if request.max_domains == 0
         || request.max_events == 0
-        || !(1..=1_000_000).contains(&request.max_frontiers)
+        || request.max_frontiers == 0
         || !(1..=64).contains(&request.workers)
         || request.max_containment_checks == Some(0)
         || request.max_route_masks == 0
     {
         return Err(AppError::input("invalid symbolic worklist allowances"));
+    }
+    if let Some(checkpoint) = &request.checkpoint {
+        if checkpoint.interval_seconds == 0 {
+            return Err(AppError::input("checkpoint interval must be positive"));
+        }
+        if request.publication_policy != OwnerDomainWalkPublicationPolicy::Ordered {
+            return Err(AppError::input(
+                "checkpointing requires ordered publication",
+            ));
+        }
+    }
+    if request.apply_subdivision.is_some()
+        && request.publication_policy == OwnerDomainWalkPublicationPolicy::OwnerBatched
+    {
+        return Err(AppError::input(
+            "Apply subdivision requires ordered publication",
+        ));
     }
     OwnerDomainWalkRequest::validate_inspection_workers(
         request.workers,
@@ -318,10 +354,58 @@ fn run<const N: usize>(
     observer: &impl Fn(Value),
 ) -> Result<OwnerDomainWalkResult, AppError> {
     let started = Instant::now();
+    let mut checkpoint = checkpoint::Store::open(request).map_err(AppError::input)?;
+    // Authenticate and decode before native owner import. No corrupted or
+    // incompatible checkpoint is allowed to begin a new inspection.
+    let restored = checkpoint
+        .as_ref()
+        .map(|store| store.resume::<N>())
+        .transpose()
+        .map_err(AppError::input)?
+        .flatten();
+    let latest_checkpoint =
+        std::cell::RefCell::new(checkpoint.as_ref().and_then(|s| s.metadata()).cloned());
+    let checkpoint_write = std::cell::RefCell::new(None::<Value>);
+    let original_observer = observer;
+    let enriched_observer = |mut event: Value| {
+        if let Some(writing) = event.get("checkpoint_write") {
+            *checkpoint_write.borrow_mut() = Some(writing.clone());
+        }
+        if event["event"] == "checkpoint_saved" {
+            *checkpoint_write.borrow_mut() = None;
+        }
+        if let Some(writing) = checkpoint_write.borrow().as_ref() {
+            event["checkpoint_write"] = writing.clone();
+        }
+        if let Some(metadata) = event.get("checkpoint") {
+            *latest_checkpoint.borrow_mut() = Some(metadata.clone());
+        } else if let Some(metadata) = latest_checkpoint.borrow().as_ref() {
+            event["checkpoint"] = metadata.clone();
+        }
+        original_observer(event);
+    };
+    let observer = &enriched_observer;
+    if let Some(store) = checkpoint.as_mut() {
+        if let Some(event) = store.bootstrap().map_err(AppError::input)? {
+            observer(event);
+        }
+    }
     let mut load = RoutedCampaignRequest::new(String::new(), String::new());
     load.owner_base = request.matching.owner_base.clone();
     load.reduction_limits = request.matching.reduction_limits;
-    let reducer = prepare::prepare::<N>(&load, selection, load_limits, cancellation, observer)?;
+    let reducer = if let Some(store) = checkpoint.as_mut() {
+        let mut bind = |owners| store.bind_owners(owners);
+        prepare::prepare_with_fingerprints::<N>(
+            &load,
+            selection,
+            load_limits,
+            cancellation,
+            observer,
+            Some(&mut bind),
+        )?
+    } else {
+        prepare::prepare::<N>(&load, selection, load_limits, cancellation, observer)?
+    };
     let prepared = started.elapsed().as_secs_f64();
     let mut queue = Queue::with_policy(
         request.max_domains,
@@ -329,7 +413,7 @@ fn run<const N: usize>(
         request.scheduling_policy,
     )
     .map_err(AppError::input)?;
-    if request.reuse_initial_d_bands {
+    if request.reuse_initial_d_bands && restored.is_none() {
         queue
             .delegation
             .as_mut()
@@ -342,7 +426,9 @@ fn run<const N: usize>(
     let mut error = reducer
         .is_none()
         .then(|| "cancelled during preparation".to_owned());
-    if let Some(reducer) = &reducer {
+    if let Some(reducer) = &reducer
+        && restored.is_none()
+    {
         for query in queries {
             let domain = Domain {
                 phase: Phase::Apply,
@@ -388,7 +474,7 @@ fn run<const N: usize>(
             }
         }
     }
-    if request.reuse_initial_d_bands {
+    if request.reuse_initial_d_bands && restored.is_none() {
         queue
             .delegation
             .as_mut()
@@ -420,8 +506,8 @@ fn run<const N: usize>(
         let mut document = result.document;
         document["worker_allocation"] =
             worker_budget::WorkerBudget::for_request(request).json(request.inspection_workers);
-        document["inputs"] = json!(inputs);
-        document["input_frontiers"] = json!(input_frontiers);
+        document["inputs"] = Value::Array(inputs);
+        document["input_frontiers"] = Value::Array(input_frontiers);
         document["max_bounded_refinement_cells"] =
             json!(request.matching.match_limits.max_bounded_refinement_cells);
         drop(queue);
@@ -433,8 +519,71 @@ fn run<const N: usize>(
         });
     }
     let mut state = execution::State::new(queue, input_frontiers.len(), error);
+    if let Some(restored) = restored {
+        state = restored.state;
+        inputs = restored.inputs;
+        input_frontiers = restored.input_frontiers;
+    }
     if let Some(reducer) = &reducer {
-        execution::run(&mut state, reducer, request, cancellation, observer);
+        if let Some(store) = checkpoint.as_mut() {
+            if state.error.is_none() {
+                if let Some(event) = store
+                    .save(&state, &inputs, &input_frontiers, true, observer)
+                    .map_err(AppError::input)?
+                {
+                    observer(event);
+                }
+            }
+            execution::run_checkpointed(
+                &mut state,
+                reducer,
+                request,
+                cancellation,
+                observer,
+                &mut |state| {
+                    if let Some(event) =
+                        store.save(state, &inputs, &input_frontiers, false, observer)?
+                    {
+                        observer(event);
+                    }
+                    Ok(())
+                },
+            );
+            if state.error.is_none() {
+                if let Some(event) = store
+                    .save(&state, &inputs, &input_frontiers, true, observer)
+                    .map_err(AppError::input)?
+                {
+                    observer(event);
+                }
+            }
+        } else {
+            execution::run(&mut state, reducer, request, cancellation, observer);
+        }
+    }
+    if checkpoint.is_some() && (state.checkpoint_paused || reducer.is_none()) {
+        // A checkpoint is the state; this receipt must not duplicate the full
+        // retained queue and diagnostics (which can be many gigabytes).
+        let mut document = json!({"schema":"rustred.owner-domain-walk.paused.json.v1","status":"paused",
+            "resume_supported":true,"checkpoint":latest_checkpoint.borrow().clone(),
+            "full_state_in_checkpoint":true,"independent_certification":false,
+            "family_closure_claim":false,"all_scheduled_domains_resolved":false,"recursive_worklist_exhausted":false,
+            "scheduled_nodes":state.queue.domains.len(),"completed_nodes":state.completed,"processed_nodes":state.queue.next,
+            "queued_nodes":state.queue.domains.len()-state.queue.next,"committed_domains":state.queue.next,"committed_events":state.events,
+            "events":state.events,"successors":state.successors,"conditional_successors":state.conditional,"frontiers":state.frontiers,
+            "initial_entry_domains_total":state.initial_domain_count,"initial_entry_domains_inspected":state.initial_entry_domains_inspected,
+            "initial_entry_domains_published":state.queue.next.min(state.initial_domain_count),
+            "pending_descendant_domains":state.queue.domains.len().saturating_sub(state.queue.next.max(state.initial_domain_count)),
+            "workers":request.workers,"preparation_interrupted":reducer.is_none(),
+            "timing_scope":"this_process_session; canonical counters span checkpoint resumes"});
+        document["parallel"] = std::mem::take(&mut state.parallel);
+        drop(state);
+        finish_timing(&mut document, started, prepared);
+        observer(OwnerDomainWalkResult::completion_progress(&document));
+        return Ok(OwnerDomainWalkResult {
+            all_scheduled_domains_resolved: false,
+            document,
+        });
     }
     let delegation = state.finalize_delegation();
     let exhausted = state.error.is_none() && state.queue.next == state.queue.domains.len();
@@ -460,11 +609,33 @@ fn run<const N: usize>(
         "successors":state.successors,"conditional_successors":state.conditional,
         "optional_coefficient_refusals":state.optional.total,"optional_original_refusals":state.optional.original,
         "optional_coalesced_refusals":state.optional.coalesced,
-        "frontiers":state.frontiers,"events":state.events,"inputs":inputs,"domains":state.records,
-        "input_frontiers":input_frontiers,"error":state.error,"prepared_seconds":prepared,
+        "frontiers":state.frontiers,"events":state.events,
+        "error":state.error,"prepared_seconds":prepared,
         "traversal_seconds":started.elapsed().as_secs_f64()-prepared,"elapsed_seconds":started.elapsed().as_secs_f64()});
+    // These trees can dominate campaign RAM. Move their allocations directly;
+    // json!(mem::take(...)) would still serialize and clone every nested Value.
+    document["inputs"] = Value::Array(inputs);
+    document["input_frontiers"] = Value::Array(input_frontiers);
+    document["domains"] = take_report_array(&mut state.records);
     // Keep macro expansion bounded without a crate-wide recursion allowance.
     document["workers"] = json!(request.workers);
+    if checkpoint.is_some() {
+        document["resume_supported"] = json!(true);
+        document["checkpoint"] = latest_checkpoint.borrow().clone().unwrap_or(Value::Null);
+        document["timing_scope"] =
+            json!("this_process_session; canonical counters span checkpoint resumes");
+    }
+    document["initial_entry_domains_total"] = json!(state.initial_domain_count);
+    document["initial_entry_domains_inspected"] = json!(state.initial_entry_domains_inspected);
+    document["initial_entry_domains_published"] =
+        json!(state.queue.next.min(state.initial_domain_count));
+    document["pending_descendant_domains"] = json!(
+        state
+            .queue
+            .domains
+            .len()
+            .saturating_sub(state.queue.next.max(state.initial_domain_count))
+    );
     document["worker_allocation"] =
         worker_budget::WorkerBudget::for_request(request).json(request.inspection_workers);
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::OwnerBatched {
@@ -505,7 +676,7 @@ fn run<const N: usize>(
         json!(request.matching.match_limits.max_bounded_refinement_cells);
     document["publication_policy"] = json!("stable_domain_id_stream");
     document["parallel"] = std::mem::take(&mut state.parallel);
-    document["uncommitted_inspections"] = json!(state.uncommitted);
+    document["uncommitted_inspections"] = take_report_array(&mut state.uncommitted);
     document["successful_publication_matches_serial"] = json!(true);
     document["failure_or_cancellation_prefix_may_differ"] = json!(true);
     document["committed_domains"] = json!(state.queue.next);
@@ -546,9 +717,44 @@ fn run<const N: usize>(
     })
 }
 
+fn take_report_array(values: &mut Vec<Value>) -> Value {
+    Value::Array(std::mem::take(values))
+}
+
 #[cfg(test)]
 mod policy_tests {
     use super::*;
+
+    #[test]
+    fn report_array_transfer_preserves_allocations_instead_of_cloning() {
+        let mut records = vec![json!({"payload":"x".repeat(65_536)})];
+        let vector_pointer = records.as_ptr();
+        let string_pointer = records[0]["payload"].as_str().unwrap().as_ptr();
+        let report = take_report_array(&mut records);
+        assert!(records.is_empty());
+        assert_eq!(report.as_array().unwrap().as_ptr(), vector_pointer);
+        assert_eq!(
+            report[0]["payload"].as_str().unwrap().as_ptr(),
+            string_pointer
+        );
+    }
+
+    #[test]
+    fn subdivision_owner_batched_is_rejected_by_public_api_before_loading() {
+        let mut request =
+            OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(String::new(), String::new()));
+        request.apply_subdivision = Some(OwnerDomainWalkApplySubdivision { axis: 0, cut: 1 });
+        request.publication_policy = OwnerDomainWalkPublicationPolicy::OwnerBatched;
+        let error = owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {
+            panic!("unsupported policy must fail before owner preparation")
+        })
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Apply subdivision requires ordered publication")
+        );
+    }
 
     #[test]
     fn bounded_refinement_policy_reports_effective_match_limits_not_applied_defaults() {

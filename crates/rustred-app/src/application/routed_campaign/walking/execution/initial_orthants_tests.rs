@@ -113,7 +113,7 @@ fn initial_orthants_overflow_and_mixed_markers_keep_exact_ordered_prefix() {
     assert_eq!(state.frontiers, 1);
 }
 
-fn native_fixture() -> RoutedCandidateReducer<1> {
+pub(super) fn native_fixture() -> RoutedCandidateReducer<1> {
     use crate::{
         CandidateOwnerBundle, FamilyCandidatesRequest, family_candidates,
         load_generated_candidate_owners,

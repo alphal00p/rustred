@@ -4,7 +4,7 @@ use rustred::algebra::IndexedAlgebraError;
 use rustred::solver::{OwnerAppliedStats, OwnerDomainMatchDisposition};
 use serde_json::{Value, json};
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct OptionalCounts {
     pub total: usize,
     pub original: usize,
@@ -35,7 +35,7 @@ impl OptionalCounts {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct OptionalRefusals {
     pub records: Vec<Value>,
     seen_original: bool,

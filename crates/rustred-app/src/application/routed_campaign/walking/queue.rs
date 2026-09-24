@@ -6,23 +6,28 @@ use std::sync::Arc;
 
 mod index;
 use index::{AggregateIndex, Coordinates, Signature};
+mod checkpoint;
 mod prepared;
 pub(super) use prepared::PreparedAdmission;
 use prepared::PreparedLookup;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub(super) enum Phase {
     Apply,
     Route,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub(super) struct Domain<const N: usize> {
     pub phase: Phase,
+    #[serde(with = "checkpoint::owner")]
     pub owner: [bool; N],
     pub lower: Vec<u64>,
     pub upper: Vec<Option<u64>>,
     pub rank: Option<u32>,
+    #[serde(with = "checkpoint::powers")]
     pub powers: DomainPowerBounds,
 }
 
@@ -71,7 +76,7 @@ fn rank_contains(container: Option<u32>, candidate: Option<u32>) -> bool {
     container.is_none_or(|r| candidate.is_some_and(|s| s <= r))
 }
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 struct OwnerBucket {
     /// Historical stable full scan, used only in the finite-cap lane.
     ids: Vec<usize>,

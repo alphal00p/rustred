@@ -1292,6 +1292,7 @@ name = "rustred-app"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "blake3",
  "crossterm",
  "ratatui",
  "rayon",

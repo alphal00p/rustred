@@ -1,7 +1,9 @@
 use super::types::{Error, NativeOutcome, Publication, Transfer};
 use std::num::NonZeroUsize;
+mod checkpoint;
+pub(in super::super) use checkpoint::{LedgerRef, StoredLedger};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(super) enum Local {
     Unreserved,
     Reserved,
@@ -9,7 +11,7 @@ pub(super) enum Local {
     Published(NativeOutcome),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(super) enum Responsibility {
     Local(Local),
     Delegate { to: usize },

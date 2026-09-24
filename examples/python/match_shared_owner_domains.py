@@ -98,6 +98,13 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--events", type=Path)
     parser.add_argument("--stop-file", type=Path)
+    checkpoints = parser.add_mutually_exclusive_group()
+    checkpoints.add_argument("--checkpoint", type=Path)
+    checkpoints.add_argument("--resume", type=Path)
+    parser.add_argument("--checkpoint-interval-seconds", type=positive)
+    parser.add_argument("--unbounded-work", action=StoreTrueOnce, nargs=0, default=False)
+    parser.add_argument("--apply-subdivision-axis", type=nonnegative, action=StoreOnce)
+    parser.add_argument("--apply-subdivision-cut", type=nonnegative, action=StoreOnce)
     parser.add_argument("--no-progress", action="store_true")
     parser.add_argument("--follow-successors", action="store_true",
                         help="share symbolic successor domains; unresolved routes remain explicit")
@@ -127,6 +134,14 @@ def main() -> None:
                             help="positive diagnostic cap or unlimited (default)" if
                             option == "max-containment-checks" else None)
     args = parser.parse_args()
+    if not args.follow_successors and (args.checkpoint is not None or args.resume is not None
+            or args.checkpoint_interval_seconds is not None or args.unbounded_work
+            or args.apply_subdivision_axis is not None or args.apply_subdivision_cut is not None):
+        parser.error("checkpoint, unbounded work and subdivision require --follow-successors")
+    if args.checkpoint_interval_seconds is not None and args.checkpoint is None and args.resume is None:
+        parser.error("checkpoint interval requires --checkpoint or --resume")
+    if (args.apply_subdivision_axis is None) != (args.apply_subdivision_cut is None):
+        parser.error("subdivision requires both axis and cut")
     if not args.follow_successors and (args.route_domain_overcover or args.reuse_initial_d_bands or any(
             getattr(args, option.replace("-", "_")) is not None
             for option in (*WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, INSPECTION_WORKERS, "max-route-masks-per-query"))):
@@ -158,6 +173,12 @@ def main() -> None:
         command.append("--route-domain-overcover")
     if args.reuse_initial_d_bands:
         command.append("--" + INITIAL_D_REUSE)
+    if args.unbounded_work:
+        command.append("--unbounded-work")
+    for option in ("checkpoint", "resume", "checkpoint_interval_seconds",
+                   "apply_subdivision_axis", "apply_subdivision_cut"):
+        if (value := getattr(args, option)) is not None:
+            command += ["--" + option.replace("_", "-"), str(value)]
     for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, INSPECTION_WORKERS, "max-route-masks-per-query"):
         if (value := getattr(args, option.replace("-", "_"))) is not None:
             command.extend(["--" + option, str(value)])

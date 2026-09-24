@@ -38,6 +38,18 @@ pub(super) fn prepare<const N: usize>(
     cancellation: &AtomicBool,
     observer: &impl Fn(Value),
 ) -> Result<Option<RoutedCandidateReducer<N>>, AppError> {
+    prepare_with_fingerprints(request, selection, limits, cancellation, observer, None)
+}
+
+/// Bind checkpoint identity to the exact admitted payloads before native import.
+pub(super) fn prepare_with_fingerprints<const N: usize>(
+    request: &RoutedCampaignRequest,
+    selection: &Selection,
+    limits: CandidateOwnerLoadLimits,
+    cancellation: &AtomicBool,
+    observer: &impl Fn(Value),
+    mut fingerprints: Option<&mut dyn FnMut(Vec<String>) -> Result<(), String>>,
+) -> Result<Option<RoutedCandidateReducer<N>>, AppError> {
     let mut bytes = Vec::new();
     let mut masks = Vec::new();
     for (ordinal, owner) in selection.owners.iter().enumerate() {
@@ -70,6 +82,15 @@ pub(super) fn prepare<const N: usize>(
         }
         bytes.push(payload);
         masks.push(mask(&owner.mask, N)?);
+    }
+    if let Some(bind) = fingerprints.as_mut() {
+        bind(
+            bytes
+                .iter()
+                .map(|payload| blake3::hash(payload).to_hex().to_string())
+                .collect(),
+        )
+        .map_err(AppError::input)?;
     }
     observer(json!({"event":"preparation", "phase":"native_owner_load", "owners":bytes.len()}));
     if cancellation.load(Ordering::Relaxed) {

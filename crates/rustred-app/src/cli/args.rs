@@ -606,6 +606,21 @@ routing. Unchecked source conditions and missing maps remain explicit obligation
 This mode does not identify every covered point as actually reached.
 The mode accepts --workers (default 1) and positive --max-domains,
 --max-frontiers and --max-successor-events allowances.
+--unbounded-work removes cumulative work-count stops for a production walk;
+it requires --follow-successors and rejects explicit diagnostic work caps.
+It does not remove bounded worker buffers or optional algebra/scratch safeguards.
+Use the Python campaign supervisor to protect aggregate process and host RAM.
+--checkpoint DIR saves resumable Ordered work state periodically and on a
+cooperative stop; --resume DIR restores it under matching immutable inputs and
+policies. These flags are mutually exclusive and require --follow-successors.
+--checkpoint-interval-seconds N sets the positive save interval (default 3600).
+A resumed unfinished inspection may replay its verified published prefix;
+completed logical work is retained. A checkpoint is not a closure certificate.
+--apply-subdivision-axis AXIS --apply-subdivision-cut CUT opts into two exact
+physical parts of initial Apply boxes spanning the cut (zero-based coordinates).
+Both nonnegative options are required, with Ordered successor publication.
+The logical parent completes only after both parts; descendants remain shared
+ordinary work and are not recursively subdivided by this policy.
 --inspection-workers N optionally partitions --workers W into N inspectors,
 W-1-N admission helpers and one coordinator (W>1); W=1 only accepts N=1.
 It requires --follow-successors, leaves the default split unchanged when omitted,

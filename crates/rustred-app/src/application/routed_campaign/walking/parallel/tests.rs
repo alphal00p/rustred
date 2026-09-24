@@ -34,6 +34,79 @@ fn count() -> Event<1> {
 }
 
 #[test]
+fn cancellation_first_preserves_later_worker_fault_or_panic_after_drain() {
+    if !licensed() {
+        return;
+    }
+    for panic in [false, true] {
+        let started = std::sync::Barrier::new(2);
+        let (_, snapshot, leftovers) = with_pool(
+            1,
+            |_, stop, _| {
+                started.wait();
+                while !stop.load(Ordering::Acquire) {
+                    std::thread::yield_now();
+                }
+                if panic {
+                    panic!("deterministic late worker panic");
+                }
+                finished(Some("deterministic late native failure"))
+            },
+            |pool| {
+                assert!(pool.dispatch(0, domain(0)));
+                started.wait();
+                pool.fail(Failure {
+                    id: Some(0),
+                    phase: Some(Phase::Apply),
+                    kind: "cancelled",
+                    detail: "cancelled".into(),
+                });
+                while !pool.wait_drained() {}
+            },
+        );
+        assert_eq!(snapshot["first_failure"]["kind"], "cancelled");
+        assert_eq!(
+            snapshot["non_cancellation_failure"]["kind"],
+            if panic {
+                "worker_panic"
+            } else {
+                "native_failure"
+            }
+        );
+        assert_eq!(snapshot["active_workers"], 0);
+        assert_eq!(leftovers.len(), usize::from(!panic));
+    }
+}
+
+#[test]
+fn cancellation_consumer_stop_is_derivative_but_same_detail_fault_is_not() {
+    let pool = Pool::<1>::new(1);
+    pool.fail(Failure {
+        id: Some(0),
+        phase: Some(Phase::Apply),
+        kind: "cancelled",
+        detail: "cancelled".into(),
+    });
+    pool.fail(Failure {
+        id: Some(0),
+        phase: Some(Phase::Apply),
+        kind: "consumer_stop",
+        detail: "StoppedByConsumer".into(),
+    });
+    assert!(pool.snapshot()["non_cancellation_failure"].is_null());
+    pool.fail(Failure {
+        id: Some(0),
+        phase: Some(Phase::Apply),
+        kind: "native_failure",
+        detail: "cancelled".into(),
+    });
+    assert_eq!(
+        pool.snapshot()["non_cancellation_failure"]["kind"],
+        "native_failure"
+    );
+}
+
+#[test]
 fn initial_orthants_compact_only_same_family_and_current_flags() {
     let pool = Pool::<1>::new(1);
     assert!(pool.dispatch(0, domain(0)));

@@ -19,6 +19,7 @@ impl<'a> Coordinates<'a> {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 struct AxisEnvelope {
     min_lower: u64,
     max_lower: u64,
@@ -26,6 +27,7 @@ struct AxisEnvelope {
     max_upper: Option<u64>,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub(super) struct Block {
     ids: [usize; BLOCK_SIZE],
     len: usize,
@@ -35,6 +37,12 @@ pub(super) struct Block {
 }
 
 impl Block {
+    pub(super) fn validate(&self, domain_count: usize) -> Result<(), String> {
+        if self.len > BLOCK_SIZE || self.ids[..self.len].iter().any(|&id| id >= domain_count) {
+            return Err("invalid checkpoint coordinate block".into());
+        }
+        Ok(())
+    }
     pub(super) fn prepare(
         coordinates: Option<Coordinates<'_>>,
         checkpoint: &mut impl FnMut() -> Result<(), &'static str>,

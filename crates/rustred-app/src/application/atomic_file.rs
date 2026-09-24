@@ -14,6 +14,18 @@ pub(crate) fn write_file_atomically(
     contents: &[u8],
     force: bool,
 ) -> Result<(), String> {
+    write_file_atomically_with(path, force, |file| {
+        file.write_all(contents)
+            .map_err(|error| format!("cannot write output {}: {error}", path.display()))
+    })
+}
+
+/// Stream a potentially large state without retaining a second full image.
+pub(crate) fn write_file_atomically_with(
+    path: &Path,
+    force: bool,
+    write: impl FnOnce(&mut File) -> Result<(), String>,
+) -> Result<(), String> {
     if path.file_name().is_none() {
         return Err(format!("output path {} has no file name", path.display()));
     }
@@ -55,9 +67,7 @@ pub(crate) fn write_file_atomically(
         ));
     };
     let result = (|| {
-        temporary_file
-            .write_all(contents)
-            .map_err(|error| format!("cannot write output {}: {error}", path.display()))?;
+        write(&mut temporary_file)?;
         temporary_file
             .sync_all()
             .map_err(|error| format!("cannot sync output {}: {error}", path.display()))?;

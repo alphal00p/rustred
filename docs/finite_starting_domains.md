@@ -1,5 +1,46 @@
 # Finite starting domains and fixed-target repair
 
+## Current launch-readiness directive (24 September)
+
+The next full run belongs to the user. First finish the physical-subdivision
+experiment and integrate it only with exact parent/part accounting; enable it
+by default only after a matched end-to-end benefit. The native three-order pilot has completed: median split
+serial 11.548 s, parallel 7.657 s, without native gaps. This does not establish
+recursive coverage or a full-run ETA.
+
+The subsequent complete four-owner controls show no integrated subdivision win:
+median 11.548 s with checkpoints and no split versus 11.731 s with the split.
+Keep the feature opt-in and off by default. Genuine disk/native W2/W6 restart,
+fresh-process Ctrl-C/resume and automatic periodic-save validation pass; the full
+release application gate passes 593 tests (one existing ignored). The production
+input remains all 67 original A24/R15/D9 roots, not the smaller augmented A12
+pilot. See [the delivery record](research/manual_five_loop_campaign_2026-09-24.md).
+
+Deliver resumable work checkpoints, not report replay: save the queue, logical
+responsibilities, reuse state and partially published physical-job progress;
+retain completed work and verify any skipped prefix when an unfinished part is
+replayed. Ctrl-C must cooperatively quiesce, atomically save, and print both the
+checkpoint path and restart invocation. Periodic checkpoints should provide a
+recoverable earlier state if an ungraceful process or host failure occurs.
+The periodic default is one hour at a consistent publication boundary. Expose
+the RAM guard in Python; reaching 95% of its configured ceiling requests a
+checkpoint and graceful stop. Show checkpoint starts/completions and paths in
+the monitor. Host-memory emergency protection remains active independently.
+
+Production uses the complete saved 67-owner A≤24/R≤15/A−R≥9 inputs and preserves
+all descendants. No pilot elapsed/work caps may silently stop it. Protect total
+RAM and retain bounded buffers under the user's 50-core/500-GB ceiling; report
+actual host headroom. Use honest colored live progress plus persistent JSON/status
+evidence that remains inspectable after a user launch. Update Nix, release-build
+and Python steering documentation. Existing saved IBPs are reused, not regenerated
+without cause; final outputs must support subsequent terminal reduction,
+evaluation and Vakint stages (b)–(e).
+
+Validate small matched runs and repeated interrupt/resume cycles, independently
+audit state/replay and measurement claims, clean up and push. Give the user exact
+launch/restart instructions and then wait. Do not start the full campaign in this
+implementation session or mark the complete mathematical objective achieved.
+
 ## September 24: challenge the work representation, not only the scheduler
 
 Run independent architecture and adversarial-review lanes on the whole IBP
@@ -102,10 +143,11 @@ process CPU 129.28→117.57 s, without changing mathematical results. The native
 work and optional-diagnostic reductions are explicit; three shared-host pairs
 do not establish fifty-core scaling or a full-envelope ETA.
 See [the measurements and physical-subdivision falsifier](research/native_inspection_subdivision_2026-09-24.md).
-Next divide an expensive native inspection into exact physical parts under one
-unchanged logical obligation; compare broad, split-serial and identical
-split-parallel one-hop work before changing production scheduling. The prepared
-prototype is not recursive closure. Demand-activated optional anchors are a
+The exact two-part native experiment now completes in three rotated orders,
+reducing median serial span 11.548→7.657 s with matching per-part outcomes.
+Integrate under one unchanged logical obligation and measure routing/publication
+before selecting a production default. This is not recursive closure.
+Demand-activated optional anchors are a
 separately challenged alternative, not implemented coverage. Do not restart the
 full envelope solely because either design exposes possible concurrency.
 Keep every descendant and distinguish extra-anchor gaps from actual
