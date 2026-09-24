@@ -16,12 +16,13 @@ workers to launch. Shared phase-labelled regions have positive measured evidence
 Independent entry shards are a genuinely competing design: deliberately repeat
 some work to remove coordination dependencies. Neither is uniformly superior.
 
-I favor extending the measured sharing strategy to one bounded all-owner control
-first. I would also permit a small exact-entry-shard falsifier against the winning
-shared-anchor reference, before commissioning an epochal runtime or guard compiler.
-Those are the only two native pilots recommended here. Observe critical-path and
-repetition information within them where cheap; do not open another optimization
-campaign merely to gather more counters.
+My initial recommendation was a bounded all-owner sharing control, then a small
+exact-entry-shard falsifier. The sharing pair has now stopped inconclusively, and
+its expensive shared early anchor defeats the unchanged shard recipe. The
+post-pair update below supersedes that order: profile the costly initial Apply
+phase first, then conditionally test one bounded outbox change against completed
+same-scope work. Do not commission an epochal runtime or guard compiler from
+blocked-worker counts alone.
 
 There is no evidence supporting a promised 50-core speedup, an all-67 completion
 ETA, or a universal invariant. There is also no justification for abandoning the
@@ -233,7 +234,10 @@ closure currently does no such search. Implementing a new discovery engine now
 has an opportunity cost against the measured sharing improvement and unfinished
 delivery; it should require a real generation bottleneck or missing target first.
 
-## Exactly two next discriminatory pilots
+## Two prospective discriminatory pilots, before the all-owner result
+
+The post-pair update below supersedes this initial ordering; the first pilot
+has now stopped inconclusively, and the unchanged second pilot is not promoted.
 
 Neither is automatic execution authorization. Freeze inputs, snapshot, resources
 and rejection gates prospectively; a resource stop is an incomplete diagnostic,
@@ -300,7 +304,65 @@ and permitted terminals. It must support the existing cold-runtime handoff, not
 silently strengthen saved-formula provenance. No second full walk or universal
 unbounded theorem is imposed as a new goal gate by this review.
 
-My ranking remains conditional and independent: measured sharing first; exact
-entry sharding as a cheap competing falsifier; epochal commits and guarded
+My initial ranking was conditional and independent: measured sharing first;
+exact entry sharding as a cheap competing falsifier; epochal commits and guarded
 automata behind evidence of their particular cost; new discovery architecture
-behind an actual discovery workload. The full generic 67-owner goal is unfinished.
+behind an actual discovery workload. The following evidence revises the next
+experiment, not the unfinished full generic 67-owner goal.
+
+## Post-pair challenge: admission worked, completion remains unmeasured
+
+The [audited all-owner comparison](all_owner_regional_sharing_2026-09-24.md)
+ended with both variants cancelled at the predeclared scheduled-work gate. The
+index genuinely retained 67 versus 406 Apply members while every Route input
+remained an obligation. Anchored execution locally discharged all 67 required
+roots, but still had 268,836 queued responsibilities and unresolved descendant
+dependencies. Direct execution retained all roots, including six unpublished
+handles. Neither is a completed reduction of E. Zero observed frontiers and
+unsupported-support counters on these prefixes do not change that conclusion.
+
+The 61 versus 105,514 published native inspections are not a useful-throughput
+ratio: anchored work is predominantly routing, additional initial work differs,
+and cancellation overshoot and pending obligations differ. Likewise its longer
+elapsed time is not a completed-scope slowdown. Whole-command measurement pays
+parsing/loading/admission/output, but offline input construction and pre/post
+hash audits remain outside that timer. Native preparation alone is about 102
+seconds in each process, making duplicated cold services economically relevant.
+
+**A concrete objection now weakens my original shard pilot.** The anchored trace
+spends an extended early interval on the same additional anchor ID1, A≤7/R≤6
+without a D floor. Partitioning only required E while copying every fixed anchor
+to each shard duplicates that entire anchor; it does not divide its observed
+span. Splitting or demand-selecting anchors may be worthwhile, but is a different
+unchanged-E design whose lost sharing, repeated algebra, loading and storage
+must be charged. I therefore do not recommend immediately executing the original
+duplicated-anchor shard comparison.
+
+The blocking evidence also does not justify micro-epochs. An epoch can wait for
+the same long producer while retaining every other output. In one observed
+early interval roughly 24 inspectors wait while committed events still advance;
+the measured coordinator CPU and commit timer do not demonstrate coordinator
+saturation. In another interval, 255 jobs are already finished, zero producers
+are blocked and the current head still controls progress. Active-worker counts,
+returned jobs and cumulative worker-wait seconds are not completed useful work,
+CPU fractions or an Amdahl decomposition. Individual inspectors are not mapped to
+domain IDs in these samples, so head-thread attribution remains unavailable.
+
+A bounded larger running outbox is a smaller falsifiable alternative for the
+first regime, not a cure for the second. The separate completed-result escrow
+cannot accept an unfinished stream. Extra capacity helps only if enough visitors
+can finish/recycle within it or overlap a limiting head; otherwise it retains
+more speculative prefixes, increases cancellation waste, and postpones the same
+stall. Spare RAM does not establish a wall-time benefit, and all private,
+published, completed and coordinator-held storage needs a declared aggregate
+bound. No buffer feature is implemented or authorized by this review.
+
+My next recommendation is one separately approved process-local profile of the
+same frozen expensive initial Apply phase, with its cold cost and profiling
+overhead explicit. If that supports a buffer bottleneck, test one bounded-outbox
+counterfactual on a prospectively fixed **completed** reference scope. Demand
+same-required-scope completion and improved end-to-end wall under the declared
+CPU/RAM tradeoff, not merely fewer blocked workers or more returned speculative
+jobs. If only censored prefixes are affordable, report mechanism evidence and
+leave completion speed unknown. This is preferable to committing to epochs,
+independent services or a new relation-discovery engine on the present evidence.

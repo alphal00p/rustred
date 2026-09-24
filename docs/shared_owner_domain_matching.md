@@ -456,13 +456,22 @@ budget, including declared concurrent jobs. Workers borrow the same immutable
 prepared owner library. They do not clone that library or transmit native
 coefficients through the scheduler.
 
-Each worker has at most one queued chunk and one local chunk, with a logical
-event flush threshold of 64 and a 256 KiB logical payload limit per chunk.
+Each running worker has at most one queued chunk and one local chunk. Independent
+per-chunk limits are 16,384 physical records, 1,048,576 logical events and 8 MiB
+of logical payload; reaching any limit causes a flush. These are internal bounds,
+not request/CLI options. Increasing only one would not remove the other limits.
 Logical buffer size excludes allocator usage, native scratch space, the
 coordinator's current chunk and one just-converted descriptor waiting to enter
-a full worker chunk. That descriptor is itself capped at 256 KiB; process RSS
+a full worker chunk. That descriptor is itself capped at 8 MiB; process RSS
 remains separately monitored. The coordinator admits successors in stable
 domain-ID and callback order.
+Successfully finished, non-running slots can move their final chunk and result
+to a separate completed-result escrow, bounded by 65,536 entries and 8 GiB of
+accounted storage. This releases physical slots without declaring their work
+published or their obligations discharged. The escrow does not accumulate output
+from running visitors: raising its limit alone cannot unblock a producer waiting
+to publish a second chunk. Its accounting includes entry metadata and vector
+spare storage, but is not an RSS bound.
 Later workers can block behind an expensive earlier domain, so worker count
 alone is not a promised speedup. Progress reports expose this backpressure.
 

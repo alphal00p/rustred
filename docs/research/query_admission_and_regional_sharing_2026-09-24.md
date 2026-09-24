@@ -95,14 +95,22 @@ cold loading, anchor inspection, admission, output, and escaping descendants.
 Only measured amortization justifies a subsequent full-envelope attempt. Extra
 anchor gaps must be distinguished from failures on actual required entries.
 
-The bounded all-owner input is prepared and independently audited, not launched:
+The bounded all-owner input was prepared and independently audited:
 67 required A≤12/R≤3/D≥9 regions contain 2,123,560 labelled tuples. Adding the
 unchanged anchors gives 57,621 input regions and 999,539,725 distinct labelled
 starting tuples, including all 1,770,085 required tuples outside P13. Compact
-files are 18,353 and 16,139,743 bytes. Both prospective controls request 57,621
+files are 18,353 and 16,139,743 bytes. Both controls request 57,621
 queries and 32 MiB, 50 total compute workers and 450/500 GB soft/hard memory
 supervision, with no elapsed deadline. Equal diagnostic stop gates are 375,000
 scheduled domains, 250,000 returned inspections, or 15,000,000 committed events;
 unchanged hard work caps remain in place. Stopped controls cannot establish a
 completed-work speed comparison or condemn the underlying algorithm. Local input
 and independent count/geometry/hash audit: `TMP/all67-regional-a12.wXo3pZ/`.
+
+Both controls have now run and stopped cooperatively at the scheduled-work gate.
+The anchored input is genuinely admitted: all 57,621 records were examined, and
+the index retained all 406 Apply descriptors/usable anchors with a 246,848-byte
+logical charge. Both prefixes have zero observed frontiers, but retain pending
+descendants and cannot support a completion-speed comparison. This confirms the
+input/index mechanism, not amortization across all owners. See the
+[measurements and independent interpretation](all_owner_regional_sharing_2026-09-24.md).

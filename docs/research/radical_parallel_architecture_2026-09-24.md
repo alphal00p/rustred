@@ -22,10 +22,11 @@ shared guarded transfer without rediscovering its rectangular image per path.
 Which wins depends on duplicated algebra, critical-path length and memory—not
 on how many processors can be made busy.
 
-The cheapest meaningful next evidence remains the already planned **bounded
-all-owner anchor control**, not the full A24/R15 restart. A second, genuinely
-different experiment would compare two exact entry shards against the fastest
-shared baseline. Do not commission the relational engine before measuring how
+The first recommended experiment was the **bounded all-owner anchor control**,
+not the full A24/R15 restart. It subsequently stopped at its work gate; the
+[post-pair update below](#post-pair-update-two-different-publicationspan-regimes)
+supersedes the initial suggestion to test two entry shards with duplicated
+anchors unchanged. Do not commission the relational engine before measuring how
 much expensive work is actually caused by lost correlations.
 
 ## The contract and the evidence
@@ -286,7 +287,7 @@ delivery contract and requires user approval. Exact partitions of the unchanged
 E, alternative supersets with every escape retained, and different proof/task
 representations do not inherently change it.
 
-## Decision and adversarial outcome
+## Initial design-stage decision and adversarial outcome
 
 No new architecture is justified for immediate production replacement. Advance
 the measured anchor strategy through its bounded all-owner admission/control
@@ -301,13 +302,50 @@ The independent critic challenged these proposals before the draft: shared
 lower-owner work defeats naive sharding; one heavy region defeats epoch barriers;
 exact predicate DAGs can explode; training and cold loading must be charged;
 and neither busy-core counts nor pending inclusion imply completed proof.
-Those objections are incorporated above. Current admission/index implementation
-continues separately, frozen during its release gate. This document authorizes
-no run, scope change or production rewrite.
+Those objections are incorporated above. Admission/index implementation proceeded
+separately through its own release gate. This design review authorized no run,
+scope change or production rewrite.
 
 The [independent adversarial review](radical_parallel_critique_2026-09-24.md)
 cross-read this draft and retains its own counterexamples and conditional ranking.
 Both reviews favor the measured sharing control before any replacement engine.
+
+## Post-pair update: two different publication/span regimes
+
+The [all-owner regional-sharing controls](all_owner_regional_sharing_2026-09-24.md)
+both stopped at the predeclared scheduled-work gate, without mathematical
+frontiers. Neither completed the required E. Their different stopped workloads
+and remaining obligations support no speedup, slowdown or completion ETA.
+Cold preparation alone took about 102 seconds per fresh process; traversal-labelled
+samples averaged about 4.16/4.29 busy cores, despite up to 25 active inspector slots.
+
+Two concrete observations sharpen the alternatives. Anchored commit ID1 remains
+current from 118.20 to 129.26 seconds while events advance 398,310→752,674.
+Its approximately 12.1-second sampled bin averages 23.9 blocked inspectors;
+commit/helper-preparation wall grows only 0.694/0.183 seconds between those
+heartbeats. This is consistent with a productive native stream and later
+producers waiting, not demonstrated coordinator CPU saturation. Exact inspector
+thread-to-domain attribution and projection/restriction CPU are not recorded.
+Later, ID338 has **255 finished escrow entries, zero blocked producers** and
+about 1.57 busy cores: a separate ordered lookahead/head-dependency regime.
+
+Do not launch the earlier E-only shard experiment unchanged: duplicating all
+fixed anchors duplicates the identical expensive early head in both shards,
+rather than dividing its span. Demand-selecting or partitioning anchors would
+be a different, separately specified unchanged-E experiment. Micro-epochs can
+likewise turn that head into an epoch barrier; they are not justified merely by
+these blocked-worker counts.
+
+A smaller counterfactual is a **bounded running-output allowance** under the
+same ordered publication semantics. Present streams have one published and one
+private chunk, capped independently by bytes, records and logical events; the
+completed-result escrow cannot accept an unfinished stream. More outbox capacity
+could let some visitors finish and recycle, or merely postpone the same blockage
+while retaining extra speculative work. The actual binding flush limit and
+remaining output are unmeasured. Crucially, this cannot fix the later 255-finished,
+zero-blocked regime. A separate profile of the expensive initial
+Apply phase can discriminate native work before a buffer experiment; none of
+these findings justifies a larger campaign, new CAS, rule regeneration or rewrite.
 
 ### Local source/evidence anchors
 

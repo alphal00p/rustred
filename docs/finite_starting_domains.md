@@ -31,10 +31,11 @@ with the [separate adversarial critique](research/ibp_generation_independent_cri
 The fresh [radical-architecture review](research/radical_parallel_architecture_2026-09-24.md)
 and [independent challenge](research/radical_parallel_critique_2026-09-24.md)
 add genuine competing decompositions: independent exact entry shards, frozen
-micro-epoch reconciliation, and guarded relational reachability. Their shared
-recommendation is to test the measured regional-sharing strategy on a bounded
-all-owner scope first, then at most two exact entry shards under one aggregate
-resource budget. More duplicated work may buy less coordination, but this is a
+micro-epoch reconciliation, and guarded relational reachability. Their initial
+recommendation was to test the measured regional-sharing strategy on a bounded
+all-owner scope first, then consider two exact entry shards under one aggregate
+resource budget. The stopped all-owner results below now challenge that shard
+design. More duplicated work may buy less coordination, but this is a
 hypothesis, not a demonstrated speedup. New discovery algorithms do not remedy
 this saved-rule traversal without a demonstrated generation bottleneck.
 The first finite-cover falsifier now completes through the existing walker,
@@ -75,10 +76,26 @@ inspections, no frontiers or pending work. It makes no new speed claim. See
 [implementation and validation](research/query_admission_and_regional_sharing_2026-09-24.md).
 No new CAS or topology-specific algorithm was added.
 
-A bounded all-owner A12/R3/D9 input pair is prepared and independently audited,
-not launched: 2,123,560 required tuples, 67 versus 57,621 input regions, every
-required root and escape retained. This diagnostic does not replace the full
-A24/R15/D9 envelope. Test it before restarting that envelope.
+A bounded all-owner A12/R3/D9 pair has now run: 2,123,560 required tuples,
+67 versus 57,621 input regions, every required root and escape retained. Both
+controls stop at their prospective scheduled-work gate, not a time or memory
+limit: direct has 457,176 scheduled/61 committed native inspections, anchored
+382,970/105,514. Neither exhausts its descendants; zero observed frontiers is
+only a prefix result. Sampled traversal uses about 4.16/4.29 busy cores despite
+the W50 reservation. No completed-work speed ratio or full-envelope ETA follows.
+See [the stopped comparison and bottleneck evidence](research/all_owner_regional_sharing_2026-09-24.md).
+
+The new traces distinguish running visitors blocked on bounded output from a
+later head with 255 already-finished inspections waiting behind it. Larger
+bounded outboxes may address the former, not the latter; their benefit must be
+measured. The independent critic also rejects promoting an E-only shard split
+that duplicates every anchor: it replicates the same expensive early anchor
+instead of dividing it. Reconsider the actual unit of work before implementing
+micro-epochs or restarting the full A24/R15/D9 envelope. This diagnostic does not
+replace that objective.
+Next profile the frozen expensive initial Apply phase separately from timing
+controls, distinguishing productive native work from publication/helper overhead;
+then choose a bounded unchanged-scope counterfactual, not a full restart.
 Keep every descendant and distinguish extra-anchor gaps from actual
 entry failures. Concrete-runtime compatibility and cold delivery remain required;
 local walk exhaustion is not sufficient. If sharing ceases to amortize, measure
