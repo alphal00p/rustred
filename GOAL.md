@@ -210,12 +210,25 @@ six-worker runs, with an independent audit of 5,094,173 total final records and
 zero pending obligations, frontiers or failures. This is one restricted required
 entry, not the full 67-owner family. Ready removes nearly all held completions
 but is 5.27% and 7.07% slower in the two paired traversals; preserve Ordered.
-Proceed with the identical 50-worker comparison, not an extrapolation from six
-workers. A test-only spectator is being implemented to measure repeated successful
+The identical 50-worker comparison subsequently completes all four processes:
+Ordered/Ready/Ready/Ordered traversal is 312.79/238.35/234.75/317.52 seconds.
+The first clean pair favors Ready by 23.80% with 11.06% more CPU and 1.54% more
+native work. The reverse pair also favors Ready but overlaps the live hourly
+checkpoint; retain that confound. Sampled interior utilization rises from about
+6.95 to 10.27 busy cores, not 50. Proceed with the full interrupted Ready
+resume-to-exhaustion gate, not a live policy switch: existing production
+checkpoints bind the publication policy and executable. A source-audited test-only
+spectator is now under release validation to measure repeated successful
 inclusion queries across inspections before considering a bounded positive memo.
 The completed control already reuses 95.52% of 28.4 million scheduling requests;
 removing repeated lookup work is distinct from moving those requests between
-workers. The full interrupted-resume-to-exhaustion equivalence gate remains open.
+workers. The full interrupted-resume-to-exhaustion gate remains open: the new
+finite control pauses cleanly but saves no positive unfinished prefixes, so is
+inconclusive and is not resumed or retried automatically. The live
+campaign continues unchanged: checkpoint11 saves 7.885 million native completions
+and 12.769 million pending obligations, using approximately 117 GB RAM. Its
+preceding checkpoint-free 25-minute window averages only 4.065 busy cores; no
+full-family closure or completion ETA follows from these finite controls.
 See the [completed control and work-amplification analysis](docs/research/five_loop_finite_publication_scaling_2026-09-25.md).
 
 Both existing packagings already use the same generic `.rrbin` container and
