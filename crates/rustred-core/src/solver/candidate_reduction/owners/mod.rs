@@ -2,9 +2,9 @@
 mod domains;
 mod evaluation;
 pub use domains::{
-    OwnerAppliedError, OwnerAppliedEvent, OwnerAppliedFailure, OwnerAppliedLimits,
-    OwnerAppliedNonzero, OwnerAppliedProblem, OwnerAppliedProblemKind, OwnerAppliedStats,
-    OwnerAppliedSuccessor, OwnerDomainMatchDisposition, OwnerDomainMatchError,
+    OwnerAppliedCellRefinement, OwnerAppliedError, OwnerAppliedEvent, OwnerAppliedFailure,
+    OwnerAppliedLimits, OwnerAppliedNonzero, OwnerAppliedProblem, OwnerAppliedProblemKind,
+    OwnerAppliedStats, OwnerAppliedSuccessor, OwnerDomainMatchDisposition, OwnerDomainMatchError,
     OwnerDomainMatchFailure, OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats,
     OwnerDomainPredicate, OwnerDomainRefinementAxes, OwnerGuardedDomain, OwnerGuardedError,
     OwnerGuardedEvent, OwnerGuardedFailure, OwnerGuardedImage, OwnerGuardedLimits,

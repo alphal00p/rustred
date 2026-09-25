@@ -20,6 +20,12 @@ import tempfile
 RAM_POLICY_OPTIONS = ("max_memory_bytes", "ram_guard_margin_percent")
 
 
+def application_cardinality(text):
+    if not text.isascii() or not text.isdecimal() or not 1 <= int(text) <= 2 * sys.maxsize + 1:
+        raise argparse.ArgumentTypeError("application cardinality must be a positive native unsigned pointer-sized integer")
+    return int(text)
+
+
 def digest(path):
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
@@ -110,7 +116,8 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
     """Persist original steering; only per-resume supervisor RAM may differ."""
     path = campaign / "bin" / "steering.json"
     names = ("workers", "cpus", "checkpoint_interval_seconds", "max_memory_bytes",
-             "ram_guard_margin_percent", "apply_subdivision_axis", "apply_subdivision_cut")
+             "ram_guard_margin_percent", "apply_subdivision_axis", "apply_subdivision_cut",
+             "apply_cell_refinement_max_cardinality")
     if path.exists():
         policy = json.loads(path.read_text())
         if policy.get("schema") != "rustred.production-steering.v1":
@@ -122,15 +129,16 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
             if command[command.index("--publication-policy") + 1] != args.publication_policy:
                 raise ValueError("--publication-policy differs from frozen policy; use a new campaign directory")
         for name in names:
-            supplied = getattr(args, name)
-            if supplied is not None and supplied != policy["options"][name]:
+            supplied = getattr(args, name, None)
+            # Older frozen policies omitted this opt-in and therefore mean Off.
+            if supplied is not None and supplied != policy["options"].get(name):
                 if args.resume and name in RAM_POLICY_OPTIONS:
                     continue
                 raise ValueError(f"--{name.replace('_', '-')} differs from frozen policy; use a new campaign directory")
         return policy
     if args.resume:
         raise ValueError("resume requires the original frozen steering.json; refusing to guess native policy")
-    options = {name: getattr(args, name) for name in names}
+    options = {name: getattr(args, name, None) for name in names}
     defaults = {"workers": min(50, len(os.sched_getaffinity(0))),
                 "checkpoint_interval_seconds": 3600, "max_memory_bytes": 500_000_000_000,
                 "ram_guard_margin_percent": 5.0}
@@ -155,6 +163,9 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
     if options["apply_subdivision_axis"] is not None:
         command += ["--apply-subdivision-axis", str(options["apply_subdivision_axis"]),
                     "--apply-subdivision-cut", str(options["apply_subdivision_cut"])]
+    if options["apply_cell_refinement_max_cardinality"] is not None:
+        command += ["--apply-cell-refinement-max-cardinality",
+                    str(options["apply_cell_refinement_max_cardinality"])]
     policy = {"schema": "rustred.production-steering.v1", "options": options,
               "command_arguments": command}
     write_json(path, policy)
@@ -199,8 +210,14 @@ def main(argv=None):
                         help="initial default: 5 (save+stop at 95%%); may override per resume")
     parser.add_argument("--apply-subdivision-axis", type=int)
     parser.add_argument("--apply-subdivision-cut", type=int)
+    parser.add_argument("--apply-cell-refinement-max-cardinality", type=application_cardinality, action="append",
+                        help="opt-in singleton refinement eligibility; positive cardinality, default off, unchanged by unbounded work; frozen for resume")
     parser.add_argument("--json", action="store_true", help="print the prepared command as JSON")
     args = parser.parse_args(argv)
+    cardinalities = args.apply_cell_refinement_max_cardinality
+    if cardinalities is not None and len(cardinalities) != 1:
+        parser.error("--apply-cell-refinement-max-cardinality may be supplied only once")
+    args.apply_cell_refinement_max_cardinality = cardinalities[0] if cardinalities else None
     if ((args.workers is not None and not 1 <= args.workers <= 50) or
             (args.checkpoint_interval_seconds is not None and args.checkpoint_interval_seconds <= 0)):
         parser.error("workers must be in 1..50 and checkpoint interval must be positive")

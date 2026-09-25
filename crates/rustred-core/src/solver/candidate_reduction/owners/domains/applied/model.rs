@@ -1,8 +1,25 @@
 use std::fmt;
+use std::num::NonZeroUsize;
 
 use super::super::{OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats};
 use crate::algebra::{IndexedAlgebraError, IndexedCoefficient};
 use crate::solver::candidate_reduction::power_domain::{DomainPowerBounds, DomainPowerError};
+
+/// Optional exact application-cell refinement after ordered rule matching.
+/// This changes neither rule applicability nor the inspected source set. A
+/// nonqualifying cell is inspected unchanged, never clipped or sampled.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OwnerAppliedCellRefinement {
+    #[default]
+    Off,
+    /// Stream singleton faces only when exactly one rectangle coordinate is
+    /// nonfixed, its upper bound is finite, and its cardinality fits this
+    /// ceiling. Coordinates and policy are independent of owner or topology.
+    /// Affine application adapters remain unchanged; all physical endpoints
+    /// must fit the existing signed fixed-index API before any face is visited.
+    /// A ceiling of one is valid but cannot select a non-singleton cell.
+    SingleFiniteAxis { max_cardinality: NonZeroUsize },
+}
 
 /// Aggregate local-query work. Existing indexed/native operation limits remain
 /// those of the admitted programs; these counters are not hard RSS guarantees.
@@ -12,6 +29,7 @@ use crate::solver::candidate_reduction::power_domain::{DomainPowerBounds, Domain
 #[derive(Clone, Copy, Debug)]
 pub struct OwnerAppliedLimits {
     pub matching: OwnerDomainMatchLimits,
+    pub cell_refinement: OwnerAppliedCellRefinement,
     pub max_term_visits: usize,
     pub max_shift_groups: usize,
     pub max_boundary_cells: usize,
@@ -26,6 +44,7 @@ impl Default for OwnerAppliedLimits {
     fn default() -> Self {
         Self {
             matching: Default::default(),
+            cell_refinement: OwnerAppliedCellRefinement::Off,
             max_term_visits: 1_000_000,
             max_shift_groups: 1_000_000,
             max_boundary_cells: 100_000,
@@ -46,6 +65,12 @@ pub struct OwnerAppliedStats {
     pub term_visits: usize,
     pub shift_groups: usize,
     pub boundary_cells: usize,
+    /// Exact post-match cell partitions admitted. Matching is not repeated.
+    pub application_refinement_steps: usize,
+    /// Singleton application cells visited before correlated normalization.
+    /// Includes empty children and attempts stopped during their application.
+    /// Their incremental work also charges the ordinary shared cell budget.
+    pub application_refinement_cells: usize,
     pub sign_splits: usize,
     pub native_operations: usize,
     /// Recognized optional numerator preflight refusals, including attempts

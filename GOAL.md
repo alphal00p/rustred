@@ -126,18 +126,23 @@ Some extra work is acceptable only with measured wall-time benefit and correct
 accounting. Continue short read-only live profiles and status checks; successful
 lower-loop controls do not establish five-loop speedup or a completion ETA.
 
-The next implementation experiment is small-cell refinement after matching,
-motivated by measured whole-domain subdivision. Two opposite-order native
-controls on one exact saved five-loop head show 2.38–2.50x
-serial improvement and 4.96–5.06x with two concurrent parts, despite twice the
-successor events. These are inspection-only results, not whole-campaign speedups.
-Implement the smaller off-default, topology-generic serial application-cell
-refinement first: exact finite singleton partitions, unchanged source guards and
-descent, shared budgets/cancellation, and policy-bound checkpoint replay. Avoid
-duplicating the matcher and do not change the live run. Require exact focused
-tests and a real recursive/admission comparison before promotion. The independent
-[measurement and design study](docs/research/five_loop_slow_inspection_parallelism_2026-09-24.md)
-records the remaining scheduler, publication and downstream-work limitations.
+The smaller off-default, topology-generic application-cell refinement is now
+implemented and tested: exact finite singleton partitions after matching,
+unchanged source guards and descent, shared budgets/cancellation, and
+policy-bound checkpoint replay. Release checks pass 58 focused core tests and
+705 application/CLI tests (one existing ignored), alongside 60 Python tests and
+actual licensed W2/W6 checkpoint-prefix replay. The fixed saved five-loop head
+now takes a median 3.40 seconds versus 7.44 seconds without refinement, a 2.19x
+local serial improvement, but emits 55.46% more successors. This is not rule
+generation, a parallel speedup or recursive closure. All 16 opposite-order
+four-parent controls now pass an independent full-record/ledger audit, but
+summed traversal is 1.74% slower with refinement (BMW has a slower reverse pair).
+There is no demonstrated general recursive speedup. Keep this useful targeted
+inspection option off by default and preserve the live campaign. Continue
+testing the measured admission bottlenecks separately. See the
+[implementation and controls](docs/research/application_cell_refinement_2026-09-25.md)
+and the earlier
+[whole-domain subdivision study](docs/research/five_loop_slow_inspection_parallelism_2026-09-24.md).
 
 The separate six-worker five-loop Ready recovery test now passes two actual
 fresh-process restores of checkpoints with multiple positive unfinished source

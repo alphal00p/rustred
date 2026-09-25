@@ -117,6 +117,175 @@ fn both_actual_parts_are_required_before_one_parent_publication() {
 }
 
 #[test]
+fn checkpoint_codec_retains_application_refinement_counts_in_completed_parts() {
+    let (mut state, request) = setup();
+    let mut finished = finish(0);
+    finished.stats = NativeStats::Apply(rustred::solver::OwnerAppliedStats {
+        application_refinement_steps: 3,
+        application_refinement_cells: 7,
+        ..Default::default()
+    });
+    state.commit_physical(
+        Ticket {
+            parent: 0,
+            part: Some(0),
+        },
+        finished,
+        &request,
+    );
+    let mut restored = super::super::checkpoint::round_trip_state(&state).unwrap();
+    assert_eq!(restored.publisher_ticket(&request).part, Some(1));
+    // Full restore returns unfinished native responsibilities to Reserved;
+    // mirror the resumed dispatch before supplying the second part's Finished.
+    assert!(restored.queue.delegation.as_ref().unwrap().can_dispatch(0));
+    restored.note_native_started(0).unwrap();
+    let mut finished = finish(0);
+    finished.stats = NativeStats::Apply(rustred::solver::OwnerAppliedStats {
+        application_refinement_steps: 5,
+        application_refinement_cells: 11,
+        ..Default::default()
+    });
+    restored.commit_physical(
+        Ticket {
+            parent: 0,
+            part: Some(1),
+        },
+        finished,
+        &request,
+    );
+    assert_eq!(restored.error, None);
+    assert_eq!(
+        restored.records[0]["stats"]["application_refinement_steps"],
+        8
+    );
+    assert_eq!(
+        restored.records[0]["stats"]["application_refinement_cells"],
+        18
+    );
+    assert_eq!(
+        restored.records[0]["physical_parts"][0]["stats"]["application_refinement_steps"],
+        3
+    );
+    let again = super::super::checkpoint::round_trip_state(&restored).unwrap();
+    assert_eq!(again.records, restored.records);
+}
+
+#[test]
+fn native_refined_successor_prefix_survives_checkpoint_resume_w2_w6() {
+    let reducer = super::initial_orthants_tests::native_fixture();
+    for workers in [2, 6] {
+        if let Err(error) =
+            rustred::campaign::ParallelExecution::preflight_requested_core_budget(workers)
+        {
+            eprintln!("application-refinement checkpoint replay W{workers} skipped: {error:?}");
+            continue;
+        }
+        if !symbolica::license::LicenseManager::is_licensed() {
+            eprintln!(
+                "application-refinement checkpoint replay W{workers} skipped: no licensed native execution"
+            );
+            continue;
+        }
+        let (_, mut request) = setup();
+        request.workers = workers;
+        request.apply_subdivision = Some(ApplySubdivision { axis: 0, cut: 1 });
+        request.scheduling_policy = SchedulingPolicy::TransferUnreserved {
+            lookahead: NonZeroUsize::new(1).unwrap(),
+        };
+        request.applied_limits.cell_refinement =
+            rustred::solver::OwnerAppliedCellRefinement::SingleFiniteAxis {
+                max_cardinality: NonZeroUsize::new(5).unwrap(),
+            };
+        let mut baseline = native_state(&request);
+        run_checkpointed(
+            &mut baseline,
+            &reducer,
+            &request,
+            &AtomicBool::new(false),
+            &|_| {},
+            &mut |_| Ok(()),
+        );
+        assert_eq!(baseline.error, None);
+        assert!(
+            baseline.records[0]["stats"]["application_refinement_cells"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
+
+        let mut prefix = native_state(&request);
+        prefix.physical_enabled = true;
+        prefix.replay = Some(replay::Replay::default());
+        prefix.note_native_started(0).unwrap();
+        let stop = AtomicBool::new(false);
+        let initial = InitialOrthants::from_initial(&prefix.queue.domains, &stop);
+        let parts = prefix.parts(0, &request).unwrap();
+        let first = inspection::inspect_part(
+            &reducer,
+            &parts[0],
+            &request,
+            0,
+            &stop,
+            &initial,
+            &mut |event| {
+                prefix.accept(event, &request).unwrap();
+                ControlFlow::Continue(())
+            },
+        );
+        assert!(first.error.is_none());
+        prefix.commit_physical(
+            Ticket {
+                parent: 0,
+                part: Some(0),
+            },
+            first,
+            &request,
+        );
+        let previous_successors = prefix.successors;
+        let interrupted = inspection::inspect_part(
+            &reducer,
+            &parts[1],
+            &request,
+            1,
+            &stop,
+            &initial,
+            &mut |event| {
+                prefix.accept(event, &request).unwrap();
+                if prefix.successors > previous_successors {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            },
+        );
+        assert!(interrupted.error.is_some());
+        let partial = native_stats(interrupted.stats);
+        assert!(partial["application_refinement_cells"].as_u64().unwrap() > 0);
+        assert!(prefix.replay.as_ref().unwrap().accepted_events() > 1);
+        prefix.checkpoint_paused = true;
+        prefix
+            .uncommitted
+            .push(json!({"id":0,"physical_part":1,"committed":false,
+            "stats":partial,"error":interrupted.error}));
+        let mut resumed =
+            super::super::checkpoint::round_trip_state_on_disk(&prefix, &request).unwrap();
+        assert_eq!(resumed.uncommitted, prefix.uncommitted);
+        run_checkpointed(
+            &mut resumed,
+            &reducer,
+            &request,
+            &AtomicBool::new(false),
+            &|_| {},
+            &mut |_| Ok(()),
+        );
+        assert_native_equivalent(&mut baseline, &mut resumed);
+        eprintln!(
+            "application-refinement checkpoint replay W{workers} executed: licensed native refined prefix, on-disk restore, exact completed records PASS"
+        );
+    }
+}
+
+#[test]
 fn split_policy_does_not_apply_to_new_descendant_responsibilities() {
     let (mut state, request) = setup();
     let descendant = Domain {

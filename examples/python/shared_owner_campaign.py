@@ -42,7 +42,7 @@ SYMBOLIC_ALLOWANCES = (*DOMAIN.ALLOWANCES, DOMAIN.REFINEMENT,
                       *(name for name in DOMAIN.WALK_ALLOWANCES if name != "workers"),
                       "max-route-masks-per-query")
 SYMBOLIC_POLICIES = (DOMAIN.REFINEMENT_AXES, DOMAIN.TRANSFER_LOOKAHEAD,
-                    DOMAIN.PUBLICATION_POLICY, DOMAIN.INSPECTION_WORKERS)
+                    DOMAIN.PUBLICATION_POLICY, DOMAIN.INSPECTION_WORKERS, DOMAIN.APPLICATION_REFINEMENT)
 FINITE_ALLOWANCES = {
     "max-nodes": 16_000_000,
     "max-input-targets": 100_000,
@@ -362,6 +362,8 @@ def main() -> int:
                         help="symbolic publication policy; requires --queries; ready requires unreserved delegation; nonordered modes may change diagnostic traversal order")
     parser.add_argument("--" + DOMAIN.INSPECTION_WORKERS, type=DOMAIN.positive, action=DOMAIN.StoreOnce,
                         help="explicit symbolic compute partition: N inspectors, workers-1-N admission helpers and one coordinator; requires --queries")
+    parser.add_argument("--" + DOMAIN.APPLICATION_REFINEMENT, type=DOMAIN.application_cardinality, action=DOMAIN.StoreOnce,
+                        help="opt into one finite selected Apply-cell axis singleton refinement; positive cardinality, default off, not a cumulative work cap; requires --queries")
     parser.add_argument("--route-domain-overcover", action="store_true",
                         help="share admitted symbolic route covers; requires --queries")
     parser.add_argument("--no-progress", action="store_true")
@@ -508,6 +510,7 @@ def main() -> int:
         "checkpoint_directory": checkpoint_directory, "resume_requested": args.resume is not None,
         "checkpoint_interval_seconds": args.checkpoint_interval_seconds,
         "unbounded_work": args.unbounded_work,
+        "apply_cell_refinement_max_cardinality": args.apply_cell_refinement_max_cardinality,
         "apply_subdivision": None if args.apply_subdivision_axis is None else {
             "axis": args.apply_subdivision_axis, "cut": args.apply_subdivision_cut},
         "work_checkpoint": False, "family_closure_claim": False,

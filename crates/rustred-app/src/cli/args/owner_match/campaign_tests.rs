@@ -14,6 +14,41 @@ fn parse_suffix(suffix: &str) -> Result<OwnerDomainMatchArgs, ArgError> {
 }
 
 #[test]
+fn application_cell_refinement_is_positive_opt_in_and_not_a_work_cap() {
+    assert!(
+        parse_suffix("")
+            .unwrap()
+            .apply_cell_refinement_max_cardinality
+            .is_none()
+    );
+    for suffix in [
+        "--follow-successors --apply-cell-refinement-max-cardinality 2",
+        "--apply-cell-refinement-max-cardinality 2 --follow-successors --unbounded-work",
+        "--follow-successors --apply-cell-refinement-max-cardinality 2 --publication-policy ready --transfer-unreserved-lookahead 3",
+        "--follow-successors --apply-cell-refinement-max-cardinality 2 --publication-policy owner-batched",
+    ] {
+        assert_eq!(
+            parse_suffix(suffix)
+                .unwrap()
+                .apply_cell_refinement_max_cardinality
+                .unwrap()
+                .get(),
+            2
+        );
+    }
+    for suffix in [
+        "--apply-cell-refinement-max-cardinality 2",
+        "--follow-successors --apply-cell-refinement-max-cardinality 0",
+        "--follow-successors --apply-cell-refinement-max-cardinality -1",
+        "--follow-successors --apply-cell-refinement-max-cardinality 2.5",
+        "--follow-successors --apply-cell-refinement-max-cardinality 18446744073709551616",
+        "--follow-successors --apply-cell-refinement-max-cardinality 2 --apply-cell-refinement-max-cardinality 3",
+    ] {
+        assert!(parse_suffix(suffix).is_err(), "{suffix}");
+    }
+}
+
+#[test]
 fn checkpoint_flags_are_explicit_and_order_independent() {
     assert!(parse_suffix("").unwrap().checkpoint.is_none());
     for flag in ["--checkpoint", "--resume"] {

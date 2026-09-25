@@ -621,6 +621,16 @@ physical parts of initial Apply boxes spanning the cut (zero-based coordinates).
 Both nonnegative options are required, with Ordered successor publication.
 The logical parent completes only after both parts; descendants remain shared
 ordinary work and are not recursively subdivided by this policy.
+--apply-cell-refinement-max-cardinality N optionally refines a selected Apply
+cell's single finite varying axis into singleton cells before RHS application.
+N must be positive; omission leaves this policy off. It requires --follow-successors
+and applies within native inspections, including descendants, without adding workers.
+The cardinality threshold controls when to refine, not source scope or cumulative
+work; it is unchanged by --unbounded-work or physical-part budget sharing.
+All source cases, coupled bounds and descendants remain obligations. The complete
+policy is bound into checkpoints; changing it requires a new campaign.
+application_refinement_steps/cells report per-shift-group application work, not
+extra matched pieces, physical workers or completed logical inspections.
 --inspection-workers N optionally partitions --workers W into N inspectors,
 W-1-N admission helpers and one coordinator (W>1); W=1 only accepts N=1.
 It requires --follow-successors, leaves the default split unchanged when omitted,

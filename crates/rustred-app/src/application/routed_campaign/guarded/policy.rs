@@ -13,6 +13,7 @@ struct Policy {
 #[derive(Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 struct Applied {
+    cell_refinement_max_cardinality: Option<std::num::NonZeroUsize>,
     max_term_visits: usize,
     max_shift_groups: usize,
     max_boundary_cells: usize,
@@ -42,6 +43,12 @@ impl Policy {
             max_predicate_terms: l.max_predicate_terms,
             max_events: l.max_events,
             applied: Applied {
+                cell_refinement_max_cardinality: match a.cell_refinement {
+                    rustred::solver::OwnerAppliedCellRefinement::Off => None,
+                    rustred::solver::OwnerAppliedCellRefinement::SingleFiniteAxis {
+                        max_cardinality,
+                    } => Some(max_cardinality),
+                },
                 max_term_visits: a.max_term_visits,
                 max_shift_groups: a.max_shift_groups,
                 max_boundary_cells: a.max_boundary_cells,
@@ -83,6 +90,12 @@ impl Policy {
         l.max_predicate_terms = self.max_predicate_terms;
         l.max_events = self.max_events;
         l.applied.max_term_visits = a.max_term_visits;
+        l.applied.cell_refinement = a.cell_refinement_max_cardinality.map_or(
+            rustred::solver::OwnerAppliedCellRefinement::Off,
+            |max_cardinality| rustred::solver::OwnerAppliedCellRefinement::SingleFiniteAxis {
+                max_cardinality,
+            },
+        );
         l.applied.max_shift_groups = a.max_shift_groups;
         l.applied.max_boundary_cells = a.max_boundary_cells;
         l.applied.max_sign_splits = a.max_sign_splits;
@@ -120,6 +133,39 @@ pub(super) fn json(l: OwnerGuardedLimits) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn optional_application_refinement_policy_round_trips_and_rejects_invalid_values() {
+        use rustred::solver::OwnerAppliedCellRefinement;
+        assert_eq!(
+            parse("{}").unwrap().applied.cell_refinement,
+            OwnerAppliedCellRefinement::Off
+        );
+        let limits = parse(r#"{"applied":{"cell_refinement_max_cardinality":2}}"#).unwrap();
+        assert_eq!(
+            limits.applied.cell_refinement,
+            OwnerAppliedCellRefinement::SingleFiniteAxis {
+                max_cardinality: std::num::NonZeroUsize::new(2).unwrap(),
+            }
+        );
+        let policy = serde_json::to_string(&Policy::from_limits(limits)).unwrap();
+        assert_eq!(
+            parse(&policy).unwrap().applied.cell_refinement,
+            limits.applied.cell_refinement
+        );
+        assert_eq!(
+            json(limits)["applied"]["cell_refinement_max_cardinality"],
+            2
+        );
+        for value in ["0", "-1", "true", "2.5", "\"2\"", "18446744073709551616"] {
+            assert!(
+                parse(&format!(
+                    "{{\"applied\":{{\"cell_refinement_max_cardinality\":{value}}}}}"
+                ))
+                .is_err()
+            );
+        }
+        assert!(parse(r#"{"applied":{"cell_refinement_max_cardinality":2,"cell_refinement_max_cardinality":3}}"#).is_err());
+    }
     #[test]
     fn guarded_policy_is_strict_and_preserves_native_defaults() {
         assert_eq!(

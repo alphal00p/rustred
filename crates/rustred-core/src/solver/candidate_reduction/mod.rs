@@ -26,17 +26,17 @@ pub use model::{
 };
 pub use owners::{
     BoundOwnerOverlay, BoundOwnerSearch, CandidateOwnerContext, CandidateOwnerInput,
-    CandidateOwnerPrograms, CandidateOwnerScope, OwnerAppliedError, OwnerAppliedEvent,
-    OwnerAppliedFailure, OwnerAppliedLimits, OwnerAppliedNonzero, OwnerAppliedProblem,
-    OwnerAppliedProblemKind, OwnerAppliedStats, OwnerAppliedSuccessor, OwnerDomainAttemptLimits,
-    OwnerDomainMatchDisposition, OwnerDomainMatchError, OwnerDomainMatchFailure,
-    OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats, OwnerDomainPredicate,
-    OwnerDomainRefinementAxes, OwnerDomainScope, OwnerFeedbackError, OwnerFeedbackPolicy,
-    OwnerGuardedDomain, OwnerGuardedError, OwnerGuardedEvent, OwnerGuardedFailure,
-    OwnerGuardedImage, OwnerGuardedLimits, OwnerGuardedResidualKind, OwnerGuardedStats,
-    OwnerGuardedSuccessor, OwnerOverlayLimits, OwnerOverlayMetadata, OwnerOverlayUsage,
-    OwnerSuccessorError, OwnerSuccessorFailure, OwnerSuccessorLimits, OwnerSuccessorRegion,
-    OwnerSuccessorStats, OwnerSuccessorTransition,
+    CandidateOwnerPrograms, CandidateOwnerScope, OwnerAppliedCellRefinement, OwnerAppliedError,
+    OwnerAppliedEvent, OwnerAppliedFailure, OwnerAppliedLimits, OwnerAppliedNonzero,
+    OwnerAppliedProblem, OwnerAppliedProblemKind, OwnerAppliedStats, OwnerAppliedSuccessor,
+    OwnerDomainAttemptLimits, OwnerDomainMatchDisposition, OwnerDomainMatchError,
+    OwnerDomainMatchFailure, OwnerDomainMatchLimits, OwnerDomainMatchPiece, OwnerDomainMatchStats,
+    OwnerDomainPredicate, OwnerDomainRefinementAxes, OwnerDomainScope, OwnerFeedbackError,
+    OwnerFeedbackPolicy, OwnerGuardedDomain, OwnerGuardedError, OwnerGuardedEvent,
+    OwnerGuardedFailure, OwnerGuardedImage, OwnerGuardedLimits, OwnerGuardedResidualKind,
+    OwnerGuardedStats, OwnerGuardedSuccessor, OwnerOverlayLimits, OwnerOverlayMetadata,
+    OwnerOverlayUsage, OwnerSuccessorError, OwnerSuccessorFailure, OwnerSuccessorLimits,
+    OwnerSuccessorRegion, OwnerSuccessorStats, OwnerSuccessorTransition,
 };
 pub use power_domain::{
     DomainPowerBounds, DomainPowerError, DomainPowerExtrema, DomainPowerSummary,

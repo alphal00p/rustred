@@ -55,6 +55,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub unbounded_work: bool,
     pub checkpoint: Option<crate::OwnerDomainWalkCheckpointOptions>,
     pub apply_subdivision: Option<crate::OwnerDomainWalkApplySubdivision>,
+    pub apply_cell_refinement_max_cardinality: Option<NonZeroUsize>,
 }
 
 pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -102,6 +103,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         unbounded_work: false,
         checkpoint: None,
         apply_subdivision: None,
+        apply_cell_refinement_max_cardinality: None,
     };
     let mut checkpoint_path = None;
     let mut resume_path = None;
@@ -159,6 +161,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--checkpoint-interval-seconds" => "--checkpoint-interval-seconds",
             "--apply-subdivision-axis" => "--apply-subdivision-axis",
             "--apply-subdivision-cut" => "--apply-subdivision-cut",
+            "--apply-cell-refinement-max-cardinality" => "--apply-cell-refinement-max-cardinality",
             "--help" | "-h" => return Ok(Command::Help),
             _ => return Err(ArgError::UnknownOption(option)),
         };
@@ -187,6 +190,10 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         let value = next_utf8_value(&mut arguments, name)?;
         match name {
+            "--apply-cell-refinement-max-cardinality" => {
+                result.apply_cell_refinement_max_cardinality =
+                    NonZeroUsize::new(parse_positive_integer(name, value)?);
+            }
             "--apply-subdivision-axis" => {
                 subdivision_axis = Some(parse_nonnegative_integer(name, value)?);
             }
@@ -400,6 +407,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--checkpoint-interval-seconds",
             "--apply-subdivision-axis",
             "--apply-subdivision-cut",
+            "--apply-cell-refinement-max-cardinality",
             "--inspection-workers",
             "--publication-policy",
             "--max-domains",

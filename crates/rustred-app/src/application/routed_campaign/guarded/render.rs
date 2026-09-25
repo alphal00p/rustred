@@ -232,6 +232,7 @@ pub(super) fn stats(s: OwnerGuardedStats) -> Value {
 }
 fn applied_stats(s: OwnerAppliedStats) -> Value {
     json!({"selected_pieces":s.selected_pieces,"term_visits":s.term_visits,"shift_groups":s.shift_groups,
+    "application_refinement_steps":s.application_refinement_steps,"application_refinement_cells":s.application_refinement_cells,
     "boundary_cells":s.boundary_cells,"sign_splits":s.sign_splits,"native_operations":s.native_operations,"events":s.events,"successors":s.successors,
     "conditional_successors":s.conditional_successors,"problems":s.problems,"zero_terms":s.zero_terms,"cancelled_groups":s.cancelled_groups,
     "same_support_successors":s.same_support_successors,"strict_subsupport_successors":s.strict_subsupport_successors,
@@ -248,6 +249,8 @@ mod tests {
     #[test]
     fn applied_support_attempt_partition_is_rendered_without_authority_upgrade() {
         let rendered = applied_stats(OwnerAppliedStats {
+            application_refinement_steps: 2,
+            application_refinement_cells: 5,
             successors: 9,
             conditional_successors: 3,
             same_support_successors: 2,
@@ -257,6 +260,8 @@ mod tests {
             ..Default::default()
         });
         for (name, count) in [
+            ("application_refinement_steps", 2),
+            ("application_refinement_cells", 5),
             ("successors", 9),
             ("conditional_successors", 3),
             ("same_support_successors", 2),

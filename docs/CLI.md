@@ -33,6 +33,29 @@ an explicitly requested scope distinct from saved rule-generation scope.
 or descendant truncation is implied. The Python supervisor forwards the same
 option; see [the finite-domain contract](shared_owner_campaign_driver.md#explicit-finite-starting-domains).
 
+### Optional application-cell refinement
+
+`owner-domain-match --follow-successors` accepts
+`--apply-cell-refinement-max-cardinality N` (positive integer, off when omitted).
+After selecting a rule, this experimental policy splits an application cell
+with exactly one varying coordinate, whose upper bound is finite (all other
+coordinates fixed), into exact singleton cells when its cardinality is at most
+`N`. It reuses the matched rule and its guards;
+it does not repeat matching, add workers, or change the requested domain.
+Ineligible cells use the existing path. All descendants remain obligations.
+
+The Rust setting is `OwnerAppliedLimits::cell_refinement`, using
+`OwnerAppliedCellRefinement::SingleFiniteAxis { max_cardinality }` or `Off`.
+The Python campaign steering examples forward the same CLI option; this is
+not a new installed `import rustred` method. The policy is bound into saved
+checkpoints, so changing it requires a fresh campaign. `--unbounded-work`
+does not change its eligibility threshold. Native application counters
+`application_refinement_steps` and `application_refinement_cells` measure
+per-shift-group refinement work, not extra logical completions.
+
+This remains off by default pending recursive-workload measurements. A faster
+local inspection can emit more successors and need not accelerate the campaign.
+
 ## Generic complete artifact generation
 
 `rustred family-close` uses the family supplied in the input, not a built-in

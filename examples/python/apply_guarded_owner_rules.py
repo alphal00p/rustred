@@ -6,6 +6,9 @@ mean first-priority applicability, feasibility, solved complements, recursive
 coverage or closure. The native report retains guarded complements/problems;
 native expression text is display-only. This launcher performs no algebra,
 generation, guard synthesis, queue insertion or elapsed-deadline enforcement.
+The optional --work-limits JSON accepts applied.cell_refinement_max_cardinality
+as a positive integer (null/omitted means off). This native singleton-cell policy
+adds no workers; ineligible and affine-adapted cells remain unchanged.
 """
 import argparse
 import os

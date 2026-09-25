@@ -110,6 +110,12 @@ fn run_admitted(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
         walk.applied_limits.max_sign_splits = args.max_sign_splits;
         walk.checkpoint = args.checkpoint.clone();
         walk.apply_subdivision = args.apply_subdivision;
+        walk.applied_limits.cell_refinement = args.apply_cell_refinement_max_cardinality.map_or(
+            rustred::solver::OwnerAppliedCellRefinement::Off,
+            |max_cardinality| rustred::solver::OwnerAppliedCellRefinement::SingleFiniteAxis {
+                max_cardinality,
+            },
+        );
         if args.unbounded_work {
             walk.disable_work_limits();
         }
@@ -151,6 +157,10 @@ fn run_admitted(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
         args.max_bounded_refinement_cells
     });
     if walking {
+        document["requested_apply_cell_refinement_max_cardinality"] = json!(
+            args.apply_cell_refinement_max_cardinality
+                .map(std::num::NonZeroUsize::get)
+        );
         // A requested partition is not evidence that any pool was started.
         document["requested_inspection_workers"] = json!(args.inspection_workers);
         if args.reuse_initial_d_bands {

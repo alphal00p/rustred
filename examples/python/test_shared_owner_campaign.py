@@ -211,7 +211,8 @@ raise SystemExit(4)
             process = subprocess.Popen([sys.executable, str(SOURCE), "--executable", str(child),
                 "--manifest", str(manifest), "--queries", str(queries), "--workers", "1",
                 "--sample-seconds", ".1", "--run-directory", str(run), "--checkpoint", str(directory / "checkpoint"),
-                "--unbounded-work", "--apply-subdivision-axis", "0", "--apply-subdivision-cut", "0", "--no-progress"],
+                "--unbounded-work", "--apply-subdivision-axis", "0", "--apply-subdivision-cut", "0",
+                "--apply-cell-refinement-max-cardinality", "2", "--no-progress"],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:
                 deadline = time.monotonic() + 5
@@ -236,6 +237,9 @@ raise SystemExit(4)
                 self.assertEqual(request["ram_guard_margin_percent"], 5)
                 self.assertIsNone(request["child_rlimit_as_bytes"])
                 self.assertEqual(request["apply_subdivision"], {"axis": 0, "cut": 0})
+                self.assertEqual(request["apply_cell_refinement_max_cardinality"], 2)
+                flag = "--apply-cell-refinement-max-cardinality"
+                self.assertEqual(request["command"][request["command"].index(flag) + 1], "2")
                 self.assertTrue((run / "processes.json").is_file())
                 self.assertIn("Durable checkpoint:", stdout)
                 self.assertIn("Resume with fresh receipts:", stdout)
@@ -243,6 +247,7 @@ raise SystemExit(4)
                 self.assertNotIn("--checkpoint", restart)
                 self.assertIn("--resume", restart)
                 self.assertIn("--apply-subdivision-axis", restart)
+                self.assertEqual(restart[restart.index(flag) + 1], "2")
                 next_run = Path(restart[restart.index("--run-directory") + 1])
                 self.assertNotEqual(next_run, run)
                 self.assertFalse(next_run.exists())
@@ -576,6 +581,10 @@ raise SystemExit(4)
             ("--queries",["--publication-policy","ready","--transfer-unreserved-lookahead","50",
                           "--apply-subdivision-axis","0","--apply-subdivision-cut","2"],"physical subdivision"),
             ("--targets",["--inspection-workers","1"],"require --queries"),
+            ("--targets",["--apply-cell-refinement-max-cardinality","2"],"require --queries"),
+            ("--queries",["--apply-cell-refinement-max-cardinality","0"],"positive integer"),
+            ("--queries",["--apply-cell-refinement-max-cardinality","18446744073709551616"],"pointer-sized"),
+            ("--queries",["--apply-cell-refinement-max-cardinality","2","--apply-cell-refinement-max-cardinality","3"],"only once"),
             ("--queries",["--inspection-workers","2"],"leave one coordinator"),
             ("--queries",["--inspection-workers","0"],"positive integer"),
             ("--queries",["--inspection-workers","1","--inspection-workers","1"],"only once"),

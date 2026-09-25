@@ -30,6 +30,7 @@ INITIAL_D_REUSE = "reuse-initial-d-bands"
 PUBLICATION_POLICY = "publication-policy"
 PUBLICATION_POLICIES = ("ordered", "owner-batched", "ready")
 INSPECTION_WORKERS = "inspection-workers"
+APPLICATION_REFINEMENT = "apply-cell-refinement-max-cardinality"
 WALK_ALLOWANCES = ("workers", "max-domains", "max-frontiers", "max-successor-events", "max-containment-checks",
                    "max-rhs-cells-per-query", "max-term-visits-per-query",
                    "max-native-operations-per-query", "max-rhs-events-per-query",
@@ -52,6 +53,13 @@ def query_allowance(text: str) -> int:
     value = positive(text)
     if value > 2 * sys.maxsize + 1:
         raise argparse.ArgumentTypeError("query allowance must fit the native unsigned pointer-sized integer")
+    return value
+
+
+def application_cardinality(text: str) -> int:
+    value = positive(text)
+    if value > 2 * sys.maxsize + 1:
+        raise argparse.ArgumentTypeError("application cardinality must fit the native unsigned pointer-sized integer")
     return value
 
 
@@ -137,6 +145,8 @@ def main() -> None:
                         help="successor publication: ordered (default), owner-batched, or ready; ready requires unreserved delegation; saved rules are unchanged")
     parser.add_argument("--" + INSPECTION_WORKERS, type=positive, action=StoreOnce,
                         help="explicit partition: N inspectors, workers-1-N admission helpers and one coordinator; one worker stays inline; requires successor walk")
+    parser.add_argument("--" + APPLICATION_REFINEMENT, type=application_cardinality, action=StoreOnce,
+                        help="opt into singleton refinement of one finite varying selected Apply-cell axis up to this cardinality; default off; not a cumulative work cap; requires successor walk")
     for option in WALK_ALLOWANCES:
         parser.add_argument("--" + option,
                             type=containment_limit if option == "max-containment-checks" else positive,
@@ -153,7 +163,7 @@ def main() -> None:
         parser.error("subdivision requires both axis and cut")
     if not args.follow_successors and (args.route_domain_overcover or args.reuse_initial_d_bands or any(
             getattr(args, option.replace("-", "_")) is not None
-            for option in (*WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, INSPECTION_WORKERS, "max-route-masks-per-query"))):
+            for option in (*WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, INSPECTION_WORKERS, APPLICATION_REFINEMENT, "max-route-masks-per-query"))):
         parser.error("successor work allowances require --follow-successors")
     if args.max_route_masks_per_query is not None and not args.route_domain_overcover:
         parser.error("route mask allowance requires --route-domain-overcover")
@@ -191,7 +201,7 @@ def main() -> None:
                    "apply_subdivision_axis", "apply_subdivision_cut"):
         if (value := getattr(args, option)) is not None:
             command += ["--" + option.replace("_", "-"), str(value)]
-    for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, INSPECTION_WORKERS, "max-route-masks-per-query"):
+    for option in (*ALLOWANCES, REFINEMENT, REFINEMENT_AXES, *WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, INSPECTION_WORKERS, APPLICATION_REFINEMENT, "max-route-masks-per-query"):
         if (value := getattr(args, option.replace("-", "_"))) is not None:
             command.extend(["--" + option, str(value)])
     # Inherit the license without persisting or printing it. Replacement keeps

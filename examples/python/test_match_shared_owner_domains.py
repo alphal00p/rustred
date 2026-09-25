@@ -17,6 +17,24 @@ class MatchSteeringTests(unittest.TestCase):
         return [str(SOURCE), "--executable", "native", "--manifest", "selection.json",
                 "--queries", "queries.json", "--output", "result.json"]
 
+    def test_application_cell_refinement_is_positive_opt_in_not_work_cap(self):
+        flag = "--" + MATCH.APPLICATION_REFINEMENT
+        with patch("sys.argv", self.arguments() + ["--follow-successors", "--unbounded-work", flag, "2"]), \
+                patch.object(MATCH.os, "execve") as execute:
+            MATCH.main()
+        command = execute.call_args.args[1]
+        self.assertEqual(command[command.index(flag) + 1], "2")
+        self.assertEqual(command.count(flag), 1)
+        bad = [[flag, "2"], ["--follow-successors", flag, "2", flag, "3"]]
+        bad += [["--follow-successors", flag, value] for value in
+                ("0", "-1", "+1", "1.5", "True", "１", str(2 * MATCH.sys.maxsize + 2))]
+        for flags in bad:
+            with self.subTest(flags=flags), patch("sys.argv", self.arguments() + flags), \
+                    patch.object(MATCH.os, "execve") as execute, patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit):
+                    MATCH.main()
+                execute.assert_not_called()
+
     def test_checkpoint_resume_unbounded_and_subdivision_flags_are_forwarded_exactly(self):
         for mode in ("--checkpoint", "--resume"):
             flags = ["--follow-successors", mode, "checkpoint", "--checkpoint-interval-seconds", "3600",
@@ -59,6 +77,7 @@ class MatchSteeringTests(unittest.TestCase):
         self.assertNotIn("--" + MATCH.INITIAL_D_REUSE, command)
         self.assertNotIn("--" + MATCH.PUBLICATION_POLICY, command)
         self.assertNotIn("--" + MATCH.INSPECTION_WORKERS, command)
+        self.assertNotIn("--" + MATCH.APPLICATION_REFINEMENT, command)
         for option in ("--workers", "--timeout", "--max-numerator-rank", "--targets"):
             self.assertNotIn(option, command)
 

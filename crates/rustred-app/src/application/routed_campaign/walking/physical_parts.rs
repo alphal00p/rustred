@@ -64,6 +64,8 @@ pub(super) fn sum_stats(
         }
         add!(
             selected_pieces,
+            application_refinement_steps,
+            application_refinement_cells,
             term_visits,
             shift_groups,
             boundary_cells,
@@ -182,6 +184,18 @@ pub(super) fn limits(parent: OwnerAppliedLimits, part: u8) -> OwnerAppliedLimits
     out
 }
 
+pub(super) fn cell_refinement_json(
+    policy: rustred::solver::OwnerAppliedCellRefinement,
+) -> serde_json::Value {
+    use rustred::solver::OwnerAppliedCellRefinement;
+    match policy {
+        OwnerAppliedCellRefinement::Off => serde_json::json!({"kind":"off"}),
+        OwnerAppliedCellRefinement::SingleFiniteAxis { max_cardinality } => {
+            serde_json::json!({"kind":"single_finite_axis","max_cardinality":max_cardinality.get()})
+        }
+    }
+}
+
 pub(super) fn limits_json(limits: OwnerAppliedLimits) -> serde_json::Value {
     let m = limits.matching;
     serde_json::json!({
@@ -191,6 +205,7 @@ pub(super) fn limits_json(limits: OwnerAppliedLimits) -> serde_json::Value {
         "max_native_operations":limits.max_native_operations,"max_events":limits.max_events,
         "max_scratch_terms":limits.max_scratch_terms,"max_scratch_boxes":limits.max_scratch_boxes,
         "max_scratch_coordinate_cells":limits.max_scratch_coordinate_cells,
+        "cell_refinement":cell_refinement_json(limits.cell_refinement),
         "matching":{"max_rules":m.max_rules,"max_terminal_checks":m.max_terminal_checks,
             "max_predicates":m.max_predicates,"max_pieces":m.max_pieces,"max_cells":m.max_cells,
             "max_split_operations":m.max_split_operations,"max_coordinate_cells":m.max_coordinate_cells,
@@ -250,11 +265,16 @@ mod tests {
         parent.max_native_operations = usize::MAX;
         parent.matching.max_rules = 9;
         parent.matching.max_predicates = usize::MAX;
+        parent.cell_refinement = rustred::solver::OwnerAppliedCellRefinement::SingleFiniteAxis {
+            max_cardinality: std::num::NonZeroUsize::new(7).unwrap(),
+        };
         let a = limits(parent, 0);
         let b = limits(parent, 1);
         assert_eq!((a.max_events, b.max_events), (3, 4));
         assert_eq!((a.matching.max_rules, b.matching.max_rules), (4, 5));
         for part in [a, b] {
+            assert_eq!(part.cell_refinement, parent.cell_refinement);
+            assert_eq!(limits_json(part)["cell_refinement"]["max_cardinality"], 7);
             assert_eq!(part.max_native_operations, usize::MAX);
             assert_eq!(part.matching.max_predicates, usize::MAX);
             assert_eq!(part.max_scratch_terms, parent.max_scratch_terms);
@@ -264,5 +284,33 @@ mod tests {
                 parent.max_scratch_coordinate_cells
             );
         }
+    }
+
+    #[test]
+    fn application_refinement_statistics_are_checked_sums() {
+        let stats = rustred::solver::OwnerAppliedStats {
+            application_refinement_steps: 3,
+            application_refinement_cells: 7,
+            ..Default::default()
+        };
+        let part = serde_json::json!({"stats":super::super::stats_json(stats)});
+        let sum = sum_stats(&[part.clone(), part]).unwrap();
+        assert_eq!(sum.application_refinement_steps, 6);
+        assert_eq!(sum.application_refinement_cells, 14);
+        let overflow = rustred::solver::OwnerAppliedStats {
+            application_refinement_cells: usize::MAX,
+            ..stats
+        };
+        let parts = [
+            serde_json::json!({"stats":super::super::stats_json(overflow)}),
+            serde_json::json!({"stats":super::super::stats_json(stats)}),
+        ];
+        assert!(sum_stats(&parts).is_err());
+        let mut malformed = parts[1].clone();
+        malformed["stats"]
+            .as_object_mut()
+            .unwrap()
+            .remove("application_refinement_steps");
+        assert!(sum_stats(&[malformed]).is_err());
     }
 }

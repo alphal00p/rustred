@@ -314,6 +314,8 @@ fn mask<const N: usize>(owner: &[bool; N]) -> String {
 
 fn stats_json(s: OwnerAppliedStats) -> Value {
     json!({"selected_pieces":s.selected_pieces,"term_visits":s.term_visits,"shift_groups":s.shift_groups,
+        "application_refinement_steps":s.application_refinement_steps,
+        "application_refinement_cells":s.application_refinement_cells,
         "boundary_cells":s.boundary_cells,"sign_splits":s.sign_splits,"native_operations":s.native_operations,
         "correlation_empty_cells":s.correlation_empty_cells,
         "optional_coefficient_refusals":s.optional_coefficient_refusals,"optional_original_refusals":s.optional_original_refusals,
@@ -337,6 +339,7 @@ fn limits_json(r: &OwnerDomainWalkRequest) -> Value {
         "max_native_operations":a.max_native_operations,"max_events":a.max_events,
         "max_scratch_terms":a.max_scratch_terms,"max_scratch_boxes":a.max_scratch_boxes,
         "max_scratch_coordinate_cells":a.max_scratch_coordinate_cells,
+        "cell_refinement":physical_parts::cell_refinement_json(a.cell_refinement),
         "matching":{"max_rules":m.max_rules,"max_terminal_checks":m.max_terminal_checks,
             "max_predicates":m.max_predicates,"max_pieces":m.max_pieces,"max_cells":m.max_cells,
             "max_split_operations":m.max_split_operations,"max_coordinate_cells":m.max_coordinate_cells,

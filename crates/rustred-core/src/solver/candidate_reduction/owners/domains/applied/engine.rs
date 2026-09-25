@@ -85,6 +85,22 @@ impl Budget<'_> {
             "boundary cells",
         )
     }
+    pub(super) fn refinement_step(&mut self) -> Result<(), OwnerAppliedFailure> {
+        charge(
+            &mut self.stats.application_refinement_steps,
+            1,
+            usize::MAX,
+            "application refinement steps",
+        )
+    }
+    pub(super) fn refinement_cell(&mut self) -> Result<(), OwnerAppliedFailure> {
+        charge(
+            &mut self.stats.application_refinement_cells,
+            1,
+            usize::MAX,
+            "application refinement cells",
+        )
+    }
     /// Keep the support partition at the existing attempted-successor boundary,
     /// before emit can stop on cancellation, event admission or the consumer.
     pub(super) fn successor<const N: usize>(
@@ -319,7 +335,9 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                 budget.limits.max_shift_groups,
                 "shift groups",
             )?;
-            for sign in geometry::sign_cells(&source, piece.owner(), shift, budget)? {
+            let signs = geometry::sign_cells(&source, piece.owner(), shift, budget)?;
+            let sign_cell_count = signs.len();
+            for sign in signs {
                 let Some((sign, sign_rank)) = geometry::normalize(
                     sign,
                     piece.owner(),
@@ -350,6 +368,46 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
                         Some((cell, sign_rank))
                     };
                     if let Some((cell, cell_rank)) = normalized {
+                        // Restrict only exact application cells, never remake
+                        // rule applicability. Keep the original piece and all
+                        // equal-shift terms together under the one query budget.
+                        // Affine adapters retain their existing path unchanged.
+                        let refinement = if affine.is_none() {
+                            super::refinement::Cells::new(
+                                &cell,
+                                piece.owner(),
+                                sign_cell_count,
+                                budget,
+                            )?
+                        } else {
+                            None
+                        };
+                        if let Some(mut refinement) = refinement {
+                            while let Some(child) = refinement.next(budget)? {
+                                let Some((child, child_rank)) = geometry::normalize(
+                                    child,
+                                    piece.owner(),
+                                    cell_rank,
+                                    piece.power_bounds(),
+                                    budget,
+                                )?
+                                else {
+                                    continue;
+                                };
+                                self.apply_group(
+                                    piece,
+                                    &child,
+                                    child_rank,
+                                    rule,
+                                    &indices[start..end],
+                                    shift,
+                                    affine,
+                                    budget,
+                                    visit,
+                                )?;
+                            }
+                            continue;
+                        }
                         self.apply_group(
                             piece,
                             &cell,

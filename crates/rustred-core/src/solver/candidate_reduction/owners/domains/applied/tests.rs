@@ -13,6 +13,7 @@ use crate::solver::candidate_reduction::{
 use std::ops::ControlFlow;
 use std::sync::{Arc, atomic::AtomicBool};
 
+mod cell_refinement;
 mod optional_refusal;
 mod power_bounds;
 mod singleton_classification;

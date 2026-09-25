@@ -434,6 +434,45 @@ mod tests {
         test_directory()
     }
     #[test]
+    fn application_refinement_is_exact_checkpoint_policy() {
+        use rustred::solver::OwnerAppliedCellRefinement;
+        let path = directory();
+        let mut request = OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(
+            "selection".into(),
+            "queries".into(),
+        ));
+        request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new(&path));
+        let off = binding(&request);
+        let mut store = Store::open(&request).unwrap().unwrap();
+        store.bootstrap().unwrap();
+        drop(store);
+        request.checkpoint.as_mut().unwrap().resume = true;
+        assert_eq!(binding(&request), off);
+        let resumed = Store::open(&request).unwrap().unwrap();
+        drop(resumed);
+        request.applied_limits.cell_refinement = OwnerAppliedCellRefinement::SingleFiniteAxis {
+            max_cardinality: std::num::NonZeroUsize::new(2).unwrap(),
+        };
+        assert_ne!(binding(&request), off);
+        assert!(Store::open(&request).is_err());
+        // A new On checkpoint binds the full threshold, not just an enabled bit.
+        fs::remove_dir_all(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        request.checkpoint.as_mut().unwrap().resume = false;
+        let mut store = Store::open(&request).unwrap().unwrap();
+        store.bootstrap().unwrap();
+        drop(store);
+        request.checkpoint.as_mut().unwrap().resume = true;
+        drop(Store::open(&request).unwrap().unwrap());
+        request.applied_limits.cell_refinement = OwnerAppliedCellRefinement::SingleFiniteAxis {
+            max_cardinality: std::num::NonZeroUsize::new(3).unwrap(),
+        };
+        assert!(Store::open(&request).is_err());
+        request.applied_limits.cell_refinement = OwnerAppliedCellRefinement::Off;
+        assert!(Store::open(&request).is_err());
+        fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
     fn bootstrap_atomic_generations_owner_binding_and_corruption_rejection() {
         let path = directory();
         let mut request = OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(

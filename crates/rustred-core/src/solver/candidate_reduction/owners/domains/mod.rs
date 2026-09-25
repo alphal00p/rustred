@@ -18,9 +18,9 @@ pub use guarded::{
 };
 
 pub use applied::{
-    OwnerAppliedError, OwnerAppliedEvent, OwnerAppliedFailure, OwnerAppliedLimits,
-    OwnerAppliedNonzero, OwnerAppliedProblem, OwnerAppliedProblemKind, OwnerAppliedStats,
-    OwnerAppliedSuccessor,
+    OwnerAppliedCellRefinement, OwnerAppliedError, OwnerAppliedEvent, OwnerAppliedFailure,
+    OwnerAppliedLimits, OwnerAppliedNonzero, OwnerAppliedProblem, OwnerAppliedProblemKind,
+    OwnerAppliedStats, OwnerAppliedSuccessor,
 };
 
 pub use matching::{

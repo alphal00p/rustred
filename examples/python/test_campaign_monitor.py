@@ -324,6 +324,52 @@ class ProductionTests(unittest.TestCase):
             verify.assert_not_called()
             freeze.assert_not_called()
 
+    def test_application_refinement_is_frozen_and_old_steering_means_off(self):
+        from argparse import Namespace
+        for cardinality in (None, 2):
+            with self.subTest(cardinality=cardinality), tempfile.TemporaryDirectory() as temporary:
+                campaign = Path(temporary)
+                (campaign / "bin").mkdir()
+                args = Namespace(workers=1, cpus=str(min(os.sched_getaffinity(0))),
+                                 checkpoint_interval_seconds=None, max_memory_bytes=None,
+                                 ram_guard_margin_percent=None, apply_subdivision_axis=None,
+                                 apply_subdivision_cut=None, resume=False, publication_policy=None,
+                                 apply_cell_refinement_max_cardinality=cardinality)
+                policy = PRODUCTION.frozen_policy(campaign, args, campaign / "bin/rustred",
+                                                   campaign / "inputs", 2, 1024)
+                flag = "--apply-cell-refinement-max-cardinality"
+                if cardinality is None:
+                    self.assertNotIn(flag, policy["command_arguments"])
+                    # Explicitly exercise an older immutable steering image.
+                    del policy["options"]["apply_cell_refinement_max_cardinality"]
+                    path = campaign / "bin/steering.json"
+                    path.chmod(0o600)
+                    PRODUCTION.write_json(path, policy)
+                else:
+                    command = policy["command_arguments"]
+                    self.assertEqual(command[command.index(flag) + 1], "2")
+                original = (campaign / "bin/steering.json").read_bytes()
+                args.resume = True
+                args.apply_cell_refinement_max_cardinality = None
+                self.assertEqual(PRODUCTION.frozen_policy(campaign, args,
+                    campaign / "ignored", campaign / "ignored", 1, 2), policy)
+                args.apply_cell_refinement_max_cardinality = 3
+                with self.assertRaisesRegex(ValueError, "differs from frozen policy"):
+                    PRODUCTION.frozen_policy(campaign, args, campaign, campaign, 1, 2)
+                self.assertEqual((campaign / "bin/steering.json").read_bytes(), original)
+
+    def test_application_refinement_rejects_invalid_values_before_inputs(self):
+        flag = "--apply-cell-refinement-max-cardinality"
+        options = [[flag, value] for value in ("0", "-1", "+1", "1.5", "True", "１", "18446744073709551616")]
+        options.append([flag, "2", flag, "3"])
+        for flags in options:
+            with self.subTest(flags=flags), patch.object(PRODUCTION, "verify_inputs") as verify, \
+                    patch.object(PRODUCTION, "freeze_executable") as freeze, patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit):
+                    PRODUCTION.main(flags)
+                verify.assert_not_called()
+                freeze.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

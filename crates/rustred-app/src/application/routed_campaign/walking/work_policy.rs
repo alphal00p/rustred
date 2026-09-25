@@ -52,6 +52,10 @@ mod tests {
             .guard_algebra
             .max_univariate_degree = 64;
         request.max_containment_checks = Some(17);
+        request.applied_limits.cell_refinement =
+            rustred::solver::OwnerAppliedCellRefinement::SingleFiniteAxis {
+                max_cardinality: std::num::NonZeroUsize::new(2).unwrap(),
+            };
         let before = request.clone();
         request.disable_work_limits();
         assert_eq!(request.max_domains, usize::MAX);
@@ -73,6 +77,10 @@ mod tests {
             assert_eq!(cap, usize::MAX);
         }
         let applied = request.applied_limits;
+        assert_eq!(
+            applied.cell_refinement,
+            before.applied_limits.cell_refinement
+        );
         for cap in [
             applied.max_term_visits,
             applied.max_shift_groups,
