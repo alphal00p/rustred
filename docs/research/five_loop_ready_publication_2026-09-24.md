@@ -143,7 +143,7 @@ default; these controls do not measure the long-headed five-loop workload.
 Raw evidence and the independent audit are in
 `TMP/ready-four-loop-control.GA8zxH/`.
 
-### Parallel fresh-process recovery: still an open gate
+### Initial four-loop recovery attempts: inconclusive
 
 The separate BMW recovery attempt completed normally before observing two
 simultaneously accepted source prefixes. No interrupt or resume occurred.
@@ -165,10 +165,10 @@ resume or retry. Evidence is retained in `TMP/ready-x-resume-control.nVaRU6/`.
 This is a second inconclusive recovery fixture, not a failed reduction or a
 successful multi-prefix resume, and is excluded from the timing comparison.
 
-Real repeated interruption/resume and a private corrupted-checkpoint rejection
-test remain required before this recovery gate passes. The latter is prepared
-and independently preflighted but has not been launched: it requires a genuinely
-saved multi-prefix state and the preceding positive recovery gate.
+At this point neither repeated interruption/resume nor private
+corrupted-checkpoint rejection had been exercised. The later five-loop
+partial-recovery test below supplies genuine multiple-prefix restore evidence;
+it does not supply full-completion equivalence or negative-corruption rejection.
 
 ### Ordered old/new binary diagnostic
 
@@ -228,9 +228,52 @@ The large 20% executable difference is **not reproduced** with matching profiles
 The residual slower observations are retained; one shared-host rotation proves
 neither zero regression nor equal-or-better performance. The correct outcome is
 to publish the audited opt-in as experimental, not to claim a Ready speedup or
-change the production default. The real W6 multi-prefix recovery gate remains
-open. See `TMP/ordered-normalized-compare.9uPavj/RESULTS.md` for all receipts and
+change the production default. At this measurement checkpoint real W6
+multi-prefix recovery had not yet been exercised; see the later partial test
+below. See `TMP/ordered-normalized-compare.9uPavj/RESULTS.md` for all receipts and
 timing boundaries.
 
 Ready remains experimental, with no five-loop completion or speedup claim and
 no change to the live campaign.
+
+### Five-loop partial recovery: two fresh-process restores pass
+
+The independently audited experiment in
+`TMP/ready-five-loop-prefix-v3.k1nLpy/` uses the normalized frozen executable,
+six disjoint cores, the same 67 saved owner programs and three explicitly
+supplied queries for one owner. It is not the full 134-input production campaign.
+All descendants are retained, with RAM-only protection and no elapsed/work cap.
+The experiment deliberately requests cooperative checkpoint stops; it does not
+run this workload to exhaustion.
+
+| Exact unfinished source | First paused save | After first restore | After second restore |
+|---|---:|---:|---:|
+| Source0 accepted-event cursor | 203,019 | 370,146 | 423,269 |
+| Source2 accepted-event cursor | 215,283 | 377,660 | 435,284 |
+
+Both sources remain unfinished at each save. A genuinely finished source1
+stays published ahead of them, while the contiguous publication watermark
+remains0. Each restore actually consumes a saved checkpoint containing multiple
+positive partial-source cursors; increasing a global event counter alone was
+not accepted as replay evidence. Independent raw checkpoint scans reconcile
+every accepted event and confirm preservation of all previously published
+records, ledger entries and history.
+
+All three native processes stop cleanly with paused exit4. The final checkpoint
+is207,199,050 bytes, with118,708 published records (78,513 native completions),
+4,886,229 accepted events and239,665 pending obligations. Peak sampled RSS is
+6.69 GB. No resource stop, non-cancellation fault, recorded frontier or unsupported
+transition occurred. This establishes **partial multi-source recovery**, not
+final completion/equivalence, negative-corruption rejection or a speedup.
+
+Two earlier harness failures are retained, not counted as recovery tests:
+the first misread nested bootstrap metadata before any inspection; the second
+sent SIGINT directly to the native CLI and therefore terminated it. The CLI's
+supported cancellation interface is its `--stop-file`; the production Python
+supervisor handles Ctrl-C by writing that file. The successful test uses this
+documented cooperative boundary. It is not a direct-native-SIGINT test, and
+neither correction changed the Rust solver or the live production process.
+
+The remaining full-drain comparison and private corrupted-checkpoint rejection
+tests are still open. Keep Ordered as the default and do not promote Ready
+solely from this partial recovery success.

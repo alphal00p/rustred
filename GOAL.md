@@ -107,10 +107,11 @@ effects. It requires explicit `TransferUnreserved` steering and initially reject
 physical subdivision. Independent source audits and 699 release tests pass, as
 do all eight matched four-loop controls. One rotation shows 5.22% slower summed
 Ready traversal, not a demonstrated production speedup. Preserve Ordered and the
-running frozen campaign. Real parallel multiple-prefix fresh-process resume is
-still an open gate: both BMW and a separately audited X input-order-only
-correctness fixture completed before the required overlapping-prefix trigger.
+running frozen campaign. The initial BMW and separately audited X input-order-only
+recovery fixtures completed before the required overlapping-prefix trigger.
 Neither was interrupted or resumed; both are inconclusive, not successes.
+The subsequent five-loop partial-recovery result is recorded below; a
+full-completion recovery comparison remains open.
 The negative checkpoint test remains held behind that positive recovery gate.
 An independently audited old/new Ordered comparison found a build-profile
 mismatch. With matching release profiles, summed traversal differs by +1.44%
@@ -136,6 +137,17 @@ duplicating the matcher and do not change the live run. Require exact focused
 tests and a real recursive/admission comparison before promotion. The independent
 [measurement and design study](docs/research/five_loop_slow_inspection_parallelism_2026-09-24.md)
 records the remaining scheduler, publication and downstream-work limitations.
+
+The separate six-worker five-loop Ready recovery test now passes two actual
+fresh-process restores of checkpoints with multiple positive unfinished source
+prefixes and genuinely finished later work. Independent raw checkpoint audits
+confirm per-source advancement and preservation of published effects. This is
+partial recovery only: final exhaustion/equivalence and corrupted-checkpoint
+rejection remain open. Two prior harness setup/cancellation failures are retained
+and are not counted as replay evidence. The successful test uses the documented
+cooperative stop-file interface; production is unchanged. Continue the refinement
+tests and native timing controls before any policy promotion. See the
+[recovery record](docs/research/five_loop_ready_publication_2026-09-24.md).
 
 Both existing packagings already use the same generic `.rrbin` container and
 Symbolica native state/atoms. The older four-loop files are multi-sector bundles;

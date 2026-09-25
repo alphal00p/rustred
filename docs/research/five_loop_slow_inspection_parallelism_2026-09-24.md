@@ -745,3 +745,66 @@ the telemetry. Thus the locally feasible A26/R15 candidate must not be assumed
 to cover the current wave; exact rank and geometry still matter. Continue
 monitoring while testing isolated improvements; leave the live process unchanged
 and do not extrapolate a completion ETA from these counters.
+
+### Current-wave profile, September 25 at 02:05 UTC
+
+A further 20-second, 49 Hz user-CPU capture on the unchanged live executable
+is retained in `TMP/five-loop-current-wave-profile.O8tkRy/`. It reports no
+lost samples, but bounded DWARF unwinding leaves incomplete caller stacks;
+zero lost samples must not be described as complete call-stack coverage.
+Compilation used disjoint CPUs50–55 while production remained on0–49.
+This is observational profiling on a shared host, not an isolated benchmark.
+
+The bracketing native heartbeats span 20.134 seconds. They advance40 native
+inspections, emit329,580 successors and schedule468 obligations; pending work
+grows428. Apply owner `010011111101011` remains the same while the publication
+cursor advances. Only2–3 native slots are active and237–238 finished results
+are held for publication. Frontiers and failure markers remain clear.
+
+| Exclusive sampled user CPU | Share |
+|---|---:|
+| Native inspectors | 62.73% |
+| Admission helpers | 35.12% |
+| Coordinator | 2.15% |
+
+Within admission, power-summary containment plus index traversal account for
+20.55% of all sampled CPU; epoch/deque leaves account for8.06%. These motivate
+two separate experiments: coarser Rayon lookup tasks within the unchanged
+batch, and tighter block envelopes after index retirement. Neither is yet a
+measured improvement. Preserve exact commit order, cancellation and stale-lookup
+revalidation. First measure whether tighter envelopes actually avoid enough
+false-positive lookups to pay for refreshing them.
+
+Coordinator-instrumented preparation plus commit take1.704 seconds, or8.47%
+of this heartbeat interval. This elapsed-time boundary is distinct from the
+35.12% sampled-CPU share and cannot be used interchangeably with it. Inclusive
+inspector paths overlap; missing caller frames prevent an Amdahl-style bound
+from this profile. Inspection, admission and ordered publication all remain
+relevant; improving just one is not established to fill50 workers.
+
+At02:22 UTC, production has approximately5.415 million completed native
+inspections,8.349 million pending obligations and82.76 GB aggregate RSS.
+Checkpoint generation7 saved successfully in112.325 seconds (12.608 GB).
+The dynamically growing queue still has no defensible completion ETA.
+
+### Longer mixed-owner window, 02:06–02:31 UTC
+
+The next bounded-tail snapshot, `TMP/five-loop-monitor-snapshot.HQEUkb/`,
+covers 1,499.696 seconds and includes the generation7 checkpoint write.
+Native completions increase644,398, scheduled obligations2,559,304 and
+publications950,585. Pending work therefore grows1,608,719 to9,268,903;
+this is expansion, not a remaining-work countdown. RSS reaches86.630 GB.
+Frontiers and both failure markers stay clear.
+
+Mean observed process CPU is3.879 cores, not50. Progress samples average1.806
+active native slots and175.067 finished-but-held results (maximum255).
+Owners are now diverse: the largest accounts for15.81% of sampled heads;
+Apply/Route account for77.16%/22.84%. These are samples, not completed-job shares.
+
+Coordinator-instrumented preparation takes178.560 seconds and ordered commit
+560.783 seconds: together49.30% of this interval, including checkpoint time in
+the denominator. This differs materially from the earlier short profile's
+8.47% elapsed fraction. It reinforces admission as a separate optimization
+target, but is not a CPU attribution or a matched performance comparison.
+The changing workload means neither window should be generalized to the entire
+campaign. Continue profiling actual waves and preserve the live configuration.
