@@ -145,6 +145,8 @@ impl<const N: usize> PreparedEvent<N> {
 
 pub(super) struct Engine {
     pool: Option<rayon::ThreadPool>,
+    #[cfg(test)]
+    min_task_len: Option<std::num::NonZeroUsize>,
 }
 impl Engine {
     pub fn new(budget: WorkerBudget) -> Result<Self, String> {
@@ -159,7 +161,24 @@ impl Engine {
                     .map_err(|error| format!("admission worker pool: {error}"))?,
             )
         };
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            #[cfg(test)]
+            min_task_len: None,
+        })
+    }
+
+    /// Experiment only: change indexed task splitting, never the immutable
+    /// batch boundary, lookup eligibility or original-order commit protocol.
+    /// Non-test builds retain the original iterator and have no policy field.
+    #[cfg(test)]
+    fn new_with_min_task_len(
+        budget: WorkerBudget,
+        min_task_len: std::num::NonZeroUsize,
+    ) -> Result<Self, String> {
+        let mut engine = Self::new(budget)?;
+        engine.min_task_len = Some(min_task_len);
+        Ok(engine)
     }
 
     #[cfg(test)]
@@ -208,6 +227,22 @@ impl Engine {
             // including non-admission callbacks; no queue mutation is possible
             // until all scoped work has joined and this shared borrow ends.
             let prepared: Vec<_> = pool.install(|| {
+                #[cfg(test)]
+                if let Some(min_task_len) = self.min_task_len {
+                    return events
+                        .into_par_iter()
+                        .with_min_len(min_task_len.get())
+                        .map(|event| {
+                            PreparedEvent::prepare(
+                                event,
+                                queue,
+                                cancellation,
+                                producer_stop,
+                                checkpointing,
+                            )
+                        })
+                        .collect();
+                }
                 events
                     .into_par_iter()
                     .map(|event| {
@@ -304,5 +339,9 @@ impl Engine {
     }
 }
 
+#[cfg(test)]
+mod grain_replay;
+#[cfg(test)]
+mod grain_tests;
 #[cfg(test)]
 mod tests;

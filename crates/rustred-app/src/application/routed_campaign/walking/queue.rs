@@ -135,6 +135,9 @@ pub(super) struct Queue<const N: usize> {
     max_checks: Option<usize>,
     /// Separates immutable lookup preparations from unrelated queue instances.
     identity: Arc<()>,
+    /// Test instrumentation preference only, deliberately not persisted.
+    #[cfg(test)]
+    index_work_counters_enabled: bool,
 }
 
 impl<const N: usize> Queue<N> {
@@ -187,6 +190,8 @@ impl<const N: usize> Queue<N> {
             max_domains,
             max_checks,
             identity: Arc::new(()),
+            #[cfg(test)]
+            index_work_counters_enabled: true,
         }
     }
 
@@ -384,6 +389,10 @@ impl<const N: usize> Queue<N> {
                 .try_reserve(1)
                 .map_err(|_| "owner domain index allocation")?;
             let mut bucket = OwnerBucket::default();
+            #[cfg(test)]
+            bucket
+                .indexed
+                .set_work_counters_enabled(self.index_work_counters_enabled);
             let insertion = if let Some(signature) = signature {
                 Some(bucket.indexed.prepare(signature, coordinates)?)
             } else {

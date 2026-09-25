@@ -158,12 +158,52 @@ pub(super) struct AggregateIndex {
 }
 
 #[cfg(test)]
-#[derive(Default)]
 struct WorkCounters {
+    enabled: bool,
     groups_visited: AtomicUsize,
     groups_rejected: AtomicUsize,
     blocks_visited: AtomicUsize,
     blocks_rejected: AtomicUsize,
+}
+
+#[cfg(test)]
+impl Default for WorkCounters {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            groups_visited: AtomicUsize::new(0),
+            groups_rejected: AtomicUsize::new(0),
+            blocks_visited: AtomicUsize::new(0),
+            blocks_rejected: AtomicUsize::new(0),
+        }
+    }
+}
+
+#[cfg(test)]
+impl<const N: usize> super::Queue<N> {
+    /// Disable only test instrumentation on existing and future indexes.
+    /// The preference is not a persistent queue policy or production field.
+    pub(in super::super) fn disable_index_work_counters(&mut self) {
+        self.index_work_counters_enabled = false;
+        for bucket in self.by_owner.values_mut() {
+            bucket.indexed.work.enabled = false;
+        }
+    }
+
+    /// A fresh restored fixture has zero counters. Do not reset or hide work
+    /// already observed, or accept a new default-enabled bucket accidentally.
+    pub(in super::super) fn index_work_counters_disabled_and_zero(&self) -> bool {
+        !self.index_work_counters_enabled
+            && self.by_owner.values().all(|bucket| {
+                let index = &bucket.indexed;
+                let work = index.work();
+                !index.work.enabled
+                    && work.groups_visited == 0
+                    && work.groups_rejected == 0
+                    && work.blocks_visited == 0
+                    && work.blocks_rejected == 0
+            })
+    }
 }
 
 /// Test-replay instrumentation only; no additional production per-group work.
@@ -189,6 +229,11 @@ struct BlockStorage {
 }
 
 impl AggregateIndex {
+    #[cfg(test)]
+    pub(super) fn set_work_counters_enabled(&mut self, enabled: bool) {
+        self.work.enabled = enabled;
+    }
+
     pub(super) fn find(
         &self,
         signature: Signature,
@@ -375,7 +420,7 @@ impl AggregateIndex {
                 for block in &mut group.blocks {
                     let eligible = block.may_be_contained(coordinates);
                     #[cfg(test)]
-                    {
+                    if self.work.enabled {
                         self.work.blocks_visited.fetch_add(1, Ordering::Relaxed);
                         self.work
                             .blocks_rejected
@@ -492,6 +537,9 @@ impl AggregateIndex {
 
     #[cfg(test)]
     fn record_group(&self, eligible: bool) {
+        if !self.work.enabled {
+            return;
+        }
         self.work.groups_visited.fetch_add(1, Ordering::Relaxed);
         self.work
             .groups_rejected
@@ -500,6 +548,9 @@ impl AggregateIndex {
 
     #[cfg(test)]
     fn record_block(&self, eligible: bool) {
+        if !self.work.enabled {
+            return;
+        }
         self.work.blocks_visited.fetch_add(1, Ordering::Relaxed);
         self.work
             .blocks_rejected
@@ -519,3 +570,5 @@ impl AggregateIndex {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod work_counter_tests;

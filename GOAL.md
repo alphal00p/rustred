@@ -195,8 +195,14 @@ local residual wall time by 10.36–15.06% and successor count by 15.49%, withou
 new rules or weakened scope. The generic adaptive-cut planner is not yet
 implemented. Test its full recursive cost and checkpoint-prefix behavior before
 promotion; local work reduction is not closure or a solution to ordered-head
-blocking. The admission-grain seam remains test-only while its corrected
-instrumentation build and matched measurements finish. See the
+blocking. The admission-grain seam remains test-only: 715 release tests and
+all four fixed 24-helper pairs pass exact-state comparison, but the median
+paired loop-time ratio is effectively flat (0.99885) and preparation is slower
+in every minimum-eight pair. Keep the production iterator. This insertion-only
+workload spends roughly 87–90% of its loop in ordered commit and cannot stand
+in for the reuse-heavy native stream. Continue full-drain five-loop Ordered/Ready
+controls before promoting a publication policy. See the
+[grain measurements](docs/research/five_loop_admission_grain_2026-09-25.md) and
 [census, exact geometry and native controls](docs/research/five_loop_pending_census_2026-09-25.md).
 
 Both existing packagings already use the same generic `.rrbin` container and
