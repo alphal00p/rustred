@@ -205,6 +205,19 @@ controls before promoting a publication policy. See the
 [grain measurements](docs/research/five_loop_admission_grain_2026-09-25.md) and
 [census, exact geometry and native controls](docs/research/five_loop_pending_census_2026-09-25.md).
 
+The fresh five-loop finite publication control now exhausts in all four fixed
+six-worker runs, with an independent audit of 5,094,173 total final records and
+zero pending obligations, frontiers or failures. This is one restricted required
+entry, not the full 67-owner family. Ready removes nearly all held completions
+but is 5.27% and 7.07% slower in the two paired traversals; preserve Ordered.
+Proceed with the identical 50-worker comparison, not an extrapolation from six
+workers. A test-only spectator is being implemented to measure repeated successful
+inclusion queries across inspections before considering a bounded positive memo.
+The completed control already reuses 95.52% of 28.4 million scheduling requests;
+removing repeated lookup work is distinct from moving those requests between
+workers. The full interrupted-resume-to-exhaustion equivalence gate remains open.
+See the [completed control and work-amplification analysis](docs/research/five_loop_finite_publication_scaling_2026-09-25.md).
+
 Both existing packagings already use the same generic `.rrbin` container and
 Symbolica native state/atoms. The older four-loop files are multi-sector bundles;
 the shared-owner ingress currently requires single-sector bundles. This is an
