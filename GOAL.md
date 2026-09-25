@@ -124,6 +124,19 @@ Some extra work is acceptable only with measured wall-time benefit and correct
 accounting. Continue short read-only live profiles and status checks; successful
 lower-loop controls do not establish five-loop speedup or a completion ETA.
 
+The next implementation experiment is small-cell refinement after matching,
+motivated by measured whole-domain subdivision. Two opposite-order native
+controls on one exact saved five-loop head show 2.38–2.50x
+serial improvement and 4.96–5.06x with two concurrent parts, despite twice the
+successor events. These are inspection-only results, not whole-campaign speedups.
+Implement the smaller off-default, topology-generic serial application-cell
+refinement first: exact finite singleton partitions, unchanged source guards and
+descent, shared budgets/cancellation, and policy-bound checkpoint replay. Avoid
+duplicating the matcher and do not change the live run. Require exact focused
+tests and a real recursive/admission comparison before promotion. The independent
+[measurement and design study](docs/research/five_loop_slow_inspection_parallelism_2026-09-24.md)
+records the remaining scheduler, publication and downstream-work limitations.
+
 Both existing packagings already use the same generic `.rrbin` container and
 Symbolica native state/atoms. The older four-loop files are multi-sector bundles;
 the shared-owner ingress currently requires single-sector bundles. This is an

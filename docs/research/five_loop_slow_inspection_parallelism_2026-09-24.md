@@ -1,11 +1,13 @@
 # Five-loop slow inspection: parallelism and repeated work
 
-24 September 2026. Technical study after the refreshed Vakint numerical gates
-and the completed four-loop controls. No live campaign, native policy, saved
-rule, or solver implementation has been changed. The five-loop workload is
-still incomplete; these observations provide neither a closure claim nor an
-ETA. The complementary [independent scheduler audit](five_loop_parallel_publication_audit_2026-09-24.md)
-covers publication, responsibility and checkpoint constraints.
+24–25 September 2026. Technical study after the refreshed Vakint numerical gates
+and the completed four-loop controls. The native probes below do not change the
+live campaign or its saved rules. The five-loop workload is still incomplete;
+these observations provide neither a closure claim nor an ETA. The complementary
+[independent scheduler audit](five_loop_parallel_publication_audit_2026-09-24.md)
+and [experimental Ready implementation](five_loop_ready_publication_2026-09-24.md)
+cover publication, responsibility and checkpoint constraints. Ordered remains
+the default and the live policy.
 
 ## Current evidence
 
@@ -606,3 +608,140 @@ The frozen process and 500 GB RAM allowance remain unchanged. The independent
 release-profile comparison waits for this actual write to finish before its
 timed controls; profiling and checkpoint I/O are not silently included in those
 paired windows.
+
+### Completed local test of the larger reusable region
+
+The six-query diagnostic in `TMP/five-loop-a26-feasibility.zvKWRP/` completed
+without a deadline or work-count cutoff. It loads the same 67 immutable owner
+programs once, then inspects the existing A24/R15 region, the proposed A26/R15
+region, and the four exact saved heads. Native applicability, RHS construction
+and guard handling are unchanged; the sink retains counters and bounded
+diagnostics, not a recursive worklist or an exact coefficient certificate.
+
+| Query | Native wall seconds | Process CPU seconds | Selected pieces | Successor events | Conditional successor events |
+|---|---:|---:|---:|---:|---:|
+| Existing A24/R15 | 89.262 | 88.38 | 16,850 | 1,800,202 | 33,423 |
+| Additional A26/R15 | 90.884 | 90.15 | 16,863 | 1,808,352 | 33,533 |
+| Head 9,499,579 | 35.436 | 35.15 | 1,193 | 703,469 | 22,201 |
+| Head 9,532,265 | 43.590 | 43.26 | 2,201 | 898,878 | 24,814 |
+| Head 9,661,172 | 47.082 | 46.74 | 1,311 | 850,564 | 24,672 |
+| Head 9,694,360 | 8.346 | 8.30 | 139 | 36,354 | 461 |
+
+All six inspections report complete local feasibility, with zero gaps,
+unresolved/invalid classifications, application problems or unsupported images.
+Optional coefficient-refusal attempts are respectively 321/321/223/278/247/3;
+each call retains one optional-refusal callback under native filtering. These
+distinct counters must not be equated or presented as missing obligations.
+Every conditional successor remains counted; its subsequent inspection has not
+been performed by this diagnostic.
+
+The larger region adds only 13 selected pieces and 8,150 successor events
+(0.453%) in this fixed warm-order observation. Its native wall time is 1.622
+seconds higher, but adding it alongside the required original costs its **full
+90.884 seconds**, not that difference. Broader outgoing geometry can still
+increase recursive work. Local feasibility is therefore encouraging evidence
+for a separate reuse experiment, not evidence of closure or net speedup.
+
+Whole-command time is 332.185 seconds, including a 13.619-second owner load;
+sampled peak RSS is 5.991 GB. The RAM-only guard did not intervene. The helper's
+binary, source, inputs and all 67 program hashes are bound in its receipts.
+It uses a distinct explicitly recorded helper/profile: compare these six calls
+with each other, not their absolute times with the live CLI or older probes.
+
+The last head also gives a stronger subdivision hypothesis than tuple balance:
+its eight most expensive selected pieces account for 6.362 of 6.625 seconds of
+selected-piece time (96.03%, or 76.23% of the whole native call). Each has only
+axis1 varying between local offsets 13 and 14; every other index is fixed.
+A disjoint split at 13 fixes that final index. A separate unchanged-helper
+broad/serial/parallel experiment is required to determine whether this actually
+reduces algebraic cost. Equal tuple counts alone do not predict speedup.
+
+### Positive-index split of the measured expensive head
+
+The first such experiment completed and independently passed raw-result audit
+in `TMP/head9694360-positive-split.TKgkup/`. It uses the original frozen
+`EcUaJy` probe, with its own unsplit baseline; its absolute times must not be
+compared with the differently built six-query helper above. The query is
+exactly saved head 9,694,360. Splitting local axis1 at 13 yields the disjoint
+singleton values 13 and 14 (physical positive indices 14 and 15). All other
+coordinates and coupled A/R/D restrictions are retained.
+
+| Execution | First-order wall / CPU seconds | Reverse-order wall / CPU seconds | Selected pieces | Successor events |
+|---|---:|---:|---:|---:|
+| Unsplit | 9.631 / 9.57 | 8.295 / 8.23 | 139 | 36,354 |
+| Same two parts, serial | 4.043 / 4.01 | 3.323 / 3.29 | 278 | 72,708 |
+| Same two parts, concurrent | 1.903 / 3.79 | 1.672 / 3.32 | 278 | 72,708 |
+
+All parts complete without local gaps, application problems or unsupported
+images. Serial and concurrent per-part queries, integer work counters and
+bounded diagnostics agree exactly. Conditional successor events change from
+461 to 675; optional coefficient-refusal attempts change from three to zero.
+Matching and term visits double, rather than disappearing from the accounting.
+
+The first observed 5.06x unsplit/concurrent wall ratio is **not simply two-core
+scaling**: splitting already gives a 2.38x serial improvement. Summed selected
+application time falls from 7.722 to 2.909 seconds in the serial split, consistent
+with cheaper fixed-index specialization and guard handling. The fresh-process
+follow-up in `TMP/head9694360-positive-reverse.pDAF0K/` reverses execution to
+concurrent/serial/unsplit without changing the executable, query or policies.
+It gives 4.96x unsplit/concurrent and 2.50x unsplit/serial ratios. All per-mode
+integer work counters, per-part queries and bounded diagnostics also reproduce
+across processes. Both runs complete without guard intervention or a concurrent
+live checkpoint write. This weakens the simple warm-order explanation; two
+short shared-host sequences do not isolate causal effects or establish a
+population-wide performance guarantee.
+The table excludes the one-time shared owner load: 17.391 seconds in the first
+process and 29.924 seconds in the reverse process. Whole-helper times, including
+all three modes and loading, are 37.61 and 45.73 seconds respectively; the
+roughly fivefold figure is an inspection comparison, not process-launch timing.
+
+The additional outgoing events still require downstream containment and
+publication. This native-only result therefore does not establish production
+speedup, a coefficient-payload union certificate, or recursive closure. Before
+integration, compare whole-domain subdivision with splitting already-selected
+expensive pieces: the latter could avoid duplicate matching, but needs its own
+ownership, cancellation, publication and checkpoint design. Neither option may
+drop a piece or treat a completed part as a completed original obligation.
+
+Independent source review recommends the smaller first implementation experiment:
+an **off-default serial refinement of an already normalized application cell**,
+immediately before the existing full equal-shift-group application. Admit a
+small finite single varying coordinate through a generic geometry policy; use
+deterministic exact singleton children and keep the original matched piece,
+guards, A/R/D constraints and one parent event stream. This targets the serial
+algebraic gain, not parallel scheduling itself, and avoids matching the whole
+source twice. Preserve the original shared operation budget and cancellation;
+check endpoints and physical-index representability before refinement. Ineligible
+cells take the unchanged path, but a failure after emitting a child remains
+incomplete rather than falling back and duplicating effects. Bind the policy
+into checkpoint requests. Implementation has been authorized, but no production
+speedup or live adoption follows from this design review.
+
+### Live monitoring at 01:32 UTC
+
+The unchanged, identity-checked native process has completed 4,524,380 native
+inspections, with 6,059,726 pending logical obligations (4,056,198 native).
+RSS is 71.19 GB, below the unchanged 475/500 GB guards. Frontiers remain zero
+and both failure markers are clear. Checkpoint generation 6 is saved and no
+write is active. These observations do not imply closure.
+
+The bounded-tail analysis in `TMP/five-loop-monitor-snapshot.tPrXbj/` covers
+01:12:05–01:32:05 UTC, including the 94.60-second checkpoint write. Native
+completions increase by 52,952, but pending obligations also increase by 63,449.
+Mean measured CPU is 2.37 cores; mean active native slots are 1.92, while mean
+finished-held inspections are 175.66 (maximum 254). This is not a checkpoint-free
+benchmark or evidence that the configured 50 workers are well utilized.
+
+The window emits 20.16 million successor callbacks but schedules only 151,906
+new logical obligations: substantial duplicate suppression already occurs.
+Containment-check count increases by 10.99 billion. Coordinator preparation
+plus serial commit accumulate 177.12 seconds of wall instrumentation, not an
+exclusive CPU decomposition. Queue growth, repeated application and ordered
+publication remain distinct concerns.
+
+Owner `011101110111000` appears in 92.2% of heartbeat samples and Apply in 97.6%.
+The longest recent head spans again have A12/13 bounds, with rank absent from
+the telemetry. Thus the locally feasible A26/R15 candidate must not be assumed
+to cover the current wave; exact rank and geometry still matter. Continue
+monitoring while testing isolated improvements; leave the live process unchanged
+and do not extrapolate a completion ETA from these counters.
