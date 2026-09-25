@@ -181,3 +181,14 @@ After a clean pause, add `--resume`. The save-and-stop RSS threshold is
 712.5 GB before any stricter host-headroom admission. Ten workers are the user's
 chosen resource budget, not a new claim of optimal utilization. The broader
 goal remains paused until further instructions.
+
+## Subsequent bounded-helper comparison
+
+The user subsequently launched the prepared five-loop campaign. A separate,
+input-only four-loop experiment leaves that live run unchanged. Adding A<=19
+to every auxiliary helper still resolves the same required physical input
+envelopes, but increases measured traversal time by 3.93–15.73x across FG, BMW,
+H and X. Removing both helper rank and power bounds instead gives short
+diagnostic walks with unresolved guards, not successful coverage. The
+[three-way comparison](four_loop_helper_bounds_2026-09-25.md) records full
+timings, repetitions, domain counts, failure scope and independent audits.
