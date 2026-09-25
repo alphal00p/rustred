@@ -1,5 +1,19 @@
 # RustRed project goal
 
+## September 25: user-requested quota checkpoint and pause
+
+Stop new optimization and experiments. Finish only the diagnostic build and
+verification already underway, collect the findings in
+[STATUS_25_09_2026.md](STATUS_25_09_2026.md), commit/push the reviewed checkpoint,
+then pause the tool-managed goal and stop assistant work. The user's live
+five-loop campaign must remain running unchanged; the user will decide whether
+to restart it. The completed small W50 comparison shows a 23.80% clean-pair gain
+for Ready, not sustained 50-core utilization or full-campaign closure. The new
+finite multi-prefix recovery test is inconclusive, and the positive-inclusion
+spectator's native measurement is deferred. Do not start either again without
+an explicit future continuation. The mathematical stages below remain the
+long-term plan, not authorization to work through this requested pause.
+
 ## September 24 follow-up: finish the four-loop control, then refresh Vakint
 
 The user has explicitly requested continued work, in this order:

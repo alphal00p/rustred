@@ -7,6 +7,8 @@ use std::sync::Arc;
 mod index;
 use index::{AggregateIndex, Coordinates, Signature};
 mod checkpoint;
+#[cfg(test)]
+pub(super) mod positive_reuse_trace;
 mod prepared;
 pub(super) use prepared::PreparedAdmission;
 use prepared::PreparedLookup;
@@ -261,6 +263,8 @@ impl<const N: usize> Queue<N> {
     ) -> Result<(usize, bool), &'static str> {
         debug_assert_eq!(domain.lower.len(), N);
         debug_assert_eq!(domain.upper.len(), N);
+        #[cfg(test)]
+        let observation = positive_reuse_trace::begin(self, &domain);
         // Borrowed full-domain lookup: hash collisions use full Eq, and no
         // coordinate vectors or Arc are allocated on this hot path.
         if let Some(&id) = self.exact.get(&domain) {
@@ -337,12 +341,15 @@ impl<const N: usize> Queue<N> {
                 found
             };
             if let Some(id) = found {
-                if summary.is_some() && !self.domains[id].contains(&domain) {
+                let semantic = summary.is_some() && !self.domains[id].contains(&domain);
+                if semantic {
                     self.containment_semantic_hits = self
                         .containment_semantic_hits
                         .checked_add(1)
                         .ok_or("semantic containment hit counter overflow")?;
                 }
+                #[cfg(test)]
+                positive_reuse_trace::positive(self, &domain, id, semantic, observation);
                 self.deduplicated += 1;
                 return Ok((id, false));
             }

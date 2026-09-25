@@ -440,6 +440,17 @@ impl<const N: usize> State<N> {
     ) -> Result<(), &'static str> {
         self.successors += usize::from(successor);
         self.conditional += usize::from(conditional);
+        #[cfg(test)]
+        if super::queue::positive_reuse_trace::enabled() {
+            assert!(
+                !self.ready() && !self.physical_enabled,
+                "spectator requires Ordered unsplit publication"
+            );
+            super::queue::positive_reuse_trace::set_source(
+                self.queue.next,
+                &self.queue.domains[self.queue.next],
+            );
+        }
         admit(&mut self.queue)?;
         Ok(())
     }
@@ -797,6 +808,15 @@ fn run_configured<const N: usize>(
     if state.error.is_some() {
         return;
     }
+    #[cfg(test)]
+    if super::queue::positive_reuse_trace::enabled() {
+        assert_eq!(
+            request.publication_policy,
+            super::OwnerDomainWalkPublicationPolicy::Ordered
+        );
+        assert!(request.workers > 1 && request.apply_subdivision.is_none());
+        super::queue::positive_reuse_trace::begin_run(&mut state.queue);
+    }
     state.physical_enabled = request.apply_subdivision.is_some();
     if request
         .apply_subdivision
@@ -885,6 +905,10 @@ fn run_configured<const N: usize>(
             None => inspection::inspect(reducer, domain, request, stop, &initial, &overlap, emit),
         },
     );
+    #[cfg(test)]
+    if super::queue::positive_reuse_trace::enabled() {
+        super::queue::positive_reuse_trace::end_run(&state.queue);
+    }
 }
 
 // Both publication policies share this one native pool and admission loop.
