@@ -169,6 +169,18 @@ A finite-anchor counterfactual is proposed, not launched; it can trade less
 work against loss of the rank-only reuse shortcut. Neither that scope concern
 nor the rising queue alone warrants changing the live campaign.
 
+The subsequent 03:44–04:09 UTC window is inspection-heavy again: 1.88 measured
+busy cores, roughly 140 finished-but-held jobs on average, and a small decline
+in the still-11.24-million pending queue. One short profile emits 359,247
+successor requests but admits only 13 new domains. The ordered reservation
+window and repeated reuse/algebra work remain distinct targets; task-grain
+tuning alone cannot remove the former. Keep the live campaign unchanged while
+testing minimum-eight-record admission tasks through a test-only seam with
+the same immutable batches and ordered commit. A retained-domain insertion
+microbenchmark is deliberately narrower than this reuse-heavy live stream;
+do not infer end-to-end speedup or closure from it. See the latest section of
+the [live profile study](docs/research/five_loop_slow_inspection_parallelism_2026-09-24.md).
+
 Both existing packagings already use the same generic `.rrbin` container and
 Symbolica native state/atoms. The older four-loop files are multi-sector bundles;
 the shared-owner ingress currently requires single-sector bundles. This is an

@@ -832,8 +832,9 @@ immutable preparation batch. This would retain the default no-steal split shape
 with24 helpers while preventing finer stolen-subtree splits. Eight records do
 not mean eight costly lookups or a guaranteed task count; load skew can make
 the change worse. Keep batch boundaries, indexed event order, cancellation,
-stale-lookup validation and serial commit unchanged. This remains a source-based
-proposal, with no implementation or measured gain yet.
+stale-lookup validation and serial commit unchanged. At the time of that capture
+this was a source-based proposal, not an implemented or measured optimization;
+the later insertion-replay experiment is described below.
 
 ### Hour-long admission-heavy window, 02:27–03:27 UTC
 
@@ -890,3 +891,74 @@ and lookup experiments, not a speedup claim or an immediate policy change.
 Identity and checkpoint 8 remain unchanged, no write overlaps the capture, and
 no samples are lost. Concurrent compilation on separate cores still permits
 shared-host effects; this is profiling, not an isolated timing comparison.
+
+### Inspector-heavy window, 03:44–04:10 UTC on September 25
+
+The next bounded-tail audit (`TMP/five-loop-admission-grain-snapshot.FQPU3o/`)
+finds a different bottleneck again. Over roughly 25 minutes, native completions
+increase by 6,116, scheduled obligations by 3,405 and publications by 17,395.
+Pending work decreases by 13,990, but remains 11,238,788. RSS is 104.908 GB;
+mean measured CPU use is 1.878 cores. Approximately 99.7% of sampled publication
+heads belong to one nine-support owner, with repeated roughly 48–51-second
+observed head residencies, not measured whole-inspection durations. This is a
+workload observation, not topology-specific dispatch.
+Preparation plus commit account for only 9.09% of coordinator elapsed time,
+versus 65.22% in the preceding admission-heavy hour. Checkpoint 8 is unchanged.
+
+A separate read-only profile at 04:09:47–04:10:08 UTC
+(`TMP/five-loop-inspector-wave.PjxrBx/`) brackets one unchanged unfinished head.
+Its 20.137-second heartbeat interval has:
+
+| Observation | Delta or measured value |
+|---|---:|
+| Completed native inspections | 0 |
+| Successor scheduling requests | 359,247 |
+| Newly scheduled obligations | 13 |
+| Deduplication hits | 359,234 |
+| Exact-domain hits | 72,260 |
+| Job-local exact reuse hits | 375 |
+| Domain-summary builds | 286,612 |
+| Speculative containment comparisons | 87,181,305 |
+| Preparation plus commit elapsed time | 1.883 seconds (9.35%) |
+| Process CPU use over the resource bracket | 1.785 cores |
+
+These are descriptor-level requests, not distinct scalar integrals. Almost all
+are already covered by other pending or completed domain obligations. Such reuse
+does not discharge the covering obligation or establish family closure.
+Speculative and committed comparison counts overlap and must not be added.
+
+The single active inspector accounts for 58.74% of sampled user CPU, admission
+helpers 38.58% and the coordinator 2.68%. Admission containment/index leaves take
+23.83% of total sampled CPU and epoch/deque scheduling leaves 8.28%. Inspector
+selected allocator leaves take 12.29%, and repeated polynomial validation 3.92%.
+The allocator subset excludes plain `malloc`, `cfree` and `malloc_consolidate`;
+it is not the complete allocation cost. These figures are exclusive leaf sums,
+not complete phase costs. Zero lost samples
+does not fix incomplete stack unwinding. No checkpoint write overlaps this
+profile, and the native process is neither signalled nor reconfigured.
+
+At the end of the sample, 177 later inspections have finished but await ordered
+publication; only one native slot is occupied. The existing ordered reservation
+window can therefore prevent millions of queued obligations from filling the
+other inspector slots. Increasing admission task grain alone cannot remove that
+head-of-line constraint. The experimental Ready policy addresses that constraint,
+but its five-loop full-drain performance/recovery comparison remains open, so
+the live policy is unchanged.
+
+The immediate experiment isolates task grain with a **test-only** constructor,
+the same immutable 256-record batches and unchanged ordered commit. Its first
+workload replays actual retained domain insertions from a smaller saved pilot;
+it deliberately does not reproduce the live stream's overwhelmingly reused
+proposals or the pilot's interleaved publication lifecycle. Any gain there is an
+insertion microbenchmark result, not a live-campaign speedup. Follow-up work
+should measure reuse-heavy proposals and repeated inspector algebra separately;
+the current data do not justify promoting any optimization or claiming an ETA.
+
+For this fixed short trace, even deleting all 1.883 seconds charged to
+preparation/commit would shorten the 20.137-second bracket by only about 9.35%
+(roughly 1.10x). This is illustrative fixed-trace arithmetic, not a bound on a
+different scheduler: changing publication order can change the work itself.
+It explains why the grain experiment must remain separate from the larger
+Ready/publication and expensive-inspection investigations. In the earlier
+admission-heavy hour the same proportions were very different. Optimizing for
+one displayed CPU-utilization number would miss these changing critical paths.
