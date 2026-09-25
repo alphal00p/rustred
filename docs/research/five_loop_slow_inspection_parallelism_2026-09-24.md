@@ -808,3 +808,85 @@ the denominator. This differs materially from the earlier short profile's
 target, but is not a CPU attribution or a matched performance comparison.
 The changing workload means neither window should be generalized to the entire
 campaign. Continue profiling actual waves and preserve the live configuration.
+
+A second independently reviewed20-second capture at02:32:44–02:33:05 UTC
+(`TMP/five-loop-mixed-wave-profile.pfoDMS/`) samples this changed workload.
+Admission takes39.69% of sampled user CPU, the coordinator5.42% and inspectors
+approximately54.9%. Epoch pin/advance plus deque stealing take15.12% of total
+sampled CPU, versus8.06% in the earlier capture. Containment/index leaves take
+10.23%, versus20.55%. These are different workload windows, not a speedup test.
+
+Preparation occurs304.54 times/s (earlier66.70), averaging211.87 records/batch
+and89.77 comparisons/request (earlier379.89). Preparation plus commit accumulate
+4.350 seconds over21.144 heartbeat seconds, or20.57% elapsed time. That is
+neither the39.69% CPU share nor the preceding25-minute49.30% elapsed fraction.
+The changing ratios reinforce the need to measure several actual waves.
+All bracketing frontiers/failure markers remain clear; no checkpoint write
+overlaps this short capture. Concurrent builds and the side recovery test use
+disjoint cores, but shared-host effects remain possible. Unwinding is still
+incomplete despite zero lost samples.
+
+Inspection of the pinned Rayon producer suggests a narrowly scoped next
+scheduling experiment: minimum-eight-record tasks within the existing256-record
+immutable preparation batch. This would retain the default no-steal split shape
+with24 helpers while preventing finer stolen-subtree splits. Eight records do
+not mean eight costly lookups or a guaranteed task count; load skew can make
+the change worse. Keep batch boundaries, indexed event order, cancellation,
+stale-lookup validation and serial commit unchanged. This remains a source-based
+proposal, with no implementation or measured gain yet.
+
+### Hour-long admission-heavy window, 02:27–03:27 UTC
+
+The independently collected bounded-tail audit in
+`TMP/five-loop-hour-audit.aAxCY7/` retains the unchanged process identity,
+raw samples and arithmetic. Native completions increase 1,283,709, publications
+2,086,332 and scheduled obligations 4,755,081. Pending work grows 2,668,749 to
+11,490,662; every quarter-hour adds pending work. The interval with slower
+queue growth also has slower completion throughput, so it is not evidence of
+convergence. The maximum scheduled finite rank reaches 21; escaping descendants
+are retained rather than clipped to the input rank 15.
+
+Mean measured CPU use is 5.479 cores out of 50. RSS rises from 84.779 to 101.589 GB.
+Preparation plus ordered commit account for 2,347.683 seconds, 65.22% of the
+coordinator elapsed interval. In the final five minutes the fraction is 87.76%
+(29.05% preparation, 58.70% commit). These are elapsed spans, not CPU shares.
+Prepared batches average 157.58 records over the hour; speculative comparisons
+per request rise across the four quarters from 296 to 369, 504 and 768. Workload
+composition changes, so this is a reason to profile destination lookup and
+commit, not an attribution to a particular index defect. General containment
+counters include conservative reverse-maintenance charges; they are not all
+actual native inclusion calls and must not be added twice.
+
+Generation 8 saves 15.899 GB in 137.769 seconds, approximately 3.83% of the hour;
+the last-five-minute window excludes that write. Checkpointing cannot explain
+the persistent admission fraction. All sampled frontier and failure markers
+remain clear. RAM is only 21.39% of the 475 GB cooperative threshold and disk
+headroom remains ample; this capture establishes no immediate safety reason to
+stop. Positive backlog growth is not a proof of nontermination or an ETA.
+
+The post-match cell-refinement control remains relevant to the earlier costly
+head: its eight slowest matched pieces have only one two-valued coordinate.
+It avoids repeating matching but can replace one successor with two narrower
+successors. A local algebra speedup must therefore be checked against actual
+recursive admission/work inflation before any production recommendation.
+
+A further independently analyzed 20-second profile at 03:32:18–03:32:39 UTC
+(`TMP/five-loop-commit-wave-profile.ovuHxX/`) confirms that the phase mix changes
+quickly. During its 21.150-second heartbeat bracket, 4,805 native inspections
+and 13,229 logical publications complete, versus 10,920 new obligations: pending
+work temporarily falls by 2,309. Preparation plus commit take 5.799 seconds,
+27.42% elapsed time, not the preceding five-minute 87.76%. Neither this short
+decrease nor the preceding growth establishes eventual exhaustion.
+
+In this capture, admission helpers account for 51.72% of sampled user CPU,
+inspectors 41.98% and the coordinator 6.28%. Admission containment/index leaves
+take 19.63%, while epoch pin/advance and deque stealing take 15.96%. Batches
+average 190.74 records at 410.88/s. Coordinator containment/index and JSON leaves
+are only 0.57% and 0.33% of all sampled user CPU: this sample does not establish
+reverse maintenance or serialization as the dominant coordinator cost. Caller
+stacks remain incomplete, so forward/reverse lookup and stale-snapshot fallback
+cannot be separated reliably. These measurements support controlled task-grain
+and lookup experiments, not a speedup claim or an immediate policy change.
+Identity and checkpoint 8 remain unchanged, no write overlaps the capture, and
+no samples are lost. Concurrent compilation on separate cores still permits
+shared-host effects; this is profiling, not an isolated timing comparison.

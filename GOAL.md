@@ -112,7 +112,8 @@ recovery fixtures completed before the required overlapping-prefix trigger.
 Neither was interrupted or resumed; both are inconclusive, not successes.
 The subsequent five-loop partial-recovery result is recorded below; a
 full-completion recovery comparison remains open.
-The negative checkpoint test remains held behind that positive recovery gate.
+The missing-parked-prefix negative checkpoint gate subsequently passed, as
+recorded below; full-completion recovery equivalence remains open.
 An independently audited old/new Ordered comparison found a build-profile
 mismatch. With matching release profiles, summed traversal differs by +1.44%
 and CPU by +2.42%, rather than the previous roughly 20% gap. This single
@@ -142,12 +143,26 @@ The separate six-worker five-loop Ready recovery test now passes two actual
 fresh-process restores of checkpoints with multiple positive unfinished source
 prefixes and genuinely finished later work. Independent raw checkpoint audits
 confirm per-source advancement and preservation of published effects. This is
-partial recovery only: final exhaustion/equivalence and corrupted-checkpoint
-rejection remain open. Two prior harness setup/cancellation failures are retained
+partial recovery only: final exhaustion/equivalence remains open. A subsequent
+private-copy test also rejects a missing parked source prefix with the exact
+accounting error, before owner import; this is not arbitrary-corruption coverage.
+Two prior harness setup/cancellation failures are retained
 and are not counted as replay evidence. The successful test uses the documented
 cooperative stop-file interface; production is unchanged. Continue the refinement
 tests and native timing controls before any policy promotion. See the
 [recovery record](docs/research/five_loop_ready_publication_2026-09-24.md).
+
+Continued read-only monitoring finds admission increasingly important: the
+02:27–03:27 UTC window averages 5.48 busy cores and spends 65.22% of coordinator
+elapsed time preparing and committing successors, while pending work grows
+2.67 million. This is not a CPU attribution or a termination verdict. Keep
+measuring complete recursive cost before promoting an inspector-only speedup.
+The [auxiliary-scope audit](docs/research/five_loop_auxiliary_scope_2026-09-25.md)
+also distinguishes the required finite roots from the 13 unbounded-positive-power
+auxiliaries: those are stronger ordinary obligations, not free cache templates.
+A finite-anchor counterfactual is proposed, not launched; it can trade less
+work against loss of the rank-only reuse shortcut. Neither that scope concern
+nor the rising queue alone warrants changing the live campaign.
 
 Both existing packagings already use the same generic `.rrbin` container and
 Symbolica native state/atoms. The older four-loop files are multi-sector bundles;

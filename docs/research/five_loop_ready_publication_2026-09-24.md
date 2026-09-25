@@ -274,6 +274,26 @@ supervisor handles Ctrl-C by writing that file. The successful test uses this
 documented cooperative boundary. It is not a direct-native-SIGINT test, and
 neither correction changed the Rust solver or the live production process.
 
-The remaining full-drain comparison and private corrupted-checkpoint rejection
-tests are still open. Keep Ordered as the default and do not promote Ready
-solely from this partial recovery success.
+The remaining full-drain comparison is still open. Keep Ordered as the default
+and do not promote Ready solely from this partial recovery success.
+
+### Missing parked-prefix rejection passes
+
+The subsequent independent negative test in `TMP/ready-negative-prefix.faPZyj/`
+uses a separate copy of the genuine generation5 checkpoint. It removes only
+parked source2's accepted prefix (377,660 events), preserving the completed
+records, ledger and original total of2,781,287 accepted events. The private
+container's byte count and BLAKE3 are updated, so a checksum failure cannot
+masquerade as semantic validation. The source checkpoint remains unchanged.
+
+The frozen CLI rejects this private input with exactly
+`ready checkpoint accepted-prefix accounting mismatch`, before importing owners
+or doing native inspection/publication. Independent review checks the raw error,
+progress, unchanged originals and valid private container hash. The guard records
+4.004 seconds, exit4 and no resource stop/error/forced termination. A precreated
+cooperative stop file was only a fail-safe against unexpectedly starting a walk;
+cancellation alone was not an accepted test outcome.
+
+This closes the missing-parked-context rejection test, not arbitrary corruption
+coverage or full-completion equivalence. No solver, production checkpoint or live
+configuration was changed.
