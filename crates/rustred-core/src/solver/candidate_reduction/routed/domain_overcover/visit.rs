@@ -1,7 +1,7 @@
 use super::super::RoutedCandidateReducer;
 use super::model::*;
 use super::power::{mapped_bounds, project_cover};
-use super::support::NumeratorDegrees;
+use super::support::{JointSourceSupport, NumeratorDegrees};
 use crate::solver::candidate_reduction::power_domain::{
     DomainPowerBounds, DomainPowerError, project,
 };
@@ -115,6 +115,34 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         power_bounds: DomainPowerBounds,
         limits: CandidateDomainRouteLimits,
         cancellation: &AtomicBool,
+        visit: impl FnMut(CandidateDomainRouteEvent<N>) -> ControlFlow<()>,
+    ) -> Result<CandidateDomainRouteStats, CandidateDomainRouteError> {
+        self.visit_power_bounded_domain_route_overcover_with_options(
+            source,
+            lower,
+            upper,
+            actual_rank,
+            power_bounds,
+            limits,
+            CandidateDomainRouteOptions::default(),
+            cancellation,
+            visit,
+        )
+    }
+
+    /// As the default visitor, with opt-in necessary joint mask exclusions.
+    /// Passing the bound never asserts an attainable endpoint. Every examined
+    /// mask, including a joint exclusion, still consumes the mask allowance.
+    pub fn visit_power_bounded_domain_route_overcover_with_options(
+        &self,
+        source: [bool; N],
+        lower: &[u64],
+        upper: &[Option<u64>],
+        actual_rank: Option<u32>,
+        power_bounds: DomainPowerBounds,
+        limits: CandidateDomainRouteLimits,
+        options: CandidateDomainRouteOptions,
+        cancellation: &AtomicBool,
         mut visit: impl FnMut(CandidateDomainRouteEvent<N>) -> ControlFlow<()>,
     ) -> Result<CandidateDomainRouteStats, CandidateDomainRouteError> {
         let mut stats = CandidateDomainRouteStats::default();
@@ -125,6 +153,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
             actual_rank,
             power_bounds,
             limits,
+            options,
             cancellation,
             &mut visit,
             &mut stats,
@@ -142,6 +171,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         actual_rank: Option<u32>,
         power_bounds: DomainPowerBounds,
         limits: CandidateDomainRouteLimits,
+        options: CandidateDomainRouteOptions,
         cancellation: &AtomicBool,
         visit: &mut impl FnMut(CandidateDomainRouteEvent<N>) -> ControlFlow<()>,
         stats: &mut CandidateDomainRouteStats,
@@ -363,6 +393,19 @@ impl<const N: usize> RoutedCandidateReducer<N> {
         if max_removed == 0 {
             return cancelled(cancellation);
         }
+        let mut joint_support = if options.joint_source_support_pruning && max_removed > 1 {
+            Some(JointSourceSupport::new(
+                &route.transport,
+                &source,
+                &lower,
+                &upper,
+                projection
+                    .as_ref()
+                    .map_or(actual_rank.map(u128::from), |p| p.numerator_upper),
+            )?)
+        } else {
+            None
+        };
         cancelled(cancellation)?;
         // Scratch holds O(N) coordinates, not all 2^k domains. The first emitted
         // domain already admitted 2*N logical cells before these allocations.
@@ -405,7 +448,7 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                         possible = false;
                         break;
                     }
-                    if constrained {
+                    if constrained || joint_support.is_some() {
                         pinch_cost = pinch_cost
                             .checked_add(u128::from(target_lower_cost[axis]) + 1)
                             .ok_or(CandidateDomainRouteFailure::CountOverflow {
@@ -420,6 +463,25 @@ impl<const N: usize> RoutedCandidateReducer<N> {
                             break;
                         }
                         pinched_rank = Some(remaining - target_lower_cost[axis] as u32 - 1);
+                    }
+                }
+                // Each affine source row supplies at most its power in total
+                // to the removed columns. Shared rows must be counted once.
+                if possible && removed > 1 {
+                    if let Some(joint) = &mut joint_support {
+                        if !joint.can_pinch(
+                            positions.iter().map(|&p| active[p]),
+                            pinch_cost,
+                            cancellation,
+                        )? {
+                            possible = false;
+                            stats.joint_support_masks_pruned = admit(
+                                stats.joint_support_masks_pruned,
+                                1,
+                                usize::MAX,
+                                "joint support masks pruned",
+                            )?;
+                        }
                     }
                 }
                 // Even an installed/known-zero subsupport reenters Route. The

@@ -66,6 +66,8 @@ pub struct OwnerDomainWalkRequest {
     /// cap is an opt-in diagnostic budget, not a restriction on actual rank.
     pub max_containment_checks: Option<usize>,
     pub route_domain_overcover: bool,
+    /// Opt-in necessary degree bound over the union of source numerator rows.
+    pub route_joint_source_support_pruning: bool,
     pub max_route_masks: usize,
 }
 impl OwnerDomainWalkRequest {
@@ -85,6 +87,7 @@ impl OwnerDomainWalkRequest {
             max_frontiers: 100_000,
             max_containment_checks: None,
             route_domain_overcover: false,
+            route_joint_source_support_pruning: false,
             max_route_masks: 100_000,
         }
     }
@@ -143,7 +146,9 @@ impl OwnerDomainWalkResult {
             "max_bounded_refinement_cells",
             "routed_domains",
             "route_masks",
+            "route_joint_support_masks_pruned",
             "route_domain_overcover",
+            "route_joint_source_support_pruning",
             "max_scheduled_finite_rank",
             "unbounded_rank_domains",
             "successors",
@@ -215,6 +220,11 @@ pub fn owner_domain_walk_with_progress(
     {
         return Err(AppError::input("invalid symbolic worklist allowances"));
     }
+    if request.route_joint_source_support_pruning && !request.route_domain_overcover {
+        return Err(AppError::input(
+            "joint source-support pruning requires route domain overcover",
+        ));
+    }
     if let Some(checkpoint) = &request.checkpoint {
         if checkpoint.interval_seconds == 0 {
             return Err(AppError::input("checkpoint interval must be positive"));
@@ -271,6 +281,7 @@ pub fn owner_domain_walk_with_progress(
         "max_containment_checks":request.max_containment_checks,
         "containment_check_policy":"general_comparisons_only; null_is_unlimited; checked_counter",
         "route_domain_overcover":request.route_domain_overcover, "max_route_masks":request.max_route_masks,
+        "route_joint_source_support_pruning":request.route_joint_source_support_pruning,
         "applied_limits":limits_json(&request), "publication_policy":"stable_domain_id_stream",
         "bounded_refinement_axes":matching::refinement_axes_name(request.matching.match_limits.refinement_axes),
         "max_bounded_refinement_cells":request.matching.match_limits.max_bounded_refinement_cells,
@@ -631,7 +642,9 @@ fn run<const N: usize>(
         "all_scheduled_domains_resolved":resolved,"recursive_worklist_exhausted":exhausted,
         "family_closure_claim":false,"ibp_generation":false,"routing_expanded":false,
         "route_domain_overcover":request.route_domain_overcover,
+        "route_joint_source_support_pruning":request.route_joint_source_support_pruning,
         "routed_domains":state.routed,"route_masks":state.route_masks,
+        "route_joint_support_masks_pruned":state.route_joint_support_masks_pruned,
         "max_scheduled_finite_rank":state.queue.max_finite_rank,"unbounded_rank_domains":state.queue.unbounded_rank_domains,
         "independent_certification":false,"resume_supported":false,
         "conditional_successors_use_conservative_domain_overcover":true,
@@ -838,6 +851,7 @@ mod policy_tests {
             23
         );
         assert!(!request.route_domain_overcover);
+        assert!(!request.route_joint_source_support_pruning);
         let document =
             json!({"bounded_refinement_axes":"finite-axes", "max_bounded_refinement_cells":23});
         let progress = OwnerDomainWalkResult::completion_progress(&document);

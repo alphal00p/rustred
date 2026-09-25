@@ -13,6 +13,20 @@ SPEC.loader.exec_module(MATCH)
 
 
 class MatchSteeringTests(unittest.TestCase):
+    def test_joint_support_is_opt_in_scoped_and_forwarded_once(self):
+        flag = "--" + MATCH.JOINT_SUPPORT_PRUNING
+        route = ["--follow-successors", "--route-domain-overcover"]
+        for flags in (route, route + [flag], route + [flag, "--unbounded-work"]):
+            with patch("sys.argv", self.arguments() + flags), patch.object(MATCH.os, "execve") as execute:
+                MATCH.main()
+            self.assertEqual(execute.call_args.args[1].count(flag), int(flag in flags))
+        for flags in ([flag], ["--follow-successors", flag], route + [flag, flag]):
+            with patch("sys.argv", self.arguments() + flags), patch.object(MATCH.os, "execve") as execute, \
+                    patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit):
+                    MATCH.main()
+                execute.assert_not_called()
+
     def arguments(self):
         return [str(SOURCE), "--executable", "native", "--manifest", "selection.json",
                 "--queries", "queries.json", "--output", "result.json"]

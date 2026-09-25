@@ -27,6 +27,7 @@ REFINEMENT_AXES = "bounded-refinement-axes"
 REFINEMENT_AXIS_CHOICES = ("inactive-only", "finite-axes")
 TRANSFER_LOOKAHEAD = "transfer-unreserved-lookahead"
 INITIAL_D_REUSE = "reuse-initial-d-bands"
+JOINT_SUPPORT_PRUNING = "route-joint-source-support-pruning"
 PUBLICATION_POLICY = "publication-policy"
 PUBLICATION_POLICIES = ("ordered", "owner-batched", "ready")
 INSPECTION_WORKERS = "inspection-workers"
@@ -127,6 +128,8 @@ def main() -> None:
                         help="share symbolic successor domains; unresolved routes remain explicit")
     parser.add_argument("--route-domain-overcover", action="store_true",
                         help="share admitted route rank overcovers without expanding numerator polynomials")
+    parser.add_argument("--" + JOINT_SUPPORT_PRUNING, action=StoreTrueOnce, nargs=0, default=False,
+                        help="opt into necessary joint source-support mask pruning; requires route overcover; default off")
     parser.add_argument("--max-route-masks-per-query", type=positive)
     for option in ALLOWANCES:
         parser.add_argument("--" + option,
@@ -161,12 +164,14 @@ def main() -> None:
         parser.error("checkpoint interval requires --checkpoint or --resume")
     if (args.apply_subdivision_axis is None) != (args.apply_subdivision_cut is None):
         parser.error("subdivision requires both axis and cut")
-    if not args.follow_successors and (args.route_domain_overcover or args.reuse_initial_d_bands or any(
+    if not args.follow_successors and (args.route_domain_overcover or args.route_joint_source_support_pruning or args.reuse_initial_d_bands or any(
             getattr(args, option.replace("-", "_")) is not None
             for option in (*WALK_ALLOWANCES, TRANSFER_LOOKAHEAD, PUBLICATION_POLICY, INSPECTION_WORKERS, APPLICATION_REFINEMENT, "max-route-masks-per-query"))):
         parser.error("successor work allowances require --follow-successors")
     if args.max_route_masks_per_query is not None and not args.route_domain_overcover:
         parser.error("route mask allowance requires --route-domain-overcover")
+    if args.route_joint_source_support_pruning and not args.route_domain_overcover:
+        parser.error("joint source-support pruning requires --route-domain-overcover")
     if args.transfer_unreserved_lookahead is not None and args.max_containment_checks not in (None, "unlimited"):
         parser.error("--transfer-unreserved-lookahead requires unlimited containment checks")
     if args.reuse_initial_d_bands and args.transfer_unreserved_lookahead is None:
@@ -193,6 +198,8 @@ def main() -> None:
         command.append("--follow-successors")
     if args.route_domain_overcover:
         command.append("--route-domain-overcover")
+    if args.route_joint_source_support_pruning:
+        command.append("--" + JOINT_SUPPORT_PRUNING)
     if args.reuse_initial_d_bands:
         command.append("--" + INITIAL_D_REUSE)
     if args.unbounded_work:

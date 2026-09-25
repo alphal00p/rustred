@@ -101,6 +101,7 @@ fn run_admitted(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
                 OwnerDomainWalkSchedulingPolicy::TransferUnreserved { lookahead };
         }
         walk.route_domain_overcover = args.route_domain_overcover;
+        walk.route_joint_source_support_pruning = args.route_joint_source_support_pruning;
         walk.max_route_masks = args.max_route_masks;
         walk.applied_limits.max_boundary_cells = args.max_rhs_cells;
         walk.applied_limits.max_term_visits = args.max_term_visits;

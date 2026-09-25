@@ -44,13 +44,14 @@ pub use power_domain::{
 pub use reducer::CandidateReducer;
 pub use routed::{
     CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,
-    CandidateDomainRouteFailure, CandidateDomainRouteLimits, CandidateDomainRouteStats,
-    CandidateEntryAdmission, CandidateOwnerRoute, CandidateRoutedCampaignError,
-    CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport, CandidateRoutedCampaignSnapshot,
-    CandidateRoutedError, CandidateRoutedFrontier, CandidateRoutedFrontierReason,
-    CandidateRoutedTraceReport, CandidateRoutedWork, EntryWitnessError, EntryWitnessLimits,
-    EntryWitnessOutcome, FiniteRootAdmission, RootAdmissionError, RootRegionInput,
-    RoutedCandidateLimits, RoutedCandidateReducer, pick_entry_intersection_witness,
+    CandidateDomainRouteFailure, CandidateDomainRouteLimits, CandidateDomainRouteOptions,
+    CandidateDomainRouteStats, CandidateEntryAdmission, CandidateOwnerRoute,
+    CandidateRoutedCampaignError, CandidateRoutedCampaignFailure, CandidateRoutedCampaignReport,
+    CandidateRoutedCampaignSnapshot, CandidateRoutedError, CandidateRoutedFrontier,
+    CandidateRoutedFrontierReason, CandidateRoutedTraceReport, CandidateRoutedWork,
+    EntryWitnessError, EntryWitnessLimits, EntryWitnessOutcome, FiniteRootAdmission,
+    RootAdmissionError, RootRegionInput, RoutedCandidateLimits, RoutedCandidateReducer,
+    pick_entry_intersection_witness,
 };
 pub use trace::{CandidateTraceLimits, CandidateTraceReport};
 

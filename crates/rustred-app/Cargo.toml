@@ -10,7 +10,7 @@ publish = false
 
 [features]
 default = ["cli"]
-cli = ["dep:tabled", "dep:crossterm", "dep:ratatui"]
+cli = ["dep:tabled", "dep:crossterm", "dep:ratatui", "dep:libc", "dep:signal-hook"]
 
 [lib]
 name = "rustred_app"
@@ -74,4 +74,6 @@ symbolica.workspace = true
 tabled = { version = "0.21", default-features = false, features = ["ansi", "std"], optional = true }
 crossterm = { version = "0.28", optional = true }
 ratatui = { version = "0.29", default-features = false, features = ["crossterm"], optional = true }
+libc = { version = "0.2", optional = true }
+signal-hook = { version = "0.3", optional = true }
 toml = "1"

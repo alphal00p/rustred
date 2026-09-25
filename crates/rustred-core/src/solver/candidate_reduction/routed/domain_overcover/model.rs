@@ -19,6 +19,14 @@ impl Default for CandidateDomainRouteLimits {
     }
 }
 
+/// Optional conservative mask exclusions. The default preserves existing covers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CandidateDomainRouteOptions {
+    /// Reject a multi-axis pinch only when its union of inactive source rows
+    /// cannot supply the required total cancellation degree.
+    pub joint_source_support_pruning: bool,
+}
+
 /// A sufficient box cover in destination indexed coordinates. Positive axes
 /// use n=x+1, inactive axes n=-x. The inactive-coordinate sum is additionally
 /// bounded by actual_rank, or unbounded for None. Aggregate power predicates
@@ -79,6 +87,8 @@ pub struct CandidateDomainRouteStats {
     /// empty power geometry.
     /// These masks still consume the mask allowance.
     pub masks_pruned: usize,
+    /// Subset of masks_pruned excluded by the opt-in joint source-support bound.
+    pub joint_support_masks_pruned: usize,
     pub events: usize,
     pub apply_domains: usize,
     pub route_domains: usize,

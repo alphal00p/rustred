@@ -39,6 +39,7 @@ pub(crate) struct OwnerDomainMatchArgs {
     pub inspection_workers: Option<usize>,
     pub publication_policy: crate::OwnerDomainWalkPublicationPolicy,
     pub route_domain_overcover: bool,
+    pub route_joint_source_support_pruning: bool,
     pub max_route_masks: usize,
     pub max_rhs_cells: usize,
     pub max_term_visits: usize,
@@ -87,6 +88,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         inspection_workers: None,
         publication_policy: crate::OwnerDomainWalkPublicationPolicy::Ordered,
         route_domain_overcover: false,
+        route_joint_source_support_pruning: false,
         max_route_masks: 100_000,
         max_rhs_cells: applied.max_boundary_cells,
         max_term_visits: applied.max_term_visits,
@@ -142,6 +144,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--publication-policy" => "--publication-policy",
             "--inspection-workers" => "--inspection-workers",
             "--route-domain-overcover" => "--route-domain-overcover",
+            "--route-joint-source-support-pruning" => "--route-joint-source-support-pruning",
             "--max-route-masks-per-query" => "--max-route-masks-per-query",
             "--max-rhs-cells-per-query" => "--max-rhs-cells-per-query",
             "--max-term-visits-per-query" => "--max-term-visits-per-query",
@@ -178,6 +181,10 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         }
         if name == "--route-domain-overcover" {
             result.route_domain_overcover = true;
+            continue;
+        }
+        if name == "--route-joint-source-support-pruning" {
+            result.route_joint_source_support_pruning = true;
             continue;
         }
         if name == "--reuse-initial-d-bands" {
@@ -417,6 +424,7 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
             "--transfer-unreserved-lookahead",
             "--reuse-initial-d-bands",
             "--route-domain-overcover",
+            "--route-joint-source-support-pruning",
             "--max-route-masks-per-query",
             "--max-rhs-cells-per-query",
             "--max-term-visits-per-query",
@@ -435,6 +443,11 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
     if !result.route_domain_overcover && seen.contains("--max-route-masks-per-query") {
         return Err(ArgError::InvalidCombination(
             "route mask allowance requires --route-domain-overcover",
+        ));
+    }
+    if result.route_joint_source_support_pruning && !result.route_domain_overcover {
+        return Err(ArgError::InvalidCombination(
+            "joint source-support pruning requires --route-domain-overcover",
         ));
     }
     crate::OwnerDomainWalkRequest::validate_inspection_workers(

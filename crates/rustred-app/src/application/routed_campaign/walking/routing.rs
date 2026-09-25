@@ -7,8 +7,8 @@ use super::{
     queue::{Domain, Phase},
 };
 use rustred::solver::{
-    CandidateDomainRouteEvent, CandidateDomainRouteLimits, DomainPowerBounds,
-    RoutedCandidateReducer,
+    CandidateDomainRouteEvent, CandidateDomainRouteLimits, CandidateDomainRouteOptions,
+    DomainPowerBounds, RoutedCandidateReducer,
 };
 use serde_json::{Value, json};
 use std::ops::ControlFlow;
@@ -49,10 +49,11 @@ pub(super) fn inspect<const N: usize>(
 ) -> Finished {
     let started = Instant::now();
     let conditions = reducer.domain_routing_requires_source_conditions();
-    let result = reducer.visit_power_bounded_domain_route_overcover(
+    let result = reducer.visit_power_bounded_domain_route_overcover_with_options(
         domain.owner, &domain.lower, &domain.upper, domain.rank, domain.powers,
         CandidateDomainRouteLimits { max_masks: request.max_route_masks,
             max_coordinate_cells: request.max_route_masks.saturating_mul(N).saturating_mul(2) },
+        CandidateDomainRouteOptions { joint_source_support_pruning: request.route_joint_source_support_pruning },
         cancellation, |event| {
             let effect = match event {
                 CandidateDomainRouteEvent::Apply { owner_sector, cover } if initial.contains(Phase::Apply, &owner_sector, cover.actual_rank) =>

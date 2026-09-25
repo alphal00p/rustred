@@ -124,6 +124,7 @@ struct ImageRef<'a, const N: usize> {
     refusals: &'a OptionalRefusals,
     optional: &'a OptionalCounts,
     counters: [usize; 12],
+    route_joint_support_masks_pruned: usize,
     progress: ProgressRef<'a>,
     parallel: &'a Value,
     uncommitted: &'a [Value],
@@ -139,6 +140,8 @@ struct Image<const N: usize> {
     refusals: OptionalRefusals,
     optional: OptionalCounts,
     counters: [usize; 12],
+    #[serde(default)]
+    route_joint_support_masks_pruned: usize,
     progress: Value,
     parallel: Value,
     uncommitted: Vec<Value>,
@@ -179,6 +182,7 @@ pub(in super::super) fn write<const N: usize>(
             s.initial_domain_count,
             s.initial_entry_domains_inspected,
         ],
+        route_joint_support_masks_pruned: s.route_joint_support_masks_pruned,
         progress: ProgressRef {
             metadata: s.checkpoint_progress_metadata(),
             physical_parent: &s.physical_progress,
@@ -212,6 +216,7 @@ pub(in super::super) fn read<const N: usize>(input: impl Read) -> Result<Restore
         initial_entry_domains_inspected,
     ] = image.counters;
     if initial_domain_count > image.queue.domains.len()
+        || image.route_joint_support_masks_pruned > route_masks
         || initial_entry_domains_inspected > initial_domain_count
         || completed > native_records
         || native_records
@@ -243,6 +248,7 @@ pub(in super::super) fn read<const N: usize>(input: impl Read) -> Result<Restore
     s.native_records = native_records;
     s.routed = routed;
     s.route_masks = route_masks;
+    s.route_joint_support_masks_pruned = image.route_joint_support_masks_pruned;
     s.initial_domain_count = initial_domain_count;
     s.initial_entry_domains_inspected = initial_entry_domains_inspected;
     s.parallel = image.parallel;

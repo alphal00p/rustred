@@ -8,6 +8,7 @@ mod owner_guarded;
 mod owner_match;
 mod progress;
 mod routed;
+mod shards;
 
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
@@ -74,6 +75,8 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         Command::CampaignGenerate(arguments) => generate_campaign_artifact(arguments),
         Command::CampaignInspect(arguments) => inspect_campaign_artifact(arguments),
         Command::CampaignReduce(arguments) => reduce_campaign_target(arguments),
+        Command::CampaignShards(arguments) => shards::run(arguments),
+        Command::CampaignMonitor(arguments) => shards::monitor::run(arguments),
     }
 }
 

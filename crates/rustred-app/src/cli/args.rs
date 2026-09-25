@@ -165,6 +165,8 @@ pub(crate) enum Command {
     CampaignGenerate(CampaignGenerateArgs),
     CampaignInspect(CampaignInspectArgs),
     CampaignReduce(CampaignReduceArgs),
+    CampaignShards(Vec<OsString>),
+    CampaignMonitor(Vec<OsString>),
     FoundryCampaignRun(FoundryCampaignRunArgs),
     FoundryWaveCampaignRun(FoundryWaveCampaignRunArgs),
     Help,
@@ -666,6 +668,18 @@ It supports checkpoint/resume but cannot be combined with physical subdivision.
 Its IDs, covers and work counts may depend on scheduling; saved rules and
 obligation requirements are unchanged. Use a new campaign for a changed policy;
 never attach an ordered checkpoint to a ready run.
+--route-joint-source-support-pruning enables a conservative shared-numerator
+degree bound for simultaneous propagator pinches. It is off by default and is
+part of the immutable checkpoint policy; it does not clip descendants.
+
+Independent starting-owner campaigns (opt-in, Linux):
+  rustred campaign shards --config CONFIG.json --directory DIR
+  rustred campaign shards --directory DIR --resume
+  rustred campaign monitor --directory DIR [--once|--json]
+Independent shards retain all saved rules/routes, with separate queues and
+checkpoints under one aggregate compute/RAM budget. Completion requires every
+shard; output shares native payloads once. The Rust dashboard reports measured
+CPU, per-shard work and checkpoint status; shard counts are not a closure ETA.
 Streamed aggregate events and retained frontier storage have separate budgets.
 --max-rhs-cells-per-query counts all refined
 RHS cells (not only pinches); --max-term-visits-per-query and

@@ -97,3 +97,72 @@ fn surviving_lower_and_pinch_threshold_do_not_narrow_degree_caps() {
     assert!(degrees.can_pinch(2, u64::MAX));
     assert!(!degrees.can_pinch(3, 0));
 }
+
+#[test]
+fn joint_degree_cap_rejects_invalid_indices_duplicates_and_lower_accounting() {
+    for rows in [vec![3], vec![usize::MAX], vec![0, 0], vec![2, 1]] {
+        assert!(matches!(
+            column_cap(&[0; 3], &[None; 3], 0, None, &rows),
+            Err(CandidateDomainRouteFailure::InvalidAdmittedRoute(_))
+        ));
+    }
+    assert!(matches!(
+        column_cap(&[1; 3], &[None; 3], 0, None, &[0]),
+        Err(CandidateDomainRouteFailure::InvalidAdmittedRoute(_))
+    ));
+    assert!(matches!(
+        column_cap(&[1; 3], &[None; 3], 3, Some(1), &[0]),
+        Err(CandidateDomainRouteFailure::InvalidDomain(_))
+    ));
+    let cost = 2 * (u128::from(u64::MAX) + 1);
+    let cap = column_cap(&[0; 2], &[Some(u64::MAX); 2], 0, None, &[0, 1])
+        .unwrap()
+        .unwrap();
+    assert!(cost > cap);
+}
+
+#[test]
+fn joint_degree_bound_remains_necessary_with_exact_symbolica_cancellation() {
+    use crate::family::{
+        IntegralKey,
+        numerator_expansion::{MultiAffineNumeratorFactor, try_expand_multi_affine_numerator},
+    };
+    let family = crate::solver::tests::sunset();
+    let c = family.coefficient_context();
+    // (1+y0+y1)(1+y0-y1): the mixed y0*y1 endpoint cancels exactly.
+    let factors = [
+        MultiAffineNumeratorFactor::try_new(c.one(), [c.one(), c.one(), c.zero()], 1).unwrap(),
+        MultiAffineNumeratorFactor::try_new(c.one(), [c.one(), c.integer(-1), c.zero()], 1)
+            .unwrap(),
+    ];
+    let cap = column_cap(&[1, 1], &[Some(1), Some(1)], 2, None, &[0, 1])
+        .unwrap()
+        .unwrap();
+    assert_eq!(cap, 2);
+    for base in [[1, 1, 0], [2, 1, 0]] {
+        let endpoints = try_expand_multi_affine_numerator(
+            &family,
+            &IntegralKey::try_new(base).unwrap(),
+            &factors,
+            Default::default(),
+        )
+        .unwrap();
+        assert_eq!(endpoints.len(), 4);
+        assert!(
+            !endpoints
+                .iter()
+                .any(|endpoint| endpoint.key().powers() == [base[0] - 1, base[1] - 1, 0])
+        );
+        for endpoint in &endpoints {
+            let powers = endpoint.key().powers();
+            let removed_degree = (base[0] - powers[0]) + (base[1] - powers[1]);
+            assert!(removed_degree as u128 <= cap);
+        }
+        if (base[0] + base[1]) as u128 > cap {
+            assert!(!endpoints.iter().any(|endpoint| {
+                let powers = endpoint.key().powers();
+                powers[0] <= 0 && powers[1] <= 0
+            }));
+        }
+    }
+}

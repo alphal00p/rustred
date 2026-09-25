@@ -78,6 +78,7 @@ fn binding(request: &OwnerDomainWalkRequest) -> String {
         "reuse_initial_d_bands":request.reuse_initial_d_bands,"max_domains":request.max_domains,
         "max_events":request.max_events,"max_frontiers":request.max_frontiers,
         "max_containment_checks":request.max_containment_checks,"route_domain_overcover":request.route_domain_overcover,
+        "route_joint_source_support_pruning":request.route_joint_source_support_pruning,
         "max_route_masks":request.max_route_masks,"subdivision":request.apply_subdivision,
         "max_queries":request.matching.max_queries,"max_query_bytes":request.matching.max_query_bytes});
     blake3::hash(value.to_string().as_bytes())
@@ -472,6 +473,41 @@ mod tests {
         assert!(Store::open(&request).is_err());
         fs::remove_dir_all(path).unwrap();
     }
+    #[test]
+    fn joint_source_support_policy_is_checkpoint_bound() {
+        let path = directory();
+        let mut request = OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(
+            "selection".into(),
+            "queries".into(),
+        ));
+        request.route_domain_overcover = true;
+        request.checkpoint = Some(OwnerDomainWalkCheckpointOptions::new(&path));
+        let off = binding(&request);
+        let mut store = Store::open(&request).unwrap().unwrap();
+        store.bootstrap().unwrap();
+        drop(store);
+        request.checkpoint.as_mut().unwrap().resume = true;
+        drop(Store::open(&request).unwrap().unwrap());
+        request.route_joint_source_support_pruning = true;
+        assert_ne!(binding(&request), off);
+        assert!(Store::open(&request).is_err());
+        request.route_joint_source_support_pruning = false;
+        drop(Store::open(&request).unwrap().unwrap());
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn joint_support_mask_counter_survives_checkpoint_codec_roundtrip() {
+        let mut state = State::<1>::new(Queue::new(8, None), 0, None);
+        state.route_masks = 21;
+        state.route_joint_support_masks_pruned = 7;
+        let mut bytes = Vec::new();
+        codec::write(&mut bytes, &state, &[], &[]).unwrap();
+        let restored = codec::read::<1>(bytes.as_slice()).unwrap();
+        assert_eq!(restored.state.route_masks, 21);
+        assert_eq!(restored.state.route_joint_support_masks_pruned, 7);
+    }
+
     #[test]
     fn bootstrap_atomic_generations_owner_binding_and_corruption_rejection() {
         let path = directory();

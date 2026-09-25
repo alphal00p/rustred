@@ -217,6 +217,17 @@ finishes without native errors and retains **57 unresolved regions rather than
 diagnostics, not full R10 closure. See [the milestone](docs/research/guarded_owner_application_2026-09-22.md)
 and [current scheduling results](docs/research/parallel_symbolic_domains_2026-09-22.md).
 
+An opt-in [independent starting-topology campaign](docs/independent_owner_campaigns.md)
+adds a dynamic outer queue while preserving the native scheduler within each
+job (for example, 10 jobs × 5 workers). Rust owns the colored monitor, aggregate
+RAM protection, checkpoints and one compact combined rule selection. The
+default shared campaign remains available. Joint source-support mask pruning
+is a separate opt-in switch; neither switch regenerates saved IBPs or by
+itself establishes five-loop closure.
+Read the [measured comparison](docs/research/joint_pruning_independent_campaigns_2026-09-25.md)
+before restarting: isolating owners can lose the shared auxiliary coverage
+that makes a symbolic campaign finish, despite raising CPU occupancy.
+
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after
 interruption. Rust and Python expose the same controls. This saves completed

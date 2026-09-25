@@ -28,6 +28,8 @@ pub(super) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
         "generate" => parse_generate(arguments),
         "inspect" => parse_inspect(arguments),
         "reduce" => parse_reduce(arguments),
+        "shards" => Ok(Command::CampaignShards(arguments.collect())),
+        "monitor" => Ok(Command::CampaignMonitor(arguments.collect())),
         _ => Err(ArgError::UnknownSubcommand {
             command: "campaign",
             subcommand,

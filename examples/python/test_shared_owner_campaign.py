@@ -497,6 +497,7 @@ raise SystemExit(4)
                 expected={}
                 if explicit:
                     command += ["--route-domain-overcover"]
+                    command += ["--" + CAMPAIGN.DOMAIN.JOINT_SUPPORT_PRUNING]
                     axes = "finite-axes" if explicit == "unlimited" else "inactive-only"
                     command += ["--" + CAMPAIGN.DOMAIN.REFINEMENT_AXES, axes]
                     for index, option in enumerate(CAMPAIGN.SYMBOLIC_ALLOWANCES, 2):
@@ -529,6 +530,7 @@ raise SystemExit(4)
                 self.assertFalse(summary["family_closure_claim"])
                 self.assertEqual(actual[actual.index("--queries")+1],str(queries.resolve()))
                 self.assertEqual("--route-domain-overcover" in actual,bool(explicit))
+                self.assertEqual("--" + CAMPAIGN.DOMAIN.JOINT_SUPPORT_PRUNING in actual,bool(explicit))
                 for option in CAMPAIGN.SYMBOLIC_ALLOWANCES:
                     if explicit:
                         self.assertEqual(actual[actual.index("--"+option)+1],expected[option])
@@ -598,6 +600,9 @@ raise SystemExit(4)
             ("--queries",["--max-containment-checks","0"],"positive integer"),
             ("--queries",["--max-containment-checks","Unlimited"],"positive integer"),
             ("--targets",["--route-domain-overcover"],"require --queries"),
+            ("--targets",["--route-joint-source-support-pruning"],"require --queries"),
+            ("--queries",["--route-joint-source-support-pruning"],"requires --route-domain-overcover"),
+            ("--queries",["--route-domain-overcover","--route-joint-source-support-pruning","--route-joint-source-support-pruning"],"only once"),
             ("--queries",["--max-route-masks-per-query","17"],"requires --route-domain-overcover"),
             ("--queries",["--targets","missing"],"not allowed"),
         ]:

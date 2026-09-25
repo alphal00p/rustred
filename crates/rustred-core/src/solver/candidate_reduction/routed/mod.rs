@@ -13,7 +13,8 @@ pub use campaign::{
 };
 pub use domain_overcover::{
     CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,
-    CandidateDomainRouteFailure, CandidateDomainRouteLimits, CandidateDomainRouteStats,
+    CandidateDomainRouteFailure, CandidateDomainRouteLimits, CandidateDomainRouteOptions,
+    CandidateDomainRouteStats,
 };
 pub use entry::{
     CandidateEntryAdmission, EntryWitnessError, EntryWitnessLimits, EntryWitnessOutcome,

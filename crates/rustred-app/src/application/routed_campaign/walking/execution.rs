@@ -44,6 +44,7 @@ pub(super) struct State<const N: usize> {
     pub native_records: usize,
     pub routed: usize,
     pub route_masks: usize,
+    pub route_joint_support_masks_pruned: usize,
     pub error: Option<String>,
     pub parallel: Value,
     pub uncommitted: Vec<Value>,
@@ -97,6 +98,7 @@ impl<const N: usize> State<N> {
             native_records: 0,
             routed: 0,
             route_masks: 0,
+            route_joint_support_masks_pruned: 0,
             error,
             parallel: json!({}),
             uncommitted: Vec::new(),
@@ -189,7 +191,9 @@ impl<const N: usize> State<N> {
             "max_scheduled_finite_rank":self.queue.max_finite_rank, "unbounded_rank_domains":self.queue.unbounded_rank_domains,
             "successors":self.successors, "conditional_successors":self.conditional,
             "frontiers":self.frontiers, "events":self.events, "committed_events":self.events,
-            "routed_domains":self.routed, "route_masks":self.route_masks, "parallel":self.enrich(telemetry.clone())});
+            "routed_domains":self.routed, "route_masks":self.route_masks,
+            "parallel":self.enrich(telemetry.clone())});
+        progress["route_joint_support_masks_pruned"] = json!(self.route_joint_support_masks_pruned);
         self.add_delegation_progress(&mut progress);
         self.add_ready_progress(&mut progress);
         progress
@@ -494,6 +498,15 @@ impl<const N: usize> State<N> {
             NativeStats::Route(stats) => {
                 self.routed += 1;
                 self.route_masks += stats.masks_examined;
+                if let Some(total) = self
+                    .route_joint_support_masks_pruned
+                    .checked_add(stats.joint_support_masks_pruned)
+                {
+                    self.route_joint_support_masks_pruned = total;
+                } else {
+                    self.error
+                        .get_or_insert_with(|| "joint support mask counter overflow".into());
+                }
                 (route_stats(stats), None, None)
             }
         };
@@ -733,6 +746,7 @@ impl<const N: usize> State<N> {
 }
 fn route_stats(s: rustred::solver::CandidateDomainRouteStats) -> Value {
     json!({"masks_examined":s.masks_examined, "masks_pruned":s.masks_pruned,
+        "joint_support_masks_pruned":s.joint_support_masks_pruned,
         "events":s.events, "apply_domains":s.apply_domains,
         "route_domains":s.route_domains, "zero_sectors":s.zero_sectors, "missing_routes":s.missing_routes,
         "coordinate_cells":s.coordinate_cells})
@@ -1661,9 +1675,9 @@ fn serial<const N: usize>(
 #[path = "execution/initial_orthants_tests.rs"]
 mod initial_orthants_tests;
 #[cfg(test)]
-mod ready_tests;
-#[cfg(test)]
 mod ready_native_tests;
+#[cfg(test)]
+mod ready_tests;
 #[cfg(test)]
 mod subdivision_tests;
 #[cfg(test)]

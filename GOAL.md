@@ -1,5 +1,42 @@
 # RustRed project goal
 
+## September 25 scoped follow-up: two opt-in improvements, then stop
+
+The latest user directive authorizes exactly two changes before the next pause:
+
+1. Implement joint source-support mask pruning for admitted affine numerator
+   transports, with checked conservative geometry and an opt-in policy because
+   its end-to-end gains are not yet established.
+2. Implement opt-in independent starting-owner campaigns under an aggregate
+   CPU/RAM budget. Use a dynamic shared pending queue: each free topology slot
+   claims the next starting owner, with no predetermined batch assignment.
+   Preserve the existing scheduler inside each job, with a fixed configurable
+   allocation (for example five topology slots of ten workers each).
+   Partition initial owner queries (including their auxiliary
+   covers) without restricting downstream owners; retain all immutable saved
+   rules/routes and every descendant. Provide Rust-native colored live and
+   non-TTY monitoring, independent checkpoint/resume, and one compact combined
+   reusable output with rule payloads stored once. All assigned shards must
+   succeed before aggregate completion is published.
+
+Test these changes on four-loop and explicitly limited five-loop inputs; report
+actual completion, wall/CPU/RAM, utilization, duplicated work and combined output
+size. Do not infer full five-loop performance from these controls. Independently
+audit mathematical pruning, resource/recovery/output accounting and measurement
+interpretation. Document results and their agreement or disagreement with the
+expected utilization improvement, commit/push, then stop. No unrelated research,
+optimization, full five-loop restart or change to the current live campaign is
+authorized by this follow-up. The older quota pause below is superseded only for
+this bounded implementation and validation task.
+
+Implementation checkpoint: both opt-ins and native monitoring are implemented
+and independently audited; release tests and real checkpoint/resume/cold reuse
+pass. The four-loop comparisons are complete. Independent owner jobs can lose
+the coarse auxiliary covers that make the shared walk terminate, so higher CPU
+occupancy is not an established speedup. The limited five-loop comparisons are
+still running; see the [measurement record](docs/research/joint_pruning_independent_campaigns_2026-09-25.md).
+Do not restart the user's live campaign automatically.
+
 ## September 25: user-requested quota checkpoint and pause
 
 Stop new optimization and experiments. Finish only the diagnostic build and

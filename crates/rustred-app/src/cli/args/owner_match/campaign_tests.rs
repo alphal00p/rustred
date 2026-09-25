@@ -14,6 +14,20 @@ fn parse_suffix(suffix: &str) -> Result<OwnerDomainMatchArgs, ArgError> {
 }
 
 #[test]
+fn joint_source_support_is_off_by_default_and_requires_route_walk() {
+    assert!(!parse_suffix("").unwrap().route_joint_source_support_pruning);
+    let args = parse_suffix("--follow-successors --route-domain-overcover --route-joint-source-support-pruning --unbounded-work").unwrap();
+    assert!(args.route_joint_source_support_pruning);
+    for suffix in [
+        "--route-joint-source-support-pruning",
+        "--follow-successors --route-joint-source-support-pruning",
+        "--follow-successors --route-domain-overcover --route-joint-source-support-pruning --route-joint-source-support-pruning",
+    ] {
+        assert!(parse_suffix(suffix).is_err(), "{suffix}");
+    }
+}
+
+#[test]
 fn application_cell_refinement_is_positive_opt_in_and_not_a_work_cap() {
     assert!(
         parse_suffix("")

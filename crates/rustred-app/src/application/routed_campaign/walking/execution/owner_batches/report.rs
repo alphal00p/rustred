@@ -46,6 +46,7 @@ fn aggregate<const N: usize>(walk: &Walk<N>) -> Value {
         "job_local_reuse_hits":sum(|s|s.job_local_reuse_hits),
         "pre_admitted_orthant_hits":sum(|s|s.pre_admitted_orthant_hits),
         "routed_domains":sum(|s|s.routed),"route_masks":sum(|s|s.route_masks),
+        "route_joint_support_masks_pruned":sum(|s|s.route_joint_support_masks_pruned),
         "successors":sum(|s|s.successors),"conditional_successors":sum(|s|s.conditional),
         "optional_coefficient_refusals":sum(|s|s.optional.total),
         "optional_original_refusals":sum(|s|s.optional.original),
@@ -218,6 +219,8 @@ pub(super) fn finish<const N: usize>(
         document["initial_overlap_index"] = overlap_summary(&walk);
     }
     document["route_domain_overcover"] = json!(request.route_domain_overcover);
+    document["route_joint_source_support_pruning"] =
+        json!(request.route_joint_source_support_pruning);
     document["max_events"] = json!(request.max_events);
     document["max_frontiers"] = json!(request.max_frontiers);
     document["max_domains"] = json!(request.max_domains);

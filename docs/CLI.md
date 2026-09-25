@@ -11,6 +11,14 @@ backend; there is no `no_gmp` mode.
 
 ## Shared saved-owner dependency campaign
 
+For an opt-in dynamic queue across starting topologies, with the existing
+parallel scheduler retained inside each job, see
+[independent campaigns](independent_owner_campaigns.md). Native commands are
+`campaign shards --config PATH --directory DIR`,
+`campaign shards --directory DIR --resume`, and the read-only
+`campaign monitor --directory DIR [--once|--json]`. The existing shared mode
+and its defaults remain unchanged.
+
 `rustred owner-domain-scan` inventories possible parametric successors of saved
 rules without enumerating positive powers or generating IBPs. Its bounded,
 Python-steerable report retains actual intermediate-rank requirements but is
