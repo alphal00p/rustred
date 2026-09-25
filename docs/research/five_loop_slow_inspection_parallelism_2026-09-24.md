@@ -61,6 +61,84 @@ merging also names inactive instantiations. Thus the trace supports both kinds
 of expensive work, not an Amdahl speedup bound or exact matching/application
 fraction. No additional recording was needed for this check.
 
+## Later live observation: the four-million-inspection plateau
+
+A further identity-checked 20-second capture at 23:26:46–23:27:07 UTC used the
+same 49 Hz/user-CPU settings, disjoint recorder CPU62, and unchanged live
+executable on CPUs0–49. Zero samples were lost. Evidence is retained in
+`TMP/five-loop-queue-profile.fIBC46/`; this is profiling, not a benchmark.
+
+| Exclusive sampled user CPU | Share |
+|---|---:|
+| Inspector `owner-domain-9` | 63.69% |
+| Admission helpers | 33.83% |
+| Coordinator | 2.49% |
+
+The bracketing native heartbeats span 21.15 seconds. Head ID8,897,540 remains
+owner `011101110111000`, Amax=Dmax=12, with no lower D bound. Native completions
+remain 4,001,281 and pending logical obligations 4,940,196. Nevertheless, the
+head publishes 331,235 additional events and 330,561 successors, including
+6,139 conditional successors. No additional obligation is scheduled in this
+window: newly emitted destinations find existing responsibility. There are
+159 finished inspections held for publication, two occupied native slots and
+one backpressured worker. This is useful work with costly repeated checking,
+not evidence of a hung process or of queue exhaustion.
+
+Containment checks increase by 105,117,535 and summary constructions by
+330,175 during those heartbeats. Leading exclusive leaves are containment
+index lookup (14.32% of all sampled user CPU), the summary containment predicate
+(8.34%),
+allocation in the inspector (7.20%), Symbolica polynomial sorting (5.99%),
+RustRed polynomial validation (4.64%), and admission scheduler epoch handling
+(4.03%). Inclusive stacks include application groups (26.77%), fixed-index
+coefficient specialization (19.91%), and matching guard resolution (15.74%).
+These inclusive percentages overlap; bounded-stack unwinding and optimized
+symbol merging prevent interpreting them as a phase-time decomposition.
+
+The live supervisor reports approximately 66.8 GB RSS. Its fourth checkpoint
+is 9.02 GB and took 89.98 seconds, versus 55.89 seconds for the previous save.
+The profiled window did not overlap either write. Descendant ranks have
+reached 20 even though the entry envelope has R<=15; no descendant is clipped.
+
+The immediate improvement candidate remains fair ready-ticket publication:
+drain completed and partially ready sources, release actual outstanding-work
+credits, and refill while a slow earlier source continues. It cannot by itself
+remove the containment or coefficient-specialization cost. Later candidates
+should measure repeated identical specialization inputs and containment
+summary reuse before adding any cache; reuse existing Symbolica operations,
+respect immutable context identity, and bound retained memory. The observed
+helper scheduling overhead also warrants measuring preparation batch size
+against lookup work, rather than assigning all spare threads to tiny batches.
+None of these observations establishes a five-loop completion ETA.
+
+### Follow-up Symbolica/API inspection (no implementation yet)
+
+An independent read-only source review identifies three narrow hypotheses to
+measure separately from the scheduler change:
+
+1. `algebra/indexed/specialization.rs::execute_fixed_polynomial` deep-clones the
+   source before Symbolica's first allocating replacement. Borrow until the
+   first actual replacement, retaining the clone for identity substitution;
+   preserve preflight, zero-first/descending order and output validation.
+2. `owners/domains/applied/geometry.rs::fixed` already emits sorted unique axes,
+   while specialization repeatedly canonicalizes those assignments and builds
+   numerator/denominator assignment vectors. Consider a small private prepared
+   assignment scoped to the same indexed context and source cell/group. Retain
+   coefficient-dependent bounds and validation of untrusted public inputs.
+3. `owners/domains/applied/algebra.rs` re-authenticates fresh checked results
+   before numerator classification. Investigate reusing the existing
+   `bind_sealed` / `numerator_condition_from_bound` interface only where the
+   previous validation proves the same limits. Do not weaken guard limits,
+   optional refusal semantics, cancellation or native-operation accounting.
+
+The relevant public Symbolica API is in `vendor/symbolica/src/poly/polynomial.rs`.
+`replace` already selects `replace_last` where legal. `replace_all` yields a
+scalar and `replace_except` retains one variable; neither is a drop-in arbitrary
+subset specialization replacement. Reusable last-variable workspaces are
+private in this checkout. No independent polynomial substitution or CAS kernel
+is proposed. These are unmeasured hypotheses, not a claimed speedup, and the
+inclusive specialization share cannot be added to its own child costs.
+
 ## What existing parallelism can and cannot do
 
 The public
@@ -318,3 +396,109 @@ because CPU increases. Exactly-once ownership of each intended ticket and exact
 coverage of valid parts are correctness constraints; overlap between distinct
 mathematical inspections is a performance cost, not automatically an invalid
 computation. Total CPU and memory remain reported, not optimized at all costs.
+
+## Live trend across midnight, 2026-09-24–25 UTC
+
+A bounded read-only observation of the same unchanged live run covered
+23:30:21–00:00:21 UTC (native heartbeat elapsed 8,604.630–10,404.912 seconds).
+Sources were the last 12 MiB of `events.jsonl` and 2 MiB of `resources.jsonl`
+under `campaigns/five-loop-saved-coarse-cover/runs/20260924T210656.815896Z/`,
+plus its small `status.json`. No process was signalled or newly profiled.
+
+| Observed metric | 23:30:21 | 00:00:21 |
+|---|---:|---:|
+| Native completions | 4,001,705 | 4,030,531 |
+| Pending obligations | 4,939,314 | 5,136,993 |
+| Native heartbeat RSS | 66.85 GB | 67.52 GB |
+| Finished, unpublished inspections | 43 | 156 |
+
+The interval admitted 269,079 new obligations and published 71,400, growing the
+backlog by 197,679. Of 28,826 native completions, 27,573 were Route inspections.
+Apply heads repeatedly advanced; this was not one unchanged inspection for the
+whole thirty minutes. At head `8964580`, owner `011101110111000`, the observed
+23:57:33–23:58:30 Apply span produced 992,466 successors and admitted 223,362
+new obligations while 189 finished results remained held. The following
+approximately one-second Route transition admitted another 15,641.
+
+Coordinator admission preparation and commit increased by 62.304 and 108.265
+seconds: together **9.47% of the 1,800.282-second observed wall interval**.
+This is measured coordinator admission elapsed time, not a process-CPU share;
+it must not be combined with the earlier inclusive CPU-profile percentages.
+The final minute's corresponding fraction was 8.84%. Sampled native CPU over
+the thirty minutes averaged 1.83 busy cores (median 1.68; brief maximum 8.03).
+These observations favor costly Apply inspection and Ordered head blocking,
+rather than destination admission dominating this interval. They do not identify
+all remaining elapsed time as algebra or establish a whole-campaign bottleneck.
+
+Observed frontiers stayed zero, current pool failure markers were null, and
+checkpoint generation 4 remained saved with no active write. Pending work is
+the currently discovered backlog, not the remainder of a preknown fixed amount
+of work: further inspections may add descendants. No completion ETA, closure
+claim, or scheduling-performance gain follows from this observation.
+
+## Independent optimization ranking after the midnight observation
+
+The follow-up source/API audit recommends finishing matched Ready controls
+before changing another hot path. In the profiled 21.154-second interval,
+coordinator preparation took 0.678 seconds and commit 0.988 seconds: helper CPU
+cost must not be mistaken for the current blocking wall-time fraction. The
+105.1 million containment calls amount to roughly 318 comparisons per emitted
+destination. The sampled `DomainPowerSummary::contains` cost is not summary
+construction; admitted summaries and prepared proposed summaries are already
+retained.
+
+If Ready makes admission limiting, test these independently:
+
+1. Coarsen Rayon preparation tasks within the existing bounded 256-event batch.
+   Preserve indexed output order, cancellation, serial commit and stale-result
+   revalidation; first measure task granularity rather than increase threads.
+2. Measure selectivity lost by the existing 32-ID index blocks whose envelopes
+   remain safely outward-stale after retirement. Recomputing affected blocks
+   from surviving summaries may reduce search work. Preserve minimum-ID choice,
+   unbounded/empty geometry, allocation preflight and finite-cap behavior.
+3. Measure reuse after the job-local cache fills its first 4,096 entries. A
+   bounded replacement policy may retain useful recent keys without more RAM.
+   Reuse still requires an already accepted same-source admission. Do not
+   introduce cross-job caching without evidence and its stronger authority key.
+
+Separately, avoiding the initial deep polynomial clone before Symbolica's first
+allocating `replace` is the narrowest inspector optimization identified above.
+The audit confirmed the public API and the required identity-substitution,
+execution-order, preflight, output-check and guard invariants. None of these
+follow-ups is implemented or timed here; they are not part of the Ready
+performance comparison.
+
+## Second plateau profile, 25 September 00:07 UTC
+
+An independent raw audit passed for the single later capture in
+`TMP/five-loop-later-apply-profile.7oUHHo/`. It used the same native
+PID/start/boot/executable identity, native CPUs0–49, recorder CPU62, 49 Hz
+user-CPU sampling and bounded 4096-byte DWARF stacks. Perf exited successfully
+with zero lost samples. Capture timestamps were 00:07:12.953–00:07:33.966 UTC;
+checkpoint generation 4 stayed unchanged with no active write, and the capture
+ended 194 seconds before its saved-time-plus-hour checkpoint boundary.
+
+| Measured quantity | 23:26 profile | 00:07 profile |
+|---|---:|---:|
+| Inspector share of sampled user CPU | 63.69% | 57.86% |
+| Admission-helper share | 33.83% | 39.88% |
+| Coordinator share | 2.49% | 2.26% |
+| Approximate sampled inspector CPU | 19.33 s | 19.31 s |
+| Preparation plus commit wall / heartbeat span | 7.87% | 8.62% |
+
+The later native heartbeats span 21.146990 seconds at unchanged Apply head
+ID9,023,049, owner `011101110111000`, Amax=Dmax=11 with no D minimum. They add
+388,804 events and 387,982 successors, including 18,118 conditional successors;
+every successor finds existing responsibility. Scheduled obligations, native
+completions and logical publications do not advance. There are 115 finished
+results waiting, six occupied native slots and five backpressured workers.
+Frontiers and current failure markers remain clear.
+
+Containment comparisons increase by 98,190,859 with no reverse-maintenance
+increment. Preparation takes 0.758746 seconds and commit 1.063966 seconds.
+Thus more helper CPU still does not establish admission as the elapsed-time
+bottleneck. The inspector's smaller CPU percentage accompanies essentially
+unchanged sampled CPU seconds, not disappearance of its one-core workload.
+These are different live domains, not matched performance controls. Inclusive
+application/specialization/guard shares remain overlapping and subject to
+unwinding limitations; no speedup, closure or ETA follows from the comparison.
