@@ -65,7 +65,9 @@ impl WorkerBudget {
         let available = requested - 1;
         // Preserve the distinct historical defaults, including the W=4 case.
         let helper_threshold = match policy {
-            OwnerDomainWalkPublicationPolicy::Ordered => 5,
+            OwnerDomainWalkPublicationPolicy::Ordered | OwnerDomainWalkPublicationPolicy::Ready => {
+                5
+            }
             OwnerDomainWalkPublicationPolicy::OwnerBatched => 4,
         };
         let helpers = match inspection {

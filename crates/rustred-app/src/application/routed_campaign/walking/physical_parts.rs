@@ -8,7 +8,7 @@ use super::queue::{Domain, Phase};
 
 /// Typed coordinator identity encoded into the existing opaque pool handle.
 /// Whole=0, first=1, second=2 preserves parent then part publication order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub(super) struct Ticket {
     pub parent: usize,
     pub part: Option<u8>,

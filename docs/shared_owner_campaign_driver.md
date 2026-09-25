@@ -52,6 +52,16 @@ remain explicit. Physical subdivision is optional, with the paired
 `--apply-subdivision-axis N --apply-subdivision-cut C`; it is not a default
 whole-walker speed claim. The saved input remains data, not topology dispatch.
 
+Experimental `--publication-policy ready` lets completed or partially ready
+sources publish without waiting for an earlier slow source, including within
+one owner. It still uses shared admission and bounded outstanding-work credits
+(H256 in the production preset). It supports its own CP2 checkpoints, requires
+unreserved-transfer scheduling, and currently rejects physical subdivision.
+Select it only when preparing a **new** campaign; do not attach the current
+Ordered checkpoint or swap its frozen executable. Ordered remains the default.
+See [the implementation and validation record](research/five_loop_ready_publication_2026-09-24.md)
+for the experimental status and measurement boundaries.
+
 After a graceful pause, resume with the same immutable binary and frozen solver
 flags automatically. Each invocation creates a new receipt directory:
 

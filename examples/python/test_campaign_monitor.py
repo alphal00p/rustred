@@ -93,6 +93,7 @@ class MonitorTests(unittest.TestCase):
         self.assertIsNone(result["initial_entry_progress"]["total"])
         self.assertIsNone(result["initial_entry_progress"]["locally_inspected"])
         self.assertIsNone(result["work"]["pending_descendants"])
+        self.assertIsNone(result["finished_native_awaiting_publication"])
         self.assertEqual(result["progress_age_seconds"], 7)
         self.assertIsNone(result["closure_eta_seconds"])
 
@@ -100,6 +101,7 @@ class MonitorTests(unittest.TestCase):
         event = {"progress": {"initial_entry_domains_total": 20,
                  "initial_entry_domains_published": 15, "initial_entry_domains_inspected": 10,
                  "pending_descendant_domains": 99, "parallel": {"active_workers": 2,
+                 "finished_uncommitted_domains": 159,
                  "backpressured_workers": 1, "admission_preparation": {
                      "inspection_worker_limit": 25, "lookup_worker_limit": 24, "coordinator_worker_limit": 1}}}}
         progress = MONITOR.progress_summary(event, 0, 1)
@@ -108,6 +110,7 @@ class MonitorTests(unittest.TestCase):
         self.assertIn("15 / 20 published", text)
         self.assertIn("initial native inspected 10", text)
         self.assertIn("2 native active, 1 blocked", text)
+        self.assertIn("159 finished waiting", text)
         self.assertIn("25 inspect + 24 admission + 1 coordinator", text)
         self.assertIn("1.4 observed cores", text)
         self.assertIn("not closure", text)
@@ -263,10 +266,12 @@ class ProductionTests(unittest.TestCase):
             cpu = min(os.sched_getaffinity(0))
             args = Namespace(workers=1, cpus=str(cpu), checkpoint_interval_seconds=1234,
                              max_memory_bytes=10_000_000_000, ram_guard_margin_percent=7,
-                             apply_subdivision_axis=2, apply_subdivision_cut=3, resume=False)
+                             apply_subdivision_axis=2, apply_subdivision_cut=3, resume=False,
+                             publication_policy=None)
             policy = PRODUCTION.frozen_policy(campaign, args, campaign / "bin/rustred",
                                                campaign / "inputs", 67, 123456)
-            args = Namespace(**{name: None for name in policy["options"]}, resume=True)
+            args = Namespace(**{name: None for name in policy["options"]}, resume=True,
+                             publication_policy=None)
             with patch.object(PRODUCTION.os, "sched_getaffinity", return_value={cpu + 1}):
                 resumed = PRODUCTION.frozen_policy(campaign, args, campaign / "ignored",
                                                     campaign / "ignored", 1, 2)
@@ -277,6 +282,47 @@ class ProductionTests(unittest.TestCase):
             args.apply_subdivision_axis = 5
             with self.assertRaisesRegex(ValueError, "differs from frozen policy"):
                 PRODUCTION.frozen_policy(campaign, args, campaign / "ignored", campaign, 1, 2)
+
+    def test_publication_policy_is_frozen_and_cannot_be_changed_on_resume(self):
+        from argparse import Namespace
+        for requested in (None, "ordered", "ready"):
+            with self.subTest(requested=requested), tempfile.TemporaryDirectory() as temporary:
+                campaign = Path(temporary)
+                (campaign / "bin").mkdir()
+                args = Namespace(workers=1, cpus=str(min(os.sched_getaffinity(0))),
+                                 checkpoint_interval_seconds=None, max_memory_bytes=None,
+                                 ram_guard_margin_percent=None, apply_subdivision_axis=None,
+                                 apply_subdivision_cut=None, resume=False,
+                                 publication_policy=requested)
+                policy = PRODUCTION.frozen_policy(campaign, args, campaign / "bin/rustred",
+                                                   campaign / "inputs", 67, 123456)
+                command = policy["command_arguments"]
+                expected = requested or "ordered"
+                self.assertEqual(command[command.index("--publication-policy") + 1], expected)
+                self.assertEqual(command[command.index("--transfer-unreserved-lookahead") + 1], "256")
+                frozen = (campaign / "bin/steering.json").read_bytes()
+                resumed_args = Namespace(**{name: None for name in policy["options"]},
+                                         resume=True, publication_policy=None)
+                for explicit in (None, expected):
+                    resumed_args.publication_policy = explicit
+                    self.assertEqual(PRODUCTION.frozen_policy(campaign, resumed_args,
+                        campaign / "ignored", campaign / "ignored", 1, 2), policy)
+                resumed_args.publication_policy = "ready" if expected == "ordered" else "ordered"
+                with self.assertRaisesRegex(ValueError, "publication-policy differs from frozen policy"):
+                    PRODUCTION.frozen_policy(campaign, resumed_args,
+                        campaign / "ignored", campaign / "ignored", 1, 2)
+                self.assertEqual((campaign / "bin/steering.json").read_bytes(), frozen)
+
+    def test_ready_subdivision_is_rejected_before_input_or_binary_access(self):
+        with patch.object(PRODUCTION, "verify_inputs") as verify, \
+                patch.object(PRODUCTION, "freeze_executable") as freeze, \
+                patch("sys.stderr", new_callable=io.StringIO) as errors:
+            with self.assertRaises(SystemExit):
+                PRODUCTION.main(["--publication-policy", "ready",
+                                 "--apply-subdivision-axis", "0", "--apply-subdivision-cut", "2"])
+            self.assertIn("ready publication cannot be combined", errors.getvalue())
+            verify.assert_not_called()
+            freeze.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -99,6 +99,31 @@ native-only split timings also exclude the production stream-admission bottlenec
 Evaluate completion time with work inflation, exact obligation accounting and
 checkpoint recovery before adopting a new live policy.
 
+An opt-in `ready` publication policy now uses the existing shared queue, native
+pool and exclusive admission path. It replaces the cursor-distance reservation
+fence with bounded outstanding native responsibilities, retains per-source replay
+prefixes and completed holes, and checkpoints them atomically with admitted
+effects. It requires explicit `TransferUnreserved` steering and initially rejects
+physical subdivision. Independent source audits and 699 release tests pass, as
+do all eight matched four-loop controls. One rotation shows 5.22% slower summed
+Ready traversal, not a demonstrated production speedup. Preserve Ordered and the
+running frozen campaign. Real parallel multiple-prefix fresh-process resume is
+still an open gate: both BMW and a separately audited X input-order-only
+correctness fixture completed before the required overlapping-prefix trigger.
+Neither was interrupted or resumed; both are inconclusive, not successes.
+The negative checkpoint test remains held behind that positive recovery gate.
+An independently audited old/new Ordered comparison found a build-profile
+mismatch. With matching release profiles, summed traversal differs by +1.44%
+and CPU by +2.42%, rather than the previous roughly 20% gap. This single
+shared-host rotation is not a no-regression proof. Publish the opt-in as
+experimental with Ordered unchanged; do not promote it to the live campaign
+without five-loop evidence and the outstanding recovery gate. Do not weaken the
+assertions or count an inconclusive run as success. See the
+[implementation and measurements](docs/research/five_loop_ready_publication_2026-09-24.md).
+Some extra work is acceptable only with measured wall-time benefit and correct
+accounting. Continue short read-only live profiles and status checks; successful
+lower-loop controls do not establish five-loop speedup or a completion ETA.
+
 Both existing packagings already use the same generic `.rrbin` container and
 Symbolica native state/atoms. The older four-loop files are multi-sector bundles;
 the shared-owner ingress currently requires single-sector bundles. This is an

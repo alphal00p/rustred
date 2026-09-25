@@ -203,11 +203,12 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
                 result.publication_policy = match value.as_str() {
                     "ordered" => crate::OwnerDomainWalkPublicationPolicy::Ordered,
                     "owner-batched" => crate::OwnerDomainWalkPublicationPolicy::OwnerBatched,
+                    "ready" => crate::OwnerDomainWalkPublicationPolicy::Ready,
                     _ => {
                         return Err(ArgError::InvalidValue {
                             option: name,
                             value,
-                            expected: "ordered or owner-batched",
+                            expected: "ordered, owner-batched, or ready",
                         });
                     }
                 };
@@ -352,10 +353,17 @@ pub(super) fn parse(arguments: impl Iterator<Item = OsString>) -> Result<Command
         ));
     }
     if result.checkpoint.is_some()
-        && result.publication_policy != crate::OwnerDomainWalkPublicationPolicy::Ordered
+        && result.publication_policy == crate::OwnerDomainWalkPublicationPolicy::OwnerBatched
     {
         return Err(ArgError::InvalidCombination(
-            "checkpoint/resume requires ordered publication",
+            "checkpoint/resume requires ordered or ready publication",
+        ));
+    }
+    if result.publication_policy == crate::OwnerDomainWalkPublicationPolicy::Ready
+        && result.transfer_unreserved_lookahead.is_none()
+    {
+        return Err(ArgError::InvalidCombination(
+            "ready publication requires --transfer-unreserved-lookahead",
         ));
     }
     if result.apply_subdivision.is_some()

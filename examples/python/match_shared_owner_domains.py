@@ -28,7 +28,7 @@ REFINEMENT_AXIS_CHOICES = ("inactive-only", "finite-axes")
 TRANSFER_LOOKAHEAD = "transfer-unreserved-lookahead"
 INITIAL_D_REUSE = "reuse-initial-d-bands"
 PUBLICATION_POLICY = "publication-policy"
-PUBLICATION_POLICIES = ("ordered", "owner-batched")
+PUBLICATION_POLICIES = ("ordered", "owner-batched", "ready")
 INSPECTION_WORKERS = "inspection-workers"
 WALK_ALLOWANCES = ("workers", "max-domains", "max-frontiers", "max-successor-events", "max-containment-checks",
                    "max-rhs-cells-per-query", "max-term-visits-per-query",
@@ -89,6 +89,15 @@ def validate_inspection_workers(parser, workers, inspectors, containment_cap):
         parser.error("finite containment cap requires all non-coordinator workers for inspection")
 
 
+def validate_publication_policy(parser, policy, transfer_lookahead, checkpoint, subdivision):
+    if policy == "ready" and transfer_lookahead is None:
+        parser.error("ready publication requires --transfer-unreserved-lookahead")
+    if checkpoint and policy == "owner-batched":
+        parser.error("checkpoint/resume requires ordered or ready publication")
+    if subdivision and policy not in (None, "ordered"):
+        parser.error("physical subdivision requires ordered publication")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--executable", type=Path, required=True)
@@ -125,7 +134,7 @@ def main() -> None:
     parser.add_argument("--" + INITIAL_D_REUSE, action=StoreTrueOnce, nargs=0, default=False,
                         help="reuse an exact initial same-owner D band, retaining its obligation; requires successor walk and unreserved delegation")
     parser.add_argument("--" + PUBLICATION_POLICY, choices=PUBLICATION_POLICIES,
-                        help="successor publication: global ordered stream (default) or experimental owner-partitioned batches; does not change saved IBP rules")
+                        help="successor publication: ordered (default), owner-batched, or ready; ready requires unreserved delegation; saved rules are unchanged")
     parser.add_argument("--" + INSPECTION_WORKERS, type=positive, action=StoreOnce,
                         help="explicit partition: N inspectors, workers-1-N admission helpers and one coordinator; one worker stays inline; requires successor walk")
     for option in WALK_ALLOWANCES:
@@ -152,6 +161,9 @@ def main() -> None:
         parser.error("--transfer-unreserved-lookahead requires unlimited containment checks")
     if args.reuse_initial_d_bands and args.transfer_unreserved_lookahead is None:
         parser.error("--reuse-initial-d-bands requires --transfer-unreserved-lookahead")
+    validate_publication_policy(parser, args.publication_policy, args.transfer_unreserved_lookahead,
+                                args.checkpoint is not None or args.resume is not None,
+                                args.apply_subdivision_axis is not None)
     validate_inspection_workers(parser, args.workers or 1, args.inspection_workers,
                                 args.max_containment_checks)
     environment = os.environ.copy()

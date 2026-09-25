@@ -1,5 +1,12 @@
 # Independent audit: ordered publication and parallel work
 
+Historical design baseline, before the experimental `Ready` policy was added.
+The [implementation and matched controls](five_loop_ready_publication_2026-09-24.md)
+supersede statements below about the available policy flags and single-prefix
+checkpoint support. The mathematical dependency analysis and within-inspection
+work-distribution proposals remain relevant. Ordered still drives the unchanged
+live campaign; Ready has not demonstrated a production speedup.
+
 This is a source/architecture assessment with one small diagnostic control
 reported below, not an implemented engine optimization. No running campaign was changed, resumed, signalled or
 reconfigured. The existing five-loop campaign remains incomplete. Its large

@@ -1,6 +1,8 @@
 use super::types::{Error, NativeOutcome, Publication, Transfer};
 use std::num::NonZeroUsize;
 mod checkpoint;
+#[cfg(test)]
+mod ready_tests;
 pub(in super::super) use checkpoint::{LedgerRef, StoredLedger};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -22,6 +24,9 @@ pub(super) struct Entry<K> {
     pub key: K,
     pub responsibility: Responsibility,
     pub initial_anchor: Option<NonZeroUsize>,
+    /// Alias publication is explicit: Ready may publish beyond the watermark.
+    /// Native entries always leave this false.
+    pub delegated_published: bool,
 }
 
 /// One queue-local immutable snapshot. K is the exact phase/owner key, normally
@@ -33,6 +38,8 @@ pub struct Ledger<K> {
     pub(super) cursor: usize,
     lookahead: NonZeroUsize,
     reserved_through: usize,
+    ready: bool,
+    outstanding_native: usize,
     max_domains: usize,
     pub(super) transfers: usize,
     pub(super) native_publications: usize,
@@ -53,6 +60,8 @@ impl<K: Copy + Eq> Ledger<K> {
             cursor: 0,
             lookahead,
             reserved_through: 0,
+            ready: false,
+            outstanding_native: 0,
             max_domains,
             transfers: 0,
             native_publications: 0,
@@ -61,6 +70,49 @@ impl<K: Copy + Eq> Ledger<K> {
             initial_admission: false,
             protected_initial_prefix: None,
             partial_initial_inspections: 0,
+        })
+    }
+
+    /// Ready uses outstanding native-parent credits, not a cursor-relative
+    /// numeric interval. Native publication holes release one credit each.
+    pub fn new_ready(lookahead: NonZeroUsize, max_domains: usize) -> Result<Self, Error> {
+        let mut ledger = Self::new(lookahead, max_domains)?;
+        ledger.ready = true;
+        Ok(ledger)
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.ready
+    }
+
+    pub fn reservation_scan(&self) -> usize {
+        self.reserved_through
+    }
+
+    pub fn outstanding_native(&self) -> usize {
+        self.outstanding_native
+    }
+
+    pub fn published_count(&self) -> usize {
+        // Disjoint publications, each performed at most once for an admitted ID.
+        self.native_publications + self.delegated_publications
+    }
+
+    pub fn is_published(&self, id: usize) -> bool {
+        self.entries
+            .get(id)
+            .is_some_and(|entry| match entry.responsibility {
+                Responsibility::Local(Local::Published(_)) => true,
+                Responsibility::Delegate { .. } => entry.delegated_published,
+                _ => false,
+            })
+    }
+
+    /// Startup/resume inventory. This scans once without allocating; callers
+    /// retain at most H reserved IDs, then follow the monotone reservation scan.
+    pub fn ready_reserved_ids(&self) -> impl Iterator<Item = usize> + '_ {
+        self.entries.iter().enumerate().filter_map(|(id, entry)| {
+            (entry.responsibility == Responsibility::Local(Local::Reserved)).then_some(id)
         })
     }
 
@@ -77,7 +129,11 @@ impl<K: Copy + Eq> Ledger<K> {
     }
 
     pub fn dispatch_fence(&self) -> usize {
-        self.cursor.saturating_add(self.lookahead.get())
+        if self.ready {
+            self.reserved_through
+        } else {
+            self.cursor.saturating_add(self.lookahead.get())
+        }
     }
 
     pub fn native_publications(&self) -> usize {
@@ -199,6 +255,7 @@ impl<K: Copy + Eq> Ledger<K> {
             key,
             responsibility: Responsibility::Local(Local::Unreserved),
             initial_anchor: None,
+            delegated_published: false,
         });
         self.reserve_horizon();
         Ok(())
@@ -232,7 +289,7 @@ impl<K: Copy + Eq> Ledger<K> {
             return Transfer::AlreadyDelegated;
         }
         if self.halted
-            || old < self.dispatch_fence()
+            || (!self.ready && old < self.dispatch_fence())
             || self.entries[old].responsibility != Responsibility::Local(Local::Unreserved)
         {
             return Transfer::ReservedOrStarted;
@@ -252,7 +309,7 @@ impl<K: Copy + Eq> Ledger<K> {
 
     pub fn can_dispatch(&self, id: usize) -> bool {
         !self.halted
-            && id < self.dispatch_fence()
+            && (self.ready || id < self.dispatch_fence())
             && self
                 .entries
                 .get(id)
@@ -265,7 +322,7 @@ impl<K: Copy + Eq> Ledger<K> {
         if self.halted {
             return Err(Error::Halted);
         }
-        if id >= self.dispatch_fence() {
+        if !self.ready && id >= self.dispatch_fence() {
             return Err(Error::OutsideFence);
         }
         let entry = self.entries.get_mut(id).ok_or(Error::InvalidId)?;
@@ -283,8 +340,9 @@ impl<K: Copy + Eq> Ledger<K> {
         let Responsibility::Delegate { to } = self.entries[id].responsibility else {
             return Err(Error::NotDelegated);
         };
+        self.entries[id].delegated_published = true;
         self.delegated_publications += 1;
-        self.cursor += 1;
+        self.advance_watermark();
         self.reserve_horizon();
         Ok(Publication::DelegatedNotInspected {
             id,
@@ -304,10 +362,15 @@ impl<K: Copy + Eq> Ledger<K> {
         if self.entries[id].responsibility != Responsibility::Local(Local::Started) {
             return Err(Error::InvalidNativeState);
         }
+        let outstanding = self
+            .outstanding_native
+            .checked_sub(1)
+            .ok_or(Error::InvalidNativeState)?;
         self.entries[id].responsibility = Responsibility::Local(Local::Published(outcome));
         self.native_publications += 1;
+        self.outstanding_native = outstanding;
         self.halted = matches!(outcome, NativeOutcome::Failed | NativeOutcome::Cancelled);
-        self.cursor += 1;
+        self.advance_watermark();
         self.reserve_horizon();
         Ok(Publication::Native { id, outcome })
     }
@@ -316,23 +379,176 @@ impl<K: Copy + Eq> Ledger<K> {
         if self.halted {
             return Err(Error::Halted);
         }
-        if id != self.cursor {
+        if !self.ready && id != self.cursor {
             return Err(Error::NotCurrentPublisher);
         }
         if id >= self.entries.len() {
             return Err(Error::InvalidId);
         }
+        if self.is_published(id) {
+            return Err(Error::InvalidNativeState);
+        }
         Ok(())
     }
 
     fn reserve_horizon(&mut self) {
+        if self.ready {
+            self.reserve_available();
+            return;
+        }
         let end = self.dispatch_fence().min(self.entries.len());
         for id in self.reserved_through..end {
             if self.entries[id].responsibility == Responsibility::Local(Local::Unreserved) {
                 self.entries[id].responsibility = Responsibility::Local(Local::Reserved);
+                self.outstanding_native += 1;
             }
         }
         // Aliases remain sticky as this monotone fence advances.
         self.reserved_through = end;
+    }
+
+    /// Coordinator-only, allocation-free credit refill. Each ID is scanned at
+    /// most once, including aliases; completed holes never retain a credit.
+    pub fn reserve_available(&mut self) {
+        if !self.ready {
+            self.reserve_horizon();
+            return;
+        }
+        if self.halted {
+            return;
+        }
+        while self.outstanding_native < self.lookahead.get()
+            && self.reserved_through < self.entries.len()
+        {
+            let entry = &mut self.entries[self.reserved_through];
+            if entry.responsibility == Responsibility::Local(Local::Unreserved) {
+                entry.responsibility = Responsibility::Local(Local::Reserved);
+                self.outstanding_native += 1;
+            }
+            self.reserved_through += 1;
+        }
+    }
+
+    fn advance_watermark(&mut self) {
+        while self.is_published(self.cursor) {
+            self.cursor += 1;
+        }
+    }
+
+    /// Validate the complete persisted responsibility image without repairing
+    /// malformed counters or inferring published holes from a numeric cursor.
+    /// This intentionally scans once at a checkpoint boundary, never per event.
+    pub fn validate_checkpoint(&self) -> Result<(), String> {
+        let len = self.entries.len();
+        if self.max_domains == 0
+            || len > self.max_domains
+            || self.cursor > len
+            || self.reserved_through > len
+            || self.halted
+            || self.initial_admission
+            || self.protected_initial_prefix.is_some_and(|n| n > len)
+        {
+            return Err("invalid or failed checkpoint responsibility ledger".into());
+        }
+        let mut native = 0;
+        let mut delegated = 0;
+        let mut transfers = 0;
+        let mut pending = 0;
+        let mut partial = 0;
+        let mut watermark = len;
+        let ordered_end = self.cursor.saturating_add(self.lookahead.get()).min(len);
+        for (id, entry) in self.entries.iter().enumerate() {
+            let published = self.is_published(id);
+            if !published && watermark == len {
+                watermark = id;
+            }
+            if !self.ready && published != (id < self.cursor) {
+                return Err("checkpoint ordered publication is not a contiguous prefix".into());
+            }
+            match entry.responsibility {
+                Responsibility::Delegate { to } => {
+                    transfers += 1;
+                    delegated += usize::from(entry.delegated_published);
+                    if to <= id || to >= len || self.entries[to].key != entry.key {
+                        return Err("invalid checkpoint delegation edge".into());
+                    }
+                    if self.protected_initial_prefix.is_some_and(|n| id < n) {
+                        return Err("checkpoint delegates a protected initial obligation".into());
+                    }
+                    if entry.initial_anchor.is_some() {
+                        return Err("checkpoint delegated obligation has an initial anchor".into());
+                    }
+                }
+                Responsibility::Local(local) => {
+                    if entry.delegated_published {
+                        return Err("checkpoint native obligation has an alias publication".into());
+                    }
+                    match local {
+                        Local::Published(NativeOutcome::Failed | NativeOutcome::Cancelled) => {
+                            return Err("checkpoint contains failed native publication".into());
+                        }
+                        Local::Published(_) => native += 1,
+                        Local::Reserved | Local::Started => pending += 1,
+                        Local::Unreserved => {}
+                    }
+                    let scan = if self.ready {
+                        self.reserved_through
+                    } else {
+                        ordered_end
+                    };
+                    if matches!(local, Local::Unreserved) != (id >= scan) {
+                        return Err("checkpoint native reservation scan is inconsistent".into());
+                    }
+                }
+            }
+            if let Some(anchor) = entry.initial_anchor {
+                partial += 1;
+                let anchor = anchor.get() - 1;
+                let prefix = self
+                    .protected_initial_prefix
+                    .ok_or("checkpoint initial anchor lacks prefix")?;
+                if id < prefix || anchor >= prefix || anchor >= id {
+                    return Err("invalid checkpoint initial anchor ID".into());
+                }
+                let source = &self.entries[anchor];
+                if source.key != entry.key
+                    || source.initial_anchor.is_some()
+                    || matches!(source.responsibility, Responsibility::Delegate { .. })
+                    || matches!(
+                        entry.responsibility,
+                        Responsibility::Local(Local::Unreserved)
+                    )
+                {
+                    return Err("invalid checkpoint initial anchor responsibility".into());
+                }
+            }
+        }
+        if watermark != self.cursor
+            || native != self.native_publications
+            || delegated != self.delegated_publications
+            || transfers != self.transfers
+            || pending != self.outstanding_native
+            || partial != self.partial_initial_inspections
+            || pending > self.lookahead.get()
+            || (!self.ready && self.reserved_through != ordered_end)
+            || (self.ready && pending < self.lookahead.get() && self.reserved_through != len)
+        {
+            return Err(
+                "checkpoint responsibility counters, watermark or credits are inconsistent".into(),
+            );
+        }
+        Ok(())
+    }
+
+    /// A clean interruption is unfinished work, never a fabricated Finished.
+    /// Preserve reservations, aliases, completed holes and every anchor link.
+    pub fn restore_normalize_started(&mut self) -> Result<(), String> {
+        self.validate_checkpoint()?;
+        for entry in &mut self.entries {
+            if entry.responsibility == Responsibility::Local(Local::Started) {
+                entry.responsibility = Responsibility::Local(Local::Reserved);
+            }
+        }
+        Ok(())
     }
 }

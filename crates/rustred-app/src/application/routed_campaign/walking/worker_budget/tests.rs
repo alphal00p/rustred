@@ -1,8 +1,9 @@
 use super::*;
 
-const POLICIES: [OwnerDomainWalkPublicationPolicy; 2] = [
+const POLICIES: [OwnerDomainWalkPublicationPolicy; 3] = [
     OwnerDomainWalkPublicationPolicy::Ordered,
     OwnerDomainWalkPublicationPolicy::OwnerBatched,
+    OwnerDomainWalkPublicationPolicy::Ready,
 ];
 
 #[test]
@@ -11,7 +12,7 @@ fn automatic_worker_partitions_preserve_both_historical_defaults() {
         for policy in POLICIES {
             for cap in [None, Some(50)] {
                 let budget = WorkerBudget::new(workers, None, cap, policy);
-                let threshold = if policy == OwnerDomainWalkPublicationPolicy::Ordered {
+                let threshold = if policy != OwnerDomainWalkPublicationPolicy::OwnerBatched {
                     5
                 } else {
                     4

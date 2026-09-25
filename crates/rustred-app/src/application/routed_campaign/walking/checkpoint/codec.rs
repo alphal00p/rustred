@@ -6,14 +6,15 @@ use super::*;
 use std::io::{self, Read, Write};
 
 const MAGIC: &[u8] = b"RUSTRED-WALK-CP1\n";
+const READY_MAGIC: &[u8] = b"RUSTRED-WALK-CP2\n";
 const CHUNK: usize = 65536;
 struct FramedWriter<W> {
     inner: W,
     buffer: Vec<u8>,
 }
 impl<W: Write> FramedWriter<W> {
-    fn new(mut inner: W) -> io::Result<Self> {
-        inner.write_all(MAGIC)?;
+    fn new(mut inner: W, ready: bool) -> io::Result<Self> {
+        inner.write_all(if ready { READY_MAGIC } else { MAGIC })?;
         Ok(Self {
             inner,
             buffer: Vec::with_capacity(CHUNK),
@@ -56,12 +57,13 @@ struct FramedReader<R> {
     inner: R,
     remaining: usize,
     done: bool,
+    ready: bool,
 }
 impl<R: Read> FramedReader<R> {
     fn new(mut inner: R) -> io::Result<Self> {
         let mut magic = vec![0; MAGIC.len()];
         inner.read_exact(&mut magic)?;
-        if magic != MAGIC {
+        if magic != MAGIC && magic != READY_MAGIC {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "checkpoint binary format mismatch",
@@ -71,6 +73,7 @@ impl<R: Read> FramedReader<R> {
             inner,
             remaining: 0,
             done: false,
+            ready: magic == READY_MAGIC,
         })
     }
 }
@@ -126,6 +129,7 @@ struct ImageRef<'a, const N: usize> {
     uncommitted: &'a [Value],
     inputs: &'a [Value],
     input_frontiers: &'a [Value],
+    streams: &'a super::super::execution::streams::Streams,
 }
 #[derive(Deserialize)]
 struct Image<const N: usize> {
@@ -140,19 +144,21 @@ struct Image<const N: usize> {
     uncommitted: Vec<Value>,
     inputs: Vec<Value>,
     input_frontiers: Vec<Value>,
+    #[serde(default)]
+    streams: Option<super::super::execution::streams::Streams>,
 }
 pub(in super::super) struct Restored<const N: usize> {
     pub state: State<N>,
     pub inputs: Vec<Value>,
     pub input_frontiers: Vec<Value>,
 }
-pub(super) fn write<const N: usize>(
+pub(in super::super) fn write<const N: usize>(
     out: impl Write,
     s: &State<N>,
     inputs: &[Value],
     input_frontiers: &[Value],
 ) -> Result<(), String> {
-    let mut out = FramedWriter::new(out).map_err(|e| e.to_string())?;
+    let mut out = FramedWriter::new(out, s.ready()).map_err(|e| e.to_string())?;
     let image = ImageRef {
         queue: &s.queue,
         records: &s.records,
@@ -181,14 +187,16 @@ pub(super) fn write<const N: usize>(
         uncommitted: &s.uncommitted,
         inputs,
         input_frontiers,
+        streams: &s.streams,
     };
     serde_json::to_writer(&mut out, &image).map_err(|e| e.to_string())?;
     out.finish().map_err(|e| e.to_string())
 }
-pub(super) fn read<const N: usize>(input: impl Read) -> Result<Restored<N>, String> {
+pub(in super::super) fn read<const N: usize>(input: impl Read) -> Result<Restored<N>, String> {
+    let reader = FramedReader::new(input).map_err(|e| e.to_string())?;
+    let ready_format = reader.ready;
     let image: Image<N> =
-        serde_json::from_reader(FramedReader::new(input).map_err(|e| e.to_string())?)
-            .map_err(|e| format!("invalid checkpoint state: {e}"))?;
+        serde_json::from_reader(reader).map_err(|e| format!("invalid checkpoint state: {e}"))?;
     let [
         events,
         successors,
@@ -206,7 +214,18 @@ pub(super) fn read<const N: usize>(input: impl Read) -> Result<Restored<N>, Stri
     if initial_domain_count > image.queue.domains.len()
         || initial_entry_domains_inspected > initial_domain_count
         || completed > native_records
-        || native_records > image.queue.next
+        || native_records
+            > image
+                .queue
+                .delegation
+                .as_ref()
+                .map_or(image.queue.next, |l| l.published_count())
+        || ready_format
+            != image
+                .queue
+                .delegation
+                .as_ref()
+                .is_some_and(|l| l.is_ready())
     {
         return Err("inconsistent checkpoint publication counters".into());
     }
@@ -229,6 +248,12 @@ pub(super) fn read<const N: usize>(input: impl Read) -> Result<Restored<N>, Stri
     s.parallel = image.parallel;
     s.uncommitted = image.uncommitted;
     s.restore_checkpoint_progress(image.progress)?;
+    s.streams = match image.streams {
+        Some(streams) => streams,
+        None if !ready_format => Default::default(),
+        None => return Err("ready checkpoint has no stream contexts".into()),
+    };
+    s.validate_restored_streams()?;
     Ok(Restored {
         state: s,
         inputs: image.inputs,
@@ -247,7 +272,7 @@ mod tests {
     fn bounded_frames_round_trip_and_reject_truncation() {
         let payload = vec![b'x'; CHUNK * 3 + 17];
         let mut bytes = Vec::new();
-        let mut w = FramedWriter::new(&mut bytes).unwrap();
+        let mut w = FramedWriter::new(&mut bytes, false).unwrap();
         w.write_all(&payload).unwrap();
         w.finish().unwrap();
         let mut out = Vec::new();

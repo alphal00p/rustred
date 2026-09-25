@@ -285,14 +285,18 @@ class MatchSteeringTests(unittest.TestCase):
     def test_publication_policy_is_explicit_and_only_changes_native_steering(self):
         option = "--" + MATCH.PUBLICATION_POLICY
         for policy in MATCH.PUBLICATION_POLICIES:
-            with patch("sys.argv", self.arguments() + ["--follow-successors", option, policy]), \
+            transfer = ["--transfer-unreserved-lookahead", "50"] if policy == "ready" else []
+            with patch("sys.argv", self.arguments() + ["--follow-successors", option, policy] + transfer), \
                     patch.object(MATCH.os, "execve") as execute:
                 MATCH.main()
             command = execute.call_args.args[1]
             self.assertEqual(command[command.index(option) + 1], policy)
             self.assertNotIn("--max-numerator-rank", command)
             self.assertNotIn("--generate", command)
-        for suffix in ([option, "ordered"], [option, "owner-batched"],
+        for suffix in ([option, "ordered"], [option, "owner-batched"], [option, "ready"],
+                       ["--follow-successors", option, "ready"],
+                       ["--follow-successors", option, "ready", "--transfer-unreserved-lookahead", "50",
+                        "--apply-subdivision-axis", "0", "--apply-subdivision-cut", "2"],
                        ["--follow-successors", option, "automatic"]):
             with patch("sys.argv", self.arguments() + suffix), \
                     patch.object(MATCH.os, "execve") as execute, \

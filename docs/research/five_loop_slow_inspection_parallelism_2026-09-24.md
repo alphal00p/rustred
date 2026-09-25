@@ -502,3 +502,107 @@ unchanged sampled CPU seconds, not disappearance of its one-core workload.
 These are different live domains, not matched performance controls. Inclusive
 application/specialization/guard shares remain overlapping and subject to
 unwinding limitations; no speedup, closure or ETA follows from the comparison.
+
+## Input-only coarse-cover hypothesis after the profiles
+
+The observed costly heads also suggest reducing the amount of work, separately
+from rescheduling it. The current auxiliary regions retain R<=15, while the
+two earlier low-A extracted heads for owner `011101110111000` have A<=11 and
+R16–17; the live queue has reached R20. An additional ordinary Apply query with
+A<=12/R<=20 and no D bound would contain those two regions, not the other
+already-extracted A25/R14 heads. These numbers are experimental
+input data, not topology-specific engine logic or a claimed rank invariant.
+
+Read-only implementation review confirms that the existing semantic containment
+index could reuse such a query. It would not use the fastest full-orthant path:
+`InitialOrthants` rejects any A/D restriction. A rank-only R20 query could use
+that path, but would reintroduce the unresolved-positive-guard risk that motivated
+the A restriction. Initial D-band reuse also requires actual containment of its
+high-D slice; it cannot invent coverage of the added region.
+
+The candidate is a genuine additional obligation to inspect and discharge.
+Retain the existing A24/R15 region because these two regions are incomparable,
+as well as all original entry queries and every escaping descendant. In
+particular, neither R>20 nor A>12 successors may be dropped. Native local
+failure, unsupported geometry, or an unresolved descendant prevents success.
+A fresh controlled input experiment is needed before any runtime conclusion;
+the current live campaign and checkpoint bindings are unchanged.
+
+## Continued monitoring, 25 September 00:50 UTC
+
+The unchanged process has completed 4,386,358 native inspections, with 5,773,401
+pending logical obligations, of which 3,925,548 remain native responsibilities.
+These are distinct counters, not fractions of a known total. Relative to the
+approximately 00:30 snapshot, native completions increase by 103,328 and pending
+obligations by 182,605. In the exactly bracketed 00:30:00–00:50:03 heartbeat
+window, native completion averages 87.0/s and pending growth 154.1/s. Average
+measured CPU usage is 3.11 cores, with 164 finished results waiting on average
+and a maximum of 252. The backlog is not draining.
+
+RSS is 69.28 GB, with 70.48 GB peak and roughly 882 GB host memory available.
+The configured guard remains 475/500 GB. Checkpoint generation 5 completed at
+00:12:13 UTC: 9.785 GB in 85.04 seconds. No write or cancellation is active at
+the snapshot; reported frontiers and both failure markers are clear. Bounded
+read-only tails were sufficient for this observation; no live signal, new
+profile or configuration change was needed.
+
+The same owner dominates 91% of heartbeat samples, and 96% report Apply.
+Coordinator preparation plus serial admission commit account for about
+240 seconds of the 1,203-second window; this wall telemetry is not a CPU phase
+decomposition. Current expensive heads report A25–26, unlike the earlier
+extracted A11 heads. Thus the A12/R20 input-only hypothesis above cannot cover
+all current expensive work. Before a new coarse-cover pilot, recover the exact
+geometry of a representative current head from an immutable checkpoint and
+check its guard restrictions. Do not broaden based on the owner mask alone or
+clip escaping descendants. These observations still provide no five-loop
+completion ETA.
+
+### Exact current-head geometry
+
+The read-only extraction in `TMP/five-loop-current-head-extract.Jtj0wn/` recovers
+four current Apply heads from immutable checkpoint generation 5, using the same
+bounded-memory framing/parser as the earlier diagnostic. It reads 9.785 GB in
+58.98 seconds with 315,428 KiB maximum RSS on low-priority CPU62. File identity,
+size and modification time remain unchanged; the complete raw SHA256 is recorded.
+This is selected-record inspection, not a full solver restore or independent
+BLAKE3 verification.
+
+| Queue ID | A maximum | R maximum | D maximum |
+|---|---:|---:|---:|
+| 9,499,579 | 26 | 13 | 26 |
+| 9,532,265 | 25 | 14 | 25 |
+| 9,661,172 | 25 | 14 | 25 |
+| 9,694,360 | 25 | 14 | 25 |
+
+All four have owner `011101110111000` and no lower D bound. For example, the
+last has zero lower bounds except axis1=13, with upper bounds
+`[14,14,0,1,14,1,0,0,14,0,0,0,14,14,14]`.
+The current bottleneck therefore crosses the existing auxiliary **positive-power
+bound A24**, not its rank bound R15. The earlier R16–17 observations describe
+different costly regions; neither explanation should be generalized to all jobs.
+
+The smallest proposed common A/R enlargement for these four samples is an
+additional same-owner A26/R15 Apply region with no D restriction. Native guard
+feasibility must be tested before a recursive performance pilot. The original
+A24/R15 region and every required entry remain ordinary pinned obligations;
+all A>26/R>15 descendants remain required too. Geometric containment alone
+neither solves the added region nor proves that inspecting it will be faster.
+No new candidate input has been launched in the live campaign.
+
+A more selective follow-up proposal is a staircase union: retain A24/R15 and
+add A25/R14 plus A26/R13, each with the same owner and no D restriction. These
+regions still contain the four observed heads, without introducing the extra
+A+R=40–41 combinations admitted by the uniform A26/R15 rectangle. This is only
+an input-cover design hypothesis, not an A+R<=39 invariant; every escaping
+descendant remains required. The first six-query local feasibility diagnostic
+keeps its original uniform-cover candidate and order unchanged. If that larger
+candidate adds too much work, test the staircase separately rather than
+silently changing the comparison or narrowing the required starting inputs.
+
+The live process subsequently completed periodic checkpoint generation 6 at
+01:13:48 UTC: 10,826,119,568 bytes in 94.60 seconds. Its saved queue records
+4,471,428 completed native inspections and 5,996,277 pending logical obligations.
+The frozen process and 500 GB RAM allowance remain unchanged. The independent
+release-profile comparison waits for this actual write to finish before its
+timed controls; profiling and checkpoint I/O are not silently included in those
+paired windows.

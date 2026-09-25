@@ -359,7 +359,7 @@ def main() -> int:
     parser.add_argument("--" + DOMAIN.INITIAL_D_REUSE, action=DOMAIN.StoreTrueOnce, nargs=0, default=False,
                         help="reuse an exact initial same-owner D band, retaining its obligation; requires --queries and unreserved delegation")
     parser.add_argument("--" + DOMAIN.PUBLICATION_POLICY, choices=DOMAIN.PUBLICATION_POLICIES,
-                        help="symbolic successor publication policy; requires --queries; owner-batched is experimental and may change diagnostic traversal order")
+                        help="symbolic publication policy; requires --queries; ready requires unreserved delegation; nonordered modes may change diagnostic traversal order")
     parser.add_argument("--" + DOMAIN.INSPECTION_WORKERS, type=DOMAIN.positive, action=DOMAIN.StoreOnce,
                         help="explicit symbolic compute partition: N inspectors, workers-1-N admission helpers and one coordinator; requires --queries")
     parser.add_argument("--route-domain-overcover", action="store_true",
@@ -390,6 +390,9 @@ def main() -> int:
         parser.error("--transfer-unreserved-lookahead requires unlimited containment checks")
     if args.reuse_initial_d_bands and args.transfer_unreserved_lookahead is None:
         parser.error("--reuse-initial-d-bands requires --transfer-unreserved-lookahead")
+    DOMAIN.validate_publication_policy(parser, args.publication_policy, args.transfer_unreserved_lookahead,
+                                       args.checkpoint is not None or args.resume is not None,
+                                       args.apply_subdivision_axis is not None)
     if not 1 <= args.workers <= 50 or args.other_workers < 0 or args.workers + args.other_workers > 50:
         parser.error("aggregate configured compute workers must be between 1 and 50")
     DOMAIN.validate_inspection_workers(parser, args.workers, args.inspection_workers,

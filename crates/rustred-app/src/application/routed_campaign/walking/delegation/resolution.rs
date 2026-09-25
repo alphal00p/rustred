@@ -27,7 +27,7 @@ impl<K: Copy + Eq> Ledger<K> {
         depth.resize(self.entries.len(), 0);
         let mut summary = Summary {
             admitted: self.entries.len(),
-            logical_publications: self.cursor,
+            logical_publications: self.published_count(),
             native_publications: self.native_publications,
             delegated: self.transfers,
             delegated_publications: self.delegated_publications,

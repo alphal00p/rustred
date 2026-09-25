@@ -83,6 +83,12 @@ the original starting queries and add ordinary auxiliary domains for reuse.
 Neither its completion nor a full-family ETA is claimed. See the
 [four-loop control and five-loop restart](docs/research/five_loop_coarse_cover_restart_2026-09-24.md).
 
+An experimental [ready-ticket publication policy](docs/research/five_loop_ready_publication_2026-09-24.md)
+is being validated to remove same-owner head-of-line waiting while preserving
+shared admission and resumable per-source progress. Ordered remains the default;
+the live campaign is unchanged. A larger active-worker count alone is not a
+completed-workload speedup or a five-loop completion claim.
+
 The preceding local-matcher release gate passed **2,588 core tests** and **296
 application/integration tests**; the shared-campaign and domain-query Python
 steering tests passed **16 tests**. The preceding matched finite

@@ -53,6 +53,19 @@ inflation; do not make zero overlapping computation a design constraint.
 This does not relax source coverage, guards, failure handling or obligation
 accounting.
 
+The next scheduler slice is opt-in `--publication-policy ready`, using the
+existing global queue and exclusive admission path, not one isolated engine
+per sector. It needs per-ticket accepted prefixes, explicit completed holes,
+and a credit bound on genuinely outstanding native work so a stalled early
+source does not stop refill. Checkpoints must persist all those effects together.
+The ordered default and frozen live campaign remain unchanged. Initially require
+`--transfer-unreserved-lookahead H` and reject physical subdivision. Validate
+held-head progress beyond H later completions, repeated interrupt/resume, genuine
+fault propagation and matched release wall/CPU/RAM before promoting this policy.
+The [live profiling record](research/five_loop_slow_inspection_parallelism_2026-09-24.md)
+now includes the four-million-inspection phase, where 159 finished jobs wait
+behind one active source; it is evidence for scheduler work, not a closure ETA.
+
 ## September 24: campaign now running under user control
 
 The user launched the prepared campaign and requests short monitoring reports

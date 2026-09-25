@@ -10,6 +10,7 @@ mod initial_overlap;
 mod inspection;
 mod parallel;
 mod physical_parts;
+mod publication;
 mod queue;
 mod reuse;
 mod routing;
@@ -27,8 +28,8 @@ use std::time::Instant;
 
 pub use checkpoint::OwnerDomainWalkCheckpointOptions;
 pub use delegation::SchedulingPolicy as OwnerDomainWalkSchedulingPolicy;
-pub use execution::owner_batches::OwnerDomainWalkPublicationPolicy;
 pub use physical_parts::ApplySubdivision as OwnerDomainWalkApplySubdivision;
+pub use publication::OwnerDomainWalkPublicationPolicy;
 
 #[derive(Clone, Debug)]
 pub struct OwnerDomainWalkRequest {
@@ -154,6 +155,7 @@ impl OwnerDomainWalkResult {
             "events",
             "committed_events",
             "committed_domains",
+            "contiguous_publication_watermark",
             "prepared_seconds",
             "traversal_seconds",
             "native_driver_seconds",
@@ -217,17 +219,24 @@ pub fn owner_domain_walk_with_progress(
         if checkpoint.interval_seconds == 0 {
             return Err(AppError::input("checkpoint interval must be positive"));
         }
-        if request.publication_policy != OwnerDomainWalkPublicationPolicy::Ordered {
+        if request.publication_policy == OwnerDomainWalkPublicationPolicy::OwnerBatched {
             return Err(AppError::input(
-                "checkpointing requires ordered publication",
+                "checkpointing requires Ordered or Ready publication",
             ));
         }
     }
     if request.apply_subdivision.is_some()
-        && request.publication_policy == OwnerDomainWalkPublicationPolicy::OwnerBatched
+        && request.publication_policy != OwnerDomainWalkPublicationPolicy::Ordered
     {
         return Err(AppError::input(
             "Apply subdivision requires ordered publication",
+        ));
+    }
+    if request.publication_policy == OwnerDomainWalkPublicationPolicy::Ready
+        && request.scheduling_policy == OwnerDomainWalkSchedulingPolicy::InspectAll
+    {
+        return Err(AppError::input(
+            "Ready publication requires TransferUnreserved scheduling",
         ));
     }
     OwnerDomainWalkRequest::validate_inspection_workers(
@@ -280,6 +289,9 @@ pub fn owner_domain_walk_with_progress(
     }
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::OwnerBatched {
         admitted["publication_policy"] = json!("owner_batched");
+    }
+    if request.publication_policy == OwnerDomainWalkPublicationPolicy::Ready {
+        admitted["publication_policy"] = json!("ready_ticket_stream");
     }
     let with_allowances = |mut event: Value| {
         event["requested_max_queries"] = json!(request.matching.max_queries);
@@ -413,6 +425,17 @@ fn run<const N: usize>(
         request.scheduling_policy,
     )
     .map_err(AppError::input)?;
+    if request.publication_policy == OwnerDomainWalkPublicationPolicy::Ready {
+        let OwnerDomainWalkSchedulingPolicy::TransferUnreserved { lookahead } =
+            request.scheduling_policy
+        else {
+            unreachable!("validated Ready scheduling policy")
+        };
+        queue.delegation = Some(
+            delegation::Ledger::new_ready(lookahead, request.max_domains)
+                .map_err(|e| AppError::input(e.to_string()))?,
+        );
+    }
     if request.reuse_initial_d_bands && restored.is_none() {
         queue
             .delegation
@@ -568,15 +591,23 @@ fn run<const N: usize>(
             "resume_supported":true,"checkpoint":latest_checkpoint.borrow().clone(),
             "full_state_in_checkpoint":true,"independent_certification":false,
             "family_closure_claim":false,"all_scheduled_domains_resolved":false,"recursive_worklist_exhausted":false,
-            "scheduled_nodes":state.queue.domains.len(),"completed_nodes":state.completed,"processed_nodes":state.queue.next,
-            "queued_nodes":state.queue.domains.len()-state.queue.next,"committed_domains":state.queue.next,"committed_events":state.events,
+            "scheduled_nodes":state.queue.domains.len(),"completed_nodes":state.completed,"processed_nodes":state.published_count(),
+            "queued_nodes":state.queue.domains.len()-state.published_count(),"committed_domains":state.published_count(),"committed_events":state.events,
+            "contiguous_publication_watermark":state.queue.next,
             "events":state.events,"successors":state.successors,"conditional_successors":state.conditional,"frontiers":state.frontiers,
             "initial_entry_domains_total":state.initial_domain_count,"initial_entry_domains_inspected":state.initial_entry_domains_inspected,
-            "initial_entry_domains_published":state.queue.next.min(state.initial_domain_count),
-            "pending_descendant_domains":state.queue.domains.len().saturating_sub(state.queue.next.max(state.initial_domain_count)),
+            "initial_entry_domains_published":state.initial_published(),
+            "pending_descendant_domains":state.pending_descendants(),
             "workers":request.workers,"preparation_interrupted":reducer.is_none(),
             "timing_scope":"this_process_session; canonical counters span checkpoint resumes"});
         document["parallel"] = std::mem::take(&mut state.parallel);
+        document["publication_policy"] = json!(if state.ready() {
+            "ready_ticket_stream"
+        } else {
+            "stable_domain_id_stream"
+        });
+        state.add_delegation_progress(&mut document);
+        state.add_ready_progress(&mut document);
         drop(state);
         finish_timing(&mut document, started, prepared);
         observer(OwnerDomainWalkResult::completion_progress(&document));
@@ -586,7 +617,7 @@ fn run<const N: usize>(
         });
     }
     let delegation = state.finalize_delegation();
-    let exhausted = state.error.is_none() && state.queue.next == state.queue.domains.len();
+    let exhausted = state.error.is_none() && state.published_count() == state.queue.domains.len();
     let resolved = exhausted
         && state.frontiers == 0
         && delegation
@@ -602,8 +633,8 @@ fn run<const N: usize>(
         "independent_certification":false,"resume_supported":false,
         "conditional_successors_use_conservative_domain_overcover":true,
         "scheduled_nodes":state.queue.domains.len(),"completed_nodes":state.completed,
-        "queued_nodes":state.queue.domains.len().saturating_sub(state.queue.next),
-        "processed_nodes":state.queue.next,"failed_nodes":state.native_records.saturating_sub(state.completed),
+        "queued_nodes":state.queue.domains.len().saturating_sub(state.published_count()),
+        "processed_nodes":state.published_count(),"failed_nodes":state.native_records.saturating_sub(state.completed),
         "deduplication_hits":state.queue.deduplicated,"containment_checks":state.queue.containment_checks,
         "exact_domain_hits":state.queue.exact_hits,"full_orthant_hits":state.queue.orthant_hits,
         "successors":state.successors,"conditional_successors":state.conditional,
@@ -627,15 +658,8 @@ fn run<const N: usize>(
     }
     document["initial_entry_domains_total"] = json!(state.initial_domain_count);
     document["initial_entry_domains_inspected"] = json!(state.initial_entry_domains_inspected);
-    document["initial_entry_domains_published"] =
-        json!(state.queue.next.min(state.initial_domain_count));
-    document["pending_descendant_domains"] = json!(
-        state
-            .queue
-            .domains
-            .len()
-            .saturating_sub(state.queue.next.max(state.initial_domain_count))
-    );
+    document["initial_entry_domains_published"] = json!(state.initial_published());
+    document["pending_descendant_domains"] = json!(state.pending_descendants());
     document["worker_allocation"] =
         worker_budget::WorkerBudget::for_request(request).json(request.inspection_workers);
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::OwnerBatched {
@@ -679,7 +703,8 @@ fn run<const N: usize>(
     document["uncommitted_inspections"] = take_report_array(&mut state.uncommitted);
     document["successful_publication_matches_serial"] = json!(true);
     document["failure_or_cancellation_prefix_may_differ"] = json!(true);
-    document["committed_domains"] = json!(state.queue.next);
+    document["committed_domains"] = json!(state.published_count());
+    document["contiguous_publication_watermark"] = json!(state.queue.next);
     document["committed_events"] = json!(state.events);
     if let Some(delegation) = delegation {
         document["schema"] = json!("rustred.owner-domain-walk.json.v3");
@@ -688,6 +713,12 @@ fn run<const N: usize>(
             execution::scheduling_policy_json(request.scheduling_policy);
         document["native_processed_nodes"] = json!(state.native_records);
         document["delegation"] = delegation;
+    }
+    if state.ready() {
+        document["schema"] = json!("rustred.owner-domain-walk.json.v5");
+        document["publication_policy"] = json!("ready_ticket_stream");
+        document["successful_publication_matches_serial"] = json!(false);
+        document["queue_ids_and_receipt_order_depend_on_readiness"] = json!(true);
     }
     if request.reuse_initial_d_bands {
         document["reuse_initial_d_bands"] = json!(true);
@@ -724,6 +755,34 @@ fn take_report_array(values: &mut Vec<Value>) -> Value {
 #[cfg(test)]
 mod policy_tests {
     use super::*;
+
+    #[test]
+    fn ready_requires_explicit_transfer_and_rejects_subdivision_before_loading() {
+        for subdivision in [false, true] {
+            let mut request = OwnerDomainWalkRequest::new(OwnerDomainMatchRequest::new(
+                String::new(),
+                String::new(),
+            ));
+            request.publication_policy = OwnerDomainWalkPublicationPolicy::Ready;
+            if subdivision {
+                request.scheduling_policy = OwnerDomainWalkSchedulingPolicy::TransferUnreserved {
+                    lookahead: std::num::NonZeroUsize::new(8).unwrap(),
+                };
+                request.apply_subdivision =
+                    Some(OwnerDomainWalkApplySubdivision { axis: 0, cut: 1 });
+            }
+            let error = owner_domain_walk_with_progress(request, &AtomicBool::new(false), |_| {
+                panic!("unsupported Ready policy must fail before loading owners")
+            })
+            .unwrap_err();
+            let expected = if subdivision {
+                "Apply subdivision requires ordered publication"
+            } else {
+                "Ready publication requires TransferUnreserved scheduling"
+            };
+            assert!(error.to_string().contains(expected), "{error}");
+        }
+    }
 
     #[test]
     fn report_array_transfer_preserves_allocations_instead_of_cloning() {

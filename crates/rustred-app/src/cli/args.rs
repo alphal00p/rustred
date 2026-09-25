@@ -630,8 +630,9 @@ Aggregate containment comparisons are unlimited by default; --max-containment-ch
 finite diagnostic cap, and --max-containment-checks unlimited selects the default.
 This leaves all native work, storage and resource limits unchanged.
 --transfer-unreserved-lookahead H opts into delegating unreserved contained
-domains to later containing domains, using a fixed positive logical dispatch
-lookahead H. It requires --follow-successors and unlimited containment checks.
+domains to later containing domains. With ordered publication, H is a fixed
+positive logical dispatch lookahead; ready publication uses outstanding-work
+credits instead. It requires --follow-successors and unlimited containment checks.
 The default inspects all scheduled domains. Delegation is not native completion;
 unresolved representatives and frontiers remain incomplete.
 --reuse-initial-d-bands opts into exact partial reuse of an initially admitted
@@ -639,7 +640,7 @@ same-owner D band. It requires --follow-successors and
 --transfer-unreserved-lookahead H (hence unlimited containment checks).
 Only the disjoint residual is inspected again; the original anchor obligation
 remains tracked. This does not clip descendants or establish coverage by itself.
---publication-policy ordered|owner-batched requires --follow-successors and
+--publication-policy ordered|owner-batched|ready requires --follow-successors and
 defaults to ordered. The opt-in owner-batched mode shares immutable saved rules
 but uses separate phase/owner admission and publication queues. Bounded native
 chunks are delivered to destination queues; all descendants remain required.
@@ -647,6 +648,14 @@ Its v4 receipt uses composite (bucket, local id) identities. Diagnostic IDs,
 cover fragmentation and capped prefixes may differ between worker budgets;
 this does not change saved rules or concrete reductions. Chunk synchronization
 and owner imbalance can still limit parallel speedup.
+The opt-in ready policy uses one shared admission queue and publishes ready
+sources, including sources of the same owner, without a global FIFO barrier.
+It requires --transfer-unreserved-lookahead H: H bounds outstanding native
+responsibilities, not an ID window behind the oldest unfinished source.
+It supports checkpoint/resume but cannot be combined with physical subdivision.
+Its IDs, covers and work counts may depend on scheduling; saved rules and
+obligation requirements are unchanged. Use a new campaign for a changed policy;
+never attach an ordered checkpoint to a ready run.
 Streamed aggregate events and retained frontier storage have separate budgets.
 --max-rhs-cells-per-query counts all refined
 RHS cells (not only pinches); --max-term-visits-per-query and

@@ -2,7 +2,7 @@
 #[cfg(test)]
 use super::queue::Phase;
 use super::{
-    OwnerDomainWalkRequest,
+    OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest,
     diagnostics::{OptionalCounts, OptionalRefusals},
     initial_orthants::InitialOrthants,
     initial_overlap::{InitialOverlapBuildReport, InitialOverlapIndex},
@@ -23,7 +23,9 @@ use std::time::{Duration, Instant};
 mod admission;
 mod delegation;
 pub(super) mod owner_batches;
+mod publication;
 mod replay;
+pub(super) mod streams;
 pub(super) use delegation::scheduling_policy_json;
 
 pub(super) struct State<const N: usize> {
@@ -57,6 +59,7 @@ pub(super) struct State<const N: usize> {
     pub(super) refusals: OptionalRefusals,
     admission: admission::Metrics,
     replay: Option<replay::Replay>,
+    pub(super) streams: streams::Streams,
 }
 impl<const N: usize> State<N> {
     fn parts(
@@ -106,6 +109,7 @@ impl<const N: usize> State<N> {
             physical_enabled: false,
             physical_progress: None,
             replay: None,
+            streams: streams::Streams::default(),
             details: Vec::new(),
             refusals: OptionalRefusals::default(),
             admission: admission::Metrics::default(),
@@ -161,14 +165,15 @@ impl<const N: usize> State<N> {
         let domain = self.queue.domains.get(id);
         let mut progress = json!({"event":event, "operation":"owner_domain_walk", "id":id,
             "initial_entry_domains_total":self.initial_domain_count,
-            "initial_entry_domains_published":self.queue.next.min(self.initial_domain_count),
+            "initial_entry_domains_published":self.initial_published(),
             "initial_entry_domains_inspected":self.initial_entry_domains_inspected,
-            "pending_descendant_domains":self.queue.domains.len().saturating_sub(self.queue.next.max(self.initial_domain_count)),
+            "pending_descendant_domains":self.pending_descendants(),
             "owner":domain.map(|d| mask(&d.owner)), "phase":domain.map(|d| format!("{:?}", d.phase)),
             "power_bounds":domain.map(|d| power_bounds_json(d.powers)),
             "scheduled_nodes":self.queue.domains.len(), "completed_nodes":self.completed,
-            "committed_domains":self.queue.next, "commit_domain":id,
-            "queued_nodes":self.queue.domains.len().saturating_sub(self.queue.next),
+            "committed_domains":self.published_count(), "commit_domain":id,
+            "contiguous_publication_watermark":self.queue.next,
+            "queued_nodes":self.queue.domains.len().saturating_sub(self.published_count()),
             "deduplication_hits":self.queue.deduplicated, "exact_domain_hits":self.queue.exact_hits,
             "full_orthant_hits":self.queue.orthant_hits, "containment_checks":self.queue.containment_checks,
             "containment_maintenance_checks":self.queue.containment_maintenance_checks,
@@ -186,6 +191,7 @@ impl<const N: usize> State<N> {
             "frontiers":self.frontiers, "events":self.events, "committed_events":self.events,
             "routed_domains":self.routed, "route_masks":self.route_masks, "parallel":self.enrich(telemetry.clone())});
         self.add_delegation_progress(&mut progress);
+        self.add_ready_progress(&mut progress);
         progress
     }
     fn enrich(&self, mut telemetry: Value) -> Value {
@@ -263,7 +269,7 @@ impl<const N: usize> State<N> {
         if let Some(replay) = &self.replay {
             replay.finish()?;
         }
-        if self.replay.is_some() {
+        if self.replay.is_some() && !self.ready() {
             self.replay = Some(replay::Replay::default());
         }
         Ok(())
@@ -518,6 +524,11 @@ impl<const N: usize> State<N> {
             "power_bounds":power_bounds_json(domain.powers),
             "local_inspection_finished":self.error.is_none(), "stats":stats, "seconds":seconds,
             "error":self.error});
+        if self.ready()
+            && let Some(replay) = &self.replay
+        {
+            record["accepted_events"] = json!(replay.accepted_events());
+        }
         record["frontiers"] = Value::Array(std::mem::take(&mut self.details));
         if self.queue.delegation.is_some() {
             record["record_kind"] = json!("native_inspection");
@@ -581,7 +592,17 @@ impl<const N: usize> State<N> {
             record["physical_parts"] = Value::Array(parts);
         }
         self.records.push(record);
-        self.queue.next += 1;
+        if self.ready() {
+            self.streams.initial_published += usize::from(id < self.initial_domain_count);
+            self.queue.next = self
+                .queue
+                .delegation
+                .as_ref()
+                .expect("ready ledger")
+                .cursor();
+        } else {
+            self.queue.next += 1;
+        }
     }
 
     fn physical_receipt(
@@ -638,6 +659,7 @@ impl<const N: usize> State<N> {
         }
         let Some(part) = ticket.part else {
             self.commit(ticket.parent, finished);
+            self.complete_stream(ticket);
             return;
         };
         let failed = self.error.is_some() || finished.error.is_some();
@@ -800,10 +822,9 @@ fn run_configured<const N: usize>(
             return;
         }
     }
-    if checkpointing && state.replay.is_none() {
+    if checkpointing && !state.ready() && state.replay.is_none() {
         state.replay = Some(replay::Replay::default());
     }
-    let previous_parallel = state.parallel.clone();
     // Capture actual initial admissions only. This immutable borrowed snapshot
     // is shared across scoped workers and never observes later queue growth.
     let initial = if enabled {
@@ -849,6 +870,41 @@ fn run_configured<const N: usize>(
             maybe_save,
         );
     }
+    let physical_enabled = state.physical_enabled;
+    run_pool(
+        state,
+        request,
+        cancellation,
+        observer,
+        checkpointing,
+        maybe_save,
+        |raw, domain, stop, emit| match Ticket::decode(raw, physical_enabled).part {
+            Some(part) => {
+                inspection::inspect_part(reducer, domain, request, part, stop, &initial, emit)
+            }
+            None => inspection::inspect(reducer, domain, request, stop, &initial, &overlap, emit),
+        },
+    );
+}
+
+// Both publication policies share this one native pool and admission loop.
+// Injecting the native visitor also permits deterministic concurrency tests.
+fn run_pool<const N: usize>(
+    state: &mut State<N>,
+    request: &OwnerDomainWalkRequest,
+    cancellation: &AtomicBool,
+    observer: &impl Fn(Value),
+    checkpointing: bool,
+    maybe_save: &mut dyn FnMut(&State<N>) -> Result<(), String>,
+    inspect: impl Fn(
+        usize,
+        &super::queue::Domain<N>,
+        &AtomicBool,
+        &mut dyn FnMut(Event<N>) -> ControlFlow<()>,
+    ) -> Finished
+    + Sync,
+) {
+    let previous_parallel = state.parallel.clone();
     let budget = super::worker_budget::WorkerBudget::for_request(request);
     state.admission = admission::Metrics::new(budget);
     let admission = match admission::Engine::new(budget) {
@@ -869,15 +925,10 @@ fn run_configured<const N: usize>(
     let mut started_id = None;
     let mut heartbeat = Instant::now();
     let physical_enabled = state.physical_enabled;
-    let (_, snapshot, mut leftovers) = parallel::with_ticket_pool(
-        budget.inspection,
-        |raw, domain, stop, emit| match Ticket::decode(raw, physical_enabled).part {
-            Some(part) => {
-                inspection::inspect_part(reducer, domain, request, part, stop, &initial, emit)
-            }
-            None => inspection::inspect(reducer, domain, request, stop, &initial, &overlap, emit),
-        },
-        |pool| {
+    let ready = state.ready();
+    let mut ready_streams = publication::ReadyStreams::default();
+    let (_, snapshot, mut leftovers) =
+        parallel::with_ticket_pool(budget.inspection, inspect, |pool| {
             loop {
                 let publisher = state.publisher_ticket(request);
                 let publisher_raw = match publisher.encode(physical_enabled) {
@@ -900,7 +951,7 @@ fn run_configured<const N: usize>(
                     observer(state.progress("domain_progress", state.queue.next, &pool.snapshot()));
                     break;
                 }
-                if state.current_is_delegated() {
+                if !ready && state.current_is_delegated() {
                     let id = state.queue.next;
                     if let Err(error) = state.commit_delegated() {
                         pool.fail(Failure {
@@ -927,13 +978,37 @@ fn run_configured<const N: usize>(
                 }
                 // Locally finished later jobs are not committed. Bounded
                 // escrow frees their worker slots without reordering effects.
-                pool.reclaim_finished(publisher_raw);
+                if !ready {
+                    pool.reclaim_finished(publisher_raw);
+                }
                 while dispatched < state.queue.domains.len() {
+                    if cancellation.load(Ordering::Acquire) || pool.failure().is_some() {
+                        break;
+                    }
                     if !parent_dispatched && let Some(ledger) = &state.queue.delegation {
+                        if ready && ledger.is_published(dispatched) {
+                            dispatched += 1;
+                            continue;
+                        }
                         if dispatched >= ledger.dispatch_fence() {
                             break;
                         }
                         if ledger.delegated_to(dispatched).is_some() {
+                            if ready {
+                                if let Err(error) = state.commit_delegated_id(dispatched) {
+                                    state.error = Some(error);
+                                    break;
+                                }
+                                observer(state.progress(
+                                    "domain_delegated",
+                                    dispatched,
+                                    &pool.snapshot(),
+                                ));
+                                if let Err(error) = maybe_save(state) {
+                                    state.error = Some(error);
+                                    break;
+                                }
+                            }
                             dispatched += 1;
                             continue;
                         }
@@ -978,6 +1053,9 @@ fn run_configured<const N: usize>(
                     if !pool.dispatch(raw, source) {
                         break;
                     }
+                    if ready {
+                        ready_streams.dispatched(raw);
+                    }
                     if !parent_dispatched && let Err(error) = state.note_native_started(dispatched)
                     {
                         pool.fail(Failure {
@@ -997,16 +1075,46 @@ fn run_configured<const N: usize>(
                         parent_dispatched = false;
                     }
                 }
-                let id = state.queue.next;
-                if id == state.queue.domains.len() {
+                if let Some(error) = state.error.clone() {
+                    pool.fail(Failure {
+                        id: Some(publisher_raw),
+                        phase: None,
+                        kind: "coordinator_dispatch",
+                        detail: error,
+                    });
                     break;
                 }
-                if started_id != Some(id) {
-                    observer(state.progress("domain_started", id, &pool.snapshot()));
-                    started_id = Some(id);
+                let watermark = state.queue.next;
+                if watermark == state.queue.domains.len() && (!ready || ready_streams.is_empty()) {
+                    break;
+                }
+                if !ready && started_id != Some(watermark) {
+                    observer(state.progress("domain_started", watermark, &pool.snapshot()));
+                    started_id = Some(watermark);
                     continue; // observe caller cancellation before publishing
                 }
-                match pool.poll(publisher_raw) {
+                let (publisher_raw, poll) = if ready {
+                    ready_streams
+                        .poll(pool)
+                        .unwrap_or((publisher_raw, Poll::Waiting))
+                } else {
+                    (publisher_raw, pool.poll(publisher_raw))
+                };
+                let publisher = Ticket::decode(publisher_raw, physical_enabled);
+                let id = publisher.parent;
+                if ready && !matches!(poll, Poll::Waiting) {
+                    if let Err(error) = state.activate_stream(publisher, checkpointing) {
+                        state.error = Some(error.into());
+                        pool.fail(Failure {
+                            id: Some(publisher_raw),
+                            phase: Some(state.queue.domains[id].phase),
+                            kind: "publication_context",
+                            detail: error.into(),
+                        });
+                        break;
+                    }
+                }
+                match poll {
                     Poll::Events(chunk) => {
                         if let Err(error) = admission.commit_chunk(
                             state,
@@ -1049,6 +1157,9 @@ fn run_configured<const N: usize>(
                     }
                     Poll::Finished(finished) => {
                         state.commit_physical(publisher, finished, request);
+                        if ready {
+                            ready_streams.finished(publisher_raw);
+                        }
                         state.set_parallel(pool.snapshot(), &previous_parallel);
                         if state.error.is_none()
                             && let Err(error) = maybe_save(state)
@@ -1061,7 +1172,20 @@ fn run_configured<const N: usize>(
                             });
                         }
                     }
-                    Poll::Waiting => pool.wait(publisher_raw),
+                    Poll::Waiting => {
+                        if ready {
+                            if ready_streams.is_empty() && state.error.is_none() {
+                                state.error = Some(
+                                    "Ready worklist has no dispatchable or active responsibility"
+                                        .into(),
+                                );
+                            } else {
+                                ready_streams.wait(pool);
+                            }
+                        } else {
+                            pool.wait(publisher_raw);
+                        }
+                    }
                 }
                 if heartbeat.elapsed() >= Duration::from_millis(250) {
                     observer(state.progress("domain_progress", state.queue.next, &pool.snapshot()));
@@ -1090,8 +1214,7 @@ fn run_configured<const N: usize>(
                     observer(state.progress("domain_draining", state.queue.next, &pool.snapshot()));
                 }
             }
-        },
-    );
+        });
     if state.error.is_none()
         && let Some(detail) = snapshot["first_failure"]["detail"].as_str()
     {
@@ -1131,7 +1254,9 @@ fn run_configured<const N: usize>(
         .iter()
         .filter(|(raw, _)| Ticket::decode(*raw, physical_enabled).parent == state.queue.next)
         .count();
-    if physical_enabled {
+    if ready {
+        state.retain_ready_leftovers(&mut leftovers);
+    } else if physical_enabled {
         retain_physical_leftovers(state, &mut leftovers, request);
     } else {
         retain_leftovers(state, &mut leftovers);
@@ -1348,6 +1473,10 @@ fn serial<const N: usize>(
             continue;
         }
         let ticket = state.publisher_ticket(request);
+        if let Err(error) = state.activate_stream(ticket, checkpointing) {
+            state.error = Some(error.into());
+            break;
+        }
         let raw = match ticket.encode(state.physical_enabled) {
             Ok(raw) => raw,
             Err(error) => {
@@ -1507,6 +1636,10 @@ fn serial<const N: usize>(
 #[cfg(test)]
 #[path = "execution/initial_orthants_tests.rs"]
 mod initial_orthants_tests;
+#[cfg(test)]
+mod ready_tests;
+#[cfg(test)]
+mod ready_native_tests;
 #[cfg(test)]
 mod subdivision_tests;
 #[cfg(test)]

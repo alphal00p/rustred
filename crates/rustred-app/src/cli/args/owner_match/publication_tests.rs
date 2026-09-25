@@ -32,6 +32,41 @@ fn publication_policy_default_is_ordered_without_enabling_successor_work() {
 }
 
 #[test]
+fn ready_publication_requires_explicit_responsibility_policy_and_supports_resume() {
+    assert!(matches!(
+        parse_suffix("--follow-successors --publication-policy ready").unwrap_err(),
+        ArgError::InvalidCombination(_)
+    ));
+    for workers in [1, 6, 50] {
+        let common =
+            format!("--follow-successors --workers {workers} --transfer-unreserved-lookahead 256");
+        let mut expected = parse_suffix(&common).unwrap();
+        expected.publication_policy = OwnerDomainWalkPublicationPolicy::Ready;
+        assert_eq!(
+            parse_suffix(&format!("{common} --publication-policy ready")).unwrap(),
+            expected
+        );
+        for checkpoint in ["--checkpoint new", "--resume existing"] {
+            let args =
+                parse_suffix(&format!("{common} --publication-policy ready {checkpoint}")).unwrap();
+            assert_eq!(
+                args.publication_policy,
+                OwnerDomainWalkPublicationPolicy::Ready
+            );
+            assert!(args.checkpoint.is_some());
+        }
+    }
+    for invalid in [
+        "--apply-subdivision-axis 0 --apply-subdivision-cut 1",
+        "--max-containment-checks 7",
+    ] {
+        assert!(parse_suffix(&format!(
+            "--follow-successors --publication-policy ready --transfer-unreserved-lookahead 256 {invalid}"
+        )).is_err());
+    }
+}
+
+#[test]
 fn publication_policy_choices_preserve_all_other_options_at_one_six_fifty_workers() {
     for (name, policy) in [
         ("ordered", OwnerDomainWalkPublicationPolicy::Ordered),

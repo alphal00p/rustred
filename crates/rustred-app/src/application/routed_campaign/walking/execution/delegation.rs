@@ -30,16 +30,21 @@ impl<const N: usize> State<N> {
 
     /// Called only in the ordinary serial/parallel loop, NEVER cleanup.
     pub(super) fn commit_delegated(&mut self) -> Result<(), String> {
-        if self.error.is_some() || !self.details.is_empty() || !self.refusals.records.is_empty() {
+        self.commit_delegated_id(self.queue.next)
+    }
+    pub(super) fn commit_delegated_id(&mut self, id: usize) -> Result<(), String> {
+        let ready = self.ready();
+        if self.error.is_some()
+            || (!ready && (!self.details.is_empty() || !self.refusals.records.is_empty()))
+        {
             return Err("delegation publication has unresolved publisher state".into());
         }
-        let id = self.queue.next;
         let ledger = self
             .queue
             .delegation
             .as_mut()
             .ok_or("delegation policy not enabled")?;
-        if ledger.cursor() != id {
+        if !ready && ledger.cursor() != id {
             return Err("delegation publisher cursor mismatch".into());
         }
         let to = ledger
@@ -62,10 +67,13 @@ impl<const N: usize> State<N> {
         debug_assert_eq!(publication.native_publications(), 0);
         self.records.push(record);
         self.queue.next = ledger.cursor();
+        if ready {
+            self.streams.initial_published += usize::from(id < self.initial_domain_count);
+        }
         Ok(())
     }
 
-    pub(super) fn add_delegation_progress(&self, out: &mut Value) {
+    pub(in super::super) fn add_delegation_progress(&self, out: &mut Value) {
         let Some(ledger) = &self.queue.delegation else {
             return;
         };
@@ -83,7 +91,10 @@ impl<const N: usize> State<N> {
             "delegated_publications":ledger.delegated_publications(),
             "native_publications":ledger.native_publications(),
             "pending_native_publications":ledger.len() - ledger.transfer_count() - ledger.native_publications(),
-            "logical_publications":ledger.cursor(),
+            "logical_publications":ledger.published_count(),
+            "contiguous_publication_watermark":ledger.cursor(),
+            "reservation_scan":ledger.reservation_scan(),
+            "outstanding_native_parent_credits":ledger.outstanding_native(),
             "resolution_scope":"ledger_local_only; global_frontiers_and_errors_are_separate",
         });
     }

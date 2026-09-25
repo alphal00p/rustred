@@ -192,6 +192,7 @@ def progress_summary(event: dict, observed_at: float | None, now: float) -> dict
         },
         "active_native_slots": number(parallel.get("active_workers")),
         "backpressured_native_slots": number(parallel.get("backpressured_workers")),
+        "finished_native_awaiting_publication": number(parallel.get("finished_uncommitted_domains")),
         "worker_reservations": {
             "inspectors": number(allocation.get("inspection_worker_limit")),
             "admission_helpers": number(allocation.get("lookup_worker_limit")),
@@ -282,7 +283,10 @@ def dashboard(status: dict) -> list[str]:
     return [
         f"RustRed · {state} · {duration(status.get('elapsed_seconds'))}{stale}",
         f"CPU {bar(cpu, status.get('workers'))} {cpu_text} / {count(status.get('workers'))} total reserved",
-        f"Workers {count(progress.get('active_native_slots'))} native active, {count(progress.get('backpressured_native_slots'))} blocked · reserved {count(allocation.get('inspectors'))} inspect + {count(allocation.get('admission_helpers'))} admission + {count(allocation.get('coordinator'))} coordinator",
+        f"Workers {count(progress.get('active_native_slots'))} native active, {count(progress.get('backpressured_native_slots'))} blocked"
+        + (f" · {count(progress['finished_native_awaiting_publication'])} finished waiting"
+           if progress.get('finished_native_awaiting_publication') is not None else "")
+        + f" · reserved {count(allocation.get('inspectors'))} inspect + {count(allocation.get('admission_helpers'))} admission + {count(allocation.get('coordinator'))} coordinator",
         f"Entry {entry_bar} {count(entry_value)} / {count(entry.get('total'))} {entry_label} · not closure",
         f"Queue {count(work.get('pending'))} pending · {count(work.get('locally_completed'))} local completions · {rate_text} · frontiers {count(work.get('frontiers'))}",
         f"Descendants {count(work.get('pending_descendants'))} pending · initial native inspected {count(entry.get('locally_inspected'))} · closure ETA unknown",

@@ -9,7 +9,7 @@ use crate::{
     OwnerDomainWalkRequest, OwnerDomainWalkResult, OwnerDomainWalkSchedulingPolicy,
     owner_domain_walk_with_progress,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use std::fs::{File, OpenOptions};
 use std::io::{self, IsTerminal, Write};
 use std::sync::{Arc, atomic::AtomicBool};
@@ -153,26 +153,15 @@ fn run_admitted(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     if walking {
         // A requested partition is not evidence that any pool was started.
         document["requested_inspection_workers"] = json!(args.inspection_workers);
-        let owner_batched_report = document["schema"] == "rustred.owner-domain-walk.json.v4";
         if args.reuse_initial_d_bands {
             // Preserve the requested opt-in even on preparation-error receipts.
             document["reuse_initial_d_bands"] = json!(true);
         }
-        if let Some(lookahead) = args.transfer_unreserved_lookahead {
-            document["schema"] = json!("rustred.owner-domain-walk.json.v3");
-            document["scheduling_policy"] =
-                json!({"kind":"transfer_unreserved", "lookahead":lookahead.get()});
-        } else {
-            document["schema"] = json!("rustred.owner-domain-walk.json.v2");
-        }
-        if args.publication_policy == crate::OwnerDomainWalkPublicationPolicy::OwnerBatched {
-            // Preserve actual composite identities. A failure before the new
-            // traversal starts retains its original schema/initial handles.
-            if owner_batched_report {
-                document["schema"] = json!("rustred.owner-domain-walk.json.v4");
-            }
-            document["requested_publication_policy"] = json!("owner_batched");
-        }
+        annotate_walk_policy(
+            &mut document,
+            args.publication_policy,
+            args.transfer_unreserved_lookahead,
+        );
         monitor.observe(OwnerDomainWalkResult::completion_progress(&document));
     } else {
         monitor.observe(OwnerDomainMatchResult::completion_progress(&document));
@@ -186,6 +175,99 @@ fn run_admitted(args: OwnerDomainMatchArgs) -> Result<(), CliError> {
     .map_err(CliError::OutputIo)?;
     presentation.map_err(|e| CliError::OutputIo(format!("event journal: {e}")))?;
     outcome
+}
+
+/// Requested steering must not rebrand Ready's flat-ID v5, its compact paused
+/// receipt, or a preparation error as an older walk's result schema.
+fn annotate_walk_policy(
+    document: &mut Value,
+    policy: crate::OwnerDomainWalkPublicationPolicy,
+    lookahead: Option<std::num::NonZeroUsize>,
+) {
+    use crate::OwnerDomainWalkPublicationPolicy;
+    let owner_batched_report = document["schema"] == "rustred.owner-domain-walk.json.v4";
+    if let Some(lookahead) = lookahead {
+        document["scheduling_policy"] =
+            json!({"kind":"transfer_unreserved", "lookahead":lookahead.get()});
+    }
+    if policy == OwnerDomainWalkPublicationPolicy::Ready {
+        document["requested_publication_policy"] = json!("ready");
+        return;
+    }
+    document["schema"] = json!(if lookahead.is_some() {
+        "rustred.owner-domain-walk.json.v3"
+    } else {
+        "rustred.owner-domain-walk.json.v2"
+    });
+    if policy == OwnerDomainWalkPublicationPolicy::OwnerBatched {
+        if owner_batched_report {
+            document["schema"] = json!("rustred.owner-domain-walk.json.v4");
+        }
+        document["requested_publication_policy"] = json!("owner_batched");
+    }
+}
+
+#[cfg(test)]
+mod publication_receipt_tests {
+    use super::*;
+
+    #[test]
+    fn ready_preserves_actual_final_paused_and_preparation_schemas() {
+        for schema in [
+            "rustred.owner-domain-walk.json.v5",
+            "rustred.owner-domain-walk.paused.json.v1",
+            "rustred.owner-domain-match.json.v2",
+        ] {
+            let mut document = json!({"schema": schema});
+            annotate_walk_policy(
+                &mut document,
+                crate::OwnerDomainWalkPublicationPolicy::Ready,
+                std::num::NonZeroUsize::new(256),
+            );
+            assert_eq!(document["schema"], schema);
+            assert_eq!(document["requested_publication_policy"], "ready");
+            assert_eq!(document["scheduling_policy"]["lookahead"], 256);
+            assert!(document.get("all_scheduled_domains_resolved").is_none());
+        }
+    }
+
+    #[test]
+    fn existing_ordered_and_composite_owner_batched_receipts_are_unchanged() {
+        for (policy, source, horizon, expected) in [
+            (
+                crate::OwnerDomainWalkPublicationPolicy::Ordered,
+                "rustred.owner-domain-walk.json.v2",
+                None,
+                "rustred.owner-domain-walk.json.v2",
+            ),
+            (
+                crate::OwnerDomainWalkPublicationPolicy::Ordered,
+                "rustred.owner-domain-walk.json.v2",
+                Some(8),
+                "rustred.owner-domain-walk.json.v3",
+            ),
+            (
+                crate::OwnerDomainWalkPublicationPolicy::OwnerBatched,
+                "rustred.owner-domain-walk.json.v4",
+                Some(8),
+                "rustred.owner-domain-walk.json.v4",
+            ),
+            (
+                crate::OwnerDomainWalkPublicationPolicy::OwnerBatched,
+                "rustred.owner-domain-match.json.v2",
+                Some(8),
+                "rustred.owner-domain-walk.json.v3",
+            ),
+        ] {
+            let mut document = json!({"schema": source});
+            annotate_walk_policy(
+                &mut document,
+                policy,
+                horizon.and_then(std::num::NonZeroUsize::new),
+            );
+            assert_eq!(document["schema"], expected);
+        }
+    }
 }
 
 /// Keep managed checkpoint generations separate from immutable inputs and

@@ -115,6 +115,12 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
         policy = json.loads(path.read_text())
         if policy.get("schema") != "rustred.production-steering.v1":
             raise ValueError("unknown frozen steering policy")
+        if args.publication_policy is not None:
+            command = policy["command_arguments"]
+            if command.count("--publication-policy") != 1:
+                raise ValueError("frozen steering must contain exactly one --publication-policy")
+            if command[command.index("--publication-policy") + 1] != args.publication_policy:
+                raise ValueError("--publication-policy differs from frozen policy; use a new campaign directory")
         for name in names:
             supplied = getattr(args, name)
             if supplied is not None and supplied != policy["options"][name]:
@@ -143,7 +149,7 @@ def frozen_policy(campaign, args, executable, inputs, count, size):
                "--ram-guard-margin-percent", str(options["ram_guard_margin_percent"]),
                "--unbounded-work", "--max-queries", str(count), "--max-query-bytes", str(size),
                "--bounded-refinement-axes", "finite-axes", "--max-guard-univariate-degree", "64",
-               "--publication-policy", "ordered", "--route-domain-overcover",
+               "--publication-policy", args.publication_policy or "ordered", "--route-domain-overcover",
                "--transfer-unreserved-lookahead", "256", "--reuse-initial-d-bands",
                "--checkpoint-interval-seconds", str(options["checkpoint_interval_seconds"])]
     if options["apply_subdivision_axis"] is not None:
@@ -184,6 +190,8 @@ def main(argv=None):
     parser.add_argument("--workers", type=int, help="initial default: at most 50 permitted CPUs; frozen for resume")
     parser.add_argument("--cpus", help="optional explicit affinity; exactly --workers CPU IDs")
     parser.add_argument("--run-directory", type=Path)
+    parser.add_argument("--publication-policy", choices=("ordered", "ready"),
+                        help="initial default: ordered; ready is experimental; frozen for resume")
     parser.add_argument("--checkpoint-interval-seconds", type=int, help="initial default: 3600")
     parser.add_argument("--max-memory-bytes", type=int,
                         help="positive requested RAM ceiling; initial default: 500000000000; may override per resume")
@@ -201,6 +209,8 @@ def main(argv=None):
         parser.error("RAM limit must be positive and guard margin strictly between 0 and 100 percent")
     if (args.apply_subdivision_axis is None) != (args.apply_subdivision_cut is None):
         parser.error("subdivision requires both axis and cut")
+    if args.publication_policy == "ready" and args.apply_subdivision_axis is not None:
+        parser.error("ready publication cannot be combined with physical subdivision")
     if any(value is not None and value < 0 for value in (args.apply_subdivision_axis, args.apply_subdivision_cut)):
         parser.error("subdivision axis and cut must be nonnegative")
     campaign = args.campaign_directory.resolve()

@@ -104,6 +104,17 @@ pub(super) struct Replay {
     run: Option<([u8; 32], u64)>,
 }
 
+impl Serialize for Replay {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.snapshot().serialize(serializer)
+    }
+}
+impl<'de> Deserialize<'de> for Replay {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::restore(Value::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
 impl Default for Replay {
     fn default() -> Self {
         let mut hash = blake3::Hasher::new();

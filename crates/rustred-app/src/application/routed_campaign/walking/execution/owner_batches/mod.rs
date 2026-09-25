@@ -16,16 +16,6 @@ mod delivery;
 mod driver;
 mod report;
 
-/// Publication order is a scheduling choice, never mathematical authority.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum OwnerDomainWalkPublicationPolicy {
-    #[default]
-    Ordered,
-    /// Share immutable programs while admitting into independent owner queues.
-    /// Diagnostic IDs/counts may differ across configured worker budgets.
-    OwnerBatched,
-}
-
 type Key<const N: usize> = (Phase, [bool; N]);
 
 fn key_name<const N: usize>(key: &Key<N>) -> String {

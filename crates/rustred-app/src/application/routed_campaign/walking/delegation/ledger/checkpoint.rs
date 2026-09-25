@@ -7,10 +7,16 @@ use serde::{Deserialize, Serialize, Serializer};
 struct StoredEntry {
     responsibility: Responsibility,
     initial_anchor: Option<NonZeroUsize>,
+    #[serde(default)]
+    delegated_published: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub(in super::super::super) struct StoredLedger {
+    #[serde(default)]
+    ready: bool,
+    #[serde(default)]
+    outstanding_native: Option<usize>,
     entries: Vec<StoredEntry>,
     cursor: usize,
     lookahead: NonZeroUsize,
@@ -33,6 +39,7 @@ impl<K> Serialize for Entries<'_, K> {
             seq.serialize_element(&StoredEntry {
                 responsibility: entry.responsibility,
                 initial_anchor: entry.initial_anchor,
+                delegated_published: Some(entry.delegated_published),
             })?;
         }
         seq.end()
@@ -43,6 +50,8 @@ impl<K> Serialize for LedgerRef<'_, K> {
         #[derive(Serialize)]
         #[serde(bound = "")]
         struct Ref<'a, K> {
+            ready: bool,
+            outstanding_native: usize,
             entries: Entries<'a, K>,
             cursor: usize,
             lookahead: NonZeroUsize,
@@ -58,6 +67,8 @@ impl<K> Serialize for LedgerRef<'_, K> {
         }
         let l = self.0;
         Ref {
+            ready: l.ready,
+            outstanding_native: l.outstanding_native,
             entries: Entries(&l.entries),
             cursor: l.cursor,
             lookahead: l.lookahead,
@@ -90,17 +101,27 @@ impl StoredLedger {
         {
             return Err("invalid or failed checkpoint responsibility ledger".into());
         }
+        let legacy = !self.ready && self.outstanding_native.is_none();
+        if !legacy
+            && self
+                .entries
+                .iter()
+                .any(|entry| entry.delegated_published.is_none())
+        {
+            return Err("checkpoint entry has no publication bit".into());
+        }
         let entries: Vec<_> = self
             .entries
             .into_iter()
             .zip(keys)
-            .map(|(e, key)| Entry {
+            .enumerate()
+            .map(|(id, (e, key))| Entry {
                 key,
-                responsibility: match e.responsibility {
-                    Responsibility::Local(Local::Started) => Responsibility::Local(Local::Reserved),
-                    other => other,
-                },
+                responsibility: e.responsibility,
                 initial_anchor: e.initial_anchor,
+                delegated_published: e.delegated_published.unwrap_or_else(|| {
+                    id < self.cursor && matches!(e.responsibility, Responsibility::Delegate { .. })
+                }),
             })
             .collect();
         for (id, e) in entries.iter().enumerate() {
@@ -113,7 +134,7 @@ impl StoredLedger {
                 Responsibility::Local(Local::Published(
                     NativeOutcome::Failed | NativeOutcome::Cancelled,
                 )) => return Err("checkpoint contains failed native publication".into()),
-                Responsibility::Local(Local::Published(_)) if id >= self.cursor => {
+                Responsibility::Local(Local::Published(_)) if !self.ready && id >= self.cursor => {
                     return Err("checkpoint publication beyond cursor".into());
                 }
                 Responsibility::Local(Local::Unreserved | Local::Reserved) if id < self.cursor => {
@@ -131,7 +152,24 @@ impl StoredLedger {
                 }
             }
         }
-        Ok(Ledger {
+        // CP1 did not encode either field. Only its original Ordered state is
+        // reconstructed; Ready always requires its explicit counter and bits.
+        let outstanding_native = match self.outstanding_native {
+            Some(n) => n,
+            None if !self.ready => entries
+                .iter()
+                .filter(|e| {
+                    matches!(
+                        e.responsibility,
+                        Responsibility::Local(Local::Reserved | Local::Started)
+                    )
+                })
+                .count(),
+            None => return Err("ready checkpoint has no outstanding-native count".into()),
+        };
+        let mut ledger = Ledger {
+            ready: self.ready,
+            outstanding_native,
             entries,
             cursor: self.cursor,
             lookahead: self.lookahead,
@@ -144,6 +182,8 @@ impl StoredLedger {
             initial_admission: false,
             protected_initial_prefix: self.protected_initial_prefix,
             partial_initial_inspections: self.partial_initial_inspections,
-        })
+        };
+        ledger.restore_normalize_started()?;
+        Ok(ledger)
     }
 }

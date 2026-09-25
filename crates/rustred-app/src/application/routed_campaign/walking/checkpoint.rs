@@ -1,7 +1,7 @@
 //! Durable coordinator state, not a completed reduction artifact.
 //! The binary envelope contains bounded UTF-8 serde chunks. Serialization is
 //! streaming: no full queue/report clone or full serialized byte buffer exists.
-mod codec;
+pub(super) mod codec;
 use super::{OwnerDomainWalkRequest, execution::State};
 use crate::application::atomic_file::{write_file_atomically, write_file_atomically_with};
 use serde::{Deserialize, Serialize};
@@ -43,6 +43,7 @@ struct Manifest {
     metadata: Value,
 }
 pub(super) struct Store {
+    schema: u32,
     options: OwnerDomainWalkCheckpointOptions,
     _lock: File,
     manifest: Option<Manifest>,
@@ -137,6 +138,12 @@ impl Store {
         lock.try_lock()
             .map_err(|e| format!("checkpoint is in use: {e}"))?;
         let request_binding = binding(request);
+        let schema = if request.publication_policy == super::OwnerDomainWalkPublicationPolicy::Ready
+        {
+            2
+        } else {
+            1
+        };
         let executable = file_digest(&std::env::current_exe().map_err(|e| e.to_string())?)?.1;
         let manifest = if options.resume {
             let path = options.directory.join("latest.json");
@@ -146,7 +153,7 @@ impl Store {
                     .take(1024 * 1024),
             )
             .map_err(|e| format!("invalid checkpoint manifest: {e}"))?;
-            if m.schema != 1
+            if m.schema != schema
                 || !matches!(m.kind.as_str(), "bootstrap" | "state")
                 || (m.kind == "state" && m.owners.is_empty())
                 || m.state_file != format!("state-{:020}.bin", m.generation)
@@ -168,6 +175,7 @@ impl Store {
             None
         };
         Ok(Some(Self {
+            schema,
             options,
             _lock: lock,
             manifest,
@@ -216,7 +224,7 @@ impl Store {
             "committed_domains":0,"pending_domains":0,"completed_native_inspections":0,"committed_events":0,
             "paused":false,"bootstrap":true,"preparation_must_restart":true,"bytes":bytes});
         let manifest = Manifest {
-            schema: 1,
+            schema: self.schema,
             kind: "bootstrap".into(),
             generation,
             state_file,
@@ -326,17 +334,18 @@ impl Store {
         observer(
             json!({"event":"checkpoint_started","operation":"owner_domain_walk",
             "checkpoint_write":{"state":"writing","directory":self.options.directory,"generation":generation,"state_path":path,"started_unix_time":started_unix_time},
-            "committed_domains":state.queue.next,"committed_events":state.events,"family_closure_claim":false}),
+            "committed_domains":state.published_count(),"contiguous_publication_watermark":state.queue.next,"committed_events":state.events,"family_closure_claim":false}),
         );
         write_file_atomically_with(&path, false, |f| codec::write(f, state, inputs, frontiers))?;
         let (bytes, digest) = file_digest(&path)?;
         let metadata = json!({"state":"saved","directory":self.options.directory,"generation":generation,"state_path":path,
             "saved_unix_time":SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e|e.to_string())?.as_secs(),
-            "committed_domains":state.queue.next,"pending_domains":state.queue.domains.len()-state.queue.next,
+            "committed_domains":state.published_count(),"pending_domains":state.queue.domains.len()-state.published_count(),
+            "contiguous_publication_watermark":state.queue.next,
             "completed_native_inspections":state.completed,"committed_events":state.events,"paused":state.checkpoint_paused,
             "bytes":bytes,"started_unix_time":started_unix_time,"save_seconds":started.elapsed().as_secs_f64(),"duration_seconds":started.elapsed().as_secs_f64()});
         let manifest = Manifest {
-            schema: 1,
+            schema: self.schema,
             kind: "state".into(),
             generation,
             state_file,
