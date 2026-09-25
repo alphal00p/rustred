@@ -71,6 +71,7 @@ pub(super) enum Effect<const N: usize> {
     /// Contained in a full orthant actually admitted before execution began.
     /// Its pending inspection is still required; native checks were not skipped.
     PreAdmittedOrthantReuse {
+        target: usize,
         successor: bool,
         conditional: bool,
     },
@@ -112,14 +113,16 @@ impl<const N: usize> Event<N> {
             ) => a == c && b == d,
             (
                 Effect::PreAdmittedOrthantReuse {
+                    target: a_target,
                     successor: a,
                     conditional: b,
                 },
                 Effect::PreAdmittedOrthantReuse {
+                    target: b_target,
                     successor: c,
                     conditional: d,
                 },
-            ) => a == c && b == d,
+            ) => a == c && b == d && a_target == b_target,
             _ => false,
         }
     }
@@ -336,16 +339,16 @@ fn inspect_native<const N: usize>(
                 OwnerAppliedEvent::Successor(child) => {
                     let conditional = child.coefficient_nonzero == OwnerAppliedNonzero::Conditional;
                     if child.has_installed_target_owner {
-                        if initial.contains(Phase::Apply, child.target_sector, child.target_rank_limit) {
-                            return emit(Event::one(Effect::PreAdmittedOrthantReuse { successor: true, conditional }));
+                        if let Some(target) = initial.target(Phase::Apply, child.target_sector, child.target_rank_limit) {
+                            return emit(Event::one(Effect::PreAdmittedOrthantReuse { target, successor: true, conditional }));
                         }
                         Effect::Admit { successor: true, conditional, domain: Domain {
                             phase: Phase::Apply, owner: *child.target_sector, lower: child.target_lower.to_vec(),
                             upper: child.target_upper.to_vec(), rank: child.target_rank_limit,
                             powers: child.target_power_bounds } }
                     } else if request.route_domain_overcover {
-                        if initial.contains(Phase::Route, child.target_sector, child.target_rank_limit) {
-                            return emit(Event::one(Effect::PreAdmittedOrthantReuse { successor: true, conditional }));
+                        if let Some(target) = initial.target(Phase::Route, child.target_sector, child.target_rank_limit) {
+                            return emit(Event::one(Effect::PreAdmittedOrthantReuse { target, successor: true, conditional }));
                         }
                         // Routing must see the actual successor box. Widening it
                         // to a full orthant discards finite starting-power bounds

@@ -5,8 +5,8 @@ use super::super::{
 use super::*;
 use std::io::{self, Read, Write};
 
-const MAGIC: &[u8] = b"RUSTRED-WALK-CP1\n";
-const READY_MAGIC: &[u8] = b"RUSTRED-WALK-CP2\n";
+const MAGIC: &[u8] = b"RUSTRED-WALK-CP3\n";
+const READY_MAGIC: &[u8] = b"RUSTRED-WALK-CP4\n";
 const CHUNK: usize = 65536;
 struct FramedWriter<W> {
     inner: W,
@@ -66,7 +66,7 @@ impl<R: Read> FramedReader<R> {
         if magic != MAGIC && magic != READY_MAGIC {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "checkpoint binary format mismatch",
+                "checkpoint binary format mismatch; dependency history requires CP3/CP4",
             ));
         }
         Ok(Self {
@@ -118,6 +118,7 @@ struct ProgressRef<'a> {
 }
 #[derive(Serialize)]
 struct ImageRef<'a, const N: usize> {
+    descendant_closure: &'a super::super::descendant_closure::Tracker,
     queue: &'a Queue<N>,
     records: &'a [Value],
     details: &'a [Value],
@@ -134,6 +135,7 @@ struct ImageRef<'a, const N: usize> {
 }
 #[derive(Deserialize)]
 struct Image<const N: usize> {
+    descendant_closure: super::super::descendant_closure::Tracker,
     queue: Queue<N>,
     records: Vec<Value>,
     details: Vec<Value>,
@@ -162,7 +164,9 @@ pub(in super::super) fn write<const N: usize>(
     input_frontiers: &[Value],
 ) -> Result<(), String> {
     let mut out = FramedWriter::new(out, s.ready()).map_err(|e| e.to_string())?;
+    let closure = s.closure.borrow();
     let image = ImageRef {
+        descendant_closure: &closure,
         queue: &s.queue,
         records: &s.records,
         details: &s.details,
@@ -251,6 +255,9 @@ pub(in super::super) fn read<const N: usize>(input: impl Read) -> Result<Restore
     s.route_joint_support_masks_pruned = image.route_joint_support_masks_pruned;
     s.initial_domain_count = initial_domain_count;
     s.initial_entry_domains_inspected = initial_entry_domains_inspected;
+    let mut closure = image.descendant_closure;
+    closure.restore(s.queue.domains.len(), initial_domain_count)?;
+    s.closure = std::cell::RefCell::new(closure);
     s.parallel = image.parallel;
     s.uncommitted = image.uncommitted;
     s.restore_checkpoint_progress(image.progress)?;
@@ -260,11 +267,95 @@ pub(in super::super) fn read<const N: usize>(input: impl Read) -> Result<Restore
         None => return Err("ready checkpoint has no stream contexts".into()),
     };
     s.validate_restored_streams()?;
+    validate_closure_records(&s)?;
     Ok(Restored {
         state: s,
         inputs: image.inputs,
         input_frontiers: image.input_frontiers,
     })
+}
+
+fn validate_closure_records<const N: usize>(state: &State<N>) -> Result<(), String> {
+    let closure = state.closure.borrow();
+    if closure.json(state.queue.domains.len(), state.initial_domain_count)["available"] != true {
+        return Ok(()); // Explicitly unavailable monitoring is not a completion claim.
+    }
+    let mut recorded = Vec::new();
+    recorded
+        .try_reserve_exact(state.queue.domains.len())
+        .map_err(|_| "dependency record validation allocation")?;
+    recorded.resize(state.queue.domains.len(), false);
+    let mut required = std::collections::HashSet::new();
+    required
+        .try_reserve(state.records.len())
+        .map_err(|_| "dependency record validation allocation")?;
+    for record in &state.records {
+        let id = record["id"]
+            .as_u64()
+            .and_then(|id| usize::try_from(id).ok())
+            .ok_or("dependency record ID missing")?;
+        if id >= recorded.len()
+            || recorded[id]
+            || !state
+                .queue
+                .delegation
+                .as_ref()
+                .map_or(id < state.queue.next, |ledger| ledger.is_published(id))
+        {
+            return Err("dependency record is duplicate or unpublished".into());
+        }
+        recorded[id] = true;
+        let status = if record["record_kind"] == "delegated_not_inspected" {
+            let target = record["representative_id"]
+                .as_u64()
+                .and_then(|id| usize::try_from(id).ok())
+                .ok_or("dependency alias representative missing")?;
+            if state
+                .queue
+                .delegation
+                .as_ref()
+                .and_then(|l| l.delegated_to(id))
+                != Some(target)
+            {
+                return Err("dependency alias does not match ledger".into());
+            }
+            required.insert((id, target));
+            (false, true)
+        } else {
+            let inspected = record.get("error").is_some_and(Value::is_null)
+                && (record["local_inspection_finished"] == true
+                    || record["residual_inspection_finished"] == true);
+            let frontiers = record["frontiers"]
+                .as_array()
+                .ok_or("dependency native frontier status missing")?;
+            if record["record_kind"] == "partial_initial_overlap_inspection" {
+                let target = record["initial_overlap"]["anchor_id"]
+                    .as_u64()
+                    .and_then(|id| usize::try_from(id).ok())
+                    .ok_or("dependency partial anchor missing")?;
+                if target >= state.initial_domain_count {
+                    return Err("dependency partial anchor outside initial prefix".into());
+                }
+                required.insert((id, target));
+            }
+            (inspected, inspected && frontiers.is_empty())
+        };
+        if closure.local_status(id) != Some(status) {
+            return Err("dependency seal disagrees with native publication".into());
+        }
+    }
+    for (id, seen) in recorded.iter().enumerate() {
+        if !seen && closure.local_status(id) != Some((false, false)) {
+            return Err("dependency sealed or inspected an unpublished node".into());
+        }
+    }
+    for edge in closure.dependencies() {
+        required.remove(&edge);
+    }
+    if !required.is_empty() {
+        return Err("dependency alias or partial-anchor edge missing".into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -337,7 +428,15 @@ mod tests {
         state.events = 7;
         state.initial_domain_count = 3;
         state.initial_entry_domains_inspected = 1;
-        state.records.push(json!({"id":0,"completed":true}));
+        state.closure.borrow_mut().finish(0, true, true);
+        state.closure.borrow_mut().edge(1, 2);
+        state.closure.borrow_mut().finish(1, false, true);
+        state
+            .records
+            .push(json!({"id":0,"local_inspection_finished":true,"error":null,"frontiers":[]}));
+        state
+            .records
+            .push(json!({"id":1,"record_kind":"delegated_not_inspected","representative_id":2}));
         state.details.push(json!({"accepted_frontier":3}));
         let mut bytes = Vec::new();
         write(&mut bytes, &state, &[json!({"domain":0})], &[]).unwrap();

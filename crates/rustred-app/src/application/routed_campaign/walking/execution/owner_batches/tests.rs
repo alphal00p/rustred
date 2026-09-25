@@ -556,6 +556,7 @@ fn numeric_event_limits_preserve_ordered_wrapper_prefix_and_frontier_semantics()
                         conditional: true,
                     },
                     _ => Effect::PreAdmittedOrthantReuse {
+                        target: 0,
                         successor: true,
                         conditional: false,
                     },

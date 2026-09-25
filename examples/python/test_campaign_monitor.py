@@ -23,6 +23,21 @@ STAGE = module("stage_saved_owner_campaign")
 
 
 class MonitorTests(unittest.TestCase):
+    @staticmethod
+    def closure(**changes):
+        return dict({"available": True, "initial_total": 20, "initial_closed": 3,
+                     "total_domains": 200, "total_closed": 60, "locally_inspected": 100,
+                     "unresolved_domains": 140, "dependency_edges": 250,
+                     "graph_revision": 12, "snapshot_revision": 12, "snapshot_stale": False,
+                     "snapshot_age_seconds": 2.0, "last_refresh_seconds": 0.01,
+                     "refresh_count": 4, "refresh_seconds": 0.04,
+                     "retained_storage_estimate_bytes": 1234, "refresh_scratch_estimate_bytes": 234,
+                     "storage_estimate_scope": "logical capacities; not RSS",
+                     "method": "reverse_unsealed_reachability_including_sealed_cycles",
+                     "scope": "discovered_dependency_coverage; not termination, descent, or family certification",
+                     "closed_counts_are_conservative_lower_bounds": True,
+                     "family_closure_claim": False, "reason": None}, **changes)
+
     def test_checkpoint_milestones_survive_later_heartbeat_and_plain_throttle(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "events"
@@ -96,8 +111,10 @@ class MonitorTests(unittest.TestCase):
         self.assertIsNone(result["finished_native_awaiting_publication"])
         self.assertEqual(result["progress_age_seconds"], 7)
         self.assertIsNone(result["closure_eta_seconds"])
+        self.assertFalse(result["descendant_closure"]["available"])
+        self.assertIsNone(result["descendant_closure"]["initial_closed"])
 
-    def test_publication_bar_keeps_native_inspection_and_reserved_workers_distinct(self):
+    def test_publication_counter_never_supplies_closure_bar(self):
         event = {"progress": {"initial_entry_domains_total": 20,
                  "initial_entry_domains_published": 15, "initial_entry_domains_inspected": 10,
                  "pending_descendant_domains": 99, "parallel": {"active_workers": 2,
@@ -114,6 +131,114 @@ class MonitorTests(unittest.TestCase):
         self.assertIn("25 inspect + 24 admission + 1 coordinator", text)
         self.assertIn("1.4 observed cores", text)
         self.assertIn("not closure", text)
+        closure_line = next(line for line in text.splitlines() if line.startswith("Closure"))
+        self.assertIn("unknown / unknown initial roots recursively closed", closure_line)
+        self.assertNotIn("━", closure_line)
+        self.assertNotIn("[", next(line for line in text.splitlines() if line.startswith("Initial")))
+
+    def test_closure_counts_are_independent_of_local_publication_and_queue(self):
+        native = {"event": "domain_progress", "snapshot": {
+            "descendant_closure": self.closure(), "initial_entry_domains_total": 20,
+            "initial_entry_domains_published": 20, "initial_entry_domains_inspected": 19,
+            "scheduled_nodes": 200, "completed_nodes": 100, "queued_nodes": 80,
+            "pending_descendant_domains": 75}}
+        progress = MONITOR.progress_summary({"progress": native, "recent_nodes_per_second": 4.5}, 0, 1)
+        text = "\n".join(MONITOR.dashboard({"progress": progress}))
+        self.assertIn("3 / 20 initial roots recursively closed", text)
+        self.assertIn("Domains 200 discovered · 60 recursively closed · 140 unresolved", text)
+        self.assertIn("Initial 20 / 20 published", text)
+        self.assertIn("Queue 80 pending · 100 local completions · 4.5/s local", text)
+        self.assertIn("Descendants 75 pending", text)
+        self.assertIn("not termination/family proof", text)
+        self.assertFalse(progress["family_closure_claim"])
+        self.assertIsNone(progress["closure_eta_seconds"])
+
+    def test_bootstrap_unavailable_is_unknown_but_actual_zero_is_zero(self):
+        unavailable = self.closure(available=False, initial_closed=0, total_closed=0,
+                                   unresolved_domains=200, reason="bootstrap inventory unavailable")
+        for state in ("starting", "completed"):
+            progress = MONITOR.progress_summary({"descendant_closure": unavailable,
+                "initial_entry_domains_total": 20, "initial_entry_domains_published": 20}, 0, 0)
+            closure = progress["descendant_closure"]
+            self.assertFalse(closure["available"])
+            self.assertIsNone(closure["initial_closed"])
+            self.assertIsNone(closure["total_closed"])
+            self.assertIsNone(closure["unresolved_domains"])
+            line = MONITOR.dashboard({"state": state, "progress": progress})[3]
+            self.assertIn("unknown / 20", line)
+            self.assertIn("bootstrap inventory unavailable", line)
+            self.assertNotIn("━", line)
+        native = self.closure(initial_closed=0, total_closed=0, unresolved_domains=200)
+        progress = MONITOR.progress_summary({"descendant_closure": native}, 0, 0)
+        line = MONITOR.dashboard({"progress": progress})[3]
+        self.assertIn("[────────────────] 0 / 20", line)
+        self.assertNotIn("unknown", line)
+
+    def test_missing_publication_is_not_replaced_by_native_inspections(self):
+        progress = MONITOR.progress_summary({"initial_entry_domains_total": 20,
+            "initial_entry_domains_inspected": 20}, 0, 0)
+        text = "\n".join(MONITOR.dashboard({"progress": progress}))
+        self.assertIn("Initial unknown / 20 published · initial native inspected 20", text)
+        self.assertIn("unknown / unknown initial roots recursively closed", text)
+
+    def test_invalid_closure_counters_fail_closed(self):
+        variants = [{"initial_closed": True}, {"initial_closed": -1}, {"initial_closed": 21},
+                    {"initial_closed": 3.0}, {"initial_total": None}, {"initial_total": 201},
+                    {"total_closed": 201}, {"total_closed": 2, "unresolved_domains": 198},
+                    {"unresolved_domains": 139}, {"total_domains": float("nan")}]
+        for changes in variants:
+            with self.subTest(changes=changes):
+                closure = MONITOR.descendant_closure_summary(self.closure(**changes))
+                self.assertFalse(closure["available"])
+                self.assertIsNone(closure["initial_closed"])
+                self.assertIsNone(closure["total_closed"])
+                self.assertIn("invalid", closure["reason"])
+                json.dumps(closure, allow_nan=False)
+
+    def test_conservative_snapshot_preserves_metadata_and_advances_age(self):
+        native = self.closure(initial_closed=0, total_closed=0, unresolved_domains=200,
+                              snapshot_stale=True, snapshot_revision=10)
+        progress = MONITOR.progress_summary({"progress_age_seconds": 2,
+            "progress": {"descendant_closure": native}}, 10, 15)
+        closure = progress["descendant_closure"]
+        self.assertEqual(closure, dict(native, snapshot_age_seconds=9.0))
+        text = "\n".join(MONITOR.dashboard({"progress": progress}))
+        self.assertIn("≥0 / 20 initial roots recursively closed", text)
+        self.assertIn("conservative snapshot 00:00:09 ago", text)
+        self.assertIn("Domains 200 discovered · ≥0 recursively closed · ≤200 unresolved", text)
+        self.assertEqual(json.loads(json.dumps(progress))["descendant_closure"], closure)
+
+    def test_old_frozen_status_remains_readable_and_json_fields_survive(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            status = {"state": "completed", "heartbeat_unix_time": time.time(),
+                      "custom_legacy_field": {"retained": True},
+                      "progress": {"initial_entry_progress": {"total": 20, "published": 20},
+                                   "work": {"scheduled": 200, "locally_completed": 200, "pending": 0}}}
+            MONITOR.atomic_json(directory / "status.json", status)
+            output = io.StringIO()
+            with patch("sys.stdout", output):
+                self.assertEqual(MONITOR.main([str(directory), "--json"]), 0)
+            observed = json.loads(output.getvalue())
+            self.assertEqual(observed["progress"], status["progress"])
+            self.assertEqual(observed["custom_legacy_field"], status["custom_legacy_field"])
+            text = "\n".join(MONITOR.dashboard(observed))
+            self.assertIn("unknown / unknown initial roots recursively closed", text)
+            self.assertIn("Domains 200 discovered · unknown recursively closed · unknown unresolved", text)
+
+    def test_snapshot_age_advances_on_status_read_without_changing_native_freshness(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            status = {"state": "completed", "heartbeat_unix_time": 100,
+                      "progress": {"progress_age_seconds": 3,
+                                   "descendant_closure": self.closure(snapshot_stale=True)}}
+            MONITOR.atomic_json(directory / "status.json", status)
+            with patch.object(MONITOR.time, "time", return_value=120):
+                observed = MONITOR.read_status(directory)
+            self.assertEqual(observed["progress"]["descendant_closure"]["snapshot_age_seconds"], 22)
+            self.assertTrue(observed["progress"]["descendant_closure"]["snapshot_stale"])
+            self.assertEqual(observed["progress"]["progress_age_seconds"], 23)
+            self.assertTrue(observed["heartbeat_stale"])
 
     def test_plain_output_retains_checkpoint_and_never_contains_escape_codes(self):
         stream = io.StringIO()
@@ -157,6 +282,7 @@ class MonitorTests(unittest.TestCase):
             with patch.dict(os.environ, environment, clear=True):
                 MONITOR.Presenter(stream).render({"state": "running"}, now=0)
             self.assertEqual("\x1b[1;36m" in stream.getvalue(), not no_color)
+            self.assertEqual("\x1b[34m" in stream.getvalue(), not no_color)
             self.assertIn("\x1b[2K", stream.getvalue())
 
     def test_atomic_status_and_stale_or_reused_pid_observation(self):

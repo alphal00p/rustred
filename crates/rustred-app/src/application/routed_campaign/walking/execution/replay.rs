@@ -40,9 +40,13 @@ pub(super) fn token<const N: usize>(event: &Event<N>) -> Result<Token, &'static 
             conditional,
         } => serde_json::to_writer(HashWriter(&mut hash), &(1u8, successor, conditional)),
         Effect::PreAdmittedOrthantReuse {
+            target,
             successor,
             conditional,
-        } => serde_json::to_writer(HashWriter(&mut hash), &(2u8, successor, conditional)),
+        } => serde_json::to_writer(
+            HashWriter(&mut hash),
+            &(2u8, target, successor, conditional),
+        ),
         Effect::Admit {
             domain,
             successor,

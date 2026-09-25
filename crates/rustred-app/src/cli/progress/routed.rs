@@ -269,19 +269,10 @@ fn walk_dashboard(record: &Value) -> [String; 6] {
     } else {
         "inspected / scheduled"
     };
-    let width = if total == 0 {
-        0
-    } else {
-        (20. * done as f64 / total as f64).min(20.) as usize
-    };
+    let (root_line, closure_line) = descendant_closure_summary(&p["descendant_closure"]);
     [
         format!("RustRed shared symbolic-domain work — {state}"),
-        format!(
-            "[{}{}] {done}/{total} {inspected_label}; {} queued (may grow)",
-            "#".repeat(width),
-            "-".repeat(20 - width),
-            n("queued_nodes")
-        ),
+        root_line,
         format!(
             "Successors {}  conditional {}  domain reuse {}  frontiers {}",
             n("successors"),
@@ -290,11 +281,14 @@ fn walk_dashboard(record: &Value) -> [String; 6] {
             n("frontiers")
         ),
         format!(
-            "Events {} committed / {} attempted  RSS {:.2} GB  elapsed {:.1}s{}",
+            "Events {} committed / {} attempted  RSS {:.2} GB  elapsed {:.1}s\n{done}/{total} {inspected_label}; {} queued (may grow); entry {} / {} published\n{closure_line}{}",
             n("events"),
             pn("attempted_events"),
             record["process_rss_bytes"].as_u64().unwrap_or(0) as f64 / 1e9,
             record["elapsed_seconds"].as_f64().unwrap_or(0.),
+            n("queued_nodes"),
+            n("initial_entry_domains_published"),
+            n("initial_entry_domains_total"),
             // Family dashboard slot 3 has room for multiple lines; slot 2
             // is single-line and would silently clip the overlap summary.
             overlap.map_or_else(String::new, |summary| format!("\n{summary}"))
@@ -302,6 +296,57 @@ fn walk_dashboard(record: &Value) -> [String; 6] {
         walk_worker_summary(parallel),
         last_line,
     ]
+}
+
+fn descendant_closure_summary(value: &Value) -> (String, String) {
+    let counts = (|| {
+        Some((
+            value["initial_closed"].as_u64()?,
+            value["initial_total"].as_u64()?,
+            value["total_closed"].as_u64()?,
+            value["total_domains"].as_u64()?,
+            value["unresolved_domains"].as_u64()?,
+        ))
+    })();
+    if let Some((roots, total, closed, domains, unresolved)) = counts
+        && value["available"] == true
+        && roots <= total
+        && closed <= domains
+        && unresolved == domains - closed
+        && roots <= closed
+    {
+        let width = if total == 0 {
+            0
+        } else {
+            (20.0 * roots as f64 / total as f64).min(20.0) as usize
+        };
+        let stale = if value["snapshot_stale"] == true {
+            "; conservative stale snapshot"
+        } else {
+            ""
+        };
+        return (
+            format!(
+                "Roots [{}{}] {roots}/{total} dependency-closed{stale}",
+                "#".repeat(width),
+                "-".repeat(20 - width)
+            ),
+            format!(
+                "Domains {closed}/{domains} recursively covered; {unresolved} unresolved; scoped worklist coverage, NOT termination/family certification"
+            ),
+        );
+    }
+    let reason = value["reason"]
+        .as_str()
+        .unwrap_or("dependency history unavailable")
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(160)
+        .collect::<String>();
+    (
+        "Roots [?-------------------] dependency closure unknown".into(),
+        format!("Domain closure unavailable: {reason}; local publication is not closure"),
+    )
 }
 
 /// Limits are reserved compute slots, not sampled activity. In particular no
@@ -617,6 +662,25 @@ mod tests {
         assert!(text.contains("domain reuse 97"));
         assert!(text.contains("NOT a closure claim"));
         assert!(!text.contains("finite-target"));
+        assert!(text.contains("dependency closure unknown"));
+    }
+    #[test]
+    fn walk_bar_uses_transitive_initial_closure_not_local_publication() {
+        let mut record = json!({"progress":{"operation":"owner_domain_walk",
+            "scheduled_nodes":10,"completed_nodes":8,"initial_entry_domains_published":4,
+            "initial_entry_domains_total":4,"descendant_closure":{"available":true,
+            "initial_closed":1,"initial_total":4,"total_closed":3,"total_domains":10,
+            "unresolved_domains":7,"snapshot_stale":true}}});
+        let text = dashboard(&record).join("\n");
+        assert!(text.contains("Roots [#####---------------] 1/4 dependency-closed"));
+        assert!(text.contains("conservative stale snapshot"));
+        assert!(text.contains("Domains 3/10 recursively covered; 7 unresolved"));
+        assert!(text.contains("8/10 inspected / scheduled"));
+        record["progress"]["descendant_closure"]["available"] = json!(false);
+        assert!(dashboard(&record)[1].contains("unknown"));
+        record["progress"]["descendant_closure"]["available"] = json!(true);
+        record["progress"]["descendant_closure"]["initial_closed"] = json!(5);
+        assert!(dashboard(&record)[1].contains("unknown"));
     }
     #[test]
     fn delegation_monitor_distinguishes_published_aliases_from_resolution() {

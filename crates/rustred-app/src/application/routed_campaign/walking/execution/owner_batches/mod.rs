@@ -64,8 +64,13 @@ impl<const N: usize> Bucket<N> {
                 .begin_initial_admission()
                 .map_err(|e| e.to_string())?;
         }
+        let state = State::new(queue, 0, None);
+        state
+            .closure
+            .borrow_mut()
+            .disable("owner-batched cross-bucket dependency tracking unavailable");
         Ok(Self {
-            state: State::new(queue, 0, None),
+            state,
             dispatch_cursor: 0,
             outstanding_native_jobs: 0,
             peak_outstanding_native_jobs: 0,

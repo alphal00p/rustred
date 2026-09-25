@@ -13,7 +13,7 @@ pub(super) const MAX_BUCKETS: usize = 4096;
 pub(super) const MAX_ENTRY_BYTES: usize = 2 * 1024 * 1024;
 
 pub(super) struct InitialOrthants<const N: usize> {
-    ranks: HashMap<(Phase, [bool; N]), Option<u32>>,
+    ranks: HashMap<(Phase, [bool; N]), (Option<u32>, usize)>,
 }
 impl<const N: usize> InitialOrthants<N> {
     pub fn empty() -> Self {
@@ -32,11 +32,11 @@ impl<const N: usize> InitialOrthants<N> {
     ) -> Self {
         let mut snapshot = Self::empty();
         let max_buckets =
-            max_buckets.min(max_bytes / size_of::<((Phase, [bool; N]), Option<u32>)>());
+            max_buckets.min(max_bytes / size_of::<((Phase, [bool; N]), (Option<u32>, usize))>());
         if max_buckets == 0 {
             return snapshot;
         }
-        for domain in domains {
+        for (id, domain) in domains.iter().enumerate() {
             if cancellation.load(Ordering::Acquire) {
                 break;
             }
@@ -44,9 +44,10 @@ impl<const N: usize> InitialOrthants<N> {
                 continue;
             }
             let key = (domain.phase, domain.owner);
-            if let Some(rank) = snapshot.ranks.get_mut(&key) {
+            if let Some((rank, target)) = snapshot.ranks.get_mut(&key) {
                 if domain.rank.is_none_or(|r| rank.is_some_and(|old| old <= r)) {
                     *rank = domain.rank;
+                    *target = id;
                 }
             } else {
                 // An incomplete optional index is safe: misses use the normal
@@ -54,7 +55,7 @@ impl<const N: usize> InitialOrthants<N> {
                 if snapshot.ranks.len() == max_buckets || snapshot.ranks.try_reserve(1).is_err() {
                     break;
                 }
-                snapshot.ranks.insert(key, domain.rank);
+                snapshot.ranks.insert(key, (domain.rank, id));
             }
         }
         snapshot
@@ -63,9 +64,13 @@ impl<const N: usize> InitialOrthants<N> {
     /// actual rank. A full orthant contains every valid box of this phase/mask
     /// with no larger rank scope; finite u32::MAX is NOT an unbounded rank.
     pub fn contains(&self, phase: Phase, owner: &[bool; N], rank: Option<u32>) -> bool {
+        self.target(phase, owner, rank).is_some()
+    }
+    pub fn target(&self, phase: Phase, owner: &[bool; N], rank: Option<u32>) -> Option<usize> {
         self.ranks
             .get(&(phase, *owner))
-            .is_some_and(|bound| bound.is_none_or(|r| rank.is_some_and(|s| s <= r)))
+            .filter(|(bound, _)| bound.is_none_or(|r| rank.is_some_and(|s| s <= r)))
+            .map(|(_, id)| *id)
     }
 }
 

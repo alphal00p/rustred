@@ -66,6 +66,7 @@ fn stream() -> Vec<Event<2>> {
                 },
             });
             events.push(Event::one(Effect::PreAdmittedOrthantReuse {
+                target: 0,
                 successor: false,
                 conditional: false,
             }));

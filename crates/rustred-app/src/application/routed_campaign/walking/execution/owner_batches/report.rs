@@ -80,6 +80,11 @@ fn aggregate<const N: usize>(walk: &Walk<N>) -> Value {
     );
     value["committed_domains"] = value["processed_nodes"].clone();
     value["diagnostic_counter_saturated"] = json!(saturated);
+    value["descendant_closure"] = json!({"available":false,
+        "initial_total":null,"initial_closed":null,"total_domains":value["scheduled_nodes"],
+        "total_closed":null,"unresolved_domains":null,"locally_inspected":null,
+        "scope":"discovered_dependency_coverage; not family certification",
+        "reason":"owner-batched cross-bucket dependency tracking unavailable"});
     value
 }
 

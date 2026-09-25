@@ -25,6 +25,63 @@ conservative successor semantics and explicit unresolved obligations.
 
 ## Running
 
+### Dependency-closure monitoring: fresh campaign format
+
+The native shared walker now retains the dependency graph behind its progress
+counts. The progress bar shows **initial domains recursively closed**, while
+initial publication remains a separate `x / total` text counter. The `Domains`
+line reports all discovered domains, the recursively closed count and unresolved
+count. These are different from `Queue ... pending` and local completions:
+a locally published domain can still depend on unfinished descendants.
+Counts cover the supplied domain obligations; they are not a termination or
+unrestricted-family certificate. Updates are conservative periodic snapshots,
+not a completion-time estimate. See the [design and validation record](research/dependency_closure_monitoring_2026-09-25.md).
+
+This requires complete dependency history from the beginning. New native
+checkpoints use CP3 (Ordered) or CP4 (Ready); old CP1/CP2 checkpoints cannot
+resume under the new executable. Keep the original binary if retaining an old
+run. An old run viewed with the updated monitor reports recursive closure as
+**unknown**, never substitutes its publication counter into the bar.
+
+At the user's request, the previous local campaigns have been removed from the
+active `campaigns/` directory and retained in the recovery archive
+`TMP/retired-campaigns-20260925.UtI4ay/`. The old helper-first rule inputs are
+unchanged and can seed a fresh campaign without regenerating IBPs. To prepare
+and start a new run with ten workers and a requested 750 GB RAM ceiling:
+
+```sh
+mkdir -p TMP
+export TMPDIR="$PWD/TMP" TMP="$PWD/TMP" TEMP="$PWD/TMP"
+export CARGO_HOME="$PWD/TMP/cargo-home" CARGO_TARGET_DIR="$PWD/target"
+nix develop --command cargo build --release --locked -p rustred-app --bin rustred -j 12
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --prepare-from TMP/retired-campaigns-20260925.UtI4ay/five-loop-saved-helpers-first \
+  --campaign-directory campaigns/five-loop-dependency-closure \
+  --executable target/release/rustred \
+  --workers 10 --max-memory-bytes 750000000000 --start
+```
+
+Omit `--start` to prepare only. If that destination is already prepared, omit
+`--prepare-from`, `--executable` and the frozen-policy options on the start
+command. A later checkpointed resume uses that destination with
+`--resume --start`. The default guard requests save-and-stop at 712.5 GB;
+host headroom can reduce the admitted ceiling. Worker count is frozen for
+the checkpoint; ten workers are an explicit resource choice, not a demonstrated
+speed optimum. The default worker split is five inspectors, four admission
+helpers and one coordinator.
+
+In this workspace the destination above is already prepared with the validated
+release executable, ten workers on CPUs 0–9, unchanged 67 owners/134 helper-first
+queries and the 750 GB request. It has **not** been launched. Start it with:
+
+```sh
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/five-loop-dependency-closure --start
+```
+
+Use `--resume --start` instead after its first clean pause. No recompilation or
+rule regeneration is needed for this prepared snapshot.
+
 ### Recommended fresh attempt: existing helpers first
 
 The September 25 input-only control supports a conservative fresh-run preset:
@@ -67,11 +124,10 @@ records the ordering in the input receipt and displayed launch plan.
 The present five-loop input remains 67 owners and 134 explicit requests.
 This operation neither regenerates IBPs nor imports the source checkpoint.
 
-Preparation freezes the executable and policy. On this workspace the
-`campaigns/five-loop-saved-helpers-first` snapshot has already been prepared;
-do **not** repeat the preparation command against it. For another experiment,
-choose a different fresh directory. After the current campaign has finished,
-or after you have deliberately paused it, launch the prepared fresh run with:
+Preparation freezes the executable and policy. These directory names describe
+the earlier helper-first experiment, now retired in this workspace; use the
+dependency-closure recipe above for the new format. For an independently
+prepared campaign, omit preparation and launch with:
 
 ```sh
 nix develop --command python examples/python/production_saved_owner_campaign.py \
@@ -85,7 +141,7 @@ hourly checkpoints and uncapped cumulative work. The RAM ceiling has no fixed
 500 GB maximum: choose a different positive byte count during fresh preparation,
 or use the documented per-resume RAM override below. Ctrl-C requests a clean
 checkpoint; resume this new campaign with its own `--resume --start`.
-All current live files/checkpoints remain untouched.
+Preparation never rewrites its source campaign or checkpoints.
 
 ### Existing prepared campaigns
 
@@ -119,7 +175,7 @@ whole-walker speed claim. The saved input remains data, not topology dispatch.
 Experimental `--publication-policy ready` lets completed or partially ready
 sources publish without waiting for an earlier slow source, including within
 one owner. It still uses shared admission and bounded outstanding-work credits
-(H256 in the production preset). It supports its own CP2 checkpoints, requires
+(H256 in the production preset). New runs use CP4 checkpoints, require
 unreserved-transfer scheduling, and currently rejects physical subdivision.
 Select it only when preparing a **new** campaign; do not attach the current
 Ordered checkpoint or swap its frozen executable. Ordered remains the default.
@@ -252,12 +308,13 @@ activity. See [the native partition contract](shared_owner_domain_matching.md#bo
 There is no inherited 30-minute deadline and no fabricated dependency ETA.
 Inspect backlog, completed local expansions, dedup hits, expansion bounds,
 CPU utilization, memory growth and progress age before deciding to continue.
-The colored TTY dashboard has a labelled initial-entry publication bar only
-when Rust supplies its finite denominator. That prefix includes delegated
-entries and is **not closure**. Local initial native inspections are separate
-and can remain below the entry total after delegation. Descendant work has no
-fixed denominator or fabricated ETA. Unknown progress uses an indeterminate
-bar. Sampled actual native CPU occupancy and blocked/active slots are separate
+The colored TTY dashboard reserves its progress bar for initial domains whose
+recorded dependencies have recursively closed. Local initial publication and
+native inspection are separate plain counters; publication may include
+delegated entries. All-domain discovered/closed/unresolved counts distinguish
+recursive coverage from local processing. Descendant work has no fixed final
+denominator or fabricated ETA. Missing dependency history uses an indeterminate
+bar, not a publication fallback. Sampled actual native CPU occupancy and blocked/active slots are separate
 from reserved inspector/admission/coordinator workers. `NO_COLOR` suppresses
 color; redirected output is low-rate plain text, including checkpoint status.
 Resource records expose local completion rates and RSS slope.

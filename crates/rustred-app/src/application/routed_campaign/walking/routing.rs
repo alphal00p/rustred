@@ -57,14 +57,14 @@ pub(super) fn inspect<const N: usize>(
         cancellation, |event| {
             let effect = match event {
                 CandidateDomainRouteEvent::Apply { owner_sector, cover } if initial.contains(Phase::Apply, &owner_sector, cover.actual_rank) =>
-                    Effect::PreAdmittedOrthantReuse { successor: false, conditional: false },
+                    Effect::PreAdmittedOrthantReuse { target: initial.target(Phase::Apply, &owner_sector, cover.actual_rank).expect("matched initial target"), successor: false, conditional: false },
                 CandidateDomainRouteEvent::Apply { owner_sector, cover } => Effect::Admit {
                     successor: false, conditional: false, domain: Domain { phase: Phase::Apply,
                     owner: owner_sector, lower: cover.lower.to_vec(), upper: cover.upper.to_vec(), rank: cover.actual_rank,
                     powers: cover.power_bounds } },
                 // Source validity remains mandatory before considering reuse.
                 CandidateDomainRouteEvent::Route { sector, cover } if !conditions && initial.contains(Phase::Route, &sector, cover.actual_rank) =>
-                    Effect::PreAdmittedOrthantReuse { successor: false, conditional: false },
+                    Effect::PreAdmittedOrthantReuse { target: initial.target(Phase::Route, &sector, cover.actual_rank).expect("matched initial target"), successor: false, conditional: false },
                 CandidateDomainRouteEvent::Route { sector, cover } => match reentry(sector, &cover.lower, &cover.upper, cover.actual_rank, cover.power_bounds, conditions) {
                     Ok(domain) => Effect::Admit { domain, successor: false, conditional: false },
                     Err(value) => Effect::Frontier { value, successor: false, conditional: false },

@@ -141,9 +141,9 @@ impl Store {
         let request_binding = binding(request);
         let schema = if request.publication_policy == super::OwnerDomainWalkPublicationPolicy::Ready
         {
-            2
+            4
         } else {
-            1
+            3
         };
         let executable = file_digest(&std::env::current_exe().map_err(|e| e.to_string())?)?.1;
         let manifest = if options.resume {
@@ -159,7 +159,7 @@ impl Store {
                 || (m.kind == "state" && m.owners.is_empty())
                 || m.state_file != format!("state-{:020}.bin", m.generation)
             {
-                return Err("unsupported checkpoint generation".into());
+                return Err("unsupported checkpoint generation; complete dependency history requires a fresh CP3/CP4 campaign".into());
             }
             if m.request != request_binding {
                 return Err("checkpoint request or policy differs; refusing to restart".into());

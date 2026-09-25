@@ -100,7 +100,7 @@ fn initial_orthants_optional_caps_cancel_and_later_admission_fall_back() {
     queue
         .admit(domain(Phase::Route, [true, false], Some(11)))
         .unwrap();
-    let payload = size_of::<((Phase, [bool; 2]), Option<u32>)>();
+    let payload = size_of::<((Phase, [bool; 2]), (Option<u32>, usize))>();
     for (max_buckets, bytes, expected) in [
         (0, usize::MAX, 0),
         (10, 0, 0),
@@ -137,4 +137,17 @@ fn initial_orthants_optional_caps_cancel_and_later_admission_fall_back() {
     let fresh = InitialOrthants::<2>::empty();
     assert!(!fresh.contains(Phase::Apply, &[true, false], Some(0)));
     assert_eq!(queue.next, 0);
+}
+
+#[test]
+fn strongest_initial_orthant_retains_its_actual_dependency_id() {
+    let domains = [
+        Arc::new(domain(Phase::Apply, [true, false], Some(2))),
+        Arc::new(domain(Phase::Route, [true, false], Some(9))),
+        Arc::new(domain(Phase::Apply, [true, false], Some(8))),
+    ];
+    let index = InitialOrthants::from_initial(&domains, &AtomicBool::new(false));
+    assert_eq!(index.target(Phase::Apply, &[true, false], Some(1)), Some(2));
+    assert_eq!(index.target(Phase::Route, &[true, false], Some(9)), Some(1));
+    assert_eq!(index.target(Phase::Apply, &[true, false], Some(9)), None);
 }

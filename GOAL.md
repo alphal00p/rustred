@@ -1,5 +1,36 @@
 # RustRed project goal
 
+## September 25 follow-up: actual dependency-closure monitoring and clean restart
+
+Implement native dependency accounting for the shared saved-owner walker so the
+progress bar counts initial domains with all reachable obligations discharged,
+not merely locally published. Report all discovered domains and their recursive
+closure separately from local completion/publication and pending queue counts.
+Retain shared, reused, delegated and initial-overlap dependencies. Fail closed
+on missing tracking, errors and unresolved frontiers. Finite closed dependency
+components establish scoped operational coverage only, never an independent
+termination or full-family certificate.
+
+The user explicitly accepts a new campaign/checkpoint format and a fresh run.
+Do not invent closure history for old checkpoints. Existing executables keep
+their old resume behavior; new monitoring displays unknown closure for them.
+The user requests clearing existing campaign folders: stop verified live
+processes normally, then move old campaigns outside the active `campaigns/`
+directory to a labelled recovery archive, retaining the saved rule inputs.
+Do not start a new five-loop solve. Test native tracking and checkpoint recovery,
+audit independently, measure overhead on the complete four-loop FG control,
+document the fresh-run command, commit/push, then hand control back to the user.
+
+Delivered: native dependency tracking and CP3/CP4 recovery, separate publication
+and recursive-closure displays, 687 passing release unit tests (four existing
+manual replay tests ignored), 110 passing Python tests, independent full FG
+record/graph and cold-resume audits. The paired FG control measured 2.48% median
+traversal overhead and 7.34% full-command overhead. The old campaigns are safely
+archived; `campaigns/five-loop-dependency-closure` is prepared with ten workers
+and a 750 GB request but is not running. See
+`docs/research/dependency_closure_monitoring_2026-09-25.md` for scope, measurements
+and the manual start command. The broader tool-managed goal remains paused.
+
 ## September 25 follow-up: prepare a better-ordered future run, without launching
 
 The user requests a fresh five-loop steering setup while leaving the existing

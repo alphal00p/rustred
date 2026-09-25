@@ -87,6 +87,7 @@ fn mixed() -> Vec<Event<2>> {
     stream.insert(
         5,
         Event::one(Effect::PreAdmittedOrthantReuse {
+            target: 0,
             successor: false,
             conditional: false,
         }),

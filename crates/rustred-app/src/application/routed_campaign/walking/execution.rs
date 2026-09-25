@@ -16,6 +16,7 @@ use super::{
 };
 use rustred::solver::RoutedCandidateReducer;
 use serde_json::{Value, json};
+use std::cell::RefCell;
 use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -29,6 +30,7 @@ pub(super) mod streams;
 pub(super) use delegation::scheduling_policy_json;
 
 pub(super) struct State<const N: usize> {
+    pub closure: RefCell<super::descendant_closure::Tracker>,
     pub queue: Queue<N>,
     pub records: Vec<Value>,
     pub events: usize,
@@ -84,7 +86,12 @@ impl<const N: usize> State<N> {
     }
     pub fn new(queue: Queue<N>, frontiers: usize, error: Option<String>) -> Self {
         let initial_domain_count = queue.domains.len();
+        let mut closure = super::descendant_closure::Tracker::new(initial_domain_count);
+        if frontiers != 0 || error.is_some() {
+            closure.disable("initial input obligations were not completely admitted");
+        }
         Self {
+            closure: RefCell::new(closure),
             queue,
             records: Vec::new(),
             events: 0,
@@ -196,7 +203,26 @@ impl<const N: usize> State<N> {
         progress["route_joint_support_masks_pruned"] = json!(self.route_joint_support_masks_pruned);
         self.add_delegation_progress(&mut progress);
         self.add_ready_progress(&mut progress);
+        progress["descendant_closure"] = self.closure_json();
         progress
+    }
+    pub(super) fn closure_json(&self) -> Value {
+        self.closure
+            .borrow()
+            .json(self.queue.domains.len(), self.initial_domain_count)
+    }
+    pub(super) fn refresh_closure(&self, cancellation: &AtomicBool, force: bool) {
+        self.closure.borrow_mut().refresh(cancellation, force);
+    }
+    fn dependency_source(&self) -> usize {
+        self.streams
+            .active
+            .map_or(self.queue.next, |ticket| ticket.parent)
+    }
+    fn dependency(&self, target: usize) {
+        let mut closure = self.closure.borrow_mut();
+        closure.discovered(self.queue.domains.len());
+        closure.edge(self.dependency_source(), target);
     }
     fn enrich(&self, mut telemetry: Value) -> Value {
         if self.physical_enabled {
@@ -298,6 +324,7 @@ impl<const N: usize> State<N> {
             Effect::PreAdmittedOrthantReuse {
                 successor,
                 conditional,
+                ..
             } => Some((*successor, *conditional, true)),
             _ => None,
         };
@@ -362,6 +389,11 @@ impl<const N: usize> State<N> {
             self.conditional = conditional;
             if initial {
                 self.pre_admitted_orthant_hits = hits;
+                if accepted != 0
+                    && let Effect::PreAdmittedOrthantReuse { target, .. } = event.effect
+                {
+                    self.dependency(target);
+                }
             } else {
                 self.job_local_reuse_hits = hits;
             }
@@ -455,7 +487,8 @@ impl<const N: usize> State<N> {
                 &self.queue.domains[self.queue.next],
             );
         }
-        admit(&mut self.queue)?;
+        let (target, _) = admit(&mut self.queue)?;
+        self.dependency(target);
         Ok(())
     }
     fn commit(&mut self, id: usize, finished: Finished) {
@@ -537,6 +570,18 @@ impl<const N: usize> State<N> {
             self.error.get_or_insert_with(|| {
                 "partial initial inspection has no responsibility ledger".into()
             });
+        }
+        {
+            let mut closure = self.closure.borrow_mut();
+            closure.discovered(self.queue.domains.len());
+            if let Some(scope) = partial_scope {
+                closure.edge(id, scope.anchor_id);
+            }
+            closure.finish(
+                id,
+                self.error.is_none(),
+                self.error.is_none() && frontier_count == 0,
+            );
         }
         self.native_records += 1;
         self.physical_inspections_published += physical_parts.as_ref().map_or(1, Vec::len);
@@ -968,6 +1013,7 @@ fn run_pool<const N: usize>(
     let (_, snapshot, mut leftovers) =
         parallel::with_ticket_pool(budget.inspection, inspect, |pool| {
             loop {
+                state.refresh_closure(cancellation, false);
                 let publisher = state.publisher_ticket(request);
                 let publisher_raw = match publisher.encode(physical_enabled) {
                     Ok(id) => id,
@@ -1162,6 +1208,7 @@ fn run_pool<const N: usize>(
                             &pool.stop,
                             &mut |state| {
                                 if heartbeat.elapsed() >= Duration::from_millis(250) {
+                                    state.refresh_closure(cancellation, false);
                                     observer(state.progress(
                                         "domain_progress",
                                         id,
@@ -1476,6 +1523,7 @@ fn serial<const N: usize>(
     let mut failure = None;
     let mut heartbeat = Instant::now();
     while state.error.is_none() && state.queue.next < state.queue.domains.len() {
+        state.refresh_closure(cancellation, false);
         if cancellation.load(Ordering::Acquire) {
             if checkpointing {
                 state.checkpoint_paused = true;
@@ -1564,6 +1612,7 @@ fn serial<const N: usize>(
                     return ControlFlow::Break(());
                 }
                 if heartbeat.elapsed() >= Duration::from_millis(250) {
+                    state.refresh_closure(cancellation, false);
                     observer(state.progress(
                         "domain_progress",
                         id,
@@ -1671,6 +1720,8 @@ fn serial<const N: usize>(
         "first_failure":failure.as_ref().map(Failure::json)}), &previous_parallel);
 }
 
+#[cfg(test)]
+mod closure_tests;
 #[cfg(test)]
 #[path = "execution/initial_orthants_tests.rs"]
 mod initial_orthants_tests;

@@ -65,6 +65,12 @@ impl<const N: usize> State<N> {
             .publish_delegated(id)
             .map_err(|error| error.to_string())?;
         debug_assert_eq!(publication.native_publications(), 0);
+        {
+            let mut closure = self.closure.borrow_mut();
+            closure.discovered(self.queue.domains.len());
+            closure.edge(id, to);
+            closure.finish(id, false, true);
+        }
         self.records.push(record);
         self.queue.next = ledger.cursor();
         if ready {

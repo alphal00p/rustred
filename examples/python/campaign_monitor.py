@@ -151,6 +151,67 @@ def number(value):
     return None
 
 
+def descendant_closure_summary(value) -> dict:
+    """Keep native dependency closure distinct from local publication counters."""
+    result = {
+        "available": False,
+        "initial_total": None,
+        "initial_closed": None,
+        "total_domains": None,
+        "total_closed": None,
+        "locally_inspected": None,
+        "unresolved_domains": None,
+        "dependency_edges": None,
+        "graph_revision": None,
+        "snapshot_revision": None,
+        "snapshot_stale": None,
+        "snapshot_age_seconds": None,
+        "last_refresh_seconds": None,
+        "refresh_count": None,
+        "refresh_seconds": None,
+        "retained_storage_estimate_bytes": None,
+        "refresh_scratch_estimate_bytes": None,
+        "storage_estimate_scope": None,
+        "closed_counts_are_conservative_lower_bounds": True,
+        "family_closure_claim": False,
+        "scope": "discovered_dependency_coverage; not termination or family certificate",
+        "method": None,
+        "reason": "native descendant closure was not reported",
+    }
+    if not isinstance(value, dict):
+        return result
+    counts = {key: value.get(key) if type(value.get(key)) is int and value[key] >= 0 else None
+              for key in ("initial_total", "initial_closed", "total_domains", "total_closed",
+                          "locally_inspected", "unresolved_domains", "dependency_edges")}
+    for key in ("initial_total", "total_domains", "locally_inspected", "dependency_edges"):
+        result[key] = counts[key]
+    for key in ("graph_revision", "snapshot_revision", "refresh_count",
+                "retained_storage_estimate_bytes", "refresh_scratch_estimate_bytes"):
+        if type(value.get(key)) is int and value[key] >= 0:
+            result[key] = value[key]
+    for key in ("snapshot_age_seconds", "last_refresh_seconds", "refresh_seconds"):
+        if number(value.get(key)) is not None and value[key] >= 0:
+            result[key] = value[key]
+    if type(value.get("snapshot_stale")) is bool:
+        result["snapshot_stale"] = value["snapshot_stale"]
+    for key in ("scope", "method", "storage_estimate_scope"):
+        if isinstance(value.get(key), str):
+            result[key] = value[key]
+    if value.get("available") is not True:
+        result["reason"] = (value.get("reason") if isinstance(value.get("reason"), str)
+                            and value["reason"] else "native descendant closure unavailable")
+        return result
+    required = ("initial_total", "initial_closed", "total_domains", "total_closed", "unresolved_domains")
+    if (any(counts[key] is None for key in required)
+            or not 0 <= counts["initial_closed"] <= counts["initial_total"] <= counts["total_domains"]
+            or not counts["initial_closed"] <= counts["total_closed"] <= counts["total_domains"]
+            or counts["unresolved_domains"] != counts["total_domains"] - counts["total_closed"]):
+        result["reason"] = "invalid native descendant-closure counters"
+        return result
+    result.update(counts, available=True, reason=None)
+    return result
+
+
 def progress_summary(event: dict, observed_at: float | None, now: float) -> dict:
     """Only native counters establish progress; no inferred closure fraction."""
     outer = event.get("progress", event)
@@ -166,11 +227,15 @@ def progress_summary(event: dict, observed_at: float | None, now: float) -> dict
         age = (age or 0.0) + max(0.0, now - observed_at)
     checkpoint = counters.get("checkpoint", outer.get("checkpoint"))
     checkpoint_write = counters.get("checkpoint_write", outer.get("checkpoint_write"))
+    closure = descendant_closure_summary(counters.get("descendant_closure"))
+    if closure["snapshot_age_seconds"] is not None:
+        closure["snapshot_age_seconds"] += max(0.0, age or 0.0)
     return {
         "phase": counters.get("phase") or outer.get("event") or "starting",
         "native_status": counters.get("status", outer.get("status")),
         "owner": counters.get("owner"),
         "progress_age_seconds": age,
+        "descendant_closure": closure,
         "initial_entry_progress": {
             "total": number(counters.get("initial_entry_domains_total")),
             "locally_inspected": number(counters.get("initial_entry_domains_inspected")),
@@ -232,6 +297,7 @@ def dashboard(status: dict) -> list[str]:
     progress = status.get("progress", {})
     work = progress.get("work", {})
     entry = progress.get("initial_entry_progress", {})
+    closure = descendant_closure_summary(progress.get("descendant_closure"))
     resources = status.get("resources", {})
     checkpoint = status.get("checkpoint") or progress.get("checkpoint") or {}
     checkpoint_write = status.get("checkpoint_write", progress.get("checkpoint_write")) or {}
@@ -270,12 +336,15 @@ def dashboard(status: dict) -> list[str]:
     soft = number(status.get("soft_memory_bytes"))
     hard_text = "unknown" if hard is None else f"{hard / 1e9:.2f} GB"
     soft_text = "unknown" if soft is None else f"{soft / 1e9:.2f} GB"
-    entry_value = entry.get("published")
-    entry_label = "published"
-    if entry_value is None:
-        entry_value = entry.get("locally_inspected")
-        entry_label = "native inspected (delegation excluded)"
-    entry_bar = bar(entry_value, entry.get("total"), status.get("elapsed_seconds"))
+    closure_bar = bar(closure["initial_closed"], closure["initial_total"], status.get("elapsed_seconds"))
+    closure_note = "" if closure["available"] else " · " + clean(closure["reason"])
+    closed_prefix = unresolved_prefix = ""
+    if closure["available"] and closure["snapshot_stale"]:
+        closure_note = f" · conservative snapshot {duration(closure['snapshot_age_seconds'])} ago"
+        closed_prefix, unresolved_prefix = "≥", "≤"
+    discovered = closure["total_domains"]
+    if discovered is None:
+        discovered = work.get("scheduled")
     stale = " · STALE HEARTBEAT; current activity unverified" if status.get("heartbeat_stale") else ""
     state = clean(status.get('state', 'starting')).upper()
     if status.get("heartbeat_stale") and state in ("STARTING", "RUNNING", "STOPPING"):
@@ -287,9 +356,11 @@ def dashboard(status: dict) -> list[str]:
         + (f" · {count(progress['finished_native_awaiting_publication'])} finished waiting"
            if progress.get('finished_native_awaiting_publication') is not None else "")
         + f" · reserved {count(allocation.get('inspectors'))} inspect + {count(allocation.get('admission_helpers'))} admission + {count(allocation.get('coordinator'))} coordinator",
-        f"Entry {entry_bar} {count(entry_value)} / {count(entry.get('total'))} {entry_label} · not closure",
-        f"Queue {count(work.get('pending'))} pending · {count(work.get('locally_completed'))} local completions · {rate_text} · frontiers {count(work.get('frontiers'))}",
-        f"Descendants {count(work.get('pending_descendants'))} pending · initial native inspected {count(entry.get('locally_inspected'))} · closure ETA unknown",
+        f"Closure {closure_bar} {closed_prefix}{count(closure['initial_closed'])} / {count(closure['initial_total'])} initial roots recursively closed{closure_note}",
+        f"Domains {count(discovered)} discovered · {closed_prefix}{count(closure['total_closed'])} recursively closed · {unresolved_prefix}{count(closure['unresolved_domains'])} unresolved",
+        f"Initial {count(entry.get('published'))} / {count(entry.get('total'))} published · initial native inspected {count(entry.get('locally_inspected'))} · not closure",
+        f"Queue {count(work.get('pending'))} pending · {count(work.get('locally_completed'))} local completions · {rate_text} local · frontiers {count(work.get('frontiers'))}",
+        f"Descendants {count(work.get('pending_descendants'))} pending · discovered dependency coverage only; not termination/family proof · closure ETA unknown",
         f"Memory {memory_text} / {hard_text} ceiling · save+stop at {soft_text} · host available {host_text}",
         f"Checkpoint {clean(checkpoint_text)}",
         f"Phase {clean(progress.get('phase', 'starting'))} · update age {duration(progress.get('progress_age_seconds'))} · heartbeat age {duration(status.get('heartbeat_age_seconds'))} · closure ETA unknown",
@@ -347,7 +418,7 @@ class Presenter:
                 line = clean(line)
                 line = line if len(line) <= width else line[:width - 1] + "…"
                 if self.color:
-                    color = "1;36" if index == 0 else "32" if line.startswith("CPU") else "33" if line.startswith("Memory") else "34" if line.startswith("Entry") else None
+                    color = "1;36" if index == 0 else "32" if line.startswith("CPU") else "33" if line.startswith("Memory") else "34" if line.startswith("Closure") else None
                     if color:
                         line = f"\x1b[{color}m" + line + "\x1b[0m"
                 self.stream.write("\r\x1b[2K" + line + "\n")
@@ -393,6 +464,9 @@ def read_status(directory: Path) -> dict:
     progress = result.get("progress", {})
     if isinstance(progress, dict) and number(progress.get("progress_age_seconds")) is not None:
         progress["progress_age_seconds"] += result["heartbeat_age_seconds"] or 0
+    closure = progress.get("descendant_closure") if isinstance(progress, dict) else None
+    if isinstance(closure, dict) and number(closure.get("snapshot_age_seconds")) is not None:
+        closure["snapshot_age_seconds"] += result["heartbeat_age_seconds"] or 0
     return result
 
 

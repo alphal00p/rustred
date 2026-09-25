@@ -2,6 +2,7 @@
 //! Stable streamed publication is not a family-closure certificate.
 mod checkpoint;
 mod delegation;
+mod descendant_closure;
 mod diagnostics;
 mod execution;
 mod index_report;
@@ -193,6 +194,7 @@ impl OwnerDomainWalkResult {
             "initial_entry_domains_inspected",
             "initial_entry_domains_published",
             "pending_descendant_domains",
+            "descendant_closure",
         ] {
             if let Some(value) = document.get(key) {
                 out[key] = value.clone();
@@ -598,6 +600,7 @@ fn run<const N: usize>(
             execution::run(&mut state, reducer, request, cancellation, observer);
         }
     }
+    state.refresh_closure(cancellation, true);
     if checkpoint.is_some() && (state.checkpoint_paused || reducer.is_none()) {
         // A checkpoint is the state; this receipt must not duplicate the full
         // retained queue and diagnostics (which can be many gigabytes).
@@ -622,6 +625,7 @@ fn run<const N: usize>(
         });
         state.add_delegation_progress(&mut document);
         state.add_ready_progress(&mut document);
+        document["descendant_closure"] = state.closure_json();
         drop(state);
         finish_timing(&mut document, started, prepared);
         observer(OwnerDomainWalkResult::completion_progress(&document));
@@ -631,6 +635,11 @@ fn run<const N: usize>(
         });
     }
     let delegation = state.finalize_delegation();
+    for row in &mut state.records {
+        if let Some(id) = row["id"].as_u64().and_then(|id| usize::try_from(id).ok()) {
+            row["descendant_closed"] = json!(state.closure.borrow().closed(id));
+        }
+    }
     let exhausted = state.error.is_none() && state.published_count() == state.queue.domains.len();
     let resolved = exhausted
         && state.frontiers == 0
@@ -676,6 +685,7 @@ fn run<const N: usize>(
     document["initial_entry_domains_inspected"] = json!(state.initial_entry_domains_inspected);
     document["initial_entry_domains_published"] = json!(state.initial_published());
     document["pending_descendant_domains"] = json!(state.pending_descendants());
+    document["descendant_closure"] = state.closure_json();
     document["worker_allocation"] =
         worker_budget::WorkerBudget::for_request(request).json(request.inspection_workers);
     if request.publication_policy == OwnerDomainWalkPublicationPolicy::OwnerBatched {

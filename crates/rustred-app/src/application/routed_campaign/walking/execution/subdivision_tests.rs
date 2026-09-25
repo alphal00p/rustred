@@ -91,6 +91,8 @@ fn both_actual_parts_are_required_before_one_parent_publication() {
         0
     );
     assert_eq!(state.native_records, 0);
+    state.refresh_closure(&AtomicBool::new(false), true);
+    assert_eq!(state.closure_json()["initial_closed"], 0);
     assert_eq!(state.publisher_ticket(&request).part, Some(1));
     // A second first-original diagnostic belongs to the second native call.
     state.accept(refusal(1), &request).unwrap();
@@ -107,6 +109,8 @@ fn both_actual_parts_are_required_before_one_parent_publication() {
     assert_eq!(state.native_records, 1);
     assert_eq!(state.physical_inspections_published, 2);
     assert_eq!(state.initial_entry_domains_inspected, 1);
+    state.refresh_closure(&AtomicBool::new(false), true);
+    assert_eq!(state.closure_json()["initial_closed"], 1);
     assert_eq!(state.records[0]["stats"]["optional_original_refusals"], 2);
     assert_eq!(state.records[0]["optional_refusals"][0]["physical_part"], 0);
     assert_eq!(state.records[0]["optional_refusals"][1]["physical_part"], 1);

@@ -241,6 +241,13 @@ four-loop FG control improved from 18.53 s to 16.44 s; five-loop benefit remains
 unmeasured. See the [fresh preparation and launch recipe](docs/shared_owner_campaign_driver.md#recommended-fresh-attempt-existing-helpers-first).
 This does not reorder, restart or alter a running campaign or its checkpoints.
 
+The shared-walker monitor now distinguishes **recursively closed starting
+domains** (the progress bar) from initial publication, and reports total
+discovered/closed/unresolved domains. Tracking is native and checkpointed;
+old runs without the dependency history display unknown closure. New CP3/CP4
+campaigns start fresh from the same saved rules, without IBP regeneration.
+See the [monitoring and clean restart recipe](docs/shared_owner_campaign_driver.md#dependency-closure-monitoring-fresh-campaign-format).
+
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after
 interruption. Rust and Python expose the same controls. This saves completed

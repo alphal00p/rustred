@@ -11,6 +11,7 @@ fn reused(count: usize, successor: bool, conditional: bool) -> Event<1> {
     Event {
         count,
         effect: Effect::PreAdmittedOrthantReuse {
+            target: 0,
             successor,
             conditional,
         },

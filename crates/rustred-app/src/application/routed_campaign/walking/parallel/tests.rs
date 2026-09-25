@@ -123,6 +123,7 @@ fn initial_orthants_compact_only_same_family_and_current_flags() {
         assert!(
             emitter
                 .emit(Event::one(Effect::PreAdmittedOrthantReuse {
+                    target: 0,
                     successor: true,
                     conditional: true,
                 }))
@@ -142,6 +143,7 @@ fn initial_orthants_compact_only_same_family_and_current_flags() {
     assert!(
         emitter
             .emit(Event::one(Effect::PreAdmittedOrthantReuse {
+                target: 0,
                 successor: true,
                 conditional: false
             }))
@@ -150,6 +152,7 @@ fn initial_orthants_compact_only_same_family_and_current_flags() {
     assert!(
         emitter
             .emit(Event::one(Effect::PreAdmittedOrthantReuse {
+                target: 0,
                 successor: false,
                 conditional: false
             }))
@@ -169,6 +172,7 @@ fn initial_orthants_compact_only_same_family_and_current_flags() {
     assert!(
         emitter
             .emit(Event::one(Effect::PreAdmittedOrthantReuse {
+                target: 0,
                 successor: true,
                 conditional: true,
             }))
