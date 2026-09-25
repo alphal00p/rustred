@@ -198,3 +198,16 @@ not a proof that finite helpers are inherently inferior, a five-loop runtime
 prediction, or a guarantee of five-loop termination. The four-loop controls have
 no basis-changing Route jobs; the five-loop campaign's routing-heavy workload
 remains an important difference.
+
+## Follow-up: use the unrestricted output to select bounded repairs
+
+A subsequent user-requested four-loop-only
+[pilot-and-repair experiment](four_loop_unbounded_pilot_repair_2026-09-25.md)
+retains unrestricted helpers only for recursively closed pilot owners, keeping
+the baseline bounded helpers elsewhere. All original requests remain and a
+fresh native pass revalidates everything. This input-only strategy improves
+the directly timed FG whole workflow from 17.434 to 12.377 seconds, including
+the fresh pilot and selection. It does not repay its pilot cost on BMW/H/X.
+Thus the blanket helper changes above remain unsuccessful optimizations, but
+data-selected mixed helpers have now demonstrated a selective benefit. No
+five-loop experiment or production change is implied.
