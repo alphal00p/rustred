@@ -220,6 +220,9 @@ The 10-slot and 50-slot runs have exactly equal 132,763 canonical mathematical
 records after excluding only record timing, and all 67 completion ledgers agree.
 Their canonical semantic SHA256 is
 `577251a25ceb26e7cfa2a5f9bd69488dde4f2bccaa3334673c04728a07bde77b`.
+This is mathematical-record equality, not identical operational work: worker
+counts differ, and the 50-slot run performs 451,347 additional containment
+checks spread across 20 jobs. Other top-level integer counters agree.
 The combined output preserves 67 unique native payload files containing
 1,280,854,595 logical bytes, stored once regardless of the number of jobs.
 Diagnostics and checkpoints are separate from that consumer artifact. Filesystem
