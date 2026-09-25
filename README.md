@@ -234,6 +234,13 @@ pruning also remains off by default: its measured rank-two pilot saved local
 work without an end-to-end speedup. Neither result recommends replacing the
 current production campaign.
 
+For a future fresh attempt, the production launcher can now copy an existing
+campaign's immutable inputs with `--prepare-from`, placing its existing broad
+helpers before narrower queries without changing their bounds. A completed
+four-loop FG control improved from 18.53 s to 16.44 s; five-loop benefit remains
+unmeasured. See the [fresh preparation and launch recipe](docs/shared_owner_campaign_driver.md#recommended-fresh-attempt-existing-helpers-first).
+This does not reorder, restart or alter a running campaign or its checkpoints.
+
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after
 interruption. Rust and Python expose the same controls. This saves completed

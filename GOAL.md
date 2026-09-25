@@ -1,5 +1,21 @@
 # RustRed project goal
 
+## September 25 follow-up: prepare a better-ordered future run, without launching
+
+The user requests a fresh five-loop steering setup while leaving the existing
+campaign running. Prepare a separate immutable input snapshot with the existing
+helpers before each owner's original request. Preserve all 67 owners, all 134
+explicit queries and their exact bounds/payloads; do not add broader helpers.
+Keep shared Ordered/H256 scheduling, with joint pruning and independent-owner
+execution off. The completed four-loop FG diagnostic motivates this small
+admission-order change, not a claimed five-loop speedup or optimal strategy.
+
+Provide a generic, tested `--prepare-from` path that refuses existing/nested
+destinations and cannot reorder a resume. Retain explicit `--start`, frozen
+binary/policy, RAM guard and hourly checkpoints. Independently audit, document,
+commit/push and return the exact manual launch command; do not launch or modify
+the live campaign. This bounded follow-up does not resume the broader goal.
+
 ## September 25 scoped follow-up: two opt-in improvements, then stop
 
 The latest user directive authorizes exactly two changes before the next pause:

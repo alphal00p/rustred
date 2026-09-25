@@ -215,5 +215,198 @@ class AnchorPlanningTests(unittest.TestCase):
             self.assertFalse((campaign / "runs").exists())
 
 
+class QueryOrderingTests(unittest.TestCase):
+    fixture = AnchorPlanningTests.fixture
+
+    def ordered_row(self, owner, query_id, rank=2):
+        row = query(owner, query_id)
+        row.update(lower=[0] * len(owner), upper=[None] * len(owner), max_numerator_rank=rank)
+        return row
+
+    def test_generic_first_seen_owner_order_stable_classes_and_helper_ranks(self):
+        for arity in (3, 17):
+            first, second = "1" + "0" * (arity - 1), "0" * (arity - 1) + "1"
+            rows = [self.ordered_row(first, "original-first"), self.ordered_row(second, "original-second"),
+                    self.ordered_row(first, "owner-anchor-low", 3),
+                    self.ordered_row(first, "owner-anchor-high-a", 9),
+                    self.ordered_row(first, "original-later"),
+                    self.ordered_row(first, "owner-anchor-high-b", 9),
+                    self.ordered_row(second, "owner-anchor-second", 4),
+                    self.ordered_row(first, "owner-anchor-unbounded", None)]
+            source = document(rows)
+            source["future_document_field"] = {"preserved": True}
+            source["queries"][0]["future_query_field"] = [1, 2]
+            original = copy.deepcopy(source)
+            raw = json.dumps(source).encode()
+            result, plan = STAGE.plan_query_order(raw, "helpers-first")
+            reordered = json.loads(result)
+            self.assertEqual([row["id"] for row in reordered["queries"]],
+                             ["owner-anchor-unbounded", "owner-anchor-high-a", "owner-anchor-high-b",
+                              "owner-anchor-low", "original-first", "original-later",
+                              "owner-anchor-second", "original-second"])
+            self.assertEqual({row["id"]: row for row in reordered["queries"]}, {row["id"]: row for row in rows})
+            self.assertEqual(reordered["future_document_field"], source["future_document_field"])
+            self.assertEqual(source, original)
+            self.assertEqual(STAGE.plan_query_order(raw, "helpers-first"), (result, plan))
+            self.assertEqual(STAGE.plan_query_order(raw, "preserve"), (raw, None))
+            self.assertFalse(plan["coverage_authority"])
+            self.assertFalse(plan["strict_bottom_up_evaluation"])
+
+    def test_reordering_staging_retains_source_bytes_and_payloads(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, source = self.fixture(root)
+            source.write_text(json.dumps(document([query(), query(query_id="owner-anchor-existing")])) + "\n\n")
+            original = source.read_bytes()
+            staged = root / "inputs"
+            receipt = STAGE.stage(manifest, source, staged, root, query_order="helpers-first")
+            self.assertEqual(source.read_bytes(), original)
+            self.assertEqual((staged / "queries-original.json").read_bytes(), original)
+            self.assertEqual([row["id"] for row in json.loads((staged / "queries.json").read_text())["queries"]],
+                             ["owner-anchor-existing", "original"])
+            self.assertEqual(receipt["query_order"], "helpers-first")
+            self.assertEqual(receipt["query_order_plan"]["query_count"], 2)
+            self.assertEqual(PRODUCTION.verify_inputs(staged)[0], 2)
+            self.assertNotIn("anchor_plan", receipt)
+            for owner in receipt["owners"]:
+                self.assertEqual((staged / owner["path"]).read_bytes(), (root / "owner.rrbin").read_bytes())
+            with self.assertRaises(FileExistsError):
+                STAGE.stage(manifest, source, staged, root, query_order="helpers-first")
+
+    def test_ordering_and_appended_anchors_compose_without_losing_originals(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, source = self.fixture(root)
+            receipt = STAGE.stage(manifest, source, root / "inputs", root,
+                                  anchor_max_numerator_rank=12, query_order="helpers-first")
+            rows = json.loads((root / "inputs/queries.json").read_text())["queries"]
+            self.assertEqual([row["id"] for row in rows], ["owner-anchor-r12-anone-10", "original", "owner-anchor-r12-anone-01"])
+            self.assertEqual(rows[1], query())
+            self.assertEqual(receipt["anchor_plan"]["anchor_query_count"], 2)
+            self.assertEqual(receipt["query_order_plan"]["query_count"], 3)
+
+    def test_invalid_order_document_fails_before_destination_creation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest, source = self.fixture(root)
+            for contents, mode in ((json.dumps(document([query(), query()])), "helpers-first"),
+                                   ('{"schema":1,"schema":2}', "helpers-first"),
+                                   (json.dumps(document()), "unknown")):
+                source.write_text(contents)
+                with self.assertRaises(ValueError):
+                    STAGE.stage(manifest, source, root / "inputs", root, query_order=mode)
+                self.assertFalse((root / "inputs").exists())
+
+    def production_source(self, root):
+        manifest, queries = self.fixture(root)
+        queries.write_text(json.dumps(document([query("10", "first"), query("01", "second")])))
+        source = root / "source-campaign"
+        STAGE.stage(manifest, queries, source / "inputs", root, anchor_max_numerator_rank=12)
+        (source / "active-run.json").write_text('{"fixture": "untouched"}\n')
+        executable = root / "not-run"
+        executable.write_text("#!/bin/sh\nexit 99\n")
+        executable.chmod(0o700)
+        return source, executable
+
+    def snapshot(self, root):
+        return {str(path.relative_to(root)): (path.read_bytes(), path.stat().st_mtime_ns, path.stat().st_mode)
+                for path in root.rglob("*") if path.is_file()}
+
+    def test_fresh_production_copy_defaults_helpers_first_and_never_launches(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, executable = self.production_source(root)
+            before = self.snapshot(source)
+            destination = root / "future-campaign"
+            output = io.StringIO()
+            with patch("sys.stdout", output), patch.object(PRODUCTION.os, "execv") as launch:
+                self.assertEqual(PRODUCTION.main(["--prepare-from", str(source), "--campaign-directory", str(destination),
+                    "--executable", str(executable), "--workers", "1", "--cpus", str(min(os.sched_getaffinity(0))),
+                    "--max-memory-bytes", "700000000000", "--json"]), 0)
+            launch.assert_not_called()
+            self.assertEqual(self.snapshot(source), before)
+            plan = json.loads(output.getvalue())
+            self.assertEqual(plan["query_order"], "helpers-first")
+            self.assertFalse(plan["launch_requested"])
+            self.assertEqual(plan["requested_hard_memory_bytes"], 700_000_000_000)
+            self.assertEqual(plan["ram_guard_margin_percent"], 5.0)
+            self.assertEqual(plan["command"][plan["command"].index("--max-queries") + 1], "4")
+            self.assertFalse((destination / "active-run.json").exists())
+            self.assertFalse((destination / "runs").exists())
+            source_rows = json.loads((source / "inputs/queries.json").read_text())["queries"]
+            new_rows = json.loads((destination / "inputs/queries.json").read_text())["queries"]
+            self.assertEqual({row["id"]: row for row in new_rows}, {row["id"]: row for row in source_rows})
+            self.assertEqual([row["id"] for row in new_rows],
+                             ["owner-anchor-r12-anone-10", "first", "owner-anchor-r12-anone-01", "second"])
+            self.assertEqual((destination / "inputs/queries-original.json").read_bytes(), (source / "inputs/queries.json").read_bytes())
+            output = io.StringIO()
+            with patch("sys.stdout", output), patch.object(PRODUCTION.os, "execv") as launch:
+                self.assertEqual(PRODUCTION.main(["--campaign-directory", str(destination), "--resume", "--json"]), 0)
+            launch.assert_not_called()
+            resumed = json.loads(output.getvalue())
+            self.assertEqual(resumed["steering_policy"], plan["steering_policy"])
+            self.assertEqual(resumed["query_order"], "helpers-first")
+            self.assertEqual(resumed["requested_hard_memory_bytes"], 700_000_000_000)
+            self.assertEqual(self.snapshot(source), before)
+
+    def test_fresh_preserve_override_and_source_tampering_rejection(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, _ = self.production_source(root)
+            destination = root / "preserved"
+            PRODUCTION.prepare_from(source, destination, "preserve")
+            self.assertEqual((destination / "inputs/queries.json").read_bytes(), (source / "inputs/queries.json").read_bytes())
+            self.assertFalse((destination / "inputs/queries-original.json").exists())
+            (source / "inputs/queries.json").chmod(0o600)
+            (source / "inputs/queries.json").write_text("tampered")
+            with self.assertRaisesRegex(ValueError, "digest changed"):
+                PRODUCTION.prepare_from(source, root / "refused", "helpers-first")
+            self.assertFalse((root / "refused").exists())
+
+    def test_prepare_refuses_existing_nested_and_symlink_destinations_before_writes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, _ = self.production_source(root)
+            existing = root / "existing"
+            existing.mkdir()
+            link = root / "link"
+            link.symlink_to(root / "missing")
+            before = self.snapshot(source)
+            for destination in (existing, source, source / "nested", root, link):
+                with self.subTest(destination=destination), self.assertRaises(ValueError), patch.object(PRODUCTION, "verify_inputs") as verify:
+                    PRODUCTION.prepare_from(source, destination, "helpers-first")
+                verify.assert_not_called()
+            self.assertEqual(self.snapshot(source), before)
+            self.assertEqual(list(existing.iterdir()), [])
+            self.assertFalse((source / "nested").exists())
+            self.assertFalse((root / "missing").exists())
+
+    def test_prepare_resume_and_existing_query_order_are_cli_errors(self):
+        for extra in (["--prepare-from", "source", "--resume"], ["--query-order", "helpers-first"],
+                      ["--query-order", "preserve", "--resume"]):
+            with self.subTest(extra=extra), patch("sys.stderr", io.StringIO()), \
+                    patch.object(PRODUCTION, "verify_inputs") as verify, patch.object(PRODUCTION, "freeze_executable") as freeze:
+                with self.assertRaises(SystemExit) as error:
+                    PRODUCTION.main(extra)
+                self.assertEqual(error.exception.code, 2)
+                verify.assert_not_called()
+                freeze.assert_not_called()
+
+    def test_prepare_refuses_nested_destination_through_symlinked_source_inputs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, _ = self.production_source(root)
+            alias = root / "source-alias"
+            alias.mkdir()
+            (alias / "inputs").symlink_to(source / "inputs", target_is_directory=True)
+            destination = source / "inputs/new-campaign"
+            before = self.snapshot(source)
+            with self.assertRaisesRegex(ValueError, "source inputs.*not nested"), patch.object(PRODUCTION, "verify_inputs") as verify:
+                PRODUCTION.prepare_from(alias, destination, "helpers-first")
+            verify.assert_not_called()
+            self.assertFalse(destination.exists())
+            self.assertEqual(self.snapshot(source), before)
+
+
 if __name__ == "__main__":
     unittest.main()

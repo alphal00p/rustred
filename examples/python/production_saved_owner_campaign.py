@@ -3,12 +3,15 @@
 
 By default this verifies staged input and freezes the supplied executable, then
 prints a command. Only --start launches the solver. No algebra lives in Python.
+--prepare-from copies verified immutable inputs into a new, disjoint campaign;
+its default helper-first query order is only an admission-order heuristic.
 """
 from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -112,6 +115,34 @@ def verify_inputs(directory):
     return len(document["queries"]), query_path.stat().st_size, receipt
 
 
+def prepare_from(source_campaign, campaign, query_order):
+    """Copy existing input obligations, never mutate/resume/reorder the source."""
+    source_campaign = source_campaign.resolve(strict=True)
+    destination = campaign.resolve()
+    if (source_campaign == destination or source_campaign in destination.parents
+            or destination in source_campaign.parents):
+        raise ValueError("source and destination campaigns must be distinct and not nested")
+    if campaign.exists() or campaign.is_symlink() or destination.exists():
+        raise ValueError("fresh preparation requires a nonexistent destination campaign")
+    source_inputs = (source_campaign / "inputs").resolve(strict=True)
+    if (source_inputs == destination or source_inputs in destination.parents
+            or destination in source_inputs.parents):
+        raise ValueError("source inputs and destination campaign must be distinct and not nested")
+    count, _, original = verify_inputs(source_inputs)  # Read-only; no source freezing or steering.
+    spec = importlib.util.spec_from_file_location("campaign_input_stager", Path(__file__).with_name("stage_saved_owner_campaign.py"))
+    stager = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stager)
+    staged = stager.stage(source_inputs / "selection.json", source_inputs / "queries.json",
+                          destination / "inputs", source_inputs, query_order=query_order)
+    if (staged["source_manifest_sha256"] != original["selection_sha256"]
+            or staged["source_queries_sha256"] != original["queries_sha256"]
+            or [(row["mask"], row["bytes"], row["sha256"]) for row in staged["owners"]]
+            != [(row["mask"], row["bytes"], row["sha256"]) for row in original["owners"]]
+            or verify_inputs(source_inputs)[2] != original
+            or verify_inputs(destination / "inputs")[0] != count):
+        raise ValueError("source input identity changed during fresh preparation")
+
+
 def frozen_policy(campaign, args, executable, inputs, count, size):
     """Persist original steering; only per-resume supervisor RAM may differ."""
     path = campaign / "bin" / "steering.json"
@@ -196,6 +227,10 @@ def main(argv=None):
     parser.add_argument("--campaign-directory", type=Path,
                         default=Path.cwd() / "campaigns/five-loop-saved")
     parser.add_argument("--executable", type=Path, help="freeze once; later cargo rebuilds cannot change this campaign")
+    parser.add_argument("--prepare-from", type=Path, metavar="SOURCE_CAMPAIGN",
+                        help="copy verified existing inputs into a nonexistent, disjoint campaign; does not launch")
+    parser.add_argument("--query-order", choices=("preserve", "helpers-first"),
+                        help="only with --prepare-from; fresh-copy default: helpers-first; never rewrites existing inputs")
     parser.add_argument("--start", action="store_true", help="manually launch after preparation")
     parser.add_argument("--resume", action="store_true", help="continue the latest native checkpoint with the frozen executable")
     parser.add_argument("--workers", type=int, help="initial default: at most 50 permitted CPUs; frozen for resume")
@@ -214,6 +249,10 @@ def main(argv=None):
                         help="opt-in singleton refinement eligibility; positive cardinality, default off, unchanged by unbounded work; frozen for resume")
     parser.add_argument("--json", action="store_true", help="print the prepared command as JSON")
     args = parser.parse_args(argv)
+    if args.prepare_from is not None and args.resume:
+        parser.error("--prepare-from cannot be combined with --resume")
+    if args.query_order is not None and args.prepare_from is None:
+        parser.error("--query-order requires --prepare-from; existing inputs cannot be reordered")
     cardinalities = args.apply_cell_refinement_max_cardinality
     if cardinalities is not None and len(cardinalities) != 1:
         parser.error("--apply-cell-refinement-max-cardinality may be supplied only once")
@@ -233,6 +272,10 @@ def main(argv=None):
     campaign = args.campaign_directory.resolve()
     inputs = campaign / "inputs"
     try:
+        if args.prepare_from is not None:
+            if args.executable is None or not args.executable.is_file() or not os.access(args.executable, os.X_OK):
+                raise ValueError("fresh preparation requires an executable --executable")
+            prepare_from(args.prepare_from, args.campaign_directory, args.query_order or "helpers-first")
         count, size, receipt = verify_inputs(inputs)
         executable, executable_hash = freeze_executable(campaign, args.executable)
         policy = frozen_policy(campaign, args, executable, inputs, count, size)
@@ -249,6 +292,8 @@ def main(argv=None):
             "checkpoint_directory": str(checkpoint), "executable_sha256": executable_hash,
             "selection_sha256": receipt["selection_sha256"], "queries_sha256": receipt["queries_sha256"],
             "anchor_plan": receipt.get("anchor_plan"),
+            "query_order": receipt.get("query_order", "preserve"),
+            "query_order_plan": receipt.get("query_order_plan"),
             "requested_workers": options["workers"], "hard_timeout_seconds": None,
             "requested_hard_memory_bytes": options["max_memory_bytes"],
             "ram_guard_margin_percent": options["ram_guard_margin_percent"],

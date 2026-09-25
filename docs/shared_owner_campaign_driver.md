@@ -25,6 +25,70 @@ conservative successor semantics and explicit unresolved obligations.
 
 ## Running
 
+### Recommended fresh attempt: existing helpers first
+
+The September 25 input-only control supports a conservative fresh-run preset:
+retain the shared queue and all existing helper bounds, but admit each owner's
+helpers before its narrower original requests. Generic staging keeps first-seen
+owner order; it does not sort by topology name, loop count or support size.
+The `owner-anchor-` ID convention identifies staging-generated helpers for
+priority only. Native exact containment still decides whether a query can reuse
+an admission; the Python ordering is not mathematical authority.
+
+The completed four-loop FG control took 18.53 s with the original order and
+16.44 s with helpers first. Broader rank helpers did not improve on reordered
+existing helpers. These are local four-loop measurements, not an established
+five-loop speedup. See the [experiment and limitations](research/helper_first_campaign_2026-09-25.md).
+Joint support pruning and independent-topology scheduling remain off here;
+their completed controls did not establish an end-to-end benefit.
+
+From the repository root, prepare a **new** campaign without launching anything:
+
+```sh
+mkdir -p TMP
+export TMPDIR="$PWD/TMP" TMP="$PWD/TMP" TEMP="$PWD/TMP"
+export CARGO_HOME="$PWD/TMP/cargo-home" CARGO_TARGET_DIR="$PWD/target"
+# Build only if the current release executable is not already available.
+nix develop --command cargo build --release --locked -p rustred-app --bin rustred -j 16
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --prepare-from campaigns/five-loop-saved-coarse-cover \
+  --campaign-directory campaigns/five-loop-saved-helpers-first \
+  --executable target/release/rustred \
+  --workers 50 --max-memory-bytes 500000000000 \
+  --checkpoint-interval-seconds 3600
+```
+
+`--prepare-from` accepts an existing staged campaign directory, verifies its
+immutable inputs and copies them to a disjoint, nonexistent destination.
+It defaults to `--query-order helpers-first`; `--query-order preserve` is an
+explicit control. It preserves every query object/ID/bound and program payload,
+saves the input query bytes as `queries-original.json` when reordering, and
+records the ordering in the input receipt and displayed launch plan.
+The present five-loop input remains 67 owners and 134 explicit requests.
+This operation neither regenerates IBPs nor imports the source checkpoint.
+
+Preparation freezes the executable and policy. On this workspace the
+`campaigns/five-loop-saved-helpers-first` snapshot has already been prepared;
+do **not** repeat the preparation command against it. For another experiment,
+choose a different fresh directory. After the current campaign has finished,
+or after you have deliberately paused it, launch the prepared fresh run with:
+
+```sh
+nix develop --command python examples/python/production_saved_owner_campaign.py \
+  --campaign-directory campaigns/five-loop-saved-helpers-first --start
+```
+
+This begins from the reordered initial requests, not the old run's checkpoint.
+Do not run both campaigns on the same reserved CPUs/RAM at once. The preset
+requests 50 workers, a 500 GB RAM ceiling with a 5% cooperative checkpoint margin,
+hourly checkpoints and uncapped cumulative work. The RAM ceiling has no fixed
+500 GB maximum: choose a different positive byte count during fresh preparation,
+or use the documented per-resume RAM override below. Ctrl-C requests a clean
+checkpoint; resume this new campaign with its own `--resume --start`.
+All current live files/checkpoints remain untouched.
+
+### Existing prepared campaigns
+
 For the prepared five-loop saved-owner input, use the production launcher from
 the repository root. It verifies the immutable input hashes and, on the first
 preparation/start, copies the supplied executable into the campaign directory.
