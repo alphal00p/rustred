@@ -227,6 +227,12 @@ itself establishes five-loop closure.
 Read the [measured comparison](docs/research/joint_pruning_independent_campaigns_2026-09-25.md)
 before restarting: isolating owners can lose the shared auxiliary coverage
 that makes a symbolic campaign finish, despite raising CPU occupancy.
+The limited all-67-owner control reached about 50 busy cores with 50 one-core
+slots, but completed in 296.1 seconds versus 153.4 seconds shared; repeated
+preparation and extra descendant work outweighed the utilization gain. Joint
+pruning also remains off by default: its measured rank-two pilot saved local
+work without an end-to-end speedup. Neither result recommends replacing the
+current production campaign.
 
 Long candidate-generation campaigns can opt into native per-sector checkpoints
 using `family-candidates --checkpoint-dir TMP/my-campaign`, then `--resume` after

@@ -29,13 +29,19 @@ optimization, full five-loop restart or change to the current live campaign is
 authorized by this follow-up. The older quota pause below is superseded only for
 this bounded implementation and validation task.
 
-Implementation checkpoint: both opt-ins and native monitoring are implemented
+Completed scoped checkpoint: both opt-ins and native monitoring are implemented
 and independently audited; release tests and real checkpoint/resume/cold reuse
-pass. The four-loop comparisons are complete. Independent owner jobs can lose
-the coarse auxiliary covers that make the shared walk terminate, so higher CPU
-occupancy is not an established speedup. The limited five-loop comparisons are
-still running; see the [measurement record](docs/research/joint_pruning_independent_campaigns_2026-09-25.md).
-Do not restart the user's live campaign automatically.
+pass. The four-loop and limited five-loop comparisons are complete. Joint
+pruning saves local work but does not demonstrate an end-to-end speedup in the
+rank-two pilot. Fifty one-core topology slots do reach about 50 busy cores,
+but the completed rank-zero control remains slower than shared execution.
+Independent owner jobs can also lose the coarse auxiliary covers that make
+the shared walk finish. See the [measurement record](docs/research/joint_pruning_independent_campaigns_2026-09-25.md)
+for completed timings and the explicitly incomplete broad-FG observation.
+Commit/push the final report and stop assistant work; the existing live campaign
+remains unchanged. This completes only the requested two-option follow-up, not
+the broader five-loop goal. Do not start further experiments or automatically
+restart production.
 
 ## September 25: user-requested quota checkpoint and pause
 

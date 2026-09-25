@@ -31,8 +31,9 @@ descendants. It cannot count another job's pending work as a completed result.
 Consequently it loses cross-job coverage reuse as well as repeating some work.
 This can remove a finite symbolic-cover convergence mechanism, not merely
 repeat a fixed finite set of tasks. For example, a recurrence
-`B(n,m) -> B(n-1,m+1)` terminates for every concrete integer `n`, but an
-unbounded region `B(n>=1,m=1)` can generate incomparable `m=2,3,...` slices.
+`B(n,m) -> B(n-1,m+1)` for `n>=2` terminates for every concrete integer `n`,
+with a boundary rule `B(1,m) -> B(1,m-1)` for `m>=2` leading to `B(1,1)`.
+Yet an unbounded region `B(n>=1,m=1)` can generate incomparable `m=2,3,...` slices.
 A preadmitted `B(n>=1,m>=1)` orthant can absorb them; without it, concrete
 descent does not guarantee finite abstract-domain traversal. This illustrates
 a real architectural risk, not a proof of nontermination of a measured job.
@@ -71,6 +72,9 @@ All comparison commands use one frozen release CLI:
 ```text
 SHA256 030e09ef661cc69b5acc0501376b8174a518eb95cb0bf0f656835e84613f6c60
 ```
+
+The implementation is committed as `31170b4c2c6c719760fe0ad88bd1e97b902c3d88`.
+Subsequent checkpoint edits only finalize documentation and these measurements.
 
 Compilation and the post-run streaming audit are outside the timed boundary.
 Whole-command time includes input freezing, each child's rule import,
@@ -156,5 +160,95 @@ it does not prove that the run would continue forever.
 
 ### Limited five-loop controls
 
-Measurements are in progress. No full five-loop speedup or completion claim
-follows from these four-loop results or from the implementation alone.
+The single-owner rank-two control completed both ways, retaining all descendants
+and all 67 saved rule programs. Unlike the four-loop controls, it exercises
+millions of routed masks.
+
+| Joint pruning | Command wall, s | Preparation, s | Traversal, s | CPU, s | Mean busy cores | Peak aggregate GB | Native inspections |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| off | 458.907 | 84.554 | 298.738 | 2,158.674 | 4.704 | 15.015 | 967,621 |
+| on | 463.048 | 84.722 | 302.149 | 2,170.628 | 4.688 | 14.923 | 962,717 |
+
+The new bound rejects 445,442 masks. Inspections decrease by 4,904 (0.51%), but
+the single observed traversal is 1.14% longer and command wall time 0.90%
+longer. Thus **no end-to-end speedup is demonstrated**. The option stays off
+by default. This is not a statistically established slowdown either: the
+observations are a single pair on a shared host.
+
+Off/on logical-domain counts are 1,273,376 / 1,265,696. Examined mask counts are
+12,896,445 / 12,909,884, and total pruned masks 9,524,196 / 9,960,266. A tighter
+local cover can change subsequent subdivision and reuse, so these counters
+need not all decrease monotonically. The extra pruning does not mean an equal
+number of native inspections is avoided. Both final ledgers exhaust without
+frontiers; original programs and terminal declarations remain unchanged.
+The independent raw-record audits pass both runs. Route coordinate-cell work
+decreases by 12,567,510 and route events by 422,631; these local savings still
+do not establish a campaign speedup. Joint-pruned masks are already included
+in the total pruned-mask count and must not be added a second time.
+
+The all-67-owner rank-zero control completed in all three scheduling modes.
+Every row below uses the same 663 starting tuples, rule selection and descendant
+obligation. Joint pruning is off in this scheduling comparison.
+
+| Scheduling | Command wall, s | CPU, s | Mean busy cores | Peak aggregate GB | Native inspections |
+|---|---:|---:|---:|---:|---:|
+| One shared job, 50 workers | 153.398 | 183.453 | 1.196 | 5.835 | 29,354 |
+| 67 queued jobs, 10 slots of five workers | 736.671 | 6,195.851 | 8.411 | 57.849 | 116,041 |
+| 67 queued jobs, 50 slots of one worker | 296.050 | 6,554.132 | 22.139 | 281.035 | 116,041 |
+
+The ten-slot run is 4.80 times slower than shared execution and performs 3.95
+times as many native inspections. Its preparation time sums to 5,699.427
+seconds across 67 jobs, versus 83.870 seconds for the shared run. Traversal
+sums are 39.290 versus 4.005 seconds; these sums are not elapsed parallel
+traversal time. The control is dominated by repeating the full saved-program
+preparation in each process. During preparation, each topology job primarily
+uses one CPU, so reserving five workers for it does not produce five busy cores.
+
+The 50-slot run reaches approximately 50 measured busy cores during its first
+wave, then about 17 while the final 17 jobs prepare. It therefore demonstrates
+the requested outer scheduling capability. But its whole-command average is
+22.139 busy cores, and much of this activity is repeated import/preparation,
+not mathematical reduction. Preparation sums to 6,064.136 seconds and traversal
+to 59.620 seconds, with an 8.867-second longest traversal. More simultaneous
+imports also increase peak RSS to 281.035 GB. It is 2.49 times faster than
+10 slots, but **1.93 times slower than the shared baseline**, with the same
+3.95-fold inspection inflation. High instantaneous utilization is not useful
+speedup on this workload.
+
+All completed runs pass independent raw-record and completion-ledger audits.
+The 10-slot and 50-slot runs have exactly equal 132,763 canonical mathematical
+records after excluding only record timing, and all 67 completion ledgers agree.
+Their canonical semantic SHA256 is
+`577251a25ceb26e7cfa2a5f9bd69488dde4f2bccaa3334673c04728a07bde77b`.
+The combined output preserves 67 unique native payload files containing
+1,280,854,595 logical bytes, stored once regardless of the number of jobs.
+Diagnostics and checkpoints are separate from that consumer artifact. Filesystem
+compression is not counted as an algorithmic artifact-size improvement.
+
+No full five-loop speedup or completion claim follows from these limited controls.
+
+## Practical conclusion and stopping point
+
+Both requested opt-ins are usable, tested and independently audited. Neither
+changes the running production campaign, the algebraic rule payloads or the
+default shared scheduler. This was a bounded implementation and measurement
+task, not a new generation strategy or an unrestricted closure result.
+
+The joint bound does remove avoidable local work, but the measured rank-two
+case does not support the expectation of a large end-to-end gain. Its opt-in
+status is important: the extra bookkeeping is not free, and tightening a
+local cover can change downstream subdivision and reuse.
+
+The topology queue removes the scheduling barrier between independent starting
+owners, as requested. It cannot guarantee useful scaling: every process repeats
+preparation, and independent coverage can require much more work than the shared
+walk. The full-FG observation additionally exposes an abstract convergence risk,
+not just startup overhead. These findings do **not** justify replacing the live
+five-loop campaign solely to obtain a busier CPU display, and they provide no
+credible full-campaign ETA. No additional optimization is started at this
+checkpoint.
+
+The [operator guide](../independent_owner_campaigns.md#optional-fresh-launch-using-this-workspaces-five-loop-inputs)
+gives exact Nix/build/fresh-start commands, a shared-anchor alternative using
+the same native supervisor, and frozen-checkpoint resume commands. Restarting
+is a user decision; the existing production process is left untouched.

@@ -28,6 +28,7 @@ The existing native scheduler remains in use inside each job. For example:
 
 | Concurrent jobs | Workers per job | Total worker budget |
 |---:|---:|---:|
+| 5 | 10 | 50 |
 | 10 | 5 | 50 |
 | 25 | 2 | 50 |
 | 50 | 1 | 50 |
@@ -173,6 +174,8 @@ polynomial expansion, factorization or other CAS operation. It remains
 off by default because its extra support-union work is not guaranteed to
 pay off for every family. Diagnostics report separately how many masks this
 additional bound pruned. The underlying rule payloads do not change.
+The completed five-loop rank-two comparison pruned additional masks but did
+not demonstrate an end-to-end speedup; leaving it disabled is the default.
 
 ## Optional fresh launch using this workspace's five-loop inputs
 
