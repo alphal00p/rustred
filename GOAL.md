@@ -181,6 +181,24 @@ microbenchmark is deliberately narrower than this reuse-heavy live stream;
 do not infer end-to-end speedup or closure from it. See the latest section of
 the [live profile study](docs/research/five_loop_slow_inspection_parallelism_2026-09-24.md).
 
+An immutable checkpoint-9 census now distinguishes 8.850 million pending Route
+IDs from 2.385 million Apply IDs; these include aliases/reservations and are not
+a remaining-native-work estimate. The later 04:31–04:56 window still averages
+only 2.17 busy cores while pending work grows by 296,691, with zero reported
+frontiers. Keep monitoring the unchanged live job; no defensible ETA follows.
+The actual newer slow-head replay finds no useful application-cell-refinement
+speedup (44.4241 versus 44.4257 s), so its earlier benefit must not be generalized.
+An exact reuse opportunity is instead demonstrated: a query-dependent initial
+overlap cut delegates more work to an existing pinned auxiliary obligation and
+shrinks the native residual. Two opposite-order input-only comparisons reduce
+local residual wall time by 10.36–15.06% and successor count by 15.49%, without
+new rules or weakened scope. The generic adaptive-cut planner is not yet
+implemented. Test its full recursive cost and checkpoint-prefix behavior before
+promotion; local work reduction is not closure or a solution to ordered-head
+blocking. The admission-grain seam remains test-only while its corrected
+instrumentation build and matched measurements finish. See the
+[census, exact geometry and native controls](docs/research/five_loop_pending_census_2026-09-25.md).
+
 Both existing packagings already use the same generic `.rrbin` container and
 Symbolica native state/atoms. The older four-loop files are multi-sector bundles;
 the shared-owner ingress currently requires single-sector bundles. This is an
