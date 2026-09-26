@@ -713,7 +713,8 @@ fn run<const N: usize>(
     document["containment_retired_candidates"] = json!(state.queue.containment_retired_candidates);
     document["containment_summary_builds"] = json!(state.queue.containment_summary_builds);
     document["containment_semantic_hits"] = json!(state.queue.containment_semantic_hits);
-    document["containment_semantic_retirements"] = json!(state.queue.containment_semantic_retirements);
+    document["containment_semantic_retirements"] =
+        json!(state.queue.containment_semantic_retirements);
     document["containment_candidates"] = json!(state.queue.containment_candidate_count());
     document["containment_index_policy"] = json!(state.queue.containment_index_policy());
     document["containment_check_policy"] =

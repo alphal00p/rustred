@@ -1,8 +1,8 @@
 use super::*;
 use crate::{FamilyCandidatesRequest, family_candidates, inspect_generated_candidate_bundle};
 use std::sync::atomic::{AtomicU64, Ordering};
-mod guarded_apply;
 mod bounded_routing;
+mod guarded_apply;
 mod index_admission;
 mod owner_batches;
 mod power_domains;
