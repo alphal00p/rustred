@@ -155,9 +155,11 @@ impl Metrics {
             "checkpoint_seconds":duty.checkpoint,
             "progress_json_seconds":duty.progress_json,
             "ready_service_seconds":duty.ready_service,
-            "ready_service_reclaimed_slots":duty.ready_service_reclaims,
-            "ready_service_dispatches":duty.ready_service_dispatches,
-            "ready_service_deferred_delegates":duty.ready_service_deferred_delegates,
+            // Counts, not seconds: nested so a monitor dividing every flat
+            // numeric key by wall time never reads them as a duty share.
+            "ready_service":{"reclaimed_slots":duty.ready_service_reclaims,
+                "dispatches":duty.ready_service_dispatches,
+                "deferred_delegates":duty.ready_service_deferred_delegates},
             "coordinator_elapsed_seconds":duty.elapsed_seconds(),
             "scope":"coordinator_thread_wall_seconds_this_execution_session; buckets_are_disjoint; ready_service_includes_its_own_dispatch; resets_on_resume"
         })
