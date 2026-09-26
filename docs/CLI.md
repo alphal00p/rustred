@@ -81,6 +81,21 @@ digests and executable `WALK_SEMANTICS_VERSION`; a different executable
 digest with the same semantics version is accepted and reported. CP1-CP4
 directories are refused; start a fresh campaign.
 
+`rustred walk-semantics-version` is a read-only probe for launchers deciding
+whether a paused checkpoint may resume on this executable. It takes no
+options, opens no file, runs no algebra, prints one JSON line and exits 0:
+
+```text
+$ rustred walk-semantics-version
+{"walk_semantics_version":1,"checkpoint_format":"RUSTRED-WALK-CP5","checkpoint_schema":5}
+```
+
+A resume on a different executable digest is compatible only when all three
+values equal the saved manifest's `walk_semantics_version`, `format` and
+`schema`. Executables built before this probe exit 2 (unknown command); the
+production launcher's `--upgrade-executable` refuses them
+([driver guide](shared_owner_campaign_driver.md#resuming-onto-a-semantics-compatible-binary)).
+
 ## Generic complete artifact generation
 
 `rustred family-close` uses the family supplied in the input, not a built-in

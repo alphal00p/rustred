@@ -28,7 +28,8 @@ use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 pub use checkpoint::{
-    OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES, OwnerDomainWalkCheckpointOptions,
+    OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT, OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES,
+    OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA, OwnerDomainWalkCheckpointOptions,
 };
 pub use delegation::SchedulingPolicy as OwnerDomainWalkSchedulingPolicy;
 

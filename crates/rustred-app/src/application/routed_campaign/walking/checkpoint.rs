@@ -24,6 +24,10 @@ use crate::application::atomic_file::{write_file_atomically, write_file_atomical
 /// Bound every reader of `latest.json` shares with the store.
 pub use manifest::MAX_MANIFEST_BYTES as OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES;
 use manifest::{FORMAT, Manifest, SCHEMA, Section, SectionRef, Sections, Segment, Segmented};
+/// Manifest `format`/`schema` this executable writes and resumes.
+pub use manifest::{
+    FORMAT as OWNER_DOMAIN_WALK_CHECKPOINT_FORMAT, SCHEMA as OWNER_DOMAIN_WALK_CHECKPOINT_SCHEMA,
+};
 pub(super) use restore::Restored;
 use sections::{HashingWriter, Identity};
 use serde_json::{Value, json};

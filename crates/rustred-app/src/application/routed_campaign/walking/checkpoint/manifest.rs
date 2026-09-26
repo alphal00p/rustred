@@ -7,8 +7,8 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-pub(super) const SCHEMA: u32 = 5;
-pub(super) const FORMAT: &str = "RUSTRED-WALK-CP5";
+pub const SCHEMA: u32 = 5;
+pub const FORMAT: &str = "RUSTRED-WALK-CP5";
 pub const MAX_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
 pub(super) const FRESH_CAMPAIGN: &str =
     "unsupported checkpoint generation; complete dependency history requires a fresh CP5 campaign";

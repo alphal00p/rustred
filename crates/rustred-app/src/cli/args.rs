@@ -171,6 +171,7 @@ pub(crate) enum Command {
     FoundryWaveCampaignRun(FoundryWaveCampaignRunArgs),
     Help,
     Version,
+    WalkSemanticsVersion,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -262,6 +263,10 @@ pub(crate) fn parse_args(
         "--version" | "-V" => {
             reject_trailing(arguments)?;
             Ok(Command::Version)
+        }
+        "walk-semantics-version" => {
+            reject_trailing(arguments)?;
+            Ok(Command::WalkSemanticsVersion)
         }
         "derive" => derive::parse(arguments),
         "entry-domain-plan" => entry_domain::parse(arguments),
@@ -360,6 +365,7 @@ USAGE:
     rustred campaign generate [OPTIONS]
     rustred campaign inspect [OPTIONS]
     rustred campaign reduce [OPTIONS]
+    rustred walk-semantics-version
 
 DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]
@@ -671,6 +677,12 @@ never attach an ordered checkpoint to a ready run.
 --route-joint-source-support-pruning enables a conservative shared-numerator
 degree bound for simultaneous propagator pinches. It is off by default and is
 part of the immutable checkpoint policy; it does not clip descendants.
+
+`walk-semantics-version` prints one JSON line with this executable's
+walk_semantics_version, checkpoint_format and checkpoint_schema, then exits 0.
+It reads no file and runs no algebra. A paused walk checkpoint resumes on a
+different executable digest only when the saved manifest carries the same
+format, schema and walk semantics version.
 
 Independent starting-owner campaigns (opt-in, Linux):
   rustred campaign shards --config CONFIG.json --directory DIR
