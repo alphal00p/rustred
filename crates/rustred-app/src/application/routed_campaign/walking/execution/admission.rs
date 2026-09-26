@@ -159,14 +159,15 @@ impl Metrics {
         })
     }
     pub fn json(&self) -> Value {
-        let mut value = self.metrics_json();
+        let mut value = self.metrics_json(false);
         value["coordinator_duty"] = self.duty_json();
         value
     }
-    /// The admission counters without the duty breakdown, for per-domain
-    /// progress events that must stay cheap to build.
-    pub fn metrics_json(&self) -> Value {
-        json!({"policy":"immutable_bounded_batch_ordered_commit",
+    /// The admission counters without the duty breakdown. `lean` keeps the
+    /// historical key set for per-domain progress events; heartbeats and the
+    /// final report also carry the filter-tier and prepared-retirement counters.
+    pub fn metrics_json(&self, lean: bool) -> Value {
+        let mut value = json!({"policy":"immutable_bounded_batch_ordered_commit",
             "counter_scope":"current_execution_session; resets_on_resume",
             "requested_worker_budget":self.budget.requested,
             "inspection_worker_limit":self.budget.inspection,
@@ -178,18 +179,25 @@ impl Metrics {
             "prepared_batch_records":self.records, "speculative_admission_requests":self.preparations,
             "speculative_containment_checks":self.speculative_checks,
             "speculative_check_scope":"all_completed_preparation_checks; overlaps_committed_checks_when_reused; do_not_sum",
-            "speculative_reverse_checks":self.speculative_reverse_checks,
-            "speculative_forward_bit_rejections":self.speculative_forward_bit_rejections,
-            "speculative_reverse_bit_rejections":self.speculative_reverse_bit_rejections,
-            "prepared_retirements_applied":self.prepared_retirements_applied,
-            "prepared_retire_fallbacks":self.prepared_retire_fallbacks,
-            "prepared_retirement_limit":super::super::queue::PREPARED_RETIRE_LIMIT,
-            "prepared_retirement_scope":"helper_prepared_reverse_sets_applied_at_ordered_commit; results_layout_counters_transfers_identical_to_serial",
             "preparation_wall_seconds":self.preparation_seconds,
             "ordered_commit_wall_seconds":self.ordered_commit_seconds,
             "counter_saturated":self.counter_saturated,
             "timing_scope":"coordinator_wall; preparation_includes_wait_for_all_helpers; commit_excludes_observer",
-            "speculative_work_is_not_admission":true})
+            "speculative_work_is_not_admission":true});
+        if !lean {
+            value["speculative_reverse_checks"] = json!(self.speculative_reverse_checks);
+            value["speculative_forward_bit_rejections"] =
+                json!(self.speculative_forward_bit_rejections);
+            value["speculative_reverse_bit_rejections"] =
+                json!(self.speculative_reverse_bit_rejections);
+            value["prepared_retirements_applied"] = json!(self.prepared_retirements_applied);
+            value["prepared_retire_fallbacks"] = json!(self.prepared_retire_fallbacks);
+            value["prepared_retirement_limit"] = json!(super::super::queue::PREPARED_RETIRE_LIMIT);
+            value["prepared_retirement_scope"] = json!(
+                "helper_prepared_reverse_sets_applied_at_ordered_commit; results_layout_counters_transfers_identical_to_serial"
+            );
+        }
+        value
     }
 }
 

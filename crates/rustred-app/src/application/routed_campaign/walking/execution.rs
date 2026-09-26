@@ -214,7 +214,11 @@ impl<const N: usize> State<N> {
         }
         self.add_delegation_progress(&mut progress);
         self.add_ready_progress(&mut progress);
-        progress["descendant_closure"] = self.closure_json();
+        progress["descendant_closure"] = self.closure.borrow().json_with(
+            self.queue.domains.len(),
+            self.initial_domain_count,
+            lean,
+        );
         progress
     }
     pub(super) fn closure_json(&self) -> Value {
@@ -264,7 +268,7 @@ impl<const N: usize> State<N> {
                 json!(self.physical_progress.as_ref().map(|p| p.completed.len()));
         }
         telemetry["admission_preparation"] = if lean {
-            self.admission.metrics_json()
+            self.admission.metrics_json(true)
         } else {
             self.admission.json()
         };

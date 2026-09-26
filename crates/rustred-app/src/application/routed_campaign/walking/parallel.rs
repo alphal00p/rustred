@@ -454,32 +454,15 @@ impl<const N: usize> Pool<N> {
     pub fn snapshot(&self) -> Value {
         self.snapshot_with_slots(true)
     }
-    /// Without the per-slot timing arrays, for per-domain progress events.
+    /// The historical key set only, for per-domain progress events: no
+    /// activity breakdown and no per-slot timing arrays.
     pub fn snapshot_lean(&self) -> Value {
         self.snapshot_with_slots(false)
     }
-    fn snapshot_with_slots(&self, slots: bool) -> Value {
+    fn snapshot_with_slots(&self, detailed: bool) -> Value {
         let state = self.lock();
         let running = state.slots.iter().filter(|s| s.running).count();
-        let blocked = state
-            .slots
-            .iter()
-            .filter(|s| s.running && s.blocked)
-            .count();
-        let heaviest = state
-            .slots
-            .iter()
-            .filter(|s| s.running)
-            .filter_map(|s| Some((s.id?, s.started?.elapsed().as_secs_f64(), s.stream_events)))
-            .max_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(id, seconds, events)| {
-                json!({"id":id, "seconds":seconds, "attempted_events":events})
-            });
         let mut snapshot = json!({"workers":state.slots.len(), "active_workers":running,
-            "computing_workers":running - blocked,
-            "finished_awaiting_poll":state.slots.iter().filter(|s| s.finished.is_some()).count(),
-            "heaviest_active_stream":heaviest,
-            "stream_stall_share":if running == 0 { 0.0 } else { blocked as f64 / running as f64 },
             "occupied_native_slots":state.slots.iter().filter(|s| s.id.is_some()).count(),
             "dispatched_uncommitted_domains":state.slots.iter().filter(|s| s.id.is_some()).count() + state.escrow.len(),
             "finished_uncommitted_domains":state.slots.iter().filter(|s| s.finished.is_some()).count() + state.escrow.len(),
@@ -496,7 +479,30 @@ impl<const N: usize> Pool<N> {
             "per_worker_chunk_logical_bytes":CHUNK_BYTES,
             "first_failure":state.failure.as_ref().map(Failure::json),
             "non_cancellation_failure":state.non_cancellation_failure.as_ref().map(Failure::json)});
-        if slots {
+        if detailed {
+            let blocked = state
+                .slots
+                .iter()
+                .filter(|s| s.running && s.blocked)
+                .count();
+            let heaviest = state
+                .slots
+                .iter()
+                .filter(|s| s.running)
+                .filter_map(|s| Some((s.id?, s.started?.elapsed().as_secs_f64(), s.stream_events)))
+                .max_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(id, seconds, events)| {
+                    json!({"id":id, "seconds":seconds, "attempted_events":events})
+                });
+            snapshot["computing_workers"] = json!(running - blocked);
+            snapshot["finished_awaiting_poll"] =
+                json!(state.slots.iter().filter(|s| s.finished.is_some()).count());
+            snapshot["heaviest_active_stream"] = json!(heaviest);
+            snapshot["stream_stall_share"] = json!(if running == 0 {
+                0.0
+            } else {
+                blocked as f64 / running as f64
+            });
             snapshot["slot_busy_seconds"] =
                 json!(state.slots.iter().map(Slot::busy_now).collect::<Vec<_>>());
             snapshot["slot_backpressure_seconds"] = json!(

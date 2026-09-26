@@ -44,24 +44,31 @@ fn lean_snapshot_omits_per_slot_timing_but_keeps_activity_fields() {
         "slot_backpressure_seconds",
         "slot_idle_seconds",
         "slot_timing_scope",
+        "computing_workers",
+        "finished_awaiting_poll",
+        "heaviest_active_stream",
+        "stream_stall_share",
     ] {
         assert!(full.get(key).is_some(), "{key}");
         assert!(lean.get(key).is_none(), "{key}");
     }
     assert_eq!(full["slot_idle_seconds"].as_array().unwrap().len(), 3);
+    assert_eq!(full["computing_workers"], 0); // Dispatched, not yet taken.
+    assert!(full["heaviest_active_stream"].is_null());
     for key in [
-        "computing_workers",
-        "finished_awaiting_poll",
-        "heaviest_active_stream",
-        "stream_stall_share",
+        "workers",
+        "active_workers",
         "occupied_native_slots",
         "completed_slots_reclaimed",
+        "first_failure",
     ] {
         assert!(full.get(key).is_some() && lean.get(key).is_some(), "{key}");
     }
     assert_eq!(lean["occupied_native_slots"], 1);
-    assert_eq!(lean["computing_workers"], 0); // Dispatched, not yet taken.
-    assert!(lean["heaviest_active_stream"].is_null());
+    assert_eq!(
+        lean.as_object().unwrap().len() + 8,
+        full.as_object().unwrap().len()
+    );
     pool.shutdown();
 }
 

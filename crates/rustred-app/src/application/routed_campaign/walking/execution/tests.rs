@@ -418,13 +418,29 @@ fn per_domain_progress_events_stay_lean_while_heartbeats_carry_session_telemetry
         assert!(lean.get("coordinator_duty").is_none(), "{event}");
         let admission = &lean["parallel"]["admission_preparation"];
         assert!(admission.get("coordinator_duty").is_none(), "{event}");
-        assert_eq!(admission["prepared_retirements_applied"], 0);
+        assert!(
+            admission.get("prepared_retirements_applied").is_none()
+                && admission.get("speculative_reverse_checks").is_none(),
+            "{event}"
+        );
+        assert!(
+            lean["descendant_closure"]
+                .get("refresh_duty_bound")
+                .is_none(),
+            "{event}"
+        );
         assert_eq!(lean["containment_checks"], 0); // Historical keys stay.
+        assert_eq!(admission["speculative_containment_checks"], 0);
+        assert_eq!(lean["descendant_closure"]["refresh_count"], 0);
     }
     for event in ["domain_progress", "domain_draining"] {
         assert!(!State::<1>::lean_event(event));
         let detailed = state.progress(event, 0, &json!({}));
         assert_eq!(detailed["containment_prefilter"]["forward_callbacks"], 0);
+        assert_eq!(
+            detailed["parallel"]["admission_preparation"]["prepared_retirements_applied"],
+            0
+        );
         assert!(detailed["coordinator_duty"]["dispatch_seconds"].is_number());
         assert!(
             detailed["parallel"]["admission_preparation"]["coordinator_duty"]
