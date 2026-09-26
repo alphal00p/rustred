@@ -141,6 +141,15 @@ impl<const N: usize> State<N> {
             .map(|(slot, _)| slot)
     }
 }
+/// How much of the pool state a snapshot serializes; see the `snapshot_*`
+/// methods. Lean is the historical key set.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum SnapshotTier {
+    Lean,
+    Detailed,
+    Full,
+}
+
 pub(super) struct Pool<const N: usize> {
     state: Mutex<State<N>>,
     work: Condvar,
@@ -451,15 +460,22 @@ impl<const N: usize> Pool<N> {
         }
         self.changed.notify_one();
     }
+    /// Everything, including the per-slot timing arrays (3 x W numbers): the
+    /// drain events and the final report only.
     pub fn snapshot(&self) -> Value {
-        self.snapshot_with_slots(true)
+        self.snapshot_tier(SnapshotTier::Full)
+    }
+    /// Scalar activity aggregates on top of the historical keys, without the
+    /// per-slot arrays: the heartbeat tier.
+    pub fn snapshot_detailed(&self) -> Value {
+        self.snapshot_tier(SnapshotTier::Detailed)
     }
     /// The historical key set only, for per-domain progress events: no
     /// activity breakdown and no per-slot timing arrays.
     pub fn snapshot_lean(&self) -> Value {
-        self.snapshot_with_slots(false)
+        self.snapshot_tier(SnapshotTier::Lean)
     }
-    fn snapshot_with_slots(&self, detailed: bool) -> Value {
+    fn snapshot_tier(&self, tier: SnapshotTier) -> Value {
         let state = self.lock();
         let running = state.slots.iter().filter(|s| s.running).count();
         let mut snapshot = json!({"workers":state.slots.len(), "active_workers":running,
@@ -479,7 +495,7 @@ impl<const N: usize> Pool<N> {
             "per_worker_chunk_logical_bytes":CHUNK_BYTES,
             "first_failure":state.failure.as_ref().map(Failure::json),
             "non_cancellation_failure":state.non_cancellation_failure.as_ref().map(Failure::json)});
-        if detailed {
+        if tier >= SnapshotTier::Detailed {
             let blocked = state
                 .slots
                 .iter()
@@ -503,6 +519,8 @@ impl<const N: usize> Pool<N> {
             } else {
                 blocked as f64 / running as f64
             });
+        }
+        if tier >= SnapshotTier::Full {
             snapshot["slot_busy_seconds"] =
                 json!(state.slots.iter().map(Slot::busy_now).collect::<Vec<_>>());
             snapshot["slot_backpressure_seconds"] = json!(

@@ -1011,10 +1011,15 @@ fn observe<const N: usize>(
     pool: &parallel::Pool<N>,
 ) {
     let started = Instant::now();
+    // Per-domain events: historical keys only. Heartbeats: scalar activity
+    // aggregates. Only the drain events (and the final report) carry the
+    // per-slot timing arrays, so a journaled heartbeat stays small at W = 256.
     let snapshot = if State::<N>::lean_event(event) {
         pool.snapshot_lean()
-    } else {
+    } else if event == "domain_draining" {
         pool.snapshot()
+    } else {
+        pool.snapshot_detailed()
     };
     observer(state.progress(event, id, &snapshot));
     state.admission.duty.progress_json += started.elapsed().as_secs_f64();
@@ -1500,7 +1505,7 @@ fn run_pool<const N: usize>(
                     let next = state.queue.next;
                     observe(state, observer, "domain_progress", next, pool);
                     heartbeat = Instant::now();
-                    state.set_parallel(pool.snapshot(), &previous_parallel);
+                    state.set_parallel(pool.snapshot_detailed(), &previous_parallel);
                     if let Err(error) = save(state, maybe_save) {
                         pool.fail(Failure {
                             id: Some(publisher_raw),
