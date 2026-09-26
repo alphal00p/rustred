@@ -1044,20 +1044,23 @@ fn refresh<const N: usize>(state: &mut State<N>, cancellation: &AtomicBool, forc
 }
 
 /// Publish one delegated (transferred) obligation with its progress event and
-/// checkpoint opportunity, timed into the duty buckets.
+/// checkpoint opportunity, timed into the publication, progress_json and
+/// checkpoint buckets. Returns the wall seconds it took so the caller can
+/// keep them out of its own dispatch bucket.
 fn publish_delegated<const N: usize>(
     state: &mut State<N>,
     pool: &parallel::Pool<N>,
     id: usize,
     observer: &dyn Fn(Value),
     maybe_save: &mut dyn FnMut(&State<N>) -> Result<(), String>,
-) -> Result<(), String> {
+) -> Result<f64, String> {
     let started = Instant::now();
     let committed = state.commit_delegated_id(id);
     state.admission.duty.publication += started.elapsed().as_secs_f64();
     committed?;
     observe(state, observer, "domain_delegated", id, pool);
-    save(state, maybe_save)
+    save(state, maybe_save)?;
+    Ok(started.elapsed().as_secs_f64())
 }
 
 /// Monotone dispatch cursor shared by the main loop and the Ready service
@@ -1090,7 +1093,9 @@ impl Dispatcher {
     /// passes None, defers the Delegate and keeps going, so every publication
     /// stays in the main loop and a service step only touches
     /// `native_started` and the Ready pending set. Returns the number of
-    /// native dispatches performed.
+    /// native dispatches performed and the wall seconds spent publishing
+    /// Delegates (already charged to their own duty buckets), so the caller
+    /// charges only the remainder to `dispatch`.
     fn run<const N: usize>(
         &mut self,
         state: &mut State<N>,
@@ -1102,18 +1107,21 @@ impl Dispatcher {
             &dyn Fn(Value),
             &mut dyn FnMut(&State<N>) -> Result<(), String>,
         )>,
-    ) -> usize {
+    ) -> (usize, f64) {
         let physical_enabled = state.physical_enabled;
         let ready = state.ready();
         let mut dispatches = 0;
+        let mut nested = 0.0;
         if let Some((observer, maybe_save)) = publish.as_mut()
             && !self.deferred_delegates.is_empty()
         {
             for id in std::mem::take(&mut self.deferred_delegates) {
-                if let Err(error) = publish_delegated(state, pool, id, *observer, &mut **maybe_save)
-                {
-                    state.error = Some(error);
-                    return dispatches;
+                match publish_delegated(state, pool, id, *observer, &mut **maybe_save) {
+                    Ok(seconds) => nested += seconds,
+                    Err(error) => {
+                        state.error = Some(error);
+                        return (dispatches, nested);
+                    }
                 }
             }
         }
@@ -1143,11 +1151,12 @@ impl Dispatcher {
                             self.next += 1;
                             continue;
                         };
-                        if let Err(error) =
-                            publish_delegated(state, pool, id, *observer, &mut **maybe_save)
-                        {
-                            state.error = Some(error);
-                            break;
+                        match publish_delegated(state, pool, id, *observer, &mut **maybe_save) {
+                            Ok(seconds) => nested += seconds,
+                            Err(error) => {
+                                state.error = Some(error);
+                                break;
+                            }
                         }
                     }
                     self.next += 1;
@@ -1218,7 +1227,7 @@ impl Dispatcher {
                 self.parent_dispatched = false;
             }
         }
-        dispatches
+        (dispatches, nested)
     }
 }
 
@@ -1237,7 +1246,8 @@ fn ready_service<const N: usize>(
 ) -> (usize, usize) {
     let started = Instant::now();
     let reclaimed = pool.reclaim_all_finished();
-    let dispatched = dispatcher.run(state, pool, request, cancellation, ready_streams, None);
+    // The service step never publishes, so nothing nested is charged elsewhere.
+    let (dispatched, _) = dispatcher.run(state, pool, request, cancellation, ready_streams, None);
     let duty = &mut state.admission.duty;
     duty.ready_service += started.elapsed().as_secs_f64();
     duty.ready_service_reclaims += reclaimed;
@@ -1373,7 +1383,7 @@ fn run_pool<const N: usize>(
                     pool.reclaim_finished(publisher_raw);
                 }
                 let started = Instant::now();
-                dispatcher.run(
+                let (_, nested) = dispatcher.run(
                     state,
                     pool,
                     request,
@@ -1381,7 +1391,10 @@ fn run_pool<const N: usize>(
                     &mut ready_streams,
                     Some((observer, maybe_save)),
                 );
-                state.admission.duty.dispatch += started.elapsed().as_secs_f64();
+                // Delegated publication inside the run is already charged to
+                // publication/progress_json/checkpoint; keep the buckets disjoint.
+                state.admission.duty.dispatch +=
+                    (started.elapsed().as_secs_f64() - nested).max(0.0);
                 if let Some(error) = state.error.clone() {
                     pool.fail(Failure {
                         id: Some(publisher_raw),

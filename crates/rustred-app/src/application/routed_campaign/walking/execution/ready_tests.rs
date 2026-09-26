@@ -314,7 +314,9 @@ fn ready_finished_slots_are_recycled_before_the_current_chunk_commit_ends() {
             let mut dispatcher = Dispatcher::new(0, 0);
             let mut streams = publication::ReadyStreams::default();
             assert_eq!(
-                dispatcher.run(&mut state, pool, &request, &cancel, &mut streams, None),
+                dispatcher
+                    .run(&mut state, pool, &request, &cancel, &mut streams, None)
+                    .0,
                 3
             );
             assert!(
@@ -479,7 +481,9 @@ fn ready_service_defers_unpublished_delegates_and_keeps_dispatching() {
             let mut dispatcher = Dispatcher::new(0, 0);
             let mut streams = publication::ReadyStreams::default();
             assert_eq!(
-                dispatcher.run(&mut state, pool, &request, &cancel, &mut streams, None),
+                dispatcher
+                    .run(&mut state, pool, &request, &cancel, &mut streams, None)
+                    .0,
                 3
             );
             assert!(spin_until(Duration::from_secs(10), || {
@@ -535,7 +539,7 @@ fn ready_service_defers_unpublished_delegates_and_keeps_dispatching() {
                 saves += 1;
                 Ok(())
             };
-            let dispatched = dispatcher.run(
+            let (dispatched, nested) = dispatcher.run(
                 &mut state,
                 pool,
                 &request,
@@ -544,6 +548,10 @@ fn ready_service_defers_unpublished_delegates_and_keeps_dispatching() {
                 Some((&observer, &mut maybe_save)),
             );
             assert_eq!(dispatched, 0, "no free slot: 0, 5 and 6 are running");
+            assert!(
+                nested > 0.0,
+                "deferred publication is reported to the caller"
+            );
             assert!(dispatcher.deferred_delegates.is_empty());
             assert_eq!(*events.borrow(), [3, 4]);
             assert_eq!(saves, 2);

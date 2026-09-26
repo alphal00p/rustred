@@ -161,7 +161,7 @@ impl Metrics {
                 "dispatches":duty.ready_service_dispatches,
                 "deferred_delegates":duty.ready_service_deferred_delegates},
             "coordinator_elapsed_seconds":duty.elapsed_seconds(),
-            "scope":"coordinator_thread_wall_seconds_this_execution_session; buckets_are_disjoint; ready_service_includes_its_own_dispatch; resets_on_resume"
+            "scope":"coordinator_thread_wall_seconds_this_execution_session; buckets_are_disjoint_and_not_exhaustive; delegated_publication_inside_dispatch_is_charged_to_publication_progress_json_checkpoint; ready_service_includes_its_own_dispatch; resets_on_resume"
         })
     }
     /// The admission counters. The duty breakdown is a sibling object
