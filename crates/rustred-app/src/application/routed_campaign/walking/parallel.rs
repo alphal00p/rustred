@@ -452,6 +452,13 @@ impl<const N: usize> Pool<N> {
         self.changed.notify_one();
     }
     pub fn snapshot(&self) -> Value {
+        self.snapshot_with_slots(true)
+    }
+    /// Without the per-slot timing arrays, for per-domain progress events.
+    pub fn snapshot_lean(&self) -> Value {
+        self.snapshot_with_slots(false)
+    }
+    fn snapshot_with_slots(&self, slots: bool) -> Value {
         let state = self.lock();
         let running = state.slots.iter().filter(|s| s.running).count();
         let blocked = state
@@ -473,10 +480,6 @@ impl<const N: usize> Pool<N> {
             "finished_awaiting_poll":state.slots.iter().filter(|s| s.finished.is_some()).count(),
             "heaviest_active_stream":heaviest,
             "stream_stall_share":if running == 0 { 0.0 } else { blocked as f64 / running as f64 },
-            "slot_busy_seconds":state.slots.iter().map(Slot::busy_now).collect::<Vec<_>>(),
-            "slot_backpressure_seconds":state.slots.iter().map(|s| s.backpressure_seconds).collect::<Vec<_>>(),
-            "slot_idle_seconds":state.slots.iter().map(Slot::idle_now).collect::<Vec<_>>(),
-            "slot_timing_scope":"cumulative_wall_seconds_per_physical_slot_this_process; busy_includes_backpressure; idle_is_time_without_a_stream",
             "occupied_native_slots":state.slots.iter().filter(|s| s.id.is_some()).count(),
             "dispatched_uncommitted_domains":state.slots.iter().filter(|s| s.id.is_some()).count() + state.escrow.len(),
             "finished_uncommitted_domains":state.slots.iter().filter(|s| s.finished.is_some()).count() + state.escrow.len(),
@@ -493,6 +496,22 @@ impl<const N: usize> Pool<N> {
             "per_worker_chunk_logical_bytes":CHUNK_BYTES,
             "first_failure":state.failure.as_ref().map(Failure::json),
             "non_cancellation_failure":state.non_cancellation_failure.as_ref().map(Failure::json)});
+        if slots {
+            snapshot["slot_busy_seconds"] =
+                json!(state.slots.iter().map(Slot::busy_now).collect::<Vec<_>>());
+            snapshot["slot_backpressure_seconds"] = json!(
+                state
+                    .slots
+                    .iter()
+                    .map(|s| s.backpressure_seconds)
+                    .collect::<Vec<_>>()
+            );
+            snapshot["slot_idle_seconds"] =
+                json!(state.slots.iter().map(Slot::idle_now).collect::<Vec<_>>());
+            snapshot["slot_timing_scope"] = json!(
+                "cumulative_wall_seconds_per_physical_slot_this_process; busy_includes_backpressure; idle_is_time_without_a_stream"
+            );
+        }
         let escrow = json!({
             "worker_buffer_accounting_scope":"all_pool_owned_chunks_including_completed_escrow; excludes_coordinator_chunk",
             "completed_escrow_entries":state.escrow.len(),

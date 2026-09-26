@@ -163,7 +163,9 @@ impl Metrics {
         value["coordinator_duty"] = self.duty_json();
         value
     }
-    fn metrics_json(&self) -> Value {
+    /// The admission counters without the duty breakdown, for per-domain
+    /// progress events that must stay cheap to build.
+    pub fn metrics_json(&self) -> Value {
         json!({"policy":"immutable_bounded_batch_ordered_commit",
             "counter_scope":"current_execution_session; resets_on_resume",
             "requested_worker_budget":self.budget.requested,

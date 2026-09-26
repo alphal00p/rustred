@@ -407,3 +407,30 @@ fn completed_escrow_event_cap_keeps_exact_publisher_prefix_and_later_attempts() 
     assert_eq!(state.uncommitted[1]["id"], 3);
     assert_eq!(state.uncommitted[1]["lower"], json!([3]));
 }
+
+#[test]
+fn per_domain_progress_events_stay_lean_while_heartbeats_carry_session_telemetry() {
+    let state = State::new(Queue::<1>::new(5, None), 0, None);
+    for event in ["domain_started", "domain_delegated"] {
+        assert!(State::<1>::lean_event(event));
+        let lean = state.progress(event, 0, &json!({}));
+        assert!(lean.get("containment_prefilter").is_none(), "{event}");
+        assert!(lean.get("coordinator_duty").is_none(), "{event}");
+        let admission = &lean["parallel"]["admission_preparation"];
+        assert!(admission.get("coordinator_duty").is_none(), "{event}");
+        assert_eq!(admission["prepared_retirements_applied"], 0);
+        assert_eq!(lean["containment_checks"], 0); // Historical keys stay.
+    }
+    for event in ["domain_progress", "domain_draining"] {
+        assert!(!State::<1>::lean_event(event));
+        let detailed = state.progress(event, 0, &json!({}));
+        assert_eq!(detailed["containment_prefilter"]["forward_callbacks"], 0);
+        assert!(detailed["coordinator_duty"]["dispatch_seconds"].is_number());
+        assert!(
+            detailed["parallel"]["admission_preparation"]["coordinator_duty"]
+                ["ordered_commit_seconds"]
+                .is_number()
+        );
+        assert_eq!(detailed["descendant_closure"]["refresh_duty_bound"], 0.01);
+    }
+}

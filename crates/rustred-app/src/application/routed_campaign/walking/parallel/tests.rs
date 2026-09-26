@@ -34,6 +34,38 @@ fn count() -> Event<1> {
 }
 
 #[test]
+fn lean_snapshot_omits_per_slot_timing_but_keeps_activity_fields() {
+    let pool = Pool::<1>::new(3);
+    assert!(pool.dispatch(0, domain(0)));
+    let full = pool.snapshot();
+    let lean = pool.snapshot_lean();
+    for key in [
+        "slot_busy_seconds",
+        "slot_backpressure_seconds",
+        "slot_idle_seconds",
+        "slot_timing_scope",
+    ] {
+        assert!(full.get(key).is_some(), "{key}");
+        assert!(lean.get(key).is_none(), "{key}");
+    }
+    assert_eq!(full["slot_idle_seconds"].as_array().unwrap().len(), 3);
+    for key in [
+        "computing_workers",
+        "finished_awaiting_poll",
+        "heaviest_active_stream",
+        "stream_stall_share",
+        "occupied_native_slots",
+        "completed_slots_reclaimed",
+    ] {
+        assert!(full.get(key).is_some() && lean.get(key).is_some(), "{key}");
+    }
+    assert_eq!(lean["occupied_native_slots"], 1);
+    assert_eq!(lean["computing_workers"], 0); // Dispatched, not yet taken.
+    assert!(lean["heaviest_active_stream"].is_null());
+    pool.shutdown();
+}
+
+#[test]
 fn cancellation_first_preserves_later_worker_fault_or_panic_after_drain() {
     if !licensed() {
         return;

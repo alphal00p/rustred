@@ -170,7 +170,14 @@ impl<const N: usize> State<N> {
             .ok_or("invalid subdivision count")?;
         Ok(())
     }
+    /// Per-domain notifications (`domain_started`, `domain_delegated`) are the
+    /// coordinator's hottest JSON path: one per admitted domain, usually
+    /// discarded by `--no-progress`. They keep their historical shape; the
+    /// session telemetry objects ride on heartbeat/drain events and the final
+    /// report only. A 50% larger per-domain event measured as +9% traversal
+    /// on the four-loop FG control.
     fn progress(&self, event: &str, id: usize, telemetry: &Value) -> Value {
+        let lean = Self::lean_event(event);
         let domain = self.queue.domains.get(id);
         let mut progress = json!({"event":event, "operation":"owner_domain_walk", "id":id,
             "initial_entry_domains_total":self.initial_domain_count,
@@ -199,10 +206,12 @@ impl<const N: usize> State<N> {
             "successors":self.successors, "conditional_successors":self.conditional,
             "frontiers":self.frontiers, "events":self.events, "committed_events":self.events,
             "routed_domains":self.routed, "route_masks":self.route_masks,
-            "parallel":self.enrich(telemetry.clone())});
+            "parallel":self.enrich_with(telemetry.clone(), lean)});
         progress["route_joint_support_masks_pruned"] = json!(self.route_joint_support_masks_pruned);
-        progress["containment_prefilter"] = self.queue.session.json();
-        progress["coordinator_duty"] = self.admission.duty_json();
+        if !lean {
+            progress["containment_prefilter"] = self.queue.session.json();
+            progress["coordinator_duty"] = self.admission.duty_json();
+        }
         self.add_delegation_progress(&mut progress);
         self.add_ready_progress(&mut progress);
         progress["descendant_closure"] = self.closure_json();
@@ -226,7 +235,14 @@ impl<const N: usize> State<N> {
         closure.discovered(self.queue.domains.len());
         closure.edge(self.dependency_source(), target);
     }
-    fn enrich(&self, mut telemetry: Value) -> Value {
+    /// Events emitted once per admitted domain; see `progress`.
+    pub(super) fn lean_event(event: &str) -> bool {
+        matches!(event, "domain_started" | "domain_delegated")
+    }
+    fn enrich(&self, telemetry: Value) -> Value {
+        self.enrich_with(telemetry, false)
+    }
+    fn enrich_with(&self, mut telemetry: Value, lean: bool) -> Value {
         if self.physical_enabled {
             for key in ["first_failure", "non_cancellation_failure"] {
                 if let Some(raw) = telemetry[key]["domain"]
@@ -247,7 +263,11 @@ impl<const N: usize> State<N> {
             telemetry["physical_publisher_part"] =
                 json!(self.physical_progress.as_ref().map(|p| p.completed.len()));
         }
-        telemetry["admission_preparation"] = self.admission.json();
+        telemetry["admission_preparation"] = if lean {
+            self.admission.metrics_json()
+        } else {
+            self.admission.json()
+        };
         for key in ["first_failure", "non_cancellation_failure"] {
             if let Some(id) = telemetry[key]["domain"]
                 .as_u64()
@@ -981,7 +1001,12 @@ fn observe<const N: usize>(
     pool: &parallel::Pool<N>,
 ) {
     let started = Instant::now();
-    observer(state.progress(event, id, &pool.snapshot()));
+    let snapshot = if State::<N>::lean_event(event) {
+        pool.snapshot_lean()
+    } else {
+        pool.snapshot()
+    };
+    observer(state.progress(event, id, &snapshot));
     state.admission.duty.progress_json += started.elapsed().as_secs_f64();
 }
 
