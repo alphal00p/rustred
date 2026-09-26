@@ -1,6 +1,11 @@
 //! Integration through the actual coordinator admission/publication paths.
 use super::super::{
-    checkpoint::{manifest::Section, round_trip_state, test_support::Fixture},
+    checkpoint::{
+        SaveKind,
+        manifest::Section,
+        round_trip_state,
+        test_support::{Fixture, OWNER},
+    },
     delegation::{Ledger, SchedulingPolicy},
     descendant_closure::Tracker,
     queue::Domain,
@@ -472,4 +477,54 @@ fn checkpoint_rejects_a_missing_or_misplaced_partial_anchor() {
         error.contains("partial anchor outside initial prefix"),
         "{error}"
     );
+}
+
+#[test]
+fn exhausted_walk_reports_a_current_closure_despite_a_late_stop_request() {
+    let mut queue = Queue::new(10, None);
+    queue.admit(point(Phase::Apply, 0)).unwrap();
+    let mut state = State::new(queue, 0, None);
+    admit(&mut state, point(Phase::Apply, 1));
+    state.commit(0, finished());
+    let stop = AtomicBool::new(true);
+    let cut = |state: &State<1>| std::ptr::eq(state.report_cancellation(&stop), &stop);
+    assert!(
+        cut(&state),
+        "an interrupted walk keeps the run's cancellation"
+    );
+    let fixture = Fixture::save(&state);
+    state.commit(1, finished());
+    state.checkpoint_paused = true;
+    assert!(cut(&state), "so does a pause");
+    state.checkpoint_paused = false;
+    assert!(!cut(&state));
+    // The stop request arrived after the last publication: the report
+    // refresh at the end of `walking::run` still scans.
+    state.refresh_closure(&stop, true);
+    assert_eq!(state.closure_json()["snapshot_stale"], true);
+    state.refresh_closure(state.report_cancellation(&stop), true);
+    let report = state.closure_json();
+    assert_eq!(report["snapshot_stale"], false);
+    assert_eq!(report["total_closed"], 2);
+    assert_eq!(state.closure.borrow().closed(0), Some(true));
+    // So does the final save, which persists that snapshot.
+    let mut resumed = fixture.resume::<1>().unwrap();
+    resumed.commit(1, finished());
+    let mut store = fixture.open(true).unwrap();
+    store.bind_owners(vec![OWNER.into()]).unwrap();
+    store
+        .save_cancellable(
+            &resumed,
+            &[],
+            &[],
+            SaveKind::Final,
+            resumed.report_cancellation(&stop),
+            &|_| {},
+        )
+        .unwrap()
+        .unwrap();
+    drop(store);
+    let persisted = fixture.resume::<1>().unwrap().closure_json();
+    assert_eq!(persisted["snapshot_stale"], false);
+    assert_eq!(persisted["total_closed"], 2);
 }

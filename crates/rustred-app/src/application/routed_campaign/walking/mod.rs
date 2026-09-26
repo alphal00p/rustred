@@ -653,7 +653,14 @@ fn run<const N: usize>(
             store.attach_records(&state).map_err(AppError::input)?;
             if state.error.is_none() {
                 if let Some(event) = store
-                    .save(&state, &inputs, &input_frontiers, true, observer)
+                    .save_cancellable(
+                        &state,
+                        &inputs,
+                        &input_frontiers,
+                        checkpoint::SaveKind::Forced,
+                        cancellation,
+                        observer,
+                    )
                     .map_err(AppError::input)?
                 {
                     observer(event);
@@ -666,9 +673,14 @@ fn run<const N: usize>(
                 cancellation,
                 observer,
                 &mut |state| {
-                    if let Some(event) =
-                        store.save(state, &inputs, &input_frontiers, false, observer)?
-                    {
+                    if let Some(event) = store.save_cancellable(
+                        state,
+                        &inputs,
+                        &input_frontiers,
+                        checkpoint::SaveKind::Periodic,
+                        cancellation,
+                        observer,
+                    )? {
                         observer(event);
                     }
                     Ok(())
@@ -676,7 +688,14 @@ fn run<const N: usize>(
             );
             if state.error.is_none() {
                 if let Some(event) = store
-                    .save(&state, &inputs, &input_frontiers, true, observer)
+                    .save_cancellable(
+                        &state,
+                        &inputs,
+                        &input_frontiers,
+                        checkpoint::SaveKind::Final,
+                        state.report_cancellation(cancellation),
+                        observer,
+                    )
                     .map_err(AppError::input)?
                 {
                     observer(event);
@@ -686,7 +705,7 @@ fn run<const N: usize>(
             execution::run(&mut state, reducer, request, cancellation, observer);
         }
     }
-    state.refresh_closure(cancellation, true);
+    state.refresh_closure(state.report_cancellation(cancellation), true);
     if checkpoint.is_some() && (state.checkpoint_paused || reducer.is_none()) {
         // A checkpoint is the state; this receipt must not duplicate the full
         // retained queue and diagnostics (which can be many gigabytes).

@@ -42,9 +42,21 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{BufWriter, Write},
     path::{Path, PathBuf},
-    sync::atomic::AtomicBool,
+    sync::atomic::{AtomicBool, Ordering},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
+
+/// The role of one save. `Periodic` waits for the interval; `Forced` and
+/// `Final` write unless nothing changed. Only a save after which the walk
+/// continues folds the persisted edge log into the CSR: after the final save
+/// the process reports and exits, and a resume rebuilds a folded CSR anyway,
+/// so a fold there would only add an uncancellable allocation spike.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SaveKind {
+    Periodic,
+    Forced,
+    Final,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OwnerDomainWalkCheckpointOptions {
@@ -540,6 +552,8 @@ impl Store {
         }
         Ok(())
     }
+    /// `save_cancellable` for tests that never cancel.
+    #[cfg(test)]
     pub(super) fn save<const N: usize>(
         &mut self,
         state: &State<N>,
@@ -548,6 +562,27 @@ impl Store {
         force: bool,
         observer: &impl Fn(Value),
     ) -> Result<Option<Value>, String> {
+        let never = AtomicBool::new(false);
+        let kind = if force {
+            SaveKind::Forced
+        } else {
+            SaveKind::Periodic
+        };
+        self.save_cancellable(state, inputs, frontiers, kind, &never, observer)
+    }
+    /// Write one generation when the interval elapsed (or the save is not
+    /// `Periodic`). The run's `cancellation` shortens the pre-save closure
+    /// refresh and, once set, suppresses the post-save fold of the edge log.
+    pub(super) fn save_cancellable<const N: usize>(
+        &mut self,
+        state: &State<N>,
+        inputs: &[Value],
+        frontiers: &[Value],
+        kind: SaveKind,
+        cancellation: &AtomicBool,
+        observer: &impl Fn(Value),
+    ) -> Result<Option<Value>, String> {
+        let force = kind != SaveKind::Periodic;
         if !force && self.last.elapsed().as_secs_f64() < self.effective_interval() {
             return Ok(None);
         }
@@ -570,12 +605,12 @@ impl Store {
             );
             return Ok(None);
         }
-        // Persisted closed counts are current, not a throttled stale snapshot.
-        state
-            .closure
-            .borrow_mut()
-            .refresh(&AtomicBool::new(false), true);
+        // The pre-save scan is part of the save's cost (and of the adaptive
+        // interval). Persisted closed counts are current unless the run is
+        // being cancelled or scratch is short; then the previous snapshot,
+        // stale but valid, is persisted and the monitor stays enabled.
         let started = Instant::now();
+        state.closure.borrow_mut().refresh_before_save(cancellation);
         let started_unix_time = unix_time()?;
         let directory = self.options.directory.clone();
         // A sidecar's open segment already reserved this save's generation.
@@ -626,10 +661,15 @@ impl Store {
         let domains = state.queue.domains.as_slice();
         let records_ref = state.records.borrow();
         let domains_plan = plan(previous.and_then(|s| s.domains.as_ref()), domains.len());
+        // Folded edges gave up their insertion order: a retained tiling that
+        // ends inside them (another store's) cannot be extended, only re-tiled.
         let edges_plan = plan(
-            previous.and_then(|s| s.edges.as_ref()),
+            previous
+                .and_then(|s| s.edges.as_ref())
+                .filter(|p| p.total >= closure.folded_edge_count() as u64),
             closure.edge_count(),
         );
+        let edges_total = edges_plan.first + edges_plan.count;
         // In-memory records (non-sidecar states in tests) are written from RAM.
         let (records, records_plan) = match &*records_ref {
             RecordSink::Memory(records) => (
@@ -840,6 +880,12 @@ impl Store {
         merge(&mut metadata, self.identity_metadata(&executable_first));
         manifest.metadata = metadata.clone();
         let cleanup_errors = self.publish(manifest)?;
+        // Every edge is durable in insertion order now; the log may fold,
+        // unless the walk ends after this save (see `SaveKind`) or is being
+        // cancelled towards a pause.
+        if kind != SaveKind::Final && !cancellation.load(Ordering::Relaxed) {
+            state.closure.borrow_mut().persisted(edges_total);
+        }
         self.last_save_seconds = started.elapsed().as_secs_f64();
         self.last_stamp = Some(stamp);
         metadata["duration_seconds"] = json!(self.last_save_seconds);

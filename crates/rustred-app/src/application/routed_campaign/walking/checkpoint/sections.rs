@@ -234,6 +234,7 @@ pub(super) fn read_nodes(bytes: &[u8], identity: &Identity) -> Result<Vec<u8>, S
 }
 
 // ---- edges: (u32 source, u32 target) pairs in insertion order -------------
+// (A re-tile from zero writes the folded edges grouped by target first.)
 pub(super) fn write_edges(
     out: &mut (impl Write + ?Sized),
     identity: &Identity,
@@ -245,9 +246,7 @@ pub(super) fn write_edges(
         .map_err(io_error)?;
     let mut buffer = Vec::with_capacity(65536);
     let mut written = 0usize;
-    for (source, target) in tracker.dependencies().skip(first).take(count) {
-        let source = u32::try_from(source).map_err(|_| "dependency endpoint exceeds u32")?;
-        let target = u32::try_from(target).map_err(|_| "dependency endpoint exceeds u32")?;
+    for (source, target) in tracker.edge_segment(first, count)? {
         buffer.extend_from_slice(&source.to_le_bytes());
         buffer.extend_from_slice(&target.to_le_bytes());
         written += 1;
@@ -266,7 +265,7 @@ pub(super) fn read_edges(
     identity: &Identity,
     first: usize,
     count: usize,
-    out: &mut Vec<(usize, usize)>,
+    out: &mut Vec<(u32, u32)>,
 ) -> Result<(), String> {
     let (count, payload) = fixed_payload(
         bytes,
@@ -281,7 +280,7 @@ pub(super) fn read_edges(
     for pair in payload.chunks_exact(EDGE_BYTES) {
         let source = u32::from_le_bytes(pair[0..4].try_into().expect("four bytes"));
         let target = u32::from_le_bytes(pair[4..8].try_into().expect("four bytes"));
-        out.push((source as usize, target as usize));
+        out.push((source, target));
     }
     Ok(())
 }

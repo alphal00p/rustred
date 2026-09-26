@@ -17,6 +17,7 @@ use rayon::prelude::*;
 use serde_json::{Value, json};
 use std::fs::File;
 use std::io::Read;
+use std::ops::ControlFlow;
 use std::path::Path;
 use std::time::Instant;
 
@@ -122,13 +123,20 @@ pub(super) fn restore<const N: usize>(
     )?)?;
     let nodes = plain(Section::Nodes)?;
     let flags = sections::read_nodes(&read_section(dir, &nodes.file, nodes.bytes)?, &identity)?;
-    let mut edges = Vec::new();
-    for segment in &s
+    let edge_sections = s
         .edges
         .as_ref()
-        .ok_or("state manifest is missing the edges section")?
-        .segments
-    {
+        .ok_or("state manifest is missing the edges section")?;
+    // One exact allocation: the manifest's segments tile [0, total), so the
+    // per-segment reserves below never grow it (amortized growth could leave
+    // up to twice the pairs reserved while the CSR is built next to them).
+    let mut edges = Vec::new();
+    edges
+        .try_reserve_exact(
+            usize::try_from(edge_sections.total).map_err(|_| "checkpoint segment range")?,
+        )
+        .map_err(|_| "dependency edge allocation")?;
+    for segment in &edge_sections.segments {
         let first = usize::try_from(segment.first).map_err(|_| "checkpoint segment range")?;
         let count = usize::try_from(segment.count).map_err(|_| "checkpoint segment range")?;
         sections::read_edges(
@@ -254,8 +262,11 @@ pub(super) fn restore<const N: usize>(
     state.initial_domain_count = initial_domain_count;
     state.initial_entry_domains_inspected = initial_entry_domains_inspected;
     let edge_count = edges.len();
-    let mut closure = Tracker::from_parts(meta.closure, &flags, edges)?;
+    let closure_started = Instant::now();
+    let mut closure = Tracker::from_parts(meta.closure, &flags, &edges)?;
+    drop(edges);
     closure.restore(state.queue.domains.len(), initial_domain_count)?;
+    let closure_seconds = closure_started.elapsed().as_secs_f64();
     state.closure = std::cell::RefCell::new(closure);
     state.parallel = meta.parallel;
     state.uncommitted = meta.uncommitted;
@@ -264,7 +275,7 @@ pub(super) fn restore<const N: usize>(
     state.validate_restored_streams()?;
     validate_ledger_closure(&state)?;
     let report = json!({"verify_seconds":verify_seconds,"decode_seconds":decode_seconds,
-        "validate_seconds":validate_started.elapsed().as_secs_f64(),
+        "validate_seconds":validate_started.elapsed().as_secs_f64(),"closure_seconds":closure_seconds,
         "domains":state.queue.domains.len(),"dependency_edges":edge_count,
         "records":state.records.borrow().total(),"records_accepted_events_derived":derived,
         "committed_domains":state.published_count(),
@@ -392,11 +403,23 @@ pub(super) fn validate_ledger_closure<const N: usize>(state: &State<N>) -> Resul
     if ledger.is_none() && unsealed_inspected > state.frontiers {
         return Err("dependency seal disagrees with native publication".into());
     }
-    for (source, target) in closure.dependencies() {
-        if required.is_empty() {
-            break;
-        }
-        required.remove(&edge_key(source, target)?);
+    // Internal iteration over the CSR and the log, stopping once every
+    // required edge was seen (order unspecified; the check does not need one).
+    if !required.is_empty()
+        && let ControlFlow::Break(Err(error)) =
+            closure.try_for_each_edge(|source, target| match edge_key(source, target) {
+                Err(error) => ControlFlow::Break(Err(error)),
+                Ok(key) => {
+                    required.remove(&key);
+                    if required.is_empty() {
+                        ControlFlow::Break(Ok(()))
+                    } else {
+                        ControlFlow::Continue(())
+                    }
+                }
+            })
+    {
+        return Err(error);
     }
     if !required.is_empty() {
         return Err("dependency alias or partial-anchor edge missing".into());
