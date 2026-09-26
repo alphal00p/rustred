@@ -171,6 +171,88 @@ records. The strict top-level differences are the ones the 102adcc3 ->
 `refresh_count` / `retained_storage_estimate_bytes`. The resume-aware audit
 passes on all three resumed runs.
 
+## Review fix round, binary e2766fd7
+
+Binary `TMP/fable51-controls/bin/rustred-e2766fd7`, sha256
+`e2766fd76b1323978fd38594bbf53f377d8fd4bf12380aeeded575ca7a2be085` (CP5
+blake3 `0bfdd8b5...`), built from `fable_5_1-b2` at 829854c2; da9c7789 adds
+test code only. `WALK_SEMANTICS_VERSION` stays 1 and no section encoding or
+manifest field changed. The fixes: the shard supervisor removes the pause
+variable from its children; the walk refuses the variable on `--resume`;
+the pause branch is one function the in-process test drives; the audit
+accepts a surplus of returned inspections after a resume; the harness
+verifies a reused `--baseline`; `observe()` has a pool-tier test.
+
+Fresh-process X gate, Ready W6, CPUs 206-211
+(`b2-ready-gate/x-w6-fix`): PASS. The trigger fired at committed 46,
+watermark 45, 2 prefixes, 1 hole, 106,185 events (generation 4, 183,991 B;
+0.58 s of traversal). Baseline and resumed runs: native 46,826 / 46,826,
+events 4,495,156 / 4,495,156, logical records 47,226 / 47,226; both audits
+PASS; whole-command seconds 36.7 / 5.3 / 35.9. Reusing that baseline
+(`x-w6-fix-reuse`, `--baseline .../x-w6-fix/baseline`): provenance accepted
+(same argv, recorded exit 0 and digest e2766fd7), PASS; paused at committed
+61, watermark 60; resumed native 46,826, events 4,495,156, logical records
+47,189 (readiness-dependent aliases 363 vs 400). Passing the
+63e57c8a-produced `x-w6-r2/baseline` instead was refused before any native
+process started ("baseline binary differs from the binary under test",
+exit 2, no output directory). The real binary refuses the variable on a
+`--resume` before opening the store (`x-w6-fix-resume-refusal`: input
+error, the named checkpoint directory never created).
+
+Compatibility controls, reference 102adcc3 vs e2766fd7, both on CPUs
+206-211, W6 (whole / traversal seconds, informational):
+
+| Family | Policy | Ref | New | Native inspections | Containment checks | Record comparison |
+|---|---|---:|---:|---:|---:|---|
+| FG | Ordered | 17.5 / 13.5 | 18.5 / 14.4 | 98,869 | 169,509,549 | strict PASS, no top-level difference |
+| BMW | Ordered | 45.5 / 40.0 | 45.0 / 39.5 | 147,233 | 653,022,941 | strict PASS, no top-level difference |
+| H | Ordered | 18.5 / 13.8 | 18.0 / 13.5 | 24,680 | 15,228,826 | strict PASS, no top-level difference |
+| X | Ordered | 42.0 / 35.1 | 41.0 / 34.8 | 46,826 | 20,507,017 | strict PASS, no top-level difference |
+| FG | Ready | 17.0 / 13.3 | 17.0 / 13.3 | 98,841 | 169.6M / 169.5M | multiset PASS; both audits PASS |
+
+Directories `b2-ref102-fix/`, `b2-new-fix/` (`compare-strict-vs-ref102.json`),
+`b2-ref102-fix-ready/`, `b2-new-fix-ready/` (`compare-multiset-vs-ref102.json`).
+This time BMW and X had equal `refresh_count` too (it is time-throttled
+session telemetry and differed by one in the first round).
+
+Resumes, FG, stop requested at 40,000 committed (`resume_control.py`; each
+first run exits 4, each resume 0, restore from generation 3 in 0.8-1.1 s,
+every resumed audit PASS):
+
+| Label | Binaries | Policy | Stopped at | Comparison | Resumed audit |
+|---|---|---|---:|---|---|
+| `b2-resume-ord-fix` | 102adcc3 -> e2766fd7 | Ordered | 50,938 | strict: 0 differing records; top level only `uncommitted_inspections` (6 carried) and `descendant_closure` `refresh_count` 4 vs 5, `retained_storage_estimate_bytes` | PASS, 6 carried, surplus 0 |
+| `b2-resume-self-fix` | e2766fd7 -> e2766fd7 | Ordered | 59,732 | strict: 0 differing records; same two top-level keys (152 carried) | PASS, 152 carried, surplus 0 |
+| `b2-resume-ready-fix` | 102adcc3 -> e2766fd7 | Ready | 63,398 | multiset vs `b2-new-fix-ready`: 5 shapes only in the resumed run, native 98,846 vs 98,841 | PASS, 4 carried |
+| `b2-resume-ready-fix-r2` | 102adcc3 -> e2766fd7 | Ready | 53,278 | same 5 shapes | PASS, 4 carried |
+| `b2-resume-ready-fix-self` | e2766fd7 -> e2766fd7 | Ready | 55,850 | same 5 shapes | PASS, 3 carried |
+| `b2-resume-ready-fix-ref102self` | 102adcc3 -> 102adcc3 | Ready | 58,450 | same 5 shapes | PASS, 4 carried |
+
+The checkpoint executable change (102adcc3 -> e2766fd7, blake3 `4cb4ab28` ->
+`0bfdd8b5`, semantics 1) was journaled in both cross-version runs. The
+Ordered top-level differences are the ones the 102adcc3 -> 102adcc3
+self-test (`harness-selftest-102`) shows. The five extra Ready shapes are
+the same in all four Ready resumes, including the one that never ran
+e2766fd7, so they are not due to this binary. They are rank-13 Apply
+domains that the uninterrupted Ready walk does not publish and the Ordered
+walk (`b2-new-fix/fg`) publishes as native inspections; every resumed run
+still passes the audit (surplus 0). The mechanism was not traced; the
+likely reading, unverified, is readiness-dependent admission order (their
+containers admitted later after a Ready pause than without one). The first
+round's `b2-resume-ready` (stopped at 60,147) reproduced the uninterrupted
+multiset exactly.
+
+Suite at da9c7789 (release, license set): 739 passed / 0 failed / 4 ignored
+on CPUs 200-205 while the controls ran on 206-211; then three runs on CPUs
+200-211 each gave 738 / 1 / 4, the failure every time being
+`cli::shards::supervisor::tests::orphan_child_retains_campaign_lock_until_exit`
+at its final `acquire_lock` after the child has exited (the assertion that
+failed in 2 of 5 runs before this round). The same test binary passes it 10
+of 10 times alone and 5 of 5 times with the `cli::shards` tests; no lock or
+fork code changed here (`child_environment` only moves the environment
+setup). The holder of the lock copy was not identified. Logs: worktree
+`TMP/b2/fix-test-run{1,2,3,4}.log`.
+
 ## Reading
 
 - The multi-prefix hole state is reachable and resumable with real native
@@ -196,7 +278,7 @@ passes on all three resumed runs.
     cd /common/dev/rustred/.claude/worktrees/agent-ab06981cd80007c75   # or the merged tree
     nice -n 5 taskset -c 206-211 nix develop --command python examples/python/ready_resume_control.py \
       --command /common/dev/rustred/TMP/four-loop-saved-descendants.VaNmUN/x/command-rank12orthant.json \
-      --binary /common/dev/rustred/TMP/fable51-controls/bin/rustred-63e57c8a \
+      --binary /common/dev/rustred/TMP/fable51-controls/bin/rustred-e2766fd7 \
       --output /common/dev/rustred/TMP/fable51-controls/b2-ready-gate/<new-dir> --cpus 206-211
     # five-loop finite control: --command .../ready-five-loop-finite-w50.a6ABXd/ready-first/command.json
     #   --workers 12 --cpus 200-211 --replace \
