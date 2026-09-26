@@ -206,8 +206,9 @@ fn assert_exhausted(state: &State<1>) {
     assert!(state.streams.active.is_none() && state.streams.parked.is_empty());
 }
 
-/// The uninterrupted gated walk; records and ledger are taken before and
-/// after one finalization (which annotates delegated records).
+/// The uninterrupted gated walk; the records are taken before finalization
+/// (unannotated: finalization returns the ledger resolutions instead of
+/// annotating records in place) and the ledger summary from it.
 struct Baseline {
     state: State<1>,
     records: Value,
@@ -256,7 +257,10 @@ fn resume_matches_baseline(
     assert!(resumed.completed > paused.completed);
 
     assert_eq!(resumed.queue.domains, baseline.queue.domains);
-    assert_eq!(&without_timing(json!(resumed.records)), records);
+    assert_eq!(
+        &without_timing(json!(resumed.records.borrow().snapshot())),
+        records
+    );
     assert_eq!(
         (
             resumed.events,
@@ -273,7 +277,7 @@ fn resume_matches_baseline(
             baseline.queue.deduplicated
         )
     );
-    assert_eq!(&resumed.finalize_delegation().unwrap(), ledger);
+    assert_eq!(&resumed.finalize_delegation().0.unwrap(), ledger);
 }
 
 #[test]
@@ -298,8 +302,8 @@ fn ready_multi_inspector_multi_prefix_disk_resume_matches_gated_baseline() {
         &mut |_| {},
     );
     assert_exhausted(&baseline);
-    let records = without_timing(json!(baseline.records));
-    let ledger = baseline.finalize_delegation().unwrap();
+    let records = without_timing(json!(baseline.records.borrow().snapshot()));
+    let ledger = baseline.finalize_delegation().0.unwrap();
     let baseline = Baseline {
         state: baseline,
         records,
