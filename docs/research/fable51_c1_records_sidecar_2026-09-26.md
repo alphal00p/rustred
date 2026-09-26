@@ -89,6 +89,23 @@ are informational.
   `descendant_closure` {last_refresh_seconds, refresh_count, refresh_seconds,
   retained_storage_estimate_bytes, snapshot_age_seconds}.
 
+Re-check with the branch head binary (`8ccdc676`, a behaviour-neutral
+refactor of the sealing code; `rustred-f2e00db9`, sha256
+`f2e00db968de69a353d13ffd1a6dcc962e5fe5254a84e52e99c5960f1c2c1c89`):
+`c1-head/fg` strict PASS (0 differing), `c1-head/bmw` 0 differing records
+with only `descendant_closure.refresh_count` 7 vs 8; `c1-head-resume-ord`
+(102adcc3 -> f2e00db9) first_exit 4, resume_exit 0, 0 differing records,
+same telemetry keys as above; `c1-head-resume-ready` multiset PASS with the
+accepted-events aggregate derived. Peak RSS FG 302,571,520, BMW 529,825,792;
+BMW simple RSS slope 989 B per committed domain.
+
+Suite flakes seen while gating (both pre-existing: the same two tests fail
+in `TMP/fable51-merge/gate4.log` before this change, 727/2/4):
+`cli::shards::supervisor::tests::orphan_child_retains_campaign_lock_until_exit`
+and `walking::execution::ready_tests::ready_late_native_fault_after_cancellation_disallows_pause`
+each failed once in 7 full runs of the final tree under load and pass in
+isolation; the other runs were 739/0/4.
+
 ## Memory measurements
 
 Peak RSS from `run_control.py` (`/proc` polling, `metrics.json
