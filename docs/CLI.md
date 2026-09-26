@@ -64,6 +64,23 @@ per-shift-group refinement work, not extra logical completions.
 This remains off by default pending recursive-workload measurements. A faster
 local inspection can emit more successors and need not accelerate the campaign.
 
+### Walk checkpoints (CP5)
+
+`owner-domain-match --follow-successors --checkpoint DIR` saves the walk
+state into an empty directory (`--checkpoint-interval-seconds`, default
+3600, is stretched to twenty times the last save duration); `--resume DIR`
+continues it and `--stop-file PATH` requests a cooperative save-and-pause
+(exit 4). The directory holds a `latest.json`/`previous.json` manifest
+(schema 5, `format: "RUSTRED-WALK-CP5"`) over generation-suffixed sections:
+`meta-<G>.json`, `nodes-<G>.bin`, `ledger-<G>.bin` and `index-<G>.bin` are
+rewritten each save; `domains-<S>.bin`, `edges-<S>.bin` and
+`records-<S>.jsonl` are append-only segments tiling their section. Every
+referenced file carries its byte length and blake3 digest and is verified
+before decoding. Resume requires the same request/policy digest, owner
+digests and executable `WALK_SEMANTICS_VERSION`; a different executable
+digest with the same semantics version is accepted and reported. CP1-CP4
+directories are refused; start a fresh campaign.
+
 ## Generic complete artifact generation
 
 `rustred family-close` uses the family supplied in the input, not a built-in

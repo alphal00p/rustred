@@ -24,8 +24,9 @@ mod routed_campaign;
 
 pub(crate) use routed_campaign::guarded_limits_from_json;
 pub use routed_campaign::{
+    OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES, OwnerDomainMatchRequest,
+    OwnerDomainMatchResult, OwnerDomainScanRequest, OwnerDomainScanResult,
     OwnerDomainWalkApplySubdivision, OwnerDomainWalkCheckpointOptions,
-    OwnerDomainMatchRequest, OwnerDomainMatchResult, OwnerDomainScanRequest, OwnerDomainScanResult,
     OwnerDomainWalkPublicationPolicy, OwnerDomainWalkRequest, OwnerDomainWalkResult,
     OwnerDomainWalkSchedulingPolicy, OwnerGuardedApplyRequest, OwnerGuardedApplyResult,
     RoutedCampaignRequest, RoutedCampaignResult, RoutedEntryWitnessLimits,

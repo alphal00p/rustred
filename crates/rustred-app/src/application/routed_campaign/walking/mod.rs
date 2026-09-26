@@ -27,8 +27,32 @@ use serde_json::{Value, json};
 use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
-pub use checkpoint::OwnerDomainWalkCheckpointOptions;
+pub use checkpoint::{
+    OWNER_DOMAIN_WALK_CHECKPOINT_MANIFEST_MAX_BYTES, OwnerDomainWalkCheckpointOptions,
+};
 pub use delegation::SchedulingPolicy as OwnerDomainWalkSchedulingPolicy;
+
+/// Resume binding for saved walk state. A CP5 checkpoint records this value
+/// and `--resume` refuses any executable whose value differs; a different
+/// executable digest with the same value is accepted (recorded, not refused).
+///
+/// Bump contract: increment whenever a change could make the same saved state
+/// evolve differently or mean something different under the new binary, that
+/// is any change to
+/// - admission ordering (batch/helper ordering, ready-ticket fairness),
+/// - the containment predicate, semantic summaries or the minimum-ID choice
+///   among containing candidates,
+/// - ledger reservation, transfer or publication rules (fences, credits,
+///   alias publication, protected initial prefixes),
+/// - replay token hashing (`execution/replay.rs`),
+/// - inspection event emission order or the effect of an event,
+/// - `Ticket` encoding or physical subdivision semantics,
+/// - core matching/routing semantics that decide successors or frontiers,
+/// - the sidecar/record schema consumed at finalization.
+///
+/// Transport changes (file layout, section codecs, digests, compaction,
+/// scheduling of saves) do not bump this value.
+pub const WALK_SEMANTICS_VERSION: u32 = 1;
 pub use physical_parts::ApplySubdivision as OwnerDomainWalkApplySubdivision;
 pub use publication::OwnerDomainWalkPublicationPolicy;
 
@@ -383,14 +407,6 @@ fn run<const N: usize>(
 ) -> Result<OwnerDomainWalkResult, AppError> {
     let started = Instant::now();
     let mut checkpoint = checkpoint::Store::open(request).map_err(AppError::input)?;
-    // Authenticate and decode before native owner import. No corrupted or
-    // incompatible checkpoint is allowed to begin a new inspection.
-    let restored = checkpoint
-        .as_ref()
-        .map(|store| store.resume::<N>())
-        .transpose()
-        .map_err(AppError::input)?
-        .flatten();
     let latest_checkpoint =
         std::cell::RefCell::new(checkpoint.as_ref().and_then(|s| s.metadata()).cloned());
     let checkpoint_write = std::cell::RefCell::new(None::<Value>);
@@ -413,6 +429,16 @@ fn run<const N: usize>(
         original_observer(event);
     };
     let observer = &enriched_observer;
+    // Authenticate and decode before native owner import. No corrupted or
+    // incompatible checkpoint is allowed to begin a new inspection.
+    let restored = if let Some(store) = checkpoint.as_mut() {
+        for event in store.take_open_events() {
+            observer(event);
+        }
+        store.resume::<N>(observer).map_err(AppError::input)?
+    } else {
+        None
+    };
     if let Some(store) = checkpoint.as_mut() {
         if let Some(event) = store.bootstrap().map_err(AppError::input)? {
             observer(event);

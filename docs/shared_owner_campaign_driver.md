@@ -38,10 +38,18 @@ unrestricted-family certificate. Updates are conservative periodic snapshots,
 not a completion-time estimate. See the [design and validation record](research/dependency_closure_monitoring_2026-09-25.md).
 
 This requires complete dependency history from the beginning. New native
-checkpoints use CP3 (Ordered) or CP4 (Ready); old CP1/CP2 checkpoints cannot
-resume under the new executable. Keep the original binary if retaining an old
-run. An old run viewed with the updated monitor reports recursive closure as
-**unknown**, never substitutes its publication counter into the bar.
+checkpoints use the sectioned CP5 format (`latest.json` manifest with schema 5
+and `format: "RUSTRED-WALK-CP5"` over per-generation `meta`/`nodes`/`ledger`/
+`index` files and append-only `domains`/`edges`/`records` segments, every
+file length- and blake3-verified before decoding); old CP1-CP4 checkpoints
+cannot resume under the new executable and are refused with a fresh-campaign
+message. Resume is bound to the request/policy digest, the owner digests and
+the executable's `WALK_SEMANTICS_VERSION`; a rebuilt executable with the same
+semantics version resumes (the manifest records both digests and emits
+`checkpoint_executable_changed`), a different semantics version is refused.
+An old run viewed with the updated monitor reports recursive closure as
+**unknown**, never substitutes its publication counter into the bar. See the
+[CP5 checkpoint record](research/five_loop_checkpoint_cp5_2026-09-26.md).
 
 At the user's request, the previous local campaigns have been removed from the
 active `campaigns/` directory and retained in the recovery archive
@@ -194,12 +202,14 @@ prepared with the v2 steering) lets completed or partially ready sources
 publish without waiting for an earlier slow source, including within one
 owner. It still uses shared admission and bounded outstanding-work credits
 (H256 in the production preset), requires unreserved-transfer scheduling and
-rejects physical subdivision. `--publication-policy ordered` remains
-selectable and is required for `--apply-subdivision-axis/--cut`. Choose the
-policy only when preparing a **new** campaign; resume refuses a different
-policy, lookahead, inspector count, worker count, CPU set or checkpoint
-interval than the frozen one (only the RAM overrides may differ), and never
-attaches an Ordered checkpoint to a Ready run or swaps the frozen executable.
+rejects physical subdivision. New runs use CP5 checkpoints whose manifest
+binds the publication policy, so an Ordered checkpoint refuses a Ready resume
+as a policy change. `--publication-policy ordered` remains selectable and is
+required for `--apply-subdivision-axis/--cut`. Choose the policy only when
+preparing a **new** campaign; resume refuses a different policy, lookahead,
+inspector count, worker count, CPU set or checkpoint interval than the frozen
+one (only the RAM overrides may differ), and never swaps the frozen executable
+for one with a different walk semantics version.
 See [the implementation and validation record](research/five_loop_ready_publication_2026-09-24.md)
 for the measurement boundaries.
 

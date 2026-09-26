@@ -1,4 +1,7 @@
 //! Streaming queue image. Index membership/order is preserved, not re-admitted.
+//! CP5 persists the parts separately: scalar metadata (JSON), immutable domain
+//! records (append-only segments), owner buckets sorted by (phase, owner) so
+//! their bytes are deterministic, and the responsibility ledger.
 use super::super::delegation::{LedgerRef, StoredLedger};
 use super::*;
 use serde::ser::SerializeSeq;
@@ -41,7 +44,8 @@ pub(super) mod powers {
     }
 }
 #[derive(Serialize, Deserialize)]
-struct Metadata {
+#[serde(deny_unknown_fields)]
+pub(in super::super) struct Metadata {
     next: usize,
     deduplicated: usize,
     containment_checks: usize,
@@ -67,19 +71,36 @@ impl<const N: usize> Serialize for Domains<'_, N> {
         seq.end()
     }
 }
-struct Buckets<'a, const N: usize>(&'a HashMap<(Phase, [bool; N]), OwnerBucket>);
-impl<const N: usize> Serialize for Buckets<'_, N> {
+/// Owner buckets in (phase, owner) order: identical queue state yields
+/// identical bytes regardless of hash-map iteration order.
+pub(in super::super) struct SortedBuckets<'a, const N: usize>(
+    Vec<(&'a (Phase, [bool; N]), &'a OwnerBucket)>,
+);
+impl<const N: usize> SortedBuckets<'_, N> {
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+impl<const N: usize> Serialize for SortedBuckets<'_, N> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let mut seq = s.serialize_seq(Some(self.0.len()))?;
-        for ((phase, owner), bucket) in self.0 {
+        for ((phase, owner), bucket) in &self.0 {
             seq.serialize_element(&(phase, owner.as_slice(), bucket))?;
         }
         seq.end()
     }
 }
-impl<const N: usize> Serialize for Queue<N> {
-    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let meta = Metadata {
+/// Decoded bucket image awaiting validation against the restored domains.
+#[derive(Serialize, Deserialize)]
+pub(in super::super) struct StoredBuckets(Vec<(Phase, Vec<bool>, OwnerBucket)>);
+impl StoredBuckets {
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+impl<const N: usize> Queue<N> {
+    pub(in super::super) fn checkpoint_metadata(&self) -> Metadata {
+        Metadata {
             next: self.next,
             deduplicated: self.deduplicated,
             containment_checks: self.containment_checks,
@@ -94,12 +115,103 @@ impl<const N: usize> Serialize for Queue<N> {
             unbounded_rank_domains: self.unbounded_rank_domains,
             max_domains: self.max_domains,
             max_checks: self.max_checks,
-        };
+        }
+    }
+    pub(in super::super) fn checkpoint_buckets(&self) -> SortedBuckets<'_, N> {
+        let mut buckets: Vec<_> = self.by_owner.iter().collect();
+        buckets.sort_unstable_by_key(|(key, _)| *key);
+        SortedBuckets(buckets)
+    }
+    pub(in super::super) fn checkpoint_ledger(&self) -> Option<LedgerRef<'_, (Phase, [bool; N])>> {
+        self.delegation.as_ref().map(LedgerRef)
+    }
+    /// Validate and rebuild lookup structures; never re-admit or reorder.
+    pub(in super::super) fn restore_from_parts(
+        m: Metadata,
+        domains: Vec<Domain<N>>,
+        buckets: StoredBuckets,
+        ledger: Option<StoredLedger>,
+    ) -> Result<Self, String> {
+        if m.next > domains.len()
+            || domains.len() > m.max_domains
+            || m.containment_retired_candidates > domains.len()
+        {
+            return Err("invalid checkpoint queue counters".into());
+        }
+        let mut q = Queue::new(m.max_domains, m.max_checks);
+        q.domains
+            .try_reserve_exact(domains.len())
+            .map_err(|_| "checkpoint domain allocation")?;
+        q.exact
+            .try_reserve(domains.len())
+            .map_err(|_| "checkpoint exact index allocation")?;
+        for (id, domain) in domains.into_iter().enumerate() {
+            if domain.lower.len() != N || domain.upper.len() != N {
+                return Err("checkpoint coordinate arity".into());
+            }
+            domain.powers.validate().map_err(|e| e.to_string())?;
+            if m.max_checks.is_none() {
+                q.summaries.push(
+                    DomainPowerSummary::try_new(
+                        domain.owner,
+                        &domain.lower,
+                        &domain.upper,
+                        domain.rank,
+                        domain.powers,
+                    )
+                    .map_err(|e| e.to_string())?,
+                );
+            }
+            let domain = Arc::new(domain);
+            if q.exact.insert(domain.clone(), id).is_some() {
+                return Err("duplicate checkpoint exact domain".into());
+            }
+            q.domains.push(domain);
+        }
+        for (phase, owner, mut bucket) in buckets.0 {
+            let owner: [bool; N] = owner.try_into().map_err(|_| "checkpoint bucket arity")?;
+            if bucket.ids.iter().chain(bucket.orthant.iter()).any(|&id| {
+                q.domains
+                    .get(id)
+                    .is_none_or(|d| d.phase != phase || d.owner != owner)
+            }) {
+                return Err("invalid checkpoint owner bucket".into());
+            }
+            bucket.indexed.restore_positions(q.domains.len())?;
+            if q.by_owner.insert((phase, owner), bucket).is_some() {
+                return Err("duplicate checkpoint owner bucket".into());
+            }
+        }
+        q.delegation = ledger
+            .map(|l| l.restore(q.domains.iter().map(|d| (d.phase, d.owner))))
+            .transpose()?;
+        if q.delegation.as_ref().is_some_and(|l| l.cursor() != m.next) {
+            return Err("checkpoint queue/ledger cursor mismatch".into());
+        }
+        q.next = m.next;
+        q.deduplicated = m.deduplicated;
+        q.containment_checks = m.containment_checks;
+        q.containment_maintenance_checks = m.containment_maintenance_checks;
+        q.containment_retired_candidates = m.containment_retired_candidates;
+        q.containment_summary_builds = m.containment_summary_builds;
+        q.containment_semantic_hits = m.containment_semantic_hits;
+        q.containment_semantic_retirements = m.containment_semantic_retirements;
+        q.exact_hits = m.exact_hits;
+        q.orthant_hits = m.orthant_hits;
+        q.max_finite_rank = m.max_finite_rank;
+        q.unbounded_rank_domains = m.unbounded_rank_domains;
+        Ok(q)
+    }
+}
+/// Whole-queue JSON image for tests and fixtures; production checkpoints
+/// write the parts above as separate sections.
+impl<const N: usize> Serialize for Queue<N> {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         (
-            meta,
+            self.checkpoint_metadata(),
             Domains(&self.domains),
-            Buckets(&self.by_owner),
-            self.delegation.as_ref().map(LedgerRef),
+            self.checkpoint_buckets(),
+            self.checkpoint_ledger(),
         )
             .serialize(s)
     }
@@ -109,74 +221,9 @@ impl<'de, const N: usize> Deserialize<'de> for Queue<N> {
         let (m, domains, buckets, ledger): (
             Metadata,
             Vec<Domain<N>>,
-            Vec<(Phase, Vec<bool>, OwnerBucket)>,
+            StoredBuckets,
             Option<StoredLedger>,
         ) = Deserialize::deserialize(d)?;
-        let restore = || -> Result<Self, String> {
-            if m.next > domains.len()
-                || domains.len() > m.max_domains
-                || m.containment_retired_candidates > domains.len()
-            {
-                return Err("invalid checkpoint queue counters".into());
-            }
-            let mut q = Queue::new(m.max_domains, m.max_checks);
-            for (id, domain) in domains.into_iter().enumerate() {
-                if domain.lower.len() != N || domain.upper.len() != N {
-                    return Err("checkpoint coordinate arity".into());
-                }
-                domain.powers.validate().map_err(|e| e.to_string())?;
-                if m.max_checks.is_none() {
-                    q.summaries.push(
-                        DomainPowerSummary::try_new(
-                            domain.owner,
-                            &domain.lower,
-                            &domain.upper,
-                            domain.rank,
-                            domain.powers,
-                        )
-                        .map_err(|e| e.to_string())?,
-                    );
-                }
-                let domain = Arc::new(domain);
-                if q.exact.insert(domain.clone(), id).is_some() {
-                    return Err("duplicate checkpoint exact domain".into());
-                }
-                q.domains.push(domain);
-            }
-            for (phase, owner, mut bucket) in buckets {
-                let owner: [bool; N] = owner.try_into().map_err(|_| "checkpoint bucket arity")?;
-                if bucket.ids.iter().chain(bucket.orthant.iter()).any(|&id| {
-                    q.domains
-                        .get(id)
-                        .is_none_or(|d| d.phase != phase || d.owner != owner)
-                }) {
-                    return Err("invalid checkpoint owner bucket".into());
-                }
-                bucket.indexed.restore_positions(q.domains.len())?;
-                if q.by_owner.insert((phase, owner), bucket).is_some() {
-                    return Err("duplicate checkpoint owner bucket".into());
-                }
-            }
-            q.delegation = ledger
-                .map(|l| l.restore(q.domains.iter().map(|d| (d.phase, d.owner))))
-                .transpose()?;
-            if q.delegation.as_ref().is_some_and(|l| l.cursor() != m.next) {
-                return Err("checkpoint queue/ledger cursor mismatch".into());
-            }
-            q.next = m.next;
-            q.deduplicated = m.deduplicated;
-            q.containment_checks = m.containment_checks;
-            q.containment_maintenance_checks = m.containment_maintenance_checks;
-            q.containment_retired_candidates = m.containment_retired_candidates;
-            q.containment_summary_builds = m.containment_summary_builds;
-            q.containment_semantic_hits = m.containment_semantic_hits;
-            q.containment_semantic_retirements = m.containment_semantic_retirements;
-            q.exact_hits = m.exact_hits;
-            q.orthant_hits = m.orthant_hits;
-            q.max_finite_rank = m.max_finite_rank;
-            q.unbounded_rank_domains = m.unbounded_rank_domains;
-            Ok(q)
-        };
-        restore().map_err(serde::de::Error::custom)
+        Self::restore_from_parts(m, domains, buckets, ledger).map_err(serde::de::Error::custom)
     }
 }

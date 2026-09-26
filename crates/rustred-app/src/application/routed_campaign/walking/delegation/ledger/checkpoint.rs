@@ -51,7 +51,8 @@ impl<K> Serialize for LedgerRef<'_, K> {
         #[serde(bound = "")]
         struct Ref<'a, K> {
             ready: bool,
-            outstanding_native: usize,
+            // Same shape as StoredLedger: bincode is not self-describing.
+            outstanding_native: Option<usize>,
             entries: Entries<'a, K>,
             cursor: usize,
             lookahead: NonZeroUsize,
@@ -68,7 +69,7 @@ impl<K> Serialize for LedgerRef<'_, K> {
         let l = self.0;
         Ref {
             ready: l.ready,
-            outstanding_native: l.outstanding_native,
+            outstanding_native: Some(l.outstanding_native),
             entries: Entries(&l.entries),
             cursor: l.cursor,
             lookahead: l.lookahead,
@@ -86,6 +87,9 @@ impl<K> Serialize for LedgerRef<'_, K> {
     }
 }
 impl StoredLedger {
+    pub(in super::super::super) fn len(&self) -> usize {
+        self.entries.len()
+    }
     pub(in super::super::super) fn restore<K: Copy + Eq>(
         self,
         keys: impl ExactSizeIterator<Item = K>,

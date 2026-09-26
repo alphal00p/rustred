@@ -29,6 +29,30 @@ mod replay;
 pub(super) mod streams;
 pub(super) use delegation::scheduling_policy_json;
 
+/// Cheap summary of the persisted walk state that can change between saves.
+/// Equal stamps mean the retained generation already holds this state.
+/// Deliberately excluded: `parallel` telemetry and session timing (diagnostics
+/// only); in-flight details, refusals and replay prefixes always arrive with
+/// accepted events, which are stamped.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ChangeStamp {
+    pub domains: usize,
+    pub published: usize,
+    pub events: usize,
+    pub closure_revision: u64,
+    pub ledger_reserved_through: usize,
+    pub ledger_transfers: usize,
+    pub records_total: usize,
+    /// Interrupted-inspection receipts persisted for the final report; a
+    /// cooperative stop must save them even when nothing else moved.
+    pub uncommitted: usize,
+    /// Completed physical parts of the current subdivided parent; part 0 can
+    /// finish without accepting any event.
+    pub physical_parts_completed: usize,
+    /// The retained manifest's `paused` flag must follow the run.
+    pub paused: bool,
+}
+
 pub(super) struct State<const N: usize> {
     pub closure: RefCell<super::descendant_closure::Tracker>,
     pub queue: Queue<N>,
@@ -122,6 +146,24 @@ impl<const N: usize> State<N> {
             details: Vec::new(),
             refusals: OptionalRefusals::default(),
             admission: admission::Metrics::default(),
+        }
+    }
+    pub(super) fn change_stamp(&self) -> ChangeStamp {
+        let ledger = self.queue.delegation.as_ref();
+        ChangeStamp {
+            domains: self.queue.domains.len(),
+            published: self.published_count(),
+            events: self.events,
+            closure_revision: self.closure.borrow().revision(),
+            ledger_reserved_through: ledger.map_or(0, |l| l.reservation_scan()),
+            ledger_transfers: ledger.map_or(0, |l| l.transfers()),
+            records_total: self.records.len(),
+            uncommitted: self.uncommitted.len(),
+            physical_parts_completed: self
+                .physical_progress
+                .as_ref()
+                .map_or(0, |progress| progress.completed.len()),
+            paused: self.checkpoint_paused,
         }
     }
     pub(super) fn checkpoint_progress_metadata(&self) -> Value {
