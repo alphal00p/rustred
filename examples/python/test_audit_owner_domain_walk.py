@@ -382,6 +382,39 @@ class SyntheticWalkAuditTests(unittest.TestCase):
         self.assertTrue(AUDIT.alias_contains(unbounded, dict(inside, max_numerator_rank=None, power_bounds={})))
         self.assertFalse(AUDIT.alias_contains(dict(record, power_bounds={"min_power_difference": 2}), inside))
 
+    def test_alias_containment_requires_walker_fields_and_parser_valid_queries(self):
+        record = {"owner": "10", "lower": [1, 0], "upper": [3, None], "rank": None,
+                  "power_bounds": {"max_positive_power": None, "min_power_difference": None, "max_power_difference": None}}
+        inside = alias_query("q", lower=(1, 4), upper=(3, 7), rank=2,
+                             power={"max_positive_power": 9, "min_power_difference": 3, "max_power_difference": 5})
+        self.assertTrue(AUDIT.alias_contains(record, inside))
+        self.assertTrue(AUDIT.alias_contains(record, dict(inside, lower=[1, 2 ** 64 - 1], upper=[3, None])))
+        # Each row is contained by the syntactic comparison alone, but the
+        # walker writes no such record or its query parser rejects the query.
+        records = [{key: value for key, value in record.items() if key != "rank"}]
+        implicit_rank = {key: value for key, value in inside.items() if key != "max_numerator_rank"}
+        queries = [implicit_rank] + [dict(inside, **change) for change in (
+            {"lower": [1, 8]},
+            {"lower": [1, 2 ** 64], "upper": [3, None]},
+            {"max_numerator_rank": -1}, {"max_numerator_rank": 2 ** 32},
+            {"power_bounds": dict(inside["power_bounds"], min_power_difference=6)},
+            {"power_bounds": dict(inside["power_bounds"], max_positive_power=-1)},
+            {"power_bounds": dict(inside["power_bounds"], min_power_difference=-2 ** 63 - 1)},
+            {"power_bounds": dict(inside["power_bounds"], max_power_difference=2 ** 63)})]
+        for changed in records:
+            with self.subTest(record=changed):
+                self.assertFalse(AUDIT.alias_contains(changed, inside))
+        for changed in queries:
+            with self.subTest(query=changed):
+                self.assertFalse(AUDIT.alias_contains(record, changed))
+
+    def test_inputs_must_follow_the_query_document_order(self):
+        aliases = [(alias_query("phys-c"), 0)]
+        inputs = [{"id": "root-a", "domain": 0}, {"id": "phys-c", "domain": 0}, {"id": "helper-b", "domain": 1}]
+        with tempfile.TemporaryDirectory() as temporary:
+            report = AUDIT.audit_walk(build_aliased_run(Path(temporary), aliases, inputs))
+            self.assertEqual(report["violations"], ["inputs are not in query document order"])
+
     def test_receipt_manifest_command_and_schema_expectations(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

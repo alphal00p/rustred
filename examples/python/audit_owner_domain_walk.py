@@ -7,8 +7,9 @@ representative; Apply/Route native statistics must be internally consistent
 (zero problems, zero missing routes, successor sums); the queue, delegation
 ledger and worker pool must be drained; frontiers must be zero; initial and
 partial-anchor obligations must be discharged; the input queries must be
-preserved: each distinct initial record equals the query that admitted it, and
-a later query may only alias into an earlier same-owner initial record that
+preserved: `inputs` follows the query document order, each distinct initial
+record equals the first query naming it (the one that admitted it), and a later
+query may only alias into an earlier same-owner initial record that
 syntactically contains it (helpers-first query documents). Violations are
 collected, written to `audit.json` and cause a nonzero exit. This checks
 recorded native completion and explicit dependencies only; it does not replay
@@ -223,38 +224,64 @@ def within(limit, value, sign=1):
     return limit is None or (value is not None and sign * value <= sign * limit)
 
 
+def optional(value, low, high):
+    """None, or a JSON integer (not a bool) in [low, high)."""
+    return value is None or (type(value) is int and low <= value < high)
+
+
+def parsed_domain(domain, rank_field, arity):
+    """(lower, upper, rank, powers) as the walker's query parser reads `domain`, or None if it rejects it.
+
+    Mirrors matching/input.rs `parse`: u64 lower and u64-or-null upper bounds of
+    owner arity with lower <= upper, an explicit u32-or-null rank, and power
+    bounds with only the known keys (a missing key is None): a u64
+    max_positive_power and i64 differences with min <= max
+    (`DomainPowerBounds::validate`). Walker records always write every key.
+    """
+    lower, upper, powers = domain.get("lower"), domain.get("upper"), domain.get("power_bounds")
+    if not (rank_field in domain and isinstance(powers, dict) and set(powers) <= set(POWER_FIELDS)
+            and all(isinstance(axis, list) and len(axis) == arity for axis in (lower, upper))):
+        return None
+    rank, (positive, least, most) = domain[rank_field], (powers.get(field) for field in POWER_FIELDS)
+    if not (all(value is not None and optional(value, 0, 2 ** 64) for value in lower)
+            and all(optional(value, 0, 2 ** 64) for value in upper)
+            and all(high is None or low <= high for low, high in zip(lower, upper))
+            and optional(rank, 0, 2 ** 32) and optional(positive, 0, 2 ** 64)
+            and optional(least, -2 ** 63, 2 ** 63) and optional(most, -2 ** 63, 2 ** 63)
+            and (least is None or most is None or least <= most)):
+        return None
+    return lower, upper, rank, (positive, least, most)
+
+
 def alias_contains(record, query):
     """Whether a later initial query may alias into an earlier admitted initial record.
 
     Mirrors the walker's syntactic `Domain::contains` (walking/queue.rs): same
     owner, `rank_contains`, `DomainPowerBounds::contains` and per-axis lower and
-    upper bounds, None meaning unbounded (a missing query power field parses as
-    None). Initial queries pass through the full `Queue::admit`: exact key, the
-    dominant full orthant (the lower=0, upper=None, unconstrained-power special
-    case of this predicate) or general containment, so the target need not be a
-    full orthant. The unlimited lane decides with the stronger
-    `DomainPowerSummary` inclusion; only this sufficient implication is accepted
-    here, so a semantic-only alias is still reported as a changed query.
+    upper bounds, None meaning unbounded, on a record carrying every walker
+    field and a query the walker's parser accepts (`parsed_domain`). Initial
+    queries pass through the full `Queue::admit`: exact key, the dominant full
+    orthant (the lower=0, upper=None, unconstrained-power special case of this
+    predicate) or general containment, so the target need not be a full
+    orthant. The unlimited lane decides with the stronger `DomainPowerSummary`
+    inclusion; only this sufficient implication is accepted here, so a
+    semantic-only alias (or a query without a `power_bounds` object, which the
+    parser reads as unconstrained) is still reported as a changed query.
     """
-    owner, powers, other = record.get("owner"), record.get("power_bounds"), query.get("power_bounds")
-    if not (isinstance(owner, str) and owner == query.get("owner") and isinstance(powers, dict)
-            and set(powers) == set(POWER_FIELDS) and isinstance(other, dict) and set(other) <= set(POWER_FIELDS)):
+    owner, powers = record.get("owner"), record.get("power_bounds")
+    if not (isinstance(owner, str) and owner == query.get("owner")
+            and isinstance(powers, dict) and set(powers) == set(POWER_FIELDS)):
         return False
-    lower, inner_lower, upper, inner_upper = axes = tuple(
-        source.get(field) for field in ("lower", "upper") for source in (record, query))
-    if not all(isinstance(axis, list) and len(axis) == len(owner) for axis in axes):
+    outer, inner = parsed_domain(record, "rank", len(owner)), parsed_domain(query, "max_numerator_rank", len(owner))
+    if outer is None or inner is None:
         return False
-    limits = [record.get("rank"), query.get("max_numerator_rank")]
-    limits += [bounds.get(field) for bounds in (powers, other) for field in POWER_FIELDS]
-    if not (all(type(value) is int for value in lower + inner_lower)
-            and all(value is None or type(value) is int for value in upper + inner_upper + limits)):
-        return False
-    return (within(record.get("rank"), query.get("max_numerator_rank"))
-            and within(powers["max_positive_power"], other.get("max_positive_power"))
-            and within(powers["min_power_difference"], other.get("min_power_difference"), -1)
-            and within(powers["max_power_difference"], other.get("max_power_difference"))
-            and all(outer <= inner for outer, inner in zip(lower, inner_lower))
-            and all(within(outer, inner) for outer, inner in zip(upper, inner_upper)))
+    (lower, upper, rank, powers), (inner_lower, inner_upper, inner_rank, inner_powers) = outer, inner
+    return (within(rank, inner_rank)
+            and within(powers[0], inner_powers[0])
+            and within(powers[1], inner_powers[1], -1)
+            and within(powers[2], inner_powers[2])
+            and all(bound <= inner for bound, inner in zip(lower, inner_lower))
+            and all(within(bound, inner) for bound, inner in zip(upper, inner_upper)))
 
 
 def locate(run, queries=None, command=None, receipt=None):
@@ -421,8 +448,9 @@ def _audit(run, located, audit, expect_schema):
     check(count == len(kinds) and all(kinds[index] != 0 for index in range(len(kinds))),
           "record ids are not a contiguous 0..n-1 set")
     total = len(kinds)
-    # Queries are admitted in "inputs" order; a later query may alias into an
-    # admitted record, so the first query naming a record is the one it admits.
+    # The walker admits queries and records "inputs" in query document order
+    # (checked below); a later query may alias into an admitted record, so the
+    # first query naming a record is the one that admitted it.
     inputs = top.get("inputs")
     inputs = [(entry["id"], entry["domain"]) for entry in inputs] if isinstance(inputs, list) else []
     admitting = {}
@@ -493,6 +521,8 @@ def _audit(run, located, audit, expect_schema):
     check(len(inputs) == len(mapping) == query_count and set(mapping) == {query["id"] for query in queries}
           and all(type(record) is int for record in admitting) and list(admitting) == list(range(initial_count)),
           "inputs do not map every query to an initial record")
+    check([query_id for query_id, _ in inputs] == [query["id"] for query in queries],
+          "inputs are not in query document order")
     aliased = 0
     for query in queries:
         record = mapping.get(query["id"])
